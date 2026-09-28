@@ -1,7 +1,8 @@
 //! Phase 4 — LaTeX, PDF, annotations documentaires, export PNG.
 //!
-//! Outils externes en argv séparé (jamais de shell) : latexmk/tectonic, synctex,
-//! rsvg-convert, ruff. Chemins pinnés sous le projet.
+//! Outils externes en argv séparé (jamais de shell) : latexmk/tectonic,
+//! rsvg-convert, ruff. Chemins pinnés sous le projet. SyncTeX est lu en Rust
+//! (`crate::synctex`) : plus besoin de la CLI `synctex` de MacTeX.
 
 use atelier_core::{atomic_write, atomic_write_text, find_tex_root, safe_project_path};
 use axum::{
@@ -50,14 +51,6 @@ fn latexmk_bin() -> Option<PathBuf> {
 
 fn tectonic_bin() -> Option<PathBuf> {
     which("tectonic")
-}
-
-fn synctex_bin() -> Option<PathBuf> {
-    const FIXED: &str = "/Library/TeX/texbin/synctex";
-    if Path::new(FIXED).is_file() {
-        return Some(PathBuf::from(FIXED));
-    }
-    which("synctex")
 }
 
 fn json_error(status: StatusCode, message: impl Into<String>) -> axum::response::Response {
@@ -232,6 +225,21 @@ fn latexmk_args(basename: &str, force: bool) -> Vec<String> {
     args.into_iter().map(str::to_owned).collect()
 }
 
+/// `--synctex` : sans lui tectonic n'écrit pas de `.synctex.gz`, et la
+/// synchronisation éditeur ↔ PDF ne trouve rien.
+fn tectonic_args(basename: &str) -> Vec<String> {
+    ["-X", "compile", "--synctex", basename]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Budget d'une passe : tectonic télécharge ses paquets TeX (bundle) à la
+/// première compilation, bien plus longue qu'une passe latexmk.
+fn compile_budget(latexmk: bool) -> Duration {
+    Duration::from_secs(if latexmk { 180 } else { 600 })
+}
+
 async fn compile_document(root: &Path, force: bool) -> Value {
     let pdf = root.with_extension("pdf");
     let cwd = root.parent().unwrap_or_else(|| Path::new("."));
@@ -243,28 +251,47 @@ async fn compile_document(root: &Path, force: bool) -> Value {
         Ok(b) => b,
         Err(err) => return json!({"ok": false, "error": err}),
     };
+    // latexmk (MacTeX) d'abord, puis tectonic du PATH, puis le tectonic
+    // d'Atelier — téléchargé ici une seule fois s'il manque (réseau, verrou :
+    // hors du runtime async).
     let compiler = tokio::task::spawn_blocking(|| {
-        latexmk_bin()
-            .map(|path| (path, true))
-            .or_else(|| tectonic_bin().map(|path| (path, false)))
+        if let Some(path) = latexmk_bin() {
+            return Ok(Some((path, true)));
+        }
+        if let Some(path) = tectonic_bin() {
+            return Ok(Some((path, false)));
+        }
+        crate::tectonic::ensure().map(|found| found.map(|path| (path, false)))
     })
     .await
-    .ok()
-    .flatten();
-    let Some((compiler, latexmk)) = compiler else {
+    .unwrap_or_else(|error| Err(error.to_string()));
+    let (compiler, latexmk) = match compiler {
+        Ok(Some(found)) => found,
         // `reason` : l'éditeur affiche une consigne d'installation au lieu du
         // générique « échec — voir la console » (plan 060, étape 3).
-        return json!({
-            "ok": false,
-            "reason": "toolchain-missing",
-            "error": "LaTeX introuvable (ni latexmk ni tectonic) : installez tectonic (brew install tectonic) ou MacTeX, voir Réglages → Environnement"
-        });
+        Ok(None) => {
+            return json!({
+                "ok": false,
+                "reason": "toolchain-missing",
+                "error": "LaTeX introuvable (ni latexmk ni tectonic, et pas de tectonic à télécharger pour cette machine) : installez MacTeX ou tectonic"
+            });
+        }
+        // Rien n'a été installé : la prochaine compilation retentera.
+        Err(error) => {
+            return json!({
+                "ok": false,
+                "reason": "toolchain-download-failed",
+                "error": format!(
+                    "Téléchargement de tectonic impossible ({error}). Vérifiez la connexion Internet puis recompilez, ou installez MacTeX (Réglages → Environnement)."
+                )
+            });
+        }
     };
     let mut cmd = Command::new(compiler);
     if latexmk {
         cmd.args(latexmk_args(&basename, force));
     } else {
-        cmd.args(["-X", "compile", basename.as_str()]);
+        cmd.args(tectonic_args(&basename));
     }
     cmd.current_dir(cwd)
         .stdout(Stdio::piped())
@@ -284,7 +311,8 @@ async fn compile_document(root: &Path, force: bool) -> Value {
         Err(error) => return json!({"ok": false, "error": error.to_string()}),
     };
     let pid = child.id();
-    match tokio::time::timeout(Duration::from_secs(180), child.wait_with_output()).await {
+    let budget = compile_budget(latexmk);
+    match tokio::time::timeout(budget, child.wait_with_output()).await {
         Ok(Ok(output)) => {
             let log = format!(
                 "{}{}",
@@ -304,7 +332,7 @@ async fn compile_document(root: &Path, force: bool) -> Value {
                     libc::kill(-(pid as i32), libc::SIGKILL);
                 }
             }
-            json!({"ok": false, "error": "compilation > 180 s"})
+            json!({"ok": false, "error": format!("compilation > {} s", budget.as_secs())})
         }
     }
 }
@@ -368,77 +396,43 @@ pub async fn synctex(
     let Ok(pdf) = safe_project_path(&state.root, &body.pdf) else {
         return json_error(StatusCode::FORBIDDEN, "outside the project");
     };
-    let Some(synctex) = synctex_bin() else {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "synctex not found — install MacTeX or TeX Live",
-        );
-    };
-
-    if body.dir == "view" {
-        let line = value_as_i64(body.line.as_ref()).unwrap_or(1);
-        let col = value_as_i64(body.col.as_ref()).unwrap_or(1);
-        let input = format!("{line}:{col}:{}", tex.display());
-        let mut cmd = Command::new(&synctex);
-        cmd.args(["view", "-i", &input, "-o"])
-            .arg(&pdf)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        let output = match tokio::time::timeout(Duration::from_secs(10), cmd.output()).await {
-            Ok(Ok(o)) => o,
-            Ok(Err(e)) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "synctex timed out"),
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut out = serde_json::Map::new();
-        for ln in stdout.lines() {
-            for key in ["Page:", "x:", "y:"] {
-                if let Some(rest) = ln.strip_prefix(key)
-                    && let Ok(v) = rest.trim().parse::<f64>()
-                {
-                    let name = key.trim_end_matches(':').to_ascii_lowercase();
-                    out.insert(name, json!(v));
-                }
-            }
+    let view = body.dir == "view";
+    let line = value_as_i64(body.line.as_ref()).unwrap_or(1);
+    let col = value_as_i64(body.col.as_ref()).unwrap_or(1);
+    let page = value_as_i64(body.page.as_ref()).unwrap_or(1);
+    let x = value_as_f64(body.x.as_ref()).unwrap_or(0.0);
+    let y = value_as_f64(body.y.as_ref()).unwrap_or(0.0);
+    // Lecture du `.synctex.gz` et requête hors du runtime async ; même budget
+    // de 10 s que l'ancienne CLI. Réponses au format de la CLI : premier
+    // résultat (« le plus précis »), coordonnées PDF en points, origine en
+    // haut à gauche.
+    let lookup = tokio::task::spawn_blocking(move || {
+        let synctex = crate::synctex::load_for_pdf(&pdf).ok()?;
+        if view {
+            let clamp = |v: i64| v.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+            synctex.view(&tex, clamp(line), clamp(col)).map(
+                |hit| json!({"page": hit.page, "x": round_coord(hit.x), "y": round_coord(hit.y)}),
+            )
+        } else {
+            let page = page.clamp(1, i64::from(i32::MAX)) as i32;
+            synctex
+                .edit(page, x, y)
+                .map(|hit| json!({"line": hit.line, "input": hit.input}))
         }
-        if out.is_empty() {
-            return (StatusCode::OK, Json(json!({"error": "no match"}))).into_response();
-        }
-        (StatusCode::OK, Json(Value::Object(out))).into_response()
-    } else {
-        // PDF -> source (edit)
-        let page = value_as_i64(body.page.as_ref()).unwrap_or(1);
-        let x = value_as_f64(body.x.as_ref()).unwrap_or(0.0);
-        let y = value_as_f64(body.y.as_ref()).unwrap_or(0.0);
-        let o_arg = format!("{page}:{x}:{y}:{}", pdf.display());
-        let mut cmd = Command::new(&synctex);
-        cmd.args(["edit", "-o", &o_arg])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        let output = match tokio::time::timeout(Duration::from_secs(10), cmd.output()).await {
-            Ok(Ok(o)) => o,
-            Ok(Err(e)) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "synctex timed out"),
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut out = serde_json::Map::new();
-        for ln in stdout.lines() {
-            if let Some(rest) = ln.strip_prefix("Line:")
-                && let Ok(v) = rest.trim().parse::<i64>()
-            {
-                out.insert("line".into(), json!(v));
-            }
-            if let Some(rest) = ln.strip_prefix("Input:") {
-                out.insert("input".into(), json!(rest.to_string()));
-            }
-        }
-        if out.is_empty() {
-            return (StatusCode::OK, Json(json!({"error": "no match"}))).into_response();
-        }
-        (StatusCode::OK, Json(Value::Object(out))).into_response()
+    });
+    match tokio::time::timeout(Duration::from_secs(10), lookup).await {
+        Ok(Ok(Some(found))) => (StatusCode::OK, Json(found)).into_response(),
+        // Pas de `.synctex(.gz)` (PDF non compilé ici) ou aucun nœud : comme
+        // la CLI, qui n'imprimait alors rien.
+        Ok(Ok(None)) => (StatusCode::OK, Json(json!({"error": "no match"}))).into_response(),
+        Ok(Err(error)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "synctex timed out"),
     }
+}
+
+/// La CLI imprime ses coordonnées avec 6 décimales (`%f`).
+fn round_coord(value: f64) -> f64 {
+    (value * 1e6).round() / 1e6
 }
 
 // ---------------------------------------------------------------------------
@@ -1210,7 +1204,6 @@ mod tests {
     fn latexmk_or_tectonic_discovery_does_not_panic() {
         let _ = latexmk_bin();
         let _ = tectonic_bin();
-        let _ = synctex_bin();
     }
 
     #[test]

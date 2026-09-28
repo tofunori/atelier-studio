@@ -1,0 +1,54 @@
+\section{M\'ethode}
+La m\'ethode glaciologique combine les relev\'es ponctuels et une
+interpolation par bandes d'altitude. Chaque bande re\c{c}oit le
+bilan moyen de ses balises, pond\'er\'e par sa surface.
+
+\subsection{Interpolation}
+Pour une bande $i$ de surface $S_i$ et de bilan $b_i$, le bilan
+sp\'ecifique du glacier vaut
+\[
+  B = \frac{\sum_i S_i\, b_i}{\sum_i S_i}.
+\]
+Cette moyenne pond\'er\'ee suppose que le bilan varie peu \`a
+l'int\'erieur d'une bande, hypoth\`ese raisonnable pour des bandes
+de cent m\`etres.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{lrr}
+    Bande & Surface (km$^2$) & Bilan (m w.e.) \\
+    2800--2900 & 0.42 & $-2.1$ \\
+    2900--3000 & 0.77 & $-1.4$ \\
+    3000--3100 & 0.91 & $-0.6$ \\
+  \end{tabular}
+  \caption{Bilan par bande d'altitude.}
+\end{table}
+
+\subsection{Incertitudes}
+Les erreurs de mesure des balises sont de l'ordre de dix
+centim\`etres d'\'equivalent en eau\footnote{Valeur typique pour
+des balises en bois relev\'ees au ruban.}. L'erreur
+d'interpolation domine largement pour les bandes sans balise.
+
+\newpage
+\subsection{Validation}
+Une validation g\'eod\'esique, par diff\'erence de mod\`eles
+num\'eriques de terrain, compl\`ete la m\'ethode glaciologique
+sur des p\'eriodes de cinq \`a dix ans.
+
+\begin{figure}[h]
+  \centering
+  \rule{30mm}{12mm}\hspace{4mm}%
+  \fbox{\parbox{36mm}{Balise B7, relev\'ee
+    en septembre, fond\'ee dans la glace.}}
+  \caption{Sch\'ema d'une balise.}
+\end{figure}
+
+\noindent\begin{minipage}[t]{0.45\linewidth}
+  Colonne de gauche : les mesures
+  de l'ann\'ee hydrologique.
+\end{minipage}\hfill
+\begin{minipage}[t]{0.45\linewidth}
+  Colonne de droite : la comparaison
+  avec la s\'erie longue.
+\end{minipage}

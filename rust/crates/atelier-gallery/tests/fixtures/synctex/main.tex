@@ -1,0 +1,48 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage[a5paper,margin=18mm]{geometry}
+
+\title{Bilan de masse d'un glacier alpin}
+\author{Atelier}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+Les glaciers de montagne perdent de la masse depuis plusieurs
+d\'ecennies. Cette note sert de document d'essai pour la
+synchronisation entre la source et le PDF compil\'e.
+
+Le bilan de masse annuel $B_a$ s'\'ecrit comme la somme de
+l'accumulation hivernale et de l'ablation estivale, soit
+$B_a = B_w + B_s$ avec $B_s < 0$ la plupart des ann\'ees.
+
+% Une ligne de commentaire qui ne produit rien.
+
+\begin{equation}
+  B_a = \int_{t_0}^{t_1} \dot{b}(t)\,\mathrm{d}t
+  \label{eq:bilan}
+\end{equation}
+
+\section{Donn\'ees}
+\begin{itemize}
+  \item Mesures de balises d'ablation, relev\'ees chaque automne.
+  \item Sondages de neige au printemps, sur un r\'eseau fixe.
+  \item Alb\'edo MODIS journalier, filtr\'e par la couverture nuageuse.
+\end{itemize}
+
+\input{chapitres/methode}
+
+\section{Conclusion}
+Le bilan reste n\'egatif sur toute la p\'eriode, ce qui confirme
+la tendance r\'egionale d\'ej\`a d\'ecrite dans la litt\'erature.
+Les incertitudes principales viennent de la densit\'e de la neige
+et de la repr\'esentativit\'e spatiale des balises.
+
+Un dernier paragraphe, assez long pour occuper plusieurs lignes de
+texte dans la colonne \'etroite du format A5, permet de v\'erifier
+qu'un clic au milieu d'un paragraphe renvoie bien vers la bonne
+ligne source, et non vers le d\'ebut ou la fin du paragraphe entier.
+
+\end{document}

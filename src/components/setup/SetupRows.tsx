@@ -33,7 +33,6 @@ const AGENT_DESC = { claude: "setup.agent-claude", codex: "setup.agent-codex" } 
 const TOOL_DESC = {
   homebrew: "setup.tool-homebrew",
   git: "setup.tool-git",
-  poppler: "setup.tool-poppler",
   tex: "setup.tool-tex",
   zotero: "setup.tool-zotero",
 } as const;
@@ -42,7 +41,6 @@ function toolTitle(id: EnvironmentToolId): string {
   switch (id) {
     case "homebrew": return "Homebrew";
     case "git": return t("setup.tool-git-title");
-    case "poppler": return "Poppler";
     case "tex": return "LaTeX";
     case "zotero": return "Zotero";
   }
@@ -145,7 +143,14 @@ export function AgentSetupRow(p: {
   );
 }
 
+/** LaTeX absent : rien à installer, la première compilation télécharge
+ *  tectonic. */
+function onDemand(tool: EnvironmentTool): boolean {
+  return !tool.found && tool.id === "tex" && tool.detail === "on-demand";
+}
+
 function toolBadge(tool: EnvironmentTool): { status: BadgeStatus; label: string } {
+  if (onDemand(tool)) return { status: "neutral", label: t("setup.automatic") };
   if (tool.found) {
     return tool.id === "tex" && tool.detail
       ? { status: "success", label: t("setup.found-variant", { variant: tool.detail }) }
@@ -158,7 +163,7 @@ function toolBadge(tool: EnvironmentTool): { status: BadgeStatus; label: string 
 function toolDesc(tool: EnvironmentTool): string {
   const parts = [t(TOOL_DESC[tool.id])];
   if (tool.found && tool.path) parts.push(tool.path);
-  if (!tool.found && tool.id === "poppler" && tool.detail) parts.push(t("setup.partial", { bin: tool.detail }));
+  if (onDemand(tool)) parts.push(t("setup.tex-on-demand"));
   if (!tool.found && tool.id === "zotero") parts.push(t("setup.zotero-hint"));
   return parts.join(" — ");
 }
@@ -173,7 +178,7 @@ export function ToolSetupRow(p: {
   const command = useSetupCommand(p.origin);
   const badge = toolBadge(tool);
   const plan = !tool.found && tool.installCommand ? installPlan(tool.installCommand, p.tools) : null;
-  const download = !tool.found && !tool.installCommand ? tool.installUrl : null;
+  const download = !tool.found && !tool.installCommand && !onDemand(tool) ? tool.installUrl : null;
   return (
     <>
       <Row title={toolTitle(tool.id)} desc={toolDesc(tool)}>

@@ -5,7 +5,9 @@ export interface LatexCompileResponse {
   pdf?: string;
   log?: string;
   error?: string;
-  /** `toolchain-missing` : ni latexmk ni tectonic sur cette machine. */
+  /** `toolchain-missing` : ni latexmk ni tectonic sur cette machine ;
+   *  `toolchain-download-failed` : le premier téléchargement de tectonic a
+   *  échoué (réseau), rien n'a été installé. */
   reason?: string;
 }
 
@@ -215,7 +217,9 @@ export function createLatexCompileCoordinator(
           // l'état du DOCUMENT — sauvegarde, rechargement, baseline.
           setChip("err", response.reason === "toolchain-missing"
             ? "LaTeX non installé — Réglages → Environnement"
-            : log.errors
+            : response.reason === "toolchain-download-failed"
+              ? "téléchargement de tectonic impossible — voir la console"
+              : log.errors
               ? `${log.errors} ${log.errors > 1 ? "erreurs" : "erreur"}${log.warnings ? ` · ${log.warnings} warning${log.warnings > 1 ? "s" : ""}` : ""}`
               : "échec — voir la console");
           // Rendre la barre du haut à l'état du document : sans ça elle

@@ -266,6 +266,28 @@ test("compile coordinator says LaTeX is missing instead of the generic failure",
   assert.match(logs.at(-1).log, /LaTeX introuvable/);
 });
 
+test("compile coordinator says the tectonic download failed", async () => {
+  const chips: unknown[] = [];
+  const logs: any[] = [];
+  const coordinator = latex.createLatexCompileCoordinator({
+    isTex: true,
+    getText: () => "\\section{Ok}\n",
+    isDirty: () => false,
+    save: async () => true,
+    requestCompile: async () => ({ok: false, reason: "toolchain-download-failed", error: "Téléchargement de tectonic impossible (le serveur a répondu 503)."}),
+    revealIssue: (..._args) => {},
+    setState: (..._args) => {},
+    setChip: (...args) => chips.push(args),
+    renderLog: (log) => logs.push(log),
+    onCompiled: (..._args) => {},
+    startInterval: () => 1,
+    stopInterval: (..._args) => {},
+  });
+  await coordinator.compile();
+  assert.deepEqual(chips.at(-1), ["err", "téléchargement de tectonic impossible — voir la console"]);
+  assert.match(logs.at(-1).log, /Téléchargement de tectonic impossible/);
+});
+
 test("PDF zoom normalization rejects corrupt storage and clamps supported zoom", () => {
   assert.equal(latex.normalizePdfZoom(null), 1);
   assert.equal(latex.normalizePdfZoom("not-a-number"), 1);

@@ -86,26 +86,6 @@ pub struct Extracted {
     pub cached: bool,
 }
 
-fn run_pdftotext(args: &[&str], pdf_path: &Path) -> Result<String, String> {
-    let output = std::process::Command::new("pdftotext")
-        .args(args)
-        .arg(pdf_path)
-        .arg("-")
-        .output()
-.map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "pdftotext introuvable : installez poppler (brew install poppler), voir Réglages → Environnement".to_string()
-            } else {
-                format!("pdftotext indisponible: {e}")
-            }
-        })?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() { "Extraction PDF impossible".to_string() } else { stderr });
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
 /// Miroir de `extractPdfPages` (`zotero_passages.mjs`) : cache dédié
 /// (distinct de `pdf::extract_pdf_pages`, qui sert le store KB) portant en
 /// plus `zoteroKey`/`pdfKey`/`pdfFile` — consommés par `search_corpus` pour
@@ -132,12 +112,8 @@ pub fn extract_pdf_pages(
         }
     }
 
-    let mut stdout = run_pdftotext(&["-enc", "UTF-8"], pdf_path)?;
-    let mut pages = split_pdf_pages(&stdout);
-    if pages.is_empty() {
-        stdout = run_pdftotext(&["-layout", "-enc", "UTF-8"], pdf_path)?;
-        pages = split_pdf_pages(&stdout);
-    }
+    let stdout = atelier_pdf::tool::extract_text(pdf_path)?;
+    let pages = split_pdf_pages(&stdout);
     if pages.is_empty() {
         return Err("Aucun texte extractible dans ce PDF (OCR requis)".to_string());
     }

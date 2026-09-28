@@ -22,10 +22,10 @@ jobs:
         with: { workspaces: src-tauri }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      # même besoin que ci.yml : `npm run verify` (ligne suivante) exécute les
-      # tests d'extraction PDF du crate atelier-kb, qui spawnent pdftotext.
-      - name: Install external tools (pdftotext)
-        run: brew install poppler
+      # même besoin que ci.yml : PDFium pour atelier-pdf (tests d'extraction
+      # de `npm run verify`, et bibliothèque livrée dans l'app par le stage).
+      - name: Fetch PDFium
+        run: bash scripts/fetch-pdfium.sh
       - name: Install frontend deps
         run: npm ci
       - name: Install gallery deps
@@ -94,10 +94,15 @@ jobs:
           # binaires Rust qu'on vérifie désormais — présents, exécutables,
           # arm64. Et on interdit explicitement le retour d'un Node livré.
           RS="$APP/Contents/Resources/rust-server"
-          for BIN in atelier-studio-server atelier-gallery-server atelier-gallery-tool; do
+          for BIN in atelier-studio-server atelier-gallery-server atelier-gallery-tool atelier-pdf; do
             test -x "$RS/$BIN"
             file "$RS/$BIN" | grep -q "arm64"
           done
+          # PDFium livré et chargeable depuis le .app (pas de repli poppler) :
+          # sans lui, le mode lecture et la base d'articles ne liraient rien.
+          file "$RS/libpdfium.dylib" | grep -q "arm64"
+          ATELIER_PDFIUM_LIB="$RS/libpdfium.dylib" "$RS/atelier-pdf" text gallery/tests/kb_parity/inputs/sample.pdf \
+            | grep -q "Melting of Alpine Glaciers"
           if find "$APP" \( -name node -o -type d -name node-runtime -o -type d -name node_modules \) | grep -q .; then
             echo "ERREUR : un runtime Node est reparti dans le bundle"
             exit 1

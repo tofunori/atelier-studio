@@ -16,7 +16,7 @@ import { setLanguage, t } from "../../../lib/i18n";
 import { DEFAULT_SETTINGS } from "../../../lib/settings";
 import { FakeWS } from "../../../test/fixtures/sidecar";
 import {
-  CLAUDE_MISSING, CLAUDE_READY, CODEX_LOGGED_OUT, CODEX_MISSING, TOOLS, setupStatus,
+  CLAUDE_MISSING, CLAUDE_READY, CODEX_LOGGED_OUT, CODEX_MISSING, TEX_ON_DEMAND, TOOLS, setupStatus,
 } from "../../../test/fixtures/setupEnvironment";
 import { relaySidecarMessage } from "../../../lib/sidecarRelays";
 import {
@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 describe("Section Environnement", () => {
-  it("liste Claude Code et Codex avec leur état, et les cinq outils", () => {
+  it("liste Claude Code et Codex avec leur état, et les quatre outils", () => {
     renderUi(<Environment {...props({ ws: fakeWsOuvert() })} />);
     relay(setupStatus([CLAUDE_READY, CODEX_LOGGED_OUT]));
     relay({ type: "environmentStatus", tools: TOOLS });
@@ -71,12 +71,14 @@ describe("Section Environnement", () => {
     expect(within(row("Claude Code")).getByText(t("setup.ready"))).toBeInTheDocument();
     expect(within(row("Claude Code")).getByText("2.1.283")).toBeInTheDocument();
     expect(within(row("Codex")).getByText(t("setup.login-needed"))).toBeInTheDocument();
-    for (const title of ["Homebrew", t("setup.tool-git-title"), "Poppler", "LaTeX", "Zotero"]) {
+    for (const title of ["Homebrew", t("setup.tool-git-title"), "LaTeX", "Zotero"]) {
       expect(row(title)).toBeInTheDocument();
     }
+    // la lecture des PDF est livrée avec l'app : plus de rangée poppler
+    expect(screen.queryByRole("group", { name: "Poppler" })).toBeNull();
     // TeX : la variante trouvée est dite
     expect(within(row("LaTeX")).getByText(t("setup.found-variant", { variant: "tectonic" }))).toBeInTheDocument();
-    expect(within(row("Poppler")).getByText(t("setup.missing"))).toBeInTheDocument();
+    expect(within(row("Homebrew")).getByText(t("setup.missing"))).toBeInTheDocument();
     // un outil trouvé n'a pas d'action
     expect(within(row(t("setup.tool-git-title"))).queryByRole("button")).toBeNull();
   });
@@ -99,16 +101,11 @@ describe("Section Environnement", () => {
       "/opt/homebrew/bin/brew install --cask codex",
       { kind: "install", origin: "environment" },
     );
-    fireEvent.click(within(row("Poppler")).getByRole("button", { name: t("setup.install") }));
-    expect(opener).toHaveBeenLastCalledWith(
-      "/opt/homebrew/bin/brew install poppler",
-      { kind: "install", origin: "environment" },
-    );
     // commande prise par le terminal : rien à copier
     expect(screen.queryByRole("group", { name: t("setup.fallback-label") })).toBeNull();
   });
 
-  it("sans Homebrew, Codex et poppler proposent d'installer Homebrew d'abord", () => {
+  it("sans Homebrew, Codex propose d'installer Homebrew d'abord", () => {
     const opener = vi.fn(() => true);
     registerSetupTerminal(opener);
     renderUi(<Environment {...props({ ws: fakeWsOuvert() })} />);
@@ -121,7 +118,16 @@ describe("Section Environnement", () => {
       expect.stringContaining("Homebrew/install/HEAD/install.sh"),
       { kind: "install", origin: "environment" },
     );
-    expect(within(row("Poppler")).getByRole("button", { name: t("setup.install-homebrew-first") })).toBeInTheDocument();
+  });
+
+  it("sans LaTeX, rien à installer : la première compilation télécharge tectonic", () => {
+    renderUi(<Environment {...props({ ws: fakeWsOuvert() })} />);
+    relay(setupStatus([CLAUDE_READY]));
+    relay({ type: "environmentStatus", tools: TOOLS.map((tool) => tool.id === "tex" ? TEX_ON_DEMAND : tool) });
+
+    expect(within(row("LaTeX")).getByText(t("setup.automatic"))).toBeInTheDocument();
+    expect(within(row("LaTeX")).getByText(t("setup.tex-on-demand"), { exact: false })).toBeInTheDocument();
+    expect(within(row("LaTeX")).queryByRole("button")).toBeNull();
   });
 
   it("Se connecter lance la commande de connexion sur le binaire détecté", () => {

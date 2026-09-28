@@ -30,14 +30,15 @@ export type SetupProviderStatus = {
   installCommand: string | null;
 };
 
-export type EnvironmentToolId = "homebrew" | "git" | "poppler" | "tex" | "zotero";
+export type EnvironmentToolId = "homebrew" | "git" | "tex" | "zotero";
 
 export type EnvironmentTool = {
   id: EnvironmentToolId;
   found: boolean;
   /** Binaire trouvé (zotero : dossier de données résolu). */
   path: string | null;
-  /** tex : "latexmk" | "tectonic" ; poppler : binaire manquant si un seul manque. */
+  /** tex : "latexmk" | "tectonic", ou "on-demand" quand rien n'est installé
+   *  (Atelier télécharge tectonic à la première compilation). */
   detail: string | null;
   installCommand: string | null;
   /** Page officielle, https uniquement (sinon null). */
@@ -64,7 +65,8 @@ export type SetupTerminalOpener = (command: string, request: SetupCommandRequest
 
 export const WELCOME_DONE_KEY = "atelier.setup.welcomeDone";
 export const RECHECK_TIMEOUT_MS = 10_000;
-const TOOL_IDS: readonly EnvironmentToolId[] = ["homebrew", "git", "poppler", "tex", "zotero"];
+// Plus de "poppler" : la lecture des PDF est livrée avec l'app (PDFium).
+const TOOL_IDS: readonly EnvironmentToolId[] = ["homebrew", "git", "tex", "zotero"];
 
 const INITIAL: SetupEnvironmentState = { providers: null, tools: null, rechecking: false, welcomeOpen: false };
 

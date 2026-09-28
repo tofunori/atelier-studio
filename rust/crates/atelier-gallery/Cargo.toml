@@ -18,6 +18,7 @@ path = "src/gallery_tool_main.rs"
 atelier-integrations = { workspace = true }
 atelier-fdlimit = { workspace = true }
 atelier-core = { path = "../atelier-core" }
+atelier-pdf = { workspace = true }
 axum = "0.8"
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
@@ -38,6 +39,9 @@ fs2 = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
 ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 roxmltree = "0.20"
+tar = "0.4"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+webpki-roots = "0.26"
 
 [dev-dependencies]
 tempfile = "3"

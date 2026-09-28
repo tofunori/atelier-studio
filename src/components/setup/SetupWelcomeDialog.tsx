@@ -21,7 +21,9 @@ import {
 } from "../../lib/setupEnvironment";
 import { AgentSetupRow, ToolSetupRow } from "./SetupRows";
 
-const OPTIONAL_TOOLS = new Set(["poppler", "tex", "zotero"]);
+// LaTeX n'y figure plus : faute de MacTeX, la première compilation télécharge
+// tectonic d'elle-même. Les PDF se lisent sans rien installer.
+const OPTIONAL_TOOLS = new Set(["zotero"]);
 
 export default function SetupWelcomeDialog(p: { open: boolean }) {
   const env = useSetupEnvironment();

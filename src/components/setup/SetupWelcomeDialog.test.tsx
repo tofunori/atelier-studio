@@ -89,12 +89,15 @@ describe("accueil — visibilité", () => {
 });
 
 describe("accueil — contenu et pied de fenêtre", () => {
-  it("montre les deux agents et les outils facultatifs (poppler, TeX, Zotero)", async () => {
+  it("montre les deux agents et Zotero, seul outil facultatif", async () => {
     const dialog = await firstLaunch();
-    for (const title of ["Claude Code", "Codex", "Poppler", "LaTeX", "Zotero"]) {
+    for (const title of ["Claude Code", "Codex", "Zotero"]) {
       expect(within(dialog).getByRole("group", { name: title })).toBeInTheDocument();
     }
-    expect(within(dialog).queryByRole("group", { name: "Homebrew" })).toBeNull();
+    // PDF livrés avec l'app, LaTeX téléchargé au besoin : rien à installer
+    for (const title of ["Homebrew", "Poppler", "LaTeX"]) {
+      expect(within(dialog).queryByRole("group", { name: title })).toBeNull();
+    }
     expect(within(dialog).getByText(t("setup.welcome-optional"))).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: t("setup.finish") })).toBeDisabled();
   });

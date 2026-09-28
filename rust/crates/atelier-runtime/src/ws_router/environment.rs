@@ -3,6 +3,10 @@
 //! et de quoi les installer. Données seulement : libellés et explications
 //! vivent côté interface. Résolution sans sous-processus (PATH + dossiers
 //! Homebrew et MacTeX), sauf `xcode-select -p` pour git sur macOS.
+//!
+//! La lecture des PDF (PDFium, outil `atelier-pdf`) est livrée avec l'app et
+//! n'a plus de rangée ; LaTeX n'est jamais « manquant » : faute de MacTeX ou
+//! de tectonic, Atelier télécharge tectonic au premier « Compiler ».
 
 use super::*;
 use std::path::{Path, PathBuf};
@@ -28,6 +32,8 @@ struct ProbeContext {
     /// `None` hors macOS : git se cherche alors comme les autres.
     command_line_tools: Option<bool>,
     zotero_dir: PathBuf,
+    /// tectonic téléchargé par Atelier (voir `atelier_integrations::tectonic`).
+    tectonic_download: PathBuf,
 }
 
 impl ProbeContext {
@@ -48,6 +54,7 @@ impl ProbeContext {
             dirs,
             command_line_tools,
             zotero_dir: atelier_integrations::Integrations::load_from(app_dir).zotero_dir(),
+            tectonic_download: atelier_integrations::tectonic::installed_path(app_dir),
         }
     }
 
@@ -102,20 +109,16 @@ fn probe_tools(ctx: &ProbeContext) -> Vec<Value> {
         _ => ctx.find("git"),
     };
 
-    let pdftotext = ctx.find("pdftotext");
-    let pdftohtml = ctx.find("pdftohtml");
-    let poppler_missing = match (&pdftotext, &pdftohtml) {
-        (Some(_), None) => Some("pdftohtml"),
-        (None, Some(_)) => Some("pdftotext"),
-        _ => None,
-    };
-
-    let (tex, tex_variant) = match ctx.find("latexmk") {
-        Some(path) => (Some(path), Some("latexmk")),
-        None => match ctx.find("tectonic") {
-            Some(path) => (Some(path), Some("tectonic")),
-            None => (None, None),
-        },
+    // Sans rien d'installé, `detail` dit « au besoin » : la compilation
+    // télécharge tectonic elle-même, il n'y a rien à proposer.
+    let (tex, tex_variant) = if let Some(path) = ctx.find("latexmk") {
+        (Some(path), "latexmk")
+    } else if let Some(path) = ctx.find("tectonic") {
+        (Some(path), "tectonic")
+    } else if is_executable(&ctx.tectonic_download) {
+        (Some(ctx.tectonic_download.clone()), "tectonic")
+    } else {
+        (None, "on-demand")
     };
 
     let zotero_found = ctx.zotero_dir.join("zotero.sqlite").is_file();
@@ -138,19 +141,11 @@ fn probe_tools(ctx: &ProbeContext) -> Vec<Value> {
             "https://developer.apple.com/xcode/resources/",
         ),
         tool(
-            "poppler",
-            pdftotext.as_deref(),
-            pdftotext.is_some() && pdftohtml.is_some(),
-            poppler_missing,
-            Some("brew install poppler"),
-            "https://poppler.freedesktop.org/",
-        ),
-        tool(
             "tex",
             tex.as_deref(),
             tex.is_some(),
-            tex_variant,
-            Some("brew install tectonic"),
+            Some(tex_variant),
+            None,
             "https://tectonic-typesetting.github.io/",
         ),
         tool(
@@ -194,21 +189,26 @@ mod tests {
         tools.iter().find(|tool| tool["id"] == id).unwrap()
     }
 
+    fn context(bin: &Path, command_line_tools: Option<bool>, zotero: &Path) -> ProbeContext {
+        ProbeContext {
+            dirs: vec![bin.to_path_buf()],
+            command_line_tools,
+            zotero_dir: zotero.to_path_buf(),
+            tectonic_download: atelier_integrations::tectonic::installed_path(&bin.join("app")),
+        }
+    }
+
     #[test]
     fn a_bare_machine_lists_every_tool_as_missing_with_its_install() {
         let bin = tempfile::tempdir().unwrap();
         let zotero = tempfile::tempdir().unwrap();
-        let ctx = ProbeContext {
-            dirs: vec![bin.path().to_path_buf()],
-            command_line_tools: Some(false),
-            zotero_dir: zotero.path().to_path_buf(),
-        };
+        let ctx = context(bin.path(), Some(false), zotero.path());
         let tools = probe_tools(&ctx);
         let ids: Vec<&str> = tools
             .iter()
             .map(|tool| tool["id"].as_str().unwrap())
             .collect();
-        assert_eq!(ids, ["homebrew", "git", "poppler", "tex", "zotero"]);
+        assert_eq!(ids, ["homebrew", "git", "tex", "zotero"]);
         for tool in &tools {
             assert_eq!(tool["found"], false, "{tool}");
             assert!(tool["installUrl"]
@@ -216,36 +216,32 @@ mod tests {
                 .is_some_and(|url| url.starts_with("https://")));
         }
         assert_eq!(
-            by_id(&tools, "poppler")["installCommand"],
-            "brew install poppler"
-        );
-        assert_eq!(
             by_id(&tools, "git")["installCommand"],
             "xcode-select --install"
         );
+        // LaTeX : rien à installer, tectonic viendra au premier « Compiler ».
+        let tex = by_id(&tools, "tex");
+        assert_eq!(tex["detail"], "on-demand");
+        assert!(tex["installCommand"].is_null(), "{tex}");
     }
 
     #[test]
     fn installed_tools_are_found_and_git_needs_the_command_line_tools() {
         let bin = tempfile::tempdir().unwrap();
-        for name in ["brew", "git", "pdftotext", "pdftohtml", "tectonic"] {
+        for name in ["brew", "git", "tectonic"] {
             install(bin.path(), name);
         }
         let zotero = tempfile::tempdir().unwrap();
         std::fs::write(zotero.path().join("zotero.sqlite"), b"").unwrap();
-        let mut ctx = ProbeContext {
-            dirs: vec![bin.path().to_path_buf()],
-            command_line_tools: Some(true),
-            zotero_dir: zotero.path().to_path_buf(),
-        };
+        let mut ctx = context(bin.path(), Some(true), zotero.path());
         let tools = probe_tools(&ctx);
         for tool in &tools {
             assert_eq!(tool["found"], true, "{tool}");
         }
         assert_eq!(by_id(&tools, "tex")["detail"], "tectonic");
         assert_eq!(
-            by_id(&tools, "poppler")["path"],
-            bin.path().join("pdftotext").to_string_lossy().as_ref()
+            by_id(&tools, "tex")["path"],
+            bin.path().join("tectonic").to_string_lossy().as_ref()
         );
 
         ctx.command_line_tools = Some(false);
@@ -253,19 +249,19 @@ mod tests {
     }
 
     #[test]
-    fn half_of_poppler_is_not_enough_and_says_which_half() {
+    fn the_tectonic_atelier_downloaded_counts_as_latex() {
         let bin = tempfile::tempdir().unwrap();
-        install(bin.path(), "pdftotext");
-        // présent mais pas exécutable : ne compte pas
-        std::fs::write(bin.path().join("pdftohtml"), "").unwrap();
-        let ctx = ProbeContext {
-            dirs: vec![bin.path().to_path_buf()],
-            command_line_tools: None,
-            zotero_dir: bin.path().to_path_buf(),
-        };
-        let poppler = by_id(&probe_tools(&ctx), "poppler").clone();
-        assert_eq!(poppler["found"], false);
-        assert_eq!(poppler["detail"], "pdftohtml");
+        let ctx = context(bin.path(), None, bin.path());
+        let downloaded = ctx.tectonic_download.clone();
+        std::fs::create_dir_all(downloaded.parent().unwrap()).unwrap();
+        // présent mais pas exécutable (téléchargement interrompu) : ne compte pas
+        std::fs::write(&downloaded, "").unwrap();
+        assert_eq!(by_id(&probe_tools(&ctx), "tex")["found"], false);
+        std::fs::set_permissions(&downloaded, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let tex = by_id(&probe_tools(&ctx), "tex").clone();
+        assert_eq!(tex["found"], true);
+        assert_eq!(tex["detail"], "tectonic");
+        assert_eq!(tex["path"], downloaded.to_string_lossy().as_ref());
     }
 
     #[test]
@@ -273,11 +269,7 @@ mod tests {
         let bin = tempfile::tempdir().unwrap();
         install(bin.path(), "latexmk");
         install(bin.path(), "tectonic");
-        let ctx = ProbeContext {
-            dirs: vec![bin.path().to_path_buf()],
-            command_line_tools: None,
-            zotero_dir: bin.path().to_path_buf(),
-        };
+        let ctx = context(bin.path(), None, bin.path());
         assert_eq!(by_id(&probe_tools(&ctx), "tex")["detail"], "latexmk");
     }
 

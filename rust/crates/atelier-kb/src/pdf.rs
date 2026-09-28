@@ -1,11 +1,11 @@
 //! Extraction PDF (`extractPdfPages` de `sidecar/zotero_passages.mjs`) —
-//! spawn externe `pdftotext` inchangé (motif "spawns inchangés" du plan 065).
+//! spawn externe de l'outil `atelier-pdf` (PDFium livré avec l'app ; repli
+//! `pdftotext`), voir `atelier_pdf::tool::extract_text`.
 
 use crate::search::{split_pdf_pages, Page};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const CACHE_VERSION: u32 = 2;
 
@@ -44,29 +44,10 @@ fn mtime_ms(meta: &std::fs::Metadata) -> f64 {
         .unwrap_or(0.0)
 }
 
-fn run_pdftotext(pdftotext_bin: &str, args: &[&str], pdf_path: &Path) -> Result<String, String> {
-    let output = Command::new(pdftotext_bin)
-        .args(args)
-        .arg(pdf_path)
-        .arg("-")
-        .output()
-.map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "pdftotext introuvable : installez poppler (brew install poppler), voir Réglages → Environnement".to_string()
-            } else {
-                format!("pdftotext indisponible: {e}")
-            }
-        })?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() { "Extraction PDF impossible".to_string() } else { stderr });
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
 /// Extrait les pages d'un PDF, avec cache par sha256(chemin)[..24] dans
-/// `cache_dir` (clé sur `size`+`mtimeMs`, version 2). Repli `-layout` si la
-/// première passe ne rend aucun texte.
+/// `cache_dir` (clé sur `size`+`mtimeMs`, version 2). Par poppler, repli
+/// `-layout` si la première passe ne rend aucun texte (voir
+/// `atelier_pdf::tool`).
 pub fn extract_pdf_pages(pdf_path: &Path, cache_dir: &Path) -> Result<Extracted, String> {
     let stat = std::fs::metadata(pdf_path).map_err(|e| format!("PDF introuvable: {e}"))?;
     let size = stat.len();
@@ -82,13 +63,8 @@ pub fn extract_pdf_pages(pdf_path: &Path, cache_dir: &Path) -> Result<Extracted,
         }
     }
 
-    let pdftotext = "pdftotext";
-    let mut stdout = run_pdftotext(pdftotext, &["-enc", "UTF-8"], pdf_path)?;
-    let mut pages = split_pdf_pages(&stdout);
-    if pages.is_empty() {
-        stdout = run_pdftotext(pdftotext, &["-layout", "-enc", "UTF-8"], pdf_path)?;
-        pages = split_pdf_pages(&stdout);
-    }
+    let stdout = atelier_pdf::tool::extract_text(pdf_path)?;
+    let pages = split_pdf_pages(&stdout);
     if pages.is_empty() {
         return Err("Aucun texte extractible dans ce PDF (OCR requis)".to_string());
     }

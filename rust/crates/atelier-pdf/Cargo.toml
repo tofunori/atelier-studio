@@ -1,0 +1,20 @@
+[package]
+name = "atelier-pdf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Lecture de PDF par PDFium (texte, mots, lignes, images) aux formats de sortie de poppler"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "atelier-pdf"
+path = "src/main.rs"
+
+[dependencies]
+pdfium-render = { version = "0.9", default-features = false, features = ["pdfium_latest", "thread_safe"] }
+
+[dev-dependencies]
+roxmltree = "0.20"
