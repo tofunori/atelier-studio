@@ -2650,6 +2650,14 @@ if (window.self !== window.top) {
   const css = document.createElement("style");
   css.textContent = `
     header.pdf-compact-toolbar { height:36px!important; min-height:36px!important; padding:0 8px!important; gap:6px!important; background:var(--card)!important; border-color:var(--border)!important; }
+    /* WKWebView/macOS (barres de défilement « toujours affichées » ou souris
+       branchée) réserve une gouttière native claire que ni le track CSS ni
+       color-scheme ne recolorent. Elle recouvrait le bout de la barre (⋯ coupé)
+       et, header et availW() mesurant 100vw/innerWidth, la page glissait
+       dessous. Même choix que la galerie embarquée : pas de chrome de
+       défilement du document ; molette, trackpad et clavier restent actifs. */
+    html { scrollbar-width:none; }
+    html::-webkit-scrollbar, body::-webkit-scrollbar { width:0; height:0; display:none; }
     .pdf-toolbar-nav { display:flex; align-items:center; gap:2px; margin-right:auto; flex:none; }
     .pdf-toolbar-nav button { width:26px; height:26px; }
     .pdf-page-nav { display:inline-flex; align-items:center; gap:2px; }
