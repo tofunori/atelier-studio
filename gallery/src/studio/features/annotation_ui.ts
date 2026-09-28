@@ -16,7 +16,10 @@ export const pdfAnnotationColors: readonly AnnotationColor[] = [
 const markIcons = {
   hl:'<path d="m9 11 8-8 4 4-8 8M9 11l4 4-3 3-4-4zM6 14l-3 6h6l1-2"/>',
   ul:'<path d="M6 3v8a6 6 0 0 0 12 0V3M4 21h16"/>',
+  st:'<path d="M3 12h18M16.5 7.5C16 5.5 14.3 4 12 4 9.5 4 7.5 5.5 7.5 7.6c0 1.6 1 2.8 3 3.6M8 16.5c.6 2 2.3 3.5 4.3 3.5 2.6 0 4.3-1.6 4.3-3.6 0-.9-.3-1.7-.9-2.4"/>',
 };
+type MarkKind = "hl" | "ul" | "st";
+const markLabels: Record<MarkKind, string> = {hl: "Surligner", ul: "Souligner", st: "Barrer"};
 const selectionColors = new WeakMap<Document, string>();
 const trash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>';
 const arrowUp = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
@@ -25,14 +28,14 @@ const escapeText = (text: string) => text.replace(/[&<>"]/g, c => ({"&":"&amp;",
 /** `memo` ajoute, au-dessus du champ du chat, une note personnelle gardée avec
  *  le passage et jamais envoyée au chat (lecteur PDF). Sans `memo`, la bulle
  *  reste celle des éditeurs : un seul champ. `mark` ajoute en tête une rangée
- *  surligner / souligner et les teintes, pour changer le style d'un marquage
+ *  surligner / souligner / barrer et les teintes, pour changer le style d'un marquage
  *  existant (lecteur PDF). `heading` titre la bulle comme une fiche
  *  (« Annotation 3 · p. 12 ») et y range la corbeille, loin des envois. */
 export function createNoteEditor(host: HTMLElement, options: {
   value?: string; onSubmit(value: string): void; onDelete(): void;
   onDismiss?(): void; onChange?(value: string): void; onSendDirect?(value: string): void;
   placeholder?: string; memo?: {value?: string}; heading?: {title: string; meta?: string};
-  mark?: {kind: string; color: string; colors: readonly AnnotationColor[]; onChange(kind: "hl" | "ul", color: string): void};
+  mark?: {kind: string; color: string; colors: readonly AnnotationColor[]; onChange(kind: MarkKind, color: string): void};
 }) {
   host.classList.add("atelier-note");
   const deleteButton = '<button type="button" class="delete-note" title="Supprimer l’annotation" aria-label="Supprimer l’annotation">'+trash+'</button>';
@@ -43,8 +46,8 @@ export function createNoteEditor(host: HTMLElement, options: {
     : '';
   const mark = options.mark
     ? '<div class="atelier-mark-style" role="group" aria-label="Style du marquage">'
-      + (["hl", "ul"] as const).map(kind => '<button type="button" class="atelier-mark-kind" data-kind="'+kind+'" title="'
-        + (kind === "hl" ? "Surligner" : "Souligner") + '" aria-label="' + (kind === "hl" ? "Surligner" : "Souligner")
+      + (["hl", "ul", "st"] as const).map(kind => '<button type="button" class="atelier-mark-kind" data-kind="'+kind+'" title="'
+        + markLabels[kind] + '" aria-label="' + markLabels[kind]
         + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'+markIcons[kind]+'</svg></button>').join("")
       + '<span class="atelier-mark-gap"></span>'
       + options.mark.colors.map(c => '<button type="button" class="atelier-mark-swatch" data-color="'+c.value+'" title="'+c.label+'" aria-label="'
@@ -78,7 +81,8 @@ export function createNoteEditor(host: HTMLElement, options: {
   host.querySelector<HTMLButtonElement>(".delete-note")!.onclick=options.onDelete;
   if(options.mark){
     const markOptions=options.mark;
-    let kind: "hl" | "ul"=markOptions.kind === "ul" ? "ul" : "hl", color=markOptions.color;
+    const asKind=(value: string|undefined): MarkKind|null=>value==="hl"||value==="ul"||value==="st"?value:null;
+    let kind: MarkKind=asKind(markOptions.kind) || "hl", color=markOptions.color;
     const paint=()=>{
       host.querySelectorAll<HTMLButtonElement>(".atelier-mark-kind").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.kind===kind)));
       host.querySelectorAll<HTMLButtonElement>(".atelier-mark-swatch").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.color===color)));
@@ -86,7 +90,7 @@ export function createNoteEditor(host: HTMLElement, options: {
     host.querySelectorAll<HTMLButtonElement>(".atelier-mark-style button").forEach(button=>{
       button.onmousedown=e=>e.preventDefault();
       button.onclick=()=>{
-        const nextKind=button.dataset.kind==="ul"?"ul":button.dataset.kind==="hl"?"hl":kind;
+        const nextKind=asKind(button.dataset.kind) || kind;
         const nextColor=button.dataset.color||color;
         if(nextKind===kind&&nextColor===color)return;
         kind=nextKind;color=nextColor;paint();markOptions.onChange(kind,color);

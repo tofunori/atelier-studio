@@ -91,7 +91,8 @@ de surligner si l'article n'est pas déjà dans la conversation.\n\
 dans le lecteur d'Atelier. La citation doit être recopiée mot pour mot du texte de l'article (une \
 phrase ou un court paragraphe), avec sa page si elle est connue ; tous les passages d'un même \
 article dans un seul appel (passages: [...]), chacun avec sa couleur (color) et son style \
-(style : surligner par défaut, souligner pour une phrase à citer mot pour mot) s'ils diffèrent. \
+(style : surligner par défaut, souligner pour une phrase à citer mot pour mot, barrer pour un passage \
+à écarter) s'ils diffèrent. \
 Ne jamais surligner un passage paraphrasé. Donner à \
 chaque passage un memo : une note courte en français disant pourquoi il est surligné (« pour la \
 discussion : … »), jamais le mot « Claude » (l'origine est enregistrée à part).\n\
@@ -158,7 +159,7 @@ fn tools() -> Value {
         },
         {
             "name": "highlight_passage",
-            "description": "Surligne (ou souligne, style=\"souligner\") un ou plusieurs passages cités mot pour mot dans le PDF Zotero d'un article ; \
+            "description": "Surligne (ou souligne, style=\"souligner\", ou barre, style=\"barrer\") un ou plusieurs passages cités mot pour mot dans le PDF Zotero d'un article ; \
     L'utilisateur les voit apparaître dans le lecteur d'Atelier. Le passage est retrouvé dans le texte du PDF \
     (accents, ligatures et césures tolérés) ; s'il est introuvable, rien n'est surligné et la réponse le dit. \
     Un passage déjà surligné n'est pas doublé. À n'utiliser que sur demande explicite.",
@@ -177,7 +178,7 @@ fn tools() -> Value {
                                 "page": {"type": "integer", "minimum": 1, "description": "Page du PDF (1 = première), si connue."},
                                 "memo": {"type": "string", "description": "Note affichée dans la bulle : une phrase courte en français disant pourquoi ce passage compte (par exemple « pour la discussion : limite de la quantification »), sans paraphraser le passage. Ne pas y écrire « Claude » : l'origine est déjà enregistrée."},
                                 "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose", "orange", "violet"], "description": "Couleur de ce passage (absente = `color` de l'appel)."},
-                                "style": {"type": "string", "enum": ["surligner", "souligner"], "description": "Style de ce passage (absent = `style` de l'appel)."}
+                                "style": {"type": "string", "enum": ["surligner", "souligner", "barrer"], "description": "Style de ce passage (absent = `style` de l'appel)."}
                             },
                             "required": ["quote"]
                         }
@@ -186,7 +187,7 @@ fn tools() -> Value {
                     "page": {"type": "integer", "minimum": 1, "description": "Avec `quote` : sa page."},
                     "memo": {"type": "string", "description": "Avec `quote` : sa note (pourquoi ce passage compte)."},
                     "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose", "orange", "violet"], "description": "Couleur par défaut des passages (jaune si absente) ; chaque passage peut donner la sienne."},
-                    "style": {"type": "string", "enum": ["surligner", "souligner"], "description": "Style par défaut des passages : surligner (défaut) ou souligner, par exemple pour la phrase à citer mot pour mot ; chaque passage peut donner le sien."}
+                    "style": {"type": "string", "enum": ["surligner", "souligner", "barrer"], "description": "Style par défaut des passages : surligner (défaut), souligner (par exemple la phrase à citer mot pour mot) ou barrer (un passage à écarter ou contredit) ; chaque passage peut donner le sien."}
                 },
                 "required": ["article"]
             },
@@ -194,7 +195,7 @@ fn tools() -> Value {
         },
         {
             "name": "update_highlights",
-            "description": "Change la couleur, le style (surligné ou souligné) et/ou la note personnelle de surlignages FAITS PAR CLAUDE dans un article \
+            "description": "Change la couleur, le style (surligné, souligné ou barré) et/ou la note personnelle de surlignages FAITS PAR CLAUDE dans un article \
     (jamais ceux de l'utilisateur). Le changement apparaît dans le lecteur d'Atelier. À n'utiliser que sur demande explicite.",
             "inputSchema": {
                 "type": "object",
@@ -217,7 +218,7 @@ fn tools() -> Value {
                     "page": {"type": "integer", "minimum": 1, "description": "Avec `quote` : sa page."},
                     "all": {"type": "boolean", "description": "Tous les surlignages de Claude dans cet article.", "default": false},
                     "color": {"type": "string", "enum": ["jaune", "vert", "bleu", "rose", "orange", "violet"], "description": "Nouvelle couleur (absente = inchangée)."},
-                    "style": {"type": "string", "enum": ["surligner", "souligner"], "description": "Nouveau style (absent = inchangé)."},
+                    "style": {"type": "string", "enum": ["surligner", "souligner", "barrer"], "description": "Nouveau style (absent = inchangé)."},
                     "memo": {"type": "string", "description": "Nouvelle note personnelle (absente = inchangée, vide = retirée)."}
                 },
                 "required": ["article"]
@@ -626,15 +627,19 @@ fn format_annotation(a: &crate::library::Annotation) -> String {
     if a.source == Source::Zotero {
         tags.push("annoté dans Zotero".into());
     }
-    if a.underline {
-        tags.push("souligné".into());
+    match a.kind.as_str() {
+        "ul" => tags.push("souligné".into()),
+        "st" => tags.push("barré".into()),
+        "text" => tags.push("zone de texte écrite sur la page".into()),
+        "stamp" => tags.push(format!("tampon « {} »", a.stamp)),
+        _ => {}
     }
     if a.by_claude {
         tags.push(
-            if a.underline {
-                "par Claude"
-            } else {
+            if a.kind == "hl" {
                 "surligné par Claude"
+            } else {
+                "par Claude"
             }
             .into(),
         );
@@ -1003,9 +1008,28 @@ mod tests {
         let (text, is_error) = call_tool(
             &config,
             "highlight_passage",
-            json!({"article": "Warren 1980", "quote": "Surface albedo controls the energy", "style": "barrer"}),
+            json!({"article": "Warren 1980", "quote": "Surface albedo controls the energy", "style": "clignoter"}),
         );
         assert!(is_error && text.contains("style inconnu"), "{text}");
+        // barrer : un passage à écarter, distinct du surlignage du même texte
+        let (text, is_error) = call_tool(
+            &config,
+            "highlight_passage",
+            json!({"article": "Warren 1980", "quote": "Integer sapien est, iaculis in, pretium quis, viverra ac, nunc.", "page": 1, "style": "barrer"}),
+        );
+        assert!(!is_error && text.contains("barré p. 1"), "{text}");
+        let store: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("pdf_annots.json")).unwrap(),
+        )
+        .unwrap();
+        let annots = store["zotero/ABCD1234/paper.pdf"].as_array().unwrap();
+        assert_eq!(annots.last().unwrap()["kind"], "st");
+        let (text, _) = call_tool(
+            &config,
+            "get_article_annotations",
+            json!({"articles": ["ABCD1234"]}),
+        );
+        assert!(text.contains("barré, par Claude"), "{text}");
         let (text, is_error) = call_tool(
             &config,
             "highlight_passage",

@@ -132,7 +132,7 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   await colorToggle.click();
   await expect(colorToggle).toHaveAttribute('aria-expanded', 'true');
   await expect(palette).toBeVisible();
-  const blue = reader.locator('.pdf-mark-color[aria-label="Bleu"]');
+  const blue = reader.locator('.pdf-mark-color[aria-label="Bleu, Contexte et lacune"]');
   await blue.click();
   await expect(blue).toHaveAttribute('aria-pressed', 'true');
   await expect(colorToggle).toHaveAttribute('aria-expanded', 'false');
@@ -193,11 +193,22 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   await expect(chatButton).not.toHaveClass(/done/, { timeout: 3_000 });
   await expect(chatButton.locator('.ci-idle')).toBeVisible();
 
-  const note = reader.getByRole('button', { name: 'Ajouter une note sur la page' });
+  // Outils à pose unique : actifs en graphite (aria-pressed), un second clic les rend.
+  const note = reader.locator('.pdf-mark-tools [data-tool="note"]');
   await note.click();
-  await expect(note).toHaveClass(/ton/);
+  await expect(note).toHaveAttribute('aria-pressed', 'true');
   await note.click();
-  await expect(note).not.toHaveClass(/ton/);
+  await expect(note).toHaveAttribute('aria-pressed', 'false');
+  await expect(reader.locator('#areaBtn')).toBeVisible();
+  await expect(reader.locator('.pdf-mark-tools [data-tool="erase"]')).toBeVisible();
+
+  // En fenêtre étroite, Zone et Gomme repartent dans ⋯ au lieu de déborder.
+  await page.setViewportSize({ width: 600, height: 760 });
+  await expect(reader.locator('#areaBtn')).toBeHidden();
+  await more.locator('summary').click();
+  await expect(reader.locator('#menuAreaBtn')).toBeVisible();
+  await expect(reader.locator('#menuEraseBtn')).toBeVisible();
+  await more.locator('summary').click();
 
   await page.setViewportSize({ width: 360, height: 760 });
   await expect.poll(() => header.evaluate(element => element.getBoundingClientRect().width)).toBe(360);
@@ -367,4 +378,97 @@ test('sélection PDF : le bouton Surligner applique directement la couleur ambre
   await expect.poll(() => reader.locator('.pdfhl').count(), { timeout: 5_000 }).toBeGreaterThan(0);
   await expect.poll(() => reader.locator('.pdfhl').first().evaluate(element => getComputedStyle(element).backgroundColor).catch(() => ''),
     { timeout: 5_000 }).toMatch(/rgba\(255,\s*213,\s*74,\s*0\.4\)/);
+});
+
+test('outils de la barre : note unique et personnelle, tampon, zone de texte, raccourcis, plan, export', async ({ page }) => {
+  await page.request.post(`http://127.0.0.1:${port}/pdfannot`, { data: { rel: 'twocol.pdf', annots: [] } });
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+  await page.setViewportSize({ width: 1000, height: 760 });
+  await page.setContent(`<style>html,body{margin:0;width:100%;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style>
+    <iframe title="Outils PDF" src="http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=twocol.pdf"></iframe>`);
+  const reader = page.frameLocator('iframe[title="Outils PDF"]');
+  await expect.poll(() => reader.locator('.textLayer span').count(), { timeout: 15_000 }).toBeGreaterThan(0);
+  const pg = reader.locator('.pg').first();
+  const box = await pg.boundingBox();
+  const saved = async () => (await (await page.request.get(`http://127.0.0.1:${port}/pdfannot?rel=twocol.pdf`)).json()).annots || [];
+  await page.evaluate(() => {
+    (window as any).__chat = [];
+    window.addEventListener('message', event => { if (/add-to-chat|annot/.test(String(event.data?.type))) (window as any).__chat.push(event.data.type); });
+  });
+
+  // Note : un clic = une pastille centrée sur le point, puis retour à la lecture ;
+  // Entrée garde la note pour soi, rien ne part au chat.
+  const note = reader.locator('.pdf-mark-tools [data-tool="note"]');
+  await note.click();
+  await page.mouse.click(box.x + box.width * 0.5, box.y + 120);
+  await expect(note).toHaveAttribute('aria-pressed', 'false');
+  const editor = reader.locator('#annotPop textarea.atelier-note-input');
+  await expect(editor).toBeVisible();
+  await editor.fill('Revoir la figure');
+  await editor.press('Enter');
+  const pin = reader.locator('.pdfnote');
+  await expect(pin).toHaveCount(1);
+  const pinBox = await pin.boundingBox();
+  expect(Math.abs(pinBox.x + pinBox.width / 2 - (box.x + box.width * 0.5))).toBeLessThan(2);
+  expect(Math.abs(pinBox.y + pinBox.height / 2 - (box.y + 120))).toBeLessThan(2);
+  await page.mouse.click(box.x + box.width * 0.5, box.y + 300);
+  await expect(pin).toHaveCount(1);
+  await expect.poll(async () => (await saved()).filter(a => a.kind === 'note').map(a => a.note)).toEqual(['Revoir la figure']);
+  expect(await page.evaluate(() => (window as any).__chat)).toEqual([]);
+
+  // Raccourcis : H active Surligner, 3 choisit le bleu, Échap rend la main.
+  await reader.locator('body').press('h');
+  await expect(reader.locator('.pdf-mark-tools [data-tool="hl"]')).toHaveAttribute('aria-pressed', 'true');
+  await reader.locator('body').press('Digit3');
+  await expect(reader.locator('.pdf-mark-color[data-index="2"]')).toHaveAttribute('aria-pressed', 'true');
+  await reader.locator('body').press('Escape');
+
+  // Tampon (Maj+1 = À vérifier) : pastille dans la marge, tampon encreur dans le texte.
+  await reader.locator('body').press('Shift+Digit1');
+  await expect(reader.locator('.pdf-mark-tools [data-tool="stamp"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.mouse.click(box.x + 6, box.y + 200);
+  await expect(reader.locator('.pdfstamp-dot')).toHaveCount(1);
+  await reader.locator('.pdf-mark-tools [data-tool="stamp"]').click();
+  await reader.locator('.pdf-stamp-row[data-stamp="ok"]').click();
+  const span = reader.locator('.textLayer span').filter({ hasText: /\S{4}/ }).nth(8);
+  const sb = await span.boundingBox();
+  await page.mouse.click(sb.x + sb.width / 2, sb.y + sb.height / 2);
+  await expect(reader.locator('.pdfstamp-ink')).toHaveCount(1);
+  await expect.poll(async () => (await saved()).filter(a => a.kind === 'stamp').map(a => [a.stamp, a.style])).toEqual([['verif', 'pastille'], ['ok', 'encre']]);
+
+  // Zone de texte : glisser crée la boîte, on tape, la mise en forme s'applique.
+  await reader.locator('.pdf-mark-tools [data-tool="text"]').click();
+  await page.mouse.move(box.x + 60, box.y + 420);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 260, box.y + 470, { steps: 5 });
+  await page.mouse.up();
+  const tb = reader.locator('.pdftext.editing');
+  await expect(tb).toBeVisible();
+  await page.keyboard.type('Comparer avec Warren');
+  await reader.getByRole('button', { name: 'Gras' }).click();
+  await expect(tb).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(reader.locator('.pdftext')).toHaveCount(1);
+  await expect.poll(async () => (await saved()).filter(a => a.kind === 'text').map(a => [a.text, a.bold])).toEqual([['Comparer avec Warren', true]]);
+  await expect(reader.locator('.pdftext')).toHaveCSS('font-weight', '600');
+
+  // Gomme : un clic sur le tampon le retire.
+  await reader.locator('body').press('e');
+  await expect(reader.locator('.pdf-mark-tools [data-tool="erase"]')).toHaveAttribute('aria-pressed', 'true');
+  await reader.locator('.pdfstamp-dot').click();
+  await expect(reader.locator('.pdfstamp-dot')).toHaveCount(0);
+  await reader.locator('body').press('Escape');
+
+  // Export Markdown depuis ⋯.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+  await reader.locator('.pdf-toolbar-more summary').click();
+  await reader.locator('#mdExportBtn').click();
+  await expect(reader.locator('#status')).toHaveText(/annotations? copiées? en Markdown/);
+  // Plan dans ≡ (repli sur les titres du mode lecture quand le PDF n'a pas de plan).
+  await reader.locator('#paneBtn').click();
+  await reader.getByRole('tab', { name: 'Plan' }).click();
+  await expect(reader.locator('.toc')).toBeVisible();
+
+  expect(errors).toEqual([]);
 });

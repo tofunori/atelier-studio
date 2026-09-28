@@ -7,6 +7,7 @@ import { JSDOM } from 'jsdom';
 const html = fs.readFileSync(new URL('../../assets/pdf_viewer.html', import.meta.url), 'utf8');
 const sharedUI = fs.readFileSync(new URL('../../assets/annotation_ui.bundle.js', import.meta.url), 'utf8');
 const pdfSelection = fs.readFileSync(new URL('../../assets/pdf_selection.js', import.meta.url), 'utf8');
+const pdfTools = fs.readFileSync(new URL('../../assets/pdf_tools.js', import.meta.url), 'utf8');
 const menuCode = html.slice(html.indexOf('let annotationEditor = null;'), html.indexOf('// mode Studio :'));
 const saveCode = html.slice(html.indexOf('function saveAnnots(){'), html.indexOf('function drawAnnots'));
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -275,18 +276,67 @@ test('shared capsules expose the three chat actions in order, without colors',()
  buttons.forEach(b=>b.click());assert.deepEqual(calls,['add','note','ask']);
  assert.equal(win.document.querySelector('.atelier-swatch'),null);win.close();
 });
-test('PDF header tools apply color and underline without opening a note',()=>{
+function markTools(){
  const dom=new JSDOM('<header><span id="selinfo"></span><span id="status"></span></header>',{runScripts:'outside-only'}),win=dom.window,calls: any[]=[];
- win.HL_COLORS=['rgba(255,213,74,.40)','rgba(120,220,140,.40)','rgba(120,170,255,.40)','rgba(255,140,160,.40)'];
+ win.HL_COLORS=['rgba(255,213,74,.40)','rgba(120,220,140,.40)','rgba(120,170,255,.40)','rgba(255,140,160,.40)','rgba(255,160,80,.40)','rgba(185,150,255,.40)'];
  win.addHighlightFromSel=(kind,color)=>calls.push([kind,color]);
+ vm.runInContext(pdfTools,dom.getInternalVMContext());
  vm.runInContext(html.slice(html.indexOf('// PDF marks live'),html.indexOf('// Référence courte')),dom.getInternalVMContext());
- const bar=win.document.querySelector('.pdf-mark-tools');assert.ok(bar);
- bar.querySelector('[aria-label="Bleu"]').click();
+ const bar=win.document.querySelector('.pdf-mark-tools');
+ const key=(init)=>win.document.body.dispatchEvent(new win.KeyboardEvent('keydown',{bubbles:true,cancelable:true,...init}));
+ const pressed=(tool)=>bar.querySelector(`[data-tool="${tool}"]`).getAttribute('aria-pressed');
+ return {win,bar,calls,key,pressed,status:()=>win.document.getElementById('status').textContent};
+}
+test('PDF header tools apply color and underline without opening a note',()=>{
+ const {win,bar,calls,status}=markTools();assert.ok(bar);
+ bar.querySelector('[aria-label="Bleu, Contexte et lacune"]').click();
  bar.querySelector('[aria-label="Souligner"]').click();
- assert.deepEqual(calls,[['hl',win.HL_COLORS[2]],['ul',win.HL_COLORS[2]]]);
+ bar.querySelector('[aria-label="Barrer"]').click();
+ assert.deepEqual(calls,[['hl',win.HL_COLORS[2]],['ul',win.HL_COLORS[2]],['st',win.HL_COLORS[2]]]);
  assert.equal(win.document.querySelector('textarea'),null);
  bar.querySelector('[aria-label="Effacer un marquage"]').click();
- assert.match(win.document.getElementById('status').textContent,/retirer/);win.close();
+ assert.match(status(),/retirer/);win.close();
+});
+test('the color palette names each tint by its meaning, without a caret',()=>{
+ const {bar,win}=markTools();
+ const toggle=bar.querySelector('.pdf-color-toggle');
+ assert.doesNotMatch(toggle.textContent,/⌄/);
+ const rows=[...bar.querySelectorAll('.pdf-mark-color')].map(b=>b.querySelector('.pdf-tool-label').textContent);
+ assert.deepEqual(rows,['Résultats','Méthode et données','Contexte et lacune','Limites','À citer','Désaccord']);
+ assert.equal(bar.querySelector('#pdf-color-palette').classList.contains('pdf-tool-pop'),true);win.close();
+});
+test('placement tools are one-shot modes; only one tool reads as active',()=>{
+ const {bar,pressed,status,win}=markTools();
+ assert.equal(pressed('hl'),'true');
+ bar.querySelector('[data-tool="note"]').click();
+ assert.equal(pressed('note'),'true');assert.equal(pressed('hl'),'false');
+ assert.match(status(),/poser une note/);
+ assert.equal(win.document.body.classList.contains('place-mode'),true);
+ win.setTool(null);
+ assert.equal(pressed('note'),'false');assert.equal(pressed('hl'),'true');
+ assert.equal(status(),'');
+ assert.equal(win.document.body.classList.contains('place-mode'),false);win.close();
+});
+test('keyboard shortcuts pick tools, tints and stamps, and Escape returns to reading',()=>{
+ const {key,pressed,calls,win,bar}=markTools();
+ key({key:'s',code:'KeyS'});
+ assert.deepEqual(calls.at(-1),['st',win.HL_COLORS[0]]);
+ assert.equal(pressed('st'),'true');
+ key({key:'3',code:'Digit3'});
+ assert.deepEqual(calls.at(-1),['st',win.HL_COLORS[2]]);
+ key({key:'t',code:'KeyT'});assert.equal(pressed('text'),'true');
+ key({key:'Escape',code:'Escape'});assert.equal(pressed('text'),'false');
+ key({key:'!',code:'Digit5',shiftKey:true});
+ assert.equal(pressed('stamp'),'true');assert.equal(win.eval('STAMP_KIND'),'cite');
+ assert.equal(bar.querySelector('[data-stamp="cite"]').getAttribute('aria-checked'),'true');
+ key({key:'e',code:'KeyE'});assert.equal(pressed('erase'),'true');assert.equal(pressed('stamp'),'false');
+ key({key:'Escape',code:'Escape'});assert.equal(pressed('erase'),'false');
+ const before=calls.length;
+ const input=win.document.createElement('input');win.document.body.appendChild(input);
+ input.dispatchEvent(new win.KeyboardEvent('keydown',{key:'h',code:'KeyH',bubbles:true,cancelable:true}));
+ assert.equal(calls.length,before,'typing never triggers a tool');
+ key({key:'h',code:'KeyH',metaKey:true});
+ assert.equal(calls.length,before,'Cmd+H stays with the system');win.close();
 });
 
 test('pointerdown on header colors preserves the live PDF selection',()=>{
@@ -361,6 +411,95 @@ test('a free note pin keeps a single field', () => {
     assert.equal(m.root.querySelector('textarea.atelier-memo-input'),null);
     assert.ok(m.root.querySelector('textarea.atelier-note-input'));m.close();
   });
+});
+
+test('a free note stays personal: Enter, Escape and clicking away save it without sending', async () => {
+  for (const close of ['enter', 'escape', 'outside']) {
+    const m=menu();
+    m.win.annotation.kind='note';m.win.annotation.fresh=true;
+    await m.win.annotMenu(m.win.annotation,10,10);
+    const input=m.root.querySelector('textarea.atelier-note-input');
+    assert.equal(input.placeholder,'Note…');
+    input.value='Revoir la figure 3';
+    if(close==='outside') m.win.document.getElementById('outside').click();
+    else input.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:close==='enter'?'Enter':'Escape',bubbles:true}));
+    await tick();
+    assert.equal(m.writes.at(-1).note,'Revoir la figure 3',close);
+    assert.equal(m.sends.length,0,close+' must not send a personal note to the chat');
+    assert.equal(m.root.style.display,'none',close);m.close();
+  }
+});
+
+test('a free note left empty disappears; the arrow still sends it on purpose', async () => {
+  let m=menu();
+  m.win.annotation.kind='note';m.win.annotation.fresh=true;
+  await m.win.annotMenu(m.win.annotation,10,10);
+  m.root.querySelector('textarea.atelier-note-input').dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+  await tick();
+  assert.equal(m.win.PDF_ANNOTS.length,0);assert.equal(m.sends.length,0);m.close();
+  m=menu();
+  m.win.annotation.kind='note';
+  await m.win.annotMenu(m.win.annotation,10,10);
+  m.root.querySelector('textarea.atelier-note-input').value='À demander';
+  m.root.querySelector('.send2').click();await tick();
+  assert.equal(m.sends.length,1);assert.equal(m.sends[0].note,'À demander');m.close();
+});
+
+test('the bubble of a struck-through passage offers the three mark styles', async () => {
+  const m=menu();
+  m.win.annotation.kind='st';m.win.annotation.color='rgba(255,213,74,.40)';
+  const redraws=[];Object.assign(m.win,{normalizeHighlightColor:(c)=>c,redrawAllAnnots:()=>redraws.push(1)});
+  await m.win.annotMenu(m.win.annotation,10,10);
+  const kinds=[...m.root.querySelectorAll('.atelier-mark-kind')].map(b=>[b.dataset.kind,b.getAttribute('aria-pressed')]);
+  assert.deepEqual(kinds,[['hl','false'],['ul','false'],['st','true']]);
+  m.root.querySelector('.atelier-mark-kind[data-kind="hl"]').click();
+  assert.equal(m.win.annotation.kind,'hl');assert.equal(redraws.length,1);m.close();
+});
+
+test('free note pins, stamps and text boxes are drawn on the page', () => {
+ const dom=new JSDOM('<div id="page" class="pg" data-page="1"></div>',{runScripts:'outside-only'});
+ const win=dom.window;
+ win.PDF_ANNOTS=[{id:'n1',page:1,kind:'note',pin:[.3,.4],note:'Idée'},
+   {id:'s1',page:1,kind:'stamp',stamp:'cite',style:'pastille',pin:[.04,.5],text:'line'},
+   {id:'s2',page:1,kind:'stamp',stamp:'no',style:'encre',scale:1.5,pin:[.5,.6]},
+   {id:'t1',page:1,kind:'text',rects:[[.2,.7,.3,.05]],text:'Comparer',font:'serif',size:16,bold:true,ink:'#2f6fd6'}];
+ const opened=[];win.annotMenu=(a)=>opened.push(a.id);
+ win.eraseMark=false;
+ vm.runInContext(pdfSelection,dom.getInternalVMContext());
+ vm.runInContext(pdfTools,dom.getInternalVMContext());
+ vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
+ vm.runInContext(html.slice(html.indexOf('// ---- tampons ---'),html.indexOf('// ---- zones de texte ---')),dom.getInternalVMContext());
+ const drawn=[];win.drawTextBox=(pg,a)=>{drawn.push(a.id);};
+ const page=win.document.getElementById('page');
+ page.getBoundingClientRect=()=>({left:0,top:0,width:600,height:1000});win.drawAnnots(page,1);
+ const pin=page.querySelector('.pdfnote');
+ assert.equal(pin.style.left,'30%');assert.equal(pin.style.top,'40%');
+ assert.match(pin.innerHTML,/stroke="currentColor"/);assert.equal(pin.title,'Idée');
+ pin.click();
+ const dot=page.querySelector('.pdfstamp-dot');
+ assert.equal(dot.style.getPropertyValue('--stamp'),'#e07a2e');assert.equal(dot.title,'À citer');
+ const ink=page.querySelector('.pdfstamp-ink');
+ assert.equal(ink.textContent,'Désaccord');assert.equal(ink.style.getPropertyValue('--stamp-scale'),'1.5');
+ assert.ok(ink.querySelector('.pdfstamp-grip'));
+ ink.click();
+ assert.deepEqual(opened,['n1','s2']);
+ assert.deepEqual(drawn,['t1']);win.close();
+});
+
+test('the eraser removes a free note or a stamp instead of opening it', () => {
+ const dom=new JSDOM('<div id="page" class="pg" data-page="1"></div>',{runScripts:'outside-only'});
+ const win=dom.window;
+ win.PDF_ANNOTS=[{id:'n1',page:1,kind:'note',pin:[.3,.4]},{id:'s1',page:1,kind:'stamp',stamp:'ok',pin:[.04,.5]}];
+ const removed=[];win.removeAnnot=(a)=>removed.push(a.id);win.annotMenu=()=>{throw new Error('opened');};
+ win.eraseMark=true;
+ vm.runInContext(pdfSelection,dom.getInternalVMContext());
+ vm.runInContext(pdfTools,dom.getInternalVMContext());
+ vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
+ vm.runInContext(html.slice(html.indexOf('// ---- tampons ---'),html.indexOf('// ---- zones de texte ---')),dom.getInternalVMContext());
+ const page=win.document.getElementById('page');
+ page.getBoundingClientRect=()=>({left:0,top:0,width:600,height:1000});win.drawAnnots(page,1);
+ page.querySelector('.pdfnote').click();page.querySelector('.pdfstamp').click();
+ assert.deepEqual(removed,['n1','s1']);win.close();
 });
 
 test('a highlight with a personal note draws a pencil badge that opens the bubble', () => {

@@ -124,8 +124,10 @@ function createReadingMode(){
   // Outils liés à la GÉOMÉTRIE des pages : sans page à l'écran ils n'ont pas
   // de cible. Le CSS les grise, `disabled` les retire aussi du clavier et des
   // lecteurs d'écran (revue de branche, I5).
-  const PAGE_TOOLS = '#areaBtn, header [data-t="note"], header [data-t="erase"]';
+  const PAGE_TOOLS = '#areaBtn, header [data-tool="area"], header [data-tool="note"], header [data-tool="text"], header [data-tool="stamp"], header [data-tool="erase"]';
   function disablePageTools(off: boolean){
+    // un outil armé n'a plus de page où se poser : retour à la lecture
+    if (off && (TOOL || eraseMark)) { eraseMark = false; setTool(null); }
     for (const el of document.querySelectorAll(PAGE_TOOLS)) (el as HTMLInputElement).disabled = off;
   }
   function cancelCrops(){
@@ -496,6 +498,8 @@ async function main(){
       const div = document.createElement("div");
       div.className = "pg"; div.dataset.page = String(n);
       div.dataset.vscale = vp1.scale;
+      // zones de texte et tampons encreurs : tailles en points PDF (suivent le zoom)
+      div.style.setProperty("--vscale", String(vp1.scale));
       div.style.width = vp1.width + "px"; div.style.height = vp1.height + "px";
       const known = cache.peekPage(n), vp = known ? known.getViewport({scale}) : vp1;
       div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
@@ -539,6 +543,7 @@ async function main(){
       const vp = slot.vp = page.getViewport({scale});
       slot.div.style.width = vp.width + "px"; slot.div.style.height = vp.height + "px";
       slot.div.dataset.vscale = vp.scale;
+      slot.div.style.setProperty("--vscale", String(vp.scale));
       if (!slot.div.querySelector("canvas")) {
         const cv = document.createElement("canvas");
         cv.width = Math.round(vp.width * DPR); cv.height = Math.round(vp.height * DPR);
@@ -1109,6 +1114,7 @@ const annPane = (function(){
   const list = pane.querySelector<HTMLDivElement>(".list"), filters = pane.querySelector<HTMLDivElement>(".filters"),
         cn = pane.querySelector<HTMLSpanElement>(".cn"), doc = pane.querySelector<HTMLDivElement>(".doc");
   let only: string = null;   // couleur filtrée, null = toutes
+  let onlyStamp: string = null;   // tampon filtré (verif, imp…), null = tous
   const thumbs = new Map();   // id d'annotation → dataURL de la vignette
   function sorted(){
     return [...PDF_ANNOTS].sort((a, b) =>
@@ -1155,8 +1161,12 @@ const annPane = (function(){
     location.href = u.toString();
   }
   function filtered(list){
-    return only ? list.filter((a) => normalizeHighlightColor(a.color || HL_COLORS[0]) === only) : list;
+    if (onlyStamp) return list.filter((a) => a.kind === "stamp" && (a.stamp || "verif") === onlyStamp);
+    // les teintes ne concernent que les marquages : ni tampons ni zones de texte
+    return only ? list.filter((a) => a.kind !== "stamp" && a.kind !== "text"
+      && normalizeHighlightColor(a.color || HL_COLORS[0]) === only) : list;
   }
+  function stampOf(a){ return window.AtelierPdfTools ? window.AtelierPdfTools.stampById(a.stamp) : null; }
   // rangée d'annotation — partagée par les deux portées. Hors article ouvert :
   // pas de vignette possible (le canvas n'existe pas), une zone s'affiche en
   // ligne sobre « zone · note » ; l'envoi d'image exige d'ouvrir l'article.
@@ -1166,10 +1176,36 @@ const annPane = (function(){
     it.className = "it" + (here ? "" : " lib-row");
     const bar = document.createElement("span");
     bar.className = "bar";
-    bar.style.background = normalizeHighlightColor(a.color || HL_COLORS[0]).replace(",.40", ",.9");
+    bar.style.background = a.kind === "stamp" && stampOf(a) ? stampOf(a).color
+      : a.kind === "text" ? "var(--muted)"
+      : normalizeHighlightColor(a.color || HL_COLORS[0]).replace(",.40", ",.9");
     const body = document.createElement("div");
     const text = (a.text || "").replace(/\s+/g, " ").trim();
-    if (a.kind === "area") {
+    if (a.kind === "stamp" && stampOf(a)) {
+      const st = stampOf(a);
+      const tag = document.createElement("div");
+      tag.className = "stamp-tag";
+      tag.innerHTML = '<span class="pdf-stamp-dot" style="--stamp:' + st.color + '">' + window.AtelierPdfTools.stampIcon(st.id, 10) + '</span>';
+      tag.appendChild(document.createTextNode(st.label));
+      body.appendChild(tag);
+      if (text) {
+        const q = document.createElement("div");
+        q.className = "q is-context"; q.textContent = text;
+        body.appendChild(q);
+      }
+      if (a.note) {
+        const n = document.createElement("div");
+        n.className = "note"; n.textContent = a.note;
+        body.appendChild(n);
+      }
+    } else if (a.kind === "text") {
+      if (!isEditing(a, relX)) {
+        const q = document.createElement("div");
+        q.className = "q is-text";
+        q.textContent = a.text || "\u2026";
+        body.appendChild(q);
+      }
+    } else if (a.kind === "area") {
       let shown = false;
       if (here) {
         let src = thumbs.get(a.id);
@@ -1218,7 +1254,7 @@ const annPane = (function(){
     }
     if (isEditing(a, relX)) {
       body.appendChild(memoEditor(a, relX));
-    } else if (a.memo && a.kind !== "note") {
+    } else if (a.memo && a.kind !== "note" && a.kind !== "text") {
       const m = document.createElement("div");
       m.className = "memo";
       m.title = "Modifier la note";
@@ -1231,7 +1267,7 @@ const annPane = (function(){
     foot.className = "foot";
     const pg = document.createElement("span");
     pg.className = "pg";
-    pg.textContent = "p. " + a.page + (a.kind === "note" ? " \u00b7 note" : "");
+    pg.textContent = "p. " + a.page + (a.kind === "note" ? " \u00b7 note" : a.kind === "text" ? " \u00b7 texte" : "");
     const sp = document.createElement("span");
     sp.className = "sp";
     foot.appendChild(pg); foot.appendChild(sp);
@@ -1241,13 +1277,13 @@ const annPane = (function(){
       b.onclick = (e) => { e.stopPropagation(); fn(); };
       foot.appendChild(b);
     };
-    mkAct("", a[memoField(a)] ? "Modifier la note" : "Ajouter une note",
+    mkAct("", a.kind === "text" ? "Modifier le texte" : a[memoField(a)] ? "Modifier la note" : "Ajouter une note",
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
       () => startEdit(relX, a));
     if (!(a.kind === "area" && !here)) mkAct("", "Envoyer au chat",
       '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>',
       () => sendAnnot(a, null, relX));
-    if (a.kind !== "area") mkAct("", "Copier la citation et sa r\u00e9f\u00e9rence",
+    if (a.kind !== "area" && a.kind !== "stamp") mkAct("", "Copier la citation et sa r\u00e9f\u00e9rence",
       '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.6"/><path d="M10.8 5.2V3.6A1.6 1.6 0 0 0 9.2 2H3.6A1.6 1.6 0 0 0 2 3.6v5.6a1.6 1.6 0 0 0 1.6 1.6h1.6"/></svg>',
       () => copyWithCitation(a, relX));
     mkAct("danger", "Supprimer",
@@ -1265,7 +1301,8 @@ const annPane = (function(){
   // chargement de la bibliothèque) sont différés : reconstruire la liste
   // détruirait le champ et la saisie en cours.
   let editing = null;          // {rel, id} de la rangée en édition
-  function memoField(a: { kind: string; }){ return a.kind === "note" ? "note" : "memo"; }
+  // une zone de texte édite son propre texte (celui qui est sur la page)
+  function memoField(a: { kind: string; }){ return a.kind === "note" ? "note" : a.kind === "text" ? "text" : "memo"; }
   function isEditing(a, relX){
     return !!editing && editing.rel === (relX || rel) && String(editing.id) === String(a.id);
   }
@@ -1279,7 +1316,7 @@ const annPane = (function(){
     ta.className = "memo-edit";
     ta.rows = 1;
     ta.value = a[field] || "";
-    ta.placeholder = field === "memo" ? "Note (jamais envoyée au chat)" : "Note…";
+    ta.placeholder = field === "memo" ? "Note (jamais envoyée au chat)" : field === "text" ? "Texte…" : "Note…";
     ta.setAttribute("aria-label", "Note");
     const fit = () => { ta.style.height = "auto"; ta.style.height = Math.min(160, ta.scrollHeight) + "px"; };
     let done = false;
@@ -1311,8 +1348,10 @@ const annPane = (function(){
     const before = a[field] || "";
     if (field === "memo") {
       if (value.trim()) a.memo = value; else delete a.memo;
+    } else if (field === "text" && !value.trim()) {
+      return;   // une zone de texte vide se supprime avec la corbeille
     } else {
-      a.note = value;
+      a[field] = value;
     }
     if ((a[field] || "") === before) return;
     if (!relX || relX === rel) {
@@ -1341,11 +1380,12 @@ const annPane = (function(){
   function renderDoc(){
     const all = sorted();
     const shown = filtered(all);
-    cn.textContent = shown.length + (only ? " / " + all.length : "");
+    cn.textContent = shown.length + (only || onlyStamp ? " / " + all.length : "");
     if (!shown.length) {
       const e = document.createElement("div");
       e.className = "empty";
-      e.textContent = only ? "Aucune annotation de cette couleur."
+      e.textContent = onlyStamp ? "Aucun tampon de ce type."
+        : only ? "Aucune annotation de cette couleur."
         : "Aucune annotation. S\u00e9lectionne du texte et choisis une couleur.";
       list.appendChild(e);
       return;
@@ -1404,6 +1444,98 @@ const annPane = (function(){
     if (editing) return;   // le rendu suit la fin de l'édition
     render();
   }
+  // ---- onglet « Plan » : table des matières du PDF (getOutline de pdf.js),
+  // à défaut les titres repérés par l'analyse du mode lecture (/reflow).
+  const tocBox = pane.querySelector<HTMLDivElement>(".toc");
+  const tabs = [...pane.querySelectorAll<HTMLButtonElement>(".hd .tab")];
+  let view = "ann", tocItems = null, tocFor = null, tocLoading = null;
+  async function resolveDest(pdf, dest){
+    try {
+      const d = typeof dest === "string" ? await pdf.getDestination(dest) : dest;
+      if (!Array.isArray(d) || !d.length) return null;
+      const index = typeof d[0] === "number" ? d[0] : await pdf.getPageIndex(d[0]);
+      const kind = d[1] && d[1].name;
+      const top = kind === "XYZ" ? d[3] : (kind === "FitH" || kind === "FitBH") ? d[2] : null;
+      let y = 0;
+      if (typeof top === "number") {
+        const view = (await pdf.getPage(index + 1)).view;
+        y = Math.max(0, Math.min(1, 1 - (top - view[1]) / ((view[3] - view[1]) || 1)));
+      }
+      return {page: index + 1, y};
+    } catch(e) { return null; }
+  }
+  async function buildToc(pdf){
+    let items = [];
+    try {
+      const outline = pdf ? await pdf.getOutline() : null;
+      for (const it of window.AtelierPdfTools ? window.AtelierPdfTools.flattenOutline(outline) : [])
+        items.push({title: it.title, depth: it.depth, target: await resolveDest(pdf, it.dest)});
+    } catch(e) { items = []; }
+    if (!items.some(it => it.target) && window.__readingMode) {
+      try {
+        const d = await window.__readingMode.loadDoc();
+        items = ((d && d.blocks) || []).filter(b => b.kind === "heading" && String(b.text || "").trim())
+          .map(b => {
+            const dim = (d.pages || [])[b.page - 1];
+            return {title: String(b.text).replace(/\s+/g, " ").trim().slice(0, 140), depth: 0,
+              target: {page: b.page, y: dim && b.bbox ? b.bbox[1] / dim.h : 0}};
+          });
+      } catch(e) {}
+    }
+    return items;
+  }
+  function renderToc(){
+    tocBox.innerHTML = "";
+    if (tocItems === null) {
+      const e = document.createElement("div");
+      e.className = "empty"; e.textContent = "Chargement\u2026";
+      tocBox.appendChild(e);
+      return;
+    }
+    if (!tocItems.length) {
+      const e = document.createElement("div");
+      e.className = "empty"; e.textContent = "Cet article n\u2019a pas de plan.";
+      tocBox.appendChild(e);
+      return;
+    }
+    for (const it of tocItems) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "toc-it";
+      b.style.paddingLeft = (8 + Math.min(it.depth, 3) * 12) + "px";
+      const t = document.createElement("span");
+      t.className = "toc-t"; t.textContent = it.title;
+      b.appendChild(t);
+      if (it.target) {
+        const n = document.createElement("span");
+        n.className = "toc-p"; n.textContent = String(it.target.page);
+        b.appendChild(n);
+        b.onclick = () => jump({page: it.target.page, rects: [[0, it.target.y, 0, 0]]});
+      } else b.disabled = true;
+      tocBox.appendChild(b);
+    }
+  }
+  function loadToc(){
+    if (!tocBox) return;
+    const pdf = __readingPdf;
+    if (tocItems !== null && tocFor === pdf) { renderToc(); return; }
+    if (tocLoading && tocFor === pdf) return;
+    tocFor = pdf; tocItems = null; renderToc();
+    const mine = tocLoading = buildToc(pdf).then(items => {
+      if (tocLoading !== mine) return;
+      tocLoading = null; tocItems = items;
+      if (view === "toc") renderToc();
+    });
+  }
+  function showView(next: string){
+    view = next === "toc" && tocBox ? "toc" : "ann";
+    tabs.forEach(t => { const on = t.dataset.v === view; t.classList.toggle("on", on); t.setAttribute("aria-selected", String(on)); });
+    pane.classList.toggle("toc-on", view === "toc");
+    if (view === "toc") loadToc(); else refresh();
+  }
+  tabs.forEach(t => t.onclick = () => showView(t.dataset.v));
+  // un PDF rechargé (compilation LaTeX) périme son plan
+  window.addEventListener("pdf-document-changed", () => { tocItems = null; tocFor = null; if (view === "toc" && pane.style.display === "flex") loadToc(); });
   function render(){
     if (pane.style.display !== "flex") return;
     filters.innerHTML = "";
@@ -1412,9 +1544,24 @@ const annPane = (function(){
       d.className = "fdot" + (only === c ? " on" : "");
       d.style.background = c.replace(",.40", ",.85");
       d.title = "N'afficher que cette couleur";
-      d.onclick = () => { only = (only === c) ? null : c; refresh(); };
+      d.onclick = () => { only = (only === c) ? null : c; onlyStamp = null; refresh(); };
       filters.appendChild(d);
     });
+    // tampons : un filtre par sens, à la suite des teintes
+    if (window.AtelierPdfTools) {
+      const sep = document.createElement("span");
+      sep.className = "fsep";
+      filters.appendChild(sep);
+      for (const st of window.AtelierPdfTools.STAMPS) {
+        const d = document.createElement("span");
+        d.className = "fstamp pdf-stamp-dot" + (onlyStamp === st.id ? " on" : "");
+        d.style.setProperty("--stamp", st.color);
+        d.innerHTML = window.AtelierPdfTools.stampIcon(st.id, 10);
+        d.title = "N'afficher que les tampons « " + st.label + " »";
+        d.onclick = () => { onlyStamp = (onlyStamp === st.id) ? null : st.id; only = null; refresh(); };
+        filters.appendChild(d);
+      }
+    }
     pane.querySelectorAll<HTMLButtonElement>(".scope button").forEach(b => b.classList.toggle("on", b.dataset.s === scope));
     list.innerHTML = "";
     if (scope === "lib") renderLib(); else renderDoc();
@@ -1442,7 +1589,7 @@ const annPane = (function(){
         doc.title = doc.textContent;
       }
       applyNarrow();   // pose --pane-pad dès l'ouverture, pas seulement au drag
-      refresh();
+      if (view === "toc") loadToc(); else refresh();
     }
   }
   // largeur ajustable, retenue d'une session à l'autre
@@ -1804,7 +1951,7 @@ function saveAnnots(){
   return ANNOT_SAVE;
 }
 function drawAnnots(pgDiv: Element, n: number){
-  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line, .pdfmemo").forEach((el) => el.remove());
+  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line, .pdfmemo, .pdfstamp, .pdftext:not(.editing)").forEach((el) => el.remove());
   // Keep adjacent margin numbers separately clickable, without moving the
   // stored text anchor. Spread collisions down, then fit the group upward.
   const comments = PDF_ANNOTS.filter(a => +a.page === +n && a.kind === "comment" && a.rects?.length)
@@ -1859,6 +2006,8 @@ function drawAnnots(pgDiv: Element, n: number){
     // Les annotations enregistrées mot par mot (avant 2026-09-19) se fondent
     // au rendu : `aspect` = hauteur/largeur de la page, connue par le slot.
     const pageAspect = (pgDiv as HTMLElement).offsetWidth > 0 ? (pgDiv as HTMLElement).offsetHeight / (pgDiv as HTMLElement).offsetWidth : 1;
+    if(a.kind === "stamp"){ drawStamp(pgDiv as HTMLElement, a); continue; }
+    if(a.kind === "text"){ drawTextBox(pgDiv as HTMLElement, a); continue; }
     const drawRects = a.kind === "area" ? [] : window.AtelierPdfSelection.mergeLineRects(a.rects, {aspect: pageAspect});
     for(const rc of drawRects){
       const el = document.createElement("div");
@@ -1875,7 +2024,7 @@ function drawAnnots(pgDiv: Element, n: number){
       if(a.note) el.title = a.note;
       el.onclick = (e) => {
         e.stopPropagation();
-        if(eraseMark && (a.kind === "hl" || a.kind === "ul" || a.kind === "st")){
+        if(eraseMark && a.kind !== "comment"){
           void removeAnnot(a);return;
         }
         annotMenu(a,e.clientX,e.clientY);
@@ -1907,16 +2056,29 @@ function drawAnnots(pgDiv: Element, n: number){
       const cap = document.createElement("span");
       cap.className = "cap"; cap.textContent = a.note ? a.note.slice(0, 28) : "zone";
       box.appendChild(cap);
-      box.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      box.onclick = (e) => {
+        e.stopPropagation();
+        if(eraseMark){ void removeAnnot(a); return; }
+        annotMenu(a, e.clientX, e.clientY);
+      };
       pgDiv.appendChild(box);
     }
+    // Note libre : bulle graphite centrée sur le point cliqué (le point
+    // enregistré est son centre, pas un coin).
     if(a.kind === "note" && a.pin){
-      const pin = document.createElement("div");
+      const pin = document.createElement("button");
+      pin.type = "button";
       pin.className = "pdfnote";
+      pin.dataset.aid = String(a.id);
       pin.style.left = (a.pin[0]*100)+"%"; pin.style.top = (a.pin[1]*100)+"%";
-      pin.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#e0b74a" stroke-width="1.4"><path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg>';
-      if(a.note) pin.title = a.note;
-      pin.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
+      pin.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg>';
+      pin.title = a.note || "Note";
+      pin.setAttribute("aria-label", "Note" + (a.note ? " : " + a.note : ""));
+      pin.onclick = (e) => {
+        e.stopPropagation();
+        if(eraseMark){ void removeAnnot(a); return; }
+        annotMenu(a, e.clientX, e.clientY);
+      };
       pgDiv.appendChild(pin);
     }
   }
@@ -2053,63 +2215,173 @@ function addHighlightFromReadingSel(kind, color){
 let LAST_COLOR = HL_COLORS[0];
 let markKind = "hl";
 let eraseMark = false;
-(function(){
+// Outil à POSER (barre complétée, 2026-09-28) : note, zone de texte, tampon,
+// zone capturée. Un clic sur la page = une pose, puis retour à la lecture ;
+// seule la gomme reste active jusqu'à Échap (on efface souvent en série).
+let TOOL: string = null;
+let STAMP_KIND = "verif";
+const TOOL_HINTS = {
+  note: "Clique sur la page pour poser une note.",
+  text: "Clique ou glisse sur la page pour ajouter une zone de texte.",
+  stamp: "Clique dans la marge pour une pastille, dans le texte pour un tampon.",
+  area: "Glisse sur une figure ou un tableau pour la capturer.",
+};
+const ERASE_HINT = "Clique sur une annotation pour la retirer (Échap pour finir).";
+const toolWatchers: (() => void)[] = [];
+function toolStatus(text: string){
+  const st = document.getElementById("status");
+  if(!st) return;
+  // n'efface que nos propres consignes, jamais un message d'erreur
+  if(text || [ERASE_HINT, ...Object.values(TOOL_HINTS)].includes(st.textContent)) st.textContent = text;
+}
+function setTool(next: string){
+  TOOL = next || null;
+  if(TOOL) eraseMark = false;
+  document.body.classList.toggle("area-mode", TOOL === "area");
+  document.body.classList.toggle("place-mode", !!TOOL && TOOL !== "area");
+  document.body.classList.toggle("erase-mode", eraseMark);
+  toolWatchers.forEach(fn => fn());
+  toolStatus(TOOL ? TOOL_HINTS[TOOL] || "" : eraseMark ? ERASE_HINT : "");
+}
+function setEraser(on: boolean){
+  eraseMark = !!on;
+  if(eraseMark) TOOL = null;
+  setTool(TOOL);
+}
+const markTools = (function(){
+  const PT = window.AtelierPdfTools;
   const bar = document.createElement("div");
   bar.className = "pdf-mark-tools";
   bar.setAttribute("role", "group");bar.setAttribute("aria-label", "Marquage du PDF");
   const icons = {
     hl:'<path d="m14 3 7 7-9 9-7-7zM5 12l-2 6 3 3 6-2M2 22h13"/>',
     ul:'<path d="M6 3v8a6 6 0 0 0 12 0V3M4 21h16"/>',
+    st:'<path d="M3 12h18M16.5 7.5C16 5.5 14.3 4 12 4 9.5 4 7.5 5.5 7.5 7.6c0 1.6 1 2.8 3 3.6M8 16.5c.6 2 2.3 3.5 4.3 3.5 2.6 0 4.3-1.6 4.3-3.6 0-.9-.3-1.7-.9-2.4"/>',
+    note:'<path d="M4.5 3.8h15v12H12l-4.5 4.5v-4.5h-3z"/>',
+    text:'<path d="M5 7V5h14v2M12 5v14M9 19h6"/>',
+    stamp:'<path d="M9.5 3.5h5c.6 0 1 .4 1 1 0 2.2-1.5 3.3-1.5 6h-4c0-2.7-1.5-3.8-1.5-6 0-.6.4-1 1-1zM5 13.5c0-1.7 1.3-3 3-3h8c1.7 0 3 1.3 3 3V16H5zM6 20h12"/>',
     erase:'<path d="m14 3 7 7-11 11H6l-4-4zM8 11l7 7M10 21h12"/>'
   };
-  const tool = (label: string, icon: string, action) => {
-    const button=document.createElement("button");button.type="button";
-    button.title=label;button.setAttribute("aria-label",label);
-    button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'+icons[icon]+'</svg>';
+  const CHECK = '<svg class="pdf-tool-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>';
+  const tool = (id: string, label: string, key: string, action) => {
+    const button=document.createElement("button");button.type="button";button.dataset.tool=id;
+    button.title=key ? label+" ("+key+")" : label;button.setAttribute("aria-label",label);
+    button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+icons[id]+'</svg>';
     button.onclick=action;bar.appendChild(button);return button;
   };
-  const tools: [HTMLButtonElement,string][]=[];
-  const refresh=()=>tools.forEach(([button,kind])=>button.setAttribute("aria-pressed",String(kind==="erase"?eraseMark:!eraseMark&&markKind===kind)));
-  for(const [kind,label] of [["hl","Surligner"],["ul","Souligner"]]){
-    const button=tool(label,kind,()=>{
-      setPalette(false);eraseMark=false;markKind=kind;refresh();addHighlightFromSel(kind,LAST_COLOR);});
-    button.classList.add("pdf-mark-pen");tools.push([button,kind]);
+  const sep = () => { const s=document.createElement("span");s.className="pdf-mark-sep";s.setAttribute("aria-hidden","true");bar.appendChild(s);return s; };
+  // Un seul état actif lisible : le stylo courant quand aucun outil n'est armé.
+  const refresh=()=>document.querySelectorAll<HTMLElement>("[data-tool]").forEach(button=>{
+    const t=button.dataset.tool;
+    const on=t==="erase"?eraseMark:(t==="hl"||t==="ul"||t==="st")?!eraseMark&&!TOOL&&markKind===t:TOOL===t;
+    button.setAttribute("aria-pressed",String(on));
+  });
+  toolWatchers.push(refresh);
+  for(const [kind,label,key] of [["hl","Surligner","H"],["ul","Souligner","U"],["st","Barrer","S"]]){
+    const button=tool(kind,label,key,()=>{
+      setPalette(false);setStampMenu(false);eraseMark=false;markKind=kind;setTool(null);addHighlightFromSel(kind,LAST_COLOR);});
+    button.classList.add("pdf-mark-pen");
   }
+  const names = PT ? PT.COLOR_NAMES : ["Jaune","Vert","Bleu","Rose","Orange","Violet"];
+  const meanings = PT ? PT.COLOR_MEANINGS : names;
   const colorToggle = document.createElement("button");
   colorToggle.type = "button"; colorToggle.className = "pdf-color-toggle";
-  colorToggle.title = "Couleur du surlignage"; colorToggle.setAttribute("aria-label", colorToggle.title);
+  colorToggle.title = "Couleur du surlignage (1–6)"; colorToggle.setAttribute("aria-label", "Couleur du surlignage");
   colorToggle.setAttribute("aria-expanded", "false"); colorToggle.setAttribute("aria-controls", "pdf-color-palette");
-  colorToggle.innerHTML = '<span class="pdf-current-color"></span><span aria-hidden="true">⌄</span>';
-  const setPalette = (open) => { bar.classList.toggle("palette-open", open); colorToggle.setAttribute("aria-expanded", String(open)); };
+  colorToggle.innerHTML = '<span class="pdf-current-color"></span>';
+  const setPalette = (open) => { bar.classList.toggle("palette-open", open); colorToggle.setAttribute("aria-expanded", String(open)); if(open) setStampMenu(false); };
   colorToggle.onclick = () => {
     // Pointer and accessibility activation must move keyboard handling into the
     // reader iframe, while mousedown still preserves the selected PDF text.
-    colorToggle.focus({preventScroll:true});
+    // WebKit ne donne pas le focus au clic : Échap doit pouvoir y revenir.
+    // Pas d'anneau de focus pour un clic de souris.
+    colorToggle.focus({preventScroll:true, focusVisible:false} as FocusOptions);
     setPalette(!bar.classList.contains("palette-open"));
   };
   bar.appendChild(colorToggle);
-  const palette=document.createElement("span");palette.className="pdf-mark-colors";palette.id="pdf-color-palette";
+  // Palette nommée par son SENS (légende des marquages de Claude) : modèle de
+  // menu commun, sélection = ✓ à droite, chiffre = raccourci.
+  const palette=document.createElement("span");palette.className="pdf-mark-colors pdf-tool-pop";palette.id="pdf-color-palette";
   palette.setAttribute("role", "group");palette.setAttribute("aria-label", "Couleurs de surlignage");bar.appendChild(palette);
   const colors: HTMLButtonElement[]=[];
   HL_COLORS.forEach((color,i)=>{
     const button=document.createElement("button");button.type="button";button.className="pdf-mark-color";
-    button.title=["Jaune","Vert","Bleu","Rose","Orange","Violet"][i];button.setAttribute("aria-label",button.title);
+    button.dataset.index=String(i);
+    button.title=names[i]+" · "+meanings[i]+" ("+(i+1)+")";button.setAttribute("aria-label",names[i]+", "+meanings[i]);
     button.style.setProperty("--mark-color",color.replace(",.40)",",1)"));
+    button.innerHTML='<span class="pdf-swatch" aria-hidden="true"></span><span class="pdf-tool-label">'+meanings[i]+'</span><kbd>'+(i+1)+'</kbd>'+CHECK;
     button.setAttribute("aria-pressed",String(i===0));
-    button.onclick=()=>{LAST_COLOR=color;bar.style.setProperty("--mark-current",color.replace(",.40)",",1)"));setPalette(false);eraseMark=false;refresh();colors.forEach(b=>b.setAttribute("aria-pressed",String(b===button)));addHighlightFromSel(markKind,color);};
+    button.onclick=()=>pickColor(i);
     palette.appendChild(button);colors.push(button);
   });
-  const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();(document.getElementById("status") as HTMLSpanElement).textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});eraser.dataset.t="erase";tools.push([eraser,"erase"]);
+  function pickColor(i: number){
+    const color=HL_COLORS[i];if(!color)return;
+    LAST_COLOR=color;bar.style.setProperty("--mark-current",color.replace(",.40)",",1)"));setPalette(false);
+    eraseMark=false;setTool(TOOL);
+    colors.forEach(b=>b.setAttribute("aria-pressed",String(b===colors[i])));
+    colorToggle.title="Couleur : "+names[i]+" · "+meanings[i]+" (1–6)";
+    addHighlightFromSel(markKind,color);
+  }
+  sep();
+  const placeTool=(id: string,label: string,key: string)=>tool(id,label,key,()=>{setPalette(false);setStampMenu(false);setTool(TOOL===id?null:id);});
+  placeTool("note","Note sur la page","N");
+  placeTool("text","Zone de texte","T");
+  // Tampons : un menu, six sens fixes en couleur (pastille en marge, tampon
+  // encreur dans le texte : le point cliqué décide).
+  const stampBtn=tool("stamp","Tampon","⇧1–6",()=>{setPalette(false);setStampMenu(!bar.classList.contains("stamps-open"));});
+  stampBtn.setAttribute("aria-haspopup","menu");stampBtn.setAttribute("aria-expanded","false");stampBtn.setAttribute("aria-controls","pdf-stamp-menu");
+  const stampMenu=document.createElement("div");stampMenu.className="pdf-stamp-menu pdf-tool-pop";stampMenu.id="pdf-stamp-menu";
+  stampMenu.setAttribute("role","menu");stampMenu.setAttribute("aria-label","Tampons");
+  (PT ? PT.STAMPS : []).forEach((s,i)=>{
+    const row=document.createElement("button");row.type="button";row.className="pdf-stamp-row";
+    row.setAttribute("role","menuitemradio");row.dataset.stamp=s.id;row.title=s.label+" (⇧"+(i+1)+")";
+    row.innerHTML='<span class="pdf-stamp-dot" style="--stamp:'+s.color+'">'+PT.stampIcon(s.id,12)+'</span><span class="pdf-tool-label">'+s.label+'</span><kbd>⇧'+(i+1)+'</kbd>'+CHECK;
+    row.onclick=()=>pickStamp(i);
+    stampMenu.appendChild(row);
+  });
+  bar.appendChild(stampMenu);
+  function paintStamps(){ stampMenu.querySelectorAll<HTMLElement>("[data-stamp]").forEach(r=>r.setAttribute("aria-checked",String(r.dataset.stamp===STAMP_KIND))); }
+  function setStampMenu(open: boolean){
+    bar.classList.toggle("stamps-open",open);stampBtn.setAttribute("aria-expanded",String(open));
+    if(open){paintStamps();bar.classList.remove("palette-open");colorToggle.setAttribute("aria-expanded","false");}
+  }
+  function pickStamp(i: number){
+    const s=PT && PT.STAMPS[i];if(!s||stampBtn.disabled)return;
+    STAMP_KIND=s.id;setStampMenu(false);paintStamps();setTool("stamp");
+    stampBtn.title="Tampon : "+s.label+" (⇧1–6)";
+  }
+  sep().classList.add("pdf-mark-sep-end");
+  const eraser=tool("erase","Effacer un marquage","E",()=>{setPalette(false);setStampMenu(false);setEraser(!eraseMark);});eraser.dataset.t="erase";
   bar.onmousedown=e=>e.preventDefault();
   bar.style.setProperty("--mark-current",HL_COLORS[0].replace(",.40)",",1)"));
-  document.addEventListener("pointerdown",e=>{ if(!(e.target as Element).closest<HTMLElement>(".pdf-mark-tools")) setPalette(false); });
+  document.addEventListener("pointerdown",e=>{ if(!(e.target as Element).closest<HTMLElement>(".pdf-mark-tools")){ setPalette(false); setStampMenu(false); } });
   document.addEventListener("keydown", e => {
-    if(e.key !== "Escape" || !bar.classList.contains("palette-open")) return;
+    if(e.key !== "Escape") return;
     // Handle the upper palette before the document-level selection cancel.
-    e.preventDefault(); e.stopImmediatePropagation();
-    setPalette(false); colorToggle.focus();
+    if(bar.classList.contains("palette-open")){ e.preventDefault(); e.stopImmediatePropagation(); setPalette(false); colorToggle.focus(); }
+    else if(bar.classList.contains("stamps-open")){ e.preventDefault(); e.stopImmediatePropagation(); setStampMenu(false); stampBtn.focus(); }
   }, true);
-  (document.getElementById("selinfo") as HTMLSpanElement).before(bar);refresh();
+  // Raccourcis : H U S (stylos, appliqués aussi à la sélection en cours),
+  // N T Z E (outils), 1–6 (teintes), Maj+1–6 (tampons), Échap (lecture).
+  // R reste au mode lecture. Jamais pendant une saisie.
+  document.addEventListener("keydown", e => {
+    if(e.defaultPrevented || e.repeat) return;
+    const t = e.target as HTMLElement;
+    if(t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+    if(e.key === "Escape"){ if(TOOL || eraseMark){ e.preventDefault(); eraseMark = false; setTool(null); } return; }
+    const k = PT && PT.shortcut(e);
+    if(!k) return;
+    if(k.color !== undefined) pickColor(k.color);
+    else if(k.stamp !== undefined) pickStamp(k.stamp);
+    else {
+      const button = document.querySelector<HTMLButtonElement>('header [data-tool="' + k.tool + '"]:not(.pdf-toolbar-menu *)');
+      if(!button || button.disabled) return;   // outil absent (zone hors d'Atelier) ou mode lecture
+      button.click();
+    }
+    e.preventDefault();
+  });
+  (document.getElementById("selinfo") as HTMLSpanElement).before(bar);paintStamps();refresh();
+  return {pickColor, pickStamp};
 })();
 // Référence courte dérivée du NOM DE FICHIER — le lecteur n'a pas les
 // métadonnées Zotero (ni auteur ni année structurés). Même règle que les
@@ -2122,6 +2394,469 @@ function citeRefFor(relX: string){
   return base.length > 34 ? base.slice(0, 33) + "…" : base;
 }
 function citeRef(){ return citeRefFor(rel); }
+// ---- outils à poser : note, tampon, zone de texte ---------------------------
+// Un clic (ou un glissé pour la zone de texte) pose l'objet puis relâche
+// l'outil. Écoute en CAPTURE : le clic de pose ne doit pas aussi fermer la
+// bulle qu'il vient d'ouvrir (écouteur de fermeture de annotMenu).
+const PLACED_TARGETS = ".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfmemo, .pdfstamp, .pdftext";
+// Le click qui suit le relâché d'une pose (zone, boîte de texte, poignée)
+// est avalé ; tout nouvel appui annule la consigne, sans délai à deviner.
+let swallowClick = false;
+document.addEventListener("pointerdown", () => { swallowClick = false; }, true);
+function pagePoint(pg: HTMLElement, e: {clientX: number; clientY: number}){
+  const pr = pg.getBoundingClientRect();
+  return [Math.max(0, Math.min(1, (e.clientX - pr.left) / pr.width)),
+    Math.max(0, Math.min(1, (e.clientY - pr.top) / pr.height))];
+}
+/** Morceaux de texte d'une page (bords normalisés) : distinguent la marge du
+ *  texte et donnent la ligne voisine d'un tampon, que Claude lira. */
+function pageLines(pg: HTMLElement){
+  const pr = pg.getBoundingClientRect();
+  const out: {l:number;r:number;t:number;b:number;text:string}[] = [];
+  if (!pr.width || !pr.height) return out;
+  pg.querySelectorAll<HTMLElement>(".textLayer span").forEach(span => {
+    const text = span.textContent || "";
+    if (!text.trim()) return;
+    const r = span.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    out.push({l: (r.left - pr.left) / pr.width, r: (r.right - pr.left) / pr.width,
+      t: (r.top - pr.top) / pr.height, b: (r.bottom - pr.top) / pr.height, text});
+  });
+  return out;
+}
+function lineTextNear(lines: {l:number;r:number;t:number;b:number;text:string}[], x: number, y: number, wholeLine: boolean){
+  let best = null, dist = 0.03;
+  for (const s of lines) {
+    const d = Math.abs((s.t + s.b) / 2 - y);
+    if (d < dist) { dist = d; best = s; }
+  }
+  if (!best) return "";
+  const mid = (best.t + best.b) / 2, half = Math.max(0.002, (best.b - best.t) / 2);
+  return lines.filter(s => Math.abs((s.t + s.b) / 2 - mid) <= half
+      && (wholeLine || (s.r >= x - 0.22 && s.l <= x + 0.22)))
+    .sort((a, b) => a.l - b.l).map(s => s.text).join(" ")
+    .replace(/\s+/g, " ").trim().slice(0, 240);
+}
+function closeAnnotEditor(){
+  if (annotationEditor) void annotationEditor.commit(true, true);
+  else annotPop.style.display = "none";
+}
+document.addEventListener("click", (e) => {
+  // seul le clic du relâché, sur la page, est avalé ; la barre de mise en
+  // forme et les menus répondent tout de suite
+  if (swallowClick) {
+    swallowClick = false;
+    if ((e.target as Element).closest?.(".pg")) { e.stopPropagation(); return; }
+  }
+  if (TOOL !== "note" && TOOL !== "stamp") return;
+  const target = e.target as Element;
+  const pg = target.closest<HTMLElement>(".pg");
+  if (!pg || target.closest(PLACED_TARGETS)) return;
+  if (!ANNOTS_LOADED) { toolStatus("Les annotations chargent encore. Réessaie dans un instant."); return; }
+  e.stopPropagation();
+  const [x, y] = pagePoint(pg, e);
+  const page = +pg.dataset.page;
+  if (TOOL === "note") {
+    // Une note par clic, puis retour à la lecture. Pas d'écriture tant qu'elle
+    // est vide : fermée sans texte, elle n'a jamais existé.
+    setTool(null);
+    const a = {id: Date.now() + "-n", page, rects: [], pin: [x, y], kind: "note", color: LAST_COLOR,
+      text: "", note: "", fresh: true};
+    PDF_ANNOTS.push(a);
+    drawAnnots(pg, page);
+    annotMenu(a, e.clientX, e.clientY);
+    return;
+  }
+  const PT = window.AtelierPdfTools;
+  const lines = pageLines(pg);
+  const margin = PT.isMargin(x, PT.textColumn(lines.map(s => [s.l, s.r])));
+  const stamp = PT.stampById(STAMP_KIND);
+  setTool(null);
+  closeAnnotEditor();
+  const a: Record<string, unknown> = {id: Date.now() + "-s", page, rects: [], pin: [x, y], kind: "stamp",
+    stamp: stamp.id, style: margin ? "pastille" : "encre", text: lineTextNear(lines, x, y, margin), note: ""};
+  if (!margin) a.scale = 1;
+  PDF_ANNOTS.push(a);
+  saveAnnots();
+  drawAnnots(pg, page);
+  toolStatus("Tampon « " + stamp.label + " » posé.");
+  setTimeout(() => toolStatus(""), 1800);
+}, true);
+// ---- tampons -----------------------------------------------------------------
+function drawStamp(pg: HTMLElement, a){
+  if (!a.pin || !window.AtelierPdfTools) return;
+  const PT = window.AtelierPdfTools;
+  const s = PT.stampById(a.stamp);
+  const ink = a.style === "encre";
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "pdfstamp " + (ink ? "pdfstamp-ink" : "pdfstamp-dot");
+  el.dataset.aid = String(a.id);
+  el.style.left = (a.pin[0] * 100) + "%";
+  el.style.top = (a.pin[1] * 100) + "%";
+  el.style.setProperty("--stamp", s.color);
+  el.title = s.label + (a.memo ? " : " + a.memo : a.note ? " : " + a.note : "");
+  el.setAttribute("aria-label", "Tampon " + el.title);
+  if (ink) {
+    el.style.setProperty("--stamp-scale", String(Math.min(2.5, Math.max(0.6, Number(a.scale) || 1))));
+    el.innerHTML = PT.stampIcon(s.id, 12) + "<span></span>";
+    el.querySelector("span").textContent = s.label;
+    const grip = document.createElement("span");
+    grip.className = "pdfstamp-grip";
+    grip.title = "Agrandir ou réduire";
+    grip.addEventListener("mousedown", (e) => resizeStamp(e, a, el));
+    el.appendChild(grip);
+  } else {
+    el.innerHTML = PT.stampIcon(s.id, 14);
+  }
+  el.onclick = (e) => {
+    e.stopPropagation();
+    if (eraseMark) { void removeAnnot(a); return; }
+    annotMenu(a, e.clientX, e.clientY);
+  };
+  pg.appendChild(el);
+}
+/** Tampon encreur : la poignée agrandit ou réduit (0,6× à 2,5×). */
+function resizeStamp(e: MouseEvent, a, el: HTMLElement){
+  if (e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
+  const start = Number(a.scale) || 1, x0 = e.clientX, w0 = el.getBoundingClientRect().width || 1;
+  el.classList.add("sizing");
+  const move = (ev: MouseEvent) => {
+    a.scale = Math.round(Math.min(2.5, Math.max(0.6, start * (1 + (ev.clientX - x0) / w0))) * 100) / 100;
+    el.style.setProperty("--stamp-scale", String(a.scale));
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up, true);
+    el.classList.remove("sizing");
+    swallowClick = true;   // pas de bulle au relâché
+    if (a.scale !== start) saveAnnots();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up, true);
+}
+// ---- zones de texte ------------------------------------------------------------
+// Le texte reste visible sur la page. Clic = sélection (cadre, poignées,
+// barre de mise en forme) ; second clic ou double-clic = édition ; glisser =
+// déplacer ; poignées = redimensionner. Les derniers réglages resservent.
+function drawTextBox(pg: HTMLElement, a){ textBoxes.draw(pg, a); }
+const textBoxes = (function(){
+  const PT = window.AtelierPdfTools;
+  const KEY = "pdfv_text_style";
+  let last = PT ? PT.textStyle(readLast()) : null;
+  let sel = null, editing = false, dirty = false, drag = null, create = null;
+  function readLast(){ try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch(e){ return null; } }
+  function remember(st){ last = st; try { localStorage.setItem(KEY, JSON.stringify(st)); } catch(e){} }
+  const CHEV = '<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
+  const CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>';
+  const TRASH = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M6 4V2.6h4V4M4 4l.6 9.2h6.8L12 4M6.6 6.4v4.4M9.4 6.4v4.4"/></svg>';
+  const fmt = document.createElement("div");
+  fmt.className = "pdf-text-fmt"; fmt.hidden = true;
+  fmt.setAttribute("role", "toolbar"); fmt.setAttribute("aria-label", "Mise en forme du texte");
+  if (PT) {
+    fmt.innerHTML = '<button type="button" class="fmt-sel" data-f="font" aria-haspopup="menu" aria-expanded="false" aria-label="Police" title="Police"><span></span>' + CHEV + '</button>'
+      + '<button type="button" class="fmt-sel" data-f="size" aria-haspopup="menu" aria-expanded="false" aria-label="Taille" title="Taille"><span></span>' + CHEV + '</button>'
+      + '<button type="button" class="fmt-b" data-f="bold" aria-label="Gras" title="Gras"><b>G</b></button>'
+      + '<button type="button" class="fmt-b" data-f="italic" aria-label="Italique" title="Italique"><i>I</i></button>'
+      + '<span class="fmt-sep" aria-hidden="true"></span>'
+      + PT.TEXT_INKS.map(i => '<button type="button" class="fmt-ink" data-ink="' + i.id + '" aria-label="' + i.label + '" title="' + i.label + '" style="--ink:' + i.id + '"></button>').join("")
+      + '<span class="fmt-sep" aria-hidden="true"></span>'
+      + '<button type="button" class="fmt-b fmt-del" data-f="del" aria-label="Supprimer la zone de texte" title="Supprimer la zone de texte">' + TRASH + '</button>'
+      + '<div class="fmt-menu" role="menu" hidden></div>';
+    document.body.appendChild(fmt);
+  }
+  const menu = fmt.querySelector<HTMLDivElement>(".fmt-menu");
+  let menuFor = "";
+  const boxEl = (a) => document.querySelector<HTMLElement>('.pg .pdftext[data-aid="' + CSS.escape(String(a.id)) + '"]');
+  const pageOf = (a) => document.querySelector<HTMLElement>('.pg[data-page="' + a.page + '"]');
+  function applyStyle(el: HTMLElement, st){
+    el.style.fontFamily = PT.fontCss(st.font);
+    el.style.fontSize = "calc(" + st.size + "px * var(--vscale, 1.45))";
+    el.style.fontWeight = st.bold ? "600" : "400";
+    el.style.fontStyle = st.italic ? "italic" : "normal";
+    el.style.color = st.ink;
+  }
+  function draw(pg: HTMLElement, a){
+    const rc = a.rects && a.rects[0];
+    if (!PT || !rc) return;
+    const live = pg.querySelector<HTMLElement>('.pdftext.editing[data-aid="' + CSS.escape(String(a.id)) + '"]');
+    if (live) { pg.appendChild(live); return; }   // l'édition en cours survit au rafraîchissement
+    const el = document.createElement("div");
+    el.className = "pdftext" + (sel && String(sel.id) === String(a.id) ? " on" : "");
+    el.dataset.aid = String(a.id);
+    el.style.left = (rc[0] * 100) + "%"; el.style.top = (rc[1] * 100) + "%"; el.style.width = (rc[2] * 100) + "%";
+    if (Number(a.minh) > 0) el.style.minHeight = (a.minh * 100) + "%";
+    applyStyle(el, PT.textStyle(a));
+    el.textContent = a.text || "";
+    if (!a.text) el.dataset.empty = "1";
+    if (el.classList.contains("on")) for (const k of ["nw", "ne", "sw", "se"]) {
+      const g = document.createElement("span");
+      g.className = "pdftext-grip " + k; g.dataset.grip = k;
+      el.appendChild(g);
+    }
+    el.addEventListener("mousedown", (e) => onDown(e, a));
+    el.addEventListener("dblclick", (e) => { e.stopPropagation(); if (!editing) { select(a); startEdit(); } });
+    pg.appendChild(el);
+  }
+  function redraw(a){ const pg = pageOf(a); if (pg) drawAnnots(pg, +a.page); place(); }
+  function place(){
+    const el = sel && boxEl(sel);
+    if (!el) { fmt.hidden = true; closeMenu(); return; }
+    fmt.hidden = false;
+    const r = el.getBoundingClientRect(), fh = fmt.offsetHeight || 34, fw = fmt.offsetWidth || 320;
+    const head = document.querySelector("header");
+    const minTop = (head ? head.getBoundingClientRect().bottom : 0) + 8;
+    let top = r.top - fh - 8;
+    if (top < minTop) top = r.bottom + 8;
+    fmt.style.left = Math.max(8, Math.min(r.left, innerWidth - fw - 8)) + "px";
+    fmt.style.top = Math.max(minTop, Math.min(top, innerHeight - fh - 8)) + "px";
+  }
+  function paint(){
+    if (!sel || !PT) return;
+    const st = PT.textStyle(sel);
+    fmt.querySelector('[data-f="font"] span').textContent = PT.TEXT_FONTS.find(f => f.id === st.font).label;
+    fmt.querySelector('[data-f="size"] span').textContent = String(st.size);
+    fmt.querySelector('[data-f="bold"]').setAttribute("aria-pressed", String(st.bold));
+    fmt.querySelector('[data-f="italic"]').setAttribute("aria-pressed", String(st.italic));
+    fmt.querySelectorAll<HTMLElement>(".fmt-ink").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.ink === st.ink)));
+  }
+  function select(a){
+    if (sel && String(sel.id) !== String(a.id)) deselect();
+    sel = a; redraw(a); paint(); place();
+  }
+  function deselect(){
+    if (!sel) return;
+    const a = sel;
+    finishEdit();
+    if (sel !== a) return;   // boîte vide abandonnée par finishEdit
+    sel = null; closeMenu(); fmt.hidden = true;
+    // Retouche en place, sans redessiner la page : le mousedown qui
+    // désélectionne vise peut-être un tampon ou une note, qui doit survivre
+    // jusqu'à son click.
+    const el = boxEl(a);
+    if (el) { el.classList.remove("on"); el.querySelectorAll(".pdftext-grip").forEach(g => g.remove()); }
+  }
+  function startEdit(){
+    const el = sel && boxEl(sel);
+    if (!el || editing) return;
+    editing = true;
+    el.querySelectorAll(".pdftext-grip").forEach(g => g.remove());
+    delete el.dataset.empty;
+    el.classList.add("editing");
+    try { el.contentEditable = "plaintext-only"; } catch(e){}
+    if (el.contentEditable !== "plaintext-only") el.contentEditable = "true";
+    el.focus({preventScroll: true});
+    const range = document.createRange(); range.selectNodeContents(el); range.collapse(false);
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(range);
+    el.onkeydown = (ev) => {
+      ev.stopPropagation();
+      if (ev.key === "Escape") { ev.preventDefault(); finishEdit(); }
+    };
+    el.oninput = () => place();
+    el.onblur = () => { if (editing) finishEdit(); };
+  }
+  /** Fin d'édition : vide, la boîte est abandonnée ; sinon texte et taille
+   *  réelle (lue par le MCP et l'iPhone) sont enregistrés. */
+  function finishEdit(){
+    if (!sel || !editing) return;
+    const a = sel, el = boxEl(a);
+    editing = false;
+    const text = el ? el.innerText.replace(/ /g, " ").replace(/\n+$/, "") : a.text || "";
+    if (el) { el.onblur = null; el.contentEditable = "false"; el.classList.remove("editing"); }
+    if (!text.trim()) { sel = null; fmt.hidden = true; closeMenu(); void removeAnnot(a); return; }
+    const changed = text !== a.text || a.fresh || dirty;
+    a.text = text; delete a.fresh; dirty = false;
+    if (changed) commit(a); else redraw(a);
+  }
+  function commit(a){
+    const el = boxEl(a), pg = pageOf(a);
+    if (el && pg) {
+      const pr = pg.getBoundingClientRect(), r = el.getBoundingClientRect();
+      const rc = a.rects[0];
+      a.rects = [[rc[0], rc[1], rc[2], Math.round(r.height / pr.height * 10000) / 10000]];
+    }
+    saveAnnots();
+    redraw(a);
+  }
+  function remove(a){
+    if (sel && String(sel.id) === String(a.id)) { sel = null; editing = false; fmt.hidden = true; closeMenu(); }
+    void removeAnnot(a);
+  }
+  function onDown(e: MouseEvent, a){
+    if (e.button !== 0) return;
+    if (eraseMark) { e.preventDefault(); e.stopPropagation(); remove(a); return; }
+    if (editing && sel && String(sel.id) === String(a.id)) return;   // curseur natif dans le texte
+    e.preventDefault(); e.stopPropagation();
+    const wasSelected = !!sel && String(sel.id) === String(a.id);
+    const grip = (e.target as HTMLElement).dataset && (e.target as HTMLElement).dataset.grip || "";
+    if (!wasSelected) select(a);
+    const pg = pageOf(a);
+    if (!pg) return;
+    drag = {a, grip, pg, x0: e.clientX, y0: e.clientY, rc: a.rects[0].slice(), minh: Number(a.minh) || 0, moved: false, wasSelected, next: null};
+  }
+  document.addEventListener("mousemove", (e) => {
+    if (create) {
+      const [x, y] = pagePoint(create.pg, e);
+      const g = create.ghost;
+      g.style.left = Math.min(x, create.x0) * 100 + "%"; g.style.top = Math.min(y, create.y0) * 100 + "%";
+      g.style.width = Math.abs(x - create.x0) * 100 + "%"; g.style.height = Math.abs(y - create.y0) * 100 + "%";
+      return;
+    }
+    if (!drag) return;
+    if (!drag.moved && Math.abs(e.clientX - drag.x0) + Math.abs(e.clientY - drag.y0) < 3) return;
+    drag.moved = true;
+    const pr = drag.pg.getBoundingClientRect();
+    const dx = (e.clientX - drag.x0) / pr.width, dy = (e.clientY - drag.y0) / pr.height;
+    let [x, y, w] = drag.rc, h = drag.minh;
+    const minW = 40 / pr.width, clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+    if (!drag.grip) { x = clamp(x + dx, 0, 1 - w); y = clamp(y + dy, 0, 0.99); }
+    else {
+      if (drag.grip.includes("w")) { const nx = clamp(x + dx, 0, x + w - minW); w += x - nx; x = nx; }
+      if (drag.grip.includes("e")) w = clamp(w + dx, minW, 1 - x);
+      const cur = Math.max(h, drag.rc[3] || 0);
+      if (drag.grip.includes("n")) { const ny = clamp(y + dy, 0, y + cur - 0.01); h = cur + (y - ny); y = ny; }
+      if (drag.grip.includes("s")) h = clamp(cur + dy, 0.01, 1 - y);
+    }
+    drag.next = {x, y, w, h};
+    const el = boxEl(drag.a);
+    if (el) {
+      el.style.left = x * 100 + "%"; el.style.top = y * 100 + "%"; el.style.width = w * 100 + "%";
+      if (h > 0) el.style.minHeight = h * 100 + "%";
+    }
+    place();
+  });
+  document.addEventListener("mouseup", (e) => {
+    if (create) { finishCreate(e); return; }
+    if (!drag) return;
+    const d = drag; drag = null;
+    if (d.moved && d.next) {
+      const rc = d.a.rects[0];
+      d.a.rects = [[d.next.x, d.next.y, d.next.w, rc[3] || 0]];
+      if (d.grip && /[ns]/.test(d.grip)) d.a.minh = Math.round(d.next.h * 10000) / 10000;
+      swallowClick = true;
+      commit(d.a);
+    } else if (d.wasSelected) startEdit();
+  }, true);
+  // Pose : glisser dessine la boîte, un simple clic en donne une de 240 px.
+  // pointerdown : sur la couche texte, le lecteur annule l'appui (sélection
+  // maison), ce qui supprime les mousedown de compatibilité.
+  document.addEventListener("pointerdown", (e) => {
+    if (sel && !(e.target as Element).closest(".pdftext, .pdf-text-fmt")) deselect();
+  }, true);
+  document.addEventListener("mousedown", (e) => {
+    if (TOOL !== "text" || e.button !== 0) return;
+    const target = e.target as Element;
+    const pg = target.closest<HTMLElement>(".pg");
+    if (!pg || target.closest(PLACED_TARGETS)) return;
+    if (!ANNOTS_LOADED) { toolStatus("Les annotations chargent encore. Réessaie dans un instant."); return; }
+    e.preventDefault(); e.stopPropagation();
+    const [x0, y0] = pagePoint(pg, e);
+    const ghost = document.createElement("div");
+    ghost.className = "areasel";
+    pg.appendChild(ghost);
+    create = {pg, x0, y0, ghost};
+  }, true);
+  function finishCreate(e: MouseEvent){
+    const {pg, x0, y0, ghost} = create;
+    create = null; ghost.remove();
+    const [x1, y1] = pagePoint(pg, e);
+    const pr = pg.getBoundingClientRect();
+    let x = Math.min(x0, x1), w = Math.abs(x1 - x0);
+    const y = Math.min(y0, y1), h = Math.abs(y1 - y0);
+    if (w * pr.width < 24) w = Math.min(240 / pr.width, 1 - x);
+    x = Math.min(x, Math.max(0, 1 - w));
+    setTool(null);
+    closeAnnotEditor();
+    swallowClick = true;
+    const a = {id: Date.now() + "-t", page: +pg.dataset.page, kind: "text", rects: [[x, y, w, 0]], text: "", note: "",
+      ...PT.textStyle(last), ...(h * pr.height >= 16 ? {minh: Math.round(h * 10000) / 10000} : {}), fresh: true};
+    PDF_ANNOTS.push(a);
+    select(a);
+    startEdit();
+  }
+  document.addEventListener("keydown", (e) => {
+    if (!sel || editing || e.defaultPrevented) return;
+    const t = e.target as HTMLElement;
+    if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+    if (e.key === "Escape") { e.preventDefault(); deselect(); }
+    else if (e.key === "Enter") { e.preventDefault(); startEdit(); }
+    else if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); remove(sel); }
+  });
+  function closeMenu(){
+    if (!menu) return;
+    menu.hidden = true; menuFor = "";
+    fmt.querySelectorAll('.fmt-sel').forEach(b => b.setAttribute("aria-expanded", "false"));
+  }
+  function openMenu(kind: string, button: HTMLElement){
+    if (menuFor === kind) { closeMenu(); return; }
+    const st = PT.textStyle(sel);
+    const rows = kind === "font"
+      ? PT.TEXT_FONTS.map(f => ({v: f.id, label: f.label, css: f.css, on: st.font === f.id}))
+      : PT.TEXT_SIZES.map(n => ({v: String(n), label: String(n), css: "", on: st.size === n}));
+    menu.innerHTML = "";
+    for (const r of rows) {
+      const b = document.createElement("button");
+      b.type = "button"; b.dataset.opt = r.v;
+      b.setAttribute("role", "menuitemradio"); b.setAttribute("aria-checked", String(r.on));
+      const label = document.createElement("span"); label.textContent = r.label;
+      if (r.css) label.style.fontFamily = r.css;
+      b.appendChild(label); b.insertAdjacentHTML("beforeend", CHECK);
+      menu.appendChild(b);
+    }
+    menuFor = kind; menu.hidden = false;
+    menu.style.left = button.offsetLeft + "px";
+    fmt.querySelectorAll<HTMLElement>(".fmt-sel").forEach(b => b.setAttribute("aria-expanded", String(b === button)));
+  }
+  function apply(patch){
+    const a = sel;
+    Object.assign(a, PT.textStyle({...PT.textStyle(a), ...patch}));
+    remember(PT.textStyle(a));
+    paint();
+    if (editing) { const el = boxEl(a); if (el) applyStyle(el, PT.textStyle(a)); dirty = true; place(); }
+    else commit(a);
+  }
+  // les clics dans la barre gardent le curseur dans le texte en cours d'édition
+  fmt.addEventListener("mousedown", (e) => e.preventDefault());
+  fmt.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const b = (e.target as Element).closest<HTMLElement>("button");
+    if (!b || !sel) return;
+    if (b.dataset.opt) {
+      apply(menuFor === "font" ? {font: b.dataset.opt} : {size: Number(b.dataset.opt)});
+      closeMenu();
+      return;
+    }
+    const f = b.dataset.f;
+    if (f === "font" || f === "size") { openMenu(f, b); return; }
+    closeMenu();
+    if (f === "bold") apply({bold: !PT.textStyle(sel).bold});
+    else if (f === "italic") apply({italic: !PT.textStyle(sel).italic});
+    else if (b.dataset.ink) apply({ink: b.dataset.ink});
+    else if (f === "del") remove(sel);
+  });
+  window.addEventListener("scroll", () => { if (sel) place(); }, {passive: true});
+  window.addEventListener("resize", () => { if (sel) place(); });
+  return {draw, select, deselect, isEditing: () => editing};
+})();
+// ---- export Markdown ---------------------------------------------------------
+function copyAnnotationsMarkdown(){
+  const PT = window.AtelierPdfTools;
+  if (!PT) return;
+  const out = PT.annotationsMarkdown(PDF_ANNOTS, citeRef());
+  const done = () => { toolStatus(""); (document.getElementById("status") as HTMLSpanElement).textContent =
+    PDF_ANNOTS.length + " annotation" + (PDF_ANNOTS.length > 1 ? "s copiées" : " copiée") + " en Markdown";
+    setTimeout(() => { const st = document.getElementById("status"); if (st && /en Markdown$/.test(st.textContent)) st.textContent = ""; }, 2400); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(out).then(done).catch(() => fallback());
+  } else fallback();
+  function fallback(){
+    const ta = document.createElement("textarea");
+    ta.value = out; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); done(); } catch(e){}
+    ta.remove();
+  }
+}
 /** Image d'une zone capturée : redécoupée du canvas de la page à la demande
  *  (le sidecar JSON ne garde que le rectangle, jamais des pixels). */
 function areaDataUrl(a){
@@ -2235,9 +2970,10 @@ window.addEventListener("message", e => {
 // La bulle se lit comme une fiche : « Annotation 3 · p. 12 ». Le numéro est
 // celui de la pastille de marge, pour qu'on les relie d'un coup d'œil.
 function annotHeading(a){
-  const titles = {hl:"Surlignage", ul:"Soulignement", st:"Barré", note:"Note", area:"Zone"};
+  const titles = {hl:"Surlignage", ul:"Soulignement", st:"Barré", note:"Note", area:"Zone", text:"Zone de texte", stamp:"Tampon"};
   const title = a.kind === "comment"
     ? "Annotation " + (a.number || PDF_ANNOTS.filter(item => item.kind === "comment").indexOf(a) + 1)
+    : a.kind === "stamp" && window.AtelierPdfTools ? "Tampon · " + window.AtelierPdfTools.stampById(a.stamp).label
     : titles[a.kind] || "Surlignage";
   return {title, meta: a.page ? "p. " + a.page : ""};
 }
@@ -2247,9 +2983,12 @@ async function annotMenu(a, x: number, y: number){
   // Ailleurs, « Note » garde un texte avec le passage sans jamais l'envoyer
   // au chat ; le champ du bas reste celui du chat.
   const withMemo = a.kind !== "note";
-  // Surlignage ou soulignement : la bulle permet d'en changer le style et la
-  // teinte, enregistrés tout de suite (comme dans Zotero).
-  const withMark = a.kind === "hl" || a.kind === "ul";
+  // Surlignage, soulignement ou barré : la bulle permet d'en changer le style
+  // et la teinte, enregistrés tout de suite (comme dans Zotero).
+  const withMark = a.kind === "hl" || a.kind === "ul" || a.kind === "st";
+  // Une note libre reste PERSONNELLE : Entrée, Échap ou un clic à côté
+  // l'enregistrent sans rien envoyer ; seules les flèches l'envoient au chat.
+  const personal = a.kind === "note";
   AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
     heading:annotHeading(a),
     onSendDirect(){void editor.commit(true, "force", true);},
@@ -2308,7 +3047,7 @@ async function annotMenu(a, x: number, y: number){
     const saved = await saveAnnots();
     if(annotationEditor !== editor) { saving = false; return saved; }
     let attached = true;
-    if(saved && send && (send === "force" || (a.note.trim() && a.note !== attachedNote))) {
+    if(saved && send && (send === "force" || (!personal && a.note.trim() && a.note !== attachedNote))) {
       status.textContent = "Ajout au chat…";
       attached = await sendAnnot(a, (why) => { status.textContent = "Note enregistrée, mais ajout au chat impossible : " + why; }, undefined, true, direct);
       if(attached) attachedNote = a.note;
@@ -2342,9 +3081,15 @@ async function annotMenu(a, x: number, y: number){
   }
   inp.onkeydown = (e) => {
     e.stopPropagation();
-    if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, "force"); }
+    if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, personal ? false : "force"); }
     if(e.key === "Escape") { e.preventDefault(); editor.commit(true, true); }
   };
+  if(personal) {
+    inp.placeholder = "Note…";
+    inp.setAttribute("aria-label", "Note sur la page");
+    const send2 = annotPop.querySelector<HTMLElement>(".send2");
+    send2.title = "Ajouter la note au brouillon du chat"; send2.setAttribute("aria-label", send2.title);
+  }
   annotPop.querySelector<HTMLElement>(".send2").onclick = () => editor.commit(true, "force");
   annotPop.querySelector<HTMLElement>(".delete-note").onclick = async () => {
     if(saving) return;
@@ -2378,7 +3123,6 @@ document.addEventListener("click", e => {
 });
 
 // mode Studio : barre d'outils compacte et sobre + outils d'annotation
-let TOOL: string = null;   // seul mode restant : "note" (pose d'une pastille au clic)
 if(window.self !== window.top){
   const hd = document.querySelector<HTMLElement>("header");
   const tools = document.createElement("span");
@@ -2390,10 +3134,8 @@ if(window.self !== window.top){
     // la note reste accessible dans le menu qui suit chaque création.
     // Seule la note LIBRE reste un mode : elle se pose en cliquant une zone
     // vide de la page, aucune sélection ne peut donc la déclencher.
-    '<button id="areaBtn" title="Capturer une zone (figure, tableau)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2V3.4c0-.8.6-1.4 1.4-1.4h1.8M10.8 2h1.8c.8 0 1.4.6 1.4 1.4v1.8M14 10.8v1.8c0 .8-.6 1.4-1.4 1.4h-1.8M5.2 14H3.4c-.8 0-1.4-.6-1.4-1.4v-1.8"/></svg></button>'
+    '<button id="areaBtn" data-tool="area" title="Capturer une zone : figure, tableau (Z)" aria-label="Capturer une zone"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2V3.4c0-.8.6-1.4 1.4-1.4h1.8M10.8 2h1.8c.8 0 1.4.6 1.4 1.4v1.8M14 10.8v1.8c0 .8-.6 1.4-1.4 1.4h-1.8M5.2 14H3.4c-.8 0-1.4-.6-1.4-1.4v-1.8"/></svg></button>'
     + '<button id="paneBtn" title="Toutes les annotations de l\'article"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"/></svg></button>'
-    + '<span style="width:6px"></span>'
-    + '<button data-t="note" title="Note : clique ensuite sur la page"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 2.5h10v8H8l-3 3v-3H3v-8z"/></svg></button>'
     + '<span style="width:6px"></span>'
     + '<button id="annPrev" title="Annotation précédente"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5.5 8 10 13"/></svg></button>'
     + '<button id="annNext" title="Annotation suivante"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l4.5 5L6 13"/></svg></button>';
@@ -2427,16 +3169,15 @@ if(window.self !== window.top){
   if (nextB) nextB.onclick = (e: { stopPropagation: () => void; }) => { e.stopPropagation(); gotoAnn(1); };
   // ---- capture de zone : glisser un rectangle sur une page ----------------
   const areaB = tools.querySelector<HTMLButtonElement>("#areaBtn");
-  let AREA_MODE = false, dragFrom = null, dragBox: HTMLDivElement = null, dragPg = null;
-  function setArea(on: boolean){
-    AREA_MODE = on;
-    document.body.classList.toggle("area-mode", on);
-    if (areaB) areaB.classList.toggle("ton", on);
-    if (!on && dragBox) { dragBox.remove(); dragBox = null; dragFrom = null; dragPg = null; }
-  }
-  if (areaB) areaB.onclick = (e: { stopPropagation: () => void; }) => { e.stopPropagation(); setArea(!AREA_MODE); };
+  let dragFrom = null, dragBox: HTMLDivElement = null, dragPg = null;
+  // l'état vit dans TOOL (barre, raccourci Z, Échap) : ici le seul nettoyage
+  toolWatchers.push(() => {
+    if (TOOL !== "area" && dragBox) { dragBox.remove(); dragBox = null; dragFrom = null; dragPg = null; }
+  });
+  function setArea(on: boolean){ setTool(on ? "area" : null); }
+  if (areaB) areaB.onclick = (e: { stopPropagation: () => void; }) => { e.stopPropagation(); setArea(TOOL !== "area"); };
   document.addEventListener("mousedown", (e) => {
-    if (!AREA_MODE) return;
+    if (TOOL !== "area") return;
     const pg = (e.target as Element).closest<HTMLElement>(".pg");
     if (!pg) return;
     e.preventDefault();
@@ -2448,7 +3189,7 @@ if(window.self !== window.top){
     pg.appendChild(dragBox);
   });
   document.addEventListener("mousemove", (e) => {
-    if (!AREA_MODE || !dragFrom || !dragPg) return;
+    if (TOOL !== "area" || !dragFrom || !dragPg) return;
     const pr = dragPg.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - pr.left, pr.width));
     const y = Math.max(0, Math.min(e.clientY - pr.top, pr.height));
@@ -2458,7 +3199,7 @@ if(window.self !== window.top){
     dragBox.style.height = Math.abs(y - dragFrom.y) + "px";
   });
   document.addEventListener("mouseup", (e) => {
-    if (!AREA_MODE || !dragFrom || !dragPg) return;
+    if (TOOL !== "area" || !dragFrom || !dragPg) return;
     const pr = dragPg.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - pr.left, pr.width));
     const y = Math.max(0, Math.min(e.clientY - pr.top, pr.height));
@@ -2475,6 +3216,7 @@ if(window.self !== window.top){
     drawAnnots(pg, +pg.dataset.page);
     saveAnnots();
     setArea(false);   // une capture à la fois : on revient au mode lecture
+    swallowClick = true;   // le clic du relâché ne ferme pas la bulle
     annotMenu(a, e.clientX, e.clientY);
   });
   const paneB = tools.querySelector<HTMLButtonElement>("#paneBtn");
@@ -2483,26 +3225,6 @@ if(window.self !== window.top){
     annPane.toggle();
     paneB.classList.toggle("ton", document.body.classList.contains("pane-on"));
   };
-  // bascule du seul mode restant (note libre) ; tout le reste part de la sélection
-  const noteB = tools.querySelector<HTMLElement>('[data-t="note"]');
-  if (noteB) noteB.onclick = (e: { stopPropagation: () => void; }) => {
-    e.stopPropagation();
-    TOOL = (TOOL === "note") ? null : "note";
-    noteB.classList.toggle("ton", TOOL === "note");
-    noteB.setAttribute("aria-pressed", String(TOOL === "note"));
-  };
-  // outil note : clic sur la page = pastille de note
-  document.addEventListener("click", (e) => {
-    if(TOOL !== "note") return;
-    const pg = (e.target as Element).closest<HTMLElement>(".pg");
-    if(!pg || (e.target as Element).closest<HTMLElement>(".pdfhl") || (e.target as Element).closest<HTMLElement>(".pdfnote")) return;
-    const pr = pg.getBoundingClientRect();
-    const a: {id:string;page:number;rects:number[][];text:string;kind:string;color:string;note:string;number?:number;fresh?:boolean;pin?:number[]} = {id: Date.now()+"-n", page: +pg.dataset.page, rects: [],
-      pin: [(e.clientX-pr.left)/pr.width, (e.clientY-pr.top)/pr.height],
-      kind: "note", color: LAST_COLOR, text: "", note: "", fresh: true};
-    PDF_ANNOTS.push(a); saveAnnots(); drawAnnots(pg, +pg.dataset.page);
-    annotMenu(a, e.clientX, e.clientY);
-  });
 }
 if(window.self !== window.top){
   const st = document.createElement("style");
@@ -2518,15 +3240,13 @@ if(window.self !== window.top){
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
     header .zoomctl button{padding:3px 8px !important;border-radius:0 !important}
     header button:hover{background:#2c313a !important;color:var(--txt) !important}
-    header button[aria-pressed="true"]{background:#2c313a !important;color:var(--accent,#e77f3e) !important}
+    header button[aria-pressed="true"]{background:#2c313a !important;color:var(--txt) !important}
     /* UNE seule rangée : jamais de retour à la ligne, hauteur fixe 44 px */
     header{flex-wrap:nowrap !important;height:44px !important;min-height:44px !important;box-sizing:border-box !important;
       padding-top:0 !important;padding-bottom:0 !important;gap:8px !important;overflow:visible}
     header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
     #pdftools{flex-shrink:0;padding-right:8px;border-right:1px solid #333a45}
     header .pdf-mark-tools{border-left-color:#333a45}
-    header .pdf-mark-tools .pdf-mark-color{background:var(--mark-color) !important}
-    header .pdf-mark-tools .pdf-mark-color[aria-pressed="true"]{background:var(--mark-color) !important;outline-color:var(--txt) !important}
 
     @media (max-width: 440px){
       header #selinfo{display:none}
@@ -2615,20 +3335,56 @@ if (window.self !== window.top) {
   document.addEventListener("atelier-reading-left", schedulePageNav);
   schedulePageNav();
   const prev = (document.getElementById("annPrev") as HTMLButtonElement), next = (document.getElementById("annNext") as HTMLButtonElement);
-  const note = document.querySelector<HTMLElement>('#pdftools [data-t="note"]');
-  if(note) { note.setAttribute("aria-pressed", "false"); note.setAttribute("aria-label", "Ajouter une note sur la page"); marks.appendChild(note); }
-  ["areaBtn", "invBtn", "readBtn", "compileBtn"].forEach(id => move(id, menu));
+  // Zone et Gomme sortent du menu ⋯ (2026-09-28) : la zone se range avant la
+  // gomme, derrière le dernier séparateur de la barre de marquage. En fenêtre
+  // étroite, des rangées du menu remplacent les outils masqués : Zone et
+  // Gomme sous 620 px (.pdf-menu-narrow), Note, Texte et Tampons sous 560 px
+  // (.pdf-menu-narrower).
+  const areaBtn = document.getElementById("areaBtn");
+  const eraser = marks.querySelector<HTMLButtonElement>('[data-t="erase"]');
+  if(areaBtn) marks.insertBefore(areaBtn, marks.querySelector(".pdf-mark-sep-end"));
+  const hr = (cls = "") => { const d = document.createElement("div"); d.className = "pdf-menu-hr" + (cls ? " " + cls : ""); menu.appendChild(d); };
+  const proxy = (tier: string, tool: string, label: string, icon: string, run: () => void) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = tier;
+    if(tool) b.dataset.tool = tool;
+    b.setAttribute("aria-label", label); b.title = label;
+    b.innerHTML = icon;
+    b.onclick = (e) => { e.stopPropagation(); more.open = false; run(); };
+    menu.appendChild(b); return b;
+  };
+  const svgOf = (el: Element) => el ? el.querySelector("svg").outerHTML : "";
+  const noteBtn = marks.querySelector<HTMLButtonElement>('[data-tool="note"]'), textBtn = marks.querySelector<HTMLButtonElement>('[data-tool="text"]');
+  if(noteBtn) proxy("pdf-menu-narrower", "note", "Note sur la page", svgOf(noteBtn), () => noteBtn.click());
+  if(textBtn) proxy("pdf-menu-narrower", "text", "Zone de texte", svgOf(textBtn), () => textBtn.click());
+  (window.AtelierPdfTools ? window.AtelierPdfTools.STAMPS : []).forEach((st, i) => {
+    const b = proxy("pdf-menu-narrower pdf-menu-stamp", "", "Tampon : " + st.label, '<span class="pdf-stamp-dot" style="--stamp:' + st.color + '">' + window.AtelierPdfTools.stampIcon(st.id, 10) + '</span>', () => markTools.pickStamp(i));
+    b.dataset.stamp = st.id;
+  });
+  hr("pdf-menu-narrower");
+  if(areaBtn) proxy("pdf-menu-narrow", "area", "Capturer une zone", svgOf(areaBtn), () => areaBtn.click()).id = "menuAreaBtn";
+  if(eraser) proxy("pdf-menu-narrow", "erase", "Effacer un marquage", svgOf(eraser), () => eraser.click()).id = "menuEraseBtn";
+  if(areaBtn || eraser) hr("pdf-menu-narrow");
+  ["readBtn", "invBtn", "compileBtn"].forEach(id => move(id, menu));
+  hr();
   [prev, next].forEach(el => { if(el) menu.appendChild(el); });
-  const eraser = marks.querySelector<HTMLElement>('[data-t="erase"]'); if(eraser) menu.appendChild(eraser);
+  hr();
+  // Export : toutes les annotations de l'article, prêtes à coller dans des
+  // notes de lecture (citation, page, teinte et sens, notes).
+  const mdBtn = document.createElement("button"); mdBtn.type = "button"; mdBtn.id = "mdExportBtn";
+  mdBtn.setAttribute("aria-label", "Copier les annotations en Markdown"); mdBtn.title = "Copier les annotations en Markdown";
+  mdBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.6"/><path d="M10.8 5.2V3.6A1.6 1.6 0 0 0 9.2 2H3.6A1.6 1.6 0 0 0 2 3.6v5.6a1.6 1.6 0 0 0 1.6 1.6h1.6"/></svg>';
+  mdBtn.onclick = (e) => { e.stopPropagation(); more.open = false; copyAnnotationsMarkdown(); };
+  menu.appendChild(mdBtn);
   menu.querySelectorAll<HTMLButtonElement>("button").forEach(button => {
     const label = document.createElement("span"); label.textContent = button.getAttribute("aria-label") || button.title;
     button.appendChild(label);
   });
   // Rangées bascule : l'état actif se lit à un ✓ à droite (modèle de menu commun).
-  ["areaBtn", "invBtn", "readBtn"].forEach(id => {
+  ["menuAreaBtn", "menuEraseBtn", "invBtn", "readBtn"].forEach(id => {
     const button = menu.querySelector("#" + id);
     if(button) button.insertAdjacentHTML("beforeend", '<svg class="pdf-menu-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>');
   });
+  toolWatchers.forEach(fn => fn());
   // Joindre le PDF ouvert au message en cours du chat : l'hôte résout le
   // chemin (article Zotero → référence @citekey avec son PDF, sinon fichier du
   // projet). Rien ne part tout seul, l'utilisateur écrit puis envoie. Aucun
@@ -2686,11 +3442,8 @@ if (window.self !== window.top) {
     header.pdf-compact-toolbar #pgInput:focus-visible { outline:1px solid var(--accent); outline-offset:1px; }
     body.read-mode .pdf-page-nav { display:none; }
     header.pdf-compact-toolbar .pdf-mark-tools { margin:0; padding:0; border:0; }
-    header.pdf-compact-toolbar .pdf-mark-colors { display:none; position:absolute; top:31px; left:0; z-index:30; padding:12px; gap:12px; border:1px solid var(--border); border-radius:8px; background:var(--card); box-shadow:0 6px 18px #0003; }
-    header.pdf-compact-toolbar .palette-open .pdf-mark-colors { display:flex; }
+    header.pdf-compact-toolbar .pdf-tool-pop { top:31px; }
     header.pdf-compact-toolbar .pdf-mark-pen::after { display:none; }
-    .pdf-current-color { width:11px; height:11px; border-radius:50%; background:var(--mark-current); display:block; }
-    header.pdf-compact-toolbar .pdf-color-toggle { width:32px; gap:4px; }
     header.pdf-compact-toolbar .zoomctl { margin-left:auto; border:0; }
     header.pdf-compact-toolbar #zPct { border:0; }
     header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:4px; font-size:var(--fs-label,11px); }
@@ -2725,11 +3478,28 @@ if (window.self !== window.top) {
     @media (prefers-reduced-motion: reduce) { .pdf-toolbar-more[open] .pdf-toolbar-menu { animation:none; } }
     header.pdf-compact-toolbar button { color:var(--muted)!important; }
     header.pdf-compact-toolbar button:hover { background:var(--card2)!important; color:var(--txt)!important; }
-    header.pdf-compact-toolbar button.ton, header.pdf-compact-toolbar button[aria-pressed="true"] { background:var(--card2)!important; color:var(--accent)!important; }
+    header.pdf-compact-toolbar button.ton, header.pdf-compact-toolbar button[aria-pressed="true"] { background:var(--card2)!important; color:var(--txt)!important; }
     header.pdf-compact-toolbar button:focus-visible, .pdf-toolbar-more summary:focus-visible { outline:1px solid var(--accent); outline-offset:2px; }
-    header.pdf-compact-toolbar .pdf-mark-color:hover, header.pdf-compact-toolbar .pdf-mark-color[aria-pressed="true"] { background:var(--mark-color)!important; }
+    header.pdf-compact-toolbar .pdf-tool-pop button:hover { background:var(--card2)!important; }
+    header.pdf-compact-toolbar .pdf-tool-pop button[aria-pressed="true"], header.pdf-compact-toolbar .pdf-tool-pop button[aria-checked="true"] { background:transparent!important; }
+    header.pdf-compact-toolbar .pdf-tool-pop button { color:var(--txt)!important; }
+    .pdf-menu-hr { height:1px; margin:4px 8px; background:var(--border); flex:none; }
+    header.pdf-compact-toolbar .pdf-toolbar-menu .pdf-menu-narrow, header.pdf-compact-toolbar .pdf-toolbar-menu .pdf-menu-narrower { display:none; }
+    .pdf-toolbar-menu .pdf-menu-hr.pdf-menu-narrow, .pdf-toolbar-menu .pdf-menu-hr.pdf-menu-narrower { display:none; }
+    .pdf-toolbar-menu .pdf-stamp-dot { width:14px; height:14px; }
+    /* Fenêtre étroite : les outils repartent dans le menu ⋯, par paliers */
+    @media(max-width:620px) {
+      header.pdf-compact-toolbar .pdf-mark-tools #areaBtn, header.pdf-compact-toolbar .pdf-mark-tools [data-t="erase"], header.pdf-compact-toolbar .pdf-mark-sep-end { display:none; }
+      header.pdf-compact-toolbar .pdf-toolbar-menu .pdf-menu-narrow { display:flex; }
+      .pdf-toolbar-menu .pdf-menu-hr.pdf-menu-narrow { display:block; }
+    }
+    @media(max-width:560px) {
+      header.pdf-compact-toolbar .pdf-mark-tools [data-tool="note"], header.pdf-compact-toolbar .pdf-mark-tools [data-tool="text"], header.pdf-compact-toolbar .pdf-mark-tools [data-tool="stamp"], header.pdf-compact-toolbar .pdf-mark-sep { display:none; }
+      header.pdf-compact-toolbar .pdf-toolbar-menu .pdf-menu-narrower { display:flex; }
+      .pdf-toolbar-menu .pdf-menu-hr.pdf-menu-narrower { display:block; }
+    }
 
-    @media(max-width:360px) { .pdf-page-nav #pgPrev,.pdf-page-nav #pgNext { display:none; } header.pdf-compact-toolbar .zoomctl #zOut,header.pdf-compact-toolbar .zoomctl #zIn { display:none; } }
+    @media(max-width:460px) { .pdf-page-nav #pgPrev,.pdf-page-nav #pgNext { display:none; } header.pdf-compact-toolbar .zoomctl #zOut,header.pdf-compact-toolbar .zoomctl #zIn { display:none; } }
   `;
   document.head.appendChild(css);
 }
