@@ -30,7 +30,7 @@ test("tints are named by the meaning of Claude's legend", () => {
 
 test("text box style is clamped to the offered fonts, sizes and inks", () => {
   assert.deepEqual(T.textStyle(null), {font: "sans", size: 13, bold: false, italic: false, ink: "#2b2f35"});
-  assert.deepEqual(T.textStyle({font: "serif", size: 40, bold: true, italic: "yes", ink: "#2f6fd6"}),
+  assert.deepEqual(T.textStyle({font: "serif", size: 40, bold: true, italic: "yes" as unknown as boolean, ink: "#2f6fd6"}),
     {font: "serif", size: 24, bold: true, italic: false, ink: "#2f6fd6"});
   assert.equal(T.textStyle({size: 3}).size, 10);
   assert.equal(T.textStyle({ink: "#ff00ff", font: "comic"}).ink, "#2b2f35");
