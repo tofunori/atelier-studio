@@ -7,11 +7,14 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import net from 'node:net';
+import { build } from 'esbuild';
 import { removeTempRoot } from './temp-root.ts';
 
 const GALLERY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REPO = path.resolve(GALLERY, '..');
 const FIXTURE = path.join(REPO, 'rust/crates/atelier-gallery/tests/fixtures/reflow/twocol.pdf');
+const coreBundle = (await build({entryPoints: [path.join(GALLERY, 'src/studio/core/index.ts')],
+  bundle: true, write: false, format: 'iife', globalName: 'AtelierStudioCore'})).outputFiles[0].text;
 
 function freePort() {
   return new Promise<number>((resolve, reject) => {
@@ -54,6 +57,7 @@ test.afterAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/studio_core.bundle.js', route => route.fulfill({contentType: 'text/javascript', body: coreBundle}));
   // Give the host a real origin: an opaque about:blank parent can deny the
   // reader's localStorage in browsers that block third-party storage.
   await page.goto(`http://127.0.0.1:${port}/figures_index.html`);
@@ -151,10 +155,15 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   await expect(reader.locator('body')).not.toHaveClass(/read-mode/);
 
   // « Joindre le PDF au chat » : un seul message à l'hôte, avec le chemin du lecteur.
+  await reader.locator('body').evaluate(() => { window.__atelierNonce = 'toolbar-test'; });
   await page.evaluate(() => {
     window.__attachMessages = [];
     window.addEventListener('message', event => {
-      if (event.data?.type === 'atelier-attach-pdf') window.__attachMessages.push(event.data);
+      if (event.data?.type === 'atelier-attach-pdf') {
+        window.__attachMessages.push(event.data);
+        (event.source as Window).postMessage({type: 'atelier-add-to-chat-ack', requestId: event.data.requestId,
+          nonce: event.data.nonce, ok: true}, '*');
+      }
     });
   });
   const chatButton = reader.getByRole('button', { name: 'Joindre le PDF au chat' });
@@ -183,6 +192,58 @@ test('barre PDF imbriquée : 36 px, palette, menu et contrôles fonctionnels', a
   await expect.poll(() => header.evaluate(element => element.getBoundingClientRect().width)).toBe(1000);
   expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test('recherche PDF : loupe, navigation, réouverture et raccourcis', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 760 });
+  await page.setContent(`<style>html,body{margin:0;width:100%;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style>
+    <iframe title="Recherche PDF" src="http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=twocol.pdf"></iframe>`);
+  const reader = page.frameLocator('iframe');
+  await expect.poll(() => reader.locator('.textLayer span').count()).toBeGreaterThan(0);
+  const button = reader.getByRole('button', { name: 'Rechercher dans l’article' });
+  const input = reader.getByRole('textbox', { name: 'Rechercher dans l’article' });
+  const count = reader.locator('#findBar .cnt');
+  await expect(button).toBeVisible();
+  await button.click();
+  await expect(input).toBeFocused();
+  await expect(button).toHaveAttribute('aria-expanded', 'true');
+  await input.fill('glaciers');
+  await expect(count).toHaveText(/^1\/\d+$/);
+  const total = Number((await count.textContent()).split('/')[1]);
+  expect(total).toBeGreaterThan(1);
+  await reader.getByRole('button', { name: 'Résultat suivant' }).click();
+  await expect(count).toHaveText(`2/${total}`);
+  await reader.getByRole('button', { name: 'Résultat précédent' }).click();
+  await expect(count).toHaveText(`1/${total}`);
+  await input.press('Shift+Enter');
+  await expect(count).toHaveText(`${total}/${total}`);
+  await input.press('Enter');
+  await expect(count).toHaveText(`1/${total}`);
+  await expect(reader.locator('.find-cur').first()).toBeInViewport();
+  await input.press('Escape');
+  await expect(input).toBeHidden();
+  await expect(button).toBeFocused();
+  await expect(reader.locator('.find-hit, .find-cur')).toHaveCount(0);
+  await button.click();
+  await expect(input).toHaveValue('glaciers');
+  await expect(count).toHaveText(`1/${total}`);
+  await input.fill('zzzzintrouvable');
+  await expect(count).toHaveText('aucun');
+  await expect(reader.getByRole('button', { name: 'Résultat suivant' })).toBeDisabled();
+  // Closing during the debounce must not paint hidden search results.
+  await input.fill('glaciers');
+  await input.press('Escape');
+  await expect(count).toHaveText('');
+  await button.press('Meta+f');
+  await expect(input).toBeFocused();
+  await expect(count).toHaveText(`1/${total}`);
+  await page.setViewportSize({ width: 360, height: 760 });
+  await expect(reader.locator('#findBar')).toBeInViewport();
+  expect(await reader.locator('#findBar').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await reader.getByRole('button', { name: 'Fermer la recherche' }).click();
+  await expect(button).toHaveAttribute('aria-expanded', 'false');
+  await button.press('Control+f');
+  await expect(input).toBeFocused();
 });
 
 test('zoom PDF : les deux bords restent accessibles et la barre reste visible', async ({ page }) => {

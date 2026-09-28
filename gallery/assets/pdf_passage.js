@@ -10,16 +10,33 @@ function createAtelierPdfPassageApi(){
       .toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   }
 
-  function findPassageSpanRange(texts, quote){
+  function buildPart(texts, compact         ){
     var ranges = [], joined = "";
     (texts || []).forEach(function(text, index){
       var clean = norm(text);
+      if (compact) clean = clean.replace(/ /g, "");
       if (!clean) return;
-      if (joined) joined += " ";
+      if (joined && !compact) joined += " ";
       var start = joined.length;
       joined += clean;
       ranges.push({index:index, start:start, end:joined.length});
     });
+    return {joined:joined, ranges:ranges};
+  }
+  function createIndex(texts){
+    return {normal:buildPart(texts, false), compact:buildPart(texts, true)};
+  }
+  // Binary bounds keep a common single-letter search linear in its matches,
+  // instead of scanning every PDF span again for each occurrence.
+  function coveredRange(part, start        , end        ){
+    var ranges = part.ranges, lo = 0, hi = ranges.length;
+    while (lo < hi) { var mid = (lo + hi) >>> 1; if (ranges[mid].end <= start) lo = mid + 1; else hi = mid; }
+    var first = lo; hi = ranges.length;
+    while (lo < hi) { var mid = (lo + hi) >>> 1; if (ranges[mid].start < end) lo = mid + 1; else hi = mid; }
+    return first < lo ? {start:ranges[first].index, end:ranges[lo - 1].index} : null;
+  }
+  function findPassageInIndex(index, quote){
+    var part = index.normal, joined = part.joined;
     var needle = norm(quote);
     if (!joined || !needle) return null;
     var pos = joined.indexOf(needle), length = needle.length;
@@ -33,30 +50,23 @@ function createAtelierPdfPassageApi(){
     }
     if (pos < 0) return null;
     var end = pos + length;
-    var hits = ranges.filter(function(range){ return range.end > pos && range.start < end; });
-    if (!hits.length) return null;
-    return {start:hits[0].index, end:hits[hits.length - 1].index};
+    return coveredRange(part, pos, end);
   }
-  function findAllSpanRanges(texts, query){
+  function findPassageSpanRange(texts, quote){ return findPassageInIndex(createIndex(texts), quote); }
+  function findAllInIndex(index, query){
     var matches = [], seen = new Set();
     // The second index tolerates PDF producers splitting a single word into
     // several glyph runs (and line-end hyphenation). It is only a search
     // index; selected/copied text remains the original PDF text.
     [false, true].forEach(function(compact){
-      var joined = "", ranges = [];
-      (texts || []).forEach(function(text, index){
-        var value = norm(text); if (compact) value = value.replace(/ /g, "");
-        if (!value) return;
-        if (joined && !compact) joined += " ";
-        ranges.push({index:index, start:joined.length, end:joined.length + value.length}); joined += value;
-      });
+      var part = compact ? index.compact : index.normal, joined = part.joined;
       var needle = norm(query); if (compact) needle = needle.replace(/ /g, "");
       if (!needle) return;
       var at = 0;
       while ((at = joined.indexOf(needle, at)) >= 0 && matches.length < 10000) {
-        var covered = ranges.filter(function(r){return r.end > at && r.start < at + needle.length;});
-        if (covered.length) {
-          var start = covered[0].index, end = covered[covered.length-1].index, key = start + ":" + end;
+        var covered = coveredRange(part, at, at + needle.length);
+        if (covered) {
+          var start = covered.start, end = covered.end, key = start + ":" + end;
           if (!seen.has(key)) {seen.add(key); matches.push({start:start, end:end});}
         }
         at += needle.length;
@@ -64,6 +74,8 @@ function createAtelierPdfPassageApi(){
     });
     return matches.sort(function(a,b){return a.start-b.start || a.end-b.end;});
   }
+  function findAllSpanRanges(texts, query){ return findAllInIndex(createIndex(texts), query); }
 
-  return {normalize:norm, findPassageSpanRange:findPassageSpanRange, findAllSpanRanges:findAllSpanRanges};
+  return {normalize:norm, createIndex:createIndex, findPassageInIndex:findPassageInIndex,
+    findAllInIndex:findAllInIndex, findPassageSpanRange:findPassageSpanRange, findAllSpanRanges:findAllSpanRanges};
 }

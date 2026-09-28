@@ -105,3 +105,4 @@ function createAtelierCsvApi() {
   return {detectDelimiter, parse, classify, compare};
 }
 export type AtelierCsvApi = ReturnType<typeof createAtelierCsvApi>;
+

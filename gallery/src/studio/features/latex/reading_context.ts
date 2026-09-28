@@ -55,6 +55,34 @@ export function parseReadingContext(tex: string, bib: string, aux: string): Read
   return {citations, references, macros};
 }
 
+/** Keep file contents only while the source revision is unchanged. A failed
+ * stat/read is deliberately not cached, so newly created aux/bib files retry. */
+export function createReadingContextReader(
+  read: (path: string) => Promise<string>,
+  revision: (path: string) => Promise<string | null>,
+): (path: string) => Promise<string> {
+  const cache = new Map<string, {revision: string; text: string}>();
+  const pending = new Map<string, Promise<string>>();
+  return (path: string): Promise<string> => {
+    const existing = pending.get(path);
+    if (existing) return existing;
+    const task = (async () => {
+      const stamp = await revision(path);
+      const entry = cache.get(path);
+      if (stamp !== null && entry?.revision === stamp) return entry.text;
+      cache.delete(path);
+      const text = await read(path);
+      if (stamp !== null) {
+        cache.set(path, {revision: stamp, text});
+        if (cache.size > 96) cache.delete(cache.keys().next().value!);
+      }
+      return text;
+    })().finally(() => pending.delete(path));
+    pending.set(path, task);
+    return task;
+  };
+}
+
 export async function loadReadingContext(root: string, read: (path: string) => Promise<string>, compiledAux?: string): Promise<ReadingContext> {
   const dir = root.slice(0, root.lastIndexOf("/") + 1);
   const resolve = (base: string, rel: string): string => {
@@ -67,6 +95,26 @@ export async function loadReadingContext(root: string, read: (path: string) => P
     }
     return (combined.startsWith("/") ? "/" : "") + parts.join("/");
   };
+  // Prefetch siblings concurrently, but visit them in source order: macro
+  // redefinitions and duplicate labels must not depend on disk/network speed.
+  const reads = new Map<string, Promise<string>>();
+  const waiting: Array<() => void> = [];
+  let active = 0;
+  const readOnce = (path: string): Promise<string> => {
+    let task = reads.get(path);
+    if (!task) {
+      task = (async () => {
+        if (active >= 4) await new Promise<void>(resolve => waiting.push(resolve));
+        else active++;
+        try {return await read(path);}
+        finally {const next = waiting.shift(); if (next) next(); else active--;}
+      })();
+      // Prefetch can fail before its ordered consumer reaches it.
+      void task.catch(() => undefined);
+      reads.set(path, task);
+    }
+    return task;
+  };
   const seen = new Set<string>();
   let tex = "", bib = "";
   const aux: Array<{text: string; path: string; prefix: string; external: boolean}> = [];
@@ -75,11 +123,13 @@ export async function loadReadingContext(root: string, read: (path: string) => P
     const key = `${external}:${prefix}:${path}`;
     if (seen.has(key) || seen.size >= 48 || depth > 5) return;
     seen.add(key);
-    const text = await read(path);
+    const text = await readOnce(path);
     if (path.endsWith(".bib")) { bib += "\n" + text; return; }
     if (path.endsWith(".aux")) {
       aux.push({text, path, prefix, external});
-      for (const child of text.matchAll(/\\@input\{([^}]+)\}/g)) await visit(resolve(path.slice(0,path.lastIndexOf("/")+1), child[1]!), depth+1, prefix, external);
+      const children = [...text.matchAll(/\\@input\{([^}]+)\}/g)].map(child => resolve(path.slice(0,path.lastIndexOf("/")+1), child[1]!));
+      for (const child of children.slice(0, 48 - seen.size)) void readOnce(child);
+      for (const child of children) await visit(child, depth+1, prefix, external);
       return;
     }
     if (!external) tex += "\n" + text;
@@ -88,6 +138,17 @@ export async function loadReadingContext(root: string, read: (path: string) => P
       if (!external || !referenceTargets[labelKey]) referenceTargets[labelKey] = {path, line: text.slice(0, label.index).split("\n").length, ...(external ? {external: true} : {})};
     }
     const base = path.slice(0, path.lastIndexOf("/") + 1);
+    const prefetch: string[] = [];
+    for (const imported of text.matchAll(/\\externaldocument(?:\[[^\]]*\])?(?:\[[^\]]*\])?\{([^}]+)\}/g)) {
+      prefetch.push(resolve(base, imported[1]! + ".aux"), resolve(dir, imported[1]!.split("/").at(-1)! + ".tex"));
+    }
+    for (const dependency of text.matchAll(/\\(bibliography|addbibresource|input|include)(?:\[[^\]]*\])?\{([^}]+)\}/g)) {
+      const ext = /bibliography|addbibresource/.test(dependency[1]!) ? ".bib" : ".tex";
+      for (const name of dependency[2]!.split(",")) {
+        if (name.trim() && !/[\\#]/.test(name)) prefetch.push(resolve(base, name.trim().endsWith(ext) ? name.trim() : name.trim() + ext));
+      }
+    }
+    for (const child of prefetch.slice(0, Math.max(0, 48 - reads.size))) void readOnce(child);
     for (const document of text.matchAll(/\\externaldocument(?:\[([^\]]*)\])?(?:\[[^\]]*\])?\{([^}]+)\}/g)) {
       const importedPrefix = prefix + (document[1] || "");
       await visit(resolve(base, document[2]! + ".aux"), depth + 1, importedPrefix, true);

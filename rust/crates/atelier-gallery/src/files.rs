@@ -10,7 +10,7 @@ use atelier_core::{
 use axum::{
     Json,
     extract::{Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::IntoResponse,
 };
 use serde::Deserialize;
@@ -282,38 +282,16 @@ fn snippet_response(text: &str, n: usize) -> axum::response::Response {
 pub async fn raw(
     State(state): State<AppState>,
     Query(query): Query<PathQuery>,
+    method: Method,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     let Ok(path) = safe_project_path(&state.root, &query.path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    if !path.is_file() {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    let Ok(data) = tokio::fs::read(&path).await else {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    };
-    let ctype = if path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
-    {
+    let ctype = if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
         "application/pdf"
-    } else {
-        "application/octet-stream"
-    };
-    (
-        StatusCode::OK,
-        [
-            (
-                header::CONTENT_TYPE,
-                HeaderValue::from_str(ctype)
-                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-            ),
-            (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
-        ],
-        data,
-    )
-        .into_response()
+    } else { "application/octet-stream" };
+    crate::ranged::serve_file_ranged(&path, ctype, &method, &headers).await
 }
 
 /// `GET /code?path=` — full text + mtime + absolute path.

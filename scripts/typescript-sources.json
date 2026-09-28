@@ -45,6 +45,10 @@
       "output": "gallery/assets/pdf_reading.js"
     },
     {
+      "source": "gallery/src/browser/pdf_runtime.ts",
+      "output": "gallery/assets/pdf_runtime.js"
+    },
+    {
       "source": "gallery/src/browser/pdf_selection.ts",
       "output": "gallery/assets/pdf_selection.js"
     },
@@ -75,6 +79,11 @@
       "source": "gallery/src/browser/pages/code_editor_2.ts",
       "output": "gallery/assets/code_editor.html",
       "slot": 2
+    },
+    {
+      "source": "gallery/src/browser/pages/code_editor_3.ts",
+      "output": "gallery/assets/code_editor.html",
+      "slot": 3
     },
     {
       "source": "gallery/src/browser/pages/diff_viewer_1.ts",
@@ -219,12 +228,15 @@
     "gallery/tests/e2e/diff.spec.js": "gallery/tests/e2e/diff.spec.ts",
     "gallery/tests/e2e/editor_cm6.spec.js": "gallery/tests/e2e/editor_cm6.spec.ts",
     "gallery/tests/e2e/editor_cm6_scroll.spec.js": "gallery/tests/e2e/editor_cm6_scroll.spec.ts",
+    "gallery/tests/e2e/editor_ui.spec.js": "gallery/tests/e2e/editor_ui.spec.ts",
     "gallery/tests/e2e/figure_annotations.spec.js": "gallery/tests/e2e/figure_annotations.spec.ts",
     "gallery/tests/e2e/figure_versions.spec.js": "gallery/tests/e2e/figure_versions.spec.ts",
     "gallery/tests/e2e/latex_lezer.spec.js": "gallery/tests/e2e/latex_lezer.spec.ts",
     "gallery/tests/e2e/latex_pdf_refresh.spec.js": "gallery/tests/e2e/latex_pdf_refresh.spec.ts",
     "gallery/tests/e2e/markdown_selection.spec.js": "gallery/tests/e2e/markdown_selection.spec.ts",
+    "gallery/tests/e2e/pdf_interaction.spec.js": "gallery/tests/e2e/pdf_interaction.spec.ts",
     "gallery/tests/e2e/pdf_live_annots.spec.js": "gallery/tests/e2e/pdf_live_annots.spec.ts",
+    "gallery/tests/e2e/pdf_performance.spec.js": "gallery/tests/e2e/pdf_performance.spec.ts",
     "gallery/tests/e2e/pdf_reading.spec.js": "gallery/tests/e2e/pdf_reading.spec.ts",
     "gallery/tests/e2e/pdf_toolbar.spec.js": "gallery/tests/e2e/pdf_toolbar.spec.ts",
     "gallery/tests/e2e/reading_chat_overlay.spec.js": "gallery/tests/e2e/reading_chat_overlay.spec.ts",
@@ -242,6 +254,7 @@
     "gallery/tests/unit/diff_controller.test.mjs": "gallery/tests/unit/diff_controller.test.mts",
     "gallery/tests/unit/diff_suite.mjs": "gallery/tests/unit/diff_suite.mts",
     "gallery/tests/unit/document_session.test.mjs": "gallery/tests/unit/document_session.test.mts",
+    "gallery/tests/unit/editor_ui_reliability.test.mjs": "gallery/tests/unit/editor_ui_reliability.test.mts",
     "gallery/tests/unit/editor_wrap.test.mjs": "gallery/tests/unit/editor_wrap.test.mts",
     "gallery/tests/unit/figure_annotation_geometry.test.mjs": "gallery/tests/unit/figure_annotation_geometry.test.mts",
     "gallery/tests/unit/file_picker.test.mjs": "gallery/tests/unit/file_picker.test.mts",
@@ -252,11 +265,13 @@
     "gallery/tests/unit/ghost_logic.test.mjs": "gallery/tests/unit/ghost_logic.test.mts",
     "gallery/tests/unit/latex_features.test.mjs": "gallery/tests/unit/latex_features.test.mts",
     "gallery/tests/unit/latex_pdf_refresh.test.mjs": "gallery/tests/unit/latex_pdf_refresh.test.mts",
+    "gallery/tests/unit/markdown_chat_delivery.test.mjs": "gallery/tests/unit/markdown_chat_delivery.test.mts",
     "gallery/tests/unit/markdown_features.test.mjs": "gallery/tests/unit/markdown_features.test.mts",
     "gallery/tests/unit/pdf_annotations.test.mjs": "gallery/tests/unit/pdf_annotations.test.mts",
     "gallery/tests/unit/pdf_passage.test.mjs": "gallery/tests/unit/pdf_passage.test.mts",
     "gallery/tests/unit/pdf_reading.test.mjs": "gallery/tests/unit/pdf_reading.test.mts",
     "gallery/tests/unit/pdf_render_pipeline.test.mjs": "gallery/tests/unit/pdf_render_pipeline.test.mts",
+    "gallery/tests/unit/pdf_runtime.test.mjs": "gallery/tests/unit/pdf_runtime.test.mts",
     "gallery/tests/unit/pdf_selection.test.mjs": "gallery/tests/unit/pdf_selection.test.mts",
     "gallery/tests/unit/pdf_toolbar.test.mjs": "gallery/tests/unit/pdf_toolbar.test.mts",
     "gallery/tests/unit/pdfjs_compat.test.mjs": "gallery/tests/unit/pdfjs_compat.test.mts",

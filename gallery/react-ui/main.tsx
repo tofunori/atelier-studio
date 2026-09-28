@@ -358,26 +358,26 @@ function GalleryToolbar() {
   if (selection.rels.length) {
     const selectionAdapter = window.__gallerySelection
     return (
-      <div className="gallery-command-bar gallery-selection-command-bar" role="toolbar" aria-label="Selected files actions" data-gallery-toolbar-state="selection">
+      <div className="gallery-command-bar gallery-selection-command-bar" role="toolbar" aria-label="Actions des fichiers sélectionnés" data-gallery-toolbar-state="selection">
         <EmbeddedProjectFolderMenu />
         <div className="gallery-selection-count" aria-live="polite">
           <CheckSquare2 aria-hidden="true" />
-          <span>{selection.rels.length}<span className="gallery-selection-word"> selected</span></span>
+          <span>{selection.rels.length}<span className="gallery-selection-word"> sélectionné{selection.rels.length > 1 ? "s" : ""}</span></span>
         </div>
         <div className="gallery-command-spacer" />
         <GalleryViewSwitch/>
         {selection.rels.length === 1 && (
-          <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="open" onClick={() => selectionAdapter?.open()}>Open</Button>
+          <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="open" onClick={() => selectionAdapter?.open()}>Ouvrir</Button>
         )}
         {selection.imageCount >= 2 && (
-          <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="compare" onClick={() => selectionAdapter?.compare()}>Compare</Button>
+          <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="compare" onClick={() => selectionAdapter?.compare()}>Comparer</Button>
         )}
-        <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="collect" onClick={(event) => { event.stopPropagation(); selectionAdapter?.collect(event.currentTarget) }}>Collect</Button>
+        <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="collect" title="Ajouter à une collection" onClick={(event) => { event.stopPropagation(); selectionAdapter?.collect(event.currentTarget) }}>Collecter</Button>
         <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="export" onClick={(event) => { event.stopPropagation(); selectionAdapter?.export(event.currentTarget) }}>
-          Export <ChevronDown data-icon="inline-end" />
+          Exporter <ChevronDown data-icon="inline-end" />
         </Button>
         <DropdownMenu modal={false}>
-          <DropdownMenuTrigger render={<Button ref={selectionMoreRef} variant="ghost" size="icon-sm" aria-label="More selection actions"><Ellipsis /></Button>} />
+          <DropdownMenuTrigger render={<Button ref={selectionMoreRef} variant="ghost" size="icon-sm" aria-label="Autres actions de sélection"><Ellipsis /></Button>} />
           <DropdownMenuContent align="end" className="tw:w-48">
             {/* Repli étroit : les mêmes actions que les boutons, affichées
                 seulement quand la barre n'a plus la place de les porter (CSS).
@@ -385,31 +385,31 @@ function GalleryToolbar() {
                 qui disparaît avec le menu avant que la position soit lue. */}
             <DropdownMenuGroup className="gallery-selection-overflow">
               {selection.rels.length === 1 && (
-                <DropdownMenuItem onClick={() => selectionAdapter?.open()}>Open</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => selectionAdapter?.open()}>Ouvrir</DropdownMenuItem>
               )}
               {selection.imageCount >= 2 && (
-                <DropdownMenuItem onClick={() => selectionAdapter?.compare()}>Compare</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => selectionAdapter?.compare()}>Comparer</DropdownMenuItem>
               )}
               {/* stopPropagation comme sur les boutons de la barre : le clic
                   remonte sinon jusqu'au listener global de la galerie, qui
                   referme aussitôt le menu hérité qu'on vient d'ouvrir. */}
-              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); selectionMoreRef.current && selectionAdapter?.collect(selectionMoreRef.current) }}>Collect</DropdownMenuItem>
-              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); selectionMoreRef.current && selectionAdapter?.export(selectionMoreRef.current) }}>Export</DropdownMenuItem>
+              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); selectionMoreRef.current && selectionAdapter?.collect(selectionMoreRef.current) }}>Ajouter à une collection</DropdownMenuItem>
+              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); selectionMoreRef.current && selectionAdapter?.export(selectionMoreRef.current) }}>Exporter</DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator className="gallery-selection-overflow" />
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => selectionAdapter?.hide()}>Hide selected</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => selectionAdapter?.hide()}>Masquer la sélection</DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem variant="destructive" onClick={() => selectionAdapter?.delete()}>
-                <Trash2 data-icon="inline-start" /> Move to Trash
+                <Trash2 data-icon="inline-start" /> Déplacer dans la corbeille
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Tooltip label="Clear selection (Esc)">
-          <Button variant="ghost" size="icon-sm" aria-label="Clear selection" data-gallery-selection-action="clear" onClick={() => selectionAdapter?.clear()}>
+        <Tooltip label="Effacer la sélection (Échap)">
+          <Button variant="ghost" size="icon-sm" aria-label="Effacer la sélection" data-gallery-selection-action="clear" onClick={() => selectionAdapter?.clear()}>
             <X />
           </Button>
         </Tooltip>
@@ -418,7 +418,7 @@ function GalleryToolbar() {
   }
 
   return (
-    <div className="gallery-command-bar" role="toolbar" aria-label="Gallery commands" data-gallery-toolbar-state="normal">
+    <div className="gallery-command-bar" role="toolbar" aria-label="Commandes de la galerie" data-gallery-toolbar-state="normal">
       <EmbeddedProjectFolderMenu />
       <div className="gallery-command-group" data-gallery-group="filter" role="group" aria-label="Search and filter gallery">
       <Popover open={searchOpen} onOpenChange={(open) => {

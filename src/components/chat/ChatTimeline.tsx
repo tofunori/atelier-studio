@@ -16,6 +16,7 @@ import { isStoppedTerminal, timelineRowKey } from "../../lib/chat/turnViewModel"
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
 import { t } from "../../lib/i18n";
+import { prefersReducedMotion, useReducedMotion } from "../../lib/motion";
 import { findTextRanges } from "../../lib/markRanges";
 import { parseAnnotationBlock, type Mark, type ParsedAnnotations } from "../../lib/annotations";
 import { isValidSkill } from "./mentions";
@@ -577,7 +578,7 @@ export function ChatTimeline(p: {
     if (index < 0) return;
     setAutoFollow(false);
     setIsScrolledFromBottom(true);
-    void timelineListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+    void timelineListRef.current?.scrollToIndex({ index, animated: !prefersReducedMotion(), viewPosition: 0 });
     cancelAnimationFrame(jumpFrameRef.current);
     const host = messagesRef.current;
     if (!host) return;
@@ -694,6 +695,7 @@ export function ChatTimeline(p: {
   // fil est stable depuis un battement et pas exactement au bas, on re-vise la
   // fin — une seule fois par stabilisation, jamais contre l'utilisateur
   // (autoFollow est déjà coupé dès qu'il remonte).
+  const reducedMotion = useReducedMotion();
   const settleUntilRef = React.useRef(0);
   const prevWorkingSinceRef = React.useRef(workingSince);
   React.useEffect(() => {
@@ -717,7 +719,7 @@ export function ChatTimeline(p: {
       lastScrollHeight = native.scrollHeight;
       const distance = native.scrollHeight - native.clientHeight - native.scrollTop;
       if (stable && distance > 2) {
-        timelineListRef.current?.scrollToEnd({ animated: true });
+        timelineListRef.current?.scrollToEnd({ animated: !prefersReducedMotion() });
       }
       if (workingSince == null && Date.now() >= settleUntilRef.current) {
         window.clearInterval(id);
@@ -741,7 +743,7 @@ export function ChatTimeline(p: {
     if (decision.follow !== autoFollow) setAutoFollow(decision.follow);
     if (decision.effect === "anchor-final" && finalAnswerVirtualIndex >= 0) {
       requestAnimationFrame(() => {
-        void timelineListRef.current?.scrollToIndex({ index: finalAnswerVirtualIndex, animated: true, viewPosition: 0 });
+        void timelineListRef.current?.scrollToIndex({ index: finalAnswerVirtualIndex, animated: !prefersReducedMotion(), viewPosition: 0 });
       });
     }
   }, [autoFollow, finalAnswerVirtualIndex, phase]);
@@ -749,7 +751,7 @@ export function ChatTimeline(p: {
   const scrollToBottom = React.useCallback(() => {
     setAutoFollow(true);
     setIsScrolledFromBottom(false);
-    void timelineListRef.current?.scrollToEnd({ animated: true });
+    void timelineListRef.current?.scrollToEnd({ animated: !prefersReducedMotion() });
   }, []);
   return (
     <>
@@ -884,7 +886,7 @@ export function ChatTimeline(p: {
         // constante module : recréé à chaque render, il relançait l'animation
         // interne en boucle, qui s'arrêtait à ~32 px du bas — sous le seuil de
         // tolérance — et laissait la ligne « esc Interrompre » cachée.
-        maintainScrollAtEnd={autoFollow ? (workingSince != null ? MAINTAIN_END_ANIMATED : MAINTAIN_END_INSTANT) : false}
+        maintainScrollAtEnd={autoFollow ? (workingSince != null && !reducedMotion ? MAINTAIN_END_ANIMATED : MAINTAIN_END_INSTANT) : false}
         // Padding vertical ICI et pas dans App.css : LegendList l'extrait de
         // ce prop pour son modèle de contenu (extractPadding) — sinon chaque
         // scrollToEnd vise (paddingTop+paddingBottom) px au-dessus du vrai bas.

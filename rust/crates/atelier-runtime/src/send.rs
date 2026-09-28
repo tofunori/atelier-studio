@@ -800,10 +800,109 @@ fn summarize_interaction(spec: &Value, response: &Value) -> String {
     }
 }
 
+// The provider callback is synchronous. A blocking consumer keeps persistence and
+// Git off Tokio's network workers; byte permits live through processing, not just
+// dequeue. One oversized event is admitted alone (it already exists at the API
+// boundary); it cannot multiply the configured queue budget.
+struct EventBudget { bytes: usize, closed: bool, senders: usize, queue: std::collections::VecDeque<(Value,usize)> }
+struct EventQueueBudget { state: std::sync::Mutex<EventBudget>, changed: std::sync::Condvar, max: usize }
+struct EventSender { budget: Arc<EventQueueBudget> }
+impl Clone for EventSender {
+    fn clone(&self) -> Self {
+        self.budget.state.lock().unwrap_or_else(|e| e.into_inner()).senders += 1;
+        Self { budget:self.budget.clone() }
+    }
+}
+impl Drop for EventSender {
+    fn drop(&mut self) {
+        self.budget.state.lock().unwrap_or_else(|e| e.into_inner()).senders -= 1;
+        self.budget.changed.notify_all();
+    }
+}
+struct QueuedEvent { value: Option<Value>, bytes: usize, budget: Arc<EventQueueBudget> }
+impl Drop for QueuedEvent {
+    fn drop(&mut self) {
+        self.budget.state.lock().unwrap_or_else(|e| e.into_inner()).bytes -= self.bytes;
+        self.budget.changed.notify_all();
+    }
+}
+struct EventReceiver { budget: Arc<EventQueueBudget> }
+impl EventReceiver {
+    fn recv(&self) -> Option<QueuedEvent> {
+        let mut state = self.budget.state.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if let Some((value, bytes)) = state.queue.pop_front() {
+                self.budget.changed.notify_all();
+                return Some(QueuedEvent { value:Some(value), bytes, budget:self.budget.clone() });
+            }
+            if state.closed || state.senders == 0 { return None; }
+            state = self.budget.changed.wait(state).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+}
+impl Drop for EventReceiver {
+    fn drop(&mut self) {
+        let mut state = self.budget.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.closed = true;
+        state.queue.clear();
+        self.budget.changed.notify_all();
+    }
+}
+impl EventSender {
+    fn close(&self) {
+        self.budget.state.lock().unwrap_or_else(|e| e.into_inner()).closed = true;
+        self.budget.changed.notify_all();
+    }
+    fn send(&self, value: Value) -> Result<(), ()> {
+        struct Counter(usize);
+        impl std::io::Write for Counter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> { self.0 += bytes.len(); Ok(bytes.len()) }
+            fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+        }
+        let mut counter = Counter(0);
+        let _ = serde_json::to_writer(&mut counter, &value);
+        let bytes = counter.0.max(1);
+        let enqueue = || {
+            let mut state = self.budget.state.lock().unwrap_or_else(|e| e.into_inner());
+            while !state.closed && (state.queue.len() >= 128 || (state.bytes > 0 && state.bytes.saturating_add(bytes) > self.budget.max)) {
+                state = self.budget.changed.wait(state).unwrap_or_else(|e| e.into_inner());
+            }
+            if state.closed { return Err(()); }
+            state.bytes += bytes;
+            let merged = state.queue.back_mut().is_some_and(|(previous, previous_bytes)| {
+                if coalesce_provider_delta(previous, &value) { *previous_bytes += bytes; true } else { false }
+            });
+            if !merged { state.queue.push_back((value,bytes)); }
+            tracing::trace!(queued_bytes = state.bytes, queued_events = state.queue.len(), event_bytes = bytes, "provider event queue");
+            self.budget.changed.notify_all();
+            Ok(())
+        };
+        if tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread) {
+            tokio::task::block_in_place(enqueue)
+        } else { enqueue() }
+    }
+}
+fn coalesce_provider_delta(previous: &mut Value, next: &Value) -> bool {
+    let (Some(left), Some(right)) = (previous.as_object_mut(),next.as_object()) else { return false; };
+    if !matches!(left.get("kind").and_then(Value::as_str),Some("delta" | "thinking_delta"))
+        || left.len() != right.len()
+        || left.iter().any(|(key,value)| key != "text" && right.get(key) != Some(value)) { return false; }
+    let Some(tail) = right.get("text").and_then(Value::as_str) else { return false; };
+    let Some(Value::String(text)) = left.get_mut("text") else { return false; };
+    if text.len().saturating_add(tail.len()) > 64 * 1024 { return false; }
+    text.push_str(tail);
+    true
+}
+
+fn provider_event_queue(max_bytes: usize) -> (EventSender, EventReceiver) {
+    let budget = Arc::new(EventQueueBudget { state:std::sync::Mutex::new(EventBudget { bytes:0, closed:false, senders:1, queue:std::collections::VecDeque::new() }), changed:std::sync::Condvar::new(), max:max_bytes });
+    (EventSender { budget:budget.clone() }, EventReceiver { budget })
+}
+
 fn make_interaction_relay(
     state: AppState,
     thread_id: String,
-    tx: tokio::sync::mpsc::UnboundedSender<Value>,
+    tx: EventSender,
 ) -> InteractionFn {
     Arc::new(move |method: String, params: Value| {
         let state = state.clone();
@@ -879,7 +978,7 @@ struct CarteOuverte {
     state: AppState,
     request_id: String,
     spec: Option<Value>,
-    tx: tokio::sync::mpsc::UnboundedSender<Value>,
+    tx: EventSender,
 }
 
 impl Drop for CarteOuverte {
@@ -1405,7 +1504,17 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         user_event["context"] = context_receipt;
     }
     // Channel for provider → harness (async-safe; avoids try_lock races).
-    let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    // Bound the dedicated persistence workers and their aggregate queue budget.
+    // Controls use separate WS admission and can still interrupt active providers.
+    let pump_slot = tokio::select! {
+        permit = state.provider_workers().acquire_owned() => permit.expect("provider worker budget"),
+        _ = async { while !preparation_cancelled.load(Ordering::SeqCst) { tokio::time::sleep(std::time::Duration::from_millis(25)).await; } } => {
+            if !running { let _ = state.threads().lock().await.upsert(json!({"id":thread_id,"status":"idle"}),true); }
+            update_receipt(state, client_mid.as_deref(), "cancelled", None, None, Some("Envoi annulé avant son démarrage.")).await;
+            return vec![crate::ws_dispatch::failure(msg,"REQUEST_CANCELLED","Envoi annulé avant son démarrage.")];
+        },
+    };
+    let (ev_tx, ev_rx) = provider_event_queue(4 * 1024 * 1024);
 
     // Steer on active run
     //
@@ -1471,6 +1580,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 thread_id.clone(),
                 session_id.clone(),
             );
+            let events_done = ev_tx.clone();
             let req = SendRequest {
                 additional_directories: additional_directories.clone(),
                 thread_id: thread_id.clone(),
@@ -1512,9 +1622,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let persistence_failure = Arc::new(std::sync::Mutex::new(None::<String>));
             let persistence_pump = persistence_failure.clone();
             let persistence_cancel = cancelled.clone();
-            let pump = tokio::spawn(async move {
-                while let Some(ev) = ev_rx.recv().await {
-                    let mut g = h_pump.lock().await;
+            let pump = tokio::task::spawn_blocking(move || {
+                let _slot = pump_slot;
+                while let Some(mut queued) = ev_rx.recv() {
+                    let ev = queued.value.take().expect("queued event");
+                    let mut g = h_pump.blocking_lock();
                     let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
                     let persisted = if kind == "done" || kind == "error" {
                         g.terminal(&turn_pump, ev)
@@ -1548,7 +1660,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let receipt_turn_id = turn_id.clone();
             tokio::spawn(async move {
                 let result = pimpl.send(req).await;
-                let _ = tokio::time::timeout(std::time::Duration::from_secs(30), pump).await;
+                events_done.close();
+                let _ = pump.await;
                 let persistence_error = persistence_failure
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1734,9 +1847,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let persistence_failure = Arc::new(std::sync::Mutex::new(None::<String>));
     let persistence_pump = persistence_failure.clone();
     let persistence_cancel = cancelled.clone();
-    let pump = tokio::spawn(async move {
+    let pump = tokio::task::spawn_blocking(move || {
+        let _slot = pump_slot;
         let mut linked_reply_text = String::new();
-        while let Some(ev) = ev_rx.recv().await {
+        while let Some(mut queued) = ev_rx.recv() {
+            let ev = queued.value.take().expect("queued event");
             // Avant normalisation : l'événement outil brut porte encore
             // `input.command`, la seule forme exploitable de la commande.
             prov_pump.note_event(&ev);
@@ -1796,7 +1911,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     })));
                 }
             }
-            let mut g = h_pump.lock().await;
+            let mut g = h_pump.blocking_lock();
             let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             let persisted = if kind == "done" || kind == "error" {
                 g.terminal(&turn_pump, ev)
@@ -1853,15 +1968,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     )
     .await;
 
-    // Vrai dès que le provider émet lui-même `done`/`error` : la pompe a alors
-    // seulement besoin de finir de le transférer, jamais d'être doublée.
-    let provider_terminal = Arc::new(AtomicBool::new(false));
     // Compaction pendant le tour : le résumé ne garantit pas les consignes
     // Atelier semées au premier tour (galerie, Zotero, figures, widgets, KB).
     // Le tour suivant les renverra.
     let compacte = Arc::new(AtomicBool::new(false));
     let compacte_vu = Arc::clone(&compacte);
-    let provider_terminal_check = Arc::clone(&provider_terminal);
     tokio::spawn(async move {
         let fallback_root = project_root.clone();
         let fallback_snapshot = snapshot_sha.clone();
@@ -1876,6 +1987,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             tid.clone(),
             session_id.clone(),
         );
+        let events_done = ev_tx.clone();
         let req = SendRequest {
             additional_directories: additional_directories.clone(),
             thread_id: tid.clone(),
@@ -1898,15 +2010,6 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 .unwrap_or(false),
             mode: SendMode::Normal,
             on_event: Arc::new(move |ev| {
-                // Le provider a-t-il produit sa propre fin de tour ? Si oui,
-                // le `done` synthétique ci-dessous n'a pas lieu d'être : il
-                // écraserait l'usage réel (contexte, jetons de sortie).
-                if matches!(
-                    ev.get("kind").and_then(Value::as_str),
-                    Some("done" | "error")
-                ) {
-                    provider_terminal.store(true, Ordering::SeqCst);
-                }
                 if ev.get("kind").and_then(Value::as_str) == Some("tool")
                     && ev.get("name").and_then(Value::as_str) == Some("__compacted")
                 {
@@ -1921,62 +2024,32 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             atelier_mcp,
         };
         let result = pimpl.send(req).await;
-        // Quand send() retourne, tous les clones d'ev_tx (on_event, relais
-        // d'interaction) sont droppés → le channel se ferme et la pompe finit
-        // de transférer TOUT ce que le provider a émis. L'attendre avant le
-        // check évite la course « done synthétique avant le text final du
-        // provider » (bulle dupliquée + usage perdu, vu en réel avec opencode
-        // ACP le 2026-07-16). Borné : un provider qui retiendrait son
-        // on_event ne doit pas geler le tour (comportement d'avant en repli).
-        //
-        // Le plafond dépend de ce que le provider a fait. S'il a déjà émis sa
-        // fin de tour, la vider intégralement est la SEULE issue correcte :
-        // 2 s suffisaient sur un tour léger, mais pas sur un tour chargé
-        // (78k jetons de contexte, des dizaines d'outils — fils Grok du
-        // 2026-08-13). Le `done` synthétique gagnait alors la course et
-        // l'usage réel disparaissait de l'historique, tour après tour.
-        let drain = if provider_terminal_check.load(Ordering::SeqCst) {
-            std::time::Duration::from_secs(30)
-        } else {
-            std::time::Duration::from_secs(2)
-        };
-        let _ = tokio::time::timeout(drain, pump).await;
+        events_done.close();
+        // Close admission after send returns, then drain every accepted event.
+        // Retained late callbacks cannot keep this pump alive or beat the fallback.
+        let _ = pump.await;
         let mut persistence_error = persistence_failure
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
-        // force terminal if needed (providers sans done natif, ex. fake)
-        {
-            let mut g = h2.lock().await;
-            if g.turn_status(&turn_id) != Some(atelier_harness::TurnStatus::Done) {
-                let terminal_result = if result.ok && persistence_error.is_none() {
-                    g.terminal(
-                        &turn_id,
-                        normalize_provider_event(
-                            json!({"kind":"done","ok":true,"result":""}),
-                            &fallback_root,
-                            None,
-                            fallback_snapshot.as_deref(),
-                            Some(&prov_fallback),
-                        ),
-                    )
+        // Serialize the fallback after the provider pump; persistence and Git
+        // remain off network workers on this less common completion path too.
+        let h_fallback = h2.clone();
+        let turn_fallback = turn_id.clone();
+        let result_ok = result.ok;
+        let result_error = result.error.clone();
+        persistence_error = tokio::task::spawn_blocking(move || {
+            let mut g = h_fallback.blocking_lock();
+            if g.turn_status(&turn_fallback) != Some(atelier_harness::TurnStatus::Done) {
+                let event = if result_ok && persistence_error.is_none() {
+                    normalize_provider_event(json!({"kind":"done","ok":true,"result":""}), &fallback_root, None, fallback_snapshot.as_deref(), Some(&prov_fallback))
                 } else {
-                    g.terminal(
-                        &turn_id,
-                        json!({
-                            "kind": "error",
-                            "message": persistence_error
-                                .clone()
-                                .or_else(|| result.error.clone())
-                                .unwrap_or_else(|| "failed".into())
-                        }),
-                    )
+                    json!({"kind":"error","message":persistence_error.clone().or(result_error).unwrap_or_else(|| "failed".into())})
                 };
-                if let Err(error) = terminal_result {
-                    persistence_error.get_or_insert_with(|| error.to_string());
-                }
+                if let Err(error) = g.terminal(&turn_fallback, event) { persistence_error.get_or_insert_with(|| error.to_string()); }
             }
-        }
+            persistence_error
+        }).await.unwrap_or_else(|error| Some(format!("terminal worker: {error}")));
         let succeeded = result.ok && persistence_error.is_none();
         update_receipt(
             &state2,
@@ -2229,7 +2302,7 @@ fn normalize_provider_event(
     event
 }
 
-pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
+fn provider_status_snapshot(state: &AppState) -> String {
     let mut list = provider_status_list(Some(state.app_dir()));
     // Le catalogue décrit les capacités statiques avec `ok=false` par défaut.
     // Le message WebSocket doit refléter le registre réellement construit au
@@ -2244,8 +2317,9 @@ pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
         }
         // Catalogue vivant (kimi, plan 046 étape 6) : modèles découverts +
         // thinking off/on par modèle confirmé — jamais de liste en dur.
-        if let Some(p) = live {
-            if let Some(dynamic) = p.dynamic_models().await {
+        if live.is_some() {
+            let dynamic = state.model_cache().lock().unwrap_or_else(|e| e.into_inner()).get(&provider.id).and_then(|entry| entry.value.clone());
+            if let Some(dynamic) = dynamic {
                 if let Some(models) = dynamic.get("models").and_then(Value::as_array) {
                     if !models.is_empty() {
                         provider.models = models
@@ -2294,10 +2368,44 @@ pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
             }
         }
     }
-    vec![
-        serde_json::to_string(&json!({"type":"providerStatus","providers": list}))
-            .unwrap_or_else(|_| r#"{"type":"error","message":"serialize"}"#.into()),
-    ]
+    let freshness = state.model_cache().lock().unwrap_or_else(|e| e.into_inner())
+        .iter().map(|(id, entry)| (id.clone(), json!({"refreshing":entry.refreshing,"ageMs":entry.checked.elapsed().as_millis(),"available":entry.value.is_some()})))
+        .collect::<serde_json::Map<String,Value>>();
+    json!({"type":"providerStatus","providers":list,"modelCatalogs":freshness}).to_string()
+}
+
+pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
+    let ids = provider_status_list(Some(state.app_dir())).into_iter().map(|provider| provider.id).collect::<Vec<_>>();
+    for id in ids {
+        let Some(provider) = state.provider(&id) else { continue };
+        let refresh = {
+            let mut cache = state.model_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match cache.get_mut(&id) {
+                Some(entry) if entry.refreshing || entry.checked.elapsed() < std::time::Duration::from_secs(if entry.value.is_some() { 300 } else { 30 }) => false,
+                Some(entry) => { entry.refreshing = true; true },
+                None => { cache.insert(id.clone(), crate::state::ModelCacheEntry { value:None, checked:std::time::Instant::now(), refreshing:true }); true },
+            }
+        };
+        if !refresh { continue; }
+        let state = state.clone();
+        tokio::spawn(async move {
+            let workers = state.model_workers();
+            let value = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                let _slot = workers.acquire().await.ok()?;
+                provider.dynamic_models().await
+            }).await.ok().flatten();
+            {
+                let mut cache = state.model_cache().lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(entry) = cache.get_mut(&id) {
+                    if value.is_some() { entry.value = value; }
+                    entry.checked = std::time::Instant::now();
+                    entry.refreshing = false;
+                }
+            }
+            state.publish(provider_status_snapshot(&state));
+        });
+    }
+    vec![provider_status_snapshot(state)]
 }
 
 pub async fn handle_status(state: &AppState) -> Vec<String> {
@@ -2893,6 +3001,51 @@ mod tests {
     /// d'events — au journal, `done` précédait le `text` final du provider,
     /// et le front dupliquait la bulle. L'ordre text < done doit être
     /// déterministe : la pompe est drainée AVANT le check de fin de tour.
+    #[test]
+    fn event_queue_only_merges_adjacent_compatible_deltas() {
+        let (sender,receiver) = provider_event_queue(4096);
+        for ev in [json!({"kind":"delta","id":"a","text":"one"}),json!({"kind":"delta","id":"a","text":"two"}),json!({"kind":"delta","id":"b","text":"other"}),json!({"kind":"tool","name":"barrier"}),json!({"kind":"delta","id":"b","text":"last"}),json!({"kind":"done"})] { sender.send(ev).unwrap(); }
+        sender.close();
+        let mut events = Vec::new();
+        while let Some(mut event) = receiver.recv() { events.push(event.value.take().unwrap()); }
+        assert_eq!(events.len(),5);
+        assert_eq!(events[0]["text"],"onetwo");
+        assert_eq!(events[1]["text"],"other");
+        assert_eq!(events[2]["kind"],"tool");
+        assert_eq!(events[3]["text"],"last");
+        assert_eq!(events[4]["kind"],"done");
+    }
+
+    #[test]
+    fn event_queue_backpressures_bytes_until_processing_finishes() {
+        let (sender, receiver) = provider_event_queue(64);
+        let event = json!({"kind":"delta","text":"a".repeat(30)});
+        sender.send(event.clone()).unwrap();
+        let first = receiver.recv().unwrap();
+        let (signal, received) = std::sync::mpsc::channel();
+        let second = sender.clone();
+        let producer = std::thread::spawn(move || { second.send(event).unwrap(); signal.send(()).unwrap(); });
+        assert!(received.recv_timeout(std::time::Duration::from_millis(30)).is_err(), "dequeue alone must not release the byte budget");
+        drop(first);
+        received.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+        drop(receiver.recv());
+        producer.join().unwrap();
+        sender.send(json!({"kind":"done"})).unwrap();
+        sender.close();
+        assert_eq!(receiver.recv().unwrap().value.as_ref().unwrap()["kind"], "done");
+        assert!(receiver.recv().is_none());
+        assert!(sender.send(json!({"kind":"delta","text":"late"})).is_err());
+    }
+
+    #[test]
+    fn event_queue_consumer_failure_releases_blocked_producer() {
+        let (sender, receiver) = provider_event_queue(1);
+        sender.send(json!({"text":"oversized event admitted alone"})).unwrap();
+        let producer = std::thread::spawn(move || sender.send(json!({"kind":"done"})));
+        drop(receiver);
+        assert!(producer.join().unwrap().is_err());
+    }
+
     #[tokio::test]
     async fn provider_events_drain_before_synthetic_done() {
         let dir = tempdir().unwrap();
@@ -3019,6 +3172,25 @@ mod tests {
             .iter()
             .any(|event| event["text"] == "question source"));
         assert!(copied.iter().any(|event| event["text"] == "réponse source"));
+    }
+
+    #[tokio::test]
+    async fn provider_catalogue_is_nonblocking_and_singleflight() {
+        let dir = tempdir().unwrap();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let state = AppState::new(AppPaths::from_app_dir(dir.path().to_path_buf()), None, "t".into(), "0.1.0".into(), "h".into(), "/tmp".into()).with_catalogue_provider("opencode", calls.clone());
+        let mut refreshed = state.subscribe_bus();
+        for _ in 0..20 {
+            let reply = tokio::time::timeout(std::time::Duration::from_millis(100), handle_provider_status(&state)).await.expect("status must not wait for the catalogue");
+            assert!(reply[0].contains("providerStatus"));
+        }
+        let published = tokio::time::timeout(std::time::Duration::from_secs(5), refreshed.recv()).await
+            .expect("fake catalogue refresh must complete").unwrap();
+        assert!(published.contains("discovered-model"));
+        assert_eq!(calls.load(Ordering::SeqCst),1);
+        assert!(provider_status_snapshot(&state).contains("discovered-model"));
+        let _ = handle_provider_status(&state).await;
+        assert_eq!(calls.load(Ordering::SeqCst),1);
     }
 
     #[tokio::test]

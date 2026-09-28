@@ -6,9 +6,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
+import {build} from "esbuild";
 import {JSDOM} from "jsdom";
 
-const codeFeatures = await readFile(new URL("../../assets/code_features.bundle.js", import.meta.url), "utf8");
+const codeFeatures = (await build({entryPoints: [new URL("../../src/studio/features/code/index.ts", import.meta.url).pathname], bundle: true, write: false, format: "iife", globalName: "AtelierStudioCode"})).outputFiles[0].text;
 const csvToolkitSource = await readFile(new URL("../../assets/csv_table.js", import.meta.url), "utf8");
 const featuresContext: Record<string, any> = {};
 vm.runInNewContext(codeFeatures, featuresContext);
@@ -181,9 +182,8 @@ test("a sorted table still reports the file order, not the screen order", async 
   controller.activate();
   // Tri décroissant sur la 1re colonne : « Global » (ligne 4) passe en tête,
   // au-dessus des lignes 2-3.
-  const header = doc.querySelectorAll<HTMLTableCellElement>("#csvTable thead th")[1];
-  header.click();
-  header.click();
+  doc.querySelectorAll<HTMLButtonElement>("#csvTable thead button")[0].click();
+  doc.querySelectorAll<HTMLButtonElement>("#csvTable thead button")[0].click();
   const rows = selectRows(dom, doc, 0, 1);
   assert.deepEqual([rows[0].dataset.line, rows[1].dataset.line], ["4", "3"]);
   controller.readSelection();
@@ -236,4 +236,18 @@ test("the source mode leaves the selection to the editor bridge", async () => {
   controller.setMode("source");
   controller.readSelection();
   assert.deepEqual(events, []);
+});
+
+test("CSV sorting exposes direction and preserves keyboard focus across rerenders", async () => {
+  const {dom,doc,controller} = await mountSurface("code_editor.html", () => ({}));
+  controller.activate();
+  const button = () => doc.querySelector<HTMLButtonElement>('.csvSortButton[data-column="2"]');
+  const header = () => button().parentElement;
+  assert.equal(header().getAttribute("aria-sort"),"none");
+  button().focus(); button().click();
+  assert.equal(header().getAttribute("aria-sort"),"ascending"); assert.equal(doc.activeElement,button());
+  assert.equal(doc.querySelector<HTMLTableRowElement>("#csvTable tbody tr").dataset.line,"4");
+  button().click(); assert.equal(header().getAttribute("aria-sort"),"descending"); assert.equal(doc.activeElement,button());
+  button().click(); assert.equal(header().getAttribute("aria-sort"),"none"); assert.equal(doc.activeElement,button());
+  dom.window.close();
 });

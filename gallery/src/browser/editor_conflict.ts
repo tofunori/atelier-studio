@@ -169,3 +169,4 @@ function installAtelierConflictGuardApi() {
 }
 installAtelierConflictGuardApi();
 export type AtelierConflictGuardApi = ReturnType<typeof installAtelierConflictGuardApi>;
+

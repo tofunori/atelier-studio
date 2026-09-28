@@ -76,7 +76,7 @@ export interface LatexCompileCoordinatorOptions {
   getText(): string;
   isDirty(): boolean;
   save(): Promise<unknown>;
-  requestCompile(): Promise<LatexCompileResponse>;
+  requestCompile(force?: boolean): Promise<LatexCompileResponse>;
   revealIssue(issue: LatexPreflightIssue): void;
   setState(kind: CompileStateKind, message: string): void;
   setChip(kind: CompileChipKind, message: string): void;
@@ -94,7 +94,7 @@ export interface LatexCompileCoordinator {
   /** `auto` : déclenchement automatique (sauvegarde, passage d'agent) — la
    * pastille rend compte, mais ni le curseur ni la barre d'état du document
    * ne sont dérangés. */
-  compile(auto?: boolean): Promise<void>;
+  compile(auto?: boolean, force?: boolean): Promise<void>;
   dispose(): void;
 }
 
@@ -137,7 +137,10 @@ export function createLatexCompileCoordinator(
   const startInterval = options.startInterval || ((callback: () => void, milliseconds: number) =>
     window.setInterval(callback, milliseconds));
   const stopInterval = options.stopInterval || ((handle: number) => window.clearInterval(handle));
-  let busy = false;
+  let inFlight: Promise<void> | null = null;
+  let runningSource = "";
+  let pending: {auto: boolean; force: boolean} | null = null;
+  let disposed = false;
   let lastPreflightAt = 0;
   let startedAt = 0;
   let tick: number | null = null;
@@ -159,11 +162,7 @@ export function createLatexCompileCoordinator(
     }, 1000);
   };
 
-  return {
-    async compile(auto = false): Promise<void> {
-      if (busy) return;
-      busy = true;
-      try {
+  const run = async (auto: boolean, force: boolean): Promise<void> => {
         if (options.isDirty() && !(await options.save())) {
           options.renderLog(analyzeCompileResponse({ok:false, log:"! Sauvegarde refusée — compilation annulée"}));
           setChip("err", "sauvegarde refusée — compilation annulée");
@@ -196,7 +195,8 @@ export function createLatexCompileCoordinator(
         startChip();
         let response: LatexCompileResponse;
         try {
-          response = await options.requestCompile();
+          runningSource = options.getText();
+          response = await options.requestCompile(force);
         } catch {
           options.renderLog(analyzeCompileResponse({ok:false, log:"! Serveur galerie injoignable"}));
           setChip("err", "serveur galerie injoignable");
@@ -228,10 +228,31 @@ export function createLatexCompileCoordinator(
         setChip("ok", `compilé en ${duration} s · ${clock}`);
         options.setState("ok", "saved");
         options.onCompiled(response);
-      } finally { busy = false; }
+  };
+  return {
+    compile(auto = false, force = false): Promise<void> {
+      if (disposed) return Promise.resolve();
+      if (inFlight) {
+        // Repeated manual clicks join the same work. A saved edit or an auto
+        // refresh during compilation queues one latest pass, never loses it.
+        if (auto || force || options.getText() !== runningSource) {
+          pending = {auto: pending ? pending.auto && auto : auto, force: Boolean(pending?.force || force)};
+        }
+        return inFlight;
+      }
+      runningSource = options.getText();
+      inFlight = (async () => {
+        let request: {auto: boolean; force: boolean} | null = {auto, force};
+        while (request && !disposed) {
+          pending = null;
+          await run(request.auto, request.force);
+          request = pending;
+        }
+      })().finally(() => {inFlight = null;});
+      return inFlight;
     },
     dispose(): void {
-      stopTick();
+      disposed = true; pending = null; stopTick();
     },
   };
 }

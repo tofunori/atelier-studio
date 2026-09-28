@@ -34,8 +34,9 @@ pub struct HarnessThread {
     journal: HarnessJournal,
     active: Option<String>,
     turns: HashMap<String, Turn>,
-    /// Dedup seen eventIds (reconnection safety within process).
-    seen_event_ids: std::collections::HashSet<String>,
+    // Event ids are freshly allocated by decorate(), never replayed into dispatch.
+    // Retaining them cannot deduplicate provider messages and grows on every delta.
+    completed_turns: std::collections::VecDeque<String>,
 }
 
 impl HarnessThread {
@@ -52,7 +53,7 @@ impl HarnessThread {
             journal,
             active: None,
             turns: HashMap::new(),
-            seen_event_ids: std::collections::HashSet::new(),
+            completed_turns: std::collections::VecDeque::new(),
         }
     }
 
@@ -139,12 +140,6 @@ impl HarnessThread {
     }
 
     fn dispatch(&mut self, out: Value) -> Result<(), JournalError> {
-        // Dedup by eventId (ignore duplicates)
-        if let Some(eid) = out.pointer("/meta/eventId").and_then(|v| v.as_str()) {
-            if !self.seen_event_ids.insert(eid.to_string()) {
-                return Ok(());
-            }
-        }
         let durable = out
             .pointer("/meta/durable")
             .and_then(|v| v.as_bool())
@@ -276,6 +271,8 @@ impl HarnessThread {
         // rallumait l'indicateur de travail et le bouton Stop d'un tour fini
         // (réponse d'un hook asynchrone après le `result` de Claude, qui sort
         // en note de vie, Thierry 2026-09-25).
+        // An evicted completed turn cannot become live again from a late callback.
+        if !self.turns.contains_key(turn_id) { return Ok(()); }
         let kind = event.get("kind").and_then(Value::as_str).unwrap_or("");
         if is_ephemeral(kind) && self.turns.get(turn_id).is_some_and(|t| t.terminal) {
             return Ok(());
@@ -322,6 +319,10 @@ impl HarnessThread {
         }
         let decorated = self.decorate(event, turn_id, None, None, "provider", Some(true));
         self.dispatch(decorated)?;
+        self.completed_turns.push_back(turn_id.to_owned());
+        while self.completed_turns.len() > 128 {
+            if let Some(id) = self.completed_turns.pop_front() { self.turns.remove(&id); }
+        }
         Ok(true)
     }
 
@@ -346,6 +347,24 @@ mod tests {
     use serde_json::json;
     use std::sync::{Arc, Mutex as StdMutex};
     use tempfile::tempdir;
+
+    #[test]
+    fn completed_turn_history_is_bounded_and_late_callbacks_stay_closed() {
+        let dir = tempdir().unwrap();
+        let captured = Arc::new(StdMutex::new(Vec::new()));
+        let cap = captured.clone();
+        let mut h = HarnessThread::new("t", "fake", Arc::new(move |ev| cap.lock().unwrap().push(ev)), HarnessJournal::new(dir.path()));
+        for index in 0..160 {
+            let id = h.start_turn(Some(&format!("turn-{index}")), None, None).unwrap();
+            h.terminal(&id, json!({"kind":"done"})).unwrap();
+        }
+        assert_eq!(h.turns.len(), 128);
+        let count = captured.lock().unwrap().len();
+        h.emit("turn-0", json!({"kind":"delta","text":"late"}), None).unwrap();
+        h.emit("turn-0", json!({"kind":"text","text":"late"}), None).unwrap();
+        assert!(!h.terminal("turn-0", json!({"kind":"done"})).unwrap());
+        assert_eq!(captured.lock().unwrap().len(), count);
+    }
 
     #[test]
     fn sequence_and_journal() {

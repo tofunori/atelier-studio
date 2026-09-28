@@ -186,6 +186,12 @@ export function useGitSurfaceController({
       const message = (event as CustomEvent).detail;
       if (message.projectRoot !== projectRoot) return;
       const next = (message.details ?? null) as GitCommitDetails | null;
+      if (message.patchOnly) {
+        setHistoryBusy(null);
+        if (next) setCommitDetails(current => current?.sha === next.sha ? { ...current, diff: next.diff } : current);
+        if (message.error) setCommitError(message.error);
+        return;
+      }
       setCommitDetails(next); setHistoryBusy(null);
       const first = next?.files?.[0] ?? null;
       if (first && next) requestCommitFile(next.sha, first);
@@ -460,6 +466,14 @@ export function useGitSurfaceController({
     send(ws, { type: "gitCommitDetails", projectRoot, sha });
   }
 
+  function loadCommitPatch() {
+    if (!commitDetails) return;
+    setHistoryBusy("patch");
+    if (!send(ws, { type: "gitCommitDetails", projectRoot, sha: commitDetails.sha, includeDiff: true })) {
+      setHistoryBusy(null); setCommitError(t("git.connection-unavailable"));
+    }
+  }
+
   function selectCommitFile(file: GitCommitFile) {
     if (!commitDetails || (selectedCommitFile?.path === file.path && !commitDiffLoading)) return;
     requestCommitFile(commitDetails.sha, file);
@@ -483,7 +497,7 @@ export function useGitSurfaceController({
     updateStage, groupedEntries, filter, setFilter, expanded, setExpanded,
     commits, commitDetails, commitsLoading, commitsHasMore, commitQuery, setCommitQuery, allRefs, setAllRefs,
     refreshCommits, selectCommit, selectedCommitFile, selectCommitFile, commitDiffContents, commitDiffLoading,
-    historyAction, historyBusy,
+    historyAction, historyBusy, loadCommitPatch,
   };
 }
 

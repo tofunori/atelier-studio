@@ -18,10 +18,16 @@ where
     let (out, mut outgoing) = mpsc::channel::<Message>(128);
     let (closed, disconnected) = watch::channel(false);
     let mut bus = state.subscribe_bus();
+    let mut terminal_bus = state.subscribe_terminals();
     let mut writer = tokio::spawn(async move {
         loop {
             let frame = tokio::select! {
                 frame = outgoing.recv() => match frame { Some(frame) => frame, None => break },
+                event = terminal_bus.recv() => match event {
+                    Ok(text) => Message::Text(text.into()),
+                    // Terminal replay also requires a reconnect; never silently drop bytes.
+                    Err(_) => break,
+                },
                 event = bus.recv() => match event {
                     Ok(text) => Message::Text(text.into()),
                     // Reconnect + history resync instead of silently losing events.

@@ -2,6 +2,12 @@
 // workerSrc : posé par le shim module en tête de page (pdf.js est ESM depuis la 4.x).
 
 const rel = new URLSearchParams(location.search).get("file");
+function pdfScrollBehavior(){
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+function attachPdfChatPayload(payload){
+  return window.AtelierStudioCore.requestChatAttachment({window, postToHost:__atelierPost, payload});
+}
 const __passageParams = new URLSearchParams(location.search);
 const targetPageParam = __passageParams.get("page");
 const hasTargetPage = targetPageParam !== null && /^[1-9]\d{0,5}$/.test(targetPageParam) && Number(targetPageParam) <= 100000;
@@ -24,6 +30,9 @@ const DPR = Math.min(2, window.devicePixelRatio || 1);
 // Deux pages en vol au plus : au-delà, les rendus se disputent le worker
 // pdf.js et la première page à l'écran arrive PLUS tard.
 const RENDER_CONCURRENCY = 2;
+const pdfRenderScheduler = window.AtelierPdfRuntime.createScheduler(RENDER_CONCURRENCY);
+pdfRenderScheduler.pause(document.hidden);
+document.addEventListener("visibilitychange", () => pdfRenderScheduler.pause(document.hidden));
 
 /** Ordre de peinture. `boxes` : [{n, top, height}] en px CSS dans le flux des
  *  pages. Renvoie les pages visibles triées par distance au CENTRE de la
@@ -120,7 +129,11 @@ function createReadingMode(){
     for (const el of document.querySelectorAll(PAGE_TOOLS)) (el as HTMLInputElement).disabled = off;
   }
   function cancelCrops(){
-    for (const entry of crops.values()) { if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; } }
+    for (const entry of crops.values()) {
+      entry.visible = false; pdfRenderScheduler.cancel(entry);
+      if (entry.task) { try { entry.task.cancel(); } catch(_){} }
+      if (!entry.task) entry.canvas.width = entry.canvas.height = 0;
+    }
   }
 
   function pref(k: string, d: string){ try { return localStorage.getItem(KEYS[k]) || d; } catch(e){ return d; } }
@@ -166,32 +179,44 @@ function createReadingMode(){
     crops.set(block.id, {canvas: c, task: null, block});
     return c;
   }
-  async function paintCrop(entry){
-    if (!__readingPdf || entry.task || entry.canvas.dataset.done) return;
-    const page = await __readingPdf.getPage(entry.block.page);
-    const cssScale = 1.5;
-    const cv = R.cropViewport(page, entry.block, cssScale, DPR);
-    entry.canvas.width = cv.canvasWidth; entry.canvas.height = cv.canvasHeight;
-    const ctx = entry.canvas.getContext("2d"); ctx.scale(DPR, DPR);
-    entry.task = page.render({canvas: entry.canvas, canvasContext: ctx, viewport: cv.viewport, intent: "display"});
-    try { await entry.task.promise; entry.canvas.dataset.done = "1"; }
-    catch(e){ if (!isRenderCancel(e)) console.warn("reading crop", entry.block.id, e); }
-    finally { entry.task = null; }
+  function paintCrop(entry){
+    const source = __readingPdf, generation = gen;
+    if (!source || entry.canvas.dataset.done) return Promise.resolve();
+    return pdfRenderScheduler.enqueue(entry, async (job) => {
+      if (!entry.visible || job.cancelled || source !== __readingPdf || generation !== gen) return;
+      const page = await source.getPage(entry.block.page);
+      if (!entry.visible || job.cancelled || source !== __readingPdf || generation !== gen) return;
+      const cv = R.cropViewport(page, entry.block, 1.5, DPR);
+      entry.canvas.width = cv.canvasWidth; entry.canvas.height = cv.canvasHeight;
+      const ctx = entry.canvas.getContext("2d"); ctx.scale(DPR, DPR);
+      const task = entry.task = page.render({canvas: entry.canvas, canvasContext: ctx, viewport: cv.viewport, intent: "display"});
+      try {
+        await task.promise;
+        if (!job.cancelled && entry.visible && generation === gen) entry.canvas.dataset.done = "1";
+      } catch(e){ if (!isRenderCancel(e)) console.warn("reading crop", entry.block.id, e); }
+      finally {
+        if (entry.task === task) entry.task = null;
+        if (job.cancelled || !entry.visible || generation !== gen) entry.canvas.width = entry.canvas.height = 0;
+      }
+      return true;
+    }, 0, () => { try { entry.task?.cancel(); } catch (_) {} }).then((ready) => {
+      // A rapid exit/re-entry may have joined the cancelled render's promise.
+      if (ready === false && entry.visible && generation === gen && !entry.canvas.dataset.done) {
+        if (!entry.retry) { entry.retry = true; queueMicrotask(() => { entry.retry = false; void paintCrop(entry); }); }
+      }
+    }).catch((error) => console.warn("reading crop", entry.block.id, error));
   }
   function observeCrops(){
     if (cropObserver) cropObserver.disconnect();
     cropObserver = new IntersectionObserver(entries => {
       for (const e of entries) {
         const entry = crops.get(Number((e.target as HTMLElement).dataset.crop)); if (!entry) continue;
-        if (e.isIntersecting) void paintCrop(entry);
+        entry.visible = e.isIntersecting;
+        if (entry.visible) void paintCrop(entry);
         else {
-          // Toujours libérer le bitmap en sortie d'écran, peinture terminée
-          // ou non — sinon une découpe déjà peinte (task=null, done="1")
-          // gardait son canvas plein format indéfiniment (revue plan 078 T5
-          // fix 1, constat n°4). La ré-entrée dans le viewport repeint via
-          // paintCrop (dataset.done supprimé ci-dessous).
-          if (entry.task) { try { entry.task.cancel(); } catch(_){} entry.task = null; }
-          entry.canvas.width = entry.canvas.height = 0;
+          pdfRenderScheduler.cancel(entry);
+          // An active canvas is released only after its RenderTask settles.
+          if (!entry.task) entry.canvas.width = entry.canvas.height = 0;
           delete entry.canvas.dataset.done;
         }
       }
@@ -213,7 +238,7 @@ function createReadingMode(){
     const sc = document.scrollingElement || document.documentElement;
     const y = sc.scrollTop + 8;
     let best = 1;
-    for (const pg of document.querySelectorAll<HTMLElement>("#pages .pg")) { if ((pg as HTMLElement).offsetTop <= y) best = +pg.dataset.page; else break; }
+    for (const pg of document.querySelectorAll<HTMLElement>("#pages .pg")) { if (pg.offsetTop <= y) best = +pg.dataset.page; else break; }
     return best;
   }
   function scrollToBlockOfPage(page: string|number){
@@ -293,13 +318,34 @@ function createReadingMode(){
 export type ReadingMode = ReturnType<typeof createReadingMode>;
 
 async function main(){
-  let pdf;
+  let pdf: { numPages: number; }, textCache;
+  const loader = window.AtelierPdfRuntime.createDocumentLoader((options) => pdfjsLib.getDocument(options));
+  let closed = false;
+  window.addEventListener("pagehide", event => {
+    if (event.persisted) return;
+    closed = true; void loader.destroy();
+  });
+  const options = (url) => ({url, standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
+    wasmUrl: "/.fig_thumbs/pdfjs/wasm/", iccUrl: "/.fig_thumbs/pdfjs/iccs/",
+    cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true});
+  function newTextCache(doc){
+    return window.AtelierPdfRuntime.createDocumentCache(doc, (tc, page) => {
+      // Same validity filter/order as buildTextLayer, without creating DOM.
+      const vp = page.getViewport({scale:1});
+      const items = tc.items.filter((item) => {
+        if (!item.str || !item.str.trim() || item.width <= 0) return false;
+        const tx = pdfjsLib.Util.transform(vp.transform, item.transform);
+        return Math.hypot(tx[2], tx[3]) > 0;
+      });
+      return {tc:{...tc, items}, index:window.AtelierPdfPassage.createIndex(items.map((item) => item.str))};
+    });
+  }
   try {
     await window.__pdfjsReady;   // shim module (voir en tête de page)
-    pdf = await pdfjsLib.getDocument({url: "/" + rel,
-      standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
-      wasmUrl: "/.fig_thumbs/pdfjs/wasm/", iccUrl: "/.fig_thumbs/pdfjs/iccs/",
-      cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
+    if (closed) return;
+    const loaded = await loader.load(options("/" + rel));
+    if (!loaded) return;
+    if (!await loaded.commit((doc) => { pdf = doc; textCache = newTextCache(doc); })) return;
     if (hasTargetPage) targetPage = Math.min(targetPage, pdf.numPages);
     __readingPdf = pdf;
   } catch(e) {
@@ -384,13 +430,11 @@ async function main(){
       if (performance.now() - lastChangeAt < 160) return;   // le geste continue
       rendering = true;
       const el = document.scrollingElement || document.documentElement;
-      const ratio = el.scrollTop / Math.max(1, el.scrollHeight);
       try {
         // le transform tombe dès que les pages À L'ÉCRAN sont nettes ;
         // le reste se peint derrière (cf. renderAll)
         await renderAll(function(){
           wrap.style.transform = "";
-          el.scrollTop = ratio * el.scrollHeight;
           rendering = false;   // un nouveau geste peut reprendre la main
         });
       } catch(e){}
@@ -405,181 +449,159 @@ async function main(){
   let _renderGen = 0;
   let _pageObserver: IntersectionObserver = null;
   let _slots = [];
-  async function renderAll(onVisibleReady?: () => void){
-    clearHl();
-    selHide();
-    const gen = ++_renderGen;
+  let _ensurePage: (page:number)=>Promise<unknown> = async () => null;
+  let _releaseSelection = () => {};
+  let _firstLayout = true;
+  let _searchGeneration = 0;
+  const yieldToUi = () => new Promise(resolve => setTimeout(resolve, 0));
+  function cancelPages(){
     if (_pageObserver) _pageObserver.disconnect();
-    // nouvelle génération : les peintures de l'ancienne partent à la poubelle,
-    // autant ne pas les payer jusqu'au bout
-    for (const old of _slots) cancelRender(old);
+    for (const old of _slots) { old.want = false; pdfRenderScheduler.cancel(old); cancelRender(old); }
+  }
+  window.__pdfTextSearch = {
+    async scan(query, onPage, cancelled){
+      const cache = textCache, source = pdf, generation = _searchGeneration;
+      for (let n = 1; n <= source.numPages; n++) {
+        if (cancelled() || cache !== textCache || generation !== _searchGeneration) return false;
+        const data = await cache.text(n);
+        if (cancelled() || cache !== textCache || generation !== _searchGeneration) return false;
+        onPage(n, window.AtelierPdfPassage.findAllInIndex(data.index, query));
+        await yieldToUi();
+      }
+      return true;
+    },
+    ensurePage:(n) => _ensurePage(n),
+    releaseSelection:() => _releaseSelection(),
+  };
+  async function renderAll(onVisibleReady?: { (): void; (): void; (): void; }){
+    clearHl(); selHide();
+    const gen = ++_renderGen, cache = textCache;
+    const scrolling = document.scrollingElement || document.documentElement;
+    const anchor = _slots.filter(slot => slot.div.offsetTop <= scrolling.scrollTop + 1).at(-1);
+    const anchorOffset = anchor ? (scrolling.scrollTop - anchor.div.offsetTop) / Math.max(1, anchor.div.offsetHeight) : 0;
+    cancelPages();
     _slots = [];
-    RENDER_W = availW();
-    RENDER_Z = ZOOM;
-
-    wrap.innerHTML = "";
-    // 1) squelette : chaque page à sa taille finale, sans canvas. La hauteur
-    //    totale est juste immédiatement (le scroll ne saute pas) et le rendu
-    //    peut commencer par ce qui est SOUS LES YEUX.
-    // UNE seule page demandée à pdf.js pour le gabarit : redemander les 42
-    // pages avant de peindre coûtait plusieurs secondes à chaque
-    // redimensionnement (vécu 2026-08-16 — « le PDF ne s'ajuste pas »). Les
-    // pages d'un article ont la même taille ; celles qui diffèrent sont
-    // corrigées à la peinture, quand leur vraie page est chargée.
-    const page1 = await pdf.getPage(1);
+    RENDER_W = availW(); RENDER_Z = ZOOM;
+    const page1 = await cache.page(1);
     if (gen !== _renderGen) return;
     const scale = Math.max(0.3, ((RENDER_W - 28) / page1.getViewport({scale:1}).width) * ZOOM);
     const vp1 = page1.getViewport({scale});
+    wrap.innerHTML = "";
     const slots = [];
     for(let n = 1; n <= pdf.numPages; n++){
       const div = document.createElement("div");
       div.className = "pg"; div.dataset.page = String(n);
-      div.dataset.vscale = vp1.scale;  // px CSS par unité PDF — requis par le synctex
+      div.dataset.vscale = vp1.scale;
       div.style.width = vp1.width + "px"; div.style.height = vp1.height + "px";
+      const known = cache.peekPage(n), vp = known ? known.getViewport({scale}) : vp1;
+      div.style.width = vp.width + "px"; div.style.height = vp.height + "px";
       wrap.appendChild(div);
-      slots.push({ n: n, page: n === 1 ? page1 : null, vp: vp1, div: div, painted: false, rendering: false, visible: false, want: false, task: null });
+      slots.push({n, page:known, vp, div, visible:false, want:false, task:null});
     }
     _slots = slots;
-    try { document.dispatchEvent(new CustomEvent("pdf-pages-laid")); } catch(e){}
-    // 2) peinture d'une page : canvas + couche texte + annotations
-    const paint = async function(slot, wantCanvas = true){
-      if (slot.rendering || gen !== _renderGen) return;
-      if (slot.painted && (!wantCanvas || slot.div.querySelector("canvas"))) return;
-      slot.rendering = true;
-      try {
-      // page chargée seulement maintenant (le gabarit n'en connaissait qu'une)
-      if (!slot.page) {
-        slot.page = await pdf.getPage(slot.n);
-        if (gen !== _renderGen) return;
-        const real = slot.page.getViewport({scale});
-        // page au format différent (paysage, planche) : on rectifie le gabarit
-        if (Math.abs(real.width - slot.vp.width) > 1 || Math.abs(real.height - slot.vp.height) > 1) {
-          slot.div.style.width = real.width + "px";
-          slot.div.style.height = real.height + "px";
-          slot.div.dataset.vscale = real.scale;
+    // A document-height ratio includes the transient CSS zoom transform and
+    // shifts long documents several pages. Keep a page and local offset.
+    wrap.style.transform = "";
+    if (anchor) {
+      const next = slots[Math.min(anchor.n, slots.length) - 1];
+      scrolling.scrollTop = next.div.offsetTop + anchorOffset * next.div.offsetHeight;
+    }
+    // Navigate before painting: a link to page 80 must not wait for pages 1–79.
+    if (_firstLayout) {
+      _firstLayout = false;
+      if (hasTargetPage || targetQuote) slots[targetPage - 1]?.div.scrollIntoView({block:"start"});
+      else try {
+        const k = "pdfv_scroll_" + location.search, ratio = parseFloat(sessionStorage.getItem(k));
+        if (ratio > 0 && !targetSection) {
+          sessionStorage.removeItem(k);
+          const sc = document.scrollingElement || document.documentElement;
+          sc.scrollTop = ratio * sc.scrollHeight;
         }
-        slot.vp = real;
-      }
-      const vp = slot.vp;
-      // 2a) LE CANVAS D'ABORD. Il attendait getTextContent() : la page restait
-      //     blanche le temps d'extraire un texte dont la peinture n'a aucun
-      //     besoin. Aucune dépendance dure dans l'autre sens non plus —
-      //     readingOrder et drawAnnots ne lisent que la couche texte et le
-      //     gabarit de la page ; revealLinkedPassage attend la fin de renderAll.
-      //     Search and annotations keep their text layer; only nearby pages
-      //     hold the expensive Retina canvas.
-      if (wantCanvas || slot.visible) {
+      } catch (_) {}
+    }
+    try { document.dispatchEvent(new CustomEvent("pdf-pages-laid")); } catch(e){}
+    function releaseDistant(slot){
+      for (const cv of slot.div.querySelectorAll("canvas")) { cv.remove(); cv.width = cv.height = 0; }
+      const tl = slot.div.querySelector(".textLayer");
+      // A user's active selection remains valid while dragging or annotating.
+      if (tl && activeSelection?.tl !== tl && dragLayer !== tl) tl.remove();
+    }
+    _releaseSelection = () => { for (const slot of slots) if (!slot.want) releaseDistant(slot); };
+    const paint = async function(slot, job){
+      const alive = () => gen === _renderGen && !job.cancelled && slot.want;
+      if (!alive()) return false;
+      const page = slot.page = await cache.page(slot.n);
+      if (!alive()) return false;
+      const vp = slot.vp = page.getViewport({scale});
+      slot.div.style.width = vp.width + "px"; slot.div.style.height = vp.height + "px";
+      slot.div.dataset.vscale = vp.scale;
+      if (!slot.div.querySelector("canvas")) {
         const cv = document.createElement("canvas");
         cv.width = Math.round(vp.width * DPR); cv.height = Math.round(vp.height * DPR);
         cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
         const ctx = cv.getContext("2d"); ctx.scale(DPR, DPR);
-        // intent "display" : "print" demande à pdf.js la variante d'impression
-        // (annotations aplaties, optimisations écran désactivées) — plus lente,
-        // et destinée à une imprimante, pas à cet écran.
-        const task = slot.page.render({canvas: cv, canvasContext: ctx, viewport: vp, intent: "display"});
+        const task = page.render({canvas: cv, canvasContext: ctx, viewport: vp, intent: "display"});
         slot.task = task;
-        let cancelled = false;
-        try {
-          await task.promise;
-        } catch (error) {
-          cv.width = cv.height = 0;
-          // annulation = sortie d'écran ou génération périmée : rien à dire.
-          // Une VRAIE erreur de peinture ne doit pas priver la page de sa
-          // couche texte (sélection, recherche, ancrage des annotations).
-          if (isRenderCancel(error)) cancelled = true;
-          else console.warn("PDF page", slot.n, error);
-        } finally {
-          if (slot.task === task) slot.task = null;
-        }
-        if (gen !== _renderGen) { cv.width = cv.height = 0; return; }
-        // Peinture annulée ou page ressortie de l'écran : pas de canvas, mais
-        // on continue vers la couche texte — sinon la passe de fond, qui
-        // ignore une page encore marquée `rendering`, pouvait laisser cette
-        // page sans texte (recherche et passages muets jusqu'au retour).
-        if (cancelled || (_pageObserver && !slot.visible && !slot.want)) cv.width = cv.height = 0;
-        else if (cv.width) slot.div.prepend(cv);
+        try { await task.promise; }
+        catch (error) { cv.width = cv.height = 0; if (!isRenderCancel(error)) console.warn("PDF page", slot.n, error); }
+        finally { if (slot.task === task) slot.task = null; }
+        if (alive() && cv.width) slot.div.prepend(cv);
+        else cv.width = cv.height = 0;
       }
-      // 2b) couche texte : sélection, recherche, ancrage des annotations
-      let tl = slot.div.querySelector(".textLayer");
-      if (!tl) {
-        tl = document.createElement("div"); tl.className = "textLayer";
-        const tc = await slot.page.getTextContent();
-        if (gen !== _renderGen) return;
-        buildTextLayer(tc, tl, vp); tl._order = readingOrder(tl, vp.width);
+      if (!alive()) return false;
+      if (!slot.div.querySelector(".textLayer")) {
+        const data = await cache.text(slot.n);
+        if (!alive()) return false;
+        const tl = document.createElement("div"); tl.className = "textLayer";
+        buildTextLayer(data.tc, tl, vp); tl._order = readingOrder(tl, vp.width);
+        tl._passageIndex = window.AtelierPdfPassage.createIndex(tl._order.map((span) => span.textContent));
         slot.div.appendChild(tl); drawAnnots(slot.div, slot.n);
-        slot.painted = true;
+        window.dispatchEvent(new CustomEvent("pdf-page-text-ready", {detail:{page:slot.n}}));
+        if (slot.n === targetPage && targetQuote) revealLinkedPassage(!targetRevealed);
       }
-      } catch (error) {
-        if (gen === _renderGen && !isRenderCancel(error)) console.warn("PDF page", slot.n, error);
-      } finally { slot.rendering = false; }
-
+      return true;
     };
-    // 3) FILE PRIORISÉE : deux pages en vol au plus, les visibles d'abord (de
-    //    la plus proche du centre de la fenêtre à la plus lointaine), puis
-    //    l'anticipation courte. `onVisibleReady` sonne toujours quand les
-    //    pages À L'ÉCRAN sont nettes, ni avant ni après.
+    function requestPage(slot, priority = 0){
+      return pdfRenderScheduler.enqueue(slot, (job) => paint(slot, job), priority, () => cancelRender(slot))
+        .then((ready) => {
+          if (!ready && slot.want && gen === _renderGen) return requestPage(slot, priority);
+          return ready ? slot.div : null;
+        }).catch((error) => { if (gen === _renderGen) console.warn("PDF page", slot.n, error); return null; });
+    }
+    _ensurePage = async (n) => {
+      const slot = slots[n - 1]; if (!slot || gen !== _renderGen) return null;
+      slot.want = true;
+      return requestPage(slot, -1);
+    };
+    // 3) One scheduler, including observer callbacks and reading-mode crops.
     const sc = document.scrollingElement || document.documentElement;
-    const plan = pdfRenderOrder(
-      slots.map(function(s){ return {n: s.n, top: s.div.offsetTop, height: s.vp.height}; }),
-      sc.scrollTop, window.innerHeight);
+    const plan = pdfRenderOrder(slots.map(s => ({n:s.n, top:s.div.offsetTop, height:s.vp.height})), sc.scrollTop, window.innerHeight);
     for (const n of plan.visible) { slots[n - 1].visible = true; slots[n - 1].want = true; }
     for (const n of plan.lookahead) slots[n - 1].want = true;
+    const visibleReady = Promise.all(plan.visible.map(n => requestPage(slots[n - 1], 0)));
     if (typeof IntersectionObserver === "function") {
       _pageObserver = new IntersectionObserver(entries => {
         for (const entry of entries) {
           const slot = slots[Number((entry.target as HTMLElement).dataset.page) - 1];
           slot.visible = entry.isIntersecting;
-          if (slot.visible) { slot.want = true; void paint(slot); }
+          if (slot.visible) { slot.want = true; void requestPage(slot, 1); }
           else {
-            // sortie d'écran : on annule la peinture en vol (sinon on paie
-            // jusqu'au bout un canvas qu'on jette juste après) puis on libère
             slot.want = false;
             cancelRender(slot);
-            for (const cv of slot.div.querySelectorAll("canvas")) { cv.remove(); cv.width = cv.height = 0; }
+            pdfRenderScheduler.cancel(slot);
+            releaseDistant(slot);
           }
         }
-      }, {rootMargin: "100% 0px"});
+      }, {rootMargin:"100% 0px"});
       for (const slot of slots) _pageObserver.observe(slot.div);
     }
-    const runQueue = async function(nums, limit){
-      let next = 0;
-      const worker = async function(){
-        while (next < nums.length && gen === _renderGen) await paint(slots[nums[next++] - 1]);
-      };
-      const lanes = [];
-      for (let k = 0; k < Math.min(limit, nums.length); k++) lanes.push(worker());
-      await Promise.all(lanes);
-    };
-    await runQueue(plan.visible, RENDER_CONCURRENCY);
+    await visibleReady;
     if (gen !== _renderGen) return;
     if (onVisibleReady) onVisibleReady();
-    // Peinture de fond : CÉDER LA MAIN entre chaque page. Sans ça, les 40+
-    // pages d'un article monopolisent le fil et un clic (ouvrir le panneau,
-    // tirer la poignée) attendait ~2 s avant d'être pris en compte —
-    // « le PDF ne s'ajuste pas » (vécu 2026-08-16).
-    const yieldToUi = () => new Promise<void>((r) => {
-      if (window.requestIdleCallback) window.requestIdleCallback(() => r(), { timeout: 60 });
-      else setTimeout(r, 0);
-    });
-    await yieldToUi();
-    if (gen !== _renderGen) return;
-    await runQueue(plan.lookahead, RENDER_CONCURRENCY);
-    if (gen !== _renderGen) return;
-    // 4) passe de fond SANS CANVAS. La recherche (Cmd+F), les liens de passage
-    //    (?page/?quote) et l'ancrage des annotations ont besoin de la couche
-    //    texte de TOUTES les pages : c'est une dépendance dure, et elle ne
-    //    coûte presque rien à côté d'un canvas. Les pages lointaines
-    //    n'obtiennent donc PAS de canvas — l'observer les peint à l'approche.
-    for (const s of slots) {
-      await paint(s, !_pageObserver);
-      if (gen !== _renderGen) return;
-      await yieldToUi();
-      if (gen !== _renderGen) return;
-    }
-    // les couches texte sont reconstruites : la recherche ouverte doit
-    // reposer ses marques (elles vivaient sur les anciens spans)
-    try { window.dispatchEvent(new CustomEvent("pdf-rendered")); } catch(e){}
-    revealLinkedPassage(!targetRevealed);
+    // Only neighbouring text layers are materialized. Search extracts/cache text
+    // on demand without putting distant pages into the DOM.
+    for (const n of plan.lookahead) if (slots[n - 1].want) void requestPage(slots[n - 1], 2);
+    window.dispatchEvent(new CustomEvent("pdf-rendered"));
   }
   function setZoom(z: number){
     ZOOM = Math.min(4, Math.max(0.4, z));
@@ -591,26 +613,39 @@ async function main(){
   (document.getElementById("zPct") as HTMLButtonElement).onclick = () => setZoom(1); // retour fit-width
   // rechargement en place (compile LaTeX) : nouveau document, mêmes annotations —
   // jeton anti-course : deux getDocument() concurrents peuvent deadlocker le worker
-  let _rlTok = 0;
   __reloadPdf = async function(){
-    const t = ++_rlTok;
-    try{
-      const doc = await pdfjsLib.getDocument({url: "/" + rel + "?t=" + Date.now(),
-        standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
-        wasmUrl: "/.fig_thumbs/pdfjs/wasm/", iccUrl: "/.fig_thumbs/pdfjs/iccs/",
-        cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true}).promise;
-      if(t !== _rlTok) return;
-      pdf = doc;
-      __readingPdf = pdf;
-      // Nouveau document : la recomposition en cache est périmée.
+    try {
+      const loaded = await loader.load(options("/" + rel + "?t=" + Date.now()));
+      if (!loaded) return;
+      const oldSlots = _slots.slice(), oldCrops = [...window.__readingMode.crops.values()];
+      const oldCache = textCache;
+      ++_renderGen; ++_searchGeneration; cancelPages();
+      const transitionGeneration = _renderGen;
       if (window.__readingMode.isOn()) window.__readingMode.leave();
       window.__readingMode.reset();
-      const el = document.scrollingElement || document.documentElement;
-      const st = el.scrollTop;
-      await renderAll();
-      el.scrollTop = st;
-    }catch(e){ console.warn("reloadPdf:", e); }
+      await pdfRenderScheduler.drain(oldSlots.concat(oldCrops));
+      await oldCache.drain();
+      const committed = await loaded.commit((doc) => {
+        pdf = doc; textCache = newTextCache(doc); __readingPdf = doc;
+      });
+      if (!committed) {
+        // The newer request can fail while this one drains. Restore working
+        // observers/renders for the retained document unless another transition
+        // already took over this view.
+        if (!closed && transitionGeneration === _renderGen) await renderAll();
+        return;
+      }
+      if (closed || pdf !== loaded.doc) return;
+      if (hasTargetPage) targetPage = Math.min(targetPage, pdf.numPages);
+      const el = document.scrollingElement || document.documentElement, st = el.scrollTop;
+      await renderAll(() => { el.scrollTop = st; });
+      if (!closed && pdf === loaded.doc) window.dispatchEvent(new CustomEvent("pdf-document-changed"));
+    } catch(e) { console.warn("reloadPdf:", e); }
   };
+  window.addEventListener("pagehide", event => {
+    if (event.persisted) return;
+    ++_renderGen; ++_searchGeneration; cancelPages(); window.__readingMode.reset();
+  });
   window.addEventListener("keydown", (e) => {
     if (!(e.metaKey || e.ctrlKey)) return;
     if (e.key === "=" || e.key === "+") { e.preventDefault(); setZoom(ZOOM * 1.2); }
@@ -634,6 +669,7 @@ async function main(){
     }, 2500);
   })();
   await renderAll();
+  window.dispatchEvent(new CustomEvent("pdf-document-changed"));
   // Un lien de fichier peut viser une page sans fournir de citation à
   // surligner. Dans ce cas, la page reste tout de même une destination : ne
   // pas la laisser à la page 1 ni restaurer une ancienne position de lecture.
@@ -670,6 +706,9 @@ async function revealLinkedSection(){
   targetPage = hit.page;
   targetQuote = hit.text;
   targetRevealed = false;
+  const pg = document.querySelector('.pg[data-page="' + targetPage + '"]');
+  if (pg) pg.scrollIntoView({block:"start"});
+  await window.__pdfTextSearch?.ensurePage(targetPage);
   revealLinkedPassage(true);
   status.textContent = "Section " + targetSection + " — p. " + targetPage;
 }
@@ -680,10 +719,10 @@ function revealLinkedPassage(shouldScroll: boolean){
   const pg = document.querySelector('.pg[data-page="' + targetPage + '"]');
   if(!pg) return;
   const tl = pg.querySelector<HTMLElement>(".textLayer");
-  const spans = (tl && tl._order) || (tl ? [...tl.querySelectorAll("span")] : []);
-  const match = window.AtelierPdfPassage && window.AtelierPdfPassage.findPassageSpanRange(
-    spans.map(function(span){ return span.textContent || ""; }), targetQuote
-  );
+  const spans = (tl && tl._order) || (tl ? [...tl.querySelectorAll<HTMLSpanElement>("span")] : []);
+  if (!tl) return;
+  const match = window.AtelierPdfPassage.findPassageInIndex(tl._passageIndex
+    || window.AtelierPdfPassage.createIndex(spans.map((span) => span.textContent || "")), targetQuote);
   if(match){
     spans.slice(match.start, match.end + 1).forEach(function(span: { classList: { add: (arg0: string) => void; }; }){ span.classList.add("auto-hl"); });
     (document.getElementById("status") as HTMLSpanElement).textContent = "Passage retrouvé — p. " + targetPage;
@@ -692,7 +731,7 @@ function revealLinkedPassage(shouldScroll: boolean){
   }
   if(shouldScroll){
     const target = match ? spans[match.start] : pg;
-    setTimeout(function(){ target.scrollIntoView({block:"center", behavior:"smooth"}); }, 0);
+    setTimeout(function(){ target.scrollIntoView({block:"center", behavior:pdfScrollBehavior()}); }, 0);
   }
   targetRevealed = true;
 }
@@ -785,7 +824,8 @@ function clearHl(){
   activeSelection = null;
   dragLayer = null;
   layerSpans = [];
-  document.getElementById("selinfo").textContent = "";
+  window.__pdfTextSearch?.releaseSelection();
+  (document.getElementById("selinfo") as HTMLSpanElement).textContent = "";
 }
 function selectionModel(){
   if(!activeSelection || !window.AtelierPdfSelection) return null;
@@ -971,9 +1011,14 @@ btn.onclick = async () => {
     const r = await fetch("/quote", {method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({rel, page: selPage, text, embed: __EMB})});
+    if(!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
-    if(__EMB && j && j.message) __atelierPost({type:'atelier-add-to-chat', text:j.message});
-    document.getElementById("status").textContent =
+    if(j.error) throw new Error(j.error);
+    if(__EMB) {
+      if(!j.message) throw new Error("réponse vide");
+      await attachPdfChatPayload({type:'atelier-add-to-chat', text:j.message});
+    }
+    (document.getElementById("status") as HTMLSpanElement).textContent =
       __EMB ? "Added to chat ✓" : (j.sentToClaude ? "Pasted into Claude ✓" : "Copied to clipboard ✓");
   }catch(e){
     (document.getElementById("status") as HTMLSpanElement).textContent = "Server error";
@@ -1074,7 +1119,7 @@ const annPane = (function(){
     if (!pg) return;
     const y = a.rects?.[0]?.[1] ?? a.pin?.[1] ?? 0;
     const sc = document.scrollingElement || document.documentElement;
-    sc.scrollTo({ top: (pg as HTMLElement).offsetTop + y * (pg as HTMLElement).offsetHeight - 90, behavior: "smooth" });
+    sc.scrollTo({ top: (pg as HTMLElement).offsetTop + y * (pg as HTMLElement).offsetHeight - 90, behavior: pdfScrollBehavior() });
   }
   // portée : "doc" = l'article ouvert ; "lib" = toute la bibliothèque
   let scope = localStorage.getItem("pdfv_pane_scope") === "lib" ? "lib" : "doc";
@@ -1463,50 +1508,113 @@ const annPane = (function(){
 (function(){
   const bar = (document.getElementById("findBar") as HTMLDivElement);
   if (!bar) return;
-  const input = bar.querySelector("input"), cnt = bar.querySelector(".cnt");
-  let hits = [], cur = -1;
+  const input = bar.querySelector<HTMLInputElement>("input"), cnt = bar.querySelector<HTMLSpanElement>(".cnt");
+  const button = (document.getElementById("findBtn") as HTMLButtonElement);
+  input.setAttribute("aria-label", "Rechercher dans l’article");
+  cnt.setAttribute("role", "status");
+  bar.setAttribute("role", "search");
+  bar.setAttribute("aria-label", "Recherche dans l’article");
+  const next = bar.querySelector<HTMLButtonElement>(".fnext"), prev = bar.querySelector<HTMLButtonElement>(".fprev");
+  next.setAttribute("aria-label", "Résultat suivant");
+  prev.setAttribute("aria-label", "Résultat précédent");
+  bar.querySelector<HTMLButtonElement>(".fclose").setAttribute("aria-label", "Fermer la recherche");
+  let hits = [], cur = -1, queryToken = 0, stepToken = 0;
+  const hitsByPage = new Map();
   function clearFind(){
-    document.querySelectorAll(".textLayer span.find-hit, .textLayer span.find-cur, #readBody .find-hit, #readBody .find-cur")
+    queryToken++; stepToken++;
+    document.querySelectorAll<HTMLElement>(".textLayer span.find-hit, .textLayer span.find-cur, #readBody .find-hit, #readBody .find-cur")
       .forEach(s => s.classList.remove("find-hit", "find-cur"));
-    hits = []; cur = -1; cnt.textContent = "";
+    hits = []; hitsByPage.clear(); cur = -1; cnt.textContent = "";
+    next.disabled = prev.disabled = true;
   }
-  function run(q){
-    clearFind();
-    const needle = String(q || "").trim().toLowerCase();
-    if (needle.length < 2) return;
-    // En mode lecture un « span » est un bloc entier de la colonne : la
-    // couche texte des pages est masquée, il n'y a qu'un seul « calque ».
-    const layers = window.__readingMode.isOn()
-      ? [[...document.querySelectorAll("#readBody [data-block]:not(figure)")]]
-      : [...document.querySelectorAll(".textLayer")].map(l => Array.from(l.querySelectorAll("span")));
-    for (const spans of layers) {
-      const matches = window.AtelierPdfPassage.findAllSpanRanges(spans.map(s => s.textContent), needle);
-      for (const match of matches) {
-        const group = spans.slice(match.start, match.end + 1);
-        group.forEach(span => span.classList.add("find-hit"));
-        hits.push(group);
+  function groupFor(hit){
+    if (hit.group) return hit.group; // reading-mode blocks
+    const tl = document.querySelector('.pg[data-page="' + hit.page + '"] .textLayer');
+    return tl ? [...tl.querySelectorAll<HTMLSpanElement>("span")].slice(hit.start, hit.end + 1) : [];
+  }
+  function paintMarks(){
+    document.querySelectorAll<HTMLElement>(".textLayer span.find-hit, .textLayer span.find-cur, #readBody .find-hit, #readBody .find-cur")
+      .forEach(s => s.classList.remove("find-hit", "find-cur"));
+    if (window.__readingMode.isOn()) {
+      hits.forEach((hit, index) => (hit.group || []).forEach((span) => {
+        span.classList.add("find-hit"); if (index === cur) span.classList.add("find-cur");
+      }));
+      return;
+    }
+    // Work is proportional to mounted pages, even for thousands of matches.
+    for (const tl of document.querySelectorAll<HTMLElement>(".pg .textLayer")) {
+      const spans = [...tl.querySelectorAll<HTMLSpanElement>("span")];
+      for (const hit of hitsByPage.get(+tl.parentElement.dataset.page) || []) {
+        for (let n = hit.start; n <= hit.end; n++) {
+          spans[n]?.classList.add("find-hit");
+          if (hits[cur] === hit) spans[n]?.classList.add("find-cur");
+        }
       }
     }
-    cnt.textContent = hits.length ? "0/" + hits.length : "aucun";
-    if (hits.length) step(1);
   }
-  function step(dir){
+  function updateCount(loading: boolean){
+    cnt.textContent = hits.length ? (cur + 1) + "/" + hits.length + (loading ? "…" : "") : (loading ? "…" : "aucun");
+    next.disabled = prev.disabled = !hits.length;
+  }
+  async function run(q: string){
+    clearFind();
+    const needle = String(q || "").trim(), token = queryToken;
+    if (!needle) return;
+    if (window.__readingMode.isOn()) {
+      const spans = [...document.querySelectorAll<HTMLElement>("#readBody [data-block]:not(figure)")];
+      for (const match of window.AtelierPdfPassage.findAllSpanRanges(spans.map(s => s.textContent), needle))
+        hits.push({group:spans.slice(match.start, match.end + 1)});
+      updateCount(false); paintMarks(); if (hits.length) void step(1);
+      return;
+    }
+    if (!window.__pdfTextSearch) return;
+    updateCount(true);
+    try {
+      const complete = await window.__pdfTextSearch.scan(needle, (page, matches) => {
+        const hadHits = hits.length > 0;
+        const pageHits = matches.map((match) => ({page, ...match}));
+        hitsByPage.set(page, pageHits); hits.push(...pageHits);
+        updateCount(true); paintMarks();
+        // First useful match appears while later pages are still indexed.
+        if (!hadHits && hits.length) void step(1);
+      }, () => token !== queryToken);
+      if (complete && token === queryToken) updateCount(false);
+    } catch (error) {
+      if (token === queryToken) { cnt.textContent = "Recherche indisponible"; console.warn("PDF search", error); }
+    }
+  }
+  async function step(dir: number){
     if (!hits.length) return;
-    if (cur >= 0 && hits[cur]) hits[cur].forEach(span => span.classList.remove("find-cur"));
+    const token = ++stepToken, query = queryToken;
     cur = (cur + dir + hits.length) % hits.length;
-    const group = hits[cur], el = group[0];
-    group.forEach(span => span.classList.add("find-cur"));
-    cnt.textContent = (cur + 1) + "/" + hits.length;
-    const pg = el.closest(".pg");
-    const sc = document.scrollingElement || document.documentElement;
-    if (pg) sc.scrollTo({ top: (pg as HTMLElement).offsetTop + el.offsetTop - window.innerHeight / 3, behavior: "smooth" });
-    else el.scrollIntoView({block: "center", behavior: "smooth"});   // colonne de lecture
+    const hit = hits[cur];
+    updateCount(false);
+    if (hit.page) {
+      // Scroll to its skeleton first, then prepare just this page.
+      const pg = document.querySelector('.pg[data-page="' + hit.page + '"]');
+      pg?.scrollIntoView({block:"start"});
+      await window.__pdfTextSearch.ensurePage(hit.page);
+    }
+    if (token !== stepToken || query !== queryToken) return;
+    paintMarks();
+    const el = groupFor(hit)[0]; if (!el) return;
+    const pg = el.closest(".pg"), sc = document.scrollingElement || document.documentElement;
+    if (pg) sc.scrollTo({top:pg.offsetTop + el.offsetTop - window.innerHeight / 3, behavior:pdfScrollBehavior()});
+    else el.scrollIntoView({block:"center", behavior:pdfScrollBehavior()});
   }
   function open(){
     bar.style.display = "flex";
+    button.setAttribute("aria-expanded", "true");
+    run(input.value);
     input.focus(); input.select();
   }
-  function close(){ bar.style.display = "none"; clearFind(); }
+  function close(){
+    clearTimeout(_findTimer);
+    bar.style.display = "none";
+    button.setAttribute("aria-expanded", "false");
+    clearFind(); button.focus();
+  }
+  button.onclick = () => { if (bar.style.display === "flex") close(); else open(); };
   // 150 ms de repos avant de rescanner : une frappe rapide déclenchait un
   // balayage plein document par caractère.
   let _findTimer: ReturnType<typeof setTimeout> | number = 0;
@@ -1517,8 +1625,10 @@ const annPane = (function(){
   input.oninput = schedule;
   input.onkeydown = (e) => {
     if (e.key === "Enter") { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
-    if (e.key === "Escape") { e.preventDefault(); close(); }
   };
+  bar.addEventListener("keydown", e => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+  });
   bar.querySelector<HTMLButtonElement>(".fnext").onclick = () => step(1);
   bar.querySelector<HTMLButtonElement>(".fprev").onclick = () => step(-1);
   bar.querySelector<HTMLButtonElement>(".fclose").onclick = close;
@@ -1527,7 +1637,9 @@ const annPane = (function(){
   });
   // un re-rendu (zoom, redimensionnement) reconstruit les couches texte :
   // les marques sont perdues, on les repose sur la recherche courante
-  window.addEventListener("pdf-rendered", () => { if (bar.style.display === "flex") run(input.value); });
+  window.addEventListener("pdf-rendered", paintMarks);
+  window.addEventListener("pdf-page-text-ready", paintMarks);
+  window.addEventListener("pdf-document-changed", () => { if (bar.style.display === "flex") void run(input.value); });
   // même raison en mode lecture : la colonne est reconstruite à l'entrée
   // (atelier-reading-rendered) et disparaît à la sortie (atelier-reading-left).
   const rerun = () => { if (bar.style.display === "flex") run(input.value); };
@@ -1986,9 +2098,14 @@ let eraseMark = false;
   const eraser=tool("Effacer un marquage", "erase",()=>{eraseMark=!eraseMark;refresh();(document.getElementById("status") as HTMLSpanElement).textContent=eraseMark?"Clique sur un surlignage ou un soulignement pour le retirer.":"";});eraser.dataset.t="erase";tools.push([eraser,"erase"]);
   bar.onmousedown=e=>e.preventDefault();
   bar.style.setProperty("--mark-current",HL_COLORS[0].replace(",.40)",",1)"));
-  document.addEventListener("pointerdown",e=>{ if(!(e.target as Element).closest(".pdf-mark-tools")) setPalette(false); });
-  document.addEventListener("keydown", e => { if(e.key === "Escape" && bar.classList.contains("palette-open")) { setPalette(false); colorToggle.focus(); } });
-  document.getElementById("selinfo").before(bar);refresh();
+  document.addEventListener("pointerdown",e=>{ if(!(e.target as Element).closest<HTMLElement>(".pdf-mark-tools")) setPalette(false); });
+  document.addEventListener("keydown", e => {
+    if(e.key !== "Escape" || !bar.classList.contains("palette-open")) return;
+    // Handle the upper palette before the document-level selection cancel.
+    e.preventDefault(); e.stopImmediatePropagation();
+    setPalette(false); colorToggle.focus();
+  }, true);
+  (document.getElementById("selinfo") as HTMLSpanElement).before(bar);refresh();
 })();
 // Référence courte dérivée du NOM DE FICHIER — le lecteur n'a pas les
 // métadonnées Zotero (ni auteur ni année structurés). Même règle que les
@@ -2076,7 +2193,7 @@ async function sendAnnot(a, onFail, relOverride: string, fromEditor?: boolean, d
     if(!response.ok) throw new Error("HTTP " + response.status);
     const result = await response.json();
     if(!result.message || result.error || window.self === window.top) throw new Error(result.error || "réponse vide");
-    __atelierPost({type:"atelier-add-to-chat", text:result.message, direct,
+    await attachPdfChatPayload({type:"atelier-add-to-chat", text:result.message, direct,
       ...(a.kind === "comment" ? {pdfAnnotation: {rel:r, id:String(a.id)}} : {})});
     (document.getElementById("status") as HTMLSpanElement).textContent = "Annotation ajoutée au chat";
     return true;
@@ -2280,7 +2397,7 @@ if(window.self !== window.top){
     if (!pg) return;
     const rel = a.rects[0]?.[1] ?? a.pin?.[1] ?? 0;
     const el = document.scrollingElement || document.documentElement;
-    el.scrollTo({ top: (pg as HTMLElement).offsetTop + rel * (pg as HTMLElement).offsetHeight - 90, behavior: "smooth" });
+    el.scrollTo({ top: (pg as HTMLElement).offsetTop + rel * (pg as HTMLElement).offsetHeight - 90, behavior: pdfScrollBehavior() });
     // flash discret sur les rectangles de l'annotation
     setTimeout(() => {
       pg.querySelectorAll<HTMLElement>(".pdfhl, .pdfnote").forEach((n) => {
@@ -2378,12 +2495,12 @@ if(window.self !== window.top){
   st.textContent = `
     header{background:#1a1d22 !important;border-bottom:1px solid #333a45 !important;
       padding:4px 10px !important;min-height:0 !important;gap:10px}
-    header #fname{font-weight:500;font-size:13px;color:#b6bdc7}
+    header #fname{font-weight:500;font-size:var(--fs-body,13px);color:var(--txt)}
     header .muted{display:none}
-    header #selinfo{color:#868d9a !important;font-size:12px}
-    header #status{font-size:12px}
+    header #selinfo{color:var(--muted) !important;font-size:var(--fs-body-s,12px)}
+    header #status{font-size:var(--fs-body-s,12px)}
     header button{background:transparent !important;border:none !important;
-      color:#868d9a !important;font-size:13px !important;padding:0 !important;
+      color:var(--muted) !important;font-size:var(--fs-body-s,12px) !important;padding:0 !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
     header .zoomctl button{padding:3px 8px !important;border-radius:0 !important}
     header button:hover{background:#2c313a !important;color:var(--txt) !important}
@@ -2440,7 +2557,7 @@ if (window.self !== window.top) {
     const top = sc.scrollTop + headerHeight(), bottom = sc.scrollTop + window.innerHeight;
     let best = 1, bestCover = -1;
     for (const pg of pageEls()) {
-      const a = (pg as HTMLElement).offsetTop, b = a + (pg as HTMLElement).offsetHeight;
+      const a = pg.offsetTop, b = a + pg.offsetHeight;
       const cover = Math.min(b, bottom) - Math.max(a, top);
       if (cover > bestCover) { bestCover = cover; best = +pg.dataset.page; }
       if (a > bottom) break;
@@ -2501,7 +2618,7 @@ if (window.self !== window.top) {
   // Joindre le PDF ouvert au message en cours du chat : l'hôte résout le
   // chemin (article Zotero → référence @citekey avec son PDF, sinon fichier du
   // projet). Rien ne part tout seul, l'utilisateur écrit puis envoie. Aucun
-  // texte : l'infobulle porte le nom, une coche brève confirme le clic.
+  // texte : l'infobulle porte le nom, une coche confirme l'accusé de l'hôte.
   const chatBtn = document.createElement("button");
   chatBtn.id = "chatPdfBtn"; chatBtn.type = "button";
   chatBtn.title = "Joindre le PDF au chat"; chatBtn.setAttribute("aria-label", "Joindre le PDF au chat");
@@ -2509,16 +2626,25 @@ if (window.self !== window.top) {
     + '<svg class="ci-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>';
   (chatBtn.firstChild as Element).classList.add("ci-idle");
   let chatDone: ReturnType<typeof setTimeout> | number = 0;
-  chatBtn.onclick = (e) => {
+  chatBtn.onclick = async (e) => {
     e.stopPropagation();
-    if(!rel) return;
-    __atelierPost({type: "atelier-attach-pdf", rel});
-    chatBtn.classList.add("done");
+    if(!rel || chatBtn.disabled) return;
     clearTimeout(chatDone);
-    chatDone = setTimeout(() => chatBtn.classList.remove("done"), 1200);
+    if(chatBtn.classList.contains("error")) (document.getElementById("status") as HTMLSpanElement).textContent = "";
+    chatBtn.classList.remove("done", "error");
+    chatBtn.disabled = true; chatBtn.setAttribute("aria-busy", "true");
+    chatBtn.title = "Ajout au chat en cours…";
+    try {
+      await attachPdfChatPayload({type: "atelier-attach-pdf", rel});
+      chatBtn.classList.add("done"); chatBtn.title = "PDF ajouté au chat";
+      chatDone = setTimeout(() => { chatBtn.classList.remove("done"); chatBtn.title = "Joindre le PDF au chat"; }, 1200);
+    } catch(error) {
+      chatBtn.classList.add("error"); chatBtn.title = "Réessayer l’ajout au chat";
+      (document.getElementById("status") as HTMLSpanElement).textContent = "Ajout au chat impossible : " + String(error?.message || error).slice(0, 90);
+    } finally { chatBtn.disabled = false; chatBtn.removeAttribute("aria-busy"); }
   };
   document.getElementById("pdftools").remove();
-  header.prepend(nav); header.appendChild(marks); header.appendChild(zoom); header.appendChild(chatBtn); header.appendChild(more);
+  header.prepend(nav); header.appendChild(marks); header.appendChild(zoom); move("findBtn", header); header.appendChild(chatBtn); header.appendChild(more);
   document.addEventListener("pointerdown", e => { if(!more.contains(e.target as Node)) more.open = false; });
   document.addEventListener("keydown", e => { if(e.key === "Escape" && more.open) { more.open = false; summary.focus(); } });
   const css = document.createElement("style");
@@ -2527,9 +2653,9 @@ if (window.self !== window.top) {
     .pdf-toolbar-nav { display:flex; align-items:center; gap:2px; margin-right:auto; flex:none; }
     .pdf-toolbar-nav button { width:26px; height:26px; }
     .pdf-page-nav { display:inline-flex; align-items:center; gap:2px; }
-    header.pdf-compact-toolbar #pgCur { width:auto; min-width:0; padding:0 4px!important; gap:4px; font-size:12px; font-variant-numeric:tabular-nums; }
+    header.pdf-compact-toolbar #pgCur { width:auto; min-width:0; padding:0 4px!important; gap:4px; font-size:var(--fs-body-s,12px)!important; font-variant-numeric:tabular-nums; }
     .pdf-page-sep { color:var(--muted); }
-    header.pdf-compact-toolbar #pgInput { width:44px; height:24px; box-sizing:border-box; padding:0 6px; font:inherit; font-size:12px; font-variant-numeric:tabular-nums; text-align:center;
+    header.pdf-compact-toolbar #pgInput { width:44px; height:24px; box-sizing:border-box; padding:0 6px; font:inherit; font-size:var(--fs-body-s,12px); font-variant-numeric:tabular-nums; text-align:center;
       color:var(--txt); background:var(--card2); border:0; border-radius:6px; outline:none; }
     header.pdf-compact-toolbar #pgInput:focus-visible { outline:1px solid var(--accent); outline-offset:1px; }
     body.read-mode .pdf-page-nav { display:none; }
@@ -2541,7 +2667,7 @@ if (window.self !== window.top) {
     header.pdf-compact-toolbar .pdf-color-toggle { width:32px; gap:4px; }
     header.pdf-compact-toolbar .zoomctl { margin-left:auto; border:0; }
     header.pdf-compact-toolbar #zPct { border:0; }
-    header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:4px; font-size:11px; }
+    header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:4px; font-size:var(--fs-label,11px); }
     header.pdf-compact-toolbar #selinfo:empty, header.pdf-compact-toolbar #status:empty { display:none; }
     .pdf-toolbar-more { position:relative; flex:none; }
     .pdf-toolbar-more summary { list-style:none; width:26px; height:26px; display:flex; justify-content:center; align-items:center; cursor:pointer; border-radius:6px; font-size:20px; }
@@ -2553,6 +2679,8 @@ if (window.self !== window.top) {
     #chatPdfBtn.done .ci-done { display:block; }
     header.pdf-compact-toolbar #chatPdfBtn { transition:color 140ms ease, background 140ms ease; }
     header.pdf-compact-toolbar #chatPdfBtn.done { color:var(--accent)!important; }
+    header.pdf-compact-toolbar #chatPdfBtn[aria-busy="true"] { opacity:.6; cursor:wait; }
+    header.pdf-compact-toolbar #chatPdfBtn.error { color:var(--status-error,#f07d73)!important; }
     @media (prefers-reduced-motion: reduce) { header.pdf-compact-toolbar #chatPdfBtn { transition:none; } }
     /* Menu ⋯ : modèle commun (sans bordure, ombre --elev, rayons 10/6, rangées 12 px).
        #invBtn et #readBtn gardent leurs règles d'identifiant (26 px, centré,
@@ -2561,7 +2689,7 @@ if (window.self !== window.top) {
     .pdf-toolbar-menu { position:absolute; right:0; top:32px; width:260px; max-width:calc(100vw - 20px); display:flex; flex-direction:column; align-items:stretch; padding:4px; background:var(--card); border-radius:10px; box-shadow:var(--elev, 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18)); }
     .pdf-toolbar-more[open] .pdf-toolbar-menu { animation:pdfMenuIn 140ms ease-out; }
     @keyframes pdfMenuIn { from { opacity:0; transform:translateY(-4px); } }
-    header.pdf-compact-toolbar .pdf-toolbar-menu button { width:100%!important; height:auto!important; min-height:32px; margin:0!important; display:flex; align-items:center; justify-content:flex-start!important; gap:12px; padding:8px 12px!important; text-align:left; white-space:nowrap; font-size:12px!important; font-weight:400; }
+    header.pdf-compact-toolbar .pdf-toolbar-menu button { width:100%!important; height:auto!important; min-height:32px; margin:0!important; display:flex; align-items:center; justify-content:flex-start!important; gap:12px; padding:8px 12px!important; text-align:left; white-space:nowrap; font-size:var(--fs-body-s,12px)!important; font-weight:400; }
     header.pdf-compact-toolbar .pdf-toolbar-menu #compileBtn { display:none; }
     .pdf-toolbar-menu svg { width:14px; height:14px; flex:none; }
     .pdf-toolbar-menu .pdf-menu-check { margin-left:auto; visibility:hidden; }
@@ -2667,7 +2795,7 @@ if (window.self !== window.top) {
     marker.style.display = "block";
     const el = document.scrollingElement || document.documentElement;
     const top = pg.getBoundingClientRect().top + el.scrollTop;
-    el.scrollTo({top: top + y0 * sc - window.innerHeight / 2, behavior: "smooth"});
+    el.scrollTo({top: top + y0 * sc - window.innerHeight / 2, behavior: pdfScrollBehavior()});
     clearTimeout(mkT);
     mkT = setTimeout(() => marker.style.display = "none", 2500);
     return true;
@@ -2718,6 +2846,7 @@ export type PageGlobals = {
   removeAnnot: typeof removeAnnot;
   sendAnnot: typeof sendAnnot;
   __reloadPdf: typeof __reloadPdf;
+  pdfRenderScheduler: typeof pdfRenderScheduler;
   hlText: typeof hlText;
   PDF_ANNOTS: typeof PDF_ANNOTS;
   ANNOTS_LOADED: typeof ANNOTS_LOADED;

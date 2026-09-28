@@ -98,8 +98,8 @@
   --surface-header-height: 44px;
 
   /* géométrie interactive commune : recherches, boutons et sélecteurs */
-  --control-height: 30px;
-  --control-height-compact: 26px;
+  --control-height: calc(var(--ui-base-size, 15px) * 2);
+  --control-height-compact: calc(var(--ui-base-size, 15px) * 1.7333333333);
   /* Dérivé de --border-default (et non --border-subtle) depuis l'adoucissement
    * des séparateurs : les contrôles interactifs gardent leur netteté d'avant. */
   --border-interactive: color-mix(in srgb, var(--border-default) 72%, transparent);

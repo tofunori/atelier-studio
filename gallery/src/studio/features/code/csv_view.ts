@@ -156,20 +156,30 @@ export function createCsvViewController(options: CsvViewOptions): CsvViewControl
         const header = doc.createElement("th");
         header.scope = "col";
         header.title = value || `Colonne ${index + 1}`;
-        header.append(value || `Colonne ${index + 1}`);
+        header.setAttribute("aria-sort", index === sortColumn && sortDirection ? sortDirection > 0 ? "ascending" : "descending" : "none");
+        const button = doc.createElement("button");
+        button.type = "button";
+        button.className = "csvSortButton";
+        button.dataset.column = String(index);
+        button.textContent = value || `Colonne ${index + 1}`;
+        button.setAttribute("aria-label", `Trier par ${button.textContent}`);
         if (index === sortColumn && sortDirection) {
           const mark = doc.createElement("span");
           mark.className = "csvSort";
+          mark.setAttribute("aria-hidden", "true");
           mark.textContent = sortDirection > 0 ? "▲" : "▼";
-          header.appendChild(mark);
+          button.appendChild(mark);
         }
-        header.onclick = () => {
+        button.onclick = () => {
+          const focused = doc.activeElement === button;
           if (sortColumn !== index) {
             sortColumn = index;
             sortDirection = 1;
           } else sortDirection = sortDirection === 1 ? -1 : sortDirection === -1 ? 0 : 1;
           render(false);
+          if (focused) table.querySelector<HTMLButtonElement>(`button[data-column="${index}"]`)?.focus();
         };
+        header.appendChild(button);
         row.appendChild(header);
       });
       head.appendChild(row);

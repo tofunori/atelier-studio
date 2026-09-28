@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -15,6 +15,7 @@ import {
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import { clusterSshCommand, useIntegrations, type ClusterTarget } from "../lib/integrations";
+import { isSurfaceVisible } from "../lib/surfaceKeyboard";
 import { SidebarIcon } from "./icons";
 import { Alert, AlertDescription, AlertTitle } from "./shadcn/alert";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./shadcn/collapsible";
@@ -226,6 +227,11 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
   // En panneau étroit l'inspecteur devient un calque : il ne doit s'ouvrir que
   // sur un clic explicite, jamais sur la sélection automatique du 1er job.
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorOverlay, setInspectorOverlay] = useState(false);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const inspectorRef = useRef<HTMLElement>(null);
+  const inspectorCloseRef = useRef<HTMLButtonElement>(null);
+  const inspectorTriggerRef = useRef<HTMLElement | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -314,10 +320,13 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
     resetCluster();
   }, [profile]);
 
-  const inspectJob = useCallback((job: SlurmJob, reveal = true) => {
+  const inspectJob = useCallback((job: SlurmJob, reveal = true, trigger?: HTMLElement) => {
     if (!profile) return;
     setSelectedJobId(job.id);
-    if (reveal) setInspectorOpen(true);
+    if (reveal) {
+      if (trigger) inspectorTriggerRef.current = trigger;
+      setInspectorOpen(true);
+    }
     setDetail(null);
     setPreview(null);
     setPreviewError(null);
@@ -422,16 +431,64 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
     setVisibleRunCount(RUN_PAGE_SIZE);
   }, [runDays, runQuery, runStateFilter]);
 
-  // En calque (panneau étroit), Échap referme l'inspecteur comme n'importe
-  // quelle surface superposée. En trois colonnes l'attribut n'a aucun effet.
+  // Read the actual container-query layout rather than duplicate its breakpoint.
+  useLayoutEffect(() => {
+    const measure = () => setInspectorOverlay(Boolean(inspectorRef.current
+      && getComputedStyle(inspectorRef.current).position === "absolute"));
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (shellRef.current) observer.observe(shellRef.current);
+    window.addEventListener("resize", measure);
+    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+  }, [visible]);
+
+  // A narrow inspector is a temporary, nonmodal panel. Enter it only on an
+  // explicit opening; return to its trigger when closing or widening the pane.
   useEffect(() => {
-    if (!inspectorOpen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setInspectorOpen(false);
+    if (!visible || !inspectorOpen || !inspectorOverlay) return;
+    const inspector = inspectorRef.current;
+    const close = inspectorCloseRef.current;
+    const origin = document.activeElement;
+    let pending = true;
+    const focusClose = () => {
+      if (!pending) return;
+      const active = document.activeElement;
+      if (active === close || (active !== origin && active !== inspectorTriggerRef.current && active !== document.body)) {
+        pending = false;
+        return;
+      }
+      if (isSurfaceVisible(close)) close?.focus();
+      if (document.activeElement === close) pending = false;
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [inspectorOpen]);
+    // WebKit can reject focus until the visibility/slide transition settles.
+    // Retry after layout and its transition, without stealing a moved focus.
+    focusClose();
+    const frame = requestAnimationFrame(focusClose);
+    inspector?.addEventListener("transitionend", focusClose);
+    inspector?.addEventListener("transitioncancel", focusClose);
+    return () => {
+      cancelAnimationFrame(frame);
+      inspector?.removeEventListener("transitionend", focusClose);
+      inspector?.removeEventListener("transitioncancel", focusClose);
+      const trigger = inspectorTriggerRef.current;
+      if (inspector?.contains(document.activeElement) && isSurfaceVisible(trigger)) trigger?.focus();
+    };
+  }, [inspectorOpen, inspectorOverlay, selectedJobId, visible]);
+
+  function closeInspector() {
+    // Restore before CSS hides the focused close button (not after blur to body).
+    const trigger = inspectorTriggerRef.current;
+    if (inspectorRef.current?.contains(document.activeElement) && isSurfaceVisible(trigger)) trigger?.focus();
+    setInspectorOpen(false);
+  }
+
+  function onSurfaceKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.defaultPrevented || event.key !== "Escape" || !visible || !inspectorOpen || !inspectorOverlay) return;
+    if (!event.currentTarget.contains(event.target as Node) || !isSurfaceVisible(event.currentTarget)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeInspector();
+  }
 
   const toggleDirectory = (path: string, open: boolean) => {
     setExpanded((current) => {
@@ -513,7 +570,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
   return (
     // La coquille porte le conteneur de requêtes : `@container` interroge
     // toujours un ANCÊTRE, jamais l'élément qui déclare `container-type`.
-    <div className="narval-shell" data-visible={visible}>
+    <div ref={shellRef} className="narval-shell" data-visible={visible} onKeyDown={onSurfaceKeyDown}>
       <div
         className="narval-surface"
         data-files-open={filesOpen}
@@ -663,7 +720,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
                       className="narval-job-row"
                       data-state={selectedJobId === job.id ? "selected" : undefined}
                       aria-pressed={selectedJobId === job.id}
-                      onClick={() => inspectJob(job)}
+                      onClick={(event) => inspectJob(job, true, event.currentTarget)}
                     >
                       <span className="narval-job-identity">
                         <strong title={job.name}>{job.name}</strong>
@@ -725,7 +782,10 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
               )}
               <div className="narval-runs">
                 {visibleRecentRuns.map((job) => (
-                  <RowButton key={job.id} className="narval-run" onClick={() => inspectJob(job)}>
+                  <RowButton key={job.id} className="narval-run"
+                    data-state={selectedJobId === job.id ? "selected" : undefined}
+                    aria-pressed={selectedJobId === job.id}
+                    onClick={(event) => inspectJob(job, true, event.currentTarget)}>
                     <StatusBadge status={statusTone(job.state)}>{displayState(job.state)}</StatusBadge>
                     <strong>{job.name}</strong>
                     <code>{job.id}</code>
@@ -747,7 +807,7 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
           )}
         </main>
 
-        <aside className="narval-inspector" aria-label={t("narval.job-inspector")}>
+        <aside ref={inspectorRef} className="narval-inspector" aria-label={t("narval.job-inspector")}>
           {!selectedJob ? (
             <Empty className="narval-inspector-empty">
               <EmptyHeader>
@@ -760,12 +820,13 @@ export default function NarvalSurface({ visible, onOpenTerminal, paneControls }:
             <>
               <header className="narval-inspector-head">
                 <IconButton
+                  ref={inspectorCloseRef}
                   className="narval-inspector-close"
                   size="s"
                   hit40
                   label={t("narval.close-inspector")}
                   title={t("narval.close-inspector")}
-                  onClick={() => setInspectorOpen(false)}
+                  onClick={closeInspector}
                 >
                   <XIcon />
                 </IconButton>

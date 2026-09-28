@@ -285,7 +285,7 @@ test("contrat lecteur : recherche, passage et annotations câblés au mode lectu
   assert.match(html, /AtelierPdfReading\.selectionToAnnotation\(/);
   assert.match(html, /atelier-reading-rendered/);
   // la recherche choisit ses spans selon le mode
-  assert.match(html, /__readingMode\.isOn\(\)\s*\?/);
+  assert.match(html, /if \(window\.__readingMode\.isOn\(\)\) \{/);
   // le passage ?quote est résolu dans la colonne en mode lecture
   assert.match(html, /function revealReadingPassage\(/);
 });

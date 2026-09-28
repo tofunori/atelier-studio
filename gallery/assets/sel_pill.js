@@ -15,8 +15,8 @@
      onSent(j)   après un envoi réussi (nettoyer marques/surlignage hôte)
      onCancel()  après annulation (nettoyer sélection hôte + /selinfo)
      embedExtras(go)  mode embarqué : boutons supplémentaires à côté de .go
-   → {send, cancel, hide, placeAt(rect), ta, go, embedded}
-   */
+   → {send, cancel, hide, placeAt(rect), renewSelection(), ta, go, embedded}
+   renewSelection() signale une nouvelle sélection quand l'hôte place la pilule. */
 function installSelPillApi() {
   if (window.SelPill) return;
 
@@ -24,10 +24,26 @@ function installSelPillApi() {
   function esc(s        ){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
   const EMBEDDED = (function(){ try{ return window.self !== window.top; }catch(e){ return true; } })();
 
+  let coreLoading                                   ;
+  function chatCore(){
+    if(window.AtelierStudioCore?.requestChatAttachment) return Promise.resolve(window.AtelierStudioCore);
+    // Les rapports HTML chargent la pilule à la demande, sans les bundles éditeur.
+    if(!coreLoading) coreLoading = new Promise                          ((resolve,reject) => {
+      const script = document.createElement("script");
+      script.src = "/.fig_thumbs/studio_core.bundle.js";
+      const timeout = setTimeout(() => {script.remove(); reject(new Error("Ajout au chat indisponible — réessayer"));},10000);
+      script.onload = () => {clearTimeout(timeout); window.AtelierStudioCore?.requestChatAttachment ? resolve(window.AtelierStudioCore) : reject(new Error("Ajout au chat indisponible"));};
+      script.onerror = () => {clearTimeout(timeout); reject(new Error("Ajout au chat indisponible"));};
+      document.head.appendChild(script);
+    }).catch(error => {coreLoading = null; throw error;});
+    return coreLoading;
+  }
+
   function attach(opts){
     const pill = opts.pill;
     const ta = pill.querySelector("textarea");
     const go = pill.querySelector(".go");
+    let sending = false, selectionVersion = 0, confirmationTimer                                         = 0;
     let goHTML = null;   // rendu « Add to chat » du mode Studio, reposé après ⏳/✓/!
     function goReset(){ if (goHTML) go.innerHTML = goHTML; else go.textContent = "↑"; }
 
@@ -47,9 +63,14 @@ function installSelPillApi() {
     }
 
     function hide(){ pill.style.display = "none"; }
+    function renewSelection(){
+      selectionVersion += 1; clearTimeout(confirmationTimer);
+      if(!sending){ goReset(); go.title = "Ajouter au chat"; }
+    }
     // positionnement générique près d'un rectangle viewport (pdf_viewer,
     // rapports) — latex_studio garde son placement borné à l'éditeur
-    function placeAt(rect){
+    function placeAt(rect                                                               ){
+      renewSelection();
       pill.style.display = "flex";
       const w = pill.offsetWidth, h = pill.offsetHeight;
       const x = Math.min(Math.max(8, rect.left + rect.width / 2 - w / 2), innerWidth - w - 8);
@@ -58,41 +79,52 @@ function installSelPillApi() {
       pill.style.left = x + "px"; pill.style.top = Math.max(8, y) + "px";
     }
     function cancel(){
+      selectionVersion += 1; clearTimeout(confirmationTimer);
       ta.value = ""; hide();
       if (opts.onCancel) opts.onCancel();
     }
-    function send(){
+    async function send(){
       const q = opts.getQuote && opts.getQuote();
-      if (!q || !q.text) return;
+      if (sending || !q || !q.text) return;
+      clearTimeout(confirmationTimer);
+      const version = selectionVersion;
       const comment = ta.value.trim();
-      go.textContent = "⏳";
-      fetch("/quote", {method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(Object.assign({comment: comment || "", direct: true, target: ct(), embed: EMBEDDED}, q))})
-        .then(r => r.json())
-        .then(j => {
-          if (EMBEDDED && j && j.message && window.__atelierPost) window.__atelierPost({type: "atelier-add-to-chat", text: j.message});
-          if (opts.onSent) opts.onSent(j);
-          go.textContent = "✓";
-          // Le nettoyage différé ne doit JAMAIS escamoter une pilule qu'une
-          // NOUVELLE sélection a réaffichée pendant la confirmation : si la
-          // position a changé depuis l'envoi, elle appartient à quelqu'un
-          // d'autre — on remet le libellé, on ne cache pas.
-          const sentPos = pill.style.left + "|" + pill.style.top;
-          setTimeout(() => {
-            goReset(); ta.value = "";
-            if (pill.style.left + "|" + pill.style.top === sentPos) hide();
-          }, 1200);
-        })
-        .catch(() => { go.textContent = "!"; setTimeout(goReset, 1600); });
+      sending = true; go.disabled = true; go.setAttribute("aria-busy", "true");
+      go.textContent = "…"; go.title = "Ajout au chat en cours…";
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(),20000);
+      try {
+        const response = await fetch("/quote", {method:"POST", signal:controller.signal, headers:{"Content-Type":"application/json"},
+          body:JSON.stringify(Object.assign({comment:comment || "",direct:true,target:ct(),embed:EMBEDDED},q))});
+        const j = await response.json();
+        clearTimeout(timeout);
+        if(!response.ok || j.error) throw new Error(j.error || "Impossible d'ajouter la sélection");
+        if(EMBEDDED){
+          if(!j.message || !window.__atelierPost) throw new Error("Ajout au chat indisponible");
+          const core = await chatCore();
+          await core.requestChatAttachment({window, postToHost:window.__atelierPost, payload:{type:"atelier-add-to-chat",text:j.message}});
+        }
+        if(version !== selectionVersion){ goReset(); go.title = "Ajouter au chat"; return; }
+        if(opts.onSent) opts.onSent(j);
+        go.textContent = "✓"; go.title = "Ajouté au chat";
+        confirmationTimer = setTimeout(() => {
+          goReset(); go.title = "Ajouter au chat";
+          if(version === selectionVersion){ ta.value = ""; hide(); }
+        },1200);
+      } catch(error) {
+        go.textContent = "!"; go.title = error.message || "Ajout non confirmé — réessayer";
+      } finally {
+        clearTimeout(timeout);
+        sending = false; go.disabled = false; go.removeAttribute("aria-busy");
+      }
     }
-
-    // clics sur la barre : ne pas détruire la sélection — sauf le textarea (focus)
-    pill.addEventListener("mousedown", e => { if (e.target !== ta) e.preventDefault(); });
+    // Conserver la sélection du document quand on active une commande.
+    pill.addEventListener("mousedown", (e) => { if(e.target !== ta) e.preventDefault(); });
     go.onclick = () => send();
     const del = pill.querySelector(".del");
-    if (del) del.onclick = e => { e.stopPropagation(); cancel(); };
-    ta.addEventListener("input", () => { ta.style.height = "20px"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; });
-    ta.addEventListener("keydown", e => {
+    if (del) del.onclick = (e) => { e.stopPropagation(); cancel(); };
+    ta.addEventListener("input", () => { selectionVersion += 1; clearTimeout(confirmationTimer); if(!sending) goReset(); ta.style.height = "20px"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; });
+    ta.addEventListener("keydown", (e) => {
       e.stopPropagation();
       if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(); }
       else if (e.key === "Escape"){ e.preventDefault(); cancel(); }
@@ -139,7 +171,7 @@ function installSelPillApi() {
       };
     })();
 
-    return {send, cancel, hide, placeAt, ta, go, embedded: EMBEDDED};
+    return {send, cancel, hide, placeAt, renewSelection, ta, go, embedded: EMBEDDED};
   }
 
   const publicApi = {attach, embedded: EMBEDDED, target: ct};

@@ -8,6 +8,7 @@ interface SelectionPillEditor extends StudioEditor {
 interface SelectionPillApi {
   hide(): void;
   cancel(): void;
+  renewSelection(): void;
 }
 
 export interface SelectionPillAdapter {
@@ -137,6 +138,7 @@ export function createLatexSelectionPill(
   });
   const show = (from: StudioPosition, to: StudioPosition, text: string, anchor?: PillAnchor): void => {
     if (pill.style.display === "flex" && (doc.activeElement === textarea || textarea.value)) return;
+    api.renewSelection();
     lastSelection = {
       text,
       anchor: anchor?.caret,

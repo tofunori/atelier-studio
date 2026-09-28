@@ -1,8 +1,11 @@
 //! Project file / command listing (Node `catalog.mjs`).
 
-use std::io::Read;
+use std::collections::{BinaryHeap, HashMap};
+use std::cmp::Reverse;
+use std::sync::{Arc, Mutex, OnceLock, atomic::{AtomicU64, Ordering}};
+use notify::{Watcher, RecursiveMode, EventKind};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -44,7 +47,51 @@ pub fn list_files(project_root: &str) -> Vec<String> {
     list_file_catalog(project_root).files
 }
 
+struct CatalogCache {
+    revision: Arc<AtomicU64>,
+    value: Mutex<Option<(u64, Instant, FileCatalog)>>,
+    _watcher: Option<notify::RecommendedWatcher>,
+}
+
+fn catalog_cache(root: &Path) -> Arc<CatalogCache> {
+    static CACHES: OnceLock<Mutex<HashMap<PathBuf, Arc<CatalogCache>>>> = OnceLock::new();
+    let mut caches = CACHES.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(cache) = caches.get(root) { return cache.clone(); }
+    if caches.len() >= 16 {
+        // Dropping an inactive entry also drops its filesystem subscription.
+        if let Some(key) = caches.iter().find(|(_, entry)| Arc::strong_count(entry) == 1).map(|(key, _)| key.clone()) {
+            caches.remove(&key);
+        }
+    }
+    let revision = Arc::new(AtomicU64::new(0));
+    let callback_revision = revision.clone();
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if event.as_ref().map_or(true, |event| event.need_rescan() || matches!(event.kind, EventKind::Any | EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) | EventKind::Other)) {
+            callback_revision.fetch_add(1, Ordering::Release);
+        }
+    }).ok();
+    if watcher.as_mut().is_some_and(|watcher| watcher.watch(root, RecursiveMode::Recursive).is_err()) { watcher = None; }
+    let cache = Arc::new(CatalogCache { revision, value: Mutex::new(None), _watcher: watcher });
+    if caches.len() < 16 { caches.insert(root.to_path_buf(), cache.clone()); }
+    cache
+}
+
 pub fn list_file_catalog(project_root: &str) -> FileCatalog {
+    let root = std::fs::canonicalize(project_root).ok().filter(|root| root.is_dir());
+    let Some(root) = root.filter(|_| !project_root.is_empty()) else { return list_file_catalog_uncached(project_root); };
+    let cache = catalog_cache(&root);
+    let mut value = cache.value.lock().unwrap_or_else(|e| e.into_inner());
+    let revision = cache.revision.load(Ordering::Acquire);
+    let ttl = if cache._watcher.is_some() { Duration::from_secs(300) } else { Duration::from_secs(2) };
+    if let Some((version, loaded, catalog)) = value.as_ref() {
+        if *version == revision && loaded.elapsed() < ttl { return catalog.clone(); }
+    }
+    let catalog = list_file_catalog_uncached(root.to_str().unwrap_or(project_root));
+    *value = Some((revision, Instant::now(), catalog.clone()));
+    catalog
+}
+
+fn list_file_catalog_uncached(project_root: &str) -> FileCatalog {
     if project_root.is_empty() {
         return FileCatalog {
             files: Vec::new(),
@@ -88,44 +135,13 @@ pub fn list_file_catalog(project_root: &str) -> FileCatalog {
 fn git_files_bounded(root: &Path) -> Option<Vec<String>> {
     let canonical_root = std::fs::canonicalize(root).ok()?;
     let root = canonical_root.as_path();
-    let mut child = Command::new("git")
-        .args(["ls-files", "--cached", "--others", "--exclude-standard"])
+    let mut command = Command::new("git");
+    command.args(["ls-files", "--cached", "--others", "--exclude-standard"])
         .current_dir(root)
-        // A selected folder must not inherit an unrelated ancestor repository
-        // (e.g. ~/Documents), whose ignore rules can hide the entire project.
-        .env("GIT_CEILING_DIRECTORIES", root.parent().unwrap_or(root))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let mut stdout = child.stdout.take()?;
-    let reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout.read_to_end(&mut bytes).ok().map(|_| bytes)
-    });
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
-                return None;
-            }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
-                return None;
-            }
-        }
-    };
-    let bytes = reader.join().ok().flatten()?;
-    if !status.success() {
-        return None;
-    }
+        .env("GIT_CEILING_DIRECTORIES", root.parent().unwrap_or(root));
+    let output = crate::git::bounded_output(&mut command, Duration::from_secs(5)).ok()?;
+    if !output.status.success() { return None; }
+    let bytes = output.stdout;
     Some(
         String::from_utf8_lossy(&bytes)
             .lines()
@@ -160,8 +176,9 @@ fn recent_project_files(root: &Path, files: &[String], limit: usize) -> Vec<Stri
         ".blg",
         ".bak",
     ];
-    let mut ranked: Vec<(u128, String)> = files
-        .iter()
+    if limit == 0 { return Vec::new(); }
+    let mut ranked: BinaryHeap<Reverse<(u128, Reverse<&String>)>> = BinaryHeap::new();
+    for (modified, rel) in files.iter()
         .filter(|rel| {
             let lower = rel.to_ascii_lowercase();
             !rel.is_empty()
@@ -185,13 +202,14 @@ fn recent_project_files(root: &Path, files: &[String], limit: usize) -> Vec<Stri
                 .duration_since(std::time::UNIX_EPOCH)
                 .ok()?
                 .as_nanos();
-            Some((modified, rel.clone()))
-        })
-        .collect();
-    ranked.sort_by(|(mtime_a, rel_a), (mtime_b, rel_b)| {
-        mtime_b.cmp(mtime_a).then_with(|| rel_a.cmp(rel_b))
-    });
-    ranked.into_iter().take(limit).map(|(_, rel)| rel).collect()
+            Some((modified, rel))
+        }) {
+        ranked.push(Reverse((modified, Reverse(rel))));
+        if ranked.len() > limit { ranked.pop(); }
+    }
+    let mut best: Vec<_> = ranked.into_iter().map(|Reverse((mtime, Reverse(rel)))| (mtime, rel)).collect();
+    best.sort_by(|(ma, ra), (mb, rb)| mb.cmp(ma).then_with(|| ra.cmp(rb)));
+    best.into_iter().map(|(_, rel)| rel.clone()).collect()
 }
 
 fn read_dir_bounded(root: &Path) -> (Vec<String>, bool) {
@@ -327,6 +345,25 @@ mod tests {
     use std::fs::{File, FileTimes};
     use std::time::{Duration, UNIX_EPOCH};
     use tempfile::tempdir;
+
+    #[test]
+    fn cache_reuses_snapshot_and_invalidates_after_external_changes() {
+        let dir = tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::write(root.join("first.tex"), "first").unwrap();
+        let first = list_file_catalog(root.to_str().unwrap());
+        let cache = catalog_cache(&root);
+        let loaded = cache.value.lock().unwrap().as_ref().unwrap().1;
+        assert_eq!(list_file_catalog(root.to_str().unwrap()), first);
+        assert_eq!(cache.value.lock().unwrap().as_ref().unwrap().1, loaded);
+        std::fs::write(root.join("added.tex"), "added").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(4);
+        loop {
+            if list_file_catalog(root.to_str().unwrap()).files.contains(&"added.tex".to_string()) { break; }
+            assert!(Instant::now() < deadline, "watcher did not invalidate catalogue");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
 
     #[test]
     fn list_files_fallback() {

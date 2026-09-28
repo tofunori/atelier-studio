@@ -1055,12 +1055,15 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "gitCommitDetails" => {
             let root = git_root(state, &msg).await;
             let sha = msg.get("sha").and_then(Value::as_str).unwrap_or("");
-            match git_commit_details(&root, sha) {
+            let patch_only = msg.get("includeDiff").and_then(Value::as_bool) == Some(true);
+            let details = if patch_only { git_commit_details(&root, sha) }
+                else { atelier_workspace::commit_summary(&root, sha) };
+            match details {
                 Ok(details) => vec![json_msg(
-                    json!({"type":"gitCommitDetails","projectRoot":root,"details":details}),
+                    json!({"type":"gitCommitDetails","projectRoot":root,"details":details,"patchOnly":patch_only}),
                 )],
                 Err(e) => vec![json_msg(
-                    json!({"type":"gitCommitDetails","projectRoot":root,"error":e.to_string()}),
+                    json!({"type":"gitCommitDetails","projectRoot":root,"patchOnly":patch_only,"error":e.to_string()}),
                 )],
             }
         }
@@ -1443,10 +1446,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             // requestId: contract requires an exact echo, success or error
             // branch alike, so every returned message goes through
             // `with_request_id` below rather than being built ad hoc.
-            let request_id = msg
-                .get("requestId")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
+            let request_id = msg.get("requestId").filter(|value| value.is_string() || value.is_number()).cloned();
             let with_request_id = |mut v: Value| {
                 if let (Some(rid), Some(obj)) = (request_id.as_ref(), v.as_object_mut()) {
                     obj.insert("requestId".into(), json!(rid));
@@ -2589,6 +2589,15 @@ mod tests {
     }
 
     /// Sans requestId fourni, la réponse ne doit pas en inventer un.
+    #[tokio::test]
+    async fn zotero_search_preserves_numeric_request_id() {
+        let dir = tempdir().unwrap();
+        let s = state(dir.path());
+        let out = route_ws(&s, r#"{"type":"zoteroSearch","q":"atelier-no-match-fixture","requestId":42}"#).await;
+        let v: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(v["requestId"], json!(42));
+    }
+
     #[tokio::test]
     async fn zotero_search_omits_request_id_when_not_supplied() {
         let dir = tempdir().unwrap();

@@ -131,6 +131,21 @@ describe("GitSurface staging-first", () => {
     expect(screen.getByText("+nouveau")).toHaveClass("add");
   });
 
+  it("charge le patch brut sur demande et conserve le commit en cas d’erreur", () => {
+    const ws = makeSocket();
+    renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);
+    fireEvent.click(screen.getByRole("button", { name: t("git.commits") }));
+    const details = { sha: "a".repeat(40), shortSha: "aaaaaaa", parents: [], author: "Thierry", authorEmail: "t@example.com", authoredAt: "2026-07-20T12:00:00Z", subject: "Patch différé", decorations: [], body: "", files: [], diff: "", head: "a".repeat(40), upstream: null, isHead: true, isPublished: false };
+    emit("git-commit-details", { projectRoot, details });
+    fireEvent.click(screen.getByRole("button", { name: t("git.inspect-diff") }));
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "gitCommitDetails", projectRoot, sha: details.sha, includeDiff: true }));
+    emit("git-commit-details", { projectRoot, patchOnly: true, error: "Temporary error" });
+    expect(screen.getByRole("button", { name: t("git.inspect-diff") })).toBeEnabled();
+    emit("git-commit-details", { projectRoot, patchOnly: true, details: { ...details, diff: "-ancien\n+nouveau" } });
+    expect(screen.getByText("+nouveau")).toHaveClass("add");
+    expect((ws.send as ReturnType<typeof vi.fn>).mock.calls.filter(([message]) => JSON.parse(message).type === "gitCommitFileDiff")).toHaveLength(0);
+  });
+
   it("crée, fusionne et supprime une branche depuis ses actions contextuelles", async () => {
     const ws = makeSocket();
     renderUi(<GitSurface ws={ws} projectRoot={projectRoot} activeThreadId={null} />);

@@ -10,6 +10,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { t } from "../lib/i18n";
+import { moveDocumentTabFocus } from "../lib/surfaceKeyboard";
 import { CloseIcon } from "./icons";
 import { type Surface } from "./surfaces";
 import { parseWorkspaceTabId } from "../lib/workspaceLayout";
@@ -172,7 +173,8 @@ export default function TopBarTabs(p: {
   const prefixes = folderPrefixes(visible);
 
   return (
-    <div ref={strip} className="topbar-tabs" aria-label={t("tabs.open-files")}>
+    <div ref={strip} className="topbar-tabs" role="group" aria-label={t("tabs.open-files")}
+      onKeyDown={event => moveDocumentTabFocus(event, ".topbar-tab-main")}>
       {visible.map((tab) => {
         // Le glisser d'un onglet vers un autre pane suivait les tuiles du
         // rail depuis la disparition de la bande ; il suit les onglets ici,

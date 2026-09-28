@@ -204,17 +204,22 @@ pub struct ApiChatProvider {
     aborts: Mutex<HashMap<String, Arc<AtomicBoolFlag>>>,
 }
 
-struct AtomicBoolFlag(std::sync::atomic::AtomicBool);
+struct AtomicBoolFlag(tokio::sync::watch::Sender<bool>);
 
 impl AtomicBoolFlag {
-    fn new() -> Self {
-        Self(std::sync::atomic::AtomicBool::new(false))
-    }
-    fn set(&self) {
-        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-    fn get(&self) -> bool {
-        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    fn new() -> Self { Self(tokio::sync::watch::channel(false).0) }
+    fn set(&self) { self.0.send_replace(true); }
+    fn get(&self) -> bool { *self.0.borrow() }
+    async fn cancelled(&self, probe: &Arc<dyn Fn() -> bool + Send + Sync>) {
+        let mut receiver = self.0.subscribe();
+        loop {
+            if *receiver.borrow_and_update() || probe() { return; }
+            tokio::select! {
+                _ = receiver.changed() => {},
+                // The runtime's legacy callback has no wake signal.
+                _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {},
+            }
+        }
     }
 }
 
@@ -377,7 +382,16 @@ impl Provider for ApiChatProvider {
             request = request.bearer_auth(&api_key);
         }
 
-        let res = match request.send().await {
+        let response = tokio::select! {
+            biased;
+            _ = abort.cancelled(&req.is_cancelled) => {
+                self.aborts.lock().await.remove(&req.thread_id);
+                (req.on_event)(json!({"kind":"done","ok":false,"result":""}));
+                return SendResult { session_id: Some(sid), ok:false, error:Some("interrupted".into()) };
+            },
+            response = request.send() => response,
+        };
+        let res = match response {
             Ok(r) => r,
             Err(e) => {
                 self.aborts.lock().await.remove(&req.thread_id);
@@ -393,7 +407,14 @@ impl Provider for ApiChatProvider {
 
         if !res.status().is_success() {
             let status = res.status();
-            let detail = res.text().await.unwrap_or_default();
+            let detail = tokio::select! {
+                _ = abort.cancelled(&req.is_cancelled) => {
+                    self.aborts.lock().await.remove(&req.thread_id);
+                    (req.on_event)(json!({"kind":"done","ok":false,"result":""}));
+                    return SendResult { session_id:Some(sid), ok:false, error:Some("interrupted".into()) };
+                },
+                detail = res.text() => detail.unwrap_or_default(),
+            };
             let message = format!(
                 "{} HTTP {}: {}",
                 self.cfg.label,
@@ -416,10 +437,12 @@ impl Provider for ApiChatProvider {
 
         use futures_util::StreamExt;
         let mut stream = res.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            if abort.get() || (req.is_cancelled)() {
-                break;
-            }
+        loop {
+            let chunk = tokio::select! {
+                biased;
+                _ = abort.cancelled(&req.is_cancelled) => break,
+                chunk = stream.next() => match chunk { Some(chunk) => chunk, None => break },
+            };
             let Ok(bytes) = chunk else { break };
             let text = String::from_utf8_lossy(&bytes);
             let (events, rest) = parse_sse_chunk(&text, &carry);
@@ -492,6 +515,41 @@ impl Provider for ApiChatProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn assert_interrupt_silent_http(send_headers: bool) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (ready, waiting) = tokio::sync::oneshot::channel();
+        let http = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0;8192];
+            let _ = stream.read(&mut buf).await.unwrap();
+            if send_headers { stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n").await.unwrap(); }
+            let _ = ready.send(());
+            std::future::pending::<()>().await;
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let provider = Arc::new(ApiChatProvider::new(ApiProviderConfig { id:"test".into(), label:"test".into(), base_url:format!("http://{addr}"), protocol:None, models:vec!["m".into()], default_model:None, api_key:Some("test".into()), api_key_env:None },dir.path()));
+        let worker = provider.clone();
+        let task = tokio::spawn(async move { worker.send(SendRequest {
+            thread_id:"thread".into(), turn_id:"turn".into(), prompt:"test".into(), inputs:None,
+            project_root:String::new(), additional_directories:vec![], session_id:None, model:None, effort:None, fast_mode:false,
+            permission_mode:None, fork_pending:false, mode:crate::SendMode::Normal, on_event:Arc::new(|_| {}),
+            on_session_opened:None, on_interaction:None, is_cancelled:Arc::new(|| false), atelier_mcp:None, consigne:None,
+        }).await });
+        waiting.await.unwrap();
+        assert!(provider.interrupt("thread").await);
+        let result = tokio::time::timeout(std::time::Duration::from_millis(500), task).await.expect("Stop must wake a silent HTTP read").unwrap();
+        assert!(!result.ok);
+        assert_eq!(result.error.as_deref(), Some("interrupted"));
+        http.abort();
+    }
+
+    #[tokio::test]
+    async fn interrupt_wakes_waiting_http_headers() { assert_interrupt_silent_http(false).await; }
+    #[tokio::test]
+    async fn interrupt_wakes_waiting_http_body() { assert_interrupt_silent_http(true).await; }
 
     #[test]
     fn parse_sse_delta() {

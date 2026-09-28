@@ -378,3 +378,4 @@ function installAnnotKitApi() {
 }
 installAnnotKitApi();
 export type AnnotKitApi = ReturnType<typeof installAnnotKitApi>;
+

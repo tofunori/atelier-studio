@@ -60,15 +60,13 @@ pub(super) async fn image(
     validate_reference(&thread_id, "thread")?;
     validate_reference(&event_id, "image")?;
 
-    let (events, root) = {
+    let (fixture,journal,root) = {
         let g = state.inner.lock().await;
-        let events = g
-            .fixture_history
-            .get(&thread_id)
-            .cloned()
-            .unwrap_or_else(|| g.journal.materialize(&thread_id));
-        (events, g.config.generated_images_dir.clone())
+        (g.fixture_history.get(&thread_id).cloned(),g.journal.clone(),g.config.generated_images_dir.clone())
     };
+    let thread = thread_id.clone();
+    let events = tokio::task::spawn_blocking(move || fixture.unwrap_or_else(|| journal.materialize(&thread))).await
+        .map_err(|_| ApiError::not_found("historique indisponible"))?;
     let raw_path = find_image_path(&events, &thread_id, &event_id)
         .ok_or_else(|| ApiError::not_found("image générée introuvable"))?;
 
@@ -107,16 +105,18 @@ pub(super) async fn save_to_gallery(
     require_device(&state, &headers, Scope::FilesWrite).await?;
     validate_reference(&thread_id, "thread")?;
     validate_reference(&event_id, "image")?;
-    let (events, source_root, project) = {
-        let mut g = state.inner.lock().await;
-        g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
+    let (fixture,journal,source_root,project) = {
+        state.refresh_catalog().await?;
+        let g = state.inner.lock().await;
         let thread = g.threads.get(&thread_id).ok_or_else(|| ApiError::not_found("conversation introuvable"))?;
         if thread.project_root.is_empty() { return Err(ApiError::bad_request("no_project", "Ce chat n’est associé à aucun projet")); }
         let id = crate::path_policy::project_id_for(FsPath::new(&thread.project_root));
         let project = g.projects.get(&id).cloned().ok_or_else(|| ApiError::not_found("projet introuvable"))?;
-        let events = g.fixture_history.get(&thread_id).cloned().unwrap_or_else(|| g.journal.materialize(&thread_id));
-        (events, g.config.generated_images_dir.clone(), project)
+        (g.fixture_history.get(&thread_id).cloned(),g.journal.clone(),g.config.generated_images_dir.clone(),project)
     };
+    let thread = thread_id.clone();
+    let events = tokio::task::spawn_blocking(move || fixture.unwrap_or_else(|| journal.materialize(&thread))).await
+        .map_err(|_| ApiError::not_found("historique indisponible"))?;
     let raw_path = find_image_path(&events, &thread_id, &event_id).ok_or_else(|| ApiError::not_found("image générée introuvable"))?;
     let project_id = project.project_id;
     let relative = tokio::task::spawn_blocking(move || {

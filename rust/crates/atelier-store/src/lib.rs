@@ -10,6 +10,7 @@ mod journal;
 mod ledger;
 mod receipts;
 mod reviews;
+mod reverse_lines;
 mod settings;
 mod threads;
 
@@ -26,6 +27,7 @@ pub use reviews::{
     ReviewPolicy, ReviewRecord, ReviewReservation, ReviewStore, ReviewStoreError,
     REVIEW_PROTOCOL_VERSION, REVIEW_SCHEMA_VERSION,
 };
+pub use reverse_lines::ReverseLines;
 pub use settings::{read_settings, write_settings};
 pub use threads::{AgentLink, Thread, ThreadStore};
 

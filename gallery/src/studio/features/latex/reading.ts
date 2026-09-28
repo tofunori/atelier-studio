@@ -84,7 +84,14 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+const formulaCaches = new WeakMap<KatexRenderer, Map<string, string>>();
+const MAX_FORMULA_CACHE_CHARACTERS = 2_000_000;
+
 export function renderLatexReadingHtml(source: string, katex: KatexRenderer, context: ReadingContext = {}): string {
+  return renderLatexReadingBlocks(source, katex, context).join("\n");
+}
+
+function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context: ReadingContext = {}): string[] {
   const fullSource = String(source || "");
   const documentMatch = /\\begin\{document\}([\s\S]*?)\\end\{document\}/.exec(fullSource);
   let body = documentMatch
@@ -122,6 +129,14 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer, con
   body = body.replace(/(?<!\\)\$([^$]+?)(?<!\\)\$/g, (whole, text: string) => stash(text, false, whole));
   body = body.replace(/\\\(([\s\S]+?)\\\)/g, (whole, text: string) => stash(text, false, whole));
 
+  const macros = {...context.macros};
+  const macroKey = JSON.stringify(Object.entries(macros).sort(([a], [b]) => a.localeCompare(b)));
+  // KaTeX's global definitions intentionally mutate macro state. Such formulas
+  // stay uncached, including any formula that follows them in this document.
+  const statefulMath = /\\(?:gdef|def|edef|xdef|let|global)\b/.test(math.map(item => item.source).join("\n") + Object.values(macros).join("\n"));
+  let formulaCache = formulaCaches.get(katex);
+  if (!formulaCache) {formulaCache = new Map(); formulaCaches.set(katex, formulaCache);}
+  let cacheCharacters = [...formulaCache].reduce((total, [key, html]) => total + key.length + html.length, 0);
   const lines = body.split("\n");
   const blocks: ReadingBlock[] = [];
   let paragraph: string[] = [];
@@ -169,7 +184,7 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer, con
       list.items?.push({text: match[1] || "", line: sourceLine});
       continue;
     }
-    match = /^\\begin\{(figure|table|tabular|tikzpicture|thebibliography|abstract)\*?\}/.exec(line);
+    match = /^\\begin\{(figure|table|tabular|tikzpicture|thebibliography|abstract)(\*?)\}/.exec(line);
     if (match) {
       flushParagraph();
       flushList();
@@ -178,8 +193,19 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer, con
         blocks.push({type: "h", tag: "h2", text: "Abstract", line: sourceLine});
         continue;
       }
-      let end = index + 1;
-      while (end < lines.length && !new RegExp(`\\\\end\\{${environment}`).test(lines[end] || "")) end += 1;
+      const environmentName = environment + (match[2] || "");
+      let end = index;
+      let depth = 0;
+      // The closing token may be on the opening line. Match the full name
+      // (including *) and balance nested instances before advancing the cursor.
+      for (; end < lines.length; end += 1) {
+        for (const token of (lines[end] || "").matchAll(/\\(begin|end)\{([^}]+)\}/g)) {
+          if (token[2] !== environmentName) continue;
+          depth += token[1] === "begin" ? 1 : -1;
+          if (depth === 0) break;
+        }
+        if (depth === 0) break;
+      }
       if (environment !== "thebibliography") blocks.push({type: "env", name: environment, text: lines.slice(index, end + 1).join("\n"), line: sourceLine});
       index = end;
       continue;
@@ -263,7 +289,19 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer, con
     const item = math[Number(rawIndex)];
     if (!item) return "";
     try {
-      return katex.renderToString(item.source, {displayMode: item.display, throwOnError: false, errorColor: "#e0726a", macros: context.macros || {}});
+      const key = JSON.stringify([item.display, macroKey, item.source]);
+      const cached = !statefulMath ? formulaCache.get(key) : undefined;
+      if (cached !== undefined) return cached;
+      const html = katex.renderToString(item.source, {displayMode: item.display, throwOnError: false, errorColor: "#e0726a", macros});
+      if (!statefulMath && key.length + html.length <= MAX_FORMULA_CACHE_CHARACTERS) {
+        formulaCache.set(key, html); cacheCharacters += key.length + html.length;
+        while (cacheCharacters > MAX_FORMULA_CACHE_CHARACTERS || formulaCache.size > 2048) {
+          const first = formulaCache.keys().next().value!;
+          cacheCharacters -= first.length + formulaCache.get(first)!.length;
+          formulaCache.delete(first);
+        }
+      }
+      return html;
     } catch {
       return `<span class="tex-matherr">${escapeHtml(item.source)}</span>`;
     }
@@ -278,7 +316,7 @@ export function renderLatexReadingHtml(source: string, katex: KatexRenderer, con
     }
     const caption = /\\caption(?:\[[^\]]*\])?\{([^{}]*)\}/.exec(block.text || "")?.[1];
     return `<figure class="tex-env" data-line="${block.line}"><figcaption>${caption ? withMath(inline(caption)) : block.name}</figcaption><button type="button" data-pdf-line="${block.line}">Voir ${block.name === "figure" ? "la figure" : "le tableau"} dans le PDF</button></figure>`;
-  }).join("\n");
+  });
 }
 
 /** Le rendu applique au texte des substitutions déterministes (« ~ » → espace,
@@ -572,14 +610,69 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   let frame = 0;
   let bound = false;
 
+  let renderedBlocks: Array<{html: string; signature: string; node: HTMLElement}> = [];
+  let lineIndex: Array<{line: number; node: HTMLElement}> = [];
+  let lastSource: string | null = null;
+  let lastContext = "";
+  const blockSignature = (html: string): string => html.replace(/data-(?:line(?:-end)?|pdf-line)="\d+"/g, 'data-anchor=""');
+  const updateBlocks = (htmlBlocks: string[]): void => {
+    const reusable = new Map<string, typeof renderedBlocks>();
+    for (const block of renderedBlocks) {
+      const list = reusable.get(block.signature) || []; list.push(block); reusable.set(block.signature, list);
+    }
+    const next: typeof renderedBlocks = [];
+    let cursor: ChildNode | null = reading.firstChild;
+    for (const html of htmlBlocks) {
+      const signature = blockSignature(html);
+      const previous = reusable.get(signature)?.shift();
+      let node: HTMLElement;
+      if (previous && !previous.node.classList.contains("editing")) {
+        node = previous.node;
+        if (previous.html !== html) {
+          // Only source anchors changed. Reuse prose and its selection ranges.
+          const anchors = [...html.matchAll(/data-(line(?:-end)?|pdf-line)="(\d+)"/g)];
+          let at = 0;
+          for (const element of [node, ...node.querySelectorAll<HTMLElement>("[data-line], [data-line-end], [data-pdf-line]")]) {
+            for (const attribute of ["line", "line-end", "pdf-line"]) {
+              if (!element.hasAttribute(`data-${attribute}`)) continue;
+              const anchor = anchors[at++];
+              if (anchor) element.setAttribute(`data-${attribute}`, anchor[2]!);
+            }
+          }
+        }
+      } else {
+        const template = doc.createElement("template"); template.innerHTML = html;
+        node = template.content.firstElementChild as HTMLElement;
+      }
+      if (node !== cursor) reading.insertBefore(node, cursor);
+      cursor = node.nextSibling;
+      next.push({html, signature, node});
+    }
+    const keep = new Set(next.map(block => block.node));
+    for (const block of renderedBlocks) if (!keep.has(block.node)) block.node.remove();
+    renderedBlocks = next;
+    lineIndex = [...reading.querySelectorAll<HTMLElement>("[data-line]")]
+      .map(node => ({line: Number(node.dataset.line), node})).filter(entry => Number.isFinite(entry.line));
+  };
   const render = (): void => {
     frame = 0;
+    if (editing) return;
+    const source = options.getEditor()?.getValue() || "";
+    const context = options.getContext?.() || {};
+    const contextKey = JSON.stringify(context);
+    if (source === lastSource && contextKey === lastContext) {options.onRendered?.(); return;}
     const viewportTop = options.right.getBoundingClientRect().top;
     const anchor = Array.from(reading.querySelectorAll<HTMLElement>("[data-line]")).find(el => el.getBoundingClientRect().bottom > viewportTop);
     const anchorLine = anchor?.dataset.line;
     const offset = anchor ? anchor.getBoundingClientRect().top - viewportTop : 0;
-    try { reading.innerHTML = renderLatexReadingHtml(options.getEditor()?.getValue() || "", options.katex, options.getContext?.()); }
-    catch (error) { reading.innerHTML = `<p style="color:#e0726a">Rendu impossible : ${escapeHtml(String(error))}</p>`; }
+    reading.querySelectorAll(".tr-cut, .tr-cut-text").forEach(node => node.remove());
+    try {
+      updateBlocks(renderLatexReadingBlocks(source, options.katex, context));
+      lastSource = source; lastContext = contextKey;
+    } catch (error) {
+      updateBlocks([`<p style="color:#e0726a">Rendu impossible : ${escapeHtml(String(error))}</p>`]);
+      lastSource = null;
+    }
     applyAnnotationHighlights();
     applyDiffMarks();   // le rendu est reconstruit à chaque frappe : repeindre
     options.onRendered?.();
@@ -602,6 +695,8 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     if (next) {
       options.splitButton.classList.remove("on");
       render();
+      reading.querySelectorAll(".tr-cut, .tr-cut-text").forEach(node => node.remove());
+      applyAnnotationHighlights(); applyDiffMarks();
     } else {
       applyAnnotationHighlights();          // vide le registre en quittant
       options.onProseSelectionCleared?.();  // la pastille de prose avec lui
@@ -718,13 +813,12 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   // des marques de l'éditeur (SWATCHES d'annotations.ts, alpha adouci).
   const HIGHLIGHT_COLORS: readonly string[] = ["amber", "red", "blue", "green", "purple", "comment"];
   const blockForLine = (line: number): HTMLElement | null => {
-    let best: HTMLElement | null = null;
-    for (const el of reading.querySelectorAll<HTMLElement>("[data-line]")) {
-      const at = Number.parseInt(el.dataset.line || "", 10);
-      if (Number.isFinite(at) && at <= line) best = el;
-      else if (Number.isFinite(at) && at > line) break;
+    let lo = 0, hi = lineIndex.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (lineIndex[mid]!.line <= line) lo = mid + 1; else hi = mid;
     }
-    return best;
+    return lo ? lineIndex[lo - 1]!.node : null;
   };
   const rangeFromOffsets = (block: HTMLElement, start: number, end: number): Range | null => {
     const walker = doc.createTreeWalker(block, 4 /* NodeFilter.SHOW_TEXT */);
@@ -776,7 +870,9 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     for (const color of HIGHLIGHT_COLORS) registry.delete(`texc-read-${color}`);
     if (!enabled || !options.getAnnotations) return;
     const byColor = new Map<string, Range[]>();
-    for (const annotation of options.getAnnotations()) {
+    const annotations = options.getAnnotations();
+    const numbers = new Map(annotations.filter(annotation => annotation.kind !== "hl").map((annotation, index) => [annotation, index + 1]));
+    for (const annotation of annotations) {
       const span = locateAnnotation(annotation);
       if (!span) continue;
       const color = annotation.kind === "hl" ? (HIGHLIGHT_COLORS.includes(annotation.color || "") ? annotation.color as string : "amber") : "comment";
@@ -787,7 +883,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
         const rect=span.getBoundingClientRect(), box=reading.getBoundingClientRect();
         const badge=doc.createElement("button");
         badge.className="atelier-annotation-number texread-annotation-number";
-        badge.textContent=String(annotation.number || options.getAnnotations().filter(a=>a.kind!=="hl").indexOf(annotation)+1);
+        badge.textContent=String(annotation.number || numbers.get(annotation) || 1);
         badge.setAttribute("aria-label",`Annotation ${badge.textContent}`);
         reading.style.position="relative";
         badge.style.left=Math.max(0,rect.left-box.left-25)+"px";badge.style.top=(rect.top-box.top)+"px";
@@ -834,6 +930,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     const leave = (apply: boolean): void => {
       if (!editing) return;
       editing = false;
+      lastSource = null;
       const next = area.value;
       if (apply && next !== sourceText) {
         // Recontrôle juste avant d'écrire : un agent a pu recharger le buffer
@@ -984,7 +1081,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     if (!enabled) return false;
     const target = blockForLine(line + 1) || reading.querySelector<HTMLElement>("[data-line]");
     if (!target) return false;
-    target.scrollIntoView({block: "start", behavior: "smooth"});
+    target.scrollIntoView({block: "start", behavior: win.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
     target.classList.add("tr-jump");
     win.setTimeout(() => target?.classList.remove("tr-jump"), 900);
     return true;

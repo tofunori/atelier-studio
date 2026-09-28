@@ -181,3 +181,4 @@ function createAtelierPdfReadingApi(root){
     blockAtScrollTop: blockAtScrollTop, pageForBlock: pageForBlock};
 }
 export type AtelierPdfReadingApi = ReturnType<typeof createAtelierPdfReadingApi>;
+

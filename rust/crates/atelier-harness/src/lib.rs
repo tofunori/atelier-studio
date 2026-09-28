@@ -14,7 +14,7 @@ pub use thread::{HarnessThread, TurnStatus};
 use atelier_store::HarnessJournal;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tokio::sync::Mutex;
 
 /// Callback for emitting decorated events to the UI (WS).
@@ -22,7 +22,7 @@ pub type EmitFn = Arc<dyn Fn(Value) + Send + Sync>;
 
 /// Manages per-thread harnesses and active runs.
 pub struct HarnessManager {
-    threads: Mutex<HashMap<String, Arc<Mutex<HarnessThread>>>>,
+    threads: Mutex<HashMap<String, Weak<Mutex<HarnessThread>>>>,
     runs: Mutex<HashMap<String, RunState>>,
     journal: HarnessJournal,
     /// Cancel flags per threadId.
@@ -57,9 +57,10 @@ impl HarnessManager {
         emit: EmitFn,
     ) -> Arc<Mutex<HarnessThread>> {
         let mut map = self.threads.lock().await;
-        if let Some(h) = map.get(thread_id) {
+        map.retain(|_, harness| harness.strong_count() > 0);
+        if let Some(h) = map.get(thread_id).and_then(Weak::upgrade) {
             h.lock().await.set_provider(provider);
-            return Arc::clone(h);
+            return h;
         }
         // `initial_sequence` a disparu : `HarnessThread::decorate()` route
         // désormais l'allocation par `Journal::next_sequence`, qui fait
@@ -71,7 +72,7 @@ impl HarnessManager {
             emit,
             self.journal.clone(),
         )));
-        map.insert(thread_id.to_string(), Arc::clone(&h));
+        map.insert(thread_id.to_string(), Arc::downgrade(&h));
         h
     }
 
@@ -121,6 +122,7 @@ impl HarnessManager {
         let mut runs = self.runs.lock().await;
         if runs.get(thread_id).is_some_and(|r| r.turn_id == turn_id) {
             runs.remove(thread_id);
+            self.cancel.lock().await.remove(thread_id);
         }
     }
 
@@ -141,6 +143,24 @@ impl HarnessManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn idle_harness_is_released_but_live_callbacks_share_the_same_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = HarnessManager::new(HarnessJournal::new(dir.path()));
+        let emit: EmitFn = Arc::new(|_| {});
+        let h = manager.harness_for("fil", "fake", emit.clone()).await;
+        let late = h.clone();
+        drop(h);
+        let resumed = manager.harness_for("fil", "fake", emit.clone()).await;
+        assert!(Arc::ptr_eq(&late, &resumed));
+        let weak = Arc::downgrade(&late);
+        drop(late);
+        drop(resumed);
+        assert!(weak.upgrade().is_none());
+        let _new = manager.harness_for("new", "fake", emit).await;
+        assert_eq!(manager.threads.lock().await.len(), 1);
+    }
 
     #[tokio::test]
     async fn la_fin_d_un_ancien_tour_n_efface_pas_le_tour_suivant() {

@@ -45,6 +45,7 @@ export type AtelierAttachPdfMessage = {
   type: "atelier-attach-pdf";
   nonce: string;
   rel: string;
+  requestId?: string;
 };
 
 /** Sélection envoyée au Quick Ask depuis un éditeur galerie (studio
@@ -63,7 +64,8 @@ export type AtelierAddToChatAckMessage = {
   type: "atelier-add-to-chat-ack";
   nonce: string;
   requestId: string;
-  ok: true;
+  ok: boolean;
+  error?: string;
 };
 
 export type BrowserAddToChatMessage = {
@@ -219,7 +221,8 @@ export function isTrustedAtelierMessage(
         isOptionalBoundedString(data.requestId, MAX_NONCE_LENGTH)
       );
     case "atelier-attach-pdf":
-      return hasOnlyKeys(data, ["type", "nonce", "rel"]) && isBoundedString(data.rel, MAX_URL_LENGTH);
+      return hasOnlyKeys(data, ["type", "nonce", "rel", "requestId"]) && isBoundedString(data.rel, MAX_URL_LENGTH)
+        && isOptionalBoundedString(data.requestId, MAX_NONCE_LENGTH);
     case "browser-add-to-chat":
       return (
         hasOnlyKeys(data, ["type", "nonce", "text", "url"]) &&

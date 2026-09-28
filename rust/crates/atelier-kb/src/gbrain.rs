@@ -8,10 +8,9 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::{json, Value};
-use std::io::{Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 use unicode_normalization::UnicodeNormalization;
 
 const GBRAIN_TIMEOUT_MS: u64 = 20_000;
@@ -73,63 +72,10 @@ pub(crate) enum SpawnOutcome {
 /// Réutilisé par `article.rs` pour les spawns `ssh` (motif "spawns
 /// inchangés" du plan 065 — même mécanique de timeout que gbrain).
 pub(crate) fn spawn_with_timeout(bin: &str, args: &[&str], input: Option<&str>, timeout: Duration) -> SpawnOutcome {
-    let mut cmd = Command::new(bin);
-    cmd.args(args);
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => return SpawnOutcome::SpawnError(e.to_string()),
-    };
-
-    let stdin_pipe = child.stdin.take();
-    let input_owned = input.map(|s| s.to_string());
-    let stdin_thread = std::thread::spawn(move || {
-        if let (Some(mut stdin), Some(text)) = (stdin_pipe, input_owned) {
-            let _ = stdin.write_all(text.as_bytes());
-        }
-    });
-
-    let stdout_pipe = child.stdout.take();
-    let stdout_thread = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(mut s) = stdout_pipe {
-            let _ = s.read_to_end(&mut buf);
-        }
-        buf
-    });
-    let stderr_pipe = child.stderr.take();
-    let stderr_thread = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(mut s) = stderr_pipe {
-            let _ = s.read_to_end(&mut buf);
-        }
-        buf
-    });
-
-    let start = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {
-                if start.elapsed() > timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break None;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Err(_) => break None,
-        }
-    };
-    let _ = stdin_thread.join();
-    let stdout = stdout_thread.join().unwrap_or_default();
-    let stderr = stderr_thread.join().unwrap_or_default();
-    match status {
-        Some(status) => SpawnOutcome::Finished { code: status.code().unwrap_or(-1), stdout, stderr },
-        None => SpawnOutcome::TimedOut,
-    }
+    let result = crate::process::run(bin, args, input, timeout, |_| {});
+    if result.timed_out { return SpawnOutcome::TimedOut; }
+    if let Some(error) = result.error { return SpawnOutcome::SpawnError(error); }
+    SpawnOutcome::Finished { code: result.status.unwrap_or(-1), stdout: result.stdout, stderr: result.stderr }
 }
 
 pub struct GbrainInvocation {

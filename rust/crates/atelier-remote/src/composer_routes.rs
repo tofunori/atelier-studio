@@ -7,8 +7,8 @@ pub(super) async fn commands(
     guard_headers(&state, &headers).await?;
     let _ = require_device(&state, &headers, Scope::ChatRead).await?;
     let root = {
-        let mut g = state.inner.lock().await;
-        g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
+        state.refresh_catalog().await?;
+        let g = state.inner.lock().await;
         g.threads.get(&thread_id).ok_or_else(|| ApiError::not_found("conversation introuvable"))?.project_root.clone()
     };
     let commands = tokio::task::spawn_blocking(move || {

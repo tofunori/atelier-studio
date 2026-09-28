@@ -1,3 +1,4 @@
+import { acceptChatAttachment } from "./lib/chatAttachmentReceipt";
 import { useOpenChatTabs } from "./hooks/useOpenChatTabs";
 import { startRagdocWatcher } from "./lib/ragdocWorkspace";
 import { zoteroDataDir } from "./lib/integrations";
@@ -11,7 +12,6 @@ import {
 } from "./lib/discussions";
 import { installGalleryFullscreen } from "./lib/galleryFullscreen";
 import { annotationDisplayText } from "./lib/annotationDisplayText";
-import { ReadingChatOverlay } from "./components/ReadingChatOverlay";
 import { normalizeProjectFolders, projectWritableDirectories, resolveAssociatedFile } from "./lib/projectFolders";
 import { lazy } from "react";
 const ProjectFoldersDialog = lazy(() => import("./components/ProjectFoldersDialog"));
@@ -85,6 +85,9 @@ import AtelierPane from "./components/AtelierPane";
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
 const ContextInspector = lazyWithRetry<Parameters<(typeof import("./components/ContextInspector"))["ContextInspector"]>[0]>(
   () => import("./components/ContextInspector").then((m) => ({ default: m.ContextInspector })),
+);
+const ReadingChatOverlay = lazyWithRetry<Parameters<(typeof import("./components/ReadingChatOverlay"))["ReadingChatOverlay"]>[0]>(
+  () => import("./components/ReadingChatOverlay").then((module) => ({ default: module.ReadingChatOverlay })),
 );
 const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
 const AutomationsPanel = lazyWithRetry(() => import("./components/Automations"));
@@ -2460,31 +2463,33 @@ export default function App() {
           },
         }));
       }
-      if (data.type === "atelier-attach-pdf") {
-        // « Joindre le PDF au chat » du lecteur : rejoint le message en cours
-        // du chat actif, rien n'est envoyé tout seul.
-        const target = pdfChatTarget(data.rel, zoteroItemsRef.current, activeProjectRef.current, zoteroDataDir());
-        if (!target) void showError(t("chat.attach-pdf-no-project"));
-        else {
-          if ("item" in target) attachZoteroItem(target.item);
-          else setAttachments((l) => addAttachment(l, fileAttachment(target.path)));
-          setLayout((l) => (l === "atelier" ? "split" : l));
-        }
-      }
-      if (data.type === "atelier-add-to-chat") {
-        if (!data.requestId || !galleryRequests.current.has(data.requestId)) {
-          attachContextToChat(data.text, { ...data,
-            pdfAnnotation: data.pdfAnnotation ? { ...data.pdfAnnotation, origin: e.origin } : undefined,
-          });
-          if (data.requestId) galleryRequests.current.add(data.requestId);
-        }
+      if (data.type === "atelier-attach-pdf" || data.type === "atelier-add-to-chat") {
+        const receipt = acceptChatAttachment(
+          data.requestId ? `${data.type}:${data.requestId}` : undefined,
+          galleryRequests.current,
+          () => {
+            if (data.type === "atelier-attach-pdf") {
+              const target = pdfChatTarget(data.rel, zoteroItemsRef.current, activeProjectRef.current, zoteroDataDir());
+              if (!target) throw new Error(t("chat.attach-pdf-no-project"));
+              if ("item" in target) attachZoteroItem(target.item);
+              else setAttachments((l) => addAttachment(l, fileAttachment(target.path)));
+              setLayout((l) => (l === "atelier" ? "split" : l));
+            } else {
+              attachContextToChat(data.text, { ...data,
+                pdfAnnotation: data.pdfAnnotation ? { ...data.pdfAnnotation, origin: e.origin } : undefined,
+              });
+            }
+          },
+        );
         if (data.requestId && e.source) {
           (e.source as Window).postMessage({
             type: "atelier-add-to-chat-ack",
             nonce: atelierNonce,
             requestId: data.requestId,
-            ok: true,
+            ...receipt,
           }, e.origin);
+        } else if (!receipt.ok) {
+          void showError(receipt.error);
         }
       }
       if (data.type === "atelier-gallery-result") {
@@ -2855,6 +2860,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       // valeurs LIVE via refs : les useState capturés par cet effet à deps:[]
       // gardaient leur valeur de montage — Échap fermait la palette ET
       // interrompait le tour en même temps (bug de closure, plan 021 §8)
@@ -4556,7 +4562,7 @@ export default function App() {
         </>
       )}
     </PanelGroup>
-      {readingChatVisible && <ReadingChatOverlay
+      {readingChatVisible && <LazyBoundary fallback={null} errorInTopLayer={galleryFullscreen}><ReadingChatOverlay
         threadId={activeId} store={eventStore} topLayer={galleryFullscreen}
         promptSource={composerPromptSource}
         count={readingAnnotations.length} disabled={!wsReady || (!activeProject && !activeId)}
@@ -4575,7 +4581,7 @@ export default function App() {
         onClear={() => updateComposerDraft(activeComposerKey, draft => ({...draft,
           attachments: draft.attachments.filter(attachment => !attachment.pdfAnnotation),
         }))}
-      />}
+      /></LazyBoundary>}
       {newChatRequest && (
         <NewChatProviderDialog
           providers={providerList}

@@ -190,7 +190,7 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
     // L'éditeur de code n'a pas de dépendance postToHost : il parle à l'app par
     // le pont d'hôte installé au bootstrap, comme ses actions de sélection.
     postToHost: (payload) => (win as Window & {__atelierPost?(p: Record<string, unknown>): void}).__atelierPost?.(payload),
-    notify: (message) => setState("saved", message),
+    notify: (message, kind) => setState(kind === "error" ? "conflict" : "saved", message),
     window: win,
   });
   const diff = createStudioDiffController({

@@ -15,7 +15,7 @@ pub enum TermEvent {
 }
 
 struct TermSlot {
-    writer: Box<dyn Write + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     master: Box<dyn portable_pty::MasterPty + Send>,
     /// Independent signal handle: the wait thread owns the child itself, so
     /// close() never blocks behind a mutex held by `Child::wait`.
@@ -148,7 +148,7 @@ impl TerminalHub {
         terms.insert(
             term_id.to_string(),
             TermSlot {
-                writer,
+                writer: Arc::new(Mutex::new(writer)),
                 master: pair.master,
                 killer,
             },
@@ -156,10 +156,11 @@ impl TerminalHub {
     }
 
     pub fn input(&self, term_id: &str, data: &str) {
-        if let Ok(mut terms) = self.terms.lock() {
-            if let Some(t) = terms.get_mut(term_id) {
-                let _ = t.writer.write_all(data.as_bytes());
-                let _ = t.writer.flush();
+        let writer = self.terms.lock().ok().and_then(|terms| terms.get(term_id).map(|term| term.writer.clone()));
+        if let Some(writer) = writer {
+            if let Ok(mut writer) = writer.lock() {
+                let _ = writer.write_all(data.as_bytes());
+                let _ = writer.flush();
             }
         }
     }

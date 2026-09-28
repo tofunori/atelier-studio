@@ -5,6 +5,7 @@ declare global {
   var AtelierPdfPassage: import('./pdf_passage').AtelierPdfPassageApi;
   var AtelierPdfReading: import('./pdf_reading').AtelierPdfReadingApi;
   var AtelierPdfSelection: import('./pdf_selection').AtelierPdfSelectionApi;
+  var AtelierPdfRuntime: import('./pdf_runtime').AtelierPdfRuntimeApi;
   var FigureAnnotationGeometry: import('./figure_annotation_geometry').FigureAnnotationGeometryApi;
   var AtelierGalleryCommands: import('./gallery_commands').AtelierGalleryCommandsApi;
   var __atelierPost: import('./annot_kit').__atelierPostApi;
@@ -36,6 +37,7 @@ declare global {
   var removeAnnot: import('./pages/pdf_viewer_6').PageGlobals['removeAnnot'];
   var sendAnnot: import('./pages/pdf_viewer_6').PageGlobals['sendAnnot'];
   var __reloadPdf: import('./pages/pdf_viewer_6').PageGlobals['__reloadPdf'];
+  var pdfRenderScheduler: import('./pages/pdf_viewer_6').PageGlobals['pdfRenderScheduler'];
   var hlText: import('./pages/pdf_viewer_6').PageGlobals['hlText'];
   var PDF_ANNOTS: import('./pages/pdf_viewer_6').PageGlobals['PDF_ANNOTS'];
   var ANNOTS_LOADED: import('./pages/pdf_viewer_6').PageGlobals['ANNOTS_LOADED'];
@@ -82,11 +84,13 @@ declare global {
     __trigger?: HTMLElement;
     _html?: string;
     _order?: HTMLSpanElement[];
+    _passageIndex?: ReturnType<typeof AtelierPdfPassage.createIndex>;
     _spec?: unknown;
     webkitRequestFullscreen?: () => Promise<void>;
   }
   interface Window {
     __readingMode?: import('./pages/pdf_viewer_6').ReadingMode;
+    __pdfTextSearch?: {scan(query:string, onPage:(page:number,matches:ReturnType<typeof AtelierPdfPassage.findAllInIndex>)=>void, cancelled:()=>boolean):Promise<boolean>;ensurePage(page:number):Promise<unknown>;releaseSelection():void};
   }
   interface Navigator {
     userAgentData?: {platform?: string;brands?: {brand:string;version:string}[]}; virtualKeyboard?: {overlaysContent: boolean} }

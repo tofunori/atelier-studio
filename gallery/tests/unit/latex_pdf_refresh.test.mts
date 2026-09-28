@@ -28,13 +28,13 @@ function harness(t: test.TestContext) {
     offsetHeight: {configurable: true, get() {return this.classList.contains('pdfpage') ? 1000 : 0;}},
     offsetTop: {configurable: true, get() {return 0;}},
   });
-  win.HTMLCanvasElement.prototype.getContext = () => ({scale() {}});
-  let poll, mtime = 1;
-  win.setInterval = callback => {poll = callback; return 1;};
+  win.HTMLCanvasElement.prototype.getContext = () => ({scale(..._args) {}});
+  let poll: () => void, mtime = 1, zoom = 1;
+  win.setInterval = (callback) => {poll = callback; return 1;};
   win.fetch = async () => ({ok: true, json: async () => ({mtime})});
   const queue = [], requests = [];
   const controller = context.PdfSync.createLatexPdfSyncController({
-    path: 'main.tex', isPdfMode: false, getPdfPath: () => 'main.pdf', getZoom: () => 1,
+    path: 'main.tex', isPdfMode: false, getPdfPath: () => 'main.pdf', getZoom: () => zoom,
     getEditor: () => null, right, marker: win.document.getElementById('marker'),
     pdfjs: {getDocument(options) {requests.push(options.url); assert.ok(queue.length, 'unexpected PDF reload'); return {promise: queue.shift()};}},
     channel: null, setState(..._args) {}, revealLine(..._args) {}, document: win.document, window: win,
@@ -43,7 +43,7 @@ function harness(t: test.TestContext) {
     const page = {getViewport: ({scale}) => ({width: 600 * scale, height: 1000 * scale}), render: () => ({promise: renderGate?.promise || Promise.resolve()})};
     return {numPages: 1, getPage: async () => {if (pageGate) await pageGate.promise; return page;}};
   }
-  return {right, controller, requests, queue, document, setMtime(value) {mtime = value;}, async poll() {poll(); await flush();}, async initial() {queue.push(Promise.resolve(document())); await controller.loadPdf(); assert.ok(right.querySelector('canvas')); return right.querySelector('.pdfpage');}};
+  return {right, controller, requests, queue, document, setZoom(value: number) {zoom = value;}, setMtime(value: number) {mtime = value;}, async poll() {poll(); await flush();}, async initial() {queue.push(Promise.resolve(document())); await controller.loadPdf(); assert.ok(right.querySelector('canvas')); return right.querySelector('.pdfpage');}};
 }
 
 test('refresh retains the old page through download, page decoding and rendering, then swaps', async t => {
@@ -51,6 +51,7 @@ test('refresh retains the old page through download, page decoding and rendering
   h.right.scrollTop = 120;
   const download = deferred(), pageGate = deferred(), renderGate = deferred();
   h.queue.push(download.promise);
+  h.setMtime(2);
   const loading = h.controller.loadPdf();
   await flush();
   assert.equal(h.right.querySelector('.pdfpage'), old);
@@ -72,6 +73,7 @@ for (const failure of ['download', 'render']) test(`failed ${failure} keeps the 
   const h = harness(t), old = await h.initial();
   const gate = deferred();
   h.queue.push(failure === 'download' ? gate.promise : Promise.resolve(h.document({renderGate: gate})));
+  h.setMtime(2);
   const loading = h.controller.loadPdf(); await flush();
   gate.reject(new Error('deliberate failure')); await loading;
   assert.equal(h.right.querySelector('.pdfpage'), old);
@@ -92,8 +94,9 @@ test('mtime watcher does not reload a revision already refreshed after compilati
 test('an older delayed refresh cannot replace a newer completed revision', async t => {
   const h = harness(t); await h.initial();
   const gate = deferred(); h.queue.push(Promise.resolve(h.document({renderGate: gate})));
+  h.setMtime(2);
   const older = h.controller.loadPdf(); await flush();
-  h.queue.push(Promise.resolve(h.document())); await h.controller.loadPdf();
+  h.setMtime(3); h.queue.push(Promise.resolve(h.document())); await h.controller.loadPdf();
   const newest = h.right.querySelector('.pdfpage');
   gate.resolve(); await older;
   assert.equal(h.right.querySelector('.pdfpage'), newest);
@@ -104,6 +107,7 @@ test('a revision written during rendering remains detectable by the watcher', as
   const h = harness(t); await h.initial();
   h.setMtime(2);
   const gate = deferred(); h.queue.push(Promise.resolve(h.document({renderGate: gate})));
+  h.setMtime(2);
   const loading = h.controller.loadPdf(); await flush();
   h.setMtime(3);
   gate.resolve(); await loading;
@@ -114,8 +118,44 @@ test('a revision written during rendering remains detectable by the watcher', as
 test('scrolling while the replacement renders is preserved at the swap', async t => {
   const h = harness(t); await h.initial(); h.right.scrollTop = 20;
   const gate = deferred(); h.queue.push(Promise.resolve(h.document({renderGate: gate})));
+  h.setMtime(2);
   const loading = h.controller.loadPdf(); await flush();
   h.right.scrollTop = 160;
   gate.resolve(); await loading;
   assert.equal(h.right.scrollTop, 160);
+});
+
+
+test('unchanged revision reuses PDF.js, page proxies and text when zooming', async t => {
+  const h = harness(t);
+  let pages = 0, texts = 0, paints = 0;
+  const pdf = {numPages: 1, getPage: async () => {
+    pages++;
+    return {getViewport: ({scale}) => ({width: 600 * scale, height: 1000 * scale}),
+      getTextContent: async () => {texts++; return {};},
+      render: () => {paints++; return {promise: Promise.resolve()};}};
+  }};
+  h.queue.push(Promise.resolve(pdf)); await h.controller.loadPdf();
+  const old = h.right.querySelector('.pdfpage');
+  await h.controller.loadPdf();
+  assert.equal(h.right.querySelector('.pdfpage'), old);
+  h.setZoom(1.2); await h.controller.loadPdf();
+  assert.equal(h.requests.length, 1);
+  assert.equal(pages, 1);
+  assert.equal(paints, 2);
+  assert.equal(h.right.querySelector('.pdfpage').style.width, '720px');
+});
+
+test('first useful paint precedes decoding the whole document', async t => {
+  const h = harness(t);
+  const decoded = [], firstPaint = [];
+  // All JSDOM boxes intersect; use a tall first page and a zero-height viewport
+  // to model a single visible page without asking every page to paint.
+  h.queue.push(Promise.resolve({numPages: 100, getPage: async (number) => {
+    decoded.push(number);
+    return {getViewport: ({scale}) => ({width: 600 * scale, height: 1000 * scale}),
+      render: () => {firstPaint.push(decoded.length); return {promise: Promise.resolve()};}};
+  }}));
+  await h.controller.loadPdf();
+  assert.ok(firstPaint[0] < 5, `first canvas waited for ${firstPaint[0]} page decodes`);
 });

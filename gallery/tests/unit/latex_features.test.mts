@@ -4,8 +4,11 @@ import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 import katex, { type KatexOptions } from "katex";
 import {JSDOM} from "jsdom";
+import {build} from "esbuild";
+import {fileURLToPath} from "node:url";
 
-const source = await readFile(new URL("../../assets/latex_features.bundle.js", import.meta.url), "utf8");
+const source = (await build({entryPoints: [fileURLToPath(new URL("../../src/studio/features/latex/index.ts", import.meta.url))],
+  bundle: true, write: false, format: "iife", globalName: "AtelierStudioLatex"})).outputFiles[0].text;
 const context: import("node:vm").Context = {};
 vm.runInNewContext(source, context);
 const latex = context.AtelierStudioLatex;
@@ -484,6 +487,31 @@ test("reading context follows bibliography resources relative to the root", asyn
   assert.equal(result.references.f, "2");
 });
 
+test("reading keeps sections and equations after the same-line figure in twocol", async () => {
+  const tex = await readFile(new URL("../../../rust/crates/atelier-gallery/tests/fixtures/reflow/twocol.tex", import.meta.url), "utf8");
+  const html = latex.renderLatexReadingHtml(tex, katex);
+  assert.match(html, /<figure class="tex-env" data-line="13">/);
+  assert.match(html, /<h2 data-line="14">Methods<\/h2>/);
+  assert.match(html, /<h3 data-line="18">Data<\/h3>/);
+  const doc = new JSDOM(html).window.document;
+  assert.ok(doc.querySelector('[data-line="15"] .katex'));
+  assert.equal(doc.querySelector('[data-line="15"]').dataset.lineEnd, "17");
+});
+
+test("reading closes same-line starred environments and nested tables at their matching end", () => {
+  for (const environment of ["figure", "figure*", "table", "tabular", "tikzpicture", "thebibliography"]) {
+    const html = latex.renderLatexReadingHtml(`\\begin{${environment}}content\\end{${environment}}\n\\section{After}`, katex);
+    assert.match(html, /<h2 data-line="2">After<\/h2>/, environment);
+  }
+  const html = latex.renderLatexReadingHtml(String.raw`\begin{tabular}{c}
+\begin{tabular}{c}inner\end{tabular}
+outer-row
+\end{tabular}
+\section{After}`, katex);
+  assert.match(html, /<h2 data-line="5">After<\/h2>/);
+  assert.doesNotMatch(html, /outer-row/);
+});
+
 test("figure captions render math and zero-argument macros retain following groups", () => {
   const html = latex.renderLatexReadingHtml(String.raw`\begin{figure}
 \caption{Effect on $\alpha$ over time.}
@@ -818,4 +846,84 @@ test("compile coordinator publishes log diagnostics after every compile, empty w
   await make({ok: false, log: "! Undefined control sequence.\nl.3 \\foo"}).compile();
   await make({ok: true, log: "Output written on main.pdf (1 page)."}).compile();
   assert.deepEqual(JSON.parse(JSON.stringify(published.map((list) => list.map((d) => [d.severity, d.line])))), [[["error", 3]], []]);
+});
+
+
+test("math cache reuses formulas and invalidates macro changes", () => {
+  let calls = 0;
+  const renderer = {renderToString(source: string, options: KatexOptions) {calls++; return katex.renderToString(source, options);}};
+  const source = String.raw`$\x+1$ and $\x+1$`;
+  const first = latex.renderLatexReadingHtml(source, renderer, {macros:{"\\x":"2"}});
+  assert.equal(calls, 1);
+  assert.equal(latex.renderLatexReadingHtml(source, renderer, {macros:{"\\x":"2"}}), first);
+  assert.equal(calls, 1);
+  assert.notEqual(latex.renderLatexReadingHtml(source, renderer, {macros:{"\\x":"3"}}), first);
+  assert.equal(calls, 2);
+  const global = String.raw`$\gdef\x{4}\x$ then $\x$`;
+  const a = latex.renderLatexReadingHtml(global, renderer);
+  const b = latex.renderLatexReadingHtml(global, renderer);
+  assert.equal(a, b, "global definitions remain ordered within each rendering");
+  assert.equal(calls, 6, "stateful TeX must not enter the formula cache");
+});
+
+test("reading keeps unchanged DOM and source anchors after insertion", () => {
+  const dom = new JSDOM('<header><button id="split"></button></header><div id="right"></div>', {url:"http://localhost"});
+  const {document} = dom.window;
+  dom.window.fetch = async () => ({json:async()=>({})});
+  let text = "First paragraph.\n\nStable paragraph.\n\nLast paragraph.";
+  const reader = latex.createLatexReadingController({getEditor:()=>({getValue:()=>text, refresh(..._args){}}),
+    right:document.getElementById("right"), splitButton:document.getElementById("split"), setPdfVisible(..._args){},
+    revealLine(..._args){}, katex, document, window:dom.window});
+  reader.setRead(true);
+  const paragraphs = [...document.querySelectorAll('#texread p')];
+  const selected = paragraphs[1].firstChild;
+  const range = document.createRange(); range.setStart(selected, 0); range.setEnd(selected, 6);
+  dom.window.getSelection().addRange(range);
+  text = "Inserted paragraph.\n\n" + text;
+  reader.render();
+  assert.equal(document.querySelectorAll('#texread p')[2], paragraphs[1]);
+  assert.equal(paragraphs[1].dataset.line, "5");
+  assert.equal(dom.window.getSelection().toString(), "Stable");
+  text = text.replace("First paragraph.", "Changed paragraph."); reader.render();
+  assert.equal(document.querySelectorAll('#texread p')[2], paragraphs[1]);
+  assert.equal(document.querySelectorAll('#texread p')[3], paragraphs[2]);
+  dom.window.close();
+});
+
+test("reading context bounds concurrent reads and preserves label/macro order", async () => {
+  const files = {"/p/main.tex": Array.from({length:10}, (_,i)=>`\\input{c${i}}`).join("\n")};
+  for(let i=0;i<10;i++) files[`/p/c${i}.tex`] = `\\renewcommand{\\value}{${i}}\n\\label{same}`;
+  let active = 0, peak = 0;
+  const result = await latex.loadReadingContext("/p/main.tex", async (file) => {
+    peak=Math.max(peak, ++active);
+    await new Promise(resolve=>setTimeout(resolve, file.includes('c0') ? 15 : 1));
+    active--; return files[file] || "";
+  });
+  assert.equal(peak, 4);
+  assert.equal(result.macros['\\value'], '9');
+  assert.equal(result.referenceTargets.same.path, '/p/c9.tex');
+});
+
+test("reading context content cache checks each dependency revision and retries failures", async () => {
+  let stamp = '1', value='before', calls=0, fail=false;
+  const read = latex.createReadingContextReader(async () => {calls++; if(fail) throw Error('missing'); return value;}, async()=>stamp);
+  assert.equal(await read('chapter.tex'), 'before');
+  assert.equal(await read('chapter.tex'), 'before'); assert.equal(calls, 1);
+  stamp='2'; value='after'; assert.equal(await read('chapter.tex'), 'after'); assert.equal(calls, 2);
+  stamp=null; fail=true; await assert.rejects(read('chapter.tex'));
+  fail=false; value='restored'; assert.equal(await read('chapter.tex'), 'restored'); assert.equal(calls, 4);
+});
+
+test("compile joins repeated clicks and drains the latest saved edit including force", async () => {
+  let text='initial', release;
+  const gate = new Promise(resolve=>{release=resolve;});
+  const requests: any[]=[];
+  const coordinator = latex.createLatexCompileCoordinator({isTex:true, getText:()=>text, isDirty:()=>false, save:async()=>true,
+    requestCompile:async (force)=>{requests.push({text,force}); if(requests.length===1) await gate; return {ok:true};},
+    revealIssue(..._args){},setState(..._args){},setChip(..._args){},renderLog(..._args){},onCompiled(..._args){},startInterval:()=>1,stopInterval(..._args){}});
+  const first=coordinator.compile(); const duplicate=coordinator.compile();
+  assert.equal(first, duplicate);
+  text='latest'; const auto=coordinator.compile(true); coordinator.compile(false,true);
+  release(); await Promise.all([first,auto]);
+  assert.deepEqual(requests,[{text:'initial',force:false},{text:'latest',force:true}]);
 });

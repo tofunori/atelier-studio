@@ -51,9 +51,9 @@
 }
 .ui-iconbtn:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }
 .ui-iconbtn:disabled { color: var(--text-disabled); cursor: default; }
-.ui-iconbtn--s { width: 22px; height: 22px; }
+.ui-iconbtn--s { width: calc(var(--ui-base-size, 15px) * 1.4666666667); height: calc(var(--ui-base-size, 15px) * 1.4666666667); }
 .ui-iconbtn--m { width: var(--control-height); height: var(--control-height); }
-.ui-iconbtn--l { width: 32px; height: 32px; }
+.ui-iconbtn--l { width: calc(var(--ui-base-size, 15px) * 2.1333333333); height: calc(var(--ui-base-size, 15px) * 2.1333333333); }
 /* cible interactive effective 40×40 quand le chrome est dense (014 §7) :
  * zone invisible étendue, sans chevauchement géré par l'espacement appelant */
 .ui-iconbtn--hit40::after { content: ""; position: absolute; inset: 50% auto auto 50%;

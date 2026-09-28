@@ -286,6 +286,8 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     act(() => fireEvent.keyDown(list, { key: "ArrowUp" }));
     expect(document.querySelector('[aria-selected="true"] .biblio-title')?.textContent).toBe("Albedo of ice");
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(3);
+    fireEvent.keyDown(document.querySelector(".biblio-main-button")!, { key: "ArrowDown" });
+    expect(document.querySelector('[aria-selected="true"] .biblio-title')?.textContent).toBe("Melt ponds");
   });
 
   it("« / » met le curseur dans la recherche, Échap la vide", () => {
@@ -298,6 +300,54 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     act(() => fireEvent.keyDown(input, { key: "Escape" }));
     expect(input.value).toBe("");
     expect(document.activeElement).toBe(document.querySelector(".biblio-list"));
+  });
+
+  it("ne capture pas / quand la surface est masquée ou qu'un panneau voisin a le focus", () => {
+    const ws = makeWs();
+    const { container, rerender } = renderUi(<BiblioSurface ws={ws} projectRoot="/proj" galleryUrl="" visible={false} />);
+    deliver(ITEMS, 1);
+    const input = screen.getByLabelText("Rechercher");
+    fireEvent.keyDown(document.body, { key: "/" });
+    expect(input).not.toHaveFocus();
+    rerender(<BiblioSurface ws={ws} projectRoot="/proj" galleryUrl="" visible />);
+    container.style.display = "none";
+    fireEvent.keyDown(document.body, { key: "/" });
+    expect(input).not.toHaveFocus();
+    container.style.display = "";
+    const neighbour = document.createElement("button");
+    document.body.append(neighbour);
+    try {
+      neighbour.focus();
+      fireEvent.keyDown(neighbour, { key: "/" });
+      expect(neighbour).toHaveFocus();
+      fireEvent.keyDown(document.querySelector(".biblio-list")!, { key: "/" });
+      expect(input).toHaveFocus();
+    } finally { neighbour.remove(); }
+  });
+
+  it("les flèches déplacent le focus des onglets sans activer ni bloquer Entrée", () => {
+    mount(makeWs());
+    deliver(ITEMS, 1);
+    const row = [...document.querySelectorAll<HTMLElement>(".biblio-row")]
+      .find(candidate => candidate.textContent?.includes("Névés du Québec"))!
+      .querySelector(".biblio-main-button")!;
+    fireEvent.doubleClick(row);
+    const article = screen.getByRole("tab", { name: "Névés du Québec" });
+    const library = screen.getByRole("tab", { name: "Bibliothèque" });
+    act(() => article.focus());
+    fireEvent.keyDown(article, { key: "Home" });
+    expect(library).toHaveFocus();
+    expect(library).toHaveAttribute("tabindex", "0");
+    expect(article).toHaveAttribute("tabindex", "-1");
+    expect(article).toHaveAttribute("aria-selected", "true");
+    expect(fireEvent.keyDown(library, { key: "Enter" })).toBe(true);
+    fireEvent.click(library); // native button activation is exercised in WebKit
+    fireEvent.keyDown(library, { key: "ArrowLeft" });
+    expect(article).toHaveFocus();
+    expect(library).toHaveAttribute("aria-selected", "true");
+    expect(fireEvent.keyDown(article, { key: "Enter" })).toBe(true);
+    fireEvent.click(article);
+    expect(article).toHaveAttribute("aria-selected", "true");
   });
 
   it("« f » bascule le favori de l'élément sélectionné", () => {
@@ -414,13 +464,19 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     fireEvent.doubleClick(row);
     const frame = document.querySelector(".biblio-frame") as HTMLIFrameElement;
     expect(frame).toBeTruthy();
+    frame.getClientRects = () => (frame.closest("[hidden]") ? [] : [new DOMRect(0, 0, 100, 100)]) as unknown as DOMRectList;
+    const post = vi.spyOn(frame.contentWindow!, "postMessage");
+    fireEvent.load(frame);
+    expect(post).toHaveBeenLastCalledWith({ type: "atelier-tab-visibility", visible: true }, "*");
     const articleTab = screen.getByRole("tab", { name: "Névés du Québec" });
     fireEvent.click(screen.getByRole("tab", { name: "Bibliothèque" }));
     expect(frame.isConnected).toBe(true);
     expect(frame.closest(".biblio-reader")).toHaveAttribute("hidden");
+    expect(post).toHaveBeenLastCalledWith({ type: "atelier-tab-visibility", visible: false }, "*");
     fireEvent.click(articleTab);
     expect(document.querySelector(".biblio-frame")).toBe(frame);
     expect(frame.closest(".biblio-reader")).not.toHaveAttribute("hidden");
+    expect(post).toHaveBeenLastCalledWith({ type: "atelier-tab-visibility", visible: true }, "*");
   });
 
   it("le menu contextuel d'une rangée ouvre les actions et copie la clé Zotero", async () => {
@@ -473,5 +529,34 @@ describe("pdfViewerUrl — cible de passage partielle (section / page / clé seu
   it("passage d'un AUTRE article : rien n'est transmis", () => {
     const url = pdfViewerUrl(item, gallery, { key: "AUTRE", page: 3 });
     expect(url).not.toContain("page=");
+  });
+});
+
+
+describe("BiblioSurface — large catalogue", () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it("bounds mounted rows while keeping the keyboard selection addressable", async () => {
+    localStorage.clear();
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("biblio-list") || this.classList.contains("biblio-virtual-row") || this.firstElementChild?.classList.contains("biblio-virtual-row")) {
+        return new DOMRect(0, 0, 800, this.classList.contains("biblio-list") ? 600 : 58);
+      }
+      return original.call(this);
+    });
+    renderUi(<BiblioSurface ws={makeWs()} projectRoot="/proj" galleryUrl="" />);
+    deliver(Array.from({ length: 5000 }, (_, i) => fixture({ key: `L${i}`, title: `Article ${String(i).padStart(4, "0")}` })), 1);
+    await waitFor(() => expect(document.querySelectorAll(".biblio-row").length).toBeGreaterThan(0));
+    expect(document.querySelectorAll(".biblio-row").length).toBeLessThan(150);
+    const list = screen.getByRole("listbox");
+    const search = screen.getByRole("textbox");
+    search.focus();
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(list).toHaveFocus();
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    const active = list.getAttribute("aria-activedescendant");
+    expect(active).toBeTruthy();
+    await waitFor(() => expect(document.getElementById(active!)).toHaveAttribute("aria-selected", "true"));
+    expect(document.getElementById(active!)).toHaveAttribute("aria-setsize", "5000");
   });
 });

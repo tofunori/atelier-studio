@@ -56,12 +56,43 @@ pub struct HarnessJournal {
     // pour que tout clone de `HarnessJournal` (HarnessManager, HarnessThread,
     // `state.journal()`) partage le MÊME compteur, pas une copie divergente.
     sequence_counters: Arc<Mutex<HashMap<String, u64>>>,
+    head_cache: Arc<Mutex<HashMap<String, (JournalRevision, u64)>>>,
     /// Serialize first-header creation and line appends for one thread. O_APPEND
     /// does not make two separate writes (JSON then newline) one transaction.
     write_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 // Clone is intentional: journal is path-based, safe to share across harnesses
 // (le compteur de séquences est lui-même partagé via Arc, voir ci-dessus).
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct JournalRevision {
+    length: u64,
+    modified: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
+    boundary: [u8;32],
+}
+impl JournalRevision {
+    fn read(path: &Path) -> std::io::Result<Self> {
+        let mut file = std::fs::File::open(path)?;
+        let metadata = file.metadata()?;
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8;1024];
+        let read = file.read(&mut buffer)?;
+        hash.update(&buffer[..read]);
+        if metadata.len() > 1024 {
+            file.seek(SeekFrom::Start(metadata.len().saturating_sub(1024)))?;
+            let read = file.read(&mut buffer)?;
+            hash.update(&buffer[..read]);
+        }
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Ok(Self { length:metadata.len(), modified:metadata.modified().ok(),
+            #[cfg(unix)] identity:(metadata.dev(),metadata.ino(),metadata.ctime(),metadata.ctime_nsec()),
+            boundary:hash.finalize().into(),
+        })
+    }
+}
 
 /// One captured journal read. Cursor validation and snapshot fallback share
 /// these events and this epoch, even if an append or deletion races the reply.
@@ -178,6 +209,7 @@ impl HarnessJournal {
         Self {
             dir: base_dir.as_ref().join("harness-history"),
             sequence_counters: Arc::new(Mutex::new(HashMap::new())),
+            head_cache: Arc::new(Mutex::new(HashMap::new())),
             write_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -508,15 +540,28 @@ impl HarnessJournal {
 
     /// Largest journaled sequence (0 if empty) — harness resume.
     pub fn last_sequence(&self, thread_id: &str) -> u64 {
-        let (_, events) = self.read_thread(thread_id);
-        events
-            .iter()
-            .filter(|event| {
-                !EPHEMERAL.contains(&event.get("kind").and_then(Value::as_str).unwrap_or(""))
-            })
-            .filter_map(|e| e.pointer("/meta/sequence").and_then(|v| v.as_u64()))
-            .max()
-            .unwrap_or(0)
+        let path = self.path_of(thread_id);
+        let revision = JournalRevision::read(&path).ok();
+        if let Some(revision) = revision.as_ref() {
+            if let Some((cached, sequence)) = self.head_cache.lock().unwrap_or_else(|e| e.into_inner()).get(thread_id) {
+                if revision == cached { return *sequence; }
+            }
+        }
+        // Sequence metadata also lives on externalized payload references. Do
+        // not hydrate potentially large attachments just to build the sidebar.
+        // Keep parse()'s tombstone and out-of-order append semantics intact.
+        let sequence = std::fs::read_to_string(&path).ok().map(|text| Self::parse(&text).1)
+            .unwrap_or_default().iter()
+            .filter(|event| !EPHEMERAL.contains(&event.get("kind").and_then(Value::as_str).unwrap_or("")))
+            .filter_map(|event| event.pointer("/meta/sequence").and_then(Value::as_u64)).max().unwrap_or(0);
+        if let Some(revision) = revision.filter(|revision| JournalRevision::read(&path).ok().as_ref() == Some(revision)) {
+            let mut cache = self.head_cache.lock().unwrap_or_else(|e| e.into_inner());
+            if cache.len() >= 2048 && !cache.contains_key(thread_id) { cache.clear(); }
+            cache.insert(thread_id.to_owned(), (revision, sequence));
+        } else {
+            self.head_cache.lock().unwrap_or_else(|e| e.into_inner()).remove(thread_id);
+        }
+        sequence
     }
 
     /// Capture the durable events once, preserving physical order for cursor
@@ -955,6 +1000,37 @@ mod tests {
         let (snapshot, _, _, _) = history.into_snapshot();
         assert_eq!(snapshot.len(), 2);
         assert_eq!(snapshot[1]["meta"]["eventId"], "e3");
+    }
+
+    #[test]
+    fn sequence_cache_tracks_external_append_tombstone_and_replacement() {
+        let dir = tempdir().unwrap();
+        let journal = HarnessJournal::new(dir.path());
+        let external = HarnessJournal::new(dir.path());
+        assert!(journal.append(&ev("user",1,"e1")));
+        assert_eq!(journal.last_sequence("t1"),1);
+        assert!(external.append(&ev("text",9,"e9")));
+        assert!(external.append(&ev("text",3,"e3")));
+        assert_eq!(journal.last_sequence("t1"),9,"physical tail need not be the maximum");
+        assert!(external.truncate_from("t1","e9"));
+        assert_eq!(journal.last_sequence("t1"),3,"tombstone semantics must be retained");
+        assert!(external.delete_thread("t1"));
+        assert!(external.append(&ev("user",2,"e2")));
+        assert_eq!(journal.last_sequence("t1"),2,"a replacement must not reuse the previous head");
+        assert!(external.delete_thread("t1"));
+        assert_eq!(journal.last_sequence("t1"),0);
+    }
+
+    #[test]
+    fn sequence_head_does_not_open_externalized_payloads() {
+        let dir = tempdir().unwrap();
+        let journal = HarnessJournal::new(dir.path());
+        let mut event = ev("text",7,"large");
+        event["text"] = json!("x".repeat(MAX_INLINE_BYTES+1));
+        assert!(journal.append(&event));
+        std::fs::remove_dir_all(journal.payload_dir()).unwrap();
+        assert_eq!(journal.last_sequence("t1"),7);
+        assert_eq!(journal.last_sequence("t1"),7);
     }
 
     #[test]

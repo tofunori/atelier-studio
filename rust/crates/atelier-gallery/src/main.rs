@@ -9,6 +9,7 @@ mod openable;
 mod ranged;
 mod suggest;
 mod workspace;
+mod watcher;
 mod zotero;
 mod zotero_reading;
 mod reflow;
@@ -26,7 +27,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use clap::Parser;
 use gallery::EventStore;
-use notify::{Event, EventKind, RecursiveMode, Watcher};
+use notify::{EventKind, RecursiveMode, Watcher};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -36,8 +37,7 @@ use std::{
 };
 use tokio::{
     process::Command,
-    sync::{Mutex, RwLock, Semaphore, mpsc},
-    time::sleep,
+    sync::{Mutex, Notify, RwLock, Semaphore},
 };
 use tower_http::trace::TraceLayer;
 use workspace::BoardQueue;
@@ -1100,8 +1100,8 @@ async fn static_asset(
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
 
-    // HTTP Range for video (seek in <video>).
-    if is_video_path(&path) {
+    // PDF.js and video both need seekable, progressively streamed bodies.
+    if is_video_path(&path) || path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
         return serve_video(&path, &metadata, method, &headers).await;
     }
 
@@ -2044,54 +2044,56 @@ async fn rebuild_locked(
 }
 
 async fn start_watcher(state: AppState) -> Result<(), String> {
-    let (tx, mut rx) = mpsc::unbounded_channel::<Result<Event, notify::Error>>();
     let root = state.root.clone();
-    let tx_for_watcher = tx.clone();
-    let mut watcher = notify::recommended_watcher(move |event| {
-        let _ = tx_for_watcher.send(event);
-    })
-    .map_err(|error| error.to_string())?;
-    watcher
-        .watch(&root, RecursiveMode::Recursive)
-        .map_err(|error| error.to_string())?;
-    {
-        let mut status = state.watcher.write().await;
-        status.running = true;
-    }
-    let _keep_watcher_alive = watcher;
-    let mut pending: Vec<String> = Vec::new();
-    loop {
-        tokio::select! {
-            Some(event) = rx.recv() => {
-                match event {
-                    Ok(event) if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)) => {
-                        // ne prendre le lock watcher que si l'événement survit au filtre
-                        // (répertoires exclus type target/) — sinon un `cargo build` fait
-                        // des milliers de prises de lock pour rien (audit perf 2026-08-28)
-                        let changed: Vec<String> = event.paths.iter().filter_map(|path| relevant_change(&root, path)).collect();
-                        if !changed.is_empty() {
-                            pending.extend(changed);
-                            pending.sort();
-                            pending.dedup();
-                            let mut status = state.watcher.write().await;
-                            status.last_event_at = Some(now());
-                            status.last_changed = pending.iter().take(50).cloned().collect();
-                        }
-                    }
-                    Err(error) => state.watcher.write().await.error = Some(error.to_string()),
-                    _ => {}
+    let dirty = Arc::new(std::sync::Mutex::new(watcher::DirtyBatch::default()));
+    let wake = Arc::new(Notify::new());
+    let (watch_dirty, watch_wake, watch_root) = (dirty.clone(), wake.clone(), root.clone());
+    let mut watcher = notify::recommended_watcher(move |event: Result<notify::Event, notify::Error>| {
+        match event {
+            Ok(event) if event.need_rescan() || matches!(event.kind, EventKind::Any) => {
+                watch_dirty.lock().unwrap_or_else(|e| e.into_inner()).rescan(tokio::time::Instant::now());
+                watch_wake.notify_one();
+            }
+            Ok(event) if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)) => {
+                // Filter before the shared queue. Ignored build events never
+                // acquire the async watcher lock or reset the deadline.
+                let paths: Vec<_> = event.paths.iter().filter_map(|p| relevant_change(&watch_root, p)).collect();
+                if paths.is_empty() { return; }
+                if watch_dirty.lock().unwrap_or_else(|e| e.into_inner()).add(paths, tokio::time::Instant::now()) {
+                    watch_wake.notify_one();
                 }
             }
-            _ = sleep(Duration::from_millis(900)), if !pending.is_empty() => {
-                let changed = std::mem::take(&mut pending);
-                rebuild(
-                    &root,
-                    &state.watcher,
-                    &state.revision,
-                    &state.rebuild_lock,
-                )
-                .await;
-                state.watcher.write().await.last_changed = changed.into_iter().take(50).collect();
+            Err(error) => {
+                let mut batch = watch_dirty.lock().unwrap_or_else(|e| e.into_inner());
+                batch.error = Some(error.to_string()); batch.rescan(tokio::time::Instant::now());
+                watch_wake.notify_one();
+            }
+            _ => {}
+        }
+    }).map_err(|error| error.to_string())?;
+    watcher.watch(&root, RecursiveMode::Recursive).map_err(|error| error.to_string())?;
+    state.watcher.write().await.running = true;
+    let _keep_watcher_alive = watcher;
+    loop {
+        let deadline = dirty.lock().unwrap_or_else(|e| e.into_inner()).deadline();
+        tokio::select! {
+            biased;
+            _ = async {
+                if let Some(at) = deadline { tokio::time::sleep_until(at).await; }
+                else { std::future::pending::<()>().await; }
+            } => {
+                let changed = dirty.lock().unwrap_or_else(|e| e.into_inner()).take();
+                rebuild(&root, &state.watcher, &state.revision, &state.rebuild_lock).await;
+                state.watcher.write().await.last_changed = changed;
+            }
+            _ = wake.notified() => {
+                let (sample, error) = {
+                    let mut batch = dirty.lock().unwrap_or_else(|e| e.into_inner());
+                    (batch.sample(), batch.error.take())
+                };
+                let mut status = state.watcher.write().await;
+                if !sample.is_empty() { status.last_event_at = Some(now()); status.last_changed = sample; }
+                if let Some(error) = error { status.error = Some(error); }
             }
         }
     }

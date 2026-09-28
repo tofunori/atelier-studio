@@ -167,6 +167,12 @@ describe("NarvalSurface", () => {
     const rows = container.querySelectorAll(".narval-run");
     expect(rows).toHaveLength(25);
     expect(rows[0]?.textContent).toContain("run-30");
+    fireEvent.click(rows[0]);
+    expect(rows[0]).toHaveAttribute("aria-pressed", "true");
+    expect(rows[0]).toHaveAttribute("data-state", "selected");
+    fireEvent.click(rows[1]);
+    expect(rows[0]).toHaveAttribute("aria-pressed", "false");
+    expect(rows[1]).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: /afficher plus|show more/i }));
     expect(container.querySelectorAll(".narval-run")).toHaveLength(30);
 
@@ -200,5 +206,56 @@ describe("NarvalSurface", () => {
     expect(sent.filter((message) => String(message.type).startsWith("narval"))).toEqual([]);
     expect(screen.getByText(/aucune grappe configurée|no cluster configured/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^terminal$/i })).toBeNull();
+  });
+
+  it("focuses only an explicitly opened overlay and returns focus without interrupting chat", () => {
+    const interrupt = vi.fn();
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") interrupt(); };
+    window.addEventListener("keydown", onKey);
+    try {
+      const { container, rerender } = render(<NarvalSurface visible onOpenTerminal={() => {}} />);
+      const inspector = container.querySelector<HTMLElement>(".narval-inspector")!;
+      inspector.style.position = "absolute";
+      act(() => window.dispatchEvent(new Event("resize")));
+      const job = { id: "42", name: "Synthetic run", state: "RUNNING", elapsed: "1:00", cpus: 1,
+        partition: "", reason: "", workDir: "", startedAt: "", endedAt: "" };
+      deliver({ type: "narvalSnapshot", requestId: lastRequest("narvalSnapshot").requestId,
+        data: { active: [job], recent: [], observedAtMs: 1 } });
+      const row = container.querySelector<HTMLButtonElement>(".narval-job-row")!;
+      const close = screen.getByRole("button", { name: /fermer l.inspecteur|close inspector/i });
+      expect(close).not.toHaveFocus(); // automatic selection never opens the overlay
+      fireEvent.click(row);
+      expect(close).toHaveFocus();
+      fireEvent.keyDown(close, { key: "Escape" });
+      expect(container.querySelector(".narval-surface")).toHaveAttribute("data-inspector", "closed");
+      expect(row).toHaveFocus();
+      expect(interrupt).not.toHaveBeenCalled();
+      fireEvent.click(row);
+      fireEvent.click(close);
+      expect(row).toHaveFocus();
+      fireEvent.click(row);
+      inspector.style.position = "static";
+      act(() => window.dispatchEvent(new Event("resize")));
+      expect(row).toHaveFocus();
+      inspector.style.position = "absolute";
+      act(() => window.dispatchEvent(new Event("resize")));
+      expect(close).toHaveFocus();
+      rerender(<NarvalSurface visible={false} onOpenTerminal={() => {}} />);
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(container.querySelector(".narval-surface")).toHaveAttribute("data-inspector", "open");
+      expect(interrupt).toHaveBeenCalledOnce();
+    } finally { window.removeEventListener("keydown", onKey); }
+  });
+
+  it("keeps focus in the job list when the inspector is a permanent column", () => {
+    const { container } = render(<NarvalSurface visible onOpenTerminal={() => {}} />);
+    const job = { id: "43", name: "Wide run", state: "COMPLETED", elapsed: "1:00", cpus: 1,
+      partition: "", reason: "", workDir: "", startedAt: "", endedAt: "" };
+    deliver({ type: "narvalSnapshot", requestId: lastRequest("narvalSnapshot").requestId,
+      data: { active: [], recent: [job], observedAtMs: 1 } });
+    const row = container.querySelector<HTMLButtonElement>(".narval-run")!;
+    row.focus();
+    fireEvent.click(row);
+    expect(row).toHaveFocus();
   });
 });

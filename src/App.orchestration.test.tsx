@@ -185,6 +185,21 @@ afterEach(() => {
 });
 
 describe("orchestration App — caractérisation", () => {
+  it("un Échap consommé par une surface ne doit pas interrompre le chat", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "event", threadId: "thread-A", event: { kind: "started" } });
+    (document.activeElement as HTMLElement)?.blur();
+    const before = sock.sent.length;
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    escape.preventDefault();
+    window.dispatchEvent(escape);
+    expect(sock.sent.slice(before).map(value => JSON.parse(value)).filter(message => message.type === "interrupt")).toEqual([]);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(sock.sent.slice(before).map(value => JSON.parse(value))).toContainEqual({ type: "interrupt", threadId: "thread-A" });
+  });
+
   it("Stop resynchronise un tour terminé dont le done direct a été perdu", async () => {
     const { sock } = await mountApp();
     await pushThreads(sock, [THREAD_A]);
@@ -1059,6 +1074,31 @@ describe("orchestration App — caractérisation", () => {
     }, "http://127.0.0.1:18790");
   });
 
+  it("confirme la pièce jointe PDF et ses tentatives répétées", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock);
+    await selectThread(sock, "Fil A — albédo");
+    await act(async () => { await flushMicrotasks(10); });
+    const iframe = document.querySelector("iframe")!;
+    const nonce = new URLSearchParams(new URL(iframe.src).hash.slice(1)).get("atelier_nonce");
+    const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
+    for (let retry = 0; retry < 2; retry++) {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", {
+          data: { type: "atelier-attach-pdf", nonce, rel: "/tmp/fixture.pdf", requestId: "pdf-fixture-1" },
+          origin: "http://127.0.0.1:18790", source: iframe.contentWindow,
+        }));
+        await flushMicrotasks(4);
+      });
+    }
+    expect(screen.getAllByText("fixture")).toHaveLength(1);
+    const receipts = postMessage.mock.calls.filter(([message]) => message.type === "atelier-add-to-chat-ack");
+    expect(receipts).toHaveLength(2);
+    for (const [message] of receipts) expect(message).toEqual({
+      type: "atelier-add-to-chat-ack", nonce, requestId: "pdf-fixture-1", ok: true,
+    });
+  });
+
   it("conserve la lecture agrandie lors de l'ajout et de l'envoi direct d'une annotation", async () => {
     const {sock}=await mountApp();
     await pushThreads(sock);
@@ -1134,6 +1174,9 @@ describe("orchestration App — caractérisation", () => {
       await flushMicrotasks(10);
     });
     fireEvent.keyDown(window,{code:'Digit2',key:'2',metaKey:true});
+    // L'overlay est chargé à la première ouverture ; laisser terminer l'import
+    // et le rendu Suspense avec les minuteries simulées de cette suite.
+    await act(async()=>{await vi.dynamicImportSettled(); await vi.advanceTimersByTimeAsync(300);});
     const input=screen.getByRole('textbox',{name:'Écrire au chat depuis la lecture'});
     fireEvent.change(input,{target:{value:'@codex Vérifie ce passage'}});
     fireEvent.submit(input.closest('form')!);
