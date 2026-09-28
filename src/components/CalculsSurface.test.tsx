@@ -285,10 +285,43 @@ describe("CalculsSurface", () => {
     expect(container.querySelector(".calculs-run-log pre")?.textContent).toBe("tile 39\ntile 40");
     expect(screen.getByText(/tronqué|truncated/)).toBeTruthy();
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Log" }), { key: "Escape" });
     expect(container.querySelector(".calculs-run[data-open]")).toBeNull();
     expect(container.querySelector(".calculs-run-body")).toBeNull();
     expect(head.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("Échap ferme seulement le détail focalisé, avant le raccourci global du chat", () => {
+    const interrupt = vi.fn();
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") interrupt(); };
+    window.addEventListener("keydown", onKey);
+    try {
+      const { container, rerender } = render(<CalculsSurface visible onOpenTerminal={vi.fn()} />);
+      deliver(snapshotMessage(lastRequest("computeSnapshot").requestId));
+      const head = container.querySelector<HTMLButtonElement>(".calculs-run-head")!;
+      fireEvent.click(head);
+      expect(head).toHaveFocus();
+      fireEvent.keyDown(screen.getByRole("tab", { name: "Log" }), { key: "Escape" });
+      expect(head).toHaveAttribute("aria-expanded", "false");
+      expect(head).toHaveFocus();
+      expect(interrupt).not.toHaveBeenCalled();
+      fireEvent.click(head);
+      const logTab = screen.getByRole("tab", { name: "Log" });
+      const childMenuEscape = (event: Event) => { event.preventDefault(); event.stopPropagation(); };
+      logTab.addEventListener("keydown", childMenuEscape);
+      fireEvent.keyDown(logTab, { key: "Escape" });
+      expect(head).toHaveAttribute("aria-expanded", "true");
+      expect(interrupt).not.toHaveBeenCalled();
+      logTab.removeEventListener("keydown", childMenuEscape);
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(head).toHaveAttribute("aria-expanded", "true");
+      expect(interrupt).toHaveBeenCalledOnce();
+      interrupt.mockClear();
+      rerender(<CalculsSurface visible={false} onOpenTerminal={vi.fn()} />);
+      fireEvent.keyDown(head, { key: "Escape" });
+      expect(head).toHaveAttribute("aria-expanded", "true");
+      expect(interrupt).toHaveBeenCalledOnce();
+    } finally { window.removeEventListener("keydown", onKey); }
   });
 
   it("« Log complet » bascule sur l'onglet Log et demande le journal", () => {

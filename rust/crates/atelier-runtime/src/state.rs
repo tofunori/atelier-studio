@@ -48,6 +48,12 @@ pub struct AgentDelivery {
     pub accepted: oneshot::Sender<Result<(), String>>,
 }
 
+pub(crate) struct ModelCacheEntry {
+    pub value: Option<Value>,
+    pub checked: std::time::Instant,
+    pub refreshing: bool,
+}
+
 struct Inner {
     ws_budget: Arc<crate::ws_dispatch::Budget>,
     threads_revision: AtomicU64,
@@ -70,6 +76,10 @@ struct Inner {
     review_limiter: crate::review::ReviewLimiter,
     /// Fan-out for multi-client WS (threads/highlights broadcasts).
     bus: broadcast::Sender<String>,
+    terminal_bus: broadcast::Sender<String>,
+    pub(crate) model_cache: std::sync::Mutex<HashMap<String, ModelCacheEntry>>,
+    model_workers: Arc<tokio::sync::Semaphore>,
+    provider_workers: Arc<tokio::sync::Semaphore>,
     terminals: Arc<TerminalHub>,
     harness: Arc<HarnessManager>,
     /// Providers détectés. Verrou std (lectures synchrones, jamais tenu à
@@ -114,7 +124,8 @@ impl AppState {
         let mailbox = AgentMailboxStore::open(paths.app_dir.join("agent-mailbox.json"));
         let (delivery_tx, delivery_rx) = tokio::sync::mpsc::unbounded_channel();
         let (bus, _) = broadcast::channel(128);
-        let terminal_bus = bus.clone();
+        let (terminal_bus, _) = broadcast::channel(512);
+        let terminal_sink = terminal_bus.clone();
         let terminals = Arc::new(TerminalHub::with_event_sink(move |event| {
             let message = match event {
                 TermEvent::Data { term_id, data } => serde_json::json!({
@@ -128,7 +139,7 @@ impl AppState {
                     "exitCode": exit_code,
                 }),
             };
-            let _ = terminal_bus.send(message.to_string());
+            let _ = terminal_sink.send(message.to_string());
         }));
         let harness = Arc::new(HarnessManager::new(journal.clone()));
         // Intégrations facultatives : le premier démarrage après la mise à
@@ -168,6 +179,10 @@ impl AppState {
                 reviews,
                 review_limiter: crate::review::ReviewLimiter::new(),
                 bus,
+                terminal_bus,
+                model_cache:std::sync::Mutex::new(HashMap::new()),
+                model_workers:Arc::new(tokio::sync::Semaphore::new(2)),
+                provider_workers:Arc::new(tokio::sync::Semaphore::new(16)),
                 terminals,
                 harness,
                 providers,
@@ -319,6 +334,11 @@ impl AppState {
         self.inner.bus.subscribe()
     }
 
+    pub(crate) fn subscribe_terminals(&self) -> broadcast::Receiver<String> { self.inner.terminal_bus.subscribe() }
+    pub(crate) fn provider_workers(&self) -> Arc<tokio::sync::Semaphore> { self.inner.provider_workers.clone() }
+    pub(crate) fn model_cache(&self) -> &std::sync::Mutex<HashMap<String, ModelCacheEntry>> { &self.inner.model_cache }
+    pub(crate) fn model_workers(&self) -> Arc<tokio::sync::Semaphore> { self.inner.model_workers.clone() }
+
     pub fn publish(&self, msg: String) {
         let _ = self.inner.bus.send(msg);
     }
@@ -384,6 +404,17 @@ impl AppState {
     /// Inject a deterministic provider into an otherwise production-shaped
     /// state. Tests that exercise provider-gated flows must not depend on
     /// whichever CLIs happen to be installed on the host running them.
+    #[cfg(test)]
+    pub(crate) fn with_catalogue_provider(mut self, id: &str, calls: Arc<std::sync::atomic::AtomicUsize>) -> Self {
+        let inner = Arc::get_mut(&mut self.inner).unwrap();
+        // Catalogue tests must not invoke installed CLIs or contend for model
+        // workers with real discovery processes on the host.
+        let providers = inner.providers.get_mut().unwrap();
+        providers.clear();
+        providers.insert(id.into(), Arc::new(atelier_providers::FakeProvider::new(id).with_catalogue(150,calls)));
+        self
+    }
+
     #[cfg(test)]
     pub(crate) fn with_test_provider(mut self, id: &str) -> Self {
         let inner = Arc::get_mut(&mut self.inner)
@@ -522,7 +553,7 @@ mod tests {
             "test".into(),
             "/tmp".into(),
         );
-        let mut bus = state.subscribe_bus();
+        let mut bus = state.subscribe_terminals();
         state
             .terminals()
             .open("term-live", Some(dir.path().to_str().unwrap()), 80, 24);

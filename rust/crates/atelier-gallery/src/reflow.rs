@@ -394,10 +394,12 @@ pub(crate) struct Block {
     pub lines: Vec<BlockLine>,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Source {
     pub mtime: u64,
     pub size: u64,
+    #[serde(default)]
+    pub mtime_nanos: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -853,15 +855,11 @@ fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
 
 pub(crate) fn source_of(pdf: &Path) -> Option<Source> {
     let md = std::fs::metadata(pdf).ok()?;
-    let mtime = md
-        .modified()
-        .ok()?
-        .duration_since(UNIX_EPOCH)
-        .ok()?
-        .as_secs();
+    let mtime = md.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some(Source {
-        mtime,
+        mtime: mtime.as_secs(),
         size: md.len(),
+        mtime_nanos: mtime.subsec_nanos(),
     })
 }
 
@@ -876,27 +874,107 @@ pub(crate) fn cache_path_for(pdf: &Path, project_root: &Path, is_zotero: bool) -
     dir.join(format!("{key}.json"))
 }
 
+#[derive(Deserialize)]
+struct CacheHeader {
+    version: u32,
+    source: Source,
+}
+
+/// ReflowDoc serializes version/source before pages. Read only that bounded
+/// prefix for HEAD/hot GET; never parse megabytes of block text to check age.
+fn cache_is_current(path: &Path, expected: Source) -> bool {
+    use std::io::Read;
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut prefix = Vec::new();
+    if file.take(4096).read_to_end(&mut prefix).is_err() {
+        return false;
+    }
+    let Some(end) = prefix
+        .windows(b",\"pages\":".len())
+        .position(|w| w == b",\"pages\":")
+    else {
+        return false;
+    };
+    prefix.truncate(end);
+    prefix.push(b'}');
+    serde_json::from_slice::<CacheHeader>(&prefix)
+        .is_ok_and(|head| head.version == REFLOW_VERSION && head.source == expected)
+}
+
+#[cfg(test)]
 pub(crate) fn read_cache(path: &Path, expected: Source) -> Option<String> {
-    let raw = std::fs::read_to_string(path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let ok = v["version"].as_u64() == Some(REFLOW_VERSION as u64)
-        && v["source"]["mtime"].as_u64() == Some(expected.mtime)
-        && v["source"]["size"].as_u64() == Some(expected.size);
-    ok.then_some(raw)
+    cache_is_current(path, expected)
+        .then(|| std::fs::read_to_string(path).ok())
+        .flatten()
 }
 
 pub(crate) fn write_cache(path: &Path, doc: &ReflowDoc) -> Result<(), String> {
+    use std::io::Write;
+    let parent = path.parent().ok_or("cache has no parent")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let tmp = parent.join(format!(
+        ".reflow-{}-{}.tmp",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
+    let result = (|| {
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|e| e.to_string())?;
+        serde_json::to_writer(&mut output, doc).map_err(|e| e.to_string())?;
+        output.flush().map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+fn analysis_lock(path: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    use std::sync::{Arc, Mutex, OnceLock, Weak};
+    static LOCKS: OnceLock<
+        Mutex<std::collections::HashMap<PathBuf, Weak<tokio::sync::Mutex<()>>>>,
+    > = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(path).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(tokio::sync::Mutex::new(()));
+    locks.insert(path.to_path_buf(), Arc::downgrade(&lock));
+    lock
+}
+
+fn analysis_budget() -> std::sync::Arc<tokio::sync::Semaphore> {
+    static BUDGET: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+        std::sync::OnceLock::new();
+    BUDGET
+        .get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(2)))
+        .clone()
+}
+
+fn lock_disk_cache(path: &Path) -> Result<std::fs::File, String> {
+    use fs2::FileExt;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec(doc).map_err(|e| e.to_string())?)
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path.with_extension("lock"))
         .map_err(|e| e.to_string())?;
-    // un rename raté laisserait un .json.tmp orphelin à chaque analyse
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        e.to_string()
-    })
+    file.lock_exclusive().map_err(|e| e.to_string())?;
+    Ok(file)
 }
 
 /// Spawn `pdftohtml -xml -zoom 1 -stdout -q` : le zoom 1 explicite est
@@ -920,12 +998,19 @@ pub(crate) const PDFTOHTML_TIMEOUT_MSG: &str = "pdftohtml: délai dépassé (60 
 pub(crate) fn run_pdftohtml(pdf: &Path) -> Result<String, String> {
     use std::io::Read;
     let bin = std::env::var("ATELIER_PDFTOHTML").unwrap_or_else(|_| "pdftohtml".to_string());
-    let mut child = std::process::Command::new(&bin)
+    let mut command = std::process::Command::new(&bin);
+    command
         .args(["-xml", "-zoom", "1", "-stdout", "-q"])
         .arg(pdf)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command
         .spawn()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -950,17 +1035,27 @@ pub(crate) fn run_pdftohtml(pdf: &Path) -> Result<String, String> {
         buf
     });
     let deadline = std::time::Instant::now() + pdftohtml_timeout();
-    let status = loop {
-        match child.try_wait().map_err(|e| e.to_string())? {
-            Some(status) => break status,
-            None if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(PDFTOHTML_TIMEOUT_MSG.to_string());
+    let mut status = None;
+    loop {
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(current) => status = current,
+                Err(error) => {
+                    stop_pdftohtml(&mut child);
+                    return Err(error.to_string());
+                }
             }
-            None => std::thread::sleep(std::time::Duration::from_millis(25)),
         }
-    };
+        if status.is_some() && out_reader.is_finished() && err_reader.is_finished() {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            stop_pdftohtml(&mut child);
+            return Err(PDFTOHTML_TIMEOUT_MSG.to_string());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    let status = status.expect("completed child");
     let stdout = out_reader.join().unwrap_or_default();
     let stderr = err_reader.join().unwrap_or_default();
     if !status.success() {
@@ -970,6 +1065,17 @@ pub(crate) fn run_pdftohtml(pdf: &Path) -> Result<String, String> {
         ));
     }
     String::from_utf8(stdout).map_err(|e| format!("pdftohtml: sortie non UTF-8: {e}"))
+}
+
+fn stop_pdftohtml(child: &mut std::process::Child) {
+    // PDF helper descendants can retain stdout after the direct child exits.
+    // The private process group closes those inherited pipes on timeout too.
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 #[derive(Deserialize)]
@@ -988,61 +1094,90 @@ pub async fn reflow(
     if !crate::request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "forbidden");
     }
-    let rel = query.path.trim();
-    let (pdf, is_zotero) = match crate::zotero::zotero_pdf_path(rel) {
-        Some(p) => (p, true),
-        None => match atelier_core::safe_project_path(&state.root, rel) {
-            Ok(p) => (p, false),
-            Err(_) => return json_error(StatusCode::FORBIDDEN, "outside the project"),
-        },
-    };
-    let Some(source) = source_of(&pdf) else {
-        return json_error(StatusCode::NOT_FOUND, "not found");
-    };
-    if !pdf
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
-    {
-        return json_error(StatusCode::BAD_REQUEST, "not a pdf");
-    }
-    let cache = cache_path_for(&pdf, &state.root, is_zotero);
-    if let Some(raw) = read_cache(&cache, source) {
-        if method == Method::HEAD {
-            return StatusCode::OK.into_response();
+    // Path resolution and cache validation touch the filesystem too. Keep
+    // them off the async request workers, including the cheap HEAD probe.
+    let prepared = tokio::task::spawn_blocking(move || {
+        let rel = query.path.trim();
+        let (pdf, is_zotero) = match crate::zotero::zotero_pdf_path(rel) {
+            Some(p) => (p, true),
+            None => match atelier_core::safe_project_path(&state.root, rel) {
+                Ok(p) => (p, false),
+                Err(_) => return Err((StatusCode::FORBIDDEN, "outside the project")),
+            },
+        };
+        let Some(source) = source_of(&pdf) else {
+            return Err((StatusCode::NOT_FOUND, "not found"));
+        };
+        if !pdf
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+        {
+            return Err((StatusCode::BAD_REQUEST, "not a pdf"));
         }
-        return (
-            [(axum::http::header::CONTENT_TYPE, "application/json")],
-            raw,
-        )
-            .into_response();
-    }
-    if method == Method::HEAD {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    let analysed = tokio::task::spawn_blocking(move || -> Result<ReflowDoc, String> {
-        let xml = run_pdftohtml(&pdf)?;
-        let parsed = parse_pdftohtml_xml(&xml)?;
-        let mut doc = analyze(&parsed);
-        doc.source = source;
-        Ok(doc)
+        let cache = cache_path_for(&pdf, &state.root, is_zotero);
+        let cached = cache_is_current(&cache, source);
+        Ok((pdf, cache, cached))
     })
-    .await
-    .map_err(|e| e.to_string())
-    .and_then(|r| r);
-    match analysed {
-        Ok(doc) => {
-            // un cache non écrit n'empêche pas la réponse, mais il fait
-            // respawner pdftohtml à chaque ouverture : il faut le voir passer.
-            if let Err(e) = write_cache(&cache, &doc) {
-                eprintln!("reflow: cache non écrit ({}): {e}", cache.display());
-            }
-            Json(doc).into_response()
+    .await;
+    let (pdf, cache, cached) = match prepared {
+        Ok(Ok(value)) => value,
+        Ok(Err((status, error))) => return json_error(status, error),
+        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+    };
+    if method == Method::HEAD {
+        return if cached {
+            StatusCode::OK
+        } else {
+            StatusCode::NOT_FOUND
         }
-        Err(msg) => (
-            StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({"error": msg})),
-        )
-            .into_response(),
+        .into_response();
+    }
+    if cached {
+        return crate::ranged::serve_file_ranged(&cache, "application/json", &method, &headers)
+            .await;
+    }
+
+    let guard = analysis_lock(&cache).lock_owned().await;
+    let permit = analysis_budget()
+        .acquire_owned()
+        .await
+        .expect("reflow budget never closed");
+    let cached_path = cache.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Option<ReflowDoc>, String> {
+        // Owned guards stay with the computation even if the HTTP caller
+        // disconnects. Another caller cannot start the same conversion then.
+        let (_guard, _permit) = (guard, permit);
+        // Zotero caches are shared by project server processes as well.
+        let _disk_lock = lock_disk_cache(&cache).ok();
+        for _ in 0..2 {
+            let source = source_of(&pdf).ok_or("PDF disappeared")?;
+            if cache_is_current(&cache, source) {
+                return Ok(None);
+            }
+            let xml = run_pdftohtml(&pdf)?;
+            let parsed = parse_pdftohtml_xml(&xml)?;
+            let mut doc = analyze(&parsed);
+            doc.source = source;
+            if source_of(&pdf) != Some(source) {
+                continue;
+            }
+            if let Err(error) = write_cache(&cache, &doc) {
+                eprintln!("reflow: cache non écrit ({}): {error}", cache.display());
+                return Ok(Some(doc));
+            }
+            return Ok(None);
+        }
+        Err("PDF modifié pendant l'analyse — réessayez".into())
+    })
+    .await;
+    match result {
+        Ok(Ok(Some(doc))) => Json(doc).into_response(),
+        Ok(Ok(None)) => {
+            crate::ranged::serve_file_ranged(&cached_path, "application/json", &method, &headers)
+                .await
+        }
+        Ok(Err(message)) => json_error(StatusCode::BAD_GATEWAY, message),
+        Err(error) => json_error(StatusCode::BAD_GATEWAY, error.to_string()),
     }
 }
 
@@ -1698,6 +1833,70 @@ mod tests {
         stale["version"] = serde_json::json!(0);
         std::fs::write(&cache, stale.to_string()).unwrap();
         assert!(read_cache(&cache, src).is_none());
+    }
+
+    #[test]
+    fn cache_invalidation_includes_subsecond_source_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cache.json");
+        let source = Source {
+            mtime: 123,
+            size: 999,
+            mtime_nanos: 10,
+        };
+        let doc = ReflowDoc {
+            version: REFLOW_VERSION,
+            source,
+            pages: vec![],
+            blocks: vec![],
+        };
+        write_cache(&path, &doc).unwrap();
+        assert!(cache_is_current(&path, source));
+        assert!(!cache_is_current(
+            &path,
+            Source {
+                mtime_nanos: 11,
+                ..source
+            }
+        ));
+    }
+
+    #[test]
+    fn concurrent_cache_writes_use_unique_atomic_temporaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cache.json");
+        std::thread::scope(|scope| {
+            for _ in 0..12 {
+                let path = &path;
+                scope.spawn(move || {
+                    write_cache(
+                        path,
+                        &ReflowDoc {
+                            version: REFLOW_VERSION,
+                            source: Source::default(),
+                            pages: vec![],
+                            blocks: vec![],
+                        },
+                    )
+                    .unwrap()
+                });
+            }
+        });
+        assert!(cache_is_current(&path, Source::default()));
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_requests_for_one_cache_share_the_analysis_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cache.json");
+        let a = analysis_lock(&path);
+        let b = analysis_lock(&path);
+        assert!(std::sync::Arc::ptr_eq(&a, &b));
+        let guard = a.lock().await;
+        assert!(b.try_lock().is_err());
+        drop(guard);
+        assert!(b.try_lock().is_ok());
     }
 
     #[test]

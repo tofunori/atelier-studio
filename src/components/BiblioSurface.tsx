@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { resetFrameVisibility, syncFrameVisibility } from "../lib/frameVisibility";
+import { isSurfaceVisible, moveDocumentTabFocus } from "../lib/surfaceKeyboard";
 import { ArrowUpDownIcon, CheckIcon, ChevronRightIcon, FilePlus2Icon, FileTextIcon, FolderIcon, FolderOpenIcon, InfoIcon, LibraryIcon, PinIcon, QuoteIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../lib/i18n";
@@ -73,15 +76,22 @@ export default function BiblioSurface({
   ws,
   galleryUrl,
   paneControls,
+  visible = true,
 }: {
   ws: WebSocket | null;
   projectRoot: string;
   galleryUrl: string;
   paneControls?: ReactNode;
+  visible?: boolean;
 }) {
   const reader = useBiblioReader();
   const { openReader: markReaderOpen } = reader;
   const tabs = useBiblioTabs();
+  const activeTabId = tabs.isLibraryActive ? "biblio-library-tab" : `biblio-tab-${tabs.activeTabKey}`;
+  const [focusedTabId, setFocusedTabId] = useState(activeTabId);
+  const rovingTabId = focusedTabId === "biblio-library-tab" || tabs.tabs.some(tab => `biblio-tab-${tab.item.key}` === focusedTabId)
+    ? focusedTabId : activeTabId;
+  useEffect(() => { setFocusedTabId(activeTabId); }, [activeTabId]);
   const reading = useBiblioReadState(galleryUrl);
   useEffect(() => {
     if (tabs.isLibraryActive) reading.refresh();
@@ -103,6 +113,14 @@ export default function BiblioSurface({
     toggleFav, adding, addNote, addPdfs,
   } = list;
 
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const virtualListRef = useRef<LegendListRef>(null);
+  const virtualized = visibleItems.length > 100;
+  const activeRows = useMemo(() => ({ keys: selected ? [selected.key] : [] }), [selected?.key]);
+  const rowState = useMemo(() => ({ selectedKey, readKeys: reading.readKeys,
+    pending: reading.pending, ready: reading.ready }), [selectedKey, reading.readKeys, reading.pending, reading.ready]);
+  // Tab state is owned here: a child update does not rerender AtelierPane.
+  useEffect(() => { syncFrameVisibility(surfaceRef.current); }, [tabs.activeTabKey, tabs.tabs, galleryUrl]);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
@@ -215,32 +233,53 @@ export default function BiblioSurface({
     if (!item) return;
     setSelectedKey(item.key);
     setPassageTarget(null);
-    rowRefs.current.get(item.key)?.scrollIntoView?.({ block: "nearest" });
-  }, [visibleItems, selectedKey, setSelectedKey, setPassageTarget]);
+    const row = rowRefs.current.get(item.key);
+    if (virtualized) {
+      const viewport = listRef.current?.getBoundingClientRect();
+      const bounds = row?.getBoundingClientRect();
+      if (!viewport || !bounds || bounds.top < viewport.top || bounds.bottom > viewport.bottom) {
+        void virtualListRef.current?.scrollToIndex({ index: next, animated: false, viewPosition: delta > 0 ? 1 : 0 });
+      }
+    } else row?.scrollIntoView?.({ block: "nearest" });
+  }, [visibleItems, selectedKey, setSelectedKey, setPassageTarget, virtualized]);
 
   // « / » depuis n'importe où dans la surface (hors champ de saisie) amène le
   // curseur dans la recherche — les autres raccourcis restent portés par la
   // surface elle-même pour ne pas capturer le clavier des panneaux voisins.
   useEffect(() => {
+    if (!visible) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.defaultPrevented || e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
       if (isEditableTarget(e.target)) return;
+      const surface = surfaceRef.current;
+      if (!isSurfaceVisible(surface)) return;
+      // Do not steal focus from a neighbouring pane, menu or the chat.
+      if (!surface!.contains(e.target as Node)) {
+        if (e.target !== document.body) return;
+        const pane = surface!.closest(".workspace-pane");
+        if (pane && !pane.classList.contains("is-focused")) return;
+      }
       e.preventDefault();
       if (tabs.isLibraryActive) searchRef.current?.focus();
-      else { tabs.activateLibrary(); requestAnimationFrame(() => searchRef.current?.focus()); }
+      else { tabs.activateLibrary(); requestAnimationFrame(() => {
+        if (isSurfaceVisible(searchRef.current)) searchRef.current?.focus();
+      }); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tabs.activateLibrary, tabs.isLibraryActive]);
+  }, [tabs.activateLibrary, tabs.isLibraryActive, visible]);
 
   function onSurfaceKeyDown(e: React.KeyboardEvent) {
-    if (e.metaKey || e.ctrlKey || e.altKey || !tabs.isLibraryActive) return;
+    if (e.defaultPrevented || !visible || e.metaKey || e.ctrlKey || e.altKey || !tabs.isLibraryActive) return;
+    // Tab and toolbar buttons retain their native Enter/Space activation.
+    if ((e.target as HTMLElement).closest('button:not([role="option"]):not(.biblio-main-button), [role="tablist"]')) return;
     const editable = isEditableTarget(e.target);
     if (editable && e.key !== "Escape") return;
     if (e.key === "ArrowDown") { e.preventDefault(); moveSelection(1); return; }
     if (e.key === "ArrowUp") { e.preventDefault(); moveSelection(-1); return; }
     if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       if (search) setSearch("");
       focusList();
       return;
@@ -292,10 +331,10 @@ export default function BiblioSurface({
     </li>;
   }
 
-  function renderRow(item: ZoteroItem) {
+  function renderRow(item: ZoteroItem, index?: number) {
     return <BiblioRowMenu key={item.key} item={item} actions={rowActions}>
       <ContextMenuTrigger id={`biblio-row-${item.key}`} role="option"
-        aria-selected={selected?.key === item.key} className="biblio-row"
+        aria-selected={selected?.key === item.key} aria-setsize={visibleItems.length} aria-posinset={index === undefined ? undefined : index + 1} className="biblio-row"
         ref={(el: HTMLElement | null) => {
           if (el) rowRefs.current.set(item.key, el); else rowRefs.current.delete(item.key);
         }}>
@@ -323,24 +362,17 @@ export default function BiblioSurface({
     </BiblioRowMenu>;
   }
 
-  return <div className="biblio-surface biblio-workspace" onKeyDown={onSurfaceKeyDown}>
+  return <div ref={surfaceRef} className="biblio-surface biblio-workspace" onKeyDown={onSurfaceKeyDown}>
     <div className="biblio-tabs-bar">
-      <div className="biblio-tabs" role="tablist" aria-label={t("biblio.open-tabs")} onKeyDown={event => {
-        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-        if ((event.target as HTMLElement).getAttribute('role') !== 'tab') return;
-        event.preventDefault(); event.stopPropagation();
-        const controls = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-        const index = controls.indexOf(event.target as HTMLButtonElement);
-        const next = event.key === 'Home' ? 0 : event.key === 'End' ? controls.length - 1
-          : (index + (event.key === 'ArrowRight' ? 1 : -1) + controls.length) % controls.length;
-        controls[next]?.click(); controls[next]?.focus();
-      }}>
-        <RowButton role="tab" tabIndex={tabs.isLibraryActive ? 0 : -1} id="biblio-library-tab" aria-selected={tabs.isLibraryActive}
+      <div className="biblio-tabs" role="tablist" aria-label={t("biblio.open-tabs")}
+        onFocus={event => { if ((event.target as HTMLElement).getAttribute("role") === "tab") setFocusedTabId(event.target.id); }}
+        onKeyDown={event => moveDocumentTabFocus(event, '[role="tab"]')}>
+        <RowButton role="tab" tabIndex={rovingTabId === "biblio-library-tab" ? 0 : -1} id="biblio-library-tab" aria-selected={tabs.isLibraryActive}
           aria-controls="biblio-library-panel" className="biblio-tab biblio-library-tab document-tab-shell" onClick={() => { tabs.activateLibrary(); reading.refresh(); }}>
           <LibraryIcon /><span>{t("biblio.title")}</span>
         </RowButton>
         {tabs.tabs.map(tab => <div className="biblio-document-tab document-tab-shell" key={tab.item.key} data-active={tabs.activeTabKey === tab.item.key}>
-          <RowButton role="tab" tabIndex={tabs.activeTabKey === tab.item.key ? 0 : -1} id={`biblio-tab-${tab.item.key}`} aria-selected={tabs.activeTabKey === tab.item.key}
+          <RowButton role="tab" tabIndex={rovingTabId === `biblio-tab-${tab.item.key}` ? 0 : -1} id={`biblio-tab-${tab.item.key}`} aria-selected={tabs.activeTabKey === tab.item.key}
             aria-controls={`biblio-panel-${tab.item.key}`} className="biblio-tab" title={tab.item.title}
             onClick={() => tabs.activateArticle(tab.item.key)}><FileTextIcon /><span>{tab.item.title}</span></RowButton>
           <IconButton size="s" className="document-tab-close" label={`${t("action.close-reader")} — ${tab.item.title}`} onClick={() => tabs.closeArticle(tab.item.key)}><CloseIcon /></IconButton>
@@ -382,14 +414,23 @@ export default function BiblioSurface({
           {error && <div className="biblio-empty" role="status">{error}</div>}
           {reading.error && <div className="biblio-add-note" role="alert">{reading.error}</div>}
           <div className="biblio-table-head" aria-hidden="true"><span>{t("biblio.column-title")}</span><span>{t("biblio.column-author")}</span><span>{t("biblio.column-year")}</span><span>{t("biblio.column-publication")}</span><span className="biblio-table-actions"><span>PDF</span><span /><span>{t("biblio.column-read")}</span></span></div>
-          <div className="biblio-list" role="listbox" tabIndex={0} ref={listRef} aria-label={t("biblio.title")}
+          {!loading && virtualized ? <LegendList
+            ref={virtualListRef} refScrollView={node => { const element = node instanceof HTMLElement ? node : node?.getScrollableNode(); listRef.current = element instanceof HTMLDivElement ? element : null; }}
+            data={visibleItems} extraData={rowState} itemsAreEqual={(a, b) => a === b}
+            keyExtractor={item => item.key} estimatedItemSize={58}
+            estimatedListSize={{ height: 600, width: 800 }} recycleItems={false}
+            alwaysRender={activeRows} maintainVisibleContentPosition
+            className="biblio-list biblio-virtual-list" role="listbox" tabIndex={0}
+            aria-label={t("biblio.title")} aria-activedescendant={selected ? `biblio-row-${selected.key}` : undefined}
+            renderItem={({ item, index }) => <div className="biblio-virtual-row">{renderRow(item, index)}</div>}
+          /> : <div className="biblio-list" role="listbox" tabIndex={0} ref={listRef} aria-label={t("biblio.title")}
             aria-activedescendant={selected ? `biblio-row-${selected.key}` : undefined}>
             {loading && <div className="biblio-skeletons" role="status" aria-label={t("biblio.loading")}>
               {Array.from({ length: SKELETON_ROWS }, (_, i) => <div className="biblio-skeleton" key={i} aria-hidden="true"><span className="biblio-skeleton-title" /><span className="biblio-skeleton-meta" /></div>)}
             </div>}
             {!error && !loading && !visibleItems.length && <div className="biblio-empty">{t("biblio.empty")}</div>}
             {!loading && visibleItems.map(renderRow)}
-          </div>
+          </div>}
         </section>
       </div>
       {tabs.tabs.map(tab => {
@@ -399,7 +440,10 @@ export default function BiblioSurface({
           <div className="biblio-frame-wrap">
             {!tab.item.hasPdf && <div className="biblio-placeholder">{t("biblio.no-pdf")}</div>}
             {tab.item.hasPdf && !url && <div className="biblio-placeholder">{t("biblio.no-project")}</div>}
-            {url && <iframe className="biblio-frame atelier" data-atelier-role="biblio-pdf" src={url} aria-label={tab.item.title} title="" />}
+            {url && <iframe className="biblio-frame atelier" data-atelier-role="biblio-pdf" onLoad={event => {
+              resetFrameVisibility(event.currentTarget);
+              syncFrameVisibility(surfaceRef.current);
+            }} src={url} aria-label={tab.item.title} title="" />}
           </div>
         </section>;
       })}

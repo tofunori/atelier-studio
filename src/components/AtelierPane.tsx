@@ -964,6 +964,7 @@ export default function AtelierPane({
               ws={ws}
               projectRoot={projectRoot}
               galleryUrl={url}
+              visible={active && layout !== "chat" && !overlayOpen}
             />
           </LazyBoundary>
         </div>
@@ -991,7 +992,7 @@ export default function AtelierPane({
       <div key="surface:calculs" className="workspace-tab-content surface-body" style={{ display }}>
         <LazyBoundary fallback={<div className="pane-slot" />}>
           <CalculsSurface
-            visible={active}
+            visible={active && layout !== "chat" && !overlayOpen}
             onOpenTerminal={openHostTerminal}
           />
         </LazyBoundary>

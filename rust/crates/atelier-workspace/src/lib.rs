@@ -19,7 +19,7 @@ pub use compute::{
     Run as ComputeRun, Snapshot as ComputeSnapshot, SystemExec,
 };
 pub use git::{
-    changed_since, changed_since_stats, commit, commit_details, commit_file_contents, create_branch, create_branch_at, delete_branch, diff,
+    changed_since, changed_since_stats, commit, commit_details, commit_summary, commit_file_contents, create_branch, create_branch_at, delete_branch, diff,
     diff_contents, diff_staged, fetch_all, ignore_pattern, log, merge_branch, pull, push, reset_to_commit,
     restore, restore_file_from_commit, revert_commit, revert_file, snapshot, stage_file, stage_files,
     status, switch_branch, undo_last_commit, unstage_file, unstage_files, ChangedStat, DiffContents, GitCommitDetails,

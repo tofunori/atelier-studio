@@ -28,7 +28,7 @@ export default defineConfig({
     },
     {
       name: 'webkit-reading',
-      testMatch: /pdf_(reading|toolbar)\.spec\.ts/,
+      testMatch: /pdf_(reading|toolbar|performance|interaction)\.spec\.ts/,
       use: {browserName: 'webkit'},
     },
     {

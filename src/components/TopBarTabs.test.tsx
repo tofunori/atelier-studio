@@ -80,6 +80,25 @@ describe("type de fichier", () => {
 });
 
 describe("TopBarTabs", () => {
+  it("moves focus with arrows/Home/End and keeps selection until activation", () => {
+    const p = props();
+    const { container } = renderUi(<TopBarTabs {...p} />);
+    const controls = container.querySelectorAll<HTMLButtonElement>(".topbar-tab-main");
+    controls[0].focus();
+    fireEvent.keyDown(controls[0], { key: "ArrowLeft" });
+    expect(controls[3]).toHaveFocus();
+    fireEvent.keyDown(controls[3], { key: "Home" });
+    expect(controls[0]).toHaveFocus();
+    fireEvent.keyDown(controls[0], { key: "End" });
+    expect(controls[3]).toHaveFocus();
+    expect(p.onSelectTab).not.toHaveBeenCalled();
+    fireEvent.click(controls[3]);
+    expect(p.onSelectTab).toHaveBeenCalledWith(TABS[3].id);
+    const close = container.querySelector<HTMLButtonElement>(".topbar-tab-close")!;
+    close.focus();
+    fireEvent.keyDown(close, { key: "ArrowRight" });
+    expect(close).toHaveFocus();
+  });
   it("reste absent quand rien n'est ouvert", () => {
     const { container } = renderUi(<TopBarTabs {...props({ tabs: [] })} />);
     expect(container.querySelector(".topbar-tabs")).toBeNull();

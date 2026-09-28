@@ -108,7 +108,29 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   let watchedMtime: number | null = null;
   let watchedPath: string | null = null;
   let statInFlight = false;
+  let resumeDimensions = (): void => {};
   let lastWidth = 0;
+  let renderedZoom = 0;
+  let activeLayoutToken = 0;
+  const pageCache = new WeakMap<PdfDocument, Map<number, Promise<PdfPage>>>();
+  const textCache = new WeakMap<PdfDocument, Map<number, Promise<unknown>>>();
+  const dimensions = new Map<number, PdfViewport>();
+  const renders = new WeakMap<PdfDocument, Set<Promise<unknown>>>();
+  const destroyDocument = (pdf: PdfDocument): void => {
+    // A previous layout can still be finishing its canvas/text task when the
+    // new preview swaps in. Release PDF.js only after those consumers drain.
+    void Promise.allSettled([...(renders.get(pdf) || [])]).then(() => pdf.destroy?.()).catch(() => undefined);
+  };
+  const pageFor = (pdf: PdfDocument, number: number): Promise<PdfPage> => {
+    let cache = pageCache.get(pdf);
+    if (!cache) { cache = new Map(); pageCache.set(pdf, cache); }
+    let page = cache.get(number);
+    if (!page) {
+      page = pdf.getPage(number).catch(error => { cache!.delete(number); throw error; });
+      cache.set(number, page);
+    }
+    return page;
+  };
   let lastEditAt = 0;
   let forwardTimer: number | null = null;
   let forwardLine = -1;
@@ -129,6 +151,18 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
     const element = pages[page];
     const viewport = viewports[page];
     if (!element || !viewport) return false;
+    if (pdfDocument && !dimensions.has(page)) {
+      const targetDocument = pdfDocument, layout = activeLayoutToken;
+      void pageFor(targetDocument, page).then(proxy => {
+        if (layout !== activeLayoutToken || targetDocument !== pdfDocument) return;
+        const base = proxy.getViewport({scale: 1}); dimensions.set(page, base);
+        viewport.scale = Math.max(1, lastWidth - 24) * renderedZoom / base.width;
+        viewport.height = base.height;
+        element.style.height = `${base.height * viewport.scale}px`;
+        showMarker(page, y0);
+      }).catch(error => console.warn("SyncTeX page:", error));
+      return true;
+    }
     const y = y0 * viewport.scale;
     element.appendChild(options.marker);
     options.marker.style.top = `${y - 14}px`;
@@ -218,8 +252,10 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         .catch(() => null);
       if (token !== loadToken) return;
       const revision = typeof stat?.mtime === "number" ? stat.mtime : null;
-      const nextDocument = await options.pdfjs.getDocument({
-        url: `/raw?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}&t=${Date.now()}`,
+      const reuse = pdfDocument !== null && watchedPath === pdfPath && revision !== null && revision === watchedMtime;
+      if (reuse && Math.abs(options.right.clientWidth - lastWidth) <= 8 && options.getZoom() === renderedZoom) return;
+      const nextDocument = reuse ? pdfDocument! : await options.pdfjs.getDocument({
+        url: `/raw?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}&revision=${revision ?? Date.now()}`,
         standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
         // pdf.js >= 5 décode JPEG2000/ICC en WebAssembly : sans ces deux URL
         // il va chercher les modules à la racine du site et échoue.
@@ -235,7 +271,8 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       const liveCanvases = new Map<number, HTMLCanvasElement>();
       const pagesEnCours = new Set<number>();
       const pagesVisibles = new Set<number>();
-      const current = (): boolean => !abandoned && (committed ? pdfDocument === nextDocument : token === loadToken);
+      const current = (): boolean => !abandoned && (committed ? activeLayoutToken === token : token === loadToken);
+      const nextDimensions = reuse ? dimensions : new Map<number, PdfViewport>();
       const paneWidth = options.right.clientWidth;
       const width = Math.max(1, paneWidth - 24) * options.getZoom();
       // Off-screen layout uses the same page CSS and scroll-container margin
@@ -270,7 +307,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         victimCanvas?.remove();
       };
 
-      const renderPage = async (pageNumber: number): Promise<void> => {
+      const renderPageNow = async (pageNumber: number): Promise<void> => {
         if (!current() || liveCanvases.has(pageNumber) || pagesEnCours.has(pageNumber)) return;
         // Marqueur synchrone posé AVANT le premier await : liveCanvases.has()
         // seul ne protège rien tant que l'entrée n'existe pas encore (elle
@@ -281,8 +318,16 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
           const element = nextPages[pageNumber];
           const info = nextViewports[pageNumber];
           if (!element || !info) return;
-          const page = await nextDocument.getPage(pageNumber);
+          const page = await pageFor(nextDocument, pageNumber);
+          if (!current()) return;
+          const base = page.getViewport({scale: 1});
+          nextDimensions.set(pageNumber, base);
+          if (committed) dimensions.set(pageNumber, base);
+          info.scale = width / base.width;
+          info.height = base.height;
           const viewport = page.getViewport({scale: info.scale});
+          element.style.width = `${viewport.width}px`;
+          element.style.height = `${viewport.height}px`;
           const canvas = doc.createElement("canvas");
           canvas.width = viewport.width * win.devicePixelRatio;
           canvas.height = viewport.height * win.devicePixelRatio;
@@ -306,7 +351,14 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
             layer.style.setProperty("--scale-factor", String(info.scale));
             element.appendChild(layer);
             try {
-              const text = await page.getTextContent();
+              let cache = textCache.get(nextDocument);
+              if (!cache) {cache = new Map(); textCache.set(nextDocument, cache);}
+              let pending = cache.get(pageNumber);
+              if (!pending) {
+                pending = page.getTextContent().catch(error => {cache!.delete(pageNumber); throw error;});
+                cache.set(pageNumber, pending);
+              }
+              const text = await pending;
               if (!current()) return;
               // pdf.js >= 4 : renderTextLayer() a disparu, TextLayer le remplace.
               if (TextLayerClass) {
@@ -324,12 +376,40 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         }
       };
 
+      const queued = new Map<number, Promise<void>>();
+      const queue: Array<{page: number; finish(): void; fail(error: unknown): void}> = [];
+      let activeRenders = 0;
+      const pump = (): void => {
+        while (queue.length && activeRenders < 2) {
+          const work = queue.shift()!;
+          if (!current()) {queued.delete(work.page); work.finish(); continue;}
+          activeRenders++;
+          const task = renderPageNow(work.page);
+          let documentTasks = renders.get(nextDocument);
+          if (!documentTasks) {documentTasks = new Set(); renders.set(nextDocument, documentTasks);}
+          documentTasks.add(task);
+          void task.then(work.finish, work.fail).finally(() => {
+            documentTasks!.delete(task); queued.delete(work.page); activeRenders--; pump();
+          });
+        }
+      };
+      const renderPage = (page: number): Promise<void> => {
+        const existing = queued.get(page);
+        if (existing) return existing;
+        const pending = new Promise<void>((finish, fail) => queue.push({page, finish, fail}));
+        queued.set(page, pending); pump(); return pending;
+      };
+
+      // Unpainted pages start with a size estimate. Decode the visible pages
+      // before walking the remaining metadata: long PDFs no longer block first paint.
+      const firstPage = nextDocument.numPages ? await pageFor(nextDocument, 1) : null;
+      const defaultSize = firstPage?.getViewport({scale: 1}) || {width: 612, height: 792};
+      if (firstPage) nextDimensions.set(1, defaultSize);
       for (let pageNumber = 1; pageNumber <= nextDocument.numPages; pageNumber += 1) {
         if (!current()) return;
-        const page = await nextDocument.getPage(pageNumber);
-        const base = page.getViewport({scale: 1});
+        const base = nextDimensions.get(pageNumber) || (watchedPath === pdfPath ? dimensions.get(pageNumber) : null) || defaultSize;
         const scale = width / base.width;
-        const viewport = page.getViewport({scale});
+        const viewport = {width, height: base.height * scale};
         const element = doc.createElement("div");
         element.className = "pdfpage";
         element.dataset.page = String(pageNumber);
@@ -356,8 +436,15 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       // viewport check and the swap.
       let scroll = 0;
       while (current()) {
-        scroll = Math.min(options.right.scrollTop,
-          Math.max(0, staging.scrollHeight - options.right.clientHeight));
+        let targetScroll = options.right.scrollTop;
+        if (reuse) {
+          const anchor = pages.find(element => element && element.offsetTop + element.offsetHeight > targetScroll);
+          const replacement = anchor && nextPages[Number(anchor.dataset.page)];
+          if (anchor && replacement && anchor.offsetHeight) {
+            targetScroll = replacement.offsetTop + (targetScroll - anchor.offsetTop) / anchor.offsetHeight * replacement.offsetHeight;
+          }
+        }
+        scroll = Math.min(targetScroll, Math.max(0, staging.scrollHeight - options.right.clientHeight));
         const bottom = scroll + options.right.clientHeight;
         const visible = nextPages.filter((element): element is HTMLElement => Boolean(element)
           && element!.offsetTop + element!.offsetHeight >= scroll
@@ -385,11 +472,41 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       viewports = nextViewports;
       pdfDocument = nextDocument;
       committed = true;
+      activeLayoutToken = token;
+      if (!reuse) {dimensions.clear(); for (const [number, size] of nextDimensions) dimensions.set(number, size);}
       watchedPath = pdfPath;
       watchedMtime = revision;
       lastWidth = paneWidth;
+      renderedZoom = options.getZoom();
       options.right.scrollTop = scroll;
-      void previousDocument?.destroy?.().catch(() => undefined);
+      if (previousDocument && previousDocument !== nextDocument) destroyDocument(previousDocument);
+
+      // Fill in variable page sizes after the first useful paint, yielding to
+      // input every two pages. Keep the reader's current page at the same offset.
+      let dimensionsInFlight = false;
+      const finishDimensions = async (): Promise<void> => {
+        for (let number = 1; number <= nextDocument.numPages && current() && !doc.hidden; number++) {
+          if (nextDimensions.has(number)) continue;
+          const page = await pageFor(nextDocument, number);
+          if (!current()) return;
+          const base = page.getViewport({scale: 1});
+          nextDimensions.set(number, base); dimensions.set(number, base);
+          const anchor = nextPages.find(el => el && el.offsetTop + el.offsetHeight > options.right.scrollTop);
+          const before = anchor?.offsetTop || 0;
+          const element = nextPages[number]!;
+          const info = nextViewports[number]!;
+          info.scale = width / base.width; info.height = base.height;
+          element.style.height = `${base.height * info.scale}px`;
+          if (anchor) options.right.scrollTop += anchor.offsetTop - before;
+          if (number % 2 === 0) await new Promise<void>(resolve => win.setTimeout(resolve, 0));
+        }
+      };
+      resumeDimensions = () => {
+        if (dimensionsInFlight || !current() || doc.hidden) return;
+        dimensionsInFlight = true;
+        void finishDimensions().catch(error => console.warn("PDF dimensions:", error)).finally(() => {dimensionsInFlight = false;});
+      };
+      resumeDimensions();
 
       const IObserver = (win as unknown as {IntersectionObserver?: typeof IntersectionObserver}).IntersectionObserver;
       if (typeof IObserver === "function") {
@@ -421,7 +538,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       staging?.remove();
       if (!committed) {
         abandoned = true;
-        void loaded?.destroy?.().catch(() => undefined);
+        if (loaded && loaded !== pdfDocument) destroyDocument(loaded);
       }
       if (token === loadToken) loading = false;
     }
@@ -461,7 +578,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       .then((response) => response.ok ? response.json() as Promise<{mtime?: number}> : null)
       .then((stat) => {
         if (typeof stat?.mtime !== "number" || loading || polledToken !== loadToken || pdfPath !== options.getPdfPath()) return;
-        if (watchedPath === pdfPath && watchedMtime !== null && stat.mtime > watchedMtime) {
+        if (watchedPath === pdfPath && watchedMtime !== null && stat.mtime !== watchedMtime) {
           void loadPdf();
           return;
         }
@@ -473,7 +590,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   }, 2500);
 
   doc.addEventListener("visibilitychange", () => {
-    if (options.isPdfMode && !doc.hidden) requestView();
+    if (!doc.hidden) {resumeDimensions(); if (options.isPdfMode) requestView();}
   });
   win.addEventListener("message", (event) => {
     const message = event.data as {type?: string} | null;
@@ -510,7 +627,6 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
     noteEdit: () => { lastEditAt = wallNow(); },
     handleResize: (width: number) => {
       if (pdfDocument && Math.abs(width - lastWidth) > 8) {
-        lastWidth = width;
         void loadPdf();
       }
     },

@@ -1153,10 +1153,13 @@ window.addEventListener('message',e=>{
   if(e.source!==window.top || !data || data.type!=='atelier-add-to-chat-ack') return;
   // Même source de nonce que __atelierPost : WKWebView peut neutraliser
   // sessionStorage.setItem, et lire le nonce ici seul jetait tous les ACK.
-  const nonce=(window.__atelierNonce||sessionStorage.getItem('atelier_nonce')||'');
-  if(!nonce || data.nonce!==nonce || data.ok!==true) return;
+  let nonce=window.__atelierNonce||'';
+  try{nonce=nonce||sessionStorage.getItem('atelier_nonce')||'';}catch{}
+  if(!nonce || data.nonce!==nonce || typeof data.ok!=='boolean') return;
   const pending=pendingChatAcks.get(data.requestId); if(!pending) return;
-  clearTimeout(pending.timer); pendingChatAcks.delete(data.requestId); pending.resolve();
+  clearTimeout(pending.timer); pendingChatAcks.delete(data.requestId);
+  if(data.ok) pending.resolve();
+  else pending.reject(new Error(typeof data.error==='string'?data.error:'Ajout refusé'));
 });
 function postChatAttachment(rel){ return postChatPayload(chatAttachment(rel)); }
 // Même canal que « Add to chat » et que l'annotation d'image : postMessage

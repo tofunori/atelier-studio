@@ -114,3 +114,4 @@ function installAtelierGalleryCommandsApi(root) {
 }
 installAtelierGalleryCommandsApi(typeof window === "object" ? window : globalThis);
 export type AtelierGalleryCommandsApi = ReturnType<typeof installAtelierGalleryCommandsApi>;
+

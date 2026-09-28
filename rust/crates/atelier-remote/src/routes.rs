@@ -180,9 +180,9 @@ async fn health(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
-    let mut g = state.inner.lock().await;
+    let g = state.inner.lock().await;
     let authenticated = extract_bearer(&headers)
-        .is_some_and(|token| g.auth.authenticate_token(&token).is_some());
+        .is_some_and(|token| g.auth.lookup_token(&token).is_some());
     if !authenticated {
         return Ok(Json(json!({
             "ok": true,
@@ -233,15 +233,30 @@ async fn require_device(
     need: Scope,
 ) -> ApiResult<crate::auth::AuthDevice> {
     let token = extract_bearer(headers).ok_or_else(ApiError::unauthorized)?;
-    let mut g = state.inner.lock().await;
-    let dev = g
-        .auth
-        .authenticate_token(&token)
-        .ok_or_else(ApiError::unauthorized)?;
-    if !has_scope(&dev.scopes, need) {
-        return Err(ApiError::forbidden_scope(need.as_str()));
+    let inner = state.inner.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut g = inner.blocking_lock();
+        let dev = g.auth.authenticate_token(&token).ok_or_else(ApiError::unauthorized)?;
+        if !has_scope(&dev.scopes, need) { return Err(ApiError::forbidden_scope(need.as_str())); }
+        // Stop and permission answers remain available even during a read burst.
+        if !matches!(need,Scope::ChatSend | Scope::ChatInteract) &&
+            !g.api_limiter.check(&format!("{}:{}",dev.device_id,need.as_str())) { return Err(ApiError::rate_limited()); }
+        Ok(dev)
+    }).await.map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE,"auth_unavailable","Authentification temporairement indisponible"))?
+
+}
+
+async fn auth_work<T:Send+'static>(state:&GatewayState, work:impl FnOnce(&mut crate::auth::AuthStore)->Result<T,AuthError>+Send+'static) -> Result<T,AuthError> {
+    let inner = state.inner.clone();
+    tokio::task::spawn_blocking(move || work(&mut inner.blocking_lock().auth)).await.map_err(|_| AuthError::Io("opération d'authentification interrompue".into()))?
+}
+
+async fn require_send_budget(state: &GatewayState, device_id: &str) -> ApiResult<()> {
+    if state.inner.lock().await.api_limiter.check(&format!("{device_id}:chat:send")) {
+        Ok(())
+    } else {
+        Err(ApiError::rate_limited())
     }
-    Ok(dev)
 }
 
 async fn require_admin(state: &GatewayState, headers: &HeaderMap, peer: &str) -> ApiResult<()> {
@@ -316,8 +331,7 @@ async fn pair_complete(
         }
     }
 
-    let mut g = state.inner.lock().await;
-    match g.auth.complete_pairing(&body.code, &body.device_name) {
+    match auth_work(&state,move |auth| auth.complete_pairing(&body.code,&body.device_name)).await {
         Ok(done) => Ok(Json(json!({
             "ok": true,
             "deviceId": done.device_id,
@@ -354,8 +368,8 @@ async fn list_projects(
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let _ = require_device(&state, &headers, Scope::ChatRead).await?;
-    let mut g = state.inner.lock().await;
-    g.refresh_catalog();
+    state.refresh_catalog().await?;
+    let g = state.inner.lock().await;
     let projects: Vec<Value> = g
         .projects
         .list()
@@ -376,36 +390,21 @@ async fn list_threads(
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let _ = require_device(&state, &headers, Scope::ChatRead).await?;
-    let mut g = state.inner.lock().await;
-    g.refresh_catalog();
-    let mut threads: Vec<Value> = g
-        .threads
-        .list()
-        .into_iter()
-        .map(|t| {
-            let last = g.journal.last_sequence(&t.id);
-            let project_id = if t.project_root.is_empty() {
-                Value::Null
-            } else {
-                json!(crate::path_policy::project_id_for(std::path::Path::new(
-                    &t.project_root
-                )))
-            };
-            json!({
-                "id": t.id,
-                "title": t.title,
-                "provider": t.provider,
-                "status": t.status,
-                "updatedAt": t.updated_at,
-                "projectId": project_id,
-                "lastSequence": last,
-                "model": t.extra.get("model").and_then(|v| v.as_str()),
-                "messageRevision": t.extra.get("messageRevision"),
-            })
-        })
-        .collect();
+    state.refresh_catalog().await?;
+    let g = state.inner.lock().await;
+    let catalog = g.threads.snapshot();
+    let journal = g.journal.clone();
+    let fixtures = g.fixture_history.clone();
+    let started_at = g.started_at.clone();
+    drop(g);
+    let mut threads:Vec<Value> = tokio::task::spawn_blocking(move || catalog.iter().map(|t| {
+        let last = journal.last_sequence(&t.id);
+        let project_id = if t.project_root.is_empty() { Value::Null } else { json!(crate::path_policy::project_id_for(std::path::Path::new(&t.project_root))) };
+        json!({"id":t.id,"title":t.title,"provider":t.provider,"status":t.status,"updatedAt":t.updated_at,
+            "projectId":project_id,"lastSequence":last,"model":t.extra.get("model").and_then(Value::as_str),"messageRevision":t.extra.get("messageRevision")})
+    }).collect()).await.map_err(|_| ApiError::not_found("catalogue indisponible"))?;
     // Fixture threads
-    for (id, events) in &g.fixture_history {
+    for (id, events) in &fixtures {
         let last = events
             .iter()
             .filter_map(|e| e.pointer("/meta/sequence").and_then(|v| v.as_u64()))
@@ -420,7 +419,7 @@ async fn list_threads(
                 "title": id,
                 "provider": "fixture",
                 "status": "idle",
-                "updatedAt": g.started_at,
+                "updatedAt": started_at,
                 "projectId": null,
                 "lastSequence": last,
             }));
@@ -452,7 +451,8 @@ async fn create_thread(
     Json(body): Json<CreateThreadBody>,
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
-    let _ = require_device(&state, &headers, Scope::ChatSend).await?;
+    let device = require_device(&state, &headers, Scope::ChatSend).await?;
+    require_send_budget(&state, &device.device_id).await?;
     let provider = body.provider.trim();
     if !matches!(
         provider,
@@ -463,8 +463,8 @@ async fn create_thread(
             "provider inconnu",
         ));
     }
+    state.refresh_catalog().await?;
     let mut g = state.inner.lock().await;
-    g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
     let project_root = match body.project_id.as_deref() {
         Some(id) => g
             .projects
@@ -550,14 +550,14 @@ async fn get_history(
         })));
     }
 
-    let mut events = if let Some(fix) = g.fixture_history.get(&thread_id) {
-        fix.clone()
-    } else {
-        g.journal.materialize(&thread_id)
-    };
-
+    let fixture = g.fixture_history.get(&thread_id).cloned();
+    let journal = g.journal.clone();
     let has_sidecar = g.config.sidecar_base.is_some();
     drop(g);
+    let mut events = match fixture {
+        Some(events) => events,
+        None => { let thread = thread_id.clone(); tokio::task::spawn_blocking(move || journal.materialize(&thread)).await.map_err(|_| ApiError::not_found("historique indisponible"))? }
+    };
     if after == 0 && has_sidecar {
         if let Ok(history) = query_readonly(&state, "mobile-history", json!({"type":"getHistory","threadId":thread_id}), "history").await {
             if let Some(native) = history.get("events").and_then(Value::as_array) { if native.len() >= events.len() { events = native.clone(); } }
@@ -640,6 +640,7 @@ async fn edit_message(State(state): State<GatewayState>, headers: HeaderMap,
     Path(thread_id): Path<String>, Json(body): Json<EditMessageBody>) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let device = require_device(&state, &headers, Scope::ChatSend).await?;
+    require_send_budget(&state, &device.device_id).await?;
     let permission_mode = requested_permission_mode(body.permission_mode.as_deref())?;
     require_device(&state, &headers, Scope::ChatRead).await?;
     if uuid::Uuid::parse_str(&body.request_id).is_err() || body.event_id.is_empty()
@@ -653,9 +654,9 @@ async fn edit_message(State(state): State<GatewayState>, headers: HeaderMap,
             return Err(ApiError::bad_request("invalid_effort", "Niveau de réflexion invalide"));
         }
     }
+    state.refresh_catalog().await?;
     {
-        let mut g = state.inner.lock().await;
-        g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
+        let g = state.inner.lock().await;
         let thread = g.threads.get(&thread_id).ok_or_else(|| ApiError::not_found("conversation introuvable"))?;
         check_provider_permission(&thread.provider, permission_mode)?;
         if !body.file_ids.is_empty() && !has_scope(&device.scopes, Scope::FilesRead) {
@@ -701,6 +702,7 @@ async fn send_msg(
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let dev = require_device(&state, &headers, Scope::ChatSend).await?;
+    require_send_budget(&state, &dev.device_id).await?;
     if body.mode.as_deref().is_some_and(|mode| mode != "steer") {
         return Err(ApiError::bad_request("invalid_mode", "Mode d’envoi invalide"));
     }
@@ -711,8 +713,8 @@ async fn send_msg(
     if body.prompt.len() > 100_000 {
         return Err(ApiError::payload_too_large());
     }
+    state.refresh_catalog().await?;
     let mut g = state.inner.lock().await;
-    g.threads = atelier_store::ThreadStore::open(g.config.atelier_dir.join("threads.json"));
     if g.threads.get(&body.thread_id).is_none() && !g.fixture_history.contains_key(&body.thread_id) {
         return Err(ApiError::not_found("conversation introuvable"));
     }
@@ -973,6 +975,7 @@ async fn gallery_index(
 ) -> ApiResult<Json<Value>> {
     guard_headers(&state, &headers).await?;
     let _ = require_device(&state, &headers, Scope::GalleryRead).await?;
+    let _request_slot = state.read_calls.clone().try_acquire_owned().map_err(|_| ApiError::rate_limited())?;
     let (snapshot, items) = if let Some(key) = query.snapshot {
         let g = state.inner.lock().await;
         let (project, created, items) = g.gallery_snapshots.get(&key)
@@ -983,27 +986,42 @@ async fn gallery_index(
         (key, items.clone())
     } else {
         if query.offset != 0 { return Err(ApiError::bad_request("gallery_cursor", "Instantané de galerie requis")); }
-        let proj = state.inner.lock().await.projects.get(&project_id).cloned()
-            .ok_or_else(|| ApiError::not_found("projet inconnu"))?;
-        let items = std::sync::Arc::new(tokio::task::spawn_blocking(move || scan_gallery(proj)).await
-            .map_err(|_| ApiError::bad_request("gallery_scan", "Lecture du projet interrompue"))?);
-        let key = uuid::Uuid::new_v4().to_string();
-        let mut g = state.inner.lock().await;
-        g.gallery_snapshots.retain(|_, (_, created, _)| created.elapsed().as_secs() <= 600);
-        if g.gallery_snapshots.len() >= 8 {
-            if let Some(oldest) = g.gallery_snapshots.iter().min_by_key(|(_, (_, time, _))| *time).map(|(key, _)| key.clone()) { g.gallery_snapshots.remove(&oldest); }
+        let requested = std::time::Instant::now();
+        let flight = {
+            let mut flights = state.gallery_flights.lock().await;
+            flights.retain(|_,flight| flight.strong_count()>0);
+            if let Some(flight) = flights.get(&project_id).and_then(std::sync::Weak::upgrade) { flight }
+            else { let flight = std::sync::Arc::new(tokio::sync::Mutex::new(())); flights.insert(project_id.clone(),std::sync::Arc::downgrade(&flight)); flight }
+        };
+        let _flight = flight.lock().await;
+        let cached = state.inner.lock().await.gallery_snapshots.iter()
+            .filter(|(_, (project,created,_))| project==&project_id && *created>=requested)
+            .max_by_key(|(_,(_,created,_))| *created)
+            .map(|(key,(_,_,items))| (key.clone(),items.clone()));
+        if let Some(cached) = cached { cached } else {
+            let permit = state.scans.clone().try_acquire_owned().map_err(|_| ApiError::rate_limited())?;
+            let proj = state.inner.lock().await.projects.get(&project_id).cloned().ok_or_else(|| ApiError::not_found("projet inconnu"))?;
+            let items = std::sync::Arc::new(tokio::task::spawn_blocking(move || { let _permit = permit; scan_gallery(proj) }).await
+                .map_err(|_| ApiError::bad_request("gallery_scan","Lecture du projet interrompue"))?);
+            let key = uuid::Uuid::new_v4().to_string();
+            let mut g = state.inner.lock().await;
+            g.gallery_snapshots.retain(|_,(_,created,_)| created.elapsed().as_secs()<=600);
+            if g.gallery_snapshots.len()>=8 {
+                if let Some(oldest) = g.gallery_snapshots.iter().min_by_key(|(_,(_,time,_))| *time).map(|(key,_)| key.clone()) { g.gallery_snapshots.remove(&oldest); }
+            }
+            g.gallery_snapshots.insert(key.clone(),(project_id.clone(),std::time::Instant::now(),items.clone()));
+            (key,items)
         }
-        g.gallery_snapshots.insert(key.clone(), (project_id.clone(), std::time::Instant::now(), items.clone()));
-        (key, items)
     };
     let total = items.len();
     let offset = query.offset.min(total);
     let mut page: Vec<Value> = items.iter().skip(offset).take(500).cloned().collect();
+    let project = state.inner.lock().await.projects.get(&project_id).cloned().ok_or_else(|| ApiError::not_found("projet inconnu"))?;
+    let favorites = tokio::task::spawn_blocking(move || atelier_core::gallery_favorites::read(&project.root)
+        .map(|value| atelier_core::gallery_favorites::favorites(&value)))
+        .await.map_err(|_| ApiError::bad_request("gallery_state","Lecture interrompue"))?
+        .map_err(|_| ApiError::bad_request("gallery_state","Lecture des favoris impossible"))?;
     let mut g = state.inner.lock().await;
-    let project = g.projects.get(&project_id).ok_or_else(|| ApiError::not_found("projet inconnu"))?;
-    let favorites = atelier_core::gallery_favorites::read(&project.root)
-        .map(|value| atelier_core::gallery_favorites::favorites(&value))
-        .map_err(|_| ApiError::bad_request("gallery_state", "Lecture des favoris impossible"))?;
     for item in &mut page {
         if let Some(rel) = item.as_object_mut().and_then(|obj| obj.remove("_relative")) {
             item["favorite"] = json!(favorites.contains(rel.as_str().unwrap_or_default()));
@@ -1128,9 +1146,11 @@ async fn save_document(
     guard_headers(&state, &headers).await?;
     require_device(&state, &headers, Scope::FilesWrite).await?;
     require_device(&state, &headers, Scope::FilesRead).await?;
-    let g = state.inner.lock().await;
-    let (_, path, _) = g.projects.resolve_file_id(&file_id)?;
-    save_text_version(&path, &body.original, &body.content)?;
+    let (project,relative) = state.inner.lock().await.projects.file_identity(&file_id)?;
+    tokio::task::spawn_blocking(move || {
+        let path = crate::path_policy::resolve_under_root(&project.root,&relative)?;
+        save_text_version(&path,&body.original,&body.content)
+    }).await.map_err(|_| ApiError::bad_request("save_failed","Enregistrement interrompu"))??;
     Ok(Json(json!({"ok": true})))
 }
 
@@ -1221,79 +1241,64 @@ fn gallery_kind(ext: &str) -> &'static str {
 }
 
 async fn get_file_by_path(
-    State(state): State<GatewayState>,
-    headers: HeaderMap,
+    State(state): State<GatewayState>, headers: HeaderMap,
     Path((project_id, rel)): Path<(String, String)>,
 ) -> ApiResult<Response> {
-    guard_headers(&state, &headers).await?;
-    let _ = require_device(&state, &headers, Scope::FilesRead).await?;
-    // Reject if rel still looks absolute after axum join
+    guard_headers(&state,&headers).await?;
+    require_device(&state,&headers,Scope::FilesRead).await?;
     let rel = normalize_relative(&rel)?;
-    let g = state.inner.lock().await;
-    let proj = g
-        .projects
-        .get(&project_id)
-        .cloned()
+    let project = state.inner.lock().await.projects.get(&project_id).cloned()
         .ok_or_else(|| ApiError::not_found("projet inconnu"))?;
-    let abs = crate::path_policy::resolve_under_root(&proj.root, &rel)?;
-    let (len, mime) = check_file_readable(&abs)?;
-    let etag = file_etag(&abs, len);
-    if if_none_match_fresh(&headers, &etag) {
-        return Ok(Response::builder()
-            .status(StatusCode::NOT_MODIFIED)
-            .header(header::ETAG, etag)
-            .body(axum::body::Body::empty())
-            .unwrap());
-    }
-    // Range
-    if let Some(range) = headers.get(header::RANGE).and_then(|v| v.to_str().ok()) {
-        return serve_range(&abs, len, &mime, range, &etag);
-    }
-    let data = std::fs::read(&abs).map_err(|_| ApiError::not_found("fichier introuvable"))?;
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime)
-        .header(header::CONTENT_LENGTH, data.len())
-        .header(header::ETAG, etag)
-        .header(header::ACCEPT_RANGES, "bytes")
-        .header("X-Content-Type-Options", "nosniff")
-        .header("Content-Security-Policy", "default-src 'none'; sandbox")
-        .body(axum::body::Body::from(data))
-        .unwrap())
+    stream_project_file(&state,project,rel,headers).await
 }
 
 async fn get_file_by_id(
-    State(state): State<GatewayState>,
-    headers: HeaderMap,
-    Path(file_id): Path<String>,
+    State(state): State<GatewayState>, headers: HeaderMap, Path(file_id): Path<String>,
 ) -> ApiResult<Response> {
-    guard_headers(&state, &headers).await?;
-    let _ = require_device(&state, &headers, Scope::FilesRead).await?;
-    let g = state.inner.lock().await;
-    let (_proj, abs, _rel) = g.projects.resolve_file_id(&file_id)?;
-    let (len, mime) = check_file_readable(&abs)?;
-    let etag = file_etag(&abs, len);
-    if if_none_match_fresh(&headers, &etag) {
-        return Ok(Response::builder()
-            .status(StatusCode::NOT_MODIFIED)
-            .header(header::ETAG, etag)
-            .body(axum::body::Body::empty())
-            .unwrap());
+    guard_headers(&state,&headers).await?;
+    require_device(&state,&headers,Scope::FilesRead).await?;
+    let (project,relative) = state.inner.lock().await.projects.file_identity(&file_id)?;
+    stream_project_file(&state,project,relative,headers).await
+}
+
+async fn stream_project_file(state:&GatewayState, project:crate::path_policy::ProjectEntry, relative:String, headers:HeaderMap) -> ApiResult<Response> {
+    let permit = state.file_calls.clone().try_acquire_owned().map_err(|_| ApiError::rate_limited())?;
+    let (path,len,mime,etag) = tokio::task::spawn_blocking(move || {
+        let path = crate::path_policy::resolve_under_root(&project.root,&relative)?;
+        let (len,mime) = check_file_readable(&path)?;
+        let etag = file_etag(&path,len);
+        Ok::<_,ApiError>((path,len,mime,etag))
+    }).await.map_err(|_| ApiError::not_found("lecture interrompue"))??;
+    if if_none_match_fresh(&headers,&etag) {
+        return Ok(Response::builder().status(StatusCode::NOT_MODIFIED).header(header::ETAG,etag).body(axum::body::Body::empty()).unwrap());
     }
-    if let Some(range) = headers.get(header::RANGE).and_then(|v| v.to_str().ok()) {
-        return serve_range(&abs, len, &mime, range, &etag);
-    }
-    let data = std::fs::read(&abs).map_err(|_| ApiError::not_found("fichier introuvable"))?;
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime)
-        .header(header::CONTENT_LENGTH, data.len())
-        .header(header::ETAG, etag)
-        .header(header::ACCEPT_RANGES, "bytes")
-        .header("X-Content-Type-Options", "nosniff")
-        .header("Content-Security-Policy", "default-src 'none'; sandbox")
-        .body(axum::body::Body::from(data))
-        .unwrap())
+    // A range can resume only the exact revision already held by the client.
+    // Dates and weak validators cannot establish that identity, so send the
+    // complete representation when they occur in If-Range.
+    let range_matches = headers.get(header::IF_RANGE).map_or(true, |value| {
+        value.to_str().ok().is_some_and(|value| !value.starts_with("W/") && value == etag)
+    });
+    let range = headers.get(header::RANGE).and_then(|value| value.to_str().ok()).filter(|_| range_matches);
+    let (start,end) = match range { Some(range) => parse_range(len,range)?, None => (0,len.saturating_sub(1)) };
+    let count = if len == 0 { 0 } else { end-start+1 };
+    use tokio::io::AsyncSeekExt;
+    let mut file = tokio::fs::File::open(path).await.map_err(|_| ApiError::not_found("fichier introuvable"))?;
+    file.seek(std::io::SeekFrom::Start(start)).await.map_err(|_| ApiError::not_found("lecture impossible"))?;
+    let stream = futures_util::stream::try_unfold((file,count,permit),|(mut file,remaining,permit)| async move {
+        if remaining == 0 { return Ok::<_,std::io::Error>(None); }
+        use tokio::io::AsyncReadExt;
+        let mut bytes = vec![0;remaining.min(64*1024) as usize];
+        let count = file.read(&mut bytes).await?;
+        if count == 0 { return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof,"file changed while streaming")); }
+        bytes.truncate(count);
+        Ok(Some((Bytes::from(bytes),(file,remaining-count as u64,permit))))
+    });
+    let mut response = Response::builder().status(if range.is_some() { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK })
+        .header(header::CONTENT_TYPE,mime).header(header::CONTENT_LENGTH,count)
+        .header(header::ETAG,etag).header(header::ACCEPT_RANGES,"bytes")
+        .header("X-Content-Type-Options","nosniff").header("Content-Security-Policy","default-src 'none'; sandbox");
+    if range.is_some() { response = response.header(header::CONTENT_RANGE,format!("bytes {start}-{end}/{len}")); }
+    Ok(response.body(axum::body::Body::from_stream(stream)).unwrap())
 }
 
 fn file_etag(path: &std::path::Path, len: u64) -> String {
@@ -1301,7 +1306,7 @@ fn file_etag(path: &std::path::Path, len: u64) -> String {
         .ok()
         .and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
+        .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("\"{len:x}-{mtime:x}\"")
 }
@@ -1314,45 +1319,19 @@ fn if_none_match_fresh(headers: &HeaderMap, etag: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn serve_range(
-    path: &std::path::Path,
-    len: u64,
-    mime: &str,
-    range: &str,
-    etag: &str,
-) -> ApiResult<Response> {
-    // bytes=START-END
-    let range = range
-        .strip_prefix("bytes=")
-        .ok_or_else(|| ApiError::bad_request("invalid_range", "Range invalide"))?;
-    let mut parts = range.splitn(2, '-');
-    let start: u64 = parts
-        .next()
-        .and_then(|s| s.parse().ok())
-        .ok_or_else(|| ApiError::bad_request("invalid_range", "Range invalide"))?;
-    let end: u64 = match parts.next() {
-        Some("") | None => len.saturating_sub(1),
-        Some(e) => e
-            .parse()
-            .map_err(|_| ApiError::bad_request("invalid_range", "Range invalide"))?,
-    };
-    if start > end || start >= len {
-        return Err(ApiError::bad_request("invalid_range", "Range hors limites"));
+fn parse_range(len:u64,range:&str) -> ApiResult<(u64,u64)> {
+    let range = range.strip_prefix("bytes=").ok_or_else(|| ApiError::bad_request("invalid_range","Range invalide"))?;
+    let (first,last) = range.split_once('-').filter(|_| !range.contains(','))
+        .ok_or_else(|| ApiError::bad_request("invalid_range","Range invalide"))?;
+    if len == 0 { return Err(ApiError::bad_request("invalid_range","Range hors limites")); }
+    if first.is_empty() {
+        let suffix:u64 = last.parse().ok().filter(|n| *n>0).ok_or_else(|| ApiError::bad_request("invalid_range","Range invalide"))?;
+        return Ok((len.saturating_sub(suffix),len-1));
     }
-    let end = end.min(len - 1);
-    let data = std::fs::read(path).map_err(|_| ApiError::not_found("fichier introuvable"))?;
-    let slice = data[start as usize..=end as usize].to_vec();
-    Ok(Response::builder()
-        .status(StatusCode::PARTIAL_CONTENT)
-        .header(header::CONTENT_TYPE, mime)
-        .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{len}"))
-        .header(header::CONTENT_LENGTH, slice.len())
-        .header(header::ETAG, etag)
-        .header(header::ACCEPT_RANGES, "bytes")
-        .header("X-Content-Type-Options", "nosniff")
-        .header("Content-Security-Policy", "default-src 'none'; sandbox")
-        .body(axum::body::Body::from(slice))
-        .unwrap())
+    let start:u64 = first.parse().map_err(|_| ApiError::bad_request("invalid_range","Range invalide"))?;
+    let end = if last.is_empty() { len-1 } else { last.parse::<u64>().map_err(|_| ApiError::bad_request("invalid_range","Range invalide"))?.min(len-1) };
+    if start>end || start>=len { return Err(ApiError::bad_request("invalid_range","Range hors limites")); }
+    Ok((start,end))
 }
 
 // ----- admin -----
@@ -1431,10 +1410,7 @@ async fn admin_pairing_start(
 ) -> ApiResult<Json<Value>> {
     require_admin(&state, &headers, &addr.ip().to_string()).await?;
     let hint = body.and_then(|b| b.0.device_name_hint);
-    let mut g = state.inner.lock().await;
-    let p = g
-        .auth
-        .start_pairing(hint)
+    let p = auth_work(&state,move |auth| auth.start_pairing(hint)).await
         .map_err(|e| ApiError::bad_request("pairing_error", e.to_string()))?;
     Ok(Json(json!({
         "ok": true,
@@ -1450,9 +1426,7 @@ async fn admin_pairing_cancel(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     require_admin(&state, &headers, &addr.ip().to_string()).await?;
-    let mut g = state.inner.lock().await;
-    g.auth
-        .cancel_pairing()
+    auth_work(&state,|auth| auth.cancel_pairing()).await
         .map_err(|e| ApiError::bad_request("pairing_error", e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -1490,9 +1464,8 @@ async fn admin_revoke(
     Path(device_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     require_admin(&state, &headers, &addr.ip().to_string()).await?;
-    let mut g = state.inner.lock().await;
-    g.auth
-        .revoke_device(&device_id)
+    let target = device_id.clone();
+    auth_work(&state,move |auth| auth.revoke_device(&target)).await
         .map_err(|_| ApiError::not_found("appareil inconnu"))?;
     Ok(Json(
         json!({ "ok": true, "deviceId": device_id, "revoked": true }),
@@ -1506,10 +1479,8 @@ async fn admin_rotate(
     Path(device_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     require_admin(&state, &headers, &addr.ip().to_string()).await?;
-    let mut g = state.inner.lock().await;
-    let token = g
-        .auth
-        .rotate_device_token(&device_id)
+    let target = device_id.clone();
+    let token = auth_work(&state,move |auth| auth.rotate_device_token(&target)).await
         .map_err(|_| ApiError::not_found("appareil inconnu"))?;
     Ok(Json(json!({
         "ok": true,
@@ -1540,7 +1511,9 @@ async fn read_socket(state: &GatewayState, device: &str) -> ApiResult<tokio_tung
 }
 
 async fn query_readonly(state: &GatewayState, device: &str, query: Value, expected: &str) -> ApiResult<Value> {
-    let mut socket = read_socket(state, device).await?;
+    let _slot = state.read_calls.clone().try_acquire_owned().map_err(|_| ApiError::rate_limited())?;
+    let mut socket = tokio::time::timeout(std::time::Duration::from_secs(5),read_socket(state,device)).await
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Connexion indisponible"))??;
     socket.send(Message::Text(query.to_string().into())).await
         .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Lecture indisponible"))?;
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
@@ -1567,34 +1540,69 @@ async fn live_providers(State(state): State<GatewayState>, headers: HeaderMap) -
 }
 
 async fn live_events(State(state): State<GatewayState>, headers: HeaderMap, Path(thread_id): Path<String>) -> ApiResult<Response> {
-    guard_headers(&state, &headers).await?;
-    let device = require_device(&state, &headers, Scope::ChatRead).await?;
-    let socket = read_socket(&state, &format!("{}-live",device.device_id)).await?;
+    guard_headers(&state,&headers).await?;
+    let device = require_device(&state,&headers,Scope::ChatRead).await?;
     let token = extract_bearer(&headers).ok_or_else(ApiError::unauthorized)?;
-    let stream = futures_util::stream::unfold((socket, thread_id, state, token), |(mut socket, thread_id, state, token)| async move {
-        loop {
-            match tokio::time::timeout(std::time::Duration::from_secs(15), socket.next()).await {
-                Err(_) => {
-                    if state.inner.lock().await.auth.lookup_token(&token).is_none() { return None; }
-                    return Some((Ok::<Bytes,std::io::Error>(Bytes::from_static(b"{}\n")), (socket,thread_id,state,token)));
-                },
-                Ok(Some(Ok(Message::Text(text)))) => {
-                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                        if value.get("type").and_then(Value::as_str) == Some("event") && value.get("threadId").and_then(Value::as_str) == Some(&thread_id) {
-                            if state.inner.lock().await.auth.lookup_token(&token).is_none() { return None; }
-                            let event = value.get("event").cloned().unwrap_or(Value::Null);
-                            return Some((Ok(Bytes::from(format!("{}\n",event))), (socket,thread_id,state,token)));
-                        }
+    let permit = state.live_calls.clone().try_acquire_owned().map_err(|_| ApiError::rate_limited())?;
+    // Subscribers to one conversation share a loopback socket. The weak map
+    // cannot keep it alive after its last HTTP body is dropped.
+    let flight = {
+        let mut flights = state.live_flights.lock().await;
+        flights.retain(|_,flight| flight.strong_count()>0);
+        if let Some(flight) = flights.get(&thread_id).and_then(std::sync::Weak::upgrade) { flight }
+        else { let flight = std::sync::Arc::new(tokio::sync::Mutex::new(())); flights.insert(thread_id.clone(),std::sync::Arc::downgrade(&flight)); flight }
+    };
+    let _flight = flight.lock().await;
+    let channel = {
+        let mut channels = state.live_channels.lock().await;
+        channels.retain(|_,channel| channel.strong_count()>0);
+        channels.get(&thread_id).and_then(std::sync::Weak::upgrade)
+    };
+    let receiver = if let Some(channel) = channel { channel.subscribe() }
+    else {
+        let socket = tokio::time::timeout(std::time::Duration::from_secs(5), read_socket(&state,&format!("{}-live",device.device_id))).await
+            .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY,"offline","Connexion indisponible"))??;
+        let channel = std::sync::Arc::new(tokio::sync::broadcast::channel::<Option<Bytes>>(128).0);
+        let receiver = channel.subscribe();
+        state.live_channels.lock().await.insert(thread_id.clone(),std::sync::Arc::downgrade(&channel));
+        tokio::spawn(async move {
+            let mut socket = socket;
+            let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(1));
+            loop {
+                tokio::select! {
+                    _ = heartbeat.tick() => { if channel.receiver_count()==0 { break; } },
+                    frame = socket.next() => match frame {
+                        Some(Ok(Message::Text(text))) => {
+                            if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                                if value["type"]=="event" && value["threadId"]==thread_id {
+                                    let event = value.get("event").cloned().unwrap_or(Value::Null);
+                                    let _ = channel.send(Some(Bytes::from(format!("{event}\n"))));
+                                }
+                            }
+                        },
+                        Some(Ok(_)) => {},
+                        _ => break,
                     }
                 }
-                Ok(Some(Ok(_))) => {},
-                _ => return None,
             }
-        }
+            let _ = channel.send(None);
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(1),socket.close(None)).await;
+        });
+        receiver
+    };
+    drop(_flight);
+    let stream = futures_util::stream::unfold((receiver,state,token,permit),|(mut receiver,state,token,permit)| async move {
+        // A lagged subscriber reconnects and replays durable history; never hide loss.
+        let event = match tokio::time::timeout(std::time::Duration::from_secs(15),receiver.recv()).await {
+            Ok(Ok(Some(event))) => event,
+            Err(_) => Bytes::from_static(b"{}\n"),
+            _ => return None,
+        };
+        if state.inner.lock().await.auth.lookup_token(&token).is_none() { return None; }
+        Some((Ok::<Bytes,std::io::Error>(event),(receiver,state,token,permit)))
     });
     let stream = futures_util::stream::once(async { Ok::<Bytes,std::io::Error>(Bytes::from_static(b"{}\n")) }).chain(stream);
-    Ok(Response::builder().header(header::CONTENT_TYPE,"application/x-ndjson")
-        .header(header::CACHE_CONTROL,"no-store").body(axum::body::Body::from_stream(stream)).unwrap())
+    Ok(Response::builder().header(header::CONTENT_TYPE,"application/x-ndjson").header(header::CACHE_CONTROL,"no-store").body(axum::body::Body::from_stream(stream)).unwrap())
 }
 
 /// Imports are isolated from project sources. Clients never choose a Mac path.

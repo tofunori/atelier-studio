@@ -41,7 +41,7 @@ export function lazyWithRetry<P extends object>(
 type State = { error: Error | null; attempt: number };
 
 export class LazyBoundary extends React.Component<
-  { fallback: React.ReactNode; children: React.ReactNode },
+  { fallback: React.ReactNode; children: React.ReactNode; errorInTopLayer?: boolean },
   State
 > {
   state: State = { error: null, attempt: 0 };
@@ -52,7 +52,7 @@ export class LazyBoundary extends React.Component<
 
   render() {
     if (this.state.error) {
-      return (
+      const notice = (
         <InlineNotice tone="error" className="lazy-error">
           {t("lazy.chunk-error")}
           <Button
@@ -66,6 +66,13 @@ export class LazyBoundary extends React.Component<
           <span className="lazy-error-detail">{String(this.state.error?.message ?? this.state.error)}</span>
         </InlineNotice>
       );
+      // A fullscreen reader is itself a popover; a normal z-index cannot
+      // place the retry above it when the reading-chat chunk fails to load.
+      return this.props.errorInTopLayer ? (
+        <div className="lazy-error-top-layer" popover="manual" ref={node => { node?.showPopover?.(); }}>
+          {notice}
+        </div>
+      ) : notice;
     }
     // attempt en clé : un retry remonte le sous-arbre et relance l'import
     return (

@@ -14,6 +14,7 @@ pub struct FakeProvider {
     delay_ms: u64,
     structured_review: bool,
     review_text: String,
+    catalogue: Option<(u64, std::sync::Arc<std::sync::atomic::AtomicUsize>)>,
 }
 
 impl FakeProvider {
@@ -23,11 +24,17 @@ impl FakeProvider {
             delay_ms: 5,
             structured_review: false,
             review_text: String::new(),
+            catalogue:None,
         }
     }
 
     pub fn with_delay(mut self, ms: u64) -> Self {
         self.delay_ms = ms;
+        self
+    }
+
+    pub fn with_catalogue(mut self, delay_ms: u64, calls: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Self {
+        self.catalogue = Some((delay_ms,calls));
         self
     }
 
@@ -63,6 +70,13 @@ impl Provider for FakeProvider {
     }
     fn efforts(&self) -> Vec<String> {
         vec!["low".into(), "medium".into(), "high".into()]
+    }
+
+    async fn dynamic_models(&self) -> Option<serde_json::Value> {
+        let (delay, calls) = self.catalogue.as_ref()?;
+        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(*delay)).await;
+        Some(json!({"models":["discovered-model"],"defaultModel":"discovered-model"}))
     }
 
     async fn send(&self, req: SendRequest) -> SendResult {

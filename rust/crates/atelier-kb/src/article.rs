@@ -14,10 +14,8 @@ use regex::Regex;
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
 use std::collections::HashSet;
-use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 pub use crate::article_meta::ArticleMeta;
 
@@ -140,74 +138,22 @@ pub(crate) struct StreamedRun {
 /// stdout dès qu'elle est disponible (MinerU écrit sa progression au fil de
 /// l'eau), pas seulement à la fin comme `gbrain::spawn_with_timeout`.
 pub(crate) fn run_streaming(bin: &str, args: &[&str], timeout: Duration, mut on_line: impl FnMut(&str)) -> StreamedRun {
-    let mut cmd = std::process::Command::new(bin);
-    cmd.args(args);
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            return StreamedRun {
-                status: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                timed_out: false,
-                spawn_error: Some(e.to_string()),
+    let mut pending = Vec::new();
+    let result = crate::process::run(bin, args, None, timeout, |chunk| {
+        let scanned = pending.len();
+        pending.extend_from_slice(chunk);
+        let mut consumed = 0;
+        for (position, byte) in pending.iter().enumerate().skip(scanned) {
+            if *byte == b'\n' {
+                on_line(String::from_utf8_lossy(&pending[consumed..position]).trim_end_matches('\r'));
+                consumed = position + 1;
             }
         }
-    };
-    let stdout_pipe = child.stdout.take();
-    let stderr_pipe = child.stderr.take();
-    let (tx, rx) = mpsc::channel::<String>();
-    let stdout_thread = std::thread::spawn(move || {
-        let mut full = String::new();
-        if let Some(pipe) = stdout_pipe {
-            for line in std::io::BufReader::new(pipe).lines().map_while(Result::ok) {
-                full.push_str(&line);
-                full.push('\n');
-                let _ = tx.send(line);
-            }
-        }
-        full
+        if consumed > 0 { pending.drain(..consumed); }
     });
-    let stderr_thread = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(mut s) = stderr_pipe {
-            let _ = s.read_to_end(&mut buf);
-        }
-        buf
-    });
-
-    let start = Instant::now();
-    let mut timed_out = false;
-    loop {
-        match rx.recv_timeout(Duration::from_millis(50)) {
-            Ok(line) => {
-                on_line(&line);
-                if start.elapsed() > timeout {
-                    let _ = child.kill();
-                    timed_out = true;
-                    break;
-                }
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if start.elapsed() > timeout {
-                    let _ = child.kill();
-                    timed_out = true;
-                    break;
-                }
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-        }
-    }
-    while let Ok(line) = rx.try_recv() {
-        on_line(&line);
-    }
-    let status = child.wait().ok().and_then(|s| s.code());
-    let stdout = stdout_thread.join().unwrap_or_default();
-    let stderr = String::from_utf8_lossy(&stderr_thread.join().unwrap_or_default()).into_owned();
-    StreamedRun { status, stdout, stderr, timed_out, spawn_error: None }
+    if !pending.is_empty() { on_line(&String::from_utf8_lossy(&pending)); }
+    StreamedRun { status: result.status, stdout: String::from_utf8_lossy(&result.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&result.stderr).into_owned(), timed_out: result.timed_out, spawn_error: result.error }
 }
 
 /// Raison d'échec lisible — miroir de `mineruFailure`

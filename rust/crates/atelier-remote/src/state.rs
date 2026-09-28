@@ -83,25 +83,46 @@ pub struct GatewayInner {
 #[derive(Clone)]
 pub struct GatewayState {
     pub inner: Arc<Mutex<GatewayInner>>,
+    pub(crate) catalog_flight: Arc<Mutex<()>>,
+    catalog_revision: Arc<Mutex<Option<String>>>,
+    pub(crate) live_channels: Arc<Mutex<HashMap<String, std::sync::Weak<tokio::sync::broadcast::Sender<Option<axum::body::Bytes>>>>>>,
+    pub(crate) live_flights: Arc<Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>>,
+    pub(crate) scans: Arc<tokio::sync::Semaphore>,
+    pub(crate) read_calls: Arc<tokio::sync::Semaphore>,
+    pub(crate) live_calls: Arc<tokio::sync::Semaphore>,
+    pub(crate) file_calls: Arc<tokio::sync::Semaphore>,
+    pub(crate) gallery_flights: Arc<Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>>,
 }
 
-impl GatewayInner {
-    /// Discover projects created on the Mac after this gateway started.
-    /// Keep the registry and its opaque file IDs intact while refreshing threads.
-    pub fn refresh_catalog(&mut self) {
-        self.threads = ThreadStore::open(self.config.atelier_dir.join("threads.json"));
-        for thread in self.threads.list() {
-            let root = PathBuf::from(&thread.project_root);
-            if !thread.project_root.is_empty() && root.is_dir()
-                && self.projects.get(&crate::path_policy::project_id_for(&root)).is_none()
-            {
-                self.projects.register_project(&root, None);
-            }
-        }
-    }
-}
 
 impl GatewayState {
+    pub(crate) async fn refresh_catalog(&self) -> Result<(), crate::error::ApiError> {
+        let _flight = self.catalog_flight.lock().await;
+        let path = self.inner.lock().await.config.atelier_dir.join("threads.json");
+        let cached = self.catalog_revision.lock().await.clone();
+        let changed = tokio::task::spawn_blocking(move || {
+            let before = ThreadStore::storage_revision(&path).ok();
+            if before.is_some() && before==cached { return None; }
+            let threads = ThreadStore::open(&path);
+            let roots = threads.snapshot().iter().filter_map(|thread| {
+                let root = PathBuf::from(&thread.project_root);
+                (!thread.project_root.is_empty() && root.is_dir()).then_some(root)
+            }).collect::<Vec<_>>();
+            let after = ThreadStore::storage_revision(&path).ok();
+            let revision = before.filter(|revision| Some(revision)==after.as_ref());
+            Some((threads,roots,revision))
+        }).await.map_err(|_| crate::error::ApiError::not_found("catalogue indisponible"))?;
+        if let Some((threads,roots,revision)) = changed {
+            let mut g = self.inner.lock().await;
+            g.threads = threads;
+            for root in roots {
+                if g.projects.get(&crate::path_policy::project_id_for(&root)).is_none() { g.projects.register_project(root,None); }
+            }
+            *self.catalog_revision.lock().await = revision;
+        }
+        Ok(())
+    }
+
     pub fn open(config: GatewayConfig) -> Result<Self, String> {
         std::fs::create_dir_all(&config.data_dir).map_err(|e| e.to_string())?;
         let auth =
@@ -140,6 +161,15 @@ impl GatewayState {
         }
 
         Ok(Self {
+            catalog_flight:Arc::new(Mutex::new(())),
+            catalog_revision:Arc::new(Mutex::new(None)),
+            live_channels:Arc::new(Mutex::new(HashMap::new())),
+            live_flights:Arc::new(Mutex::new(HashMap::new())),
+            scans:Arc::new(tokio::sync::Semaphore::new(2)),
+            read_calls:Arc::new(tokio::sync::Semaphore::new(16)),
+            live_calls:Arc::new(tokio::sync::Semaphore::new(8)),
+            file_calls:Arc::new(tokio::sync::Semaphore::new(16)),
+            gallery_flights:Arc::new(Mutex::new(HashMap::new())),
             inner: Arc::new(Mutex::new(GatewayInner {
                 config,
                 auth,

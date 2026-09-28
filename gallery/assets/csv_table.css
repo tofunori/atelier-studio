@@ -4,7 +4,7 @@
   #csvTools{display:none;align-items:center;gap:8px;margin-left:2px}
   #csvTools.show{display:flex}
   .csvMode{display:inline-flex;padding:2px;background:var(--card2);border:1px solid var(--border);border-radius:7px}
-  .csvMode button{border:0;background:transparent;color:var(--muted);font:600 var(--fs-label, 11px)/1 var(--ui-font);
+  .csvMode button{border:0;background:transparent;color:var(--muted);font:400 var(--fs-label, 11px)/1 var(--ui-font);
                   padding:5px 9px;border-radius:5px;cursor:pointer}
   .csvMode button[aria-pressed="true"]{background:var(--border);color:var(--txt)}
   #csvSearch{width:min(230px,24vw);border:1px solid var(--border);border-radius:6px;background:var(--card2);
@@ -20,7 +20,7 @@
                            border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent);padding:5px 10px;
                            max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #csvTable thead th{position:sticky;top:0;z-index:3;background:color-mix(in srgb,var(--card) 96%,var(--accent) 4%);
-                     color:var(--txt);font-family:var(--ui-font);font-size:var(--fs-label, 11px);font-weight:650;text-align:left;
+                     color:var(--txt);font-family:var(--ui-font);font-size:var(--fs-label, 11px);font-weight:400;text-align:left;
                      letter-spacing:.01em;cursor:pointer;box-shadow:0 1px 0 var(--border)}
   #csvTable thead th:hover{background:color-mix(in srgb,var(--card) 88%,var(--accent) 12%)}
   #csvTable .csvIndex{position:sticky;left:0;z-index:2;width:48px;min-width:48px;max-width:48px;text-align:right;
@@ -40,3 +40,7 @@
   #csvMore{display:none;margin:12px auto 20px;border:1px solid var(--border);border-radius:6px;background:var(--card);
            color:var(--txt);padding:6px 12px;font:var(--fs-body-s, 12px) var(--ui-font);cursor:pointer}
   #csvMore:hover{border-color:var(--accent)}
+
+#csvTable thead th:has(.csvSortButton){padding:0}
+.csvSortButton{display:flex;align-items:center;width:100%;border:0;padding:5px 10px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;min-height:30px}
+.csvSortButton:focus-visible{outline:1px solid var(--focus-ring-color,var(--accent));outline-offset:-2px}

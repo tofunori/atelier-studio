@@ -6,14 +6,14 @@
 
 use axum::{
     body::Body,
-    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use std::{
     path::Path,
     time::{Duration, UNIX_EPOCH},
 };
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tower_http::services::ServeFile;
 
 /// Résultat de l'analyse de l'en-tête `Range`.
 #[derive(Debug, PartialEq, Eq)]
@@ -71,9 +71,9 @@ fn parse_range(header_val: &str, size: u64) -> RangeOutcome {
     RangeOutcome::Partial(start, end.min(size.saturating_sub(1)))
 }
 
-/// ETag faible calculé à partir de mtime (secondes) + taille — bon marché,
+/// ETag faible calculé à partir de mtime (nanosecondes) + taille — bon marché,
 /// suffisant pour détecter un fichier changé sans hacher le contenu.
-fn weak_etag(mtime_secs: u64, size: u64) -> String {
+fn weak_etag(mtime_secs: u128, size: u64) -> String {
     format!("W/\"{mtime_secs}-{size}\"")
 }
 
@@ -99,7 +99,7 @@ pub(crate) fn etag_for_metadata(metadata: &std::fs::Metadata) -> String {
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .unwrap_or(Duration::ZERO)
-        .as_secs();
+        .as_nanos();
     weak_etag(mtime_secs, size)
 }
 
@@ -126,7 +126,7 @@ fn common_headers(resp: &mut Response, etag: &str) {
 
 /// Sert `path` avec Content-Type `content_type`, en honorant `Range`,
 /// `If-None-Match` et `HEAD`. Ne lit du disque que la fenêtre demandée pour
-/// une requête partielle (seek + read_exact) — jamais le fichier entier.
+/// une requête partielle (lecture progressive bornée) — jamais le fichier entier.
 pub(crate) async fn serve_file_ranged(
     path: &Path,
     content_type: &str,
@@ -149,108 +149,134 @@ pub(crate) async fn serve_file_ranged(
         return resp;
     }
 
-    let outcome = headers
-        .get(header::RANGE)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| parse_range(v, size))
-        .unwrap_or(RangeOutcome::Full);
-
-    match outcome {
-        RangeOutcome::Unsatisfiable => {
-            let mut resp = (StatusCode::RANGE_NOT_SATISFIABLE, Body::empty()).into_response();
-            resp.headers_mut().insert(
-                header::CONTENT_RANGE,
-                HeaderValue::from_str(&format!("bytes */{size}"))
-                    .unwrap_or_else(|_| HeaderValue::from_static("bytes */0")),
-            );
-            common_headers(&mut resp, &etag);
-            resp
-        }
-        RangeOutcome::Full => build_full(path, content_type, method, size, &etag).await,
-        RangeOutcome::Partial(start, end) => {
-            build_partial(path, content_type, method, start, end, size, &etag).await
-        }
-    }
-}
-
-async fn build_full(
-    path: &Path,
-    content_type: &str,
-    method: &Method,
-    size: u64,
-    etag: &str,
-) -> Response {
-    let body = if *method == Method::HEAD {
-        Vec::new()
+    // Preserve the existing single-range contract; ServeFile streams the open
+    // file in 64 KiB chunks and stops reading when the client drops the body.
+    // A weak ETag cannot satisfy If-Range (strong comparison is required).
+    let outcome = if headers.contains_key(header::IF_RANGE) {
+        RangeOutcome::Full
     } else {
-        match tokio::fs::read(path).await {
-            Ok(b) => b,
-            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "read failed").into_response(),
-        }
+        headers
+            .get(header::RANGE)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| parse_range(v, size))
+            .unwrap_or(RangeOutcome::Full)
     };
-    let content_length = size;
-    let mut resp = build_response(StatusCode::OK, content_type, content_length, body);
-    common_headers(&mut resp, etag);
-    resp
-}
-
-async fn build_partial(
-    path: &Path,
-    content_type: &str,
-    method: &Method,
-    start: u64,
-    end: u64,
-    size: u64,
-    etag: &str,
-) -> Response {
-    let length = end - start + 1;
-    let mut file = match tokio::fs::File::open(path).await {
-        Ok(f) => f,
+    if outcome == RangeOutcome::Unsatisfiable {
+        let mut resp = (StatusCode::RANGE_NOT_SATISFIABLE, Body::empty()).into_response();
+        resp.headers_mut().insert(
+            header::CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes */{size}")).expect("numeric range"),
+        );
+        common_headers(&mut resp, &etag);
+        return resp;
+    }
+    let mut request = Request::builder()
+        .method(method.clone())
+        .uri("/")
+        .body(Body::empty())
+        .expect("static file request");
+    if let RangeOutcome::Partial(start, end) = outcome {
+        request.headers_mut().insert(
+            header::RANGE,
+            HeaderValue::from_str(&format!("bytes={start}-{end}")).expect("numeric range"),
+        );
+    }
+    let mut response = match ServeFile::new(path)
+        .with_buf_chunk_size(64 * 1024)
+        .try_call(request)
+        .await
+    {
+        Ok(response) => response.map(Body::new),
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "read failed").into_response(),
     };
-    if file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
-        return (StatusCode::INTERNAL_SERVER_ERROR, "seek failed").into_response();
-    }
-    let body = if *method == Method::HEAD {
-        Vec::new()
-    } else {
-        let mut buf = vec![0u8; length as usize];
-        if file.read_exact(&mut buf).await.is_err() {
-            return (StatusCode::INTERNAL_SERVER_ERROR, "read failed").into_response();
-        }
-        buf
-    };
-    let mut resp = build_response(StatusCode::PARTIAL_CONTENT, content_type, length, body);
-    resp.headers_mut().insert(
-        header::CONTENT_RANGE,
-        HeaderValue::from_str(&format!("bytes {start}-{end}/{size}"))
-            .unwrap_or_else(|_| HeaderValue::from_static("bytes */0")),
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(content_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
-    common_headers(&mut resp, etag);
-    resp
-}
-
-fn build_response(
-    status: StatusCode,
-    content_type: &str,
-    content_length: u64,
-    body: Vec<u8>,
-) -> Response {
-    Response::builder()
-        .status(status)
-        .header(
-            header::CONTENT_TYPE,
-            HeaderValue::from_str(content_type)
-                .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
-        )
-        .header(header::CONTENT_LENGTH, content_length)
-        .body(Body::from(body))
-        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "response").into_response())
+    common_headers(&mut response, &etag);
+    response
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn large_bodies_are_streamed_in_bounded_chunks() {
+        use axum::body::HttpBody;
+        let file = tempfile::NamedTempFile::new().unwrap();
+        file.as_file().set_len(16 * 1024 * 1024).unwrap();
+        let response = serve_file_ranged(
+            file.path(),
+            "application/pdf",
+            &Method::GET,
+            &HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_LENGTH], "16777216");
+        let mut body = response.into_body();
+        let frame = std::future::poll_fn(|cx| std::pin::Pin::new(&mut body).poll_frame(cx))
+            .await
+            .unwrap()
+            .unwrap();
+        let bytes = frame.into_data().unwrap();
+        assert!(!bytes.is_empty());
+        assert!(bytes.len() <= 64 * 1024);
+        // Dropping the body here never materializes the remaining 16 MiB.
+    }
+
+    #[tokio::test]
+    async fn range_suffix_head_and_if_range_keep_http_contracts() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"0123456789abcdefghij").unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::RANGE, HeaderValue::from_static("bytes=-4"));
+        let response =
+            serve_file_ranged(file.path(), "application/pdf", &Method::GET, &headers).await;
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 16-19/20");
+        assert_eq!(
+            &axum::body::to_bytes(response.into_body(), 100)
+                .await
+                .unwrap()[..],
+            b"ghij"
+        );
+        let response =
+            serve_file_ranged(file.path(), "application/pdf", &Method::HEAD, &headers).await;
+        assert!(
+            axum::body::to_bytes(response.into_body(), 100)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        headers.insert(header::IF_RANGE, HeaderValue::from_static("W/\"old\""));
+        assert_eq!(
+            serve_file_ranged(file.path(), "application/pdf", &Method::GET, &headers)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
+
+    #[test]
+    fn same_second_same_size_edits_change_the_etag() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"pdf").unwrap();
+        let time = UNIX_EPOCH + Duration::new(1234, 1000);
+        file.as_file()
+            .set_times(std::fs::FileTimes::new().set_modified(time))
+            .unwrap();
+        let first = etag_for_metadata(&file.as_file().metadata().unwrap());
+        file.as_file()
+            .set_times(std::fs::FileTimes::new().set_modified(time + Duration::from_nanos(1000)))
+            .unwrap();
+        assert_ne!(
+            first,
+            etag_for_metadata(&file.as_file().metadata().unwrap())
+        );
+    }
 
     #[test]
     fn range_normal_start_end() {

@@ -624,8 +624,8 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   });
 
   it("les contrôles partagent une géométrie et une bordure interactive communes", () => {
-    expect(tokens).toContain("--control-height: 30px");
-    expect(tokens).toContain("--control-height-compact: 26px");
+    expect(tokens).toContain("--control-height: calc(var(--ui-base-size, 15px) * 2)");
+    expect(tokens).toMatch(/--control-height-compact: calc\(var\(--ui-base-size, 15px\) \* 1\.7333/);
     expect(tokens).toContain("--border-interactive:");
     expect(shadcn).toContain("--color-background: var(--background)");
     expect(shadcn).toContain("--color-ring: var(--ring)");

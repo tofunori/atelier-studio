@@ -20,6 +20,7 @@ import { Clock3Icon, RefreshCwIcon, ServerIcon, SquareTerminalIcon } from "lucid
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import { clusterSshCommand, useIntegrations, type IntegrationsEffective } from "../lib/integrations";
+import { isSurfaceVisible } from "../lib/surfaceKeyboard";
 import NarvalSurface from "./NarvalSurface";
 import { Alert, AlertDescription, AlertTitle } from "./shadcn/alert";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "./shadcn/empty";
@@ -440,15 +441,15 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     return () => window.clearInterval(timer);
   }, [slurmView, visible]);
 
-  // Échap replie la rangée ouverte.
-  useEffect(() => {
-    if (!visible || slurmView || !openRunId) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenRunId(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [openRunId, slurmView, visible]);
+  // Bubble after child menus, before App's global Escape-to-interrupt handler.
+  function onSurfaceKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.defaultPrevented || event.key !== "Escape" || !visible || !openRunId) return;
+    if (!event.currentTarget.contains(event.target as Node) || !isSurfaceVisible(event.currentTarget)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.querySelector<HTMLButtonElement>('.calculs-run-head[aria-expanded="true"]')?.focus();
+    setOpenRunId(null);
+  }
 
   const changeHost = (next: HostFilter) => {
     if (next === hostFilter) return;
@@ -497,7 +498,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   }
 
   return (
-    <div className="calculs-shell" data-visible={visible}>
+    <div className="calculs-shell" data-visible={visible} onKeyDown={onSurfaceKeyDown}>
       <main className="calculs-main">
         <header className="calculs-toolbar">
           <h1>{t("calculs.title")}</h1>
@@ -669,7 +670,7 @@ const RunRow = memo(function RunRow({ run, open, now, forgetError, onToggle, onF
         className="calculs-run-head"
         aria-expanded={open}
         aria-controls={open ? bodyId : undefined}
-        onClick={() => onToggle(run.id)}
+        onClick={(event) => { event.currentTarget.focus(); onToggle(run.id); }}
       >
         <StatusBadge status={run.lastKnownAt != null ? "neutral" : stateTone(run.state)}>{run.lastKnownAt != null ? t("calculs.last-known", { state: stateLabel(run.state) }) : stateLabel(run.state)}</StatusBadge>
         <span className="calculs-run-identity">

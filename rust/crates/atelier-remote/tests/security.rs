@@ -1409,3 +1409,120 @@ async fn gallery_favorites_share_project_state_and_preserve_metadata() {
     assert_eq!(std::fs::read(&state_path).unwrap(), b"invalid JSON");
     h.shutdown().await;
 }
+
+#[tokio::test]
+async fn streamed_sparse_range_and_etag_leave_auth_available() {
+    use std::io::{Seek,Write};
+    let (handle,admin,host) = boot().await;
+    let base = handle.base_url();
+    let (_,token) = pair_device(&base,&admin,&host,"range").await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut file = std::fs::File::create(dir.path().join("large.pdf")).unwrap();
+    let size = 32 * 1024 * 1024;
+    file.set_len(size).unwrap();
+    file.seek(std::io::SeekFrom::End(-8)).unwrap();
+    file.write_all(b"tail-end").unwrap();
+    drop(file);
+    let project = handle.state.inner.lock().await.projects.register_project(dir.path(),None).project_id;
+    let url = format!("{base}/remote/v1/files/{project}/large.pdf");
+    let response = client().get(&url).header("host",&host).header("x-atelier-device-token",&token).header("range","bytes=-8").send().await.unwrap();
+    assert_eq!(response.status(),206);
+    assert_eq!(response.headers()["content-length"],"8");
+    let etag = response.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(response.bytes().await.unwrap().as_ref(),b"tail-end");
+    let response = client().get(&url).header("host",&host).header("x-atelier-device-token",&token).header("if-none-match",&etag).send().await.unwrap();
+    assert_eq!(response.status(),304);
+    let pending_body = client().get(&url).header("host",&host).header("x-atelier-device-token",&token).send().await.unwrap();
+    let health = tokio::time::timeout(Duration::from_secs(1),client().get(format!("{base}/remote/health")).header("host",&host).header("x-atelier-device-token",&token).send()).await.unwrap().unwrap();
+    assert_eq!(health.status(),200);
+    drop(pending_body);
+    std::fs::write(dir.path().join("large.pdf"), b"new revision").unwrap();
+    let response = client().get(&url).header("host",&host).header("x-atelier-device-token",&token)
+        .header("range","bytes=0-2").header("if-range",&etag).send().await.unwrap();
+    assert_eq!(response.status(),200);
+    let current_etag = response.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(response.bytes().await.unwrap().as_ref(),b"new revision");
+    for (validator,status,expected) in [(format!("W/{current_etag}"),200,b"new revision".as_slice()),(current_etag,206,b"new".as_slice())] {
+        let response = client().get(&url).header("host",&host).header("x-atelier-device-token",&token)
+            .header("range","bytes=0-2").header("if-range",validator).send().await.unwrap();
+        assert_eq!(response.status().as_u16(),status);
+        assert_eq!(response.bytes().await.unwrap().as_ref(),expected);
+    }
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn read_rate_budget_does_not_prevent_stop() {
+    let (handle,admin,host) = boot().await;
+    let base = handle.base_url();
+    let (_,token) = pair_device(&base,&admin,&host,"budget").await;
+    handle.state.inner.lock().await.api_limiter = atelier_remote::rate_limit::RateLimiter::new(Duration::from_secs(60),1);
+    for expected in [200,429] {
+        let response = client().get(format!("{base}/remote/v1/projects")).header("host",&host).header("x-atelier-device-token",&token).send().await.unwrap();
+        assert_eq!(response.status().as_u16(),expected);
+    }
+    for expected in [200,429] {
+        let response = client().post(format!("{base}/remote/v1/threads")).header("host",&host).header("x-atelier-device-token",&token)
+            .json(&json!({"title":"budget", "provider":"codex"})).send().await.unwrap();
+        assert_eq!(response.status().as_u16(),expected);
+    }
+    let response = client().post(format!("{base}/remote/v1/interrupt")).header("host",&host).header("x-atelier-device-token",&token).json(&json!({"threadId":"thread"})).send().await.unwrap();
+    assert_eq!(response.status(),200);
+    handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn live_subscribers_share_one_loopback_and_revoke_independently() {
+    use futures_util::{SinkExt,StreamExt};
+    use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let connections = Arc::new(AtomicUsize::new(0));
+    let counter = connections.clone();
+    let (events,_) = tokio::sync::broadcast::channel::<String>(16);
+    let outgoing = events.clone();
+    let sidecar = tokio::spawn(async move {
+        loop {
+            let (stream,_) = listener.accept().await.unwrap();
+            counter.fetch_add(1,Ordering::SeqCst);
+            let mut events = outgoing.subscribe();
+            tokio::spawn(async move {
+                let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+                loop {
+                    tokio::select! {
+                        message = events.recv() => match message { Ok(message) => { if socket.send(tokio_tungstenite::tungstenite::Message::Text(message.into())).await.is_err() { break; } }, Err(_) => break },
+                        frame = socket.next() => { if frame.is_none() { break; } },
+                    }
+                }
+            });
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = test_config(dir.path());
+    config.sidecar_base = Some(format!("http://127.0.0.1:{port}"));
+    let (handle,admin,host) = boot_with_config(config).await;
+    let base = handle.base_url();
+    let (first_id,first_token) = pair_device(&base,&admin,&host,"first").await;
+    let (_,second_token) = pair_device(&base,&admin,&host,"second").await;
+    let url = format!("{base}/remote/v1/threads/shared/live");
+    let (first,second) = tokio::join!(
+        client().get(&url).header("host",&host).header("x-atelier-device-token",&first_token).send(),
+        client().get(&url).header("host",&host).header("x-atelier-device-token",&second_token).send(),
+    );
+    let mut first = first.unwrap();
+    let mut second = second.unwrap();
+    assert_eq!(first.status(),200);
+    assert_eq!(second.status(),200);
+    assert_eq!(connections.load(Ordering::SeqCst),1);
+    assert_eq!(first.chunk().await.unwrap().unwrap().as_ref(),b"{}\n");
+    assert_eq!(second.chunk().await.unwrap().unwrap().as_ref(),b"{}\n");
+    let revoke = client().post(format!("{base}/remote/admin/devices/{first_id}/revoke")).header("host",&host).header("x-atelier-admin-token",&admin).send().await.unwrap();
+    assert_eq!(revoke.status(),200);
+    events.send(json!({"type":"event","threadId":"shared","event":{"kind":"delta","text":"hello"}}).to_string()).unwrap();
+    assert!(tokio::time::timeout(Duration::from_secs(1),first.chunk()).await.unwrap().unwrap().is_none());
+    let chunk = tokio::time::timeout(Duration::from_secs(1),second.chunk()).await.unwrap().unwrap().unwrap();
+    assert!(String::from_utf8_lossy(&chunk).contains("hello"));
+    drop(second);
+    sidecar.abort();
+    handle.shutdown().await;
+}

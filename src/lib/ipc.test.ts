@@ -74,6 +74,8 @@ describe("isTrustedAtelierMessage", () => {
   it("accepte « Joindre le PDF au chat » avec un chemin et refuse une clé en trop", () => {
     const ok = { type: "atelier-attach-pdf", nonce, rel: "zotero/ABCD1234/Warren 1982.pdf" };
     expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", ok), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, requestId: "pdf-1" }), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, requestId: 42 }), nonce)).toBe(false);
     expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, rel: "" }), nonce)).toBe(false);
     expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, direct: true }), nonce)).toBe(false);
   });

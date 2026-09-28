@@ -2,6 +2,7 @@ import * as React from "react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 
 import { cn } from "@/lib/utils"
+import { t } from "@/lib/i18n"
 import { Button } from "@/components/shadcn/button"
 import { XIcon } from "lucide-react"
 
@@ -57,7 +58,7 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
-  closeLabel = "Close",
+  closeLabel = t("action.close"),
   overlayClassName,
   ...props
 }: DialogPrimitive.Popup.Props & {
@@ -112,10 +113,12 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 function DialogFooter({
   className,
   showCloseButton = false,
+  closeLabel = t("action.close"),
   children,
   ...props
 }: React.ComponentProps<"div"> & {
   showCloseButton?: boolean
+  closeLabel?: React.ReactNode
 }) {
   return (
     <div
@@ -129,7 +132,7 @@ function DialogFooter({
       {children}
       {showCloseButton && (
         <DialogPrimitive.Close render={<Button variant="outline" />}>
-          Close
+          {closeLabel}
         </DialogPrimitive.Close>
       )}
     </div>

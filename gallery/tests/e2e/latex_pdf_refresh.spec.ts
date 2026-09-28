@@ -77,3 +77,55 @@ for (const zoom of [1, 0.1]) {
       .toEqual({oldRemoved: true, scroll: true, blankFrames: 0, painted: true});
   });
 }
+
+test('zoom reuses document and text while variable page sizes keep SyncTeX coordinates', async ({page}) => {
+  await page.setContent('<div id="right"><div id="marker"></div></div>');
+  await page.addStyleTag({content: css + '\n#right{position:absolute;top:0;left:0;width:624px;height:650px;}'});
+  await page.addScriptTag({content: bundle});
+  await page.evaluate(async () => {
+    window.zoom = 1;
+    window.downloads = 0;
+    window.texts = {};
+    window.decodes = {};
+    window.fetch = ((async () => ({ok: true, json: async () => ({mtime: 1})})) as unknown as typeof window.fetch);
+    const pdfjs = {
+      getDocument() {
+        downloads++;
+        return {promise: Promise.resolve({numPages: 8, getPage: async (number) => {
+          decodes[number] = (decodes[number] || 0) + 1;
+          return {
+            getViewport: ({scale}) => ({width: (number === 2 ? 300 : 600) * scale, height: (number === 2 ? 600 : 800) * scale}),
+            getTextContent: async () => {texts[number] = (texts[number] || 0) + 1; return {};},
+            render: ({canvasContext, viewport}) => ({promise: Promise.resolve().then(() => {
+              canvasContext.fillStyle = '#336699'; canvasContext.fillRect(0, 0, viewport.width, viewport.height);
+            })}),
+          };
+        }})};
+      },
+      TextLayer: class {container = null as HTMLElement;constructor({container}) {this.container = container;} async render() {this.container.textContent = 'Selectable text';}},
+    };
+    window.controller = PdfSync.createLatexPdfSyncController({path: '/test.tex', isPdfMode: false,
+      getPdfPath: () => '/test.pdf', getZoom: () => zoom, getEditor: () => null,
+      right: document.getElementById('right'), marker: document.getElementById('marker'), pdfjs,
+      channel: null, setState(..._args) {}, revealLine(..._args) {}});
+    await controller.loadPdf();
+    controller.showMarker(2, 100);
+  });
+  await expect.poll(() => page.evaluate(() => document.querySelector('.pdfpage[data-page="2"] .textLayer')?.textContent)).toBe('Selectable text');
+  const initial = await page.evaluate(() => ({
+    marker: parseFloat(document.getElementById('marker').style.top) + 14,
+    width: parseFloat((document.querySelector('.pdfpage[data-page="2"]') as HTMLElement).style.width),
+  }));
+  expect(initial.marker).toBeCloseTo(100 * initial.width / 300);
+  await page.evaluate(async () => {zoom = 1.5; await controller.loadPdf(); controller.showMarker(2, 100);});
+  await expect.poll(() => page.evaluate(() => document.querySelector('.pdfpage[data-page="2"] .textLayer')?.textContent)).toBe('Selectable text');
+  const rendered = await page.evaluate(() => ({downloads, textReads: texts[2], pageReads: decodes[2],
+    marker: parseFloat(document.getElementById('marker').style.top) + 14,
+    width: parseFloat((document.querySelector('.pdfpage[data-page="2"]') as HTMLElement).style.width),
+    height: parseFloat((document.querySelector('.pdfpage[data-page="2"]') as HTMLElement).style.height)}));
+  expect({downloads: rendered.downloads, textReads: rendered.textReads, pageReads: rendered.pageReads})
+    .toEqual({downloads: 1, textReads: 1, pageReads: 1});
+  // Account for the real WebKit scrollbar width; coordinates follow the page.
+  expect(rendered.marker).toBeCloseTo(100 * rendered.width / 300);
+  expect(rendered.height).toBeCloseTo(600 * rendered.width / 300);
+});

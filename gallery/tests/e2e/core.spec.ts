@@ -326,8 +326,8 @@ test('export and delete use selected files without mutating disk when endpoints 
     await page.locator('[data-exp="zip"]').click();
     await expect.poll(() => calls.export).toEqual({ mode: 'zip', rels: ['plot-beta.svg'] });
 
-    await page.getByRole('button', { name: 'More selection actions' }).click();
-    await page.getByRole('menuitem', { name: 'Move to Trash' }).click();
+    await page.getByRole('button', { name: 'Autres actions de sélection' }).click();
+    await page.getByRole('menuitem', { name: 'Déplacer dans la corbeille' }).click();
     await expect(page.getByRole('alertdialog')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Move 1 file to Trash?' })).toBeVisible();
     await expect(page.getByRole('alertdialog')).toContainText('You can recover it from Trash.');
@@ -831,7 +831,7 @@ test('detailed list: real files, shared selection, sorting, resizing and present
     await expect(page.locator('#grid .selbox.on')).toHaveCount(1);
     await page.getByRole('button',{name:'Liste détaillée',exact:true}).click();
     await expect(page.locator('#grid .bulk-selected')).toHaveCount(1);
-    await page.getByRole('button',{name:'Clear selection',exact:true}).click();
+    await page.getByRole('button',{name:'Effacer la sélection',exact:true}).click();
     await page.getByRole('button',{name:'Présentation',exact:true}).click();
     await page.getByRole('button',{name:'Compacte',exact:true}).click();
     await page.keyboard.press('Escape');

@@ -121,8 +121,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
           new MouseEvent('click', {bubbles: true}))),
     ]);
     const envoi = JSON.parse(requete.postData() || '{}');
-    await expect(fr().locator('#selPill .go')).toHaveText('✓');
-    await expect(fr().locator('#selPill')).toBeHidden();
+    await expect(fr().locator('#selPill .go')).toHaveAttribute('title', 'Ajouté au chat');
     console.log('ENVOI ' + JSON.stringify({page: envoi.page, text: envoi.text, rel: envoi.rel}));
     expect(envoi.page).toBe('L7-7');
     // Le texte envoyé est le SOURCE (avec \cite), pas le rendu : c'est lui qui
@@ -237,8 +236,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
           new MouseEvent('click', {bubbles: true}))),
     ]);
     const courtPayload = JSON.parse(envoiCourt.postData() || '{}');
-    await expect(fr().locator('#selPill .go')).toHaveText('✓');
-    await expect(fr().locator('#selPill')).toBeHidden();
+    await expect(fr().locator('#selPill .go')).toHaveAttribute('title', 'Ajouté au chat');
     console.log('COURT ' + JSON.stringify({text: courtPayload.text, page: courtPayload.page}));
     expect(courtPayload.text).toBe('500~m');
 

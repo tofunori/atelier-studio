@@ -4,6 +4,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuGroup, 
 import { Button, IconButton } from "../ui";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { t } from "../../lib/i18n";
+import { moveDocumentTabFocus } from "../../lib/surfaceKeyboard";
 import "../../styles/document-tabs.css";
 
 export type ProjectChatTab = { id: string; title: string; status?: string };
@@ -39,8 +40,8 @@ export function ProjectChatTabs(p: {
   }, [p.activeId, visible]);
 
   return <span className="project-chat-tabs" role="group" aria-label={t("chat.project-chats")}>
-    <span className="project-chat-tabs-list" ref={list}>
-      {visible.map((chat, index) => {
+    <span className="project-chat-tabs-list" ref={list} onKeyDown={event => moveDocumentTabFocus(event, ".project-chat-tab")}>
+      {visible.map((chat) => {
         const isUnread = p.unread?.has(chat.id) && chat.id !== p.activeId && chat.status !== "running";
         const unreadLabel = `${t("chat.turn-done")} · ${t("sidebar.unread")}`;
         const pinned = p.controls?.pinnedIds.includes(chat.id) ?? false;
@@ -54,14 +55,6 @@ export function ProjectChatTabs(p: {
         aria-label={`${chat.title || t("app.new-chat-title")}${isUnread ? ` — ${unreadLabel}` : ""}`}
         title={isUnread ? unreadLabel : undefined}
         onClick={() => p.onSelect(chat.id)}
-        onKeyDown={(event) => {
-          const next = event.key === "ArrowRight" ? (index + 1) % visible.length
-            : event.key === "ArrowLeft" ? (index - 1 + visible.length) % visible.length
-            : event.key === "Home" ? 0 : event.key === "End" ? visible.length - 1 : null;
-          if (next === null) return;
-          event.preventDefault();
-          list.current?.querySelectorAll<HTMLButtonElement>(".project-chat-tab")[next]?.focus();
-        }}
       >{pinned && <svg className="project-chat-pin tw:size-[10px]" width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><g transform="rotate(35 8 8)"><path d="M5 2.5h6v1.2l-1 .6v3l1.5 1.5v1H8.6v3.4L8 14l-.6-.8V9.8H4.5v-1L6 7.3v-3l-1-.6z" /></g></svg>}<span className="project-chat-tab-label">{chat.title || t("app.new-chat-title")}</span>{isUnread && <span className="project-chat-tab-unread" aria-hidden="true" />}</Button>
       {p.controls && !pinned && <IconButton size="s" className="project-chat-tab-close document-tab-close"
         label={`${t("action.close-tab")} — ${chat.title || t("app.new-chat-title")}`}

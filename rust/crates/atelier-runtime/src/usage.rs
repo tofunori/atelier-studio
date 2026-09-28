@@ -197,11 +197,9 @@ pub fn codex_rate_limits(base: &Path) -> Option<Value> {
     all_jsonl(base, 0, &mut files);
     files.sort_by(|a, b| b.1.cmp(&a.1));
     for (path, mtime_ms) in files.into_iter().take(10) {
-        let Ok(raw) = fs::read_to_string(&path) else {
-            continue;
-        };
-        for line in raw.lines().rev() {
-            let Ok(v) = serde_json::from_str::<Value>(line) else {
+        let Ok(lines) = atelier_store::ReverseLines::open(&path) else { continue; };
+        for line in lines.filter_map(Result::ok) {
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
             let Some(pl) = v.get("payload") else { continue };
@@ -236,12 +234,12 @@ pub fn codex_rate_limits(base: &Path) -> Option<Value> {
 /// `billing: fetched credits config`, écrite à chaque démarrage du TUI grok
 /// (d'où `stale_s` pour afficher la fraîcheur).
 pub fn grok_credits(log_path: &Path, now_epoch_s: u64) -> Option<Value> {
-    let raw = fs::read_to_string(log_path).ok()?;
-    for line in raw.lines().rev() {
+    let lines = atelier_store::ReverseLines::open(log_path).ok()?;
+    for line in lines.filter_map(Result::ok) {
         if !line.contains("billing: fetched credits config") {
             continue;
         }
-        let Ok(v) = serde_json::from_str::<Value>(line) else {
+        let Ok(v) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
         let cfg = v.pointer("/ctx/config")?;
@@ -275,6 +273,76 @@ pub fn grok_credits(log_path: &Path, now_epoch_s: u64) -> Option<Value> {
 /// Tokens kimi du jour, sommés depuis les `usage.record` des `wire.jsonl`
 /// (kimi n'expose aucun quota — cf. mémoire kimi ACP : jamais d'usage dans
 /// la réponse `session/prompt`). `None` si `~/.kimi-code/sessions` absent.
+#[derive(Default)]
+struct KimiCursor {
+    offset: u64,
+    length: u64,
+    modified: Option<SystemTime>,
+    inode: u64,
+    midnight: u64,
+    fingerprint: Option<u64>,
+    totals: [u64; 3],
+    observed: [u64; 3],
+}
+
+// Check both ends of the consumed prefix. This catches copy-truncate logs
+// which regrow past the old cursor between polls without changing the inode.
+fn kimi_prefix_fingerprint(file: &mut fs::File, offset: u64) -> std::io::Result<u64> {
+    use std::hash::{Hash, Hasher};
+    use std::io::{Read, Seek, SeekFrom};
+    let count = offset.min(1024) as usize;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for position in [0, offset.saturating_sub(count as u64)] {
+        file.seek(SeekFrom::Start(position))?;
+        let mut bytes = vec![0; count]; file.read_exact(&mut bytes)?;
+        bytes.hash(&mut hasher);
+    }
+    Ok(hasher.finish())
+}
+
+fn kimi_file_totals(path: &Path, midnight: u64) -> Option<[u64; 3]> {
+    use std::io::{BufRead, Seek, SeekFrom};
+    static CURSORS: OnceLock<Mutex<std::collections::HashMap<PathBuf, KimiCursor>>> = OnceLock::new();
+    let mut file = fs::File::open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    #[cfg(unix)] let inode = { use std::os::unix::fs::MetadataExt; metadata.ino() };
+    #[cfg(not(unix))] let inode = 0;
+    let mut cursors = CURSORS.get_or_init(Default::default).lock().ok()?;
+    if cursors.len() >= 512 && !cursors.contains_key(path) { cursors.clear(); }
+    let cursor = cursors.entry(path.to_path_buf()).or_default();
+    let modified = metadata.modified().ok();
+    let rewritten = cursor.offset > 0 && metadata.len() >= cursor.offset
+        && cursor.fingerprint != Some(kimi_prefix_fingerprint(&mut file, cursor.offset).ok()?);
+    if rewritten || cursor.inode != inode || cursor.midnight != midnight || metadata.len() < cursor.length
+        || (metadata.len() == cursor.length && modified != cursor.modified) {
+        *cursor = KimiCursor { inode, midnight, ..Default::default() };
+    }
+    if metadata.len() == cursor.length && modified == cursor.modified { return Some(cursor.observed); }
+    file.seek(SeekFrom::Start(cursor.offset)).ok()?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = Vec::new();
+    let mut provisional = [0; 3];
+    loop {
+        line.clear();
+        let read = reader.read_until(b'\n', &mut line).ok()?;
+        if read == 0 { break; }
+        let counts = serde_json::from_slice::<Value>(&line).ok().filter(|v|
+            v["type"] == "usage.record" && v["usageScope"] == "turn" && v["time"].as_u64().unwrap_or(0) >= midnight)
+            .map(|v| { let u = &v["usage"]; let g = |key: &str| u[key].as_u64().unwrap_or(0);
+                [g("inputOther") + g("inputCacheRead") + g("inputCacheCreation"), g("output"), 1] }).unwrap_or([0; 3]);
+        if line.last() != Some(&b'\n') {
+            // Do not commit an unterminated line: the next append may finish it.
+            provisional = counts; break;
+        }
+        cursor.offset += read as u64;
+        for (total, count) in cursor.totals.iter_mut().zip(counts) { *total += count; }
+    }
+    cursor.fingerprint = Some(kimi_prefix_fingerprint(reader.get_mut(), cursor.offset).ok()?);
+    cursor.length = metadata.len(); cursor.modified = modified;
+    cursor.observed = std::array::from_fn(|i| cursor.totals[i] + provisional[i]);
+    Some(cursor.observed)
+}
+
 pub fn kimi_today(base: &Path, midnight_ms: u64) -> Option<Value> {
     if !base.is_dir() {
         return None;
@@ -295,24 +363,8 @@ pub fn kimi_today(base: &Path, midnight_ms: u64) -> Option<Value> {
             if !fresh {
                 continue;
             }
-            let Ok(raw) = fs::read_to_string(&wire) else {
-                continue;
-            };
-            for line in raw.lines() {
-                let Ok(v) = serde_json::from_str::<Value>(line) else {
-                    continue;
-                };
-                if v.get("type").and_then(Value::as_str) != Some("usage.record")
-                    || v.get("usageScope").and_then(Value::as_str) != Some("turn")
-                    || v.get("time").and_then(Value::as_u64).unwrap_or(0) < midnight_ms
-                {
-                    continue;
-                }
-                let Some(u) = v.get("usage") else { continue };
-                let g = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
-                input += g("inputOther") + g("inputCacheRead") + g("inputCacheCreation");
-                output += g("output");
-                turns += 1;
+            if let Some([file_input, file_output, file_turns]) = kimi_file_totals(&wire, midnight_ms) {
+                input += file_input; output += file_output; turns += file_turns;
             }
         }
     }
@@ -588,6 +640,36 @@ mod tests {
         assert_eq!(out.get("input").unwrap().as_u64().unwrap(), 325);
         assert_eq!(out.get("output").unwrap().as_u64().unwrap(), 10);
         assert_eq!(out.get("turns").unwrap().as_u64().unwrap(), 1);
+    }
+
+    #[test]
+    fn kimi_cursor_handles_append_partial_truncation_rotation_and_day_change() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wire.jsonl");
+        let row = json!({"type":"usage.record", "usageScope":"turn", "time":1001,
+            "usage":{"inputOther":7,"output":3}}).to_string();
+        fs::write(&path, &row).unwrap();
+        assert_eq!(kimi_file_totals(&path, 1000), Some([7, 3, 1]));
+        assert_eq!(kimi_file_totals(&path, 1000), Some([7, 3, 1]));
+        let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        write!(file, "\n{row}\n{{").unwrap();
+        assert_eq!(kimi_file_totals(&path, 1000), Some([14, 6, 2]));
+        write!(file, "{}\n", &row[1..]).unwrap();
+        assert_eq!(kimi_file_totals(&path, 1000), Some([21, 9, 3]));
+        fs::write(&path, format!("{row}\n")).unwrap();
+        assert_eq!(kimi_file_totals(&path, 1000), Some([7, 3, 1]));
+        let replacement = dir.path().join("new");
+        fs::write(&replacement, format!("{row}\n{row}\n")).unwrap();
+        fs::rename(replacement, &path).unwrap();
+        assert_eq!(kimi_file_totals(&path, 1000), Some([14, 6, 2]));
+        assert_eq!(kimi_file_totals(&path, 1002), Some([0, 0, 0]));
+        let big_row = json!({"type":"usage.record", "usageScope":"turn", "time":1001,
+            "usage":{"inputOther":100,"output":30}}).to_string();
+        fs::write(&path, format!("{row}\n")).unwrap();
+        assert_eq!(kimi_file_totals(&path, 1000), Some([7, 3, 1]));
+        fs::write(&path, format!("{big_row}\n{big_row}\n")).unwrap();
+        assert_eq!(kimi_file_totals(&path, 1000), Some([200, 60, 2]));
     }
 
     #[test]

@@ -38,30 +38,31 @@ test("une peinture en vol est annulée et son abandon n'est pas une erreur", () 
   assert.match(html, /function cancelRender\(slot\s*\)\{[\s\S]*?slot\.task\.cancel\(\)/);
   assert.match(html, /RenderingCancelledException/);
   // sortie d'écran et nouvelle génération annulent toutes les deux
-  assert.match(html, /slot\.want = false;\s*\n\s*cancelRender\(slot\);/);
-  assert.match(html, /for \(const old of _slots\) cancelRender\(old\);/);
-  // le drapeau `rendering` est TOUJOURS rendu, même sur annulation
-  assert.match(html, /finally \{ slot\.rendering = false; \}/);
+  assert.match(html, /slot\.want = false;\s*\n\s*cancelRender\(slot\s*\);/);
+  assert.match(html, /for \(const old of _slots\) \{[^\n]*pdfRenderScheduler\.cancel\(old\); cancelRender\(old\);/);
+  assert.match(html, /if \(slot\.task === task\) slot\.task = null;/);
 });
 
 test("deux pages en vol au plus", () => {
   assert.match(html, /const RENDER_CONCURRENCY = 2;/);
-  assert.match(html, /runQueue\(plan\.visible, RENDER_CONCURRENCY\)/);
-  assert.match(html, /runQueue\(plan\.lookahead, RENDER_CONCURRENCY\)/);
+  // Concurrency, cancellation and observer bursts execute behaviorally in
+  // pdf_runtime.test.mts; these assertions ensure both integrations use it.
+  assert.match(html, /createScheduler\(RENDER_CONCURRENCY\)/);
+  assert.match(html, /pdfRenderScheduler\.enqueue\(slot/);
+  assert.match(html, /pdfRenderScheduler\.enqueue\(entry/);
 });
 
-test("le canvas ne dépend plus de la couche texte, qui reste construite ensuite", () => {
-  const paint = html.slice(html.indexOf("const paint = async function(slot"), html.indexOf("// 3) FILE PRIORISÉE"));
-  assert.ok(paint.indexOf("slot.page.render(") < paint.indexOf("slot.page.getTextContent()"),
-    "le canvas doit partir AVANT getTextContent()");
-  // toutes les pages gardent une couche texte (recherche, ?quote, annotations)
-  assert.match(html, /await paint\(s, !_pageObserver\);/);
+test("le canvas précède le texte, conservé hors DOM dans le cache de document", () => {
+  const paint = html.slice(html.indexOf("const paint = async function(slot"), html.indexOf("// 3) One scheduler"));
+  assert.ok(paint.indexOf("page.render(") < paint.indexOf("cache.text("));
+  assert.match(html, /createDocumentCache/);
+  assert.match(html, /activeSelection\?\.tl !== tl && dragLayer !== tl/);
 });
 
-test("onVisibleReady sonne encore une fois les pages visibles peintes", () => {
-  const tail = html.slice(html.indexOf("// 3) FILE PRIORISÉE"));
-  assert.ok(tail.indexOf("runQueue(plan.visible") < tail.indexOf("onVisibleReady()"));
-  assert.ok(tail.indexOf("onVisibleReady()") < tail.indexOf("runQueue(plan.lookahead"));
+test("onVisibleReady sonne après les pages visibles, avant l'anticipation", () => {
+  const tail = html.slice(html.indexOf("// 3) One scheduler"));
+  assert.ok(tail.indexOf("await visibleReady") < tail.indexOf("onVisibleReady()"));
+  assert.ok(tail.indexOf("onVisibleReady()") < tail.lastIndexOf("for (const n of plan.lookahead)"));
 });
 
 test("le squelette pose toujours toutes les pages à leur taille finale", () => {
@@ -109,7 +110,7 @@ test("la barre de recherche est présente, comptée en chiffres tabulaires et te
   assert.match(html, /#findBar \.cnt\{[^}]*font-variant-numeric:tabular-nums/);
   assert.match(html, /e\.key\.toLowerCase\(\) === "f"/);
   assert.match(html, /setTimeout\(\(\) => run\(input\.value\), 150\)/);
-  assert.match(html, /if \(e\.key === "Escape"\) \{ e\.preventDefault\(\); close\(\); \}/);
+  assert.match(html, /if \(e\.key === "Escape"\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); close\(\); \}/);
 });
 
 // ---- ordonnancement (fonction pure) ---------------------------------------

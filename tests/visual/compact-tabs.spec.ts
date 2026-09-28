@@ -46,9 +46,15 @@ for (const theme of ["dark", "light"]) {
     await page.getByRole('tab', { name: title }).focus();
     await page.keyboard.press('Home');
     await expect(page.locator('#biblio-library-tab')).toBeFocused();
+    await expect(page.locator('#biblio-library-tab')).toHaveAttribute('aria-selected', 'false');
+    await expect(page.locator('#biblio-library-tab')).toHaveAttribute('tabindex', '0');
+    await page.keyboard.press('Enter');
     await expect(page.locator('#biblio-library-tab')).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('End');
     await expect(page.getByRole('tab', { name: title })).toBeFocused();
+    await expect(page.getByRole('tab', { name: title })).toHaveAttribute('aria-selected', 'false');
+    await page.keyboard.press('Space');
+    await expect(page.getByRole('tab', { name: title })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('.biblio-document-tab .document-tab-close')).toHaveCSS('opacity', '1');
     await page.setViewportSize({ width: 400, height: 700 });
     expect((await page.locator('.biblio-document-tab').boundingBox())!.width).toBeLessThanOrEqual(144);

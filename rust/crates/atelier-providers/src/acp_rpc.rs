@@ -158,7 +158,7 @@ struct Pending {
 
 struct Inner {
     child: Child,
-    stdin: ChildStdin,
+    stdin: Arc<Mutex<ChildStdin>>,
     pending: HashMap<u64, Pending>,
     /// sessionId ACP → handler du tour en cours (absent = tour fini, silence).
     handlers: HashMap<String, SessionUpdateHandler>,
@@ -212,6 +212,47 @@ fn terminate_process_group(child: &Child) {
 
 #[cfg(not(unix))]
 fn terminate_process_group(_child: &Child) {}
+
+// Dropping a caller while a frame is partially written invalidates the stream too.
+struct WriteGuard {
+    inner: Arc<Mutex<Option<Inner>>>,
+    generation: u64,
+    armed: bool,
+}
+impl Drop for WriteGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let inner = self.inner.clone();
+            let generation = self.generation;
+            tokio::spawn(async move { retire_generation(&inner, generation, "écriture ACP annulée").await; });
+        }
+    }
+}
+async fn write_frame(inner: &Arc<Mutex<Option<Inner>>>, generation: u64, writer: &Arc<Mutex<ChildStdin>>, frame: &Value, timeout: Duration) -> Result<(), AcpRpcError> {
+    let mut bytes = serde_json::to_vec(frame).map_err(|e| AcpRpcError::transport(e.to_string()))?;
+    bytes.push(b'\n');
+    let mut guard = WriteGuard { inner:inner.clone(), generation, armed:true };
+    let result = tokio::time::timeout(timeout, async {
+        writer.lock().await.write_all(&bytes).await
+    }).await.map_err(|_| AcpRpcError::transport("délai d'écriture ACP dépassé"))?
+        .map_err(|e| AcpRpcError::transport(e.to_string()));
+    guard.armed = result.is_err();
+    result
+}
+
+async fn retire_generation(inner: &Arc<Mutex<Option<Inner>>>, generation: u64, reason: &str) {
+    let retired = {
+        let mut g = inner.lock().await;
+        if g.as_ref().is_some_and(|inn| inn.generation == generation) { g.take() } else { None }
+    };
+    if let Some(mut inn) = retired {
+        for (_, pending) in inn.pending.drain() {
+            let _ = pending.tx.send(Err(AcpRpcError::transport(reason)));
+        }
+        terminate_process_group(&inn.child);
+        let _ = inn.child.kill().await;
+    }
+}
 
 impl AcpServer {
     pub fn new(label: &'static str) -> Self {
@@ -369,16 +410,13 @@ impl AcpServer {
                                 obj.insert(k.clone(), v.clone());
                             }
                         }
-                        // Reprise brève du verrou uniquement pour écrire — et
-                        // seulement si le process n'a pas changé entre-temps.
-                        let mut g = inner_for_reply.lock().await;
-                        let Some(inn) = g.as_mut() else { return };
-                        if inn.generation != my_gen {
-                            return;
-                        }
-                        if let Ok(s) = serde_json::to_string(&reply) {
-                            let _ = inn.stdin.write_all(s.as_bytes()).await;
-                            let _ = inn.stdin.write_all(b"\n").await;
+                        let writer = {
+                            let g = inner_for_reply.lock().await;
+                            let Some(inn) = g.as_ref().filter(|inn| inn.generation == my_gen) else { return };
+                            inn.stdin.clone()
+                        };
+                        if write_frame(&inner_for_reply, my_gen, &writer, &reply, Duration::from_secs(5)).await.is_err() {
+                            retire_generation(&inner_for_reply, my_gen, "écriture ACP interrompue").await;
                         }
                     });
                     continue;
@@ -409,7 +447,9 @@ impl AcpServer {
                         .and_then(Value::as_str)
                         .unwrap_or("");
                     if !sid.is_empty() {
-                        if let Some(h) = inn.handlers.get(sid) {
+                        let handler = inn.handlers.get(sid).cloned();
+                        drop(g);
+                        if let Some(h) = handler {
                             let update = params.get("update").cloned().unwrap_or(json!({}));
                             h(&update);
                         }
@@ -434,7 +474,9 @@ impl AcpServer {
                         .unwrap_or("")
                         .to_string();
                     if !sid.is_empty() {
-                        if let Some(h) = inn.handlers.get(&sid) {
+                        let handler = inn.handlers.get(&sid).cloned();
+                        drop(g);
+                        if let Some(h) = handler {
                             h(&mcp_progress_update(method.unwrap_or(""), &params));
                         }
                     }
@@ -469,7 +511,7 @@ impl AcpServer {
             let mut guard = self.inner.lock().await;
             *guard = Some(Inner {
                 child,
-                stdin,
+                stdin: Arc::new(Mutex::new(stdin)),
                 pending: HashMap::new(),
                 handlers: HashMap::new(),
                 server_handlers: HashMap::new(),
@@ -504,55 +546,47 @@ impl AcpServer {
         params: Value,
         timeout_ms: Option<u64>,
     ) -> Result<Value, AcpRpcError> {
+        let deadline = timeout_ms.map(|ms| tokio::time::Instant::now() + Duration::from_millis(ms));
         let (tx, rx) = oneshot::channel();
-        let id = {
+        let (id, generation, writer) = {
             let mut g = self.inner.lock().await;
-            let inn = g
-                .as_mut()
-                .ok_or_else(|| AcpRpcError::transport(format!("{} acp absent", self.label)))?;
+            let inn = g.as_mut().ok_or_else(|| AcpRpcError::transport(format!("{} acp absent", self.label)))?;
             let id = inn.next_id.fetch_add(1, Ordering::SeqCst);
+            // A cancelled caller must not grow the pending map forever.
+            inn.pending.retain(|_, pending| !pending.tx.is_closed());
             inn.pending.insert(id, Pending { tx });
-            let msg = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-            let s =
-                serde_json::to_string(&msg).map_err(|e| AcpRpcError::transport(e.to_string()))?;
-            if let Err(e) = inn.stdin.write_all(s.as_bytes()).await {
-                inn.pending.remove(&id);
-                return Err(AcpRpcError::transport(e.to_string()));
-            }
-            if let Err(e) = inn.stdin.write_all(b"\n").await {
-                inn.pending.remove(&id);
-                return Err(AcpRpcError::transport(e.to_string()));
-            }
-            id
+            (id, inn.generation, inn.stdin.clone())
         };
-        match timeout_ms {
-            None => rx
-                .await
-                .map_err(|_| AcpRpcError::transport("rpc annulée"))?,
-            Some(ms) => match tokio::time::timeout(Duration::from_millis(ms), rx).await {
-                Ok(r) => r.map_err(|_| AcpRpcError::transport("rpc annulée"))?,
-                Err(_) => {
-                    // Réponse tardive : le pending est retiré ICI — une ligne
-                    // qui arrive après ne trouvera plus rien à résoudre.
-                    if let Some(inn) = self.inner.lock().await.as_mut() {
-                        inn.pending.remove(&id);
-                    }
-                    Err(AcpRpcError::transport(format!(
-                        "{method}: pas de réponse sous {ms}ms"
-                    )))
-                }
-            },
+        let msg = json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params});
+        let write_budget = deadline.map(|d| d.saturating_duration_since(tokio::time::Instant::now()))
+            .unwrap_or(Duration::from_secs(5)).min(Duration::from_secs(5));
+        if let Err(error) = write_frame(&self.inner, generation, &writer, &msg, write_budget).await {
+            // A partial frame poisons the stream. Never reuse it for another request.
+            retire_generation(&self.inner, generation, &error.to_string()).await;
+            return Err(error);
         }
+        let result = match deadline {
+            None => rx.await.map_err(|_| AcpRpcError::transport("rpc annulée"))?,
+            Some(deadline) => match tokio::time::timeout_at(deadline, rx).await {
+                Ok(result) => result.map_err(|_| AcpRpcError::transport("rpc annulée"))?,
+                Err(_) => Err(AcpRpcError::transport(format!("{method}: pas de réponse avant le délai RPC"))),
+            },
+        };
+        if let Some(inn) = self.inner.lock().await.as_mut().filter(|inn| inn.generation == generation) {
+            inn.pending.remove(&id);
+        }
+        result
     }
 
-    /// Notification sortante (sans id) — best-effort, comme grok.mjs:664.
+    /// Bounded independently from the protocol state lock, including Stop.
     pub async fn notify(&self, method: &str, params: Value) {
-        let mut g = self.inner.lock().await;
-        let Some(inn) = g.as_mut() else { return };
-        let msg = json!({"jsonrpc": "2.0", "method": method, "params": params});
-        if let Ok(s) = serde_json::to_string(&msg) {
-            let _ = inn.stdin.write_all(s.as_bytes()).await;
-            let _ = inn.stdin.write_all(b"\n").await;
+        let Some((generation, writer)) = ({
+            let g = self.inner.lock().await;
+            g.as_ref().map(|inn| (inn.generation, inn.stdin.clone()))
+        }) else { return };
+        let msg = json!({"jsonrpc":"2.0", "method":method, "params":params});
+        if let Err(error) = write_frame(&self.inner, generation, &writer, &msg, Duration::from_secs(2)).await {
+            retire_generation(&self.inner, generation, &error.to_string()).await;
         }
     }
 
@@ -606,6 +640,23 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::Mutex as StdMutex;
+
+    #[tokio::test]
+    async fn blocked_acp_write_does_not_hold_state_and_timeout_retires_transport() {
+        let Some(node) = node_bin() else { return };
+        let server = AcpServer::new("blocked-fixture");
+        let script = r#"process.stdin.once('data', b => {const q=JSON.parse(b.toString().trim()); process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:q.id,result:{protocolVersion:1}})+'\n'); process.stdin.pause();}); setInterval(()=>{},1000);"#;
+        server.ensure(&node, &["-e".into(),script.into()], json!({})).await.unwrap();
+        let clone = server.clone();
+        let started = std::time::Instant::now();
+        let call = tokio::spawn(async move { clone.request("jam", json!({"payload":"x".repeat(2 * 1024 * 1024)}), Some(150)).await });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::timeout(Duration::from_millis(100), server.clear_session_handler("session")).await.expect("state must be available while stdin is blocked");
+        let error = tokio::time::timeout(Duration::from_secs(2), call).await.unwrap().unwrap().unwrap_err();
+        assert!(error.transport);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(!server.is_alive().await, "a partial frame must retire the transport");
+    }
 
     #[test]
     fn fallback_permission_cancelled_jamais_approuvee() {

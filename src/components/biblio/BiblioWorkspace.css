@@ -79,3 +79,6 @@
  .biblio-collections { max-height: 150px; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
  .biblio-workspace .biblio-title { -webkit-line-clamp: 3; }
 }
+
+/* LegendList owns positioning and measures the existing variable-height rows. */
+.biblio-workspace .biblio-virtual-list { display: block; }

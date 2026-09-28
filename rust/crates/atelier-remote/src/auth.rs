@@ -118,6 +118,7 @@ pub struct AuthStore {
     data: AuthStoreFile,
     /// Plain admin token kept in memory for this process (returned once at start).
     admin_token_plain: Option<String>,
+    presence_persisted: std::time::Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +180,7 @@ impl AuthStore {
             path,
             data,
             admin_token_plain,
+            presence_persisted: std::time::Instant::now(),
         };
         store.persist()?;
         Ok(store)
@@ -314,7 +316,11 @@ impl AuthStore {
                     name: d.name.clone(),
                     scopes: d.scope_set(),
                 };
-                let _ = self.persist();
+                // Presence is advisory. Revocation/rotation still persist immediately
+                // through their mutation paths and are checked on every request.
+                if self.presence_persisted.elapsed() >= Duration::from_secs(30) && self.persist().is_ok() {
+                    self.presence_persisted = std::time::Instant::now();
+                }
                 return Some(auth);
             }
         }
@@ -450,6 +456,37 @@ pub enum IdempotencyResult {
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    #[test]
+    fn presence_is_coalesced_but_revocation_is_immediate_and_durable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let mut auth = AuthStore::open(&path).unwrap();
+        let pairing = auth.start_pairing(None).unwrap();
+        let device = auth.complete_pairing(&pairing.code,"phone").unwrap();
+        let original = std::fs::read(&path).unwrap();
+        #[cfg(unix)]
+        let original_inode = {
+            use std::os::unix::fs::MetadataExt;
+            std::fs::metadata(&path).unwrap().ino()
+        };
+        for _ in 0..100 { assert!(auth.authenticate_token(&device.token).is_some()); }
+        assert_eq!(std::fs::read(&path).unwrap(),original);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            // Atomic persistence replaces the inode even when the clock still
+            // falls in the same second and the serialized bytes are identical.
+            assert_eq!(std::fs::metadata(&path).unwrap().ino(), original_inode);
+        }
+        auth.presence_persisted = std::time::Instant::now()-Duration::from_secs(31);
+        auth.data.devices[0].last_seen_at = 0;
+        assert!(auth.authenticate_token(&device.token).is_some());
+        assert!(auth.presence_persisted.elapsed()<Duration::from_secs(1));
+        auth.revoke_device(&device.device_id).unwrap();
+        assert!(auth.authenticate_token(&device.token).is_none());
+        assert!(AuthStore::open(path).unwrap().lookup_token(&device.token).is_none());
+    }
+
     #[test]
     fn definitive_failure_releases_delivery_but_retains_fingerprint() {
         let mut cache = IdempotencyCache::default();

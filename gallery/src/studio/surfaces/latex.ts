@@ -7,6 +7,7 @@ import {
   createLatexPdfSyncController,
   createLatexReadingController,
   loadReadingContext,
+  createReadingContextReader,
   type ReadingContext,
   createLatexReadingMarge,
   createLatexSelectionPill,
@@ -349,16 +350,20 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   let readingContext: ReadingContext = {};
   let readingRoot: string | null = null;
   let readingContextGeneration = 0;
+  const readContextFile = createReadingContextReader(async (file) => {
+    const response = await win.fetch(`/code?path=${encodeURIComponent(file)}`, {signal: AbortSignal.timeout(5000)});
+    if (!response.ok) throw new Error(`Lecture impossible : ${file}`);
+    return String((await response.json()).text || "");
+  }, async file => {
+    const response = await win.fetch(`/statfile?path=${encodeURIComponent(file)}`, {signal: AbortSignal.timeout(5000)});
+    if (!response.ok) return null;
+    const stat = await response.json();
+    return typeof stat.mtime === "number" ? `${stat.mtime}:${stat.size ?? ""}` : null;
+  });
   const refreshReadingContext = async (): Promise<void> => {
     if (!readingRoot) return;
     const generation = ++readingContextGeneration;
-    const context = await loadReadingContext(readingRoot, async (file) => {
-      try {
-        const response = await win.fetch(`/code?path=${encodeURIComponent(file)}`, {signal: AbortSignal.timeout(5000)});
-        if (!response.ok) return "";
-        return String((await response.json()).text || "");
-      } catch { return ""; }
-    }, pdfPath?.replace(/\.pdf$/, ".aux"));
+    const context = await loadReadingContext(readingRoot, file => readContextFile(file).catch(() => ""), pdfPath?.replace(/\.pdf$/, ".aux"));
     if (generation !== readingContextGeneration) return;
     readingContext = context;
     win.dispatchEvent(new CustomEvent("atelier-latex-context", {detail: readingContext}));
@@ -723,11 +728,11 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     getText: () => editor?.getValue() || "",
     isDirty: () => ensureSession().state.dirty,
     save,
-    requestCompile: async () => {
+    requestCompile: async (force = false) => {
       const response = await win.fetch("/compile", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({path}),
+        body: JSON.stringify({path, force}),
       });
       return response.json();
     },
@@ -747,7 +752,10 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       channel?.postMessage({t: "compiled"});
     },
   });
-  const compile = (): Promise<void> => compileCoordinator.compile();
+  const compile = (force = false): Promise<void> => {
+    if (autoCompileTimer !== null) {win.clearTimeout(autoCompileTimer); autoCompileTimer = null;}
+    return compileCoordinator.compile(false, force);
+  };
 
   // Compilation automatique : débouncée (l'agent écrit par rafales), une seule
   // à la fois, avec relance si un changement arrive pendant qu'elle tourne.
@@ -790,7 +798,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     button: doc.getElementById("chatAdd"),
     path,
     postToHost: dependencies.postToHost,
-    notify: (message) => setState("ok", message),
+    notify: (message, kind) => setState(kind === "error" ? "err" : "hint", message),
     window: win,
   });
   diff = createStudioDiffController({
@@ -907,7 +915,9 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     const panel = doc.getElementById("texlog") as HTMLElement;
     if ((doc.getElementById("tlBody") as HTMLElement).textContent) panel.classList.toggle("open");
   });
-  (doc.getElementById("build") as HTMLElement).onclick = () => { void compile(); };
+  const buildButton = doc.getElementById("build") as HTMLElement;
+  buildButton.title = "Compiler (⇧ clic : tout recompiler)";
+  buildButton.onclick = event => { void compile(event.shiftKey); };
   (doc.getElementById("saveBtn") as HTMLElement).onclick = () => { void save(); };
   (doc.getElementById("reloadPdf") as HTMLElement).onclick = () => { void loadPdf(); };
   const help = doc.getElementById("helpPop") as HTMLElement;

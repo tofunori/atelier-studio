@@ -75,6 +75,13 @@ impl ProjectRegistry {
         Ok(fid)
     }
 
+    /// Capture registry identity without filesystem work under the global lock.
+    pub fn file_identity(&self, file_id: &str) -> Result<(ProjectEntry, String), ApiError> {
+        let (project, relative) = self.files.get(file_id).ok_or_else(|| ApiError::not_found("fichier inconnu"))?;
+        let project = self.get(project).cloned().ok_or_else(|| ApiError::not_found("projet inconnu"))?;
+        Ok((project,relative.clone()))
+    }
+
     pub fn resolve_file_id(
         &self,
         file_id: &str,

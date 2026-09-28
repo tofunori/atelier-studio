@@ -54,19 +54,9 @@ pub fn append_ledger(
 pub fn get_ledger(base_dir: &Path, project_root: &str, limit: usize) -> Vec<serde_json::Value> {
     let max = limit.clamp(1, 1000);
     let path = ledger_path(base_dir, project_root);
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    let mut lines: Vec<_> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-    if lines.len() > max {
-        lines = lines[lines.len() - max..].to_vec();
-    }
-    let mut out: Vec<serde_json::Value> = lines
-        .into_iter()
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect();
-    out.reverse();
-    out
+    let Ok(lines) = crate::ReverseLines::open(path) else { return Vec::new(); };
+    lines.filter_map(Result::ok).filter(|line| !line.trim().is_empty()).take(max)
+        .filter_map(|line| serde_json::from_str(&line).ok()).collect()
 }
 
 /// All ledger entries across projects (newest files last), capped.
@@ -75,33 +65,23 @@ pub fn get_all_ledgers(base_dir: &Path, limit: usize) -> Vec<serde_json::Value> 
     let Ok(rd) = std::fs::read_dir(base_dir) else {
         return Vec::new();
     };
-    let mut all = Vec::new();
+    let mut all = std::collections::VecDeque::with_capacity(max);
     for ent in rd.flatten() {
         let path = ent.path();
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(path) else {
-            continue;
-        };
-        // seules les `max` dernières lignes d'un fichier peuvent survivre à la
-        // troncature globale : ne parser qu'elles (les ledgers sont en append
-        // pur, sans rotation — des mois d'historique sinon re-désérialisés à
-        // chaque getUsage)
-        let mut lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-        if lines.len() > max {
-            lines = lines.split_off(lines.len() - max);
-        }
+        let Ok(tail) = crate::ReverseLines::open(path) else { continue; };
+        let mut lines: Vec<_> = tail.filter_map(Result::ok).filter(|line| !line.trim().is_empty()).take(max).collect();
+        lines.reverse();
         for line in lines {
-            if let Ok(v) = serde_json::from_str(line) {
-                all.push(v);
+            if let Ok(v) = serde_json::from_str(&line) {
+                if all.len() == max { all.pop_front(); }
+                all.push_back(v);
             }
         }
     }
-    if all.len() > max {
-        all = all[all.len() - max..].to_vec();
-    }
-    all
+    all.into_iter().collect()
 }
 
 #[cfg(test)]

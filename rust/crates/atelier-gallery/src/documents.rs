@@ -99,6 +99,99 @@ fn project_rel(root: &Path, full: &Path) -> String {
 #[derive(Deserialize)]
 pub struct CompileBody {
     path: String,
+    #[serde(default)]
+    force: bool,
+}
+
+#[derive(Default)]
+struct CompileQueue {
+    pending: bool,
+    force: bool,
+}
+
+struct CompileFlight {
+    queue: std::sync::Mutex<CompileQueue>,
+    result: tokio::sync::watch::Sender<Option<Value>>,
+}
+
+/// One live worker per canonical root, shared by every editor/PDF tab.
+/// Requests arriving during a pass are folded into one incremental follow-up:
+/// edits saved during latexmk are checked again before any waiter is released.
+fn compile_flights()
+-> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, std::sync::Weak<CompileFlight>>> {
+    static FLIGHTS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<PathBuf, std::sync::Weak<CompileFlight>>>,
+    > = std::sync::OnceLock::new();
+    FLIGHTS.get_or_init(Default::default)
+}
+
+async fn coordinated_compile(root: PathBuf, force: bool) -> Value {
+    coordinated_compile_with(root, force, |root, force| async move {
+        compile_document(&root, force).await
+    })
+    .await
+}
+
+async fn coordinated_compile_with<F, Fut>(root: PathBuf, force: bool, run: F) -> Value
+where
+    F: Fn(PathBuf, bool) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Value> + Send,
+{
+    let (flight, start) = {
+        let mut flights = compile_flights().lock().unwrap_or_else(|e| e.into_inner());
+        flights.retain(|_, flight| flight.strong_count() > 0);
+        // A completed flight can still have response waiters. A new request
+        // must check the filesystem again, rather than reuse its old result.
+        let existing = flights
+            .get(&root)
+            .and_then(std::sync::Weak::upgrade)
+            .filter(|flight| flight.result.borrow().is_none());
+        if let Some(flight) = existing {
+            let mut queue = flight.queue.lock().unwrap_or_else(|e| e.into_inner());
+            queue.pending = true;
+            queue.force |= force;
+            drop(queue);
+            (flight, false)
+        } else {
+            let (result, _) = tokio::sync::watch::channel(None);
+            let flight = std::sync::Arc::new(CompileFlight {
+                queue: std::sync::Mutex::new(CompileQueue::default()),
+                result,
+            });
+            flights.insert(root.clone(), std::sync::Arc::downgrade(&flight));
+            (flight, true)
+        }
+    };
+    let mut result = flight.result.subscribe();
+    if start {
+        let worker = flight.clone();
+        // Own the process independently of a disconnected HTTP request.
+        tokio::spawn(async move {
+            let mut force = force;
+            loop {
+                let response = run(root.clone(), force).await;
+                // Same lock order as admission: close the flight atomically
+                // so a late request never joins a result already published.
+                let _flights = compile_flights().lock().unwrap_or_else(|e| e.into_inner());
+                let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
+                if queue.pending {
+                    force = queue.force;
+                    *queue = CompileQueue::default();
+                } else {
+                    worker.result.send_replace(Some(response));
+                    break;
+                }
+            }
+        });
+    }
+    loop {
+        if let Some(response) = result.borrow().clone() {
+            return response;
+        }
+        if result.changed().await.is_err() {
+            return json!({"ok": false, "error": "compilation interrompue"});
+        }
+    }
 }
 
 pub async fn compile(
@@ -113,140 +206,107 @@ pub async fn compile(
         return json_error(StatusCode::FORBIDDEN, "outside the project");
     };
     let root = find_tex_root(&p);
-    let pdf = {
-        let mut p = root.clone();
-        p.set_extension("pdf");
-        p
+    // Recheck the resolved TeX root as a magic-root directive may escape the
+    // requested file's directory. This also normalizes the coordinator key.
+    let Ok(root) = safe_project_path(&state.root, &root.to_string_lossy()) else {
+        return json_error(StatusCode::FORBIDDEN, "outside the project");
     };
-    let cwd = root.parent().unwrap_or_else(|| Path::new("."));
-    let raw_basename = root
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("main.tex");
-    let basename = match safe_argv_basename(raw_basename) {
-        Ok(b) => b,
-        Err(err) => {
-            return (StatusCode::OK, Json(json!({"ok": false, "error": err}))).into_response();
-        }
-    };
-
-    // 1) latexmk (parité Python) 2) tectonic
-    if let Some(latexmk) = latexmk_bin() {
-        let mut cmd = Command::new(&latexmk);
-        cmd.args([
-            "-pdf",
-            "-synctex=1",
-            "-g",
-            "-interaction=nonstopmode",
-            "-halt-on-error",
-            basename.as_str(),
-        ])
-        .current_dir(cwd)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-        #[cfg(unix)]
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-        return match tokio::time::timeout(Duration::from_secs(180), cmd.output()).await {
-            Ok(Ok(output)) => {
-                let log = format!(
-                    "{}{}",
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                let ok = output.status.success() && pdf.is_file();
-                let err = if ok {
-                    String::new()
-                } else {
-                    compile_error_excerpt(&log)
-                };
-                (
-                    StatusCode::OK,
-                    Json(json!({
-                        "ok": ok,
-                        "pdf": if ok { json!(pdf.to_string_lossy()) } else { Value::Null },
-                        "root": root.to_string_lossy(),
-                        "error": err,
-                    })),
-                )
-                    .into_response()
-            }
-            Ok(Err(error)) => (
-                StatusCode::OK,
-                Json(json!({
-                    "ok": false,
-                    "error": error.to_string(),
-                })),
-            )
-                .into_response(),
-            Err(_) => (
-                StatusCode::OK,
-                Json(json!({"ok": false, "error": "compilation > 180 s"})),
-            )
-                .into_response(),
-        };
-    }
-
-    if let Some(tectonic) = tectonic_bin() {
-        let mut cmd = Command::new(&tectonic);
-        cmd.args(["-X", "compile", basename.as_str()])
-            .current_dir(cwd)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        return match tokio::time::timeout(Duration::from_secs(180), cmd.output()).await {
-            Ok(Ok(output)) => {
-                let log = format!(
-                    "{}{}",
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                let ok = output.status.success() && pdf.is_file();
-                let err = if ok {
-                    String::new()
-                } else {
-                    compile_error_excerpt(&log)
-                };
-                (
-                    StatusCode::OK,
-                    Json(json!({
-                        "ok": ok,
-                        "pdf": if ok { json!(pdf.to_string_lossy()) } else { Value::Null },
-                        "root": root.to_string_lossy(),
-                        "error": err,
-                    })),
-                )
-                    .into_response()
-            }
-            Ok(Err(error)) => (
-                StatusCode::OK,
-                Json(json!({"ok": false, "error": error.to_string()})),
-            )
-                .into_response(),
-            Err(_) => (
-                StatusCode::OK,
-                Json(json!({"ok": false, "error": "compilation > 180 s"})),
-            )
-                .into_response(),
-        };
-    }
-
-    // `reason` : l'éditeur affiche une consigne d'installation au lieu du
-    // générique « échec — voir la console » (plan 060, étape 3).
     (
         StatusCode::OK,
-        Json(json!({
+        Json(coordinated_compile(root, body.force).await),
+    )
+        .into_response()
+}
+
+fn latexmk_args(basename: &str, force: bool) -> Vec<String> {
+    let mut args = vec![
+        "-pdf",
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-halt-on-error",
+    ];
+    if force {
+        args.push("-g");
+    }
+    args.push(basename);
+    args.into_iter().map(str::to_owned).collect()
+}
+
+async fn compile_document(root: &Path, force: bool) -> Value {
+    let pdf = root.with_extension("pdf");
+    let cwd = root.parent().unwrap_or_else(|| Path::new("."));
+    let basename = match safe_argv_basename(
+        root.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("main.tex"),
+    ) {
+        Ok(b) => b,
+        Err(err) => return json!({"ok": false, "error": err}),
+    };
+    let compiler = tokio::task::spawn_blocking(|| {
+        latexmk_bin()
+            .map(|path| (path, true))
+            .or_else(|| tectonic_bin().map(|path| (path, false)))
+    })
+    .await
+    .ok()
+    .flatten();
+    let Some((compiler, latexmk)) = compiler else {
+        // `reason` : l'éditeur affiche une consigne d'installation au lieu du
+        // générique « échec — voir la console » (plan 060, étape 3).
+        return json!({
             "ok": false,
             "reason": "toolchain-missing",
             "error": "LaTeX introuvable (ni latexmk ni tectonic) : installez tectonic (brew install tectonic) ou MacTeX, voir Réglages → Environnement"
-        })),
-    )
-        .into_response()
+        });
+    };
+    let mut cmd = Command::new(compiler);
+    if latexmk {
+        cmd.args(latexmk_args(&basename, force));
+    } else {
+        cmd.args(["-X", "compile", basename.as_str()]);
+    }
+    cmd.current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    // Retain the process-group id: killing just latexmk can leave TeX children
+    // writing the PDF while the next coordinated pass starts.
+    let child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(error) => return json!({"ok": false, "error": error.to_string()}),
+    };
+    let pid = child.id();
+    match tokio::time::timeout(Duration::from_secs(180), child.wait_with_output()).await {
+        Ok(Ok(output)) => {
+            let log = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let ok = output.status.success() && pdf.is_file();
+            json!({"ok": ok, "pdf": if ok {json!(pdf.to_string_lossy())} else {Value::Null},
+                "root": root.to_string_lossy(), "log": log,
+                "error": if ok {String::new()} else {compile_error_excerpt(&log)}})
+        }
+        Ok(Err(error)) => json!({"ok": false, "error": error.to_string()}),
+        Err(_) => {
+            #[cfg(unix)]
+            if let Some(pid) = pid {
+                unsafe {
+                    libc::kill(-(pid as i32), libc::SIGKILL);
+                }
+            }
+            json!({"ok": false, "error": "compilation > 180 s"})
+        }
+    }
 }
 
 fn compile_error_excerpt(log: &str) -> String {
@@ -423,11 +483,46 @@ fn is_zotero_pdf_rel(rel: &str) -> bool {
         && file.to_ascii_lowercase().ends_with(".pdf")
 }
 
-fn read_pdf_store(path: &Path) -> Value {
-    match fs::read_to_string(path) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|_| json!({})),
-        Err(_) => json!({}),
+#[derive(Clone, PartialEq, Eq)]
+struct PdfStoreStamp {
+    modified: Option<std::time::SystemTime>,
+    size: u64,
+    #[cfg(unix)]
+    identity: (u64, i64, i64),
+}
+impl PdfStoreStamp {
+    fn read(path: &Path) -> Option<Self> {
+        let meta = fs::metadata(path).ok()?;
+        Some(Self { modified:meta.modified().ok(), size:meta.len(),
+            #[cfg(unix)]
+            identity:{ use std::os::unix::fs::MetadataExt; (meta.ino(), meta.ctime(), meta.ctime_nsec()) },
+        })
     }
+}
+struct CachedPdfStore { stamp:PdfStoreStamp, value:std::sync::Arc<Value>, bytes:u64 }
+fn pdf_store_cache() -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, CachedPdfStore>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, CachedPdfStore>>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(std::sync::Mutex::default)
+}
+
+/// Shared immutable values make a one-document GET clone only its annotations.
+/// Atomic replacements and in-place edits invalidate via inode/ctime/mtime/size;
+/// all metadata and JSON work runs on a blocking worker at the route boundary.
+fn read_pdf_store(path: &Path) -> std::sync::Arc<Value> {
+    let Some(stamp) = PdfStoreStamp::read(path) else { return std::sync::Arc::new(json!({})); };
+    {
+        let cache = pdf_store_cache().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = cache.get(path).filter(|entry| entry.stamp == stamp) { return cached.value.clone(); }
+    }
+    let value = std::sync::Arc::new(fs::read(path).ok().and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_else(|| json!({})));
+    // Do not cache a read that raced an external writer. The next GET will
+    // retry; shared-store reads additionally retain their interprocess lock.
+    if stamp.size <= 16 * 1024 * 1024 && PdfStoreStamp::read(path).as_ref() == Some(&stamp) {
+        let mut cache = pdf_store_cache().lock().unwrap_or_else(|e| e.into_inner());
+        if cache.len() >= 16 || cache.values().map(|entry| entry.bytes).sum::<u64>() + stamp.size > 32 * 1024 * 1024 { cache.clear(); }
+        cache.insert(path.to_path_buf(), CachedPdfStore {bytes:stamp.size, stamp, value:value.clone()});
+    }
+    value
 }
 
 fn write_pdf_store(path: &Path, store: &Value) -> Result<(), String> {
@@ -435,7 +530,40 @@ fn write_pdf_store(path: &Path, store: &Value) -> Result<(), String> {
         "{}\n",
         serde_json::to_string_pretty(store).unwrap_or_else(|_| "{}".into())
     );
-    atomic_write_text(path, &payload).map_err(|error| error.to_string())
+    atomic_write_text(path, &payload).map_err(|error| error.to_string())?;
+    pdf_store_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(path);
+    Ok(())
+}
+
+#[cfg(test)]
+mod pdf_store_cache_tests {
+    use super::*;
+
+    #[test]
+    fn cached_reads_share_a_value_and_external_atomic_updates_invalidate_it() {
+        let root = tempfile::tempdir().unwrap(); let path = root.path().join("pdf_annots.json");
+        write_pdf_store(&path, &json!({"a.pdf":[{"id":"old"}]})).unwrap();
+        let first = read_pdf_store(&path); let warm = read_pdf_store(&path);
+        assert!(std::sync::Arc::ptr_eq(&first, &warm));
+        atomic_write_text(&path, r#"{"a.pdf":[{"id":"new"}]}"#).unwrap();
+        let external = read_pdf_store(&path);
+        assert_eq!(external["a.pdf"][0]["id"], "new");
+        assert!(!std::sync::Arc::ptr_eq(&first, &external));
+        write_pdf_store(&path, &json!({"a.pdf":[]})).unwrap();
+        assert_eq!(read_pdf_store(&path)["a.pdf"], json!([]));
+        // Readers holding the old snapshot remain immutable across writes.
+        assert_eq!(first["a.pdf"][0]["id"], "old");
+    }
+
+    #[test]
+    fn cached_project_stores_never_mix_same_relative_pdf_names() {
+        let a = tempfile::tempdir().unwrap(); let b = tempfile::tempdir().unwrap();
+        let a = a.path().join("pdf_annots.json"); let b = b.path().join("pdf_annots.json");
+        write_pdf_store(&a, &json!({"same.pdf":[{"id":"a"}]})).unwrap();
+        write_pdf_store(&b, &json!({"same.pdf":[{"id":"b"}]})).unwrap();
+        assert_eq!(read_pdf_store(&a)["same.pdf"][0]["id"], "a");
+        assert_eq!(read_pdf_store(&b)["same.pdf"][0]["id"], "b");
+    }
 }
 
 fn annotation_id(value: &Value) -> Option<String> {
@@ -508,7 +636,7 @@ fn migration_key(root: &Path) -> String {
 /// ainsi partager le fichier sans perdre la derniere ecriture.
 fn with_shared_pdf_store<T>(
     root: &Path,
-    operation: impl FnOnce(&mut Value) -> Result<(T, bool), String>,
+    operation: impl FnOnce(&mut std::sync::Arc<Value>) -> Result<(T, bool), String>,
 ) -> Result<T, String> {
     let shared_path = shared_pdf_annots_path(root);
     let legacy_path = legacy_pdf_annots_path(root);
@@ -530,19 +658,19 @@ fn with_shared_pdf_store<T>(
         let ledger_path = shared_path.with_file_name("pdf_annots_migrations.json");
         let mut ledger = read_pdf_store(&ledger_path);
         if !ledger.is_object() {
-            ledger = json!({});
+            ledger = std::sync::Arc::new(json!({}));
         }
         let key = migration_key(root);
         let should_migrate =
             shared_path != legacy_path && ledger.get(&key).and_then(Value::as_bool) != Some(true);
         let migrated = should_migrate
-            && merge_legacy_zotero_entries(&mut store, &read_pdf_store(&legacy_path));
+            && merge_legacy_zotero_entries(std::sync::Arc::make_mut(&mut store), &read_pdf_store(&legacy_path));
         let (value, changed) = operation(&mut store)?;
         if migrated || changed {
             write_pdf_store(&shared_path, &store)?;
         }
         if should_migrate {
-            if let Some(entries) = ledger.as_object_mut() {
+            if let Some(entries) = std::sync::Arc::make_mut(&mut ledger).as_object_mut() {
                 entries.insert(key, Value::Bool(true));
             }
             write_pdf_store(&ledger_path, &ledger)?;
@@ -582,7 +710,10 @@ fn updated_annotations(store: &Value, rel: &str, body: &Value) -> Result<Value, 
     let Some(known) = body.get("known") else {
         return Ok(annots);
     };
-    let Some(known) = known.as_array().filter(|ids| ids.iter().all(Value::is_string)) else {
+    let Some(known) = known
+        .as_array()
+        .filter(|ids| ids.iter().all(Value::is_string))
+    else {
         return Err("known must be an array of strings".into());
     };
     let Some(list) = annots.as_array() else {
@@ -593,7 +724,12 @@ fn updated_annotations(store: &Value, rel: &str, body: &Value) -> Result<Value, 
     // pendant qu'il travaillait : on la garde au lieu de l'écraser. Une
     // annotation vue puis absente de `annots` a été retirée exprès.
     let mut merged = list.clone();
-    for annot in store.get(rel).and_then(Value::as_array).into_iter().flatten() {
+    for annot in store
+        .get(rel)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         let Some(id) = annotation_id(annot) else {
             continue;
         };
@@ -647,21 +783,19 @@ pub async fn get_pdfannot(
     State(state): State<AppState>,
     Query(query): Query<PdfAnnotQuery>,
 ) -> impl IntoResponse {
-    let rel = query.rel.unwrap_or_default();
-    let annots = if is_zotero_pdf_rel(&rel) {
-        match with_shared_pdf_store(&state.root, |store| {
-            Ok((store.get(&rel).cloned().unwrap_or_else(|| json!([])), false))
-        }) {
-            Ok(annots) => annots,
-            Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
+    let result = tokio::task::spawn_blocking(move || {
+        let rel = query.rel.unwrap_or_default();
+        if is_zotero_pdf_rel(&rel) {
+            with_shared_pdf_store(&state.root, |store| Ok((store.get(&rel).cloned().unwrap_or_else(|| json!([])), false)))
+        } else {
+            Ok(read_pdf_store(&legacy_pdf_annots_path(&state.root)).get(&rel).cloned().unwrap_or_else(|| json!([])))
         }
-    } else {
-        read_pdf_store(&legacy_pdf_annots_path(&state.root))
-            .get(&rel)
-            .cloned()
-            .unwrap_or_else(|| json!([]))
-    };
-    (StatusCode::OK, Json(json!({"annots": annots}))).into_response()
+    }).await;
+    match result {
+        Ok(Ok(annots)) => (StatusCode::OK, Json(json!({"annots": annots}))).into_response(),
+        Ok(Err(error)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+    }
 }
 
 /// GET /pdfannot-stamp — date de dernière écriture du store qui porte `rel`
@@ -678,7 +812,7 @@ pub async fn get_pdfannot_stamp(
     } else {
         legacy_pdf_annots_path(&state.root)
     };
-    let stamp = fs::metadata(&path)
+    let stamp = tokio::fs::metadata(&path).await
         .and_then(|meta| meta.modified())
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
@@ -690,22 +824,22 @@ pub async fn get_pdfannot_stamp(
 /// GET /pdfannot-all — les annotations Zotero communes, superposees aux
 /// annotations des PDF du projet courant pour la portee « Bibliotheque ».
 pub async fn get_pdfannot_all(State(state): State<AppState>) -> impl IntoResponse {
-    let shared = match with_shared_pdf_store(&state.root, |store| Ok((store.clone(), false))) {
-        Ok(store) => store,
-        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
-    };
-    let mut combined = read_pdf_store(&legacy_pdf_annots_path(&state.root));
-    if !combined.is_object() {
-        combined = json!({});
-    }
-    if let (Some(combined), Some(shared)) = (combined.as_object_mut(), shared.as_object()) {
-        for (rel, annots) in shared {
-            if is_zotero_pdf_rel(rel) {
-                combined.insert(rel.clone(), annots.clone());
+    let result = tokio::task::spawn_blocking(move || -> Result<Value, String> {
+        let shared = with_shared_pdf_store(&state.root, |store| Ok((store.clone(), false)))?;
+        let mut combined = (*read_pdf_store(&legacy_pdf_annots_path(&state.root))).clone();
+        if !combined.is_object() { combined = json!({}); }
+        if let (Some(combined), Some(shared)) = (combined.as_object_mut(), shared.as_object()) {
+            for (rel, annots) in shared {
+                if is_zotero_pdf_rel(rel) { combined.insert(rel.clone(), annots.clone()); }
             }
         }
+        Ok(combined)
+    }).await;
+    match result {
+        Ok(Ok(annots)) => (StatusCode::OK, Json(json!({"annots":annots}))).into_response(),
+        Ok(Err(error)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
-    (StatusCode::OK, Json(json!({"annots": combined}))).into_response()
 }
 
 pub async fn post_pdfannot(
@@ -737,18 +871,26 @@ pub async fn post_pdfannot(
     if rel_key.is_empty() {
         return json_error(StatusCode::BAD_REQUEST, "rel required");
     }
-    let result = if is_zotero_pdf_rel(&rel_key) {
-        let shared_path = shared_pdf_annots_path(&state.root);
-        with_shared_pdf_store(&state.root, |store| {
-            apply_pdf_store_update(&shared_path, store, &rel_key, &body)?;
-            Ok(((), true))
-        })
-    } else {
-        let store_path = legacy_pdf_annots_path(&state.root);
-        let mut store = read_pdf_store(&store_path);
-        apply_pdf_store_update(&store_path, &mut store, &rel_key, &body)
-            .and_then(|()| write_pdf_store(&store_path, &store))
-    };
+    let result = tokio::task::spawn_blocking(move || {
+        if is_zotero_pdf_rel(&rel_key) {
+            let shared_path = shared_pdf_annots_path(&state.root);
+            with_shared_pdf_store(&state.root, |store| {
+                apply_pdf_store_update(&shared_path, std::sync::Arc::make_mut(store), &rel_key, &body)?;
+                Ok(((), true))
+            })
+        } else {
+            let store_path = legacy_pdf_annots_path(&state.root);
+            if let Some(parent) = store_path.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+            let lock = OpenOptions::new().create(true).truncate(false).read(true).write(true)
+                .open(store_path.with_file_name("pdf_annots.lock")).map_err(|e| e.to_string())?;
+            lock.lock_exclusive().map_err(|e| e.to_string())?;
+            let mut store = read_pdf_store(&store_path);
+            let result = apply_pdf_store_update(&store_path, std::sync::Arc::make_mut(&mut store), &rel_key, &body)
+                .and_then(|()| write_pdf_store(&store_path, &store));
+            let _ = FileExt::unlock(&lock);
+            result
+        }
+    }).await.unwrap_or_else(|error| Err(error.to_string()));
     match result {
         Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
         Err(error)
@@ -988,6 +1130,76 @@ mod tests {
     use super::*;
 
     #[test]
+    fn compilation_is_incremental_unless_force_is_explicit() {
+        assert!(!latexmk_args("./main.tex", false).contains(&"-g".into()));
+        assert!(latexmk_args("./main.tex", true).contains(&"-g".into()));
+        assert!(latexmk_args("./main.tex", false).contains(&"-synctex=1".into()));
+        let request: CompileBody = serde_json::from_value(json!({"path": "main.tex"})).unwrap();
+        assert!(!request.force);
+    }
+
+    #[tokio::test]
+    async fn compile_requests_share_one_worker_and_one_latest_followup() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let root = PathBuf::from("/test/compile_requests_share_one_worker.tex");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let runner = {
+            let calls = calls.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            move |_: PathBuf, force| {
+                let calls = calls.clone();
+                let entered = entered.clone();
+                let release = release.clone();
+                async move {
+                    let call = calls.fetch_add(1, Ordering::SeqCst) + 1;
+                    if call == 1 {
+                        entered.notify_one();
+                        release.notified().await;
+                    }
+                    json!({"ok": true, "call": call, "force": force})
+                }
+            }
+        };
+        let first = tokio::spawn(coordinated_compile_with(
+            root.clone(),
+            false,
+            runner.clone(),
+        ));
+        entered.notified().await;
+        let mut queued = Vec::new();
+        for n in 0..8 {
+            queued.push(tokio::spawn(coordinated_compile_with(
+                root.clone(),
+                n == 7,
+                runner.clone(),
+            )));
+        }
+        // Give every request a turn to join the running job before release.
+        for _ in 0..16 {
+            tokio::task::yield_now().await;
+        }
+        release.notify_one();
+        let response = first.await.unwrap();
+        assert_eq!(response["call"], 2);
+        assert_eq!(response["force"], true);
+        for request in queued {
+            assert_eq!(request.await.unwrap(), response);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        // A later request must check changed dependencies, not reuse a result.
+        assert_eq!(
+            coordinated_compile_with(root, false, runner).await["call"],
+            3
+        );
+    }
+
+    #[test]
     fn compile_error_prefers_bang_lines() {
         let log = "normal\n! Undefined control sequence\nmore\nError: foo\n";
         let err = compile_error_excerpt(log);
@@ -1083,11 +1295,16 @@ mod tests {
         let rel = "zotero/ABCD1234/article.pdf";
         let store = json!({rel: [{"id": "c"}]});
         let merged =
-            updated_annotations(&store, rel, &json!({"rel": rel, "annots": [{"id": "a"}]})).unwrap();
+            updated_annotations(&store, rel, &json!({"rel": rel, "annots": [{"id": "a"}]}))
+                .unwrap();
         assert_eq!(merged, json!([{"id": "a"}]));
         assert!(
-            updated_annotations(&store, rel, &json!({"rel": rel, "known": [1], "annots": []}))
-                .is_err()
+            updated_annotations(
+                &store,
+                rel,
+                &json!({"rel": rel, "known": [1], "annots": []})
+            )
+            .is_err()
         );
     }
 }

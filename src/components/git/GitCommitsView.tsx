@@ -62,7 +62,10 @@ function CommitFileDiff({
       </Suspense>
     );
   } else {
-    body = <HistoricDiff diff={controller.commitDetails?.diff ?? ""} />;
+    body = controller.commitDetails?.diff
+      ? <HistoricDiff diff={controller.commitDetails.diff} />
+      : <Button variant="ghost" disabled={controller.historyBusy === "patch"}
+          onClick={controller.loadCommitPatch}>{t("git.inspect-diff")}</Button>;
   }
 
   return (

@@ -68,3 +68,4 @@ function installFigureAnnotationGeometryApi(root) {
 }
 installFigureAnnotationGeometryApi(typeof globalThis !== 'undefined' ? globalThis : window);
 export type FigureAnnotationGeometryApi = ReturnType<typeof installFigureAnnotationGeometryApi>;
+

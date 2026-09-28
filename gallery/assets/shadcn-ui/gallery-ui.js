@@ -4188,11 +4188,11 @@ const FT = ua(
         link: "tw:bg-transparent tw:text-primary tw:underline-offset-4 tw:hover:underline"
       },
       size: {
-        default: "tw:h-8 tw:gap-1.5 tw:px-2.5 tw:has-data-[icon=inline-end]:pr-2 tw:has-data-[icon=inline-start]:pl-2",
+        default: "tw:h-[var(--control-height)] tw:gap-1.5 tw:px-2.5 tw:has-data-[icon=inline-end]:pr-2 tw:has-data-[icon=inline-start]:pl-2",
         xs: "tw:h-6 tw:gap-1 tw:px-2 tw:text-xs tw:in-data-[slot=button-group]:rounded-lg tw:has-data-[icon=inline-end]:pr-1.5 tw:has-data-[icon=inline-start]:pl-1.5 tw:[&_svg:not([class*=size-])]:size-3",
         sm: "tw:h-7 tw:gap-1 tw:px-2.5 tw:text-xs tw:in-data-[slot=button-group]:rounded-lg tw:has-data-[icon=inline-end]:pr-1.5 tw:has-data-[icon=inline-start]:pl-1.5 tw:[&_svg:not([class*=size-])]:size-3.5",
         lg: "tw:h-9 tw:gap-1.5 tw:px-2.5 tw:has-data-[icon=inline-end]:pr-2 tw:has-data-[icon=inline-start]:pl-2",
-        icon: "tw:size-8",
+        icon: "tw:size-[var(--control-height)]",
         "icon-xs": "tw:size-6 tw:in-data-[slot=button-group]:rounded-lg tw:[&_svg:not([class*=size-])]:size-3",
         "icon-sm": "tw:size-7 tw:in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "tw:size-9"
@@ -23536,7 +23536,7 @@ function Q2({ className: n, type: o, ...a }) {
       type: o,
       "data-slot": "input",
       className: Fe(
-        "tw:h-8 tw:w-full tw:min-w-0 tw:rounded-[var(--radius-control)] tw:border tw:border-input tw:bg-background tw:px-2.5 tw:py-1 tw:text-[length:var(--fs-body-s)] tw:text-foreground tw:outline-none tw:placeholder:text-muted-foreground tw:focus-visible:border-ring tw:focus-visible:ring-2 tw:focus-visible:ring-ring/40 tw:disabled:pointer-events-none tw:disabled:cursor-not-allowed tw:disabled:opacity-50 tw:aria-invalid:border-destructive tw:aria-invalid:ring-2 tw:aria-invalid:ring-destructive/20",
+        "tw:h-[var(--control-height)] tw:w-full tw:min-w-0 tw:rounded-[var(--radius-control)] tw:border tw:border-input tw:bg-background tw:px-2.5 tw:py-1 tw:text-[length:var(--fs-body-s)] tw:text-foreground tw:outline-none tw:placeholder:text-muted-foreground tw:focus-visible:border-ring tw:focus-visible:ring-2 tw:focus-visible:ring-ring/40 tw:disabled:pointer-events-none tw:disabled:cursor-not-allowed tw:disabled:opacity-50 tw:aria-invalid:border-destructive tw:aria-invalid:ring-2 tw:aria-invalid:ring-destructive/20",
         n
       ),
       ...a
@@ -25471,54 +25471,57 @@ function qA() {
   };
   if (T.rels.length) {
     const j = window.__gallerySelection;
-    return /* @__PURE__ */ b.jsxs("div", { className: "gallery-command-bar gallery-selection-command-bar", role: "toolbar", "aria-label": "Selected files actions", "data-gallery-toolbar-state": "selection", children: [
+    return /* @__PURE__ */ b.jsxs("div", { className: "gallery-command-bar gallery-selection-command-bar", role: "toolbar", "aria-label": "Actions des fichiers sélectionnés", "data-gallery-toolbar-state": "selection", children: [
       /* @__PURE__ */ b.jsx(Db, {}),
       /* @__PURE__ */ b.jsxs("div", { className: "gallery-selection-count", "aria-live": "polite", children: [
         /* @__PURE__ */ b.jsx(TE, { "aria-hidden": "true" }),
         /* @__PURE__ */ b.jsxs("span", { children: [
           T.rels.length,
-          /* @__PURE__ */ b.jsx("span", { className: "gallery-selection-word", children: " selected" })
+          /* @__PURE__ */ b.jsxs("span", { className: "gallery-selection-word", children: [
+            " sélectionné",
+            T.rels.length > 1 ? "s" : ""
+          ] })
         ] })
       ] }),
       /* @__PURE__ */ b.jsx("div", { className: "gallery-command-spacer" }),
       /* @__PURE__ */ b.jsx(Sb, {}),
-      T.rels.length === 1 && /* @__PURE__ */ b.jsx(Vt, { className: "gallery-selection-inline", variant: "outline", size: "sm", "data-gallery-selection-action": "open", onClick: () => j?.open(), children: "Open" }),
-      T.imageCount >= 2 && /* @__PURE__ */ b.jsx(Vt, { className: "gallery-selection-inline", variant: "outline", size: "sm", "data-gallery-selection-action": "compare", onClick: () => j?.compare(), children: "Compare" }),
-      /* @__PURE__ */ b.jsx(Vt, { className: "gallery-selection-inline", variant: "outline", size: "sm", "data-gallery-selection-action": "collect", onClick: (V) => {
+      T.rels.length === 1 && /* @__PURE__ */ b.jsx(Vt, { className: "gallery-selection-inline", variant: "outline", size: "sm", "data-gallery-selection-action": "open", onClick: () => j?.open(), children: "Ouvrir" }),
+      T.imageCount >= 2 && /* @__PURE__ */ b.jsx(Vt, { className: "gallery-selection-inline", variant: "outline", size: "sm", "data-gallery-selection-action": "compare", onClick: () => j?.compare(), children: "Comparer" }),
+      /* @__PURE__ */ b.jsx(Vt, { className: "gallery-selection-inline", variant: "outline", size: "sm", "data-gallery-selection-action": "collect", title: "Ajouter à une collection", onClick: (V) => {
         V.stopPropagation(), j?.collect(V.currentTarget);
-      }, children: "Collect" }),
+      }, children: "Collecter" }),
       /* @__PURE__ */ b.jsxs(Vt, { className: "gallery-selection-inline", variant: "outline", size: "sm", "data-gallery-selection-action": "export", onClick: (V) => {
         V.stopPropagation(), j?.export(V.currentTarget);
       }, children: [
-        "Export ",
+        "Exporter ",
         /* @__PURE__ */ b.jsx(Lb, { "data-icon": "inline-end" })
       ] }),
       /* @__PURE__ */ b.jsxs(vc, { modal: !1, children: [
-        /* @__PURE__ */ b.jsx(bc, { render: /* @__PURE__ */ b.jsx(Vt, { ref: i, variant: "ghost", size: "icon-sm", "aria-label": "More selection actions", children: /* @__PURE__ */ b.jsx(xv, {}) }) }),
+        /* @__PURE__ */ b.jsx(bc, { render: /* @__PURE__ */ b.jsx(Vt, { ref: i, variant: "ghost", size: "icon-sm", "aria-label": "Autres actions de sélection", children: /* @__PURE__ */ b.jsx(xv, {}) }) }),
         /* @__PURE__ */ b.jsxs(yi, { align: "end", className: "tw:w-48", children: [
           /* @__PURE__ */ b.jsxs(Bn, { className: "gallery-selection-overflow", children: [
-            T.rels.length === 1 && /* @__PURE__ */ b.jsx(al, { onClick: () => j?.open(), children: "Open" }),
-            T.imageCount >= 2 && /* @__PURE__ */ b.jsx(al, { onClick: () => j?.compare(), children: "Compare" }),
+            T.rels.length === 1 && /* @__PURE__ */ b.jsx(al, { onClick: () => j?.open(), children: "Ouvrir" }),
+            T.imageCount >= 2 && /* @__PURE__ */ b.jsx(al, { onClick: () => j?.compare(), children: "Comparer" }),
             /* @__PURE__ */ b.jsx(al, { onClick: (V) => {
               V.stopPropagation(), i.current && j?.collect(i.current);
-            }, children: "Collect" }),
+            }, children: "Ajouter à une collection" }),
             /* @__PURE__ */ b.jsx(al, { onClick: (V) => {
               V.stopPropagation(), i.current && j?.export(i.current);
-            }, children: "Export" })
+            }, children: "Exporter" })
           ] }),
           /* @__PURE__ */ b.jsx(rr, { className: "gallery-selection-overflow" }),
-          /* @__PURE__ */ b.jsx(Bn, { children: /* @__PURE__ */ b.jsx(al, { onClick: () => j?.hide(), children: "Hide selected" }) }),
+          /* @__PURE__ */ b.jsx(Bn, { children: /* @__PURE__ */ b.jsx(al, { onClick: () => j?.hide(), children: "Masquer la sélection" }) }),
           /* @__PURE__ */ b.jsx(rr, {}),
           /* @__PURE__ */ b.jsx(Bn, { children: /* @__PURE__ */ b.jsxs(al, { variant: "destructive", onClick: () => j?.delete(), children: [
             /* @__PURE__ */ b.jsx(Rp, { "data-icon": "inline-start" }),
-            " Move to Trash"
+            " Déplacer dans la corbeille"
           ] }) })
         ] })
       ] }),
-      /* @__PURE__ */ b.jsx(Vl, { label: "Clear selection (Esc)", children: /* @__PURE__ */ b.jsx(Vt, { variant: "ghost", size: "icon-sm", "aria-label": "Clear selection", "data-gallery-selection-action": "clear", onClick: () => j?.clear(), children: /* @__PURE__ */ b.jsx(np, {}) }) })
+      /* @__PURE__ */ b.jsx(Vl, { label: "Effacer la sélection (Échap)", children: /* @__PURE__ */ b.jsx(Vt, { variant: "ghost", size: "icon-sm", "aria-label": "Effacer la sélection", "data-gallery-selection-action": "clear", onClick: () => j?.clear(), children: /* @__PURE__ */ b.jsx(np, {}) }) })
     ] });
   }
-  return /* @__PURE__ */ b.jsxs("div", { className: "gallery-command-bar", role: "toolbar", "aria-label": "Gallery commands", "data-gallery-toolbar-state": "normal", children: [
+  return /* @__PURE__ */ b.jsxs("div", { className: "gallery-command-bar", role: "toolbar", "aria-label": "Commandes de la galerie", "data-gallery-toolbar-state": "normal", children: [
     /* @__PURE__ */ b.jsx(Db, {}),
     /* @__PURE__ */ b.jsxs("div", { className: "gallery-command-group", "data-gallery-group": "filter", role: "group", "aria-label": "Search and filter gallery", children: [
       /* @__PURE__ */ b.jsxs(hp, { open: u, onOpenChange: (j) => {

@@ -2,7 +2,9 @@
 
 use serde::Serialize;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::io::Read;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -56,11 +58,48 @@ fn assert_relative(root: &Path, file_path: &str) -> Result<String> {
 
 fn git(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<std::process::Output> {
     let mut cmd = Command::new("git");
-    cmd.args(args).current_dir(root);
+    cmd.args(args).current_dir(root).env("LC_ALL", "C");
     for (k, v) in env {
         cmd.env(k, v);
     }
-    Ok(cmd.output()?)
+    bounded_output(&mut cmd, Duration::from_secs(120))
+}
+
+/// Drain both pipes concurrently and bound the entire process, including
+/// descendants which retain stdout after their parent exits.
+pub(crate) fn bounded_output(cmd: &mut Command, timeout: Duration) -> Result<std::process::Output> {
+    const MAX_OUTPUT: u64 = 32 * 1024 * 1024;
+    #[cfg(unix)] { use std::os::unix::process::CommandExt; cmd.process_group(0); }
+    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let (out_tx, out_rx) = std::sync::mpsc::sync_channel(1);
+    let (err_tx, err_rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || { let mut data = Vec::new(); let result = stdout.take(MAX_OUTPUT + 1).read_to_end(&mut data).map(|_| data); let _ = out_tx.send(result); });
+    std::thread::spawn(move || { let mut data = Vec::new(); let result = stderr.take(MAX_OUTPUT + 1).read_to_end(&mut data).map(|_| data); let _ = err_tx.send(result); });
+    let deadline = Instant::now() + timeout;
+    let mut out = None;
+    let mut err = None;
+    let mut status = None;
+    let result = loop {
+        if out.is_none() { if let Ok(data) = out_rx.try_recv() { match data { Ok(data) => out = Some(data), Err(error) => break Err(error.into()) } } }
+        if err.is_none() { if let Ok(data) = err_rx.try_recv() { match data { Ok(data) => err = Some(data), Err(error) => break Err(error.into()) } } }
+        if out.as_ref().is_some_and(|data| data.len() as u64 > MAX_OUTPUT) || err.as_ref().is_some_and(|data| data.len() as u64 > MAX_OUTPUT) {
+            break Err(msg("sortie Git trop volumineuse ; sélectionner un fichier"));
+        }
+        if status.is_none() { match child.try_wait() { Ok(value) => status = value, Err(error) => break Err(error.into()) } }
+        if let (Some(status), Some(stdout), Some(stderr)) = (status, out.as_mut(), err.as_mut()) {
+            break Ok(std::process::Output { status, stdout: std::mem::take(stdout), stderr: std::mem::take(stderr) });
+        }
+        if Instant::now() >= deadline { break Err(msg("délai Git dépassé")); }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    if result.is_err() {
+        #[cfg(unix)] unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    result
 }
 
 fn git_ok(root: &Path, args: &[&str]) -> Result<String> {
@@ -313,6 +352,15 @@ pub fn log(root: &str, all: bool, skip: usize, limit: usize, query: &str) -> Res
 }
 
 pub fn commit_details(root: &str, sha: &str) -> Result<GitCommitDetails> {
+    commit_details_with_patch(root, sha, true)
+}
+
+/// Initial UI payload; text/file contents are requested only after selection.
+pub fn commit_summary(root: &str, sha: &str) -> Result<GitCommitDetails> {
+    commit_details_with_patch(root, sha, false)
+}
+
+fn commit_details_with_patch(root: &str, sha: &str, include_patch: bool) -> Result<GitCommitDetails> {
     let real = confined_root(root)?; ensure_repo(&real)?; if !valid_sha(sha) { return Err(msg("sha invalide")); }
     let cref = format!("{sha}^{{commit}}"); git_ok(&real, &["cat-file", "-e", &cref])?;
     let commit = parse_commit_records(&git_ok(&real, &["show", "-s", "--format=%x1e%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D", sha])?).into_iter().next().ok_or_else(|| msg("commit invalide"))?;
@@ -321,7 +369,18 @@ pub fn commit_details(root: &str, sha: &str) -> Result<GitCommitDetails> {
         let fields: Vec<_> = line.split('\t').collect(); if fields.len() < 2 { return None; }
         Some(GitCommitFile { status: fields[0].into(), path: fields.last()?.to_string(), previous_path: (fields.len() > 2).then(|| fields[1].into()) })
     }).collect();
-    let diff = git_ok(&real, &["show", "--no-ext-diff", "--no-color", "--format=", "--binary", sha])?;
+    let diff = if include_patch {
+        // Binary bodies are never useful in a text preview. Exact contents
+        // remain available through commit_file_contents.
+        let mut patch = git_ok(&real, &["show", "--no-ext-diff", "--no-color", "--format=", sha])?;
+        if patch.len() > 1024 * 1024 {
+            let mut end = 1024 * 1024;
+            while !patch.is_char_boundary(end) { end -= 1; }
+            patch.truncate(end);
+            patch.push_str("\n… patch tronqué ; sélectionner un fichier pour le diff complet.\n");
+        }
+        patch
+    } else { String::new() };
     let head = head_sha(&real)?; let upstream = upstream_sha(&real); let is_published = upstream.as_deref().is_some_and(|up| is_ancestor(&real, sha, up));
     Ok(GitCommitDetails { is_head: head == commit.sha, commit, body, files, diff, head, upstream, is_published })
 }
@@ -336,8 +395,8 @@ pub fn commit_file_contents(root: &str, sha: &str, path: &str, previous_path: Op
     let parents = git_ok(&real, &["show", "-s", "--format=%P", sha])?;
     let before_bytes = parents.split_whitespace().next()
         .map(|parent| git_object(&real, &format!("{parent}:{previous}")))
-        .unwrap_or_default();
-    let after_bytes = git_object(&real, &format!("{sha}:{rel}"));
+        .transpose()?.unwrap_or_default();
+    let after_bytes = git_object(&real, &format!("{sha}:{rel}"))?;
     let (before, before_binary) = decode_diff_content(before_bytes);
     let (after, after_binary) = decode_diff_content(after_bytes);
     Ok(DiffContents { before, after, binary: before_binary || after_binary })
@@ -617,12 +676,28 @@ pub struct DiffContents {
     pub binary: bool,
 }
 
-fn git_object(root: &Path, spec: &str) -> Vec<u8> {
-    git(root, &["show", spec], &[])
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| output.stdout)
-        .unwrap_or_default()
+fn git_object(root: &Path, spec: &str) -> Result<Vec<u8>> {
+    let output = git(root, &["show", spec], &[])?;
+    if output.status.success() { return Ok(output.stdout); }
+    let error = String::from_utf8_lossy(&output.stderr);
+    // Added/deleted paths legitimately have one missing side. Execution
+    // errors (including output limits/timeouts) must never become empty files.
+    if ["does not exist", "exists on disk, but not in", "not in the index"].iter().any(|missing| error.contains(missing)) {
+        Ok(Vec::new())
+    } else { Err(msg(error.trim())) }
+}
+
+fn worktree_file(path: &Path) -> Result<Vec<u8>> {
+    match std::fs::File::open(path) {
+        Ok(file) => {
+            let mut bytes = Vec::new();
+            file.take(32 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+            if bytes.len() > 32 * 1024 * 1024 { return Err(msg("fichier trop volumineux pour le diff (32 Mio)")); }
+            Ok(bytes)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn decode_diff_content(bytes: Vec<u8>) -> (String, bool) {
@@ -671,16 +746,16 @@ pub fn diff_contents(
         }
     }
     let before_bytes = if let Some(sha) = base {
-        git_object(&real, &format!("{sha}:{rel}"))
+        git_object(&real, &format!("{sha}:{rel}"))?
     } else if has_head(&real) {
-        git_object(&real, &format!("HEAD:{rel}"))
+        git_object(&real, &format!("HEAD:{rel}"))?
     } else {
         Vec::new()
     };
     let after_bytes = if scope == "staged" {
-        git_object(&real, &format!(":{rel}"))
+        git_object(&real, &format!(":{rel}"))?
     } else {
-        std::fs::read(real.join(&rel)).unwrap_or_default()
+        worktree_file(&real.join(&rel))?
     };
     let (before, before_binary) = decode_diff_content(before_bytes);
     let (after, after_binary) = decode_diff_content(after_bytes);
@@ -875,13 +950,34 @@ fn worktree_tree(real: &std::path::Path) -> Result<String> {
     // était payé DEUX fois par tour (snapshot d'ouverture + diff de clôture),
     // soit ~90 s de latence par message.
     let cached = snapshot_index_path(real);
-    if let Some(index) = cached.as_deref() {
-        if let Ok(tree) = worktree_tree_with_index(real, index) {
-            return Ok(tree);
+    // Separate inter-process lock: concurrent turns can share the warm index,
+    // but may never delete it while another snapshot is using it.
+    let _guard = cached.as_ref().and_then(|index| {
+        let guard = std::fs::OpenOptions::new().create(true).truncate(false)
+            .read(true).write(true).open(index.with_extension("guard")).ok()?;
+        let deadline = Instant::now() + Duration::from_millis(250);
+        loop {
+            match fs2::FileExt::try_lock_exclusive(&guard) {
+                Ok(()) => break,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline =>
+                    std::thread::sleep(Duration::from_millis(5)),
+                Err(_) => return None,
+            }
         }
-        // Index verrouillé (tour concurrent) ou corrompu : on ne bloque pas le
-        // tour, on retombe sur l'index jetable.
-        let _ = std::fs::remove_file(index);
+        Some(guard)
+    });
+    if let Some(index) = cached.as_deref().filter(|_| _guard.is_some()) {
+        if let Ok(tree) = worktree_tree_with_index(real, index) { return Ok(tree); }
+        // An occupied index or an unrelated Git failure is not corruption.
+        let env = [("GIT_INDEX_FILE", index.to_str().unwrap_or(""))];
+        if let Ok(check) = git(real, &["ls-files", "--stage"], &env) {
+            let error = String::from_utf8_lossy(&check.stderr);
+            if !check.status.success() && ["index file smaller than expected", "index file corrupt",
+                "index checksum mismatch", "bad signature", "unknown index entry format",
+                "unsupported index version"].iter().any(|message| error.contains(message)) {
+                let _ = std::fs::remove_file(index);
+            }
+        }
     }
     let dir = tempfile::tempdir().map_err(|e| msg(e.to_string()))?;
     worktree_tree_with_index(real, &dir.path().join("index"))
@@ -1159,6 +1255,15 @@ mod tests {
     /// froid, 0,10 s ensuite, payé deux fois par tour). Le résultat doit
     /// rester identique à celui d'un index jetable.
     #[test]
+    fn timeout_covers_descendants_holding_pipes() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "sleep 3 & wait"]);
+        let start = Instant::now();
+        assert!(bounded_output(&mut command, Duration::from_millis(50)).is_err());
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
     fn lindex_de_snapshot_est_reutilise_et_donne_le_meme_arbre() {
         let dir = init_repo();
         let root = dir.path().to_string_lossy().to_string();
@@ -1196,6 +1301,39 @@ mod tests {
         std::fs::write(&index, b"ceci n'est pas un index git").unwrap();
 
         assert_eq!(worktree_tree(&real).unwrap(), attendu);
+    }
+
+    #[test]
+    fn concurrent_snapshots_preserve_staging_and_busy_cache() {
+        let dir = init_repo();
+        let root = dir.path().to_path_buf();
+        let staging = std::fs::read(root.join(".git/index")).unwrap();
+        let expected = worktree_tree(&root).unwrap();
+        let index = snapshot_index_path(&root).unwrap();
+        let guard = std::fs::OpenOptions::new().read(true).write(true).open(index.with_extension("guard")).unwrap();
+        fs2::FileExt::lock_exclusive(&guard).unwrap();
+        let start = Instant::now();
+        assert_eq!(worktree_tree(&root).unwrap(), expected);
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(index.exists());
+        drop(guard);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..4).map(|_| scope.spawn(|| worktree_tree(&root).unwrap())).collect();
+            for handle in handles { assert_eq!(handle.join().unwrap(), expected); }
+        });
+        assert_eq!(std::fs::read(root.join(".git/index")).unwrap(), staging);
+    }
+
+    #[test]
+    fn oversized_git_blob_is_an_error_not_a_deleted_file() {
+        let dir = init_repo();
+        let path = dir.path().join("large");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(33 * 1024 * 1024).unwrap();
+        let blob = git_ok(dir.path(), &["hash-object", "-w", "large"]).unwrap();
+        assert!(git_object(dir.path(), blob.trim()).is_err());
+        assert!(worktree_file(&path).is_err());
+        assert!(git_object(dir.path(), "HEAD:absent").unwrap().is_empty());
     }
 
     fn init_repo() -> tempfile::TempDir {
@@ -1520,6 +1658,9 @@ mod tests {
         assert_eq!(page.commits.len(), 1); assert!(page.has_more);
         let details = commit_details(root, &page.commits[0].sha).unwrap();
         assert_eq!(details.commit.subject, "second commit"); assert!(details.diff.contains("+second"));
+        let summary = commit_summary(root, &page.commits[0].sha).unwrap();
+        assert!(summary.diff.is_empty());
+        assert_eq!(summary.files.len(), details.files.len());
         let contents = commit_file_contents(root, &page.commits[0].sha, "a.txt", None).unwrap();
         assert_eq!(contents.before, "hello"); assert_eq!(contents.after, "second"); assert!(!contents.binary);
     }

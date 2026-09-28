@@ -1,4 +1,5 @@
 import {createNoteEditor, createSelectionActions} from "../annotation_ui";
+import {requestChatAttachment} from "../../core/chat_attach";
 
 type MarkdownMark = {
   id: string;
@@ -130,7 +131,12 @@ export function createMarkdownWysiwygSelection(
   note.style.display = "none";
   doc.body.append(actions, note);
   let selected: SelectionSnapshot | null = null;
-  let noteSelection: SelectionSnapshot | null = null;
+  let destroyed = false;
+  let quotePending = false;
+  const quoteDeliveries = new WeakMap<SelectionSnapshot, {requestId: string; message?: string}>();
+  type NoteDraft = {snapshot: SelectionSnapshot; mark?: MarkdownMark; saved: boolean;
+    requestId?: string; direct?: boolean; pending: boolean};
+  let noteDraft: NoteDraft | null = null;
   let marks: MarkdownMark[] = [];
   let refreshTimer: number | null = null;
   let captureTimer: number | null = null;
@@ -149,11 +155,29 @@ export function createMarkdownWysiwygSelection(
       candidates[0] || null;
   };
   const hide = (): void => { actions.style.display = "none"; };
-  const clearSelection = (): void => {
+  const sameRange = (left: Range, right: Range): boolean =>
+    left.startContainer === right.startContainer && left.startOffset === right.startOffset &&
+    left.endContainer === right.endContainer && left.endOffset === right.endOffset;
+  const clearSelection = (snapshot?: SelectionSnapshot): void => {
+    if (destroyed || (snapshot && selected !== snapshot)) return;
+    // A new DOM selection can precede its debounced capture event.
+    const current = win.getSelection();
+    if (snapshot && current?.rangeCount && current.toString().trim() &&
+      !sameRange(snapshot.range, current.getRangeAt(0))) return;
     hide();
     selected = null;
-    win.getSelection()?.removeAllRanges();
+    current?.removeAllRanges();
   };
+  const setQuoteBusy = (busy: boolean): void => {
+    quotePending = busy;
+    actions.setAttribute("aria-busy", String(busy));
+    actions.querySelectorAll("button").forEach(button => { button.disabled = busy; });
+  };
+  const deliver = (requestId: string, payload: Record<string, unknown>): Promise<void> =>
+    requestChatAttachment({window: win, requestId, payload, postToHost: (message) => {
+      if (destroyed) throw new Error("Éditeur fermé");
+      post(message);
+    }});
   const place = (element: HTMLElement, rect: DOMRect): void => {
     element.style.display = "flex";
     const width = element.offsetWidth;
@@ -197,11 +221,14 @@ export function createMarkdownWysiwygSelection(
     mutationQueue = mutationQueue.then(async () => {
       if (!(await ensureLoaded())) return;
       localMutation += 1;
+      const previous = marks.find(candidate => candidate.id === mark.id);
+      marks = marks.filter(candidate => candidate.id !== mark.id);
       marks.push(mark);
       paint();
       saved = await save();
       if (!saved) {
         marks = marks.filter((candidate) => candidate.id !== mark.id);
+        if (previous) marks.push(previous);
         paint();
       }
     });
@@ -210,53 +237,133 @@ export function createMarkdownWysiwygSelection(
   };
   const sendQuote = async (): Promise<void> => {
     const snapshot = selected;
-    if (!snapshot) return;
-    hide();
+    if (!snapshot || quotePending || destroyed) return;
+    const delivery = quoteDeliveries.get(snapshot) || {requestId: win.crypto.randomUUID()};
+    quoteDeliveries.set(snapshot, delivery);
+    setQuoteBusy(true);
+    status.textContent = "Ajout en cours…";
     try {
-      const response = await win.fetch("/quote", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({rel: options.path, page: snapshot.page, text: snapshot.text,
-          comment: "", direct: true, embed: true}),
-      });
-      const result = await response.json();
-      if (!response.ok || result?.error || !result?.message) throw new Error("quote failed");
-      post({type: "atelier-add-to-chat", text: result.message});
-      clearSelection();
-    } catch {
-      status.textContent = "Ajout impossible. Réessaie.";
-      actions.style.display = "flex";
+      if (!delivery.message) {
+        const response = await win.fetch("/quote", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({rel: options.path, page: snapshot.page, text: snapshot.text,
+            comment: "", direct: true, embed: true}),
+        });
+        const result = await response.json();
+        if (!response.ok || result?.error || !result?.message) throw new Error("Ajout impossible. Réessaie.");
+        delivery.message = result.message;
+      }
+      await deliver(delivery.requestId, {type: "atelier-add-to-chat", text: delivery.message});
+      clearSelection(snapshot);
+    } catch (error) {
+      if (!destroyed && selected === snapshot) {
+        status.textContent = error instanceof Error ? error.message : "Ajout impossible. Réessaie.";
+      }
+    } finally {
+      if (!destroyed) setQuoteBusy(false);
     }
   };
   const noteUI = createNoteEditor(note, {
     onSubmit: (value) => { void submitNote(value, false); },
     onSendDirect: (value) => { void submitNote(value, true); },
-    onDelete: () => { note.style.display = "none"; noteSelection = null; clearSelection(); },
-    onDismiss: () => { note.style.display = "none"; noteSelection = null; },
+    onDelete: () => { void deleteNote(); },
+    onDismiss: () => { note.style.display = "none"; noteDraft = null; },
   });
-  const submitNote = async (value: string, direct: boolean): Promise<void> => {
-    const snapshot = noteSelection;
-    if (!snapshot) return;
+  const deleteNote = async (): Promise<void> => {
+    const draft = noteDraft;
+    if (!draft || draft.pending || destroyed) return;
+    draft.pending = true;
     noteUI.busy(true);
+    note.setAttribute("aria-busy", "true");
     noteUI.status.textContent = "";
-    const mark: MarkdownMark = {id: crypto.randomUUID(), text: snapshot.text, page: snapshot.page,
-      comment: value.trim(), kind: "comment", color: "blue", occurrence: snapshot.occurrence};
-    const saved = await addMark(mark);
-    noteUI.busy(false);
-    if (!saved) { noteUI.status.textContent = "Enregistrement impossible."; return; }
-    post({type: "atelier-add-to-chat", direct,
-      text: `${options.path}${snapshot.page ? ` (${snapshot.page})` : ""} : « ${snapshot.text} »\nCommentaire : ${mark.comment || "(voir passage)"}`,
-      pdfAnnotation: {rel: relation, id: mark.id}});
-    note.style.display = "none";
-    noteSelection = null;
-    clearSelection();
+    try {
+      if (draft.mark) {
+        let saved = false;
+        mutationQueue = mutationQueue.then(async () => {
+          const mark = marks.find(candidate => candidate.id === draft.mark!.id);
+          if (!mark) { saved = true; return; }
+          localMutation += 1;
+          marks = marks.filter(candidate => candidate.id !== mark.id);
+          paint();
+          saved = await save();
+          if (!saved) { marks.push(mark); paint(); }
+        });
+        await mutationQueue;
+        if (!saved) throw new Error("Suppression non enregistrée. Réessaie.");
+      }
+      if (!destroyed && noteDraft === draft) {
+        note.style.display = "none";
+        noteDraft = null;
+        clearSelection(draft.snapshot);
+        if (win.getSelection()?.rangeCount) capture();
+      }
+    } catch (error) {
+      if (!destroyed && noteDraft === draft) {
+        noteUI.status.textContent = error instanceof Error ? error.message : "Suppression impossible.";
+      }
+    } finally {
+      draft.pending = false;
+      if (!destroyed && (!noteDraft || noteDraft === draft)) {
+        noteUI.busy(false);
+        note.setAttribute("aria-busy", "false");
+      }
+    }
+  };
+  const submitNote = async (value: string, direct: boolean): Promise<void> => {
+    const draft = noteDraft;
+    if (!draft || draft.pending || destroyed) return;
+    const snapshot = draft.snapshot;
+    const comment = value.trim();
+    if (!draft.mark || draft.mark.comment !== comment) {
+      draft.mark = {id: draft.mark?.id || win.crypto.randomUUID(), text: snapshot.text, page: snapshot.page,
+        comment, kind: "comment", color: "blue", occurrence: snapshot.occurrence};
+      draft.saved = false;
+      draft.requestId = undefined;
+    }
+    if (draft.direct !== direct) draft.requestId = undefined;
+    draft.direct = direct;
+    draft.requestId ||= win.crypto.randomUUID();
+    draft.pending = true;
+    noteUI.busy(true);
+    note.setAttribute("aria-busy", "true");
+    noteUI.status.textContent = "";
+    const mark = draft.mark;
+    try {
+      if (!draft.saved) draft.saved = await addMark(mark);
+      if (!draft.saved) throw new Error("Enregistrement impossible.");
+      await deliver(draft.requestId, {type: "atelier-add-to-chat", direct,
+        text: `${options.path}${snapshot.page ? ` (${snapshot.page})` : ""} : « ${snapshot.text} »\nCommentaire : ${mark.comment || "(voir passage)"}`,
+        pdfAnnotation: {rel: relation, id: mark.id}});
+      if (!destroyed && noteDraft === draft) {
+        note.style.display = "none";
+        noteDraft = null;
+        clearSelection(snapshot);
+        // capture() is suspended while the note is open. A newer DOM selection
+        // kept by clearSelection must regain its actions after the ACK.
+        if (win.getSelection()?.rangeCount) capture();
+      }
+    } catch (error) {
+      if (!destroyed && noteDraft === draft) {
+        noteUI.status.textContent = error instanceof Error ? error.message : "Ajout impossible. Réessaie.";
+      }
+    } finally {
+      draft.pending = false;
+      if (!destroyed && (!noteDraft || noteDraft === draft)) {
+        noteUI.busy(false);
+        note.setAttribute("aria-busy", "false");
+      }
+    }
   };
   createSelectionActions(actions, {
     onAdd: () => { void sendQuote(); },
     onAnnotate: () => {
       if (!selected) return;
       hide();
-      noteSelection = selected;
+      noteDraft = {snapshot: selected, saved: false, pending: false};
+      noteUI.busy(false);
+      note.setAttribute("aria-busy", "false");
+      noteUI.status.textContent = "";
       noteUI.input.value = "";
       place(note, selected.rect);
       noteUI.focus();
@@ -271,8 +378,8 @@ export function createMarkdownWysiwygSelection(
       const snapshot = selected;
       void addMark({id: crypto.randomUUID(), text: snapshot.text, page: snapshot.page,
         comment: "", kind: "hl", color, occurrence: snapshot.occurrence}).then((saved) => {
-          if (saved) clearSelection();
-          else status.textContent = "Surlignage non enregistré. Réessaie.";
+          if (saved) clearSelection(snapshot);
+          else if (!destroyed && selected === snapshot) status.textContent = "Surlignage non enregistré. Réessaie.";
         });
     },
     highlightColor: "blue",
@@ -287,10 +394,11 @@ export function createMarkdownWysiwygSelection(
     const rendered = root(selection?.anchorNode);
     if (!selection?.rangeCount || !rendered || !selection.anchorNode || !rendered.contains(selection.anchorNode)) {
       hide();
+      selected = null;
       return;
     }
     const text = selection.toString().trim();
-    if (!text) { hide(); return; }
+    if (!text) { hide(); selected = null; return; }
     const range = selection.getRangeAt(0).cloneRange();
     const renderedPrefix = doc.createRange();
     renderedPrefix.selectNodeContents(rendered);
@@ -298,9 +406,11 @@ export function createMarkdownWysiwygSelection(
     const prefix = renderedPrefix.toString();
     let occurrence = 0, match = prefix.indexOf(text);
     while (match >= 0) { occurrence += 1; match = prefix.indexOf(text, match + Math.max(1, text.length)); }
-    selected = {text, page: markdownSelectionPage(options.getMarkdown(), text, occurrence), range,
-      rect: range.getBoundingClientRect(), occurrence};
-    status.textContent = "";
+    if (!selected || selected.text !== text || !sameRange(selected.range, range)) {
+      selected = {text, page: markdownSelectionPage(options.getMarkdown(), text, occurrence), range,
+        rect: range.getBoundingClientRect(), occurrence};
+      status.textContent = "";
+    }
     place(actions, selected.rect);
   };
   const scheduleCapture = (event: Event): void => {
@@ -318,7 +428,7 @@ export function createMarkdownWysiwygSelection(
     }, event.type === "selectionchange" ? 30 : 0);
   };
   const onKeydown = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") { hide(); note.style.display = "none"; }
+    if (event.key === "Escape") { hide(); note.style.display = "none"; noteDraft = null; }
   };
   doc.addEventListener("mouseup", scheduleCapture, true);
   doc.addEventListener("keyup", scheduleCapture, true);
@@ -364,6 +474,7 @@ export function createMarkdownWysiwygSelection(
       refreshTimer = win.setTimeout(paint, 200);
     },
     destroy() {
+      destroyed = true;
       if (captureTimer !== null) win.clearTimeout(captureTimer);
       if (refreshTimer !== null) win.clearTimeout(refreshTimer);
       doc.removeEventListener("mouseup", scheduleCapture, true);

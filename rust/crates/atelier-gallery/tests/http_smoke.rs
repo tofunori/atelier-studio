@@ -1137,6 +1137,87 @@ fn range_bytes_0_9_returns_206_with_exact_window() {
 }
 
 #[test]
+fn project_and_raw_pdf_routes_share_range_cache_and_path_guards() {
+    let server = start_server();
+    fs::write(server.root.join("article.pdf"), b"0123456789ABCDEFGHIJ").unwrap();
+    let base = format!("http://127.0.0.1:{}", server.port);
+    let client = reqwest::blocking::Client::new();
+    for route in ["/article.pdf", "/raw?path=article.pdf"] {
+        let response = client.get(format!("{base}{route}")).header("Range", "bytes=10-14").send().unwrap();
+        assert_eq!(response.status(), 206, "{route}");
+        assert_eq!(response.headers()["content-type"], "application/pdf");
+        let etag = response.headers()["etag"].clone();
+        assert_eq!(&response.bytes().unwrap()[..], b"ABCDE");
+        assert_eq!(client.get(format!("{base}{route}")).header("If-None-Match", etag).send().unwrap().status(), 304);
+        assert_eq!(client.get(format!("{base}{route}")).header("Origin", "https://evil.example").send().unwrap().status(), 403);
+        let head = client.head(format!("{base}{route}")).send().unwrap();
+        assert_eq!(head.headers()["content-length"], "20"); assert!(head.bytes().unwrap().is_empty());
+    }
+    assert_eq!(client.get(format!("{base}/raw?path=../outside.pdf")).send().unwrap().status(), 404);
+}
+
+#[test]
+fn reflow_concurrent_cold_requests_convert_once_and_head_never_converts() {
+    use std::os::unix::fs::PermissionsExt;
+    let tools = tempfile::tempdir().unwrap();
+    let script = tools.path().join("pdftohtml"); let calls = tools.path().join("calls");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reflow/twocol.xml");
+    fs::write(&script, "#!/bin/sh\nprintf 'run\\n' >> \"$ATELIER_TEST_CALLS\"\nsleep 0.15\ncat \"$ATELIER_TEST_XML\"\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let server = start_server_with(&[("ATELIER_PDFTOHTML",script.display().to_string()),
+        ("ATELIER_TEST_CALLS",calls.display().to_string()), ("ATELIER_TEST_XML",fixture.display().to_string())]);
+    fs::copy(reflow_fixture_pdf(), server.root.join("paper.pdf")).unwrap();
+    assert_eq!(http(server.port,"HEAD","/reflow?path=paper.pdf",None).0,404);
+    assert!(!calls.exists());
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            let port = server.port;
+            scope.spawn(move || { let (status, body) = http(port,"GET","/reflow?path=paper.pdf",None); assert_eq!(status,200,"{body}"); });
+        }
+    });
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(),1);
+    for _ in 0..3 { assert_eq!(http(server.port,"HEAD","/reflow?path=paper.pdf",None).0,200); }
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(),1);
+}
+
+#[test]
+fn reflow_deadline_includes_pipes_inherited_by_a_helper_descendant() {
+    use std::os::unix::fs::PermissionsExt;
+    let tools = tempfile::tempdir().unwrap(); let script = tools.path().join("pdftohtml");
+    fs::write(&script, "#!/bin/sh\nsleep 5 &\nexit 0\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let server = start_server_with(&[("ATELIER_PDFTOHTML", script.display().to_string()),
+        ("ATELIER_PDFTOHTML_TIMEOUT_MS", "50".into())]);
+    fs::copy(reflow_fixture_pdf(), server.root.join("paper.pdf")).unwrap();
+    let started = Instant::now();
+    let (status, body) = http(server.port, "GET", "/reflow?path=paper.pdf", None);
+    assert_eq!(status, 502, "{body}"); assert!(body.contains("délai dépassé"));
+    assert!(started.elapsed() < Duration::from_secs(2), "descendant must not retain the request");
+}
+
+#[test]
+fn cached_annotations_see_external_writes_and_keep_concurrent_document_updates() {
+    let app_dir = tempfile::tempdir().unwrap();
+    let server = start_server_with(&[("ATELIER_APP_DIR", app_dir.path().display().to_string())]);
+    let rel = "zotero/ABCD1234/paper.pdf";
+    assert_eq!(http(server.port, "GET", &format!("/pdfannot?rel={rel}"), None).0, 200);
+    fs::write(app_dir.path().join("pdf_annots.json"), format!(r#"{{"{rel}":[{{"id":"external"}}]}}"#)).unwrap();
+    assert!(http(server.port, "GET", &format!("/pdfannot?rel={rel}"), None).1.contains("external"));
+    std::thread::scope(|scope| {
+        for n in 0..8 {
+            let port = server.port;
+            scope.spawn(move || {
+                let body = format!(r#"{{"rel":"zotero/ABCD1234/paper{n}.pdf","annots":[{{"id":"note{n}"}}]}}"#);
+                assert_eq!(http(port,"POST","/pdfannot",Some(&body)).0,200);
+            });
+        }
+    });
+    let store: serde_json::Value = serde_json::from_slice(&fs::read(app_dir.path().join("pdf_annots.json")).unwrap()).unwrap();
+    assert_eq!(store.as_object().unwrap().len(),9);
+    assert_eq!(store[rel][0]["id"],"external");
+}
+
+#[test]
 fn head_request_reports_accept_ranges_and_length_with_empty_body() {
     let srv = start_server();
     let url = write_ranged_fixture(&srv, "clip.mp4", b"0123456789ABCDEFGHIJ");
@@ -1274,7 +1355,8 @@ fn reflow_analyse_un_pdf_du_projet_et_le_met_en_cache() {
             .any(|b| b["kind"] == "heading")
     );
     let cache_dir = server.root.join(".fig_thumbs/reflow");
-    let cached: Vec<_> = fs::read_dir(&cache_dir).unwrap().flatten().collect();
+    let cached: Vec<_> = fs::read_dir(&cache_dir).unwrap().flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json")).collect();
     assert_eq!(cached.len(), 1);
     let mtime1 = cached[0].metadata().unwrap().modified().unwrap();
     thread::sleep(Duration::from_millis(1100));

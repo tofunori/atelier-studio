@@ -60,44 +60,101 @@ export function createStudioFilePicker(options: StudioFilePickerOptions): Studio
   const win = options.window || window;
   const storage = options.storage || win.localStorage;
   const editable = options.editable || DEFAULT_EDITABLE;
-  const hide = (): void => { options.picker.classList.remove("show"); };
+  const box = options.list.parentElement || options.picker;
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.setAttribute("aria-label", "Ouvrir un fichier");
+  box.tabIndex = -1;
+  options.openButton?.setAttribute("aria-haspopup", "dialog");
+  let returnFocus: HTMLElement | null = null;
+  let request = 0;
+  const hide = (): void => {
+    if (!options.picker.classList.contains("show")) return;
+    request += 1;
+    options.picker.classList.remove("show");
+    options.openButton?.setAttribute("aria-expanded", "false");
+    if (returnFocus?.isConnected) returnFocus.focus();
+  };
   const open = (target: string): void => {
     win.location.href = `/.fig_thumbs/${studioPageForPath(target)}?path=${encodeURIComponent(target)}`;
   };
+  const append = (label: string, className: string, activate: () => void): HTMLButtonElement => {
+    const item = doc.createElement("button");
+    item.type = "button";
+    item.innerHTML = label;
+    item.className = className;
+    // Les deux coquilles historiques stylent leurs rangées div : ce bouton
+    // conserve leur métrique tout en apportant Entrée/Espace nativement.
+    item.style.cssText = "display:flex;gap:8px;width:100%;padding:7px 14px;border:0;background:transparent;color:inherit;text-align:left;font:var(--fs-body,13px) var(--ui-font);cursor:pointer";
+    item.onfocus = () => { item.style.background = "var(--surface-hover,var(--border))"; };
+    item.onblur = () => { item.style.background = "transparent"; };
+    item.onclick = activate;
+    options.list.appendChild(item);
+    return item;
+  };
   const show = async (directory = ""): Promise<void> => {
-    const fallbackDirectory = options.currentPath ? options.currentPath.replace(/\/[^/]*$/, "") : "";
-    const response = await win.fetch(`/ls?dir=${encodeURIComponent(directory || fallbackDirectory)}`);
-    const payload = await response.json() as FilePickerResponse;
-    if (payload.error) return;
+    if (!options.picker.classList.contains("show")) returnFocus = doc.activeElement as HTMLElement | null;
+    const current = ++request;
     options.picker.classList.add("show");
-    options.pathLabel.textContent = payload.path.replace(/^\/Users\/[^/]+/, "~");
-    options.list.innerHTML = "";
-    const append = (label: string, className: string, activate: () => void): void => {
-      const item = doc.createElement("div");
-      item.innerHTML = label;
-      item.className = className;
-      item.onclick = activate;
-      options.list.appendChild(item);
-    };
-    const recent = recentStudioFiles(storage).filter((path) => path !== options.currentPath);
-    if (recent.length) {
-      recent.forEach((path) => append(`&#128337; ${escapeHtml(path.split("/").pop() || path)}`
-        + ` <span style="color:var(--muted);font-size:11px">${escapeHtml(path.replace(/^\/Users\/[^/]+\/Documents\//, "").replace(/\/[^/]*$/, ""))}</span>`,
-      "", () => open(path)));
-      const separator = doc.createElement("div");
-      separator.style.cssText = "border-bottom:1px solid var(--border);margin:4px 0;padding:0;height:1px;cursor:default";
-      options.list.appendChild(separator);
+    options.openButton?.setAttribute("aria-expanded", "true");
+    options.pathLabel.textContent = "Chargement…";
+    options.list.replaceChildren();
+    box.setAttribute("aria-busy", "true");
+    box.focus();
+    const fallbackDirectory = options.currentPath ? options.currentPath.replace(/\/[^/]*$/, "") : "";
+    try {
+      const response = await win.fetch(`/ls?dir=${encodeURIComponent(directory || fallbackDirectory)}`);
+      const payload = await response.json() as FilePickerResponse;
+      if (current !== request) return;
+      if (!response.ok || payload.error || !Array.isArray(payload.items)) throw new Error(payload.error || "Liste indisponible");
+      options.pathLabel.textContent = payload.path.replace(/^\/Users\/[^/]+/, "~");
+      const recent = recentStudioFiles(storage).filter((path) => path !== options.currentPath);
+      if (recent.length) {
+        recent.forEach((path) => append(`&#128337; ${escapeHtml(path.split("/").pop() || path)}`
+          + ` <span style="color:var(--muted);font-size:var(--fs-label,11px)">${escapeHtml(path.replace(/^\/Users\/[^/]+\/Documents\//, "").replace(/\/[^/]*$/, ""))}</span>`,
+        "", () => open(path)));
+        const separator = doc.createElement("div");
+        separator.setAttribute("role", "separator");
+        separator.style.cssText = "border-bottom:1px solid var(--border);margin:4px 0;padding:0;height:1px";
+        options.list.appendChild(separator);
+      }
+      if (payload.parent) append("&#8617; ..", "d", () => { void show(payload.parent); });
+      payload.items.filter((item) => item.dir).forEach((item) =>
+        append(`&#128193; ${escapeHtml(item.name)}`, "d", () => { void show(`${payload.path}/${item.name}`); }));
+      payload.items.filter((item) => !item.dir && editable.test(item.name)).forEach((item) =>
+        append(escapeHtml(item.name), "", () => open(`${payload.path}/${item.name}`)));
+      if (!options.list.children.length) options.pathLabel.textContent += " — Aucun fichier compatible";
+    } catch (error) {
+      if (current !== request) return;
+      options.pathLabel.textContent = `Impossible de charger les fichiers : ${error instanceof Error ? error.message : String(error)}`;
+      append("Réessayer", "", () => { void show(directory); });
+    } finally {
+      if (current === request) {
+        box.removeAttribute("aria-busy");
+        (options.list.querySelector("button") || box).focus();
+      }
     }
-    if (payload.parent) append("&#8617; ..", "d", () => { void show(payload.parent); });
-    payload.items.filter((item) => item.dir).forEach((item) =>
-      append(`&#128193; ${escapeHtml(item.name)}`, "d", () => { void show(`${payload.path}/${item.name}`); }));
-    payload.items.filter((item) => !item.dir && editable.test(item.name)).forEach((item) =>
-      append(escapeHtml(item.name), "", () => open(`${payload.path}/${item.name}`)));
   };
   options.picker.onclick = (event) => {
     if (event.target === options.picker) hide();
   };
-  doc.addEventListener("keydown", (event) => { if (event.key === "Escape") hide(); });
-  if (options.openButton) options.openButton.onclick = () => { void show(); };
+  doc.addEventListener("keydown", (event) => {
+    if (!options.picker.classList.contains("show")) return;
+    if (event.key === "Escape") {
+      event.preventDefault(); event.stopImmediatePropagation(); hide(); return;
+    }
+    const buttons = Array.from(options.list.querySelectorAll<HTMLButtonElement>("button"));
+    const index = buttons.indexOf(doc.activeElement as HTMLButtonElement);
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+        : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next]?.focus();
+    } else if (event.key === "Tab" && (!buttons.length || (event.shiftKey ? index <= 0 : index === buttons.length - 1))) {
+      event.preventDefault();
+      (buttons[event.shiftKey ? buttons.length - 1 : 0] || box).focus();
+    }
+  }, true);
+  if (options.openButton) options.openButton.onclick = () => { options.openButton?.focus(); void show(); };
   return {show, hide, open};
 }

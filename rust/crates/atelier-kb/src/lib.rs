@@ -22,3 +22,5 @@ pub mod zotero_cli;
 
 pub mod ragdoc;
 pub mod ragdoc_review;
+
+mod process;
