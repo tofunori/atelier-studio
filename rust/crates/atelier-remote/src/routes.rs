@@ -30,6 +30,8 @@ mod compute_routes;
 mod composer_routes;
 #[path = "image_routes.rs"]
 mod image_routes;
+#[path = "thumb_routes.rs"]
+mod thumb_routes;
 
 pub fn router(state: GatewayState) -> Router {
     Router::new()
@@ -69,6 +71,7 @@ pub fn router(state: GatewayState) -> Router {
             "/remote/v1/file/{file_id}",
             get(get_file_by_id).delete(trash_file_by_id),
         )
+        .route("/remote/v1/thumb/{file_id}", get(thumb_routes::thumb))
         // Admin (loopback + admin token)
         .route("/remote/admin", get(admin_page))
         .route("/remote/admin/pairing/start", post(admin_pairing_start))

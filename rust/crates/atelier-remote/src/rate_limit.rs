@@ -28,6 +28,12 @@ impl RateLimiter {
         Self::new(Duration::from_secs(60), 120)
     }
 
+    /// Thumbnails have their own budget: a gallery grid asks for dozens at
+    /// once and must never exhaust the `files:read` budget of real opens.
+    pub fn thumb_default() -> Self {
+        Self::new(Duration::from_secs(60), 600)
+    }
+
     pub fn check(&mut self, key: &str) -> bool {
         let now = Instant::now();
         let entry = self.hits.entry(key.to_string()).or_default();

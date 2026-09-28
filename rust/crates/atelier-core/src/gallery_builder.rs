@@ -192,7 +192,10 @@ pub fn scan(options: &GalleryBuildOptions) -> Result<Vec<GalleryRow>, CoreError>
     Ok(rows)
 }
 
-fn command_success_with_timeout(command: &mut Command, timeout: Duration) -> bool {
+/// Lance `command` et attend au plus `timeout` ; au-delà, tue tout le groupe
+/// de processus. Public : la passerelle iPhone (`atelier-remote`) génère ses
+/// vignettes avec les mêmes `sips`/`qlmanage` et les mêmes garanties.
+pub fn command_success_with_timeout(command: &mut Command, timeout: Duration) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -227,7 +230,10 @@ fn command_success_with_timeout(command: &mut Command, timeout: Duration) -> boo
     false
 }
 
-fn image_thumb_key(path: &Path, mtime: u64) -> String {
+/// Clé `imgthumb_{clé}.png` d'une image dans `.fig_thumbs/` (chemin
+/// canonique, mtime en secondes, largeur 480) — celle de la route `/thumb`
+/// de la galerie. Publique pour que la passerelle iPhone relise ce cache.
+pub fn image_thumb_key(path: &Path, mtime: u64) -> String {
     let mut hash = Md5::new();
     hash.update(format!("{}:{mtime}:480", path.to_string_lossy()));
     hex::encode(hash.finalize())
@@ -713,6 +719,8 @@ pub fn parse_extensions(value: Option<&str>) -> Option<BTreeSet<String>> {
         .filter(|set: &BTreeSet<String>| !set.is_empty())
 }
 
+/// Clé `{clé}.png` d'un PDF ou d'une vidéo dans `.fig_thumbs/` (chemin
+/// relatif à la racine canonique, mtime en secondes).
 pub fn stable_thumb_key(rel: &str, mtime: u64) -> String {
     let mut hash = Md5::new();
     hash.update(format!("{rel}:{mtime}"));
