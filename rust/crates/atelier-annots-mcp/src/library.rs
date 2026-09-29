@@ -48,9 +48,23 @@ pub struct Annotation {
     /// Surlignage posé par Claude (`highlight_passage`) : le seul genre que
     /// `update_highlights` / `remove_highlights` peuvent toucher.
     pub by_claude: bool,
-    /// Soulignement (`kind: "ul"`) plutôt que surlignage.
-    pub underline: bool,
+    /// `kind` du lecteur : `hl` surligné (défaut), `ul` souligné, `st` barré,
+    /// `note` note libre, `area` zone capturée, `text` zone de texte écrite
+    /// sur la page, `stamp` tampon, `comment` question au chat.
+    pub kind: String,
+    /// Tampon (`kind: "stamp"`) : son sens, « À vérifier », « À citer »…
+    pub stamp: String,
 }
+
+/// Tampons du lecteur (`STAMPS` de `gallery/src/browser/pdf_tools.ts`).
+pub const STAMPS: [(&str, &str); 6] = [
+    ("verif", "À vérifier"),
+    ("imp", "Important"),
+    ("ok", "D'accord"),
+    ("no", "Désaccord"),
+    ("cite", "À citer"),
+    ("def", "Définition"),
+];
 
 #[derive(Debug, Clone, Default)]
 pub struct Article {
@@ -137,23 +151,44 @@ pub fn atelier_annotations(store: &Value) -> Vec<Annotation> {
             .map(str::to_string)
             .unwrap_or_else(|| rel.clone());
         for a in list.as_array().into_iter().flatten() {
-            let kind = text(a, "kind");
+            let kind = match text(a, "kind").as_str() {
+                "" => "hl".to_string(),
+                k => k.to_string(),
+            };
             // Le champ `note` est celui du chat ; seule une note libre (pastille
-            // posée sur la page) est une note par nature.
-            let note = if kind == "note" {
-                text(a, "note")
+            // posée sur la page) est une note par nature, et le texte d'une zone
+            // de texte est ce que le lecteur a écrit sur la page.
+            let note = match kind.as_str() {
+                "note" => text(a, "note"),
+                "text" => text(a, "text"),
+                _ => text(a, "memo"),
+            };
+            let stamp = if kind == "stamp" {
+                let id = text(a, "stamp");
+                STAMPS
+                    .iter()
+                    .find(|(k, _)| *k == id)
+                    .unwrap_or(&STAMPS[0])
+                    .1
+                    .to_string()
             } else {
-                text(a, "memo")
+                String::new()
             };
             // Un trait d'union conditionnel en fin de ligne (« al\u{ad} bedo »,
             // surlignages plus anciens) disparaît avec l'espace qui le suit.
-            let passage = text(a, "text")
-                .replace("\u{ad} ", "")
-                .replace('\u{ad}', "")
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
-            if passage.is_empty() && note.is_empty() {
+            // Zone de texte : son texte est une note, pas une citation de
+            // l'article. Tampon : `text` est la ligne de l'article qu'il marque.
+            let passage = if kind == "text" {
+                String::new()
+            } else {
+                text(a, "text")
+            }
+            .replace("\u{ad} ", "")
+            .replace('\u{ad}', "")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+            if passage.is_empty() && note.is_empty() && stamp.is_empty() {
                 continue;
             }
             out.push(Annotation {
@@ -164,7 +199,8 @@ pub fn atelier_annotations(store: &Value) -> Vec<Annotation> {
                 note,
                 color: color_name(&text(a, "color")),
                 by_claude: text(a, "by") == "claude",
-                underline: kind == "ul",
+                kind,
+                stamp,
             });
         }
     }
@@ -348,7 +384,7 @@ impl Library {
                 }
                 // Le score ne compte que le passage et la note : un titre qui
                 // contient les mots ferait remonter tout l'article.
-                let text = fold(&format!("{} {}", a.passage, a.note));
+                let text = fold(&format!("{} {} {}", a.passage, a.note, a.stamp));
                 let score = words.iter().filter(|w| text.contains(w.as_str())).count();
                 let keep = if filter.any {
                     words.is_empty() || score > 0
@@ -409,6 +445,34 @@ mod tests {
         assert_eq!(annots[0].color, "jaune");
         assert_eq!(annots[1].note, "", "chat text is never exposed as a note");
         assert_eq!(annots[2].note, "Note libre posée sur la page");
+    }
+
+    #[test]
+    fn struck_passages_text_boxes_and_stamps_are_readable() {
+        let store = json!({"zotero/ABCD1234/Warren et al. - 1982 - Optical.pdf": [
+            {"id": 1, "page": 2, "kind": "st", "text": "an old claim", "memo": "contredit par Warren"},
+            {"id": 2, "page": 3, "kind": "text", "rects": [[0.1, 0.2, 0.3, 0.04]], "text": "Comparer avec\nla figure 4", "font": "serif", "size": 14, "note": ""},
+            {"id": 3, "page": 4, "kind": "stamp", "stamp": "cite", "style": "pastille", "pin": [0.04, 0.3], "text": "Albedo drops  by 12 %", "note": ""},
+            {"id": 4, "page": 5, "kind": "stamp", "stamp": "inconnu", "pin": [0.5, 0.5], "text": ""},
+            {"id": 5, "page": 6, "kind": "text", "rects": [[0.1, 0.2, 0.3, 0.04]], "text": "  "}
+        ]});
+        let annots = atelier_annotations(&store);
+        assert_eq!(annots.len(), 4, "an empty text box has nothing to show");
+        assert_eq!(annots[0].kind, "st");
+        assert_eq!(annots[0].passage, "an old claim");
+        assert_eq!(annots[0].note, "contredit par Warren");
+        assert_eq!(annots[1].kind, "text");
+        assert_eq!(
+            annots[1].passage, "",
+            "a text box is not a quote of the article"
+        );
+        assert_eq!(annots[1].note, "Comparer avec\nla figure 4");
+        assert_eq!(annots[2].stamp, "À citer");
+        assert_eq!(annots[2].passage, "Albedo drops by 12 %");
+        assert_eq!(
+            annots[3].stamp, "À vérifier",
+            "an unknown stamp reads as the first one"
+        );
     }
 
     #[test]

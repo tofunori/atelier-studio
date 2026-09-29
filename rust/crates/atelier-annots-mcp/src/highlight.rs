@@ -38,8 +38,9 @@ pub const COLORS: [(&str, &str); 6] = [
     ("violet", "rgba(185,150,255,.40)"),
 ];
 
-/// Style d'un marquage : `kind` du lecteur (`hl` surligné, `ul` souligné).
-pub const STYLES: [(&str, &str); 2] = [("surligner", "hl"), ("souligner", "ul")];
+/// Style d'un marquage : `kind` du lecteur (`hl` surligné, `ul` souligné,
+/// `st` barré).
+pub const STYLES: [(&str, &str); 3] = [("surligner", "hl"), ("souligner", "ul"), ("barrer", "st")];
 
 #[derive(Debug, Clone)]
 pub struct Word {
@@ -606,7 +607,7 @@ pub enum Edit {
     Update {
         color: Option<&'static str>,
         memo: Option<String>,
-        /// `kind` du lecteur : `hl` ou `ul`.
+        /// `kind` du lecteur : `hl`, `ul` ou `st`.
         style: Option<&'static str>,
     },
 }
@@ -778,7 +779,7 @@ pub struct Request {
     pub memo: String,
     /// Couleur propre à ce passage (`None` = celle de l'appel).
     pub color: Option<&'static str>,
-    /// Style propre à ce passage, `hl` ou `ul` (`None` = celui de l'appel).
+    /// Style propre à ce passage, `hl`, `ul` ou `st` (`None` = celui de l'appel).
     pub style: Option<&'static str>,
 }
 
@@ -816,10 +817,10 @@ pub fn highlight(
             .collect::<Vec<_>>()
             .join("-");
         let kind = req.style.unwrap_or(style);
-        let done = if kind == "ul" {
-            "souligné"
-        } else {
-            "surligné"
+        let done = match kind {
+            "ul" => "souligné",
+            "st" => "barré",
+            _ => "surligné",
         };
         let mut line = format!("- « {label} » : {done} p. {where_}");
         if !found.exact {
@@ -901,13 +902,17 @@ pub fn color_value(name: &str) -> Result<&'static str, String> {
         })
 }
 
-/// « surligner » / « souligner » (ou leurs noms, ou `hl` / `ul`) → `kind`.
+/// « surligner » / « souligner » / « barrer » (ou leurs noms, ou `hl` / `ul`
+/// / `st`) → `kind`.
 pub fn style_value(name: &str) -> Result<&'static str, String> {
     let name = fold(name.trim());
     match name.as_str() {
         "" | "surligner" | "surlignage" | "surligne" | "hl" => Ok(STYLES[0].1),
         "souligner" | "soulignement" | "souligne" | "ul" => Ok(STYLES[1].1),
-        _ => Err(format!("style inconnu « {name} » : surligner ou souligner")),
+        "barrer" | "barre" | "rayer" | "raye" | "st" => Ok(STYLES[2].1),
+        _ => Err(format!(
+            "style inconnu « {name} » : surligner, souligner ou barrer"
+        )),
     }
 }
 

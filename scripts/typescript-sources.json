@@ -53,6 +53,10 @@
       "output": "gallery/assets/pdf_selection.js"
     },
     {
+      "source": "gallery/src/browser/pdf_tools.ts",
+      "output": "gallery/assets/pdf_tools.js"
+    },
+    {
       "source": "gallery/src/browser/pdfjs_compat.ts",
       "output": "gallery/assets/pdfjs_compat.js"
     },
