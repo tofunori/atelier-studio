@@ -21,7 +21,7 @@ import PDFKit
         do {
             let result = try await extractor.page(page)
             guard !Task.isCancelled, self.documentID == documentID, self.fingerprint == fingerprint else { return }
-            pages[page] = result; errors[page] = nil
+            pages[page] = result.joiningHyphenatedLines(isWord: PDFReadingDictionary.isWord); errors[page] = nil
         } catch {
             guard !Task.isCancelled, !(error is CancellationError), self.documentID == documentID, self.fingerprint == fingerprint else { return }
             errors[page] = "Cette page ne peut pas être adaptée. Vous pouvez la lire dans le PDF."

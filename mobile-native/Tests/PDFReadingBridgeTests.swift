@@ -62,6 +62,57 @@ final class PDFReadingBridgeTests: XCTestCase {
         XCTAssertNil(missing.regions(for: NSRange(location: 0, length: 4)))
     }
 
+    func testGluedLineIsSpacedFromRecognitionEvenWhenReferencesAreMisread() {
+        // The superscript "15,16" is often read without its comma: words around it still separate.
+        XCTAssertEqual(PDFReadingSpacing.repair("years)15,16.TheCoastalzone,fallingtothewest",
+                                                recognized: "years) 1516. The Coastal zone, falling to the west"),
+                       "years)15,16. The Coastal zone, falling to the west")
+        XCTAssertEqual(PDFReadingSpacing.repair("locally17–19.The", recognized: "locally17-19. The"), "locally17–19. The")
+        // Another line of the page is not a source of spaces.
+        XCTAssertEqual(PDFReadingSpacing.repair("fallingtothewest", recognized: "mean fire intervals of the zone"), "fallingtothewest")
+        XCTAssertTrue(PDFReadingExtractor.looksGlued("intervals (e.g., 5–10 years)15,16.TheCoastalzone,fallingtothewest"))
+        XCTAssertTrue(PDFReadingExtractor.looksGlued("in high-elevation coastal forests (350–450 years)13,14.Whilenaturally"))
+        for line in ["Much of the Coastal zone had infrequent stand-", "early July led to fire-suppression resources being fully committed.",
+                     "2 COMMUNICATIONS EARTH & ENVIRONMENT | (2023) 4:309 | https://doi.org/10.1038/s43247-023-00977-1 | www.nature.com/commsenv",
+                     "Natural Resources Canada, Victoria, BC, Canada. ✉email: marc-andre.parisien@nrcan-rncan.gc.ca"] {
+            XCTAssertFalse(PDFReadingExtractor.looksGlued(line), line)
+        }
+    }
+
+    func testLigatureAndUnselectableSymbolStayAnnotatable() {
+        let source = "wildﬁres and fire" as NSString
+        XCTAssertTrue(PDFReadingExtractor.glyph("ﬁ", matches: source, at: 4))
+        XCTAssertTrue(PDFReadingExtractor.glyph("ﬁ", matches: "fire", at: 1))
+        XCTAssertFalse(PDFReadingExtractor.glyph("x", matches: source, at: 4))
+        XCTAssertFalse(PDFReadingExtractor.glyph(nil, matches: source, at: 4))
+        let box = { (x: Double) in PDFReadingAnchor(offset: Int(x), bounds: CGRect(x: x, y: 100, width: 6, height: 12), line: 0) }
+        let line = PDFReadingExtractor.filling(.init(text: "49.6 °C", bounds: CGRect(x: 0, y: 100, width: 42, height: 12),
+            anchors: [box(0), box(6), box(12), box(18), nil, nil, box(36)]), line: 0)
+        XCTAssertEqual(line.anchors[5]?.bounds.minX, 24)
+        XCTAssertEqual(line.anchors[5]?.bounds.maxX, 36)
+        let block = PDFReadingBlock(id: 0, text: line.text, heading: false, anchors: line.anchors)
+        XCTAssertNotNil(block.regions(for: NSRange(location: 0, length: 7)))
+        // A whole line PDFKit cannot locate still refuses to guess.
+        let lost = PDFReadingExtractor.filling(.init(text: "Text", bounds: .zero, anchors: [nil, nil, nil, nil]), line: 0)
+        XCTAssertTrue(lost.anchors.allSatisfy { $0 == nil })
+    }
+
+    func testWordsSplitAcrossLinesAreRejoined() {
+        let text = "the rain sha- dow of stand- replacing, pre- and post Histori- cally non- lethal"
+        let joins = ["sha- ", "stand- ", "pre- ", "Histori- ", "non- "].map { (text as NSString).range(of: $0).location + $0.utf16.count - 1 }
+        let anchors: [PDFReadingAnchor?] = Array(text.utf16).enumerated().map { index, _ in
+            joins.contains(index) ? nil : Optional(PDFReadingAnchor(offset: index, bounds: CGRect(x: index * 6, y: 100, width: 6, height: 12), line: 0))
+        }
+        let block = PDFReadingBlock(id: 0, text: text, heading: false, anchors: anchors, joins: joins)
+            .joiningHyphenatedLines { ["shadow", "historically", "nonlethal"].contains($0) }
+        XCTAssertEqual(block.text, "the rain shadow of stand-replacing, pre- and post Historically non-lethal")
+        XCTAssertEqual(block.anchors.count, block.text.utf16.count)
+        XCTAssertTrue(block.joins.isEmpty)
+        // The removed hyphen stays inside the annotated box of "sha".
+        let shadow = (block.text as NSString).range(of: "shadow")
+        XCTAssertEqual(block.anchors[shadow.location + 2]?.bounds.width, 12)
+    }
+
     @MainActor func testReadingSelectionOffersAnnotationAndQuoteActions() throws {
         let reading = PDFReadingSelectableText(text: "Snow albedo", font: .systemFont(ofSize: 18), highlights: [],
             onAnnotate: { _ in }, onQuote: { _ in })
@@ -144,6 +195,8 @@ final class PDFReadingBridgeTests: XCTestCase {
             visuals += page.blocks.filter { $0.visual != nil }.count
             for block in page.blocks where !block.text.isEmpty {
                 if block.regions(for: NSRange(location: 0, length: block.text.utf16.count)) != nil { mapped += 1 }
+                else { print("UNANCHORED QA", index + 1, block.text.prefix(80)) }
+                print("TEXT QA", index + 1, block.text)
             }
         }
         XCTAssertGreaterThan(visuals, 0)
