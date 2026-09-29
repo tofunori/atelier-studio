@@ -55,7 +55,9 @@ struct PDFReadingBlock: Identifiable, Sendable {
             let right = String(decoding: units[(join + 1)..<end], as: UTF16.self)
             if hyphen != 0xAD && Self.conjunctions.contains(right.lowercased()) { continue }
             let lowercase = scalar(join + 1).map(CharacterSet.lowercaseLetters.contains) ?? false
-            if hyphen == 0xAD || (lowercase && isWord(left + right)) {
+            // "non-lethal" and "self-shading" read as compounds even when the dictionary knows the joined form.
+            let prefix = Self.prefixes.contains(left.lowercased())
+            if hyphen == 0xAD || (lowercase && !prefix && isWord((left + right).lowercased())) {
                 if let mark = located[join - 1], let previous = located[join - 2], previous.line == mark.line {
                     located[join - 2] = PDFReadingAnchor(offset: previous.offset, bounds: previous.bounds.union(mark.bounds),
                                                          line: previous.line, superscript: previous.superscript)
@@ -69,6 +71,7 @@ struct PDFReadingBlock: Identifiable, Sendable {
     }
 
     private static let conjunctions: Set<String> = ["and", "or", "nor", "to", "et", "ou"]
+    private static let prefixes: Set<String> = ["non", "self"]
 
     /// Offsets come from extraction, not a search for a potentially repeated quote.
     func regions(for range: NSRange) -> [CGRect]? {

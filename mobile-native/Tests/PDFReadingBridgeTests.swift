@@ -110,14 +110,14 @@ final class PDFReadingBridgeTests: XCTestCase {
     }
 
     func testWordsSplitAcrossLinesAreRejoined() {
-        let text = "the rain sha- dow of stand- replacing, pre- and post Histori- cally"
-        let joins = ["sha- ", "stand- ", "pre- ", "Histori- "].map { (text as NSString).range(of: $0).location + $0.utf16.count - 1 }
+        let text = "the rain sha- dow of stand- replacing, pre- and post Histori- cally non- lethal"
+        let joins = ["sha- ", "stand- ", "pre- ", "Histori- ", "non- "].map { (text as NSString).range(of: $0).location + $0.utf16.count - 1 }
         let anchors: [PDFReadingAnchor?] = Array(text.utf16).enumerated().map { index, _ in
             joins.contains(index) ? nil : Optional(PDFReadingAnchor(offset: index, bounds: CGRect(x: index * 6, y: 100, width: 6, height: 12), line: 0))
         }
         let block = PDFReadingBlock(id: 0, text: text, heading: false, anchors: anchors, joins: joins)
-            .joiningHyphenatedLines { ["shadow", "Historically"].contains($0) }
-        XCTAssertEqual(block.text, "the rain shadow of stand-replacing, pre- and post Historically")
+            .joiningHyphenatedLines { ["shadow", "historically", "nonlethal"].contains($0) }
+        XCTAssertEqual(block.text, "the rain shadow of stand-replacing, pre- and post Historically non-lethal")
         XCTAssertEqual(block.anchors.count, block.text.utf16.count)
         XCTAssertTrue(block.joins.isEmpty)
         // The removed hyphen stays inside the annotated box of "sha".
