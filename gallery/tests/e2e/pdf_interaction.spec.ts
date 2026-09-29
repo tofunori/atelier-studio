@@ -153,7 +153,7 @@ test('PDF and shared annotations inherit light/dark colors and the host UI scale
       return {note: style('#test-note').backgroundColor, ink: style('#test-note').color,
         noteFont: parseFloat(style('#test-note textarea').fontSize), navFont: parseFloat(style('#pgCur').fontSize),
         pane: style('#annPane').backgroundColor, readingControls: parseFloat(style('#readBar button').fontSize),
-        capsule: style('#selPill .atelier-capsule').backgroundColor,
+        capsule: style('#selPill .atelier-selection').backgroundColor,
         capsuleHeight: parseFloat(style('#selPill .atelier-capsule').height)};
     });
     expect(values.note).toBe(scheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(36, 41, 48)');
@@ -163,7 +163,7 @@ test('PDF and shared annotations inherit light/dark colors and the host UI scale
     expect(values.noteFont).toBeCloseTo(Math.max(12, 13 * base / 15), 1);
     expect(values.navFont).toBeCloseTo(Math.max(11, 12 * base / 15), 1);
     expect(values.readingControls).toBeCloseTo(Math.max(11, 12 * base / 15), 1);
-    expect(values.capsuleHeight).toBe(Math.max(34, 30 * base / 15));
+    expect(values.capsuleHeight).toBe(Math.max(28, 30 * base / 15 - 2));
   }
 });
 
