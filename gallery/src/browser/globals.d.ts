@@ -1,6 +1,7 @@
 /** Public contracts for scripts loaded by the gallery HTML pages. */
 export {};
 declare global {
+  var __atelierTooltip: import('./atelier_tooltip').AtelierTooltipApi;
   var AtelierCsv: import('./csv_table').AtelierCsvApi;
   var AtelierPdfPassage: import('./pdf_passage').AtelierPdfPassageApi;
   var AtelierPdfReading: import('./pdf_reading').AtelierPdfReadingApi;

@@ -9,6 +9,10 @@
       "output": "gallery/assets/atelier_theme.js"
     },
     {
+      "source": "gallery/src/browser/atelier_tooltip.ts",
+      "output": "gallery/assets/atelier_tooltip.js"
+    },
+    {
       "source": "gallery/src/browser/csv_table.ts",
       "output": "gallery/assets/csv_table.js"
     },
