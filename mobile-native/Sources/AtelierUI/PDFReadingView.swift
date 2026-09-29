@@ -21,7 +21,7 @@ import PDFKit
         do {
             let result = try await extractor.page(page)
             guard !Task.isCancelled, self.documentID == documentID, self.fingerprint == fingerprint else { return }
-            pages[page] = result; errors[page] = nil
+            pages[page] = result.joiningHyphenatedLines(isWord: PDFReadingDictionary.isWord); errors[page] = nil
         } catch {
             guard !Task.isCancelled, !(error is CancellationError), self.documentID == documentID, self.fingerprint == fingerprint else { return }
             errors[page] = "Cette page ne peut pas être adaptée. Vous pouvez la lire dans le PDF."
@@ -96,7 +96,7 @@ struct PDFReadingView: View {
                             }.buttonStyle(.plain).accessibilityIdentifier("pdfReadingVisual.\(index).\(block.id)")
                         } else {
                             PDFReadingSelectableText(text: block.text, font: font(for: block),
-                                highlights: highlights(in: block, page: index),
+                                highlights: highlights(in: block, page: index), superscripts: block.superscripts,
                                 onAnnotate: { use($0, block: block, page: index, documentID: documentID, fingerprint: fingerprint, annotate: true) },
                                 onQuote: { use($0, block: block, page: index, documentID: documentID, fingerprint: fingerprint, annotate: false) })
                                 .frame(maxWidth: .infinity, alignment: .leading)

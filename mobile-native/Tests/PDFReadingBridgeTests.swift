@@ -62,6 +62,69 @@ final class PDFReadingBridgeTests: XCTestCase {
         XCTAssertNil(missing.regions(for: NSRange(location: 0, length: 4)))
     }
 
+    /// Boxes for words laid out on one line: letters touch, words are `gap` apart.
+    private func glued(_ words: [String], gap: Double, raised: Set<Int> = []) -> PDFReadingExtractor.Line {
+        var text = "", anchors: [PDFReadingAnchor?] = [], x = 0.0
+        for (index, word) in words.enumerated() {
+            if index > 0 && !raised.contains(index) && !raised.contains(index - 1) { x += gap }
+            for _ in word.utf16 {
+                let small = raised.contains(index)
+                anchors.append(PDFReadingAnchor(offset: anchors.count, bounds: CGRect(x: x, y: small ? 105 : 100, width: small ? 4 : 6, height: small ? 8 : 12), line: 0))
+                x += small ? 4 : 6
+            }
+            text += word
+        }
+        return .init(text: text, bounds: CGRect(x: 0, y: 100, width: x, height: 12), anchors: anchors)
+    }
+
+    func testGluedWordsAreSeparatedByTheirGlyphGaps() {
+        let line = PDFReadingExtractor.located(glued(["years)", "15,16", ".", "The", "Coastal", "zone,", "falling", "to", "the", "west"],
+                                                     gap: 2.5, raised: [1]), line: 0)
+        XCTAssertEqual(line.text, "years)15,16. The Coastal zone, falling to the west")
+        XCTAssertEqual(line.anchors.count, line.text.utf16.count)
+        let block = PDFReadingBlock(id: 0, text: line.text, heading: false, anchors: line.anchors)
+        XCTAssertEqual(block.superscripts, [NSRange(location: 6, length: 5)])
+        XCTAssertNotNil(block.regions(for: (line.text as NSString).range(of: "falling to")))
+        // Letters of one word, and lines PDFKit already spaced, are left alone.
+        let normal = PDFReadingExtractor.located(glued(["Snow"], gap: 0), line: 0)
+        XCTAssertEqual(normal.text, "Snow")
+        XCTAssertFalse(PDFReadingExtractor.looksGlued("Much of the Coastal zone had infrequent stand-"))
+    }
+
+    func testLigatureAndUnselectableSymbolStayAnnotatable() {
+        let source = "wildﬁres and fire" as NSString
+        XCTAssertTrue(PDFReadingExtractor.glyph("ﬁ", matches: source, at: 4))
+        XCTAssertTrue(PDFReadingExtractor.glyph("ﬁ", matches: "fire", at: 1))
+        XCTAssertFalse(PDFReadingExtractor.glyph("x", matches: source, at: 4))
+        XCTAssertFalse(PDFReadingExtractor.glyph(nil, matches: source, at: 4))
+        let box = { (x: Double) in PDFReadingAnchor(offset: Int(x), bounds: CGRect(x: x, y: 100, width: 6, height: 12), line: 0) }
+        let line = PDFReadingExtractor.filling(.init(text: "49.6 °C", bounds: CGRect(x: 0, y: 100, width: 42, height: 12),
+            anchors: [box(0), box(6), box(12), box(18), nil, nil, box(36)]), line: 0)
+        XCTAssertEqual(line.anchors[5]?.bounds.minX, 24)
+        XCTAssertEqual(line.anchors[5]?.bounds.maxX, 36)
+        let block = PDFReadingBlock(id: 0, text: line.text, heading: false, anchors: line.anchors)
+        XCTAssertNotNil(block.regions(for: NSRange(location: 0, length: 7)))
+        // A whole line PDFKit cannot locate still refuses to guess.
+        let lost = PDFReadingExtractor.filling(.init(text: "Text", bounds: .zero, anchors: [nil, nil, nil, nil]), line: 0)
+        XCTAssertTrue(lost.anchors.allSatisfy { $0 == nil })
+    }
+
+    func testWordsSplitAcrossLinesAreRejoined() {
+        let text = "the rain sha- dow of stand- replacing, pre- and post Histori- cally"
+        let joins = ["sha- ", "stand- ", "pre- ", "Histori- "].map { (text as NSString).range(of: $0).location + $0.utf16.count - 1 }
+        let anchors: [PDFReadingAnchor?] = Array(text.utf16).enumerated().map { index, _ in
+            joins.contains(index) ? nil : Optional(PDFReadingAnchor(offset: index, bounds: CGRect(x: index * 6, y: 100, width: 6, height: 12), line: 0))
+        }
+        let block = PDFReadingBlock(id: 0, text: text, heading: false, anchors: anchors, joins: joins)
+            .joiningHyphenatedLines { ["shadow", "Historically"].contains($0) }
+        XCTAssertEqual(block.text, "the rain shadow of stand-replacing, pre- and post Historically")
+        XCTAssertEqual(block.anchors.count, block.text.utf16.count)
+        XCTAssertTrue(block.joins.isEmpty)
+        // The removed hyphen stays inside the annotated box of "sha".
+        let shadow = (block.text as NSString).range(of: "shadow")
+        XCTAssertEqual(block.anchors[shadow.location + 2]?.bounds.width, 12)
+    }
+
     @MainActor func testReadingSelectionOffersAnnotationAndQuoteActions() throws {
         let reading = PDFReadingSelectableText(text: "Snow albedo", font: .systemFont(ofSize: 18), highlights: [],
             onAnnotate: { _ in }, onQuote: { _ in })

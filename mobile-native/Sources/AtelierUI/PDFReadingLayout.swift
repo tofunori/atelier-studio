@@ -84,7 +84,7 @@ extension PDFReadingExtractor {
         }
         flush()
         return result.enumerated().map { index, block in
-            PDFReadingBlock(id: index, text: block.text, heading: block.heading, anchors: block.anchors, visual: block.visual)
+            PDFReadingBlock(id: index, text: block.text, heading: block.heading, anchors: block.anchors, visual: block.visual, joins: block.joins)
         }
     }
 

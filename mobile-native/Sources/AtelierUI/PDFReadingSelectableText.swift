@@ -13,6 +13,7 @@ struct PDFReadingSelectableText: UIViewRepresentable {
     let text: String
     let font: UIFont
     let highlights: [PDFReadingHighlight]
+    var superscripts: [NSRange] = []
     let onAnnotate: (NSRange) -> Void
     let onQuote: (NSRange) -> Void
 
@@ -29,6 +30,10 @@ struct PDFReadingSelectableText: UIViewRepresentable {
         context.coordinator.parent = self
         let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = font.pointSize * 0.22
         let content = NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: UIColor.label, .paragraphStyle: paragraph])
+        // Reference numbers stay out of the words they follow, as in the PDF.
+        for range in superscripts where range.location >= 0 && NSMaxRange(range) <= content.length {
+            content.addAttributes([.font: font.withSize(font.pointSize * 0.68), .baselineOffset: font.pointSize * 0.34], range: range)
+        }
         for mark in highlights where mark.range.location >= 0 && NSMaxRange(mark.range) <= content.length {
             if mark.strikethrough {
                 content.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: mark.color], range: mark.range)
