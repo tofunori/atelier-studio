@@ -338,7 +338,13 @@ pub async fn statfile(
     let Ok(path) = safe_project_path(&state.root, &query.path) else {
         return json_error(StatusCode::FORBIDDEN, "outside the project");
     };
-    match file_mtime_secs(&path) {
+    // Compilation en cours ici : la date d'avant, jamais celle d'un PDF à
+    // moitié écrit (voir `frozen_pdf_mtime`).
+    let mtime = match crate::documents::frozen_pdf_mtime(&path) {
+        Some(frozen) => frozen.ok_or(()),
+        None => file_mtime_secs(&path).map_err(|_| ()),
+    };
+    match mtime {
         Ok(mtime) => (StatusCode::OK, Json(json!({"mtime": mtime}))).into_response(),
         Err(_) => json_error(StatusCode::NOT_FOUND, "not found"),
     }
