@@ -62,33 +62,21 @@ final class PDFReadingBridgeTests: XCTestCase {
         XCTAssertNil(missing.regions(for: NSRange(location: 0, length: 4)))
     }
 
-    /// Boxes for words laid out on one line: letters touch, words are `gap` apart.
-    private func glued(_ words: [String], gap: Double, raised: Set<Int> = []) -> PDFReadingExtractor.Line {
-        var text = "", anchors: [PDFReadingAnchor?] = [], x = 0.0
-        for (index, word) in words.enumerated() {
-            if index > 0 && !raised.contains(index) && !raised.contains(index - 1) { x += gap }
-            for _ in word.utf16 {
-                let small = raised.contains(index)
-                anchors.append(PDFReadingAnchor(offset: anchors.count, bounds: CGRect(x: x, y: small ? 105 : 100, width: small ? 4 : 6, height: small ? 8 : 12), line: 0))
-                x += small ? 4 : 6
-            }
-            text += word
+    func testGluedLineIsSpacedFromRecognitionEvenWhenReferencesAreMisread() {
+        // The superscript "15,16" is often read without its comma: words around it still separate.
+        XCTAssertEqual(PDFReadingSpacing.repair("years)15,16.TheCoastalzone,fallingtothewest",
+                                                recognized: "years) 1516. The Coastal zone, falling to the west"),
+                       "years)15,16. The Coastal zone, falling to the west")
+        XCTAssertEqual(PDFReadingSpacing.repair("locally17–19.The", recognized: "locally17-19. The"), "locally17–19. The")
+        // Another line of the page is not a source of spaces.
+        XCTAssertEqual(PDFReadingSpacing.repair("fallingtothewest", recognized: "mean fire intervals of the zone"), "fallingtothewest")
+        XCTAssertTrue(PDFReadingExtractor.looksGlued("intervals (e.g., 5–10 years)15,16.TheCoastalzone,fallingtothewest"))
+        XCTAssertTrue(PDFReadingExtractor.looksGlued("in high-elevation coastal forests (350–450 years)13,14.Whilenaturally"))
+        for line in ["Much of the Coastal zone had infrequent stand-", "early July led to fire-suppression resources being fully committed.",
+                     "2 COMMUNICATIONS EARTH & ENVIRONMENT | (2023) 4:309 | https://doi.org/10.1038/s43247-023-00977-1 | www.nature.com/commsenv",
+                     "Natural Resources Canada, Victoria, BC, Canada. ✉email: marc-andre.parisien@nrcan-rncan.gc.ca"] {
+            XCTAssertFalse(PDFReadingExtractor.looksGlued(line), line)
         }
-        return .init(text: text, bounds: CGRect(x: 0, y: 100, width: x, height: 12), anchors: anchors)
-    }
-
-    func testGluedWordsAreSeparatedByTheirGlyphGaps() {
-        let line = PDFReadingExtractor.located(glued(["years)", "15,16", ".", "The", "Coastal", "zone,", "falling", "to", "the", "west"],
-                                                     gap: 2.5, raised: [1]), line: 0)
-        XCTAssertEqual(line.text, "years)15,16. The Coastal zone, falling to the west")
-        XCTAssertEqual(line.anchors.count, line.text.utf16.count)
-        let block = PDFReadingBlock(id: 0, text: line.text, heading: false, anchors: line.anchors)
-        XCTAssertEqual(block.superscripts, [NSRange(location: 6, length: 5)])
-        XCTAssertNotNil(block.regions(for: (line.text as NSString).range(of: "falling to")))
-        // Letters of one word, and lines PDFKit already spaced, are left alone.
-        let normal = PDFReadingExtractor.located(glued(["Snow"], gap: 0), line: 0)
-        XCTAssertEqual(normal.text, "Snow")
-        XCTAssertFalse(PDFReadingExtractor.looksGlued("Much of the Coastal zone had infrequent stand-"))
     }
 
     func testLigatureAndUnselectableSymbolStayAnnotatable() {
@@ -207,6 +195,8 @@ final class PDFReadingBridgeTests: XCTestCase {
             visuals += page.blocks.filter { $0.visual != nil }.count
             for block in page.blocks where !block.text.isEmpty {
                 if block.regions(for: NSRange(location: 0, length: block.text.utf16.count)) != nil { mapped += 1 }
+                else { print("UNANCHORED QA", index + 1, block.text.prefix(80)) }
+                print("TEXT QA", index + 1, block.text)
             }
         }
         XCTAssertGreaterThan(visuals, 0)

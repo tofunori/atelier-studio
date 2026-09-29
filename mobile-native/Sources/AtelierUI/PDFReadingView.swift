@@ -96,7 +96,7 @@ struct PDFReadingView: View {
                             }.buttonStyle(.plain).accessibilityIdentifier("pdfReadingVisual.\(index).\(block.id)")
                         } else {
                             PDFReadingSelectableText(text: block.text, font: font(for: block),
-                                highlights: highlights(in: block, page: index), superscripts: block.superscripts,
+                                highlights: highlights(in: block, page: index),
                                 onAnnotate: { use($0, block: block, page: index, documentID: documentID, fingerprint: fingerprint, annotate: true) },
                                 onQuote: { use($0, block: block, page: index, documentID: documentID, fingerprint: fingerprint, annotate: false) })
                                 .frame(maxWidth: .infinity, alignment: .leading)

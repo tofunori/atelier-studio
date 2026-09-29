@@ -7,8 +7,6 @@ struct PDFReadingAnchor: Sendable {
     let offset: Int
     let bounds: CGRect
     let line: Int
-    /// A reference number or footnote mark set smaller and raised on its PDF line.
-    var superscript: Bool = false
 }
 
 struct PDFReadingVisual: Sendable {
@@ -25,15 +23,6 @@ struct PDFReadingBlock: Identifiable, Sendable {
     var visual: PDFReadingVisual? = nil
     /// UTF-16 offsets of the spaces that join two PDF lines, until hyphenation is resolved.
     var joins: [Int] = []
-
-    var superscripts: [NSRange] {
-        var result: [NSRange] = []
-        for (index, anchor) in anchors.enumerated() where anchor?.superscript == true {
-            if let last = result.indices.last, NSMaxRange(result[last]) == index { result[last].length += 1 }
-            else { result.append(NSRange(location: index, length: 1)) }
-        }
-        return result
-    }
 
     /// Rejoins words the PDF split across two lines ("sha-" / "dow" → "shadow"). The hyphen stays
     /// when the joined form is not a word ("stand-replacing"), or before "and"/"or" ("pre- and post-fire").
@@ -59,8 +48,7 @@ struct PDFReadingBlock: Identifiable, Sendable {
             let prefix = Self.prefixes.contains(left.lowercased())
             if hyphen == 0xAD || (lowercase && !prefix && isWord((left + right).lowercased())) {
                 if let mark = located[join - 1], let previous = located[join - 2], previous.line == mark.line {
-                    located[join - 2] = PDFReadingAnchor(offset: previous.offset, bounds: previous.bounds.union(mark.bounds),
-                                                         line: previous.line, superscript: previous.superscript)
+                    located[join - 2] = PDFReadingAnchor(offset: previous.offset, bounds: previous.bounds.union(mark.bounds), line: previous.line)
                 }
                 units.removeSubrange((join - 1)...join); located.removeSubrange((join - 1)...join)
             } else {
@@ -146,7 +134,7 @@ enum PDFReadingSpacing {
     static func repair(_ source: String, recognized: String) -> String {
         let sourceKey = canonical(source.filter { !$0.isWhitespace })
         let recognizedKey = canonical(recognized.filter { !$0.isWhitespace })
-        guard sourceKey == recognizedKey else { return source }
+        guard sourceKey == recognizedKey else { return aligned(source, recognized: recognized) }
         var boundaries = Set<Int>(), offset = 0
         for character in recognized {
             if character.isWhitespace { boundaries.insert(offset) }
@@ -159,6 +147,58 @@ enum PDFReadingSpacing {
             if !result.isEmpty && (pendingSpace || boundaries.contains(offset)) { result += " " }
             result.append(character)
             offset += canonical(String(character)).utf16.count
+            pendingSpace = false
+        }
+        return result
+    }
+
+    /// When recognition misreads part of the line (a reference number, a dash), a space is still taken
+    /// before a recognized word that starts with a letter and matches the PDF characters exactly, right
+    /// after the last character of the previous word. Nothing else in the line changes.
+    static func aligned(_ source: String, recognized: String) -> String {
+        let characters = Array(source)
+        var sourceKeys: [Character] = [], owner: [Int] = []
+        for (index, character) in characters.enumerated() where !character.isWhitespace {
+            for key in canonical(String(character)) { sourceKeys.append(key); owner.append(index) }
+        }
+        var keys: [Character] = [], words: [Range<Int>] = []
+        for word in recognized.split(whereSeparator: \.isWhitespace) {
+            let start = keys.count
+            keys += Array(canonical(String(word)))
+            if keys.count > start { words.append(start..<keys.count) }
+        }
+        guard !sourceKeys.isEmpty, words.count > 1 else { return source }
+        var removed = Set<Int>(), inserted = Set<Int>()
+        for change in keys.difference(from: sourceKeys) {
+            switch change {
+            case let .remove(offset, _, _): removed.insert(offset)
+            case let .insert(offset, _, _): inserted.insert(offset)
+            }
+        }
+        var match: [Int: Int] = [:]
+        for (key, sourceKey) in zip(keys.indices.filter { !inserted.contains($0) }, sourceKeys.indices.filter { !removed.contains($0) }) {
+            match[key] = sourceKey
+        }
+        // A recognized line from elsewhere on the page shares only scattered letters.
+        guard match.count * 5 >= sourceKeys.count * 4, match.count * 5 >= keys.count * 4 else { return source }
+        func exact(_ word: Range<Int>) -> Bool {
+            guard let first = match[word.lowerBound] else { return false }
+            return word.enumerated().allSatisfy { match[$0.element] == first + $0.offset }
+        }
+        var breaks = Set<Int>()
+        for index in words.indices.dropFirst() {
+            let previous = words[index - 1], word = words[index]
+            guard keys[word.lowerBound].isLetter, exact(word),
+                  let before = match[previous.upperBound - 1], let after = match[word.lowerBound],
+                  after == before + 1, owner[after] != owner[before] else { continue }
+            breaks.insert(owner[after])
+        }
+        guard !breaks.isEmpty else { return source }
+        var result = "", pendingSpace = false
+        for (index, character) in characters.enumerated() {
+            if character.isWhitespace { pendingSpace = true; continue }
+            if !result.isEmpty && (pendingSpace || breaks.contains(index)) { result += " " }
+            result.append(character)
             pendingSpace = false
         }
         return result
@@ -207,12 +247,12 @@ actor PDFReadingExtractor {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return nil }
                 let range = (text as NSString).range(of: trimmed)
-                return Self.located(Line(text: trimmed, bounds: selection.bounds(for: page),
+                return Self.filling(Line(text: trimmed, bounds: selection.bounds(for: page),
                                          anchors: Array(anchors[range.location..<NSMaxRange(range)])), line: lineIndex)
             }
             // Some publishers omit spaces from their text layer. Vision supplies only word boundaries,
-            // and only when the complete line matches the original PDF characters.
-            if page.rotation == 0, lines.contains(where: { $0.text.range(of: #"\p{L}{26,}"#, options: .regularExpression) != nil }) {
+            // on glued lines, where its words match the original PDF characters.
+            if page.rotation == 0, lines.contains(where: { Self.looksGlued($0.text) }) {
                 try Task.checkCancellation()
                 repairSpacing(in: &lines, page: page)
             }
@@ -240,10 +280,6 @@ actor PDFReadingExtractor {
             if PDFReadingSpacing.canonical(source.substring(with: NSRange(location: start, length: length))) == key { return true }
         }
         return false
-    }
-
-    static func located(_ line: Line, line index: Int) -> Line {
-        spaced(raisingSuperscripts(filling(line, line: index)))
     }
 
     private static func isWhitespace(_ unit: UInt16) -> Bool {
@@ -277,61 +313,15 @@ actor PDFReadingExtractor {
         return result
     }
 
-    /// Reference numbers are set smaller and above the line's baseline.
-    static func raisingSuperscripts(_ line: Line) -> Line {
-        let units = Array(line.text.utf16)
-        guard line.anchors.count == units.count else { return line }
-        let located = units.indices.compactMap { isWhitespace(units[$0]) ? nil : line.anchors[$0] }
-        guard located.count >= 8 else { return line }
-        let heights = located.map(\.bounds.height).sorted(), bottoms = located.map(\.bounds.minY).sorted()
-        let height = heights[heights.count / 2], bottom = bottoms[bottoms.count / 2]
-        guard height > 0 else { return line }
-        let marks = CharacterSet(charactersIn: "0123456789,–-−*†‡§")
-        var anchors = line.anchors, raised = 0
-        for index in units.indices {
-            guard let anchor = anchors[index], let scalar = UnicodeScalar(units[index]), marks.contains(scalar),
-                  anchor.bounds.height < height * 0.85, anchor.bounds.minY > bottom + height * 0.2 else { continue }
-            anchors[index] = PDFReadingAnchor(offset: anchor.offset, bounds: anchor.bounds, line: anchor.line, superscript: true)
-            raised += 1
-        }
-        // A line made mostly of small raised figures is a table or an axis, not prose with references.
-        guard raised * 3 < located.count else { return line }
-        var result = line; result.anchors = anchors
-        return result
-    }
-
-    /// Some publishers justify a line by moving its words without any space character, and PDFKit
-    /// glues them ("fallingtothewest"). The glyph boxes still show the gap between two words.
-    static func spaced(_ line: Line) -> Line {
-        let units = Array(line.text.utf16)
-        guard line.anchors.count == units.count, looksGlued(line.text) else { return line }
-        let heights = units.indices.compactMap { isWhitespace(units[$0]) ? nil : line.anchors[$0] }
-            .filter { !$0.superscript }.map(\.bounds.height).sorted()
-        guard !heights.isEmpty else { return line }
-        let threshold = heights[heights.count / 2] * wordGap
-        var output: [UInt16] = [], anchors: [PDFReadingAnchor?] = []
-        for index in units.indices {
-            if index > 0, !isWhitespace(units[index]), !isWhitespace(units[index - 1]),
-               let previous = line.anchors[index - 1], let next = line.anchors[index],
-               previous.bounds != next.bounds, next.bounds.minX - previous.bounds.maxX > threshold {
-                output.append(0x20); anchors.append(nil)
-            }
-            output.append(units[index]); anchors.append(line.anchors[index])
-        }
-        guard output.count != units.count else { return line }
-        return Line(text: String(decoding: output, as: UTF16.self), bounds: line.bounds, anchors: anchors)
-    }
-
-    /// Only lines that read as glued words are re-spaced from geometry: a very long token
-    /// ("TheCoastalzone,falling"), a comma touching a letter or a sentence running into the next ("yearsThe").
+    /// A line reads as glued words when it has a very long run of letters ("fallingtothewest"), a comma
+    /// touching a letter ("zone,falling") or a sentence running into the next ("yearsThe"). Addresses,
+    /// compounds and paths are split first: they are long without being glued.
     static func looksGlued(_ text: String) -> Bool {
-        text.split(whereSeparator: \.isWhitespace).contains { $0.count >= 16 } ||
-        text.range(of: #"\p{L}[,;]\p{L}|\p{Ll}{2}[.)]?\p{Lu}\p{Ll}"#, options: .regularExpression) != nil
+        let words = text.split(whereSeparator: \.isWhitespace).filter { !$0.contains("@") && !$0.contains("://") && !$0.hasPrefix("www.") }
+        let prose = words.joined(separator: " ")
+        return prose.split(whereSeparator: { $0.isWhitespace || "-‐–—/".contains($0) }).contains { $0.count >= 16 } ||
+            prose.range(of: #"\p{L}[,;]\p{L}|\p{Ll}{2}[.)]?\p{Lu}\p{Ll}"#, options: .regularExpression) != nil
     }
-
-    /// Word gap as a fraction of the glyph box height. Justified word spaces rarely shrink below
-    /// 0.15 em (about 0.13 of the box); letters of one word touch.
-    static let wordGap: CGFloat = 0.1
 
     private func repairSpacing(in lines: inout [Line], page: PDFPage) {
         guard let image = Self.rasterForSpacing(of: page) else { return }
@@ -345,7 +335,7 @@ actor PDFReadingExtractor {
             guard let text = observation.topCandidates(1).first?.string else { return nil }
             return (observation.boundingBox, text)
         }
-        for index in lines.indices {
+        for index in lines.indices where Self.looksGlued(lines[index].text) {
             let box = lines[index].bounds
             let normalized = CGRect(x: (box.minX - crop.minX) / crop.width, y: (box.minY - crop.minY) / crop.height,
                                     width: box.width / crop.width, height: box.height / crop.height)
