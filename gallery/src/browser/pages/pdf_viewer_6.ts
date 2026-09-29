@@ -2080,6 +2080,7 @@ function drawAnnots(pgDiv: Element, n: number){
         if(eraseMark){ void removeAnnot(a); return; }
         annotMenu(a, e.clientX, e.clientY);
       };
+      pin.addEventListener("mousedown", (e) => dragPlaced(e, a, pin));
       pgDiv.appendChild(pin);
     }
   }
@@ -2515,7 +2516,41 @@ function drawStamp(pg: HTMLElement, a){
     if (eraseMark) { void removeAnnot(a); return; }
     annotMenu(a, e.clientX, e.clientY);
   };
+  el.addEventListener("mousedown", (e) => dragPlaced(e, a, el));
   pg.appendChild(el);
+}
+/** Tampon ou note posé : glisser le déplace sur sa page (le point
+ *  enregistré reste son centre). Un simple clic ouvre toujours sa bulle ;
+ *  la gomme, elle, efface au clic sans rien déplacer. */
+function dragPlaced(e: MouseEvent, a, el: HTMLElement){
+  if (e.button !== 0 || eraseMark || !a.pin) return;
+  if ((e.target as Element).closest(".pdfstamp-grip")) return;
+  const pg = el.closest<HTMLElement>(".pg");
+  if (!pg) return;
+  e.preventDefault();   // pas de sélection de texte pendant le glissé
+  const x0 = e.clientX, y0 = e.clientY, from = a.pin.slice();
+  let moved = false;
+  const move = (ev: MouseEvent) => {
+    if (!moved && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) < 4) return;
+    moved = true;
+    el.classList.add("moving");
+    const pr = pg.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, from[0] + (ev.clientX - x0) / pr.width));
+    const y = Math.max(0, Math.min(1, from[1] + (ev.clientY - y0) / pr.height));
+    a.pin = [Math.round(x * 10000) / 10000, Math.round(y * 10000) / 10000];
+    el.style.left = (a.pin[0] * 100) + "%"; el.style.top = (a.pin[1] * 100) + "%";
+  };
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up, true);
+    el.classList.remove("moving");
+    if (!moved) return;
+    swallowClick = true;   // le relâché n'ouvre pas la bulle
+    if (a.kind === "stamp") a.text = lineTextNear(pageLines(pg), a.pin[0], a.pin[1], a.style === "pastille");
+    saveAnnots();
+  };
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up, true);
 }
 /** Tampon encreur : la poignée agrandit ou réduit (0,6× à 2,5×). */
 function resizeStamp(e: MouseEvent, a, el: HTMLElement){
