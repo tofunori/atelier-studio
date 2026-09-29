@@ -244,7 +244,7 @@ export function createLatexAnnotationsController(
         + `<span class="tp-dot" style="background:${SWATCHES[annotation.color || "amber"] || SWATCHES.amber}"></span>`
         + `<span class="tp-body"><span class="tp-quote">« ${escapeHtml(annotation.text.slice(0, 70))} »</span>`
         + (annotation.comment ? `<div class="tp-note">${escapeHtml(annotation.comment)}</div>` : "")
-        + `</span><button class="tp-x" data-x="${escapeHtml(annotation.id)}" title="Supprimer">✕</button></div>`).join("")
+        + `</span><button class="tp-x" data-x="${escapeHtml(annotation.id)}" title="Supprimer" aria-label="Supprimer le commentaire">✕</button></div>`).join("")
         : '<div class="tp-empty">aucun commentaire</div>');
   };
   const togglePanel = (force?: boolean): void => {

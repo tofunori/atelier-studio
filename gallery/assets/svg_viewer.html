@@ -2,62 +2,64 @@
 <html lang="en">
 <head>
 <script src="/.fig_thumbs/atelier_theme.js"></script>
+<script defer src="/.fig_thumbs/atelier_tooltip.js"></script>
 <meta charset="utf-8">
 <title>SVG editor</title>
 <style>
   button,input,select,textarea{font-family:var(--ui-font)}
-  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--txt:#dadee3;--muted:#90969d;--accent:#7aa2f7;--border:#2a2d31}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--txt:#dadee3;--muted:#90969d;--accent:#7aa2f7;--border:#2a2d31;--figure-paper:#fff;--figure-ink:#111;--media-bg:#000;--overlay-hover:#7aa2f7;--overlay-move:#22c55e}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column;overflow:hidden}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:8px 84px 8px 14px;
          display:flex;gap:8px;align-items:center;font-size:var(--fs-body, 13px);flex-shrink:0;flex-wrap:wrap}
   #fname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42%;min-width:0;flex:1 1 0}
-  #msinfo{color:#22c55e;font-size:var(--fs-body-s, 12px);white-space:nowrap}
+  #msinfo{color:var(--status-success,#22c55e);font-size:var(--fs-body-s, 12px);white-space:nowrap}
   #zoominfo{color:var(--muted);font-size:var(--fs-body-s, 12px);white-space:nowrap;font-variant-numeric:tabular-nums}
   /* space-held pan: grab cursor, grabbing while dragging (wins over the move/crosshair rules) */
   body.panready #stagewrap, body.panready #stagewrap *{cursor:grab}
   body.panning #stagewrap, body.panning #stagewrap *{cursor:grabbing}
   /* uniform "pro" toolbar: every control the same height + style */
   header button,header select{height:30px;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;
-        background:var(--border);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:0 13px;
+        background:var(--border);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:0 12px;
         font-size:var(--fs-body, 13px);font-family:inherit;cursor:pointer;white-space:nowrap}
-  header button:hover{background:#52525b}
+  header button:hover{background:color-mix(in srgb,var(--txt) 14%,var(--border))}
+  header button:focus-visible,header select:focus-visible,#ctxbar button:focus-visible,#ctxbar input:focus-visible,#ctxbar select:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
   header select{padding:0 8px}
   header button svg{display:block}
   /* icon-only buttons: a homogeneous visual square */
-  #clearsel,#delsel,#lassotoggle,#undobtn,#redobtn,#savesvg,#exportpng,#annotbtn,#fsbtn{padding:0 9px}
+  #clearsel,#delsel,#lassotoggle,#undobtn,#redobtn,#savesvg,#exportpng,#annotbtn,#fsbtn{padding:0 8px}
   /* toolbar group divider */
   .tsep{width:1px;height:18px;background:var(--border);margin:0 2px;flex-shrink:0}
   /* single active-state style for every toggle button */
-  #lassotoggle.on,#addtext.on,#annotbtn.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+  #lassotoggle.on,#addtext.on,#annotbtn.on{background:var(--accent);color:var(--text-on-accent,#fff);border-color:var(--accent);font-weight:600}
   #undobtn:disabled,#redobtn:disabled{opacity:.45;cursor:default;background:var(--border)}
   #savesvg{position:relative}
   #savesvg.dirty::after{content:"";position:absolute;top:-2px;right:-2px;width:6px;height:6px;border-radius:999px;background:var(--accent)}
-  #delsel:hover{background:#b91c1c;border-color:#b91c1c;color:#fff}
+  #delsel:hover{background:var(--status-error,#e06c75);border-color:var(--status-error,#e06c75);color:var(--text-on-accent,#fff)}
   #annotcv{position:absolute;touch-action:none;pointer-events:none;z-index:60}
   body.addmode #plot svg, body.addmode #plot svg *{cursor:text}
-  .txtedit{position:absolute;z-index:50;pointer-events:auto;font:13px -apple-system,BlinkMacSystemFont,sans-serif;padding:2px 6px;border:2px solid var(--accent);border-radius:6px;background:#fff;color:#111;box-shadow:0 4px 18px rgba(0,0,0,.45)}
+  .txtedit{position:absolute;z-index:50;pointer-events:auto;font:13px -apple-system,BlinkMacSystemFont,sans-serif;padding:2px 6px;border:2px solid var(--accent);border-radius:6px;background:var(--figure-paper);color:var(--figure-ink);box-shadow:0 4px 18px rgba(0,0,0,.45)}
   #stagewrap{flex:1;overflow:auto;padding:16px;box-sizing:border-box}
   #stage{position:relative;width:100%}
   #plot{width:100%;line-height:0}
-  #plot svg{width:100%;height:auto;display:block;background:#fff;border-radius:6px;box-shadow:0 2px 14px rgba(0,0,0,.5);touch-action:none}
+  #plot svg{width:100%;height:auto;display:block;background:var(--figure-paper);border-radius:6px;box-shadow:0 2px 14px rgba(0,0,0,.5);touch-action:none}
   #plot svg *{cursor:move}
   body.lasso #plot svg *{cursor:crosshair}
   body.fs-mode header{display:none}
-  body.fs-mode #stagewrap{padding:0;background:#000}
+  body.fs-mode #stagewrap{padding:0;background:var(--media-bg)}
   body.fs-mode #plot svg{border-radius:0;box-shadow:none}
   #ov{position:absolute;inset:0;pointer-events:none}
-  .hbox{position:absolute;border:2px solid #7aa2f7;border-radius:2px;background:rgba(91,157,255,.10);pointer-events:none}
-  .movehi{position:absolute;outline:2px solid #22c55e;background:rgba(34,197,94,.10);pointer-events:none;border-radius:2px}
+  .hbox{position:absolute;border:2px solid var(--overlay-hover);border-radius:2px;background:rgba(91,157,255,.10);pointer-events:none}
+  .movehi{position:absolute;outline:2px solid var(--overlay-move);background:rgba(34,197,94,.10);pointer-events:none;border-radius:2px}
   .selbox{position:absolute;border:1px solid var(--accent);pointer-events:none;border-radius:2px}
-  .selhandle{position:absolute;width:11px;height:11px;margin:-6px 0 0 -6px;background:#fff;border:1.5px solid var(--accent);border-radius:2px;pointer-events:auto;box-sizing:border-box;z-index:2}
-  .lassosvg polyline{fill:rgba(91,157,255,.14);stroke:#7aa2f7;stroke-width:1.5;stroke-dasharray:5 3;stroke-linejoin:round}
-  .lassosvg circle{fill:#7aa2f7;stroke:#fff;stroke-width:1.5}
+  .selhandle{position:absolute;width:11px;height:11px;margin:-6px 0 0 -6px;background:var(--figure-paper);border:1.5px solid var(--accent);border-radius:2px;pointer-events:auto;box-sizing:border-box;z-index:2}
+  .lassosvg polyline{fill:rgba(91,157,255,.14);stroke:var(--overlay-hover);stroke-width:1.5;stroke-dasharray:5 3;stroke-linejoin:round}
+  .lassosvg circle{fill:var(--overlay-hover);stroke:var(--figure-paper);stroke-width:1.5}
   /* contextual edit bar: docked under the toolbar, adapts to the selection (text / shape) */
   #ctxbar{display:flex;gap:8px;align-items:center;background:var(--card);border-bottom:1px solid var(--border);
-         padding:0 14px;max-height:0;opacity:0;overflow:hidden;flex-shrink:0;
+         padding:0 12px;max-height:0;opacity:0;overflow:hidden;flex-shrink:0;
          transition:max-height .14s ease,opacity .14s ease,padding .14s ease}
-  #ctxbar.show{max-height:42px;opacity:1;padding:6px 14px;overflow-x:auto}
+  #ctxbar.show{max-height:42px;opacity:1;padding:6px 12px;overflow-x:auto}
   @media (prefers-reduced-motion: reduce){ #ctxbar{transition:none} }
   body.fs-mode #ctxbar{display:none}
   #ctxbar .cgroup{display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
@@ -77,10 +79,10 @@
          background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;
          font-size:var(--fs-body-s, 12px);line-height:1;font-family:inherit}
   #ctxbar .ptog:hover{color:var(--txt)}
-  #ctxbar .ptog.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  #ctxbar .ptog.on{background:var(--accent);border-color:var(--accent);color:var(--text-on-accent,#fff)}
   #ctxbar .ptog[data-prop="font-style"]{font-style:italic}
   #ctxbar .ptog[data-prop="font-weight"]{font-weight:600}
-  #err{color:#ff6b6b;padding:40px;text-align:center}
+  #err{color:var(--status-error,#e06c75);padding:40px;text-align:center}
 </style>
 <script data-atelier-source="gallery/src/browser/pages/svg_viewer_1.ts">(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#1e2124',card:'#24282d',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#2a2d31'},'Codex':{bg:'#282c34',card:'#2f343f',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();
 </script>
@@ -92,21 +94,21 @@
   <b id="fname"></b>
   <span id="msinfo"></span>
   <span id="zoominfo" title="Zoom — ⌘+ / ⌘- / ⌘0, ou ⌘+molette"></span>
-  <button id="clearsel" title="Désélectionner (Échap)" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
-  <button id="delsel" title="Supprimer la sélection (Suppr · ⌫) — ⌘Z pour annuler ; le .svg garde un .orig.bak jusqu'au Save" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg></button>
+  <button id="clearsel" title="Désélectionner (Échap)" aria-label="Désélectionner" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+  <button id="delsel" aria-label="Supprimer la sélection" title="Supprimer la sélection (Suppr · ⌫) — ⌘Z pour annuler ; le .svg garde un .orig.bak jusqu'au Save" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg></button>
   <span class="tsep" id="sep-sel" style="display:none"></span>
   <button id="addtext" title="Ajouter un texte — clique ici puis clique sur la figure (double-clic sur un texte pour l'éditer)">T+</button>
-  <button id="lassotoggle" title="Polygone — clique des sommets autour des éléments ; double-clic / Entrée pour fermer · Échap annule"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.5 2"><path d="M8 2.5L13.5 6.5L11.5 13H4.5L2.5 6.5Z"/></svg></button>
+  <button id="lassotoggle" aria-label="Polygone de sélection" title="Polygone — clique des sommets autour des éléments ; double-clic / Entrée pour fermer · Échap annule"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.5 2"><path d="M8 2.5L13.5 6.5L11.5 13H4.5L2.5 6.5Z"/></svg></button>
   <span class="tsep"></span>
-  <button id="undobtn" title="Annuler la dernière action — déplacement / suppression / édition / ajout (⌘Z)" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5H9.5a3 3 0 0 1 0 6H7"/><path d="M6.5 4L4 6.5L6.5 9"/></svg></button>
-  <button id="redobtn" title="Rétablir l'action annulée (⌘⇧Z)" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5H6.5a3 3 0 0 0 0 6H9"/><path d="M9.5 4L12 6.5L9.5 9"/></svg></button>
+  <button id="undobtn" aria-label="Annuler" title="Annuler la dernière action — déplacement / suppression / édition / ajout (⌘Z)" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5H9.5a3 3 0 0 1 0 6H7"/><path d="M6.5 4L4 6.5L6.5 9"/></svg></button>
+  <button id="redobtn" aria-label="Rétablir" title="Rétablir l'action annulée (⌘⇧Z)" disabled><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5H6.5a3 3 0 0 0 0 6H9"/><path d="M9.5 4L12 6.5L9.5 9"/></svg></button>
   <span class="tsep"></span>
-  <button id="savesvg" title="Enregistrer les modifications dans le .svg (garde un .orig.bak)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7M5 6.5l3 3l3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2"/></svg></button>
+  <button id="savesvg" aria-label="Enregistrer le SVG" title="Enregistrer les modifications dans le .svg (garde un .orig.bak)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7M5 6.5l3 3l3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2"/></svg></button>
   <select id="dpi" title="Résolution d'export"><option value="300">300 dpi</option><option value="450">450 dpi</option><option value="600">600 dpi</option></select>
-  <button id="exportpng" title="Exporter la vue en .png (rsvg-convert)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10" rx="1"/><circle cx="5.5" cy="6.5" r="1"/><path d="M3 12l3.5-3.5l2 2L11 7l2.5 2.5"/></svg></button>
+  <button id="exportpng" aria-label="Exporter en PNG" title="Exporter la vue en .png (rsvg-convert)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10" rx="1"/><circle cx="5.5" cy="6.5" r="1"/><path d="M3 12l3.5-3.5l2 2L11 7l2.5 2.5"/></svg></button>
   <span class="tsep"></span>
-  <button id="annotbtn" title="Annoter — dessine sur la figure puis envoie à Claude"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3M11.5 3.5L4 11l-1.5 3.5L6 13l7.5-7.5z"/></svg></button>
-  <button id="fsbtn" title="Plein écran (F)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
+  <button id="annotbtn" aria-label="Annoter" title="Annoter — dessine sur la figure puis envoie à Claude"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3M11.5 3.5L4 11l-1.5 3.5L6 13l7.5-7.5z"/></svg></button>
+  <button id="fsbtn" title="Plein écran (F)" aria-label="Plein écran"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5H2.5V6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
 </header>
 <div id="ctxbar">
   <span class="cgroup" id="ctx-text">

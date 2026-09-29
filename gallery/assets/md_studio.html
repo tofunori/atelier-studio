@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>md studio</title>
 <script src="/.fig_thumbs/atelier_theme.js"></script>
+<script defer src="/.fig_thumbs/atelier_tooltip.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor.min.css">
 <link rel="stylesheet" href="/.fig_thumbs/toastui/toastui-editor-dark.min.css">
 <script data-atelier-source="gallery/src/browser/pages/md_studio_1.ts">(function(){
@@ -43,7 +44,7 @@
 <script src="/.fig_thumbs/markdown_features.bundle.js"></script>
 <style>
   button,input,select,textarea{font-family:var(--ui-font)}
-  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#dadee3;--muted:#868d9a;--radius-control:4px}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#212429;--bar:#1a1d22;--border:#333a45;--fg:#dadee3;--muted:#868d9a;--radius-control:6px}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
     font-family:var(--ui-font)}
   /* Pas de barre de titre : le nom du fichier vit déjà dans l'onglet hôte.
@@ -56,10 +57,10 @@
   .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-group:has(#mdTools){margin-left:auto}
   #state{font-variant-numeric:tabular-nums}
   #loadState{padding:24px;color:var(--muted);font:var(--fs-body,13px)/1.6 var(--ui-font)}
-  #loadRetry{margin-top:12px;font:inherit;color:var(--fg);background:var(--surface-inset,var(--bar));border:1px solid var(--border);border-radius:var(--radius-control);padding:5px 10px}
+  #loadRetry{margin-top:12px;font:inherit;color:var(--fg);background:var(--surface-inset,var(--bar));border:1px solid var(--border);border-radius:var(--radius-control);padding:4px 12px}
   #save:disabled{opacity:.5;cursor:default}
-  #loadRetry:focus-visible,#save:focus-visible{outline:1px solid var(--focus-ring-color,var(--accent,#e77f3e));outline-offset:2px}
-  #state.dirty{color:#ffd54a}
+  #loadRetry:focus-visible,#save:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+  #state.dirty{color:var(--status-warning,#e0b74a)}
   #save{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
     border:none;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;padding:0;
     transition:background-color 150ms ease,color 150ms ease}
@@ -90,8 +91,8 @@
     border-top:1px solid var(--border);font-size:var(--fs-label, 11px)}
   .markdown-selection-actions{position:fixed;z-index:9999}
   .markdown-annotation-editor{position:fixed;z-index:10000;width:min(560px,calc(100vw - 16px));
-    padding:10px;border:1px solid var(--selection-border,#777e87);border-radius:16px;
-    background:var(--selection-surface,#363b41);box-shadow:0 8px 28px #0007}
+    padding:12px;border:0;border-radius:10px;
+    background:var(--selection-surface,#363b41);box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px rgba(0,0,0,.25)))}
   ::highlight(markdown-amber){background-color:rgba(255,213,74,.40)}
   ::highlight(markdown-green){background-color:rgba(120,220,140,.40)}
   ::highlight(markdown-blue){background-color:rgba(120,170,255,.40)}

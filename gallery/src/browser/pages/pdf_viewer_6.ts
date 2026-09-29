@@ -353,7 +353,7 @@ async function main(){
   } catch(e) {
     const p = (document.getElementById("pages") as HTMLDivElement);
     p.textContent = "Unable to load PDF: " + (rel || "") + " — " + ((e && e.message) || e);  // textContent = XSS-safe
-    p.style.cssText = "color:#ff6b6b;padding:40px;text-align:center;font-family:var(--ui-font)";
+    p.style.cssText = "color:var(--status-error,#e06c75);padding:40px;text-align:center;font-family:var(--ui-font)";
     return;
   }
   const wrap = (document.getElementById("pages") as HTMLDivElement);
@@ -1273,7 +1273,7 @@ const annPane = (function(){
     foot.appendChild(pg); foot.appendChild(sp);
     const mkAct = (cls: string, title: string, svg: string, fn) => {
       const b = document.createElement("button");
-      b.className = "act" + (cls ? " " + cls : ""); b.title = title; b.innerHTML = svg;
+      b.className = "act" + (cls ? " " + cls : ""); b.title = title; b.setAttribute("aria-label", title); b.innerHTML = svg;
       b.onclick = (e) => { e.stopPropagation(); fn(); };
       foot.appendChild(b);
     };
@@ -3171,10 +3171,10 @@ if(window.self !== window.top){
     // Seule la note LIBRE reste un mode : elle se pose en cliquant une zone
     // vide de la page, aucune sélection ne peut donc la déclencher.
     '<button id="areaBtn" data-tool="area" title="Capturer une zone : figure, tableau (Z)" aria-label="Capturer une zone"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2V3.4c0-.8.6-1.4 1.4-1.4h1.8M10.8 2h1.8c.8 0 1.4.6 1.4 1.4v1.8M14 10.8v1.8c0 .8-.6 1.4-1.4 1.4h-1.8M5.2 14H3.4c-.8 0-1.4-.6-1.4-1.4v-1.8"/></svg></button>'
-    + '<button id="paneBtn" title="Toutes les annotations de l\'article"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"/></svg></button>'
+    + '<button id="paneBtn" title="Toutes les annotations de l\'article" aria-label="Toutes les annotations de l\'article"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"/></svg></button>'
     + '<span style="width:6px"></span>'
-    + '<button id="annPrev" title="Annotation précédente"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5.5 8 10 13"/></svg></button>'
-    + '<button id="annNext" title="Annotation suivante"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l4.5 5L6 13"/></svg></button>';
+    + '<button id="annPrev" title="Annotation précédente" aria-label="Annotation précédente"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5.5 8 10 13"/></svg></button>'
+    + '<button id="annNext" title="Annotation suivante" aria-label="Annotation suivante"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l4.5 5L6 13"/></svg></button>';
   const fn = document.getElementById("fname");
   fn.after(tools);
   let annIdx = -1;
@@ -3265,7 +3265,7 @@ if(window.self !== window.top){
 if(window.self !== window.top){
   const st = document.createElement("style");
   st.textContent = `
-    header{background:#1a1d22 !important;border-bottom:1px solid #333a45 !important;
+    header{background:var(--surface-header,#1a1d22) !important;border-bottom:1px solid var(--border,#333a45) !important;
       padding:4px 10px !important;min-height:0 !important;gap:10px}
     header #fname{font-weight:500;font-size:var(--fs-body,13px);color:var(--txt)}
     header .muted{display:none}
@@ -3275,14 +3275,14 @@ if(window.self !== window.top){
       color:var(--muted) !important;font-size:var(--fs-body-s,12px) !important;padding:0 !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
     header .zoomctl button{padding:3px 8px !important;border-radius:0 !important}
-    header button:hover{background:#2c313a !important;color:var(--txt) !important}
+    header button:hover{background:var(--card2,#2c313a) !important;color:var(--txt) !important}
     header button[aria-pressed="true"]{background:#2c313a !important;color:var(--txt) !important}
     /* UNE seule rangée : jamais de retour à la ligne, hauteur fixe 44 px */
     header{flex-wrap:nowrap !important;height:44px !important;min-height:44px !important;box-sizing:border-box !important;
       padding-top:0 !important;padding-bottom:0 !important;gap:8px !important;overflow:visible}
     header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
-    #pdftools{flex-shrink:0;padding-right:8px;border-right:1px solid #333a45}
-    header .pdf-mark-tools{border-left-color:#333a45}
+    #pdftools{flex-shrink:0;padding-right:8px;border-right:1px solid var(--border,#333a45)}
+    header .pdf-mark-tools{border-left-color:var(--border,#333a45)}
 
     @media (max-width: 440px){
       header #selinfo{display:none}
@@ -3475,14 +3475,14 @@ if (window.self !== window.top) {
     .pdf-page-sep { color:var(--muted); }
     header.pdf-compact-toolbar #pgInput { width:44px; height:24px; box-sizing:border-box; padding:0 6px; font:inherit; font-size:var(--fs-body-s,12px); font-variant-numeric:tabular-nums; text-align:center;
       color:var(--txt); background:var(--card2); border:0; border-radius:6px; outline:none; }
-    header.pdf-compact-toolbar #pgInput:focus-visible { outline:1px solid var(--accent); outline-offset:1px; }
+    header.pdf-compact-toolbar #pgInput:focus-visible { outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent)); outline-offset:var(--focus-ring-offset,1px); }
     body.read-mode .pdf-page-nav { display:none; }
     header.pdf-compact-toolbar .pdf-mark-tools { margin:0; padding:0; border:0; }
     header.pdf-compact-toolbar .pdf-tool-pop { top:31px; }
     header.pdf-compact-toolbar .pdf-mark-pen::after { display:none; }
     header.pdf-compact-toolbar .zoomctl { margin-left:auto; border:0; }
     header.pdf-compact-toolbar #zPct { border:0; }
-    header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:4px; font-size:var(--fs-label,11px); }
+    header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:6px; font-size:var(--fs-label,11px); }
     header.pdf-compact-toolbar #selinfo:empty, header.pdf-compact-toolbar #status:empty { display:none; }
     .pdf-toolbar-more { position:relative; flex:none; }
     .pdf-toolbar-more summary { list-style:none; width:26px; height:26px; display:flex; justify-content:center; align-items:center; cursor:pointer; border-radius:6px; font-size:20px; }
@@ -3515,7 +3515,7 @@ if (window.self !== window.top) {
     header.pdf-compact-toolbar button { color:var(--muted)!important; }
     header.pdf-compact-toolbar button:hover { background:var(--card2)!important; color:var(--txt)!important; }
     header.pdf-compact-toolbar button.ton, header.pdf-compact-toolbar button[aria-pressed="true"] { background:var(--card2)!important; color:var(--txt)!important; }
-    header.pdf-compact-toolbar button:focus-visible, .pdf-toolbar-more summary:focus-visible { outline:1px solid var(--accent); outline-offset:2px; }
+    header.pdf-compact-toolbar button:focus-visible, .pdf-toolbar-more summary:focus-visible { outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent)); outline-offset:var(--focus-ring-offset,1px); }
     header.pdf-compact-toolbar .pdf-tool-pop button:hover { background:var(--card2)!important; }
     header.pdf-compact-toolbar .pdf-tool-pop button[aria-pressed="true"], header.pdf-compact-toolbar .pdf-tool-pop button[aria-checked="true"] { background:transparent!important; }
     header.pdf-compact-toolbar .pdf-tool-pop button { color:var(--txt)!important; }
@@ -3616,7 +3616,7 @@ if (window.self !== window.top) {
   const bc = new BroadcastChannel("latexstudio:" + texPath);
   const marker = document.createElement("div");
   marker.style.cssText = "position:absolute;left:0;right:0;height:26px;display:none;"
-    + "background:rgba(91,157,255,.18);border-left:3px solid #7aa2f7;pointer-events:none;z-index:5";
+    + "background:rgba(91,157,255,.18);border-left:3px solid var(--pdf-mark-focus,#7aa2f7);pointer-events:none;z-index:5";
   let mkT: string|number|NodeJS.Timeout = null;
   function showMarker(page: string, y0: number){
     const pg = document.querySelector('.pg[data-page="' + page + '"]');

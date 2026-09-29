@@ -91,6 +91,13 @@
   --fs-title: var(--fs-xl);     /* 15 — titre local    */
   /* display — décision B (014, approuvée) : Research Home et VRAIS titres de
    * page uniquement ; jamais TopBar, panneaux, cartes ni chips. */
+  /* étiquette de section en capitales (2026-09-29) : UN style pour tous les
+   * petits titres de groupe (Réglages, inspecteur, menus, palette, panneaux).
+   * Les pastilles de type en capitales en reprennent la taille et l'approche. */
+  --eyebrow-size: var(--fs-caption);
+  --eyebrow-weight: 500;
+  --eyebrow-tracking: .06em;
+  --eyebrow-color: var(--text-muted);
   --fs-display-s: 18px;
   --fs-display: 20px;
 
@@ -100,6 +107,8 @@
   /* géométrie interactive commune : recherches, boutons et sélecteurs */
   --control-height: calc(var(--ui-base-size, 15px) * 2);
   --control-height-compact: calc(var(--ui-base-size, 15px) * 1.7333333333);
+  /* action minuscule dans une rangée (fermer, épingler, réinitialiser) */
+  --control-height-mini: 24px;
   /* Dérivé de --border-default (et non --border-subtle) depuis l'adoucissement
    * des séparateurs : les contrôles interactifs gardent leur netteté d'avant. */
   --border-interactive: color-mix(in srgb, var(--border-default) 72%, transparent);
@@ -167,4 +176,13 @@
     --motion-panel: 0ms;
     --motion-spin: 0ms;
   }
+}
+
+/* trait des icônes (2026-09-29) : lucide sort à 2 quand le composant ne
+ * précise rien, plus épais que la règle du système (1,3–1,5). Le trait par
+ * défaut est ramené à 1,4 ici, une fois pour toutes les icônes React.
+ * @layer base + :where() : bat l'attribut de présentation stroke-width="2",
+ * mais cède à toute règle de composant qui fixe son propre trait. */
+@layer base {
+  :where(svg.lucide[stroke-width="2"]) { stroke-width: 1.4; }
 }

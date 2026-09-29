@@ -8,7 +8,7 @@
 }
 :where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar{width:6px;height:6px}
 :where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-track{background:transparent}
-:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:8px}
+:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:999px}
 :where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover)}
 :where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-corner{background:transparent}
 

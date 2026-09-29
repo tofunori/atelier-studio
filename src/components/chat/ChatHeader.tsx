@@ -101,7 +101,7 @@ export function ChatHeader(p: {
     agents: NonNullable<typeof p.linkedAgents>,
   ) => agents.length ? (
     <section className="tw:flex tw:flex-col tw:gap-1" aria-label={label}>
-      <p className="tw:px-2 tw:pt-1 tw:text-[length:var(--fs-caption)] tw:font-medium tw:uppercase tw:tracking-[0.08em] tw:text-muted-foreground">
+      <p className="tw:px-2 tw:pt-1 tw:text-[length:var(--eyebrow-size)] tw:font-medium tw:uppercase tw:tracking-[var(--eyebrow-tracking)] tw:text-[color:var(--eyebrow-color)]">
         {label}
       </p>
       {agents.map((agent) => (

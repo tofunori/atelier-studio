@@ -174,9 +174,14 @@
     root.dataset.shadcnContract = "gallery-v1";
   }
 
-  function applyTheme(message) {
+  // Dernier thème reçu, gardé pour le prochain document de la galerie : sans
+  // lui, un éditeur ouvert en thème clair peignait d'abord sa palette sombre
+  // de secours, le temps que l'hôte réponde à atelier-theme-request.
+  var THEME_CACHE_KEY = "atelier-theme-cache";
+
+  function applyTheme(message, fromCache          ) {
     if (!message || message.type !== "atelier-theme") return;
-    if (message.nonce && nonce && message.nonce !== nonce) return;
+    if (!fromCache && message.nonce && nonce && message.nonce !== nonce) return;
     var vars = message.vars || {};
     var root = document.documentElement;
     Object.keys(vars).forEach(function (name) {
@@ -191,6 +196,12 @@
     applyShadcnAliases(root);
     root.dataset.atelierTheme = String(message.version || 1);
     root.style.colorScheme = message.colorScheme === "light" ? "light" : "dark";
+    if (fromCache) return;
+    try {
+      localStorage.setItem(THEME_CACHE_KEY, JSON.stringify({
+        type: "atelier-theme", vars: vars, colorScheme: message.colorScheme, version: message.version
+      }));
+    } catch (_) {}
     window.__atelierTheme = message;
     window.dispatchEvent(new CustomEvent("atelier-theme-applied", { detail: message }));
     for (var i = 0; i < window.frames.length; i++) {
@@ -219,5 +230,11 @@
   } else {
     requestTheme();
   }
+  // Script chargé dans le <head> : le thème en cache s'applique avant la
+  // première peinture ; le message de l'hôte le remplace dès qu'il arrive.
+  try {
+    var cached = JSON.parse(localStorage.getItem(THEME_CACHE_KEY) || "null");
+    if (cached && cached.vars) applyTheme(cached, true);
+  } catch (_) {}
   applyShadcnAliases(document.documentElement);
 })();

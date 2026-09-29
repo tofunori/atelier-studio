@@ -1,4 +1,4 @@
-.chat-notice-trigger{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:24px;height:24px;margin-left:8px;padding:3px;border:0;border-radius:50%;background:transparent;color:var(--warning,#e99a45);cursor:pointer;flex:none}
+.chat-notice-trigger{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:24px;height:24px;margin-left:8px;padding: 4px;border:0;border-radius:50%;background:transparent;color:var(--warning,#e99a45);cursor:pointer;flex:none}
 .chat-notice-trigger svg{width:18px;height:18px;stroke-width:1.7}.chat-notice-trigger:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .chat-notice-card{max-width:calc(100vw - 24px)}.chat-notice-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .chat-notice-close{flex:none}.chat-notice-close svg{width:16px;height:16px}

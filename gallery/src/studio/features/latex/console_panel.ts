@@ -15,7 +15,7 @@ export function createLatexConsolePanel(doc: Document, win: Window, compile: () 
   const resize = doc.getElementById('tlResize') as HTMLElement;
   let rawLog = '', running = false;
   const originalIcon = build.querySelector('svg')!.outerHTML;
-  const glyph = (path: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+  const glyph = (path: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const icons = {run:glyph('<path d="M12 3a9 9 0 1 1-9 9"/>'),ok:glyph('<path d="m5 12 4 4L19 6"/>'),err:glyph('<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>')};
   function tab(log: boolean) {
     journal.hidden = !log; issues.hidden = log;

@@ -8,6 +8,7 @@ gallery/assets/whiteboard/** linguist-generated=true
 mobile-native/Sources/AtelierUI/Resources/ChatRenderer/chat-renderer.js linguist-generated=true
 gallery/assets/annot_kit.js linguist-generated=true
 gallery/assets/atelier_theme.js linguist-generated=true
+gallery/assets/atelier_tooltip.js linguist-generated=true
 gallery/assets/csv_table.js linguist-generated=true
 gallery/assets/diff_versions.js linguist-generated=true
 gallery/assets/diff_worker.js linguist-generated=true

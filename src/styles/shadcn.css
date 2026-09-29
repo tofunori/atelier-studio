@@ -289,12 +289,12 @@
   width: var(--menu-icon-size); height: var(--menu-icon-size); flex-shrink: 0; stroke-width: 1.5;
 }
 :is([data-slot="dropdown-menu-label"], [data-slot="context-menu-label"]) {
-  padding: 8px 10px;
+  padding: 8px 12px;
   font: 500 var(--menu-heading)/1.45 var(--ui-font);
   color: var(--text-primary, var(--foreground));
   letter-spacing: normal;
 }
-:is([data-slot="dropdown-menu-separator"], [data-slot="context-menu-separator"]) { margin: 5px 3px; }
+:is([data-slot="dropdown-menu-separator"], [data-slot="context-menu-separator"]) { margin: 4px 4px; }
 :is([data-slot="dropdown-menu-shortcut"], [data-slot="context-menu-shortcut"], .dropdown-surface-footer) {
   font-size: var(--menu-detail); line-height: 1.45;
 }
