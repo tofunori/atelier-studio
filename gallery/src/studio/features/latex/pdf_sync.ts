@@ -301,10 +301,14 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
         if (victim < 0) return;
         const victimCanvas = liveCanvases.get(victim);
         liveCanvases.delete(victim);
-        // Retire seulement le canvas (le gabarit garde sa taille) — pas
-        // replaceChildren() : le marqueur synctex partagé peut être un autre
+        // Retire le canvas et sa couche de texte (le gabarit garde sa taille) —
+        // pas replaceChildren() : le marqueur synctex partagé peut être un autre
         // enfant du même gabarit et ne doit pas disparaître avec le canvas.
+        // Sans ce retrait, chaque page visitée gardait des centaines de spans
+        // et le DOM du volet grossissait au fil du défilement ; la couche se
+        // recrée depuis textCache au retour de la page.
         victimCanvas?.remove();
+        nextPages[victim]?.querySelector(".textLayer")?.remove();
       };
 
       const renderPageNow = async (pageNumber: number): Promise<void> => {
@@ -329,13 +333,16 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
           element.style.width = `${viewport.width}px`;
           element.style.height = `${viewport.height}px`;
           const canvas = doc.createElement("canvas");
-          canvas.width = viewport.width * win.devicePixelRatio;
-          canvas.height = viewport.height * win.devicePixelRatio;
+          // Plafonnée à 2 comme dans le lecteur PDF : au-delà, plus de pixels
+          // à peindre pour rien de visible.
+          const pixelRatio = Math.min(2, win.devicePixelRatio || 1);
+          canvas.width = viewport.width * pixelRatio;
+          canvas.height = viewport.height * pixelRatio;
           canvas.style.width = `${viewport.width}px`;
           canvas.style.height = `${viewport.height}px`;
           const context = canvas.getContext("2d");
           if (!context) throw new Error("PDF canvas context unavailable");
-          context.scale(win.devicePixelRatio, win.devicePixelRatio);
+          context.scale(pixelRatio, pixelRatio);
           await page.render({canvasContext: context, viewport, intent: "print"}).promise;
           if (!current()) return;
           // prepend, jamais replaceChildren : le gabarit peut déjà porter le
@@ -349,6 +356,10 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
               && (TextLayerClass || options.pdfjs.renderTextLayer)) {
             const layer = doc.createElement("div"); layer.className = "textLayer";
             layer.style.setProperty("--scale-factor", String(info.scale));
+            // pdf.js ≥ 4 dimensionne chaque span par --total-scale-factor ×
+            // --font-height (règles .textLayer de latex_studio.css) ; sans lui
+            // les spans restaient à 16 px et la sélection ne suivait pas le texte.
+            layer.style.setProperty("--total-scale-factor", String(info.scale));
             element.appendChild(layer);
             try {
               let cache = textCache.get(nextDocument);

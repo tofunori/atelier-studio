@@ -71,3 +71,7 @@
   .cm-s-material-darker .cm-comment{color:#868d9a;font-style:italic}
   .cm-s-material-darker .cm-meta{color:#9a958a}
   .cm-s-material-darker .cm-qualifier{color:#7fbcb2}
+
+/* Sélection de l'éditeur : couleur du thème par --cm-selection, une seule
+   règle ::selection universelle (voir SELECTION_RENDERING, studio_editor.ts). */
+::selection{background:var(--cm-selection,Highlight)}

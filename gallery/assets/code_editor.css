@@ -84,3 +84,7 @@ body>#csvTools #csvMeta{flex-basis:100%;min-width:0;overflow:hidden;text-overflo
 #pickerList button:hover{background:var(--surface-hover,var(--border))!important}
 
 #codeMore:not([open]) .code-menu{display:none}
+
+/* Sélection de l'éditeur : couleur du thème par --cm-selection, une seule
+   règle ::selection universelle (voir SELECTION_RENDERING, studio_editor.ts). */
+::selection{background:var(--cm-selection,Highlight)}

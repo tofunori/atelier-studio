@@ -112,10 +112,12 @@
   .cm-syncline{background:rgba(232,130,58,.16)}
   /* Sélection : sélection NATIVE du navigateur, peinte par ::selection. Un seul
      calque, composé hors layout ; ni drawSelection ni décoration mark (voir
-     SELECTION_RENDERING dans cm6/studio_editor.mjs, banc scripts/bench_editor.mjs).
-     Orange studio quel que soit le thème d'éditeur choisi. */
-  .cm-editor .cm-content ::selection,
-  .cm-editor .cm-content::selection{background:rgba(232,130,58,.38)}
+     SELECTION_RENDERING dans cm6/studio_editor.ts, banc scripts/bench_editor.mts).
+     Orange studio quel que soit le thème d'éditeur choisi. Une SEULE règle
+     ::selection, universelle : limitée à l'éditeur (.cm-content ::selection),
+     elle triplait le recalcul des styles pendant le défilement. */
+  ::selection{background:var(--cm-selection,Highlight)}
+  .cm-editor .cm-content{--cm-selection:rgba(232,130,58,.38)}
   .cm-line-flash{background:rgba(232,130,58,.16) !important;transition:background .6s}
   .cm-ghost-suggest{color:var(--text-muted,var(--muted));opacity:.72;pointer-events:none}
   .cm-ghost-suggest::after{content:"Tab";display:inline-block;margin-left:8px;padding:0 4px;border:1px solid var(--border-strong,var(--border));border-radius:6px;
@@ -540,6 +542,14 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .pdfpage{position:relative}
 .pdfpage .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;z-index:2}
 .pdfpage .textLayer :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}
+/* Taille et étirement des spans, repris de pdf_viewer.css (pdf.js 6) : pdf.js
+   pose --font-height et --scale-x sur chaque span, pdf_sync.ts pose
+   --total-scale-factor sur la couche. Sans ces règles la sélection du volet PDF
+   ne couvrait pas les mots sélectionnés. */
+.pdfpage .textLayer{--min-font-size:1;--text-scale-factor:calc(var(--total-scale-factor) * var(--min-font-size));--min-font-size-inv:calc(1 / var(--min-font-size))}
+.pdfpage .textLayer > :not(.markedContent),
+.pdfpage .textLayer .markedContent span:not(.markedContent){--font-height:0;font-size:calc(var(--text-scale-factor) * var(--font-height));--scale-x:1;--rotate:0deg;transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv))}
+.pdfpage .textLayer .markedContent{display:contents}
 .pdfpage .textLayer ::selection{background:rgba(94,149,232,.35)}
 @media(max-width:760px){#split:not(:has(#right.reading)){flex-direction:column}#split:not(:has(#right.reading)) #left{width:100%!important;min-height:52%;flex:1}#split:not(:has(#right.reading)) #right{min-height:40%;flex:1;border-top:1px solid var(--border)}}
 .pdf-load-status select{display:block;max-width:100%;min-width:0;margin-top:12px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--txt);font:12px var(--ui-font)}
@@ -727,8 +737,7 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 @media(max-width:460px){#chatActions{display:none}#diffGrp #diffAcceptAll{width:22px;margin-left:1px}#diffGrp #diffTag{gap:3px;padding:0 4px!important}header .modeseg button,header .modeseg #editBtn{width:22px;min-width:22px}#diffGrp #dvNav>.dv-count{min-width:26px}#diffGrp #diffPrev,#diffGrp #diffNext,#diffGrp #dvNav .dvNavA{width:18px}#compileActions>#popPdf{padding:0 2px}#toolbarWrap,#build,#moreBtn{width:22px}}
 
 /* Diff widgets must not inherit WebKit's native selection paint. */
-.cm-editor.cm-review-selection .cm-content::selection,
-.cm-editor.cm-review-selection .cm-content ::selection{background:transparent!important}
+.cm-editor.cm-review-selection .cm-content{--cm-selection:transparent}
 /* Match CM6's focused selection rule so focus cannot restore its teal default. */
 .cm-editor.cm-review-selection .cm-selectionBackground,
 .cm-editor.cm-review-selection.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground{background:rgba(232,130,58,.38)}
