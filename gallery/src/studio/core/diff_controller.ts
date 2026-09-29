@@ -142,7 +142,7 @@ export function createStudioDiffController(options: StudioDiffControllerOptions)
     } else {
       quotePill = doc.createElement("button");
       quotePill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.5-6 5.5-.8 0-1.5-.1-2.2-.4L2 14l1.1-2.9C2.4 10.2 2 9.1 2 8c0-3 2.7-5.5 6-5.5S14 5 14 8Z"/></svg> Add to chat';
-      quotePill.style.cssText = "position:fixed;z-index:9999;display:none;background:#2c313a;color:#dadee3;border:1px solid #3a414d;border-radius:999px;padding:7px 14px;font-size:13px;font-family:inherit;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35)";
+      quotePill.style.cssText = "position:fixed;z-index:9999;display:none;background:var(--card2,#2c313a);color:var(--txt,#dadee3);border:1px solid var(--border-strong,#3a414d);border-radius:999px;padding:8px 12px;font-size:13px;font-family:inherit;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35)";
       doc.body.appendChild(quotePill);
       quotePill.addEventListener("mousedown", (event) => {
         event.preventDefault();

@@ -13,7 +13,7 @@
 .atelier-selection .atelier-swatch[aria-pressed=true]{outline:2px solid var(--selection-ink);outline-offset:2px}
 .atelier-selection .atelier-swatch{width:20px;height:20px;padding:0;border:1px solid #ffffff40;border-radius:50%;background:var(--annotation-color);box-shadow:0 2px 5px #0004}
 .atelier-selection button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent,#9299a3));outline-offset:2px}
-.atelier-note button:focus-visible{outline:1px solid var(--text-secondary,var(--fg2,#b9bec4));outline-offset:2px}
+.atelier-note button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 .atelier-note{box-sizing:border-box;width:300px;max-width:calc(100vw - 16px);padding:12px;border:0;border-radius:var(--radius-surface,10px);background:var(--surface-overlay,var(--card,#242930));color:var(--text-primary,var(--txt,#dadee3));box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px #0004));font:var(--fs-body,13px)/1.5 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif)}
 .atelier-note>*+*{margin-top:8px}
 .atelier-note button{flex:none;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--text-muted,var(--muted,#969ca5));cursor:pointer;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}

@@ -336,7 +336,7 @@ export function createLatexReadingMarge(
       toggle.setAttribute("aria-pressed", showAll ? "true" : "false");
       toggle.title = showAll ? "Ne montrer que les sections colorées" : `Toutes les sections (${sections.length})`;
       toggle.innerHTML = '<svg class="tr-marge-all-sign" width="12" height="8" viewBox="0 0 12 8"'
-        + ' fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"'
+        + ' fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"'
         + ' stroke-linejoin="round" aria-hidden="true"><path d="M1.5 2.5 6 6l4.5-3.5"/></svg>'
         + '<span class="tr-mark-label"></span>';
       const label = toggle.querySelector(".tr-mark-label");

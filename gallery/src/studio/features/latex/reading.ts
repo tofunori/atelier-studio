@@ -588,15 +588,15 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   readButton.id = "readBtn";
   readButton.title = "Vue Lecture — prose rendue (KaTeX), sans le code";
   readButton.setAttribute("aria-label", "Vue Lecture");
-  readButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye" aria-hidden="true" focusable="false"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+  readButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye" aria-hidden="true" focusable="false"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>';
   const editButton = doc.createElement("button");
   editButton.id = "editBtn";
   editButton.title = "Éditeur seul";
   editButton.setAttribute("aria-label", "Éditeur seul");
-  editButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-code-corner" aria-hidden="true" focusable="false"><path d="M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="m5 16-3 3 3 3"></path><path d="m9 22 3-3-3-3"></path></svg>';
+  editButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-code-corner" aria-hidden="true" focusable="false"><path d="M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="m5 16-3 3 3 3"></path><path d="m9 22 3-3-3-3"></path></svg>';
   options.splitButton.title = "Vue scindée éditeur + PDF";
   options.splitButton.setAttribute("aria-label", "Vue scindée éditeur et PDF");
-  options.splitButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-columns2 lucide-columns-2" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M12 3v18"></path></svg>';
+  options.splitButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-columns2 lucide-columns-2" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M12 3v18"></path></svg>';
   const segment = doc.createElement("span");
   segment.className = "modeseg";
   options.splitButton.parentNode?.insertBefore(segment, options.splitButton);
@@ -670,7 +670,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
       updateBlocks(renderLatexReadingBlocks(source, options.katex, context));
       lastSource = source; lastContext = contextKey;
     } catch (error) {
-      updateBlocks([`<p style="color:#e0726a">Rendu impossible : ${escapeHtml(String(error))}</p>`]);
+      updateBlocks([`<p style="color:var(--status-error,#e0726a)">Rendu impossible : ${escapeHtml(String(error))}</p>`]);
       lastSource = null;
     }
     applyAnnotationHighlights();

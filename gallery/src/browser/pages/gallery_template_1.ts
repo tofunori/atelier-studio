@@ -2208,7 +2208,7 @@ const lbFigureNavigation=document.createElement('div');lbFigureNavigation.id='lb
 lbFigureNavigation.setAttribute('role','group');lbFigureNavigation.setAttribute('aria-label','Parcourir les figures');
 lbFigureNavigation.append('Figures ',(document.getElementById('lbPrev') as HTMLButtonElement),lbPosition,(document.getElementById('lbNext') as HTMLButtonElement));
 lbSheet.append(lbFigureNavigation);
-const lbVersionStyle=document.createElement('style');lbVersionStyle.textContent='#lbVersions{display:flex;align-items:center;flex:none;border:1px solid var(--border);border-radius:7px;margin-right:6px}#lbVersions[hidden]{display:none}#lbVersions .lbBtn{position:static;min-width:22px;width:auto;height:26px;padding:0 5px;font-size:15px}#lbVersions #lbVersionCurrent{font-size:11px;white-space:nowrap;color:var(--muted)}#lbVersions .lbBtn:disabled{opacity:.35;cursor:default}';document.head.appendChild(lbVersionStyle);
+const lbVersionStyle=document.createElement('style');lbVersionStyle.textContent='#lbVersions{display:flex;align-items:center;flex:none;border:1px solid var(--border);border-radius:6px;margin-right:6px}#lbVersions[hidden]{display:none}#lbVersions .lbBtn{position:static;min-width:22px;width:auto;height:26px;padding:0 5px;font-size:15px}#lbVersions #lbVersionCurrent{font-size:11px;white-space:nowrap;color:var(--muted)}#lbVersions .lbBtn:disabled{opacity:.35;cursor:default}';document.head.appendChild(lbVersionStyle);
 lbVersionStyle.textContent+='#lbFigureNavigation{display:flex;align-items:center;gap:4px;margin-top:8px;color:var(--muted);font-size:11px}#lb #lbFigureNavigation .lbBtn{position:static;display:inline-flex;align-items:center;justify-content:center}';
 let lbHistory: FigureHistory={rel:'',rows:[],selected:null,follow:true,epoch:0,busy:false};
 let lbVersionReady=Promise.resolve();
@@ -2599,6 +2599,13 @@ function annotInit(){
         '--muted':'--muted','--muted2':'--faint','--border':'--border',
         '--border2':'--border-strong','--accent':'--primary'};
       for(var k in map){ if(v[k]) document.documentElement.style.setProperty(map[k], v[k]); }
+      // Rôles canoniques du shell (4 gris, surcouche, focus, statuts) : repris
+      // tels quels, pour que l'infobulle et les anneaux de focus de la galerie
+      // soient ceux de l'app. Liste fermée : --accent a un autre sens ici.
+      ['--text-primary','--text-secondary','--text-muted','--text-disabled','--surface-overlay',
+        '--elevation-overlay','--focus-ring-color','--focus-ring-width','--focus-ring-offset',
+        '--status-success','--status-warning','--status-error','--font-chrome']
+        .forEach(function(name){ if(v[name]) document.documentElement.style.setProperty(name, v[name]); });
       // WKWebView dessine la piste native de scrollbar selon color-scheme,
       // indépendamment du fond CSS de l'iframe. Les presets Atelier sont hex.
       if(/^#[0-9a-f]{6}$/i.test(v['--bg']||'')){

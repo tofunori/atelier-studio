@@ -45,7 +45,7 @@
 <link rel="stylesheet" href="pdf_reading.css">
 <style>
   button,input,select,textarea{font-family:var(--ui-font)}
-  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31}
+  :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31;--pdf-paper:#fff;--pdf-paper-invert:#141414;--pdf-mark-focus:#7aa2f7}
   body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--ui-font);
     width:max-content;min-width:100%}
   body.read-mode{width:auto}
@@ -64,10 +64,10 @@
   #compileBtn.busy{color:var(--txt,#dadee3)}
   #compileBtn.busy svg{animation:compileSpin 1s linear infinite}
   #compileBtn.done{color:var(--accent,#e77f3e)}
-  #compileBtn.err{color:#f07d73}
+  #compileBtn.err{color:var(--status-error,#e06c75)}
   /* pastille d'échec : le seul signal persistant, sans occuper de largeur */
   #compileBtn.err::after{content:"";position:absolute;top:3px;right:3px;width:5px;height:5px;
-    border-radius:3px;background:#f07d73}
+    border-radius:999px;background:var(--status-error,#e06c75)}
   #compileBtn .ci-done{display:none}
   #compileBtn.done .ci-idle{display:none}
   #compileBtn.done .ci-done{display:block}
@@ -92,7 +92,7 @@
   #readBtn:hover{background:var(--card2,#2c313a);color:var(--txt,#dadee3)}
   #readBtn[aria-pressed="true"]{background:var(--card2,#2c313a);color:var(--accent,#e77f3e)}
   @media (prefers-reduced-motion: reduce){ #readBtn{transition:none} }
-  body.pdf-invert .pg{background:#141414}
+  body.pdf-invert .pg{background:var(--pdf-paper-invert)}
   body.pdf-invert .pg canvas{filter:invert(1) hue-rotate(180deg)}
   #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
   header{position:sticky;top:0;left:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
@@ -102,7 +102,7 @@
      left edge at a negative, unreachable scroll position. */
   #pages{display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px;
     width:max-content;min-width:100%;box-sizing:border-box}
-  .pg{position:relative;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.5)}
+  .pg{position:relative;background:var(--pdf-paper);box-shadow:0 2px 14px rgba(0,0,0,.5)}
   .pg canvas{display:block}
   .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;opacity:1;user-select:none}
   .textLayer span{position:absolute;color:transparent;white-space:pre;transform-origin:0 0;cursor:text}
@@ -111,7 +111,7 @@
   .pg .pdfhl{position:absolute;border-radius:2px;mix-blend-mode:multiply;cursor:pointer}
   /* Objets posés sur la page (note, tampon, zone de texte) : encre graphite
      sur la feuille blanche, inversée avec le confort sombre. */
-  .pg{--pin-bg:#fff;--pin-ink:#24282d}
+  .pg{--pin-bg:#fff;--pin-ink:#24282d;--pin-on:#fff}
   body.pdf-invert .pg{--pin-bg:#141414;--pin-ink:#dadee3}
   /* Note libre : bulle graphite CENTRÉE sur le point cliqué */
   .pg .pdfnote{position:absolute;z-index:8;width:24px;height:24px;padding:0;border:0;border-radius:999px;
@@ -123,8 +123,8 @@
   /* Tampons : pastille pleine dans la marge, tampon encreur penché dans le texte */
   .pg .pdfstamp{position:absolute;z-index:8;padding:0;border:0;cursor:pointer;font-family:var(--ui-font)}
   .pg .pdfstamp-dot{width:24px;height:24px;border-radius:999px;display:flex;align-items:center;justify-content:center;
-    background:var(--stamp);color:#fff;transform:translate(-50%,-50%);
-    box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.25);transition:transform 120ms ease}
+    background:var(--stamp);color:var(--pin-on,#fff);transform:translate(-50%,-50%);
+    box-shadow:0 0 0 2px var(--pin-bg),0 2px 6px rgba(0,0,0,.25);transition:transform 120ms ease}
   .pg .pdfstamp-dot svg{width:14px;height:14px}
   .pg .pdfstamp-dot:hover{transform:translate(-50%,-50%) scale(1.08)}
   .pg .pdfstamp-ink{display:inline-flex;align-items:center;gap:.35em;white-space:nowrap;
@@ -133,7 +133,7 @@
     text-transform:uppercase;transform:translate(-50%,-50%) rotate(-4deg)}
   .pg .pdfstamp-ink svg{width:1.1em;height:1.1em;flex:none}
   .pg .pdfstamp-grip{position:absolute;right:-6px;bottom:-6px;width:10px;height:10px;border-radius:999px;
-    background:#fff;box-shadow:0 0 0 1px var(--stamp);cursor:nwse-resize;opacity:0;transition:opacity 120ms ease}
+    background:var(--pin-bg);box-shadow:0 0 0 1px var(--stamp);cursor:nwse-resize;opacity:0;transition:opacity 120ms ease}
   .pg .pdfstamp-ink:hover .pdfstamp-grip,.pg .pdfstamp-ink.sizing .pdfstamp-grip{opacity:1}
   /* tampons et notes se déplacent au glisser */
   .pg .pdfnote,.pg .pdfstamp{cursor:grab}
@@ -189,26 +189,26 @@
   @media (prefers-reduced-motion: reduce){ .pdf-text-fmt button{transition:none} }
   #pdftools{display:flex;align-items:center;gap:2px}
   #pdftools button{width:26px;height:24px;display:inline-flex;align-items:center;justify-content:center}
-  #pdftools button.ton{background:#2c313a !important;color:var(--txt) !important}
+  #pdftools button.ton{background:var(--card2) !important;color:var(--txt) !important}
   #pdftools .cdot{width:13px;height:13px;border-radius:6px;cursor:pointer;margin:0 1px;
     border:1px solid rgba(255,255,255,.15)}
-  #pdftools .cdot.con{outline:2px solid #7aa2f7}
+  #pdftools .cdot.con{outline:2px solid var(--pdf-mark-focus)}
   #sendBtn{position:fixed;display:none;z-index:100;background:var(--border);color:var(--txt);border:1px solid var(--border);
            border-radius:10px;padding:8px 14px;font-size:var(--fs-body, 13px);cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.5)}
   .muted{color:var(--muted)}
   /* selection pill + annotation card (same language as the gallery/HTML overlay) */
   #selPill{position:fixed;z-index:300;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;
-      background:#1d2026;border:1px solid #343842;border-radius:999px;padding:8px 8px 8px 16px;
+      background:var(--surface-overlay,var(--card));border:1px solid var(--border-strong,var(--border));border-radius:999px;padding:8px 8px 8px 16px;
       box-shadow:0 12px 36px rgba(0,0,0,.45);color:var(--txt);font-size:var(--fs-body, 13px);user-select:none;-webkit-user-select:none}
   #selPill .nb{flex:none;line-height:1;display:flex;align-items:center;color:var(--muted)}
   #selPill .nb svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #selPill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
       font-size:var(--fs-body, 13px);line-height:1.45;padding:0;resize:none;font-family:inherit;min-height:1lh;height:max(20px,1lh);max-height:120px}
-  #selPill textarea::placeholder{color:#6d7480}
+  #selPill textarea::placeholder{color:var(--text-disabled,var(--muted))}
   #selPill > button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}
-  #selPill .del{width:26px;height:26px;border-radius:999px;background:none;color:#6d7480;flex:none;padding:0}
-  #selPill .del:hover{color:#ff7a76}
-  #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;
+  #selPill .del{width:26px;height:26px;border-radius:999px;background:none;color:var(--text-disabled,var(--muted));flex:none;padding:0}
+  #selPill .del:hover{color:var(--status-error,#e06c75)}
+  #selPill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.4;
       stroke-linecap:round;stroke-linejoin:round}
   #selPill .tgt{width:28px;height:28px;border-radius:999px;background:transparent;
       border:1px solid var(--border, #2a2d31);color:var(--muted);flex:none}
@@ -218,14 +218,14 @@
      couleurs sont ici, sous le texte visé — plus de mode à armer d'avance
      dans la barre du haut. Un clic sur une pastille = surligné. */
   #selPill .hlbar{display:flex;align-items:center;gap:5px;flex:none;
-    background:#2c313a;border:1px solid #3a414d;border-radius:999px;padding:5px 8px;
+    background:var(--card2);border:1px solid var(--border-strong,var(--border));border-radius:999px;padding:4px 8px;
     box-shadow:0 6px 18px rgba(0,0,0,.5)}
   #selPill .sw{width:17px;height:17px;border-radius:999px;cursor:pointer;flex:none;
     transition:transform 120ms ease-out}
   #selPill .sw:hover{transform:scale(1.14)}
-  #selPill .sw.on{box-shadow:0 0 0 2px #2c313a,0 0 0 3.5px var(--txt)}
-  #selPill .hsep{width:1px;height:16px;background:#3a414d;flex:none}
-  #selPill .ulb{width:24px;height:24px;border-radius:6px;background:none;color:#b9b6ae;
+  #selPill .sw.on{box-shadow:0 0 0 2px var(--card2),0 0 0 3.5px var(--txt)}
+  #selPill .hsep{width:1px;height:16px;background:var(--border-strong,var(--border));flex:none}
+  #selPill .ulb{width:24px;height:24px;border-radius:6px;background:none;color:var(--text-secondary,var(--muted));
     flex:none;padding:0}
   #selPill .ulb:hover{color:var(--txt)}
   @media (prefers-reduced-motion: reduce){ #selPill .sw{transition:none} #selPill .sw:hover{transform:none} }
@@ -238,16 +238,16 @@
   .pdfcomment{position:absolute;z-index:8}
   .pg .pdfcomment{--annotation-number-bg:#fff;--annotation-number-ink:#24282d}
   body.pdf-invert .pg .pdfcomment{--annotation-number-bg:#141414;--annotation-number-ink:#dadee3}
-  .pdfcomment-line{position:absolute;z-index:7;background:rgba(36,40,45,.07);border-radius:3px;pointer-events:none}
+  .pdfcomment-line{position:absolute;z-index:7;background:rgba(36,40,45,.07);border-radius:2px;pointer-events:none}
   body.pdf-invert .pdfcomment-line{background:rgba(218,222,227,.10)}
   #annotPop{position:fixed;z-index:9999;display:none}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
-      background:var(--card, #24282d);border-radius:10px;padding:6px;
-      box-shadow:var(--elev, 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18));color:var(--txt);font-size:var(--fs-body, 13px)}
-  #tgMenu .hd{font-size:var(--fs-label, 11px);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:5px 9px 3px}
+      background:var(--card, #24282d);border-radius:10px;padding:4px;
+      box-shadow:var(--elev, 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18));color:var(--txt);font-size:var(--fs-body-s, 12px);font-weight:400}
+  #tgMenu .hd{font-size:var(--fs-caption, 10px);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted,var(--muted));padding:4px 8px}
   #tgMenu .it{display:flex;gap:8px;align-items:center;padding:7px 9px;border-radius:6px;cursor:pointer}
   #tgMenu .it:hover{background:var(--card2, #2c2f34)}
-  #tgMenu .it .app{flex:none;font-size:var(--fs-caption, 10px);font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  #tgMenu .it .app{flex:none;font-size:var(--fs-caption, 10px);font-weight:500;letter-spacing:.06em;text-transform:uppercase;
       color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:6px;padding:1px 5px}
   #tgMenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #tgMenu .it.on .t{color:var(--accent)}
@@ -258,7 +258,7 @@
   #findBar{position:fixed;top:56px;right:8px;z-index:320;display:none;align-items:center;gap:6px;
     box-sizing:border-box;width:380px;max-width:calc(100vw - 16px);
     background:var(--card);border:1px solid color-mix(in srgb,var(--muted) 18%,transparent);
-    border-radius:12px;padding:6px 8px 6px 14px;
+    border-radius:10px;padding:6px 8px 6px 12px;
     box-shadow:0 8px 24px rgba(0,0,0,.18),0 2px 6px rgba(0,0,0,.08);
     color:var(--txt);font-size:var(--fs-body, 13px)}
   #findBar:focus-within{border-color:color-mix(in srgb,var(--muted) 38%,transparent);
@@ -266,13 +266,13 @@
   #findBar input{background:transparent;border:none;outline:none;color:inherit;font-size:var(--fs-body, 13px);
     flex:1;width:0;min-width:0;padding:2px 0;line-height:22px;font-family:inherit;box-shadow:none}
   #findBar input::placeholder{color:var(--muted)}
-  #findBar .cnt{color:var(--muted);font-size:var(--fs-caption,11px);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+  #findBar .cnt{color:var(--muted);font-size:var(--fs-label,11px);font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
   #findBar .cnt:empty{display:none}
   #findBar button{background:none;border:none;color:var(--muted);cursor:pointer;width:24px;height:24px;flex:none;
     border-radius:6px;display:inline-flex;align-items:center;justify-content:center;padding:0}
   #findBar button:hover{color:var(--txt);background:var(--card2)}
   #findBar button:disabled{opacity:.4;cursor:default}
-  #findBar button:focus-visible,header #findBtn:focus-visible{outline:1px solid var(--muted);outline-offset:2px}
+  #findBar button:focus-visible,header #findBtn:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
   .textLayer span.find-hit{background:rgba(120,170,255,.42);border-radius:2px}
   .textLayer span.find-cur{background:rgba(255,170,60,.62);border-radius:2px}
   /* Panneau des annotations (colonne de Zotero) : tout ce qu'on a marqué dans
@@ -295,7 +295,7 @@
     border-bottom:1px solid var(--border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* vignette d'une zone capturée — l'aperçu vaut mieux qu'un libellé */
   #annPane .thumb{margin-top:6px;border:1px solid var(--border-strong,var(--border));border-radius:6px;overflow:hidden;
-    background:#fff;max-height:104px;display:flex}
+    background:var(--pdf-paper);max-height:104px;display:flex}
   #annPane .thumb img{width:100%;height:auto;display:block;object-fit:cover}
   body.pane-narrow #annPane .note{display:none}
   body.pane-narrow #annPane .q{-webkit-line-clamp:2}
@@ -318,7 +318,7 @@
   #annPane .scope button:last-child{border-radius:0 6px 6px 0;border-left:none}
   #annPane .scope button.on{background:var(--surface-hover,var(--card2));color:var(--txt)}
   /* section d'article (portée Bibliothèque) */
-  #annPane .art{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:pointer;width:100%;
+  #annPane .art{display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;cursor:pointer;width:100%;
     background:none;border:none;color:inherit;font-family:inherit;text-align:left}
   #annPane .art:hover{background:var(--surface-hover,var(--card2))}
   #annPane .art .tick{color:var(--muted);flex:none;display:inline-flex}
@@ -328,7 +328,7 @@
   #annPane .lib-row{padding-left:28px}
   #annPane .zone-ph{display:inline-flex;align-items:center;gap:6px;color:var(--text-secondary,var(--muted));font-size:var(--fs-body-s, 12px)}
   /* clignotement d'arrivée après navigation croisée */
-  .pdfhl.flash,.pdfarea.flash{outline:2px solid #7aa2f7;outline-offset:2px}
+  .pdfhl.flash,.pdfarea.flash{outline:2px solid var(--pdf-mark-focus);outline-offset:2px}
   #annPane .filters{display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border)}
   #annPane .fdot{width:14px;height:14px;border-radius:999px;cursor:pointer;opacity:.42}
   #annPane .fdot.on{opacity:1;box-shadow:0 0 0 2px var(--surface-overlay,var(--card)),0 0 0 3.5px var(--txt)}
@@ -360,7 +360,7 @@
   #annPane .it .q.is-text{white-space:pre-wrap}
   @media (prefers-reduced-motion: reduce){ #annPane .hd .tab{transition:none} }
   /* rangée : barre 3px + gap 8px + padding 8px → le texte tombe pile à 16px */
-  #annPane .it{display:grid;grid-template-columns:3px 1fr;gap:8px;padding:8px;border-radius:8px;
+  #annPane .it{display:grid;grid-template-columns:3px 1fr;gap:8px;padding:8px;border-radius:6px;
     cursor:pointer;align-items:start}
   #annPane .it:hover{background:var(--surface-hover,var(--card2))}
   /* REFONTE 2026-08-16 : le contenu est l'étiquette. Un seul niveau de gras
@@ -381,7 +381,7 @@
     font-size:var(--fs-body-s, 12px);line-height:1.5;resize:none;outline:0;box-shadow:0 0 0 1px var(--accent)}
   #annPane .it .memo-edit::placeholder{color:var(--muted)}
   .pg .pdfmemo{position:absolute;z-index:8;width:16px;height:16px;padding:0;border:0;border-radius:999px;
-    display:flex;align-items:center;justify-content:center;background:#8da9ff;color:#fff;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;background:var(--pdf-mark-focus);color:var(--pin-on,#fff);cursor:pointer;
     transform:translate(4px,-50%);box-shadow:0 1px 4px rgba(0,0,0,.25)}
   .pg .pdfmemo svg{width:10px;height:10px}
   #annPane .foot{display:flex;align-items:center;gap:8px;margin-top:6px;min-height:22px}
@@ -398,10 +398,10 @@
   /* Capture de zone (« select area » de Zotero) : un rectangle sur une figure
      ou un tableau. L'annotation ne stocke QUE le rectangle — l'image est
      redécoupée du canvas à la demande, donc le sidecar JSON reste léger. */
-  .pdfarea{position:absolute;border:1.5px solid rgba(255,170,60,.95);border-radius:3px;
+  .pdfarea{position:absolute;border:1.5px solid rgba(255,170,60,.95);border-radius:2px;
     background:rgba(255,170,60,.10);cursor:pointer}
-  .pdfarea .cap{position:absolute;top:-9px;left:6px;background:#1b1f26;color:#e0b74a;
-    font-size:var(--fs-caption, 10px);letter-spacing:.04em;padding:0 4px;border-radius:4px;border:1px solid #333a45}
+  .pdfarea .cap{position:absolute;top:-9px;left:6px;background:var(--card);color:var(--status-warning,#e0b74a);
+    font-size:var(--fs-caption, 10px);letter-spacing:.04em;padding:0 4px;border-radius:6px;border:1px solid var(--border-strong,var(--border))}
   .areasel{position:absolute;border:1.5px dashed rgba(255,170,60,.95);
     background:rgba(255,170,60,.12);pointer-events:none;z-index:60}
   body.area-mode .pg{cursor:crosshair}
@@ -443,9 +443,9 @@
 .pdf-mark-tools .pdf-swatch{width:12px;height:12px;border-radius:999px;background:var(--mark-color);flex:none}
 /* Tampon dans un menu : disque de sa couleur, icône blanche */
 .pdf-stamp-dot{width:16px;height:16px;border-radius:999px;flex:none;display:inline-flex;align-items:center;justify-content:center;
-  background:var(--stamp);color:#fff}
+  background:var(--stamp);color:var(--on-stamp,#fff)}
 .pdf-stamp-dot svg,.pdf-mark-tools .pdf-stamp-dot svg{width:10px;height:10px}
-.pdf-mark-tools button:focus-visible{outline:1px solid #aeb5bf;outline-offset:1px}
+.pdf-mark-tools button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 /* Stylo : point de la couleur courante (masqué : la pastille le montre déjà) */
 .pdf-mark-tools .pdf-mark-pen{position:relative}
 .pdf-mark-tools .pdf-mark-pen::after{content:"";position:absolute;right:3px;bottom:3px;width:6px;height:6px;
@@ -463,9 +463,9 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <b id="fname">PDF</b>
   <span class="muted">Highlight a passage — Claude can access it automatically ("my selection")</span>
   <span class="zoomctl" id="zoomCtl">
-    <button id="zOut" title="Zoom arrière (⌘−)">−</button>
+    <button id="zOut" title="Zoom arrière (⌘−)" aria-label="Zoom arrière">−</button>
     <button id="zPct" title="Ajuster à la largeur">100%</button>
-    <button id="zIn" title="Zoom avant (⌘+)">+</button>
+    <button id="zIn" title="Zoom avant (⌘+)" aria-label="Zoom avant">+</button>
   </span>
   <button id="findBtn" type="button" title="Rechercher dans l’article (⌘F / Ctrl+F)" aria-label="Rechercher dans l’article" aria-controls="findBar" aria-expanded="false">
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3"/><path d="m10 10 3.5 3.5"/></svg>
@@ -480,7 +480,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <button id="readBtn" type="button" aria-pressed="false" title="Mode lecture — texte en une colonne (R)" aria-label="Mode lecture">
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3.5h10M3 6.5h10M3 9.5h7M3 12.5h5"/></svg>
   </button>
-  <span id="selinfo" style="margin-left:auto;color:#ffd54a"></span>
+  <span id="selinfo" style="margin-left:auto;color:var(--status-warning,#ffd54a)"></span>
   <span class="muted" id="status"></span>
 </header>
 <div id="pages"></div>
@@ -494,9 +494,9 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   <div id="readBody"></div>
 </section>
 <button id="sendBtn">➜ Claude</button>
-<div id="selPill"><span class="nb"><svg viewBox="0 0 16 16" stroke-width="1.4"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg></span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible"><svg viewBox="0 0 16 16" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/></svg></button><span class="hlbar"><span class="sw" data-i="0"></span><span class="sw" data-i="1"></span><span class="sw" data-i="2"></span><span class="sw" data-i="3"></span><span class="hsep"></span><button class="ulb" title="Souligner"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5v5.5a4 4 0 008 0V2.5M3.5 13.5h9"/></svg></button></span><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)"><svg viewBox="0 0 16 16" stroke-width="1.5"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button></div>
-<div id="annPane"><div class="grip" title="Ajuster la largeur"></div><div class="hd"><span class="ttl tabs" role="tablist" aria-label="Panneau"><button type="button" class="tab on" data-v="ann" role="tab" aria-selected="true">Annotations</button><button type="button" class="tab" data-v="toc" role="tab" aria-selected="false">Plan</button></span><span class="cn"></span><button class="pclose" title="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="doc"></div><div class="scope"><button data-s="doc">Article</button><button data-s="lib">Biblioth&egrave;que</button></div><div class="filters"></div><div class="list"></div><div class="toc" role="tabpanel" aria-label="Plan de l'article"></div></div>
-<div id="findBar"><input type="text" placeholder="Rechercher dans l’article&hellip;" spellcheck="false"><span class="cnt"></span><button class="fprev" title="Précédent (Maj+Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg></button><button class="fnext" title="Suivant (Entrée)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button><button class="fclose" title="Fermer (Échap)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+<div id="selPill"><span class="nb"><svg viewBox="0 0 16 16" stroke-width="1.4"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg></span><textarea rows="1" placeholder="Ajouter une annotation&hellip;"></textarea><button class="del" title="Annuler la sélection (&Eacute;chap)" aria-label="Annuler la sélection"><svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button><button class="tgt" title="Choisir la session Claude cible" aria-label="Choisir la session Claude cible"><svg viewBox="0 0 16 16" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/></svg></button><span class="hlbar"><span class="sw" data-i="0"></span><span class="sw" data-i="1"></span><span class="sw" data-i="2"></span><span class="sw" data-i="3"></span><span class="hsep"></span><button class="ulb" title="Souligner" aria-label="Souligner"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5v5.5a4 4 0 008 0V2.5M3.5 13.5h9"/></svg></button></span><button class="go" title="Envoyer la sélection à la session Claude (Entr&eacute;e)" aria-label="Envoyer la sélection à la session Claude"><svg viewBox="0 0 16 16" stroke-width="1.5"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button></div>
+<div id="annPane"><div class="grip" title="Ajuster la largeur"></div><div class="hd"><span class="ttl tabs" role="tablist" aria-label="Panneau"><button type="button" class="tab on" data-v="ann" role="tab" aria-selected="true">Annotations</button><button type="button" class="tab" data-v="toc" role="tab" aria-selected="false">Plan</button></span><span class="cn"></span><button class="pclose" title="Fermer" aria-label="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div><div class="doc"></div><div class="scope"><button data-s="doc">Article</button><button data-s="lib">Biblioth&egrave;que</button></div><div class="filters"></div><div class="list"></div><div class="toc" role="tabpanel" aria-label="Plan de l'article"></div></div>
+<div id="findBar"><input type="text" placeholder="Rechercher dans l’article&hellip;" spellcheck="false"><span class="cnt"></span><button class="fprev" title="Précédent (Maj+Entrée)" aria-label="Précédent"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg></button><button class="fnext" title="Suivant (Entrée)" aria-label="Suivant"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button><button class="fclose" title="Fermer (Échap)" aria-label="Fermer"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
 <div id="annotPop"></div>
 <div id="tgMenu"></div>
 <script data-atelier-source="gallery/src/browser/pages/pdf_viewer_6.ts">
@@ -854,7 +854,7 @@ async function main(){
   } catch(e) {
     const p = (document.getElementById("pages")                  );
     p.textContent = "Unable to load PDF: " + (rel || "") + " — " + ((e && e.message) || e);  // textContent = XSS-safe
-    p.style.cssText = "color:#ff6b6b;padding:40px;text-align:center;font-family:var(--ui-font)";
+    p.style.cssText = "color:var(--status-error,#e06c75);padding:40px;text-align:center;font-family:var(--ui-font)";
     return;
   }
   const wrap = (document.getElementById("pages")                  );
@@ -1774,7 +1774,7 @@ const annPane = (function(){
     foot.appendChild(pg); foot.appendChild(sp);
     const mkAct = (cls        , title        , svg        , fn) => {
       const b = document.createElement("button");
-      b.className = "act" + (cls ? " " + cls : ""); b.title = title; b.innerHTML = svg;
+      b.className = "act" + (cls ? " " + cls : ""); b.title = title; b.setAttribute("aria-label", title); b.innerHTML = svg;
       b.onclick = (e) => { e.stopPropagation(); fn(); };
       foot.appendChild(b);
     };
@@ -3672,10 +3672,10 @@ if(window.self !== window.top){
     // Seule la note LIBRE reste un mode : elle se pose en cliquant une zone
     // vide de la page, aucune sélection ne peut donc la déclencher.
     '<button id="areaBtn" data-tool="area" title="Capturer une zone : figure, tableau (Z)" aria-label="Capturer une zone"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2V3.4c0-.8.6-1.4 1.4-1.4h1.8M10.8 2h1.8c.8 0 1.4.6 1.4 1.4v1.8M14 10.8v1.8c0 .8-.6 1.4-1.4 1.4h-1.8M5.2 14H3.4c-.8 0-1.4-.6-1.4-1.4v-1.8"/></svg></button>'
-    + '<button id="paneBtn" title="Toutes les annotations de l\'article"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"/></svg></button>'
+    + '<button id="paneBtn" title="Toutes les annotations de l\'article" aria-label="Toutes les annotations de l\'article"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"/></svg></button>'
     + '<span style="width:6px"></span>'
-    + '<button id="annPrev" title="Annotation précédente"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5.5 8 10 13"/></svg></button>'
-    + '<button id="annNext" title="Annotation suivante"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l4.5 5L6 13"/></svg></button>';
+    + '<button id="annPrev" title="Annotation précédente" aria-label="Annotation précédente"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5.5 8 10 13"/></svg></button>'
+    + '<button id="annNext" title="Annotation suivante" aria-label="Annotation suivante"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l4.5 5L6 13"/></svg></button>';
   const fn = document.getElementById("fname");
   fn.after(tools);
   let annIdx = -1;
@@ -3766,7 +3766,7 @@ if(window.self !== window.top){
 if(window.self !== window.top){
   const st = document.createElement("style");
   st.textContent = `
-    header{background:#1a1d22 !important;border-bottom:1px solid #333a45 !important;
+    header{background:var(--surface-header,#1a1d22) !important;border-bottom:1px solid var(--border,#333a45) !important;
       padding:4px 10px !important;min-height:0 !important;gap:10px}
     header #fname{font-weight:500;font-size:var(--fs-body,13px);color:var(--txt)}
     header .muted{display:none}
@@ -3776,14 +3776,14 @@ if(window.self !== window.top){
       color:var(--muted) !important;font-size:var(--fs-body-s,12px) !important;padding:0 !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
     header .zoomctl button{padding:3px 8px !important;border-radius:0 !important}
-    header button:hover{background:#2c313a !important;color:var(--txt) !important}
+    header button:hover{background:var(--card2,#2c313a) !important;color:var(--txt) !important}
     header button[aria-pressed="true"]{background:#2c313a !important;color:var(--txt) !important}
     /* UNE seule rangée : jamais de retour à la ligne, hauteur fixe 44 px */
     header{flex-wrap:nowrap !important;height:44px !important;min-height:44px !important;box-sizing:border-box !important;
       padding-top:0 !important;padding-bottom:0 !important;gap:8px !important;overflow:visible}
     header #fname{display:none}  /* titre déjà dans l'entête Bibliothèque/onglet */
-    #pdftools{flex-shrink:0;padding-right:8px;border-right:1px solid #333a45}
-    header .pdf-mark-tools{border-left-color:#333a45}
+    #pdftools{flex-shrink:0;padding-right:8px;border-right:1px solid var(--border,#333a45)}
+    header .pdf-mark-tools{border-left-color:var(--border,#333a45)}
 
     @media (max-width: 440px){
       header #selinfo{display:none}
@@ -3976,14 +3976,14 @@ if (window.self !== window.top) {
     .pdf-page-sep { color:var(--muted); }
     header.pdf-compact-toolbar #pgInput { width:44px; height:24px; box-sizing:border-box; padding:0 6px; font:inherit; font-size:var(--fs-body-s,12px); font-variant-numeric:tabular-nums; text-align:center;
       color:var(--txt); background:var(--card2); border:0; border-radius:6px; outline:none; }
-    header.pdf-compact-toolbar #pgInput:focus-visible { outline:1px solid var(--accent); outline-offset:1px; }
+    header.pdf-compact-toolbar #pgInput:focus-visible { outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent)); outline-offset:var(--focus-ring-offset,1px); }
     body.read-mode .pdf-page-nav { display:none; }
     header.pdf-compact-toolbar .pdf-mark-tools { margin:0; padding:0; border:0; }
     header.pdf-compact-toolbar .pdf-tool-pop { top:31px; }
     header.pdf-compact-toolbar .pdf-mark-pen::after { display:none; }
     header.pdf-compact-toolbar .zoomctl { margin-left:auto; border:0; }
     header.pdf-compact-toolbar #zPct { border:0; }
-    header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:4px; font-size:var(--fs-label,11px); }
+    header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:6px; font-size:var(--fs-label,11px); }
     header.pdf-compact-toolbar #selinfo:empty, header.pdf-compact-toolbar #status:empty { display:none; }
     .pdf-toolbar-more { position:relative; flex:none; }
     .pdf-toolbar-more summary { list-style:none; width:26px; height:26px; display:flex; justify-content:center; align-items:center; cursor:pointer; border-radius:6px; font-size:20px; }
@@ -4016,7 +4016,7 @@ if (window.self !== window.top) {
     header.pdf-compact-toolbar button { color:var(--muted)!important; }
     header.pdf-compact-toolbar button:hover { background:var(--card2)!important; color:var(--txt)!important; }
     header.pdf-compact-toolbar button.ton, header.pdf-compact-toolbar button[aria-pressed="true"] { background:var(--card2)!important; color:var(--txt)!important; }
-    header.pdf-compact-toolbar button:focus-visible, .pdf-toolbar-more summary:focus-visible { outline:1px solid var(--accent); outline-offset:2px; }
+    header.pdf-compact-toolbar button:focus-visible, .pdf-toolbar-more summary:focus-visible { outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent)); outline-offset:var(--focus-ring-offset,1px); }
     header.pdf-compact-toolbar .pdf-tool-pop button:hover { background:var(--card2)!important; }
     header.pdf-compact-toolbar .pdf-tool-pop button[aria-pressed="true"], header.pdf-compact-toolbar .pdf-tool-pop button[aria-checked="true"] { background:transparent!important; }
     header.pdf-compact-toolbar .pdf-tool-pop button { color:var(--txt)!important; }
@@ -4117,7 +4117,7 @@ if (window.self !== window.top) {
   const bc = new BroadcastChannel("latexstudio:" + texPath);
   const marker = document.createElement("div");
   marker.style.cssText = "position:absolute;left:0;right:0;height:26px;display:none;"
-    + "background:rgba(91,157,255,.18);border-left:3px solid #7aa2f7;pointer-events:none;z-index:5";
+    + "background:rgba(91,157,255,.18);border-left:3px solid var(--pdf-mark-focus,#7aa2f7);pointer-events:none;z-index:5";
   let mkT                               = null;
   function showMarker(page        , y0        ){
     const pg = document.querySelector('.pg[data-page="' + page + '"]');

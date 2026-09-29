@@ -32,7 +32,7 @@
 #lb.responsive-viewer.vw #lbFigureCaption{display:none}
 #lb.responsive-viewer #lbViewport,#lb.responsive-viewer.annot #lbViewport{padding:28px 24px 46px}
 #lb.responsive-viewer #lbHead:has(~ #annotBar) {border-bottom:1px solid color-mix(in srgb,var(--txt) 4%,transparent)}
-#lb.responsive-viewer button:focus-visible,#lb.responsive-viewer summary:focus-visible{outline:1px solid var(--primary);outline-offset:2px}
+#lb.responsive-viewer button:focus-visible,#lb.responsive-viewer summary:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 @media(hover:hover){#lb.responsive-viewer button:hover,#lb.responsive-viewer summary:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}}
 @container figure-viewer (max-width:760px){#lb.responsive-viewer .viewer-label{display:none}#lb.responsive-viewer #lbViewport,#lb.responsive-viewer.annot #lbViewport{padding-left:16px;padding-right:16px}}
 @container figure-viewer (max-width:490px){

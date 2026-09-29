@@ -28,7 +28,7 @@
     :root {
       --bg: #202124; --panel: #24262a; --raised: #292c31; --text: #d9dde4;
       --muted: #8f96a1; --faint: #656c76; --border: #383c43; --accent: #e98643;
-      --green: #86c56c; --red: #e06c75;
+      --green: #86c56c; --red: #e06c75; --diff-surface: #1f2023;
       color-scheme: dark;
     }
     * { box-sizing: border-box; }
@@ -41,19 +41,20 @@
       background: color-mix(in srgb, var(--surface-panel, var(--panel)) 94%, transparent);
       border-bottom: 1px solid var(--border-subtle, var(--border)); backdrop-filter: blur(16px);
     }
-    .title { font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
+    .title { font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
     .summary { color: var(--text-tertiary, var(--muted)); white-space: nowrap; }
     .spacer { flex: 1; }
-    .segmented { display: inline-flex; padding: 2px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 8px; background: var(--surface-inset, #1f2023); }
+    .segmented { display: inline-flex; padding: 2px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 6px; background: var(--surface-inset, var(--diff-surface)); }
     .segmented button, .icon-button {
       border: 0; color: var(--text-tertiary, var(--muted)); background: transparent; cursor: pointer;
     }
-    .segmented button { padding: 4px 9px; border-radius: 6px; font-size: 12px; }
+    .segmented button { padding: 4px 8px; border-radius: 6px; font-size: 12px; }
     .segmented button[aria-pressed="true"] { color: var(--text-primary, var(--text)); background: var(--surface-raised, var(--raised)); box-shadow: 0 1px 2px rgb(0 0 0 / 20%); }
-    .icon-button { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; }
+    .icon-button { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; }
     .icon-button:hover { color: var(--text-primary, var(--text)); background: var(--surface-raised, var(--raised)); }
+    .segmented button:focus-visible, .icon-button:focus-visible { outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent)); outline-offset:var(--focus-ring-offset,1px); }
     .review { padding: 12px 14px 28px; }
-    .file-card { overflow: clip; border: 1px solid var(--border-subtle, var(--border)); border-radius: 9px; background: var(--surface-panel, var(--panel)); }
+    .file-card { overflow: clip; border: 1px solid var(--border-subtle, var(--border)); border-radius: 10px; background: var(--surface-panel, var(--panel)); }
     .file-header {
       position: sticky; top: 52px; z-index: 10; min-height: 42px; padding: 7px 11px;
       display: flex; align-items: center; gap: 9px; border-bottom: 1px solid var(--border-subtle, var(--border));
@@ -63,7 +64,7 @@
     .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
     .additions { color: var(--status-success, var(--green)); }
     .deletions { color: var(--status-error, var(--red)); }
-    #diffHost { min-height: 120px; background: #1f2023; }
+    #diffHost { min-height: 120px; background: var(--diff-surface); }
     #diffHost .cm-editor { min-height: 120px; }
     #diffHost .cm-mergeView { min-height: 120px; overflow: auto; }
     #diffHost .cm-mergeViewEditors { min-width: 720px; }

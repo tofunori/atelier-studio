@@ -194,7 +194,7 @@ const createDiffVersions = function(opts){
       "#dvStone:hover:not(:disabled),#dvTrack:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
       "#dvStone.on{color:var(--accent,#e8823a)}" +
       "#dvTrack.dot::after{content:\"\";position:absolute;top:3px;right:2px;width:5px;height:5px;" +
-      "border-radius:3px;background:var(--accent,#e8823a)}" +
+      "border-radius:999px;background:var(--accent,#e8823a)}" +
       "#dvNav .dvNavC{min-width:58px;width:auto!important;gap:5px;padding:0 7px!important;font-variant-numeric:tabular-nums;user-select:none}" +
       "#dvNav .dvNavC .dv-count{min-width:14px;text-align:left;font-size:0}" +
       "#dvNav .dvNavC .dv-count::after{content:attr(data-compact);font-size:var(--fs-caption, 10px)}" +
@@ -202,14 +202,14 @@ const createDiffVersions = function(opts){
       // de la médiane, ce qui sort en dessous. Canvas et non DOM — la barre ne
       // doit pas grossir avec l'historique.
       "#dvNav .dvRibHost{position:relative;display:inline-flex;align-items:center;padding:0 4px}" +
-      "#dvNav canvas.dvRib{display:block;width:132px;height:14px;border-radius:3px;" +
+      "#dvNav canvas.dvRib{display:block;width:132px;height:14px;border-radius:2px;" +
         "cursor:ew-resize;touch-action:none}" +
       "#dvNav canvas.dvRib.off{cursor:default;opacity:.7}" +
-      "#dvNav canvas.dvRib:focus-visible{outline:2px solid var(--accent,#e8823a);outline-offset:2px}" +
+      "#dvNav canvas.dvRib:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}" +
       ".dvPeek{position:absolute;bottom:calc(100% + 8px);left:0;z-index:401;display:none;" +
-        "flex-direction:column;gap:2px;min-width:132px;padding:7px 9px;border-radius:8px;" +
-        "background:var(--popover,var(--card,#1a1d22));border:1px solid var(--border,#333a45);" +
-        "box-shadow:0 6px 20px rgba(0,0,0,.45);pointer-events:none;white-space:nowrap}" +
+        "flex-direction:column;gap:2px;min-width:132px;padding:8px;border-radius:10px;" +
+        "background:var(--popover,var(--card,#1a1d22));border:none;" +
+        "box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px rgba(0,0,0,.25)));pointer-events:none;white-space:nowrap}" +
       ".dvPeek.on{display:flex}" +
       ".dvPeek .dvPeekTop{font-size:var(--fs-label, 11px);font-weight:500;color:var(--txt,#dbdfe5);font-variant-numeric:tabular-nums}" +
       ".dvPeek .dvPeekNum{display:flex;gap:8px;font-size:var(--fs-label, 11px);font-variant-numeric:tabular-nums}" +
@@ -223,8 +223,8 @@ const createDiffVersions = function(opts){
         "box-sizing:border-box;width:min(390px,calc(100vw - 16px));padding:12px;" +
         "background:var(--popover,var(--surface-overlay,var(--surface-raised,var(--card,#1a1d22))));" +
         "color:var(--popover-foreground,var(--text-primary,var(--txt,#dbdfe5)));" +
-        "border:1px solid var(--border-subtle,var(--border,#333a45));border-radius:10px;" +
-        "box-shadow:0 16px 44px rgba(0,0,0,.42);font:var(--fs-body, 13px)/1.4 var(--ui-font,-apple-system,sans-serif)}" +
+        "border:none;border-radius:10px;" +
+        "box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px rgba(0,0,0,.25)));font:var(--fs-body, 13px)/1.4 var(--ui-font,-apple-system,sans-serif)}" +
       ".dvCommitHead{display:flex;align-items:center;min-width:0;gap:8px}" +
       ".dvCommitTitle{display:flex;align-items:baseline;min-width:0;gap:7px;color:var(--text-tertiary,var(--muted));font-size:var(--fs-label, 11px)}" +
       ".dvCommitTitle strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary,var(--txt));font:500 var(--fs-body-s, 12px)/1.3 var(--code-font,ui-monospace,monospace)}" +
@@ -233,19 +233,19 @@ const createDiffVersions = function(opts){
       ".dvCommitClose:hover{background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent);color:var(--text-primary,var(--txt))}" +
       ".dvCommitClose svg{width:14px;height:14px}" +
       "#dvCommitText{box-sizing:border-box;width:100%;min-height:72px;max-height:150px;resize:vertical;padding:8px 10px;" +
-        "border:1px solid var(--border-interactive,var(--border-strong,var(--border,#333a45)));border-radius:7px;outline:0;" +
+        "border:1px solid var(--border-interactive,var(--border-strong,var(--border,#333a45)));border-radius:6px;outline:0;" +
         "background:var(--surface-inset,var(--card2,#1a1d22));color:var(--text-primary,var(--txt,#dbdfe5));" +
         "font:var(--fs-body-s, 12px)/1.5 var(--ui-font,-apple-system,sans-serif)}" +
       "#dvCommitText::placeholder{color:var(--text-tertiary,var(--muted));opacity:.72}" +
-      "#dvCommitText:focus{border-color:var(--ring,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--ring,var(--accent)) 22%,transparent)}" +
+      "#dvCommitText:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}" +
       ".dvCommitFoot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;min-width:0}" +
       ".dvCommitHint{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-tertiary,var(--muted));font-size:var(--fs-caption, 10px);white-space:nowrap}" +
       ".dvCommitActions{display:flex;align-items:center;gap:7px;flex:none}" +
       ".dvCommitBtn{height:30px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;" +
-        "border:1px solid transparent;border-radius:7px;font:500 var(--fs-label, 11px)/1 var(--ui-font,-apple-system,sans-serif);cursor:pointer;white-space:nowrap}" +
+        "border:1px solid transparent;border-radius:6px;font:500 var(--fs-label, 11px)/1 var(--ui-font,-apple-system,sans-serif);cursor:pointer;white-space:nowrap}" +
       ".dvCommitBtn svg{width:13px;height:13px;flex:none}" +
       ".dvCommitBtn:active:not(:disabled){transform:scale(.97)}" +
-      ".dvCommitBtn:focus-visible,.dvCommitClose:focus-visible{outline:2px solid var(--ring,var(--accent));outline-offset:2px}" +
+      ".dvCommitBtn:focus-visible,.dvCommitClose:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}" +
       ".dvCommitBtn:disabled{cursor:default;opacity:.46}" +
       ".dvCommitAi{min-width:108px;background:transparent;border-color:var(--border-subtle,var(--border));color:var(--text-secondary,var(--txt))}" +
       ".dvCommitAi:hover:not(:disabled){background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent)}" +
@@ -1081,7 +1081,7 @@ const createDiffVersions = function(opts){
     acceptAllButton.id="diffAcceptAll";
     acceptAllButton.title="Valider définitivement toutes les modifications appliquées";
     acceptAllButton.setAttribute("aria-label","Tout accepter");
-    acceptAllButton.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 6-7 7-3-3m14 0-7 7-3-3M2 12l5 5 3-3"/></svg><span>Tout accepter</span>';
+    acceptAllButton.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 6-7 7-3-3m14 0-7 7-3-3M2 12l5 5 3-3"/></svg><span>Tout accepter</span>';
     acceptAllButton.onclick=()=>{
       if(reviewBusy)return;
       const list=interList().filter(it=>it.status!=="pending-conflict");
@@ -1226,7 +1226,7 @@ const createDiffVersions = function(opts){
       button.tabIndex = 0;
       button.setAttribute("aria-label", d < 0 ? "Intervention précédente" : "Intervention suivante");
       button.title = d < 0 ? "Intervention précédente" : "Intervention suivante";
-      button.innerHTML = d < 0 ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"></path></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"></path></svg>';
+      button.innerHTML = d < 0 ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"></path></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"></path></svg>';
       return button;
     };
     navPrev = chev(-1);
@@ -1863,24 +1863,24 @@ const createDiffVersions = function(opts){
     els.group.appendChild(histBtn);
     histPop = document.createElement("div");
     histPop.style.cssText = "position:fixed;z-index:400;display:none;flex-direction:column;width:400px;max-height:60vh;"
-      + "background:rgba(24,27,34,.98);border:1px solid #3a4150;border-radius:10px;padding:6px;"
-      + "box-shadow:0 14px 48px rgba(0,0,0,.55);font-size:var(--fs-body, 13px)";
+      + "background:var(--surface-overlay,var(--card,rgba(24,27,34,.98)));border:none;border-radius:10px;padding:4px;"
+      + "box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px rgba(0,0,0,.25)));font-size:var(--fs-body, 13px)";
     document.body.appendChild(histPop);
     if(!document.getElementById("dvHistStyles")){
       const st = document.createElement("style");
       st.id = "dvHistStyles";
       st.textContent =
         "#dvHistList{overflow-y:auto}"
-        + ".dv-hrow{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px}"
-        + ".dv-hrow:hover{background:rgba(255,255,255,.05)}"
+        + ".dv-hrow{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px}"
+        + ".dv-hrow:hover{background:var(--card2,rgba(255,255,255,.05))}"
         + ".dv-hrow .sha{font:var(--fs-caption, 10px) ui-monospace,Menlo,monospace;opacity:.5;flex:none;width:54px}"
         + ".dv-hrow .msg{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-body-s, 12px)}"
         + ".dv-hrow .when{font-size:var(--fs-caption, 10px);opacity:.45;flex:none;font-variant-numeric:tabular-nums}"
         + ".dv-hrow .act{display:none;gap:4px;flex:none}"
         + ".dv-hrow:hover .act{display:inline-flex}"
         + ".dv-hrow:hover .when{display:none}"
-        + ".dv-hrow .act button{font-size:var(--fs-caption, 10px);border:1px solid #3a4150;background:transparent;color:inherit;"
-        + "border-radius:5px;padding:2px 7px;cursor:pointer;opacity:.75}"
+        + ".dv-hrow .act button{font-size:var(--fs-caption, 10px);border:1px solid var(--border-strong,var(--border,#3a4150));background:transparent;color:inherit;"
+        + "border-radius:6px;padding:2px 8px;cursor:pointer;opacity:.75}"
         + ".dv-hrow .act button:hover{opacity:1}";
       document.head.appendChild(st);
     }
@@ -1888,7 +1888,7 @@ const createDiffVersions = function(opts){
       if(histPop.style.display !== "none"){ histPop.style.display = "none"; return; }
       const name = path.split("/").pop();
       histPop.innerHTML =
-        '<div style="font-size:var(--fs-label, 11px);letter-spacing:.05em;text-transform:uppercase;opacity:.55;padding:6px 10px 4px">Historique — ' + name + '</div>'
+        '<div style="font-size:var(--fs-caption, 10px);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted,var(--muted));padding:4px 8px">Historique — ' + name + '</div>'
         + '<div id="dvHistList"><div style="padding:7px 10px;font-size:var(--fs-label, 11px);opacity:.5">chargement…</div></div>';
       const rc = histBtn.getBoundingClientRect();
       histPop.style.display = "flex";
