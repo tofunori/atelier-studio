@@ -5582,7 +5582,8 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
 [data-reader-quote] { background:rgba(94,149,232,.2); }
 
 .atelier-chat-note{position:fixed;z-index:var(--z-popover);transform:translateX(-50%)}
-.sel-toolbar.atelier-chat-selection,.sel-toolbar.qa-sel-toolbar{background:transparent;border:0;box-shadow:none;padding:0}
+/* La capsule de sélection partagée (annotation_ui.css) porte fond, rayon et ombre. */
+.sel-toolbar.atelier-selection{gap:2px;padding:4px;background:var(--selection-surface);border:0;border-radius:var(--radius-surface);box-shadow:var(--elevation-overlay);}
 /* Annotations : contraste ambre conservant la lecture du passage. */
 ::highlight(chat-an){background:rgba(112,151,255,.18)}
 .user-file-attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom: 8px;white-space:normal}
