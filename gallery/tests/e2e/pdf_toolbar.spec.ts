@@ -453,6 +453,30 @@ test('outils de la barre : note unique et personnelle, tampon, zone de texte, ra
   await expect.poll(async () => (await saved()).filter(a => a.kind === 'text').map(a => [a.text, a.bold])).toEqual([['Comparer avec Warren', true]]);
   await expect(reader.locator('.pdftext')).toHaveCSS('font-weight', '600');
 
+  // Un tampon posé se déplace au glisser, sans ouvrir sa bulle ; le point
+  // enregistré suit.
+  const dot = reader.locator('.pdfstamp-dot');
+  const before = (await saved()).find(a => a.kind === 'stamp' && a.style === 'pastille').pin;
+  const db = await dot.boundingBox();
+  await page.mouse.move(db.x + db.width / 2, db.y + db.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(db.x + db.width / 2 + 40, db.y + db.height / 2 + 60, { steps: 6 });
+  await page.mouse.up();
+  await expect(reader.locator('#annotPop')).toBeHidden();
+  await expect.poll(async () => {
+    const pin = (await saved()).find(a => a.kind === 'stamp' && a.style === 'pastille').pin;
+    return Math.abs((pin[0] - before[0]) * box.width - 40) < 2 && Math.abs((pin[1] - before[1]) * box.height - 60) < 2;
+  }).toBe(true);
+  // La note aussi.
+  await pin.scrollIntoViewIfNeeded();
+  const pinBefore = await pin.boundingBox();
+  await page.mouse.move(pinBefore.x + 12, pinBefore.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(pinBefore.x + 12 + 80, pinBefore.y + 12, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => Math.abs((await pin.boundingBox()).x - pinBefore.x - 80)).toBeLessThan(2);
+  await expect(reader.locator('#annotPop')).toBeHidden();
+
   // Gomme : un clic sur le tampon le retire.
   await reader.locator('body').press('e');
   await expect(reader.locator('.pdf-mark-tools [data-tool="erase"]')).toHaveAttribute('aria-pressed', 'true');
