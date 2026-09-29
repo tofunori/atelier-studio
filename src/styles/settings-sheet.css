@@ -6,7 +6,7 @@
 
 /* ===== Settings (plan 021) : nav compacte, diagnostic, focus ===== */
 .settings-page.narrow { flex-direction: column; }
-.set-nav-compact { display: flex; align-items: center; gap: 8px; padding: 10px 16px 0;
+.set-nav-compact { display: flex; align-items: center; gap: 8px; padding: 8px 16px 0;
   -webkit-app-region: drag; }
 .set-nav-compact button, .set-nav-compact .custom-select { -webkit-app-region: no-drag; }
 .settings-page.narrow .set-body { padding: 20px 24px; max-width: none; }
@@ -39,7 +39,7 @@
    modale flottante. `-webkit-app-region: no-drag` : dans cette même modale,
    glisser la nav déplacerait la fenêtre de l'app et un double-clic la
    zoomerait — sans effet voulu ici. */
-.settings-page.embedded .set-nav { padding: 24px 10px 16px; -webkit-app-region: no-drag; }
+.settings-page.embedded .set-nav { padding: 24px 12px 16px; -webkit-app-region: no-drag; }
 .settings-page.embedded .set-nav-compact { -webkit-app-region: no-drag; }
 /* Correction de revue (spécificité) : `.settings-page.narrow .set-body` et
    `.settings-page.embedded .set-body` ont la même spécificité (deux

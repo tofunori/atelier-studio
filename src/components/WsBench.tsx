@@ -29,7 +29,7 @@ function Card(p: { title: string; children: React.ReactNode }) {
     <section style={{ background: "var(--surface-raised)", border: "1px solid var(--border-subtle)",
       borderRadius: "var(--radius-surface)", overflow: "hidden", minWidth: 0 }}>
       <div style={{ padding: "var(--sp-2) var(--sp-4)", fontSize: "var(--fs-caption)",
-        textTransform: "uppercase", letterSpacing: ".05em", color: "var(--text-muted)" }}>{p.title}</div>
+        textTransform: "uppercase", letterSpacing: "var(--eyebrow-tracking)", color: "var(--eyebrow-color)" }}>{p.title}</div>
       {p.children}
     </section>
   );

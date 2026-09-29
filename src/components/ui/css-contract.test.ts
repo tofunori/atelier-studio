@@ -998,3 +998,47 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(offenders, offenders.join(" · ")).toEqual([]);
   });
 });
+
+// Finitions 2026-09-29 : trait des icônes, étiquettes de section, grille de 4.
+describe("contrat finitions (icônes, étiquettes, grille de 4)", () => {
+  const chromeSheets = (): [string, string][] => [
+    ["App.css", appCss],
+    ...collectFiles(join(root, "styles"), [".css"])
+      .filter((file) => !file.endsWith("typeset.css")) // prose du chat : em, pas de chrome
+      .map((file) => [file, stripComments(readFileSync(file, "utf8"))] as [string, string]),
+    ...componentCssFiles.map((file) => [file, stripComments(readFileSync(file, "utf8"))] as [string, string]),
+  ];
+  const rules = (css: string) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map((m) => ({ selector: m[1].trim(), body: m[2] }));
+
+  it("les icônes lucide sans trait explicite sortent à 1,4 (et non 2)", () => {
+    expect(tokens).toMatch(/@layer base\s*\{\s*:where\(svg\.lucide\[stroke-width="2"\]\)\s*\{\s*stroke-width:\s*1\.4;?\s*\}/);
+  });
+
+  it("toute étiquette en capitales prend l'espacement unique --eyebrow-tracking", () => {
+    const offenders: string[] = [];
+    for (const [name, css] of chromeSheets()) {
+      for (const r of rules(css)) {
+        if (!/text-transform:\s*uppercase/.test(r.body)) continue;
+        if (!/letter-spacing:\s*var\(--eyebrow-tracking\)/.test(r.body)) offenders.push(`${name} → ${r.selector}`);
+      }
+    }
+    expect(offenders, offenders.join(" · ")).toEqual([]);
+    expect(tokens).toContain("--eyebrow-tracking: .06em");
+  });
+
+  it("espacements sur la grille de 4 (2 et 6 tolérés comme demi-pas)", () => {
+    const offGrid = /(?:^|[;\s{])((?:padding|margin)(?:-[a-z-]+)?|gap|row-gap|column-gap)\s*:\s*([^;{}]*)/g;
+    const bad = new Set([3, 5, 7, 9, 10, 11, 13, 14, 15, 17]);
+    const offenders: string[] = [];
+    for (const [name, css] of chromeSheets()) {
+      for (const m of css.matchAll(offGrid)) {
+        for (const tok of m[2].split(/\s+/)) {
+          const v = /^(\d+)px$/.exec(tok);
+          if (v && bad.has(Number(v[1]))) offenders.push(`${name} → ${m[1]}: ${m[2].trim()}`);
+        }
+      }
+    }
+    expect(offenders, offenders.slice(0, 20).join(" · ")).toEqual([]);
+  });
+});

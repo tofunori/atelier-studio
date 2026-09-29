@@ -616,7 +616,7 @@ export default function BrowserTab(p: {
           >
             {kbFlash === "ok" ? (
               // confirmation visible : coche accent pendant le flash
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
                 <path d="m2.8 8.6 3.4 3.4 7-7.4" />
               </svg>
             ) : (

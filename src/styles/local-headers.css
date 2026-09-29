@@ -89,7 +89,7 @@
 .project-chat-tab-wrap { position: relative; display: inline-flex; flex: none; }
 .project-chat-tab-wrap .project-chat-tab.ui-btn { padding-left: 8px; padding-right: 26px; width: 100%; max-width: 100%; }
 .project-chat-tab-wrap.is-pinned .project-chat-tab.ui-btn { padding-right: var(--sp-3); }
-.project-chat-tab-wrap .ui-btn-label { display: flex; align-items: center; gap: 5px; }
+.project-chat-tab-wrap .ui-btn-label { display: flex; align-items: center; gap: 4px; }
 .project-chat-tab-unread { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #e9a15b; }
 .project-chat-tab-label { overflow: hidden; text-overflow: ellipsis; }
 .project-chat-tab-wrap .ui-btn-label > svg { flex: none; }
