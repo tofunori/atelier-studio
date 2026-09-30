@@ -6,6 +6,7 @@
 //   - typing : frappe de N caractères, mêmes métriques
 // Usage : node gallery/scripts/bench_editor.mts [--browser webkit|chromium]
 //         [--steps 240] [--chars 240] [--runs 3] [--json] [--executable <navigateur>]
+//         [--visual]  (éditeur visuel LaTeX actif, cm6/latex_visual.ts)
 import {mkdtempSync, writeFileSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {fileURLToPath} from "node:url";
@@ -126,6 +127,7 @@ await withServer(async (url) => {
   await page.goto(url);
   for (let i = 0; i < 100 && (await page.evaluate(() => window.__ENGINE)) !== "cm6"; i += 1) await page.waitForTimeout(50);
   await page.locator(".cm-editor").waitFor();
+  if (args.has("visual")) await page.evaluate(() => cm.setOption("latexVisual", true));
   await page.waitForTimeout(600);
   const drags = [], typings = [];
   for (let run = 0; run < RUNS; run += 1) {
@@ -133,10 +135,10 @@ await withServer(async (url) => {
     typings.push(await benchTyping(page));
   }
   await browser.close();
-  const out = {browser: BROWSER, steps: STEPS, chars: CHARS, runs: RUNS,
+  const out = {browser: BROWSER, visual: args.has("visual"), steps: STEPS, chars: CHARS, runs: RUNS,
     drag: summarize(drags, STEPS), typing: summarize(typings, CHARS)};
   if (JSON_OUT) { console.log(JSON.stringify(out)); return; }
-  console.log(`bench_editor (${BROWSER}, ${RUNS} runs, médianes)`);
+  console.log(`bench_editor (${BROWSER}${out.visual ? ", visuel" : ""}, ${RUNS} runs, médianes)`);
   console.log(`  drag   ${STEPS} pas   : ${out.drag.msPerStep.toFixed(2)} ms/pas · ${out.drag.mutations} mutations · ${out.drag.updates} maj · ${out.drag.fps.toFixed(0)} fps`);
   console.log(`  typing ${CHARS} chars : ${out.typing.msPerStep.toFixed(2)} ms/char · ${out.typing.mutations} mutations · ${out.typing.updates} maj · ${out.typing.fps.toFixed(0)} fps`);
   for (const [i, r] of drags.entries()) console.log(`    drag run ${i + 1}: ${fmt(r, STEPS)}`);

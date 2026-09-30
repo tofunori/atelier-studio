@@ -2,6 +2,8 @@ import type {StudioEditor} from "../../core/editor_contract";
 
 interface StatusEditor extends StudioEditor {
   clearGutter(gutter: string): void;
+  reconfigurePreservingViewport?(fn: () => void): void;
+  deferWhileSelecting?(fn: () => void): void;
 }
 
 interface RuffDiagnostic {
@@ -44,6 +46,8 @@ export interface StudioStatusBarController {
   notifySaved(): void;
   refreshWrap(): void;
   refreshAutoRewrap(): void;
+  /** Applique le réglage « éditeur visuel » à l'éditeur courant (création). */
+  applyVisualEditor(): void;
   runLint(): Promise<void>;
   destroy(): void;
 }
@@ -64,11 +68,18 @@ export function isAutoCompileEnabled(storage: Pick<Storage, "getItem">): boolean
   return storage.getItem("texAutoCompile") === "1";
 }
 
+/** Éditeur visuel LaTeX : balisage caché hors du curseur (latex_visual.ts).
+ * Désactivé par défaut : c'est une autre façon d'écrire, on l'active exprès. */
+export function isVisualEditorEnabled(storage: Pick<Storage, "getItem">): boolean {
+  return storage.getItem(VISUAL_EDITOR_STATE_KEY) === "1";
+}
+
 /** Clés serveur des réglages (piège connu n°1 : le `localStorage` du WebView
  * ne survit pas au redémarrage de l'app, donc il ne peut pas être la source de
  * vérité). Le cache local reste, mais l'état vient du serveur au démarrage. */
 const AUTO_REWRAP_STATE_KEY = "texAutoRewrap";
 const AUTO_COMPILE_STATE_KEY = "texAutoCompile";
+const VISUAL_EDITOR_STATE_KEY = "texVisualEditor";
 
 /** Charge un réglage booléen depuis `/state` et amorce le cache local. Un
  * échec est sans conséquence : on garde ce que le cache contient. */
@@ -129,6 +140,16 @@ export const persistAutoCompile = (
   fetchImpl: typeof fetch,
 ): Promise<void> => persistServerPref(enabled, fetchImpl, AUTO_COMPILE_STATE_KEY);
 
+export const hydrateVisualEditor = (
+  storage: Pick<Storage, "getItem" | "setItem">,
+  fetchImpl: typeof fetch,
+): Promise<boolean> => hydrateServerPref(storage, fetchImpl, VISUAL_EDITOR_STATE_KEY);
+
+export const persistVisualEditor = (
+  enabled: boolean,
+  fetchImpl: typeof fetch,
+): Promise<void> => persistServerPref(enabled, fetchImpl, VISUAL_EDITOR_STATE_KEY);
+
 export function floatingMenuPosition(
   anchor: Pick<DOMRect, "left" | "top" | "bottom">,
   menu: {width: number; height: number},
@@ -170,6 +191,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   const sbWrap = doc.getElementById("sbWrap") as HTMLElement;
   const sbRewrap = doc.getElementById("sbRewrap") as HTMLElement | null;
   const sbAutoCompile = doc.getElementById("sbAutoCompile") as HTMLElement | null;
+  const toolbarVisual = doc.getElementById("toolbarVisual") as HTMLElement | null;
   const sbSaved = doc.getElementById("sbSaved") as HTMLElement;
   const sbLint = doc.getElementById("sbLint") as HTMLElement;
   const lintPane = doc.getElementById("lintPane") as HTMLElement;
@@ -325,11 +347,48 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
       if (!enabled) options.autoCompile?.();
     };
   }
+  const refreshVisualEditor = (): void => {
+    const enabled = isVisualEditorEnabled(storage);
+    const label = doc.getElementById("moreVisualVal");
+    if (label) label.textContent = enabled ? "activé" : "désactivé";
+    toolbarVisual?.setAttribute("aria-pressed", String(enabled));
+  };
+  const applyVisualEditor = (): void => {
+    if (options.extension !== "tex") return;
+    const editor = options.getEditor();
+    if (!editor) return;
+    const enabled = isVisualEditorEnabled(storage);
+    if (Boolean(editor.getOption("latexVisual")) === enabled) return;
+    // Les lignes changent de hauteur (titres, formules) : garder la ligne
+    // lue plutôt que les pixels (piège n°17), et jamais pendant un glisser.
+    const apply = () => {
+      if (editor.reconfigurePreservingViewport) editor.reconfigurePreservingViewport(() => editor.setOption("latexVisual", enabled));
+      else editor.setOption("latexVisual", enabled);
+    };
+    if (editor.deferWhileSelecting) editor.deferWhileSelecting(apply);
+    else apply();
+  };
+  const toggleVisualEditor = (): void => {
+    const enabled = !isVisualEditorEnabled(storage);
+    storage.setItem(VISUAL_EDITOR_STATE_KEY, enabled ? "1" : "0");
+    void persistVisualEditor(enabled, fetch);
+    refreshVisualEditor();
+    applyVisualEditor();
+    options.getEditor()?.focus();
+  };
+  if (toolbarVisual) {
+    toolbarVisual.style.display = options.extension === "tex" ? "" : "none";
+    toolbarVisual.onclick = (event) => {
+      event.stopPropagation();
+      toggleVisualEditor();
+    };
+  }
   moreBtn.onclick = (event) => {
     event.stopPropagation();
     morePop.style.display = morePop.style.display === "none" ? "block" : "none";
     refreshWrap();
     refreshAutoRewrap();
+    refreshVisualEditor();
   };
   listen(doc, "click", () => { morePop.style.display = "none"; });
   morePop.onclick = (event) => {
@@ -348,6 +407,11 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     }
     if (action === "autorewrap") {
       toggleAutoRewrap();
+      morePop.style.display = "none";
+      return;
+    }
+    if (action === "visual") {
+      toggleVisualEditor();
       morePop.style.display = "none";
       return;
     }
@@ -459,15 +523,19 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   refreshWrap();
   refreshAutoRewrap();
   refreshAutoCompile();
+  refreshVisualEditor();
+  applyVisualEditor();
   // Les réglages vivent côté serveur : sans cette hydratation, chaque
   // redémarrage de l'app les remettait à zéro et l'automatisme cessait en
   // silence.
   void hydrateAutoRewrap(storage, fetch).then(refreshAutoRewrap);
   void hydrateAutoCompile(storage, fetch).then(refreshAutoCompile);
+  if (options.extension === "tex") void hydrateVisualEditor(storage, fetch).then(() => { refreshVisualEditor(); applyVisualEditor(); });
   return {
     notifySaved,
     refreshWrap,
     refreshAutoRewrap,
+    applyVisualEditor,
     runLint,
     destroy: () => {
       disposers.splice(0).forEach((dispose) => dispose());

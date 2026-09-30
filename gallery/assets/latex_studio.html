@@ -72,7 +72,7 @@
     <button id="diffRestore" disabled aria-label="Rétablir la version affichée" title="Rétablir la version affichée sur le disque"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg></button>
   </span>
 
-  <span class="grp editonly" id="wrapActions"><button id="toolbarWrap" aria-label="Retour à la ligne" aria-pressed="true" title="Retour visuel à la ligne"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true" focusable="false"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button></span>
+  <span class="grp editonly" id="wrapActions"><button id="toolbarWrap" aria-label="Retour à la ligne" aria-pressed="true" title="Retour visuel à la ligne"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true" focusable="false"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg></button><button id="toolbarVisual" aria-label="Éditeur visuel" aria-pressed="false" title="Éditeur visuel : titres, italique, citations et formules rendus, la source revient sous le curseur. Le fichier ne change pas."><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-type" aria-hidden="true" focusable="false"><path d="M12 4v16"></path><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"></path><path d="M9 20h6"></path></svg></button></span>
   <!-- Recharger le PDF rejoint le zoom : même portée (le PDF), et sa flèche
        circulaire ne voisine plus celle de « rétablir la version », dont le
        sens n'a rien à voir. -->
@@ -113,6 +113,7 @@
     <button type="button" data-act="outline">Plan du document <em>&#8984;&#8679;O</em></button>
     <button type="button" data-act="find">Rechercher <em>&#8984;F</em></button>
     <button type="button" data-act="read">Vue lecture (rendu seul)</button>
+    <button type="button" data-act="visual">Éditeur visuel : <span id="moreVisualVal"></span></button>
     <button type="button" data-act="wrap">Retour à la ligne : <span id="moreWrapVal"></span></button>
     <button type="button" data-act="help">Raccourcis clavier</button>
   </div>
