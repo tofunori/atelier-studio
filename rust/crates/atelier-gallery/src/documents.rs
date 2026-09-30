@@ -105,6 +105,24 @@ struct CompileQueue {
 struct CompileFlight {
     queue: std::sync::Mutex<CompileQueue>,
     result: tokio::sync::watch::Sender<Option<Value>>,
+    /// Date du PDF au départ de la compilation (`None` : pas encore de PDF),
+    /// servie par `/statfile` tant qu'elle tourne (`frozen_pdf_mtime`).
+    pdf_mtime_before: Option<f64>,
+}
+
+/// latexmk réécrit le PDF à chaque passe de pdflatex, et un aperçu qui suit
+/// sa date (`/statfile`, toutes les 2,5 s) rechargeait alors un fichier à
+/// moitié écrit : PDF tronqué, message d'erreur, ou deux rechargements de
+/// suite. Tant qu'une compilation lancée ici tourne, `/statfile` répond avec
+/// la date d'avant ; l'aperçu ne voit qu'un changement, une fois le PDF
+/// complet. `Some(None)` : compilation en cours et pas encore de PDF.
+pub(crate) fn frozen_pdf_mtime(pdf: &Path) -> Option<Option<f64>> {
+    let flights = compile_flights().lock().unwrap_or_else(|e| e.into_inner());
+    flights.iter().find_map(|(root, flight)| {
+        let flight = flight.upgrade()?;
+        (flight.result.borrow().is_none() && root.with_extension("pdf") == pdf)
+            .then_some(flight.pdf_mtime_before)
+    })
 }
 
 /// One live worker per canonical root, shared by every editor/PDF tab.
@@ -150,6 +168,7 @@ where
             let flight = std::sync::Arc::new(CompileFlight {
                 queue: std::sync::Mutex::new(CompileQueue::default()),
                 result,
+                pdf_mtime_before: atelier_core::file_mtime_secs(&root.with_extension("pdf")).ok(),
             });
             flights.insert(root.clone(), std::sync::Arc::downgrade(&flight));
             (flight, true)
@@ -1191,6 +1210,41 @@ mod tests {
             coordinated_compile_with(root, false, runner).await["call"],
             3
         );
+    }
+
+    #[tokio::test]
+    async fn statfile_keeps_the_previous_pdf_date_while_compiling() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("main.tex");
+        let pdf = dir.path().join("main.pdf");
+        fs::write(&pdf, b"%PDF old").unwrap();
+        let before = atelier_core::file_mtime_secs(&pdf).unwrap();
+        assert_eq!(frozen_pdf_mtime(&pdf), None);
+        let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+        let release = std::sync::Arc::new(tokio::sync::Notify::new());
+        let runner = {
+            let (entered, release, pdf) = (entered.clone(), release.clone(), pdf.clone());
+            move |_: PathBuf, _| {
+                let (entered, release, pdf) = (entered.clone(), release.clone(), pdf.clone());
+                async move {
+                    // pdflatex en pleine passe : PDF réécrit, encore incomplet.
+                    std::thread::sleep(Duration::from_millis(20));
+                    fs::write(&pdf, b"%PDF half").unwrap();
+                    entered.notify_one();
+                    release.notified().await;
+                    json!({"ok": true})
+                }
+            }
+        };
+        let compile = tokio::spawn(coordinated_compile_with(root, false, runner));
+        entered.notified().await;
+        assert_ne!(atelier_core::file_mtime_secs(&pdf).unwrap(), before);
+        assert_eq!(frozen_pdf_mtime(&pdf), Some(Some(before)));
+        // Un autre PDF du projet n'est pas concerné.
+        assert_eq!(frozen_pdf_mtime(&dir.path().join("other.pdf")), None);
+        release.notify_one();
+        compile.await.unwrap();
+        assert_eq!(frozen_pdf_mtime(&pdf), None);
     }
 
     #[test]

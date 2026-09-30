@@ -143,6 +143,10 @@ export interface LatexSurface {
   diff: StudioDiffController;
 }
 
+/** Délai de la compilation automatique après un ⌘S (0,8 s) ; les écritures
+ *  d'agent gardent 3 s (scheduleAutoCompile). */
+const USER_SAVE_COMPILE_DELAY_MS = 800;
+
 const MODE_BY_EXTENSION: Record<string, string | Record<string, unknown> | null> = {
   tex: "stex", py: "python", r: "r", md: "markdown", jl: "julia",
   sh: "shell", bash: "shell", zsh: "shell", json: {name: "javascript", json: true},
@@ -539,7 +543,9 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
             diff.push(event.previousText, event.snapshot.text, {source: "user-save", status: "applied"});
           }
           statusBar?.notifySaved();
-          scheduleAutoCompile();
+          // ⌘S de l'utilisateur : une sauvegarde isolée, pas une rafale
+          // d'agent — compiler presque tout de suite.
+          scheduleAutoCompile(USER_SAVE_COMPILE_DELAY_MS);
         } else if (event.kind === "external-reload") {
           dirtyDot.style.display = "none";
           setState("ok", "version de l'agent rechargée");
@@ -760,7 +766,8 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     return compileCoordinator.compile(false, force);
   };
 
-  // Compilation automatique : débouncée (l'agent écrit par rafales), une seule
+  // Compilation automatique : débouncée (l'agent écrit par rafales : 3 s ;
+  // après un ⌘S, USER_SAVE_COMPILE_DELAY_MS), une seule
   // à la fois, avec relance si un changement arrive pendant qu'elle tourne.
   // C'est elle qui garde synctex aligné sur le texte courant — sans elle,
   // chaque clic PDF↔source « tombe à côté » dès que l'agent a déplacé du texte.
