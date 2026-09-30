@@ -50,6 +50,7 @@ import {solarizedDarkInit} from "@uiw/codemirror-theme-solarized";
 import {linter, lintGutter, setDiagnostics as setLintDiagnostics} from "@codemirror/lint";
 import {ghostAiExtension} from "./ghost_ai.ts";
 import {fluidText} from "./fluid_text.ts";
+import {latexVisual} from "./latex_visual.ts";
 import {reviewGutter} from "./review_gutter.ts";
 import {latex, latexOutline, latexStructureDiagnostics} from "./latex_lang/index.ts";
 import {clampPos, countColumn, cm5KeyToCm6, createOperationBatcher, languageKindFor, normalizeScrollTarget} from "./studio_compat.ts";
@@ -111,7 +112,7 @@ const THEME_PALETTES = {
   "solarized-dark": {bg: "#002b36", fg: "#839496", gutter: "#586e75", gutterActive: "#eee8d5", accent: "#d30102", selection: "#004454aa", active: "#00cafe11", panel: "#00232c", surface: "#073642", border: "#586e75"},
 };
 
-let bibliographyContext: {citations?: Record<string, {label?: string; title?: string}>; references?: Record<string, string>} = {};
+let bibliographyContext: {citations?: Record<string, {label?: string; title?: string; url?: string}>; references?: Record<string, string>; macros?: Record<string, string>} = {};
 if (typeof window !== "undefined") window.addEventListener("atelier-latex-context", event => { bibliographyContext = (event as CustomEvent).detail || {}; });
 function bibliographyCompletion(ctx) {
   const before = ctx.state.sliceDoc(Math.max(0, ctx.pos - 160), ctx.pos);
@@ -625,12 +626,21 @@ const lineClsField = StateField.define({
 export function createStudioEditor(parent, opts) {
   const wrapComp = new Compartment();
   const fluidComp = new Compartment();
+  const visualComp = new Compartment();
   const keymapComp = new Compartment();
   const readOnlyComp = new Compartment();
   const editableComp = new Compartment();
   const themeComp = new Compartment();
   const mergeDiffComp = new Compartment();
   const handlers = {change: [], blur: [], cursorActivity: [], gutterClick: []};
+  // Éditeur visuel (.tex) : balisage caché hors du curseur. Suspendu pendant
+  // la revue des modifications, qui doit montrer la source telle quelle.
+  let visualEnabled = false;
+  const visualExtension = latexVisual({
+    getContext: () => bibliographyContext,
+    getMath: () => (typeof window !== "undefined" ? (window as unknown as {katex?: {renderToString(tex: string, options: Record<string, unknown>): string}}).katex : null),
+    suspended: (state) => getChunks(state) != null,
+  });
   let markId = 0;
   let themeId = normalizeThemeId(localStorage.getItem("atelier.editorTheme"));
   let view: EditorView;
@@ -679,6 +689,7 @@ export function createStudioEditor(parent, opts) {
         }),
         wrapComp.of(opts.wrap === false ? [] : EditorView.lineWrapping),
         fluidComp.of([]),
+        visualComp.of([]),
         keymapComp.of([]),
         readOnlyComp.of(EditorState.readOnly.of(false)),
         editableComp.of(EditorView.editable.of(true)),
@@ -986,6 +997,10 @@ export function createStudioEditor(parent, opts) {
     setOption: (name: string, v) => {
       if (name === "lineWrapping") view.dispatch({effects: wrapComp.reconfigure(v ? EditorView.lineWrapping : [])});
       if (name === "fluidText" && opts.ext === "tex") view.dispatch({effects: fluidComp.reconfigure(v ? fluidText : [])});
+      if (name === "latexVisual" && opts.ext === "tex" && Boolean(v) !== visualEnabled) {
+        visualEnabled = Boolean(v);
+        view.dispatch({effects: visualComp.reconfigure(visualEnabled ? visualExtension : [])});
+      }
       if (name === "readOnly") view.dispatch({effects: [
         readOnlyComp.reconfigure(EditorState.readOnly.of(Boolean(v))),
         editableComp.reconfigure(EditorView.editable.of(!v)),
@@ -993,6 +1008,7 @@ export function createStudioEditor(parent, opts) {
     },
     getOption: (name: string) => name === "tabSize" ? view.state.tabSize
       : name === "fluidText" ? Boolean(view.state.field(fluidText, false))
+      : name === "latexVisual" ? visualEnabled
       : name === "readOnly" ? view.state.readOnly
       : name === "theme" ? themeId : undefined,
     getThemes: () => STUDIO_THEMES.map((theme) => ({...theme, swatches: [...theme.swatches]})),

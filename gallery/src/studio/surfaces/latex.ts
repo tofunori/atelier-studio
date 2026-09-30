@@ -665,6 +665,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       fetchImpl: win.fetch.bind(win),
     });
     wrap.refresh();
+    statusBar?.applyVisualEditor();
     const rewrap = createRewrapController({
       editor,
       isTex,
