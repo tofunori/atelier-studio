@@ -56,6 +56,7 @@ export function themeMessage(settings: Settings, nonce: string): AtelierOutbound
     type: "atelier-theme",
     version: 2,
     colorScheme: preset.dark ? "dark" : "light",
+    preset: preset.id,
     nonce,
     vars: {
       ...themeVars(settings, true, preset),

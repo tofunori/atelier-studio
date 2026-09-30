@@ -6,7 +6,7 @@ import { Advanced, Group, Row, Toggle } from "../primitives";
 import type { SectionProps } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { t } from "../../../lib/i18n";
-import { resolveAppearanceTheme, THEME_PRESETS } from "../../../lib/themes";
+import { followsAppearanceMode, resolveAppearanceTheme, THEME_PRESETS } from "../../../lib/themes";
 import { Button, Select, SegmentedControl } from "../../ui";
 import { Input } from "../../shadcn/input";
 import { Slider as ShadcnSlider } from "../../shadcn/slider";
@@ -77,15 +77,19 @@ export default function Appearance(p: SectionProps) {
   // Copié tel quel de Settings.tsx:419-435.
   function themeRow(th: (typeof THEME_PRESETS)[number]) {
     const on = s.themePreset === th.id;
+    // Les presets qui suivent le mode montrent la variante affichée.
+    const swatch = followsAppearanceMode(th.id)
+      ? resolveAppearanceTheme({ themePreset: th.id, theme: s.theme }, systemDark).vars
+      : th.vars;
     return (
       <Button key={th.id} type="button" variant="ghost"
         className={`theme-row ${on ? "on" : ""}`}
         aria-pressed={on}
-        onClick={() => save({ themePreset: th.id, theme: th.dark ? "dark" : "light" })}>
+        onClick={() => save(followsAppearanceMode(th.id) ? { themePreset: th.id } : { themePreset: th.id, theme: th.dark ? "dark" : "light" })}>
         <span className="theme-name">{th.name}</span>
         <span className="theme-strip">
           {["--bg", "--bg-side", "--bg-card", "--bg-ctl", "--border", "--fg2", "--muted", "--accent"].map((k) => (
-            <span key={k} style={{ background: th.vars[k] }} />
+            <span key={k} style={{ background: swatch[k] }} />
           ))}
         </span>
         <span className="theme-check">{on ? "✓" : ""}</span>
@@ -117,7 +121,7 @@ export default function Appearance(p: SectionProps) {
           <SegmentedControl
             label={t("settings.theme")}
             value={s.theme}
-            onChange={(v) => save({ theme: v as Settings["theme"], themePreset: "atelier" })}
+            onChange={(v) => save({ theme: v as Settings["theme"], themePreset: followsAppearanceMode(s.themePreset) ? s.themePreset : "atelier" })}
             options={[
               { value: "light", label: t("settings.theme-light") },
               { value: "dark", label: t("settings.theme-dark") },
