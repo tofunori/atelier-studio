@@ -336,7 +336,13 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
       await expect(direct).toBeVisible();
       await expect(direct).toHaveText('');
       await expect(direct.locator('svg')).toBeVisible();
+      // Régression : sur plusieurs lignes, la pilule rognait le haut du texte.
+      const field = page.locator('#texcPop .atelier-note-field');
+      await page.locator('#texcPop textarea').fill('Relis le paragraphe et propose une meilleure formulation pour le début de la discussion, cherche dans le corpus');
+      await expect(field).toHaveClass(/is-multiline/);
+      expect(await page.locator('#texcPop textarea').evaluate(ta => ta.scrollHeight - ta.clientHeight)).toBe(0);
       await page.locator('#texcPop textarea').fill('Vérifier ce passage');
+      await expect(field).not.toHaveClass(/is-multiline/);
       const saved = page.waitForResponse(response => response.url().includes('/pdfannot')
         && response.request().method() === 'POST');
       await page.locator('#texcPop .send2').click();

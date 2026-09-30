@@ -32,9 +32,11 @@
 .atelier-note .delete-note{width:24px;height:24px;border-radius:var(--radius-control,6px)}
 .atelier-note .delete-note:hover{background:var(--surface-hover,var(--card2,#ffffff0a));color:var(--status-error,#e06c75)}
 .atelier-note .atelier-note-row{display:flex;align-items:center;gap:4px}
-.atelier-note .atelier-note-field{flex:1;min-width:0;display:flex;align-items:flex-end;gap:4px;padding:4px 4px 4px 12px;border-radius:999px;background:var(--surface-inset,var(--bg-ctl,#2c2f34));box-shadow:inset 0 0 0 1px transparent;transition:box-shadow var(--motion-fast,120ms)}
+.atelier-note .atelier-note-field{flex:1;min-width:0;display:flex;align-items:flex-end;gap:4px;padding:4px 4px 4px 12px;border-radius:999px;background:var(--surface-inset,var(--bg-ctl,#2c2f34));box-shadow:inset 0 0 0 1px transparent;transition:box-shadow var(--motion-fast,120ms),border-radius var(--motion-fast,120ms)}
+/* Plusieurs lignes : rectangle arrondi (comme le composer du chat), sinon les bouts de la pilule rognent le texte. */
+.atelier-note .atelier-note-field.is-multiline{border-radius:var(--radius-surface,10px)}
 .atelier-note .atelier-note-field:focus-within{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text-primary,#dadee3) 22%,transparent)}
-.atelier-note .atelier-note-field textarea{flex:1;min-width:0;height:24px;min-height:24px;max-height:88px;padding:2px 0}
+.atelier-note .atelier-note-field textarea{flex:1;min-width:0;height:24px;min-height:24px;max-height:124px;padding:2px 0}
 .atelier-note .atelier-note-field button{width:24px;height:24px;border-radius:999px}
 .atelier-note .atelier-note-field .send-direct:hover{background:var(--surface-hover,var(--card2,#ffffff0a));color:var(--text-primary,var(--txt,#dadee3))}
 .atelier-note .atelier-note-field .send2{background:color-mix(in srgb,var(--text-primary,#dadee3) 8%,transparent);color:var(--text-disabled,var(--muted2,#62666c))}

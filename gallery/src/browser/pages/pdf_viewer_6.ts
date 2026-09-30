@@ -3025,7 +3025,7 @@ async function annotMenu(a, x: number, y: number){
   // Une note libre reste PERSONNELLE : Entrée, Échap ou un clic à côté
   // l'enregistrent sans rien envoyer ; seules les flèches l'envoient au chat.
   const personal = a.kind === "note";
-  AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
+  const noteUI = AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
     heading:annotHeading(a),
     onSendDirect(){void editor.commit(true, "force", true);},
     ...(withMemo ? {memo:{value:a.memo || ""}, placeholder:"Demander au chat…"} : {}),
@@ -3102,7 +3102,7 @@ async function annotMenu(a, x: number, y: number){
     return true;
   };
   function fitNote(){
-    inp.style.height = "24px"; inp.style.height = Math.min(88, inp.scrollHeight) + "px";
+    noteUI.fit();
     if(memoInp){ memoInp.style.height = "24px"; memoInp.style.height = Math.min(132, memoInp.scrollHeight) + "px"; }
   }
   inp.oninput = () => { status.textContent = ""; fitNote(); };
