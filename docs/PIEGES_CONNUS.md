@@ -498,6 +498,38 @@ recentrage. Suite galerie complète : 101 passés, et les 5 échecs restants
 (`diff.spec.js` 434 / 800 / 830, `core.spec.js` 808) échouent à l'identique
 avant le correctif — recoupé sur `HEAD~1`.
 
+## 18. Un clic reste un clic : pas de sélection au tremblement, pas de glisser natif d'une sélection
+
+Symptôme (2026-09-30) : dans l'éditeur LaTeX, en cliquant un peu partout, un
+clic sélectionnait souvent tout un bloc et la vue défilait toute seule.
+
+Deux gestes de CodeMirror 6, sans rien d'Atelier dessous :
+1. `MouseSelection` étend la sélection au premier `mousemove` de l'appui,
+   SANS seuil de distance. Une souris qui bouge d'un pixel en cliquant, au
+   ras de la limite entre deux rangées, sélectionne une rangée entière (et,
+   en texte fluide, plusieurs lignes source jointes). Banc Chromium, 120 clics
+   au hasard : 10 sélections parasites à 1 px de tremblement, 17 à 3 px.
+2. Un clic DANS la sélection existante : CM6 laisse le `mousedown` au
+   navigateur (`dragging = null`) pour permettre le glisser-déposer du texte.
+   Dès quelques pixels de mouvement, le navigateur lance un glisser natif : la
+   sélection reste en place, la vue défile quand le pointeur approche d'un
+   bord, et le dépôt DÉPLACE le texte sélectionné.
+
+**Règles** (`cm6/click_gesture.ts`, branché dans `studio_editor.ts`) :
+- `mouseSelectionStyle` : un appui qui bouge de moins de `CLICK_SLOP` (4 px)
+  reste un curseur au point d'appui ; au-delà, sélection normale depuis ce point.
+  Shift, ⌘, ⌥, Ctrl et les doubles/triples clics gardent le comportement de CM6.
+- `mousedown` avant celui de CM6 : un clic simple dans la sélection la replie
+  d'abord au point du clic, CM6 prend alors le geste en charge lui-même. Plus
+  de glisser-déposer du texte dans l'éditeur (assumé : un dépôt accidentel
+  déplaçait du texte de la thèse) ; `dragstart` sur le contenu est bloqué en
+  filet.
+
+**Vérification** : deux tests de `editor_cm6_scroll.spec.ts` (clic qui
+tremble au travers d'une limite de rangées, clic dans la sélection avec 6 px
+de mouvement), rouges avant le correctif, rejoués en WebKit par le projet
+`webkit-scroll`.
+
 ## pdf.js ≥ 4 et le WebKit système (vécu 2026-09-06)
 - **`getTextContent()` de pdf.js 6 itère un `ReadableStream` avec `for await`** ; le WebKit livré avec macOS (Safari/WKWebView `Version/26.6`) n'a pas `ReadableStream.prototype[Symbol.asyncIterator]` → `TypeError` avalé par le pipeline, **aucune couche texte, aucune sélection dans l'app**, alors que Playwright WebKit (trunk) passe. La variante `legacy` de pdf.js a le même `for await`. Correctif : `gallery/assets/pdfjs_compat.js` (polyfill `values()`/`[Symbol.asyncIterator]`) chargé AVANT le shim module dans `pdf_viewer.html` et `latex_studio.html` (contrat : `pdfjs_compat.test.mjs`). Toute nouvelle page qui charge pdf.js doit l'inclure. Leçon : un test WebKit Playwright ne prouve pas le WebKit système — bissecter avec Safari (`open -a Safari`) et une page de diagnostic qui POSTe sur `/selinfo`.
 
