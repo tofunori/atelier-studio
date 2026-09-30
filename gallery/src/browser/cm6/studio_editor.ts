@@ -40,13 +40,13 @@ import {julia} from "@codemirror/legacy-modes/mode/julia";
 import {shell} from "@codemirror/legacy-modes/mode/shell";
 import {yaml} from "@codemirror/legacy-modes/mode/yaml";
 import {toml} from "@codemirror/legacy-modes/mode/toml";
-import {vscodeDark} from "@uiw/codemirror-theme-vscode";
-import {dracula} from "@uiw/codemirror-theme-dracula";
-import {nord} from "@uiw/codemirror-theme-nord";
-import {monokai} from "@uiw/codemirror-theme-monokai";
-import {gruvboxDark} from "@uiw/codemirror-theme-gruvbox-dark";
-import {materialDark} from "@uiw/codemirror-theme-material";
-import {solarizedDark} from "@uiw/codemirror-theme-solarized";
+import {vscodeDarkInit} from "@uiw/codemirror-theme-vscode";
+import {draculaInit} from "@uiw/codemirror-theme-dracula";
+import {nordInit} from "@uiw/codemirror-theme-nord";
+import {monokaiInit} from "@uiw/codemirror-theme-monokai";
+import {gruvboxDarkInit} from "@uiw/codemirror-theme-gruvbox-dark";
+import {materialDarkInit} from "@uiw/codemirror-theme-material";
+import {solarizedDarkInit} from "@uiw/codemirror-theme-solarized";
 import {linter, lintGutter, setDiagnostics as setLintDiagnostics} from "@codemirror/lint";
 import {ghostAiExtension} from "./ghost_ai.ts";
 import {fluidText} from "./fluid_text.ts";
@@ -125,14 +125,18 @@ function bibliographyCompletion(ctx) {
   }))};
 }
 
+// Sans leur règle de sélection : @uiw/codemirror-themes pose un `::selection`
+// limité à l'éditeur (`.cm-line::selection`, `.cm-content ::selection`), et la
+// couleur passe ici par `--cm-selection` (voir SELECTION_RENDERING).
+const withoutSelectionRule = {settings: {selection: ""}};
 const MAINTAINED_THEME_EXTENSIONS = {
-  "vscode-dark": vscodeDark,
-  dracula,
-  nord,
-  monokai,
-  "gruvbox-dark": gruvboxDark,
-  "material-ocean": materialDark,
-  "solarized-dark": solarizedDark,
+  "vscode-dark": vscodeDarkInit(withoutSelectionRule),
+  dracula: draculaInit(withoutSelectionRule),
+  nord: nordInit(withoutSelectionRule),
+  monokai: monokaiInit(withoutSelectionRule),
+  "gruvbox-dark": gruvboxDarkInit(withoutSelectionRule),
+  "material-ocean": materialDarkInit(withoutSelectionRule),
+  "solarized-dark": solarizedDarkInit(withoutSelectionRule),
 };
 
 function normalizeThemeId(id: string) {
@@ -145,7 +149,7 @@ function themeExtensions(id) {
   const themeId = normalizeThemeId(id);
   const p = THEME_PALETTES[themeId];
   const editorTheme = EditorView.theme({
-    "&": {height: "100%", color: `${p.fg} !important`, backgroundColor: `${p.bg} !important`},
+    "&": {height: "100%", color: `${p.fg} !important`, backgroundColor: `${p.bg} !important`, "--cm-selection": p.selection},
     ".cm-scroller": {
       fontFamily: "var(--code-font, ui-monospace, 'SF Mono', Menlo, monospace)",
       lineHeight: "1.62",
@@ -154,8 +158,6 @@ function themeExtensions(id) {
     ".cm-line": {padding: "0 14px 0 10px"},
     "&.cm-focused": {outline: "none"},
     "&.cm-focused .cm-cursor": {borderLeftColor: p.accent, borderLeftWidth: "2px"},
-    // Sélection = sélection native du navigateur (voir SELECTION_RENDERING).
-    ".cm-content ::selection, .cm-content::selection, .cm-line::selection, .cm-line ::selection": {backgroundColor: p.selection},
     ".cm-activeLine": {backgroundColor: p.active},
     ".cm-gutters": {color: `${p.gutter} !important`, backgroundColor: `${p.bg} !important`, borderRight: `1px solid ${p.border} !important`},
     ".cm-lineNumbers .cm-gutterElement": {padding: "0 4px"},
@@ -167,7 +169,13 @@ function themeExtensions(id) {
     ".cm-panels": {color: p.fg, backgroundColor: p.panel},
     ".cm-tooltip": {color: p.fg, backgroundColor: p.surface, border: `1px solid ${p.border}`},
   }, {dark: true});
-  if (MAINTAINED_THEME_EXTENSIONS[themeId]) return [MAINTAINED_THEME_EXTENSIONS[themeId], editorTheme];
+  if (MAINTAINED_THEME_EXTENSIONS[themeId]) return [
+    MAINTAINED_THEME_EXTENSIONS[themeId],
+    editorTheme,
+    // Partie « calque » de la règle retirée : le mode revue Diff dessine sa
+    // sélection avec drawSelection().
+    EditorView.theme({"&.cm-focused .cm-selectionBackground, & .cm-selectionLayer .cm-selectionBackground": {background: `${p.selection} !important`}}, {dark: true}),
+  ];
   const highlightStyle = HighlightStyle.define([
     {tag: tags.comment, color: p.comment, fontStyle: "italic"},
     {tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword], color: p.keyword},
@@ -326,6 +334,12 @@ const marksField = StateField.define({
 // c'était la première cause de saccade du drag (banc scripts/bench_editor.mjs,
 // 2026-09-06). La sélection native épouse le texte (« hugs the text ») et
 // est composée hors du thread de layout.
+// Sa couleur vient d'une SEULE règle universelle, dans la feuille de chaque
+// page (`::selection{background:var(--cm-selection, Highlight)}`), et de la
+// variable `--cm-selection` posée par le thème. Un `::selection` limité à
+// l'éditeur (`.cm-content ::selection`, `.cm-line::selection`) triplait le
+// recalcul des styles de chaque ligne qui entre à l'écran pendant le défilement
+// (banc Chromium du 2026-09-29 : 555 → 160 ms sur 150 crans).
 
 // Surlignage des occurrences de la sélection AU REPOS : l'extension
 // `highlightSelectionMatches` officielle rescanne le viewport à chaque tick

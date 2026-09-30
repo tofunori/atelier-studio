@@ -420,8 +420,15 @@ Causes, toutes dans le code Atelier, aucune dans CM6 lui-même :
 - Un `ViewPlugin` qui pose des styles inline ne réagit jamais à
   `geometryChanged` nu : comparer la mesure qui l'intéresse (chasse, hauteur).
 - Après toute modification du chemin sélection/frappe : `node
-  gallery/scripts/bench_editor.mjs` avant/après (référence post-correctif :
+  gallery/scripts/bench_editor.mts` avant/après (référence post-correctif :
   ≈ 2 ms/pas de drag, ≈ 3,7 ms/caractère en WebKit).
+- La couleur de sélection passe par UNE règle universelle
+  `::selection{background:var(--cm-selection,Highlight)}` et la variable
+  `--cm-selection` (thème, `.cm-editor .cm-content`). Un `::selection` limité
+  à l'éditeur (`.cm-content ::selection`, `.cm-line::selection`, ou celui des
+  thèmes @uiw, retiré par `settings: {selection: ""}`) triplait le recalcul
+  des styles de chaque ligne entrant à l'écran pendant le défilement (banc
+  Chromium du 2026-09-29 : tâches longues 1,3 s → 0,3 s sur 150 crans).
 
 ## 16. `@overleaf/lezer-latex` : ESM sans extensions — importable seulement à travers esbuild
 

@@ -260,16 +260,35 @@ export function createLatexReadingMarge(
     return best;
   };
 
+  // Positions des sections, relues seulement quand le texte rendu change de
+  // hauteur ou de largeur (ou au paint()) : le défilement ne reparcourt plus
+  // tout le document à chaque cran. Un rendu qui déplacerait des blocs sans
+  // changer la hauteur totale ne décale que le repère de la marge.
+  let tops: number[] | null = null;
+  let topsKey = "";
+  let hereIndex = -2;
+  let herePending = false;
+  const sectionTops = (): number[] => {
+    const key = `${options.scroller.scrollHeight}:${options.reading.clientWidth}`;
+    if (!tops || key !== topsKey) {
+      const list = blocks();
+      tops = rows.map(({line}) => blockForLine(list, line + 1)?.offsetTop ?? 0);
+      topsKey = key;
+    }
+    return tops;
+  };
+
   const here = (): void => {
     if (!rows.length) return;
-    const list = blocks();
-    const tops = rows.map(({line}) => blockForLine(list, line + 1)?.offsetTop ?? 0);
+    const tops = sectionTops();
     const atBottom = options.scroller.scrollTop + options.scroller.clientHeight
       >= options.scroller.scrollHeight - 4;
     // Le tiers haut de la fenêtre : au-dessus, on a lu ; en dessous, on n'y est
     // pas encore. Même règle que la marge du chat.
     const limit = options.scroller.scrollTop + Math.max(8, options.scroller.clientHeight / 3);
     const active = activeMargeIndex(tops, limit, atBottom);
+    if (active === hereIndex) return;
+    hereIndex = active;
     rows.forEach(({button}, index) => {
       if (index === active) button.setAttribute("data-here", "true");
       else button.removeAttribute("data-here");
@@ -280,6 +299,8 @@ export function createLatexReadingMarge(
     closeMenu();
     rail.textContent = "";
     rows = [];
+    tops = null;
+    hereIndex = -2;
     const editor = options.getEditor();
     if (!editor || !options.isReading()) return;
     const sections = readingSections(editor.getValue());
@@ -358,7 +379,13 @@ export function createLatexReadingMarge(
     } catch { /* les couleurs restent optionnelles */ }
   };
 
-  options.scroller.addEventListener("scroll", () => { here(); closeMenu(); }, {passive: true});
+  options.scroller.addEventListener("scroll", () => {
+    if (menu.classList.contains("open")) closeMenu();
+    // Une mise à jour du repère par image, pas par évènement de défilement.
+    if (herePending) return;
+    herePending = true;
+    win.requestAnimationFrame(() => { herePending = false; here(); });
+  }, {passive: true});
 
   return {paint, load, marks: () => all};
 }

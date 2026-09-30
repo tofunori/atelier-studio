@@ -5,14 +5,13 @@
 //     .cm-content (proxy du redécoupage de spans) + cycles de mise à jour CM6
 //   - typing : frappe de N caractères, mêmes métriques
 // Usage : node gallery/scripts/bench_editor.mts [--browser webkit|chromium]
-//         [--steps 240] [--chars 240] [--runs 3] [--json]
-import {spawn} from "node:child_process";
+//         [--steps 240] [--chars 240] [--runs 3] [--json] [--executable <navigateur>]
 import {mkdtempSync, writeFileSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {fileURLToPath} from "node:url";
 import path from "node:path";
-import net from "node:net";
 import {createRequire} from "node:module";
+import {freePort, spawnGalleryServer, stopGalleryServer, waitForServer} from "../tests/gallery_server.mts";
 
 const require = createRequire(import.meta.url);
 const {chromium, webkit} = require("playwright");
@@ -28,14 +27,6 @@ const STEPS = Number(args.get("steps") || 240);
 const CHARS = Number(args.get("chars") || 240);
 const RUNS = Number(args.get("runs") || 3);
 const JSON_OUT = args.has("json");
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const socket = net.createServer();
-    socket.unref(); socket.on("error", reject);
-    socket.listen(0, "127.0.0.1", () => { const {port} = (socket.address() as import("node:net").AddressInfo); socket.close(() => resolve(port)); });
-  });
-}
 
 // Prose réaliste : paragraphes longs (wrap), commandes, labels, citations.
 function longLatex() {
@@ -58,20 +49,14 @@ async function withServer(run) {
   const target = path.join(root, "main.tex");
   writeFileSync(target, longLatex());
   const port = await freePort();
-  const server = spawn(process.execPath, [path.join(GALLERY, "server", "main.mjs")], {
-    cwd: root, env: {...process.env, FIG_PORT: String(port), GALLERY_ROOT: root}, stdio: "ignore",
-  });
+  // Le vrai backend de l'app (atelier-gallery-server, Rust) : le serveur Node
+  // que ce banc lançait a quitté le dépôt (plan 065).
+  const server = spawnGalleryServer({root, port, watch: false});
   try {
-    for (let i = 0; i < 200; i += 1) {
-      const ok = await fetch(`http://127.0.0.1:${port}/ping`).then((r) => r.ok).catch(() => false);
-      if (ok) break;
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    await waitForServer(port, {child: server});
     await run(`http://127.0.0.1:${port}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(target)}&engine=cm6`);
   } finally {
-    server.kill("SIGTERM");
-    await new Promise((r) => setTimeout(r, 300));
-    if (server.exitCode === null) server.kill("SIGKILL");
+    await stopGalleryServer(server);
     rmSync(root, {recursive: true, force: true});
   }
 }
@@ -135,7 +120,8 @@ const summarize = (rs, n: number) => ({
 });
 
 await withServer(async (url) => {
-  const browser = await (BROWSER === "chromium" ? chromium : webkit).launch();
+  const executablePath = args.get("executable");
+  const browser = await (BROWSER === "chromium" ? chromium : webkit).launch(executablePath ? {executablePath} : {});
   const page = await browser.newPage({viewport: {width: 1280, height: 820}});
   await page.goto(url);
   for (let i = 0; i < 100 && (await page.evaluate(() => window.__ENGINE)) !== "cm6"; i += 1) await page.waitForTimeout(50);
