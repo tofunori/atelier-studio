@@ -202,3 +202,58 @@ test('LaTeX visuel : équations centrées, listes et figures en bloc, source sou
     expect(await page.evaluate(() => cm.getValue())).toBe(BLOCKS.replace('pixels;', 'pixels first;'));
   }, BLOCKS);
 });
+
+const TABLES = [
+  '\\documentclass{article}',
+  '\\usepackage{booktabs}',
+  '\\newcommand{\\modis}{MODIS}',
+  '\\begin{document}',
+  'Albedo from \\modis{} and \\modis\\ data\\footnote{Collection 6.1, daily.}.',
+  '\\begin{table}[t]',
+  '  \\centering',
+  '  \\caption{Albedo per site.}\\label{tab:sites}',
+  '  \\begin{tabular}{lrr}',
+  '    \\toprule',
+  '    Site & Albedo & $n$ \\\\',
+  '    \\midrule',
+  '    Athabasca & 0.61 & 12 \\\\',
+  '    \\multicolumn{2}{c}{Saskatchewan} & 3 \\\\',
+  '    \\bottomrule',
+  '  \\end{tabular}',
+  '\\end{table}',
+  'Second note\\footnote{Another.} here.',
+  '\\end{document}',
+  '',
+].join('\n');
+
+test('LaTeX visuel : tableaux, macros du préambule, notes et préambule replié', async ({page}) => {
+  await withProject(async ({target, url}) => {
+    writeFileSync(target.replace(/main\.tex$/, 'main.aux'), `${AUX}\\newlabel{tab:sites}{{2}{3}}\n`);
+    await openVisual(page, url);
+    const lines = TABLES.split('\n');
+    await page.evaluate((l) => cm.setCursor({line: l, ch: 0}), lines.length - 3);
+    await expect(page.locator('.cm-vis-preamble')).toHaveText('Préambule · 4 lignes');
+    await expect(page.locator('.cm-line', {hasText: '\\documentclass'})).toHaveCount(0);
+    await expect(page.locator('.cm-vis-macro')).toHaveText(['MODIS', 'MODIS']);
+    await expect(page.locator('.cm-vis-footnote')).toHaveText(['1', '2']);
+    await expect(page.locator('.cm-vis-footnote').first()).toHaveAttribute('title', 'Collection 6.1, daily.');
+    const table = page.locator('.cm-vis-table');
+    await expect(table.locator('.cm-vis-figure-caption')).toHaveText('Table 2 : Albedo per site.');
+    await expect(table.locator('th')).toHaveCount(3);
+    await expect(table.locator('th').nth(1)).toHaveText('Albedo');
+    await expect(table.locator('th').nth(2).locator('.katex')).toHaveCount(1);
+    await expect(table.locator('td')).toHaveText(['Athabasca', '0.61', '12', 'Saskatchewan', '3']);
+    await expect(table.locator('td[colspan="2"]')).toHaveCSS('text-align', 'center');
+    // La légende précède le tableau, comme dans la source.
+    expect(await table.evaluate(box => box.firstElementChild?.className)).toBe('cm-vis-figure-caption');
+    // Clic sur le tableau : sa source s'ouvre.
+    await table.click();
+    await expect(page.locator('.cm-vis-table')).toHaveCount(0);
+    await expect(page.locator('.cm-line', {hasText: 'Athabasca & 0.61'})).toHaveCount(1);
+    // Clic sur le préambule replié : il se déplie.
+    await page.locator('.cm-vis-preamble').click();
+    await expect(page.locator('.cm-line', {hasText: '\\documentclass'})).toHaveCount(1);
+    await expect(page.locator('.cm-vis-preamble')).toHaveCount(0);
+    expect(await page.evaluate(() => cm.getValue())).toBe(TABLES);
+  }, TABLES);
+});

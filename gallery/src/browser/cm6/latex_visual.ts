@@ -10,8 +10,9 @@
 // Rendu : titres, italique/gras/petites capitales/machine/souligné,
 // citations et renvois en pastilles, étiquettes, maths en ligne et centrées
 // (KaTeX, numéro tiré du .aux), figures (image + légende), listes à puces et
-// numérotées, typographie (~, --, ---, ``…'', \%). Les tableaux et les
-// macros du préambule restent en source pour l'instant.
+// numérotées, tableaux (tabular, booktabs, \multicolumn), notes de bas de
+// page (appel numéroté, texte en infobulle), macros sans argument du
+// préambule, préambule replié, typographie (~, --, ---, ``…'', \%).
 //
 // Contraintes (docs/PIEGES_CONNUS.md) :
 // - n°15 : rien de coûteux sur un mouvement de curseur. Les candidats sont
@@ -23,7 +24,7 @@
 //   les décorations sont figées ; elles suivent au relâchement.
 // - Une décoration fournie par un plugin ne peut pas remplacer un saut de
 //   ligne : toute construction qui en traverse un reste en source.
-import {StateEffect, StateField, type ChangeDesc, type Transaction, type EditorState, type Extension, type Range, type SelectionRange} from "@codemirror/state";
+import {StateEffect, StateField, type ChangeDesc, type Text, type Transaction, type EditorState, type Extension, type Range, type SelectionRange} from "@codemirror/state";
 import {Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType} from "@codemirror/view";
 import {syntaxTree} from "@codemirror/language";
 import type {SyntaxNode, SyntaxNodeRef} from "@lezer/common";
@@ -64,7 +65,7 @@ const TEXT_STYLE: Record<string, string> = {
   UnderlineCommand: "cm-vis-u",
 };
 const PROSE_PARENTS = new Set(["Content", "Text", "LongArg"]);
-const ESCAPED: Record<string, string> = {"\\%": "%", "\\&": "&", "\\_": "_", "\\#": "#", "\\$": "$", "\\{": "{", "\\}": "}"};
+const ESCAPED: Record<string, string> = {"\\ ": " ", "\\,": "\u2009", "\\%": "%", "\\&": "&", "\\_": "_", "\\#": "#", "\\$": "$", "\\{": "{", "\\}": "}"};
 const TYPOGRAPHY = /---|--|``|''/g;
 const TYPOGRAPHY_TEXT: Record<string, string> = {"---": "—", "--": "–", "``": "“", "''": "”"};
 
@@ -292,6 +293,52 @@ function itemCandidate(state: EditorState, node: SyntaxNode): Candidate | null {
   return {from: node.from, to: node.to, always, rendered: replaced(state, from, node.to, new TextWidget(marker, option ? "cm-vis-item cm-vis-item-label" : "cm-vis-item"))};
 }
 
+/** Positions des \footnote du corps (commentaires et préambule exclus), par document. */
+const footnoteStarts = new WeakMap<Text, number[]>();
+function footnoteNumber(state: EditorState, at: number): number {
+  let starts = footnoteStarts.get(state.doc);
+  if (!starts) {
+    starts = [];
+    const text = state.doc.toString();
+    const body = text.indexOf("\\begin{document}");
+    const pattern = /\\[\\%]|%[^\n]*|\\footnote(?![a-zA-Z])/g;
+    pattern.lastIndex = Math.max(0, body);
+    for (let match = pattern.exec(text); match; match = pattern.exec(text)) if (match[0] === "\\footnote") starts.push(match.index);
+    footnoteStarts.set(state.doc, starts);
+  }
+  let low = 0;
+  let high = starts.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (starts[mid]! < at) low = mid + 1; else high = mid;
+  }
+  return low + 1;
+}
+
+/** Note de bas de page repliée en appel de note ; son texte en infobulle. */
+function footnoteCandidate(state: EditorState, node: SyntaxNode, context: VisualContext): Candidate | null {
+  const argument = node.getChild("TextArgument");
+  if (!argument || !sameLine(state, node.from, node.to)) return null;
+  const note = plainCaption(state.sliceDoc(argument.from + 1, argument.to - 1), context);
+  const marker = new TextWidget(String(footnoteNumber(state, node.from)), "cm-vis-footnote", note);
+  return {from: node.from, to: node.to, always: [], rendered: replaced(state, node.from, node.to, marker)};
+}
+
+/** Macro sans argument du préambule (\newcommand{\modis}{MODIS}) : son texte. */
+function macroCandidate(state: EditorState, node: SyntaxNode, context: VisualContext): Candidate | null {
+  const control = node.getChild("CtrlSeq");
+  if (!control || !context.macros || !PROSE_PARENTS.has(node.parent?.parent?.name || "")) return null;
+  const name = state.sliceDoc(control.from, control.to);
+  const value = context.macros[name];
+  if (value === undefined) return null;
+  const text = plainCaption(value, context);
+  if (!text) return null;
+  // \modis{} : les accolades vides font partie de l'appel.
+  const argument = node.getChild("TextArgument");
+  const to = argument && argument.to - argument.from === 2 && argument.from === control.to ? argument.to : control.to;
+  return {from: node.from, to, always: [], rendered: replaced(state, node.from, to, new TextWidget(text, "cm-vis-macro", name))};
+}
+
 function typographyCandidates(state: EditorState, node: SyntaxNodeRef, out: Candidate[]) {
   const text = state.sliceDoc(node.from, node.to);
   TYPOGRAPHY.lastIndex = 0;
@@ -330,6 +377,13 @@ export function collectCandidates(state: EditorState, ranges: ReadonlyArray<{fro
           case "Ref": push(refCandidate(state, ref.node, context)); return false;
           case "Label": push(labelCandidate(state, ref.node)); return false;
           case "Item": push(itemCandidate(state, ref.node)); return false;
+          case "FootnoteCommand": push(footnoteCandidate(state, ref.node, context)); return false;
+          case "UnknownCommand": {
+            const candidate = macroCandidate(state, ref.node, context);
+            if (!candidate) return true;
+            push(candidate);
+            return false;
+          }
           case "DollarMath": case "ParenMath": push(mathCandidate(state, ref.node, math, context, macroKey)); return false;
           case "BracketMath": case "DisplayMath": case "Comment": return false;
           case "Tilde": {
@@ -525,20 +579,247 @@ class HiddenLineWidget extends WidgetType {
 }
 const hiddenLine = new HiddenLineWidget();
 
-/** Légende lisible : commandes de mise en forme retirées, pas de rendu riche. */
-export function plainCaption(source: string, context: VisualContext): string {
+/** Macros sans argument du préambule (\newcommand{\modis}{MODIS}) remplacées par leur texte. */
+export function expandMacros(source: string, macros: Record<string, string> | undefined): string {
+  if (!macros || !source.includes("\\")) return source;
   let text = source;
   for (let pass = 0; pass < 3; pass++) {
-    text = text.replace(/\\(?:emph|textit|textbf|textsc|texttt|underline|textsl|mbox|text)\{([^{}]*)\}/g, "$1");
+    const next = text.replace(/\\[a-zA-Z]+(?![a-zA-Z])(?:\{\})?/g, whole => macros[whole.replace(/\{\}$/, "")] ?? whole);
+    if (next === text) break;
+    text = next;
+  }
+  return text;
+}
+
+/** Texte lisible d'un fragment de prose, blancs repliés mais pas rognés. */
+function plainInline(source: string, context: VisualContext): string {
+  let text = expandMacros(source, context.macros);
+  for (let pass = 0; pass < 3; pass++) {
+    text = text.replace(/\\(?:emph|textit|textbf|textsc|texttt|underline|textsl|mbox|text|textrm|textsf|textup|textnormal)\{([^{}]*)\}/g, "$1");
   }
   return text
     .replace(/\\label\{[^}]*\}/g, "")
+    .replace(/\\footnote\{[^{}]*\}/g, "")
     .replace(/\\(?:cite[a-z]*|parencite|textcite|autocite)(?:\[[^\]]*\])*\{([^}]*)\}/g, (_m, keys: string) =>
       formatCitation("\\citep", [], keys.split(","), context).text)
     .replace(/\\(eqref|ref|cref|Cref|autoref)\{([^}]*)\}/g, (_m, kind: string, key: string) => formatReference(`\\${kind}`, key.trim(), context).text)
     .replace(/\$([^$]*)\$/g, "$1")
-    .replace(/~/g, " ").replace(/\\%/g, "%").replace(/\\&/g, "&").replace(/---/g, "—").replace(/--/g, "–")
-    .replace(/\\[a-zA-Z]+\*?/g, "").replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
+    .replace(/\\\\(?:\[[^\]]*\])?/g, " ").replace(/\\ /g, " ")
+    .replace(/~/g, " ").replace(/\\([%&_#$])/g, "$1").replace(/---/g, "—").replace(/--/g, "–").replace(/``/g, "“").replace(/''/g, "”")
+    .replace(/\\[a-zA-Z]+\*?/g, "").replace(/[{}]/g, "").replace(/\s+/g, " ");
+}
+
+/** Légende lisible : commandes de mise en forme retirées, pas de rendu riche. */
+export function plainCaption(source: string, context: VisualContext): string {
+  return plainInline(source, context).trim();
+}
+
+const escapeHtml = (text: string) => text.replace(/[&<>"]/g, char => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"})[char]!);
+
+/** HTML d'un fragment de prose (légende, cellule) : texte lisible, maths en KaTeX. */
+export function richInline(source: string, context: VisualContext, math: VisualMath | null, macroKey = ""): string {
+  let html = "";
+  let last = 0;
+  const pattern = /(?<!\\)\$([^$]+)\$|\\\(([\s\S]*?)\\\)/g;
+  for (let match = pattern.exec(source); match; match = pattern.exec(source)) {
+    const tex = (match[1] ?? match[2] ?? "").trim();
+    const rendered = math && tex ? renderMath(math, tex, context.macros || {}, macroKey) : null;
+    html += escapeHtml(plainInline(source.slice(last, match.index), context));
+    html += rendered ? `<span class="cm-vis-math">${rendered}</span>` : escapeHtml(tex);
+    last = match.index + match[0].length;
+  }
+  html += escapeHtml(plainInline(source.slice(last), context));
+  return html.replace(/^\s+|\s+$/g, "");
+}
+
+// ------------------------------------------------------------ tableaux ----
+
+export interface TableCell {html: string; span: number; align: string}
+export interface TableRow {cells: TableCell[]; ruleAbove: boolean; ruleBelow: boolean; header: boolean}
+
+const ALIGN: Record<string, string> = {l: "left", c: "center", r: "right", p: "left", m: "left", b: "left", X: "left", S: "center"};
+
+/** Alignements d'une spécification de colonnes : {l|c r}, p{3cm}, *{3}{c}, @{}, >{…}. */
+export function columnAligns(spec: string): string[] {
+  const out: string[] = [];
+  const group = (from: number): {value: string; end: number} => {
+    let depth = 0;
+    for (let i = from; i < spec.length; i++) {
+      if (spec[i] === "{") depth++;
+      else if (spec[i] === "}" && --depth === 0) return {value: spec.slice(from + 1, i), end: i + 1};
+    }
+    return {value: spec.slice(from + 1), end: spec.length};
+  };
+  for (let i = 0; i < spec.length;) {
+    const char = spec[i]!;
+    if (char === "*" && spec[i + 1] === "{") {
+      const count = group(i + 1);
+      const body = count.end < spec.length && spec[count.end] === "{" ? group(count.end) : {value: "", end: count.end};
+      const inner = columnAligns(body.value);
+      for (let n = 0; n < Math.min(Number.parseInt(count.value, 10) || 0, 50); n++) out.push(...inner);
+      i = body.end;
+    } else if ((char === "@" || char === ">" || char === "<" || char === "!") && spec[i + 1] === "{") {
+      i = group(i + 1).end;
+    } else if (char in ALIGN) {
+      out.push(ALIGN[char]!);
+      i = spec[i + 1] === "{" && "pmb".includes(char) ? group(i + 1).end : i + 1;
+    } else i++;
+  }
+  return out;
+}
+
+const RULE = /\\(?:toprule|midrule|bottomrule|hline|specialrule\{[^}]*\}\{[^}]*\}\{[^}]*\}|cline\{[^}]*\}|cmidrule(?:\([^)]*\))?\{[^}]*\}|addlinespace(?:\[[^\]]*\])?)/g;
+
+/** Cellules d'un tabular : lignes coupées sur \\, cellules sur & (hors accolades). */
+export function parseTabular(body: string, spec: string, context: VisualContext, math: VisualMath | null = null, macroKey = ""): TableRow[] {
+  const source = body.split("\n").map(line => line.replace(/(?<!\\)%.*$/, "")).join("\n");
+  const aligns = columnAligns(spec);
+  const rawRows: string[][] = [[]];
+  let cell = "";
+  let depth = 0;
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i]!;
+    if (char === "\\") {
+      const next = source[i + 1] || "";
+      if (next === "\\" && depth === 0) {
+        rawRows.at(-1)!.push(cell);
+        cell = "";
+        rawRows.push([]);
+        i++;
+        const option = /^\s*\[[^\]]*\]/.exec(source.slice(i + 1));
+        if (option) i += option[0].length;
+        continue;
+      }
+      cell += char + next;
+      i++;
+      continue;
+    }
+    if (char === "{") depth++;
+    else if (char === "}") depth = Math.max(0, depth - 1);
+    if (char === "&" && depth === 0) { rawRows.at(-1)!.push(cell); cell = ""; continue; }
+    cell += char;
+  }
+  rawRows.at(-1)!.push(cell);
+  const rows: TableRow[] = [];
+  let pendingRule = false;
+  let sawMidrule = false;
+  for (const raw of rawRows) {
+    // Filets en tête de ligne (\hline, \toprule…) : bordure au-dessus.
+    const head = raw[0] ?? "";
+    const rules = head.match(RULE) || [];
+    const cleaned = raw.map((text, index) => (index === 0 ? text.replace(RULE, "") : text));
+    if (rules.some(rule => /midrule/.test(rule)) && rows.length && !sawMidrule) {
+      sawMidrule = true;
+      for (const row of rows) row.header = true;
+    }
+    const hasRule = rules.length > 0;
+    if (cleaned.length === 1 && !cleaned[0]!.trim()) {
+      if (hasRule && rows.length) rows.at(-1)!.ruleBelow = true;
+      else if (hasRule) pendingRule = true;
+      continue;
+    }
+    const cells: TableCell[] = [];
+    let column = 0;
+    for (const text of cleaned) {
+      const multi = /^\s*\\multicolumn\{(\d+)\}\{([^}]*)\}\{([\s\S]*)\}\s*$/.exec(text);
+      const multirow = /^\s*\\multirow\{[^}]*\}\{[^}]*\}\{([\s\S]*)\}\s*$/.exec(text);
+      const span = multi ? Math.max(1, Number.parseInt(multi[1]!, 10)) : 1;
+      const content = multi ? multi[3]! : multirow ? multirow[1]! : text;
+      const align = multi ? columnAligns(multi[2]!)[0] || "left" : aligns[column] || "left";
+      cells.push({html: richInline(content, context, math, macroKey), span, align});
+      column += span;
+    }
+    rows.push({cells, ruleAbove: hasRule || pendingRule, ruleBelow: false, header: false});
+    pendingRule = false;
+  }
+  return rows;
+}
+
+class TableWidget extends WidgetType {
+  readonly rows: TableRow[];
+  readonly caption: string;
+  readonly label: string;
+  readonly captionFirst: boolean;
+  constructor(rows: TableRow[], caption: string, label: string, captionFirst: boolean) {
+    super();
+    this.rows = rows;
+    this.caption = caption;
+    this.label = label;
+    this.captionFirst = captionFirst;
+  }
+  eq(other: TableWidget) {
+    return other.caption === this.caption && other.label === this.label && other.captionFirst === this.captionFirst
+      && JSON.stringify(other.rows) === JSON.stringify(this.rows);
+  }
+  toDOM() {
+    const box = document.createElement("div");
+    box.className = "cm-vis-table";
+    const table = document.createElement("table");
+    for (const row of this.rows) {
+      const tr = document.createElement("tr");
+      if (row.ruleAbove) tr.classList.add("cm-vis-rule-above");
+      if (row.ruleBelow) tr.classList.add("cm-vis-rule-below");
+      for (const cell of row.cells) {
+        const td = document.createElement(row.header ? "th" : "td");
+        td.innerHTML = cell.html;
+        if (cell.span > 1) td.colSpan = cell.span;
+        td.style.textAlign = cell.align;
+        tr.appendChild(td);
+      }
+      table.appendChild(tr);
+    }
+    const wrap = document.createElement("div");
+    wrap.className = "cm-vis-table-scroll";
+    wrap.appendChild(table);
+    if (this.caption || this.label) {
+      const caption = document.createElement("div");
+      caption.className = "cm-vis-figure-caption";
+      if (this.label) {
+        const label = document.createElement("span");
+        label.className = "cm-vis-figure-label";
+        label.textContent = this.label;
+        caption.appendChild(label);
+        if (this.caption) caption.appendChild(document.createTextNode(" : "));
+      }
+      const text = document.createElement("span");
+      text.innerHTML = this.caption;
+      caption.appendChild(text);
+      box.append(...(this.captionFirst ? [caption, wrap] : [wrap, caption]));
+    } else box.appendChild(wrap);
+    return box;
+  }
+  ignoreEvent() { return false; }
+}
+
+/** Préambule replié : une rangée ; un clic le déplie (curseur posé dedans). */
+class PreambleWidget extends WidgetType {
+  readonly lines: number;
+  readonly target: number;
+  constructor(lines: number, target: number) {
+    super();
+    this.lines = lines;
+    this.target = target;
+  }
+  eq(other: PreambleWidget) { return other.lines === this.lines && other.target === this.target; }
+  toDOM(view: EditorView) {
+    // Pas de marge sur un widget de bloc : CodeMirror mesure la boîte sans
+    // elle et les clics plus bas tomberaient une ligne trop loin.
+    const box = document.createElement("div");
+    box.className = "cm-vis-preamble-row";
+    const row = document.createElement("div");
+    row.className = "cm-vis-preamble";
+    row.textContent = `Préambule · ${this.lines} lignes`;
+    row.title = "Afficher le préambule";
+    box.appendChild(row);
+    row.addEventListener("mousedown", event => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      view.dispatch({selection: {anchor: Math.min(this.target, view.state.doc.length)}, scrollIntoView: true});
+      view.focus();
+    });
+    return box;
+  }
+  ignoreEvent(event: Event) { return event.type === "mousedown"; }
 }
 
 interface BlockCandidate {
@@ -573,6 +854,12 @@ function numberFor(labels: readonly string[], context: VisualContext): string {
   return "";
 }
 
+function firstDescendant(node: SyntaxNode, name: string): SyntaxNode | null {
+  const cursor = node.cursor();
+  while (cursor.next() && cursor.from < node.to) if (cursor.name === name) return cursor.node;
+  return null;
+}
+
 /** Toutes les constructions en bloc du document. Parcours élagué : ni prose, ni commandes. */
 export function collectBlocks(state: EditorState, env: BlockEnvironment): BlockCandidate[] {
   const context = env.getContext() || {};
@@ -591,6 +878,16 @@ export function collectBlocks(state: EditorState, env: BlockEnvironment): BlockC
     if (!html) return;
     const number = source.numbered ? numberFor([...labels, ...source.labels], context) : "";
     out.push({from: node.from, to: node.to, decorations: [blockReplace(lines.from, lines.to, new DisplayMathWidget(html, number))]});
+  };
+  const preamble = state.doc.sliceString(0, Math.min(state.doc.length, 20000));
+  const tableName = /\\usepackage\[[^\]]*\bfrench\b[^\]]*\]\{babel\}|\\setdefaultlanguage\{french\}|\\usepackage\{french\}/.test(preamble) ? "Tableau" : "Table";
+  const tabularRows = (tabular: SyntaxNode): TableRow[] | null => {
+    const content = tabular.getChild("Content") ?? firstDescendant(tabular, "TabularContent");
+    const specs = tabular.getChild("BeginEnv")?.getChildren("TextArgument") ?? [];
+    if (!content || !specs.length) return null;
+    const spec = state.sliceDoc(specs.at(-1)!.from + 1, specs.at(-1)!.to - 1);
+    const rows = parseTabular(state.sliceDoc(content.from, content.to), spec, context, math, macroKey);
+    return rows.length ? rows : null;
   };
   syntaxTree(state).iterate({
     enter(ref) {
@@ -635,6 +932,55 @@ export function collectBlocks(state: EditorState, env: BlockEnvironment): BlockC
           }
           out.push({from: node.from, to: node.to, decorations: [blockReplace(lines.from, lines.to, new FigureWidget(images, caption, numberFor(labels, context)))]});
           return false;
+        }
+        case "TableEnvironment": {
+          const node = ref.node;
+          const lines = wholeLines(state, node.from, node.to);
+          const tabular = firstDescendant(node, "TabularEnvironment");
+          if (!lines || !tabular) return false;
+          const rows = tabularRows(tabular);
+          if (!rows) return false;
+          const labels: string[] = [];
+          let caption = "";
+          let captionAt = -1;
+          const cursor = node.cursor();
+          while (cursor.next() && cursor.from < node.to) {
+            if (cursor.name === "Caption" && captionAt < 0) {
+              const argument = cursor.node.getChild("TextArgument");
+              captionAt = cursor.from;
+              if (argument) caption = richInline(state.sliceDoc(argument.from + 1, argument.to - 1), context, math, macroKey);
+            } else if (cursor.name === "LabelArgument") {
+              labels.push(state.sliceDoc(cursor.from, cursor.to).replace(/^\{|\}$/g, "").trim());
+            }
+          }
+          const number = numberFor(labels, context);
+          const label = captionAt >= 0 || number ? `${tableName}${number ? " " + number : ""}` : "";
+          out.push({from: node.from, to: node.to, decorations: [blockReplace(lines.from, lines.to, new TableWidget(rows, caption, label, captionAt >= 0 && captionAt < tabular.from))]});
+          return false;
+        }
+        case "TabularEnvironment": {
+          const lines = wholeLines(state, ref.from, ref.to);
+          const rows = lines && tabularRows(ref.node);
+          if (lines && rows) out.push({from: ref.from, to: ref.to, decorations: [blockReplace(lines.from, lines.to, new TableWidget(rows, "", "", false))]});
+          return false;
+        }
+        case "DocumentEnvironment": {
+          // Préambule replié jusqu'à \begin{document} inclus. Zone de
+          // révélation à partir de 1 : le curseur posé en tête de fichier à
+          // l'ouverture ne le déplie pas.
+          const begin = ref.node.getChild("BeginEnv");
+          if (begin) {
+            const beginLine = state.doc.lineAt(begin.to);
+            if (beginLine.number > 1 && !state.sliceDoc(begin.to, beginLine.to).trim() && state.doc.lineAt(begin.from).from === begin.from) {
+              out.push({from: 1, to: beginLine.to, decorations: [blockReplace(0, beginLine.to, new PreambleWidget(beginLine.number, beginLine.to))]});
+            }
+          }
+          const end = ref.node.getChild("EndEnv");
+          const endLines = end && wholeLines(state, end.from, end.to);
+          if (end && endLines && state.doc.lineAt(end.from).number === state.doc.lineAt(end.to).number) {
+            out.push({from: end.from, to: end.to, decorations: [blockReplace(endLines.from, endLines.to, hiddenLine)]});
+          }
+          return true;
         }
         case "ListEnvironment": {
           // Les lignes \begin{itemize} / \end{itemize} disparaissent ; chacune

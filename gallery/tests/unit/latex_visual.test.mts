@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {displayMathSource, formatCitation, formatReference, imageCandidates, plainCaption} from '../../src/browser/cm6/latex_visual.ts';
+import {columnAligns, displayMathSource, expandMacros, formatCitation, formatReference, imageCandidates, parseTabular, plainCaption, richInline} from '../../src/browser/cm6/latex_visual.ts';
 
 const context = {
   citations: {ren2021: {label: 'Ren et al., 2021', title: 'Anisotropy'}, smith2020: {label: 'Smith, 2020'}},
@@ -53,4 +53,42 @@ test('images resolve like LaTeX: document folders, graphicspath, missing extensi
 test('captions read as text: formatting stripped, citations and references resolved', () => {
   assert.equal(plainCaption('Trend of the \\emph{accumulation zone} (\\citep{ren2021}), see Fig.~\\ref{fig:trend} --- 50\\%.\\label{x}', context),
     'Trend of the accumulation zone ((Ren et al., 2021)), see Fig. 3 \u2014 50%.');
+});
+
+test('column specs give one alignment per column (rules, p{}, *{n}{}, @{} skipped)', () => {
+  assert.deepEqual(columnAligns('l|c r'), ['left', 'center', 'right']);
+  assert.deepEqual(columnAligns('@{}lp{3cm}*{2}{r}@{}'), ['left', 'left', 'right', 'right']);
+  assert.deepEqual(columnAligns('>{\\centering}X l'), ['left', 'left']);
+});
+
+test('tabular rows split on \\\\ and & outside braces, booktabs rules become borders', () => {
+  const body = `
+\\toprule
+Site & Albedo & $n$ \\\\
+\\midrule
+A & 0.61 & 12 \\\\ % comment & ignored
+\\multicolumn{2}{c}{B \\& C} & {1 & 2}\\\\[2pt]
+\\bottomrule
+`;
+  const rows = parseTabular(body, 'lrr', {});
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map(row => row.header), [true, false, false]);
+  assert.deepEqual(rows.map(row => row.ruleAbove), [true, true, false]);
+  assert.equal(rows[2]!.ruleBelow, true);
+  assert.deepEqual(rows[1]!.cells.map(cell => [cell.html, cell.align]), [['A', 'left'], ['0.61', 'right'], ['12', 'right']]);
+  assert.deepEqual(rows[2]!.cells.map(cell => [cell.html, cell.span, cell.align]), [['B &amp; C', 2, 'center'], ['1 &amp; 2', 1, 'right']]);
+  assert.equal(rows[0]!.cells[2]!.html, 'n');
+});
+
+test('preamble text macros expand, in captions and cells too', () => {
+  const macros = {'\\modis': 'MODIS', '\\sensor': '\\textsc{\\modis}'};
+  assert.equal(expandMacros('data from \\modis{} and \\sensor', macros), 'data from MODIS and \\textsc{MODIS}');
+  assert.equal(expandMacros('\\modisx stays', macros), '\\modisx stays');
+  assert.equal(plainCaption('Albedo from \\sensor.', {macros}), 'Albedo from MODIS.');
+});
+
+test('rich captions render math with KaTeX and escape the text around it', () => {
+  const math = {renderToString: (tex: string) => `<k>${tex}</k>`};
+  assert.equal(richInline('Mean $\\alpha$ <5% of \\modis', {macros: {'\\modis': 'MODIS'}}, math), 'Mean <span class="cm-vis-math"><k>\\alpha</k></span> &lt;5% of MODIS');
+  assert.equal(richInline('a \\% b $x$ c', {}, math), 'a % b <span class="cm-vis-math"><k>x</k></span> c');
 });
