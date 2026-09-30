@@ -370,7 +370,9 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     const context = await loadReadingContext(readingRoot, file => readContextFile(file).catch(() => ""), pdfPath?.replace(/\.pdf$/, ".aux"));
     if (generation !== readingContextGeneration) return;
     readingContext = context;
-    win.dispatchEvent(new CustomEvent("atelier-latex-context", {detail: readingContext}));
+    // `root` : l'éditeur visuel résout les \includegraphics depuis le dossier
+    // du document racine, comme LaTeX.
+    win.dispatchEvent(new CustomEvent("atelier-latex-context", {detail: {...readingContext, root: readingRoot}}));
     if (reader?.isReading()) reader.render();
   };
   const ensureReader = (): LatexReadingController | null => {
@@ -671,6 +673,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       fetchImpl: win.fetch.bind(win),
     });
     wrap.refresh();
+    statusBar?.applyVisualEditor();
     const rewrap = createRewrapController({
       editor,
       isTex,
