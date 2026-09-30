@@ -647,8 +647,10 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
    trait gris est une couche calculée sur les rangées visuelles du changement. */
 /* Une rangée sous chaque passage : les autres en retrait, la courante pleine.
    Maquette A (2026-09-30) : rangée alignée sur le texte (le « l. » n'est plus
-   rogné par la gouttière), boutons sans cadre, raccourcis sur la courante. */
-.cm-editor .atelier-review-pill{display:flex;align-items:center;gap:4px;width:max-content;max-width:100%;margin:4px 0 8px 0;padding:0 0 0 10px;
+   rogné par la gouttière), boutons sans cadre, raccourcis sur la courante.
+   Espacement en padding, jamais en marge : une marge verticale sur un widget
+   de bloc décale les clics d'une ligne. */
+.cm-editor .atelier-review-pill{display:flex;align-items:center;gap:4px;width:max-content;max-width:100%;margin:0;padding:4px 0 8px 10px;
   background:transparent;font-family:var(--ui-font);font-size:var(--fs-label, 11px);line-height:1;white-space:nowrap;user-select:none;
   opacity:.55;transition:opacity .12s ease}
 .cm-editor .atelier-review-pill.is-current,.cm-editor .atelier-review-pill:hover{opacity:1}
