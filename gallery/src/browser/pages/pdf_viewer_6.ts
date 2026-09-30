@@ -3147,6 +3147,7 @@ async function annotMenu(a, x: number, y: number){
   fitNote();
   annotPop.style.left = Math.max(8, Math.min(x, innerWidth - annotPop.offsetWidth - 8)) + "px";
   annotPop.style.top = Math.max(8, Math.min(y + 10, innerHeight - annotPop.offsetHeight - 8)) + "px";
+  noteUI.fit(); // recale le décalage de la bulle sur sa nouvelle position
   inp.focus({preventScroll:true});
 }
 // Leaving the note saves its draft instead of silently discarding it.
