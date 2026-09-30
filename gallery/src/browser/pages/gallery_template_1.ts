@@ -733,7 +733,7 @@ function checkHealth(){
 }
 function updateViewChip(){
   const c=(document.getElementById('viewChip') as HTMLSpanElement); if(!c) return;
-  c.classList.toggle('on', !showArch || showHidden || hideRules.length>0);  // a non-default view is active
+  c.classList.toggle('on', showArch || showHidden || hideRules.length>0);  // a non-default view is active
 }
 function buildViewMenu(){
   const menu=(document.getElementById('viewMenu') as HTMLDivElement); if(!menu) return;
@@ -754,7 +754,7 @@ function buildViewMenu(){
     healthRows(healthStatus);
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll<HTMLElement>('[data-theme]').forEach(el=>el.onclick=()=>{ applyTheme(el.dataset.theme); buildViewMenu(); });
-  menu.querySelector<HTMLInputElement>('#vArch').onchange=function(){ showArch=(this as HTMLInputElement).checked; updateViewChip(); render(); };
+  menu.querySelector<HTMLInputElement>('#vArch').onchange=function(){ showArch=(this as HTMLInputElement).checked; updateViewChip(); render(); galleryFileTypesChanged(); };
   menu.querySelector<HTMLInputElement>('#vHidden').onchange=function(){ showHidden=(this as HTMLInputElement).checked; updateViewChip(); render(); };
   menu.querySelectorAll<HTMLElement>('[data-rm]').forEach(el=>el.onclick=()=>{ hideRules=hideRules.filter((x)=>x!==el.dataset.rm); saveRules(); buildViewMenu(); render(); });
   const inp=menu.querySelector<HTMLInputElement>('#ruleInput'), add=menu.querySelector<HTMLButtonElement>('#ruleAdd');
@@ -1724,7 +1724,10 @@ const saveExts = ()=>{
   localStorage.setItem(galleryProjectStorageKey('figExts'), JSON.stringify(exts));
   pushState();
 };
-let showArch = true;
+// Copies de sauvegarde (_archive*, menage_, tmp…) masquées par défaut : elles
+// doublaient chaque .tex d'un badge ARCHIVE (2026-09-30). Interrupteur « Archives »
+// dans le panneau Filtres, ou Settings → Include archives.
+let showArch = false;
 const fmtSize = (b) => b>1048576?(b/1048576).toFixed(1)+' MB':b>1024?(b/1024).toFixed(0)+' KB':b+' B';
 const imgExt = (e) => e==='png'||e==='jpg'||e==='jpeg'||e==='svg';
 const videoExt = (e) => e==='mp4'||e==='m4v'||e==='mov'||e==='webm';
@@ -1839,6 +1842,8 @@ window.__galleryFileTypes={
       pinned:[...pinnedFileTypes],
       presets,
       summary:match?match.label:(activeLabels.length<=2?activeLabels.join(' + '):'Custom file types'),
+      archives:showArch,
+      archiveCount:FILES.filter(f=>f.archive).length,
     };
   },
   setActive(keys){ setGalleryActiveTypes(keys,true); },
@@ -1866,7 +1871,8 @@ window.__galleryFileTypes={
     pushState();
     galleryFileTypesChanged();
   },
-  resetFilters(){ clearAllFilters(); galleryFileTypesChanged(); },
+  setArchives(on){ showArch=on===true; updateViewChip(); render(); galleryFileTypesChanged(); },
+  resetFilters(){ showArch=false; updateViewChip(); clearAllFilters(); galleryFileTypesChanged(); },
 };
 
 const fsel = (document.getElementById('folder') as HTMLSelectElement);
@@ -1975,7 +1981,8 @@ function render(){
     // recherche et types se combinent au lieu que l'un annule l'autre.
     if((!terms.length || formatFilterExplicit) && !exts[f.ext]
       && !(onlyFavs && favs.has(f.rel))) return false;
-    if(!showArch && f.archive) return false;
+    // Choisir un sous-dossier d'archives dans Filtres vaut demande explicite.
+    if(!showArch && f.archive && !(fld && f.folder===fld)) return false;
     if(!showHidden && (hidden.has(f.rel) || matchesRule(f.rel))) return false;
     if(activeCollection && !(collections[activeCollection]||[]).includes(f.rel)) return false;
     if(activeWorkflow && workflow[f.rel]!==activeWorkflow) return false;

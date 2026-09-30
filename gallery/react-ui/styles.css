@@ -187,6 +187,7 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-filter-field>span { color:var(--muted-foreground);flex-shrink:0; }
 .gallery-filter-field [data-slot="select-trigger"] { border:0;background:transparent;box-shadow:none;min-width:0;max-width:180px;padding:5px;font-size:var(--fs-body-s, 12px); }
 .gallery-filter-field [role="switch"][aria-checked="true"] { color:var(--primary); }
+.gallery-filter-hint { margin-left:4px;font-variant-numeric:tabular-nums; }
 .gallery-format-heading { display:flex;align-items:center;justify-content:space-between;color:var(--muted-foreground); }
 .gallery-format-chips { display:flex;flex-wrap:wrap;gap:5px;width:100%; }
 .gallery-format-chips button { border:0;border-radius:6px;background:color-mix(in srgb,var(--foreground) 4%,transparent); }

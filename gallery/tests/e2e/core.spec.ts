@@ -1,6 +1,6 @@
 import { test, expect, type Page, type FrameLocator } from '@playwright/test';
 import { spawnGalleryServer, serveHostPage, freePort, waitForServer } from '../gallery_server.mts';
-import { existsSync, mkdtempSync, readdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -424,6 +424,30 @@ test('filters: workflow filter via popover shows an active chip, reset restores 
     await page.getByRole('button',{name:'Réinitialiser',exact:true}).click();
     await expect(page.locator('#grid .card')).toHaveCount(3);
     await expect(page.locator('[data-gallery-command="filters"]')).not.toContainText(' 1');
+  });
+});
+
+test('filters: archive copies stay hidden until the « Archives » switch is on', async ({ page }) => {
+  // Vécu 2026-09-30 : chaque séance de rédaction copiait les .tex dans
+  // _archives/, et la galerie les montrait tous avec un badge ARCHIVE.
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    await expect(page.locator('#grid .card')).toHaveCount(3);
+    await expect(page.locator('#grid .card.arch')).toHaveCount(0);
+
+    await page.locator('[data-gallery-command="filters"]').click();
+    const archives = page.getByRole('switch', {name:'Afficher les archives'});
+    await expect(archives).not.toBeChecked();
+    await archives.click();
+    await expect(page.locator('#grid .card')).toHaveCount(4);
+    await expect(page.locator('#grid .card.arch')).toHaveCount(1);
+
+    await page.getByRole('button',{name:'Réinitialiser',exact:true}).click();
+    await expect(archives).not.toBeChecked();
+    await expect(page.locator('#grid .card')).toHaveCount(3);
+  }, (root) => {
+    mkdirSync(path.join(root, '_archives', '2026-09-30_1012'), { recursive: true });
+    writeFileSync(path.join(root, '_archives', '2026-09-30_1012', 'plot-alpha.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
   });
 });
 
