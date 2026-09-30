@@ -96,8 +96,8 @@
     text-decoration:none;
     box-decoration-break:clone;-webkit-box-decoration-break:clone;
   }
-  /* Passage réécrit (bloc, nombre de lignes changé) : l'ancienne version
-     au-dessus en gris éteint ; seuls les mots qui partent y sont en rouge. */
+  /* Hors .tex, passage réécrit (bloc, nombre de lignes changé) : l'ancienne
+     version au-dessus en gris éteint ; seuls les mots qui partent y sont en rouge. */
   .cm-editor .cm-deletedChunk .cm-deletedLine{color:var(--muted);background:transparent;text-decoration:none}
   .cm-editor .cm-deletedChunk{padding-bottom:4px}
   /* Le retiré ne garde pas la coloration syntaxique : il se lit d'un seul ton. */
@@ -108,6 +108,10 @@
   .cm-editor.cm-merge-b .cm-changedLine,.cm-editor .cm-inlineChangedLine,.cm-editor .cm-deletedChunk{background:transparent}
   .cm-editor.cm-merge-b .cm-changedLineGutter,.cm-editor .cm-inlineChangedLineGutter{background:var(--review-mod)}
   .cm-editor .cm-deletedLineGutter{background:var(--review-cut)}
+  /* .tex : tout en ligne (review_inline.ts) ; le widget de bloc reste, vide. */
+  .cm-editor.atelier-inline-review .cm-deletedChunk>.cm-deletedLine{display:none}
+  .cm-editor.atelier-inline-review .cm-deletedChunk{padding-bottom:0}
+  .cm-editor.atelier-inline-review .cm-line .cm-deletedText{margin-right:4px}
   .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border);color:var(--text-disabled,#565e6b)}
   .cm-editor .cm-lineNumbers .cm-gutterElement{padding-left:4px;padding-right:4px}
   /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
