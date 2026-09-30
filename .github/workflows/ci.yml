@@ -27,8 +27,13 @@ jobs:
             gallery/whiteboard-src/package-lock.json
             packages/atelier-protocol/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+      # Les deux espaces Cargo : sans le second, `rust/` (atelier-gallery,
+      # atelier-kb-rs, …) se recompilait à froid à chaque passage (~2 min 30).
       - uses: swatinem/rust-cache@v2
-        with: { workspaces: src-tauri }
+        with:
+          workspaces: |
+            src-tauri
+            rust
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       # PDFium : la bibliothèque que charge l'outil atelier-pdf (lecture des
@@ -47,8 +52,6 @@ jobs:
         run: npm --prefix gallery/whiteboard-src ci
       - name: Install shared protocol deps
         run: npm --prefix packages/atelier-protocol ci
-      - name: Install Playwright browsers
-        run: cd gallery && npx playwright install chromium webkit
       - name: Stage bundled resources for Tauri checks
         run: |
           bash scripts/stage-gallery.sh
@@ -57,6 +60,48 @@ jobs:
         run: npm run check:backend-policy
       - name: Verify (typecheck, build, frontend, gallery, Rust)
         run: npm run verify
+
+  # E2E galerie et golden states visuels, sur une seconde machine en parallèle
+  # de `verify` (les deux prenaient ~10 min à la suite dans un seul job). Ils
+  # n'ont besoin que des dépendances npm, des navigateurs et du serveur galerie
+  # Rust ; un échec ici ne masque pas `verify`, et inversement.
+  e2e:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            gallery/package-lock.json
+            gallery/notes-src/package-lock.json
+            gallery/whiteboard-src/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: rust }
+      # PDFium : le mode lecture spawne atelier-pdf, qui charge cette bibliothèque.
+      - name: Fetch PDFium
+        run: bash scripts/fetch-pdfium.sh
+      - name: Install root deps
+        run: npm ci
+      - name: Install gallery deps
+        run: npm --prefix gallery ci
+      - name: Install notes deps
+        run: npm --prefix gallery/notes-src ci
+      - name: Install whiteboard deps
+        run: npm --prefix gallery/whiteboard-src ci
+      - name: Install Playwright browsers
+        run: cd gallery && npx playwright install chromium webkit
+      - name: Build gallery bundles
+        run: bash scripts/stage-gallery.sh
+      # Le serveur que spawnent les specs (gallery/tests/gallery_server.mts),
+      # avec l'outil PDF à côté ; construit ici pour que son temps soit visible.
+      - name: Build gallery server
+        run: cargo build --locked --manifest-path rust/Cargo.toml -p atelier-gallery --bin atelier-gallery-server -p atelier-pdf --bin atelier-pdf
       - name: Gallery E2E
         run: npm run verify:e2e
       - name: Install Playwright Chromium (root, golden states)
