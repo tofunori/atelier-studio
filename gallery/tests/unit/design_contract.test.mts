@@ -61,10 +61,8 @@ const RADIUS_2PX: Record<string, string[]> = {
   ],
   "assets/latex_studio.css": [
     // surlignages de mots du diff
-    ".cm-editor.cm-merge-b .cm-changedText,.cm-editor .cm-insertedLine",
-    ".cm-editor.cm-merge-a .cm-changedText,.cm-editor.cm-merge-b .cm-deletedText,.cm-editor .cm-deletedChunk .cm-deletedLine,.cm-editor .cm-deletedChunk .cm-deletedText",
-    ".cm-editor.cm-merge-b .cm-inlineChangedLine .cm-changedText",
-    ".cm-editor.cm-merge-b .cm-inlineChangedLine .cm-deletedText",
+    ".cm-editor.cm-merge-b .cm-changedText",
+    ".cm-editor.cm-merge-a .cm-changedText,.cm-editor.cm-merge-b .cm-deletedText,.cm-editor .cm-deletedChunk .cm-deletedText",
     ".tr-cut::before",
     ".tr-cut-text",
     ".texc-hl.texc-comment",

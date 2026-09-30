@@ -139,7 +139,10 @@ test("CM6 exposes the official merge renderer behind the engine-neutral diff jou
   assert.match(source, /showMergeDiff:/);
   assert.match(source, /hideMergeDiff:/);
   assert.match(source, /unifiedMergeView/);
-  assert.match(source, /allowInlineDiffs:\s*true/);
+  // En ligne partout ; le .tex dessine lui-même chaque changement dans le
+  // texte (review_inline.ts, 2026-09-30), jamais d'ancienne version en bloc.
+  assert.match(source, /allowInlineDiffs:\s*!texInline/);
+  assert.match(source, /texInline \? reviewInline : \[\]/);
   // Décisions dans le texte (2026-09-10) : mergeControls fabrique les boutons
   // Accepter/Refuser (SVG monochromes, data-decision) quand la revue est
   // inText, sinon délègue à la barre ; jamais de contrôles par défaut CM6.

@@ -77,30 +77,41 @@
   .cm-editor{flex:1;height:auto;font-size:13px;font-family:var(--code-font);line-height:1.62;background:var(--surface-app,var(--bg));color:var(--txt)}
   .cm-editor{min-height:0}
   .cm-editor .cm-scroller{font-family:var(--code-font);overflow-x:auto;overflow-y:scroll}
-  /* Diff : couleurs de mots lisibles sur fonds discrets — ni barré ni souligné
-     (Thierry 2026-09-10), la couleur seule dit ce qui part et ce qui arrive. */
-  .cm-editor{--review-add:#b5d3a7;--review-del:#edaaa5;--review-add-bg:#8caf7021;--review-del-bg:#d86c6321;--review-add-bg-word:#8caf704d;--review-del-bg-word:#d86c634d}
-  .cm-editor.cm-merge-b .cm-changedText,.cm-editor .cm-insertedLine{
-    color:var(--review-add);background:var(--review-add-bg);border-radius:2px;
-    text-decoration:none;
+  /* Diff (maquette A, 2026-09-30) : un seul texte, la couleur seule dit ce qui
+     part et ce qui arrive — ni barré ni souligné (Thierry 2026-09-10). Fond à ras
+     du mot, sans rembourrage : le paragraphe garde sa grille. Le texte ajouté
+     garde sa coloration LaTeX ; seul le texte retiré prend la teinte d'erreur.
+     Aucune teinte de ligne : le trait de gauche situe le passage. Couleurs
+     tirées des jetons d'état du thème. */
+  .cm-editor{--review-ok:var(--status-success,#98c379);--review-cut:var(--status-error,#e06c75);--review-mod:var(--status-warning,#e0b74a);
+    --review-add-bg:color-mix(in srgb,var(--review-ok) 22%,transparent);
+    --review-del:color-mix(in srgb,var(--review-cut) 72%,var(--txt,#d8d3c8));--review-del-bg:color-mix(in srgb,var(--review-cut) 16%,transparent)}
+  .cm-editor.cm-merge-b .cm-changedText{
+    background:var(--review-add-bg);border-radius:2px;text-decoration:none;
     box-decoration-break:clone;-webkit-box-decoration-break:clone;
   }
-  .cm-editor.cm-merge-a .cm-changedText,.cm-editor.cm-merge-b .cm-deletedText,
-  .cm-editor .cm-deletedChunk .cm-deletedLine,.cm-editor .cm-deletedChunk .cm-deletedText{
+  .cm-editor .cm-insertedLine{background:transparent;text-decoration:none}
+  .cm-editor.cm-merge-a .cm-changedText,.cm-editor.cm-merge-b .cm-deletedText,.cm-editor .cm-deletedChunk .cm-deletedText{
     color:var(--review-del);background:var(--review-del-bg);border-radius:2px;
     text-decoration:none;
     box-decoration-break:clone;-webkit-box-decoration-break:clone;
   }
-  .cm-editor .cm-changedText *,.cm-editor .cm-deletedText *,
-  .cm-editor .cm-insertedLine *,.cm-editor .cm-deletedLine *{color:inherit!important}
-  .cm-editor .cm-insertedLine .cm-changedText,
-  .cm-editor .cm-deletedChunk .cm-deletedLine .cm-deletedText{background:transparent}
-  /* Mot changé DANS une ligne (paragraphe .tex) : la ligne est déjà teintée à 8 %
-     par CodeMirror et, sans barré ni souligné, un fond à 13 % s'y fondait — les
-     modifications semblaient manquer (Thierry 2026-09-11). Fond franc sur le mot,
-     et un écart entre l'ancien et le nouveau pour qu'ils ne se lisent pas collés. */
-  .cm-editor.cm-merge-b .cm-inlineChangedLine .cm-changedText{background:var(--review-add-bg-word);padding:0 3px;margin:0 1px;border-radius:2px}
-  .cm-editor.cm-merge-b .cm-inlineChangedLine .cm-deletedText{background:var(--review-del-bg-word);padding:0 3px;margin:0 2px 0 1px;border-radius:2px}
+  /* Hors .tex, passage réécrit (bloc, nombre de lignes changé) : l'ancienne
+     version au-dessus en gris éteint ; seuls les mots qui partent y sont en rouge. */
+  .cm-editor .cm-deletedChunk .cm-deletedLine{color:var(--muted);background:transparent;text-decoration:none}
+  .cm-editor .cm-deletedChunk{padding-bottom:4px}
+  /* Le retiré ne garde pas la coloration syntaxique : il se lit d'un seul ton. */
+  .cm-editor .cm-deletedText *,.cm-editor .cm-deletedLine *{color:inherit!important}
+  /* Ancien puis nouveau dans la même ligne : un écart de 4 px les sépare pour
+     qu'ils ne se lisent pas comme une seule phrase. */
+  .cm-editor.cm-merge-b .cm-inlineChangedLine .cm-deletedText{margin-right:4px}
+  .cm-editor.cm-merge-b .cm-changedLine,.cm-editor .cm-inlineChangedLine,.cm-editor .cm-deletedChunk{background:transparent}
+  .cm-editor.cm-merge-b .cm-changedLineGutter,.cm-editor .cm-inlineChangedLineGutter{background:var(--review-mod)}
+  .cm-editor .cm-deletedLineGutter{background:var(--review-cut)}
+  /* .tex : tout en ligne (review_inline.ts) ; le widget de bloc reste, vide. */
+  .cm-editor.atelier-inline-review .cm-deletedChunk>.cm-deletedLine{display:none}
+  .cm-editor.atelier-inline-review .cm-deletedChunk{padding-bottom:0}
+  .cm-editor.atelier-inline-review .cm-line .cm-deletedText{margin-right:4px}
   .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border);color:var(--text-disabled,#565e6b)}
   .cm-editor .cm-lineNumbers .cm-gutterElement{padding-left:4px;padding-right:4px}
   /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
@@ -638,22 +649,28 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 /* Revue ancrée au passage (variante F2, 2026-09-10) : la pilule est un
    widget inline posé après le dernier caractère du changement courant ; le
    trait gris est une couche calculée sur les rangées visuelles du changement. */
-/* Une rangée sous chaque passage : les autres en retrait, la courante pleine. */
-.cm-editor .atelier-review-pill:not(.is-current){opacity:.7}
-.cm-editor .atelier-review-pill:not(.is-current):hover{opacity:1}
-.cm-editor .atelier-review-pill{display:flex;align-items:center;gap:6px;width:max-content;max-width:100%;margin:4px 0 6px 0;padding:0;
-  background:transparent;font-family:var(--ui-font);font-size:var(--fs-label, 11px);line-height:1;white-space:nowrap;user-select:none}
-.cm-editor .atelier-review-pill .atelier-review-where{color:var(--muted);font-variant-numeric:tabular-nums;margin-right:6px}
+/* Une rangée sous chaque passage : les autres en retrait, la courante pleine.
+   Maquette A (2026-09-30) : rangée alignée sur le texte (le « l. » n'est plus
+   rogné par la gouttière), boutons sans cadre, raccourcis sur la courante.
+   Espacement en padding, jamais en marge : une marge verticale sur un widget
+   de bloc décale les clics d'une ligne. */
+.cm-editor .atelier-review-pill{display:flex;align-items:center;gap:4px;width:max-content;max-width:100%;margin:0;padding:4px 0 8px 10px;
+  background:transparent;font-family:var(--ui-font);font-size:var(--fs-label, 11px);line-height:1;white-space:nowrap;user-select:none;
+  opacity:.55;transition:opacity .12s ease}
+.cm-editor .atelier-review-pill.is-current,.cm-editor .atelier-review-pill:hover{opacity:1}
+.cm-editor .atelier-review-pill .atelier-review-where{color:var(--muted);font-variant-numeric:tabular-nums;margin-right:8px}
 .cm-editor .atelier-review-pill .atelier-review-hint{color:var(--muted);padding:0 4px}
+.cm-editor .atelier-review-pill.is-current:not(.is-readonly)::after{content:"⌥⌫  ⌥↩";margin-left:8px;color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
 /* Symbole seul, bouton carré fin : la couleur dit le sens, rien de plus. */
-.cm-editor .atelier-review-act{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid var(--border-strong,#43474c);border-radius:6px;
-  background:transparent;color:var(--muted);cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease}
+.cm-editor .atelier-review-act{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;
+  background:transparent;color:var(--muted);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.cm-editor .atelier-review-pill.is-current .atelier-review-act{background:color-mix(in srgb,var(--txt) 5%,transparent)}
 .cm-editor .atelier-review-act svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
 .cm-editor .atelier-review-act.keep{color:color-mix(in srgb,var(--status-success,#98c379) 72%,var(--txt))}
-.cm-editor .atelier-review-act.keep:hover{background:color-mix(in srgb,var(--status-success,#98c379) 14%,transparent);border-color:color-mix(in srgb,var(--status-success,#98c379) 70%,transparent)}
+.cm-editor .atelier-review-act.keep:hover{background:color-mix(in srgb,var(--status-success,#98c379) 16%,transparent)}
 .cm-editor .atelier-review-act.drop{color:color-mix(in srgb,var(--status-error,#e06c75) 72%,var(--txt))}
-.cm-editor .atelier-review-act.drop:hover{background:color-mix(in srgb,var(--status-error,#e06c75) 13%,transparent);border-color:color-mix(in srgb,var(--status-error,#e06c75) 70%,transparent)}
-.cm-editor .atelier-review-act.latest{width:auto;padding:0 9px;gap:6px;font:inherit;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.cm-editor .atelier-review-act.drop:hover{background:color-mix(in srgb,var(--status-error,#e06c75) 15%,transparent)}
+.cm-editor .atelier-review-act.latest{width:auto;padding:0 8px;gap:6px;font:inherit;font-size:11px;color:var(--accent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
 .cm-editor .atelier-review-act.latest:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .cm-editor .atelier-review-act:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 .cm-editor .atelier-review-brackets{pointer-events:none}
@@ -664,7 +681,7 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
   box-shadow:var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18));color:var(--txt);font:inherit;font-size:12px;cursor:pointer}
 #left .dv-undo-toast[hidden]{display:none}
 #left .dv-undo-toast:hover{background:var(--card2)}
-@media (prefers-reduced-motion:reduce){.cm-editor .atelier-review-act{transition:none}}
+@media (prefers-reduced-motion:reduce){.cm-editor .atelier-review-act,.cm-editor .atelier-review-pill{transition:none}}
 /* Decision icons live in a narrow gutter, never in the paragraph flow. */
 .cm-editor.atelier-review-gutter .cm-content{padding-left:40px}
 .cm-editor .cm-deletedChunk:has(.atelier-review-decision){position:relative;min-height:0}

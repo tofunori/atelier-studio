@@ -195,6 +195,12 @@ const createDiffVersions = function(opts){
       "#dvStone.on{color:var(--accent,#e8823a)}" +
       "#dvTrack.dot::after{content:\"\";position:absolute;top:3px;right:2px;width:5px;height:5px;" +
       "border-radius:999px;background:var(--accent,#e8823a)}" +
+      "#dvNav .dvMeta{display:inline-flex;align-items:center;gap:8px;margin-left:8px;white-space:nowrap;" +
+        "font-size:var(--fs-label, 11px);color:var(--muted,#8b93a1);font-variant-numeric:tabular-nums}" +
+      "#dvNav .dvMeta[hidden]{display:none}" +
+      "#dvNav .dvMetaAdd{color:var(--status-success,#98c379)}" +
+      "#dvNav .dvMetaDel{color:var(--status-error,#e06c75)}" +
+      "@media(max-width:900px){#dvNav .dvMeta{display:none}}" +
       "#dvNav .dvNavC{min-width:58px;width:auto!important;gap:5px;padding:0 7px!important;font-variant-numeric:tabular-nums;user-select:none}" +
       "#dvNav .dvNavC .dv-count{min-width:14px;text-align:left;font-size:0}" +
       "#dvNav .dvNavC .dv-count::after{content:attr(data-compact);font-size:var(--fs-caption, 10px)}" +
@@ -707,7 +713,7 @@ const createDiffVersions = function(opts){
   function render({navigate = true} = {}){
     const v = curVersion(), cm = getCm();
     if(!v || !cm) return;
-    clearMarks(); changePts = [];
+    clearMarks(); changePts = []; reviewWords = null;
     const after = cm.getValue();
     // cm6 : le diff se rend NATIVEMENT (showMergeDiff) et applyRender ne
     // tourne jamais — mais la vue Lecture a quand même besoin des marques en
@@ -763,7 +769,8 @@ const createDiffVersions = function(opts){
     const apply = (parts, coarse = false, warning = "") => {
       if(requestId !== renderRequestId || !shown || curVersion() !== v || cm.getValue() !== after) return;
       cacheParts(key, {parts, coarse});
-      if(nativeShown){ publishMarks(computeSrcMarks(parts, after)); return; }
+      reviewWords = coarse ? null : wordStats(parts);
+      if(nativeShown){ publishMarks(computeSrcMarks(parts, after)); updateNav(); return; }
       applyRender(v, cm, after, parts, coarse, warning, navigate);
     };
     const cached = renderCache.get(key);
@@ -929,6 +936,10 @@ const createDiffVersions = function(opts){
   // k (lecture seule, buffer réel mis de côté et restauré à la sortie), diffé
   // contre l'état d'avant. ⌥↓/⌥↑ naviguent entre les marques D'UNE vue. ----
   let navPill: HTMLSpanElement = null, navPrev: HTMLButtonElement = null, navNext: HTMLButtonElement = null, navCount: HTMLSpanElement = null;
+  // Maquette A (2026-09-30) : qui a écrit, quand, et combien de mots — à côté
+  // du compteur, seulement pendant la revue.
+  let navMeta: HTMLSpanElement = null;
+  let reviewWords: {added: number; removed: number} | null = null;
   let reviewBusy = false;
   const reviewKey = "texReviewV1:" + path;
   let reviewState: Record<string, ReviewEntry> = {};
@@ -1245,6 +1256,10 @@ const createDiffVersions = function(opts){
       navPill.appendChild(navPrev);
       navPill.appendChild(navCount);
       navPill.appendChild(navNext);
+      navMeta = document.createElement("span");
+      navMeta.className = "dvMeta";
+      navMeta.hidden = true;
+      navPill.appendChild(navMeta);
     } else {
       navPill.appendChild(navPrev);
       ensureRibbon();
@@ -1459,6 +1474,56 @@ const createDiffVersions = function(opts){
     if(navRib.classList) navRib.classList.toggle("off", !active);
     drawRibbon();
   }
+  function authorOf(source: string){
+    if(source === "user-save") return "Sauvegarde";
+    if(source === "restore") return "Restauration";
+    return "Agent"; // écriture externe : un agent (ou un autre outil) a écrit le fichier
+  }
+  function ageOf(ts: number){
+    if(!Number.isFinite(ts) || ts <= 0) return "";
+    const s = Math.max(0, (Date.now() - ts) / 1000);
+    if(s < 60) return "à l’instant";
+    if(s < 3600) return "il y a " + Math.round(s / 60) + " min";
+    if(s < 86400) return "il y a " + Math.round(s / 3600) + " h";
+    return new Date(ts).toLocaleDateString();
+  }
+  /** Mots ajoutés/retirés d'un diff de mots, sans le bruit de rewrap (un même
+   * texte retiré puis remis ailleurs dans la ligne ne compte pas). */
+  function wordStats(parts){
+    const words = (v: string) => (v.match(/[\p{L}\p{N}\\][\p{L}\p{N}_'’\\{}.-]*/gu) || []).length;
+    const wsn = (v: string) => v.replace(/\s+/g, " ").trim();
+    let added = 0, removed = 0;
+    for(let i = 0; i < parts.length; i++){
+      const pt = parts[i], nx = parts[i + 1];
+      if(nx && (pt.added || pt.removed) && (nx.added || nx.removed) && !!pt.added !== !!nx.added
+         && wsn(pt.value) === wsn(nx.value)){ i++; continue; }
+      if(pt.added) added += words(pt.value);
+      else if(pt.removed) removed += words(pt.value);
+    }
+    return {added, removed};
+  }
+  function updateMeta(it){
+    if(!navMeta) return;
+    if(!it){ navMeta.hidden = true; navMeta.textContent = ""; return; }
+    navMeta.textContent = "";
+    const who = document.createElement("span");
+    who.className = "dvMetaWho";
+    const age = ageOf(Number(it.ts));
+    who.textContent = authorOf(it.source) + (age ? " · " + age : "");
+    navMeta.appendChild(who);
+    if(reviewWords && (reviewWords.added || reviewWords.removed)){
+      const add = document.createElement("span");
+      add.className = "dvMetaAdd";
+      add.textContent = "+" + reviewWords.added;
+      const del = document.createElement("span");
+      del.className = "dvMetaDel";
+      del.textContent = "−" + reviewWords.removed;
+      navMeta.append(add, del);
+      navMeta.title = reviewWords.added + " mot" + (reviewWords.added > 1 ? "s" : "") + " ajouté"
+        + (reviewWords.added > 1 ? "s" : "") + ", " + reviewWords.removed + " retiré" + (reviewWords.removed > 1 ? "s" : "");
+    } else navMeta.title = "";
+    navMeta.hidden = false;
+  }
   function updateNav(){
     ensureNavUi();
     if(individualReview){
@@ -1474,6 +1539,7 @@ const createDiffVersions = function(opts){
       els.tag.setAttribute("aria-pressed", String(shown));
       if(els.prev) els.prev.disabled = !shown || changeAt <= 0;
       if(els.next) els.next.disabled = !shown || changeAt >= changePts.length - 1;
+      updateMeta(shown && n ? interList()[navMode] : null);
       return;
     }
     if(!navPill) return;
