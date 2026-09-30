@@ -68,7 +68,15 @@ export function createNoteEditor(host: HTMLElement, options: {
   const status = host.querySelector<HTMLElement>(".annotation-status")!;
   input.value = options.value || "";
   if(memoInput) memoInput.value = options.memo?.value || "";
-  const fit = () => {input.style.height="24px";input.style.height=Math.min(88,input.scrollHeight)+"px";};
+  const field = host.querySelector<HTMLElement>(".atelier-note-field")!;
+  // Au-delà d'une ligne, la pilule devient un rectangle arrondi : ses bouts en
+  // demi-cercle rognaient les lignes du haut et du bas du texte.
+  const fit = () => {
+    input.style.height="24px";
+    const height=input.scrollHeight;
+    input.style.height=Math.min(124,height)+"px";
+    field.classList.toggle("is-multiline",height>28);
+  };
   input.oninput = () => {fit();options.onChange?.(input.value);};
   input.onkeydown = event => {
     event.stopPropagation();
