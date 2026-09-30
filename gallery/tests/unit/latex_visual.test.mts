@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {formatCitation, formatReference} from '../../src/browser/cm6/latex_visual.ts';
+import {displayMathSource, formatCitation, formatReference, imageCandidates, plainCaption} from '../../src/browser/cm6/latex_visual.ts';
 
 const context = {
   citations: {ren2021: {label: 'Ren et al., 2021', title: 'Anisotropy'}, smith2020: {label: 'Smith, 2020'}},
@@ -30,4 +30,27 @@ test('references use the compiled numbers, with the key as fallback', () => {
   const missing = formatReference('\\ref', 'fig:none', context);
   assert.equal(missing.text, 'fig:none');
   assert.equal(missing.resolved, false);
+});
+
+test('display math drops labels and wraps multi-line environments for KaTeX', () => {
+  assert.deepEqual(displayMathSource('equation', '\\label{eq:a}\n a = b\n'), {tex: 'a = b', labels: ['eq:a'], numbered: true});
+  assert.equal(displayMathSource('align*', 'a &= b \\\\ c &= d').tex, '\\begin{aligned}a &= b \\\\ c &= d\\end{aligned}');
+  assert.equal(displayMathSource('align*', 'x').numbered, false);
+  assert.equal(displayMathSource('gather', 'x \\nonumber').tex, '\\begin{gathered}x\\end{gathered}');
+  assert.equal(displayMathSource('displaymath', 'x^2').numbered, false);
+});
+
+test('images resolve like LaTeX: document folders, graphicspath, missing extensions', () => {
+  const found = imageCandidates('trend', ['/p/thesis', '/p/thesis/ch1'], ['figs/']);
+  assert.equal(found[0], '/p/thesis/trend.pdf');
+  assert.ok(found.includes('/p/thesis/figs/trend.png'));
+  assert.ok(found.includes('/p/thesis/ch1/figs/trend.jpg'));
+  assert.deepEqual(imageCandidates('./fig/a.png', ['/p']), ['/p/fig/a.png']);
+  assert.deepEqual(imageCandidates('/abs/a.png', ['/p']), ['/abs/a.png']);
+  assert.deepEqual(imageCandidates('  ', ['/p']), []);
+});
+
+test('captions read as text: formatting stripped, citations and references resolved', () => {
+  assert.equal(plainCaption('Trend of the \\emph{accumulation zone} (\\citep{ren2021}), see Fig.~\\ref{fig:trend} --- 50\\%.\\label{x}', context),
+    'Trend of the accumulation zone ((Ren et al., 2021)), see Fig. 3 \u2014 50%.');
 });

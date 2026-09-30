@@ -2,7 +2,7 @@
 // curseur, source intacte. Rejoué aussi en WebKit (moteur du WKWebView).
 import {test, expect, type Page} from '@playwright/test';
 import {spawnGalleryServer, freePort, stopGalleryServer as stop} from '../gallery_server.mts';
-import {mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
+import {mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {removeTempRoot} from './temp-root.ts';
@@ -22,14 +22,48 @@ const TEX = [
 ].join('\n');
 const BIB = '@article{ren2021, author={Ren, Shaoting and Miles, Evan and Jia, Li}, title={Anisotropy}, year={2021}}\n'
   + '@article{smith2020, author={Smith, John}, title={Glacier albedo}, year={2020}}\n';
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAIAAAA8r+mnAAAAEUlEQVR4nGOwqTiBFTFQTwIANmsvge7E1PgAAAAASUVORK5CYII=';
+const BLOCKS = [
+  '\\documentclass{article}',
+  '\\graphicspath{{figs/}}',
+  '\\begin{document}',
+  'The trend is modelled as',
+  '\\begin{equation}\\label{eq:main}',
+  '  \\alpha_t = \\beta_0 + \\beta_1 t',
+  '\\end{equation}',
+  'and the pooled system reads',
+  '\\begin{align*}',
+  '  a &= b \\\\',
+  '  c &= d',
+  '\\end{align*}',
+  'Key steps:',
+  '\\begin{itemize}',
+  '  \\item filter cloudy pixels;',
+  '  \\item aggregate by zone;',
+  '\\end{itemize}',
+  '\\begin{enumerate}',
+  '  \\item first',
+  '  \\item second',
+  '\\end{enumerate}',
+  '\\begin{figure}[t]',
+  '  \\centering',
+  '  \\includegraphics[width=\\linewidth]{trend}',
+  '  \\caption{Albedo trend of the \\emph{accumulation zone}.}\\label{fig:trend}',
+  '\\end{figure}',
+  'See Figure~\\ref{fig:trend}.',
+  '\\end{document}',
+  '',
+].join('\n');
 const AUX = '\\relax\n\\bibdata{refs}\n\\newlabel{sec:trend}{{1}{1}}\n\\newlabel{fig:trend}{{3}{2}}\n\\newlabel{eq:main}{{1}{2}}\n';
 
-async function withProject(run: (ctx: {root: string; target: string; url: string}) => Promise<void>) {
+async function withProject(run: (ctx: {root: string; target: string; url: string}) => Promise<void>, tex = TEX) {
   const root = mkdtempSync(path.join(tmpdir(), 'atelier-visual-'));
   const target = path.join(root, 'main.tex');
   let server;
   try {
-    writeFileSync(target, TEX);
+    writeFileSync(target, tex);
+    mkdirSync(path.join(root, 'figs'));
+    writeFileSync(path.join(root, 'figs', 'trend.png'), Buffer.from(PNG, 'base64'));
     writeFileSync(path.join(root, 'refs.bib'), BIB);
     writeFileSync(path.join(root, 'main.aux'), AUX);
     const port = await freePort();
@@ -47,9 +81,9 @@ async function openVisual(page: Page, url: string) {
   await expect(page.locator('#toolbarVisual')).toHaveAttribute('aria-pressed', 'false');
   await page.locator('#toolbarVisual').click();
   await expect(page.locator('#toolbarVisual')).toHaveAttribute('aria-pressed', 'true');
-  // Curseur hors de toute construction : tout est rendu.
-  await page.evaluate(() => cm.setCursor({line: 9, ch: 0}));
-  await expect(page.locator('.cm-vis-cite').first()).toBeVisible();
+  await expect(page.locator('.cm-editor.cm-latex-visual')).toBeVisible();
+  // Curseur hors de toute construction (avant-dernière ligne) : tout est rendu.
+  await page.evaluate(() => cm.setCursor({line: cm.lineCount() - 2, ch: 0}));
 }
 
 const chips = (page: Page) => page.locator('.cm-vis-chip').allTextContents();
@@ -139,4 +173,32 @@ test('LaTeX visuel : la revue des modifications montre la source brute', async (
     await page.evaluate(() => cm.setCursor({line: 9, ch: 0}));
     await expect(page.locator('.cm-vis-cite').first()).toBeVisible();
   });
+});
+
+test('LaTeX visuel : équations centrées, listes et figures en bloc, source sous le curseur', async ({page}) => {
+  await withProject(async ({url}) => {
+    await openVisual(page, url);
+    const lines = BLOCKS.split('\n');
+    const last = lines.length - 2;
+    await page.evaluate((l) => cm.setCursor({line: l, ch: 0}), last);
+    await expect(page.locator('.cm-vis-display')).toHaveCount(2);
+    await expect(page.locator('.cm-vis-display-number')).toHaveText(['(1)']);
+    await expect.poll(() => page.locator('.cm-vis-item').allTextContents()).toEqual(['\u2022', '\u2022', '1.', '2.']);
+    await expect(page.locator('.cm-line', {hasText: '\\begin{itemize}'})).toHaveCount(0);
+    await expect(page.locator('.cm-vis-figure-caption')).toHaveText('Figure 3 : Albedo trend of the accumulation zone.');
+    await expect.poll(() => page.locator('.cm-vis-figure img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    // Clic sur l'équation : sa source s'ouvre, les autres blocs restent rendus.
+    await page.locator('.cm-vis-display').first().click();
+    await expect(page.locator('.cm-vis-display')).toHaveCount(1);
+    await expect(page.locator('.cm-line', {hasText: '\\alpha_t = \\beta_0'})).toHaveCount(1);
+    // Frappe dans un \item : la liste reste en place (ses lignes \begin restent cachées).
+    const item = lines.findIndex(line => line.includes('filter cloudy'));
+    await page.evaluate(([l, ch]) => { cm.setCursor({line: l, ch}); cm.focus(); }, [item, lines[item].length - 1]);
+    await page.keyboard.type(' first');
+    await expect.poll(() => page.evaluate((l) => cm.getLine(l), item)).toBe('  \\item filter cloudy pixels first;');
+    await expect(page.locator('.cm-line', {hasText: '\\begin{itemize}'})).toHaveCount(0);
+    await expect(page.locator('.cm-vis-display')).toHaveCount(2);
+    // Le document entier n'a changé que de la frappe.
+    expect(await page.evaluate(() => cm.getValue())).toBe(BLOCKS.replace('pixels;', 'pixels first;'));
+  }, BLOCKS);
 });

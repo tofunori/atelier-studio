@@ -7,10 +7,11 @@
 // construction touchée par le curseur (ou par une extrémité de la sélection)
 // se montre en source ; ailleurs, elle est rendue.
 //
-// Étape 1 : titres, italique/gras/petites capitales/machine/souligné,
-// citations et renvois en pastilles, étiquettes, maths en ligne (KaTeX),
-// typographie (~, --, ---, ``…'', \%). Les équations centrées, figures,
-// listes et tableaux restent en source pour l'instant.
+// Rendu : titres, italique/gras/petites capitales/machine/souligné,
+// citations et renvois en pastilles, étiquettes, maths en ligne et centrées
+// (KaTeX, numéro tiré du .aux), figures (image + légende), listes à puces et
+// numérotées, typographie (~, --, ---, ``…'', \%). Les tableaux et les
+// macros du préambule restent en source pour l'instant.
 //
 // Contraintes (docs/PIEGES_CONNUS.md) :
 // - n°15 : rien de coûteux sur un mouvement de curseur. Les candidats sont
@@ -22,7 +23,7 @@
 //   les décorations sont figées ; elles suivent au relâchement.
 // - Une décoration fournie par un plugin ne peut pas remplacer un saut de
 //   ligne : toute construction qui en traverse un reste en source.
-import {StateEffect, type EditorState, type Extension, type Range, type SelectionRange} from "@codemirror/state";
+import {StateEffect, StateField, type ChangeDesc, type Transaction, type EditorState, type Extension, type Range, type SelectionRange} from "@codemirror/state";
 import {Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType} from "@codemirror/view";
 import {syntaxTree} from "@codemirror/language";
 import type {SyntaxNode, SyntaxNodeRef} from "@lezer/common";
@@ -41,6 +42,8 @@ export interface LatexVisualOptions {
   getContext(): VisualContext;
   /** KaTeX de la page (window.katex) ; absent : les maths restent en source. */
   getMath?(): VisualMath | null | undefined;
+  /** Dossiers où chercher les images (\includegraphics) : racine du document, fichier courant. */
+  getImageBases?(): string[];
   /** Vrai quand une vue ne doit rien cacher (revue des modifications ouverte). */
   suspended?(state: EditorState): boolean;
 }
@@ -107,13 +110,13 @@ class MathWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
-function renderMath(math: VisualMath, tex: string, macros: Record<string, string>, macroKey: string): string | null {
-  const key = `${macroKey}\u0000${tex}`;
+function renderMath(math: VisualMath, tex: string, macros: Record<string, string>, macroKey: string, displayMode = false): string | null {
+  const key = `${displayMode ? "D" : "I"}${macroKey}\u0000${tex}`;
   const cached = mathCache.get(key);
   if (cached !== undefined) return cached;
   let html: string;
   try {
-    html = math.renderToString(tex, {displayMode: false, throwOnError: true, macros: {...macros}});
+    html = math.renderToString(tex, {displayMode, throwOnError: true, macros: {...macros}});
   } catch {
     // Formule que KaTeX ne sait pas lire : la laisser en source plutôt que
     // d'afficher un rendu d'erreur au milieu de la prose.
@@ -253,6 +256,42 @@ function mathCandidate(state: EditorState, node: SyntaxNode, math: VisualMath | 
   return {from: node.from, to: node.to, always: [], rendered: replaced(state, node.from, node.to, new MathWidget(html))};
 }
 
+/** Rang d'un \item dans SA liste (les listes imbriquées comptent à part). */
+function itemIndex(item: SyntaxNode, list: SyntaxNode): number {
+  let index = 0;
+  const cursor = list.cursor();
+  while (cursor.next() && cursor.from < item.from) {
+    if (cursor.name !== "Item") continue;
+    let owner = cursor.node.parent;
+    while (owner && owner.name !== "ListEnvironment") owner = owner.parent;
+    if (owner && owner.from === list.from) index++;
+  }
+  return index + 1;
+}
+
+function itemCandidate(state: EditorState, node: SyntaxNode): Candidate | null {
+  let list = node.parent;
+  let depth = 0;
+  for (let owner: SyntaxNode | null = node.parent; owner; owner = owner.parent) if (owner.name === "ListEnvironment") depth++;
+  while (list && list.name !== "ListEnvironment") list = list.parent;
+  if (!list) return null;
+  const kind = state.sliceDoc(list.getChild("BeginEnv")?.from ?? list.from, list.getChild("BeginEnv")?.to ?? list.from);
+  const option = node.getChild("OptionalArgument");
+  let marker = "\u2022";
+  if (option) marker = argumentText(state, option).replace(/~/g, " ").trim();
+  else if (/\{enumerate\}/.test(kind)) marker = `${itemIndex(node, list)}.`;
+  // En tête de ligne : l'indentation source et \item cèdent la place à une
+  // puce en retrait suspendu (les lignes repliées s'alignent sur le texte) ;
+  // 10 px = marge gauche des lignes du thème (studio_editor.ts, .cm-line).
+  const line = state.doc.lineAt(node.from);
+  const leading = !state.sliceDoc(line.from, node.from).trim();
+  const from = leading ? line.from : node.from;
+  const always: Range<Decoration>[] = leading
+    ? [Decoration.line({class: "cm-vis-li", attributes: {style: `padding-left:${10 + depth * 24}px;text-indent:-24px`}}).range(line.from)]
+    : [];
+  return {from: node.from, to: node.to, always, rendered: replaced(state, from, node.to, new TextWidget(marker, option ? "cm-vis-item cm-vis-item-label" : "cm-vis-item"))};
+}
+
 function typographyCandidates(state: EditorState, node: SyntaxNodeRef, out: Candidate[]) {
   const text = state.sliceDoc(node.from, node.to);
   TYPOGRAPHY.lastIndex = 0;
@@ -290,6 +329,7 @@ export function collectCandidates(state: EditorState, ranges: ReadonlyArray<{fro
           case "Cite": push(citeCandidate(state, ref.node, context)); return false;
           case "Ref": push(refCandidate(state, ref.node, context)); return false;
           case "Label": push(labelCandidate(state, ref.node)); return false;
+          case "Item": push(itemCandidate(state, ref.node)); return false;
           case "DollarMath": case "ParenMath": push(mathCandidate(state, ref.node, math, context, macroKey)); return false;
           case "BracketMath": case "DisplayMath": case "Comment": return false;
           case "Tilde": {
@@ -342,6 +382,358 @@ export function buildDecorations(candidates: readonly Candidate[], ranges: reado
   return Decoration.set(all, true);
 }
 
+// -------------------------------------------------------------- blocs ----
+//
+// Équations centrées, figures, lignes \begin/\end des listes : ces rendus
+// remplacent des lignes entières, donc ils doivent venir d'un StateField
+// (CodeMirror refuse qu'un plugin remplace un saut de ligne).
+
+/** Geste de souris en cours : rien ne s'ouvre ni ne se ferme sous le pointeur. */
+const setGesture = StateEffect.define<boolean>();
+const gestureField = StateField.define<boolean>({
+  create: () => false,
+  update: (value, tr) => {
+    for (const effect of tr.effects) if (effect.is(setGesture)) return effect.value;
+    return value;
+  },
+});
+
+const MATH_ARRAY_WRAP: Record<string, string> = {
+  align: "aligned", flalign: "aligned", alignat: "alignedat", gather: "gathered", multline: "gathered", eqnarray: "array",
+};
+
+/** Source KaTeX d'un environnement mathématique centré (sans \label, \nonumber). */
+export function displayMathSource(envName: string, body: string): {tex: string; labels: string[]; numbered: boolean} {
+  const labels: string[] = [];
+  let tex = body.replace(/\\label\{([^}]*)\}/g, (_m, key: string) => { labels.push(key.trim()); return ""; })
+    .replace(/\\(nonumber|notag)\b/g, "").trim();
+  const base = envName.replace(/\*$/, "");
+  const numbered = !envName.endsWith("*") && base !== "displaymath";
+  const wrap = MATH_ARRAY_WRAP[base];
+  if (wrap === "array") tex = `\\begin{array}{rcl}${tex}\\end{array}`;
+  else if (wrap === "alignedat") tex = `\\begin{alignedat}${tex}\\end{alignedat}`;
+  else if (wrap) tex = `\\begin{${wrap}}${tex}\\end{${wrap}}`;
+  return {tex, labels, numbered};
+}
+
+/** Chemins possibles d'une image \includegraphics (sans extension, \graphicspath). */
+export function imageCandidates(rel: string, bases: readonly string[], graphicsPaths: readonly string[] = []): string[] {
+  const clean = rel.trim().replace(/^\.\//, "");
+  if (!clean) return [];
+  const hasExt = /\.(pdf|png|jpe?g|gif|svg|eps|webp)$/i.test(clean);
+  const names = hasExt ? [clean] : [".pdf", ".png", ".jpg", ".jpeg", ""].map(ext => clean + ext);
+  const out: string[] = [];
+  const dirs = clean.startsWith("/") ? [""] : bases.flatMap(base => ["", ...graphicsPaths].map(prefix => {
+    const dir = base.replace(/\/+$/, "");
+    const sub = prefix.replace(/^\.\//, "").replace(/\/+$/, "");
+    return sub ? (sub.startsWith("/") ? sub : `${dir}/${sub}`) : dir;
+  }));
+  for (const dir of dirs) for (const name of names) {
+    const full = dir ? `${dir}/${name}` : name;
+    if (!out.includes(full)) out.push(full);
+  }
+  return out;
+}
+
+class DisplayMathWidget extends WidgetType {
+  readonly html: string;
+  readonly number: string;
+  constructor(html: string, number: string) {
+    super();
+    this.html = html;
+    this.number = number;
+  }
+  eq(other: DisplayMathWidget) { return other.html === this.html && other.number === this.number; }
+  toDOM() {
+    const box = document.createElement("div");
+    box.className = "cm-vis-display";
+    const body = document.createElement("div");
+    body.className = "cm-vis-display-body";
+    body.innerHTML = this.html;
+    box.appendChild(body);
+    if (this.number) {
+      const number = document.createElement("span");
+      number.className = "cm-vis-display-number";
+      number.textContent = `(${this.number})`;
+      box.appendChild(number);
+    }
+    return box;
+  }
+  ignoreEvent() { return false; }
+}
+
+class FigureWidget extends WidgetType {
+  readonly sources: string[][];
+  readonly caption: string;
+  readonly number: string;
+  constructor(sources: string[][], caption: string, number: string) {
+    super();
+    this.sources = sources;
+    this.caption = caption;
+    this.number = number;
+  }
+  eq(other: FigureWidget) {
+    return other.caption === this.caption && other.number === this.number
+      && JSON.stringify(other.sources) === JSON.stringify(this.sources);
+  }
+  toDOM() {
+    const figure = document.createElement("div");
+    figure.className = "cm-vis-figure";
+    const row = document.createElement("div");
+    row.className = "cm-vis-figure-images";
+    for (const candidates of this.sources) {
+      const image = document.createElement("img");
+      image.alt = "";
+      image.draggable = false;
+      let next = 0;
+      const tryNext = () => {
+        const url = candidates[next++];
+        if (!url) { image.replaceWith(Object.assign(document.createElement("span"), {className: "cm-vis-figure-missing", textContent: "Image introuvable"})); return; }
+        image.src = url;
+      };
+      image.onerror = tryNext;
+      tryNext();
+      row.appendChild(image);
+    }
+    if (this.sources.length) figure.appendChild(row);
+    if (this.caption || this.number) {
+      const caption = document.createElement("div");
+      caption.className = "cm-vis-figure-caption";
+      if (this.number) {
+        const label = document.createElement("span");
+        label.className = "cm-vis-figure-label";
+        label.textContent = `Figure ${this.number}`;
+        caption.appendChild(label);
+        if (this.caption) caption.appendChild(document.createTextNode(" : "));
+      }
+      caption.appendChild(document.createTextNode(this.caption));
+      figure.appendChild(caption);
+    }
+    return figure;
+  }
+  ignoreEvent() { return false; }
+}
+
+class HiddenLineWidget extends WidgetType {
+  eq() { return true; }
+  toDOM() {
+    const line = document.createElement("div");
+    line.className = "cm-vis-hidden-line";
+    return line;
+  }
+  ignoreEvent() { return false; }
+}
+const hiddenLine = new HiddenLineWidget();
+
+/** Légende lisible : commandes de mise en forme retirées, pas de rendu riche. */
+export function plainCaption(source: string, context: VisualContext): string {
+  let text = source;
+  for (let pass = 0; pass < 3; pass++) {
+    text = text.replace(/\\(?:emph|textit|textbf|textsc|texttt|underline|textsl|mbox|text)\{([^{}]*)\}/g, "$1");
+  }
+  return text
+    .replace(/\\label\{[^}]*\}/g, "")
+    .replace(/\\(?:cite[a-z]*|parencite|textcite|autocite)(?:\[[^\]]*\])*\{([^}]*)\}/g, (_m, keys: string) =>
+      formatCitation("\\citep", [], keys.split(","), context).text)
+    .replace(/\\(eqref|ref|cref|Cref|autoref)\{([^}]*)\}/g, (_m, kind: string, key: string) => formatReference(`\\${kind}`, key.trim(), context).text)
+    .replace(/\$([^$]*)\$/g, "$1")
+    .replace(/~/g, " ").replace(/\\%/g, "%").replace(/\\&/g, "&").replace(/---/g, "—").replace(/--/g, "–")
+    .replace(/\\[a-zA-Z]+\*?/g, "").replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
+}
+
+interface BlockCandidate {
+  /** Zone qui, touchée par le curseur, se montre en source. */
+  from: number;
+  to: number;
+  decorations: Range<Decoration>[];
+}
+
+export interface BlockEnvironment {
+  getContext(): VisualContext;
+  getMath(): VisualMath | null;
+  getImageBases(): string[];
+}
+
+/** Débords de la ligne : seul du blanc autour de [from, to] ? */
+function wholeLines(state: EditorState, from: number, to: number): {from: number; to: number} | null {
+  const first = state.doc.lineAt(from);
+  const last = state.doc.lineAt(to);
+  if (state.sliceDoc(first.from, from).trim() || state.sliceDoc(to, last.to).trim()) return null;
+  return {from: first.from, to: last.to};
+}
+
+const blockReplace = (from: number, to: number, widget: WidgetType) =>
+  Decoration.replace({widget, block: true}).range(from, to);
+
+function numberFor(labels: readonly string[], context: VisualContext): string {
+  for (const label of labels) {
+    const number = context.references?.[label];
+    if (number) return number;
+  }
+  return "";
+}
+
+/** Toutes les constructions en bloc du document. Parcours élagué : ni prose, ni commandes. */
+export function collectBlocks(state: EditorState, env: BlockEnvironment): BlockCandidate[] {
+  const context = env.getContext() || {};
+  const math = env.getMath();
+  const macroKey = JSON.stringify(Object.entries(context.macros || {}).sort(([a], [b]) => a.localeCompare(b)));
+  const graphicsPaths = [...state.doc.sliceString(0, Math.min(state.doc.length, 20000)).matchAll(/\\graphicspath\{((?:\{[^}]*\})+)\}/g)]
+    .flatMap(match => [...match[1]!.matchAll(/\{([^}]*)\}/g)].map(group => group[1]!));
+  const out: BlockCandidate[] = [];
+  const displayMath = (node: SyntaxNode, envName: string, body: string, labels: string[] = []) => {
+    if (!math) return;
+    const lines = wholeLines(state, node.from, node.to);
+    if (!lines) return;
+    const source = displayMathSource(envName, body);
+    if (!source.tex) return;
+    const html = renderMath(math, source.tex, context.macros || {}, macroKey, true);
+    if (!html) return;
+    const number = source.numbered ? numberFor([...labels, ...source.labels], context) : "";
+    out.push({from: node.from, to: node.to, decorations: [blockReplace(lines.from, lines.to, new DisplayMathWidget(html, number))]});
+  };
+  syntaxTree(state).iterate({
+    enter(ref) {
+      switch (ref.name) {
+        case "EquationEnvironment": case "EquationArrayEnvironment": {
+          const node = ref.node;
+          const name = state.sliceDoc(node.getChild("BeginEnv")?.getChild("EnvNameGroup")?.from ?? node.from, node.getChild("BeginEnv")?.getChild("EnvNameGroup")?.to ?? node.from).replace(/[{}]/g, "");
+          const content = node.getChild("Content");
+          if (name && content) displayMath(node, name, state.sliceDoc(content.from, content.to));
+          return false;
+        }
+        case "BracketMath": {
+          const body = ref.node.getChild("Math");
+          if (body) displayMath(ref.node, "displaymath", state.sliceDoc(body.from, body.to));
+          return false;
+        }
+        case "DollarMath": {
+          const display = ref.node.getChild("DisplayMath")?.getChild("Math");
+          if (display) displayMath(ref.node, "displaymath", state.sliceDoc(display.from, display.to));
+          return false;
+        }
+        case "FigureEnvironment": {
+          const node = ref.node;
+          const lines = wholeLines(state, node.from, node.to);
+          if (!lines) return false;
+          const images: string[][] = [];
+          const labels: string[] = [];
+          let caption = "";
+          const cursor = node.cursor();
+          const bases = env.getImageBases();
+          while (cursor.next() && cursor.from < node.to) {
+            if (cursor.name === "IncludeGraphicsArgument") {
+              const rel = state.sliceDoc(cursor.from, cursor.to).replace(/^\{|\}$/g, "");
+              const candidates = imageCandidates(rel, bases, graphicsPaths).map(path => `/thumb?path=${encodeURIComponent(path)}&w=1200`);
+              if (candidates.length) images.push(candidates);
+            } else if (cursor.name === "Caption" && !caption) {
+              const argument = cursor.node.getChild("TextArgument");
+              if (argument) caption = plainCaption(state.sliceDoc(argument.from + 1, argument.to - 1), context);
+            } else if (cursor.name === "LabelArgument") {
+              labels.push(state.sliceDoc(cursor.from, cursor.to).replace(/^\{|\}$/g, "").trim());
+            }
+          }
+          out.push({from: node.from, to: node.to, decorations: [blockReplace(lines.from, lines.to, new FigureWidget(images, caption, numberFor(labels, context)))]});
+          return false;
+        }
+        case "ListEnvironment": {
+          // Les lignes \begin{itemize} / \end{itemize} disparaissent ; chacune
+          // ne s'ouvre que si le curseur la touche (éditer un \item ne fait
+          // pas bouger la liste).
+          for (const part of [ref.node.getChild("BeginEnv"), ref.node.getChild("EndEnv")]) {
+            if (!part) continue;
+            const lines = wholeLines(state, part.from, part.to);
+            if (lines && lines.from === state.doc.lineAt(part.from).from && state.doc.lineAt(part.from).number === state.doc.lineAt(part.to).number) {
+              out.push({from: part.from, to: part.to, decorations: [blockReplace(lines.from, lines.to, hiddenLine)]});
+            }
+          }
+          return true;
+        }
+        // Rien de ce qui suit ne contient d'environnement en bloc : élaguer.
+        case "Command": case "Normal": case "Whitespace": case "NewLine": case "Comment":
+        case "ParenMath": case "Math": return false;
+      }
+      return true;
+    },
+  });
+  return out;
+}
+
+interface BlockState {
+  blocks: BlockCandidate[];
+  revealed: string;
+  decorations: DecorationSet;
+}
+
+function revealBlocks(blocks: readonly BlockCandidate[], state: EditorState): {revealed: string; decorations: DecorationSet} {
+  const ranges = state.selection.ranges;
+  const editable = state.facet(EditorView.editable);
+  let revealed = "";
+  const all: Range<Decoration>[] = [];
+  blocks.forEach((block, index) => {
+    if (editable && touches(ranges, block.from, block.to)) { revealed += `${index},`; return; }
+    all.push(...block.decorations);
+  });
+  return {revealed, decorations: Decoration.set(all, true)};
+}
+
+const PROSE_EDIT = /^[^\\$%{}[\]&#^_~\n]*$/;
+/** Modification de prose pure, loin de tout bloc : aucun bloc ne peut naître ni changer. */
+function proseOnly(tr: Transaction, blocks: readonly BlockCandidate[]): boolean {
+  let prose = true;
+  tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+    if (!prose) return;
+    if (!PROSE_EDIT.test(inserted.toString()) || !PROSE_EDIT.test(tr.startState.sliceDoc(fromA, toA))) { prose = false; return; }
+    // Une lettre dans \begin{equatio|} ou entre $…$ peut faire naître un bloc.
+    const line = tr.startState.doc.lineAt(fromA);
+    if (/\\(begin|end|\[|\])|\$\$/.test(line.text)) { prose = false; return; }
+    for (const block of blocks) if (fromA <= block.to && toA >= block.from) { prose = false; return; }
+  });
+  return prose;
+}
+
+function mapBlock(block: BlockCandidate, changes: ChangeDesc): BlockCandidate {
+  return {
+    from: changes.mapPos(block.from, 1),
+    to: changes.mapPos(block.to, -1),
+    decorations: block.decorations.map(range => range.value.range(changes.mapPos(range.from, 1), changes.mapPos(range.to, -1))),
+  };
+}
+
+function blockField(env: BlockEnvironment, suspended?: (state: EditorState) => boolean) {
+  const build = (state: EditorState): BlockState => {
+    if (suspended?.(state)) return {blocks: [], revealed: "", decorations: Decoration.none};
+    const blocks = collectBlocks(state, env);
+    return {blocks, ...revealBlocks(blocks, state)};
+  };
+  return StateField.define<BlockState>({
+    create: build,
+    update(value, tr) {
+      const gesture = tr.state.field(gestureField, false);
+      const refresh = tr.effects.some(effect => effect.is(refreshLatexVisual) || effect.is(setGesture));
+      // Frappe de prose hors de tout bloc : décaler les blocs suffit, sans
+      // reparcourir le document (piège n°15 : rien de coûteux par caractère).
+      if (tr.docChanged && !refresh && proseOnly(tr, value.blocks)) {
+        const blocks = value.blocks.map(block => mapBlock(block, tr.changes));
+        return {blocks, ...revealBlocks(blocks, tr.state)};
+      }
+      // L'arbre qui change sans que le texte change = l'analyse avance
+      // (long document) : ne reconstruire que si elle couvre plus de texte.
+      const parsed = !tr.docChanged && syntaxTree(tr.state).length !== syntaxTree(tr.startState).length;
+      const structural = tr.docChanged || refresh || parsed
+        || tr.startState.facet(EditorView.editable) !== tr.state.facet(EditorView.editable)
+        || (suspended?.(tr.state) ?? false) !== (suspended?.(tr.startState) ?? false);
+      if (gesture && !tr.docChanged) return value;
+      if (structural) return build(tr.state);
+      if (!tr.selection) return value;
+      const next = revealBlocks(value.blocks, tr.state);
+      if (next.revealed === value.revealed) return value;
+      return {blocks: value.blocks, ...next};
+    },
+    provide: field => EditorView.decorations.from(field, value => value.decorations),
+  });
+}
+
 // -------------------------------------------------------------- plugin ----
 
 export function latexVisual(options: LatexVisualOptions): Extension {
@@ -349,25 +741,24 @@ export function latexVisual(options: LatexVisualOptions): Extension {
     decorations: DecorationSet = Decoration.none;
     candidates: Candidate[] = [];
     revealed = "";
-    pointerDown = false;
     readonly onPointerDown: (event: MouseEvent) => void;
     readonly onPointerUp: () => void;
     readonly onContext: () => void;
-
     readonly view: EditorView;
 
     constructor(view: EditorView) {
       this.view = view;
-      this.onPointerDown = (event) => { if (event.button === 0) this.pointerDown = true; };
+      // Capture : le geste est déclaré AVANT que CodeMirror ne pose la
+      // sélection du mousedown, sinon la construction s'ouvrirait sous la souris.
+      this.onPointerDown = (event) => {
+        if (event.button === 0 && !this.view.state.field(gestureField)) this.view.dispatch({effects: setGesture.of(true)});
+      };
       this.onPointerUp = () => {
-        if (!this.pointerDown) return;
-        this.pointerDown = false;
-        // Hors du cycle de mise à jour : relancer le calcul au relâchement.
-        queueMicrotask(() => { if (this.view.dom.isConnected) this.view.dispatch({effects: refreshLatexVisual.of(null)}); });
+        if (!this.view.state.field(gestureField, false)) return;
+        // Après la sélection du mouseup de CodeMirror, hors de son cycle.
+        queueMicrotask(() => { if (this.view.dom.isConnected) this.view.dispatch({effects: setGesture.of(false)}); });
       };
       this.onContext = () => { if (this.view.dom.isConnected) this.view.dispatch({effects: refreshLatexVisual.of(null)}); };
-      // Capture : le drapeau doit être levé AVANT que CodeMirror ne pose la
-      // sélection du mousedown, sinon la construction s'ouvrirait sous la souris.
       view.dom.addEventListener("mousedown", this.onPointerDown, true);
       view.dom.ownerDocument.addEventListener("mouseup", this.onPointerUp, true);
       view.dom.ownerDocument.addEventListener("pointercancel", this.onPointerUp, true);
@@ -389,17 +780,14 @@ export function latexVisual(options: LatexVisualOptions): Extension {
     }
 
     update(update: ViewUpdate) {
-      const structural = update.docChanged || update.viewportChanged
+      const refresh = update.transactions.some(tr => tr.effects.some(effect => effect.is(refreshLatexVisual) || effect.is(setGesture)));
+      const structural = update.docChanged || update.viewportChanged || refresh
         || syntaxTree(update.state) !== syntaxTree(update.startState)
-        || update.transactions.some(tr => tr.effects.some(effect => effect.is(refreshLatexVisual)))
         || update.startState.facet(EditorView.editable) !== update.state.facet(EditorView.editable)
         || (options.suspended?.(update.state) ?? false) !== (options.suspended?.(update.startState) ?? false);
       // Geste de souris en cours : ne rien reconstruire sur un simple
       // déplacement de sélection (piège n°17), le relâchement relance.
-      if (this.pointerDown && !update.docChanged) {
-        if (update.viewportChanged) this.decorations = this.decorations.map(update.changes);
-        return;
-      }
+      if (update.state.field(gestureField) && !update.docChanged) return;
       if (structural) { this.recompute(update.view); return; }
       if (!update.selectionSet) return;
       const ranges = update.state.selection.ranges;
@@ -417,5 +805,11 @@ export function latexVisual(options: LatexVisualOptions): Extension {
     }
   }, {decorations: value => value.decorations});
 
-  return [plugin, EditorView.editorAttributes.of({class: "cm-latex-visual"})];
+  const blocks = blockField({
+    getContext: () => options.getContext() || {},
+    getMath: () => options.getMath?.() || null,
+    getImageBases: () => options.getImageBases?.() || [],
+  }, options.suspended);
+
+  return [gestureField, blocks, plugin, EditorView.editorAttributes.of({class: "cm-latex-visual"})];
 }

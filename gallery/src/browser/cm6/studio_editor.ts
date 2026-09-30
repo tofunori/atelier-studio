@@ -112,7 +112,7 @@ const THEME_PALETTES = {
   "solarized-dark": {bg: "#002b36", fg: "#839496", gutter: "#586e75", gutterActive: "#eee8d5", accent: "#d30102", selection: "#004454aa", active: "#00cafe11", panel: "#00232c", surface: "#073642", border: "#586e75"},
 };
 
-let bibliographyContext: {citations?: Record<string, {label?: string; title?: string; url?: string}>; references?: Record<string, string>; macros?: Record<string, string>} = {};
+let bibliographyContext: {citations?: Record<string, {label?: string; title?: string; url?: string}>; references?: Record<string, string>; macros?: Record<string, string>; root?: string | null} = {};
 if (typeof window !== "undefined") window.addEventListener("atelier-latex-context", event => { bibliographyContext = (event as CustomEvent).detail || {}; });
 function bibliographyCompletion(ctx) {
   const before = ctx.state.sliceDoc(Math.max(0, ctx.pos - 160), ctx.pos);
@@ -560,7 +560,14 @@ const gutterField = StateField.define({
   },
 });
 
+// Lue sur l'état (facette), pas sur le DOM : les attributs de l'éditeur ne
+// sont posés qu'après la mise à jour des plugins.
+const isLatexVisual = (view) => view.state.facet(EditorView.editorAttributes)
+  .some((attrs) => typeof attrs === "object" && /\bcm-latex-visual\b/.test(String(attrs?.class || "")));
 function hangingIndentDecorations(view) {
+  // Éditeur visuel : la police n'est plus à chasse fixe et les listes posent
+  // leur propre retrait (latex_visual.ts) ; l'indentation source ne dit rien.
+  if (isLatexVisual(view)) return Decoration.none;
   const ranges = [];
   for (const {from, to} of view.visibleRanges) {
     let line = view.state.doc.lineAt(from);
@@ -582,8 +589,15 @@ const hangingIndent = ViewPlugin.fromClass(class {
   declare decorations: DecorationSet;
   declare charWidth: number;
 
-  constructor(view) { this.charWidth = view.defaultCharacterWidth; this.decorations = hangingIndentDecorations(view); }
+  declare visual: boolean;
+  constructor(view) { this.charWidth = view.defaultCharacterWidth; this.visual = isLatexVisual(view); this.decorations = hangingIndentDecorations(view); }
   update(update) {
+    const visual = isLatexVisual(update.view);
+    if (visual !== this.visual) {
+      this.visual = visual;
+      this.decorations = hangingIndentDecorations(update.view);
+      return;
+    }
     // `geometryChanged` sonne à chaque reflow du wrap ; les styles inline
     // posés ici provoquent eux-mêmes un reflow → boucle. Ne recalculer sur
     // géométrie que si la chasse de caractère a réellement changé (police).
@@ -639,6 +653,13 @@ export function createStudioEditor(parent, opts) {
   const visualExtension = latexVisual({
     getContext: () => bibliographyContext,
     getMath: () => (typeof window !== "undefined" ? (window as unknown as {katex?: {renderToString(tex: string, options: Record<string, unknown>): string}}).katex : null),
+    // \includegraphics se résout depuis le dossier du document racine (celui
+    // qu'on compile), puis depuis celui du fichier ouvert (\input d'un chapitre).
+    getImageBases: () => {
+      const dir = (file: string | null | undefined) => file && file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : null;
+      const current = typeof location !== "undefined" ? new URLSearchParams(location.search).get("path") : null;
+      return [...new Set([dir(bibliographyContext.root), dir(current)].filter((base): base is string => Boolean(base)))];
+    },
     suspended: (state) => getChunks(state) != null,
   });
   let markId = 0;
