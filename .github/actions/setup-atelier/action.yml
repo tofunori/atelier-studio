@@ -1,0 +1,62 @@
+name: setup-atelier
+description: >
+  Préparation commune aux jobs `verify`, `e2e` du workflow ci : Node, Rust
+  (avec cache des deux workspaces), Python, PDFium, dépendances npm, navigateurs
+  Playwright de la galerie et ressources stagées pour les contrôles Tauri.
+runs:
+  using: composite
+  steps:
+    - name: Require Apple Silicon runner
+      shell: bash
+      run: test "$(uname -m)" = arm64
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: |
+          package-lock.json
+          gallery/package-lock.json
+          gallery/notes-src/package-lock.json
+          gallery/whiteboard-src/package-lock.json
+          packages/atelier-protocol/package-lock.json
+    - uses: dtolnay/rust-toolchain@stable
+    # Les deux workspaces Cargo : src-tauri (app) ET rust/ (serveurs, KB,
+    # atelier-pdf). Sans rust/, chaque run recompilait le serveur galerie,
+    # atelier-kb-rs et les tests du workspace à froid (~4 min).
+    - uses: swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          src-tauri
+          rust
+    - uses: actions/setup-python@v5
+      with: { python-version: "3.12" }
+    # PDFium : la bibliothèque que charge l'outil atelier-pdf (lecture des
+    # PDF par la galerie, la base d'articles et les annotations). Version
+    # épinglée, sha256 vérifié. Poppler n'est plus installé : les tests
+    # d'extraction couvrent ainsi le moteur que l'app embarque.
+    - name: Fetch PDFium
+      shell: bash
+      run: bash scripts/fetch-pdfium.sh
+    - name: Install root deps
+      shell: bash
+      run: npm ci
+    - name: Install gallery deps
+      shell: bash
+      run: npm --prefix gallery ci
+    - name: Install notes deps
+      shell: bash
+      run: npm --prefix gallery/notes-src ci
+    - name: Install whiteboard deps
+      shell: bash
+      run: npm --prefix gallery/whiteboard-src ci
+    - name: Install shared protocol deps
+      shell: bash
+      run: npm --prefix packages/atelier-protocol ci
+    - name: Install Playwright browsers
+      shell: bash
+      run: cd gallery && npx playwright install chromium webkit
+    - name: Stage bundled resources for Tauri checks
+      shell: bash
+      run: |
+        bash scripts/stage-gallery.sh
+        bash scripts/stage-appsnap.sh
