@@ -482,9 +482,10 @@ export function imageCandidates(rel: string, bases: readonly string[], graphicsP
     const sub = prefix.replace(/^\.\//, "").replace(/\/+$/, "");
     return sub ? (sub.startsWith("/") ? sub : `${dir}/${sub}`) : dir;
   }));
+  const seen = new Set<string>();
   for (const dir of dirs) for (const name of names) {
     const full = dir ? `${dir}/${name}` : name;
-    if (!out.includes(full)) out.push(full);
+    if (!seen.has(full)) { seen.add(full); out.push(full); }
   }
   return out;
 }
