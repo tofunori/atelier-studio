@@ -69,13 +69,31 @@ export function createNoteEditor(host: HTMLElement, options: {
   input.value = options.value || "";
   if(memoInput) memoInput.value = options.memo?.value || "";
   const field = host.querySelector<HTMLElement>(".atelier-note-field")!;
-  // Au-delà d'une ligne, la pilule devient un rectangle arrondi : ses bouts en
-  // demi-cercle rognaient les lignes du haut et du bas du texte.
+  // Au-delà d'une ligne, la bulle s'élargit en « composer » : le texte prend
+  // toute la largeur, les boutons passent dessous. On mesure toujours à la
+  // largeur de la pilule, sinon un texte qui tient sur une ligne élargie
+  // basculerait d'une forme à l'autre à chaque frappe.
   const fit = () => {
+    const wasWide = field.classList.contains("is-multiline");
+    if(wasWide){field.classList.remove("is-multiline");host.classList.remove("atelier-note-wide");}
     input.style.height="24px";
-    const height=input.scrollHeight;
-    input.style.height=Math.min(124,height)+"px";
-    field.classList.toggle("is-multiline",height>28);
+    const wide = input.scrollHeight>28;
+    field.classList.toggle("is-multiline",wide);host.classList.toggle("atelier-note-wide",wide);
+    input.style.height="24px";
+    const maxHeight = parseFloat(host.ownerDocument.defaultView?.getComputedStyle(input).maxHeight || "") || 124;
+    input.style.height=Math.min(maxHeight,input.scrollHeight)+"px";
+    keepInView();
+  };
+  // La bulle grandit vers la droite et vers le bas depuis la position choisie
+  // par l'hôte : un décalage la ramène dans la fenêtre sans toucher left/top.
+  const keepInView = () => {
+    host.style.translate="";
+    const rect=host.getBoundingClientRect();
+    if(!rect.width)return;
+    const view=host.ownerDocument.documentElement;
+    const dx=Math.max(8-rect.left,Math.min(0,view.clientWidth-8-rect.right));
+    const dy=Math.max(8-rect.top,Math.min(0,(host.ownerDocument.defaultView?.innerHeight || view.clientHeight)-8-rect.bottom));
+    if(dx||dy)host.style.translate=`${Math.round(dx)}px ${Math.round(dy)}px`;
   };
   input.oninput = () => {fit();options.onChange?.(input.value);};
   input.onkeydown = event => {

@@ -23,7 +23,7 @@
 .atelier-note>*+*{margin-top:8px}
 .atelier-note button{flex:none;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--text-muted,var(--muted,#969ca5));cursor:pointer;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
 .atelier-note button svg{width:16px;height:16px}
-.atelier-note textarea{display:block;width:100%;box-sizing:border-box;resize:none;background:transparent;border:0;outline:0;box-shadow:none;color:inherit;font:inherit;line-height:20px}
+.atelier-note textarea{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb,color-mix(in srgb,currentColor 24%,transparent)) transparent;display:block;width:100%;box-sizing:border-box;resize:none;background:transparent;border:0;outline:0;box-shadow:none;color:inherit;font:inherit;line-height:20px}
 .atelier-note textarea::placeholder{color:var(--text-muted,var(--muted,#969ca5))}
 .atelier-note .atelier-note-head{display:flex;align-items:center;gap:8px;margin:-4px -4px 0 0}
 .atelier-note .atelier-note-title{font-size:var(--fs-body-s,12px);font-weight:600;line-height:1.3;letter-spacing:-.01em}
@@ -35,6 +35,14 @@
 .atelier-note .atelier-note-field{flex:1;min-width:0;display:flex;align-items:flex-end;gap:4px;padding:4px 4px 4px 12px;border-radius:999px;background:var(--surface-inset,var(--bg-ctl,#2c2f34));box-shadow:inset 0 0 0 1px transparent;transition:box-shadow var(--motion-fast,120ms),border-radius var(--motion-fast,120ms)}
 /* Plusieurs lignes : rectangle arrondi (comme le composer du chat), sinon les bouts de la pilule rognent le texte. */
 .atelier-note .atelier-note-field.is-multiline{border-radius:var(--radius-surface,10px)}
+/* Texte long : bulle « composer » (Thierry 2026-09-30, maquette B) : plus large,
+   texte sur toute la largeur, boutons en dessous, corbeille à gauche. */
+.atelier-note.atelier-note-wide{width:min(520px,calc(100vw - 16px))}
+.atelier-note .atelier-note-row:has(>.is-multiline){position:relative}
+.atelier-note .atelier-note-field.is-multiline{flex-wrap:wrap;row-gap:8px;padding:8px 8px 8px 12px}
+.atelier-note .atelier-note-field.is-multiline textarea{flex:1 0 100%;max-height:244px;padding:2px 4px 2px 0}
+.atelier-note .atelier-note-field.is-multiline textarea+button{margin-left:auto}
+.atelier-note .atelier-note-row>.is-multiline+.delete-note{position:absolute;left:8px;bottom:8px;width:24px;height:24px;border-radius:999px}
 .atelier-note .atelier-note-field:focus-within{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text-primary,#dadee3) 22%,transparent)}
 .atelier-note .atelier-note-field textarea{flex:1;min-width:0;height:24px;min-height:24px;max-height:124px;padding:2px 0}
 .atelier-note .atelier-note-field button{width:24px;height:24px;border-radius:999px}

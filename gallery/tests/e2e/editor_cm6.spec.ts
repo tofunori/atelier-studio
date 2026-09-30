@@ -340,9 +340,15 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
       const field = page.locator('#texcPop .atelier-note-field');
       await page.locator('#texcPop textarea').fill('Relis le paragraphe et propose une meilleure formulation pour le début de la discussion, cherche dans le corpus');
       await expect(field).toHaveClass(/is-multiline/);
+      // texte long : la bulle s'élargit en « composer » et reste dans la fenêtre
+      await expect(page.locator('#texcPop')).toHaveClass(/atelier-note-wide/);
+      const wide = (await page.locator('#texcPop').boundingBox())!;
+      expect(wide.width).toBeGreaterThan(400);
+      expect(wide.x + wide.width).toBeLessThanOrEqual(page.viewportSize()!.width - 7);
       expect(await page.locator('#texcPop textarea').evaluate(ta => ta.scrollHeight - ta.clientHeight)).toBe(0);
       await page.locator('#texcPop textarea').fill('Vérifier ce passage');
       await expect(field).not.toHaveClass(/is-multiline/);
+      await expect(page.locator('#texcPop')).not.toHaveClass(/atelier-note-wide/);
       const saved = page.waitForResponse(response => response.url().includes('/pdfannot')
         && response.request().method() === 'POST');
       await page.locator('#texcPop .send2').click();
