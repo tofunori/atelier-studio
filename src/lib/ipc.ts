@@ -123,6 +123,8 @@ export type AtelierOutboundMessage =
       type: "atelier-theme";
       version: 2;
       colorScheme: "dark" | "light";
+      /** Preset de l'app : l'éditeur de code y aligne son profil de couleurs. */
+      preset?: string;
       nonce: string;
       vars: Record<string, string>;
     }

@@ -140,7 +140,7 @@ test('engine resolution precedence', async ({page}) => {
   });
 });
 
-test('CM6 propose huit vrais thèmes sombres et les persiste entre éditeurs', async ({page}) => {
+test('CM6 propose neuf thèmes et les persiste entre éditeurs', async ({page}) => {
   await withProject({
     'theme.tex': '% commentaire scientifique\n\\section{Résultats}\n\\newcommand{\\glacier}{August}\n',
     'sample.py': 'import math\n# scientific comment\ndef glacier(value: float):\n    label = "August"\n    return math.sqrt(value) * 2\n',
@@ -157,6 +157,7 @@ test('CM6 propose huit vrais thèmes sombres et les persiste entre éditeurs', a
     await expect(themeTrigger).toBeVisible();
     const themeCases = [
       ['Atelier', 'rgb(30, 33, 36)'],
+      ['Claude Code', 'rgb(30, 33, 36)'],
       ['VS Code Dark+', 'rgb(30, 30, 30)'],
       ['Nord', 'rgb(46, 52, 64)'],
       ['Monokai', 'rgb(39, 40, 34)'],
@@ -167,7 +168,7 @@ test('CM6 propose huit vrais thèmes sombres et les persiste entre éditeurs', a
     ];
     for (const [label, background] of themeCases) {
       await themeTrigger.click();
-      await expect(page.getByRole('menuitemradio')).toHaveCount(8);
+      await expect(page.getByRole('menuitemradio')).toHaveCount(9);
       await page.getByRole('menuitemradio', {name: label, exact: true}).click();
       await expect(page.locator('.cm-editor')).toHaveCSS('background-color', background);
     }
@@ -183,6 +184,34 @@ test('CM6 propose huit vrais thèmes sombres et les persiste entre éditeurs', a
     const codeColors = await page.locator('.cm-content .cm-line span').evaluateAll(nodes =>
       [...new Set(nodes.map(node => getComputedStyle(node).color))]);
     expect(codeColors.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+test('le profil Claude Code suit le thème et le mode clair/sombre de l\'app', async ({page}) => {
+  await withProject({'theme.tex': '\\section{Résultats}\nTexte.\n'}, async ({url}) => {
+    await page.goto(url('latex_studio.html', 'theme.tex'));
+    await expectEngine(page, 'cm6');
+    const host = (preset, colorScheme, surface) => page.evaluate(([preset, colorScheme, surface]) => window.postMessage(
+      {type: 'atelier-theme', version: 2, preset, colorScheme, vars: {'--surface-app': surface}}, '*'), [preset, colorScheme, surface]);
+    const tokenColors = () => page.locator('.cm-content .cm-line span').evaluateAll(nodes =>
+      [...new Set(nodes.map(node => getComputedStyle(node).color))]);
+    const editorTheme = () => page.evaluate(() => localStorage.getItem('atelier.editorTheme'));
+
+    // L'app passe au thème Claude Code : l'éditeur prend son profil.
+    await host('claude-code', 'dark', '#1a1a19');
+    await expect.poll(editorTheme).toBe('claude-code');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(26, 26, 25)');
+    await expect.poll(tokenColors).toContain('rgb(217, 119, 87)');
+
+    // Mode clair : variante claire, sans changer de profil.
+    await host('claude-code', 'light', '#faf9f5');
+    await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(250, 249, 245)');
+    await expect.poll(tokenColors).toContain('rgb(181, 83, 47)');
+    await expect(page.locator('.cm-content')).toHaveCSS('color', 'rgb(31, 30, 28)');
+
+    // L'app quitte Claude Code : le profil d'avant revient.
+    await host('nord', 'dark', '#2e3440');
+    await expect.poll(editorTheme).toBe('atelier');
   });
 });
 

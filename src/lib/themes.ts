@@ -46,6 +46,7 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
   const muted = raw["--muted"];
   const muted2 = raw["--muted2"];
   const accent = raw["--accent"];
+  const link = raw["--link"];
   const alpha = dark ? "rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18)" : "rgba(0,0,0,.14), 0 1px 3px rgba(0,0,0,.08)";
   const status = dark
     ? { ok: "#98c379", warn: "#e0b74a", hot: "#e06c75", info: "#7aa2f7", hl: "#cda44b" }
@@ -101,6 +102,12 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
     "--info": status.info,
     "--hl-line": status.hl,
     "--quote-rule": `color-mix(in srgb, ${status.info} 55%, ${bg})`,
+    // Rôles facultatifs d'un preset (liens et code en ligne du chat) : toujours
+    // émis, sinon la valeur d'un thème précédent resterait posée sur :root.
+    "--link": link ?? "currentColor",
+    "--link-hover": link ? `color-mix(in srgb, ${link} 78%, ${fg})` : accent,
+    "--link-underline": `color-mix(in srgb, ${link ?? accent} ${link ? 45 : 50}%, transparent)`,
+    "--code-inline": raw["--code-inline"] ?? "currentColor",
 
     "--control-height": "30px",
     "--control-height-compact": "26px",
@@ -141,11 +148,22 @@ export function galleryLegacyThemeVars(preset: Pick<ThemePreset, "vars">): Recor
   };
 }
 
+/** Preset avec des rôles en plus des douze couleurs de base. */
+const withRoles = (preset: ThemePreset, roles: Record<string, string>): ThemePreset =>
+  ({ ...preset, vars: { ...preset.vars, ...roles } });
+
 export const THEME_PRESETS: ThemePreset[] = [
   T("atelier", "Atelier (défaut)", true,
     "#1e2124", "#161a1e", "#24282d", "#24282d", "#2c2f34",
     "#383c41", "#43474c", "#dadee3", "#b9bec4", "#90969d", "#62666c", "#e77f3e",
     ["#161a1e", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#dcdfe4", "#5a616d", "#ff7a85", "#a9d47f", "#f0ca79", "#74bdf7", "#d894e8", "#6cd0dd", "#ffffff"]),
+  // Apparence de l'app Claude : gris neutres relevés sur l'app (2026-09-30),
+  // orange de Claude Code, liens bleus. Suit Clair / Sombre / Système.
+  withRoles(T("claude-code", "Claude Code", true,
+    "#1a1a19", "#121211", "#262625", "#20201f", "#2a2a28",
+    "#2b2b29", "#3b3b39", "#f0efec", "#c3c2b8", "#898782", "#5a5955", "#d97757",
+    ["#121211", "#e0736b", "#98c379", "#efb444", "#7aa6e7", "#c79bd6", "#6fbfb3", "#c3c2b8", "#5a5955", "#f08a82", "#aed48f", "#f5c867", "#95bbf0", "#d8b1e3", "#8bd3c7", "#f0efec"]),
+    { "--link": "#7aa6e7", "--code-inline": "#de8481" }),
   T("graphite", "Graphite", true,
     "#202123", "#1a1b1d", "#292a2d", "#252628", "#303134",
     "#303134", "#494b4e", "#dfdfdc", "#c3c3bf", "#a0a19e", "#7f817e", "#ca926b",
@@ -222,20 +240,42 @@ export function presetById(id: string): ThemePreset {
   return THEME_PRESETS.find((t) => t.id === id) ?? THEME_PRESETS[0];
 }
 
-/** Named palettes are explicit choices. Atelier itself follows the mode. */
-export function resolveAppearanceTheme(settings: { themePreset: string; theme: "dark" | "light" | "system" }, systemDark: boolean): ThemePreset {
-  const preset = presetById(settings.themePreset);
-  if (preset.id !== "atelier") return preset;
-  const dark = settings.theme === "system" ? systemDark : settings.theme === "dark";
-  if (dark) return { ...preset, vars: { ...preset.vars, "--border": "#2a2d31" } };
-  return {
-    ...preset, dark: false, ansi: presetById("github-light").ansi,
+/** Variantes claires des presets qui suivent Clair / Sombre / Système. */
+const LIGHT_VARIANTS: Record<string, () => Pick<ThemePreset, "vars" | "ansi">> = {
+  atelier: () => ({
+    ansi: presetById("github-light").ansi,
     vars: {
       "--bg": "#f1f4f7", "--bg-side": "#e3e7ec", "--bg-pop": "#fafcfe", "--bg-card": "#fafcfe",
       "--bg-ctl": "#dadee4", "--border": "#dde0e5", "--border2": "#b8bcc2", "--fg": "#1a1d22",
       "--fg2": "#32363b", "--muted": "#595e64", "--muted2": "#82878c", "--accent": "#cf630d",
     },
-  };
+  }),
+  "claude-code": () => ({
+    ansi: ["#141413", "#b3261e", "#2f6b41", "#8a5d00", "#2f62c2", "#7b3fa0", "#1b7c83", "#6b6a65", "#9c9a92", "#c7372e", "#3b8552", "#a36f00", "#3f6fd1", "#8f52b5", "#258f96", "#3d3d3a"],
+    vars: {
+      "--bg": "#faf9f5", "--bg-side": "#f0eee6", "--bg-pop": "#ffffff", "--bg-card": "#ffffff",
+      "--bg-ctl": "#e8e6dc", "--border": "#e6e3d9", "--border2": "#cfcbbf", "--fg": "#141413",
+      "--fg2": "#3d3d3a", "--muted": "#6b6a65", "--muted2": "#9c9a92", "--accent": "#c6613f",
+      "--link": "#2f62c2", "--code-inline": "#b0413e",
+    },
+  }),
+};
+const DARK_PATCHES: Record<string, Record<string, string>> = {
+  atelier: { "--border": "#2a2d31" },
+};
+
+/** Vrai pour les presets qui suivent le réglage Clair / Sombre / Système. */
+export function followsAppearanceMode(id: string): boolean {
+  return Object.prototype.hasOwnProperty.call(LIGHT_VARIANTS, id);
+}
+
+/** Named palettes are explicit choices. Atelier and Claude Code follow the mode. */
+export function resolveAppearanceTheme(settings: { themePreset: string; theme: "dark" | "light" | "system" }, systemDark: boolean): ThemePreset {
+  const preset = presetById(settings.themePreset);
+  if (!followsAppearanceMode(preset.id)) return preset;
+  const dark = settings.theme === "system" ? systemDark : settings.theme === "dark";
+  if (dark) return { ...preset, vars: { ...preset.vars, ...DARK_PATCHES[preset.id] } };
+  return { ...preset, dark: false, ...LIGHT_VARIANTS[preset.id]() };
 }
 
 export function xtermThemeFor(selection: string | { themePreset: string; theme: "dark" | "light" | "system" }, systemDark = true) {

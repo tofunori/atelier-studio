@@ -93,10 +93,12 @@ export function languageExtensionFor(ext) {
   }
 }
 
-// Huit profils exclusivement sombres. Sept viennent de thèmes CM6 maintenus;
-// Atelier reprend fidèlement la palette historique de cmux-gallery.
+// Neuf profils. Sept viennent de thèmes CM6 maintenus ; Atelier reprend la
+// palette historique de cmux-gallery ; Claude Code suit le mode clair/sombre
+// de l'app (seul profil clair).
 export const STUDIO_THEMES = [
   {id: "atelier", label: "Atelier", swatches: ["#e07a5f", "#61afef", "#86c991"]},
+  {id: "claude-code", label: "Claude Code", swatches: ["#d97757", "#7aa6e7", "#a8c47f"]},
   {id: "vscode-dark", label: "VS Code Dark+", swatches: ["#569cd6", "#c586c0", "#ce9178"]},
   {id: "dracula", label: "Dracula", swatches: ["#ff79c6", "#8be9fd", "#50fa7b"]},
   {id: "nord", label: "Nord", swatches: ["#81a1c1", "#88c0d0", "#a3be8c"]},
@@ -111,6 +113,11 @@ const THEME_PALETTES = {
     bg: "var(--surface-app, #1e2126)", fg: "#d8d3c8", gutter: "#565e6b", gutterActive: "#d8d3c8", accent: "#5b9dff",
     selection: "rgba(91,157,255,.38)", active: "rgba(255,255,255,.035)", panel: "var(--surface-panel, #181b20)", surface: "var(--surface-inset, #24282d)", border: "var(--border-subtle, #383c41)",
     comment: "#707985", keyword: "#e07a5f", fn: "#61afef", type: "#c678dd", variable: "#d8d3c8", prop: "#e6c07b", string: "#86c991", constant: "#d19a66", punct: "#abb2bf", meta: "#61afef", regexp: "#86c991", escape: "#e6c07b",
+  },
+  "claude-code": {
+    bg: "var(--surface-app, #1a1a19)", fg: "#e6e4dd", gutter: "#5a5955", gutterActive: "#c3c2b8", accent: "#d97757",
+    selection: "rgba(122,166,231,.30)", active: "rgba(255,255,255,.035)", panel: "var(--surface-panel, #1a1a19)", surface: "var(--surface-inset, #2a2a28)", border: "var(--border-subtle, #2b2b29)",
+    comment: "#75736d", keyword: "#d97757", fn: "#7aa6e7", type: "#d4a86a", variable: "#e6e4dd", prop: "#e3b872", string: "#a8c47f", constant: "#c79bd6", punct: "#9a988f", meta: "#7aa6e7", regexp: "#a8c47f", escape: "#e3b872",
   },
   "vscode-dark": {bg: "#1e1e1e", fg: "#d4d4d4", gutter: "#838383", gutterActive: "#ffffff", accent: "#c6c6c6", selection: "#6199ff2f", active: "#ffffff0f", panel: "#181818", surface: "#252526", border: "#3c3c3c"},
   dracula: {bg: "#282a36", fg: "#f8f8f2", gutter: "#6d8a88", gutterActive: "#f8f8f2", accent: "#f8f8f0", selection: "rgba(255,255,255,.1)", active: "rgba(255,255,255,.1)", panel: "#21222c", surface: "#343746", border: "#44475a"},
@@ -149,6 +156,23 @@ const MAINTAINED_THEME_EXTENSIONS = {
   "solarized-dark": solarizedDarkInit(withoutSelectionRule),
 };
 
+// Variante claire du profil Claude Code, prise quand l'hôte est en clair.
+const CLAUDE_CODE_LIGHT = {
+  dark: false,
+  bg: "var(--surface-app, #faf9f5)", fg: "#1f1e1c", gutter: "#a3a19a", gutterActive: "#3d3d3a", accent: "#c6613f",
+  selection: "rgba(47,98,194,.20)", active: "rgba(0,0,0,.035)", panel: "var(--surface-panel, #faf9f5)", surface: "var(--surface-inset, #e8e6dc)", border: "var(--border-subtle, #e6e3d9)",
+  comment: "#8b897f", keyword: "#b5532f", fn: "#2f62c2", type: "#8a5d1a", variable: "#1f1e1c", prop: "#8a5d00", string: "#4e7a2c", constant: "#7b3fa0", punct: "#6b6a65", meta: "#2f62c2", regexp: "#4e7a2c", escape: "#8a5d00",
+};
+
+// atelier_theme.js pose color-scheme sur la racine (cache compris) avant le
+// premier rendu : c'est lui qui dit si l'app est en clair.
+const hostIsLight = () => typeof document !== "undefined" && document.documentElement.style.colorScheme === "light";
+
+function paletteFor(themeId: string) {
+  if (themeId === "claude-code" && hostIsLight()) return CLAUDE_CODE_LIGHT;
+  return THEME_PALETTES[themeId];
+}
+
 function normalizeThemeId(id: string) {
   const legacyThemes = {"atelier-ink": "atelier", graphite: "atelier", obsidian: "vscode-dark", midnight: "nord", carbon: "gruvbox-dark", "github-dark": "vscode-dark", "one-dark": "vscode-dark", "tokyo-night": "nord", "catppuccin-mocha": "dracula"};
   const normalized = legacyThemes[id] || id;
@@ -157,7 +181,8 @@ function normalizeThemeId(id: string) {
 
 function themeExtensions(id) {
   const themeId = normalizeThemeId(id);
-  const p = THEME_PALETTES[themeId];
+  const p = paletteFor(themeId);
+  const dark = p.dark !== false;
   const editorTheme = EditorView.theme({
     "&": {height: "100%", color: `${p.fg} !important`, backgroundColor: `${p.bg} !important`, "--cm-selection": p.selection},
     ".cm-scroller": {
@@ -178,7 +203,7 @@ function themeExtensions(id) {
     ".cm-searchMatch.cm-searchMatch-selected": {backgroundColor: p.selection},
     ".cm-panels": {color: p.fg, backgroundColor: p.panel},
     ".cm-tooltip": {color: p.fg, backgroundColor: p.surface, border: `1px solid ${p.border}`},
-  }, {dark: true});
+  }, {dark});
   if (MAINTAINED_THEME_EXTENSIONS[themeId]) return [
     MAINTAINED_THEME_EXTENSIONS[themeId],
     editorTheme,
@@ -688,6 +713,30 @@ export function createStudioEditor(parent, opts) {
   };
   window.addEventListener("storage", onStoredTheme);
   if (themeChannel) themeChannel.onmessage = (event) => applyTheme(event.data?.theme, {persist: true, broadcast: false});
+  // Thème de l'app : passer à Claude Code aligne le profil de l'éditeur (le
+  // profil d'avant revient quand on le quitte) ; le profil Claude Code suit
+  // aussi le passage clair/sombre. Le message revient toutes les 30 s : on ne
+  // réagit qu'à un changement.
+  let hostScheme = hostIsLight() ? "light" : "dark";
+  const onHostTheme = (event) => {
+    const message = event?.detail || {};
+    const preset = typeof message.preset === "string" ? message.preset : "";
+    const lastPreset = localStorage.getItem("atelier.appThemePreset");
+    if (preset && preset !== lastPreset) {
+      localStorage.setItem("atelier.appThemePreset", preset);
+      if (preset === "claude-code" && themeId !== "claude-code") {
+        localStorage.setItem("atelier.editorThemeBeforeApp", themeId);
+        applyTheme("claude-code");
+      } else if (lastPreset === "claude-code" && themeId === "claude-code") {
+        applyTheme(localStorage.getItem("atelier.editorThemeBeforeApp") || "atelier");
+      }
+    }
+    const scheme = hostIsLight() ? "light" : "dark";
+    if (scheme === hostScheme) return;
+    hostScheme = scheme;
+    if (themeId === "claude-code" && view) view.dispatch({effects: themeComp.reconfigure(themeExtensions(themeId))});
+  };
+  window.addEventListener("atelier-theme-applied", onHostTheme);
 
   view = new EditorView({
     parent,
@@ -743,6 +792,8 @@ export function createStudioEditor(parent, opts) {
       ],
     }),
   });
+  // Message de l'hôte arrivé avant la création de l'éditeur.
+  if (window.__atelierTheme) onHostTheme({detail: window.__atelierTheme});
 
   const doc = () => view.state.doc;
   const toOffset = (pos: { line: number; ch: number; }) => {
@@ -1142,6 +1193,7 @@ export function createStudioEditor(parent, opts) {
     off: (event: string|number, fn) => { const list = handlers[event]; if (list) { const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1); } },
     destroy: () => {
       window.removeEventListener("storage", onStoredTheme);
+      window.removeEventListener("atelier-theme-applied", onHostTheme);
       themeChannel?.close();
       editorDocument.removeEventListener("pointerdown", onSelectionGestureStart, true);
       editorDocument.removeEventListener("mousedown", onSelectionGestureStart, true);
