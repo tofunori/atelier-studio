@@ -9,65 +9,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Les contrôles sont répartis sur trois machines en parallèle (verify, puis
+  # les deux moitiés des E2E galerie, la première portant aussi les états
+  # visuels) : enchaînés sur une seule, ils prenaient ~22 min, dont 9 pour les
+  # E2E sur 1 seul worker (3 cœurs). Quatre jobs macOS par run avec
+  # mobile-native, sous la limite de 5 jobs macOS simultanés.
   verify:
     # Keep CI on the same deterministic Apple Silicon image as release.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Require Apple Silicon runner
-        run: test "$(uname -m)" = arm64
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            gallery/package-lock.json
-            gallery/notes-src/package-lock.json
-            gallery/whiteboard-src/package-lock.json
-            packages/atelier-protocol/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: swatinem/rust-cache@v2
-        with: { workspaces: src-tauri }
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      # PDFium : la bibliothèque que charge l'outil atelier-pdf (lecture des
-      # PDF par la galerie, la base d'articles et les annotations). Version
-      # épinglée, sha256 vérifié. Poppler n'est plus installé : les tests
-      # d'extraction couvrent ainsi le moteur que l'app embarque.
-      - name: Fetch PDFium
-        run: bash scripts/fetch-pdfium.sh
-      - name: Install root deps
-        run: npm ci
-      - name: Install gallery deps
-        run: npm --prefix gallery ci
-      - name: Install notes deps
-        run: npm --prefix gallery/notes-src ci
-      - name: Install whiteboard deps
-        run: npm --prefix gallery/whiteboard-src ci
-      - name: Install shared protocol deps
-        run: npm --prefix packages/atelier-protocol ci
-      - name: Install Playwright browsers
-        run: cd gallery && npx playwright install chromium webkit
-      - name: Stage bundled resources for Tauri checks
-        run: |
-          bash scripts/stage-gallery.sh
-          bash scripts/stage-appsnap.sh
+      - uses: ./.github/actions/setup-atelier
       - name: Backend policy (Rust default, soak gates)
         run: npm run check:backend-policy
       - name: Verify (typecheck, build, frontend, gallery, Rust)
         run: npm run verify
-      - name: Gallery E2E
-        run: npm run verify:e2e
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-verify
+          path: |
+            gallery/test-results
+            playwright-report
+          if-no-files-found: ignore
+
+  e2e:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-atelier
+      # Construit AVANT les specs : le harnais (gallery/tests/gallery_server.mts)
+      # compilerait sinon le serveur dans le premier test, au-delà de son
+      # délai de 30 s. Dans l'ancien job unique, la suite diff l'avait déjà fait.
+      - name: Build gallery server + atelier-pdf (debug)
+        run: >-
+          cargo build --manifest-path rust/Cargo.toml --locked
+          -p atelier-gallery --bin atelier-gallery-server
+          -p atelier-pdf --bin atelier-pdf
+      - name: Gallery E2E (shard ${{ matrix.shard }}/2)
+        run: npm --prefix gallery run test:e2e -- --shard=${{ matrix.shard }}/2
       - name: Install Playwright Chromium (root, golden states)
+        if: matrix.shard == 1
         run: npx playwright install chromium
       - name: Visual golden states (plan 021 — baselines committées, jamais d'auto-update)
+        if: matrix.shard == 1
         run: npm run test:visual
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-e2e-${{ matrix.shard }}
           path: |
             gallery/test-results
             tests/visual/test-results
