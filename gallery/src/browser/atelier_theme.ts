@@ -198,7 +198,7 @@
     if (fromCache) return;
     try {
       localStorage.setItem(THEME_CACHE_KEY, JSON.stringify({
-        type: "atelier-theme", vars: vars, colorScheme: message.colorScheme, version: message.version
+        type: "atelier-theme", vars: vars, colorScheme: message.colorScheme, version: message.version, preset: message.preset
       }));
     } catch (_) {}
     window.__atelierTheme = message;
