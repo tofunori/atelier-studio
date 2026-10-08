@@ -456,6 +456,58 @@ fn rescan_uses_rust_builder() {
 }
 
 #[test]
+fn codebook_and_passage_codes_roundtrip() {
+    let app_dir = tempfile::tempdir().unwrap();
+    let env = [("ATELIER_APP_DIR", app_dir.path().to_string_lossy().to_string())];
+    let srv = start_server_with(&env);
+    let rel = "zotero/ABCD1234/article.pdf";
+    let (st, body) = http(srv.port, "GET", "/codebook", None);
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains(r#""codes":[]"#), "{body}");
+
+    let create = |name: &str, parent: &str| {
+        let payload = serde_json::json!({"op": "create", "name": name, "parent": parent}).to_string();
+        let (st, body) = http(srv.port, "POST", "/codebook", Some(&payload));
+        assert_eq!(st, 200, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        v["code"]["id"].as_str().unwrap().to_string()
+    };
+    let parent = create("Processus", "");
+    let child = create("Rétroaction albédo", &parent);
+    let (st, body) = http(srv.port, "GET", "/codebook", None);
+    assert_eq!(st, 200);
+    assert!(body.contains("Processus › Rétroaction albédo"), "{body}");
+    // un nom vide est une erreur de l'utilisateur, pas du serveur
+    let (st, _) = http(srv.port, "POST", "/codebook", Some(r#"{"op":"create","name":"  "}"#));
+    assert_eq!(st, 400);
+
+    let annots = serde_json::json!({"rel": rel, "annots": [
+        {"id": "h1", "page": 1, "kind": "hl", "text": "albedo fell", "suggested": [child]},
+        {"id": "k1", "page": 2, "kind": "code", "text": "dark ice", "codes": [child]}
+    ]}).to_string();
+    assert_eq!(http(srv.port, "POST", "/pdfannot", Some(&annots)).0, 200);
+    let keep = serde_json::json!({"rel": rel, "id": "h1", "keep": [child]}).to_string();
+    let (st, body) = http(srv.port, "POST", "/pdfannot-codes", Some(&keep));
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains(&child) && !body.contains("suggested"), "{body}");
+    // un passage codé sans plus aucun code disparaît
+    let remove = serde_json::json!({"rel": rel, "id": "k1", "remove": [child]}).to_string();
+    let (st, body) = http(srv.port, "POST", "/pdfannot-codes", Some(&remove));
+    assert_eq!(st, 200, "{body}");
+    let (_, body) = http(srv.port, "GET", "/pdfannot?rel=zotero%2FABCD1234%2Farticle.pdf", None);
+    assert!(!body.contains("k1") && body.contains("h1"), "{body}");
+
+    // supprimer le parent emporte le sous-code et ses traces
+    let del = serde_json::json!({"op": "delete", "id": parent}).to_string();
+    let (st, body) = http(srv.port, "POST", "/codebook", Some(&del));
+    assert_eq!(st, 200, "{body}");
+    let (_, body) = http(srv.port, "GET", "/pdfannot?rel=zotero%2FABCD1234%2Farticle.pdf", None);
+    assert!(!body.contains(&child), "{body}");
+    let (_, stamp) = http(srv.port, "GET", "/pdfannot-stamp?rel=zotero%2FABCD1234%2Farticle.pdf", None);
+    assert!(stamp.contains(r#""codebook":"#), "{stamp}");
+}
+
+#[test]
 fn origin_boundary_guards_every_route_before_routing() {
     let srv = start_server();
     // plan 005 : inter-origines refusé AVANT tout routage — y compris les

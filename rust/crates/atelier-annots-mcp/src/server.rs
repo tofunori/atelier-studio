@@ -98,7 +98,14 @@ chaque passage un memo : une note courte en français disant pourquoi il est sur
 discussion : … »), jamais le mot « Claude » (l'origine est enregistrée à part).\n\
 - update_highlights / remove_highlights : SEULEMENT sur demande de l'utilisateur, et seulement pour les \
 surlignages faits par Claude ; ceux de l'utilisateur sont intouchables. Désigner chaque surlignage par un \
-extrait de son texte (et sa page), ou all=true pour tous ceux de Claude dans l'article.";
+extrait de son texte (et sa page), ou all=true pour tous ceux de Claude dans l'article.\n\
+Codage qualitatif (façon NVivo) : l'utilisateur range ses passages sous des codes thématiques, en arbre.\n\
+- « Rédige / synthétise à partir du code X », « que dit la littérature sur X » quand X est un code : \
+get_code_passages (UN appel, sous-codes compris), puis citer chaque passage avec sa référence et sa page. \
+list_codes donne l'arbre, les effectifs et le mémo de chaque code (ce que le code recouvre).\n\
+- code_passages : SEULEMENT quand l'utilisateur demande de coder ; seulement avec des codes existants, \
+et des passages recopiés mot pour mot (read_article d'abord). Ce sont des propositions : l'utilisateur les garde \
+ou les retire dans Atelier. create_code : seulement sur demande.";
 
 fn tools() -> Value {
     json!([
@@ -118,7 +125,8 @@ fn tools() -> Value {
                     "articles": {"type": "array", "items": {"type": "string"}, "description": "Limiter à ces articles : clé Zotero, nom d'auteur, année ou mot du titre."},
                     "color": {"type": "string", "description": "Couleur de surlignage : jaune, vert, bleu, rose, orange, violet."},
                     "limit": {"type": "integer", "description": "Nombre maximal de passages (100 par défaut).", "minimum": 1, "maximum": MAX_LIMIT},
-                    "per_article": {"type": "integer", "description": "Avec match=any : passages gardés par article (5 par défaut).", "minimum": 1}
+                    "per_article": {"type": "integer", "description": "Avec match=any : passages gardés par article (5 par défaut).", "minimum": 1},
+                    "code": {"type": "string", "description": "Ne garder que les passages de ce code du livre de codes (nom ou chemin « Parent › Code »), sous-codes compris."}
                 }
             },
             "annotations": {"readOnlyHint": true}
@@ -253,6 +261,74 @@ fn tools() -> Value {
                 "required": ["article"]
             },
             "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true}
+        },
+        {
+            "name": "list_codes",
+            "description": "Livre de codes de l'utilisateur (codage qualitatif façon NVivo) : l'arbre des codes, avec pour chacun \
+    le nombre de passages codés et d'articles (sous-codes compris), les propositions de Claude en attente et le mémo du code.",
+            "inputSchema": {"type": "object", "properties": {}},
+            "annotations": {"readOnlyHint": true}
+        },
+        {
+            "name": "get_code_passages",
+            "description": "Tous les passages d'un code, tous articles confondus, groupés par article avec page, note et autres codes. \
+    C'est la base pour rédiger une section ou une synthèse « à partir du code X ».",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Nom du code, ou chemin « Parent › Code » si le nom est ambigu."},
+                    "subcodes": {"type": "boolean", "description": "Inclure les passages des sous-codes (défaut : oui).", "default": true},
+                    "suggested": {"type": "boolean", "description": "Inclure les propositions de Claude pas encore gardées (défaut : non).", "default": false},
+                    "articles": {"type": "array", "items": {"type": "string"}, "description": "Limiter à ces articles : clé Zotero, auteur, année ou mot du titre."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT, "description": "Nombre maximal de passages (300 par défaut)."}
+                },
+                "required": ["code"]
+            },
+            "annotations": {"readOnlyHint": true}
+        },
+        {
+            "name": "create_code",
+            "description": "Ajoute un code au livre de codes de l'utilisateur (sous un code parent si donné). Un code du même nom au même \
+    endroit est gardé tel quel. À n'utiliser que sur demande explicite.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Nom du code, court (80 caractères au plus)."},
+                    "parent": {"type": "string", "description": "Code parent (nom ou chemin) ; absent = à la racine."},
+                    "memo": {"type": "string", "description": "Mémo du code : ce qu'il recouvre, en une ou deux phrases."}
+                },
+                "required": ["name"]
+            },
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true}
+        },
+        {
+            "name": "code_passages",
+            "description": "PROPOSE des codes du livre de codes pour des passages cités mot pour mot dans le PDF Zotero d'un article. \
+    Rien n'est posé d'office : l'utilisateur voit les propositions en pointillé dans Atelier et les garde ou les retire. \
+    Un passage déjà annoté reçoit la proposition ; sinon un passage codé (voile gris) est créé. Les codes doivent exister \
+    (list_codes). À n'utiliser que sur demande explicite.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "article": {"type": "string", "description": "Clé Zotero de l'article, ou nom d'auteur et année, ou mots du titre."},
+                    "passages": {
+                        "type": "array",
+                        "maxItems": crate::highlight::MAX_PASSAGES,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "quote": {"type": "string", "description": "Texte exact du passage, recopié de l'article."},
+                                "page": {"type": "integer", "minimum": 1, "description": "Page du PDF, si connue."},
+                                "codes": {"type": "array", "items": {"type": "string"}, "description": "Codes proposés pour ce passage (absents = `codes` de l'appel)."}
+                            },
+                            "required": ["quote"]
+                        }
+                    },
+                    "codes": {"type": "array", "items": {"type": "string"}, "description": "Codes proposés par défaut pour chaque passage (noms ou chemins)."}
+                },
+                "required": ["article", "passages"]
+            },
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true}
         }
     ])
 }
@@ -416,6 +492,95 @@ fn edit_highlights(config: &Config, name: &str, args: &Value) -> Result<String, 
     crate::highlight::edit_highlights(config, &target, &passages, all, &edit)
 }
 
+fn get_code_passages(lib: &Library, args: &Value) -> Result<String, String> {
+    let wanted = arg_str(args, "code");
+    if wanted.trim().is_empty() {
+        return Err("Paramètre `code` requis (list_codes donne les codes).".into());
+    }
+    let subcodes = args.get("subcodes").and_then(Value::as_bool).unwrap_or(true);
+    let with_suggested = args.get("suggested").and_then(Value::as_bool).unwrap_or(false);
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|n| (n as usize).clamp(1, MAX_LIMIT))
+        .unwrap_or(300);
+    let (path, memo) = crate::coding::code_title(&lib.book, &wanted)?;
+    let ids = crate::coding::resolve_codes(&lib.book, &[wanted], subcodes)?;
+    let mut hits = lib.search(&Filter {
+        articles: arg_articles(args),
+        codes: ids.clone(),
+        ..Default::default()
+    });
+    if !with_suggested {
+        hits.retain(|h| h.annotation.codes.iter().any(|c| ids.contains(c)));
+    }
+    let total = hits.len();
+    let articles = distinct_articles(&hits);
+    hits.truncate(limit);
+    let mut out = format!("Code « {path} » : {total} passage(s) dans {articles} article(s)");
+    if subcodes && ids.len() > 1 {
+        out.push_str(", sous-codes compris");
+    }
+    if hits.len() < total {
+        out.push_str(&format!(" ; {} affichés (augmenter limit)", hits.len()));
+    }
+    out.push_str(".\n");
+    if !memo.is_empty() {
+        out.push_str(&format!("Mémo du code : {memo}\n"));
+    }
+    out.push_str(&format_groups(&hits, &lib.book));
+    Ok(with_warnings(out, lib))
+}
+
+fn code_passages(config: &Config, args: &Value) -> Result<String, String> {
+    let default_codes = arg_list(args, "codes");
+    let mut requests = Vec::new();
+    for p in args.get("passages").and_then(Value::as_array).into_iter().flatten() {
+        let quote = p.get("quote").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        if quote.is_empty() {
+            continue;
+        }
+        let codes = match arg_list(p, "codes") {
+            own if !own.is_empty() => own,
+            _ => default_codes.clone(),
+        };
+        requests.push(crate::coding::CodeRequest {
+            request: crate::highlight::Request {
+                quote,
+                page: p.get("page").and_then(Value::as_u64).map(|n| n as u32),
+                memo: String::new(),
+                color: None,
+                style: None,
+            },
+            codes,
+        });
+    }
+    if requests.is_empty() {
+        return Err("Paramètre `passages` requis : le texte exact de chaque passage et ses codes.".into());
+    }
+    if requests.len() > crate::highlight::MAX_PASSAGES {
+        return Err(format!("{} passages au plus par appel.", crate::highlight::MAX_PASSAGES));
+    }
+    let target = crate::highlight::resolve(config, &arg_str(args, "article"))?;
+    let pages = crate::highlight::read_pdf(&target.pdf)?;
+    crate::coding::code_passages(config, &target, &pages, &requests)
+}
+
+/// Liste de textes (`["a", "b"]`) ou un seul texte.
+fn arg_list(args: &Value, key: &str) -> Vec<String> {
+    match args.get(key) {
+        Some(Value::String(s)) if !s.trim().is_empty() => vec![s.trim().to_string()],
+        Some(Value::Array(list)) => list
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn arg_str(args: &Value, key: &str) -> String {
     args.get(key)
         .and_then(Value::as_str)
@@ -449,8 +614,21 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
     if name == "update_highlights" || name == "remove_highlights" {
         return edit_highlights(config, name, args);
     }
+    if name == "create_code" {
+        return crate::coding::create_code(
+            config,
+            &arg_str(args, "name"),
+            &arg_str(args, "parent"),
+            &arg_str(args, "memo"),
+        );
+    }
+    if name == "code_passages" {
+        return code_passages(config, args);
+    }
     let lib = Library::load(config);
     match name {
+        "list_codes" => Ok(with_warnings(crate::coding::list_codes(&lib), &lib)),
+        "get_code_passages" => get_code_passages(&lib, args),
         "search_annotations" => {
             let limit = args
                 .get("limit")
@@ -467,6 +645,10 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
                     .get("only_with_note")
                     .and_then(Value::as_bool)
                     .unwrap_or(false),
+                codes: match arg_str(args, "code").trim() {
+                    "" => Vec::new(),
+                    code => crate::coding::resolve_codes(&lib.book, &[code.to_string()], true)?,
+                },
             };
             let mut hits = lib.search(&filter);
             let total = hits.len();
@@ -517,7 +699,7 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
                 }
             }
             out.push_str(".\n");
-            out.push_str(&format_groups(&hits));
+            out.push_str(&format_groups(&hits, &lib.book));
             Ok(with_warnings(out, &lib))
         }
         "list_annotated_articles" => {
@@ -559,6 +741,7 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
                     articles: vec![w.clone()],
                     color: String::new(),
                     only_with_note: false,
+                    codes: Vec::new(),
                 });
                 let keys: std::collections::BTreeSet<&str> =
                     found.iter().map(|h| h.article.key.as_str()).collect();
@@ -585,7 +768,7 @@ fn call(config: &Config, name: &str, args: &Value) -> Result<String, String> {
                 ));
             }
             sort_by_reference(&mut hits);
-            out.push_str(&format_groups(&hits));
+            out.push_str(&format_groups(&hits, &lib.book));
             Ok(with_warnings(out.trim_start().to_string(), &lib))
         }
         _ => Err(format!("Outil inconnu : {name}")),
@@ -601,7 +784,7 @@ fn distinct_articles(hits: &[Hit]) -> usize {
 
 /// Passages groupés par article : l'en-tête (référence, clé, titre) une fois,
 /// puis une ligne par passage.
-fn format_groups(hits: &[Hit]) -> String {
+fn format_groups(hits: &[Hit], book: &atelier_codebook::Codebook) -> String {
     let mut out = String::new();
     let mut current = "";
     for h in hits {
@@ -613,12 +796,12 @@ fn format_groups(hits: &[Hit]) -> String {
                 out.push_str(&format!("{}\n", art.title));
             }
         }
-        out.push_str(&format_annotation(h.annotation));
+        out.push_str(&format_annotation(h.annotation, book));
     }
     out
 }
 
-fn format_annotation(a: &crate::library::Annotation) -> String {
+fn format_annotation(a: &crate::library::Annotation, book: &atelier_codebook::Codebook) -> String {
     let mut s = format!("- p. {}", if a.page.is_empty() { "?" } else { &a.page });
     let mut tags = Vec::new();
     if !a.color.is_empty() {
@@ -631,6 +814,7 @@ fn format_annotation(a: &crate::library::Annotation) -> String {
         "ul" => tags.push("souligné".into()),
         "st" => tags.push("barré".into()),
         "text" => tags.push("zone de texte écrite sur la page".into()),
+        "code" => tags.push("passage codé".into()),
         "stamp" => tags.push(format!("tampon « {} »", a.stamp)),
         _ => {}
     }
@@ -653,6 +837,10 @@ fn format_annotation(a: &crate::library::Annotation) -> String {
     s.push('\n');
     if !a.note.is_empty() {
         s.push_str(&format!("  Note : {}\n", a.note.replace('\n', "\n    ")));
+    }
+    let codes = crate::coding::code_line(book, &a.codes, &a.suggested);
+    if !codes.is_empty() {
+        s.push_str(&format!("  {codes}\n"));
     }
     s
 }
@@ -739,7 +927,11 @@ mod tests {
                 "read_article",
                 "highlight_passage",
                 "update_highlights",
-                "remove_highlights"
+                "remove_highlights",
+                "list_codes",
+                "get_code_passages",
+                "create_code",
+                "code_passages"
             ]
         );
         let unknown = handle(
@@ -899,6 +1091,89 @@ mod tests {
             "{text}"
         );
         assert_eq!(text.matches("## ").count(), 1, "{text}");
+    }
+
+    #[test]
+    fn codes_are_listed_searched_and_proposed_never_imposed() {
+        let (dir, config) = setup();
+        let (text, err) = call_tool(&config, "list_codes", json!({}));
+        assert!(!err && text.contains("vide"), "{text}");
+        let (text, err) = call_tool(&config, "create_code", json!({"name": "Méthode", "memo": "Comment c'est mesuré"}));
+        assert!(!err && text.contains("créé"), "{text}");
+        let (text, err) = call_tool(&config, "create_code", json!({"name": "Télédétection", "parent": "methode"}));
+        assert!(!err && text.contains("Méthode › Télédétection"), "{text}");
+        let (text, _) = call_tool(&config, "create_code", json!({"name": "télédétection", "parent": "Méthode"}));
+        assert!(text.contains("existait déjà"), "{text}");
+
+        // l'utilisateur a codé un passage dans Atelier
+        let book = atelier_codebook::read(dir.path()).unwrap();
+        let tele = book.resolve("Télédétection").unwrap().id.clone();
+        let path = dir.path().join("pdf_annots.json");
+        let mut store: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        store["zotero/ABCD1234/Warren and Wiscombe - 1980 - A model.pdf"][0]["codes"] = json!([tele]);
+        std::fs::write(&path, store.to_string()).unwrap();
+
+        let (text, _) = call_tool(&config, "list_codes", json!({}));
+        assert!(text.contains("- Méthode : 1 passage(s), 1 article(s)"), "{text}");
+        assert!(text.contains("Mémo : Comment c'est mesuré"), "{text}");
+        let (text, err) = call_tool(&config, "get_code_passages", json!({"code": "Méthode"}));
+        assert!(!err, "{text}");
+        assert!(text.contains("1 passage(s) dans 1 article(s), sous-codes compris"), "{text}");
+        assert!(text.contains("misinterpreted") && text.contains("Codes : Méthode › Télédétection"), "{text}");
+        let (text, _) = call_tool(&config, "get_code_passages", json!({"code": "Méthode", "subcodes": false}));
+        assert!(text.contains("0 passage(s)"), "{text}");
+        let (text, _) = call_tool(&config, "search_annotations", json!({"code": "Télédétection"}));
+        assert!(text.contains("1 passage(s)") && !text.contains("Grain size"), "{text}");
+        let (text, err) = call_tool(&config, "get_code_passages", json!({"code": "Inconnu"}));
+        assert!(err && text.contains("Aucun code"), "{text}");
+    }
+
+    #[test]
+    fn code_passages_suggests_on_existing_marks_or_new_coded_passages() {
+        let program = atelier_pdf::tool::resolve(atelier_pdf::tool::Output::WordBoxes);
+        if program.source == atelier_pdf::tool::Source::Poppler && !program.path.is_file() {
+            eprintln!("ni atelier-pdf ni pdftotext : test sauté");
+            return;
+        }
+        let (dir, config) = setup();
+        let storage = dir.path().join("storage/ABCD1234");
+        std::fs::create_dir_all(&storage).unwrap();
+        std::fs::copy(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../atelier-gallery/tests/fixtures/reflow/twocol.pdf"),
+            storage.join("paper.pdf"),
+        )
+        .unwrap();
+        call_tool(&config, "create_code", json!({"name": "Albédo"}));
+        call_tool(&config, "create_code", json!({"name": "Bilan d'énergie"}));
+        // un surlignage de l'utilisateur sur le même passage
+        let (text, err) = call_tool(&config, "highlight_passage", json!({"article": "Warren 1980",
+            "quote": "Surface albedo controls the energy balance of glaciers"}));
+        assert!(!err, "{text}");
+
+        let (text, err) = call_tool(&config, "code_passages", json!({"article": "Warren 1980", "codes": ["Albédo"], "passages": [
+            {"quote": "Surface albedo controls the energy balance of glaciers", "codes": ["Albédo", "Bilan d'énergie"]},
+            {"quote": "Integer sapien est, iaculis in, pretium quis, viverra ac, nunc.", "page": 1}
+        ]}));
+        assert!(!err, "{text}");
+        assert!(text.contains("sur un passage déjà annoté"), "{text}");
+        assert!(text.contains("nouveau passage codé"), "{text}");
+        assert!(text.contains("PROPOSITIONS"), "{text}");
+        let store: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("pdf_annots.json")).unwrap()).unwrap();
+        let annots = store["zotero/ABCD1234/paper.pdf"].as_array().unwrap();
+        assert_eq!(annots.len(), 2, "{annots:?}");
+        assert_eq!(annots[0]["kind"], "hl");
+        assert_eq!(annots[0]["suggested"].as_array().unwrap().len(), 2);
+        assert!(annots[0].get("codes").is_none(), "jamais posé d'office");
+        assert_eq!(annots[1]["kind"], "code");
+        assert_eq!(annots[1]["by"], "claude");
+
+        let (text, _) = call_tool(&config, "code_passages", json!({"article": "Warren 1980", "passages": [
+            {"quote": "Surface albedo controls the energy balance of glaciers", "codes": ["Inexistant"]}]}));
+        assert!(text.contains("Aucun code") && text.contains("Codes existants"), "{text}");
+        let (text, _) = call_tool(&config, "get_code_passages", json!({"code": "Albédo"}));
+        assert!(text.contains("0 passage(s)"), "{text}");
+        let (text, _) = call_tool(&config, "get_code_passages", json!({"code": "Albédo", "suggested": true}));
+        assert!(text.contains("2 passage(s)") && text.contains("Proposés par Claude"), "{text}");
     }
 
     #[test]
