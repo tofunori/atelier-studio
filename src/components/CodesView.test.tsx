@@ -3,7 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import AnnotationsPanel from "./AnnotationsPanel";
-import { codeFamily, codePassages, type Code } from "./CodesView";
+import { codeFamily, codePassages, type Code } from "../lib/codes";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage } from "../lib/i18n";
 

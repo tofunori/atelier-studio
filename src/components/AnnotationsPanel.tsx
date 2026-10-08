@@ -98,7 +98,7 @@ export default function AnnotationsPanel(p: {
     if (!origin) return;
     // le livre de codes se relit avec le store (léger, polling commun)
     fetch(`${origin}/codebook`)
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         // serveur sans livre de codes : vue Codes vide plutôt qu'un chargement sans fin
         if (!Array.isArray(j?.codes)) { setCodes((cur) => cur ?? []); return; }

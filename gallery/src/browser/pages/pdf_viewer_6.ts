@@ -3301,11 +3301,11 @@ function drawCodeStripes(pgDiv: Element, n: number){
   }
   if (!items.length) return;
   // une colonne par code présent sur la page, dans l'ordre du livre de codes
-  const order = CODEBOOK.map(c => c.id);
-  const lanes = [...new Set(items.map(it => it.id))].filter(id => order.includes(id))
-    .sort((x, y) => order.indexOf(x) - order.indexOf(y)).slice(0, 8);
+  const rank = new Map(CODEBOOK.map((c, i) => [c.id, i]));
+  const lanes = new Map([...new Set(items.map(it => it.id))].filter(id => rank.has(id))
+    .sort((x, y) => rank.get(x) - rank.get(y)).slice(0, 8).map((id, i) => [id, i]));
   for (const it of items) {
-    const lane = lanes.indexOf(it.id);
+    const lane = lanes.get(it.id) ?? -1;
     if (lane < 0) continue;
     const s = document.createElement("button");
     s.type = "button";
