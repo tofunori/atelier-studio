@@ -22,6 +22,7 @@ function menu(saved = true, initialNote = "") {
     saveAnnots: async () => { writes.push(JSON.parse(JSON.stringify(win.annotation))); return saved; },
     drawAnnots: (..._args) => {}, sendAnnot: async (a, fail, rel, fromEditor, direct) => { sends.push({...JSON.parse(JSON.stringify(a)), ...(direct ? {direct} : {})}); return true; },
     copyWithCitation: (..._args) => {}, annPane: {refresh(..._args){}},
+    CODEBOOK: [], codeById: (_id) => undefined, codeIds: (a, key) => Array.isArray(a[key]) ? a[key] : [],
   });
   vm.runInContext(html.slice(html.indexOf('async function removeAnnot(a)'), html.indexOf('/** Envoi au chat')), dom.getInternalVMContext());
   vm.runInContext(menuCode, dom.getInternalVMContext());
@@ -122,6 +123,7 @@ test('a comment draws a number and a full-height comment highlight', () => {
  win.PDF_ANNOTS=[{id:'n1',page:1,kind:'comment',number:7,rects:[[.2,.3,.4,.02]],note:'A question'}];
  let opened=null;win.annotMenu=(a)=>{opened=a.id;};
  vm.runInContext(pdfSelection,dom.getInternalVMContext());
+ win.drawCodeStripes=()=>{};
  vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
  const page=win.document.getElementById('page');
  page.getBoundingClientRect=()=>({left:0,top:0,width:600,height:1000});win.drawAnnots(page,1);
@@ -467,6 +469,7 @@ test('free note pins, stamps and text boxes are drawn on the page', () => {
  win.eraseMark=false;
  vm.runInContext(pdfSelection,dom.getInternalVMContext());
  vm.runInContext(pdfTools,dom.getInternalVMContext());
+ win.drawCodeStripes=()=>{};
  vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
  vm.runInContext(html.slice(html.indexOf('// ---- tampons ---'),html.indexOf('// ---- zones de texte ---')),dom.getInternalVMContext());
  const drawn=[];win.drawTextBox=(pg,a)=>{drawn.push(a.id);};
@@ -494,6 +497,7 @@ test('the eraser removes a free note or a stamp instead of opening it', () => {
  win.eraseMark=true;
  vm.runInContext(pdfSelection,dom.getInternalVMContext());
  vm.runInContext(pdfTools,dom.getInternalVMContext());
+ win.drawCodeStripes=()=>{};
  vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
  vm.runInContext(html.slice(html.indexOf('// ---- tampons ---'),html.indexOf('// ---- zones de texte ---')),dom.getInternalVMContext());
  const page=win.document.getElementById('page');
@@ -510,6 +514,7 @@ test('a highlight with a personal note draws a pencil badge that opens the bubbl
  win.normalizeHighlightColor=(c)=>c;
  let opened=null;win.annotMenu=(a)=>{opened=a.id;};
  vm.runInContext(pdfSelection,dom.getInternalVMContext());
+ win.drawCodeStripes=()=>{};
  vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
  const page=win.document.getElementById('page');
  page.getBoundingClientRect=()=>({left:0,top:0,width:600,height:1000});win.drawAnnots(page,1);
@@ -530,6 +535,7 @@ function pane(annots: { id: string; page: number; kind: string; text: string; }[
     sendAnnot: (..._args) => {}, copyWithCitation: (..._args) => {}, removeAnnot: (..._args) => {},
     saveAnnots: () => { saves.push(JSON.parse(JSON.stringify(win.PDF_ANNOTS))); win.annPane.refresh(); },
     drawAnnots: () => { draws.push(1); }, drawReadingAnnots: (..._args) => {},
+    codeById: (_id) => undefined, codeIds: (a, key) => Array.isArray(a[key]) ? a[key] : [],
   });
   win.requestAnimationFrame = (fn) => win.setTimeout(fn, 0);
   const code = html.slice(html.indexOf('const PANE_KEY ='), html.indexOf('// ---- confort sombre'));

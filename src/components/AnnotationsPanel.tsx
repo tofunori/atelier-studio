@@ -5,7 +5,8 @@
 // lecteur reste — lui sert la lecture, celui-ci sert l'écriture.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { t } from "../lib/i18n";
-import { IconButton, RowButton } from "./ui";
+import { IconButton, RowButton, SegmentedControl } from "./ui";
+import CodesView, { type Code } from "./CodesView";
 
 export type PdfAnnot = {
   id: string | number;
@@ -18,6 +19,11 @@ export type PdfAnnot = {
   color?: string;
   rects?: number[][];
   pin?: number[];
+  /** Codes gardés (ids du livre de codes) — codage qualitatif. */
+  codes?: string[];
+  /** Codes proposés par Claude (MCP), en attente d'être gardés ou refusés. */
+  suggested?: string[];
+  by?: string;
 };
 
 /** « Williamson et al. - 2025 - Titre.pdf » → « Williamson et al. 2025 » —
@@ -36,6 +42,8 @@ export function annotQuoteText(rel: string, a: PdfAnnot): string {
   const body = quote ? ` : « ${quote} »` : a.kind === "area" ? " : [zone capturée]" : "";
   return a.note ? `${head}${body}\nCommentaire : ${a.note}` : `${head}${body}`;
 }
+
+const MODE_KEY = "atelier.annots-mode";
 
 function matches(a: PdfAnnot, rel: string, needle: string): boolean {
   if (!needle) return true;
@@ -69,12 +77,37 @@ export default function AnnotationsPanel(p: {
   // Rangée dont la « Note » est en cours d'édition, et son brouillon.
   const [editing, setEditing] = useState<{ rel: string; id: string } | null>(null);
   const [draft, setDraft] = useState("");
+  // Deux vues du même store : les annotations par article, ou les codes.
+  const [mode, setMode] = useState<"annots" | "codes">(() => {
+    try { return localStorage.getItem(MODE_KEY) === "codes" ? "codes" : "annots"; } catch { return "annots"; }
+  });
+  const [codes, setCodes] = useState<Code[] | null>(null);
+  const [openCode, setOpenCode] = useState<string | null>(null);
   const origin = p.galleryOrigin;
   const seq = useRef(0);
   const lastJson = useRef("");
+  const lastCodes = useRef("");
+
+  function changeMode(next: string) {
+    const m = next === "codes" ? "codes" : "annots";
+    setMode(m);
+    try { localStorage.setItem(MODE_KEY, m); } catch { /* stockage indisponible */ }
+  }
 
   function load() {
     if (!origin) return;
+    // le livre de codes se relit avec le store (léger, polling commun)
+    fetch(`${origin}/codebook`)
+      .then((r) => r.json())
+      .then((j) => {
+        // serveur sans livre de codes : vue Codes vide plutôt qu'un chargement sans fin
+        if (!Array.isArray(j?.codes)) { setCodes((cur) => cur ?? []); return; }
+        const ser = JSON.stringify(j.codes);
+        if (ser === lastCodes.current) return;
+        lastCodes.current = ser;
+        setCodes(j.codes as Code[]);
+      })
+      .catch(() => {});
     const mySeq = ++seq.current;
     fetch(`${origin}/pdfannot-all`)
       .then((r) => r.json())
@@ -104,6 +137,7 @@ export default function AnnotationsPanel(p: {
   }
   useEffect(() => {
     lastJson.current = "";
+    lastCodes.current = "";
     load();
     // le serveur galerie peut encore démarrer quand le panneau s'ouvre, et les
     // annotations naissent dans le viewer PDF : relire tant que le panneau est
@@ -199,26 +233,54 @@ export default function AnnotationsPanel(p: {
   const total = articles.reduce((s, e) => s + e.rows.length, 0);
 
   return (
-    <aside className="annots-panel" aria-label={t("atelier.annotations")}>
+    <aside
+      className={`annots-panel${mode === "codes" && openCode && codes?.some((c) => c.id === openCode) ? " is-wide" : ""}`}
+      aria-label={t("atelier.annotations")}
+    >
       <div className="annots-head">
-        <span className="annots-title">{t("atelier.annotations")}</span>
-        {lib !== null && (
-          <span className="annots-count">
-            {t("annots.count", { n: total, m: articles.length })}
-          </span>
-        )}
-        <span className="annots-hspace" />
-        {HL_COLORS.map((c) => (
-          <RowButton
-            key={c}
-            className={`annots-fdot${color === c ? " on" : ""}`}
-            style={{ background: SOLID(c) }}
-            aria-label={t("annots.filter-color")}
-            aria-pressed={color === c}
-            onClick={() => setColor((cur) => (cur === c ? null : c))}
-          />
-        ))}
+        <SegmentedControl
+          className="annots-mode"
+          label={t("codes.mode")}
+          value={mode}
+          onChange={changeMode}
+          options={[
+            { value: "annots", label: t("atelier.annotations") },
+            { value: "codes", label: t("codes.title") },
+          ]}
+        />
       </div>
+      {mode === "annots" && (
+        <div className="annots-subhead">
+          {lib !== null && (
+            <span className="annots-count">
+              {t("annots.count", { n: total, m: articles.length })}
+            </span>
+          )}
+          <span className="annots-hspace" />
+          {HL_COLORS.map((c) => (
+            <RowButton
+              key={c}
+              className={`annots-fdot${color === c ? " on" : ""}`}
+              style={{ background: SOLID(c) }}
+              aria-label={t("annots.filter-color")}
+              aria-pressed={color === c}
+              onClick={() => setColor((cur) => (cur === c ? null : c))}
+            />
+          ))}
+        </div>
+      )}
+      {mode === "codes" ? (
+        <CodesView
+          origin={origin}
+          lib={lib}
+          codes={codes ?? (error ? [] : null)}
+          reload={() => { seq.current++; lastJson.current = ""; lastCodes.current = ""; load(); }}
+          onOpenAnnot={p.onOpenAnnot}
+          onQuote={p.onQuote}
+          openId={openCode}
+          setOpenId={setOpenCode}
+        />
+      ) : (<>
       <input
         className="annots-search"
         placeholder={t("annots.search")}
@@ -263,7 +325,7 @@ export default function AnnotationsPanel(p: {
                 const hasMemo = Boolean(a[memoField(a)]);
                 return (
                   <div key={String(a.id)} className="annots-item">
-                    <span className="annots-bar" style={{ background: SOLID(a.color) }} />
+                    <span className="annots-bar" style={{ background: a.kind === "code" ? "var(--text-muted)" : SOLID(a.color) }} />
                     <div className="annots-body">
                       <RowButton
                         className="annots-open"
@@ -299,6 +361,20 @@ export default function AnnotationsPanel(p: {
                           </span>
                         )}
                       </RowButton>
+                      {codes && (a.codes?.length || a.suggested?.length) ? (
+                        <div className="annots-codes">
+                          {[...(a.codes ?? []).map((id) => [id, false] as const), ...(a.suggested ?? []).map((id) => [id, true] as const)]
+                            .map(([id, pending]) => {
+                              const c = codes.find((x) => x.id === String(id));
+                              return c && (
+                                <span key={`${id}${pending ? "-p" : ""}`} className={`annots-code${pending ? " is-pending" : ""}`}
+                                  title={pending ? `${c.path} · ${t("codes.pending-title")}` : c.path}>
+                                  {c.name}
+                                </span>
+                              );
+                            })}
+                        </div>
+                      ) : null}
                       {isEditing && (
                         <textarea
                           className="annots-memo-edit"
@@ -385,6 +461,7 @@ export default function AnnotationsPanel(p: {
           );
         })}
       </div>
+      </>)}
     </aside>
   );
 }

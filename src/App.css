@@ -5510,6 +5510,63 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   .annots-fdot, .annots-act { transition: none; }
 }
 
+/* ----- Codes (codage qualitatif) : même panneau, autre vue du store.
+ * La vue d'un code élargit le panneau ; propositions de Claude en pointillé. */
+.annots-panel.is-wide { width: 400px; }
+.annots-mode { flex-shrink: 0; }
+.annots-subhead { display: flex; align-items: center; gap: 8px; min-height: 24px; padding: 0 16px 8px; }
+.annots-subhead .annots-fdot { flex-shrink: 0; }
+.annots-codes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.annots-code, .codes-sub { padding: 0 8px; border-radius: var(--r-pill); background: var(--bg-ctl);
+  font-size: var(--fs-s); line-height: 1.5; color: var(--text-secondary); }
+.annots-code.is-pending { background: transparent; outline: 1px dashed var(--text-muted); outline-offset: -1px; }
+.codes-tools { display: flex; align-items: center; gap: 4px; margin: 0 16px 8px; }
+.codes-tools .codes-search { flex: 1; min-width: 0; margin: 0; }
+.codes-row { display: flex; align-items: center; gap: 4px; border-radius: var(--r-s); }
+.codes-row:hover { background: var(--bg-ctl); }
+.codes-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 8px;
+  border-radius: var(--r-s); text-align: left; }
+.codes-name { flex: 1; min-width: 0; font-size: var(--fs-l); color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.codes-count { font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.codes-pending { padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-s); color: var(--text-secondary);
+  outline: 1px dashed var(--text-muted); outline-offset: -1px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.codes-more { opacity: 0; transition: opacity 130ms ease-out; }
+.codes-row:hover .codes-more, .codes-row:focus-within .codes-more, .codes-more[aria-expanded="true"] { opacity: 1; }
+.codes-input { display: block; box-sizing: border-box; width: calc(100% - 16px); margin: 4px 8px; padding: 4px 8px;
+  min-height: var(--control-height); border: none; border-radius: var(--r-s); background: var(--bg-ctl);
+  color: var(--text-primary); font: inherit; font-size: var(--fs-l); outline: none; }
+.codes-input:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); }
+.codes-input::placeholder { color: var(--text-muted); }
+.codes-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 8px 8px; padding: 8px 12px;
+  border-radius: var(--r-s); background: var(--bg-ctl); font-size: var(--fs-m); line-height: 1.5; color: var(--text-primary); }
+.codes-error { color: var(--status-error); }
+.codes-detail { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.codes-detail-head { display: flex; align-items: center; gap: 8px; padding: 0 16px 8px 12px; }
+.codes-detail-title { min-width: 0; display: flex; flex-direction: column; }
+.codes-detail-parent { font-size: var(--fs-s); color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.codes-detail-name { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3;
+  color: var(--text-primary); }
+.codes-detail-body { padding: 0 16px 16px; }
+.codes-detail-meta { font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.codes-detail-actions { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 4px -8px; }
+.codes-detail-actions svg { flex: none; }
+.codes-section { margin-top: 12px; }
+.codes-section-head { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: var(--fs-m);
+  font-weight: 500; color: var(--text-secondary); }
+.codes-section-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.codes-passage { margin: 0 -8px; padding: 8px; border-radius: var(--r-s); }
+.codes-passage:hover { background: var(--bg-ctl); }
+.codes-passage .annots-foot { flex-wrap: wrap; }
+.codes-decide { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; }
+.codes-sub { white-space: nowrap; }
+.codes-passage.is-pending { margin-top: 4px; outline: 1px dashed var(--text-muted); outline-offset: -1px; }
+.codes-passage:hover .annots-act, .codes-passage:focus-within .annots-act { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .codes-more { transition: none; }
+}
+
 /* Project context actions: compact first level, appearance on demand. */
 .project-context-panel { width: 276px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow-y: auto; }
 .project-context-heading { display: flex; align-items: center; gap: 8px; padding: 8px 8px 12px; }
