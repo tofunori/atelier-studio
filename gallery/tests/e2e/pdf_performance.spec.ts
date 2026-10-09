@@ -101,8 +101,11 @@ test('a failed newer reload during a successful reload drain retains a working d
 test('a distant citation is ready without extracting all earlier pages',async({page})=>{
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=long.pdf&page=20&quote=marker20`);
-  await expect(page.locator('.pg[data-page="20"] .auto-hl')).toContainText('marker20');
+  // La citation arrive SÉLECTIONNÉE (barre de sélection ouverte), pas enregistrée.
   await expect(page.locator('#status')).toContainText('Passage retrouvé');
+  await expect(page.locator('.pg[data-page="20"] .pdfsel').first()).toBeVisible();
+  expect(await page.evaluate(()=>hlText())).toBe('marker20');
+  await expect(page.locator('#selPill')).toBeVisible();
   const stats: Record<string,any>=await page.evaluate(()=>window.__pdfStats);
   expect(Object.keys(stats.texts).length).toBeLessThan(8);
   expect(stats.texts[20]).toBe(1);expect(stats.peak).toBeLessThanOrEqual(2);

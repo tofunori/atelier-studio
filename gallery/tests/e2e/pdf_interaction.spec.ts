@@ -26,10 +26,10 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => {await stopGalleryServer(server); await removeTempRoot(root);});
 
-async function openPdf(page: Page) {
+async function openPdf(page: Page, query = '') {
   await page.route('**/studio_core.bundle.js', (route) => route.fulfill({contentType: 'text/javascript', body: core}));
   const host = await serveHostPage(page, port, `<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style>
-    <iframe src="/.fig_thumbs/pdf_viewer.html?file=twocol.pdf#atelier_nonce=test-nonce"></iframe>
+    <iframe src="/.fig_thumbs/pdf_viewer.html?file=twocol.pdf${query}#atelier_nonce=test-nonce"></iframe>
     <script>window.requests=[];addEventListener('message',e=>{if(['atelier-attach-pdf','atelier-add-to-chat'].includes(e.data?.type))requests.push(e.data)});</script>`);
   await page.goto(host);
   const reader = page.frameLocator('iframe');
@@ -74,6 +74,47 @@ for (const activation of ['pointer', 'accessible']) test(`PDF palette takes focu
   await expect(reader.locator('#selPill')).toBeVisible();
   await page.keyboard.press('Escape');
   expect(await reader.locator('body').evaluate(() => hlText())).toBe('');
+});
+
+/** Quatre mots au milieu d'un span de la page 1 : la citation ne couvre pas
+ *  tout le span, la sélection doit s'arrêter aux mots cités. */
+async function quoteFromPage(page: Page) {
+  const reader = await openPdf(page);
+  const text = await reader.locator('.pg[data-page="1"] .textLayer span').evaluateAll((spans) =>
+    spans.map((span) => span.textContent || '').find((value) => value.trim().split(/\s+/).length >= 7) || '');
+  const words = text.trim().split(/\s+/);
+  expect(words.length).toBeGreaterThanOrEqual(7);
+  return words.slice(1, 5).join(' ');
+}
+
+test('a cited passage opens selected with the usual bar and is saved only on demand', async ({page}) => {
+  const quote = await quoteFromPage(page);
+  const reader = await openPdf(page, `&page=1&quote=${encodeURIComponent(quote)}`);
+  await expect(reader.locator('#selPill .atelier-selection')).toBeVisible();
+  expect(await reader.locator('body').evaluate(() => hlText())).toBe(quote);
+  await expect.poll(() => reader.locator('body').evaluate(() => ANNOTS_LOADED)).toBe(true);
+  const before = await reader.locator('body').evaluate(() => PDF_ANNOTS.length);
+  await reader.locator('#selPill .atelier-highlight-actions button[aria-label="Surligner"]').click();
+  await expect.poll(() => reader.locator('body').evaluate(() => PDF_ANNOTS.length)).toBe(before + 1);
+  expect(await reader.locator('body').evaluate(() => [PDF_ANNOTS.at(-1).kind, PDF_ANNOTS.at(-1).text])).toEqual(['hl', quote]);
+  await expect(reader.locator('#selPill')).toBeHidden();
+});
+
+test('a cited passage can be dismissed and is not marked again on rebuild', async ({page}) => {
+  const quote = await quoteFromPage(page);
+  const reader = await openPdf(page, `&page=1&quote=${encodeURIComponent(quote)}`);
+  await expect(reader.locator('#selPill .atelier-selection')).toBeVisible();
+  await expect.poll(() => reader.locator('body').evaluate(() => ANNOTS_LOADED)).toBe(true);
+  const before = await reader.locator('body').evaluate(() => PDF_ANNOTS.length);
+  // Un clic ailleurs sur la page écarte la proposition, comme une sélection.
+  await reader.locator('.pg[data-page="1"]').click({position: {x: 4, y: 4}});
+  await expect(reader.locator('#selPill')).toBeHidden();
+  expect(await reader.locator('body').evaluate(() => hlText())).toBe('');
+  await expect(reader.locator('.pdfsel')).toHaveCount(0);
+  await reader.locator('#zIn').click();
+  await expect.poll(() => reader.locator('.pg[data-page="1"] .textLayer span').count()).toBeGreaterThan(0);
+  await expect(reader.locator('.auto-hl, .pdfsel')).toHaveCount(0);
+  expect(await reader.locator('body').evaluate(() => PDF_ANNOTS.length)).toBe(before);
 });
 
 test('PDF attachment waits for authenticated ACK, reports refusal, and can retry', async ({page}) => {
