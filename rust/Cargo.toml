@@ -17,6 +17,7 @@ members = [
   "crates/atelier-fdlimit",
   "crates/atelier-integrations",
   "crates/atelier-pdf",
+  "crates/atelier-codebook",
 ]
 
 [workspace.package]
@@ -37,6 +38,7 @@ atelier-kb = { path = "crates/atelier-kb" }
 atelier-fdlimit = { path = "crates/atelier-fdlimit" }
 atelier-integrations = { path = "crates/atelier-integrations" }
 atelier-pdf = { path = "crates/atelier-pdf" }
+atelier-codebook = { path = "crates/atelier-codebook" }
 axum = { version = "0.8", features = ["ws", "macros"] }
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }

@@ -58,7 +58,6 @@ export default function TopBar({
   activeSurface,
   showAtelier,
   showExplorer,
-  showAnnots,
   onToggleExplorer,
   onToggleAnnots,
   onSelectSurface,
@@ -85,7 +84,6 @@ export default function TopBar({
   activeSurface: Surface;
   showAtelier: boolean;
   showExplorer: boolean;
-  showAnnots: boolean;
   onToggleExplorer: () => void;
   onToggleAnnots: () => void;
   onSelectSurface: (surface: Surface) => void;
@@ -112,7 +110,6 @@ export default function TopBar({
       {/* Center follows the actual chat/atelier divider, not a fixed grid ratio. */}
       <div className="topbar-center" data-tauri-drag-region>
         <TopBarSurfaces
-          showAnnots={showAnnots}
           onToggleAnnots={onToggleAnnots}
           activeSurface={activeSurface}
           showAtelier={showAtelier}
@@ -148,7 +145,7 @@ export default function TopBar({
             label={t("action.more")}
             trigger={<IconButton label={t("action.more")} aria-haspopup="menu" aria-expanded={windowMenu}>…</IconButton>}
             items={[
-              {key:"surfaces", label:t("topbar.surfaces"), children:buildTargets({activeSurface, showAtelier, ideActive, showExplorer, showAnnots, onSelectSurface, onSelectIde, onToggleExplorer, onToggleAnnots}).map(target => ({key:target.id,label:target.label,onSelect:target.onSelect}))},
+              {key:"surfaces", label:t("topbar.surfaces"), children:buildTargets({activeSurface, showAtelier, ideActive, showExplorer, onSelectSurface, onSelectIde, onToggleExplorer, onToggleAnnots}).map(target => ({key:target.id,label:target.label,onSelect:target.onSelect}))},
               {key:"search", label:t("topbar.search"), onSelect:onOpenPalette},
               {key:"chat", label:t("layout.chat"), onSelect:() => onSetLayout("chat")},
               {key:"split", label:t("layout.split"), onSelect:() => onSetLayout("split")},

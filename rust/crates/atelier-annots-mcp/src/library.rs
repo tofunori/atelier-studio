@@ -54,6 +54,10 @@ pub struct Annotation {
     pub kind: String,
     /// Tampon (`kind: "stamp"`) : son sens, « À vérifier », « À citer »…
     pub stamp: String,
+    /// Codes posés par l'utilisateur, et codes proposés par Claude (ids du
+    /// livre de codes, `atelier-codebook`).
+    pub codes: Vec<String>,
+    pub suggested: Vec<String>,
 }
 
 /// Tampons du lecteur (`STAMPS` de `gallery/src/browser/pdf_tools.ts`).
@@ -77,6 +81,8 @@ pub struct Article {
 
 pub struct Library {
     pub annotations: Vec<Annotation>,
+    /// Livre de codes (vide s'il n'existe pas encore).
+    pub book: atelier_codebook::Codebook,
     pub articles: HashMap<String, Article>,
     pub warnings: Vec<String>,
 }
@@ -201,6 +207,8 @@ pub fn atelier_annotations(store: &Value) -> Vec<Annotation> {
                 by_claude: text(a, "by") == "claude",
                 kind,
                 stamp,
+                codes: atelier_codebook::ids(a, atelier_codebook::CODES),
+                suggested: atelier_codebook::ids(a, atelier_codebook::SUGGESTED),
             });
         }
     }
@@ -256,8 +264,13 @@ impl Library {
                 );
             }
         }
+        let book = atelier_codebook::read(&config.app_dir).unwrap_or_else(|e| {
+            warnings.push(e);
+            Default::default()
+        });
         Library {
             annotations,
+            book,
             articles,
             warnings,
         }
@@ -327,6 +340,7 @@ pub fn fold(s: &str) -> String {
         .collect()
 }
 
+#[derive(Default)]
 pub struct Filter {
     pub query: String,
     /// Vrai : un seul mot de `query` suffit, les annotations qui en portent
@@ -336,6 +350,9 @@ pub struct Filter {
     pub articles: Vec<String>,
     pub color: String,
     pub only_with_note: bool,
+    /// Ids de codes (avec leurs sous-codes) : un passage passe s'il porte
+    /// l'un d'eux, gardé ou proposé. Vide = pas de filtre.
+    pub codes: Vec<String>,
 }
 
 pub struct Hit<'a> {
@@ -368,6 +385,10 @@ impl Library {
             .iter()
             .filter(|a| !filter.only_with_note || !a.note.is_empty())
             .filter(|a| wanted_color.is_empty() || fold(&a.color) == wanted_color)
+            .filter(|a| {
+                filter.codes.is_empty()
+                    || a.codes.iter().chain(&a.suggested).any(|c| filter.codes.contains(c))
+            })
             .filter_map(|a| {
                 let art = self.article(&a.article);
                 // Une clé qui est un chemin de fichier (PDF hors Zotero) ne
@@ -508,6 +529,7 @@ mod tests {
             articles: Vec::new(),
             color: String::new(),
             only_with_note,
+            ..Default::default()
         };
         let hits = lib.search(&filter("element DISCUSSION", false));
         assert_eq!(hits.len(), 1);
@@ -526,6 +548,7 @@ mod tests {
             articles: Vec::new(),
             color: String::new(),
             only_with_note: false,
+            ..Default::default()
         };
         assert_eq!(
             lib.search(&any("soot, carbon grain")).len(),

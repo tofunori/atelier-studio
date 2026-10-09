@@ -4,7 +4,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import { useWorkspacePaneMenuHost } from "./WorkspacePaneMenuSlot";
 import Explorer from "./Explorer";
-import AnnotationsPanel from "./AnnotationsPanel";
 const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
 const KnowledgeSurface = lazyWithRetry(() => import("./KnowledgeSurface"));
 const GitSurface = lazyWithRetry(() => import("./GitSurface"));
@@ -138,9 +137,6 @@ export default function AtelierPane({
   onActiveSurfaceChange = NOOP_SURFACE_CHANGE,
   reloadKey,
   showExplorer,
-  showAnnots = false,
-  onOpenAnnot,
-  onQuoteAnnot,
   layout,
   onToggleExpand,
   recentFiles,
@@ -172,9 +168,6 @@ export default function AtelierPane({
   onActiveSurfaceChange?: (surface: Surface) => void;
   reloadKey: number;
   showExplorer: boolean;
-  showAnnots?: boolean;
-  onOpenAnnot?: (rel: string, annotId: string) => void;
-  onQuoteAnnot?: (text: string) => void;
   files: string[];
   /** catalogue tronqué : l'arbre est incomplet */
   filesTruncated?: boolean;
@@ -315,6 +308,22 @@ export default function AtelierPane({
     if (orderedIds.every((id, index) => id === documentIds[index])) return;
     onReorderTabs(orderedIds);
   }, [documentIds, onReorderTabs, workspace.root]);
+
+  // Bouton « Annotations » de la barre du haut : le panneau d'annotations
+  // est celui du lecteur PDF actif (Annotations, Codes, Plan).
+  useEffect(() => {
+    const onToggle = () => {
+      const active = new Set(listWorkspacePanes(workspace.root)
+        .map((current) => current.activeTabId)
+        .filter((id): id is string => Boolean(id?.startsWith("document:")))
+        .map((id) => id.slice("document:".length)));
+      const frame = [...document.querySelectorAll<HTMLIFrameElement>("iframe.atelier[data-atelier-tab]")]
+        .find((f) => active.has(f.dataset.atelierTab ?? "") && /\/pdf_viewer\.html(\?|$)/.test(f.src));
+      frame?.contentWindow?.postMessage({ type: "atelier-annots-pane" }, "*");
+    };
+    window.addEventListener("atelier-annots-pane", onToggle);
+    return () => window.removeEventListener("atelier-annots-pane", onToggle);
+  }, [workspace]);
 
   useEffect(() => {
     for (const current of listWorkspacePanes(workspace.root)) {
@@ -1142,13 +1151,6 @@ export default function AtelierPane({
           )}
         </div>
         {showExplorer && <Explorer files={files} truncated={filesTruncated} onOpen={onOpenFile} />}
-        {showAnnots && (
-          <AnnotationsPanel
-            galleryOrigin={url ? new URL(url).origin : null}
-            onOpenAnnot={onOpenAnnot ?? (() => {})}
-            onQuote={onQuoteAnnot ?? (() => {})}
-          />
-        )}
       </div>
     </div>
   );

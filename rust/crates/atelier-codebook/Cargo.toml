@@ -1,0 +1,13 @@
+[package]
+name = "atelier-codebook"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Livre de codes du codage qualitatif (codebook.json) et codes posés sur les annotations PDF"
+
+[dependencies]
+serde_json = { workspace = true }
+fs2 = "0.4"
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,4 +1,5 @@
 mod agent;
+mod codes;
 mod documents;
 mod files;
 mod gallery;
@@ -2487,6 +2488,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(documents::get_pdfannot_all),
         )
         .route("/pdfannot-stamp", get(documents::get_pdfannot_stamp))
+        .route("/pdfannot-codes", post(codes::post_pdfannot_codes))
+        .route("/codebook", get(codes::get_codebook).post(codes::post_codebook))
         .route("/export-png", post(documents::export_png))
         .route("/lint", get(documents::lint))
         // Phase 5 — notes + whiteboard

@@ -1054,6 +1054,7 @@ const selApi = SelPill.attach({
       onAdd: () => go.click(),
       onAnnotate: () => addHighlightFromSel("comment", LAST_COLOR),
       onHighlight: (color) => addHighlightFromSel("hl", color),
+      onCode: () => codeSelection(),
       colors: AtelierAnnotationUI.pdfAnnotationColors,
       onAsk: () => {
         const text = hlText(); if(!text) return;
@@ -1115,6 +1116,7 @@ const annPane = (function(){
         cn = pane.querySelector<HTMLSpanElement>(".cn"), doc = pane.querySelector<HTMLDivElement>(".doc");
   let only: string = null;   // couleur filtrée, null = toutes
   let onlyStamp: string = null;   // tampon filtré (verif, imp…), null = tous
+  let onlyCode: string = null;    // code filtré (sous-codes compris), null = tous
   const thumbs = new Map();   // id d'annotation → dataURL de la vignette
   function sorted(){
     return [...PDF_ANNOTS].sort((a, b) =>
@@ -1160,10 +1162,18 @@ const annPane = (function(){
     u.searchParams.set("annot", String(a.id));
     location.href = u.toString();
   }
+  // `id` est-il `root` ou l'un de ses sous-codes ? (garde contre un cycle)
+  function underCode(id: string, root: string){
+    for (let c = codeById(id), n = 0; c && n < 32; c = c.parent ? codeById(c.parent) : null, n++)
+      if (c.id === root) return true;
+    return false;
+  }
   function filtered(list){
+    if (onlyCode) return list.filter((a) =>
+      [...codeIds(a, "codes"), ...codeIds(a, "suggested")].some((id) => underCode(id, onlyCode)));
     if (onlyStamp) return list.filter((a) => a.kind === "stamp" && (a.stamp || "verif") === onlyStamp);
     // les teintes ne concernent que les marquages : ni tampons ni zones de texte
-    return only ? list.filter((a) => a.kind !== "stamp" && a.kind !== "text"
+    return only ? list.filter((a) => a.kind !== "stamp" && a.kind !== "text" && a.kind !== "code"
       && normalizeHighlightColor(a.color || HL_COLORS[0]) === only) : list;
   }
   function stampOf(a){ return window.AtelierPdfTools ? window.AtelierPdfTools.stampById(a.stamp) : null; }
@@ -1177,7 +1187,7 @@ const annPane = (function(){
     const bar = document.createElement("span");
     bar.className = "bar";
     bar.style.background = a.kind === "stamp" && stampOf(a) ? stampOf(a).color
-      : a.kind === "text" ? "var(--muted)"
+      : a.kind === "text" || a.kind === "code" ? "var(--muted)"
       : normalizeHighlightColor(a.color || HL_COLORS[0]).replace(",.40", ",.9");
     const body = document.createElement("div");
     const text = (a.text || "").replace(/\s+/g, " ").trim();
@@ -1251,6 +1261,21 @@ const annPane = (function(){
         n.className = "note"; n.textContent = a.note;
         body.appendChild(n);
       }
+    }
+    // codes gardés, puis propositions de Claude (en pointillé)
+    if (codeIds(a, "codes").length || codeIds(a, "suggested").length) {
+      const line = document.createElement("div");
+      line.className = "codes";
+      for (const [key, pending] of [["codes", false], ["suggested", true]] as const) {
+        for (const id of codeIds(a, key)) {
+          const c = codeById(id); if (!c) continue;
+          const tag = document.createElement("span");
+          tag.className = "code-tag" + (pending ? " is-suggested" : "");
+          tag.textContent = c.name; tag.title = c.path + (pending ? " · proposé par Claude" : "");
+          line.appendChild(tag);
+        }
+      }
+      if (line.childNodes.length) body.appendChild(line);
     }
     if (isEditing(a, relX)) {
       body.appendChild(memoEditor(a, relX));
@@ -1380,11 +1405,12 @@ const annPane = (function(){
   function renderDoc(){
     const all = sorted();
     const shown = filtered(all);
-    cn.textContent = shown.length + (only || onlyStamp ? " / " + all.length : "");
+    cn.textContent = shown.length + (only || onlyStamp || onlyCode ? " / " + all.length : "");
     if (!shown.length) {
       const e = document.createElement("div");
       e.className = "empty";
-      e.textContent = onlyStamp ? "Aucun tampon de ce type."
+      e.textContent = onlyCode ? "Aucun passage avec ce code."
+        : onlyStamp ? "Aucun tampon de ce type."
         : only ? "Aucune annotation de cette couleur."
         : "Aucune annotation. S\u00e9lectionne du texte et choisis une couleur.";
       list.appendChild(e);
@@ -1528,10 +1554,334 @@ const annPane = (function(){
       if (view === "toc") renderToc();
     });
   }
+  // ---- onglet « Codes » : le livre de codes (arbre et effectifs, sous-codes
+  // compris) et la vue d'un code (mémo, propositions de Claude à garder ou
+  // refuser, passages groupés par article). Tout le store : /pdfannot-all.
+  const codesBox = pane.querySelector<HTMLDivElement>(".codes");
+  let openCode: string = null, cvSearch = "", cvError = "", cvConfirm: string = null;
+  let cvDraft: {mode: "new"|"rename"; id: string|null} = null;
+  const CV_ICON = {
+    back: '<path d="M10 3L5.5 8 10 13"/>',
+    more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>',
+    plus: '<path d="M8 3v10M3 8h10"/>',
+    chat: '<path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/>',
+    check: '<path d="m3.5 8.5 3 3 6-7"/>',
+    cross: '<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>',
+  };
+  function cvSvg(k: keyof typeof CV_ICON){
+    return '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + CV_ICON[k] + '</svg>';
+  }
+  const cvPl = (n: number, w: string) => n + " " + w + (n > 1 ? "s" : "");
+  function cvEl(tag: string, cls: string, text?: string){
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function cvIconBtn(k: keyof typeof CV_ICON, label: string, fn: (e: MouseEvent) => void, cls = ""){
+    const b = cvEl("button", "cv-btn" + (cls ? " " + cls : "")) as HTMLButtonElement;
+    b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.innerHTML = cvSvg(k);
+    b.onclick = (e) => { e.stopPropagation(); fn(e); };
+    return b;
+  }
+  function cvTextBtn(label: string, fn: () => void, cls = "", icon?: keyof typeof CV_ICON){
+    const b = cvEl("button", "cv-tbtn" + (cls ? " " + cls : "")) as HTMLButtonElement;
+    b.type = "button";
+    if (icon) b.innerHTML = cvSvg(icon);
+    b.appendChild(document.createTextNode(label));
+    b.onclick = (e) => { e.stopPropagation(); fn(); };
+    return b;
+  }
+  /** Toute la bibliothèque, l'article ouvert dans son état vivant. */
+  function cvLib(): Record<string, any[]>{
+    const lib = Object.assign({}, LIB || {});
+    if (rel) lib[rel] = PDF_ANNOTS;
+    return lib;
+  }
+  /** Ids d'un code et de tous ses sous-codes. */
+  function cvFamily(id: string){
+    const out = [id], seen = new Set(out);
+    for (let i = 0; i < out.length; i++)
+      for (const c of CODEBOOK) if (c.parent === out[i] && !seen.has(c.id)) { seen.add(c.id); out.push(c.id); }
+    return seen;
+  }
+  type CvPassage = {rel: string; a: any; ids: string[]};
+  function cvPassages(lib: Record<string, any[]>, fam: Set<string>){
+    const kept: CvPassage[] = [], pending: CvPassage[] = [];
+    for (const [r, l] of Object.entries(lib)) for (const a of Array.isArray(l) ? l : []) {
+      const k = codeIds(a, "codes").filter(id => fam.has(id));
+      const s = codeIds(a, "suggested").filter(id => fam.has(id));
+      if (k.length) kept.push({rel: r, a, ids: k});
+      if (s.length) pending.push({rel: r, a, ids: s});
+    }
+    const order = (x: CvPassage, y: CvPassage) => (Number(y.rel === rel) - Number(x.rel === rel))
+      || x.rel.localeCompare(y.rel) || (+x.a.page - +y.a.page);
+    return {kept: kept.sort(order), pending: pending.sort(order)};
+  }
+  async function cvPost(path: string, body: unknown){
+    cvError = "";
+    try {
+      const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false) throw new Error(j.error || "HTTP " + r.status);
+      if (Array.isArray(j.codes)) CODEBOOK = j.codes;
+      return j;
+    } catch(e) {
+      cvError = String(e && e.message || e).slice(0, 120);
+      return null;
+    }
+  }
+  /** Après une écriture du livre : relire livre, article ouvert et bibliothèque. */
+  async function cvReload(){
+    await loadCodebook();
+    if (rel) await syncAnnotsFromStore();
+    loadLib();
+    redrawAllAnnots();
+  }
+  function openCodes(){
+    if (LIB === null) loadLib();
+    loadCodebook().then(changed => { if (changed) refresh(); });
+  }
+  // une saisie en cours (recherche, nom, mémo) n'est pas détruite par un
+  // rafraîchissement venu d'ailleurs (sauvegarde, veille du store)
+  function cvTyping(){
+    const el = document.activeElement;
+    return !!el && codesBox.contains(el) && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+  }
+  function renderCodes(){
+    if (!codesBox) return;
+    const code = openCode ? codeById(openCode) : null;
+    if (openCode && !code) openCode = null;
+    codesBox.replaceChildren();
+    if (code) renderCodeDetail(code); else renderCodeTree();
+  }
+  function cvDraftInput(depth: number){
+    const d = cvDraft;
+    const inp = cvEl("input", "cv-input") as HTMLInputElement;
+    inp.type = "text"; inp.spellcheck = false;
+    inp.style.marginLeft = (depth * 12) + "px";
+    inp.placeholder = d.mode === "new" ? "Nom du nouveau code" : "";
+    inp.setAttribute("aria-label", d.mode === "new" ? "Nouveau code" : "Renommer le code");
+    if (d.mode === "rename") inp.value = codeById(d.id)?.name || "";
+    let done = false;
+    const finish = async (save: boolean) => {
+      if (done) return;
+      done = true;
+      cvDraft = null;
+      const name = inp.value.trim().replace(/\s+/g, " ");
+      if (save && name) {
+        if (d.mode === "new") await cvPost("/codebook", {op: "create", name, parent: d.id});
+        else if (name !== codeById(d.id)?.name) await cvPost("/codebook", {op: "update", id: d.id, name});
+      }
+      renderCodes();
+    };
+    inp.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    };
+    inp.onblur = () => finish(true);
+    requestAnimationFrame(() => { inp.focus(); inp.select(); });
+    return inp;
+  }
+  function renderCodeTree(){
+    const tools = cvEl("div", "cv-tools");
+    const search = cvEl("input", "cv-search") as HTMLInputElement;
+    search.type = "text"; search.spellcheck = false; search.value = cvSearch;
+    search.placeholder = "Chercher un code…"; search.setAttribute("aria-label", "Chercher un code");
+    search.onkeydown = (e) => e.stopPropagation();
+    tools.appendChild(search);
+    tools.appendChild(cvIconBtn("plus", "Nouveau code", () => { cvDraft = {mode: "new", id: null}; renderCodes(); }));
+    const body = cvEl("div", "cv-body");
+    codesBox.appendChild(tools); codesBox.appendChild(body);
+    search.oninput = () => { cvSearch = search.value; fillTree(body); };
+    fillTree(body);
+  }
+  function fillTree(body: HTMLElement){
+    body.replaceChildren();
+    if (cvError) body.appendChild(cvEl("div", "empty cv-err", cvError));
+    if (cvDraft && cvDraft.mode === "new" && cvDraft.id === null) body.appendChild(cvDraftInput(0));
+    if (!CODEBOOK.length) {
+      if (!cvDraft) body.appendChild(cvEl("div", "empty",
+        "Aucun code. Sélectionne un passage et choisis « Coder », ou crée un code avec +."));
+      return;
+    }
+    const lib = cvLib();
+    const needle = foldText(cvSearch.trim());
+    const shown = needle ? CODEBOOK.filter(c => foldText(c.path).includes(needle)) : CODEBOOK;
+    if (!shown.length) { body.appendChild(cvEl("div", "empty", "Aucun code ne correspond.")); return; }
+    for (const c of shown) {
+      const {kept, pending} = cvPassages(lib, cvFamily(c.id));
+      const depth = needle ? 0 : c.depth;
+      if (cvDraft && cvDraft.mode === "rename" && cvDraft.id === c.id) { body.appendChild(cvDraftInput(depth)); continue; }
+      const row = cvEl("div", "cv-row");
+      row.style.paddingLeft = (depth * 12) + "px";
+      const open = cvEl("button", "cv-open") as HTMLButtonElement;
+      open.type = "button";
+      open.title = c.memo ? c.path + "\n" + c.memo : c.path;
+      open.appendChild(cvEl("span", "cv-name", needle ? c.path : c.name));
+      if (pending.length) {
+        const p = cvEl("span", "cv-pending", String(pending.length));
+        p.title = pending.length + " proposé(s) par Claude";
+        open.appendChild(p);
+      }
+      const n = cvEl("span", "cv-count", kept.length + " · " + new Set(kept.map(x => x.rel)).size);
+      n.title = cvPl(kept.length, "passage") + " dans " + cvPl(new Set(kept.map(x => x.rel)).size, "article") + ", sous-codes compris";
+      open.appendChild(n);
+      open.onclick = () => { openCode = c.id; cvError = ""; renderCodes(); };
+      row.appendChild(open);
+      row.appendChild(cvIconBtn("more", "Actions du code", (e) => {
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        openActionMenu(r.right - 180, r.bottom, [
+          {label: "Renommer", run: () => { cvDraft = {mode: "rename", id: c.id}; renderCodes(); }},
+          {label: "Nouveau sous-code", run: () => { cvDraft = {mode: "new", id: c.id}; renderCodes(); }},
+          {label: "Supprimer", danger: true, sep: true, run: () => { cvConfirm = c.id; renderCodes(); }},
+        ]);
+      }, "cv-more"));
+      body.appendChild(row);
+      if (cvConfirm === c.id) {
+        const box = cvEl("div", "cv-confirm");
+        box.setAttribute("role", "alert");
+        box.appendChild(cvEl("span", "", "Supprimer « " + c.name + " » et ses sous-codes ? " + kept.length + " passages perdent ce code."));
+        const acts = cvEl("div", "cv-confirm-acts");
+        acts.appendChild(cvTextBtn("Annuler", () => { cvConfirm = null; renderCodes(); }));
+        acts.appendChild(cvTextBtn("Supprimer", async () => {
+          cvConfirm = null;
+          if (await cvPost("/codebook", {op: "delete", id: c.id})) await cvReload();
+          renderCodes();
+        }, "danger"));
+        box.appendChild(acts);
+        body.appendChild(box);
+      }
+      if (cvDraft && cvDraft.mode === "new" && cvDraft.id === c.id) body.appendChild(cvDraftInput(depth + 1));
+    }
+  }
+  /** Garder, refuser (propositions) ou retirer (codes gardés) sur un passage. */
+  async function cvChange(x: CvPassage, change: "keep"|"reject"|"remove"){
+    if (x.rel === rel) {
+      const a = PDF_ANNOTS.find(y => String(y.id) === String(x.a.id));
+      if (!a) return;
+      x.ids.forEach(id => changeCodes(a, {[change]: id}));
+      await saveCodes(a);
+    } else if (await cvPost("/pdfannot-codes", {rel: x.rel, id: String(x.a.id), [change]: x.ids})) {
+      loadLib();
+      return;
+    }
+    renderCodes();
+  }
+  function cvQuote(x: CvPassage){
+    const quote = String(x.a.text || "").replace(/\s+/g, " ").trim();
+    const head = x.rel + " (p." + x.a.page + ")";
+    const body = quote ? " : « " + quote + " »" : x.a.kind === "area" ? " : [zone capturée]" : "";
+    return x.a.note ? head + body + "\nCommentaire : " + x.a.note : head + body;
+  }
+  function cvPassageRow(code: Code, x: CvPassage, pending: boolean){
+    const it = cvEl("div", "it cv-it" + (pending ? " is-pending" : "") + (x.rel === rel ? "" : " lib-row"));
+    const bar = cvEl("span", "bar");
+    const body = cvEl("div", "");
+    const q = cvEl("div", "q");
+    q.appendChild(cvEl("span", "oq", "« "));
+    q.appendChild(document.createTextNode(String(x.a.text || "").replace(/\s+/g, " ").trim() || "…"));
+    q.appendChild(cvEl("span", "oq", " »"));
+    body.appendChild(q);
+    if (x.a.memo) body.appendChild(cvEl("div", "note", x.a.memo));
+    const foot = cvEl("div", "foot");
+    foot.appendChild(cvEl("span", "pg", (pending ? citeRefFor(x.rel) + ", " : "") + "p. " + x.a.page));
+    const subs = x.ids.filter(id => id !== code.id).map(id => codeById(id)?.name).filter(Boolean);
+    for (const name of subs) foot.appendChild(cvEl("span", "code-tag", name));
+    foot.appendChild(cvEl("span", "sp"));
+    const act = (k: keyof typeof CV_ICON, title: string, fn: () => void, cls = "") => {
+      const b = cvEl("button", "act" + (cls ? " " + cls : "")) as HTMLButtonElement;
+      b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.innerHTML = cvSvg(k);
+      b.onclick = (e) => { e.stopPropagation(); fn(); };
+      foot.appendChild(b);
+    };
+    if (!pending) {
+      if (x.a.kind !== "area" || x.rel === rel) act("chat", "Envoyer au chat", () => sendAnnot(x.a, null, x.rel));
+      act("cross", "Retirer ce code du passage", () => cvChange(x, "remove"), "danger");
+    }
+    body.appendChild(foot);
+    if (pending) {
+      const decide = cvEl("div", "cv-decide");
+      decide.appendChild(cvTextBtn("Refuser", () => cvChange(x, "reject"), "", "cross"));
+      decide.appendChild(cvTextBtn("Garder", () => cvChange(x, "keep"), "primary", "check"));
+      body.appendChild(decide);
+    }
+    it.appendChild(bar); it.appendChild(body);
+    it.onclick = () => gotoAnnot(x.rel, x.a);
+    return it;
+  }
+  function renderCodeDetail(code: Code){
+    const {kept, pending} = cvPassages(cvLib(), cvFamily(code.id));
+    const articles = new Set(kept.map(x => x.rel)).size;
+    const head = cvEl("div", "cv-head");
+    head.appendChild(cvIconBtn("back", "Retour aux codes", () => { openCode = null; cvError = ""; renderCodes(); }));
+    const title = cvEl("div", "cv-title");
+    const cut = code.path.lastIndexOf(" › ");
+    if (cut > 0) title.appendChild(cvEl("span", "cv-parent", code.path.slice(0, cut) + " ›"));
+    title.appendChild(cvEl("span", "", code.name));
+    title.title = code.path;
+    head.appendChild(title);
+    const body = cvEl("div", "cv-body");
+    codesBox.appendChild(head); codesBox.appendChild(body);
+    body.appendChild(cvEl("div", "cv-meta", cvPl(kept.length, "passage") + " dans " + cvPl(articles, "article") + ", sous-codes compris"));
+    const memo = cvEl("textarea", "memo-edit cv-memo") as HTMLTextAreaElement;
+    memo.rows = 2; memo.value = code.memo || "";
+    memo.placeholder = "Mémo : définition, règles de codage…";
+    memo.setAttribute("aria-label", "Mémo du code");
+    memo.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Escape") { memo.value = code.memo || ""; memo.blur(); } };
+    memo.onblur = async () => {
+      if (memo.value === (code.memo || "")) return;
+      await cvPost("/codebook", {op: "update", id: code.id, memo: memo.value});
+      renderCodes();
+    };
+    body.appendChild(memo);
+    const acts = cvEl("div", "cv-actions");
+    const send = cvTextBtn("Tout envoyer au chat", async () => {
+      const text = ["Code « " + code.path + " » : " + cvPl(kept.length, "passage"), ...kept.map(cvQuote)].join("\n\n");
+      try {
+        if (window.self === window.top) throw new Error("ouvre le lecteur dans l’app");
+        await attachPdfChatPayload({type: "atelier-add-to-chat", text});
+        (document.getElementById("status") as HTMLSpanElement).textContent = "Passages ajoutés au chat";
+      } catch(e) { cvError = "Envoi impossible : " + String(e && e.message || e).slice(0, 90); renderCodes(); }
+    }, "", "chat");
+    const copy = cvTextBtn("Copier avec citations", () => {
+      const lines = kept.map(x => "« " + String(x.a.text || "").replace(/\s+/g, " ").trim() + " » ("
+        + citeRefFor(x.rel) + ", p. " + x.a.page + ")");
+      const out = [code.path, "", ...lines].join("\n");
+      const ok = () => { copy.classList.add("ok"); setTimeout(() => copy.classList.remove("ok"), 1200); };
+      navigator.clipboard?.writeText(out).then(ok).catch(() => {});
+    });
+    send.disabled = copy.disabled = !kept.length;
+    acts.appendChild(send); acts.appendChild(copy);
+    body.appendChild(acts);
+    if (cvError) body.appendChild(cvEl("div", "empty cv-err", cvError));
+    if (LIB === null) body.appendChild(cvEl("div", "empty", "Chargement de la bibliothèque…"));
+    if (pending.length) {
+      body.appendChild(cvEl("div", "cv-sec", "Proposés par Claude · " + pending.length));
+      for (const x of pending) body.appendChild(cvPassageRow(code, x, true));
+    }
+    if (!kept.length && !pending.length && LIB !== null) body.appendChild(cvEl("div", "empty", "Aucun passage pour ce code."));
+    let last = "";
+    for (const x of kept) {
+      if (x.rel !== last) {
+        last = x.rel;
+        const n = kept.filter(y => y.rel === x.rel).length;
+        const sec = cvEl("div", "cv-sec");
+        const t = cvEl("span", "cv-sec-t", citeRefFor(x.rel) + (x.rel === rel ? " · cet article" : ""));
+        t.title = x.rel;
+        sec.appendChild(t); sec.appendChild(cvEl("span", "cv-sec-n", String(n)));
+        body.appendChild(sec);
+      }
+      body.appendChild(cvPassageRow(code, x, false));
+    }
+  }
   function showView(next: string){
-    view = next === "toc" && tocBox ? "toc" : "ann";
+    view = next === "toc" && tocBox ? "toc" : next === "codes" && codesBox ? "codes" : "ann";
     tabs.forEach(t => { const on = t.dataset.v === view; t.classList.toggle("on", on); t.setAttribute("aria-selected", String(on)); });
     pane.classList.toggle("toc-on", view === "toc");
+    pane.classList.toggle("codes-on", view === "codes");
+    if (view === "codes") openCodes();
     if (view === "toc") loadToc(); else refresh();
   }
   tabs.forEach(t => t.onclick = () => showView(t.dataset.v));
@@ -1539,13 +1889,14 @@ const annPane = (function(){
   window.addEventListener("pdf-document-changed", () => { tocItems = null; tocFor = null; if (view === "toc" && pane.style.display === "flex") loadToc(); });
   function render(){
     if (pane.style.display !== "flex") return;
+    if (view === "codes") { if (!cvTyping()) renderCodes(); return; }
     filters.innerHTML = "";
     HL_COLORS.forEach(c => {
       const d = document.createElement("span");
       d.className = "fdot" + (only === c ? " on" : "");
       d.style.background = c.replace(",.40", ",.85");
       d.title = "N'afficher que cette couleur";
-      d.onclick = () => { only = (only === c) ? null : c; onlyStamp = null; refresh(); };
+      d.onclick = () => { only = (only === c) ? null : c; onlyStamp = null; onlyCode = null; refresh(); };
       filters.appendChild(d);
     });
     // tampons : un filtre par sens, à la suite des teintes
@@ -1559,7 +1910,28 @@ const annPane = (function(){
         d.style.setProperty("--stamp", st.color);
         d.innerHTML = window.AtelierPdfTools.stampIcon(st.id, 10);
         d.title = "N'afficher que les tampons « " + st.label + " »";
-        d.onclick = () => { onlyStamp = (onlyStamp === st.id) ? null : st.id; only = null; refresh(); };
+        d.onclick = () => { onlyStamp = (onlyStamp === st.id) ? null : st.id; only = null; onlyCode = null; refresh(); };
+        filters.appendChild(d);
+      }
+    }
+    // codes : une pastille par code posé dans la portée (article ou bibliothèque)
+    const used = new Set<string>();
+    const scan = (l) => { if (Array.isArray(l)) for (const a of l)
+      for (const id of [...codeIds(a, "codes"), ...codeIds(a, "suggested")]) used.add(id); };
+    scan(PDF_ANNOTS);
+    if (scope === "lib" && LIB) Object.values(LIB).forEach(scan);
+    const shownCodes = CODEBOOK.filter((c) => used.has(c.id) || c.id === onlyCode);
+    if (onlyCode && !codeById(onlyCode)) onlyCode = null;
+    if (shownCodes.length) {
+      const sep = document.createElement("span");
+      sep.className = "fsep";
+      filters.appendChild(sep);
+      for (const c of shownCodes) {
+        const d = document.createElement("span");
+        d.className = "fcode" + (onlyCode === c.id ? " on" : "");
+        d.textContent = c.name;
+        d.title = "N'afficher que le code « " + c.path + " » (sous-codes compris)";
+        d.onclick = () => { onlyCode = (onlyCode === c.id) ? null : c.id; only = null; onlyStamp = null; refresh(); };
         filters.appendChild(d);
       }
     }
@@ -1590,6 +1962,7 @@ const annPane = (function(){
         doc.title = doc.textContent;
       }
       applyNarrow();   // pose --pane-pad dès l'ouverture, pas seulement au drag
+      if (view === "codes") openCodes();
       if (view === "toc") loadToc(); else refresh();
     }
   }
@@ -1621,7 +1994,15 @@ const annPane = (function(){
     document.addEventListener("mouseup", up);
   });
   pane.querySelector<HTMLButtonElement>(".pclose").onclick = toggle;
-  return { refresh, toggle, consumed(relX: string|number, id: string){
+  // bouton « Annotations » de la barre du haut de l'app : ouvre ou ferme ce
+  // panneau (le seul panneau d'annotations), éventuellement sur un onglet
+  function fromHost(next?: string){
+    const on = pane.style.display === "flex";
+    if (on && (!next || next === view)) { toggle(); return; }
+    if (!on) toggle();
+    if (next) showView(next);
+  }
+  return { refresh, toggle, fromHost, consumed(relX: string|number, id: string){
     if(LIB && Array.isArray(LIB[relX])) LIB[relX] = LIB[relX].filter(a => String(a.id) !== id);
     refresh();
   } };
@@ -1803,6 +2184,22 @@ if(rel) main();
 
 // ---- surlignages persistants (sidecar JSON via /pdfannot) ----
 let PDF_ANNOTS = [];
+// ---- codage qualitatif : livre de codes commun (codebook.json, /codebook) ----
+// Une annotation porte `codes` (gardés) et `suggested` (proposés par Claude
+// via le MCP, en pointillé jusqu'à ce qu'on les garde ou les retire). Un
+// passage `kind: "code"` n'existe que par ses codes : voile gris, sans teinte.
+type Code = {id:string;name:string;parent:string|null;memo:string;depth:number;path:string};
+let CODEBOOK: Code[] = [];
+function loadCodebook(){
+  return fetch("/codebook").then(r => r.ok ? r.json() : null).then(j => {
+    if (!j || !Array.isArray(j.codes)) return false;
+    const changed = JSON.stringify(j.codes) !== JSON.stringify(CODEBOOK);
+    CODEBOOK = j.codes;
+    return changed;
+  }).catch(() => false);
+}
+function codeById(id: string){ return CODEBOOK.find(c => c.id === id); }
+function codeIds(a, key: "codes"|"suggested"): string[]{ return Array.isArray(a[key]) ? a[key].map(String) : []; }
 let ANNOT_SAVE = Promise.resolve(true);
 let ANNOTS_LOADED = false;  // garde anti-écrasement : jamais de POST avant un GET réussi
 // Ids vus dans le store (chargés, ou enregistrés avec succès). Envoyés avec
@@ -1825,6 +2222,7 @@ function loadAnnots(attempt: number){
     .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
 }
 loadAnnots(0);
+if (rel) loadCodebook().then(changed => { if (changed) redrawAllAnnots(); });
 // ---- rechargement en direct ------------------------------------------------
 // Un autre écrivain (outil highlight_passage du MCP, autre fenêtre, panneau
 // d'annotations de l'app) change le store : on le voit à sa date, relue toutes
@@ -1890,7 +2288,8 @@ async function annotStoreStamp(){
     const r = await fetch("/pdfannot-stamp?rel=" + encodeURIComponent(rel));
     if (!r.ok) return null;
     const j = await r.json();
-    return typeof j.stamp === "number" ? j.stamp : null;
+    // `codebook` : date du livre de codes, veillée avec celle du store
+    return typeof j.stamp === "number" ? {store: j.stamp, codebook: typeof j.codebook === "number" ? j.codebook : 0} : null;
   } catch(e) { return null; }
 }
 if (rel) (async function(){
@@ -1901,9 +2300,15 @@ if (rel) (async function(){
     busy = true;
     try {
       const next = await annotStoreStamp();
-      if (next === null || next === stamp) return;
+      if (next === null) return;
+      const storeMoved = !stamp || next.store !== stamp.store;
+      const bookMoved = !stamp || next.codebook !== stamp.codebook;
+      if (!storeMoved && !bookMoved) return;
       stamp = next;
-      if (await syncAnnotsFromStore()) redrawAllAnnots();
+      let redraw = false;
+      if (bookMoved && await loadCodebook()) redraw = true;
+      if (storeMoved && await syncAnnotsFromStore()) redraw = true;
+      if (redraw) redrawAllAnnots();
     } finally { busy = false; }
   }, 2500);
 })();
@@ -1952,7 +2357,8 @@ function saveAnnots(){
   return ANNOT_SAVE;
 }
 function drawAnnots(pgDiv: Element, n: number){
-  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line, .pdfmemo, .pdfstamp, .pdftext:not(.editing)").forEach((el) => el.remove());
+  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line, .pdfmemo, .pdfstamp, .pdfstripe, .pdftext:not(.editing)").forEach((el) => el.remove());
+  drawCodeStripes(pgDiv, n);
   // Keep adjacent margin numbers separately clickable, without moving the
   // stored text anchor. Spread collisions down, then fit the group upward.
   const comments = PDF_ANNOTS.filter(a => +a.page === +n && a.kind === "comment" && a.rects?.length)
@@ -2021,8 +2427,10 @@ function drawAnnots(pgDiv: Element, n: number){
       if(a.kind === "ul"){ el.style.background = "transparent"; el.style.borderBottom = "2px solid " + solid; }
       else if(a.kind === "st"){ el.style.background = "linear-gradient(transparent 46%," + solid + " 46%," + solid + " 58%,transparent 58%)"; }
       else if(a.kind === "note"){ el.style.background = "transparent"; }
+      else if(a.kind === "code"){ el.classList.add("pdfcode"); el.classList.toggle("is-suggested", !codeIds(a, "codes").length); }
       else { el.style.background = col; }
       if(a.note) el.title = a.note;
+      else if(a.kind === "code") el.title = codeNames(a);
       el.onclick = (e) => {
         e.stopPropagation();
         if(eraseMark && a.kind !== "comment"){
@@ -2118,6 +2526,8 @@ function drawReadingAnnots(){
     // soulignement / barré : la couleur porte le trait, pas un aplat (les
     // classes correspondantes vident le fond dans pdf_reading.css).
     if (a.kind === "comment") mark.style.background = "rgba(112,151,255,.18)";
+    // voile neutre lisible sur les deux thèmes de la colonne
+    else if (a.kind === "code") mark.style.background = "color-mix(in srgb, currentColor 14%, transparent)";
     else if (a.color) mark.style.setProperty(a.kind === "ul" || a.kind === "st" ? "--read-mark-line" : "background", normalizeHighlightColor(a.color));
     try { range.surroundContents(mark); } catch(_) { /* plage à cheval sur des nœuds : ignorée, l'annotation reste visible en vue pages */ continue; }
     mark.onclick = (ev) => { ev.stopPropagation(); annotMenu(a, ev.clientX, ev.clientY); };
@@ -2165,13 +2575,16 @@ function addHighlightFromSel(kind: string, color: string){
     g.rects = window.AtelierPdfSelection.mergeLineRects(g.rects, {aspect: pr.height / pr.width});
   }
   let lastA = null, lastRect = null;
+  const made = [];
   for(const [pgNum, g] of byPage){
     const text = model.segments.filter((segment) =>
       model.spans[segment.index].closest(".pg") === g.pg
     ).map((segment) => segment.text).join(" ").replace(/\s+/g," ").trim();
-    const a: {id:string;page:number;rects:number[][];text:string;kind:string;color:string;note:string;number?:number;fresh?:boolean;pin?:number[]} = {id: Date.now() + "-" + pgNum, page: +pgNum, rects: g.rects,
+    const a: {id:string;page:number;rects:number[][];text:string;kind:string;color?:string;note:string;number?:number;fresh?:boolean;pin?:number[]} = {id: Date.now() + "-" + pgNum, page: +pgNum, rects: g.rects,
       text: text,
       kind: kind, color: color, note: ""};
+    if(kind === "code") delete a.color;
+    made.push(a);
     if(kind === "comment") { a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0)); a.fresh = true; }
     PDF_ANNOTS.push(a);
     drawAnnots(g.pg, +pgNum);
@@ -2180,11 +2593,13 @@ function addHighlightFromSel(kind: string, color: string){
     const rc = g.rects[g.rects.length - 1];
     lastRect = { x: pr.left + rc[0] * pr.width, y: pr.top + (rc[1] + rc[3]) * pr.height };
   }
-  saveAnnots();
+  // un passage à coder n'est écrit qu'une fois son premier code choisi
+  if(kind !== "code") saveAnnots();
   clearHl(); selHide();
   try{ window.getSelection().removeAllRanges(); }catch(e){}
   // Only an explicit comment opens the note editor; colors mark the text directly.
   if (kind === "comment" && lastA && lastRect) annotMenu(lastA, lastRect.x, lastRect.y);
+  return lastRect ? {annots: made, x: lastRect.x, y: lastRect.y} : null;
 }
 /** Sélection dans #readBody → annotation `comment` ordinaire (rects reconstitués par ligne). */
 function addHighlightFromReadingSel(kind, color){
@@ -2206,12 +2621,15 @@ function addHighlightFromReadingSel(kind, color){
   if(!doc.pages || !doc.pages[block.lines[0].page - 1]) return;
   const built = window.AtelierPdfReading.selectionToAnnotation(block, start, end, doc.pages);
   if(!built.rects.length) return;
-  const a: {id:string;page:number;rects:number[][];text:string;kind:string;color:string;note:string;number?:number;fresh?:boolean;pin?:number[]} = {id: Date.now() + "-r" + block.page, page: built.page, rects: built.rects, text: built.text, kind: kind || "comment", color: color || LAST_COLOR, note: ""};
+  const a: {id:string;page:number;rects:number[][];text:string;kind:string;color?:string;note:string;number?:number;fresh?:boolean;pin?:number[]} = {id: Date.now() + "-r" + block.page, page: built.page, rects: built.rects, text: built.text, kind: kind || "comment", color: color || LAST_COLOR, note: ""};
   if(a.kind === "comment") { a.number = 1 + Math.max(0, ...PDF_ANNOTS.filter(item => item.kind === "comment").map(item => Number(item.number) || 0)); a.fresh = true; }
-  PDF_ANNOTS.push(a); saveAnnots();
+  if(a.kind === "code") delete a.color;
+  PDF_ANNOTS.push(a);
+  if(a.kind !== "code") saveAnnots();
   const pg = document.querySelector('.pg[data-page="' + a.page + '"]'); if(pg) drawAnnots(pg, a.page);
   drawReadingAnnots(); selHide(); sel.removeAllRanges();
   if(a.kind === "comment") annotMenu(a, r.left, r.bottom);
+  return {annots: [a], x: r.left, y: r.bottom};
 }
 // PDF marks live in the reader toolbar; selection capsules only target chat.
 let LAST_COLOR = HL_COLORS[0];
@@ -2400,7 +2818,7 @@ function citeRef(){ return citeRefFor(rel); }
 // Un clic (ou un glissé pour la zone de texte) pose l'objet puis relâche
 // l'outil. Écoute en CAPTURE : le clic de pose ne doit pas aussi fermer la
 // bulle qu'il vient d'ouvrir (écouteur de fermeture de annotMenu).
-const PLACED_TARGETS = ".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfmemo, .pdfstamp, .pdftext";
+const PLACED_TARGETS = ".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfmemo, .pdfstamp, .pdftext, .pdfstripe";
 // Le click qui suit le relâché d'une pose (zone, boîte de texte, poignée)
 // est avalé ; tout nouvel appui annule la consigne, sans délai à deviner.
 let swallowClick = false;
@@ -2988,6 +3406,9 @@ function sendFail(why){
 }
 let annotationEditor = null;
 window.addEventListener("message", e => {
+  if (e.source === window.parent && e.data && e.data.type === "atelier-annots-pane") annPane.fromHost?.(e.data.view);
+});
+window.addEventListener("message", e => {
   const data = e.data;
   if(e.source !== window.parent || !data || data.nonce !== window.__atelierNonce ||
     data.type !== "atelier-pdf-annotation-consumed") return;
@@ -3006,12 +3427,301 @@ window.addEventListener("message", e => {
 // La bulle se lit comme une fiche : « Annotation 3 · p. 12 ». Le numéro est
 // celui de la pastille de marge, pour qu'on les relie d'un coup d'œil.
 function annotHeading(a){
-  const titles = {hl:"Surlignage", ul:"Soulignement", st:"Barré", note:"Note", area:"Zone", text:"Zone de texte", stamp:"Tampon"};
+  const titles = {hl:"Surlignage", ul:"Soulignement", st:"Barré", note:"Note", area:"Zone", text:"Zone de texte", stamp:"Tampon", code:"Passage codé"};
   const title = a.kind === "comment"
     ? "Annotation " + (a.number || PDF_ANNOTS.filter(item => item.kind === "comment").indexOf(a) + 1)
     : a.kind === "stamp" && window.AtelierPdfTools ? "Tampon · " + window.AtelierPdfTools.stampById(a.stamp).label
     : titles[a.kind] || "Surlignage";
   return {title, meta: a.page ? "p. " + a.page : ""};
+}
+// ---- codage qualitatif : menu des codes, rangée « Codes », bandes de marge ----
+const CHECK_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg>';
+const CROSS_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/></svg>';
+const PLUS_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>';
+function foldText(s: string){ return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
+function codeNames(a){
+  const kept = codeIds(a, "codes").map(id => codeById(id)?.path).filter(Boolean);
+  const pending = codeIds(a, "suggested").map(id => codeById(id)?.path).filter(Boolean);
+  return [kept.join(" ; "), pending.length ? "Proposé par Claude : " + pending.join(" ; ") : ""].filter(Boolean).join(" · ");
+}
+/** Change les codes d'une annotation comme le serveur (`atelier_codebook::apply`) :
+ *  `add` pose un code (et éteint sa proposition), `keep` garde une proposition,
+ *  `reject` la retire, `remove` retire un code gardé. */
+function changeCodes(a, change: {add?: string; remove?: string; keep?: string; reject?: string}){
+  let codes = codeIds(a, "codes"), suggested = codeIds(a, "suggested");
+  const id = change.add || change.keep;
+  if (id && !codes.includes(id)) codes.push(id);
+  if (id || change.reject) suggested = suggested.filter(c => c !== (id || change.reject));
+  if (change.remove) codes = codes.filter(c => c !== change.remove);
+  if (codes.length) a.codes = codes; else delete a.codes;
+  if (suggested.length) a.suggested = suggested; else delete a.suggested;
+}
+/** Un passage codé sans plus aucun code disparaît ; sinon on enregistre. */
+async function saveCodes(a){
+  if (a.kind === "code" && !codeIds(a, "codes").length && !codeIds(a, "suggested").length) return removeAnnot(a);
+  const saved = await saveAnnots();
+  redrawAllAnnots();
+  return saved;
+}
+async function createCode(name: string){
+  const r = await fetch("/codebook", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({op:"create", name})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error || "HTTP " + r.status);
+  if (Array.isArray(j.codes)) CODEBOOK = j.codes;
+  return String(j.code.id);
+}
+const RECENT_CODES_KEY = "pdfv_recent_codes";
+function recentCodes(): string[]{
+  try { return (JSON.parse(localStorage.getItem(RECENT_CODES_KEY) || "[]") as string[]).filter(id => codeById(id)); }
+  catch(e) { return []; }
+}
+function rememberCode(id: string){
+  try { localStorage.setItem(RECENT_CODES_KEY, JSON.stringify([id, ...recentCodes().filter(x => x !== id)].slice(0, 4))); } catch(e) {}
+}
+let closeCodeMenu: () => void = () => {};
+/** Menu des codes (modèle `.menu` : surface élevée, rangées 12 px, ✓ à
+ *  droite). Recherche sans accents sur le chemin ; Entrée sur un nom absent
+ *  crée le code. Reste ouvert pour poser plusieurs codes ; Échap ou un clic
+ *  à côté le ferme. */
+function openCodeMenu(x: number, y: number, opts: {applied(): Set<string>; toggle(id: string, on: boolean): unknown; onClose?(): void}){
+  closeCodeMenu();
+  const menu = document.getElementById("codeMenu") as HTMLDivElement;
+  menu.innerHTML = '<input class="cm-search" type="text" autocomplete="off" spellcheck="false" placeholder="Chercher ou créer un code…" aria-label="Chercher ou créer un code">'
+    + '<div class="cm-list" role="menu"></div><div class="cm-err" role="status"></div>';
+  const search = menu.querySelector<HTMLInputElement>(".cm-search");
+  const list = menu.querySelector<HTMLDivElement>(".cm-list");
+  const err = menu.querySelector<HTMLDivElement>(".cm-err");
+  let active = 0, busy = false;
+  const items = () => [...list.querySelectorAll<HTMLButtonElement>(".mi")];
+  function paintActive(){ items().forEach((b, i) => b.classList.toggle("on", i === active)); items()[active]?.scrollIntoView({block:"nearest"}); }
+  function row(label: string, opts2: {depth?: number; checked?: boolean; icon?: string; title?: string; run(): unknown}){
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "mi"; b.setAttribute("role", opts2.checked === undefined ? "menuitem" : "menuitemcheckbox");
+    if (opts2.checked !== undefined) b.setAttribute("aria-checked", String(opts2.checked));
+    if (opts2.depth) b.style.paddingLeft = (12 + opts2.depth * 12) + "px";
+    if (opts2.title) b.title = opts2.title;
+    if (opts2.icon) b.insertAdjacentHTML("beforeend", opts2.icon);
+    const t = document.createElement("span"); t.className = "cm-name"; t.textContent = label; b.appendChild(t);
+    if (opts2.checked !== undefined) b.insertAdjacentHTML("beforeend", '<span class="cm-check">' + CHECK_SVG + '</span>');
+    b.onmousedown = e => e.preventDefault();
+    b.onclick = async e => {
+      e.stopPropagation();
+      if (busy) return;
+      busy = true; err.textContent = "";
+      try { await opts2.run(); }
+      catch(error) { err.textContent = String(error && error.message || error).slice(0, 120); }
+      finally { busy = false; }
+    };
+    list.appendChild(b);
+  }
+  function heading(text: string){
+    const h = document.createElement("div"); h.className = "cm-head"; h.textContent = text; list.appendChild(h);
+  }
+  function codeRow(c: Code, depth: number){
+    const on = opts.applied().has(c.id);
+    row(c.name, {depth, checked: on, title: c.memo ? c.path + "\n" + c.memo : c.path, run: async () => {
+      await opts.toggle(c.id, !opts.applied().has(c.id));
+      rememberCode(c.id);
+      render();
+    }});
+  }
+  function render(){
+    const q = foldText(search.value.trim());
+    list.replaceChildren();
+    if (!q) {
+      const recent = recentCodes();
+      if (recent.length && CODEBOOK.length > 6) {
+        heading("Récents");
+        recent.forEach(id => codeRow(codeById(id), 0));
+        heading("Tous les codes");
+      }
+      CODEBOOK.forEach(c => codeRow(c, c.depth));
+      if (!CODEBOOK.length) {
+        const hint = document.createElement("div"); hint.className = "cm-hint";
+        hint.textContent = "Aucun code pour l’instant : tape un nom pour le créer.";
+        list.appendChild(hint);
+      }
+    } else {
+      CODEBOOK.filter(c => foldText(c.path).includes(q)).forEach(c => codeRow(c, 0));
+      const name = search.value.trim().replace(/\s+/g, " ");
+      if (!CODEBOOK.some(c => foldText(c.name) === q)) {
+        row("Créer le code « " + name + " »", {icon: PLUS_SVG, run: async () => {
+          const id = await createCode(name);
+          await opts.toggle(id, true);
+          rememberCode(id);
+          search.value = "";
+          render();
+          search.focus();
+        }});
+      }
+    }
+    active = Math.min(active, Math.max(0, items().length - 1));
+    paintActive();
+  }
+  search.oninput = () => { active = 0; render(); };
+  search.onkeydown = e => {
+    e.stopPropagation();
+    const n = items().length;
+    if (e.key === "ArrowDown" && n) { e.preventDefault(); active = (active + 1) % n; paintActive(); }
+    else if (e.key === "ArrowUp" && n) { e.preventDefault(); active = (active - 1 + n) % n; paintActive(); }
+    else if (e.key === "Enter") { e.preventDefault(); items()[active]?.click(); }
+    else if (e.key === "Escape") { e.preventDefault(); closeCodeMenu(); }
+  };
+  const outside = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) closeCodeMenu(); };
+  closeCodeMenu = () => {
+    closeCodeMenu = () => {};
+    document.removeEventListener("mousedown", outside, true);
+    menu.hidden = true; menu.replaceChildren();
+    opts.onClose?.();
+  };
+  render();
+  menu.hidden = false;
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.top = Math.max(8, Math.min(y + 6, innerHeight - menu.offsetHeight - 8)) + "px";
+  setTimeout(() => document.addEventListener("mousedown", outside, true), 0);
+  search.focus({preventScroll:true});
+}
+/** Petit menu d'actions (modèle `.menu`, dans #codeMenu) : ouverture au clic,
+ *  Échap ou clic à côté le ferment, destructif en rouge. */
+function openActionMenu(x: number, y: number, items: {label: string; danger?: boolean; sep?: boolean; run(): unknown}[]){
+  closeCodeMenu();
+  const menu = document.getElementById("codeMenu") as HTMLDivElement;
+  const list = document.createElement("div");
+  list.className = "cm-list"; list.setAttribute("role", "menu");
+  for (const it of items) {
+    if (it.sep) { const s = document.createElement("div"); s.className = "cm-sep"; list.appendChild(s); }
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "mi" + (it.danger ? " danger" : ""); b.setAttribute("role", "menuitem");
+    const t = document.createElement("span"); t.className = "cm-name"; t.textContent = it.label; b.appendChild(t);
+    b.onmousedown = e => e.preventDefault();
+    b.onclick = e => { e.stopPropagation(); closeCodeMenu(); it.run(); };
+    list.appendChild(b);
+  }
+  menu.replaceChildren(list);
+  menu.classList.add("is-actions");
+  const outside = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) closeCodeMenu(); };
+  const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeCodeMenu(); } };
+  closeCodeMenu = () => {
+    closeCodeMenu = () => {};
+    document.removeEventListener("mousedown", outside, true);
+    document.removeEventListener("keydown", esc, true);
+    menu.hidden = true; menu.classList.remove("is-actions"); menu.replaceChildren();
+  };
+  menu.hidden = false;
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.top = Math.max(8, Math.min(y + 4, innerHeight - menu.offsetHeight - 8)) + "px";
+  setTimeout(() => {
+    document.addEventListener("mousedown", outside, true);
+    document.addEventListener("keydown", esc, true);
+  }, 0);
+  (list.querySelector(".mi") as HTMLButtonElement)?.focus({preventScroll:true});
+}
+/** Bouton « Coder » de la capsule : le passage se voile en gris tout de
+ *  suite et n'est écrit qu'avec son premier code ; fermé sans code, il
+ *  disparaît. */
+function codeSelection(){
+  const made = addHighlightFromSel("code", "");
+  if (!made || !made.annots.length) return;
+  const passages = made.annots;
+  let stored = false;
+  openCodeMenu(made.x, made.y, {
+    applied: () => new Set(codeIds(passages[0], "codes")),
+    toggle(id, on){
+      passages.forEach(a => changeCodes(a, on ? {add: id} : {remove: id}));
+      const coded = codeIds(passages[0], "codes").length > 0;
+      PDF_ANNOTS = PDF_ANNOTS.filter(a => !passages.includes(a));
+      if (coded) PDF_ANNOTS.push(...passages);
+      if (coded || stored) { void saveAnnots(); stored = coded; }
+      redrawAllAnnots();
+    },
+    onClose(){
+      if (codeIds(passages[0], "codes").length) return;
+      PDF_ANNOTS = PDF_ANNOTS.filter(a => !passages.includes(a));
+      redrawAllAnnots();
+    },
+  });
+}
+function codable(a){ return a.kind !== "note" && a.kind !== "text" && a.kind !== "stamp"; }
+/** Rangée « Codes » de la fiche : codes gardés (× pour retirer), propositions
+ *  de Claude en pointillé (✓ garder, × retirer), et « Coder » pour en poser. */
+function codesRow(a){
+  const box = document.createElement("div");
+  box.className = "atelier-codes";
+  box.setAttribute("role", "group"); box.setAttribute("aria-label", "Codes du passage");
+  const button = (cls: string, label: string, html: string, run: () => unknown) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = cls; b.title = label; b.setAttribute("aria-label", label); b.innerHTML = html;
+    b.onmousedown = e => e.preventDefault();
+    b.onclick = e => { e.stopPropagation(); run(); };
+    return b;
+  };
+  const chip = (id: string, pending: boolean) => {
+    const c = codeById(id); if (!c) return null;
+    const el = document.createElement("span");
+    el.className = "code-chip" + (pending ? " is-suggested" : "");
+    el.title = c.path + (pending ? " · proposé par Claude" : "") + (c.memo ? "\n" + c.memo : "");
+    const t = document.createElement("span"); t.className = "code-chip-name"; t.textContent = c.name; el.appendChild(t);
+    if (pending) el.appendChild(button("code-chip-act", "Garder « " + c.name + " »", CHECK_SVG, () => apply({keep: id})));
+    el.appendChild(button("code-chip-act", (pending ? "Refuser « " : "Retirer « ") + c.name + " »", CROSS_SVG,
+      () => apply(pending ? {reject: id} : {remove: id})));
+    return el;
+  };
+  function paint(){
+    box.replaceChildren();
+    const label = document.createElement("span"); label.className = "atelier-codes-label"; label.textContent = "Codes";
+    box.appendChild(label);
+    codeIds(a, "codes").forEach(id => { const el = chip(id, false); if (el) box.appendChild(el); });
+    codeIds(a, "suggested").forEach(id => { const el = chip(id, true); if (el) box.appendChild(el); });
+    const add = button("code-add", "Coder le passage", PLUS_SVG + "<span>Coder</span>", () => {
+      const r = add.getBoundingClientRect();
+      openCodeMenu(r.left, r.bottom, {
+        applied: () => new Set(codeIds(a, "codes")),
+        toggle: (id, on) => apply(on ? {add: id} : {remove: id}),
+      });
+    });
+    box.appendChild(add);
+  }
+  async function apply(change){
+    changeCodes(a, change);
+    paint();
+    await saveCodes(a);
+  }
+  paint();
+  return box;
+}
+/** Bandes de codage (façon NVivo) : un trait graphite par code dans la marge
+ *  droite de la page, à la hauteur du passage ; pointillé = proposé. */
+let SHOW_STRIPES = (() => { try { return localStorage.getItem("pdfv_code_stripes") !== "0"; } catch(e) { return true; } })();
+function drawCodeStripes(pgDiv: Element, n: number){
+  if (!SHOW_STRIPES || !CODEBOOK.length) return;
+  const items = [];
+  for (const a of PDF_ANNOTS) {
+    if (+a.page !== +n || !a.rects?.length) continue;
+    const top = Math.min(...a.rects.map(r => r[1])), bottom = Math.max(...a.rects.map(r => r[1] + r[3]));
+    codeIds(a, "codes").forEach(id => items.push({a, id, top, bottom, pending: false}));
+    codeIds(a, "suggested").forEach(id => items.push({a, id, top, bottom, pending: true}));
+  }
+  if (!items.length) return;
+  // une colonne par code présent sur la page, dans l'ordre du livre de codes
+  const rank = new Map(CODEBOOK.map((c, i) => [c.id, i]));
+  const lanes = new Map([...new Set(items.map(it => it.id))].filter(id => rank.has(id))
+    .sort((x, y) => rank.get(x) - rank.get(y)).slice(0, 8).map((id, i) => [id, i]));
+  for (const it of items) {
+    const lane = lanes.get(it.id) ?? -1;
+    if (lane < 0) continue;
+    const s = document.createElement("button");
+    s.type = "button";
+    s.className = "pdfstripe" + (it.pending ? " is-suggested" : "");
+    s.dataset.aid = String(it.a.id);
+    s.style.top = it.top * 100 + "%";
+    s.style.height = Math.max(0.6, (it.bottom - it.top) * 100) + "%";
+    s.style.right = (8 + lane * 8) + "px";
+    const name = codeById(it.id).path + (it.pending ? " · proposé par Claude" : "");
+    s.title = name; s.setAttribute("aria-label", "Code " + name);
+    s.onclick = e => { e.stopPropagation(); annotMenu(it.a, e.clientX, e.clientY); };
+    pgDiv.appendChild(s);
+  }
 }
 async function annotMenu(a, x: number, y: number){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
@@ -3035,6 +3745,8 @@ async function annotMenu(a, x: number, y: number){
         void saveAnnots();
         redrawAllAnnots();
       }}} : {})});
+  // Codes du passage, sous le style du marquage et avant la note
+  if(codable(a)) (annotPop.querySelector(".atelier-memo") || annotPop.querySelector(".atelier-note-row")).before(codesRow(a));
   const inp = annotPop.querySelector<HTMLTextAreaElement>("textarea.atelier-note-input");
   const memoInp = annotPop.querySelector<HTMLTextAreaElement>("textarea.atelier-memo-input");
   inp.value = a.note || "";
@@ -3052,7 +3764,7 @@ async function annotMenu(a, x: number, y: number){
     // An explicit validation (Enter, ↑/send2 → send==="force") with an empty
     // note keeps it (deliberate blank marker). An EXISTING annotation that
     // the user empties keeps today's draft-save behavior — untouched here.
-    if(a.fresh && !inp.value.trim() && !(memoInp && memoInp.value.trim()) && send !== "force"){
+    if(a.fresh && !inp.value.trim() && !(memoInp && memoInp.value.trim()) && !codeIds(a, "codes").length && send !== "force"){
       saving = true;
       inp.disabled = true;
       if(memoInp) memoInp.disabled = true;
@@ -3153,7 +3865,7 @@ async function annotMenu(a, x: number, y: number){
 // Leaving the note saves its draft instead of silently discarding it.
 // The menu stays open on failure, so the user can retry or copy their note.
 document.addEventListener("click", e => {
-  if(!annotPop.contains(e.target as Node) && !(e.target as Element).closest<HTMLElement>(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfmemo")) {
+  if(!annotPop.contains(e.target as Node) && !(e.target as Element).closest<HTMLElement>(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfmemo, .pdfstripe, #codeMenu")) {
     if(annotationEditor) annotationEditor.commit(true, true);
     else annotPop.style.display = "none";
   }
@@ -3402,6 +4114,19 @@ if (window.self !== window.top) {
   if(eraser) proxy("pdf-menu-narrow", "erase", "Effacer un marquage", svgOf(eraser), () => eraser.click()).id = "menuEraseBtn";
   if(areaBtn || eraser) hr("pdf-menu-narrow");
   ["readBtn", "invBtn", "compileBtn"].forEach(id => move(id, menu));
+  // Bandes de codage dans la marge : affichées par défaut, mémorisées.
+  const stripeBtn = document.createElement("button"); stripeBtn.type = "button"; stripeBtn.id = "stripeBtn";
+  stripeBtn.setAttribute("aria-label", "Bandes de codage"); stripeBtn.title = "Bandes de codage dans la marge";
+  stripeBtn.setAttribute("aria-pressed", String(SHOW_STRIPES));
+  stripeBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h7M2.5 8h7M2.5 12h5M12 2.5v5M14 6v7.5"/></svg>';
+  stripeBtn.onclick = (e) => {
+    e.stopPropagation(); more.open = false;
+    SHOW_STRIPES = !SHOW_STRIPES;
+    stripeBtn.setAttribute("aria-pressed", String(SHOW_STRIPES));
+    try { localStorage.setItem("pdfv_code_stripes", SHOW_STRIPES ? "1" : "0"); } catch(err) {}
+    redrawAllAnnots();
+  };
+  menu.appendChild(stripeBtn);
   hr();
   [prev, next].forEach(el => { if(el) menu.appendChild(el); });
   hr();
@@ -3417,7 +4142,7 @@ if (window.self !== window.top) {
     button.appendChild(label);
   });
   // Rangées bascule : l'état actif se lit à un ✓ à droite (modèle de menu commun).
-  ["menuAreaBtn", "menuEraseBtn", "invBtn", "readBtn"].forEach(id => {
+  ["menuAreaBtn", "menuEraseBtn", "invBtn", "readBtn", "stripeBtn"].forEach(id => {
     const button = menu.querySelector("#" + id);
     if(button) button.insertAdjacentHTML("beforeend", '<svg class="pdf-menu-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.4l3.2 3.2L13 5"/></svg>');
   });

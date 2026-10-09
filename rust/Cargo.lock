@@ -146,6 +146,7 @@ dependencies = [
 name = "atelier-annots-mcp"
 version = "0.1.0"
 dependencies = [
+ "atelier-codebook",
  "atelier-integrations",
  "atelier-pdf",
  "fs2",
@@ -154,6 +155,15 @@ dependencies = [
  "serde_json",
  "tempfile",
  "unicode-normalization",
+]
+
+[[package]]
+name = "atelier-codebook"
+version = "0.1.0"
+dependencies = [
+ "fs2",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -182,6 +192,7 @@ dependencies = [
 name = "atelier-gallery"
 version = "0.1.0"
 dependencies = [
+ "atelier-codebook",
  "atelier-core",
  "atelier-fdlimit",
  "atelier-integrations",

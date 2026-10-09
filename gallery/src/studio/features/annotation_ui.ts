@@ -130,6 +130,7 @@ export function createNoteEditor(host: HTMLElement, options: {
 }
 export function createSelectionActions(host: HTMLElement, options: {
   onColor?(name: string, value: string): void; onAdd?(): void; onAnnotate(): void; onAsk?(): void;
+  onCode?(): void;
   onHighlight?(color: string): void; highlightColor?: string; colors?: readonly AnnotationColor[];
 }) {
   host.classList.add("atelier-selection");host.replaceChildren();
@@ -141,6 +142,8 @@ export function createSelectionActions(host: HTMLElement, options: {
   };
   if(options.onAdd) add("Ajouter au chat",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4zM8 10h8M12 6v8"/></svg>',options.onAdd);
   add("Annoter",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg>',options.onAnnotate);
+  // Codage qualitatif (lecteur PDF) : étiquette, ouvre le menu des codes.
+  if(options.onCode) add("Coder",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>',options.onCode);
   if(options.onAsk) add("Question rapide",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-7z"/></svg>',options.onAsk);
   if(options.onHighlight) {
     const colors=options.colors || annotationColors;
