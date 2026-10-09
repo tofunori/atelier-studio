@@ -1273,7 +1273,6 @@ export default function App() {
   // le bouton reflète son état actif). Fermé par défaut à chaque démarrage —
   // pas de persistance : il ne se rouvre plus tout seul, on l'ouvre au besoin.
   const [showExplorer, setShowExplorer] = useState(false);
-  const [showAnnots, setShowAnnots] = useState(false);
 
   function ensureThreadForContext(title: string): string {
     const existing = activeIdRef.current;
@@ -2661,39 +2660,7 @@ export default function App() {
     });
     setActiveTab(id); revealAtelierTab(id);
   }
-  /** Panneau Annotations : ouvrir le PDF de `rel` défilé sur l'annotation.
-   * Zotero → URL viewer avec `path` (stockage servi) ; fichier de projet →
-   * URL viewer simple. Même identité d'onglet que openFileTab. */
-  function openAnnotationTarget(rel: string, annotId: string) {
-    const origin = atelierUrl ? new URL(atelierUrl).origin : null;
-    if (!origin) {
-      hardReloadAtelier();
-      showError(t("annots.load-error"));
-      return;
-    }
-    const params = new URLSearchParams();
-    params.set("file", rel);
-    if (rel.startsWith("zotero/")) {
-      params.set("path", `${origin}/${rel.split("/").map(encodeURIComponent).join("/")}`);
-    }
-    params.set("annot", annotId);
-    let url = withAtelierNonce(`${origin}/.fig_thumbs/pdf_viewer.html?${params.toString()}`, atelierNonce);
-    if (galleryTokenRef.current) url = withAtelierToken(url, galleryTokenRef.current);
-    const name = rel.split("/").pop() ?? rel;
-    const baseUrl = atelierTabIdentity(url);
-    // même règle qu'openFileTab : focus résolu avant le setState, id stable
-    const existingTab = atelierTabsRef.current.find((t) => atelierTabIdentity(t.url) === baseUrl);
-    const focusId = existingTab?.id ?? stableTabId(baseUrl);
-    setAtelierTabs((tabs) => {
-      const existing = tabs.find((t) => atelierTabIdentity(t.url) === baseUrl);
-      if (existing) {
-        return tabs.map((t) => (t.id === existing.id ? { ...t, url } : t));
-      }
-      return [...tabs, { id: focusId, url, title: name, projectRoot: activeProject ?? undefined }];
-    });
-    setActiveTab(focusId);
-    revealAtelierTab(focusId);
-  }
+
 
   const openFileTabRef = useRef(openFileTab);
   openFileTabRef.current = openFileTab;
@@ -4036,9 +4003,11 @@ export default function App() {
     () => window.dispatchEvent(new CustomEvent("quick-ask-toggle")),
     [],
   );
+  // Un seul panneau d'annotations : celui du lecteur PDF (onglets
+  // Annotations, Codes, Plan). Le bouton du haut l'ouvre dans le PDF actif.
   const handleToggleAnnots = useCallback(() => {
     setLayout((l) => (l === "chat" ? "split" : l));
-    setShowAnnots((v) => !v);
+    window.dispatchEvent(new CustomEvent("atelier-annots-pane"));
   }, []);
   const handleToggleExplorer = useCallback(() => {
     // toggle seul : ne change PAS la surface active (sinon fermer
@@ -4088,7 +4057,6 @@ export default function App() {
       activeSurface={activeSurface}
       showAtelier={showAtelier}
       showExplorer={showExplorer}
-      showAnnots={showAnnots}
       onToggleAnnots={handleToggleAnnots}
       onToggleExplorer={handleToggleExplorer}
       onSelectSurface={switchToSurface}
@@ -4526,9 +4494,6 @@ export default function App() {
               onCloseTab={closeAtelierTab}
               reloadKey={atelierReload}
               showExplorer={showExplorer}
-              showAnnots={showAnnots}
-              onOpenAnnot={openAnnotationTarget}
-              onQuoteAnnot={(text) => attachContextToChat(text)}
               recentFiles={recentFiles.filter((f) => files.includes(f)).slice(0, 8)}
               onOpenExplorer={() => setShowExplorer(true)}
               projectName={null /* le crumb TopBar porte déjà le projet — pas de duplication */}

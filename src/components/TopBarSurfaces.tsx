@@ -146,7 +146,6 @@ export function buildTargets(p: {
   showAtelier: boolean;
   ideActive: boolean;
   showExplorer: boolean;
-  showAnnots: boolean;
   onSelectSurface: (surface: Surface) => void;
   onSelectIde: () => void;
   onToggleExplorer: () => void;
@@ -173,7 +172,7 @@ export function buildTargets(p: {
       id: "annots",
       label: t("atelier.annotations"),
       icon: ANNOTS_ICON,
-      active: p.showAnnots,
+      active: false,   // l'état vit dans le lecteur PDF
       onSelect: p.onToggleAnnots,
       surface: null,
     },
@@ -195,7 +194,6 @@ export default function TopBarSurfaces(p: {
   showAtelier: boolean;
   ideActive: boolean;
   showExplorer: boolean;
-  showAnnots: boolean;
   onSelectSurface: (surface: Surface) => void;
   onSelectIde: () => void;
   onToggleExplorer: () => void;

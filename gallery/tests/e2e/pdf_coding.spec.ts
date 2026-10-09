@@ -123,3 +123,70 @@ test('coder une sélection, voir sa bande, garder la proposition de Claude', asy
   expect(stored().length).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('onglet Codes du panneau : arbre, vue d’un code, propositions, suppression', async ({page}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(String(e)));
+  const post = async (body: unknown) => (await fetch(`http://127.0.0.1:${port}/codebook`, {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})).json();
+  const terrain = (await post({op: 'create', name: 'Terrain'})).code.id;
+  const mesures = (await post({op: 'create', name: 'Mesures', parent: terrain})).code.id;
+  const OTHER = 'zotero/WXYZ9876/autre.pdf';
+  let store: Record<string, unknown[]> = {};
+  try { store = JSON.parse(readFileSync(path.join(appDir, 'pdf_annots.json'), 'utf8')); } catch { /* premier test sauté */ }
+  store[OTHER] = [
+    {id: 'x1', page: 2, kind: 'hl', text: 'Mesures au pyranomètre', color: 'rgba(255,213,74,.40)', codes: [mesures]},
+    {id: 'x2', page: 5, kind: 'hl', text: 'Site de Saskatchewan', color: 'rgba(255,213,74,.40)', suggested: [terrain]},
+  ];
+  writeFileSync(path.join(appDir, 'pdf_annots.json.tmp'), JSON.stringify(store));
+  renameSync(path.join(appDir, 'pdf_annots.json.tmp'), path.join(appDir, 'pdf_annots.json'));
+  const other = () => JSON.parse(readFileSync(path.join(appDir, 'pdf_annots.json'), 'utf8'))[OTHER];
+
+  const reader = await openPdf(page);
+  // le bouton « Annotations » de l'app ouvre CE panneau, sur l'onglet demandé
+  await page.evaluate(() => document.querySelector('iframe').contentWindow
+    .postMessage({type: 'atelier-annots-pane', view: 'codes'}, '*'));
+  const pane = reader.locator('#annPane');
+  await expect(pane).toBeVisible();
+  await expect(pane.locator('.tab[data-v="codes"]')).toHaveAttribute('aria-selected', 'true');
+  const row = (name: string) => pane.locator('.cv-row', {has: reader.locator('.cv-name', {hasText: name})});
+  // Terrain compte son sous-code ; la proposition de Claude est à part
+  await expect(row('Terrain').locator('.cv-count')).toHaveText('1 · 1');
+  await expect(row('Terrain').locator('.cv-pending')).toHaveText('1');
+  await expect(row('Mesures').locator('.cv-count')).toHaveText('1 · 1');
+
+  // vue d'un code : passages par article, Garder une proposition
+  await row('Terrain').locator('.cv-open').click();
+  await expect(pane.locator('.cv-title')).toContainText('Terrain');
+  await expect(pane.locator('.cv-it:not(.is-pending) .q')).toContainText('Mesures au pyranomètre');
+  await expect(pane.locator('.cv-it:not(.is-pending) .code-tag')).toHaveText('Mesures');
+  await pane.locator('.cv-it.is-pending .cv-tbtn', {hasText: 'Garder'}).click();
+  await expect.poll(() => other().find((a: {id: string}) => a.id === 'x2').codes).toEqual([terrain]);
+  await expect(pane.locator('.cv-it.is-pending')).toHaveCount(0);
+  await expect(pane.locator('.cv-meta')).toHaveText('2 passages dans 1 article, sous-codes compris');
+
+  // mémo du code, enregistré en quittant le champ
+  await pane.locator('.cv-memo').fill('Lieux et instruments de mesure');
+  await pane.locator('.cv-title').click();
+  await expect.poll(async () => (await (await fetch(`http://127.0.0.1:${port}/codebook`)).json())
+    .codes.find((c: {id: string}) => c.id === terrain).memo).toBe('Lieux et instruments de mesure');
+
+  // retour à l'arbre ; supprimer un sous-code depuis son menu ⋯
+  await pane.locator('.cv-head .cv-btn[aria-label="Retour aux codes"]').click();
+  await row('Mesures').hover();
+  await row('Mesures').locator('.cv-more').click();
+  const menu = reader.locator('#codeMenu');
+  await expect(menu.locator('.mi')).toHaveText(['Renommer', 'Nouveau sous-code', 'Supprimer']);
+  await menu.locator('.mi.danger').click();
+  await pane.locator('.cv-confirm .cv-tbtn.danger').click();
+  await expect(row('Mesures')).toHaveCount(0);
+  await expect.poll(() => other().find((a: {id: string}) => a.id === 'x1').codes).toBeUndefined();
+
+  // l'onglet Annotations filtre par code (portée Bibliothèque)
+  await pane.locator('.tab[data-v="ann"]').click();
+  await pane.locator('.scope button[data-s="lib"]').click();
+  await pane.locator('.fcode', {hasText: 'Terrain'}).click();
+  await pane.locator('.art', {hasText: 'autre'}).click();
+  await expect(pane.locator('.list .it .q')).toContainText(['Site de Saskatchewan']);
+  expect(errors).toEqual([]);
+});

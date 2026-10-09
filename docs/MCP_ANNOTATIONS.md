@@ -59,10 +59,18 @@ Un passage codé sans surlignage est une annotation `kind: "code"` (voile gris,
 sans teinte) ; elle disparaît quand son dernier code est retiré.
 
 `code_passages` n'écrit que dans `suggested` : Atelier montre ces codes en
-pointillé (bande de marge, fiche du passage, panneau Codes) et Thierry les
+pointillé (bande de marge, fiche du passage, onglet Codes) et Thierry les
 garde ou les refuse (`POST /pdfannot-codes`, `keep` / `reject`). Un passage
 déjà annoté reçoit la proposition ; sinon un passage codé est créé, marqué
 `"by": "claude"`. Supprimer un code le retire de toutes les annotations.
+
+Il n'y a qu'un panneau d'annotations : celui du lecteur PDF (onglets
+Annotations, Codes et Plan ; portée Article ou Bibliothèque). Le bouton
+« Annotations » de la barre du haut de l'app l'ouvre dans le PDF actif
+(message `atelier-annots-pane`). L'onglet Codes montre l'arbre du livre de
+codes avec ses effectifs (sous-codes compris) et la vue d'un code : mémo,
+propositions de Claude à garder ou refuser, passages groupés par article.
+L'onglet Annotations filtre aussi par code.
 
 ## Surligner depuis Claude Desktop
 

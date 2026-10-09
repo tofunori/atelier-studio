@@ -1116,6 +1116,7 @@ const annPane = (function(){
         cn = pane.querySelector<HTMLSpanElement>(".cn"), doc = pane.querySelector<HTMLDivElement>(".doc");
   let only: string = null;   // couleur filtrée, null = toutes
   let onlyStamp: string = null;   // tampon filtré (verif, imp…), null = tous
+  let onlyCode: string = null;    // code filtré (sous-codes compris), null = tous
   const thumbs = new Map();   // id d'annotation → dataURL de la vignette
   function sorted(){
     return [...PDF_ANNOTS].sort((a, b) =>
@@ -1161,7 +1162,15 @@ const annPane = (function(){
     u.searchParams.set("annot", String(a.id));
     location.href = u.toString();
   }
+  // `id` est-il `root` ou l'un de ses sous-codes ? (garde contre un cycle)
+  function underCode(id: string, root: string){
+    for (let c = codeById(id), n = 0; c && n < 32; c = c.parent ? codeById(c.parent) : null, n++)
+      if (c.id === root) return true;
+    return false;
+  }
   function filtered(list){
+    if (onlyCode) return list.filter((a) =>
+      [...codeIds(a, "codes"), ...codeIds(a, "suggested")].some((id) => underCode(id, onlyCode)));
     if (onlyStamp) return list.filter((a) => a.kind === "stamp" && (a.stamp || "verif") === onlyStamp);
     // les teintes ne concernent que les marquages : ni tampons ni zones de texte
     return only ? list.filter((a) => a.kind !== "stamp" && a.kind !== "text" && a.kind !== "code"
@@ -1396,11 +1405,12 @@ const annPane = (function(){
   function renderDoc(){
     const all = sorted();
     const shown = filtered(all);
-    cn.textContent = shown.length + (only || onlyStamp ? " / " + all.length : "");
+    cn.textContent = shown.length + (only || onlyStamp || onlyCode ? " / " + all.length : "");
     if (!shown.length) {
       const e = document.createElement("div");
       e.className = "empty";
-      e.textContent = onlyStamp ? "Aucun tampon de ce type."
+      e.textContent = onlyCode ? "Aucun passage avec ce code."
+        : onlyStamp ? "Aucun tampon de ce type."
         : only ? "Aucune annotation de cette couleur."
         : "Aucune annotation. S\u00e9lectionne du texte et choisis une couleur.";
       list.appendChild(e);
@@ -1544,10 +1554,334 @@ const annPane = (function(){
       if (view === "toc") renderToc();
     });
   }
+  // ---- onglet « Codes » : le livre de codes (arbre et effectifs, sous-codes
+  // compris) et la vue d'un code (mémo, propositions de Claude à garder ou
+  // refuser, passages groupés par article). Tout le store : /pdfannot-all.
+  const codesBox = pane.querySelector<HTMLDivElement>(".codes");
+  let openCode: string = null, cvSearch = "", cvError = "", cvConfirm: string = null;
+  let cvDraft: {mode: "new"|"rename"; id: string|null} = null;
+  const CV_ICON = {
+    back: '<path d="M10 3L5.5 8 10 13"/>',
+    more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>',
+    plus: '<path d="M8 3v10M3 8h10"/>',
+    chat: '<path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/>',
+    check: '<path d="m3.5 8.5 3 3 6-7"/>',
+    cross: '<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>',
+  };
+  function cvSvg(k: keyof typeof CV_ICON){
+    return '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + CV_ICON[k] + '</svg>';
+  }
+  const cvPl = (n: number, w: string) => n + " " + w + (n > 1 ? "s" : "");
+  function cvEl(tag: string, cls: string, text?: string){
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function cvIconBtn(k: keyof typeof CV_ICON, label: string, fn: (e: MouseEvent) => void, cls = ""){
+    const b = cvEl("button", "cv-btn" + (cls ? " " + cls : "")) as HTMLButtonElement;
+    b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.innerHTML = cvSvg(k);
+    b.onclick = (e) => { e.stopPropagation(); fn(e); };
+    return b;
+  }
+  function cvTextBtn(label: string, fn: () => void, cls = "", icon?: keyof typeof CV_ICON){
+    const b = cvEl("button", "cv-tbtn" + (cls ? " " + cls : "")) as HTMLButtonElement;
+    b.type = "button";
+    if (icon) b.innerHTML = cvSvg(icon);
+    b.appendChild(document.createTextNode(label));
+    b.onclick = (e) => { e.stopPropagation(); fn(); };
+    return b;
+  }
+  /** Toute la bibliothèque, l'article ouvert dans son état vivant. */
+  function cvLib(): Record<string, any[]>{
+    const lib = Object.assign({}, LIB || {});
+    if (rel) lib[rel] = PDF_ANNOTS;
+    return lib;
+  }
+  /** Ids d'un code et de tous ses sous-codes. */
+  function cvFamily(id: string){
+    const out = [id], seen = new Set(out);
+    for (let i = 0; i < out.length; i++)
+      for (const c of CODEBOOK) if (c.parent === out[i] && !seen.has(c.id)) { seen.add(c.id); out.push(c.id); }
+    return seen;
+  }
+  type CvPassage = {rel: string; a: any; ids: string[]};
+  function cvPassages(lib: Record<string, any[]>, fam: Set<string>){
+    const kept: CvPassage[] = [], pending: CvPassage[] = [];
+    for (const [r, l] of Object.entries(lib)) for (const a of Array.isArray(l) ? l : []) {
+      const k = codeIds(a, "codes").filter(id => fam.has(id));
+      const s = codeIds(a, "suggested").filter(id => fam.has(id));
+      if (k.length) kept.push({rel: r, a, ids: k});
+      if (s.length) pending.push({rel: r, a, ids: s});
+    }
+    const order = (x: CvPassage, y: CvPassage) => (Number(y.rel === rel) - Number(x.rel === rel))
+      || x.rel.localeCompare(y.rel) || (+x.a.page - +y.a.page);
+    return {kept: kept.sort(order), pending: pending.sort(order)};
+  }
+  async function cvPost(path: string, body: unknown){
+    cvError = "";
+    try {
+      const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false) throw new Error(j.error || "HTTP " + r.status);
+      if (Array.isArray(j.codes)) CODEBOOK = j.codes;
+      return j;
+    } catch(e) {
+      cvError = String(e && e.message || e).slice(0, 120);
+      return null;
+    }
+  }
+  /** Après une écriture du livre : relire livre, article ouvert et bibliothèque. */
+  async function cvReload(){
+    await loadCodebook();
+    if (rel) await syncAnnotsFromStore();
+    loadLib();
+    redrawAllAnnots();
+  }
+  function openCodes(){
+    if (LIB === null) loadLib();
+    loadCodebook().then(changed => { if (changed) refresh(); });
+  }
+  // une saisie en cours (recherche, nom, mémo) n'est pas détruite par un
+  // rafraîchissement venu d'ailleurs (sauvegarde, veille du store)
+  function cvTyping(){
+    const el = document.activeElement;
+    return !!el && codesBox.contains(el) && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+  }
+  function renderCodes(){
+    if (!codesBox) return;
+    const code = openCode ? codeById(openCode) : null;
+    if (openCode && !code) openCode = null;
+    codesBox.replaceChildren();
+    if (code) renderCodeDetail(code); else renderCodeTree();
+  }
+  function cvDraftInput(depth: number){
+    const d = cvDraft;
+    const inp = cvEl("input", "cv-input") as HTMLInputElement;
+    inp.type = "text"; inp.spellcheck = false;
+    inp.style.marginLeft = (depth * 12) + "px";
+    inp.placeholder = d.mode === "new" ? "Nom du nouveau code" : "";
+    inp.setAttribute("aria-label", d.mode === "new" ? "Nouveau code" : "Renommer le code");
+    if (d.mode === "rename") inp.value = codeById(d.id)?.name || "";
+    let done = false;
+    const finish = async (save: boolean) => {
+      if (done) return;
+      done = true;
+      cvDraft = null;
+      const name = inp.value.trim().replace(/\s+/g, " ");
+      if (save && name) {
+        if (d.mode === "new") await cvPost("/codebook", {op: "create", name, parent: d.id});
+        else if (name !== codeById(d.id)?.name) await cvPost("/codebook", {op: "update", id: d.id, name});
+      }
+      renderCodes();
+    };
+    inp.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    };
+    inp.onblur = () => finish(true);
+    requestAnimationFrame(() => { inp.focus(); inp.select(); });
+    return inp;
+  }
+  function renderCodeTree(){
+    const tools = cvEl("div", "cv-tools");
+    const search = cvEl("input", "cv-search") as HTMLInputElement;
+    search.type = "text"; search.spellcheck = false; search.value = cvSearch;
+    search.placeholder = "Chercher un code…"; search.setAttribute("aria-label", "Chercher un code");
+    search.onkeydown = (e) => e.stopPropagation();
+    tools.appendChild(search);
+    tools.appendChild(cvIconBtn("plus", "Nouveau code", () => { cvDraft = {mode: "new", id: null}; renderCodes(); }));
+    const body = cvEl("div", "cv-body");
+    codesBox.appendChild(tools); codesBox.appendChild(body);
+    search.oninput = () => { cvSearch = search.value; fillTree(body); };
+    fillTree(body);
+  }
+  function fillTree(body: HTMLElement){
+    body.replaceChildren();
+    if (cvError) body.appendChild(cvEl("div", "empty cv-err", cvError));
+    if (cvDraft && cvDraft.mode === "new" && cvDraft.id === null) body.appendChild(cvDraftInput(0));
+    if (!CODEBOOK.length) {
+      if (!cvDraft) body.appendChild(cvEl("div", "empty",
+        "Aucun code. Sélectionne un passage et choisis « Coder », ou crée un code avec +."));
+      return;
+    }
+    const lib = cvLib();
+    const needle = foldText(cvSearch.trim());
+    const shown = needle ? CODEBOOK.filter(c => foldText(c.path).includes(needle)) : CODEBOOK;
+    if (!shown.length) { body.appendChild(cvEl("div", "empty", "Aucun code ne correspond.")); return; }
+    for (const c of shown) {
+      const {kept, pending} = cvPassages(lib, cvFamily(c.id));
+      const depth = needle ? 0 : c.depth;
+      if (cvDraft && cvDraft.mode === "rename" && cvDraft.id === c.id) { body.appendChild(cvDraftInput(depth)); continue; }
+      const row = cvEl("div", "cv-row");
+      row.style.paddingLeft = (depth * 12) + "px";
+      const open = cvEl("button", "cv-open") as HTMLButtonElement;
+      open.type = "button";
+      open.title = c.memo ? c.path + "\n" + c.memo : c.path;
+      open.appendChild(cvEl("span", "cv-name", needle ? c.path : c.name));
+      if (pending.length) {
+        const p = cvEl("span", "cv-pending", String(pending.length));
+        p.title = pending.length + " proposé(s) par Claude";
+        open.appendChild(p);
+      }
+      const n = cvEl("span", "cv-count", kept.length + " · " + new Set(kept.map(x => x.rel)).size);
+      n.title = cvPl(kept.length, "passage") + " dans " + cvPl(new Set(kept.map(x => x.rel)).size, "article") + ", sous-codes compris";
+      open.appendChild(n);
+      open.onclick = () => { openCode = c.id; cvError = ""; renderCodes(); };
+      row.appendChild(open);
+      row.appendChild(cvIconBtn("more", "Actions du code", (e) => {
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        openActionMenu(r.right - 180, r.bottom, [
+          {label: "Renommer", run: () => { cvDraft = {mode: "rename", id: c.id}; renderCodes(); }},
+          {label: "Nouveau sous-code", run: () => { cvDraft = {mode: "new", id: c.id}; renderCodes(); }},
+          {label: "Supprimer", danger: true, sep: true, run: () => { cvConfirm = c.id; renderCodes(); }},
+        ]);
+      }, "cv-more"));
+      body.appendChild(row);
+      if (cvConfirm === c.id) {
+        const box = cvEl("div", "cv-confirm");
+        box.setAttribute("role", "alert");
+        box.appendChild(cvEl("span", "", "Supprimer « " + c.name + " » et ses sous-codes ? " + kept.length + " passages perdent ce code."));
+        const acts = cvEl("div", "cv-confirm-acts");
+        acts.appendChild(cvTextBtn("Annuler", () => { cvConfirm = null; renderCodes(); }));
+        acts.appendChild(cvTextBtn("Supprimer", async () => {
+          cvConfirm = null;
+          if (await cvPost("/codebook", {op: "delete", id: c.id})) await cvReload();
+          renderCodes();
+        }, "danger"));
+        box.appendChild(acts);
+        body.appendChild(box);
+      }
+      if (cvDraft && cvDraft.mode === "new" && cvDraft.id === c.id) body.appendChild(cvDraftInput(depth + 1));
+    }
+  }
+  /** Garder, refuser (propositions) ou retirer (codes gardés) sur un passage. */
+  async function cvChange(x: CvPassage, change: "keep"|"reject"|"remove"){
+    if (x.rel === rel) {
+      const a = PDF_ANNOTS.find(y => String(y.id) === String(x.a.id));
+      if (!a) return;
+      x.ids.forEach(id => changeCodes(a, {[change]: id}));
+      await saveCodes(a);
+    } else if (await cvPost("/pdfannot-codes", {rel: x.rel, id: String(x.a.id), [change]: x.ids})) {
+      loadLib();
+      return;
+    }
+    renderCodes();
+  }
+  function cvQuote(x: CvPassage){
+    const quote = String(x.a.text || "").replace(/\s+/g, " ").trim();
+    const head = x.rel + " (p." + x.a.page + ")";
+    const body = quote ? " : « " + quote + " »" : x.a.kind === "area" ? " : [zone capturée]" : "";
+    return x.a.note ? head + body + "\nCommentaire : " + x.a.note : head + body;
+  }
+  function cvPassageRow(code: Code, x: CvPassage, pending: boolean){
+    const it = cvEl("div", "it cv-it" + (pending ? " is-pending" : "") + (x.rel === rel ? "" : " lib-row"));
+    const bar = cvEl("span", "bar");
+    const body = cvEl("div", "");
+    const q = cvEl("div", "q");
+    q.appendChild(cvEl("span", "oq", "« "));
+    q.appendChild(document.createTextNode(String(x.a.text || "").replace(/\s+/g, " ").trim() || "…"));
+    q.appendChild(cvEl("span", "oq", " »"));
+    body.appendChild(q);
+    if (x.a.memo) body.appendChild(cvEl("div", "note", x.a.memo));
+    const foot = cvEl("div", "foot");
+    foot.appendChild(cvEl("span", "pg", (pending ? citeRefFor(x.rel) + ", " : "") + "p. " + x.a.page));
+    const subs = x.ids.filter(id => id !== code.id).map(id => codeById(id)?.name).filter(Boolean);
+    for (const name of subs) foot.appendChild(cvEl("span", "code-tag", name));
+    foot.appendChild(cvEl("span", "sp"));
+    const act = (k: keyof typeof CV_ICON, title: string, fn: () => void, cls = "") => {
+      const b = cvEl("button", "act" + (cls ? " " + cls : "")) as HTMLButtonElement;
+      b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.innerHTML = cvSvg(k);
+      b.onclick = (e) => { e.stopPropagation(); fn(); };
+      foot.appendChild(b);
+    };
+    if (!pending) {
+      if (x.a.kind !== "area" || x.rel === rel) act("chat", "Envoyer au chat", () => sendAnnot(x.a, null, x.rel));
+      act("cross", "Retirer ce code du passage", () => cvChange(x, "remove"), "danger");
+    }
+    body.appendChild(foot);
+    if (pending) {
+      const decide = cvEl("div", "cv-decide");
+      decide.appendChild(cvTextBtn("Refuser", () => cvChange(x, "reject"), "", "cross"));
+      decide.appendChild(cvTextBtn("Garder", () => cvChange(x, "keep"), "primary", "check"));
+      body.appendChild(decide);
+    }
+    it.appendChild(bar); it.appendChild(body);
+    it.onclick = () => gotoAnnot(x.rel, x.a);
+    return it;
+  }
+  function renderCodeDetail(code: Code){
+    const {kept, pending} = cvPassages(cvLib(), cvFamily(code.id));
+    const articles = new Set(kept.map(x => x.rel)).size;
+    const head = cvEl("div", "cv-head");
+    head.appendChild(cvIconBtn("back", "Retour aux codes", () => { openCode = null; cvError = ""; renderCodes(); }));
+    const title = cvEl("div", "cv-title");
+    const cut = code.path.lastIndexOf(" › ");
+    if (cut > 0) title.appendChild(cvEl("span", "cv-parent", code.path.slice(0, cut) + " ›"));
+    title.appendChild(cvEl("span", "", code.name));
+    title.title = code.path;
+    head.appendChild(title);
+    const body = cvEl("div", "cv-body");
+    codesBox.appendChild(head); codesBox.appendChild(body);
+    body.appendChild(cvEl("div", "cv-meta", cvPl(kept.length, "passage") + " dans " + cvPl(articles, "article") + ", sous-codes compris"));
+    const memo = cvEl("textarea", "memo-edit cv-memo") as HTMLTextAreaElement;
+    memo.rows = 2; memo.value = code.memo || "";
+    memo.placeholder = "Mémo : définition, règles de codage…";
+    memo.setAttribute("aria-label", "Mémo du code");
+    memo.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Escape") { memo.value = code.memo || ""; memo.blur(); } };
+    memo.onblur = async () => {
+      if (memo.value === (code.memo || "")) return;
+      await cvPost("/codebook", {op: "update", id: code.id, memo: memo.value});
+      renderCodes();
+    };
+    body.appendChild(memo);
+    const acts = cvEl("div", "cv-actions");
+    const send = cvTextBtn("Tout envoyer au chat", async () => {
+      const text = ["Code « " + code.path + " » : " + cvPl(kept.length, "passage"), ...kept.map(cvQuote)].join("\n\n");
+      try {
+        if (window.self === window.top) throw new Error("ouvre le lecteur dans l’app");
+        await attachPdfChatPayload({type: "atelier-add-to-chat", text});
+        (document.getElementById("status") as HTMLSpanElement).textContent = "Passages ajoutés au chat";
+      } catch(e) { cvError = "Envoi impossible : " + String(e && e.message || e).slice(0, 90); renderCodes(); }
+    }, "", "chat");
+    const copy = cvTextBtn("Copier avec citations", () => {
+      const lines = kept.map(x => "« " + String(x.a.text || "").replace(/\s+/g, " ").trim() + " » ("
+        + citeRefFor(x.rel) + ", p. " + x.a.page + ")");
+      const out = [code.path, "", ...lines].join("\n");
+      const ok = () => { copy.classList.add("ok"); setTimeout(() => copy.classList.remove("ok"), 1200); };
+      navigator.clipboard?.writeText(out).then(ok).catch(() => {});
+    });
+    send.disabled = copy.disabled = !kept.length;
+    acts.appendChild(send); acts.appendChild(copy);
+    body.appendChild(acts);
+    if (cvError) body.appendChild(cvEl("div", "empty cv-err", cvError));
+    if (LIB === null) body.appendChild(cvEl("div", "empty", "Chargement de la bibliothèque…"));
+    if (pending.length) {
+      body.appendChild(cvEl("div", "cv-sec", "Proposés par Claude · " + pending.length));
+      for (const x of pending) body.appendChild(cvPassageRow(code, x, true));
+    }
+    if (!kept.length && !pending.length && LIB !== null) body.appendChild(cvEl("div", "empty", "Aucun passage pour ce code."));
+    let last = "";
+    for (const x of kept) {
+      if (x.rel !== last) {
+        last = x.rel;
+        const n = kept.filter(y => y.rel === x.rel).length;
+        const sec = cvEl("div", "cv-sec");
+        const t = cvEl("span", "cv-sec-t", citeRefFor(x.rel) + (x.rel === rel ? " · cet article" : ""));
+        t.title = x.rel;
+        sec.appendChild(t); sec.appendChild(cvEl("span", "cv-sec-n", String(n)));
+        body.appendChild(sec);
+      }
+      body.appendChild(cvPassageRow(code, x, false));
+    }
+  }
   function showView(next: string){
-    view = next === "toc" && tocBox ? "toc" : "ann";
+    view = next === "toc" && tocBox ? "toc" : next === "codes" && codesBox ? "codes" : "ann";
     tabs.forEach(t => { const on = t.dataset.v === view; t.classList.toggle("on", on); t.setAttribute("aria-selected", String(on)); });
     pane.classList.toggle("toc-on", view === "toc");
+    pane.classList.toggle("codes-on", view === "codes");
+    if (view === "codes") openCodes();
     if (view === "toc") loadToc(); else refresh();
   }
   tabs.forEach(t => t.onclick = () => showView(t.dataset.v));
@@ -1555,13 +1889,14 @@ const annPane = (function(){
   window.addEventListener("pdf-document-changed", () => { tocItems = null; tocFor = null; if (view === "toc" && pane.style.display === "flex") loadToc(); });
   function render(){
     if (pane.style.display !== "flex") return;
+    if (view === "codes") { if (!cvTyping()) renderCodes(); return; }
     filters.innerHTML = "";
     HL_COLORS.forEach(c => {
       const d = document.createElement("span");
       d.className = "fdot" + (only === c ? " on" : "");
       d.style.background = c.replace(",.40", ",.85");
       d.title = "N'afficher que cette couleur";
-      d.onclick = () => { only = (only === c) ? null : c; onlyStamp = null; refresh(); };
+      d.onclick = () => { only = (only === c) ? null : c; onlyStamp = null; onlyCode = null; refresh(); };
       filters.appendChild(d);
     });
     // tampons : un filtre par sens, à la suite des teintes
@@ -1575,7 +1910,28 @@ const annPane = (function(){
         d.style.setProperty("--stamp", st.color);
         d.innerHTML = window.AtelierPdfTools.stampIcon(st.id, 10);
         d.title = "N'afficher que les tampons « " + st.label + " »";
-        d.onclick = () => { onlyStamp = (onlyStamp === st.id) ? null : st.id; only = null; refresh(); };
+        d.onclick = () => { onlyStamp = (onlyStamp === st.id) ? null : st.id; only = null; onlyCode = null; refresh(); };
+        filters.appendChild(d);
+      }
+    }
+    // codes : une pastille par code posé dans la portée (article ou bibliothèque)
+    const used = new Set<string>();
+    const scan = (l) => { if (Array.isArray(l)) for (const a of l)
+      for (const id of [...codeIds(a, "codes"), ...codeIds(a, "suggested")]) used.add(id); };
+    scan(PDF_ANNOTS);
+    if (scope === "lib" && LIB) Object.values(LIB).forEach(scan);
+    const shownCodes = CODEBOOK.filter((c) => used.has(c.id) || c.id === onlyCode);
+    if (onlyCode && !codeById(onlyCode)) onlyCode = null;
+    if (shownCodes.length) {
+      const sep = document.createElement("span");
+      sep.className = "fsep";
+      filters.appendChild(sep);
+      for (const c of shownCodes) {
+        const d = document.createElement("span");
+        d.className = "fcode" + (onlyCode === c.id ? " on" : "");
+        d.textContent = c.name;
+        d.title = "N'afficher que le code « " + c.path + " » (sous-codes compris)";
+        d.onclick = () => { onlyCode = (onlyCode === c.id) ? null : c.id; only = null; onlyStamp = null; refresh(); };
         filters.appendChild(d);
       }
     }
@@ -1606,6 +1962,7 @@ const annPane = (function(){
         doc.title = doc.textContent;
       }
       applyNarrow();   // pose --pane-pad dès l'ouverture, pas seulement au drag
+      if (view === "codes") openCodes();
       if (view === "toc") loadToc(); else refresh();
     }
   }
@@ -1637,7 +1994,15 @@ const annPane = (function(){
     document.addEventListener("mouseup", up);
   });
   pane.querySelector<HTMLButtonElement>(".pclose").onclick = toggle;
-  return { refresh, toggle, consumed(relX: string|number, id: string){
+  // bouton « Annotations » de la barre du haut de l'app : ouvre ou ferme ce
+  // panneau (le seul panneau d'annotations), éventuellement sur un onglet
+  function fromHost(next?: string){
+    const on = pane.style.display === "flex";
+    if (on && (!next || next === view)) { toggle(); return; }
+    if (!on) toggle();
+    if (next) showView(next);
+  }
+  return { refresh, toggle, fromHost, consumed(relX: string|number, id: string){
     if(LIB && Array.isArray(LIB[relX])) LIB[relX] = LIB[relX].filter(a => String(a.id) !== id);
     refresh();
   } };
@@ -3041,6 +3406,9 @@ function sendFail(why){
 }
 let annotationEditor = null;
 window.addEventListener("message", e => {
+  if (e.source === window.parent && e.data && e.data.type === "atelier-annots-pane") annPane.fromHost?.(e.data.view);
+});
+window.addEventListener("message", e => {
   const data = e.data;
   if(e.source !== window.parent || !data || data.nonce !== window.__atelierNonce ||
     data.type !== "atelier-pdf-annotation-consumed") return;
@@ -3213,6 +3581,41 @@ function openCodeMenu(x: number, y: number, opts: {applied(): Set<string>; toggl
   menu.style.top = Math.max(8, Math.min(y + 6, innerHeight - menu.offsetHeight - 8)) + "px";
   setTimeout(() => document.addEventListener("mousedown", outside, true), 0);
   search.focus({preventScroll:true});
+}
+/** Petit menu d'actions (modèle `.menu`, dans #codeMenu) : ouverture au clic,
+ *  Échap ou clic à côté le ferment, destructif en rouge. */
+function openActionMenu(x: number, y: number, items: {label: string; danger?: boolean; sep?: boolean; run(): unknown}[]){
+  closeCodeMenu();
+  const menu = document.getElementById("codeMenu") as HTMLDivElement;
+  const list = document.createElement("div");
+  list.className = "cm-list"; list.setAttribute("role", "menu");
+  for (const it of items) {
+    if (it.sep) { const s = document.createElement("div"); s.className = "cm-sep"; list.appendChild(s); }
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "mi" + (it.danger ? " danger" : ""); b.setAttribute("role", "menuitem");
+    const t = document.createElement("span"); t.className = "cm-name"; t.textContent = it.label; b.appendChild(t);
+    b.onmousedown = e => e.preventDefault();
+    b.onclick = e => { e.stopPropagation(); closeCodeMenu(); it.run(); };
+    list.appendChild(b);
+  }
+  menu.replaceChildren(list);
+  menu.classList.add("is-actions");
+  const outside = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) closeCodeMenu(); };
+  const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeCodeMenu(); } };
+  closeCodeMenu = () => {
+    closeCodeMenu = () => {};
+    document.removeEventListener("mousedown", outside, true);
+    document.removeEventListener("keydown", esc, true);
+    menu.hidden = true; menu.classList.remove("is-actions"); menu.replaceChildren();
+  };
+  menu.hidden = false;
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.top = Math.max(8, Math.min(y + 4, innerHeight - menu.offsetHeight - 8)) + "px";
+  setTimeout(() => {
+    document.addEventListener("mousedown", outside, true);
+    document.addEventListener("keydown", esc, true);
+  }, 0);
+  (list.querySelector(".mi") as HTMLButtonElement)?.focus({preventScroll:true});
 }
 /** Bouton « Coder » de la capsule : le passage se voile en gris tout de
  *  suite et n'est écrit qu'avec son premier code ; fermé sans code, il

@@ -15,7 +15,6 @@ function props(over: Partial<React.ComponentProps<typeof TopBarSurfaces>> = {}) 
     onSelectSurface: vi.fn(),
     onSelectIde: vi.fn(),
     onToggleExplorer: vi.fn(),
-    showAnnots: false,
     onToggleAnnots: vi.fn(),
     ...over,
   };

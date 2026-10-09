@@ -524,7 +524,7 @@ test('a highlight with a personal note draws a pencil badge that opens the bubbl
  win.drawAnnots(page,1);assert.equal(page.querySelectorAll('.pdfmemo').length,1);win.close();
 });
 
-function pane(annots: { id: string; page: number; kind: string; text: string; }[]|({ id: string; page: number; kind: string; text: string; memo: string; note?: undefined; }|{ id: string; page: number; kind: string; note: string; text?: undefined; memo?: undefined; })[]) {
+function pane(annots: Record<string, unknown>[], codebook: Record<string, unknown>[] = []) {
   const markup = html.slice(html.indexOf('<div id="annPane">'), html.indexOf('<div id="findBar">'));
   const dom = new JSDOM(`${markup}<div id="status"></div>`, {runScripts:'outside-only', url:'http://127.0.0.1/pdf_viewer.html?file=doc.pdf'});
   const win = dom.window;
@@ -535,7 +535,8 @@ function pane(annots: { id: string; page: number; kind: string; text: string; }[
     sendAnnot: (..._args) => {}, copyWithCitation: (..._args) => {}, removeAnnot: (..._args) => {},
     saveAnnots: () => { saves.push(JSON.parse(JSON.stringify(win.PDF_ANNOTS))); win.annPane.refresh(); },
     drawAnnots: () => { draws.push(1); }, drawReadingAnnots: (..._args) => {},
-    codeById: (_id) => undefined, codeIds: (a, key) => Array.isArray(a[key]) ? a[key] : [],
+    CODEBOOK: codebook, codeById: (id) => codebook.find((c) => c.id === id),
+    codeIds: (a, key) => Array.isArray(a[key]) ? a[key] : [],
   });
   win.requestAnimationFrame = (fn) => win.setTimeout(fn, 0);
   const code = html.slice(html.indexOf('const PANE_KEY ='), html.indexOf('// ---- confort sombre'));
@@ -544,6 +545,31 @@ function pane(annots: { id: string; page: number; kind: string; text: string; }[
   const list = win.document.querySelector('#annPane .list');
   return {win, saves, draws, list, close: () => win.close()};
 }
+
+test('the annotation pane filters by code, sub-codes and Claude proposals included', () => {
+  const book = [
+    {id:'c1', name:'Méthode', parent:null, memo:'', depth:0, path:'Méthode'},
+    {id:'c2', name:'Terrain', parent:'c1', memo:'', depth:1, path:'Méthode › Terrain'},
+    {id:'c3', name:'Limites', parent:null, memo:'', depth:0, path:'Limites'},
+    {id:'c4', name:'Inutilisé', parent:null, memo:'', depth:0, path:'Inutilisé'},
+  ];
+  const p = pane([
+    {id:'a', page:1, kind:'code', text:'A', codes:['c1']},
+    {id:'b', page:2, kind:'hl', text:'B', codes:['c2']},
+    {id:'c', page:3, kind:'hl', text:'C', suggested:['c3']},
+    {id:'d', page:4, kind:'hl', text:'D'},
+  ], book);
+  const chips = [...p.win.document.querySelectorAll('#annPane .fcode')];
+  assert.deepEqual(chips.map((c) => c.textContent), ['Méthode', 'Terrain', 'Limites'], 'only codes used here, in codebook order');
+  chips[0].click();
+  assert.deepEqual([...p.list.querySelectorAll('.it .q')].map((q) => q.textContent.replace(/[«»\u2009]/g, '')), ['A', 'B']);
+  assert.equal(p.win.document.querySelector('#annPane .cn').textContent, '2 / 4');
+  p.win.document.querySelectorAll('#annPane .fcode')[2].click();
+  assert.equal(p.list.querySelectorAll('.it').length, 1, 'a proposal counts for its code');
+  p.win.document.querySelectorAll('#annPane .fcode')[2].click();
+  assert.equal(p.list.querySelectorAll('.it').length, 4, 'clicking again clears the filter');
+  p.close();
+});
 
 test('the annotation pane edits an existing personal note in place', async () => {
   const p = pane([{id:'h1', page:1, kind:'hl', text:'Passage', memo:'Ancienne'}]);
