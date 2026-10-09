@@ -264,6 +264,42 @@ export function lonePassageRef(children: any): PassageRef | null {
   return parseZoteroPassageRef(href) ?? parseRagdocPassageRef(href) ?? parseGbrainPassageRef(href);
 }
 
+// Citation en écho (2026-10-09) : une carte passage affiche déjà sa phrase ;
+// l'agent la recopie souvent juste dessous en `>` ou en italique. Le bloc qui
+// suit un lien passage seul et répète sa citation est retiré du texte, avant
+// le découpage en blocs (la carte et l'écho tombent dans deux MdBlock). En
+// streaming, un écho encore partiel en queue de texte est retiré aussi.
+const LONE_PASSAGE_LINE = /^\s*\[[^\n]*\]\((#atelier-(?:zotero|gbrain|ragdoc)-passage\?.*)\)\s*$/;
+const echoNorm = (text: string) => text.replace(/[*_`]/g, "")
+  .replace(/^[\s«“"„]+|[\s»”"]+$/g, "").replace(/\s+/g, " ").trim();
+
+export function dropEchoedPassageQuotes(text: string, streaming = false): string {
+  if (!text.includes("-passage?")) return text;
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let fence = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    out.push(line);
+    const href = fence ? null : LONE_PASSAGE_LINE.exec(line)?.[1];
+    const ref = href ? parseZoteroPassageRef(href) ?? parseRagdocPassageRef(href) ?? parseGbrainPassageRef(href) : null;
+    const quote = ref ? echoNorm(ref.quote) : "";
+    if (!quote) continue;
+    let start = i + 1;
+    while (start < lines.length && !lines[start].trim()) start += 1;
+    let end = start;
+    while (end < lines.length && lines[end].trim()) end += 1;
+    if (start === end) continue;
+    const block = lines.slice(start, end);
+    const quoted = block.every((l) => /^\s*>/.test(l));
+    const echo = echoNorm(block.map((l) => quoted ? l.replace(/^\s*>\s?/, "") : l).join(" "));
+    const atTail = streaming && end === lines.length;
+    if (echo && (echo === quote || (atTail && quote.startsWith(echo)))) i = end - 1;
+  }
+  return out.join("\n");
+}
+
 // texte complet des enfants markdown (string, tableau, éléments imbriqués)
 export function mdText(children: any): string {
   if (children == null) return "";
@@ -811,7 +847,8 @@ function MarkdownBlocks({ text, streaming, components, remarkPlugins, rehypePlug
 }
 
 export function MdBody(props: MdBodyProps) {
-  const segments = useMemo(() => splitInsightBlocks(props.text, props.streaming), [props.text, props.streaming]);
+  const segments = useMemo(() => splitInsightBlocks(dropEchoedPassageQuotes(props.text, props.streaming), props.streaming),
+    [props.text, props.streaming]);
   return <>{segments.map((segment, index) => {
     const streaming = props.streaming && index === segments.length - 1
       && (segment.kind === "markdown" || !segment.complete);
