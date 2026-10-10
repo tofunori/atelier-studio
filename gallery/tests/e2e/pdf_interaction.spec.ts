@@ -123,13 +123,13 @@ test('clicking the same citation again brings the passage back without reloading
   await expect(reader.locator('#selPill .atelier-selection')).toBeVisible();
   await reader.locator('.pg[data-page="1"]').click({position: {x: 4, y: 4}});
   await expect(reader.locator('#selPill')).toBeHidden();
-  await reader.locator('body').evaluate(() => { window.__sameDocument = true; });
+  await reader.locator('body').evaluate(() => { document.documentElement.dataset.sameDocument = '1'; });
   // L'URL est identique : l'hôte poste la cible au lieu de recharger l'iframe.
   await page.evaluate((quote) => document.querySelector('iframe').contentWindow.postMessage(
     {type: 'atelier-pdf-passage', page: 1, quote}, '*'), quote);
   await expect(reader.locator('#selPill .atelier-selection')).toBeVisible();
   expect(await reader.locator('body').evaluate(() => hlText())).toBe(quote);
-  expect(await reader.locator('body').evaluate(() => window.__sameDocument)).toBe(true);
+  expect(await reader.locator('body').evaluate(() => document.documentElement.dataset.sameDocument)).toBe('1');
 });
 
 test('PDF attachment waits for authenticated ACK, reports refusal, and can retry', async ({page}) => {
