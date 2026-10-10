@@ -92,7 +92,7 @@ declare global {
   }
   interface Window {
     __readingMode?: import('./pages/pdf_viewer_6').ReadingMode;
-    __pdfTextSearch?: {scan(query:string, onPage:(page:number,matches:ReturnType<typeof AtelierPdfPassage.findAllInIndex>)=>void, cancelled:()=>boolean):Promise<boolean>;ensurePage(page:number):Promise<unknown>;releaseSelection():void};
+    __pdfTextSearch?: {scan(query:string, onPage:(page:number,matches:ReturnType<typeof AtelierPdfPassage.findAllInIndex>)=>void, cancelled:()=>boolean):Promise<boolean>;ensurePage(page:number):Promise<unknown>;releaseSelection():void;numPages():number;pageIndex(page:number):Promise<ReturnType<typeof AtelierPdfPassage.createIndex>|null>};
   }
   interface Navigator {
     userAgentData?: {platform?: string;brands?: {brand:string;version:string}[]}; virtualKeyboard?: {overlaysContent: boolean} }

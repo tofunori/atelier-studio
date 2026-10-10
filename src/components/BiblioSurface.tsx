@@ -131,6 +131,23 @@ export default function BiblioSurface({
     openArticle(selected, passageTarget);
     setReaderRequested(false);
   }, [readerRequested, selected, passageTarget, openArticle]);
+  // Même citation recliquée dans le chat (2026-10-10) : la cible est un objet
+  // neuf mais l'URL du lecteur est identique, donc l'iframe ne se recharge pas
+  // et rien ne bougeait. On poste alors la cible au lecteur, qui y retourne.
+  const shownPassages = useRef(new Map<string, { url: string | null; target: PassageTarget | null }>());
+  useEffect(() => {
+    const shown = shownPassages.current;
+    for (const tab of tabs.tabs) {
+      const url = tab.item.hasPdf && galleryUrl ? pdfViewerUrl(tab.item, galleryUrl, tab.passageTarget) : null;
+      const before = shown.get(tab.key);
+      shown.set(tab.key, { url, target: tab.passageTarget });
+      const target = tab.passageTarget;
+      if (!before || !url || !target || before.url !== url || before.target === target) continue;
+      const frame = surfaceRef.current?.querySelector<HTMLIFrameElement>(`#biblio-panel-${CSS.escape(tab.key)} iframe`);
+      frame?.contentWindow?.postMessage({ type: "atelier-pdf-passage", page: target.page ?? null, quote: target.quote ?? "" }, "*");
+    }
+    for (const key of [...shown.keys()]) if (!tabs.tabs.some((tab) => tab.key === key)) shown.delete(key);
+  }, [tabs.tabs, galleryUrl]);
   const collectionTree = useMemo(() => buildCollectionTree(collections), [collections]);
   const detailItem = tabs.activeTab?.item ?? selected;
 
