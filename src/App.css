@@ -5025,21 +5025,31 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kb-cite:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 .kb-cite svg { flex: none; color: var(--accent); }
-/* Références éditoriales : identité avant le passage, actions hors du texte
-   sélectionnable. Les couleurs et la typographie suivent le thème actif. */
-.passage-card { display: flex; flex-direction: column; align-items: stretch;
-  gap: 6px; max-width: 620px; min-width: 0; padding: 2px 0; }
-.passage-card-meta { display: flex; align-items: center; gap: 6px; min-width: 0;
-  font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* Citations de passage, maquette A « Filet » (2026-10-09) : la phrase en serif
+   sous un filet --quote-rule (accent quand épinglée), l'identité dessous sur
+   une ligne de 12 px, ouvrir/épingler en icônes discrètes qui apparaissent au
+   survol, au focus ou quand le passage est épinglé. */
+.passage-card { display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  max-width: 620px; min-width: 0; margin: 4px 0 16px; padding-left: 16px;
+  border-left: 2px solid var(--quote-rule); transition: border-color var(--ease); }
+.passage-card.has-pin { border-left-color: var(--accent); }
+.passage-card-meta { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 24px;
+  font-size: var(--fs-m); line-height: 1.3; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .passage-card .passage-card-source { display: inline-flex; align-items: center; min-width: 0; gap: 8px; padding: 0;
-  color: var(--text-primary); font-size: var(--fs-m); font-weight: 600; }
+  color: var(--text-secondary); font-size: var(--fs-m); font-weight: 500; }
 .passage-card-source svg { flex: none; color: var(--info); }
 .passage-card-source .evidence-meta-src { min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
-.passage-card-meta .evidence-meta-page { flex: none; }
-.passage-card-meta .evidence-meta-page::before { content: "·"; margin-right: 6px; }
-.passage-card-meta .passage-card-pin { margin-left: auto; flex: none; color: var(--text-muted); }
-.passage-card .is-pinned, .passage-card.has-pin .passage-card-source svg { color: var(--accent); }
+.passage-card-meta .evidence-meta-page { flex: none; color: var(--text-muted); }
+.passage-card-meta .evidence-meta-page::before { content: "·"; margin-right: 4px; }
+.passage-card .passage-card-collapse { flex: none; padding: 0; font-size: var(--fs-m); color: var(--text-muted); }
+.passage-card-tools { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; flex: none;
+  opacity: 0; transition: opacity var(--ease); }
+.passage-card:hover .passage-card-tools, .passage-card:focus-within .passage-card-tools,
+.passage-card.has-pin .passage-card-tools { opacity: 1; }
+@media (hover: none) { .passage-card-tools { opacity: 1; } }
+.passage-card-tools .ui-iconbtn { color: var(--text-muted); }
+.passage-card .passage-card-pin.is-pinned { color: var(--accent); }
 .passage-card-quote { min-width: 0; font-family: var(--quote-font); font-size: var(--fs-xl);
   color: var(--text-primary); line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
 .passage-card-quote.is-clamped { display: -webkit-box; -webkit-line-clamp: 6;
@@ -5049,16 +5059,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .passage-card-quote .katex { font-size: 1em; }
 .passage-card-quote .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
 .passage-card-quote.is-absent { font-family: var(--ui-font); font-size: var(--fs-m); color: var(--text-muted); }
-.passage-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.passage-card .passage-card-open, .passage-card .passage-card-collapse {
-  display: inline-flex; align-items: center; padding: 0; font-size: var(--fs-s); color: var(--text-secondary); gap: 8px; }
-.passage-card .passage-card-open svg { color: var(--info); }
-.passage-card-actions button, .passage-card-meta button { min-height: 40px; }
-.passage-card-meta .passage-card-pin { min-width: 40px; }
 @media (hover: hover) {
-  .passage-card .passage-card-source:hover, .passage-card .passage-card-open:hover {
+  .passage-card .passage-card-source:hover, .passage-card .passage-card-collapse:hover {
     color: var(--info); background: transparent; }
 }
+@media (prefers-reduced-motion: reduce) { .passage-card, .passage-card-tools { transition: none; } }
 
 /* Surface Preuves (plan Preuves, tâche 7) : panneau par projet des passages
    épinglés (PassageCard, tâches 5+6) — groupés par phrase de manuscrit

@@ -722,6 +722,13 @@ async function revealLinkedSection(){
   status.textContent = "Section " + targetSection + " — p. " + targetPage;
 }
 
+// Passage cité depuis le chat (2026-10-09) : à la PREMIÈRE révélation, la
+// citation retrouvée devient la sélection courante et la barre de sélection
+// habituelle s'ouvre dessus (surligner + 6 couleurs, annoter ; souligner et
+// barrer restent dans la barre d'outils). Rien n'est enregistré tant que
+// Thierry ne choisit pas ; un clic ailleurs ou Échap efface la sélection, et
+// le passage n'est plus remarqué aux reconstructions suivantes de la page.
+let linkedPassageOffered = false;
 function revealLinkedPassage(shouldScroll: boolean){
   if(!targetQuote) return;
   document.querySelectorAll<HTMLSpanElement>(".textLayer span.auto-hl").forEach(function(span){ span.classList.remove("auto-hl"); });
@@ -733,16 +740,58 @@ function revealLinkedPassage(shouldScroll: boolean){
   const match = window.AtelierPdfPassage.findPassageInIndex(tl._passageIndex
     || window.AtelierPdfPassage.createIndex(spans.map((span) => span.textContent || "")), targetQuote);
   if(match){
-    spans.slice(match.start, match.end + 1).forEach(function(span: { classList: { add: (arg0: string) => void; }; }){ span.classList.add("auto-hl"); });
     (document.getElementById("status") as HTMLSpanElement).textContent = "Passage retrouvé — p. " + targetPage;
+    if(!linkedPassageOffered && !activeSelection) offerLinkedPassage(tl, spans, match, shouldScroll);
+    else if(!linkedPassageOffered) spans.slice(match.start, match.end + 1).forEach(function(span: HTMLSpanElement){ span.classList.add("auto-hl"); });
   } else {
     (document.getElementById("status") as HTMLSpanElement).textContent = "Page " + targetPage + " — extrait non localisé";
   }
-  if(shouldScroll){
+  if(shouldScroll && !(match && linkedPassageOffered)){
     const target = match ? spans[match.start] : pg;
     setTimeout(function(){ target.scrollIntoView({block:"center", behavior:pdfScrollBehavior()}); }, 0);
   }
   targetRevealed = true;
+}
+/** Bornes en caractères de la citation dans ses spans extrêmes : la
+ *  correspondance de pdf_passage est au span près, la sélection au mot près. */
+function linkedPassageBounds(spans: HTMLSpanElement[], match: {start: number; end: number}, quote: string){
+  const norm = window.AtelierPdfPassage.normalize, nq = norm(quote);
+  const isWord = (ch: string) => /[\p{L}\p{N}]/u.test(ch || "");
+  const first = spans[match.start].textContent || "", last = spans[match.end].textContent || "";
+  let anchor = 0;
+  for(let i = 0; i < first.length; i++){
+    if(!isWord(first[i]) || (i > 0 && isWord(first[i - 1]))) continue;
+    const ns = norm(first.slice(i));
+    if(ns && (nq.startsWith(ns) || ns.startsWith(nq))){ anchor = i; break; }
+  }
+  const single = match.start === match.end, from = single ? anchor : 0;
+  let focus = last.length;
+  for(let j = last.length; j > from; j--){
+    if(j < last.length && isWord(last[j])) continue;
+    const ne = norm(last.slice(from, j));
+    if(ne && (single ? nq.startsWith(ne) : nq.endsWith(ne))){ focus = j; break; }
+  }
+  return {anchor: {index: match.start, offset: anchor}, focus: {index: match.end, offset: focus}};
+}
+function offerLinkedPassage(tl: HTMLElement, spans: HTMLSpanElement[], match: {start: number; end: number}, shouldScroll: boolean){
+  linkedPassageOffered = true;
+  const bounds = linkedPassageBounds(spans, match, targetQuote);
+  layerSpans = spans;
+  activeSelection = {tl, spans, anchor: bounds.anchor, focus: bounds.focus};
+  selPage = targetPage;
+  const mine = activeSelection;
+  renderSelection();
+  // La barre se place en coordonnées d'écran : après le défilement vers le
+  // passage, sinon elle resterait là où était la phrase avant de défiler.
+  const show = () => { if(activeSelection === mine) selPillShow(renderSelection()); };
+  if(!shouldScroll){ show(); return; }
+  setTimeout(function(){
+    spans[match.start].scrollIntoView({block:"center", behavior:pdfScrollBehavior()});
+    let done = false;
+    const once = () => { if(done) return; done = true; window.removeEventListener("scrollend", once); show(); };
+    window.addEventListener("scrollend", once);
+    setTimeout(once, pdfScrollBehavior() === "smooth" ? 700 : 50);
+  }, 0);
 }
 
 /** Même lien ?page=&quote= résolu dans la colonne de lecture : l'ancrage
