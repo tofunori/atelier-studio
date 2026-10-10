@@ -41,11 +41,24 @@ function createAtelierPdfPassageApi(){
     if (!joined || !needle) return null;
     var pos = joined.indexOf(needle), length = needle.length;
     if (pos < 0) {
-      var words = needle.split(" ").filter(Boolean);
-      for (var count = Math.min(18, words.length); count >= Math.min(5, words.length); count--){
+      // mots coupés en plusieurs glyphes ou césure de fin de ligne
+      var compact = index.compact, flat = needle.replace(/ /g, ""), at = compact.joined.indexOf(flat);
+      if (at >= 0) return coveredRange(compact, at, at + flat.length);
+    }
+    var words = needle.split(" ").filter(Boolean), count;
+    if (pos < 0) {
+      for (count = Math.min(18, words.length); count >= Math.min(5, words.length); count--){
         var anchor = words.slice(0, count).join(" ");
         pos = joined.indexOf(anchor);
         if (pos >= 0){ length = needle.length; break; }
+      }
+    }
+    // Début abîmé (symbole mathématique, citation commencée sur la page
+    // précédente) : la fin de la citation situe le passage.
+    if (pos < 0) {
+      for (count = Math.min(18, words.length); count >= Math.min(5, words.length); count--){
+        var tail = words.slice(words.length - count).join(" "), found = joined.indexOf(tail);
+        if (found >= 0){ pos = found; length = tail.length; break; }
       }
     }
     if (pos < 0) return null;

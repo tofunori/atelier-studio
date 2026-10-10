@@ -37,3 +37,17 @@ test("search tolerates glyph runs splitting words and line-end hyphenation", () 
   assert.deepEqual(passage.findAllSpanRanges(["precipi", "tation"], "precipitation"), [{start:0,end:1}]);
   assert.deepEqual(passage.findAllSpanRanges(["precipi-", "tation"], "precipitation"), [{start:0,end:1}]);
 });
+
+
+test("a cited passage survives glyph runs splitting its words", () => {
+  const spans = ["the predicted kri", "ging uncertainty grows", "with distance."];
+  assert.deepEqual(passage.findPassageSpanRange(spans, "the predicted kriging uncertainty grows with distance."), { start: 0, end: 2 });
+});
+
+test("a cited passage whose opening is damaged is still located by its end", () => {
+  const spans = ["Unrelated text.", "∂σ", "kriging uncertainty grows", "with distance from the measurement", "error of the inputs at close distances."];
+  assert.deepEqual(
+    passage.findPassageSpanRange(spans, "The predicted σβ kriging uncertainty grows with distance from the measurement error of the inputs at close distances."),
+    { start: 2, end: 4 },
+  );
+});

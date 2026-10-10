@@ -1094,6 +1094,8 @@ async function main(){
     },
     ensurePage:(n) => _ensurePage(n),
     releaseSelection:() => _releaseSelection(),
+    numPages:() => pdf.numPages,
+    pageIndex:async (n) => (n >= 1 && n <= pdf.numPages ? (await textCache.text(n)).index : null),
   };
   async function renderAll(onVisibleReady                                    ){
     clearHl(); selHide();
@@ -1345,6 +1347,61 @@ async function revealLinkedSection(){
 // Thierry ne choisit pas ; un clic ailleurs ou Échap efface la sélection, et
 // le passage n'est plus remarqué aux reconstructions suivantes de la page.
 let linkedPassageOffered = false;
+let linkedPassageRelocating = false;
+let linkedPassageRelocated = "";
+/** La page donnée par l'agent peut être décalée d'une ou deux (couverture,
+ *  citation à cheval sur deux pages) : si le passage n'est pas sur la page
+ *  annoncée, on le cherche sur les voisines avant de dire « non localisé ». */
+async function relocateLinkedPassage(){
+  const search = window.__pdfTextSearch;
+  if(!search?.pageIndex || !targetQuote) return;
+  // une seule recherche par cible : une reconstruction de page (zoom) ne la relance pas
+  const key = targetPage + "\n" + targetQuote;
+  if(key === linkedPassageRelocated) return;
+  linkedPassageRelocated = key;
+  linkedPassageRelocating = true;
+  const quote = targetQuote, from = targetPage, total = search.numPages();
+  try {
+    for(const delta of [-1, 1, -2, 2]){
+      const n = from + delta;
+      if(n < 1 || n > total) continue;
+      const index = await search.pageIndex(n);
+      if(quote !== targetQuote || from !== targetPage) return;
+      if(!index || !window.AtelierPdfPassage.findPassageInIndex(index, quote)) continue;
+      targetPage = n;
+      targetRevealed = false;
+      document.querySelector('.pg[data-page="' + n + '"]')?.scrollIntoView({block:"start"});
+      await search.ensurePage(n);
+      if(quote === targetQuote && targetPage === n && !targetRevealed) revealLinkedPassage(true);
+      return;
+    }
+  } catch(_) {
+    // document remplacé pendant la recherche : le nouveau rendu repart de zéro
+  } finally {
+    linkedPassageRelocating = false;
+  }
+}
+/** Même citation recliquée dans le chat (2026-10-10) : l'URL du lecteur ne
+ *  change pas, donc l'iframe ne se recharge pas. L'hôte poste alors la cible
+ *  et le passage est reproposé comme au premier chargement. */
+async function goToLinkedPassage(page         , quote         ){
+  const search = window.__pdfTextSearch;
+  if(!search?.numPages) return;
+  const total = search.numPages();
+  if(typeof page === "number" && Number.isInteger(page) && page >= 1) targetPage = Math.min(page, total);
+  targetQuote = (typeof quote === "string" ? quote : "").slice(0, 900);
+  targetRevealed = false;
+  linkedPassageOffered = false;
+  linkedPassageRelocated = "";
+  clearHl(); selHide();
+  document.querySelector('.pg[data-page="' + targetPage + '"]')?.scrollIntoView({block:"start"});
+  if(!targetQuote) return;
+  await search.ensurePage(targetPage);
+  if(!targetRevealed) revealLinkedPassage(true);
+}
+window.addEventListener("message", e => {
+  if(e.source === window.parent && e.data && e.data.type === "atelier-pdf-passage") void goToLinkedPassage(e.data.page, e.data.quote);
+});
 function revealLinkedPassage(shouldScroll         ){
   if(!targetQuote) return;
   document.querySelectorAll                 (".textLayer span.auto-hl").forEach(function(span){ span.classList.remove("auto-hl"); });
@@ -1359,8 +1416,9 @@ function revealLinkedPassage(shouldScroll         ){
     (document.getElementById("status")                   ).textContent = "Passage retrouvé — p. " + targetPage;
     if(!linkedPassageOffered && !activeSelection) offerLinkedPassage(tl, spans, match, shouldScroll);
     else if(!linkedPassageOffered) spans.slice(match.start, match.end + 1).forEach(function(span                 ){ span.classList.add("auto-hl"); });
-  } else {
+  } else if(!linkedPassageRelocating){
     (document.getElementById("status")                   ).textContent = "Page " + targetPage + " — extrait non localisé";
+    void relocateLinkedPassage();
   }
   if(shouldScroll && !(match && linkedPassageOffered)){
     const target = match ? spans[match.start] : pg;
