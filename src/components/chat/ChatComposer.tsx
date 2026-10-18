@@ -9,6 +9,7 @@ import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
 import type { Mark } from "../../lib/annotations";
 import { type KbBinding } from "./KbPicker";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
+import type { Specialiste } from "../../lib/specialistes";
 import { SuggestionsList, PromptTextarea, type Suggestion } from "./PromptInput";
 import { ComposerControls } from "./ComposerControls";
 import { GoalBar, GoalGlyph, type GoalInfo } from "./GoalBar";
@@ -118,12 +119,14 @@ export type ComposerHost = {
     hiddenProviders?: string[];
     /** Catalogue des consignes de réponse (plan 2026-09-01) — Settings.consignes. */
     consignes?: Consigne[];
+    /** Spécialistes (plan specialistes-2026-10-18) — Settings.specialistes. */
+    specialistes?: Specialiste[];
   };
   onOpenModelSettings?: () => void;
   // consigne de réponse du fil actif (plan 2026-09-01) — copie portée par le fil
   consigneDuFil: ConsigneDuFil | null;
   onChoisirConsigne: (choix: ConsigneDuFil | null) => void;
-  onOuvrirReglagesConsignes: () => void;
+  onOuvrirReglagesConsignes: (section?: string) => void;
 };
 
 export function ChatComposer(props: {

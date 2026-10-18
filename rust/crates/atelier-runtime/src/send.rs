@@ -139,6 +139,7 @@ pub(crate) fn strip_file_scope_instruction(text: &str) -> String {
         ("<atelier-file-scope>", "</atelier-file-scope>"),
         ("<atelier-discussion-workspace>", "</atelier-discussion-workspace>"),
         ("<atelier-consigne-du-fil>", "</atelier-consigne-du-fil>"),
+        ("<atelier-specialists>", "</atelier-specialists>"),
     ] {
         while let Some(start) = out.find(open) {
             let Some(rel_end) = out[start + open.len()..].find(close) else {
@@ -1359,6 +1360,27 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let p = with_figure_qc_instruction(p, state.server_dir());
         with_widget_tool_instruction(p, &provider)
     };
+    // Spécialistes (plan specialistes-2026-10-18) : l'agent doit savoir ce
+    // que l'utilisateur appelle « spécialiste » et lesquels existent. Même
+    // cadence que le bloc KB : premier tour de la session, puis seulement
+    // quand la liste change (fiche ajoutée, renommée, masquée).
+    let bloc_specialistes = crate::specialists::bloc_contexte(&folder_settings, &provider);
+    let turn_specialists_hash = bloc_specialistes
+        .as_deref()
+        .map(crate::specialists::empreinte_bloc);
+    let provider_prompt = match bloc_specialistes {
+        Some(bloc)
+            if !seeded
+                || previous
+                    .as_ref()
+                    .and_then(|t| t.extra.get("specialistesHash"))
+                    .and_then(Value::as_str)
+                    != turn_specialists_hash.as_deref() =>
+        {
+            format!("{provider_prompt}{bloc}")
+        }
+        _ => provider_prompt,
+    };
     // Bloc base de connaissances (plan 049 T4) : sources attachées au thread —
     // ne bloque jamais un envoi (dégrade en prompt inchangé / fiches).
     let pre_kb = provider_prompt.clone();
@@ -2077,10 +2099,12 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             let codex_binding_is_current = pimpl.id() != "codex" || current_session.as_deref() == Some(sid.as_str());
             if codex_binding_is_current {
                 let mut patch = json!({"id": tid, "status": "idle",
-                    "blocksSeededFor": sid, "kbBlockHash": turn_kb_hash});
+                    "blocksSeededFor": sid, "kbBlockHash": turn_kb_hash,
+                    "specialistesHash": turn_specialists_hash});
                 if compacte.load(Ordering::SeqCst) {
                     patch["blocksSeededFor"] = Value::Null;
                     patch["kbBlockHash"] = Value::Null;
+                    patch["specialistesHash"] = Value::Null;
                 }
                 if succeeded && pimpl.id() == "claude" {
                     patch["consigneClaude"] =

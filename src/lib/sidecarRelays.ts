@@ -73,6 +73,8 @@ const RELAYS: Record<string, Relay> = {
   commitMsg: forward("commit-msg"),
   // Forward the request id so the instruction editor ignores stale replies.
   consigneReformulee: forward("consigne-reformulee"),
+  // Réglages › Spécialistes : import en lecture seule depuis Claude Science.
+  claudeScienceImport: forward("claude-science-import"),
   imageGenerated: forward("image-generated"),
   ledger: forward("ledger"),
   zoteroCollections: forward("zotero-collections"),

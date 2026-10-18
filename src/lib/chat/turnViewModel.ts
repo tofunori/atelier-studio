@@ -171,7 +171,7 @@ function groupTurns(events: AgentEvent[]): TurnBuilder[] {
     // fantôme APRÈS le vrai — le tour en cours cessait d'être le dernier, et
     // spinner, compteur de jetons et pensée live se ré-ancraient sous le
     // panneau. Il adopte donc le tour de l'event qui le précède.
-    if (!meta?.turnId && event.kind === "widget" && lastCanonical) {
+    if (!meta?.turnId && (event.kind === "widget" || event.kind === "specialist_proposal") && lastCanonical) {
       lastCanonical.indexes.push(index);
       continue;
     }
@@ -513,7 +513,7 @@ export function projectChatTimeline(
           // their output and exit code. Only actual interactions escape the fold.
           const needsAttention = isPendingInteraction(innerEvent) || (innerEvent.kind === "permission" && innerEvent.answered === false) || isImageGenerationAction(innerEvent);
           const agentActivity = innerEvent.kind === "tool_update" && innerEvent.agentActivity != null;
-          if (innerKind !== "todos" && innerKind !== "widget" && !needsAttention && !agentActivity) continue;
+          if (innerKind !== "todos" && innerKind !== "widget" && innerKind !== "specialist_proposal" && !needsAttention && !agentActivity) continue;
           const innerTurn = turnByIndex.get(inner);
           rows.push({
             type: "event",

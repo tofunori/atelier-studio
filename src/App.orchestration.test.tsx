@@ -563,7 +563,7 @@ describe("orchestration App — caractérisation", () => {
     // ferait normaliser provider→claude et perdre le projet côté backend
     // pour un id qu'il ne connaît pas encore (ThreadStore::upsert / normalize).
     const { sock } = await mountApp();
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
 
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
@@ -600,7 +600,7 @@ describe("orchestration App — caractérisation", () => {
       }],
     }));
 
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
 
     fireEvent.click(screen.getByLabelText(t("kb.open")));
@@ -638,7 +638,7 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
 
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
     await act(async () => { await flushMicrotasks(4); });
 
@@ -657,7 +657,7 @@ describe("orchestration App — caractérisation", () => {
     // Sans ce repli, le choix était bien mémorisé (pendingConsigne) mais
     // invisible : l'utilisateur ne pouvait pas savoir qu'il avait pris.
     await mountApp();
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
     await act(async () => { await flushMicrotasks(4); });
     expect(document.querySelector(".consigne-pilule-nom")?.textContent).toBe("Concis");
@@ -670,7 +670,7 @@ describe("orchestration App — caractérisation", () => {
     // catalogue a bougé — et `send.rs::consigne_du_fil` ne trouvait donc
     // aucun `extra.consigne` : consigne perdue en silence dès le 1er tour.
     const { sock } = await mountApp();
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
 
     // la socket meurt AVANT la création : aucun upsertThread ne peut partir
