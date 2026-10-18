@@ -4,15 +4,15 @@ import type { PluginCatalogEntry } from "../../lib/plugins";
 import { cleanup, screen } from "@testing-library/react";
 import { renderUi } from "../../test/render";
 import { setLanguage, t } from "../../lib/i18n";
+import { fmtClock } from "./clock";
+import { outputTail } from "./toolLive";
 import {
   activeToolLabel,
   activitySegments,
   activityIconForAction,
   distinctToolActions,
   ficon,
-  fmtClock,
   fmtToolDur,
-  outputTail,
   imagePathsForActions,
   isSummarizableTool,
   stripAnsi,

@@ -9,9 +9,7 @@ import { eventLabel, t } from "../../lib/i18n";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { highlightCode } from "./md";
 import { RowButton } from "../ui";
-import { fmtClock } from "./LiveClock";
-
-export { fmtClock };
+import { fmtClock } from "./clock";
 
 export type ToolCat =
   | "search" | "read" | "list" | "edit" | "command" | "web" | "todo"
@@ -193,40 +191,19 @@ export function fmtToolDur(ms: number): string {
  * l'outil Bash de Claude : « Vérifie la largeur des figures »). Elle titre la
  * rangée ; la commande complète reste dans le détail déplié. Codex n'en
  * fournit pas : chaîne vide, la rangée garde la commande. */
-export function toolPhrase(action: ToolAction): string {
+function toolPhrase(action: ToolAction): string {
   if (action.kind !== "tool_update" || !shellTool(action.name)) return "";
   const input = action.input as Record<string, unknown> | null | undefined;
   const raw = input && typeof input === "object" ? input.description : null;
   return typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
 }
 
-/** Instant où l'interface a vu un appel d'outil pour la première fois. Le
- * réducteur réécrit `ts` à chaque mise à jour (chaque bout de sortie Codex),
- * il ne peut donc pas dater le DÉBUT d'une commande : on le retient ici, au
- * niveau du module, pour qu'un démontage de la liste virtualisée ne remette
- * pas le chrono à zéro. */
-const toolFirstSeen = new Map<string, number>();
-export function toolStartedAt(action: Extract<AgentEvent, { kind: "tool_update" }>): number {
-  const known = toolFirstSeen.get(action.id);
-  if (known != null) return known;
-  const now = Date.now();
-  if (toolFirstSeen.size > 2000) toolFirstSeen.clear();
-  toolFirstSeen.set(action.id, now);
-  return now;
-}
-
-/** Dernières lignes non vides d'une sortie, pour la traîne d'une commande en
- * cours (Codex envoie sa sortie au fil de l'eau ; Claude seulement à la fin). */
-export function outputTail(output: string, lines = 3): string[] {
-  return stripAnsi(output).split(/\r?\n/u).map((line) => line.replace(/\s+$/u, ""))
-    .filter((line) => line.trim() !== "").slice(-lines);
-}
-
 /** État d'une rangée, dans sa colonne fixe : anneau fin pendant l'exécution,
  * coche neutre une fois faite, croix (seule couleur) en cas d'échec. */
+const STATE_GLYPH = { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
+  strokeWidth: 1.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 export function ToolStateGlyph({ outcome }: { outcome: ToolOutcome | "none" }) {
-  const c = { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
-    strokeWidth: 1.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  const c = STATE_GLYPH;
   if (outcome === "running") {
     return <svg {...c} className="tool-run-ring"><circle cx="8" cy="8" r="5.5" opacity=".28" /><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" /></svg>;
   }

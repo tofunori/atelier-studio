@@ -8,7 +8,7 @@ import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import { diffLineClass, openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
-import { fmtClock } from "./LiveClock";
+import { fmtClock } from "./clock";
 
 export { LiveClock } from "./LiveClock";
 import { ActivityDisclosure, IconButton, RowButton, Tooltip } from "../ui";
