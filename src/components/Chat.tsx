@@ -220,15 +220,15 @@ export default function Chat(p: {
   ) : null;
   const openAgent = p.onOpenAgent ?? setLocalSelectedAgent;
   // Panneau « Noyau Python » : ouvert depuis le bouton du rail du compositeur,
-  // refermé à chaque changement de fil.
-  const [kernelPanelOpen, setKernelPanelOpen] = useState(false);
-  useEffect(() => { setKernelPanelOpen(false); }, [p.threadId]);
+  // fermé dès qu'on change de fil (il retient le fil pour lequel il s'est ouvert).
+  const [kernelPanelThread, setKernelPanelThread] = useState<string | null>(null);
   useEffect(() => {
-    const toggle = () => setKernelPanelOpen((open) => !open);
+    const threadId = p.threadId ?? null;
+    const toggle = () => setKernelPanelThread((open) => (open === threadId ? null : threadId));
     window.addEventListener("kernel-panel-toggle", toggle);
     return () => window.removeEventListener("kernel-panel-toggle", toggle);
-  }, []);
-  const kernelPanelShown = kernelPanelOpen && !!p.threadId && !localSelectedAgent;
+  }, [p.threadId]);
+  const kernelPanelShown = !!p.threadId && kernelPanelThread === p.threadId && !localSelectedAgent;
   const [localText, setLocalText] = useState("");
   const sourcedText = usePromptText(p.draftSource);
   const text = p.draftSource ? sourcedText : (p.draftText ?? localText);
@@ -1260,7 +1260,7 @@ export default function Chat(p: {
         events={p.eventsByThreadId?.get(localSelectedAgent.threadId) ?? []}
         onClose={() => setLocalSelectedAgent(null)} /> : null}
       {kernelPanelShown && p.threadId ? <KernelPanel threadId={p.threadId} enabled={!!p.kernelOn}
-        onClose={() => setKernelPanelOpen(false)} /> : null}
+        onClose={() => setKernelPanelThread(null)} /> : null}
     </div>
   );
 }

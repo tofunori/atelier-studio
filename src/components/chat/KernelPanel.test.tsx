@@ -66,7 +66,7 @@ describe("KernelPanel", () => {
     emit("kernel-cells", { requestId: req.requestId, threadId: "fil", cells: [],
       status: { running: true, kernel: { pid: 1, pythonVersion: "3.11.0", env: { name: "base" }, cwd: "/p", startedAt: "" } } });
     fireEvent.click(screen.getByText("Arrêter le noyau"));
-    expect(sent.at(-1)).toEqual({ type: "kernelStop", threadId: "fil" });
+    expect(sent[sent.length - 1]).toEqual({ type: "kernelStop", threadId: "fil" });
   });
 
   it("dit où l'allumer quand il est coupé", () => {

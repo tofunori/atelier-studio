@@ -18,7 +18,7 @@ function clock(iso: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function kernelStateLabel(enabled: boolean, status: KernelStatus | null): string {
+function kernelStateLabel(enabled: boolean, status: KernelStatus | null): string {
   if (!enabled) return t("kernel.state-off");
   if (status?.busyCell != null) return t("kernel.state-busy", { n: status.busyCell });
   if (status?.running) return t("kernel.state-on");
