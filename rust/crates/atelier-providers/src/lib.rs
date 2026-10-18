@@ -27,7 +27,7 @@ mod traits;
 mod turn_idle;
 
 pub use api::{
-    load_api_configs, parse_sse_chunk, write_api_configs, ApiChatProvider, ApiProviderConfig,
+    load_api_configs, load_api_provider_list, parse_sse_chunk, write_api_configs, ApiChatProvider, ApiProviderConfig,
 };
 pub use claude::ClaudeProvider;
 pub use claude_parse::{parse_line, parse_message, ClaudeStreamState};

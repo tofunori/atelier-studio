@@ -3054,6 +3054,39 @@ mod tests {
     }
 
     #[test]
+    fn unreadable_api_providers_are_never_overwritten() {
+        use atelier_store::durable::{corrupt_copies_of, UNREADABLE_LIST_SAMPLES};
+        // liste ou `{providers: […]}` : un objet sans `providers` est illisible
+        let samples = UNREADABLE_LIST_SAMPLES
+            .iter()
+            .map(|(label, raw)| (*label, *raw))
+            .chain([("nombre", "42"), ("providers non-tableau", r#"{"providers": 1}"#)]);
+        for (label, raw) in samples {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("api_providers.json");
+            std::fs::write(&path, raw).unwrap();
+            let saved = save_api_provider(dir.path(), json!({"id": "x", "baseURL": "https://x"}));
+            assert!(saved.unwrap_err().contains("illisibles"), "{label}");
+            assert!(delete_api_provider(dir.path(), "x").is_err(), "{label}");
+            assert_eq!(std::fs::read(&path).unwrap(), raw.as_bytes(), "{label} : intact");
+            assert_eq!(corrupt_copies_of(&path, raw.as_bytes()), 1, "{label} : copie");
+        }
+        // forme `{providers: […]}` : relue, l'entrée existante est gardée
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("api_providers.json");
+        std::fs::write(&path, r#"{"providers":[{"id":"a","apiKey":"k"}]}"#).unwrap();
+        save_api_provider(dir.path(), json!({"id": "b"})).unwrap();
+        let back: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(back.as_array().unwrap().len(), 2);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+    }
+
+    #[test]
     fn api_provider_public_list_excludes_auxiliary_image_credentials() {
         let dir = tempdir().unwrap();
         std::fs::write(

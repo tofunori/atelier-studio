@@ -460,21 +460,31 @@ fn sidecar_path(root: &Path, rel_figure: &str) -> PathBuf {
 }
 
 /// Relit le sidecar existant, empile la nouvelle entrée EN TÊTE, plafonne.
-/// Un sidecar illisible ou malformé est reparti de zéro : perdre un historique
-/// corrompu vaut mieux que refuser d'enregistrer la génération courante.
+/// Un sidecar illisible (vide, tronqué, sans `history`) n'est PAS lu comme
+/// vide puis écrasé : ses octets sont d'abord mis de côté en
+/// `<figure>.prov.json.corrupt-<horodatage>`, puis l'historique repart de la
+/// génération courante. Exception assumée à « illisible = écriture refusée » :
+/// refuser priverait de provenance toutes les générations suivantes de la
+/// figure sans que personne le voie (le tour n'affiche pas cette erreur),
+/// alors que la copie garde l'ancien historique intact. Si la copie échoue,
+/// rien n'est écrit. Pas de sauvegarde du jour ici : un dossier `backups/`
+/// dans chaque dossier de figures serait du bruit chez l'utilisateur.
 /// Version 2 : mêmes champs que la v1, plus la recette (`command`,
 /// `scriptVersions`, `inputs`, `env.packages`) ; un lecteur v1 l'ignore.
 fn append_history(sidecar: &Path, rel_figure: &str, entry: &Value) -> std::io::Result<()> {
-    let mut history: Vec<Value> = std::fs::read_to_string(sidecar)
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|value| {
-            value
-                .get("history")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter(|e| e.is_object()).cloned().collect())
-        })
-        .unwrap_or_default();
+    let parsed = atelier_store::durable::load_with(sidecar, |bytes| {
+        let value: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        value
+            .get("history")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter(|e| e.is_object()).cloned().collect::<Vec<Value>>())
+            .ok_or_else(|| "pas de liste « history »".to_string())
+    });
+    let mut history = match parsed {
+        Ok(history) => history.unwrap_or_default(),
+        Err(atelier_store::durable::StoreError::Unreadable { copy: Some(_), .. }) => Vec::new(),
+        Err(error) => return Err(error.into()),
+    };
     history.insert(0, entry.clone());
     history.truncate(HISTORY_MAX);
     let document = json!({
@@ -484,7 +494,7 @@ fn append_history(sidecar: &Path, rel_figure: &str, entry: &Value) -> std::io::R
     });
     let body = serde_json::to_string_pretty(&document)
         .map_err(|e| std::io::Error::other(e.to_string()))?;
-    crate::atomic::write_file_atomic(sidecar, format!("{body}\n"))
+    atelier_store::durable::write_durable(sidecar, format!("{body}\n").as_bytes())
 }
 
 fn is_read_tool(name: &str) -> bool {
@@ -890,10 +900,18 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = dir.path();
         touch(root, "fig.png");
-        std::fs::write(root.join("fig.png.prov.json"), b"{pas du json").unwrap();
-        turn().write_recipes(root.to_str().unwrap(), None, &["fig.png".into()]);
-        let doc = read_prov(root, "fig.png");
-        assert_eq!(doc["history"].as_array().unwrap().len(), 1);
+        for (label, raw) in atelier_store::durable::UNREADABLE_SAMPLES {
+            let sidecar = root.join("fig.png.prov.json");
+            std::fs::write(&sidecar, raw).unwrap();
+            turn().write_recipes(root.to_str().unwrap(), None, &["fig.png".into()]);
+            let doc = read_prov(root, "fig.png");
+            assert_eq!(doc["history"].as_array().unwrap().len(), 1, "{label}");
+            assert_eq!(
+                atelier_store::durable::corrupt_copies_of(&sidecar, raw.as_bytes()),
+                1,
+                "{label} : l'ancien historique est mis de côté avant la réécriture"
+            );
+        }
     }
 
     #[test]

@@ -168,15 +168,17 @@ pub enum AuthError {
     Io(String),
 }
 
+fn load_file(path: &Path) -> Result<Option<AuthStoreFile>, AuthError> {
+    atelier_store::durable::load_typed(path).map_err(|e| AuthError::Io(e.to_string()))
+}
+
 impl AuthStore {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, AuthError> {
         let path = path.into();
-        let mut data = if path.exists() {
-            let text = std::fs::read_to_string(&path).map_err(|e| AuthError::Io(e.to_string()))?;
-            serde_json::from_str(&text).unwrap_or_default()
-        } else {
-            AuthStoreFile::default()
-        };
+        // Présent mais illisible : la passerelle refuse de démarrer (copie
+        // `.corrupt-…` mise de côté) plutôt que de repartir d'un carnet vide
+        // et d'effacer, au premier `persist`, les iPhone associés.
+        let mut data: AuthStoreFile = load_file(&path)?.unwrap_or_default();
 
         let mut admin_token_plain = None;
         if data.admin_token_hash.is_empty() {
@@ -212,6 +214,9 @@ impl AuthStore {
         Ok(tok)
     }
 
+    /// Écriture durable (fsync, rename, fsync du dossier) SANS sauvegarde
+    /// du jour : une copie de `devices.json` garderait 7 jours le jeton d'un
+    /// iPhone révoqué, qu'une restauration ferait revivre.
     fn persist(&self) -> Result<(), AuthError> {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| AuthError::Io(e.to_string()))?;
@@ -394,8 +399,8 @@ impl AuthStore {
 
     /// Reload from disk (after restart simulation in tests / multi-process).
     pub fn reload(&mut self) -> Result<(), AuthError> {
-        let text = std::fs::read_to_string(&self.path).map_err(|e| AuthError::Io(e.to_string()))?;
-        self.data = serde_json::from_str(&text).unwrap_or_default();
+        // Illisible : on garde l'état en mémoire, rien n'est écrasé.
+        self.data = load_file(&self.path)?.ok_or_else(|| AuthError::Io("devices.json absent".into()))?;
         self.admin_token_plain = None;
         Ok(())
     }
@@ -507,6 +512,28 @@ mod retry_tests {
         auth.data.devices[0].last_seen_at = now_secs() - DEVICE_IDLE_EXPIRY_SECS - 60;
         assert!(auth.authenticate_token(&device.token).is_none());
         assert!(auth.lookup_token(&device.token).is_none());
+    }
+
+    #[test]
+    fn an_unreadable_device_book_is_refused_and_never_rewritten() {
+        use atelier_store::durable::{corrupt_copies_of, UNREADABLE_SAMPLES};
+        for (label, raw) in UNREADABLE_SAMPLES.iter().copied().chain([("objet sans devices", "{}")]) {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("devices.json");
+            std::fs::write(&path, raw).unwrap();
+            assert!(AuthStore::open(&path).is_err(), "{label} : la passerelle refuse de démarrer");
+            assert_eq!(std::fs::read(&path).unwrap(), raw.as_bytes(), "{label} : iPhone associés intacts");
+            assert_eq!(corrupt_copies_of(&path, raw.as_bytes()), 1, "{label} : copie mise de côté");
+        }
+        // reload sur un fichier abîmé entre-temps : l'état en mémoire reste
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let mut auth = AuthStore::open(&path).unwrap();
+        let pairing = auth.start_pairing(None).unwrap();
+        let device = auth.complete_pairing(&pairing.code, "phone").unwrap();
+        std::fs::write(&path, "{\"devices\": [").unwrap();
+        assert!(auth.reload().is_err());
+        assert!(auth.lookup_token(&device.token).is_some());
     }
 
     #[test]

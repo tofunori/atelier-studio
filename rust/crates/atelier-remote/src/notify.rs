@@ -171,6 +171,11 @@ fn write_private_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let result = result.and_then(|_| std::fs::rename(&tmp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
+    } else if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        // fsync du dossier : rend le rename durable (au mieux).
+        if let Ok(dir) = std::fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
     }
     result
 }
@@ -191,7 +196,11 @@ pub struct NotifyUpdate {
 pub fn apply_update(path: &Path, update: &NotifyUpdate) -> std::io::Result<NotifySettings> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let before = NotifySettings::load(path);
+    // Présent mais illisible : refus (copie `.corrupt-…`), pas des réglages
+    // par défaut qui, réécrits, changeraient le sujet auquel l'iPhone est abonné.
+    let before: NotifySettings = atelier_store::durable::load_typed(path)
+        .map_err(std::io::Error::from)?
+        .unwrap_or_default();
     let mut settings = before.clone();
     if let Some(enabled) = update.enabled {
         settings.enabled = enabled;
@@ -734,6 +743,20 @@ mod tests {
         assert!(partial.enabled);
         assert!(partial.only_when_away);
         assert_eq!(partial.server, default_server());
+    }
+
+    #[test]
+    fn an_unreadable_notify_file_is_never_rewritten_by_an_update() {
+        use atelier_store::durable::{corrupt_copies_of, UNREADABLE_SAMPLES};
+        for (label, raw) in UNREADABLE_SAMPLES {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join(SETTINGS_FILE);
+            std::fs::write(&path, raw).unwrap();
+            let update = NotifyUpdate { enabled: Some(true), ..Default::default() };
+            assert!(apply_update(&path, &update).is_err(), "{label}");
+            assert_eq!(std::fs::read(&path).unwrap(), raw.as_bytes(), "{label} : sujet intact");
+            assert_eq!(corrupt_copies_of(&path, raw.as_bytes()), 1, "{label} : copie");
+        }
     }
 
     #[test]

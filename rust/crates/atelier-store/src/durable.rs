@@ -164,14 +164,29 @@ fn sync_dir(dir: &Path) {
     let _ = dir;
 }
 
+/// Droits d'un fichier existant, pour que sa réécriture, sa sauvegarde et sa
+/// copie `.corrupt-…` ne soient pas plus lisibles que lui (`api_providers.json`
+/// est en 0600 : il porte des clés).
+fn permissions_of(path: &Path) -> Option<fs::Permissions> {
+    fs::metadata(path).ok().map(|meta| meta.permissions())
+}
+
 /// Écrit `data` d'un bloc : fichier temporaire du même dossier, fsync,
 /// rename, fsync du dossier. En cas d'échec, l'ancien fichier reste intact.
+/// Un fichier existant garde ses droits.
 pub fn write_durable(path: &Path, data: &[u8]) -> io::Result<()> {
+    write_durable_as(path, data, permissions_of(path))
+}
+
+fn write_durable_as(path: &Path, data: &[u8], permissions: Option<fs::Permissions>) -> io::Result<()> {
     let parent = parent_dir(path);
     fs::create_dir_all(parent)?;
     let tmp = tmp_path(path);
     let written = (|| {
         let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions)?;
+        }
         file.write_all(data)?;
         file.sync_all()?;
         drop(file);
@@ -354,6 +369,9 @@ fn quarantine_at(path: &Path, bytes: &[u8], stamp: &str) -> io::Result<PathBuf> 
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         };
+        if let Some(permissions) = permissions_of(path) {
+            let _ = file.set_permissions(permissions);
+        }
         if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
             drop(file);
             let _ = fs::remove_file(&candidate);
@@ -418,7 +436,7 @@ fn backup_daily_at(path: &Path, today: &str) -> io::Result<Option<PathBuf>> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
     };
-    write_durable(&target, &bytes)?;
+    write_durable_as(&target, &bytes, permissions_of(path))?;
     prune_backups(&dir, &stem, ext.as_deref(), BACKUPS_KEPT);
     Ok(Some(target))
 }
@@ -648,5 +666,23 @@ mod tests {
         assert_eq!(backups.len(), 1);
         assert_eq!(fs::read_to_string(&backups[0]).unwrap(), "[1]");
         assert_eq!(fs::read_to_string(&path).unwrap(), "[1,2]");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rewrite_backup_and_corrupt_copy_keep_the_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("api_providers.json");
+        fs::write(&path, "[]").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        save_json_pretty(&path, &serde_json::json!([{"id": "a", "apiKey": "k"}])).unwrap();
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), 0o600, "réécriture");
+        let backup = fs::read_dir(dir.path().join(BACKUP_DIR)).unwrap().flatten().next().unwrap().path();
+        assert_eq!(mode(&backup), 0o600, "sauvegarde");
+        fs::write(&path, "{tronqué").unwrap();
+        let copy = quarantine(&path, b"{tronqu\xc3\xa9").unwrap();
+        assert_eq!(mode(&copy), 0o600, "copie mise de côté");
     }
 }
