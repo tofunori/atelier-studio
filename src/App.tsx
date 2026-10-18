@@ -2395,6 +2395,9 @@ export default function App() {
         const message = themeMessage(settingsRef.current, atelierNonce);
         (e.source as Window).postMessage(message, e.origin);
       }
+      if (data.type === "atelier-open-thread") {
+        window.dispatchEvent(new CustomEvent("open-thread", { detail: { threadId: data.threadId } }));
+      }
       if (data.type === "atelier-open-tab" || data.type === "atelier-open-pdf") {
         let openUrl: string;
         let needsGalleryToken = false;
