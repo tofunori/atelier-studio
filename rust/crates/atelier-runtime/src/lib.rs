@@ -35,5 +35,5 @@ pub mod zotero_watch;
 pub use atomic::write_file_atomic;
 pub use instance::{resolve_single_instance, InstanceAction};
 pub use paths::AppPaths;
-pub use server::{run_server, serve_once, ServerConfig, ServerHandle};
+pub use server::{run_server, run_server_with, serve_once, ServerConfig, ServerHandle};
 pub use state::AppState;

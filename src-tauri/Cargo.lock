@@ -205,6 +205,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-logs"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "atelier-store"
 version = "0.1.0"
 dependencies = [
@@ -4150,6 +4157,7 @@ name = "tauri-app"
 version = "2.0.0"
 dependencies = [
  "atelier-fdlimit",
+ "atelier-logs",
  "atelier-store",
  "atelier-workspace",
  "block2",

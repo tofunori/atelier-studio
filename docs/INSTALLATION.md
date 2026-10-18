@@ -128,6 +128,21 @@ To uninstall, quit Atelier and move it from Applications to the Trash. Delete
 the folder above only if you also want to erase your conversations, settings
 and PDF highlights.
 
+## Logs
+
+Atelier's servers keep their logs in `~/Library/Logs/Atelier/` (in Finder:
+Go → Go to Folder…):
+
+- `studio-server.log`: the chat server (agents, turns, errors).
+- `gallery-<port>.log`: one per project whose gallery you opened.
+
+Each file stops at 5 MB; the three previous ones are kept as `.1.log` to
+`.3.log`. If a server crashes, the place and the stack trace of the crash are
+written there. Two other logs live elsewhere:
+`~/Library/Logs/atelier-studio/claude-cli.log` (Claude CLI calls) and
+`~/Library/Application Support/atelier-studio/remote/gateway.log` (iPhone
+gateway).
+
 ## Troubleshooting
 
 | What you see | What to do |
@@ -139,7 +154,8 @@ and PDF highlights.
 | The Zotero library is empty | Set the Zotero data folder in Settings → Integrations |
 
 Report other problems in
-[GitHub issues](https://github.com/tofunori/atelier-studio/issues).
+[GitHub issues](https://github.com/tofunori/atelier-studio/issues). Attach
+the logs above.
 
 ## Build from source
 

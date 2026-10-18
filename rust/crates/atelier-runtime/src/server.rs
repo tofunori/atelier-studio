@@ -122,7 +122,18 @@ pub fn app_router(state: AppState) -> Router {
 pub async fn run_server(
     config: ServerConfig,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    run_server_with(config, || {}).await
+}
+
+/// Comme [`run_server`], et appelle `after_startup` une fois la ligne de
+/// démarrage écrite sur stdout : le binaire y rebranche stdout sur son
+/// journal, puisque le pipe que l'app lit meurt avec elle.
+pub async fn run_server_with(
+    config: ServerConfig,
+    after_startup: impl FnOnce(),
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let handle = serve_once(config).await?;
+    after_startup();
     // Block until SIGTERM / Ctrl-C.
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     tokio::select! {

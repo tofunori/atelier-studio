@@ -196,6 +196,7 @@ dependencies = [
  "atelier-core",
  "atelier-fdlimit",
  "atelier-integrations",
+ "atelier-logs",
  "atelier-pdf",
  "axum",
  "base64",
@@ -280,6 +281,14 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "atelier-logs"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tempfile",
 ]
 
 [[package]]
@@ -395,7 +404,9 @@ name = "atelier-server"
 version = "0.1.0"
 dependencies = [
  "atelier-fdlimit",
+ "atelier-logs",
  "atelier-runtime",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

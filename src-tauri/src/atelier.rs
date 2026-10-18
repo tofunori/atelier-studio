@@ -299,7 +299,28 @@ fn start_atelier_blocking(
 
     let assets = resolve_assets_dir(&dir);
     let app_dir = atelier_app_dir()?;
-    let child = Command::new(&rust_bin)
+    let mut cmd = Command::new(&rust_bin);
+    // Journal durable `~/Library/Logs/Atelier/gallery-<port>.log` (crate
+    // atelier-logs) pour stderr ET stdout : sans lui, ils héritaient du
+    // stderr de l'app, c'est-à-dire de /dev/null quand elle est lancée par
+    // `open`. Le serveur le fait tourner lui-même.
+    let gallery_log = match atelier_logs::ChildLog::open(&format!("gallery-{port}")) {
+        Ok(mut log) => {
+            log.mark(&format!(
+                "tauri-app (pid {}) lance atelier-gallery-server pour {}",
+                std::process::id(),
+                root
+            ));
+            let _ = log.attach(&mut cmd);
+            let _ = log.attach_stdout(&mut cmd);
+            Some(log)
+        }
+        Err(e) => {
+            eprintln!("[atelier] journal de la galerie indisponible : {e}");
+            None
+        }
+    };
+    let child = cmd
         .env("ATELIER_STUDIO", "1")
         .env("ATELIER_APP_DIR", &app_dir)
         .env("GALLERY_ROOT", &root)
@@ -342,8 +363,12 @@ fn start_atelier_blocking(
         }
         std::thread::sleep(Duration::from_millis(250));
     }
+    let journal = gallery_log
+        .as_ref()
+        .map(|log| format!(" ; journal : {}", log.path().display()))
+        .unwrap_or_default();
     Err(format!(
-        "atelier ne répond pas avec la bonne identité sur le port {port}: {last_health}"
+        "atelier ne répond pas avec la bonne identité sur le port {port}: {last_health}{journal}"
     ))
 }
 
