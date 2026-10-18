@@ -44,6 +44,7 @@ import { CopyIcon } from "../icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconButton, RowButton } from "../ui";
 import { PassageCard } from "./PassageCard";
+import { fileRefFromLink } from "./fileRefLink";
 import { setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 
 for (const [nom, def] of [
@@ -658,7 +659,7 @@ export const MD_COMPONENTS = {
           {label}
         </RowButton>
       );
-    const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
+    const ref = fileRefFromLink(label, href, FILE_REF);
     if (ref)
       return (
         <RowButton className="file-ref" onClick={() => openFileRef(ref, { page: pdfPageFromLink(label, ref) })} title={t("action.open-file", { ref })}>

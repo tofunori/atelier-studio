@@ -2,6 +2,7 @@ import ProjectGallery from "./ProjectGallery";
 import type { ProjectFolders } from "../lib/projectFolders";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { useWorkspacePaneMenuHost } from "./WorkspacePaneMenuSlot";
 import Explorer from "./Explorer";
 const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
@@ -106,6 +107,16 @@ export function relFromTabUrl(url: string, projectRoot: string, baseUrl?: string
   }
 }
 
+/** Onglet d'une page HTML servie telle quelle (rendue), par opposition à
+ *  l'éditeur de code qui l'ouvre via `.fig_thumbs/…?path=`. */
+function htmlTabIsRendered(url: string): boolean {
+  try {
+    return !new URL(url).pathname.startsWith("/.fig_thumbs/");
+  } catch {
+    return false;
+  }
+}
+
 function surfaceLabel(surface: Surface): string {
   if (surface === "atelier") return t("atelier.gallery");
   const entry = SURFACES.find((candidate) => candidate.id === surface);
@@ -175,7 +186,7 @@ export default function AtelierPane({
   filesTruncated?: boolean;
   recentFiles: string[];
   onOpenExplorer: () => void;
-  onOpenFile: (rel: string) => void;
+  onOpenFile: (rel: string, options?: { source?: boolean }) => void;
   onPinTab: (id: string) => void;
   onColorTab: (id: string, color?: string) => void;
   onReorderTabs: (ids: string[]) => void;
@@ -783,6 +794,22 @@ export default function AtelierPane({
       }
       if (relative && onInspectFile) {
         documentItems.push({ key: "inspect", label: t("inspector.open"), onSelect: () => onInspectFile(relative) });
+      }
+      // Page HTML : l'onglet la montre rendue ; le code et le navigateur
+      // restent à un clic, sans bouton de plus dans la barre.
+      if (relative && /\.html?$/i.test(relative)) {
+        const rendered = htmlTabIsRendered(documentById.get(ref.tabId)?.url ?? "");
+        documentItems.push(rendered
+          ? { key: "view-source", label: t("action.view-source"), onSelect: () => onOpenFile(relative, { source: true }) }
+          : { key: "view-rendered", label: t("action.view-rendered"), onSelect: () => onOpenFile(relative) });
+        if (projectRoot && !relative.startsWith("/")) {
+          const absolute = `${projectRoot.replace(/\/$/, "")}/${relative}`;
+          documentItems.push({
+            key: "open-browser",
+            label: t("action.open-browser"),
+            onSelect: () => { void openPath(absolute).catch(() => {}); },
+          });
+        }
       }
       menuGroups.push({ key: "document-actions", items: documentItems, separatorBefore: true });
       navigationItems.push({
