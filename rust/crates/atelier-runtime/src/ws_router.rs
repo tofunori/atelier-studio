@@ -1431,10 +1431,13 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let root = git_root(state, &msg).await;
             let path = msg.get("path").and_then(|v| v.as_str()).unwrap_or("");
             match revert_file(&root, path) {
-                Ok(()) => {
-                    let mut out = vec![json_msg(
-                        json!({"type":"gitRevertFileDone","projectRoot": root, "path": path}),
-                    )];
+                Ok(kept) => {
+                    // `trashedTo` : où est partie la version écartée (Corbeille
+                    // ou .git/atelier-trash) — rien n'est plus supprimé.
+                    let mut out = vec![json_msg(json!({
+                        "type":"gitRevertFileDone","projectRoot": root, "path": path,
+                        "trashedTo": kept.map(|p| p.to_string_lossy().to_string()),
+                    }))];
                     out.extend(git_changed(state, &msg, &root).await);
                     out
                 }
@@ -3841,6 +3844,9 @@ mod tests {
         std::fs::write(&file, "avant\n").unwrap();
         let sha = atelier_workspace::snapshot(project.to_str().unwrap()).unwrap();
         std::fs::write(&file, "après\n").unwrap();
+        // Fin du tour : le `done` porte désormais l'arbre de fin (endTree).
+        let (_, end_tree) =
+            atelier_workspace::changed_since_stats_and_tree(project.to_str().unwrap(), &sha).unwrap();
 
         let s = state(dir.path());
         s.threads()
@@ -3859,7 +3865,7 @@ mod tests {
             "kind":"done",
             "ok":true,
             "result":"fait",
-            "checkpoint":{"snapshotSha":sha,"filesChanged":["note.txt"]},
+            "checkpoint":{"snapshotSha":sha,"filesChanged":["note.txt"],"endTree":end_tree},
             "meta":{
                 "eventId":"done-1","sequence":1,"threadId":"revert-thread",
                 "turnId":"turn-1","durable":true,"provider":"codex"
@@ -3881,5 +3887,88 @@ mod tests {
         assert_eq!(value["scope"], "files");
         assert_eq!(std::fs::read_to_string(file).unwrap(), "avant\n");
         assert_eq!(s.journal().materialize("revert-thread"), before);
+    }
+
+    /// Monte un dépôt et un fil dont le tour a écrit `note.txt` ; rend
+    /// (état, projet, sha, endTree).
+    async fn tour_qui_ecrit_note(dir: &std::path::Path, thread: &str, avec_end_tree: bool) -> (AppState, std::path::PathBuf, String) {
+        let project = dir.join("repo");
+        std::fs::create_dir_all(&project).unwrap();
+        std::process::Command::new("git").args(["init", "-q"]).current_dir(&project).status().unwrap();
+        std::fs::write(project.join("note.txt"), "avant\n").unwrap();
+        let root = project.to_str().unwrap().to_string();
+        let sha = atelier_workspace::snapshot(&root).unwrap();
+        std::fs::write(project.join("note.txt"), "agent\n").unwrap();
+        let (_, end_tree) = atelier_workspace::changed_since_stats_and_tree(&root, &sha).unwrap();
+        let s = state(dir);
+        s.threads()
+            .lock()
+            .await
+            .upsert(json!({"id":thread, "provider":"claude", "projectRoot":root}), false)
+            .unwrap();
+        let mut checkpoint = json!({"snapshotSha":sha,"filesChanged":["note.txt"]});
+        if avec_end_tree {
+            checkpoint["endTree"] = json!(end_tree);
+        }
+        s.journal().append(&json!({"kind":"user","text":"écris la note",
+            "meta":{"eventId":"user-1","sequence":1,"threadId":thread,"turnId":"turn-1","durable":true}}));
+        s.journal().append(&json!({
+            "kind":"done","ok":true,"result":"fait","checkpoint":checkpoint,
+            "meta":{"eventId":"done-1","sequence":2,"threadId":thread,"turnId":"turn-1","durable":true,"provider":"claude"}
+        }));
+        (s, project, sha)
+    }
+
+    /// Audit 2026-10-18, problème 3 : « Revert : rembobiner » écrasait en
+    /// silence un fichier retouché après la fin du tour. Il s'arrête
+    /// maintenant AVANT toute action et demande confirmation, liste à l'appui.
+    #[tokio::test]
+    async fn rembobiner_demande_confirmation_si_un_fichier_a_change_apres_le_tour() {
+        let dir = tempdir().unwrap();
+        let (s, project, sha) = tour_qui_ecrit_note(dir.path(), "rew", true).await;
+        std::fs::write(project.join("note.txt"), "Thierry a corrigé\n").unwrap();
+        let before = s.journal().materialize("rew");
+        let demande = json!({"type":"revert","scope":"thread","threadId":"rew","eventId":"user-1",
+            "turnId":"turn-1","snapshotSha":sha});
+        let out = route_ws(&s, &demande.to_string()).await;
+        let value: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(value["type"], "revertNeedsConfirm", "{out:?}");
+        assert_eq!(value["reason"], "modified");
+        assert_eq!(value["paths"], json!(["note.txt"]));
+        assert_eq!(std::fs::read_to_string(project.join("note.txt")).unwrap(), "Thierry a corrigé\n");
+        assert_eq!(s.journal().materialize("rew"), before, "le fil ne doit pas être tronqué");
+
+        // Confirmé : le rembobinage a lieu.
+        let mut confirme = demande.clone();
+        confirme["confirmModified"] = json!(true);
+        let out = route_ws(&s, &confirme.to_string()).await;
+        assert!(out.iter().any(|m| serde_json::from_str::<Value>(m).unwrap()["type"] == "reverted"), "{out:?}");
+        assert_eq!(std::fs::read_to_string(project.join("note.txt")).unwrap(), "avant\n");
+    }
+
+    /// Fichiers intacts depuis la fin du tour : pas de question, rembobinage direct.
+    #[tokio::test]
+    async fn rembobiner_sans_modification_ulterieure_ne_demande_rien() {
+        let dir = tempdir().unwrap();
+        let (s, project, sha) = tour_qui_ecrit_note(dir.path(), "rew-ok", true).await;
+        let out = route_ws(&s, &json!({"type":"revert","scope":"files","threadId":"rew-ok",
+            "turnId":"turn-1","snapshotSha":sha}).to_string()).await;
+        let value: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(value["type"], "reverted", "{out:?}");
+        assert_eq!(std::fs::read_to_string(project.join("note.txt")).unwrap(), "avant\n");
+    }
+
+    /// Checkpoint antérieur à `endTree` : impossible de savoir ce qui a changé
+    /// depuis, donc confirmation (`reason:"unknown"`), jamais d'écrasement muet.
+    #[tokio::test]
+    async fn rembobiner_un_ancien_tour_sans_etat_de_fin_demande_confirmation() {
+        let dir = tempdir().unwrap();
+        let (s, project, sha) = tour_qui_ecrit_note(dir.path(), "rew-old", false).await;
+        let out = route_ws(&s, &json!({"type":"revert","scope":"files","threadId":"rew-old",
+            "turnId":"turn-1","snapshotSha":sha}).to_string()).await;
+        let value: Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(value["type"], "revertNeedsConfirm", "{out:?}");
+        assert_eq!(value["reason"], "unknown");
+        assert_eq!(std::fs::read_to_string(project.join("note.txt")).unwrap(), "agent\n");
     }
 }

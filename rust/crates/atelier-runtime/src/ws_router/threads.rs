@@ -313,6 +313,91 @@ pub(super) async fn handle_fork_thread(state: &AppState, msg: &Value) -> Vec<Str
     broadcast_threads(state).await
 }
 
+/// Le `done` porteur du checkpoint `sha` (et du tour `turn_id` s'il est donné).
+fn checkpoint_event(events: &[Value], sha: &str, turn_id: Option<&str>) -> Option<Value> {
+    events
+        .iter()
+        .find(|event| {
+            event.get("kind").and_then(Value::as_str) == Some("done")
+                && event
+                    .pointer("/checkpoint/snapshotSha")
+                    .and_then(Value::as_str)
+                    == Some(sha)
+                && turn_id.is_none_or(|turn| {
+                    event.pointer("/meta/turnId").and_then(Value::as_str) == Some(turn)
+                })
+        })
+        .cloned()
+}
+
+/// Périmètre du checkpoint : ne restaurer QUE les fichiers du tour.
+fn checkpoint_scope(event: &Value) -> Option<Vec<String>> {
+    event
+        .pointer("/checkpoint/filesChanged")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+}
+
+/// Rembobiner écrase les fichiers du tour avec leur état d'avant le tour.
+/// Audit du 2026-10-18 (problème 3) : un fichier retouché APRÈS la fin du
+/// tour était écrasé en silence. Sans `confirmModified:true`, on s'arrête
+/// donc avant toute action et on renvoie `revertNeedsConfirm` avec la liste
+/// (`reason:"modified"`), ou `reason:"unknown"` quand l'état de fin de tour
+/// n'est pas connu (checkpoint antérieur à `endTree`, arbre élagué).
+async fn revert_needs_confirm(
+    state: &AppState,
+    msg: &Value,
+    thread_id: &str,
+    project_root: &str,
+    scope: &str,
+) -> Option<Vec<String>> {
+    if msg.get("confirmModified").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let sha = msg.get("snapshotSha").and_then(Value::as_str)?;
+    if project_root.is_empty() {
+        return None; // l'erreur « checkpoint introuvable » suit
+    }
+    let turn_id = msg.get("turnId").and_then(Value::as_str);
+    let event = checkpoint_event(&state.journal().materialize(thread_id), sha, turn_id)?;
+    let scope_paths = checkpoint_scope(&event);
+    if scope_paths.as_ref().is_some_and(Vec::is_empty) {
+        return None; // tour sans fichier : rien à écraser
+    }
+    let end_tree = event
+        .pointer("/checkpoint/endTree")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let root = project_root.to_string();
+    let sha_owned = sha.to_string();
+    let scope_for_check = scope_paths.clone();
+    let checked = crate::ws_dispatch::blocking(move || {
+        atelier_workspace::revert_conflicts(&root, &sha_owned, end_tree.as_deref(), scope_for_check.as_deref())
+    })
+    .await;
+    let (reason, paths) = match checked {
+        Ok(Ok(Some(conflicts))) if conflicts.is_empty() => return None,
+        Ok(Ok(Some(conflicts))) => ("modified", conflicts),
+        Ok(Ok(None)) => ("unknown", scope_paths.unwrap_or_default()),
+        Ok(Err(error)) => return Some(vec![err_thread(thread_id, error.to_string())]),
+        Err(error) => return Some(vec![err_thread(thread_id, error.to_string())]),
+    };
+    Some(vec![json_msg(json!({
+        "type":"revertNeedsConfirm",
+        "threadId":thread_id,
+        "scope":scope,
+        "snapshotSha":sha,
+        "turnId":turn_id,
+        "reason":reason,
+        "paths":paths,
+    }))])
+}
+
 pub(super) async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
     if thread_id.is_empty() {
@@ -327,6 +412,11 @@ pub(super) async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> 
     } else {
         "thread"
     };
+    // AVANT toute action (y compris l'arrêt d'un tour Codex en cours) : un
+    // refus doit laisser le fil et les fichiers exactement comme ils sont.
+    if let Some(reply) = revert_needs_confirm(state, msg, thread_id, &thread.project_root, scope).await {
+        return reply;
+    }
     // Let the old run finish its event pump and persist its session before
     // touching either history. Otherwise resend is treated as a steer.
     if scope == "thread" && thread.provider == "codex"
@@ -345,17 +435,7 @@ pub(super) async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> 
     if let Some(sha) = msg.get("snapshotSha").and_then(Value::as_str) {
         let turn_id = msg.get("turnId").and_then(Value::as_str);
         let events = state.journal().materialize(thread_id);
-        let checkpoint_event = events.iter().find(|event| {
-            event.get("kind").and_then(Value::as_str) == Some("done")
-                && event
-                    .pointer("/checkpoint/snapshotSha")
-                    .and_then(Value::as_str)
-                    == Some(sha)
-                && turn_id.is_none_or(|turn| {
-                    event.pointer("/meta/turnId").and_then(Value::as_str) == Some(turn)
-                })
-        });
-        let Some(checkpoint_event) = checkpoint_event else {
+        let Some(checkpoint_event) = checkpoint_event(&events, sha, turn_id) else {
             return vec![err_thread(thread_id, "checkpoint introuvable")];
         };
         if thread.project_root.is_empty() {
@@ -363,15 +443,7 @@ pub(super) async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> 
         }
         // périmètre du checkpoint : ne restaurer QUE les fichiers du tour —
         // les fichiers créés ailleurs par d'autres sessions ne bloquent plus
-        let scope_paths: Option<Vec<String>> = checkpoint_event
-            .pointer("/checkpoint/filesChanged")
-            .and_then(Value::as_array)
-            .map(|list| {
-                list.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            });
+        let scope_paths: Option<Vec<String>> = checkpoint_scope(&checkpoint_event);
         let root = thread.project_root.clone();
         let sha_owned = sha.to_string();
         match crate::ws_dispatch::blocking(move || {

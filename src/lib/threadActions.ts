@@ -27,6 +27,9 @@ export type PendingRevert = {
   threadId: string;
   snapshot: AgentEvent[];
   index: number;
+  /** Demande envoyée, rejouée avec `confirmModified` si le serveur répond
+   * `revertNeedsConfirm` et que Thierry confirme. */
+  payload?: Record<string, unknown>;
 };
 
 /** Objectif Codex posé avant que la session existe (premier message). */
@@ -131,8 +134,9 @@ export function createThreadActions(ctx: ThreadActionsContext) {
       const eventId = (snapshot[index]?.meta as any)?.eventId;
       const checkpoint = checkpointAfterUser(snapshot, index);
       if (open()) {
-        ctx.pendingRevert.current = { threadId: id, snapshot, index };
-        send({ type: "revert", scope: "thread", threadId: id, text, eventId, ...checkpoint });
+        const payload = { type: "revert", scope: "thread", threadId: id, text, eventId, ...checkpoint };
+        ctx.pendingRevert.current = { threadId: id, snapshot, index, payload };
+        send(payload);
       }
       if (edit) ctx.setInjectText(text);
     },
@@ -151,6 +155,19 @@ export function createThreadActions(ctx: ThreadActionsContext) {
         index,
       };
       if (open()) send({ type: "revert", scope: "thread", threadId: id, text: oldText, eventId });
+    },
+
+    /** Second temps du rembobinage : des fichiers du tour ont changé depuis
+     * sa fin (ou on ne peut pas le savoir). Rejoue la demande, confirmée. */
+    confirmRevert() {
+      const pending = ctx.pendingRevert.current;
+      if (!pending?.payload || !open()) return;
+      send({ ...pending.payload, confirmModified: true });
+    },
+
+    /** Thierry renonce : rien n'a bougé côté serveur, on oublie la demande. */
+    cancelRevert() {
+      ctx.pendingRevert.current = null;
     },
 
     fork(index: number) {

@@ -1607,6 +1607,9 @@ button.kernel-file:hover { color: var(--text-primary); }
   font-size: var(--chat-fs, var(--fs-xl)); overflow-wrap: anywhere; }
 .msg-wrap { display: flex; flex-direction: column; gap: 2px; }
 /* actions de tour : hover ET focus clavier (jamais hover seul — plan 020 §4) */
+/* Liste des fichiers d'une confirmation de rembobinage (RevertConfirmDialog). */
+.revert-confirm-paths { margin: 0; padding: 0 0 0 16px; max-height: 160px; overflow: auto;
+  color: var(--text-secondary); font: var(--fs-m)/1.5 var(--font-mono); overflow-wrap: anywhere; }
 .msg-actions { display: flex; gap: 8px; align-items: center; opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-out); font-size: var(--fs-m); color: var(--text-disabled); }
 .assistant-message .msg-actions.is-persistent { opacity: 1; }

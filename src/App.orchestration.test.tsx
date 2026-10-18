@@ -2028,11 +2028,44 @@ describe("orchestration App — caractérisation", () => {
       screen.getByRole("button", { name: t("chat.revert-title") }).click();
       await flushMicrotasks(4);
     });
+    // Rien ne part avant la confirmation (audit 2026-10-18, problème 3).
+    expect(sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert")).toEqual([]);
+    await act(async () => {
+      screen.getByRole("button", { name: t("chat.revert-confirm") }).click();
+      await flushMicrotasks(4);
+    });
 
     const reverts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert");
     const sent = reverts[reverts.length - 1];
     expect(sent).toMatchObject({ threadId: "thread-A", eventId: "event-user-exact" });
     expect(dialogMock.confirm).not.toHaveBeenCalled();
+  });
+
+  it("Revert : un fichier modifié après le tour demande un second accord, puis rejoue la demande", async () => {
+    const { sock } = await mountApp();
+    await loadExactHistory(sock);
+    await act(async () => {
+      screen.getByRole("button", { name: t("chat.revert-title") }).click();
+      await flushMicrotasks(4);
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: t("chat.revert-confirm") }).click();
+      await flushMicrotasks(4);
+    });
+    const first = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert");
+    expect(first).toHaveLength(1);
+    expect(first[0].confirmModified).toBeUndefined();
+
+    await push(sock, { type: "revertNeedsConfirm", threadId: "thread-A", reason: "modified", paths: ["fig/albedo.py"] });
+    expect(screen.getByText(t("chat.revert-modified-title"))).toBeTruthy();
+    expect(screen.getByText("fig/albedo.py")).toBeTruthy();
+    await act(async () => {
+      screen.getByRole("button", { name: t("chat.revert-anyway") }).click();
+      await flushMicrotasks(4);
+    });
+    const reverts = sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "revert");
+    expect(reverts).toHaveLength(2);
+    expect(reverts[1]).toMatchObject({ ...first[0], confirmModified: true });
   });
 
   it("Edit & resend transmet l'eventId exact du message remplacé", async () => {

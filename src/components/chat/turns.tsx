@@ -27,6 +27,7 @@ import { Message, MessageContent, MessageFooter } from "../shadcn/message";
 import { Textarea } from "../shadcn/textarea";
 import { annotationCards, isAnnotationLabel } from "../../lib/annotationCards";
 import { AnnotationCard } from "./AnnotationCard";
+import { RevertConfirmDialog } from "./RevertConfirmDialog";
 
 type TimeFormat = "system" | "24h" | "12h" | undefined;
 type UserEvent = Extract<AgentEvent, { kind: "user" }>;
@@ -162,6 +163,9 @@ export const UserTurn = memo(function UserTurn(p: {
     </div>
   ) : null;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  // Rembobiner tronque le fil et peut remettre des fichiers en arrière :
+  // jamais sur un simple clic (audit 2026-10-18, problème 3).
+  const [revertAsked, setRevertAsked] = useState(false);
   useLayoutEffect(() => {
     const textarea = editTextareaRef.current;
     if (!textarea || p.editingText == null) return;
@@ -303,7 +307,7 @@ export const UserTurn = memo(function UserTurn(p: {
         <MessageAction label={t("action.edit-resend")} onClick={() => p.onEditingChange(e.text)}>
           <PencilIcon />
         </MessageAction>
-        <MessageAction label={t("chat.revert-title")} onClick={() => p.onRevert(i, e.text, false)}>
+        <MessageAction label={t("chat.revert-title")} onClick={() => setRevertAsked(true)}>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M9.5 3.5 5 8l4.5 4.5" />
             <path d="M5 8h5a3 3 0 0 1 0 6H8.5" />
@@ -311,6 +315,14 @@ export const UserTurn = memo(function UserTurn(p: {
         </MessageAction>
         <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
       </MessageFooter>}
+      <RevertConfirmDialog
+        open={revertAsked}
+        title={t("chat.revert-confirm-title")}
+        description={t("chat.revert-confirm-help")}
+        confirmLabel={t("chat.revert-confirm")}
+        onCancel={() => setRevertAsked(false)}
+        onConfirm={() => { setRevertAsked(false); p.onRevert(i, e.text, false); }}
+      />
     </MessageContent>
     </Message>
   );

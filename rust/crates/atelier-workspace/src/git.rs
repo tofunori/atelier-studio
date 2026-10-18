@@ -834,38 +834,137 @@ pub fn unstage_file(root: &str, file_path: &str) -> Result<()> {
     unstage_files(root, &[file_path.to_string()])
 }
 
-pub fn revert_file(root: &str, file_path: &str) -> Result<()> {
+/// « Restaurer » un fichier du panneau Git (audit du 2026-10-18, problème 3).
+///
+/// Avant : si `git restore` échouait (fichier non suivi, chemin absent de
+/// HEAD, dépôt sans commit, verrou d'index…), on tombait sur un
+/// `remove_file`/`remove_dir_all` DÉFINITIF — un fichier de données non
+/// suivi disparaissait sans retour, et un échec de git valait suppression.
+///
+/// Maintenant rien n'est jamais supprimé :
+/// - ce qui serait écarté (fichier non suivi, ou version modifiée d'un fichier
+///   suivi avant sa restauration) part à la Corbeille (`~/.Trash`, le même
+///   mécanisme que la suppression de la galerie), sinon dans
+///   `.git/atelier-trash/` (même volume que le dépôt, jamais suivi ni listé) ;
+/// - si git échoue, la version mise de côté revient à sa place et l'erreur
+///   remonte : aucun repli destructeur ;
+/// - la racine du dépôt (`.`, chaîne vide) est refusée.
+///
+/// Renvoie l'emplacement de la copie mise de côté, s'il y en a une.
+pub fn revert_file(root: &str, file_path: &str) -> Result<Option<PathBuf>> {
+    let home_trash = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".Trash"));
+    revert_file_with_trash(root, file_path, home_trash.as_deref())
+}
+
+fn revert_file_with_trash(root: &str, file_path: &str, home_trash: Option<&Path>) -> Result<Option<PathBuf>> {
     let real = confined_root(root)?;
     ensure_repo(&real)?;
     let rel = assert_relative(&real, file_path)?;
-    if has_head(&real) {
-        if git_ok(
-            &real,
-            &[
-                "restore",
-                "--source=HEAD",
-                "--staged",
-                "--worktree",
-                "--",
-                &rel,
-            ],
-        )
-        .is_ok()
-        {
-            return Ok(());
-        }
-    } else {
-        let _ = git_ok(&real, &["rm", "--cached", "--ignore-unmatch", "--", &rel]);
+    let rel = rel.trim_end_matches('/').to_string();
+    if Path::new(&rel)
+        .components()
+        .all(|c| matches!(c, Component::CurDir))
+    {
+        return Err(msg("restauration refusée : choisis un fichier, pas la racine du dépôt"));
     }
     let abs = real.join(&rel);
-    if abs.exists() {
-        if abs.is_dir() {
-            std::fs::remove_dir_all(&abs)?;
-        } else {
-            std::fs::remove_file(&abs)?;
+    if std::fs::canonicalize(&abs).is_ok_and(|c| c == real) {
+        return Err(msg("restauration refusée : choisis un fichier, pas la racine du dépôt"));
+    }
+    let trash = trash_dirs(&real, home_trash);
+    let present = std::fs::symlink_metadata(&abs).is_ok();
+    let head_spec = format!("HEAD:{rel}");
+    let in_head = has_head(&real)
+        && git(&real, &["cat-file", "-e", &head_spec], &[])
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+    if in_head {
+        if abs.is_dir() && !abs.is_symlink() {
+            return Err(msg(
+                "restauration refusée : dossier suivi — restaure ses fichiers un par un",
+            ));
+        }
+        // La version du worktree diffère-t-elle de HEAD ? (exit 1 = oui)
+        let differs = present
+            && git(&real, &["diff", "--quiet", "HEAD", "--", &rel], &[])
+                .map(|o| o.status.code() == Some(1))
+                .unwrap_or(true);
+        let kept = if differs { Some(move_to_trash(&abs, &trash)?) } else { None };
+        let restored = git_ok(
+            &real,
+            &["restore", "--source=HEAD", "--staged", "--worktree", "--", &rel],
+        );
+        if let Err(error) = restored {
+            if let Some(kept) = &kept {
+                // Remettre la version de l'utilisateur à sa place.
+                if std::fs::symlink_metadata(&abs).is_err() {
+                    let _ = std::fs::rename(kept, &abs);
+                }
+            }
+            return Err(msg(format!("restauration impossible, rien n'a été supprimé : {error}")));
+        }
+        return Ok(kept);
+    }
+
+    // Absent de HEAD : fichier non suivi, ou ajouté à l'index sans commit.
+    // On le retire d'abord de l'index ; si git refuse, on s'arrête là.
+    git_ok(&real, &["rm", "--cached", "-r", "--quiet", "--ignore-unmatch", "--", &rel]).map_err(|error| {
+        msg(format!("restauration impossible, rien n'a été supprimé : {error}"))
+    })?;
+    if !present {
+        return Ok(None);
+    }
+    Ok(Some(move_to_trash(&abs, &trash)?))
+}
+
+/// Destinations de la mise de côté, par ordre de préférence : la Corbeille de
+/// l'utilisateur si elle existe (macOS), puis `.git/atelier-trash/`.
+fn trash_dirs(real: &Path, home_trash: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(trash) = home_trash.filter(|t| t.is_dir()) {
+        dirs.push(trash.to_path_buf());
+    }
+    if let Ok(git_dir) = git_ok(real, &["rev-parse", "--absolute-git-dir"]) {
+        dirs.push(PathBuf::from(git_dir.trim()).join("atelier-trash"));
+    }
+    dirs
+}
+
+/// Déplace `abs` (fichier, lien ou dossier) dans la première destination qui
+/// l'accepte, sous un nom libre. Un simple `rename` : rien n'est recopié ni
+/// supprimé. Aucune destination possible = erreur, le fichier reste en place.
+fn move_to_trash(abs: &Path, dirs: &[PathBuf]) -> Result<PathBuf> {
+    let name = abs
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "fichier".into());
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (name[..i].to_string(), name[i..].to_string()),
+        _ => (name.clone(), String::new()),
+    };
+    let mut last_error = None;
+    for dir in dirs {
+        if let Err(error) = std::fs::create_dir_all(dir) {
+            last_error = Some(error);
+            continue;
+        }
+        let mut dest = dir.join(&name);
+        let mut n = 2u32;
+        while std::fs::symlink_metadata(&dest).is_ok() {
+            dest = dir.join(format!("{stem} {n}{ext}"));
+            n += 1;
+        }
+        match std::fs::rename(abs, &dest) {
+            Ok(()) => return Ok(dest),
+            Err(error) => last_error = Some(error),
         }
     }
-    Ok(())
+    Err(msg(format!(
+        "impossible de mettre {} à la Corbeille, rien n'a été supprimé{}",
+        abs.display(),
+        last_error.map(|e| format!(" : {e}")).unwrap_or_default()
+    )))
 }
 
 pub fn commit(root: &str, message: &str, files: Option<&[String]>) -> Result<String> {
@@ -1083,6 +1182,14 @@ pub fn changed_since(root: &str, sha: &str) -> Result<Vec<String>> {
 /// Rust) — et le remplace en mieux : contre le snapshot du TOUR, pas contre
 /// HEAD qui gonflait les compteurs avec les modifs préexistantes.
 pub fn changed_since_stats(root: &str, sha: &str) -> Result<Vec<ChangedStat>> {
+    Ok(changed_since_stats_and_tree(root, sha)?.0)
+}
+
+/// Comme [`changed_since_stats`], et rend aussi l'arbre du worktree à cet
+/// instant (déjà calculé pour le diff, donc gratuit). Posé en fin de tour
+/// dans le checkpoint (`endTree`), il permet au rembobinage de voir ce qui a
+/// changé APRÈS le tour au lieu de l'écraser en silence.
+pub fn changed_since_stats_and_tree(root: &str, sha: &str) -> Result<(Vec<ChangedStat>, String)> {
     let real = confined_root(root)?;
     ensure_repo(&real)?;
     if sha.len() < 4 || sha.len() > 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -1130,7 +1237,72 @@ pub fn changed_since_stats(root: &str, sha: &str) -> Result<Vec<ChangedStat>> {
         .collect();
     changed.sort_by(|a, b| a.path.cmp(&b.path));
     changed.dedup_by(|a, b| a.path == b.path);
-    Ok(changed)
+    Ok((changed, now_tree))
+}
+
+fn is_hex_id(value: &str) -> bool {
+    (4..=64).contains(&value.len()) && value.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Fichiers qu'un rembobinage vers le snapshot `sha` écraserait alors qu'ils
+/// ont changé depuis la FIN du tour (`end_tree`, posé dans le checkpoint).
+/// Même périmètre que [`restore`] : `paths` ∩ fichiers du snapshot (ou tout
+/// le snapshot quand `paths` est `None`) ; les créations du tour ne sont pas
+/// touchées par le rembobinage, donc jamais signalées.
+///
+/// `Ok(None)` = état de fin de tour inconnu (tour antérieur à ce suivi, ou
+/// arbre élagué par `git gc`) : l'appelant doit alors demander confirmation.
+pub fn revert_conflicts(
+    root: &str,
+    sha: &str,
+    end_tree: Option<&str>,
+    paths: Option<&[String]>,
+) -> Result<Option<Vec<String>>> {
+    let real = confined_root(root)?;
+    ensure_repo(&real)?;
+    if !is_hex_id(sha) {
+        return Err(msg("sha invalide"));
+    }
+    let Some(end_tree) = end_tree.filter(|t| is_hex_id(t)) else {
+        return Ok(None);
+    };
+    let end_ref = format!("{end_tree}^{{tree}}");
+    if !git(&real, &["cat-file", "-e", &end_ref], &[])?.status.success() {
+        return Ok(None);
+    }
+    let tree_ref = format!("{sha}^{{tree}}");
+    let snap_out = git(&real, &["ls-tree", "-r", "--name-only", "-z", &tree_ref], &[])?;
+    if !snap_out.status.success() {
+        return Err(msg("snapshot inconnu"));
+    }
+    let snap_paths: std::collections::HashSet<String> = String::from_utf8_lossy(&snap_out.stdout)
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    let now_tree = worktree_tree(&real)?;
+    let out = git(&real, &["diff-tree", "-r", "--name-only", "-z", &end_ref, &now_tree], &[])?;
+    if !out.status.success() {
+        return Err(msg("diff de fin de tour impossible"));
+    }
+    let targets: Option<std::collections::HashSet<String>> = match paths {
+        Some(list) => Some(
+            list.iter()
+                .map(|p| assert_relative(&real, p))
+                .collect::<Result<_>>()?,
+        ),
+        None => None,
+    };
+    let mut conflicts: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|p| !p.is_empty())
+        .filter(|p| snap_paths.contains(*p))
+        .filter(|p| targets.as_ref().is_none_or(|t| t.contains(*p)))
+        .map(str::to_string)
+        .collect();
+    conflicts.sort();
+    conflicts.dedup();
+    Ok(Some(conflicts))
 }
 
 pub fn restore(root: &str, sha: &str, paths: Option<&[String]>) -> Result<()> {
@@ -1365,6 +1537,143 @@ mod tests {
             .output()
             .unwrap();
         dir
+    }
+
+    fn sh(dir: &Path, args: &[&str]) {
+        let out = Command::new("git").args(args).current_dir(dir).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    /// Audit 2026-10-18, problème 3 : « Restaurer » sur un fichier non suivi
+    /// le SUPPRIMAIT définitivement. Il part maintenant à la Corbeille.
+    #[test]
+    fn restaurer_un_non_suivi_le_met_a_la_corbeille() {
+        let dir = init_repo();
+        let corbeille = tempdir().unwrap();
+        std::fs::write(dir.path().join("donnees.csv"), b"mesures irremplacables").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let gardé = revert_file_with_trash(&root, "donnees.csv", Some(corbeille.path()))
+            .unwrap()
+            .expect("une copie mise de côté");
+        assert!(!dir.path().join("donnees.csv").exists());
+        assert!(gardé.starts_with(corbeille.path()), "{gardé:?}");
+        assert_eq!(std::fs::read(&gardé).unwrap(), b"mesures irremplacables");
+        // Un second fichier du même nom ne l'écrase pas dans la Corbeille.
+        std::fs::write(dir.path().join("donnees.csv"), b"v2").unwrap();
+        let second = revert_file_with_trash(&root, "donnees.csv", Some(corbeille.path())).unwrap().unwrap();
+        assert_ne!(second, gardé);
+        assert_eq!(std::fs::read(&gardé).unwrap(), b"mesures irremplacables");
+        assert_eq!(std::fs::read(&second).unwrap(), b"v2");
+    }
+
+    /// Sans Corbeille utilisateur (Linux, ~/.Trash absent) : repli dans
+    /// `.git/atelier-trash/`, jamais une suppression, et le dossier n'apparaît
+    /// pas dans `git status`.
+    #[test]
+    fn sans_corbeille_le_repli_est_dans_le_dossier_git() {
+        let dir = init_repo();
+        std::fs::create_dir_all(dir.path().join("sorties")).unwrap();
+        std::fs::write(dir.path().join("sorties/run.nc"), b"netcdf").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let gardé = revert_file_with_trash(&root, "sorties/", Some(&dir.path().join("pas-de-corbeille")))
+            .unwrap()
+            .unwrap();
+        assert!(gardé.starts_with(dir.path().join(".git/atelier-trash")), "{gardé:?}");
+        assert_eq!(std::fs::read(gardé.join("run.nc")).unwrap(), b"netcdf");
+        let st = status(&root).unwrap();
+        assert!(st.files.is_empty(), "{:?}", st.files);
+    }
+
+    /// Fichier suivi modifié : la version modifiée est mise de côté avant que
+    /// HEAD ne revienne, au lieu d'être écrasée sans retour.
+    #[test]
+    fn restaurer_un_suivi_modifie_garde_la_version_modifiee() {
+        let dir = init_repo();
+        let corbeille = tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"travail du jour").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let gardé = revert_file_with_trash(&root, "a.txt", Some(corbeille.path())).unwrap().unwrap();
+        assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"hello");
+        assert_eq!(std::fs::read(&gardé).unwrap(), b"travail du jour");
+        // Inchangé : rien à mettre de côté.
+        assert!(revert_file_with_trash(&root, "a.txt", Some(corbeille.path())).unwrap().is_none());
+    }
+
+    /// Un échec de git ne se transforme plus en suppression : la version mise
+    /// de côté revient à sa place et l'erreur remonte.
+    #[test]
+    fn un_echec_de_git_ne_supprime_rien() {
+        let dir = init_repo();
+        let corbeille = tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"modifie").unwrap();
+        // Verrou d'index : `git restore --staged` échoue.
+        std::fs::write(dir.path().join(".git/index.lock"), b"").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let erreur = revert_file_with_trash(&root, "a.txt", Some(corbeille.path())).unwrap_err();
+        assert!(erreur.to_string().contains("rien n'a été supprimé"), "{erreur}");
+        assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"modifie");
+        // Non suivi + index verrouillé : `git rm --cached` échoue, le fichier reste.
+        std::fs::write(dir.path().join("neuf.txt"), b"neuf").unwrap();
+        assert!(revert_file_with_trash(&root, "neuf.txt", Some(corbeille.path())).is_err());
+        assert_eq!(std::fs::read(dir.path().join("neuf.txt")).unwrap(), b"neuf");
+        assert_eq!(std::fs::read_dir(corbeille.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn la_racine_du_depot_ne_se_restaure_pas() {
+        let dir = init_repo();
+        std::fs::write(dir.path().join("neuf.txt"), b"neuf").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        for chemin in [".", "./", "", "sub/.."] {
+            assert!(revert_file_with_trash(&root, chemin, None).is_err(), "{chemin:?}");
+        }
+        assert!(dir.path().join("neuf.txt").exists());
+        assert!(dir.path().join("a.txt").exists());
+    }
+
+    /// Dépôt sans commit : le fichier ajouté sort de l'index et part à la
+    /// Corbeille (avant : `git rm --cached` puis suppression définitive).
+    #[test]
+    fn depot_sans_commit_rien_n_est_supprime() {
+        let dir = tempdir().unwrap();
+        sh(dir.path(), &["init", "-b", "main"]);
+        std::fs::write(dir.path().join("notes.md"), b"brouillon").unwrap();
+        sh(dir.path(), &["add", "notes.md"]);
+        let corbeille = tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let gardé = revert_file_with_trash(&root, "notes.md", Some(corbeille.path())).unwrap().unwrap();
+        assert_eq!(std::fs::read(gardé).unwrap(), b"brouillon");
+    }
+
+    /// Rembobinage d'un tour : un fichier du tour modifié APRÈS la fin du tour
+    /// est signalé ; un fichier intact, une création du tour ou un fichier
+    /// hors périmètre ne le sont pas ; un état de fin inconnu rend `None`.
+    #[test]
+    fn revert_conflicts_signale_les_modifications_d_apres_le_tour() {
+        let dir = init_repo();
+        let root = dir.path().to_string_lossy().to_string();
+        std::fs::write(dir.path().join("b.txt"), b"b0").unwrap();
+        sh(dir.path(), &["add", "b.txt"]);
+        sh(dir.path(), &["commit", "-m", "b"]);
+        let sha = snapshot(&root).unwrap();
+        // Le tour modifie a.txt et b.txt, crée c.txt.
+        std::fs::write(dir.path().join("a.txt"), b"agent").unwrap();
+        std::fs::write(dir.path().join("b.txt"), b"agent").unwrap();
+        std::fs::write(dir.path().join("c.txt"), b"cree").unwrap();
+        let (stats, end_tree) = changed_since_stats_and_tree(&root, &sha).unwrap();
+        let scope: Vec<String> = stats.into_iter().map(|s| s.path).collect();
+        assert_eq!(scope, ["a.txt", "b.txt", "c.txt"]);
+        assert_eq!(revert_conflicts(&root, &sha, Some(&end_tree), Some(&scope)).unwrap(), Some(vec![]));
+        // Thierry retouche b.txt et c.txt après le tour.
+        std::fs::write(dir.path().join("b.txt"), b"thierry").unwrap();
+        std::fs::write(dir.path().join("c.txt"), b"thierry").unwrap();
+        std::fs::write(dir.path().join("hors.txt"), b"ailleurs").unwrap();
+        assert_eq!(
+            revert_conflicts(&root, &sha, Some(&end_tree), Some(&scope)).unwrap(),
+            Some(vec!["b.txt".to_string()])
+        );
+        assert_eq!(revert_conflicts(&root, &sha, None, Some(&scope)).unwrap(), None);
+        assert_eq!(revert_conflicts(&root, &sha, Some("0000000000000000000000000000000000000000"), Some(&scope)).unwrap(), None);
     }
 
     #[test]
