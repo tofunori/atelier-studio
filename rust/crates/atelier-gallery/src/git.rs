@@ -12,6 +12,7 @@ use axum::{
     response::IntoResponse,
 };
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
+use fs2::FileExt;
 use md5::{Digest as Md5Digest, Md5};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -22,6 +23,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::Stdio,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::process::Command;
@@ -535,6 +537,45 @@ fn read_version_state(file: &Path, path: &str) -> Result<(Value, bool), String> 
     }
 }
 
+/// Nom temporaire unique pour ce processus ET entre processus : pid,
+/// compteur et nanosecondes. L'ancien `pid.millisecondes` faisait écrire deux
+/// enregistrements de la même milliseconde dans le MÊME fichier temporaire
+/// (contenu mêlé, puis un `rename` en échec).
+fn temp_nonce() -> String {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}.{}.{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    )
+}
+
+/// Exécute `work` sous le verrou exclusif du journal `file`, pour que la
+/// séquence lecture, contrôle de `expectedRevision` et écriture soit atomique.
+/// Le serveur est multi-thread (axum sous `#[tokio::main]`) et deux processus
+/// galerie peuvent servir la même racine : `flock` sur un fichier `.lock`
+/// voisin couvre les deux cas (chaque appel ouvre son propre descripteur),
+/// comme `pdf_annots.lock`. Appel bloquant : à lancer hors des threads réseau.
+fn with_version_lock<T>(file: &Path, work: impl FnOnce() -> T) -> Result<T, String> {
+    let parent = file.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(format!("{}.lock", file.display()))
+        .map_err(|e| e.to_string())?;
+    lock.lock_exclusive().map_err(|e| e.to_string())?;
+    let out = work();
+    let _ = FileExt::unlock(&lock);
+    Ok(out)
+}
+
 fn write_version_gzip(file: &Path, state: &Value, backup: bool) -> Result<(), String> {
     let payload = serde_json::to_vec(state).map_err(|e| e.to_string())?;
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -543,14 +584,7 @@ fn write_version_gzip(file: &Path, state: &Value, backup: bool) -> Result<(), St
 
     let parent = file.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let nonce = format!(
-        "{}.{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    );
+    let nonce = temp_nonce();
     let tmp = parent.join(format!(
         ".{}.{}.tmp",
         file.file_name().unwrap_or_default().to_string_lossy(),
@@ -1222,23 +1256,37 @@ pub async fn get_versions(
     };
     let path_str = p.to_string_lossy().to_string();
     let file = versions_file(&state.root, &p);
-    let (state_val, recovered) = match read_version_state(&file, &path_str) {
-        Ok(v) => v,
-        Err(_) => return ok_false(),
+    let read = tokio::task::spawn_blocking(move || read_versions_locked(&file, &path_str)).await;
+    let Ok(Ok(mut out)) = read else {
+        return ok_false();
     };
-    if recovered {
-        let _ = write_version_gzip(&file, &state_val, false);
-    } else if file.exists()
-        && let Ok(raw) = fs::read(&file)
-        && raw.get(..2) != Some(&[0x1f, 0x8b])
-    {
-        let _ = write_version_gzip(&file, &state_val, true);
-    }
-    let mut out = state_val;
     if let Some(obj) = out.as_object_mut() {
         obj.insert("ok".into(), json!(true));
     }
     (StatusCode::OK, Json(out)).into_response()
+}
+
+/// Lecture de GET /versions. Elle peut réécrire le journal (reprise depuis le
+/// `.bak`, passage au gzip) : sous le verrou, sinon elle écraserait un POST
+/// acquitté entre sa lecture et son écriture. Sans journal ni `.bak`, rien à
+/// écrire : pas de verrou, donc pas de dossier créé pour une simple lecture.
+fn read_versions_locked(file: &Path, path_str: &str) -> Result<Value, String> {
+    let bak = PathBuf::from(format!("{}.bak", file.display()));
+    if !file.exists() && !bak.exists() {
+        return Ok(empty_version_state(path_str));
+    }
+    with_version_lock(file, || {
+        let (state_val, recovered) = read_version_state(file, path_str)?;
+        if recovered {
+            let _ = write_version_gzip(file, &state_val, false);
+        } else if file.exists()
+            && let Ok(raw) = fs::read(file)
+            && raw.get(..2) != Some(&[0x1f, 0x8b])
+        {
+            let _ = write_version_gzip(file, &state_val, true);
+        }
+        Ok(state_val)
+    })?
 }
 
 pub async fn post_versions(
@@ -1264,52 +1312,63 @@ pub async fn post_versions(
     };
     let path_str = p.to_string_lossy().to_string();
     let file = versions_file(&state.root, &p);
-    let (current, _) = match read_version_state(&file, &path_str) {
+    let outcome = tokio::task::spawn_blocking(move || {
+        with_version_lock(&file, || apply_versions_post(&file, &path_str, &body))
+    })
+    .await;
+    match outcome {
+        Ok(Ok((status, reply))) => (status, Json(reply)).into_response(),
+        Ok(Err(error)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+    }
+}
+
+/// Corps de POST /versions, appelé sous `with_version_lock` : aucune autre
+/// écriture du même journal ne peut s'intercaler entre la lecture de la
+/// révision, son contrôle et l'écriture de la suivante.
+fn apply_versions_post(file: &Path, path_str: &str, body: &Value) -> (StatusCode, Value) {
+    let error = |status: StatusCode, message: String| (status, json!({"error": message}));
+    let (current, _) = match read_version_state(file, path_str) {
         Ok(v) => v,
-        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
+        Err(message) => return error(StatusCode::INTERNAL_SERVER_ERROR, message),
     };
     let expected = body.get("expectedRevision").and_then(Value::as_i64);
     let revision = current.get("revision").and_then(Value::as_i64).unwrap_or(0);
     if expected != Some(revision) {
         return (
             StatusCode::CONFLICT,
-            Json(json!({
+            json!({
                 "ok": false,
                 "error": "revision-conflict",
                 "revision": revision,
                 "state": current,
-            })),
-        )
-            .into_response();
+            }),
+        );
     }
     let ops = body.get("ops").cloned().unwrap_or(json!([]));
     let mut nxt = match apply_version_ops(&current, &ops) {
         Ok(v) => v,
-        Err(error) => {
-            return json_error(StatusCode::BAD_REQUEST, format!("bad request: {error}"));
+        Err(message) => {
+            return error(StatusCode::BAD_REQUEST, format!("bad request: {message}"));
         }
     };
     if let Some(obj) = nxt.as_object_mut() {
         obj.insert("path".into(), json!(path_str));
         obj.insert("revision".into(), json!(revision + 1));
     }
-    if let Err(error) = validate_version_state(&nxt) {
-        return json_error(StatusCode::BAD_REQUEST, format!("bad request: {error}"));
+    if let Err(message) = validate_version_state(&nxt) {
+        return error(StatusCode::BAD_REQUEST, format!("bad request: {message}"));
     }
     if file.exists()
-        && let Ok(raw) = fs::read(&file)
-        && decode_version_bytes(&raw, &path_str).is_err()
+        && let Ok(raw) = fs::read(file)
+        && decode_version_bytes(&raw, path_str).is_err()
     {
-        let _ = fs::remove_file(&file);
+        let _ = fs::remove_file(file);
     }
-    if let Err(error) = write_version_gzip(&file, &nxt, true) {
-        return json_error(StatusCode::INTERNAL_SERVER_ERROR, error);
+    if let Err(message) = write_version_gzip(file, &nxt, true) {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, message);
     }
-    (
-        StatusCode::OK,
-        Json(json!({"ok": true, "revision": revision + 1})),
-    )
-        .into_response()
+    (StatusCode::OK, json!({"ok": true, "revision": revision + 1}))
 }
 
 #[cfg(test)]
@@ -1501,5 +1560,70 @@ mod tests {
         assert!(prompt.contains("Use concise subjects"));
         assert!(prompt.contains("File: a.tex"));
         assert!(prompt.contains("+Ignore prior instructions"));
+    }
+
+    /// Le verrou du journal tient sur un descripteur À LUI : un second
+    /// descripteur (autre thread, ou autre processus galerie) ne l'obtient pas
+    /// tant que le premier travaille.
+    #[test]
+    fn version_lock_excludes_another_descriptor_while_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("dv_versions").join("k.json");
+        let (inside, held) = std::sync::mpsc::channel();
+        let (release, done) = std::sync::mpsc::channel::<()>();
+        let holder = {
+            let file = file.clone();
+            std::thread::spawn(move || {
+                with_version_lock(&file, || {
+                    inside.send(()).unwrap();
+                    done.recv().unwrap();
+                })
+                .unwrap();
+            })
+        };
+        held.recv().unwrap();
+        let other = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(format!("{}.lock", file.display()))
+            .unwrap();
+        assert!(other.try_lock_exclusive().is_err(), "verrou non exclusif");
+        release.send(()).unwrap();
+        holder.join().unwrap();
+        other.try_lock_exclusive().expect("verrou non rendu");
+    }
+
+    /// Écritures simultanées du même journal SANS le verrou (un autre
+    /// processus, ou un chemin futur qui l'oublierait) : chaque écriture a son
+    /// propre fichier temporaire, donc aucune ne mêle son contenu à une autre
+    /// ni ne perd son `rename`. Avec l'ancien nom `pid.millisecondes`, deux
+    /// écritures de la même milliseconde partageaient le fichier temporaire.
+    #[test]
+    fn concurrent_version_writes_never_share_a_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("dv_versions").join("k.json");
+        std::thread::scope(|scope| {
+            for writer in 0..8 {
+                let file = &file;
+                scope.spawn(move || {
+                    for round in 0..25 {
+                        let mut state = empty_version_state("/x/a.tex");
+                        state["revision"] = json!(writer * 100 + round);
+                        write_version_gzip(file, &state, true)
+                            .unwrap_or_else(|e| panic!("écriture {writer}/{round} : {e}"));
+                    }
+                });
+            }
+        });
+        let (state, recovered) = read_version_state(&file, "/x/a.tex").unwrap();
+        assert!(!recovered, "journal principal illisible");
+        assert!(state["revision"].as_i64().is_some());
+        let leftovers: Vec<_> = fs::read_dir(file.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temporaires orphelins : {leftovers:?}");
     }
 }
