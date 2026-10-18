@@ -20,7 +20,7 @@ pub use automations::{Automation, AutomationRun, AutomationStore};
 pub use context_projection::{build_child_envelope, project_events};
 pub use highlights::{Highlight, HighlightStore};
 pub use journal::{HarnessJournal, JournalError};
-pub use ledger::{append_ledger, get_all_ledgers, get_ledger, slug_for};
+pub use ledger::{append_ledger, get_all_ledgers, get_ledger, project_id, slug_for};
 pub use memories::{
     fold as fold_memory_text, ImportReport, ImportedMemory, Memory, MemoryOrigin, MemoryQuery,
     MemoryStore, MEMORY_TEXT_MAX,

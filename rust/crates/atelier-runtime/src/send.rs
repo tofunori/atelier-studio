@@ -1859,8 +1859,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         // avant les blocs d'instructions ambiantes) : c'est la phrase de
         // contexte que le panneau Provenance affichera.
         prompt.clone(),
-    );
+    )
+    .with_turn(&turn_id, effort.clone())
+    // Interrupteur « Recette des fichiers produits » (allumé par défaut).
+    .with_recipes(folder_settings.get("recipes").and_then(Value::as_bool).unwrap_or(true));
     let prov_pump = prov_turn.clone();
+    // Finalisation (journal des tours + recettes), après le terminal.
+    let prov_finish = prov_turn.clone();
+    let cancelled_finish = Arc::clone(&cancelled);
+    let ledger_dir = state.ledger_dir();
     let linked_reply = if origin_agent {
         let from = msg
             .get("agentFromThreadId")
@@ -2019,6 +2026,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     tokio::spawn(async move {
         let fallback_root = project_root.clone();
         let fallback_snapshot = snapshot_sha.clone();
+        let finish_root = fallback_root.clone();
+        let finish_snapshot = fallback_snapshot.clone();
         // Même contexte de provenance que la pompe (commandes partagées) : un
         // provider sans `done` natif doit produire les mêmes sidecars. Les
         // deux chemins s'excluent (`turn_status != Done`), donc jamais deux
@@ -2094,6 +2103,19 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             persistence_error
         }).await.unwrap_or_else(|error| Some(format!("terminal worker: {error}")));
         let succeeded = result.ok && persistence_error.is_none();
+        // Journal des tours et recettes (chantier 2) : une fois par tour,
+        // après le terminal, sur un fil à part. Les empreintes des données
+        // d'entrée ne retardent ni la réponse ni le tour suivant.
+        let end = if cancelled_finish.load(Ordering::SeqCst) && persistence_error.is_none() {
+            crate::prov::TurnEnd::Interrupted
+        } else if succeeded {
+            crate::prov::TurnEnd::Done
+        } else {
+            crate::prov::TurnEnd::Error
+        };
+        tokio::task::spawn_blocking(move || {
+            prov_finish.finish(&finish_root, finish_snapshot.as_deref(), &ledger_dir, end);
+        });
         update_receipt(
             &state2,
             receipt_id.as_deref(),
@@ -3425,6 +3447,9 @@ mod tests {
         }));
         let event =
             normalize_provider_event(json!({"kind":"done"}), root, None, Some(&sha), Some(&prov));
+        // Les recettes s'écrivent à la finalisation, après le terminal.
+        let ledger = tempfile::tempdir().unwrap();
+        prov.finish(root, Some(&sha), ledger.path(), crate::prov::TurnEnd::Done);
 
         // L'événement garde son contrat intact (l'échec d'écriture ne fuit pas).
         assert!(event["filesChanged"]
@@ -3435,14 +3460,18 @@ mod tests {
 
         let sidecar = dir.path().join("figures/trend.png.prov.json");
         let doc: Value = serde_json::from_str(&std::fs::read_to_string(sidecar).unwrap()).unwrap();
-        assert_eq!(doc["version"], 1);
+        assert_eq!(doc["version"], 2);
         assert_eq!(doc["figure"], "figures/trend.png");
         let entry = &doc["history"][0];
         assert_eq!(entry["threadId"], "th-9");
         assert_eq!(entry["provider"], "codex");
         assert_eq!(entry["scripts"], json!(["plot.py"]));
         assert_eq!(entry["commands"], json!(["python3 plot.py"]));
+        assert_eq!(entry["command"], "python3 plot.py");
         assert_eq!(entry["snapshotSha"], sha);
+        let journal = atelier_store::get_ledger(ledger.path(), root, 10);
+        assert_eq!(journal.len(), 1);
+        assert!(journal[0]["recipes"].as_array().unwrap().contains(&json!("figures/trend.png")));
         assert!(entry["head"].as_str().is_some_and(|h| h.len() >= 7));
         assert!(!dir
             .path()

@@ -1139,6 +1139,38 @@ fn prov_sert_le_sidecar_absent_present_et_malforme() {
     assert!(body.contains("invalid prov.json"), "{body}");
 }
 
+/// Chantier 2d : une figure annotée qui a une recette donne à l'agent son
+/// script et sa commande, sans qu'il ait à les chercher.
+#[test]
+fn annotation_d_une_figure_avec_recette_porte_script_et_commande() {
+    let srv = start_server();
+    fs::write(
+        srv.root.join("tiny.png.prov.json"),
+        br#"{"version":2,"figure":"tiny.png","history":[{"scripts":["plot.py"],"command":"python3 plot.py --out tiny.png","env":{"conda":"albedo"}}]}"#,
+    )
+    .unwrap();
+    let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==";
+    let payload = format!(
+        r#"{{"name":"tiny.png","rel":"tiny.png","dataURL":"{png}","direct":true,"previewOnly":true,"notes":[{{"n":1,"text":"axe y en log"}}]}}"#
+    );
+    let (st, body) = http(srv.port, "POST", "/save", Some(&payload));
+    assert_eq!(st, 200, "{body}");
+    let message = serde_json::from_str::<serde_json::Value>(&body).unwrap()["message"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(message.contains("Script qui l'a produite : plot.py"), "{message}");
+    assert!(message.contains("Commande : python3 plot.py --out tiny.png"), "{message}");
+    assert!(message.contains("Env conda : albedo"), "{message}");
+    assert!(message.contains("relance cette commande"), "{message}");
+
+    // Sans recette : le message reste celui d'avant.
+    fs::remove_file(srv.root.join("tiny.png.prov.json")).unwrap();
+    let (_, body) = http(srv.port, "POST", "/save", Some(&payload));
+    assert!(!body.contains("Recette de la figure"), "{body}");
+    assert!(body.contains("retrouve le script"), "{body}");
+}
+
 /// Confinement : `/prov` ne sort jamais du projet, et reste derrière le garde
 /// d'origine comme toute autre route (mémoire projet : CORS/ACAO commun).
 #[test]

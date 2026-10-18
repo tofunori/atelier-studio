@@ -41,6 +41,16 @@ describe("Section Atelier", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
+  it("la recette des fichiers produits est allumée par défaut et se coupe", () => {
+    const set = vi.fn(); const onSaved = vi.fn();
+    renderUi(<Atelier {...props({ set, onSaved })} />);
+    const toggle = screen.getByRole("switch", { name: /recette des fichiers produits/i });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(toggle);
+    expect(set).toHaveBeenCalledWith({ recipes: false });
+    expect(onSaved).toHaveBeenCalled();
+  });
+
   it("ne rend pas RemoteDevicesPanel (déjà migré dans General.tsx, éviter le doublon)", () => {
     renderUi(<Atelier {...props()} />);
     fireEvent.click(screen.getByRole("button", { name: /Avancé/ }));

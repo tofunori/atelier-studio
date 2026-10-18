@@ -653,6 +653,42 @@ fn resolve_prov_sidecar(root: &Path, rel: &str) -> Result<PathBuf, (StatusCode, 
     Ok(real_parent.join(sidecar.file_name().unwrap_or_default()))
 }
 
+/// Résumé de la recette d'une figure pour le message d'annotation (chantier
+/// 2d) : l'agent reçoit directement le script et la commande qui l'ont
+/// produite, au lieu de les chercher. `None` sans sidecar lisible.
+fn recipe_brief(root: &Path, rel: &str) -> Option<String> {
+    let sidecar = resolve_prov_sidecar(root, rel).ok()?;
+    let doc: Value = serde_json::from_str(&fs::read_to_string(&sidecar).ok()?).ok()?;
+    let entry = doc.get("history")?.as_array()?.first()?;
+    let first = |key: &str| {
+        entry
+            .get(key)
+            .and_then(Value::as_array)
+            .and_then(|list| list.iter().find_map(Value::as_str))
+            .map(str::to_string)
+    };
+    let script = first("scripts");
+    let command = entry
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| first("commands"));
+    if script.is_none() && command.is_none() {
+        return None;
+    }
+    let mut lines = vec![format!("Recette de la figure : {}", sidecar.to_string_lossy())];
+    if let Some(script) = script {
+        lines.push(format!("Script qui l'a produite : {script}"));
+    }
+    if let Some(command) = command {
+        lines.push(format!("Commande : {command}"));
+    }
+    if let Some(conda) = entry.pointer("/env/conda").and_then(Value::as_str) {
+        lines.push(format!("Env conda : {conda}"));
+    }
+    Some(lines.join("\n"))
+}
+
 /// `GET /prov?file=<rel>` — sert le sidecar de provenance d'une figure
 /// (spec `docs/superpowers/specs/2026-08-27-provenance-figures-design.md`, C).
 /// La webview ne lit jamais le disque : le panneau Provenance du viewer passe
@@ -1480,8 +1516,20 @@ async fn save_annotation(
         message.push('\n');
         message.push_str(context);
     }
+    let recipe = request
+        .get("rel")
+        .and_then(Value::as_str)
+        .and_then(|rel| recipe_brief(&state.root, rel));
+    if let Some(brief) = recipe.as_deref() {
+        message.push('\n');
+        message.push_str(brief);
+    }
     if direct {
-        message.push_str("\nApplique directement ces annotations : retrouve le script qui genere cette figure, fais les corrections demandees et regenere la figure.");
+        message.push_str(if recipe.is_some() {
+            "\nApplique directement ces annotations : modifie ce script, fais les corrections demandees et relance cette commande pour regenerer la figure."
+        } else {
+            "\nApplique directement ces annotations : retrouve le script qui genere cette figure, fais les corrections demandees et regenere la figure."
+        });
     }
     if state.agent_token.is_empty() || request.get("previewOnly").and_then(Value::as_bool) == Some(true) {
         return (

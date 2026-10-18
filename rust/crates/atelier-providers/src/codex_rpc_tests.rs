@@ -119,6 +119,9 @@ for line in sys.stdin:
         reply(req, {'turn': {'id': 'turn', 'status': 'inProgress'}})
         if mode == 'goal-first-turn': note('thread/goal/updated', goal={'objective':'first turn','status':'active'})
         if mode.startswith('turn-hang'): continue
+        if mode == 'turn-failed':
+            note('turn/completed', turn_thread_id, turn={'id': 'turn', 'status': 'failed', 'error': {'message': 'quota atteint'}})
+            continue
         if mode == 'human-wait':
             emit({'id':77,'method':'item/tool/requestUserInput','params':{'threadId':'native','turnId':'turn','questions':[]}})
             continue

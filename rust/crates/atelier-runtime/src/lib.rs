@@ -16,6 +16,7 @@ mod message_edits;
 pub mod paths;
 mod project_folders;
 pub mod prov;
+pub mod recipe;
 pub mod review;
 pub mod send;
 pub mod server;
