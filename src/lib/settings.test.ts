@@ -189,3 +189,32 @@ describe("bootPromotions : les clés promues survivent au miroir disque", () => 
     expect({ ...loadSettings(), ...disk, ...bootPromotions() }.thinkingCollapsed).toBe(true);
   });
 });
+
+describe("recette .prov.json : éteinte tant qu'elle n'a pas été essayée (audit 2026-10-18)", () => {
+  it("un profil neuf démarre éteint", () => {
+    expect(DEFAULT_SETTINGS.recipes).toBe(false);
+    expect(loadSettings().recipes).toBe(false);
+  });
+
+  it("un true hérité du 2026-10-18 est éteint une fois, écrit, et survit au miroir disque", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ recipes: true, chatFontSize: 13.5 }));
+    expect(loadSettings().recipes).toBe(false);
+    expect(JSON.parse(localStorage.getItem("atelier-studio.settings") ?? "{}").recipes).toBe(false);
+    expect(bootPromotions()).toMatchObject({ recipes: false });
+    // Le miroir disque settings.json, antérieur, disait encore true.
+    expect({ ...loadSettings(), ...{ recipes: true }, ...bootPromotions() }.recipes).toBe(false);
+  });
+
+  it("une clé absente du stockage local ne laisse pas le miroir disque rallumer la recette", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ chatFontSize: 13.5 }));
+    expect(loadSettings().recipes).toBe(false);
+    expect(bootPromotions()).toMatchObject({ recipes: false });
+  });
+
+  it("un false explicite reste, et une remise en marche après la promotion est respectée", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ recipes: false }));
+    expect(loadSettings().recipes).toBe(false);
+    saveSettings({ ...loadSettings(), recipes: true });
+    expect(loadSettings().recipes).toBe(true);
+  });
+});

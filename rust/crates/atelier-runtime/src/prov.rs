@@ -109,6 +109,18 @@ pub struct TurnProvenance {
     log: Arc<Mutex<TurnLog>>,
 }
 
+/// Interrupteur « Recette des fichiers produits » lu dans settings.json.
+///
+/// Éteint tant que Thierry ne l'a pas allumé (audit de maturité du
+/// 2026-10-18) : allumé par défaut depuis #53, il déposait un
+/// `<fichier>.prov.json` à côté de chaque .tex, .md, .csv ou figure touché
+/// pendant un tour, y compris des changements faits par Thierry ou par un
+/// autre fil, avec chemins absolus et demande. Seul un `true` explicite
+/// l'allume ; une clé absente ou illisible le laisse éteint.
+pub fn recipes_enabled(settings: &Value) -> bool {
+    settings.get("recipes").and_then(Value::as_bool).unwrap_or(false)
+}
+
 /// Issue d'un tour, telle que la finalisation la reçoit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TurnEnd {
@@ -147,8 +159,9 @@ impl TurnProvenance {
     }
 
     /// Interrupteur « Recette des fichiers produits » (Réglages › Atelier,
-    /// allumé par défaut). Coupé, aucun sidecar n'est écrit dans le projet ;
-    /// le journal des tours, lui, reste tenu (il vit hors du projet).
+    /// éteint par défaut : voir `recipes_enabled`). Coupé, aucun sidecar
+    /// n'est écrit dans le projet ; le journal des tours, lui, reste tenu (il
+    /// vit hors du projet).
     pub fn with_recipes(mut self, enabled: bool) -> Self {
         self.recipes = enabled;
         self
@@ -1000,6 +1013,15 @@ mod tests {
         let text = std::fs::read_to_string(root.join("fig.png.prov.json")).unwrap();
         assert!(!text.contains("s3cret"), "le secret ne quitte pas la commande");
         assert_eq!(read_prov(root, "fig.png")["history"][0]["turnId"], "turn-7");
+    }
+
+    #[test]
+    fn recette_eteinte_sauf_choix_explicite() {
+        assert!(!recipes_enabled(&json!({})));
+        assert!(!recipes_enabled(&json!({"recipes": null})));
+        assert!(!recipes_enabled(&json!({"recipes": "true"})));
+        assert!(!recipes_enabled(&json!({"recipes": false})));
+        assert!(recipes_enabled(&json!({"recipes": true})));
     }
 
     #[test]

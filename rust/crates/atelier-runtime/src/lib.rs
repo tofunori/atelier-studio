@@ -19,6 +19,7 @@ pub mod paths;
 mod project_folders;
 pub mod prov;
 pub mod recipe;
+mod redact;
 pub mod review;
 pub mod send;
 pub mod server;

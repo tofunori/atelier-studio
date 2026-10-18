@@ -26,7 +26,9 @@ export type Settings = {
   galleryExtsByProject: Record<string, string>; // racine projet -> extensions
   autoRefreshAtelier: boolean;
   /** Recette des fichiers produits (`<fichier>.prov.json`), lue par le
-   * runtime au début de chaque tour. Allumée par défaut. */
+   * runtime au début de chaque tour. Éteinte par défaut tant qu'elle n'a pas
+   * été essayée (audit du 2026-10-18) ; le runtime ne l'allume que sur un
+   * `true` explicite. */
   recipes: boolean;
   enableAppSnap: boolean;
   appSnapPlaySound: boolean;
@@ -98,7 +100,7 @@ export const DEFAULT_SETTINGS: Settings = {
   galleryExts: "",
   galleryExtsByProject: {},
   autoRefreshAtelier: true,
-  recipes: true,
+  recipes: false,
   enableAppSnap: false,
   appSnapPlaySound: true,
   autoReview: { enabled: false, provider: "codex", model: "gpt-5.5", effort: "high", trigger: "files-changed", autofix: false },
@@ -213,6 +215,20 @@ const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => 
         ? { defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...stored.defaultModel, claude: DEFAULT_SETTINGS.defaultModel.claude } }
         : {};
     },
+  },
+  {
+    // 2026-10-18 (audit de maturité, problème 17) : la recette .prov.json,
+    // née allumée le jour même (#53), s'éteint tant que Thierry ne l'a pas
+    // essayée — elle déposait des sidecars à chemins absolus dans les dépôts
+    // de thèse, y compris pour des changements qui n'étaient pas de l'agent.
+    // Un `true` stocké ne se distingue pas d'un choix : tout le miroir est
+    // réécrit à chaque réglage, et l'interrupteur valait `true` dès sa
+    // naissance. Seul un double basculement (couper puis rallumer) dans les
+    // quelques heures entre #53 et ce correctif aurait pu l'exprimer ; on le
+    // tient pour hérité. Un `false` explicite reste ; une remise en marche
+    // après cette promotion est respectée (promotion ponctuelle).
+    id: "2026-10-18.recipes-off-until-tried",
+    promote: (stored) => (stored.recipes !== false ? { recipes: false } : {}),
   },
 ];
 

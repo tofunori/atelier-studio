@@ -1937,8 +1937,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         prompt.clone(),
     )
     .with_turn(&turn_id, effort.clone())
-    // Interrupteur « Recette des fichiers produits » (allumé par défaut).
-    .with_recipes(folder_settings.get("recipes").and_then(Value::as_bool).unwrap_or(true));
+    // Interrupteur « Recette des fichiers produits » (éteint par défaut).
+    .with_recipes(crate::prov::recipes_enabled(&folder_settings));
     let prov_pump = prov_turn.clone();
     // Finalisation (journal des tours + recettes), après le terminal.
     let prov_finish = prov_turn.clone();
