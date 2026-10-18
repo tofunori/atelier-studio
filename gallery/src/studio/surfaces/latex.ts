@@ -43,8 +43,11 @@ import {createSelectionActions} from "../features/annotation_ui";
 import {
   addRecentStudioFile,
   attachEditorSelection,
+  createDiskMerge,
   createDocumentSession,
+  createDraftKeeper,
   createEditorWrapController,
+  formatDraftTime,
   createStudioDiffController,
   createStudioFilePicker,
   installChatAttach,
@@ -199,8 +202,14 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   // déjà l'état de compilation, et la pastille `#ddot` dit le non-sauvegardé.
   // Seul ce qui demande une réaction — erreur ou indice — s'affiche encore ici.
   const SPEAKS = new Set(["err", "hint"]);
+  // Annonce qui doit rester lisible (brouillon restauré à l'ouverture) : les
+  // confirmations muettes (« loaded », compilation…) ne l'effacent pas ; la
+  // prochaine frappe, sauvegarde ou annonce, si.
+  let stickyNotice = false;
   const setState = (kind: "hint" | "dirty" | "ok" | "err", message: string): void => {
     const speaks = SPEAKS.has(kind);
+    if (!speaks && stickyNotice) return;
+    stickyNotice = false;
     state.className = speaks ? kind : "";
     state.textContent = speaks ? message : "";
     state.title = speaks ? message : "";
@@ -210,6 +219,12 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     if (kind === "hint") stateTimer = win.setTimeout(() => {
       if (state.className === "hint") state.textContent = "";
     }, 4000);
+  };
+  const showStickyNotice = (kind: "hint" | "err", message: string): void => {
+    setState(kind, message);
+    if (stateTimer !== null) win.clearTimeout(stateTimer);
+    stateTimer = null;
+    stickyNotice = true;
   };
   (doc.getElementById("fname") as HTMLElement).textContent = filename;
   doc.title = isPdfMode ? `${filename} — PDF` : filename;
@@ -483,24 +498,21 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     } catch { /* preserve the external disk version even if formatting fails */ }
   };
   // L'agent a écrit sur le disque pendant que le buffer est sale : rejouer
-  // son delta (dernière version disque → nouvelle) sur le buffer, contexte
-  // d'une ligne sans tolérance — comme transplantAcceptedInto côté diff.
+  // son delta (dernière version disque → nouvelle) sur le buffer.
   // Chevauchement : null, le buffer reste et la session signale le conflit.
   // Avant (2026-09-11) : « when-clean » attendait ⌘S/compilation, et la
   // sauvegarde rechargeait le disque en jetant les retouches (Thierry).
-  const mergeDiskChange = (base: string, local: string, remote: string): string | null => {
-    if (local === remote) return remote;
-    if (remote === base) return local;
-    const Diff = win.Diff;
-    if (!Diff) return null;
-    try {
-      const patch = Diff.structuredPatch(path || "", path || "", base, remote, undefined, undefined, {context: 1});
-      const merged = Diff.applyPatch(local, patch, {fuzzFactor: 0});
-      return typeof merged === "string" ? merged : null;
-    } catch {
-      return null;
-    }
-  };
+  const mergeDiskChange = createDiskMerge(() => win.Diff, path);
+  // Brouillon de secours : le tampon modifié survit au démontage de l'iframe
+  // et revient, modifié, à la réouverture (audit 2026-10-18, problème 1).
+  const drafts = createDraftKeeper({
+    path,
+    getText: () => editor?.getValue() || "",
+    getBase: () => ({text: session?.state.baseline ?? null, mtime: session?.state.mtime ?? 0}),
+    isDirty: () => Boolean(session?.state.dirty),
+    postToHost: dependencies.postToHost,
+    window: win,
+  });
   const ensureSession = (): ReturnType<typeof createDocumentSession> => {
     if (session) return session;
     if (!path) throw new Error("No file path");
@@ -529,7 +541,13 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       applyText: (text) => { if (editor) editor.setValue(text); else initializeEditor(text); },
       externalReload: "when-clean",
       merge: mergeDiskChange,
-      conflictPolicy: "reload",
+      // 409 au ⌘S : fusion puis nouvelle tentative ; chevauchement : le
+      // tampon reste, jamais remplacé (audit 2026-10-18, problème 4).
+      conflictPolicy: "merge",
+      onDirtyChange: (dirty) => {
+        dirtyDot.style.display = dirty ? "inline" : "none";
+        drafts.setDirty(dirty);
+      },
       onEvent: (event) => {
         if (event.kind === "loaded") {
           addRecentStudioFile(path, win.localStorage);
@@ -538,6 +556,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
           setState("ok", "loaded");
         } else if (event.kind === "saved") {
           dirtyDot.style.display = "none";
+          stickyNotice = false;
           setState("ok", "saved");
           if (event.previousText !== null && event.previousText !== event.snapshot.text) {
             diff.push(event.previousText, event.snapshot.text, {source: "user-save", status: "applied"});
@@ -564,11 +583,52 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
           }
           csv.onDocumentChanged();
           scheduleAutoCompile();
-        } else if (event.kind === "conflict" || event.kind === "error") setState("err", event.message);
+        } else if (event.kind === "conflict") {
+          // La version de l'agent entre dans l'historique ; le tampon, lui,
+          // ne bouge pas (docs/PIEGES_CONNUS.md §2).
+          if (event.snapshot && event.previousText != null && event.previousText !== event.snapshot.text) {
+            diff.push(event.previousText, event.snapshot.text, {source: "external-conflict", status: "applied"});
+          }
+          dirtyDot.style.display = "inline";
+          setState("err", event.message);
+        } else if (event.kind === "error") setState("err", event.message);
       },
     });
     return session;
   };
+
+  // Aller à une ligne : à l'ouverture (`?line=`) et quand l'app recible un
+  // onglet déjà ouvert (`atelier-goto-line`) — sans recharger l'iframe, donc
+  // sans jeter le tampon.
+  let pendingGotoLine: string | null = null;
+  const revealRequestedLines = (lineParameter: string | null): void => {
+    const match = lineParameter ? /^(\d+)(?:-(\d+))?$/.exec(lineParameter) : null;
+    if (!match) return;
+    const fromLine = Math.max(0, Number.parseInt(match[1] || "1", 10) - 1);
+    const toLine = match[2] ? Number.parseInt(match[2], 10) - 1 : fromLine;
+    win.setTimeout(() => {
+      if (!editor) return;
+      if (reader?.isReading() && reader.revealSourceLine(fromLine)) return;
+      revealLineRange(editor, {fromLine, toLine, contextAfter: 3, margin: 120});
+      for (let line = fromLine; line <= Math.min(toLine, editor.lineCount() - 1); line += 1) {
+        editor.addLineClass(line, "background", "cm-line-flash");
+      }
+      win.setTimeout(() => {
+        if (!editor) return;
+        for (let line = fromLine; line <= Math.min(toLine, editor.lineCount() - 1); line += 1) {
+          editor.removeLineClass(line, "background", "cm-line-flash");
+        }
+      }, 2600);
+    }, 60);
+  };
+  win.addEventListener("message", (event) => {
+    if (event.source !== win.parent || win.parent === win) return;
+    const data = event.data as {type?: string; line?: unknown} | null;
+    if (data?.type !== "atelier-goto-line") return;
+    const line = String(data.line ?? "");
+    if (editor) revealRequestedLines(line);
+    else pendingGotoLine = line;
+  });
 
   const initializeEditor = (text: string): LatexSurfaceEditor => {
     if (editor) {
@@ -622,32 +682,17 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       const change = args[1] as {origin?: string} | undefined;
       if (change?.origin !== "setValue") {
         ensureSession().markDirty();
+        drafts.noteChange();
         ensurePdfSync().noteEdit();
         dirtyDot.style.display = "inline";
+        stickyNotice = false;
         setState("dirty", "modified");
       }
     });
     editor.on("cursorActivity", () => ensurePdfSync().autoForwardSync());
     if (!editor.hasNativeGhost) win.latexGhostController = installLegacyLatexGhost(editor);
-    const lineParameter = parameters.get("line");
-    const match = lineParameter ? /^(\d+)(?:-(\d+))?$/.exec(lineParameter) : null;
-    if (match) {
-      const fromLine = Math.max(0, Number.parseInt(match[1] || "1", 10) - 1);
-      const toLine = match[2] ? Number.parseInt(match[2], 10) - 1 : fromLine;
-      win.setTimeout(() => {
-        if (!editor) return;
-        revealLineRange(editor, {fromLine, toLine, contextAfter: 3, margin: 120});
-        for (let line = fromLine; line <= Math.min(toLine, editor.lineCount() - 1); line += 1) {
-          editor.addLineClass(line, "background", "cm-line-flash");
-        }
-        win.setTimeout(() => {
-          if (!editor) return;
-          for (let line = fromLine; line <= Math.min(toLine, editor.lineCount() - 1); line += 1) {
-            editor.removeLineClass(line, "background", "cm-line-flash");
-          }
-        }, 2600);
-      }, 60);
-    }
+    revealRequestedLines(pendingGotoLine ?? parameters.get("line"));
+    pendingGotoLine = null;
     win.latexSelectionBridge = attachEditorSelection({
       editor,
       canPublish: () => !diff.isShown(),
@@ -703,11 +748,24 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     setState("err", message);
   };
   const load = async (): Promise<unknown> => {
-    try { return await ensureSession().load(); }
+    let snapshot: unknown;
+    try { snapshot = await ensureSession().load(); }
     catch (error) {
       showLoadError(error instanceof Error ? error.message : String(error));
       return null;
     }
+    const restored = await drafts.restore((draft) => ensureSession().adoptDraft(draft));
+    if (restored.outcome !== "none") {
+      const when = formatDraftTime(restored.savedAt);
+      const since = when ? ` du ${when}` : "";
+      if (restored.outcome === "conflict") {
+        showStickyNotice("err", `Brouillon non enregistré${since} restauré, mais le fichier a changé depuis au même endroit — ⌘S signalera le conflit.`);
+      } else {
+        showStickyNotice("hint", `Brouillon non enregistré${since} restauré${restored.outcome === "merged" ? " et fusionné avec la version du disque" : ""} — ⌘S pour l'enregistrer.`);
+      }
+      csv.onDocumentChanged();
+    }
+    return snapshot;
   };
   const save = async (): Promise<boolean> => {
     if (isAutoRewrapEnabled(win.localStorage)) {

@@ -1,6 +1,7 @@
 mod agent;
 mod codes;
 mod documents;
+mod drafts;
 mod files;
 mod gallery;
 mod git;
@@ -2492,6 +2493,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/codesave", post(files::codesave))
         .route("/save-svg", post(files::save_svg))
         .route("/selinfo", post(files::selinfo))
+        // Brouillons de secours des éditeurs : un tampon non enregistré
+        // survit au démontage de l'iframe (onglet fermé, projet changé, app
+        // quittée). Même plafond que le journal des versions.
+        .route(
+            "/draft",
+            get(drafts::get_draft)
+                .post(drafts::post_draft)
+                .layer(axum::extract::DefaultBodyLimit::max(drafts::DRAFT_MAX_BYTES + 64 * 1024)),
+        )
         // Phase 2 — galerie, miniatures, actions, toast events
         .route("/thumb", get(gallery::thumb))
         .route("/rasterize", get(gallery::rasterize))

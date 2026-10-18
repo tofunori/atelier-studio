@@ -3,8 +3,32 @@ const path = new URLSearchParams(location.search).get("path");
 document.title = (path || "").split("/").pop() || "md studio";
 const stateEl = (document.getElementById("state") as HTMLSpanElement);
 let diskMtime = 0, dirty = false, editor = null, loading = true, selectionActions: { refresh: () => void; } = null, saving = false, polling = false, localRevision = 0;
+/* Version disque sur laquelle le tampon est tapé (base du brouillon de secours). */
+let baseText: string = null;
 
 function setState(cls: string, txt: string){ stateEl.className = cls; stateEl.textContent = txt; }
+
+/* Brouillon de secours (audit 2026-10-18, problème 1) : le tampon modifié
+   survit au démontage de l'iframe et revient, modifié, à la réouverture ;
+   l'état « modifié » est publié à l'app, qui confirme avant de fermer.
+   Sans le bundle partagé (chargement raté), l'éditeur reste utilisable,
+   simplement sans filet. */
+const studioCore = typeof AtelierStudioCore === "undefined" ? null : AtelierStudioCore;
+const drafts = studioCore ? studioCore.createDraftKeeper({
+  path,
+  getText: () => editor ? editor.getMarkdown() : "",
+  getBase: () => ({text: baseText, mtime: diskMtime}),
+  isDirty: () => dirty,
+  postToHost: (payload) => { if(window.__atelierPost) window.__atelierPost(payload); },
+}) : {
+  noteChange(){}, setDirty(_dirty: boolean){}, announce(){},
+  restore: async (_adopt: unknown) => ({outcome: "none" as const, savedAt: null as number | null}),
+};
+function setDirty(next: boolean){
+  if(dirty === next) return;
+  dirty = next;
+  drafts.setDirty(next);
+}
 
 async function loadDocument(){
   const loadState = (document.getElementById("loadState") as HTMLDivElement);
@@ -23,6 +47,7 @@ async function loadDocument(){
     }
     (document.getElementById("ed") as HTMLDivElement).hidden = false;
     diskMtime = j.mtime;
+    baseText = j.text;
     editor = new toastui.Editor({
       el: (document.getElementById("ed") as HTMLDivElement),
       initialValue: j.text,
@@ -43,7 +68,7 @@ async function loadDocument(){
     });
     editor.on("change", () => {
       if(loading) return;
-      localRevision += 1; dirty = true; setState("dirty", "modifié");
+      localRevision += 1; setDirty(true); drafts.noteChange(); setState("dirty", "modifié");
       if(selectionActions) selectionActions.refresh();
     });
     if(window.self !== window.top){
@@ -56,6 +81,22 @@ async function loadDocument(){
     setState("", "");
     (document.getElementById("mdTools") as HTMLDivElement).classList.add("mounted");
     loadState.hidden = true;
+    const restored = await drafts.restore((draft) => {
+      const plan = studioCore.planDraftRestore(draft, {text: j.text, mtime: j.mtime});
+      if(plan.outcome === "none") return "none";
+      loading = true;
+      editor.setMarkdown(plan.text, false);
+      loading = false;
+      baseText = plan.base; diskMtime = plan.baseMtime; localRevision += 1;
+      setDirty(true);
+      return plan.outcome;
+    });
+    if(restored.outcome !== "none"){
+      const when = studioCore.formatDraftTime(restored.savedAt);
+      setState("dirty", "brouillon non enregistré" + (when ? " du " + when : "") + " restauré"
+        + (restored.outcome === "conflict" ? " — le fichier a changé depuis, ⌘S signalera le conflit" : " — ⌘S pour l'enregistrer"));
+      if(selectionActions) selectionActions.refresh();
+    }
   } catch(error) {
     (document.getElementById("ed") as HTMLDivElement).hidden = true;
     message.textContent = "Impossible de charger le document : " + (error.name === "AbortError" ? "délai dépassé" : error.message);
@@ -79,15 +120,15 @@ async function save(){
     const j = await r.json();
     if(j.error === "conflit"){
       if(Number.isFinite(j.mtime)) diskMtime = j.mtime;
-      dirty = true; setState("dirty", "conflit disque — re-⌘S pour écraser"); return;
+      setDirty(true); setState("dirty", "conflit disque — re-⌘S pour écraser"); return;
     }
     if(!r.ok || j.error || !Number.isFinite(j.mtime)) throw new Error(j.error || ("Réponse invalide (HTTP " + r.status + ")"));
-    diskMtime = j.mtime; localRevision += 1;
+    diskMtime = j.mtime; localRevision += 1; baseText = text;
     // Une retouche faite pendant l'écriture n'appartient pas au texte confirmé.
-    dirty = editor.getMarkdown() !== text;
+    setDirty(editor.getMarkdown() !== text);
     setState(dirty ? "dirty" : "", dirty ? "modifié" : "sauvegardé " + new Date().toLocaleTimeString());
   } catch(error) {
-    dirty = true;
+    setDirty(true);
     setState("dirty", "Échec de la sauvegarde : " + (error.name === "AbortError" ? "délai dépassé — réessayer" : error.message));
   } finally {
     clearTimeout(timeout); saving = false; button.disabled = false; button.removeAttribute("aria-busy");
@@ -110,7 +151,7 @@ setInterval(async () => {
       const full = await (await fetch("/code?path=" + encodeURIComponent(path))).json();
       if(revision !== localRevision || dirty || saving || typeof full.text !== "string" || !Number.isFinite(full.mtime)) return;
       loading = true;
-      diskMtime = full.mtime;
+      diskMtime = full.mtime; baseText = full.text;
       editor.setMarkdown(full.text, false);
       if(selectionActions) selectionActions.refresh();
       loading = false;

@@ -430,6 +430,62 @@ fn path_escape_rejected() {
 }
 
 #[test]
+fn un_brouillon_d_editeur_survit_puis_s_efface_sans_toucher_au_fichier() {
+    // Problème 1 de l'audit du 2026-10-18 : un tampon non enregistré doit
+    // survivre au démontage de l'éditeur, sans jamais être écrit dans le
+    // fichier lui-même.
+    let srv = start_server();
+    let target = srv.root.join("script.py");
+    let path = target.to_str().unwrap().to_string();
+    let query = format!("/draft?path={}", path.replace('/', "%2F"));
+    let (st, body) = http(srv.port, "GET", &query, None);
+    assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["draft"], serde_json::Value::Null, "aucun brouillon au départ");
+
+    let payload = serde_json::json!({
+        "path": path,
+        "text": "print('tapé sans ⌘S')\n",
+        "base": "print('fixture')\n",
+        "baseMtime": 12.5,
+    })
+    .to_string();
+    let (st, body) = http(srv.port, "POST", "/draft", Some(&payload));
+    assert_eq!(st, 200, "{body}");
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        "print('fixture')\n",
+        "le fichier n'est jamais écrit par un brouillon"
+    );
+    let (st, body) = http(srv.port, "GET", &query, None);
+    assert_eq!(st, 200);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["draft"]["text"], "print('tapé sans ⌘S')\n");
+    assert_eq!(v["draft"]["base"], "print('fixture')\n");
+    assert_eq!(v["draft"]["baseMtime"], 12.5);
+    assert!(v["draft"]["savedAt"].as_f64().unwrap() > 0.0);
+
+    // Une autre origine ne peut ni écrire ni effacer un brouillon.
+    let (st, _) = http_with_origin(srv.port, "POST", "/draft", Some(&payload), Some("https://evil.example"));
+    assert_eq!(st, 403);
+    // Hors projet : refusé.
+    let outside = serde_json::json!({"path": "/etc/passwd", "text": "x"}).to_string();
+    let (st, _) = http(srv.port, "POST", "/draft", Some(&outside));
+    assert_eq!(st, 403);
+
+    let clear = serde_json::json!({"path": path, "clear": true}).to_string();
+    let (st, body) = http(srv.port, "POST", "/draft", Some(&clear));
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains("\"cleared\":true"), "{body}");
+    let (_, body) = http(srv.port, "GET", &query, None);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["draft"], serde_json::Value::Null, "brouillon effacé");
+    // Effacer deux fois n'est pas une erreur.
+    let (st, _) = http(srv.port, "POST", "/draft", Some(&clear));
+    assert_eq!(st, 200);
+}
+
+#[test]
 fn options_preflight() {
     let srv = start_server();
     let (st, body) = http(srv.port, "OPTIONS", "/state", None);

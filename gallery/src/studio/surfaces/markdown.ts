@@ -7,6 +7,8 @@ import {
 import {
   attachEditorSelection,
   createDocumentSession,
+  createDraftKeeper,
+  formatDraftTime,
   installStudioCommands,
   type StudioEditor,
   type StudioEditorFactory,
@@ -75,6 +77,15 @@ export function bootstrapMarkdownSurface(dependencies: MarkdownSurfaceDependenci
     document: doc,
     window: win,
   });
+  // Brouillon de secours (audit 2026-10-18, problème 1).
+  const drafts = createDraftKeeper({
+    path,
+    getText: () => editor?.getValue() || preview.source(),
+    getBase: () => ({text: session?.state.baseline ?? null, mtime: session?.state.mtime ?? 0}),
+    isDirty: () => Boolean(session?.state.dirty),
+    postToHost: (payload) => (win as Window & {__atelierPost?(p: Record<string, unknown>): void}).__atelierPost?.(payload),
+    window: win,
+  });
   const ensureSession = (): ReturnType<typeof createDocumentSession> => {
     if (session) return session;
     if (!path) throw new Error("No editable Markdown path");
@@ -105,6 +116,7 @@ export function bootstrapMarkdownSurface(dependencies: MarkdownSurfaceDependenci
         editor?.setValue(text);
       },
       externalReload: "when-clean",
+      onDirtyChange: (dirty) => drafts.setDirty(dirty),
       onEvent: (event) => {
         if (event.kind === "loaded") setState("saved", "saved");
         else if (event.kind === "saved") setState("saved", `saved ${new Date().toLocaleTimeString()}`);
@@ -131,6 +143,7 @@ export function bootstrapMarkdownSurface(dependencies: MarkdownSurfaceDependenci
       preview.render(editor!.getValue());
       if (change?.origin !== "setValue") {
         ensureSession().markDirty();
+        drafts.noteChange();
         setState("dirty", "modified");
       }
     });
@@ -179,6 +192,13 @@ export function bootstrapMarkdownSurface(dependencies: MarkdownSurfaceDependenci
       await ensureSession().load();
     } catch (error) {
       preview.showError(`Server off — ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    const restored = await drafts.restore((draft) => ensureSession().adoptDraft(draft));
+    if (restored.outcome !== "none") {
+      const when = formatDraftTime(restored.savedAt);
+      setState(restored.outcome === "conflict" ? "conflict" : "dirty",
+        `brouillon non enregistré${when ? ` du ${when}` : ""} restauré${restored.outcome === "conflict" ? " — le fichier a changé depuis, ⌘S signalera le conflit" : " — ⌘S pour l'enregistrer"}`);
     }
   };
   void load();

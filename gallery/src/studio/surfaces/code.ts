@@ -3,7 +3,10 @@ import {createCsvViewController, type CsvToolkit} from "../features/code";
 import {
   addRecentStudioFile,
   attachEditorSelection,
+  createDiskMerge,
   createDocumentSession,
+  createDraftKeeper,
+  formatDraftTime,
   createEditorWrapController,
   createStudioDiffController,
   installChatAttach,
@@ -11,6 +14,7 @@ import {
   installStudioCommands,
   type StudioDiffController,
   type StudioDiffFactoryOptions,
+  type JsDiffLike,
   type StudioDiffJournal,
   type StudioEditor,
   type StudioEditorFactory,
@@ -89,6 +93,18 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
     window: win,
     storage: win.localStorage,
   });
+  const postToHost = (payload: Record<string, unknown>): void =>
+    (win as Window & {__atelierPost?(p: Record<string, unknown>): void}).__atelierPost?.(payload);
+  // Brouillon de secours : le tampon modifié survit au démontage de l'iframe
+  // et revient, modifié, à la réouverture (audit 2026-10-18, problème 1).
+  const drafts = createDraftKeeper({
+    path,
+    getText: () => editor?.getValue() || "",
+    getBase: () => ({text: session?.state.baseline ?? null, mtime: session?.state.mtime ?? 0}),
+    isDirty: () => Boolean(session?.state.dirty),
+    postToHost,
+    window: win,
+  });
   const ensureSession = (): ReturnType<typeof createDocumentSession> => {
     if (session) return session;
     if (!path) throw new Error("No file path");
@@ -118,8 +134,13 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
         if (editor) editor.setValue(text);
         else initializeEditor(text);
       },
-      externalReload: "always",
-      conflictPolicy: "reload",
+      // Un tampon modifié n'est jamais remplacé : le changement disque s'y
+      // fusionne, ou le conflit est signalé (audit 2026-10-18, problème 4 —
+      // avant, « always » rechargeait toutes les 2 s par-dessus les retouches).
+      externalReload: "when-clean",
+      merge: createDiskMerge(() => (win as Window & {Diff?: JsDiffLike}).Diff, path),
+      conflictPolicy: "merge",
+      onDirtyChange: (dirty) => drafts.setDirty(dirty),
       onEvent: (event) => {
         if (event.kind === "loaded") {
           addRecentStudioFile(path, win.localStorage);
@@ -137,7 +158,19 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
             diff.push(event.previousText, event.snapshot.text, {source: "external-reload", status: "applied"});
           }
           csv.onDocumentChanged();
-        } else if (event.kind === "conflict" || event.kind === "error") setState("conflict", event.message);
+        } else if (event.kind === "external-merge") {
+          setState("dirty", "version de l'agent fusionnée avec tes retouches");
+          if (event.previousText !== event.text) {
+            diff.push(event.previousText, event.text, {source: "external-merge", status: "applied"});
+          }
+          csv.onDocumentChanged();
+        } else if (event.kind === "conflict") {
+          // La version de l'agent entre dans l'historique, le tampon reste.
+          if (event.snapshot && event.previousText != null && event.previousText !== event.snapshot.text) {
+            diff.push(event.previousText, event.snapshot.text, {source: "external-conflict", status: "applied"});
+          }
+          setState("conflict", event.message);
+        } else if (event.kind === "error") setState("conflict", event.message);
       },
     });
     return session;
@@ -162,6 +195,7 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
       const change = args[1] as {origin?: string} | undefined;
       if (change?.origin !== "setValue") {
         ensureSession().markDirty();
+        drafts.noteChange();
         setState("dirty", "modified");
       }
     });
@@ -189,7 +223,7 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
     path,
     // L'éditeur de code n'a pas de dépendance postToHost : il parle à l'app par
     // le pont d'hôte installé au bootstrap, comme ses actions de sélection.
-    postToHost: (payload) => (win as Window & {__atelierPost?(p: Record<string, unknown>): void}).__atelierPost?.(payload),
+    postToHost,
     notify: (message, kind) => setState(kind === "error" ? "conflict" : "saved", message),
     window: win,
   });
@@ -246,7 +280,20 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
     if (win.document.hidden) return; // onglet masqué : aucune sonde
     if (editor && !diff.isBusy()) void ensureSession().pollOnce();
   }, 2000);
-  const load = (): Promise<unknown> => path ? ensureSession().load() : Promise.resolve(null);
-  void load();
+  const load = async (): Promise<unknown> => {
+    if (!path) return null;
+    const snapshot = await ensureSession().load();
+    const restored = await drafts.restore((draft) => ensureSession().adoptDraft(draft));
+    if (restored.outcome !== "none") {
+      const when = formatDraftTime(restored.savedAt);
+      const since = when ? ` du ${when}` : "";
+      setState(restored.outcome === "conflict" ? "conflict" : "dirty", restored.outcome === "conflict"
+        ? `brouillon non enregistré${since} restauré — le fichier a changé depuis au même endroit, ⌘S signalera le conflit`
+        : `brouillon non enregistré${since} restauré — ⌘S pour l'enregistrer`);
+      csv.onDocumentChanged();
+    }
+    return snapshot;
+  };
+  void load().catch(() => undefined); // l'échec s'affiche par l'événement « error »
   return {getEditor: () => editor, load, save, diff};
 }
