@@ -70,6 +70,8 @@ function estimateLine(job: NonNullable<ComputeJobEvent["job"]>): string {
   return parts.join(" · ");
 }
 
+type Decision = "launch" | "refuse" | "cancel";
+
 export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
   const job = event.job;
   const lines = useMemo(() => (job?.script ?? "").split(/\r?\n/), [job?.script]);
@@ -78,39 +80,34 @@ export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
   const decided = event.status !== "proposed";
   const collapsible = decided || lines.length > SCRIPT_PREVIEW_LINES;
   const [expanded, setExpanded] = useState(false);
-  const [always, setAlways] = useState(false);
-  const [confirmCancel, setConfirmCancel] = useState(false);
-  const [sent, setSent] = useState<"launch" | "refuse" | "cancel" | null>(null);
-  const [error, setError] = useState("");
-
-  // Un nouvel état venu du serveur clôt la demande en vol.
-  useEffect(() => {
-    setSent(null);
-    setError("");
-    if (event.status !== "queued" && event.status !== "running") setConfirmCancel(false);
-  }, [event.status]);
+  // Demande en vol et refus du serveur valent pour l'état où ils sont nés :
+  // un nouvel état venu du serveur les périme sans effet de remise à zéro.
+  const [pending, setPending] = useState<{ decision: Decision; status: ComputeJobStatus } | null>(null);
+  const [failure, setFailure] = useState<{ text: string; status: ComputeJobStatus } | null>(null);
+  const sent = pending?.status === event.status ? pending.decision : null;
+  const error = failure?.status === event.status ? failure.text : "";
 
   useEffect(() => {
     const onReply = (e: Event) => {
       const msg = (e as CustomEvent).detail as { jobId?: string; error?: string } | undefined;
       if (msg?.jobId !== event.jobId) return;
-      setSent(null);
-      setError(msg.error ? t("compute.error", { message: msg.error }) : "");
+      setPending(null);
+      setFailure(msg.error ? { text: t("compute.error", { message: msg.error }), status: event.status } : null);
     };
     window.addEventListener("compute-job-decision", onReply);
     return () => window.removeEventListener("compute-job-decision", onReply);
-  }, [event.jobId]);
+  }, [event.jobId, event.status]);
 
-  const decide = (decision: "launch" | "refuse" | "cancel") => {
-    setError("");
+  const decide = (decision: Decision, always = false) => {
+    setFailure(null);
     const ok = wsSend({ type: "computeJobDecision", jobId: event.jobId, decision, always: decision === "launch" && always });
-    if (ok) setSent(decision);
-    else setError(t("compute.unavailable"));
+    if (ok) setPending({ decision, status: event.status });
+    else setFailure({ text: t("compute.unavailable"), status: event.status });
   };
 
   const host = job?.hostLabel ?? "";
-  const live = event.status === "queued" || event.status === "running";
   const script = expanded || !collapsible ? job?.script ?? "" : lines.slice(0, SCRIPT_PREVIEW_LINES).join("\n");
+  const noteIsError = Boolean(error) || event.status === "launch_failed" || event.status === "failed";
 
   return (
     <section className="compute-job" data-testid="compute-job-card" data-status={event.status}>
@@ -123,24 +120,7 @@ export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
       {job ? (
         <div className="compute-job-body">
           {job.purpose ? <p className="compute-job-purpose">{job.purpose}</p> : null}
-          <dl className="compute-job-facts">
-            <dt>{t("compute.workdir")}</dt>
-            <dd className="compute-job-mono">{job.workDir}</dd>
-            {resourcesLine(job) ? (
-              <>
-                <dt>{t("compute.resources")}</dt>
-                <dd>{resourcesLine(job)}</dd>
-              </>
-            ) : null}
-            <dt>{t("compute.estimate")}</dt>
-            <dd>{estimateLine(job)}</dd>
-            {event.remoteId ? (
-              <>
-                <dt>{t("compute.remote-id")}</dt>
-                <dd className="compute-job-mono">{event.remoteId}</dd>
-              </>
-            ) : null}
-          </dl>
+          <JobFacts job={job} remoteId={event.remoteId} />
           <div className="compute-job-script-head">
             <span>{t("compute.script")}</span>
             {collapsible ? (
@@ -157,43 +137,83 @@ export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
         </div>
       ) : null}
       {event.message || error || event.auto ? (
-        <p className={`compute-job-note${error || event.status === "launch_failed" || event.status === "failed" ? " is-error" : ""}`} role="status">
+        <p className={`compute-job-note${noteIsError ? " is-error" : ""}`} role="status">
           {error || event.message || t("compute.auto")}
         </p>
       ) : null}
-      {event.status === "proposed" ? (
-        <footer className="compute-job-actions">
-          <Button variant="primary" loading={sent === "launch"} disabled={sent !== null} onClick={() => decide("launch")}>
-            {t("compute.launch")}
-          </Button>
-          <Button variant="ghost" disabled={sent !== null} onClick={() => decide("refuse")}>
-            {t("compute.refuse")}
-          </Button>
-          <label className="compute-job-always">
-            <Checkbox checked={always} aria-label={t("compute.always")} disabled={sent !== null}
-              onCheckedChange={(value) => setAlways(Boolean(value))}>
-              <CheckboxIndicator><Check size={12} strokeWidth={1.5} /></CheckboxIndicator>
-            </Checkbox>
-            <span>{t("compute.always")}</span>
-          </label>
-        </footer>
-      ) : live ? (
-        <footer className="compute-job-actions">
-          {confirmCancel ? (
-            <>
-              <span className="compute-job-confirm">{t("compute.cancel-confirm", { host })}</span>
-              <Button variant="danger" loading={sent === "cancel"} disabled={sent !== null} onClick={() => decide("cancel")}>
-                {t("compute.cancel-yes")}
-              </Button>
-              <Button variant="ghost" disabled={sent !== null} onClick={() => setConfirmCancel(false)}>
-                {t("compute.cancel-no")}
-              </Button>
-            </>
-          ) : (
-            <Button variant="ghost" onClick={() => setConfirmCancel(true)}>{t("compute.cancel")}</Button>
-          )}
-        </footer>
-      ) : null}
+      <JobActions status={event.status} host={host} sent={sent} onDecide={decide} />
     </section>
+  );
+}
+
+function JobFacts({ job, remoteId }: { job: NonNullable<ComputeJobEvent["job"]>; remoteId?: string | null }) {
+  const resources = resourcesLine(job);
+  return (
+    <dl className="compute-job-facts">
+      <dt>{t("compute.workdir")}</dt>
+      <dd className="compute-job-mono">{job.workDir}</dd>
+      {resources ? (
+        <>
+          <dt>{t("compute.resources")}</dt>
+          <dd>{resources}</dd>
+        </>
+      ) : null}
+      <dt>{t("compute.estimate")}</dt>
+      <dd>{estimateLine(job)}</dd>
+      {remoteId ? (
+        <>
+          <dt>{t("compute.remote-id")}</dt>
+          <dd className="compute-job-mono">{remoteId}</dd>
+        </>
+      ) : null}
+    </dl>
+  );
+}
+
+/** Lancer / Refuser avant le clic ; Annuler (avec confirmation) pendant la tâche. */
+function JobActions({ status, host, sent, onDecide }: {
+  status: ComputeJobStatus;
+  host: string;
+  sent: Decision | null;
+  onDecide: (decision: Decision, always?: boolean) => void;
+}) {
+  const [always, setAlways] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  if (status === "proposed") {
+    return (
+      <footer className="compute-job-actions">
+        <Button variant="primary" loading={sent === "launch"} disabled={sent !== null} onClick={() => onDecide("launch", always)}>
+          {t("compute.launch")}
+        </Button>
+        <Button variant="ghost" disabled={sent !== null} onClick={() => onDecide("refuse")}>
+          {t("compute.refuse")}
+        </Button>
+        <label className="compute-job-always">
+          <Checkbox checked={always} aria-label={t("compute.always")} disabled={sent !== null}
+            onCheckedChange={(value) => setAlways(Boolean(value))}>
+            <CheckboxIndicator><Check size={12} strokeWidth={1.5} /></CheckboxIndicator>
+          </Checkbox>
+          <span>{t("compute.always")}</span>
+        </label>
+      </footer>
+    );
+  }
+  if (status !== "queued" && status !== "running") return null;
+  return (
+    <footer className="compute-job-actions">
+      {confirmCancel ? (
+        <>
+          <span className="compute-job-confirm">{t("compute.cancel-confirm", { host })}</span>
+          <Button variant="danger" loading={sent === "cancel"} disabled={sent !== null} onClick={() => onDecide("cancel")}>
+            {t("compute.cancel-yes")}
+          </Button>
+          <Button variant="ghost" disabled={sent !== null} onClick={() => setConfirmCancel(false)}>
+            {t("compute.cancel-no")}
+          </Button>
+        </>
+      ) : (
+        <Button variant="ghost" onClick={() => setConfirmCancel(true)}>{t("compute.cancel")}</Button>
+      )}
+    </footer>
   );
 }

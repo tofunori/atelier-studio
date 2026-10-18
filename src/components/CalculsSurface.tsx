@@ -508,7 +508,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
           <span className="calculs-muted">{t("compute.hosts-view")}</span>
           {paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
         </div>
-        <ComputeHostsView visible={visible} />
+        <ComputeHostsView />
       </div>
     );
   }

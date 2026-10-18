@@ -29,7 +29,7 @@ type HostsReply = { type: "computeHosts"; requestId?: string; hosts?: ComputeHos
 let requestSeq = 0;
 const nextRequestId = () => `compute-hosts-${Date.now()}-${++requestSeq}`;
 
-export function ComputeHostsView({ visible }: { visible: boolean }) {
+export function ComputeHostsView() {
   const [hosts, setHosts] = useState<ComputeHostSheet[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
@@ -66,7 +66,8 @@ export function ComputeHostsView({ visible }: { visible: boolean }) {
       if (msg.error) {
         setNotice({ text: msg.error, error: true });
       } else if (request.kind === "import") {
-        const labels = (msg.hosts ?? []).filter((h) => msg.imported?.includes(h.host)).map((h) => h.label);
+        const imported = new Set(msg.imported ?? []);
+        const labels = (msg.hosts ?? []).flatMap((h) => (imported.has(h.host) ? [h.label] : []));
         setNotice({ text: labels.length ? t("compute.hosts-imported", { hosts: labels.join(", ") }) : t("compute.hosts-import-none") });
       } else if (request.kind === "save" && request.host) {
         setSavedHost(request.host);
@@ -81,10 +82,15 @@ export function ComputeHostsView({ visible }: { visible: boolean }) {
     return () => window.removeEventListener("compute-hosts", onMessage);
   }, []);
 
+  // Lecture à l'ouverture de la vue (elle est remontée à chaque ouverture).
   useEffect(() => {
-    if (visible) send({ type: "computeHosts" }, "load");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+    const requestId = nextRequestId();
+    pending.current.set(requestId, { kind: "load" });
+    if (!wsSend({ type: "computeHosts", requestId })) {
+      pending.current.delete(requestId);
+      setNotice({ text: t("compute.unavailable"), error: true });
+    }
+  }, []);
 
   const importSheets = () => {
     setNotice(null);
