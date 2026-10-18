@@ -4,9 +4,13 @@ on:
     branches: [main]
   pull_request:
 
+# Un nouveau push sur une PR annule le run précédent de cette PR (seul le
+# dernier état compte). Sur main, chaque commit garde son run jusqu'au bout :
+# annuler laisserait des commits fusionnés sans verdict, et un rouge introduit
+# par l'un d'eux serait imputé au suivant.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Les contrôles sont répartis sur trois machines en parallèle (verify, puis
@@ -53,11 +57,13 @@ jobs:
           -p atelier-pdf --bin atelier-pdf
       - name: Gallery E2E (shard ${{ matrix.shard }}/2)
         run: npm --prefix gallery run test:e2e -- --shard=${{ matrix.shard }}/2
+      # `!cancelled()` : les états visuels tournent même si les E2E du shard ont
+      # échoué, pour qu'un rouge E2E ne masque pas une régression visuelle.
       - name: Install Playwright Chromium (root, golden states)
-        if: matrix.shard == 1
+        if: matrix.shard == 1 && !cancelled()
         run: npx playwright install chromium
       - name: Visual golden states (plan 021 — baselines committées, jamais d'auto-update)
-        if: matrix.shard == 1
+        if: matrix.shard == 1 && !cancelled()
         run: npm run test:visual
       - name: Upload test results on failure
         if: failure()

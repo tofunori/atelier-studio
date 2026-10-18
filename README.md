@@ -101,6 +101,7 @@ To build the desktop app, see [Build from source](docs/INSTALLATION.md#build-fro
 - `npm run verify` runs the repository checks.
 - `npm run verify:e2e` runs gallery end-to-end checks.
 - `npm run test:visual` runs visual regression checks separately.
+- [Flaky test register](docs/TESTS_INSTABLES.md) (in French): every intermittent CI failure, its cause and status. Record one there before re-running a red build.
 - [TypeScript sources](docs/agent-reference/typescript-sources.md): source locations, dependency setup, generated resources and checks.
 - [Website](website/README.md): local preview and production build.
 - [Public media](scripts/public-demo/README.md): regenerate the fictional demonstration captures.
