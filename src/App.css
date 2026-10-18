@@ -337,10 +337,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-vars-head svg { transform: rotate(-90deg); transition: transform 140ms ease; }
 .kernel-vars[data-open="true"] .kernel-vars-head svg { transform: none; }
 .kernel-vars-count { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
-.kernel-vars-list { display: grid; grid-template-columns: minmax(0, auto) minmax(0, auto) 1fr; gap: 0 24px;
-  max-height: 132px; overflow: auto; padding: 4px 0 4px 20px; font-size: var(--fs-m); }
-.kernel-var { display: contents; }
-.kernel-var-name { font-family: var(--font-code); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kernel-vars-list { max-height: 132px; overflow: auto; padding: 4px 0 4px 20px; }
+.kernel-vars-list table { border-collapse: collapse; font-size: var(--fs-m); }
+.kernel-vars-list td { padding: 0 24px 0 0; line-height: 1.5; white-space: nowrap; }
+.kernel-var-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-code); }
 .kernel-var-type { color: var(--text-muted); }
 .kernel-var-size { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .kernel-vars-empty { margin: 4px 0 0 20px; color: var(--text-muted); font-size: var(--fs-m); }

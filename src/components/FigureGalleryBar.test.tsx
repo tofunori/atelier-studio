@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage } from "../lib/i18n";
-import { MarkdownImage, MdThreadContext } from "./chat/md";
+import { MarkdownImage } from "./chat/md";
+import { MdThreadContext } from "./chat/mdThread";
 
 describe("figure locale dans le chat", () => {
   beforeEach(() => { resetTestState(); setLanguage("fr"); });

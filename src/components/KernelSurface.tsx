@@ -3,7 +3,7 @@
 // comme les blocs du chat, figures captées, variables en mémoire ; on y
 // sélectionne du code ou une sortie pour l'envoyer au chat, comme dans le
 // lecteur PDF et l'éditeur LaTeX.
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createSelectionActions } from "../../gallery/src/studio/features/annotation_ui";
 import { t } from "../lib/i18n";
 import {
@@ -75,8 +75,7 @@ export function KernelFigure({ path, threadId, cell }: { path: string; threadId:
   useEffect(() => {
     let disposed = false;
     let owned: string | undefined;
-    setUrl(null);
-    setFailed(false);
+    // Chaque figure a sa clé (son chemin) : pas d'état à remettre à zéro ici.
     void localImagePreviewUrl(path).then((next) => {
       if (next.startsWith("blob:")) owned = next;
       if (disposed) { if (owned) URL.revokeObjectURL(owned); return; }
@@ -112,60 +111,77 @@ function Files({ kind, files, projectRoot }: { kind: "read" | "written"; files?:
   </>;
 }
 
-// Mémoïsée : un nouveau rendu de la surface (capsule de sélection) ne doit pas
-// réécrire le code coloré, ce qui effacerait la sélection en cours.
-export const KernelCellView = memo(function KernelCellView({ cell, threadId, projectRoot }: { cell: KernelCell; threadId: string; projectRoot?: string }) {
+function CellHead({ cell, threadId }: { cell: KernelCell; threadId: string }) {
   const running = cell.status === "running";
   const elapsed = useElapsed(cell.startedAt, running);
   const [copied, setCopied] = useState(false);
+  const copyLabel = copied ? t("kernel.copied") : t("kernel.copy");
+  return (
+    <div className="kernel-cell-head">
+      <span className="kernel-cell-time">{clock(cell.startedAt)}</span>
+      {running ? <>
+        <span className="kernel-cell-live"><span className="kernel-dot" />{t("kernel.running-for", { s: elapsed })}</span>
+        <Button variant="ghost" size="xs" onClick={() => void kernelCommand(threadId, "interrupt").catch(() => {})}>
+          {Icon.stop}{t("kernel.interrupt")}
+        </Button>
+      </> : <>
+        {cell.status === "error" ? <span className="kernel-cell-error">{t("kernel.error")}</span> : null}
+        <span>{duration(cell.durationMs)}</span>
+      </>}
+      <IconButton size="s" className="ghost kernel-copy" label={copyLabel} title={copyLabel}
+        onClick={() => { void navigator.clipboard?.writeText(cell.code).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1200); }); }}>
+        {copied ? Icon.check : Icon.copy}
+      </IconButton>
+    </div>
+  );
+}
+
+/** Sorties d'une cellule : stdout, stderr, valeur rendue, erreur. */
+function CellOutputs({ cell }: { cell: KernelCell }) {
   // React 19 réécrit innerHTML dès que l'objet __html change d'identité, même
-  // à texte égal : objets mémoïsés, sinon le chrono d'une cellule en cours
-  // effacerait chaque seconde la sélection faite dans son code.
-  const code = useMemo(() => ({ __html: highlightCode(cell.code, "python") }), [cell.code]);
+  // à texte égal : objet mémoïsé, sinon un nouveau rendu effacerait la
+  // sélection faite dans le résultat.
   const result = useMemo(() => (cell.result ? { __html: highlightCode(cell.result, "python") } : null), [cell.result]);
   const traceback = cell.error?.traceback?.trim() ?? "";
+  const stderr = cell.status !== "error" && cell.stderr?.trim() ? cell.stderr : "";
+  return <>
+    {cell.stdout ? <pre className="kernel-out" data-part="output">{cell.stdout}</pre> : null}
+    {stderr ? <pre className="kernel-out kernel-stderr" data-part="output">{stderr}</pre> : null}
+    {result ? (
+      <div className="kernel-result">
+        <span className="kernel-result-label" aria-hidden="true">Out</span>
+        <pre className="kernel-out hljs" data-part="output"><code dangerouslySetInnerHTML={result} /></pre>
+      </div>
+    ) : null}
+    {cell.error ? (
+      <pre className="kernel-out kernel-error" data-part="output">
+        <span className="kernel-ename">{cell.error.ename}</span>{cell.error.evalue ? `: ${cell.error.evalue}` : ""}
+        {traceback ? <span className="kernel-traceback">{`\n${traceback}`}</span> : null}
+      </pre>
+    ) : null}
+  </>;
+}
+
+// Mémoïsée : un nouveau rendu de la surface (capsule de sélection) ne doit pas
+// réécrire le code coloré, ce qui effacerait la sélection en cours.
+export const KernelCellView = memo(function KernelCellView({ cell, threadId, projectRoot }: { cell: KernelCell; threadId: string; projectRoot?: string }) {
+  // Même raison que dans CellOutputs : le chrono d'une cellule en cours
+  // rerend chaque seconde.
+  const code = useMemo(() => ({ __html: highlightCode(cell.code, "python") }), [cell.code]);
+  const hasFiles = !!(cell.filesRead?.length || cell.filesWritten?.length);
   return (
     <article className="kernel-cell" data-status={cell.status} data-cell={cell.id} data-testid="kernel-cell">
-      <span className="kernel-cell-num" aria-hidden="true">[{running ? "*" : cell.id}]</span>
+      <span className="kernel-cell-num" aria-hidden="true">[{cell.status === "running" ? "*" : cell.id}]</span>
       <div className="kernel-cell-body">
-        <div className="kernel-cell-head">
-          <span className="kernel-cell-time">{clock(cell.startedAt)}</span>
-          {running ? <>
-            <span className="kernel-cell-live"><span className="kernel-dot" />{t("kernel.running-for", { s: elapsed })}</span>
-            <Button variant="ghost" size="xs" onClick={() => void kernelCommand(threadId, "interrupt").catch(() => {})}>
-              {Icon.stop}{t("kernel.interrupt")}
-            </Button>
-          </> : <>
-            {cell.status === "error" ? <span className="kernel-cell-error">{t("kernel.error")}</span> : null}
-            <span>{duration(cell.durationMs)}</span>
-          </>}
-          <IconButton size="s" className="ghost kernel-copy" label={copied ? t("kernel.copied") : t("kernel.copy")}
-            title={copied ? t("kernel.copied") : t("kernel.copy")}
-            onClick={() => { void navigator.clipboard?.writeText(cell.code).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1200); }); }}>
-            {copied ? Icon.check : Icon.copy}
-          </IconButton>
-        </div>
+        <CellHead cell={cell} threadId={threadId} />
         <pre className="kernel-code hljs" data-part="code"><code dangerouslySetInnerHTML={code} /></pre>
-        {cell.stdout ? <pre className="kernel-out" data-part="output">{cell.stdout}</pre> : null}
-        {cell.stderr?.trim() && cell.status !== "error" ? <pre className="kernel-out kernel-stderr" data-part="output">{cell.stderr}</pre> : null}
-        {result ? (
-          <div className="kernel-result">
-            <span className="kernel-result-label" aria-hidden="true">Out</span>
-            <pre className="kernel-out hljs" data-part="output"><code dangerouslySetInnerHTML={result} /></pre>
-          </div>
-        ) : null}
-        {cell.error ? (
-          <pre className="kernel-out kernel-error" data-part="output">
-            <span className="kernel-ename">{cell.error.ename}</span>{cell.error.evalue ? `: ${cell.error.evalue}` : ""}
-            {traceback ? <span className="kernel-traceback">{`\n${traceback}`}</span> : null}
-          </pre>
-        ) : null}
+        <CellOutputs cell={cell} />
         {cell.figures?.length ? (
           <div className="kernel-figures">
             {cell.figures.map((path) => <KernelFigure key={path} path={path} threadId={threadId} cell={cell.id} />)}
           </div>
         ) : null}
-        {cell.filesRead?.length || cell.filesWritten?.length ? (
+        {hasFiles ? (
           <div className="kernel-files">
             <Files kind="read" files={cell.filesRead} projectRoot={projectRoot} />
             <Files kind="written" files={cell.filesWritten} projectRoot={projectRoot} />
@@ -190,33 +206,43 @@ type Picked = { x: number; y: number; text: string; cell: number; part: "code" |
 
 function useKernelSelection(scroller: React.RefObject<HTMLElement | null>) {
   const [picked, setPicked] = useState<Picked | null>(null);
-  const onMouseUp = (_event: ReactMouseEvent) => {
-    // Laisser le navigateur finir la sélection (double clic, triple clic).
-    window.setTimeout(() => {
-      const root = scroller.current;
-      const selection = window.getSelection();
-      const text = selection?.toString().trim() ?? "";
-      if (!root || !selection || !text || selection.rangeCount === 0) { setPicked(null); return; }
-      const range = selection.getRangeAt(0);
-      const anchor = range.commonAncestorContainer instanceof Element
-        ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
-      const article = anchor?.closest<HTMLElement>(".kernel-cell");
-      if (!article || !root.contains(article)) { setPicked(null); return; }
-      const pre = anchor?.closest<HTMLElement>("pre[data-part]");
-      const part = pre?.dataset.part === "code" ? "code" : "output";
-      // La capsule est en position fixe (.sel-toolbar) : coordonnées de la fenêtre.
-      const box = range.getBoundingClientRect();
-      setPicked({
-        x: box.left + box.width / 2,
-        y: box.top,
-        text,
-        cell: Number(article.dataset.cell),
-        part,
-        lines: part === "code" && pre ? selectedLines(pre, range) : undefined,
-      });
-    }, 0);
+  useEffect(() => {
+    const root = scroller.current;
+    if (!root) return;
+    let timer = 0;
+    const onMouseUp = () => {
+      // Laisser le navigateur finir la sélection (double clic, triple clic).
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setPicked(pickSelection(root)), 0);
+    };
+    root.addEventListener("mouseup", onMouseUp);
+    return () => { window.clearTimeout(timer); root.removeEventListener("mouseup", onMouseUp); };
+  }, [scroller]);
+  return { picked, setPicked };
+}
+
+/** Sélection courante dans une cellule du noyau, ou rien. */
+function pickSelection(root: HTMLElement): Picked | null {
+  const selection = window.getSelection();
+  const text = selection?.toString().trim() ?? "";
+  if (!selection || !text || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  const anchor = range.commonAncestorContainer instanceof Element
+    ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+  const article = anchor?.closest<HTMLElement>(".kernel-cell");
+  if (!article || !root.contains(article)) return null;
+  const pre = anchor?.closest<HTMLElement>("pre[data-part]");
+  const part = pre?.dataset.part === "code" ? "code" : "output";
+  // La capsule est en position fixe (.sel-toolbar) : coordonnées de la fenêtre.
+  const box = range.getBoundingClientRect();
+  return {
+    x: box.left + box.width / 2,
+    y: box.top,
+    text,
+    cell: Number(article.dataset.cell),
+    part,
+    lines: part === "code" && pre ? selectedLines(pre, range) : undefined,
   };
-  return { picked, setPicked, onMouseUp };
 }
 
 function SelectionBar({ picked, onDone }: { picked: Picked; onDone: () => void }) {
@@ -274,10 +300,11 @@ function EnvMenu({ threadId, current, disabled }: { threadId: string; current?: 
   );
 }
 
-function Variables({ threadId, status, refreshKey }: { threadId: string; status: KernelStatus | null; refreshKey: string }) {
+/** Monté seulement noyau en marche, avec une clé par démarrage : la liste
+ *  repart de zéro à chaque redémarrage sans effet de remise à zéro. */
+function Variables({ threadId, live, refreshKey }: { threadId: string; live: boolean; refreshKey: string }) {
   const [open, setOpen] = useState(true);
   const [vars, setVars] = useState<KernelVariable[] | null>(null);
-  const live = !!status?.running && status.busyCell == null;
   useEffect(() => {
     if (!open || !live) return;
     let cancelled = false;
@@ -286,44 +313,88 @@ function Variables({ threadId, status, refreshKey }: { threadId: string; status:
       .catch(() => {});
     return () => { cancelled = true; };
   }, [open, live, threadId, refreshKey]);
-  useEffect(() => { if (!status?.running) setVars(null); }, [status?.running]);
-  if (!status?.running) return null;
   return (
     <section className="kernel-vars" data-open={open}>
       <RowButton className="kernel-vars-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {Icon.chevron}<span>{t("kernel.variables")}</span>{vars ? <span className="kernel-vars-count">{vars.length}</span> : null}
       </RowButton>
-      {open ? (
-        vars?.length ? (
-          <div className="kernel-vars-list" role="table" aria-label={t("kernel.variables")}>
-            {vars.map((v) => (
-              <div key={v.name} className="kernel-var" role="row" title={v.repr}>
-                <span className="kernel-var-name" role="cell">{v.name}</span>
-                <span className="kernel-var-type" role="cell">{v.type.split(".").pop()}</span>
-                <span className="kernel-var-size" role="cell">{variableSize(v)}</span>
-              </div>
-            ))}
-          </div>
-        ) : vars ? <p className="kernel-vars-empty">{t("kernel.variables-empty")}</p> : null
+      {open && vars?.length ? (
+        <div className="kernel-vars-list">
+          <table aria-label={t("kernel.variables")}>
+            <tbody>
+              {vars.map((v) => (
+                <tr key={v.name} title={v.repr}>
+                  <td className="kernel-var-name">{v.name}</td>
+                  <td className="kernel-var-type">{v.type.split(".").pop()}</td>
+                  <td className="kernel-var-size">{variableSize(v)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
+      {open && vars && !vars.length ? <p className="kernel-vars-empty">{t("kernel.variables-empty")}</p> : null}
     </section>
   );
 }
 
-export default function KernelSurface({ threadId, threadTitle, enabled, projectRoot, visible }: {
-  threadId: string | null;
-  threadTitle?: string;
-  enabled: boolean;
-  projectRoot?: string;
-  visible: boolean;
+function KernelHeader({ threadId, threadTitle, enabled, status }: {
+  threadId: string; threadTitle?: string; enabled: boolean; status: KernelStatus | null;
 }) {
+  const state = stateOf(enabled, status);
+  return (
+    <header className="kernel-head">
+      <div className="kernel-titles">
+        <h2>{t("kernel.panel-title")}</h2>
+        {threadTitle ? <p>{t("kernel.thread", { title: threadTitle })}</p> : null}
+      </div>
+      <span className="kernel-state" data-state={state.key} role="status"><span className="kernel-dot" />{state.label}</span>
+      {enabled && status?.running ? <>
+        <Button variant="ghost" size="xs" onClick={() => void kernelCommand(threadId, "restart").catch(() => {})}>{Icon.restart}{t("kernel.restart")}</Button>
+        <Button variant="ghost" size="xs" onClick={() => stopKernel(threadId)}>{Icon.stop}{t("kernel.stop-short")}</Button>
+      </> : null}
+    </header>
+  );
+}
+
+function KernelMeta({ threadId, status, cellCount }: { threadId: string; status: KernelStatus | null; cellCount: number }) {
+  const kernel = status?.running ? status.kernel : undefined;
+  return (
+    <div className="kernel-meta">
+      <EnvMenu threadId={threadId} current={kernel?.env.name} disabled={status?.busyCell != null} />
+      {kernel ? <>
+        <span>Python {kernel.pythonVersion}</span>
+        <span aria-hidden="true">·</span>
+        <span className="kernel-cwd" title={kernel.cwd}>{shortCwd(kernel.cwd)}</span>
+      </> : null}
+      <span className="kernel-meta-end">
+        {t("kernel.cells-count", { n: cellCount })}{kernel ? ` · ${t("kernel.started-at", { time: clock(kernel.startedAt) })}` : ""}
+      </span>
+    </div>
+  );
+}
+
+function KernelEmpty({ enabled }: { enabled: boolean }) {
+  return (
+    <div className="kernel-empty">
+      <p>{t(enabled ? "kernel.empty" : "kernel.empty-off")}</p>
+      {!enabled ? <Button variant="secondary" size="sm" onClick={() => window.dispatchEvent(new CustomEvent("kernel-toggle"))}>{t("kernel.turn-on")}</Button> : null}
+    </div>
+  );
+}
+
+type SurfaceProps = { threadTitle?: string; enabled: boolean; projectRoot?: string; visible: boolean };
+
+/** Noyau d'un fil ; remonté (clé) quand on change de fil, la sélection et le
+ *  défilement repartent donc à neuf. */
+function KernelThread({ threadId, threadTitle, enabled, projectRoot, visible }: SurfaceProps & { threadId: string }) {
   const { cells, status } = useKernelCells(threadId, visible);
   const scroller = useRef<HTMLDivElement | null>(null);
-  const { picked, setPicked, onMouseUp } = useKernelSelection(scroller);
-  const state = stateOf(enabled, status);
-  const kernel = status?.running ? status.kernel : undefined;
+  const { picked, setPicked } = useKernelSelection(scroller);
+  const clearPicked = useCallback(() => setPicked(null), [setPicked]);
   const last = cells[cells.length - 1];
   const refreshKey = `${last?.id ?? 0}:${last?.status ?? ""}`;
+  const running = enabled && !!status?.running;
 
   // Suivre la dernière cellule tant qu'on lit déjà le bas, comme le chat.
   const pinned = useRef(true);
@@ -331,40 +402,14 @@ export default function KernelSurface({ threadId, threadTitle, enabled, projectR
     const el = scroller.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
   }, [cells.length, refreshKey]);
-  useEffect(() => { setPicked(null); }, [threadId, setPicked]);
-  const clearPicked = useCallback(() => setPicked(null), [setPicked]);
 
-  if (!threadId) {
-    return <div className="kernel-surface"><p className="kernel-empty">{t("kernel.no-thread")}</p></div>;
-  }
   return (
     <div className="kernel-surface" aria-label={t("kernel.panel-title")}>
-      <header className="kernel-head">
-        <div className="kernel-titles">
-          <h2>{t("kernel.panel-title")}</h2>
-          {threadTitle ? <p>{t("kernel.thread", { title: threadTitle })}</p> : null}
-        </div>
-        <span className="kernel-state" data-state={state.key} role="status"><span className="kernel-dot" />{state.label}</span>
-        {enabled && status?.running ? <>
-          <Button variant="ghost" size="xs" onClick={() => void kernelCommand(threadId, "restart").catch(() => {})}>{Icon.restart}{t("kernel.restart")}</Button>
-          <Button variant="ghost" size="xs" onClick={() => stopKernel(threadId)}>{Icon.stop}{t("kernel.stop-short")}</Button>
-        </> : null}
-      </header>
-      {enabled ? (
-        <div className="kernel-meta">
-          <EnvMenu threadId={threadId} current={kernel?.env.name} disabled={status?.busyCell != null} />
-          {kernel ? <>
-            <span>Python {kernel.pythonVersion}</span>
-            <span aria-hidden="true">·</span>
-            <span className="kernel-cwd" title={kernel.cwd}>{shortCwd(kernel.cwd)}</span>
-          </> : null}
-          <span className="kernel-meta-end">
-            {t("kernel.cells-count", { n: cells.length })}{kernel ? ` · ${t("kernel.started-at", { time: clock(kernel.startedAt) })}` : ""}
-          </span>
-        </div>
-      ) : null}
-      {enabled ? <Variables threadId={threadId} status={status} refreshKey={refreshKey} /> : null}
-      <div className="kernel-scroll" ref={scroller} onMouseUp={onMouseUp}
+      <KernelHeader threadId={threadId} threadTitle={threadTitle} enabled={enabled} status={status} />
+      {enabled ? <KernelMeta threadId={threadId} status={status} cellCount={cells.length} /> : null}
+      {running ? <Variables key={status?.kernel?.startedAt ?? "on"} threadId={threadId}
+        live={status?.busyCell == null} refreshKey={refreshKey} /> : null}
+      <div className="kernel-scroll" ref={scroller}
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
@@ -374,14 +419,16 @@ export default function KernelSurface({ threadId, threadTitle, enabled, projectR
           <div className="kernel-cells">
             {cells.map((cell) => <KernelCellView key={cell.id} cell={cell} threadId={threadId} projectRoot={projectRoot} />)}
           </div>
-        ) : (
-          <div className="kernel-empty">
-            <p>{t(enabled ? "kernel.empty" : "kernel.empty-off")}</p>
-            {!enabled ? <Button variant="secondary" size="sm" onClick={() => window.dispatchEvent(new CustomEvent("kernel-toggle"))}>{t("kernel.turn-on")}</Button> : null}
-          </div>
-        )}
+        ) : <KernelEmpty enabled={enabled} />}
         {picked ? <SelectionBar picked={picked} onDone={clearPicked} /> : null}
       </div>
     </div>
   );
+}
+
+export default function KernelSurface({ threadId, ...rest }: SurfaceProps & { threadId: string | null }) {
+  if (!threadId) {
+    return <div className="kernel-surface"><p className="kernel-empty">{t("kernel.no-thread")}</p></div>;
+  }
+  return <KernelThread key={threadId} threadId={threadId} {...rest} />;
 }

@@ -19,7 +19,7 @@ import { IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { effortOptionsFor, sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
-import { MdThreadContext } from "./chat/md";
+import { MdThreadContext } from "./chat/mdThread";
 import { ToolOutputLine, distinctToolActions, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { useReviews } from "./chat/useReviews";

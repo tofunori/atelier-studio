@@ -2,10 +2,11 @@
 // fichier:ligne, coloration hljs, blocs code (streaming ou non), Mermaid,
 // KaTeX, découpage en blocs mémoïsés + réparation du bloc de queue pendant
 // le streaming (MdBody/MdBlock).
-import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
+import { memo, useContext, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { localImagePreviewUrl } from "../../lib/localImage";
 import { FigureGalleryBar } from "../FigureGalleryBar";
+import { MdThreadContext } from "./mdThread";
 import { useStreamingHighlight } from "./useStreamingHighlight";
 // `lib/core` + enregistrement EXPLICITE, jamais `lib/common` : common tire
 // 36 langages (375 Ko de source, 13 % de l'entrée) pour la quinzaine
@@ -572,9 +573,6 @@ export function PreBlock(props: any) {
   }
   return <MarkdownCodeBlock {...props} />;
 }
-
-/** Fil du message rendu, pour les actions galerie des images locales. */
-export const MdThreadContext = createContext<string | null>(null);
 
 /** Local paths in Markdown are files, not routes under tauri://localhost. */
 export function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
