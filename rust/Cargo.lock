@@ -161,6 +161,7 @@ dependencies = [
 name = "atelier-codebook"
 version = "0.1.0"
 dependencies = [
+ "atelier-core",
  "fs2",
  "serde_json",
  "tempfile",

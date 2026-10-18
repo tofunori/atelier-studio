@@ -12,17 +12,18 @@
 //!
 //! Les deux fichiers s'écrivent sous le verrou du serveur galerie
 //! (`pdf_annots.lock`), partagé avec le lecteur, la passerelle iPhone et le MCP
-//! des annotations ; un fichier illisible n'est jamais remplacé.
+//! des annotations, par le lecteur et l'écrivain communs d'`atelier_core` ;
+//! un fichier illisible n'est jamais remplacé.
 
-use fs2::FileExt;
+use atelier_core::durable::{self, Shape};
+use atelier_core::pdf_annots;
 use serde_json::{json, Map, Value};
-use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub const FILE_NAME: &str = "codebook.json";
-pub const STORE_NAME: &str = "pdf_annots.json";
-pub const LOCK_NAME: &str = "pdf_annots.lock";
+pub const STORE_NAME: &str = pdf_annots::STORE_NAME;
+pub const LOCK_NAME: &str = pdf_annots::LOCK_NAME;
 pub const MAX_NAME: usize = 80;
 pub const MAX_MEMO: usize = 4000;
 /// Champ des codes gardés, et des codes proposés par Claude.
@@ -453,64 +454,34 @@ pub fn strip(store: &mut Map<String, Value>, gone: &[String]) -> bool {
     changed
 }
 
-/// Lit le livre de codes de `dir` ; absent = livre vide, illisible = erreur.
+/// Lit le livre de codes de `dir` ; absent = livre vide, illisible = erreur
+/// (et copie mise de côté en `codebook.json.corrupt-<horodatage>`).
 pub fn read(dir: &Path) -> Result<Codebook, String> {
     let path = dir.join(FILE_NAME);
-    match std::fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str::<Value>(&raw)
-            .map(|v| Codebook::parse(&v))
-            .map_err(|e| format!("{} illisible : {e}", path.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Codebook::default()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-fn write_atomic(dir: &Path, name: &str, value: &Value) -> Result<(), String> {
-    let payload = format!("{}\n", serde_json::to_string_pretty(value).map_err(|e| e.to_string())?);
-    let tmp = dir.join(format!(".{name}.{}.codes.tmp", std::process::id()));
-    std::fs::write(&tmp, payload).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, dir.join(name)).map_err(|e| e.to_string())
+    let value = durable::load_json(&path, Shape::Object)?;
+    Ok(value.map(|v| Codebook::parse(&v)).unwrap_or_default())
 }
 
 /// Ouvre le store d'annotations et le livre de codes de `dir` sous le verrou
-/// du serveur galerie ; `op` renvoie sa valeur et ce qu'elle a changé (store,
-/// livre). Seuls les fichiers changés sont réécrits, chacun d'un bloc.
+/// du serveur galerie (`atelier_core::pdf_annots`) ; `op` renvoie sa valeur
+/// et ce qu'elle a changé (store, livre). Seuls les fichiers changés sont
+/// réécrits, chacun d'un bloc, après la sauvegarde du jour. Un store ou un
+/// livre illisible n'atteint jamais `op` : rien n'est écrit.
 pub fn with_locked<T>(
     dir: &Path,
     op: impl FnOnce(&mut Map<String, Value>, &mut Codebook) -> Result<(T, bool, bool), String>,
 ) -> Result<T, String> {
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(dir.join(LOCK_NAME))
-        .map_err(|e| e.to_string())?;
-    lock.lock_exclusive().map_err(|e| e.to_string())?;
-    let result = (|| {
-        let store_path = dir.join(STORE_NAME);
-        let mut store = match std::fs::read_to_string(&store_path) {
-            Ok(raw) => match serde_json::from_str::<Value>(&raw) {
-                Ok(Value::Object(map)) => map,
-                Ok(_) => return Err(format!("{} n'est pas un objet JSON", store_path.display())),
-                Err(e) => return Err(format!("{} illisible, rien n'est écrit : {e}", store_path.display())),
-            },
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Map::new(),
-            Err(e) => return Err(e.to_string()),
-        };
-        let mut book = read(dir)?;
-        let (value, store_changed, book_changed) = op(&mut store, &mut book)?;
-        if book_changed {
-            write_atomic(dir, FILE_NAME, &book.to_value())?;
-        }
-        if store_changed {
-            write_atomic(dir, STORE_NAME, &Value::Object(store))?;
-        }
-        Ok(value)
-    })();
-    let _ = FileExt::unlock(&lock);
-    result
+    let _lock = pdf_annots::lock(dir)?;
+    let mut store = pdf_annots::read(dir)?;
+    let mut book = read(dir)?;
+    let (value, store_changed, book_changed) = op(&mut store, &mut book)?;
+    if book_changed {
+        durable::save_json_pretty(&dir.join(FILE_NAME), &book.to_value())?;
+    }
+    if store_changed {
+        pdf_annots::write(dir, &store)?;
+    }
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -594,17 +565,90 @@ mod tests {
         assert!(b.codes.iter().all(|c| !b.ancestors(&c.id).contains(&c.id) || c.parent.is_none()));
     }
 
+    fn corrupt_copies(dir: &Path, name: &str) -> usize {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&format!("{name}.corrupt-")))
+            .count()
+    }
+
     #[test]
     fn with_locked_never_replaces_an_unreadable_store() {
+        for (case, raw) in durable::UNREADABLE_SAMPLES {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join(STORE_NAME), raw).unwrap();
+            let res = with_locked(dir.path(), |_, b| {
+                b.create("A", None, "")?;
+                Ok(((), true, true))
+            });
+            assert!(res.is_err(), "{case}");
+            assert!(res.unwrap_err().contains(".corrupt-"), "{case}: l'erreur dit où est la copie");
+            assert!(!dir.path().join(FILE_NAME).exists(), "{case}");
+            assert_eq!(std::fs::read_to_string(dir.path().join(STORE_NAME)).unwrap(), raw, "{case}");
+            assert_eq!(corrupt_copies(dir.path(), STORE_NAME), 1, "{case}");
+        }
+    }
+
+    #[test]
+    fn with_locked_never_replaces_an_unreadable_codebook() {
+        for (case, raw) in durable::UNREADABLE_SAMPLES {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join(FILE_NAME), raw).unwrap();
+            assert!(read(dir.path()).is_err(), "{case}");
+            let res = with_locked(dir.path(), |store, b| {
+                b.create("A", None, "")?;
+                store.insert("zotero/ABCD1234/a.pdf".into(), json!([]));
+                Ok(((), true, true))
+            });
+            assert!(res.is_err(), "{case}");
+            assert_eq!(std::fs::read_to_string(dir.path().join(FILE_NAME)).unwrap(), raw, "{case}");
+            assert!(!dir.path().join(STORE_NAME).exists(), "{case}");
+            assert_eq!(corrupt_copies(dir.path(), FILE_NAME), 1, "{case}");
+        }
+    }
+
+    #[test]
+    fn with_locked_takes_a_daily_backup_before_rewriting() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(STORE_NAME), "{pas du json").unwrap();
-        let res = with_locked(dir.path(), |_, b| {
-            b.create("A", None, "")?;
-            Ok(((), true, true))
-        });
-        assert!(res.is_err());
-        assert!(!dir.path().join(FILE_NAME).exists());
-        assert_eq!(std::fs::read_to_string(dir.path().join(STORE_NAME)).unwrap(), "{pas du json");
+        let first = r#"{"zotero/ABCD1234/a.pdf": [{"id": "old"}]}"#;
+        std::fs::write(dir.path().join(STORE_NAME), first).unwrap();
+        with_locked(dir.path(), |store, _| {
+            store.insert("zotero/ABCD1234/a.pdf".into(), json!([{"id": "new"}]));
+            Ok(((), true, false))
+        })
+        .unwrap();
+        let backups: Vec<_> = std::fs::read_dir(dir.path().join(durable::BACKUP_DIR))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(std::fs::read_to_string(&backups[0]).unwrap(), first);
+    }
+
+    /// Les écrivains déjà installés (MCP, passerelle) verrouillent avec fs2 :
+    /// le verrou commun doit les exclure, et inversement.
+    #[test]
+    fn the_shared_lock_excludes_an_fs2_writer() {
+        use fs2::FileExt;
+        let dir = tempfile::tempdir().unwrap();
+        let held = pdf_annots::lock(dir.path()).unwrap();
+        let other = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(dir.path().join(LOCK_NAME))
+            .unwrap();
+        assert!(other.try_lock_exclusive().is_err());
+        drop(held);
+        other.try_lock_exclusive().unwrap();
+        let again = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(dir.path().join(LOCK_NAME))
+            .unwrap();
+        assert!(again.try_lock().is_err());
+        FileExt::unlock(&other).unwrap();
     }
 
     #[test]

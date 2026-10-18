@@ -6,8 +6,10 @@ license.workspace = true
 description = "Livre de codes du codage qualitatif (codebook.json) et codes posés sur les annotations PDF"
 
 [dependencies]
+atelier-core = { path = "../atelier-core" }
 serde_json = { workspace = true }
-fs2 = "0.4"
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# verrou des écrivains déjà installés : le test d'interopérabilité le reprend
+fs2 = "0.4"

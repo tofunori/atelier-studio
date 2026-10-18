@@ -1811,3 +1811,73 @@ fn compile_reports_a_failed_tectonic_download() {
     );
     assert!(!app.join("tools/tectonic-0.17.0/tectonic").exists());
 }
+
+/// Copie `<nom>.corrupt-*` de `dir` qui porte exactement `raw`.
+fn has_corrupt_copy(dir: &std::path::Path, name: &str, raw: &str) -> bool {
+    fs::read_dir(dir).unwrap().flatten().any(|e| {
+        e.file_name().to_string_lossy().starts_with(&format!("{name}.corrupt-"))
+            && fs::read(e.path()).is_ok_and(|b| b == raw.as_bytes())
+    })
+}
+
+/// Un store d'annotations présent mais illisible (vide, tronqué, JSON
+/// invalide, pas un objet) : le GET répond une erreur (jamais `[]` en 200),
+/// le POST est refusé, le fichier reste tel quel et une copie `.corrupt-` est
+/// mise de côté. Vaut pour le store partagé (PDF Zotero) comme pour le store
+/// du projet (PDF du projet, commentaires LaTeX).
+#[test]
+fn unreadable_annotation_stores_are_reported_and_never_rewritten() {
+    let app_dir = tempfile::tempdir().unwrap();
+    let srv = start_server_with(&[("ATELIER_APP_DIR", app_dir.path().display().to_string())]);
+    let thumbs = srv.root.join(".fig_thumbs");
+    fs::create_dir_all(&thumbs).unwrap();
+    let cases = [
+        ("vide", ""),
+        ("tronqué", "{\"zotero/ABCD1234/a.pdf\": [{\"id\": \"1\", \"te"),
+        ("JSON invalide", "{pas du json}"),
+        ("non-objet", "[1, 2, 3]"),
+    ];
+    let shared = app_dir.path().join("pdf_annots.json");
+    let local = thumbs.join("pdf_annots.json");
+    for (case, raw) in cases {
+        // store partagé illisible, store du projet sain
+        fs::write(&shared, raw).unwrap();
+        fs::write(&local, r#"{"these.pdf":[{"id":"t1"}]}"#).unwrap();
+        let (status, body) = http(srv.port, "GET", "/pdfannot?rel=zotero%2FABCD1234%2Fa.pdf", None);
+        assert_eq!(status, 500, "{case}: {body}");
+        assert!(body.contains("illisible") && !body.contains("\"annots\""), "{case}: {body}");
+        let (status, body) = http(srv.port, "GET", "/pdfannot-all", None);
+        assert_eq!(status, 500, "{case}: {body}");
+        let post = r#"{"rel":"zotero/ABCD1234/a.pdf","annots":[{"id":"nouveau"}]}"#;
+        let (status, body) = http(srv.port, "POST", "/pdfannot", Some(post));
+        assert_eq!(status, 500, "{case}: {body}");
+        assert_eq!(fs::read_to_string(&shared).unwrap(), raw, "{case}: store partagé intact");
+        assert!(has_corrupt_copy(app_dir.path(), "pdf_annots.json", raw), "{case}");
+        // le store du projet, lui, reste utilisable
+        let (status, body) = http(srv.port, "GET", "/pdfannot?rel=these.pdf", None);
+        assert_eq!(status, 200, "{case}: {body}");
+        assert!(body.contains("t1"), "{case}: {body}");
+
+        // store du projet illisible
+        fs::write(&local, raw).unwrap();
+        let (status, body) = http(srv.port, "GET", "/pdfannot?rel=these.pdf", None);
+        assert_eq!(status, 500, "{case}: {body}");
+        assert!(body.contains("illisible"), "{case}: {body}");
+        let post = r#"{"rel":"tex-comments:chapitre1.tex","annots":[{"id":"c1"}]}"#;
+        let (status, body) = http(srv.port, "POST", "/pdfannot", Some(post));
+        assert_eq!(status, 500, "{case}: {body}");
+        assert_eq!(fs::read_to_string(&local).unwrap(), raw, "{case}: store du projet intact");
+        assert!(has_corrupt_copy(&thumbs, "pdf_annots.json", raw), "{case}");
+    }
+    // réparé : tout repart, et la première réécriture du jour est sauvegardée
+    fs::write(&shared, r#"{"zotero/ABCD1234/b.pdf":[{"id":"b1"}]}"#).unwrap();
+    let post = r#"{"rel":"zotero/ABCD1234/a.pdf","annots":[{"id":"nouveau"}]}"#;
+    let (status, body) = http(srv.port, "POST", "/pdfannot", Some(post));
+    assert_eq!(status, 200, "{body}");
+    let store: serde_json::Value = serde_json::from_slice(&fs::read(&shared).unwrap()).unwrap();
+    assert_eq!(store["zotero/ABCD1234/b.pdf"][0]["id"], "b1");
+    assert_eq!(store["zotero/ABCD1234/a.pdf"][0]["id"], "nouveau");
+    let backups: Vec<_> = fs::read_dir(app_dir.path().join("backups")).unwrap().flatten().collect();
+    assert_eq!(backups.len(), 1);
+    assert!(fs::read_to_string(backups[0].path()).unwrap().contains("b1"));
+}
