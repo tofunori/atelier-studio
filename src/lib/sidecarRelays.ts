@@ -114,6 +114,10 @@ const RELAYS: Record<string, Relay> = {
   kernelStatus: forward("kernel-status"),
   kernelStopped: forward("kernel-stopped"),
   kernelCommand: forward("kernel-command"),
+  // calculs lancés par l'agent (chantier 4) : réponse au clic de la carte,
+  // fiches d'hôte de Calculs › Hôtes
+  computeJobDecision: forward("compute-job-decision"),
+  computeHosts: forward("compute-hosts"),
 };
 
 /** Relaie `msg` s'il est d'un type purement relayé ; renvoie `true` si c'est le cas. */

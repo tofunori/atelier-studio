@@ -22,6 +22,7 @@ import { wsSend } from "../lib/wsBus";
 import { clusterSshCommand, useIntegrations, type IntegrationsEffective } from "../lib/integrations";
 import { isSurfaceVisible } from "../lib/surfaceKeyboard";
 import NarvalSurface from "./NarvalSurface";
+import { ComputeHostsView } from "./ComputeHostsView";
 import { Alert, AlertDescription, AlertTitle } from "./shadcn/alert";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "./shadcn/empty";
 import { ScrollArea } from "./shadcn/scroll-area";
@@ -252,6 +253,8 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   const [error, setError] = useState<SurfaceError | null>(null);
   const [loading, setLoading] = useState(false);
   const [slurmView, setSlurmView] = useState(false);
+  // Calculs › Hôtes (chantier 4) : fiches que l'agent lit avant d'écrire une tâche.
+  const [hostsView, setHostsView] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [hidden, setHidden] = useState<string[]>(readHidden);
   const [forgetErrors, setForgetErrors] = useState<Record<string, string>>({});
@@ -426,20 +429,20 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
   // Sondage uniquement quand la surface est visible (même mécanisme que Narval) ;
   // cadence selon l'hôte filtré (30 s Mac, 60 s dès qu'un hôte distant est inclus).
   useEffect(() => {
-    if (!visible || slurmView) return;
+    if (!visible || slurmView || hostsView) return;
     requestSnapshot();
     const timer = window.setInterval(() => requestSnapshot(), pollIntervalMs(hostFilter, hosts.length > 2));
     return () => window.clearInterval(timer);
-  }, [hostFilter, hosts, requestSnapshot, slurmView, visible]);
+  }, [hostFilter, hosts, hostsView, requestSnapshot, slurmView, visible]);
 
   // Horloge grossière pour « observé il y a » / durées / péremption — SEUL
   // setState périodique au repos. Les rangées sont mémoïsées : le tic ne
   // re-rend que la barre et les rangées dont l'affichage change.
   useEffect(() => {
-    if (!visible || slurmView) return;
+    if (!visible || slurmView || hostsView) return;
     const timer = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
     return () => window.clearInterval(timer);
-  }, [slurmView, visible]);
+  }, [hostsView, slurmView, visible]);
 
   // Bubble after child menus, before App's global Escape-to-interrupt handler.
   function onSurfaceKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -497,6 +500,19 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
     );
   }
 
+  if (hostsView) {
+    return (
+      <div className="calculs-shell" data-visible={visible}>
+        <div className="calculs-slurm-bar">
+          <Button variant="ghost" onClick={() => setHostsView(false)}>{t("calculs.back-to-runs")}</Button>
+          <span className="calculs-muted">{t("compute.hosts-view")}</span>
+          {paneControls && <div className="workspace-pane-controls-slot">{paneControls}</div>}
+        </div>
+        <ComputeHostsView />
+      </div>
+    );
+  }
+
   return (
     <div className="calculs-shell" data-visible={visible} onKeyDown={onSurfaceKeyDown}>
       <main className="calculs-main">
@@ -524,6 +540,7 @@ export default function CalculsSurface({ visible, onOpenTerminal, paneControls }
             {slurmEntry && (
               <Button variant="ghost" onClick={() => setSlurmView(true)}>{t("calculs.slurm-view")}</Button>
             )}
+            <Button variant="ghost" onClick={() => setHostsView(true)}>{t("compute.hosts-view")}</Button>
             <Button variant="ghost" disabled={finishedVisible.length === 0} onClick={forgetFinished}>
               {t("calculs.forget-finished")}
             </Button>

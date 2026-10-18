@@ -505,6 +505,16 @@ async fn handle_action(
         }
         "memories" => crate::memory::action_memories(state, caller_id, req).await,
         "propose_memory" => crate::memory::action_propose_memory(state, caller_id, req).await,
+        // Outil atelier_compute (chantier 4) : lecture des hôtes, proposition
+        // d'une tâche (carte Lancer / Refuser), état des tâches du fil.
+        "compute_hosts" => Ok(crate::compute_jobs::action_hosts(state, &crate::compute_jobs::Backend::production())),
+        "compute_host" => crate::compute_jobs::action_host(state, &crate::compute_jobs::Backend::production(), req),
+        "compute_propose_job" => {
+            crate::compute_jobs::action_propose_job(state, &crate::compute_jobs::Backend::production(), caller_id, req).await
+        }
+        "compute_job_status" => {
+            crate::compute_jobs::action_job_status(state, &crate::compute_jobs::Backend::production(), caller_id, req).await
+        }
         "" => Err("missing_action".into()),
         _ => Err("unknown_action".into()),
     }

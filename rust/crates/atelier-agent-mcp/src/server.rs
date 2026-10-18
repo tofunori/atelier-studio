@@ -55,6 +55,9 @@ fn readonly(action: &str) -> bool {
             // Pas une lecture, mais elle doit doubler un `kernel_run` qui
             // attend encore sa cellule dans la file ordonnée.
             | "kernel_interrupt"
+            | "compute_hosts"
+            | "compute_host"
+            | "compute_job_status"
     )
 }
 

@@ -97,7 +97,24 @@ impl NarvalProfile {
         })
     }
 
-    fn validate_path(&self, raw: &str) -> Result<String, NarvalError> {
+    /// Cible et commande ssh : directe, ou rebond par la passerelle
+    /// (`ssh <passerelle> ssh <alias> <commande>`). Partagé avec la
+    /// soumission de tâches (`compute::submit`).
+    pub(crate) fn ssh_invocation(&self, remote_command: &str) -> (String, String) {
+        match &self.gateway {
+            Some(gateway) => (
+                gateway.clone(),
+                format!(
+                    "ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=1 -- {} {}",
+                    shell_quote(&self.host),
+                    shell_quote(remote_command),
+                ),
+            ),
+            None => (self.host.clone(), remote_command.to_string()),
+        }
+    }
+
+    pub(crate) fn validate_path(&self, raw: &str) -> Result<String, NarvalError> {
         if raw.contains('\0') || !raw.starts_with('/') {
             return Err(NarvalError::new(
                 "invalid_path",
@@ -273,17 +290,8 @@ fn classify_ssh_error(stderr: &str) -> NarvalError {
 }
 
 fn run_ssh(profile: &NarvalProfile, remote_command: &str) -> Result<String, NarvalError> {
-    let (target, command) = match &profile.gateway {
-        Some(gateway) => (
-            gateway.as_str(),
-            format!(
-                "ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=1 -- {} {}",
-                shell_quote(&profile.host),
-                shell_quote(remote_command),
-            ),
-        ),
-        None => (profile.host.as_str(), remote_command.to_string()),
-    };
+    let (target, command) = profile.ssh_invocation(remote_command);
+    let target = target.as_str();
     let mut child = Command::new("ssh")
         .args([
             "-o",

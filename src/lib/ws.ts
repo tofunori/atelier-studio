@@ -126,6 +126,10 @@ type AgentEventBody =
       proposal: { text: string; replaceId: string | null; replacedText: string | null; projectRoot: string };
       ts?: number;
     }
+  /** Calcul proposé par l'agent (chantier 4) : carte Lancer / Refuser, puis
+   *  suivi. Une rangée par `jobId`, fusionnée à chaque changement d'état ;
+   *  seule la première émission porte `job`. */
+  | ComputeJobEventBody
   | {
       kind: "edit";
       projectRoot?: string | null;
@@ -232,6 +236,36 @@ type AgentEventBody =
       status: "queued" | "delivering" | "delivered" | "paused" | "failed";
       ts?: number;
     };
+
+export type ComputeJobStatus =
+  | "proposed" | "launching" | "queued" | "running"
+  | "completed" | "failed" | "refused" | "launch_failed" | "cancelled";
+
+export type ComputeJobSpec = {
+  host: "mac" | "nas" | "narval" | "rorqual";
+  hostLabel: string;
+  label: string;
+  workDir: string;
+  script: string;
+  resources?: { cpus?: number | null; gpus?: number | null; mem?: string | null; time?: string | null; account?: string | null; partition?: string | null };
+  estimate?: { wallHours?: number | null; cpuHours?: number | null; gpuHours?: number | null };
+  purpose?: string;
+};
+
+export type ComputeJobEventBody = {
+  kind: "compute_job";
+  jobId: string;
+  status: ComputeJobStatus;
+  auto?: boolean;
+  updatedAt?: string;
+  runId?: string | null;
+  remoteId?: string | null;
+  logPath?: string | null;
+  exitCode?: number | null;
+  message?: string | null;
+  job?: ComputeJobSpec;
+  ts?: number;
+};
 
 export type AgentEvent = AgentEventBody & { meta?: HarnessEventMeta | ProvisionalEventMeta };
 

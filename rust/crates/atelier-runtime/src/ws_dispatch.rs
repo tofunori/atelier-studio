@@ -46,6 +46,13 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "narvalReadText"
         | "computeSnapshot"
         | "computeReadLog"
+        // Calculs lancés par l'agent : sérialisés par le verrou de
+        // compute_jobs, et une annulation (ssh) ne doit pas geler tout le
+        // reste derrière une barrière globale.
+        | "computeJobDecision"
+        | "computeHosts"
+        | "computeHostSave"
+        | "computeHostsImport"
         | "listCommands"
         | "listPlugins"
         | "listCodexApps"

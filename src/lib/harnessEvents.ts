@@ -16,6 +16,8 @@
 //    sans jamais écraser les événements live plus récents.
 import type { AgentEvent, HarnessEventMeta } from "./ws";
 
+const COMPUTE_FINAL = new Set<string>(["completed", "failed", "refused", "launch_failed", "cancelled"]);
+
 /** Meta harnais (schema v1) si présente — la meta provisoire (bulle user
  * optimiste) n'a pas d'eventId et n'est jamais une identité autoritaire. */
 function harnessMeta(ev: AgentEvent): HarnessEventMeta | null {
@@ -400,6 +402,7 @@ class HistoryReplayIndex {
     if (id != null) keys.push(JSON.stringify(["id", id]));
     if (event.kind === "user" && event.meta?.messageId) keys.push(this.messageKey(event.meta.messageId));
     if (event.kind === "agent_message" && event.messageId) keys.push(this.messageKey(event.messageId, "agent_message"));
+    if (event.kind === "compute_job" && event.jobId) keys.push(this.messageKey(event.jobId, "compute_job"));
     return keys;
   }
 
@@ -677,6 +680,25 @@ function reduceHarnessEventInto(list: AgentEvent[], ev: AgentEvent, replay?: His
     const upd: AgentEvent = { ...ev, ts: stamp(ev) };
     if (idx >= 0) putHistoryRow(next, idx, { ...next[idx], ...upd }, replay);
     else putHistoryRow(next, next.length, upd, replay);
+    return next;
+  }
+
+  // Chantier 4 : une carte de calcul par jobId, mise à jour en place. La
+  // rangée garde sa place et son meta d'origine (la carte reste dans le tour
+  // qui l'a proposée) ; un état final n'est jamais remplacé par un état
+  // antérieur relayé en retard.
+  if (ev.kind === "compute_job") {
+    const jid = ev.jobId;
+    const idx = jid
+      ? replay ? replay.messageIndex(jid, "compute_job") : next.findIndex((x) => x.kind === "compute_job" && x.jobId === jid)
+      : -1;
+    if (idx < 0) {
+      putHistoryRow(next, next.length, { ...ev, ts: stamp(ev) }, replay);
+      return next;
+    }
+    const prev = next[idx] as Extract<AgentEvent, { kind: "compute_job" }>;
+    if (COMPUTE_FINAL.has(prev.status) && !COMPUTE_FINAL.has(ev.status)) return next;
+    putHistoryRow(next, idx, { ...prev, ...ev, job: ev.job ?? prev.job, ts: prev.ts, meta: prev.meta ?? ev.meta }, replay);
     return next;
   }
 

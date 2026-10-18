@@ -70,6 +70,16 @@ impl ExecError {
 
 pub trait Exec: Send + Sync {
     fn run(&self, program: &str, args: &[&str], timeout: Duration) -> Result<Output, ExecError>;
+
+    /// Lance un processus détaché (son propre groupe, entrées/sorties
+    /// fermées) et rend son pid sans l'attendre : un calcul du Mac doit
+    /// survivre à un redémarrage du serveur d'Atelier.
+    fn spawn_detached(
+        &self,
+        program: &str,
+        args: &[&str],
+        cwd: &std::path::Path,
+    ) -> Result<u32, ExecError>;
 }
 
 /// Exécuteur réel : spawn direct, lecture bornée, kill à l'échéance.
@@ -87,6 +97,37 @@ fn read_bounded(mut reader: impl Read, limit: usize) -> Vec<u8> {
 }
 
 impl Exec for SystemExec {
+    fn spawn_detached(
+        &self,
+        program: &str,
+        args: &[&str],
+        cwd: &std::path::Path,
+    ) -> Result<u32, ExecError> {
+        use std::os::unix::process::CommandExt;
+        let child = Command::new(program)
+            .args(args)
+            .current_dir(cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .map_err(|error| {
+                ExecError::new(
+                    "unavailable",
+                    format!("impossible de lancer {program}: {error}"),
+                )
+            })?;
+        let pid = child.id();
+        // Le processus vit sa vie ; un fil le récolte à sa fin pour ne pas
+        // laisser de zombie tant que le serveur tourne.
+        thread::spawn(move || {
+            let mut child = child;
+            let _ = child.wait();
+        });
+        Ok(pid)
+    }
+
     fn run(&self, program: &str, args: &[&str], timeout: Duration) -> Result<Output, ExecError> {
         let mut child = Command::new(program)
             .args(args)
@@ -196,6 +237,23 @@ impl FakeExec {
 
 #[cfg(test)]
 impl Exec for FakeExec {
+    fn spawn_detached(
+        &self,
+        program: &str,
+        args: &[&str],
+        cwd: &std::path::Path,
+    ) -> Result<u32, ExecError> {
+        let line = std::iter::once(program)
+            .chain(args.iter().copied())
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("detached[{}] {line}", cwd.display()));
+        Ok(4242)
+    }
+
     fn run(&self, program: &str, args: &[&str], _timeout: Duration) -> Result<Output, ExecError> {
         let line = std::iter::once(program)
             .chain(args.iter().copied())
