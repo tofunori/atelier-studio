@@ -74,12 +74,6 @@ type Decision = "launch" | "refuse" | "cancel";
 
 export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
   const job = event.job;
-  const lines = useMemo(() => (job?.script ?? "").split(/\r?\n/), [job?.script]);
-  // Avant le clic, le script se lit (aperçu, dépliable) ; ensuite il se
-  // replie entièrement pour que la carte ne prenne plus de place dans le fil.
-  const decided = event.status !== "proposed";
-  const collapsible = decided || lines.length > SCRIPT_PREVIEW_LINES;
-  const [expanded, setExpanded] = useState(false);
   // Demande en vol et refus du serveur valent pour l'état où ils sont nés :
   // un nouvel état venu du serveur les périme sans effet de remise à zéro.
   const [pending, setPending] = useState<{ decision: Decision; status: ComputeJobStatus } | null>(null);
@@ -106,7 +100,6 @@ export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
   };
 
   const host = job?.hostLabel ?? "";
-  const script = expanded || !collapsible ? job?.script ?? "" : lines.slice(0, SCRIPT_PREVIEW_LINES).join("\n");
   const noteIsError = Boolean(error) || event.status === "launch_failed" || event.status === "failed";
 
   return (
@@ -117,25 +110,7 @@ export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
         <span className="compute-job-host">{t("compute.on-host", { host })}</span>
         <StatusBadge status={badgeStatus(event.status)} className="compute-job-state">{statusLabel(event)}</StatusBadge>
       </header>
-      {job ? (
-        <div className="compute-job-body">
-          {job.purpose ? <p className="compute-job-purpose">{job.purpose}</p> : null}
-          <JobFacts job={job} remoteId={event.remoteId} />
-          <div className="compute-job-script-head">
-            <span>{t("compute.script")}</span>
-            {collapsible ? (
-              <IconButton className="compute-job-expand" aria-expanded={expanded}
-                label={expanded ? t("compute.script-hide") : t("compute.script-show")}
-                onClick={() => setExpanded((value) => !value)}>
-                <Tick open={expanded} />
-              </IconButton>
-            ) : null}
-          </div>
-          {decided && !expanded ? null : (
-            <pre className={`compute-job-script${!expanded && collapsible ? " is-preview" : ""}`}>{script}</pre>
-          )}
-        </div>
-      ) : null}
+      {job ? <JobBody job={job} remoteId={event.remoteId} decided={event.status !== "proposed"} /> : null}
       {event.message || error || event.auto ? (
         <p className={`compute-job-note${noteIsError ? " is-error" : ""}`} role="status">
           {error || event.message || t("compute.auto")}
@@ -143,6 +118,34 @@ export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
       ) : null}
       <JobActions status={event.status} host={host} sent={sent} onDecide={decide} />
     </section>
+  );
+}
+
+/** Avant le clic, le script se lit (aperçu, dépliable) ; ensuite il se
+ *  replie entièrement pour que la carte ne prenne plus de place dans le fil. */
+function JobBody({ job, remoteId, decided }: { job: NonNullable<ComputeJobEvent["job"]>; remoteId?: string | null; decided: boolean }) {
+  const lines = useMemo(() => job.script.split(/\r?\n/), [job.script]);
+  const collapsible = decided || lines.length > SCRIPT_PREVIEW_LINES;
+  const [expanded, setExpanded] = useState(false);
+  const script = expanded || !collapsible ? job.script : lines.slice(0, SCRIPT_PREVIEW_LINES).join("\n");
+  return (
+    <div className="compute-job-body">
+      {job.purpose ? <p className="compute-job-purpose">{job.purpose}</p> : null}
+      <JobFacts job={job} remoteId={remoteId} />
+      <div className="compute-job-script-head">
+        <span>{t("compute.script")}</span>
+        {collapsible ? (
+          <IconButton className="compute-job-expand" aria-expanded={expanded}
+            label={expanded ? t("compute.script-hide") : t("compute.script-show")}
+            onClick={() => setExpanded((value) => !value)}>
+            <Tick open={expanded} />
+          </IconButton>
+        ) : null}
+      </div>
+      {decided && !expanded ? null : (
+        <pre className={`compute-job-script${!expanded && collapsible ? " is-preview" : ""}`}>{script}</pre>
+      )}
+    </div>
   );
 }
 
