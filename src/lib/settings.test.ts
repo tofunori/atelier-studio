@@ -218,3 +218,27 @@ describe("recette .prov.json : éteinte tant qu'elle n'a pas été essayée (aud
     expect(loadSettings().recipes).toBe(true);
   });
 });
+
+describe("rappel des souvenirs : éteint tant qu'il n'a pas été essayé (audit 2026-10-18)", () => {
+  it("un profil neuf démarre éteint, extraction comprise", () => {
+    expect(DEFAULT_SETTINGS.memoire).toEqual({ injection: false, extraction: false });
+    expect(loadSettings().memoire).toEqual({ injection: false, extraction: false });
+  });
+
+  it("un true hérité est éteint une fois, sans toucher l'extraction, et survit au miroir disque", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ memoire: { injection: true, extraction: true } }));
+    expect(loadSettings().memoire).toEqual({ injection: false, extraction: true });
+    expect(JSON.parse(localStorage.getItem("atelier-studio.settings") ?? "{}").memoire)
+      .toEqual({ injection: false, extraction: true });
+    const disk = { memoire: { injection: true, extraction: true } };
+    expect({ ...loadSettings(), ...disk, ...bootPromotions() }.memoire)
+      .toEqual({ injection: false, extraction: true });
+  });
+
+  it("un false explicite reste, et une remise en marche après la promotion est respectée", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ memoire: { injection: false, extraction: false } }));
+    expect(loadSettings().memoire.injection).toBe(false);
+    saveSettings({ ...loadSettings(), memoire: { injection: true, extraction: false } });
+    expect(loadSettings().memoire.injection).toBe(true);
+  });
+});

@@ -82,8 +82,9 @@ export type Settings = {
    *  Lus aussi par le backend dans settings.json (bloc de contexte, MCP). */
   specialistes: Specialiste[];
   /** Mémoire de projet (Réglages › Mémoire). Lue aussi par le backend :
-   *  `injection` met les souvenirs utiles en tête du message, `extraction`
-   *  propose des souvenirs en fin de tour (coupée par défaut). */
+   *  `injection` met les souvenirs utiles en tête du message (coupée par
+   *  défaut tant qu'elle n'a pas été essayée, audit du 2026-10-18),
+   *  `extraction` propose des souvenirs en fin de tour (coupée par défaut). */
   memoire: { injection: boolean; extraction: boolean };
 };
 
@@ -135,7 +136,7 @@ export const DEFAULT_SETTINGS: Settings = {
   consignes: CONSIGNES_LIVREES,
   consignesAssist: { provider: "codex", model: "gpt-5.6-sol" },
   specialistes: [],
-  memoire: { injection: true, extraction: false },
+  memoire: { injection: false, extraction: false },
 };
 
 const KEY = "atelier-studio.settings";
@@ -230,6 +231,19 @@ const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => 
     id: "2026-10-18.recipes-off-until-tried",
     promote: (stored) => (stored.recipes !== false ? { recipes: false } : {}),
   },
+  {
+    // 2026-10-18 (audit de maturité, problème 24) : le rappel des souvenirs,
+    // né allumé avec #54 le même jour, s'éteint tant que Thierry ne l'a pas
+    // essayé — il partait dans chaque tour, automatisations comprises, sans
+    // paraître dans le reçu « Contexte du tour ». Même raisonnement que la
+    // recette : un `true` stocké est tenu pour hérité, un `false` explicite
+    // reste, une remise en marche après cette promotion est respectée.
+    // L'extraction (coupée dès l'origine) n'est pas touchée.
+    id: "2026-10-18.memory-injection-off-until-tried",
+    promote: (stored) => (stored.memoire?.injection !== false
+      ? { memoire: { ...DEFAULT_SETTINGS.memoire, ...stored.memoire, injection: false } }
+      : {}),
+  },
 ];
 
 function promoteDefaults(stored: Partial<Settings>): Partial<Settings> {
@@ -310,7 +324,8 @@ export function loadSettings(): Settings {
       customModels: stored.customModels ?? [],
       modelEfforts: stored.modelEfforts ?? {},
       specialistes: Array.isArray(stored.specialistes) ? stored.specialistes : [],
-      memoire: { ...DEFAULT_SETTINGS.memoire, ...(stored as any).memoire },
+      // après `stored` : la promotion de l'injection (2026-10-18) doit gagner.
+      memoire: { ...DEFAULT_SETTINGS.memoire, ...(stored as any).memoire, ...promoted.memoire },
       favoriteModels: stored.favoriteModels && typeof stored.favoriteModels === "object"
         ? stored.favoriteModels
         : legacyFavoriteModels,

@@ -2147,6 +2147,7 @@ const fr = {
   "memoire.import-run": "Importer",
   "memoire.import-report": "{added} ajouté(s) · {updated} mis à jour · {unchanged} inchangé(s)",
   "memoire.import-removed": "{n} souvenir(s) retiré(s)",
+  "memoire.import-forgotten": "{n} effacé(s) à la main, non réimporté(s)",
 } satisfies Record<string, string>;
 
 const en: Record<keyof typeof fr, string> = {
@@ -4278,6 +4279,7 @@ const en: Record<keyof typeof fr, string> = {
   "memoire.import-run": "Import",
   "memoire.import-report": "{added} added · {updated} updated · {unchanged} unchanged",
   "memoire.import-removed": "{n} note(s) removed",
+  "memoire.import-forgotten": "{n} deleted by hand, not reimported",
 };
 
 export type I18nKey = keyof typeof fr;
