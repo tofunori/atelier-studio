@@ -560,12 +560,12 @@ test('latex individual review automatically opens, accepts, rejects and protects
     writeFileSync(path.join(root,'sample.tex'),after);
     await expect(page.locator('#diffTag')).toHaveAttribute('aria-pressed','true',{timeout:10000});
     await expect(page.locator('.dv-count')).toHaveText('1/1');
-    await expect(page.getByRole('button',{name:'Garder',exact:true}).first()).toBeAttached();
-    await page.getByRole('button',{name:'Garder',exact:true}).first().click();
+    await expect(page.getByRole('button',{name:'Accepter',exact:true}).first()).toBeAttached();
+    await page.getByRole('button',{name:'Accepter',exact:true}).first().click();
     expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(after);
     await page.locator('#diffUndo').click();
     await page.route('**/codesave', async route => { await new Promise(resolve=>setTimeout(resolve,250)); await route.continue(); });
-    await page.getByRole('button',{name:'Ignorer',exact:true}).first().click();
+    await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
     expect(await page.evaluate(()=>cm.getOption('readOnly'))).toBe(true);
     await expect.poll(()=>readFileSync(path.join(root,'sample.tex'),'utf8')).toContain('Original first');
     expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toContain('Revised second');
@@ -580,14 +580,20 @@ test('latex individual review automatically opens, accepts, rejects and protects
     await expect(page.locator('.cm-deletedChunk')).toHaveCount(0);
     await page.locator('#diffTag').click();
     await expect(page.locator('#diffTag')).toHaveAttribute('aria-pressed','true');
-    // A second intervention compares only with the immediately previous file.
+    // Diff unifié (2026-10-18) : la seconde écriture d'agent s'ajoute à la
+    // revue — les passages encore non décidés de la première restent à décider,
+    // l'ancienne version au-dessus de la nouvelle ; la barre du bas les compte.
     const second = rewrapped.replace('Revised second','Final second');
     writeFileSync(path.join(root,'sample.tex'),second);
     await expect(page.locator('.dv-count')).toHaveText('2/2',{timeout:10000});
-    await expect(page.locator('.cm-deletedChunk')).not.toContainText('Original first');
+    await expect(page.locator('.cm-deletedChunk').first()).toContainText('Original first');
+    await expect(page.locator('.dv-review-bar')).toBeVisible();
+    await expect(page.locator('.dv-review-bar .dv-rb-who')).toHaveText(/^Agent · \d+ passages?$/);
+    await expect(page.locator('#diffAcceptAll')).toBeHidden();
     await page.getByRole('button',{name:'Intervention précédente',exact:true}).click();
     await expect(page.locator('.dv-count')).toHaveText('1/2');
-    await expect(page.getByRole('button',{name:'Ignorer',exact:true})).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'Refuser',exact:true})).toHaveCount(0);
+    await expect(page.locator('.dv-review-bar')).toBeHidden();
     await page.getByRole('button',{name:'Intervention suivante',exact:true}).click();
     await expect(page.locator('.dv-count')).toHaveText('2/2');
     await expect(page.getByRole('button',{name:'Intervention suivante',exact:true})).toBeDisabled();
@@ -595,7 +601,7 @@ test('latex individual review automatically opens, accepts, rejects and protects
     await page.route('**/statfile?*',route=>route.fulfill({json:{mtime:0}}));
     const concurrent = second + 'Concurrent disk edit.\n';
     writeFileSync(path.join(root,'sample.tex'),concurrent);
-    await page.getByRole('button',{name:'Ignorer',exact:true}).first().click();
+    await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
     await expect(page.locator('#state')).toContainText('non enregistré');
     expect(readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(concurrent);
   });
@@ -693,8 +699,8 @@ test('latex individual review anchors the decision row under the changed passage
       await page.setViewportSize({width,height:850});
       const row=page.locator('.cm-content .atelier-review-pill');
       await expect(row).toHaveCount(1);
-      await expect(row.getByRole('button',{name:'Ignorer',exact:true})).toBeVisible();
-      await expect(row.getByRole('button',{name:'Garder',exact:true})).toBeVisible();
+      await expect(row.getByRole('button',{name:'Refuser',exact:true})).toBeVisible();
+      await expect(row.getByRole('button',{name:'Accepter',exact:true})).toBeVisible();
       const geometry=await page.evaluate(()=>{
         const row=document.querySelector('.cm-content .atelier-review-pill').getBoundingClientRect();
         const chunk=document.querySelector('.cm-deletedChunk').getBoundingClientRect();
@@ -710,10 +716,10 @@ test('latex individual review anchors the decision row under the changed passage
       expect(geometry.bracketLeft).toBeLessThan(geometry.contentLeft+2);
     }
     await page.screenshot({path:'/tmp/atelier-review-anchored.png'});
-    await page.getByRole('button',{name:'Ignorer',exact:true}).first().click();
+    await page.getByRole('button',{name:'Refuser',exact:true}).first().click();
     expect(await page.evaluate(()=>window.__gutterDecision.text)).toBe(original);
     await page.evaluate(()=>{cm.hideMergeDiff();cm.setValue('Added.\nContext.\n');cm.showMergeDiff('Context.\n',{individual:true,anchored:true,onDecision:(value)=>{window.__gutterDecision=value;}});});
-    await page.getByRole('button',{name:'Garder',exact:true}).click();
+    await page.getByRole('button',{name:'Accepter',exact:true}).click();
     expect(await page.evaluate(()=>window.__gutterDecision.base)).toBe('Added.\nContext.\n');
     await page.evaluate(()=>cm.hideMergeDiff());
     await expect(page.locator('.atelier-review-pill')).toHaveCount(0);
