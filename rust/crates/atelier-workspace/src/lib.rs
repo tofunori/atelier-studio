@@ -22,6 +22,8 @@ mod generated_images;
 pub use generated_images::save_generated_image;
 mod narval;
 mod pasted;
+mod quit_guard;
+pub use quit_guard::QuitGuard;
 mod scan;
 mod term;
 mod zotero;
