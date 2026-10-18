@@ -3,8 +3,9 @@
 use crate::codex_parse::{answer_from_interaction, map_turn_notification, TurnMapState};
 use crate::codex_rpc::{CodexAppServer, ThreadConnection};
 use crate::traits::{
-    prompts_reformulation_with_options, Provider, ProviderCaps,
-    RewriteOptions, SendMode, SendRequest, SendResult,
+    prompts_reformulation_with_options, Provider, ProviderCaps, ReviewError, ReviewRequest,
+    ReviewResponse, RewriteOptions, SendMode, SendRequest, SendResult, REVIEW_PROVIDER_TIMEOUT,
+    REVIEW_SYSTEM_PROMPT,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -125,6 +126,77 @@ impl CodexProvider {
             .map_err(|_| "review Codex: délai dépassé".to_string())?
             .map_err(|_| "review Codex annulée".to_string())?;
         Ok(json!({"review": review}))
+    }
+
+    /// Relecture isolée (plan 080 A2), distincte de `review/start` qui ne
+    /// regarde que le worktree : fil éphémère en lecture seule, sans la
+    /// session du fil relu. On rend le dernier message de l'agent tel quel ;
+    /// c'est `review.rs` qui en tire un verdict.
+    async fn run_structured_review(
+        &self,
+        req: ReviewRequest,
+        delai: Duration,
+    ) -> Result<ReviewResponse, ReviewError> {
+        let codex_id = open_thread(
+            &self.server,
+            None,
+            json!({
+                "cwd": Value::Null,
+                "sandbox": "read-only",
+                "approvalPolicy": "never",
+            }),
+        )
+        .await
+        .map_err(|error| ReviewError::Provider(format!("relecture Codex : {error}")))?;
+
+        let (tx, rx) = oneshot::channel::<Result<String, String>>();
+        self.server
+            .set_handler(&codex_id, handler_review(Arc::new(StdMutex::new(Some(tx)))))
+            .await;
+
+        // codex n'a pas de prompt système séparé, comme pour la reformulation.
+        let message = format!("{REVIEW_SYSTEM_PROMPT}\n\n{}", req.dossier);
+        let mut params = json!({
+            "threadId": codex_id,
+            "input": [{ "type": "text", "text": message, "text_elements": [] }],
+        });
+        let model = req.model.trim();
+        if !model.is_empty() {
+            params["model"] = json!(model);
+        }
+        let effort = req.effort.trim();
+        if !effort.is_empty() {
+            let declares = (!model.is_empty()).then(|| catalogue_efforts(model)).flatten();
+            if let Some(retenu) = effort_a_envoyer(effort, declares.as_deref()) {
+                params["effort"] = json!(retenu);
+            }
+        }
+        let started = match self.server.request("turn/start", params).await {
+            Ok(started) => started,
+            Err(error) => {
+                self.server.clear_handler(&codex_id).await;
+                return Err(ReviewError::Provider(format!("relecture Codex : {error}")));
+            }
+        };
+
+        let recu = tokio::time::timeout(delai, rx).await;
+        self.server.clear_handler(&codex_id).await;
+        match recu {
+            Err(_) => {
+                // Sans ça, le tour éphémère continuerait de consommer du
+                // quota une fois la relecture abandonnée.
+                if let Some(turn_id) = started.pointer("/turn/id").and_then(Value::as_str) {
+                    let _ = self
+                        .server
+                        .request("turn/interrupt", json!({"threadId": codex_id, "turnId": turn_id}))
+                        .await;
+                }
+                Err(ReviewError::Timeout)
+            }
+            Ok(Err(_)) => Err(ReviewError::Provider("relecture Codex annulée".into())),
+            Ok(Ok(Err(message))) => Err(ReviewError::Provider(format!("relecture Codex : {message}"))),
+            Ok(Ok(Ok(text))) => Ok(ReviewResponse { text }),
+        }
     }
 }
 
@@ -1447,6 +1519,14 @@ impl Provider for CodexProvider {
         (!texte.is_empty()).then(|| texte.to_string())
     }
 
+    fn structured_review(&self) -> bool {
+        true
+    }
+
+    async fn review(&self, req: ReviewRequest) -> Result<ReviewResponse, ReviewError> {
+        self.run_structured_review(req, REVIEW_PROVIDER_TIMEOUT).await
+    }
+
     async fn native_command(&self, name: &str, params: Value) -> Result<Value, String> {
         if name == "pluginsInstalled" {
             let cwd = params
@@ -1568,6 +1648,53 @@ fn handler_reformulation(
         if let Ok(mut slot) = tx.lock() {
             if let Some(sender) = slot.take() {
                 let _ = sender.send(reponse);
+            }
+        }
+    })
+}
+
+/// Garde le DERNIER message de l'agent et ne répond qu'à `turn/completed` :
+/// un modèle qui raisonne peut publier un préambule avant son JSON final.
+fn handler_review(
+    tx: Arc<StdMutex<Option<oneshot::Sender<Result<String, String>>>>>,
+) -> Arc<dyn Fn(&str, &Value) + Send + Sync> {
+    let last = Arc::new(StdMutex::new(String::new()));
+    Arc::new(move |method: &str, params: &Value| {
+        let resultat = match method {
+            "item/completed" => {
+                let item = params.get("item").unwrap_or(&Value::Null);
+                if item.get("type").and_then(Value::as_str) == Some("agentMessage") {
+                    if let (Some(text), Ok(mut slot)) =
+                        (item.get("text").and_then(Value::as_str), last.lock())
+                    {
+                        *slot = text.to_string();
+                    }
+                }
+                return;
+            }
+            "turn/completed" => {
+                let status = params
+                    .pointer("/turn/status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("completed");
+                let text = last.lock().map(|t| t.trim().to_string()).unwrap_or_default();
+                if status != "completed" {
+                    Err(params
+                        .pointer("/turn/error/message")
+                        .and_then(Value::as_str)
+                        .unwrap_or(status)
+                        .to_string())
+                } else if text.is_empty() {
+                    Err("réponse vide".to_string())
+                } else {
+                    Ok(text)
+                }
+            }
+            _ => return,
+        };
+        if let Ok(mut slot) = tx.lock() {
+            if let Some(sender) = slot.take() {
+                let _ = sender.send(resultat);
             }
         }
     })
