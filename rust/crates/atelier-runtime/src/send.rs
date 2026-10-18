@@ -228,6 +228,24 @@ asks for a file or a gallery figure.\n</atelier-widget-integration>"
     )
 }
 
+/// Calculs lancés par l'agent (chantier 4) : même raison que les widgets,
+/// la consigne vit dans le message. Sans elle, l'agent soumet par ssh ou
+/// sbatch lui-même et rien ne passe par la carte Lancer / Refuser.
+fn with_compute_instruction(prompt: String, provider: &str) -> String {
+    if !crate::agent_mcp::is_mcp_compatible_provider(provider) {
+        return prompt;
+    }
+    format!(
+        "{prompt}\n\n<atelier-compute>\nTo run a computation that takes more than a few minutes, \
+or anything on the NAS, Narval or Rorqual, use the MCP tool `atelier_compute`: action=hosts, \
+then action=host for the notes of the host you target (read them before writing the script), \
+then action=propose_job. The user approves each job on a card in the chat. Never submit \
+with sbatch, nohup, setsid or ssh yourself, never delete files on a host, and do not wait \
+in a loop for a job to end: the card and the Calculs tab follow it, and action=job_status \
+reads its state when the user asks.\n</atelier-compute>"
+    )
+}
+
 /// Capacité MCP scopée du tour (plan 057 + spec widgets-chat).
 /// Partagée par le tour normal ET le steer : un steer codex qui échoue
 /// retombe sur `thread/resume` DANS le provider, et sans cette config le fil
@@ -1357,7 +1375,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let p = with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
         let p = with_zotero_passage_instruction(p, state.server_dir());
         let p = with_figure_qc_instruction(p, state.server_dir());
-        with_widget_tool_instruction(p, &provider)
+        let p = with_widget_tool_instruction(p, &provider);
+        with_compute_instruction(p, &provider)
     };
     // Bloc base de connaissances (plan 049 T4) : sources attachées au thread —
     // ne bloque jamais un envoi (dégrade en prompt inchangé / fiches).
@@ -3510,6 +3529,15 @@ mod tests {
 
         let api = with_widget_tool_instruction("fais-moi un widget".into(), "openrouter");
         assert_eq!(api, "fais-moi un widget");
+    }
+
+    #[test]
+    fn compute_instruction_sends_jobs_through_the_approval_card() {
+        let enriched = with_compute_instruction("lance l'ajustement sur Narval".into(), "claude");
+        assert!(enriched.starts_with("lance l'ajustement sur Narval"));
+        assert!(enriched.contains("atelier_compute"));
+        assert!(enriched.contains("Never submit"));
+        assert_eq!(with_compute_instruction("x".into(), "openrouter"), "x");
     }
 
     #[test]

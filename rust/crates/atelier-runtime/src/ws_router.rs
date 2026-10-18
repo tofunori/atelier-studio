@@ -81,6 +81,10 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "computeSnapshot",
     "computeReadLog",
     "computeForgetRun",
+    "computeJobDecision",
+    "computeHosts",
+    "computeHostSave",
+    "computeHostsImport",
     "listCommands",
     "listPlugins",
     "listCodexApps",
@@ -849,6 +853,49 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 })
                 .await,
             )
+        }
+        // Carte « Lancer / Refuser / Annuler » d'une tâche proposée par
+        // l'agent (chantier 4). Le front n'envoie que l'identifiant : le
+        // script lancé est celui que le serveur a enregistré et montré.
+        "computeJobDecision" => {
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let job_id = msg.get("jobId").and_then(Value::as_str).unwrap_or("").to_string();
+            let decision = msg.get("decision").and_then(Value::as_str).unwrap_or("");
+            let always = msg.get("always").and_then(Value::as_bool).unwrap_or(false);
+            let backend = crate::compute_jobs::Backend::production();
+            let mut reply = json!({"type": "computeJobDecision", "requestId": request_id, "jobId": job_id});
+            match crate::compute_jobs::decide(state, &backend, &job_id, decision, always).await {
+                Ok(status) => reply["status"] = json!(status),
+                Err(error) => reply["error"] = json!(error),
+            }
+            vec![json_msg(reply)]
+        }
+        // Fiches d'hôte de Calculs › Hôtes : lecture, édition, import depuis
+        // Claude Science. Toutes répondent `computeHosts` (liste à jour).
+        "computeHosts" | "computeHostSave" | "computeHostsImport" => {
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let mut extra = json!({});
+            let outcome = match msg_type {
+                "computeHostSave" => crate::compute_jobs::save_host(state, &msg).await,
+                "computeHostsImport" => {
+                    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
+                    crate::compute_jobs::import_hosts(state, home).await.map(|hosts| {
+                        extra = json!({"imported": hosts});
+                    })
+                }
+                _ => Ok(()),
+            };
+            let backend = crate::compute_jobs::Backend::production();
+            let mut reply = crate::compute_jobs::hosts_payload(state, &backend);
+            reply["type"] = json!("computeHosts");
+            reply["requestId"] = request_id;
+            if let Some(imported) = extra.get("imported") {
+                reply["imported"] = imported.clone();
+            }
+            if let Err(error) = outcome {
+                reply["error"] = json!(error);
+            }
+            vec![json_msg(reply)]
         }
         "listCommands" => {
             let root = msg.get("projectRoot").and_then(|v| v.as_str());

@@ -496,6 +496,16 @@ async fn handle_action(
             crate::agent_mailbox::action_report_to_parent(state, caller_id, req).await
         }
         "show_widget" => crate::widgets::action_show_widget(state, caller_id, req).await,
+        // Outil atelier_compute (chantier 4) : lecture des hôtes, proposition
+        // d'une tâche (carte Lancer / Refuser), état des tâches du fil.
+        "compute_hosts" => Ok(crate::compute_jobs::action_hosts(state, &crate::compute_jobs::Backend::production())),
+        "compute_host" => crate::compute_jobs::action_host(state, &crate::compute_jobs::Backend::production(), req),
+        "compute_propose_job" => {
+            crate::compute_jobs::action_propose_job(state, &crate::compute_jobs::Backend::production(), caller_id, req).await
+        }
+        "compute_job_status" => {
+            crate::compute_jobs::action_job_status(state, &crate::compute_jobs::Backend::production(), caller_id, req).await
+        }
         "" => Err("missing_action".into()),
         _ => Err("unknown_action".into()),
     }

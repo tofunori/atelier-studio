@@ -8,7 +8,9 @@
 //! - `done` d'un tour → « Terminé » ;
 //! - `error` d'un tour (hors Stop demandé) → « Interrompu » ;
 //! - `interaction` en attente (`state: "pending"`) → « Accord nécessaire »,
-//!   priorité haute.
+//!   priorité haute ;
+//! - `compute_job` arrivé à `completed` ou `failed` → « Calcul terminé » /
+//!   « Calcul échoué » (tâche lancée depuis une carte du fil, chantier 4).
 //!
 //! Réglages persistés dans `{data_dir}/notify.json` (écriture atomique,
 //! 0600). Par défaut : désactivé, sans aperçu du titre (le sujet ntfy.sh est
@@ -220,6 +222,8 @@ pub enum Trigger {
     Done,
     Error,
     Pending,
+    ComputeDone,
+    ComputeFailed,
 }
 
 /// Événement du bus qui PEUT donner lieu à une alerte.
@@ -277,6 +281,17 @@ pub fn candidate(frame: &Value) -> Option<Candidate> {
                 request.map(|id| format!("interaction:{thread_id}:{id}")),
             )
         }
+        "compute_job" => {
+            // Seule la fin compte ; Refuser et Annuler viennent de
+            // l'utilisateur, il le sait déjà.
+            let trigger = match event.get("status").and_then(Value::as_str)? {
+                "completed" => Trigger::ComputeDone,
+                "failed" | "launch_failed" => Trigger::ComputeFailed,
+                _ => return None,
+            };
+            let job = event.get("jobId").and_then(Value::as_str).filter(|v| !v.is_empty())?;
+            (trigger, Some(format!("compute:{thread_id}:{job}")))
+        }
         _ => return None,
     };
     Some(Candidate {
@@ -331,6 +346,10 @@ pub fn decide(
             Some("high"),
             Some("warning"),
         ),
+        (Trigger::ComputeDone, true) => (format!("Calcul terminé : {title}"), None, None),
+        (Trigger::ComputeDone, false) => ("Un calcul est terminé.".to_string(), None, None),
+        (Trigger::ComputeFailed, true) => (format!("Calcul échoué : {title}"), None, None),
+        (Trigger::ComputeFailed, false) => ("Un calcul a échoué.".to_string(), None, None),
     };
     Some(Notification {
         title: "Atelier".into(),
@@ -732,6 +751,22 @@ mod tests {
         let settings = apply_update(&path, &NotifyUpdate { test: Some(true), ..Default::default() }).unwrap();
         assert!(!settings.enabled);
         assert!(settings.topic.is_some());
+    }
+
+    #[test]
+    fn the_end_of_a_compute_job_notifies_once_and_user_choices_never_do() {
+        let settings = enabled();
+        let job = |status: &str| frame(json!({"kind":"compute_job","jobId":"a1b2c3d4e5f6","status":status,"meta":{"turnId":"t1"}}));
+        assert_eq!(decide(&job("completed"), None, &settings).unwrap().message, "Un calcul est terminé.");
+        assert_eq!(decide(&job("failed"), None, &settings).unwrap().message, "Un calcul a échoué.");
+        assert_eq!(decide(&job("launch_failed"), None, &settings).unwrap().message, "Un calcul a échoué.");
+        for status in ["proposed", "launching", "queued", "running", "refused", "cancelled"] {
+            assert!(decide(&job(status), None, &settings).is_none(), "{status}");
+        }
+        let preview = NotifySettings { preview: true, ..enabled() };
+        assert_eq!(decide(&job("completed"), Some("Fit M42"), &preview).unwrap().message, "Calcul terminé : Fit M42");
+        // la clé ne dépend pas du tour : un même calcul n'alerte qu'une fois
+        assert_eq!(candidate(&job("completed")).unwrap().dedupe_key.as_deref(), Some("compute:fil-1:a1b2c3d4e5f6"));
     }
 
     #[test]

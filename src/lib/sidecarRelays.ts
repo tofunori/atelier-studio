@@ -100,6 +100,10 @@ const RELAYS: Record<string, Relay> = {
   computeSnapshot: forward("compute-message"),
   computeLog: forward("compute-message"),
   computeForgotRun: forward("compute-message"),
+  // calculs lancés par l'agent (chantier 4) : réponse au clic de la carte,
+  // fiches d'hôte de Calculs › Hôtes
+  computeJobDecision: forward("compute-job-decision"),
+  computeHosts: forward("compute-hosts"),
 };
 
 /** Relaie `msg` s'il est d'un type purement relayé ; renvoie `true` si c'est le cas. */

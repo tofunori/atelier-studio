@@ -513,7 +513,9 @@ export function projectChatTimeline(
           // their output and exit code. Only actual interactions escape the fold.
           const needsAttention = isPendingInteraction(innerEvent) || (innerEvent.kind === "permission" && innerEvent.answered === false) || isImageGenerationAction(innerEvent);
           const agentActivity = innerEvent.kind === "tool_update" && innerEvent.agentActivity != null;
-          if (innerKind !== "todos" && innerKind !== "widget" && !needsAttention && !agentActivity) continue;
+          // La carte d'un calcul (chantier 4) aussi : Lancer, puis l'état
+          // de la tâche, doivent rester sous les yeux une fois le tour fini.
+          if (innerKind !== "todos" && innerKind !== "widget" && innerKind !== "compute_job" && !needsAttention && !agentActivity) continue;
           const innerTurn = turnByIndex.get(inner);
           rows.push({
             type: "event",

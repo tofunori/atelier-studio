@@ -1,7 +1,7 @@
 //! MCP stdio server: concurrent reads, ordered mutations, one bounded writer.
 use crate::bridge::Bridge;
 use crate::schema::{
-    bridge_call_for, help_text, tool_definition, widget_guide_text, widget_guide_tool_definition,
+    bridge_call_for, compute_tool_definition, help_text, tool_definition, widget_guide_text, widget_guide_tool_definition,
     widget_tool_definition, TOOL_NAME, WIDGET_GUIDE_TOOL_NAME,
 };
 use serde_json::{json, Value};
@@ -44,6 +44,7 @@ fn readonly(action: &str) -> bool {
     matches!(
         action,
         "current" | "list" | "inspect" | "read_context" | "wait"
+            | "compute_hosts" | "compute_host" | "compute_job_status"
     )
 }
 
@@ -140,7 +141,7 @@ async fn serve(
                         "protocolVersion":params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
                         "capabilities":{"tools":{}}, "serverInfo":{"name":"atelier-sessions","version":env!("CARGO_PKG_VERSION")}}})),
                     "ping" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
-                    "tools/list" => Some(json!({"jsonrpc":"2.0","id":id,"result":{"tools":[tool_definition(),widget_tool_definition(),widget_guide_tool_definition()]}})),
+                    "tools/list" => Some(json!({"jsonrpc":"2.0","id":id,"result":{"tools":[tool_definition(),widget_tool_definition(),widget_guide_tool_definition(),compute_tool_definition()]}})),
                     "tools/call" => None,
                     _ => Some(error_result_value(&id, -32601, &format!("Method not found: {method}"))),
                 };

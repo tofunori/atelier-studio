@@ -128,12 +128,63 @@ pub fn widget_guide_text() -> Value {
     })
 }
 
+pub const COMPUTE_TOOL_NAME: &str = "atelier_compute";
+
+/// Calculs sur le Mac, le NAS, Narval ou Rorqual (chantier 4 du plan
+/// rattrapage-claude-science). L'outil ne lance RIEN lui-même : il propose,
+/// et l'utilisateur clique Lancer sur la carte du fil.
+pub fn compute_tool_definition() -> Value {
+    json!({
+        "name": COMPUTE_TOOL_NAME,
+        "description": "Run a computation on the user's Mac, NAS, or the Narval / Rorqual \
+    clusters. Use this instead of running sbatch, nohup or long jobs over ssh yourself. \
+    Steps: action=hosts (what is configured), then action=host for the notes of the host \
+    you target (resources, venvs, pitfalls, quotas: read them before writing the script), \
+    then action=propose_job. propose_job shows the user a card with the host, the script \
+    and the estimated cost; nothing runs until they click Launch. The job then appears in \
+    the Calculs tab and the card updates when it ends. action=job_status gives the state \
+    and the log tail. Nothing is ever deleted on a host; cancelling is the user's click.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": { "type": "string", "enum": ["hosts", "host", "propose_job", "job_status"] },
+                "host": { "type": "string", "enum": ["mac", "nas", "narval", "rorqual"] },
+                "label": { "type": "string", "description": "Short name of the job (80 chars max)" },
+                "purpose": { "type": "string", "description": "One sentence for the user: why this job" },
+                "workDir": { "type": "string", "description": "Absolute directory the script runs in (on the clusters: under /home, /project or /scratch)" },
+                "script": { "type": "string", "description": "Bash script body, 64 KB max. No #SBATCH lines needed: resources go in resources" },
+                "resources": {
+                    "type": "object",
+                    "description": "Clusters only. time is required (Slurm format, e.g. 2:00:00)",
+                    "properties": {
+                        "cpus": { "type": "integer" },
+                        "gpus": { "type": "integer" },
+                        "mem": { "type": "string", "description": "e.g. 16G" },
+                        "time": { "type": "string" },
+                        "account": { "type": "string" },
+                        "partition": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                },
+                "jobId": { "type": "string", "description": "job_status: one job (omit for this conversation's recent jobs)" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
 /// Traduit un `tools/call` en couple (action, arguments) pour le pont.
 /// `atelier_sessions` porte son action dans ses arguments ; `atelier_widget`
 /// est un outil plat dont l'action est fixe.
 pub fn bridge_call_for(tool_name: &str, args: &Value) -> Option<(String, Value)> {
     match tool_name {
         WIDGET_TOOL_NAME => Some(("show_widget".to_string(), args.clone())),
+        COMPUTE_TOOL_NAME => {
+            let action = args.get("action").and_then(|v| v.as_str())?;
+            matches!(action, "hosts" | "host" | "propose_job" | "job_status")
+                .then(|| (format!("compute_{action}"), args.clone()))
+        }
         TOOL_NAME => {
             let action = args
                 .get("action")
@@ -307,17 +358,29 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_serves_three_tools() {
+    fn tools_list_serves_four_tools() {
         let defs = [
             tool_definition(),
             widget_tool_definition(),
             widget_guide_tool_definition(),
+            compute_tool_definition(),
         ];
         let names: Vec<String> = defs
             .iter()
             .map(|d| d["name"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(names, [TOOL_NAME, WIDGET_TOOL_NAME, WIDGET_GUIDE_TOOL_NAME]);
+        assert_eq!(names, [TOOL_NAME, WIDGET_TOOL_NAME, WIDGET_GUIDE_TOOL_NAME, COMPUTE_TOOL_NAME]);
+    }
+
+    #[test]
+    fn compute_actions_route_to_their_bridge_action_and_nothing_else() {
+        for action in ["hosts", "host", "propose_job", "job_status"] {
+            let (bridge, _) = bridge_call_for(COMPUTE_TOOL_NAME, &json!({"action": action})).unwrap();
+            assert_eq!(bridge, format!("compute_{action}"));
+        }
+        // l'outil de calcul n'atteint aucune autre action du pont
+        assert!(bridge_call_for(COMPUTE_TOOL_NAME, &json!({"action": "send_message"})).is_none());
+        assert!(bridge_call_for(COMPUTE_TOOL_NAME, &json!({})).is_none());
     }
 
     #[test]

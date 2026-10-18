@@ -227,6 +227,9 @@ pub async fn serve_once(
     // Rafraîchissement auto de la bibliothèque Zotero (non fatal si absente).
     let _zotero_watch =
         crate::zotero_watch::spawn_zotero_watcher(state.clone(), atelier_workspace::zotero_dir());
+    // Suivi des calculs lancés depuis une carte du fil (chantier 4) : ne
+    // sonde que les tâches en cours, jamais d'hôte sans tâche.
+    let _compute_watch = crate::compute_jobs::spawn_watcher(state.clone());
 
     let join = tokio::spawn(async move {
         let serve = axum::serve(
