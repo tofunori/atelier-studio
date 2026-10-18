@@ -83,17 +83,21 @@
   #ctxbar .ptog[data-prop="font-style"]{font-style:italic}
   #ctxbar .ptog[data-prop="font-weight"]{font-weight:600}
   #err{color:var(--status-error,#e06c75);padding:40px;text-align:center}
+  /* contenu actif retiré du SVG (script, on*, javascript:) : dit, jamais bloquant */
+  #sanitized{color:var(--muted);font-size:var(--fs-body-s, 12px);white-space:nowrap;font-variant-numeric:tabular-nums}
 </style>
 <script data-atelier-source="gallery/src/browser/pages/svg_viewer_1.ts">(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#1e2124',card:'#24282d',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#2a2d31'},'Codex':{bg:'#282c34',card:'#2f343f',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();
 </script>
 <link rel="stylesheet" href="annotation_ui.css"><script src="annotation_ui.bundle.js"></script>
 <script src="annot_kit.js"></script>
+<script src="svg_sanitize.js"></script>
 </head>
 <body>
 <header>
   <b id="fname"></b>
   <span id="msinfo"></span>
   <span id="zoominfo" title="Zoom — ⌘+ / ⌘- / ⌘0, ou ⌘+molette"></span>
+  <span id="sanitized" role="status" hidden></span>
   <button id="clearsel" title="Désélectionner (Échap)" aria-label="Désélectionner" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
   <button id="delsel" aria-label="Supprimer la sélection" title="Supprimer la sélection (Suppr · ⌫) — ⌘Z pour annuler ; le .svg garde un .orig.bak jusqu'au Save" style="display:none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg></button>
   <span class="tsep" id="sep-sel" style="display:none"></span>
@@ -932,6 +936,18 @@ function onFullscreenChange(){ if(!fsActiveEl() && document.body.classList.conta
 document.addEventListener("fullscreenchange", onFullscreenChange);
 document.addEventListener("webkitfullscreenchange", onFullscreenChange);
 
+/** Dit, sans bloquer, que du contenu actif a été retiré à l'affichage — et
+ *  donc aussi du fichier si on enregistre. */
+function showSanitized(report                                                    ){
+  const note = (document.getElementById("sanitized")                   );
+  if(!note) return;
+  if(!report || !report.total){ note.hidden = true; note.textContent = ""; return; }
+  note.textContent = "Contenu actif retiré (" + report.total + ")";
+  note.title = "Retiré à l'affichage pour la sécurité : " + AtelierSvgSanitize.describe(report)
+    + ". Enregistrer écrit la version assainie (le .orig.bak garde l'original).";
+  note.hidden = false;
+}
+
 async function load(){
   try{
     const ver = new URLSearchParams(location.search).get("v") || "";
@@ -942,6 +958,10 @@ async function load(){
     const doc = new DOMParser().parseFromString(txt, "image/svg+xml");
     const root = doc.querySelector               ("svg");
     if(!root || doc.querySelector             ("parsererror")) throw new Error("could not parse SVG");
+    // Le SVG vient du projet (peut-être d'un dépôt cloné) : on retire script,
+    // on*, javascript:, foreignObject… DANS le document de DOMParser, où rien
+    // ne s'exécute, avant de l'insérer dans cette page de confiance.
+    showSanitized(AtelierSvgSanitize.sanitize(root));
     svg = document.importNode(root, true);
     plot.textContent = "";
     plot.appendChild(svg);
