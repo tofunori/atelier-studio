@@ -833,7 +833,7 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     fireEvent.click(plusBtn);
     await waitFor(() => expect(document.querySelector(".plus-up")).toBeTruthy());
 
-    const consigneBtn = screen.getByLabelText(t("consigne.menu-title")) as HTMLButtonElement;
+    const consigneBtn = screen.getByLabelText(t("specialiste.menu-title")) as HTMLButtonElement;
     fireEvent.click(consigneBtn);
     await waitFor(() => expect(screen.getByText(t("consigne.none"))).toBeTruthy());
     // ouvrir le menu consigne ne ferme pas le menu + resté ouvert au-dessus

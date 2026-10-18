@@ -21,6 +21,7 @@ import type { FollowUpMode } from "../../lib/chatDraftStore";
 import { KbPicker, type KbBinding } from "./KbPicker";
 import { ConsigneMenu } from "./ConsigneMenu";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
+import type { Specialiste } from "../../lib/specialistes";
 import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
 import { ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, MicIcon, RotateCcwIcon, SearchIcon, SquareIcon } from "lucide-react";
 import type { DictationPhase } from "./useComposerDictation";
@@ -148,6 +149,8 @@ export function ComposerControls(p: {
     autoReview?: { enabled: boolean };
     /** Catalogue des consignes de réponse (plan 2026-09-01) — Settings.consignes. */
     consignes?: Consigne[];
+    /** Spécialistes (plan specialistes-2026-10-18) — Settings.specialistes. */
+    specialistes?: Specialiste[];
   };
   onOpenModelSettings?: () => void;
   // base de connaissances (plan 049 T3) — picker d'attache par conversation
@@ -155,7 +158,7 @@ export function ComposerControls(p: {
   // consigne de réponse du fil actif (plan 2026-09-01)
   consigneDuFil: ConsigneDuFil | null;
   onChoisirConsigne: (choix: ConsigneDuFil | null) => void;
-  onOuvrirReglagesConsignes: () => void;
+  onOuvrirReglagesConsignes: (section?: string) => void;
 }) {
   const {
     provider, model, setModel, effort, setEffort, fastMode, setFastMode,
@@ -357,7 +360,9 @@ export function ComposerControls(p: {
               actif={p.consigneDuFil}
               provider={provider}
               onChoisir={p.onChoisirConsigne}
-              onOuvrirReglages={p.onOuvrirReglagesConsignes}
+              onOuvrirReglages={() => p.onOuvrirReglagesConsignes()}
+              specialistes={p.defaults.specialistes ?? []}
+              onGererSpecialistes={() => p.onOuvrirReglagesConsignes("specialistes")}
             />
           {permissionOptions.length > 0 && (
             <>

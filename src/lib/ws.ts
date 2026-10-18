@@ -110,6 +110,13 @@ type AgentEventBody =
   /** `tone` : avis du CLI (`__notice`) — `warning` pour un échec ou un blocage. */
   | { kind: "tool"; name: string; detail?: string; tone?: "info" | "warning" }
   | { kind: "widget"; id: string; title: string; height: number; ts?: number }
+  /** Carte posée par `propose_specialist` (plan specialistes-2026-10-18). */
+  | {
+      kind: "specialist_proposal";
+      id: string;
+      proposal: { nom: string; nomCourt: string; role: string; instructions: string; skills: string[]; connecteurs: string[]; replaceId: string | null };
+      ts?: number;
+    }
   | {
       kind: "edit";
       projectRoot?: string | null;

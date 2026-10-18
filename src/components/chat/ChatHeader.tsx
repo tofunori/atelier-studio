@@ -27,6 +27,7 @@ import type { PresentedStatus } from "../../lib/statusPresentation";
 import type { TranscriptView } from "../../lib/settings";
 import { nomConsigne as composedConsigneName } from "../../lib/consignes";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
+import { formesDuFil } from "../../lib/specialistes";
 import "../../styles/local-headers.css";
 import { ChatNotice, type ChatNoticeData } from './ChatNotice';
 
@@ -89,10 +90,14 @@ export function ChatHeader(p: {
   // Nom résolu depuis le catalogue courant — pas depuis la copie du fil : si
   // la consigne a été renommée, l'en-tête doit refléter le nom actuel ; si
   // elle a été supprimée du catalogue, repli neutre (le fil garde son texte).
-  const consigneDuFil = p.consigneDuFil ?? null;
-  const nomConsigne = (consigneDuFil?.composition || consigneDuFil?.selection) ? composedConsigneName(consigneDuFil, p.consignes) : consigneDuFil
+  // Un spécialiste se nomme en entier ici (le compositeur n'a que le nom
+  // court) ; ses consignes de forme suivent.
+  const specialiste = p.consigneDuFil?.specialiste ?? null;
+  const consigneDuFil = formesDuFil(p.consigneDuFil);
+  const nomFormes = (consigneDuFil?.composition || consigneDuFil?.selection) ? composedConsigneName(consigneDuFil, p.consignes) : consigneDuFil
     ? (p.consignes ?? []).find((c) => c.id === consigneDuFil.id)?.nom ?? t("chat.consigne-deleted")
     : null;
+  const nomConsigne = specialiste ? [specialiste.nom, nomFormes].filter(Boolean).join(" · ") : nomFormes;
   const linkedParents = p.linkedAgents?.filter((agent) => agent.direction === "parent") ?? [];
   const linkedChildren = p.linkedAgents?.filter((agent) => agent.direction === "child") ?? [];
 
@@ -184,7 +189,7 @@ export function ChatHeader(p: {
             </StatusBadge>
           )}
           {nomConsigne != null ? (
-            <span className="chat-header-consigne" title={t("chat.consigne-header", { nom: nomConsigne })}>
+            <span className="chat-header-consigne" title={specialiste ? t("specialiste.header", { nom: nomConsigne }) : t("chat.consigne-header", { nom: nomConsigne })}>
               {nomConsigne}
             </span>
           ) : null}

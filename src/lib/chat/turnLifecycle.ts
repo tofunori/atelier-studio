@@ -138,6 +138,7 @@ function contentHint(event: AgentEvent): string {
     case "tool": return event.name;
     case "activity": return `${event.id}:${event.title}`;
     case "widget": return event.id;
+    case "specialist_proposal": return event.id;
     case "edit": return event.files.map((file) => file.path).join("|");
     case "todos": return event.items.map((item) => `${item.completed ? "x" : "-"}${item.text}`).join("|");
     case "goal": return event.goal?.objective ?? "";
@@ -180,7 +181,8 @@ export function lifecycleEventIdentity(event: AgentEvent, index = 0, fallbackTur
       case "interaction":
       case "permission": itemId = event.requestId; break;
       case "activity":
-      case "widget": itemId = event.id; break;
+      case "widget":
+      case "specialist_proposal": itemId = event.id; break;
       // Legacy `tool` starts have no call id. Keep each observation distinct;
       // the following `tool_update` can still join it when a metadata item id
       // is available. Using the tool name here would collapse two sequential
