@@ -209,12 +209,17 @@ function useGitDiffOnDemand(file: EditedFile, event: EditEvent, threadId: string
   const [diff, setDiff] = useState<ChatDiffPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // demande en vol, lue par le délai d'attente sans passer par un updater
+  const pending = useRef(false);
+  const timer = useRef<number | null>(null);
+  useEffect(() => () => { if (timer.current != null) window.clearTimeout(timer.current); }, []);
 
   useEffect(() => {
     const onDiff = (ev: Event) => {
       const msg = (ev as CustomEvent).detail;
       if (msg.path !== file.path) return;
       if (event.projectRoot && msg.projectRoot !== event.projectRoot) return;
+      pending.current = false;
       setLoading(false);
       if (msg.error) { setError(String(msg.error)); return; }
       setError(null);
@@ -243,11 +248,12 @@ function useGitDiffOnDemand(file: EditedFile, event: EditEvent, threadId: string
       scope: "changes",
     });
     if (!sent) { setLoading(false); return; }
-    window.setTimeout(() => {
-      setLoading((current) => {
-        if (current) setError(t("chat.diff-timeout"));
-        return false;
-      });
+    pending.current = true;
+    timer.current = window.setTimeout(() => {
+      if (!pending.current) return;
+      pending.current = false;
+      setLoading(false);
+      setError(t("chat.diff-timeout"));
     }, 8000);
   };
   return { diff, loading, error, request };
@@ -264,6 +270,18 @@ function editFileView(file: EditedFile, diff: ChatDiffPayload | null, created: b
   return null;
 }
 
+/** Un fichier neuf (Write sur un chemin absent, ACP avec oldText vide) se lit
+ * comme du code, pas comme un mur d'ajouts. */
+const isCreatedFile = (file: EditedFile) =>
+  file.newText !== undefined && !file.oldText && file.unified === undefined;
+
+/** +N −N : ceux du provider, sinon comptés sur le diff ; jamais de −N pour un
+ * fichier créé. */
+function editCounts(file: EditedFile, view: FileDiffView | null, created: boolean) {
+  const counted = view ? countChanges(view.rows) : { add: 0, del: 0 };
+  return { add: file.add ?? counted.add, del: created ? 0 : file.del ?? counted.del };
+}
+
 function EditFileLine({ file, event, threadId }: {
   file: EditedFile;
   event: EditEvent;
@@ -277,13 +295,9 @@ function EditFileLine({ file, event, threadId }: {
   // pour ne pas déclencher une rafale de sous-processus git pendant le tour.
   const [open, setOpen] = useState(hasSnippet);
   const git = useGitDiffOnDemand(file, event, threadId);
-  // Un fichier neuf (Write sur un chemin absent, ACP avec oldText vide) se lit
-  // comme du code, pas comme un mur d'ajouts.
-  const created = file.newText !== undefined && !file.oldText && file.unified === undefined;
+  const created = isCreatedFile(file);
   const view = useMemo(() => editFileView(file, git.diff, created), [file, git.diff, created]);
-  const counted = view ? countChanges(view.rows) : null;
-  const add = file.add ?? counted?.add ?? 0;
-  const del = created ? 0 : file.del ?? counted?.del ?? 0;
+  const { add, del } = editCounts(file, view, created);
   const base = file.path.split("/").pop() || file.path;
 
   const toggle = () => {
@@ -304,30 +318,34 @@ function EditFileLine({ file, event, threadId }: {
         <Tick open={open} />
       </RowButton>
       {open && (
-        <EditLineCard path={file.path} baseSha={event.baseSha} created={created} view={view}
-          fallback={git.loading ? t("common.loading")
-            : git.error ?? (git.diff?.binary ? t("git.binary-changed") : t("git.diff-empty"))}
-          alert={!git.loading && git.error != null} />
+        <EditLineCard path={file.path} baseSha={event.baseSha} created={created} view={view} git={git} />
       )}
     </div>
   );
 }
 
+/** Ce que montre la carte tant qu'aucune ligne de diff n'est disponible. */
+function diffFallback(git: { diff: ChatDiffPayload | null; loading: boolean; error: string | null }): string {
+  if (git.loading) return t("common.loading");
+  if (git.error) return git.error;
+  return git.diff?.binary ? t("git.binary-changed") : t("git.diff-empty");
+}
+
+function DiffStatus({ text, alert = false }: { text: string; alert?: boolean }) {
+  return <div className="edit-line-status" role={alert ? "alert" : undefined}>{text}</div>;
+}
+
 /** Carte dépliée : chemin complet, Ouvrir, puis le diff ou son état. */
-function EditLineCard({ path, baseSha, created, view, fallback, alert }: {
+function EditLineCard({ path, baseSha, created, view, git }: {
   path: string;
   baseSha?: string | null;
   created: boolean;
   view: FileDiffView | null;
-  fallback: string;
-  alert: boolean;
+  git: Pick<ReturnType<typeof useGitDiffOnDemand>, "diff" | "loading" | "error">;
 }) {
   const base = path.split("/").pop() || path;
   const dir = path.slice(0, path.length - base.length);
   const lineCount = view?.rows.length ?? 0;
-  const status = (text: string, isAlert = false) => (
-    <div className="edit-line-status" role={isAlert ? "alert" : undefined}>{text}</div>
-  );
   return (
     <div className="edit-line-card">
       <div className="edit-line-card-head">
@@ -348,10 +366,10 @@ function EditLineCard({ path, baseSha, created, view, fallback, alert }: {
       </div>
       <div className="edit-line-card-body">
         {view && lineCount ? (
-          <Suspense fallback={status(t("common.loading"))}>
+          <Suspense fallback={<DiffStatus text={t("common.loading")} />}>
             <FileDiff rows={view.rows} path={path} created={created} numbered={view.numbered} />
           </Suspense>
-        ) : status(fallback, alert)}
+        ) : <DiffStatus text={diffFallback(git)} alert={!git.loading && git.error != null} />}
       </div>
     </div>
   );
