@@ -68,6 +68,12 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "removeHighlight",
     "getSettings",
     "saveSettings",
+    "importClaudeScience",
+    "memoryList",
+    "memorySave",
+    "memoryDelete",
+    "memoryClaudeSciencePreview",
+    "memoryClaudeScienceImport",
     "getLedger",
     "upsertThread",
     "listFiles",
@@ -353,6 +359,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let _ = state.threads().lock().await.delete(id);
             let _ = state.journal().delete_thread(id);
             crate::widgets::purge_thread_widgets(state.app_dir(), id);
+            crate::kernel::on_delete_thread(state, id).await;
             broadcast_threads(state).await
         }
         "getHistory" => {
@@ -554,6 +561,34 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 json!({"type":"settingsFile","settings": settings}),
             )]
         }
+        "importClaudeScience" => {
+            // Réglages › Spécialistes : lecture seule de la base de Claude
+            // Science (plusieurs Go, l'app peut tourner) hors du runtime async.
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let home = std::env::var("HOME").map(std::path::PathBuf::from);
+            let result = tokio::task::spawn_blocking(move || {
+                let home = home.map_err(|_| "HOME introuvable".to_string())?;
+                atelier_workspace::import_claude_science(&home)
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+            vec![json_msg(match result {
+                Ok(import) => json!({"type":"claudeScienceImport","requestId":request_id,
+                    "ok":true,"base":import.base,"specialistes":import.specialistes}),
+                Err(error) => json!({"type":"claudeScienceImport","requestId":request_id,
+                    "ok":false,"error":error,"specialistes":[]}),
+            })]
+        }
+        // Réglages › Mémoire et cartes de proposition (chantier 3).
+        "memoryList" => vec![json_msg(crate::memory::handle_list(state, &msg).await)],
+        "memorySave" => vec![json_msg(crate::memory::handle_save(state, &msg).await)],
+        "memoryDelete" => vec![json_msg(crate::memory::handle_delete(state, &msg).await)],
+        "memoryClaudeSciencePreview" => {
+            vec![json_msg(crate::memory::handle_claude_science_preview(state, &msg).await)]
+        }
+        "memoryClaudeScienceImport" => {
+            vec![json_msg(crate::memory::handle_claude_science_import(state, &msg).await)]
+        }
         "saveSettings" => {
             let mut settings = msg.get("settings").cloned().unwrap_or(Value::Null);
             if !settings.is_object() {
@@ -609,6 +644,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "entries": entries,
             }))]
         }
+        "kernelCells" => crate::kernel::handle_cells(state, &msg).await,
+        "kernelStop" => crate::kernel::handle_stop(state, &msg).await,
+        "kernelCommand" => crate::kernel::handle_command(state, &msg).await,
         "upsertThread" => {
             let patch = msg.get("thread").cloned().unwrap_or(msg.clone());
             let result = {

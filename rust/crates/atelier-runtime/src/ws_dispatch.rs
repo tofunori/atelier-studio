@@ -31,6 +31,9 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "getSettings" | "listHighlights" | "listAutomations" => Class::FastRead,
         "getHistory" | "getAgentHistory" => Class::History,
         "articleImport" | "articleImportDoi" | "articleWrite" | "kbRagdocPromote" => Class::Corpus,
+        // Lit la base de Claude Science (plusieurs Go) : ne doit pas tenir
+        // la barrière globale devant les envois du chat.
+        "memoryClaudeScienceImport" => Class::Corpus,
         "clientLog"
         | "getLedger"
         | "listFiles"
@@ -77,6 +80,9 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "zoteroDigest"
         | "generateCommitMsg"
         | "reformulerConsigne"
+        | "importClaudeScience"
+        | "memoryList"
+        | "memoryClaudeSciencePreview"
         | "zoteroCollections"
         | "listSessions"
         | "getUsage"
@@ -84,6 +90,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "getReviews"
         | "integrations"
         | "environmentStatus"
+        | "kernelCells"
         // N'ajoute que les CLI absents du registre (RwLock) : aucune session
         // vivante n'est touchée, donc pas de barrière globale.
         | "refreshProviders" => Class::Read,
@@ -100,7 +107,8 @@ pub(crate) fn lane(request: &Value) -> Option<String> {
     let id = match kind {
         "upsertThread" => request.pointer("/thread/id").or_else(|| request.get("id")),
         "send" | "renameThread" | "moveThread" | "deleteThread" | "prepareMessageEdit"
-        | "codexCompact" | "codexClear" | "goalSet" | "goalGet" | "goalClear" | "requestReview" => {
+        | "codexCompact" | "codexClear" | "goalSet" | "goalGet" | "goalClear" | "requestReview"
+        | "kernelStop" | "kernelCommand" => {
             request.get("threadId")
         }
         _ => None,
@@ -364,6 +372,11 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
         "gbrainSearch" => Some("gbrainResults"),
         "generateCommitMsg" => Some("commitMsg"),
         "reformulerConsigne" => Some("consigneReformulee"),
+        "memoryList" => Some("memories"),
+        "memorySave" => Some("memorySaved"),
+        "memoryDelete" => Some("memoryDeleted"),
+        "memoryClaudeSciencePreview" => Some("memoryClaudeScience"),
+        "memoryClaudeScienceImport" => Some("memoryImported"),
         "narvalListDirectory" => Some("narvalDirectory"),
         "narvalInspectJob" => Some("narvalJobDetail"),
         "narvalReadText" => Some("narvalText"),
@@ -371,6 +384,8 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
             request["type"].as_str()
         }
         "computeReadLog" => Some("computeLog"),
+        "kernelCells" => Some("kernelCells"),
+        "kernelCommand" => Some("kernelCommand"),
         _ => None,
     };
     if let Some(kind) = response_type {
@@ -633,6 +648,8 @@ mod tests {
             "goalClear",
             "pinPassage",
             "unpinPassage",
+            "memorySave",
+            "memoryDelete",
         ];
         for kind in crate::ws_router::ALL_MESSAGE_TYPES {
             if *kind == "ping" {

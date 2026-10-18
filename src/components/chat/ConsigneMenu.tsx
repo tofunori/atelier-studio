@@ -1,9 +1,10 @@
-import { nomConsigne, consignesSelectionnees, basculerConsigne } from "../../lib/consignes";
+import { nomConsigne, consignesSelectionnees } from "../../lib/consignes";
 import { useState } from "react";
-import { FileText, GraduationCap, FlaskConical, MessageCircle, SlidersHorizontal, List } from "lucide-react";
+import { FileText, GraduationCap, FlaskConical, MessageCircle, SlidersHorizontal, List, Settings, UserRound } from "lucide-react";
 import { DropdownMenuSurface } from "../ui/DropdownMenuSurface";
 import { RowButton } from "../ui/RowButton";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
+import { basculerForme, choisirSpecialiste, composerFil, formesDuFil, type Specialiste } from "../../lib/specialistes";
 import { t } from "../../lib/i18n";
 
 /** CLIs qui savent porter une consigne (plan du 2026-09-01). */
@@ -36,19 +37,27 @@ function CocheConsigne() {
   );
 }
 
+/** Menu « Spécialiste » du compositeur (plan specialistes-2026-10-18) :
+ *  le spécialiste du fil en haut, puis les consignes de forme (section
+ *  « Forme de réponse », combinables). Le spécialiste dit quoi savoir, la
+ *  forme dit comment répondre ; les deux voyagent dans la même copie. */
 export function ConsigneMenu(p: {
   consignes: Consigne[];
   actif: ConsigneDuFil | null;
   provider: string;
   onChoisir: (choix: ConsigneDuFil | null) => void;
   onOuvrirReglages: () => void;
+  specialistes?: Specialiste[];
+  onGererSpecialistes?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const supporte = PROVIDERS_AVEC_CONSIGNE.includes(p.provider);
-  const connue = p.actif ? p.consignes.find((c) => c.id === p.actif?.id) : undefined;
+  const specialiste = p.actif?.specialiste ?? null;
+  const formes = formesDuFil(p.actif);
+  const connue = formes ? p.consignes.find((c) => c.id === formes.id) : undefined;
   // Une consigne retirée du catalogue laisse le fil fonctionnel : on le dit
   // au lieu d'afficher un nom vide ou de perdre l'état.
-  const nom = (p.actif?.composition || p.actif?.selection) ? nomConsigne(p.actif, p.consignes) : p.actif ? (connue?.nom ?? t("chat.consigne-deleted")) : "";
+  const nomFormes = (formes?.composition || formes?.selection) ? nomConsigne(formes, p.consignes) : formes ? (connue?.nom ?? t("chat.consigne-deleted")) : "";
   const pied = PIED_KEYS[p.provider as keyof typeof PIED_KEYS]
     ? t(PIED_KEYS[p.provider as keyof typeof PIED_KEYS])
     : undefined;
@@ -57,22 +66,72 @@ export function ConsigneMenu(p: {
   // du fil. Marquée par un fond plein + une coche (spec 2026-09-01) — sans
   // ça, ouvrir le menu ne disait pas laquelle est en vigueur.
   const rangee = (actif: boolean) => (actif ? "consigne-item on" : "consigne-item");
+  const rangeeSpecialiste = (actif: boolean) => (actif ? "specialiste-item on" : "specialiste-item");
 
-  const selection = consignesSelectionnees(p.actif);
+  const selection = consignesSelectionnees(formes);
   const catalogue = [...p.consignes, ...selection.filter(c => !p.consignes.some(rule => rule.id === c.id)).map(c => ({
     ...c, nom:c.id === "atelier-anglais" ? t("consigne.english") : t("consigne.personal"), description:c.texte,
   }))];
-  const items = [
+  const visibles = (p.specialistes ?? []).filter((s) => s.visible || s.id === specialiste?.id);
+  const specialistesItems = [
+    {
+      key: "specialiste-aucun",
+      className: rangeeSpecialiste(!specialiste),
+      label: (
+        <>
+          <span className="consigne-nom">{t("specialiste.none")}</span>
+          {!specialiste && <CocheConsigne />}
+        </>
+      ),
+      onSelect: () => p.onChoisir(choisirSpecialiste(p.actif, null)),
+    },
+    ...visibles.map((s) => ({
+      key: `specialiste-${s.id}`,
+      className: rangeeSpecialiste(specialiste?.id === s.id),
+      label: (
+        <>
+          <UserRound aria-hidden="true" />
+          <span className="consigne-option">
+            <span className="consigne-nom">{s.nom || t("specialistes.untitled")}</span>
+            {s.role && <span className="consigne-desc" title={s.role}>{s.role}</span>}
+          </span>
+          {specialiste?.id === s.id && <CocheConsigne />}
+        </>
+      ),
+      onSelect: () => p.onChoisir(choisirSpecialiste(p.actif, specialiste?.id === s.id ? null : s)),
+    })),
+    // Fiche du fil absente du catalogue (supprimée) : on la montre quand
+    // même, cochée, pour que le menu dise ce que le fil porte encore.
+    ...(specialiste && !visibles.some((s) => s.id === specialiste.id) ? [{
+      key: `specialiste-${specialiste.id}`,
+      className: rangeeSpecialiste(true),
+      label: (
+        <>
+          <UserRound aria-hidden="true" />
+          <span className="consigne-option"><span className="consigne-nom">{specialiste.nom}</span>
+            <span className="consigne-desc">{t("specialiste.deleted")}</span></span>
+          <CocheConsigne />
+        </>
+      ),
+      onSelect: () => p.onChoisir(choisirSpecialiste(p.actif, null)),
+    }] : []),
+    ...(p.onGererSpecialistes ? [{
+      key: "specialistes-gerer",
+      label: <><Settings aria-hidden="true" /><span className="consigne-lien">{t("specialiste.manage")}</span></>,
+      onSelect: p.onGererSpecialistes,
+    }] : []),
+  ];
+  const formesItems = [
     {
       key: "aucune",
-      className: rangee(!p.actif),
+      className: rangee(!formes),
       label: (
         <>
           <span className="consigne-nom">{t("consigne.none")}</span>
-          {!p.actif && <CocheConsigne />}
+          {!formes && <CocheConsigne />}
         </>
       ),
-      onSelect: () => p.onChoisir(null),
+      onSelect: () => p.onChoisir(composerFil(specialiste, null)),
     },
     ...catalogue.map((c) => ({
       key: c.id,
@@ -90,7 +149,7 @@ export function ConsigneMenu(p: {
           </span>
         </>
       ),
-      onSelect: () => p.onChoisir(basculerConsigne(p.actif, c)),
+      onSelect: () => p.onChoisir(basculerForme(p.actif, c)),
     })),
     {
       key: "reglages",
@@ -100,33 +159,46 @@ export function ConsigneMenu(p: {
     },
   ];
 
+  // Bouton du compositeur : le nom court du spécialiste et le nombre de
+  // consignes de forme (« Glaciologue +2 », décision 2026-10-18) ; le nom
+  // complet reste dans l'infobulle, l'en-tête du fil et le menu.
+  const titre = !supporte ? t("consigne.unsupported")
+    : specialiste ? [specialiste.nom, nomFormes].filter(Boolean).join(" · ")
+    : (nomFormes || t("specialiste.menu-title"));
+  const trigger = specialiste ? (
+    <RowButton className="consigne-pilule specialiste-pilule" data-active="true"
+      aria-label={t("specialiste.menu-title")} title={titre} disabled={!supporte}>
+      <UserRound aria-hidden="true" />
+      <span className="specialiste-pilule-nom">{specialiste.nomCourt || specialiste.nom}</span>
+      {selection.length > 0 && <span className="specialiste-pilule-formes">+{selection.length}</span>}
+    </RowButton>
+  ) : (
+    <RowButton
+      className={p.actif ? "consigne-pilule" : "consigne-trigger"}
+      data-active={Boolean(p.actif) || open}
+      aria-label={t("specialiste.menu-title")}
+      title={titre}
+      disabled={!supporte}>
+      <GlypheConsigne />
+      {p.actif ? <span className="consigne-pilule-nom">{nomFormes}</span> : null}
+    </RowButton>
+  );
+
   return (
     <DropdownMenuSurface
       open={open}
       onOpenChange={setOpen}
-      label={t("consigne.menu-title")}
+      label={t("specialiste.menu-title")}
       className="composer-menu composer-style-menu"
-      header={<span className="consigne-heading"><span>{t("consigne.heading")}</span><span className="consigne-subtitle">{t("consigne.combine")}</span></span>}
       footer={<span title={pied}>{t("consigne.active-count", { n: selection.length })}</span>}
       side="top"
       sideOffset={8}
       align="start"
-      items={items}
-      trigger={
-        <RowButton
-          className={p.actif ? "consigne-pilule" : "consigne-trigger"}
-          data-active={Boolean(p.actif) || open}
-          aria-label={t("consigne.menu-title")}
-          title={
-            supporte
-              ? (connue?.nom ?? t("consigne.menu-title"))
-              : t("consigne.unsupported")
-          }
-          disabled={!supporte}>
-          <GlypheConsigne />
-          {p.actif ? <span className="consigne-pilule-nom">{nom}</span> : null}
-        </RowButton>
-      }
+      groups={[
+        { key: "specialistes", label: <span className="consigne-heading"><span>{t("specialiste.heading")}</span></span>, items: specialistesItems },
+        { key: "formes", separatorBefore: true, label: <span className="consigne-heading"><span>{t("specialiste.forms")}</span><span className="consigne-subtitle">{t("consigne.combine")}</span></span>, items: formesItems },
+      ]}
+      trigger={trigger}
     />
   );
 }

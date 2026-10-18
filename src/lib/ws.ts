@@ -110,6 +110,22 @@ type AgentEventBody =
   /** `tone` : avis du CLI (`__notice`) — `warning` pour un échec ou un blocage. */
   | { kind: "tool"; name: string; detail?: string; tone?: "info" | "warning" }
   | { kind: "widget"; id: string; title: string; height: number; ts?: number }
+  /** Carte posée par `propose_specialist` (plan specialistes-2026-10-18). */
+  | {
+      kind: "specialist_proposal";
+      id: string;
+      proposal: { nom: string; nomCourt: string; role: string; instructions: string; skills: string[]; connecteurs: string[]; replaceId: string | null };
+      ts?: number;
+    }
+  /** Carte posée par `propose_memory` ou par l'extraction de fin de tour
+   *  (chantier 3 du plan rattrapage-claude-science). */
+  | {
+      kind: "memory_proposal";
+      id: string;
+      origin: "agent" | "extraction";
+      proposal: { text: string; replaceId: string | null; replacedText: string | null; projectRoot: string };
+      ts?: number;
+    }
   /** Calcul proposé par l'agent (chantier 4) : carte Lancer / Refuser, puis
    *  suivi. Une rangée par `jobId`, fusionnée à chaque changement d'état ;
    *  seule la première émission porte `job`. */
@@ -328,6 +344,10 @@ export type Thread = {
   /** Consigne de réponse (plan 2026-09-01) — copie {id, texte} portée par le
    *  fil ; `null`/absent = aucune consigne active. */
   consigne?: ConsigneDuFil | null;
+  /** Noyau Python persistant (chantier 5) : coupé par défaut. */
+  kernelEnabled?: boolean;
+  /** Env du dernier noyau lancé dans ce fil. */
+  kernelEnv?: string | null;
 };
 
 export type AgentMessageEvent = {

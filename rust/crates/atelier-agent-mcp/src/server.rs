@@ -1,8 +1,8 @@
 //! MCP stdio server: concurrent reads, ordered mutations, one bounded writer.
 use crate::bridge::Bridge;
 use crate::schema::{
-    bridge_call_for, compute_tool_definition, help_text, tool_definition, widget_guide_text, widget_guide_tool_definition,
-    widget_tool_definition, TOOL_NAME, WIDGET_GUIDE_TOOL_NAME,
+    all_tool_definitions, bridge_call_for, help_text, widget_guide_text, PYTHON_TOOL_NAME,
+    TOOL_NAME, WIDGET_GUIDE_TOOL_NAME,
 };
 use serde_json::{json, Value};
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
@@ -43,8 +43,21 @@ pub async fn run() -> Result<(), String> {
 fn readonly(action: &str) -> bool {
     matches!(
         action,
-        "current" | "list" | "inspect" | "read_context" | "wait"
-            | "compute_hosts" | "compute_host" | "compute_job_status"
+        "current"
+            | "list"
+            | "inspect"
+            | "read_context"
+            | "wait"
+            | "kernel_wait"
+            | "kernel_variables"
+            | "kernel_envs"
+            | "kernel_status"
+            // Pas une lecture, mais elle doit doubler un `kernel_run` qui
+            // attend encore sa cellule dans la file ordonnée.
+            | "kernel_interrupt"
+            | "compute_hosts"
+            | "compute_host"
+            | "compute_job_status"
     )
 }
 
@@ -141,7 +154,7 @@ async fn serve(
                         "protocolVersion":params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
                         "capabilities":{"tools":{}}, "serverInfo":{"name":"atelier-sessions","version":env!("CARGO_PKG_VERSION")}}})),
                     "ping" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
-                    "tools/list" => Some(json!({"jsonrpc":"2.0","id":id,"result":{"tools":[tool_definition(),widget_tool_definition(),widget_guide_tool_definition(),compute_tool_definition()]}})),
+                    "tools/list" => Some(json!({"jsonrpc":"2.0","id":id,"result":{"tools":all_tool_definitions()}})),
                     "tools/call" => None,
                     _ => Some(error_result_value(&id, -32601, &format!("Method not found: {method}"))),
                 };
@@ -155,7 +168,7 @@ async fn serve(
                     write_frame(&mut writer, &tool_result(&id, widget_guide_text(), false)).await?; continue;
                 }
                 let Some((action, arguments)) = bridge_call_for(name, &args) else {
-                    let error = if name == TOOL_NAME { "missing_action".into() } else { format!("unknown tool: {name}") };
+                    let error = if name == TOOL_NAME || name == PYTHON_TOOL_NAME { "missing_action".into() } else { format!("unknown tool: {name}") };
                     write_frame(&mut writer, &tool_result(&id, json!({"error":error}), true)).await?; continue;
                 };
                 let key = id.to_string();
@@ -205,6 +218,15 @@ mod tests {
     fn request(id: i32, action: &str) -> Value {
         json!({"id":id,"method":"tools/call","params":{"name":TOOL_NAME,"arguments":{"action":action}}})
     }
+    #[test]
+    fn a_kernel_run_is_ordered_but_its_interrupt_can_overtake_it() {
+        assert!(!readonly("kernel_run"));
+        assert!(!readonly("kernel_restart"));
+        for action in ["kernel_wait", "kernel_variables", "kernel_interrupt", "kernel_status"] {
+            assert!(readonly(action), "{action}");
+        }
+    }
+
     #[tokio::test]
     async fn wait_does_not_block_ping_and_can_be_cancelled() {
         let call: Call = Arc::new(|_, _| {

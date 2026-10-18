@@ -5,11 +5,11 @@
 // plus grandes pour s'aligner sur les icônes Chats/Surlignés du rail (19px).
 import { BookIcon, BranchIcon } from "./icons";
 
-export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves";
+export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves" | "noyau";
 
 export const SURFACES: {
   id: Surface;
-  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.calculs" | "atelier.preuves";
+  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.calculs" | "atelier.preuves" | "atelier.noyau";
   icon: React.ReactNode;
 }[] = [
   {
@@ -88,6 +88,17 @@ export const SURFACES: {
       <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="8" cy="8" r="6.2" />
         <path d="M8 4.4V8l2.4 1.6" />
+      </svg>
+    ),
+  },
+  {
+    // Noyau Python persistant du fil actif (chantier 5) : crochets de cellule,
+    // même glyphe que la case du compositeur.
+    id: "noyau",
+    labelKey: "atelier.noyau",
+    icon: (
+      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5.5 2.5h-2v11h2M10.5 2.5h2v11h-2M6.5 8h3" />
       </svg>
     ),
   },

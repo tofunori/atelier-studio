@@ -80,6 +80,13 @@ describe("isTrustedAtelierMessage", () => {
     expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, direct: true }), nonce)).toBe(false);
   });
 
+  it("accepte « Ouvrir la conversation » de la recette et rien d'autre", () => {
+    const ok = { type: "atelier-open-thread", nonce, threadId: "th-42" };
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", ok), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, threadId: "" }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, send: true }), nonce)).toBe(false);
+  });
+
   it("accepte une sélection Quick Ask venue d'un éditeur", () => {
     const e = msg("http://127.0.0.1:19000", {
       type: "atelier-quick-ask",

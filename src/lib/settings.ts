@@ -1,5 +1,6 @@
 import type { ProjectFolders } from "./projectFolders";
 import { CONSIGNES_LIVREES, type Consigne } from "./consignes";
+import type { Specialiste } from "./specialistes";
 
 export type ProviderId = string;
 
@@ -24,6 +25,9 @@ export type Settings = {
   galleryExts: string; // extensions par défaut de la galerie ("" = liste intégrée)
   galleryExtsByProject: Record<string, string>; // racine projet -> extensions
   autoRefreshAtelier: boolean;
+  /** Recette des fichiers produits (`<fichier>.prov.json`), lue par le
+   * runtime au début de chaque tour. Allumée par défaut. */
+  recipes: boolean;
   enableAppSnap: boolean;
   appSnapPlaySound: boolean;
   autoReview: {
@@ -72,6 +76,13 @@ export type Settings = {
   consignes: Consigne[];
   /** Modèle qui reformule les consignes (bouton de l'éditeur). */
   consignesAssist: { provider: string; model: string };
+  /** Spécialistes (Réglages › Spécialistes) ; le fil porte une copie du sien.
+   *  Lus aussi par le backend dans settings.json (bloc de contexte, MCP). */
+  specialistes: Specialiste[];
+  /** Mémoire de projet (Réglages › Mémoire). Lue aussi par le backend :
+   *  `injection` met les souvenirs utiles en tête du message, `extraction`
+   *  propose des souvenirs en fin de tour (coupée par défaut). */
+  memoire: { injection: boolean; extraction: boolean };
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -87,6 +98,7 @@ export const DEFAULT_SETTINGS: Settings = {
   galleryExts: "",
   galleryExtsByProject: {},
   autoRefreshAtelier: true,
+  recipes: true,
   enableAppSnap: false,
   appSnapPlaySound: true,
   autoReview: { enabled: false, provider: "codex", model: "gpt-5.5", effort: "high", trigger: "files-changed", autofix: false },
@@ -120,6 +132,8 @@ export const DEFAULT_SETTINGS: Settings = {
   railMoreOpen: false,
   consignes: CONSIGNES_LIVREES,
   consignesAssist: { provider: "codex", model: "gpt-5.6-sol" },
+  specialistes: [],
+  memoire: { injection: true, extraction: false },
 };
 
 const KEY = "atelier-studio.settings";
@@ -279,6 +293,8 @@ export function loadSettings(): Settings {
       defaultEffort: { ...DEFAULT_SETTINGS.defaultEffort, ...storedDefaultEffort },
       customModels: stored.customModels ?? [],
       modelEfforts: stored.modelEfforts ?? {},
+      specialistes: Array.isArray(stored.specialistes) ? stored.specialistes : [],
+      memoire: { ...DEFAULT_SETTINGS.memoire, ...(stored as any).memoire },
       favoriteModels: stored.favoriteModels && typeof stored.favoriteModels === "object"
         ? stored.favoriteModels
         : legacyFavoriteModels,

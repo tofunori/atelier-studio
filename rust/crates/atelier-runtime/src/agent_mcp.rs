@@ -496,6 +496,15 @@ async fn handle_action(
             crate::agent_mailbox::action_report_to_parent(state, caller_id, req).await
         }
         "show_widget" => crate::widgets::action_show_widget(state, caller_id, req).await,
+        a if a.starts_with("kernel_") => crate::kernel::action(state, caller_id, a, req).await,
+        "specialists" => Ok(crate::specialists::action_specialists(
+            &atelier_store::read_settings(&state.settings_path()).unwrap_or(Value::Null),
+        )),
+        "propose_specialist" => {
+            crate::specialists::action_propose_specialist(state, caller_id, req).await
+        }
+        "memories" => crate::memory::action_memories(state, caller_id, req).await,
+        "propose_memory" => crate::memory::action_propose_memory(state, caller_id, req).await,
         // Outil atelier_compute (chantier 4) : lecture des hôtes, proposition
         // d'une tâche (carte Lancer / Refuser), état des tâches du fil.
         "compute_hosts" => Ok(crate::compute_jobs::action_hosts(state, &crate::compute_jobs::Backend::production())),
@@ -522,7 +531,11 @@ fn help_doc() -> Value {
             {"action":"read_context","mutation":false,"params":["targetThreadId","afterSequence","beforeSequence","limit","includeTools"]},
             {"action":"wait","mutation":false,"params":["targetThreadId","timeoutMs","afterSequence"]},
             {"action":"send_message","mutation":true,"params":["targetThreadId","text","requestId"]},
-            {"action":"report_to_parent","mutation":true,"params":["requestId","report"]}
+            {"action":"report_to_parent","mutation":true,"params":["requestId","report"]},
+            {"action":"specialists","mutation":false},
+            {"action":"propose_specialist","mutation":false,"params":["nom","nomCourt","role","instructions","skills","connecteurs","replaceId"]},
+            {"action":"memories","mutation":false,"params":["query","limit"]},
+            {"action":"propose_memory","mutation":false,"params":["text","replaceId"]}
         ]
     })
 }

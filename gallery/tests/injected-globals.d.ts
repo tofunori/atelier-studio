@@ -24,6 +24,7 @@ declare global {
   var __lastGoodPage: InjectedTestValue;
   var __msgs: InjectedTestValue;
   var __pdfStats: InjectedTestValue;
+  var __posted: InjectedTestValue;
   var __releaseDestroy: InjectedTestValue;
   var __releaseDrain: () => void;
   var __reviewRowsBeforeSelection: InjectedTestValue;

@@ -339,6 +339,69 @@ test('export and delete use selected files without mutating disk when endpoints 
   });
 });
 
+const RECIPE_FIXTURE = {
+  version: 2,
+  figure: 'preview-alpha.png',
+  history: [{
+    ts: '2026-10-18T02:40:00Z', threadId: 'th-recette', turnId: 'turn-1', threadTitle: 'Tendance albédo',
+    provider: 'codex', model: 'gpt-5.5', prompt: 'trace la tendance JJA',
+    kind: 'figure', command: 'python3 analysis.py --out preview-alpha.png',
+    commands: ['ls', 'python3 analysis.py --out preview-alpha.png'],
+    scripts: ['analysis.py'],
+    scriptVersions: [{ path: 'analysis.py', size: 30, sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' }],
+    inputs: [
+      { path: 'data/panel_bayes_JJA.csv', size: 48213, sha256: '4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865' },
+      { path: '/Volumes/NAS/albedo/mod09ga_2023.nc', size: 2147483648 },
+    ],
+    env: { conda: 'albedo', python: '3.12.4', packages: { numpy: '1.26.4', xarray: '2024.6.0', matplotlib: '3.9.1' } },
+    head: '0123456789abcdef0123456789abcdef01234567', reconstructed: false,
+  }],
+};
+
+test('recette : le panneau montre la commande, les entrées et prépare la reproduction sans envoyer', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    const nonce = 'e2e-recette';
+    await page.goto(`${url}?embedded=atelier#atelier_nonce=${nonce}`);
+    // Hôte simulé : capte les messages vers Atelier et accuse réception des
+    // ajouts au chat, comme App.tsx, sans rien envoyer.
+    await page.evaluate((nonce) => {
+      window.__posted = [];
+      window.__atelierPost = (message) => {
+        window.__posted.push(message);
+        if (message?.type === 'atelier-add-to-chat') {
+          window.postMessage({ type: 'atelier-add-to-chat-ack', nonce, requestId: message.requestId, ok: true }, '*');
+        }
+      };
+    }, nonce);
+    await page.locator('[data-act="lb"][data-rel="preview-alpha.png"]').click();
+    await page.locator('#lbInfoBtn').click();
+    await page.locator('#lbProv').click();
+    const panel = page.locator('#provPanel');
+    await expect(panel.locator('h3')).toHaveText('Recette');
+    await expect(panel.locator('.pvCmd')).toHaveText('python3 analysis.py --out preview-alpha.png');
+    await expect(panel).toContainText('9f86d08');
+    await expect(panel).toContainText('Entrées (2)');
+    await expect(panel).toContainText('data/panel_bayes_JJA.csv');
+    await expect(panel).toContainText('trop gros pour l’empreinte');
+    await expect(panel).toContainText('conda albedo · Python 3.12.4');
+    await expect(panel).toContainText('numpy 1.26.4');
+    await panel.getByRole('button', { name: 'Reproduire' }).click();
+    await expect(panel.getByRole('button', { name: 'Prêt dans le chat' })).toBeVisible();
+    const posted = await page.evaluate(() => window.__posted.filter(m => m.type === 'atelier-add-to-chat'));
+    expect(posted).toHaveLength(1);
+    expect(posted[0].direct).toBeUndefined();
+    expect(posted[0].text).toContain('Reproduis ce résultat');
+    expect(posted[0].text).toContain('Commande enregistrée : python3 analysis.py --out preview-alpha.png');
+    expect(posted[0].text).toContain('attends mon accord');
+    await panel.getByRole('button', { name: 'Tendance albédo' }).click();
+    const openThread = await page.evaluate(() => window.__posted.filter(m => m.type === 'atelier-open-thread'));
+    expect(openThread).toEqual([expect.objectContaining({ threadId: 'th-recette' })]);
+  }, root => {
+    mkdirSync(path.join(root, 'data'), { recursive: true });
+    writeFileSync(path.join(root, 'preview-alpha.png.prov.json'), JSON.stringify(RECIPE_FIXTURE));
+  });
+});
+
 test('annotate: launcher draws a rectangle and sends from the contextual capsule', async ({ page }) => {
   await withGallery(async ({ root, url }) => {
     let savePayload = null;
@@ -365,6 +428,7 @@ test('annotate: launcher draws a rectangle and sends from the contextual capsule
     await expect.poll(() => savePayload && savePayload.name).toBe('preview-alpha.png');
     expect(savePayload.dataURL).toMatch(/^data:image\/png;base64,/);
     expect(savePayload.notes).toEqual([{ n: 1, text: 'note e2e' }]);
+    expect(savePayload.rel).toBe('preview-alpha.png');
     await expect(page.locator('#annotNote')).toBeHidden();
     await expect(page.locator('#lb')).toHaveClass(/annot/);
 

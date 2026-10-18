@@ -19,7 +19,9 @@ pub const REVIEW_MODE_GIT: &str = "git";
 pub const REVIEW_MODE_CLAIMS: &str = "claims";
 pub const MAX_CONCURRENT_REVIEWS: usize = 2;
 pub const MAX_REVIEWS_PER_THREAD: usize = 1;
-pub const REVIEW_TIMEOUT: Duration = Duration::from_secs(90);
+/// Un dossier de 128 Ko relu en effort élevé dépasse souvent 90 s ; le
+/// fournisseur coupe lui-même à 280 s (`REVIEW_PROVIDER_TIMEOUT`).
+pub const REVIEW_TIMEOUT: Duration = Duration::from_secs(300);
 pub const MAX_DOSSIER_BYTES: usize = 128 * 1024;
 pub const GET_REVIEWS_DEFAULT: usize = 20;
 pub const GET_REVIEWS_MAX: usize = 100;

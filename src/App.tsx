@@ -116,6 +116,9 @@ import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
+import { garderProposition, ouvrirFicheSpecialiste, specialisteAJour, type PropositionSpecialiste } from "./lib/specialistes";
+import { demanderMemoire, messageErreur } from "./lib/memoire";
+import type { DetailPropositionMemoire } from "./components/chat/MemoryProposalCard";
 import { THEME_PRESETS } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
@@ -2101,6 +2104,19 @@ export default function App() {
       setQaContext((d.context as QaContext | undefined) ?? null);
       setQaMode("open");
     };
+    const onKernelToggle = () => {
+      const id = activeIdRef.current;
+      if (!id) return;
+      const th = allThreadsRef.current.find((x) => x.id === id);
+      patchKernelDuFil(id, !th?.kernelEnabled);
+    };
+    // Bouton du compositeur : le noyau s'ouvre comme surface du panneau droit.
+    const onKernelPanel = () => switchToSurface("noyau");
+    // Sélection dans la surface Noyau → contexte du chat, comme le lecteur PDF.
+    const onKernelAddToChat = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (typeof text === "string" && text.trim()) attachContextToChat(text);
+    };
     const onAutoReviewToggle = () => {
       setSettings((s) => ({ ...s, autoReview: { ...s.autoReview, enabled: !s.autoReview.enabled } }));
     };
@@ -2191,10 +2207,39 @@ export default function App() {
     };
     const onOpenPalette = () => setPaletteOpen(true);
     const onUsageToggle = () => setUsageOpen((v) => !v);
+    // Carte « Proposition de spécialiste » (propose_specialist) : rien n'est
+    // enregistré avant ce clic. « Modifier » garde la fiche puis l'ouvre.
+    const onSpecialisteProposition = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { action?: string; proposal?: PropositionSpecialiste } | undefined;
+      if (!detail?.proposal || (detail.action !== "garder" && detail.action !== "modifier")) return;
+      const resultat = garderProposition(settingsRef.current.specialistes ?? [], detail.proposal);
+      setSettings((current) => ({ ...current, specialistes: resultat.specialistes }));
+      if (detail.action === "modifier") {
+        ouvrirFicheSpecialiste(resultat.id);
+        openSettings("specialistes");
+      }
+    };
+    // Carte « souvenir proposé » (propose_memory, extraction de fin de tour) :
+    // rien n'entre dans la mémoire avant ce clic.
+    const onMemoireProposition = (e: Event) => {
+      const detail = (e as CustomEvent).detail as DetailPropositionMemoire | undefined;
+      if (!detail?.proposal) return;
+      const { proposal } = detail;
+      void demanderMemoire(ws.current, "memorySave", {
+        memory: { projectRoot: proposal.projectRoot, text: proposal.text },
+        replaceId: proposal.replaceId ?? undefined,
+        origin: { kind: detail.origin, threadId: detail.threadId },
+      }).then((r) => detail.done(!!r.ok, r.ok ? undefined : messageErreur(r.error)));
+    };
     useWorkspaceEvents({
+      "specialiste-proposition": onSpecialisteProposition,
+      "memoire-proposition": onMemoireProposition,
       "atelier-add-to-chat-citation": onCitation,
       "quick-ask-open": onQaOpen,
       "autoreview-toggle": onAutoReviewToggle,
+      "kernel-toggle": onKernelToggle,
+      "kernel-panel-toggle": onKernelPanel,
+      "kernel-add-to-chat": onKernelAddToChat,
       "permission-answer": onPermAnswer,
       "interaction-answer": onInteractionAnswer,
       "correct-issues": onCorrectIssues,
@@ -2394,6 +2439,9 @@ export default function App() {
       if (data.type === "atelier-theme-request" && e.source) {
         const message = themeMessage(settingsRef.current, atelierNonce);
         (e.source as Window).postMessage(message, e.origin);
+      }
+      if (data.type === "atelier-open-thread") {
+        window.dispatchEvent(new CustomEvent("open-thread", { detail: { threadId: data.threadId } }));
       }
       if (data.type === "atelier-open-tab" || data.type === "atelier-open-pdf") {
         let openUrl: string;
@@ -3762,6 +3810,25 @@ export default function App() {
       }));
     }
   }
+  /** Interrupteur du noyau Python persistant (chantier 5), par fil. Même
+   *  patch que la consigne : identité du fil réémise. Couper arrête aussi le
+   *  noyau, et ses variables avec. */
+  function patchKernelDuFil(id: string, kernelEnabled: boolean) {
+    setThreads((current) => current.map((th) => (th.id === id ? { ...th, kernelEnabled } : th)));
+    setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, kernelEnabled } : th)));
+    if (ws.current?.readyState === 1) {
+      const th = allThreadsRef.current.find((x) => x.id === id);
+      ws.current.send(JSON.stringify({
+        type: "upsertThread",
+        thread: {
+          id,
+          ...(th ? { provider: th.provider, projectRoot: th.projectRoot, title: th.title } : {}),
+          kernelEnabled,
+        },
+      }));
+      if (!kernelEnabled) ws.current.send(JSON.stringify({ type: "kernelStop", threadId: id }));
+    }
+  }
   function onChoisirConsigne(choix: ConsigneDuFil | null) {
     const id = activeIdRef.current;
     if (!id) {
@@ -3791,6 +3858,9 @@ export default function App() {
   // conversation en cours.
   function consigneAJour(actif: ConsigneDuFil | null | undefined): ConsigneDuFil | null {
     if (!actif) return null;
+    // Spécialiste : sa fiche courante (instructions éditées dans les réglages)
+    // repart au tour suivant ; une fiche supprimée garde la dernière copie.
+    if (actif.specialiste) return specialisteAJour(actif, settingsRef.current.specialistes ?? []);
     if (actif.composition || actif.selection) return actif;
     const c = settingsRef.current.consignes.find((x) => x.id === actif.id);
     return c ? { id: c.id, texte: c.texte } : actif;
@@ -4372,7 +4442,8 @@ export default function App() {
           onKbChange={(next) => handleKbChangeForSource(activeId, next)}
           consigneDuFil={activeId ? (activeThreadEntry?.consigne ?? null) : pendingConsigne}
           onChoisirConsigne={onChoisirConsigne}
-          onOuvrirReglagesConsignes={() => openSettings("consignes")}
+          onOuvrirReglagesConsignes={(section = "consignes") => openSettings(section)}
+          kernelOn={activeId ? !!activeThreadEntry?.kernelEnabled : undefined}
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}
@@ -4478,6 +4549,7 @@ export default function App() {
                 onChange: (next) => handleKbChangeForSource(activeId, next),
               }}
               kbThreadTitle={activeThreadEntry?.title ?? ""}
+              kernelEnabled={!!activeThreadEntry?.kernelEnabled}
               files={files}
               filesTruncated={filesTruncated}
               // `ids` ne décrit que les onglets VISIBLES : remapper la liste

@@ -1,0 +1,27 @@
+/* Réglages › Mémoire : listes sobres dans les cartes de réglages. */
+.memoire-studio { container-type: inline-size; }
+.memoire-liste, .memoire-import { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.memoire-outils { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.memoire-outils .memoire-recherche { flex: 1; min-width: 160px; }
+.memoire-studio .ui-btn-label { display: inline-flex; align-items: center; gap: 8px; }
+.memoire-total { margin: 0; color: var(--text-muted); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
+.memoire-items, .memoire-import-projets { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.memoire-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border-subtle); }
+.memoire-item-corps { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.memoire-item-texte { margin: 0; color: var(--text-primary); font-size: var(--fs-body-s); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.memoire-item-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-muted); font-size: var(--fs-label); }
+.memoire-item-date { font-variant-numeric: tabular-nums; }
+.memoire-item-actions { flex: none; display: flex; align-items: center; gap: 4px; opacity: 0.6; transition: opacity 120ms ease; }
+.memoire-item:hover .memoire-item-actions, .memoire-item:focus-within .memoire-item-actions { opacity: 1; }
+.memoire-editeur { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.memoire-editeur textarea { font-size: var(--fs-body-s); line-height: 1.5; }
+.memoire-editeur-actions { display: flex; gap: 8px; }
+.memoire-plus { align-self: flex-start; }
+.memoire-import-tete { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.memoire-import-hint { color: var(--text-muted); font-size: var(--fs-body-s); line-height: 1.5; }
+.memoire-import-projet { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border-subtle); }
+.memoire-import-nom { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 4px; color: var(--text-primary); font-size: var(--fs-body-s); }
+.memoire-import-compte { color: var(--text-muted); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
+.memoire-import-pied { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.memoire-import-bilan { color: var(--text-secondary); font-size: var(--fs-body-s); }
+@media (prefers-reduced-motion: reduce) { .memoire-item-actions { transition: none; } }
