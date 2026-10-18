@@ -29,7 +29,7 @@ const TICK: Duration = Duration::from_secs(5);
 /// Fenêtre de SILENCE tolérée avant d'interrompre un tour (le filet ne vise
 /// que le CLI figé — vivant mais muet ; un tour long reste légitime, quelle
 /// que soit sa durée). Commune à tous les providers app-server/CLI (codex,
-/// claude — grok et kimi ont leur propre copie, pas encore migrée).
+/// claude, grok, kimi ; opencode borne son flux SSE avec la même fenêtre).
 const TURN_IDLE_SECS_DEFAULT: u64 = 600;
 
 /// Lit la fenêtre d'inactivité depuis `ATELIER_TURN_TIMEOUT_SECS` (défaut
@@ -48,6 +48,16 @@ pub fn idle_from_env_or(default_secs: u64) -> Duration {
         .and_then(|v| v.parse().ok())
         .unwrap_or(default_secs);
     Duration::from_secs(secs)
+}
+
+/// « 10 min », « 45 s » : la fenêtre telle que le message d'erreur la cite.
+pub fn describe(idle: Duration) -> String {
+    let secs = idle.as_secs();
+    if secs >= 60 && secs % 60 == 0 {
+        format!("{} min", secs / 60)
+    } else {
+        format!("{secs} s")
+    }
 }
 
 /// Compteur d'événements d'un tour : le handler du provider l'incrémente à
@@ -202,6 +212,13 @@ mod tests {
                 .expect("reçu"),
             3
         );
+    }
+
+    #[test]
+    fn la_fenetre_se_cite_en_minutes_ou_en_secondes() {
+        assert_eq!(describe(Duration::from_secs(600)), "10 min");
+        assert_eq!(describe(Duration::from_secs(90)), "90 s");
+        assert_eq!(describe(Duration::from_secs(1)), "1 s");
     }
 
     /// Fenêtre nulle = filet désactivé, jamais un tour tué instantanément.
