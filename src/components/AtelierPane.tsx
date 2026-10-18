@@ -1,6 +1,6 @@
 import ProjectGallery from "./ProjectGallery";
 import type { ProjectFolders } from "../lib/projectFolders";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useWorkspacePaneMenuHost } from "./WorkspacePaneMenuSlot";
@@ -26,6 +26,16 @@ import type { AgentEvent } from "../lib/ws";
 import { LazyDropdownMenu, type LazyDropdownMenuGroup, type LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
 import { SURFACES, type Surface } from "./surfaces";
 import { resetFrameVisibility, syncFrameVisibility } from "../lib/frameVisibility";
+import {
+  confirmDiscard,
+  discardServerDraft,
+  isDocumentUnsaved,
+  reconcileFrameSource,
+  requestFrame,
+  setDocumentUnsaved,
+  unsavedDocument,
+  type FrameSource,
+} from "../lib/unsavedDocuments";
 import {
   activateWorkspaceTab,
   closeWorkspaceTab,
@@ -224,6 +234,34 @@ export default function AtelierPane({
     [documentIdsKey],
   );
   const documentById = useMemo(() => new Map(documentTabs.map((tab) => [tab.id, tab])), [documentTabs]);
+  // Source chargée par l'iframe de chaque document. Recibler une ligne d'un
+  // fichier déjà ouvert (lien fichier:ligne du chat) ne change que `line` :
+  // l'iframe garde sa page et reçoit `atelier-goto-line`, au lieu d'être
+  // rechargée et de jeter le tampon non enregistré (audit 2026-10-18,
+  // problème 1). Un vrai rechargement d'un document modifié attend que
+  // l'éditeur ait écrit son brouillon de secours.
+  const frameSourcesRef = useRef(new Map<string, FrameSource>());
+  const pendingGotoRef = useRef(new Map<string, string>());
+  const loadedFramesRef = useRef(new Set<string>());
+  const flushingFramesRef = useRef(new Set<string>());
+  const [frameEpoch, bumpFrameEpoch] = useReducer((count: number) => count + 1, 0);
+  const frameSources = useMemo(() => {
+    const next = new Map<string, FrameSource>();
+    for (const tab of documentTabs) {
+      const previous = frameSourcesRef.current.get(tab.id);
+      const update = reconcileFrameSource(previous, tab.url, loadedFramesRef.current.has(tab.id));
+      let source = update.source;
+      if (update.reload && previous && isDocumentUnsaved(tab.id)) {
+        source = { src: previous.src, url: tab.url, pendingSrc: tab.url };
+      } else if (update.reload) {
+        loadedFramesRef.current.delete(tab.id);
+      }
+      if (update.gotoLine) pendingGotoRef.current.set(tab.id, update.gotoLine);
+      next.set(tab.id, source);
+    }
+    frameSourcesRef.current = next;
+    return next;
+  }, [documentTabs, frameEpoch]);
   const [workspace, setWorkspace] = useState<WorkspaceLayout>(() =>
     loadWorkspaceLayout(localStorage, projectRoot, documentIds, activeTab));
   const paneMenuHost = useWorkspacePaneMenuHost();
@@ -563,12 +601,62 @@ export default function AtelierPane({
     updateWorkspaceWithFlip((current) => placeWorkspaceTab(current, ref, paneId, zone));
   }, [updateWorkspaceWithFlip]);
 
+  const documentFrame = useCallback((tabId: string) =>
+    workspaceRootRef.current?.querySelector<HTMLIFrameElement>(
+      `iframe.atelier[data-atelier-tab="${CSS.escape(tabId)}"]`) ?? null, []);
+
   const closeRef = useCallback((ref: WorkspaceTabRef) => {
-    const id = workspaceTabId(ref);
-    updateWorkspaceWithFlip((current) => closeWorkspaceTab(current, id));
-    if (ref.kind === "document") onCloseTab(ref.tabId);
-    if (ref.kind === "agent") onCloseAgent?.();
-  }, [onCloseAgent, onCloseTab, updateWorkspaceWithFlip]);
+    const close = () => {
+      const id = workspaceTabId(ref);
+      updateWorkspaceWithFlip((current) => closeWorkspaceTab(current, id));
+      if (ref.kind === "document") onCloseTab(ref.tabId);
+      if (ref.kind === "agent") onCloseAgent?.();
+    };
+    const unsaved = ref.kind === "document" ? unsavedDocument(ref.tabId) : null;
+    if (!unsaved) { close(); return; }
+    // Document modifié : confirmation (audit 2026-10-18, problème 1). « Fermer
+    // sans enregistrer » efface aussi son brouillon de secours — l'éditeur
+    // d'abord (il cesse d'en écrire), le serveur ensuite en filet.
+    void confirmDiscard("close", [unsaved]).then(async (ok) => {
+      if (!ok) return;
+      const frame = documentFrame(unsaved.tabId);
+      if (frame) await requestFrame(frame, "atelier-discard-draft", "atelier-draft-discarded");
+      setDocumentUnsaved(unsaved, false);
+      close();
+      window.setTimeout(() => { void discardServerDraft(unsaved.url); }, 300);
+    });
+  }, [documentFrame, onCloseAgent, onCloseTab, updateWorkspaceWithFlip]);
+
+  // Ligne reciblée sur un document déjà chargé : message, pas rechargement.
+  useEffect(() => {
+    for (const [tabId, line] of pendingGotoRef.current) {
+      const frame = documentFrame(tabId);
+      try {
+        frame?.contentWindow?.postMessage({ type: "atelier-goto-line", line }, new URL(frame.src).origin);
+      } catch { /* iframe partie entre-temps */ }
+    }
+    pendingGotoRef.current.clear();
+  }, [documentFrame, frameSources]);
+
+  // Rechargement retenu d'un document modifié : brouillon écrit d'abord (la
+  // page suivante le relira), puis la nouvelle page.
+  useEffect(() => {
+    for (const [tabId, source] of frameSources) {
+      if (source.pendingSrc === undefined || flushingFramesRef.current.has(tabId)) continue;
+      flushingFramesRef.current.add(tabId);
+      const frame = documentFrame(tabId);
+      const release = () => {
+        flushingFramesRef.current.delete(tabId);
+        const entry = frameSourcesRef.current.get(tabId);
+        if (entry?.pendingSrc === undefined) return;
+        frameSourcesRef.current.set(tabId, { src: entry.pendingSrc, url: entry.url });
+        loadedFramesRef.current.delete(tabId);
+        bumpFrameEpoch();
+      };
+      if (frame) void requestFrame(frame, "atelier-flush-draft", "atelier-draft-flushed").then(release);
+      else release();
+    }
+  }, [documentFrame, frameSources]);
 
   const focusPane = useCallback((paneId: string) => {
     if (workspace.focusedPaneId === paneId) return;
@@ -600,6 +688,36 @@ export default function AtelierPane({
     window.addEventListener("message", onFrameFocus);
     return () => window.removeEventListener("message", onFrameFocus);
   }, [workspace.root, focusPane]);
+
+  // État « modifié » publié par les éditeurs (atelier-dirty) : même contrôle
+  // d'origine et de nonce que le focus — seule une iframe de document de ce
+  // panneau peut marquer son propre onglet.
+  useEffect(() => {
+    const onDirty = (event: MessageEvent) => {
+      const data = event.data as { type?: string; dirty?: unknown; path?: unknown; nonce?: unknown } | null;
+      if (data?.type !== "atelier-dirty") return;
+      const frames = workspaceRootRef.current?.querySelectorAll<HTMLIFrameElement>("iframe.atelier[data-atelier-tab]");
+      const frame = [...(frames ?? [])].find((candidate) => candidate.contentWindow === event.source);
+      if (!frame) return;
+      try {
+        const frameUrl = new URL(frame.src);
+        if (event.origin !== frameUrl.origin) return;
+        const nonce = new URLSearchParams(frameUrl.hash.slice(1)).get("atelier_nonce");
+        if (nonce && data.nonce !== nonce) return;
+      } catch { return; }
+      const tabId = frame.dataset.atelierTab ?? "";
+      const tab = documentById.get(tabId);
+      if (!tab) return;
+      setDocumentUnsaved({
+        tabId,
+        title: tab.title,
+        path: typeof data.path === "string" ? data.path : "",
+        url: frame.src,
+      }, data.dirty === true);
+    };
+    window.addEventListener("message", onDirty);
+    return () => window.removeEventListener("message", onDirty);
+  }, [documentById]);
 
   const openHostTerminal = useCallback((command: string) => {
     setTerminalBootstrap(command);
@@ -898,7 +1016,8 @@ export default function AtelierPane({
           data-atelier-tab={current.id}
           className="atelier workspace-tab-content"
           style={{ display: active ? "block" : "none" }}
-          src={current.url}
+          src={frameSources.get(current.id)?.src ?? current.url}
+          onLoad={() => { loadedFramesRef.current.add(current.id); }}
           // Keep the accessible name without a native tooltip over the whole document.
           aria-label={current.title}
           title=""

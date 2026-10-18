@@ -179,6 +179,8 @@ import { applyAppearance, themeMessage } from "./lib/appTheme";
 import { HighlightsPanel } from "./components/HighlightsPanel";
 import { DeliveryStatusAnnouncer } from "./components/DeliveryStatusAnnouncer";
 import { NewChatProviderDialog } from "./components/NewChatProviderDialog";
+import { UnsavedDocumentsGuard } from "./components/UnsavedDocumentsGuard";
+import { pruneUnsavedDocuments } from "./lib/unsavedDocuments";
 // tokens → shadcn/Typeset → primitives → App.css : les alias sémantiques et les classes ui-*
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
@@ -408,6 +410,9 @@ export default function App() {
   const atelierTabsRef = useRef(atelierTabs);
   useEffect(() => {
     atelierTabsRef.current = atelierTabs;
+    // Un onglet disparu n'a plus de tampon à protéger (son brouillon de
+    // secours, lui, reste sur le serveur jusqu'à la prochaine ouverture).
+    pruneUnsavedDocuments(new Set(atelierTabs.map((tab) => tab.id)));
   }, [atelierTabs]);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [providerList, setProviderList] = useState<ProviderInfo[]>([]);
@@ -4375,6 +4380,7 @@ export default function App() {
         />
       </LazyBoundary>
       <SetupWelcomeHost />
+      <UnsavedDocumentsGuard />
       {paletteOpen && (
         <LazyBoundary fallback={null}>
           <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
