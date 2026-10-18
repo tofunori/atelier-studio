@@ -44,6 +44,7 @@ import { CopyIcon } from "../icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconButton, RowButton } from "../ui";
 import { PassageCard } from "./PassageCard";
+import { fileRefFromLink } from "./fileRefLink";
 import { setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 
 for (const [nom, def] of [
@@ -74,22 +75,6 @@ export function openFileRef(ref: string, options: OpenFileRefOptions = {}) {
       page: options.page ?? null,
     },
   }));
-}
-
-/** Pilule d'un lien markdown vers un fichier. Le libellé porte souvent le
- * seul nom (`[carte.html](/chemin/complet/carte.html)`) : le href, quand il
- * désigne le même fichier, donne le chemin réel — un nom nu se résolvait
- * contre le projet et ratait un fichier écrit ailleurs. Le `:ligne` du
- * libellé survit. */
-export function fileRefFromLink(label: string, href: string): string | null {
-  const labelOk = FILE_REF.test(label);
-  const hrefOk = FILE_REF.test(href);
-  if (!labelOk) return hrefOk ? href : null;
-  if (!hrefOk) return label;
-  const [labelPath, labelLine] = label.split(/:(?=\d)/);
-  const [hrefPath, hrefLine] = href.split(/:(?=\d)/);
-  if (hrefPath === labelPath || !hrefPath.endsWith("/" + labelPath.replace(/^\.\//, ""))) return label;
-  return hrefLine || !labelLine ? href : `${hrefPath}:${labelLine}`;
 }
 
 /** Certains liens PDF portent la page cible dans leur libellé plutôt que dans
@@ -674,7 +659,7 @@ export const MD_COMPONENTS = {
           {label}
         </RowButton>
       );
-    const ref = fileRefFromLink(label, href);
+    const ref = fileRefFromLink(label, href, FILE_REF);
     if (ref)
       return (
         <RowButton className="file-ref" onClick={() => openFileRef(ref, { page: pdfPageFromLink(label, ref) })} title={t("action.open-file", { ref })}>

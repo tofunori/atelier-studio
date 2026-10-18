@@ -109,7 +109,7 @@ export function relFromTabUrl(url: string, projectRoot: string, baseUrl?: string
 
 /** Onglet d'une page HTML servie telle quelle (rendue), par opposition à
  *  l'éditeur de code qui l'ouvre via `.fig_thumbs/…?path=`. */
-export function htmlTabIsRendered(url: string): boolean {
+function htmlTabIsRendered(url: string): boolean {
   try {
     return !new URL(url).pathname.startsWith("/.fig_thumbs/");
   } catch {

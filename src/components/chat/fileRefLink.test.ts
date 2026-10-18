@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { fileRefFromLink } from "./md";
+import { fileRefFromLink as fromLink } from "./fileRefLink";
+import { FILE_REF } from "./md";
+
+const fileRefFromLink = (label: string, href: string) => fromLink(label, href, FILE_REF);
 
 describe("fileRefFromLink", () => {
   it("garde le chemin complet du href quand le libellé n'en montre que le nom", () => {
