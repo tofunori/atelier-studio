@@ -1,19 +1,20 @@
 // Pièces de tour du chat (plan 015, slice 4) — déplacées verbatim depuis
 // Chat.tsx : diff de fin de tour, ré-édition d'un edit, thinking, indicateur
 // Working, carte d'activité, épingle. Aucune logique modifiée.
-import { lazy, memo, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BrainCircuitIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
-import { diffLineClass, openFileRef } from "./md";
+import { openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
 import { ActivityDisclosure, IconButton, RowButton, Tooltip } from "../ui";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { useSmoothedStream } from "./useSmoothedStream";
 import type { ChangedFile } from "./changedFiles";
+import { countChanges, diffLines, parseUnifiedDiff, type DiffRow } from "../../lib/chat/lineDiff";
 
-const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
+const FileDiff = lazy(() => import("./FileDiff"));
 type ChatDiffPayload = { diff: string; before?: string; after?: string; binary?: boolean; error?: string };
 
 export function DoneDiffToggle({ event, threadId, changedFiles }: {
@@ -53,6 +54,18 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
     window.addEventListener("git-diff", onDiff);
     return () => window.removeEventListener("git-diff", onDiff);
   }, [event.projectRoot]);
+
+  // Même rendu que sous une ligne « Modifié » du fil : lignes calculées une
+  // fois par réponse gitDiff, pas à chaque rendu.
+  const diffRows = useMemo(() => {
+    const result: Record<string, DiffRow[]> = {};
+    for (const [path, payload] of Object.entries(diffs)) {
+      if (payload.error || payload.binary) continue;
+      if (payload.before !== undefined && payload.after !== undefined) result[path] = diffLines(payload.before, payload.after);
+      else if (payload.diff.trim()) result[path] = parseUnifiedDiff(payload.diff);
+    }
+    return result;
+  }, [diffs]);
 
   const hasGitFiles = files.length > 0;
   const showCard = !!changedFiles && changedFiles.length > 0;
@@ -108,18 +121,14 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
     if (payload?.binary) {
       return <div className="turn-diff-body"><span className="muted">{t("git.binary-changed")}</span></div>;
     }
-    if (payload && payload.before !== undefined && payload.after !== undefined) {
+    const rows = diffRows[path];
+    if (rows?.length) {
       return (
-        <Suspense fallback={<div className="turn-diff-body"><span className="muted">{t("common.loading")}</span></div>}>
-          <AtelierDiffView before={payload.before} after={payload.after} path={path} compact />
-        </Suspense>
-      );
-    }
-    if (payload?.diff.trim()) {
-      return (
-        <pre className="turn-diff-body turn-diff-raw">{payload.diff.split("\n").map((line, idx) => (
-          <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
-        ))}</pre>
+        <div className="turn-diff-body is-file-diff">
+          <Suspense fallback={<span className="muted">{t("common.loading")}</span>}>
+            <FileDiff rows={rows} path={path} />
+          </Suspense>
+        </div>
       );
     }
     return <div className="turn-diff-body"><span className="muted">{t("git.diff-empty")}</span></div>;
@@ -174,154 +183,213 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
   );
 }
 
-// ligne « fichier édité » : nom + ±lignes, clic = diff du fichier déplié
+// Ligne « fichier édité » (refonte 2026-10-18, maquette
+// captures/fichiers-modifies-2026-10-18) : même grille que les autres lignes
+// d'outil — icône, verbe, nom, puis +N −N et chevron à droite. Toute la ligne
+// déplie le diff ; le fichier s'ouvre depuis l'en-tête de la carte.
 export function EditLine({ event, threadId }: {
   event: Extract<AgentEvent, { kind: "edit" }>;
   threadId: string | null;
 }) {
-  // Façon Claude Code desktop (demande Thierry 2026-08-22) : quand l'événement
-  // porte déjà l'avant/après (snippet Claude), le diff s'ouvre TOUT SEUL —
-  // lire le changement ne doit pas demander un clic. Zéro réseau : seuls les
-  // fichiers à snippet s'ouvrent d'office ; les autres restent au clic
-  // (fallback gitDiff), pour ne pas déclencher une rafale de sous-processus
-  // git pendant le tour. `.turn-diff-body` borne la hauteur (320px, scroll).
-  const [openPaths, setOpenPaths] = useState<Set<string>>(() => new Set(
-    (event.files ?? [])
-      .filter((f) => f.newText !== undefined || f.unified !== undefined)
-      .map((f) => f.path),
-  ));
-  const [diffs, setDiffs] = useState<Record<string, ChatDiffPayload>>({});
-  const [loading, setLoading] = useState<string | null>(null);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  if (!event.files?.length) return null;
+  return (
+    <div className="edit-lines">
+      {event.files.map((file) => <EditFileLine key={file.path} file={file} event={event} threadId={threadId} />)}
+    </div>
+  );
+}
+
+type EditedFile = Extract<AgentEvent, { kind: "edit" }>["files"][number];
+type EditEvent = Extract<AgentEvent, { kind: "edit" }>;
+type FileDiffView = { rows: DiffRow[]; numbered: boolean };
+
+/** Diff git d'un fichier, demandé au premier dépliage quand l'événement ne
+ * porte pas déjà l'avant/après. */
+function useGitDiffOnDemand(file: EditedFile, event: EditEvent, threadId: string | null) {
+  const [diff, setDiff] = useState<ChatDiffPayload | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // demande en vol, lue par le délai d'attente sans passer par un updater
+  const pending = useRef(false);
+  const timer = useRef<number | null>(null);
+  useEffect(() => () => { if (timer.current != null) window.clearTimeout(timer.current); }, []);
 
   useEffect(() => {
     const onDiff = (ev: Event) => {
       const msg = (ev as CustomEvent).detail;
-      if (!msg.path) return;
+      if (msg.path !== file.path) return;
       if (event.projectRoot && msg.projectRoot !== event.projectRoot) return;
-      if (msg.error) {
-        setErrors((current) => ({ ...current, [msg.path]: String(msg.error) }));
-        setLoading((current) => (current === msg.path ? null : current));
-        return;
-      }
-      setDiffs((d) => ({ ...d, [msg.path]: {
+      pending.current = false;
+      setLoading(false);
+      if (msg.error) { setError(String(msg.error)); return; }
+      setError(null);
+      setDiff({
         diff: String(msg.diff ?? ""),
         before: typeof msg.before === "string" ? msg.before : undefined,
         after: typeof msg.after === "string" ? msg.after : undefined,
         binary: Boolean(msg.binary),
-      } }));
-      setErrors((current) => {
-        const next = { ...current };
-        delete next[msg.path];
-        return next;
       });
-      setLoading((l) => (l === msg.path ? null : l));
     };
     window.addEventListener("git-diff", onDiff);
     return () => window.removeEventListener("git-diff", onDiff);
-  }, [event.projectRoot]);
+  }, [event.projectRoot, file.path]);
 
-  if (!event.files?.length) return null;
+  const request = () => {
+    if (diff != null || loading) return;
+    setError(null);
+    setLoading(true);
+    const sent = wsSend({
+      type: "gitDiff",
+      requestId: crypto.randomUUID(),
+      threadId,
+      projectRoot: event.projectRoot,
+      path: file.path,
+      baseSha: event.baseSha,
+      scope: "changes",
+    });
+    if (!sent) { setLoading(false); return; }
+    pending.current = true;
+    timer.current = window.setTimeout(() => {
+      if (!pending.current) return;
+      pending.current = false;
+      setLoading(false);
+      setError(t("chat.diff-timeout"));
+    }, 8000);
+  };
+  return { diff, loading, error, request };
+}
+
+/** Lignes du diff et numérotation. Un extrait d'Edit (old/new_string) n'a pas
+ * les numéros du fichier : on ne les invente pas. */
+function editFileView(file: EditedFile, diff: ChatDiffPayload | null, created: boolean): FileDiffView | null {
+  if (file.newText !== undefined) return { rows: diffLines(file.oldText ?? "", file.newText), numbered: created };
+  if (file.unified !== undefined) return { rows: parseUnifiedDiff(file.unified), numbered: true };
+  if (!diff || diff.binary) return null;
+  if (diff.before !== undefined && diff.after !== undefined) return { rows: diffLines(diff.before, diff.after), numbered: true };
+  if (diff.diff.trim()) return { rows: parseUnifiedDiff(diff.diff), numbered: true };
+  return null;
+}
+
+/** Un fichier neuf (Write sur un chemin absent, ACP avec oldText vide) se lit
+ * comme du code, pas comme un mur d'ajouts. */
+const isCreatedFile = (file: EditedFile) =>
+  file.newText !== undefined && !file.oldText && file.unified === undefined;
+
+/** +N −N : ceux du provider, sinon comptés sur le diff ; jamais de −N pour un
+ * fichier créé. */
+function editCounts(file: EditedFile, view: FileDiffView | null, created: boolean) {
+  const counted = view ? countChanges(view.rows) : { add: 0, del: 0 };
+  return { add: file.add ?? counted.add, del: created ? 0 : file.del ?? counted.del };
+}
+
+function EditFileLine({ file, event, threadId }: {
+  file: EditedFile;
+  event: EditEvent;
+  threadId: string | null;
+}) {
+  // avant/après portés par l'événement (input du tool) : diff immédiat, sans
+  // aller-retour git. `unified` = variante Codex (diff unifié brut).
+  const hasSnippet = file.newText !== undefined || file.unified !== undefined;
+  // Façon Claude Code desktop (demande Thierry 2026-08-22) : un diff déjà
+  // porté par l'événement s'ouvre tout seul ; les autres restent au clic,
+  // pour ne pas déclencher une rafale de sous-processus git pendant le tour.
+  const [open, setOpen] = useState(hasSnippet);
+  const git = useGitDiffOnDemand(file, event, threadId);
+  const created = isCreatedFile(file);
+  const view = useMemo(() => editFileView(file, git.diff, created), [file, git.diff, created]);
+  const { add, del } = editCounts(file, view, created);
+  const base = file.path.split("/").pop() || file.path;
+
+  const toggle = () => {
+    setOpen(!open);
+    if (!open && !hasSnippet) git.request();
+  };
+
   return (
-    <div className="edit-lines">
-      {event.files.map((f) => {
-        const base = f.path.split("/").pop() || f.path;
-        const open = openPaths.has(f.path);
-        const diff = diffs[f.path];
-        const error = errors[f.path];
-        // avant/après portés par l'événement (input du tool) : diff immédiat,
-        // sans aller-retour git — sinon fallback historique gitDiff à la demande.
-        // `unified` = variante Codex (diff unifié brut, rendu ligne à ligne).
-        const snippet = f.newText !== undefined ? { before: f.oldText ?? "", after: f.newText } : null;
-        const unified = f.unified;
-        return (
-          <div key={f.path} className="edit-line">
-            <div className="edit-line-row" title={f.path}>
-              <RowButton
-                className="edit-line-open"
-                onClick={() => openFileRef(f.path, { diff: true, baseSha: event.baseSha })}
-                title={`${t("action.open-file", { ref: f.path })} · diff avant/après`}
-              >
-                <PencilIcon />
-                <span className="edit-line-verb">{t("chat.edited")}</span>
-                <span className="edit-line-file">{base}</span>
-                {f.add != null && <span className="edit-line-add">+{f.add}</span>}
-                {f.del != null && <span className="edit-line-del">-{f.del}</span>}
-              </RowButton>
-              <IconButton
-                label="diff"
-                title="diff"
-                className="edit-line-difftoggle"
-                aria-expanded={open}
-                onClick={() => {
-                  setOpenPaths((current) => {
-                    const next = new Set(current);
-                    if (next.has(f.path)) next.delete(f.path);
-                    else next.add(f.path);
-                    return next;
-                  });
-                  if (open || snippet || unified || diffs[f.path] != null || loading === f.path) return;
-                  setErrors((current) => {
-                    const following = { ...current };
-                    delete following[f.path];
-                    return following;
-                  });
-                  setLoading(f.path);
-                  const sent = wsSend({
-                    type: "gitDiff",
-                    requestId: crypto.randomUUID(),
-                    threadId,
-                    projectRoot: event.projectRoot,
-                    path: f.path,
-                    baseSha: event.baseSha,
-                    scope: "changes",
-                  });
-                  if (!sent) setLoading(null);
-                  else window.setTimeout(() => {
-                    setLoading((current) => {
-                      if (current !== f.path) return current;
-                      setErrors((existing) => ({ ...existing, [f.path]: t("chat.diff-timeout") }));
-                      return null;
-                    });
-                  }, 8000);
-                }}
-              >
-                <Tick open={open} />
-              </IconButton>
-            </div>
-            {open && (
-              <div className="turn-diff-body">
-                {snippet ? (
-                  <Suspense fallback={<span className="muted">{t("common.loading")}</span>}>
-                    <AtelierDiffView before={snippet.before} after={snippet.after} path={f.path} compact />
-                  </Suspense>
-                ) : unified ? (
-                  <pre className="turn-diff-raw">{unified.split("\n").map((line, idx) => (
-                    <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
-                  ))}</pre>
-                ) : loading === f.path && diff == null ? (
-                  <span className="muted">{t("common.loading")}</span>
-                ) : error ? (
-                  <span className="muted">{error}</span>
-                ) : diff?.binary ? (
-                  <span className="muted">{t("git.binary-changed")}</span>
-                ) : diff && diff.before !== undefined && diff.after !== undefined ? (
-                  <Suspense fallback={<span className="muted">{t("common.loading")}</span>}>
-                    <AtelierDiffView before={diff.before} after={diff.after} path={f.path} compact />
-                  </Suspense>
-                ) : diff?.diff.trim() ? (
-                  <pre className="turn-diff-raw">{diff.diff.split("\n").map((line, idx) => (
-                    <span key={idx} className={diffLineClass(line)}>{line || " "}</span>
-                  ))}</pre>
-                ) : (
-                  <span className="muted">{t("git.diff-empty")}</span>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+    <div className={`edit-line${open ? " is-open" : ""}`}>
+      <RowButton className="edit-line-head" aria-expanded={open} onClick={toggle} title={file.path}>
+        <span className="edit-line-icon">{created ? <FilePlusIcon /> : <PencilIcon />}</span>
+        <span className="edit-line-verb">{t(created ? "chat.created" : "chat.edited")}</span>
+        <span className="edit-line-file">{base}</span>
+        <span className="edit-line-counts">
+          {add > 0 && <span className="edit-line-add">+{add}</span>}
+          {del > 0 && <span className="edit-line-del">−{del}</span>}
+        </span>
+        <Tick open={open} />
+      </RowButton>
+      {open && (
+        <EditLineCard path={file.path} baseSha={event.baseSha} created={created} view={view} git={git} />
+      )}
     </div>
+  );
+}
+
+/** Ce que montre la carte tant qu'aucune ligne de diff n'est disponible. */
+function diffFallback(git: { diff: ChatDiffPayload | null; loading: boolean; error: string | null }): string {
+  if (git.loading) return t("common.loading");
+  if (git.error) return git.error;
+  return git.diff?.binary ? t("git.binary-changed") : t("git.diff-empty");
+}
+
+function DiffStatus({ text, alert = false }: { text: string; alert?: boolean }) {
+  return <div className="edit-line-status" role={alert ? "alert" : undefined}>{text}</div>;
+}
+
+/** Carte dépliée : chemin complet, Ouvrir, puis le diff ou son état. */
+function EditLineCard({ path, baseSha, created, view, git }: {
+  path: string;
+  baseSha?: string | null;
+  created: boolean;
+  view: FileDiffView | null;
+  git: Pick<ReturnType<typeof useGitDiffOnDemand>, "diff" | "loading" | "error">;
+}) {
+  const base = path.split("/").pop() || path;
+  const dir = path.slice(0, path.length - base.length);
+  const lineCount = view?.rows.length ?? 0;
+  return (
+    <div className="edit-line-card">
+      <div className="edit-line-card-head">
+        <span className="edit-line-path">{dir}<span className="edit-line-path-name">{base}</span></span>
+        {created && lineCount > 0 && (
+          <span className="edit-line-meta">
+            {lineCount === 1 ? t("chat.diff-new-file-one") : t("chat.diff-new-file", { count: lineCount })}
+          </span>
+        )}
+        <RowButton
+          className="edit-line-open"
+          onClick={() => openFileRef(path, { diff: !created, baseSha })}
+          title={t("action.open-file", { ref: path })}
+        >
+          <OpenIcon />
+          <span>{t("chat.diff-open")}</span>
+        </RowButton>
+      </div>
+      <div className="edit-line-card-body">
+        {view && lineCount ? (
+          <Suspense fallback={<DiffStatus text={t("common.loading")} />}>
+            <FileDiff rows={view.rows} path={path} created={created} numbered={view.numbered} />
+          </Suspense>
+        ) : <DiffStatus text={diffFallback(git)} alert={!git.loading && git.error != null} />}
+      </div>
+    </div>
+  );
+}
+
+function FilePlusIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9.2 1.8H4v12.4h8V4.6z" />
+      <path d="M9 1.8v3h3M8 7.4v4.2M5.9 9.5h4.2" />
+    </svg>
+  );
+}
+
+function OpenIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9.5 2.5h4v4M13.5 2.5 8 8" />
+      <path d="M12 9.5v3.2c0 .5-.4.8-.8.8H3.3c-.5 0-.8-.3-.8-.8V4.8c0-.4.3-.8.8-.8h3.2" />
+    </svg>
   );
 }
 
