@@ -8,7 +8,8 @@
 use crate::claude_parse::{flush_pending, parse_line, ClaudeStreamState};
 use crate::traits::{
     prompts_reformulation_with_options, CommitMessageDetails, Provider, ProviderCaps,
-    RewriteOptions, SendMode, SendRequest, SendResult,
+    ReviewError, ReviewRequest, ReviewResponse, RewriteOptions, SendMode, SendRequest, SendResult,
+    REVIEW_PROVIDER_TIMEOUT, REVIEW_SYSTEM_PROMPT,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -448,6 +449,45 @@ impl Default for ClaudeProvider {
     fn default() -> Self {
         Self::new().unwrap_or_else(|| Self::with_bin(PathBuf::from("claude")))
     }
+}
+
+/// Arguments d'une relecture isolée : un appel `-p` sans session, sans
+/// outils ni permissions, comme le titre et le message de commit. Le
+/// dossier part sur stdin (jusqu'à 128 Ko : trop pour rester lisible dans
+/// `ps`, et rien ne garantit qu'il ne commence pas par « - »).
+fn review_args(req: &ReviewRequest) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "-p",
+        "--safe-mode",
+        "--no-session-persistence",
+        "--tools",
+        "",
+        "--permission-mode",
+        "dontAsk",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    if !req.model.trim().is_empty() {
+        args.extend(["--model".into(), req.model.trim().into()]);
+    }
+    if !req.effort.trim().is_empty() {
+        args.extend(["--effort".into(), req.effort.trim().into()]);
+    }
+    args.extend(["--system-prompt".into(), REVIEW_SYSTEM_PROMPT.into()]);
+    args
+}
+
+fn last_stderr_line(stderr: &[u8]) -> String {
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .last()
+        .unwrap_or("erreur inconnue")
+        .chars()
+        .take(400)
+        .collect()
 }
 
 fn resolve_claude_bin() -> Option<PathBuf> {
@@ -1469,6 +1509,44 @@ impl Provider for ClaudeProvider {
         }
         let texte = String::from_utf8_lossy(&output.stdout).trim().to_string();
         (!texte.is_empty()).then_some(texte)
+    }
+
+    fn structured_review(&self) -> bool {
+        true
+    }
+
+    async fn review(&self, req: ReviewRequest) -> Result<ReviewResponse, ReviewError> {
+        let mut cmd = Command::new(&self.bin);
+        cmd.args(review_args(&req))
+            .current_dir(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = cmd
+            .spawn()
+            .map_err(|error| ReviewError::Provider(format!("Impossible de lancer Claude : {error}")))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            // Un échec d'écriture (CLI déjà sorti) n'est pas la cause : la
+            // vraie raison est dans son stderr, lu juste après.
+            let _ = stdin.write_all(req.dossier.as_bytes()).await;
+            drop(stdin);
+        }
+        let output = tokio::time::timeout(REVIEW_PROVIDER_TIMEOUT, child.wait_with_output())
+            .await
+            .map_err(|_| ReviewError::Timeout)?
+            .map_err(|error| ReviewError::Provider(format!("relecture Claude : {error}")))?;
+        if !output.status.success() {
+            return Err(ReviewError::Provider(format!(
+                "relecture Claude : {}",
+                last_stderr_line(&output.stderr)
+            )));
+        }
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() {
+            return Err(ReviewError::Provider("relecture Claude : réponse vide".into()));
+        }
+        Ok(ReviewResponse { text })
     }
 
     async fn interrupt(&self, thread_id: &str) -> bool {
@@ -2956,5 +3034,86 @@ mod append_log_tests {
         append_log(dir.path(), "b").unwrap();
         assert!(dir.path().join("claude-cli.log.old").exists());
         assert!(std::fs::metadata(&path).unwrap().len() < 1024);
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    /// Faux CLI : recopie ses arguments et son stdin à côté du binaire, puis
+    /// répond comme un relecteur.
+    fn fake_cli(body: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("claude-review-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("fake-claude");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\ncat > \"$0.stdin\"\n{body}\n"
+        );
+        std::fs::write(&bin, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        bin
+    }
+
+    fn request(model: &str, effort: &str) -> ReviewRequest {
+        ReviewRequest {
+            model: model.into(),
+            effort: effort.into(),
+            dossier: "-- dossier qui commence par un tiret".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn la_relecture_part_sur_stdin_sans_outils_ni_session() {
+        let bin = fake_cli("echo '{\"checks\":[]}'");
+        let provider = ClaudeProvider::with_bin(bin.clone());
+        assert!(provider.structured_review());
+        let response = provider.review(request("claude-opus-5-5", "high")).await.unwrap();
+        assert_eq!(response.text, "{\"checks\":[]}");
+        let stdin = std::fs::read_to_string(bin.with_extension("stdin")).unwrap();
+        assert_eq!(stdin, "-- dossier qui commence par un tiret");
+        let args: Vec<String> = std::fs::read_to_string(bin.with_extension("args"))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        let pair = |flag: &str| {
+            args.iter()
+                .position(|a| a == flag)
+                .and_then(|i| args.get(i + 1))
+                .cloned()
+        };
+        assert!(args.iter().any(|a| a == "-p"));
+        assert!(args.iter().any(|a| a == "--no-session-persistence"));
+        assert_eq!(pair("--tools").as_deref(), Some(""));
+        assert_eq!(pair("--permission-mode").as_deref(), Some("dontAsk"));
+        assert_eq!(pair("--model").as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(pair("--effort").as_deref(), Some("high"));
+        assert_eq!(pair("--system-prompt").as_deref(), Some(REVIEW_SYSTEM_PROMPT));
+        assert!(!args.iter().any(|a| a.contains("commence par un tiret")));
+    }
+
+    #[test]
+    fn sans_modele_ni_effort_le_cli_garde_ses_defauts() {
+        let args = review_args(&request(" ", ""));
+        assert!(!args.iter().any(|a| a == "--model" || a == "--effort"));
+    }
+
+    #[tokio::test]
+    async fn un_echec_du_cli_remonte_sa_raison() {
+        let bin = fake_cli("echo 'Invalid model' >&2; exit 1");
+        let error = ClaudeProvider::with_bin(bin).review(request("x", "high")).await.unwrap_err();
+        assert_eq!(error, ReviewError::Provider("relecture Claude : Invalid model".into()));
+    }
+
+    #[tokio::test]
+    async fn une_reponse_vide_n_est_pas_un_verdict() {
+        let bin = fake_cli("true");
+        let error = ClaudeProvider::with_bin(bin).review(request("x", "high")).await.unwrap_err();
+        assert_eq!(error, ReviewError::Provider("relecture Claude : réponse vide".into()));
     }
 }
