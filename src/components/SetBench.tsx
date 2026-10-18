@@ -60,6 +60,16 @@ function benchSocket(): WebSocket {
         ] });
       }
       if (msg.type === "apiProviders") reply({ type: "apiProviders", providers: [] });
+      if (msg.type === "importClaudeScience") {
+        setTimeout(() => window.dispatchEvent(new CustomEvent("claude-science-import", { detail: {
+          requestId: msg.requestId, ok: true, specialistes: [
+            { cle: "REDACTEUR", nom: "Rédacteur corpus", role: "Rédaction scientifique en français", instructions: "Tu rédiges.",
+              skills: ["redaction-article"], tousSkills: false, connecteurs: ["scholar"], actif: true, modifieLe: "" },
+            { cle: "PAPER", nom: "Paper Writer", role: "", instructions: "Write papers.", skills: [], tousSkills: true,
+              connecteurs: [], actif: false, modifieLe: "" },
+          ],
+        } })), 150);
+      }
     },
   };
   return socket as unknown as WebSocket;
@@ -72,20 +82,31 @@ export function SetBench() {
     // section « Configuration » (setup) a fusionné dans « Modèles » (lot 1,
     // tâche 8) — le hash historique -setup vise donc désormais cette
     // section plutôt qu'un bouton de nav qui n'existe plus.
+    const btns = Array.from(document.querySelectorAll<HTMLButtonElement>(".set-nav-item"));
+    if (hash.includes("-specialistes")) {
+      btns.find((b) => (b.textContent ?? "").includes("Spécialistes"))?.click();
+      return;
+    }
     const target = hash.includes("-setup") ? "Modèles" : null;
     if (!target) return;
-    const btns = Array.from(document.querySelectorAll<HTMLButtonElement>(".set-nav-item"));
     btns.find((b) => (b.textContent ?? "").toLowerCase().includes("modèle") || (b.textContent ?? "").toLowerCase().includes("model"))?.click();
   }, [hash]);
   // #setbench-opencode : catalogue réel + réglages VIVANTS (épingler une
   // route doit se voir tout de suite, comme dans l'app), sinon la variante
   // historique reste figée sur DEFAULT_SETTINGS et un socket nul.
   const opencode = hash.includes("-opencode");
-  const consignes = hash.includes("-consignes");
+  const consignes = hash.includes("-consignes") || hash.includes("-specialistes");
   const ws = useMemo(() => (opencode || consignes ? benchSocket() : null), [opencode, consignes]);
   const [live, setLive] = useState<Settings>({ ...DEFAULT_SETTINGS, ...(consignes ? { consignes: [
     ...DEFAULT_SETTINGS.consignes,
     { id: "figure-bench", nom: "Figure", description: "Figures scientifiques prêtes pour publication", texte: "tu es un pro de création de figures scientifiques pour Nature. tu verifies les overlaps les labels, je veux des figures lisibles" },
+  ] } : {}), ...(hash.includes("-specialistes") ? { specialistes: [
+    { id: "sp1", nom: "Glaciologue albédo", nomCourt: "Glaciologue", role: "Albédo des glaciers, MODIS et Landsat",
+      instructions: "Tu es glaciologue. Pars toujours des séries MODIS MOD10A1 et des stations au sol ; signale les jours nuageux.",
+      skills: ["bilan-energie-fonte", "chaine-donnees-albedo"], tousSkills: false, connecteurs: ["scholar"], visible: true,
+      origine: { source: "claude-science" as const, cle: "GLACIO", empreinte: "x" } },
+    { id: "sp2", nom: "Analyste stats", nomCourt: "Stats", role: "Modèles bayésiens et tendances",
+      instructions: "Tu es statisticien.", skills: [], tousSkills: true, connecteurs: [], visible: true },
   ] } : {}) });
   return (
     <div style={{ height: "100vh", display: "grid", background: "var(--bg)", color: "var(--text-primary)" }}>

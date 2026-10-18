@@ -497,6 +497,12 @@ async fn handle_action(
         }
         "show_widget" => crate::widgets::action_show_widget(state, caller_id, req).await,
         a if a.starts_with("kernel_") => crate::kernel::action(state, caller_id, a, req).await,
+        "specialists" => Ok(crate::specialists::action_specialists(
+            &atelier_store::read_settings(&state.settings_path()).unwrap_or(Value::Null),
+        )),
+        "propose_specialist" => {
+            crate::specialists::action_propose_specialist(state, caller_id, req).await
+        }
         "" => Err("missing_action".into()),
         _ => Err("unknown_action".into()),
     }
@@ -513,7 +519,9 @@ fn help_doc() -> Value {
             {"action":"read_context","mutation":false,"params":["targetThreadId","afterSequence","beforeSequence","limit","includeTools"]},
             {"action":"wait","mutation":false,"params":["targetThreadId","timeoutMs","afterSequence"]},
             {"action":"send_message","mutation":true,"params":["targetThreadId","text","requestId"]},
-            {"action":"report_to_parent","mutation":true,"params":["requestId","report"]}
+            {"action":"report_to_parent","mutation":true,"params":["requestId","report"]},
+            {"action":"specialists","mutation":false},
+            {"action":"propose_specialist","mutation":false,"params":["nom","nomCourt","role","instructions","skills","connecteurs","replaceId"]}
         ]
     })
 }

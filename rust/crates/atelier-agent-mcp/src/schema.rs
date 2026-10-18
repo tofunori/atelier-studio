@@ -7,7 +7,7 @@ pub const TOOL_NAME: &str = "atelier_sessions";
 pub fn tool_definition() -> Value {
     json!({
         "name": TOOL_NAME,
-        "description": "Inspect and coordinate Atelier linked-agent sessions. Use action=help for details.",
+        "description": "Inspect and coordinate Atelier linked-agent sessions, and read or propose the user's specialists (action=specialists, action=propose_specialist). Use action=help for details.",
         "inputSchema": {
             "type": "object",
             "required": ["action"],
@@ -22,7 +22,9 @@ pub fn tool_definition() -> Value {
                         "read_context",
                         "wait",
                         "send_message",
-                        "report_to_parent"
+                        "report_to_parent",
+                        "specialists",
+                        "propose_specialist"
                     ]
                 },
                 "targetThreadId": { "type": "string" },
@@ -35,7 +37,14 @@ pub fn tool_definition() -> Value {
                 "report": { "type": ["object", "null"] },
                 "timeoutMs": { "type": "integer" },
                 "traceId": { "type": "string" },
-                "hop": { "type": "integer" }
+                "hop": { "type": "integer" },
+                "nom": { "type": "string", "description": "propose_specialist: full name" },
+                "nomCourt": { "type": "string", "description": "propose_specialist: one word, used in the composer and as @mention" },
+                "role": { "type": "string", "description": "propose_specialist: when to use this specialist, 1-2 sentences" },
+                "instructions": { "type": "string", "description": "propose_specialist: standing instructions for conversations carrying it" },
+                "skills": { "type": "array", "items": { "type": "string" } },
+                "connecteurs": { "type": "array", "items": { "type": "string" } },
+                "replaceId": { "type": "string", "description": "propose_specialist: id of the profile to change (from action specialists)" }
             },
             "additionalProperties": false
         }
@@ -204,7 +213,9 @@ pub fn help_text() -> Value {
             "read_context": "Paginated projection (targetThreadId, afterSequence/beforeSequence, limit)",
             "wait": "Wait for status/sequence change (timeoutMs max 60000)",
             "send_message": "Queue semantic message (targetThreadId, text, requestId required)",
-            "report_to_parent": "Queue structured report to parent (requestId, report/text)"
+            "report_to_parent": "Queue structured report to parent (requestId, report/text)",
+            "specialists": "The user's specialist profiles (Settings › Specialists), full text",
+            "propose_specialist": "Show a proposal card for a new or changed specialist (nom, nomCourt, role, instructions, skills, connecteurs, replaceId); saved only if the user clicks Keep"
         },
         "auth": "Caller is authenticated by process capability — never pass callerThreadId as authority",
         "scope": "Direct parent/children only, same project"

@@ -10,7 +10,8 @@ import "../styles/primitives.css";
 import "../App.css";
 import { Button } from "./ui";
 import Chat from "./Chat";
-import { CONSIGNES_LIVREES, type ConsigneDuFil } from "../lib/consignes";
+import { CONSIGNES_LIVREES, basculerConsigne, type ConsigneDuFil } from "../lib/consignes";
+import { choisirSpecialiste, type Specialiste } from "../lib/specialistes";
 import type { AgentEvent } from "../lib/ws";
 import type { ProviderInfo } from "../lib/providers";
 import type { QueuedTurn } from "../lib/chatDraftStore";
@@ -503,6 +504,27 @@ const LONG_PINS = [
   { index: 288, label: "4 pages, compile propre", anchor: "Question 144" },
 ];
 
+// Spécialistes du banc (plan specialistes-2026-10-18) : fiches de
+// démonstration, aucun texte réel.
+const BENCH_SPECIALISTES: Specialiste[] = [
+  { id: "sp1", nom: "Glaciologue albédo", nomCourt: "Glaciologue", role: "Albédo des glaciers, MODIS et Landsat",
+    instructions: "Tu es glaciologue.", skills: ["bilan-energie-fonte"], tousSkills: false, connecteurs: ["scholar"], visible: true },
+  { id: "sp2", nom: "Analyste stats", nomCourt: "Stats", role: "Modèles bayésiens et tendances",
+    instructions: "Tu es statisticien.", skills: [], tousSkills: true, connecteurs: [], visible: true },
+  { id: "sp3", nom: "Références", nomCourt: "Références", role: "Trouver et vérifier les sources",
+    instructions: "Tu vérifies les références.", skills: [], tousSkills: true, connecteurs: ["scholar"], visible: true },
+];
+
+const PROPOSAL: AgentEvent[] = [
+  { kind: "user", text: "Je voudrais un spécialiste pour le glacier Peyto, tu peux le partir avec moi ?", ts: ts(40) },
+  { kind: "text", text: "Voici une première fiche. Garde-la telle quelle ou ajuste-la dans les réglages.", ts: ts(30) },
+  { kind: "specialist_proposal", id: "sp_bench", ts: ts(28), proposal: {
+    nom: "Spécialiste Peyto", nomCourt: "Peyto", role: "Bilan de masse et albédo du glacier Peyto (Rocheuses canadiennes).",
+    instructions: "Tu connais le glacier Peyto : stations météo, bilans de masse annuels et séries d'albédo.\nCite toujours la source d'une valeur mesurée.\nDistingue les mesures de terrain des produits satellitaires.",
+    skills: ["bilan-energie-fonte", "chaine-donnees-albedo"], connecteurs: ["scholar"], replaceId: null,
+  } } as AgentEvent,
+];
+
 type BenchState = {
   events: AgentEvent[];
   workingSince: number | null;
@@ -537,6 +559,7 @@ const STATES: Record<string, BenchState> = {
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
   typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },
+  proposal: { events: PROPOSAL, workingSince: null, attachments: [], usage: null },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   queue: {
@@ -566,7 +589,9 @@ export function ChatBench() {
   const replayWire = replayFixture.events.slice(0, replayCount);
   const replayEvents = replayReload ? materializeHarnessHistory([...replayWire]) : reduceHarnessEvents([], replayWire);
   const replayFinished = replayWire.some(event => event.kind === "done" || event.kind === "error");
-  const [menuConsigne, setMenuConsigne] = useState<ConsigneDuFil | null>(null);
+  const [menuConsigne, setMenuConsigne] = useState<ConsigneDuFil | null>(() => hash.includes("-specialiste")
+    ? choisirSpecialiste(basculerConsigne(basculerConsigne(null, CONSIGNES_LIVREES[0]), CONSIGNES_LIVREES[3]), BENCH_SPECIALISTES[0])
+    : null);
   const [menuKb, setMenuKb] = useState({ kbSourceIds: [] as string[], kbFullContent: [] as string[] });
   const key = Object.keys(STATES).find((k) => hash.includes(`-${k}`)) ?? "rich";
   const st = STATES[key];
@@ -639,7 +664,7 @@ export function ChatBench() {
         onKbChange={menuBench ? setMenuKb : undefined}
         kbSourceIds={menuKb.kbSourceIds}
         kbFullContent={menuKb.kbFullContent}
-        defaults={{ consignes: menuBench ? CONSIGNES_LIVREES : undefined, defaultProvider: "claude", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "acceptEdits" }}
+        defaults={{ consignes: menuBench ? CONSIGNES_LIVREES : undefined, specialistes: menuBench ? BENCH_SPECIALISTES : undefined, defaultProvider: "claude", defaultModel: {}, defaultEffort: {}, defaultPermissionMode: "acceptEdits" }}
         providers={PROVIDERS}
         // une épingle figée : le banc doit montrer les DEUX intensités de la
         // marge (repère de prompt éteint, épingle accentuée et nommée)

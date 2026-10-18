@@ -22,6 +22,7 @@ pub mod send;
 pub mod server;
 pub mod state;
 pub mod usage;
+pub mod specialists;
 pub mod widgets;
 pub mod ws_router;
 mod ws_dispatch;

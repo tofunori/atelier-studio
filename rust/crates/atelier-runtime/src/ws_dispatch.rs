@@ -70,6 +70,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "zoteroDigest"
         | "generateCommitMsg"
         | "reformulerConsigne"
+        | "importClaudeScience"
         | "zoteroCollections"
         | "listSessions"
         | "getUsage"

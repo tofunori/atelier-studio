@@ -1,3 +1,5 @@
+import type { SpecialisteDuFil } from "./specialistes";
+
 /** Instruction de ton/forme réutilisable, activable sur un fil. */
 export type Consigne = {
   id: string;
@@ -8,8 +10,10 @@ export type Consigne = {
   livree?: boolean;
 };
 
-/** Ce que le fil retient : l'identifiant ET une copie du texte envoyé. */
-export type ConsigneDuFil = { id: string; texte: string; composition?: ConsigneComposition; selection?: { id: string; texte: string }[] };
+/** Ce que le fil retient : l'identifiant ET une copie du texte envoyé.
+ *  `specialiste` : copie du spécialiste porté par le fil ; son texte est déjà
+ *  compris dans `texte`, devant les consignes de forme (src/lib/specialistes.ts). */
+export type ConsigneDuFil = { id: string; texte: string; composition?: ConsigneComposition; selection?: { id: string; texte: string }[]; specialiste?: SpecialisteDuFil };
 
 export type ConsigneComposition = {
   style: "standard" | "concis" | "pedagogique";

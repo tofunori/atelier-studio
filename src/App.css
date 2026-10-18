@@ -1659,6 +1659,31 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   color: var(--text-muted); background: transparent; font-size: var(--fs-caption, 10px); }
 .proposed-plan-actions button:hover { color: var(--text-primary); background: var(--surface-hover); }
 .proposed-plan-status { margin-left: auto; padding-right: 4px; color: var(--text-disabled); font-size: var(--fs-caption, 10px); }
+/* Proposition de spécialiste (plan specialistes-2026-10-18) : même carte
+   que le plan proposé, actions en boutons pleins puisqu'elles décident. */
+.specialist-proposal { position: relative; overflow: hidden; border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface); background: color-mix(in srgb, var(--surface-inset) 88%, transparent); }
+.specialist-proposal-head { min-height: 40px; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; border-bottom: 1px solid var(--border-subtle); }
+.specialist-proposal-badge { flex: none; padding: 2px 8px; border-radius: var(--r-pill); color: var(--text-secondary);
+  background: var(--bg-ctl); font-size: var(--fs-caption, 10px); font-weight: 500; }
+.specialist-proposal-title { min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 8px; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; color: var(--text-primary); font-size: var(--fs-body-s, 12px);
+  font-weight: 600; letter-spacing: -0.01em; }
+.specialist-proposal-court { color: var(--text-muted); font-weight: 400; }
+.specialist-proposal-body { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px;
+  color: var(--text-secondary); font-size: var(--fs-body-s, 12px); line-height: 1.5; overflow-wrap: anywhere; }
+.specialist-proposal-body p { margin: 0; }
+.specialist-proposal-meta { color: var(--text-muted); }
+.specialist-proposal-role { color: var(--text-primary); }
+.specialist-proposal-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.specialist-proposal-label { color: var(--text-muted); font-size: var(--fs-label, 11px); }
+.specialist-proposal-instructions { white-space: pre-wrap; position: relative; }
+.specialist-proposal-instructions.is-preview { max-height: 120px; overflow: hidden; }
+.specialist-proposal-list { color: var(--text-secondary); }
+.specialist-proposal-actions { min-height: 44px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 8px 12px; border-top: 1px solid var(--border-subtle); }
+.specialist-proposal-status { color: var(--text-muted); font-size: var(--fs-label, 11px); }
 .turn-diff-toggle { display: inline-flex; align-items: center; gap: 4px; background: transparent;
   border: none; color: var(--text-muted); padding: 0; cursor: pointer; font: inherit;
   font-size: var(--fs-m); }
@@ -5735,6 +5760,23 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   width: 14px; height: 14px; flex: none; stroke-width: 1.5;
 }
 .composer-menu [data-slot="dropdown-menu-label"]:has(.consigne-heading) { padding: 0; }
+/* Spécialistes (plan specialistes-2026-10-18) : mêmes rangées que les
+   consignes — remplissage + coche, aucun accent. Le bouton du compositeur
+   garde le nom court lisible (« Glaciologue +2 », décision 2026-10-18). */
+.composer-style-menu .specialiste-item { min-height: 32px; padding: 8px 32px 8px 12px; gap: 12px; }
+.composer-style-menu .specialiste-item.on { background: var(--bg-ctl); }
+.specialiste-item .consigne-coche { margin-left: auto; display: flex; color: var(--text-secondary); }
+.specialiste-item .consigne-coche svg { width: 12px; height: 12px; }
+.composer-menu .specialiste-item > svg { width: 14px; height: 14px; flex: none; stroke-width: 1.5; }
+.composer-context-rail .specialiste-pilule,
+.composer-tool-group .specialiste-pilule {
+  width: auto; max-width: 160px; padding: 0 8px; gap: 4px; justify-content: flex-start;
+}
+.specialiste-pilule-nom {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-body-s); font-weight: 500;
+}
+.specialiste-pilule-formes { flex: none; color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 .composer-menu .consigne-heading { padding: 8px 12px 8px; }
 .composer-menu .consigne-option { gap: 4px; }
 .composer-menu .dropdown-surface-footer { padding: 12px; }

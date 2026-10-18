@@ -5,7 +5,7 @@ import { CONSIGNES_LIVREES, composerConsigne, COMPOSITION_VIDE, basculerConsigne
 import { setLanguage } from "../../lib/i18n";
 
 // Sans cleanup explicite, les rendus des `it` précédents restent dans le DOM
-// (globals désactivés ici — vitest.config.ts) : "Consigne du fil" devenait
+// (globals désactivés ici — vitest.config.ts) : "Spécialiste du fil" devenait
 // ambigu dès le 3e test. Même filet que surfaces.test.tsx.
 afterEach(cleanup);
 // Les libellés passent par t() (round 1 de revue, tâche 8) : la langue du
@@ -34,7 +34,7 @@ describe("ConsigneMenu", () => {
   it("envoie l'identifiant ET une copie du texte au choix", () => {
     const onChoisir = vi.fn();
     render(<ConsigneMenu {...base} actif={null} onChoisir={onChoisir} />);
-    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
     fireEvent.click(screen.getByText("Rigueur scientifique"));
     expect(onChoisir).toHaveBeenCalledWith({
       id: "rigueur",
@@ -47,7 +47,7 @@ describe("ConsigneMenu", () => {
     render(
       <ConsigneMenu {...base} actif={{ id: "concis", texte: "x" }} onChoisir={onChoisir} />,
     );
-    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
     fireEvent.click(screen.getByText("Aucune"));
     expect(onChoisir).toHaveBeenCalledWith(null);
   });
@@ -64,7 +64,7 @@ describe("ConsigneMenu", () => {
       texte: "peu importe",
     };
     render(<ConsigneMenu {...base} consignes={[bavarde]} actif={null} />);
-    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
     const glose = document.querySelector(".consigne-desc");
     expect(glose?.getAttribute("title")).toBe(bavarde.description);
   });
@@ -73,7 +73,7 @@ describe("ConsigneMenu", () => {
     // Spec 2026-09-01 : fond plein + coche, AUCUN accent. Sans ce marquage,
     // ouvrir le menu ne disait pas laquelle des consignes est en vigueur.
     const { rerender } = render(<ConsigneMenu {...base} actif={null} />);
-    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
     const actives = () => [...document.querySelectorAll(".consigne-item.on")];
     expect(actives()).toHaveLength(1);
     expect(actives()[0].textContent).toContain("Aucune");
@@ -92,12 +92,12 @@ describe("ConsigneMenu", () => {
 
   it("est éteint sur un CLI sans mécanisme prévu", () => {
     render(<ConsigneMenu {...base} provider="grok" actif={null} />);
-    expect(screen.getByLabelText("Consigne du fil")).toHaveAttribute("disabled");
+    expect(screen.getByLabelText("Spécialiste du fil")).toHaveAttribute("disabled");
   });
 
   it("dit comment la consigne est appliquée sur le CLI courant", () => {
     const { rerender } = render(<ConsigneMenu {...base} actif={null} />);
-    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
     expect(screen.getByTitle(/invisible dans le fil/)).toBeTruthy();
     rerender(<ConsigneMenu {...base} provider="codex" actif={null} />);
     expect(screen.getByTitle(/en tête de chaque message/)).toBeTruthy();
@@ -109,7 +109,7 @@ describe("consignes combinées dans le menu existant", () => {
   it("ajoute une langue sans perdre la consigne active", () => {
     const onChoisir = vi.fn();
     render(<ConsigneMenu {...base} actif={{id:"concis",texte:"Mon texte édité"}} onChoisir={onChoisir}/>);
-    fireEvent.click(screen.getByLabelText("Consigne du fil"));
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
     expect(screen.queryByText("Composer les consignes…")).toBeNull();
     fireEvent.click(screen.getByText("Français québécois"));
     expect(screen.getByRole("menuitemcheckbox", {name:/Français québécois/})).toBeTruthy();
@@ -136,5 +136,55 @@ describe("consignes combinées dans le menu existant", () => {
     const selected = consignesSelectionnees(composed);
     expect(selected.map(c => c.id)).toEqual(["concis","quebecois","rigueur","atelier-personnelle"]);
     expect(selected.map(c => c.texte).join("\n")).toBe(composed?.texte);
+  });
+});
+
+describe("menu Spécialiste (plan specialistes-2026-10-18)", () => {
+  const glacio = {
+    id: "sp1", nom: "Glaciologue albédo", nomCourt: "Glaciologue", role: "Albédo des glaciers",
+    instructions: "Tu es glaciologue.", skills: [], tousSkills: true, connecteurs: [], visible: true,
+  };
+  const masque = { ...glacio, id: "sp2", nom: "Paper Writer", nomCourt: "Paper", visible: false };
+
+  it("liste les spécialistes visibles et en choisit un sans perdre la forme", () => {
+    const onChoisir = vi.fn();
+    render(<ConsigneMenu {...base} specialistes={[glacio, masque]} actif={{ id: "concis", texte: "x" }} onChoisir={onChoisir} />);
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
+    expect(screen.queryByText("Paper Writer")).toBeNull();
+    fireEvent.click(screen.getByText("Glaciologue albédo"));
+    const choix = onChoisir.mock.calls[0][0];
+    expect(choix.specialiste).toMatchObject({ id: "sp1", nomCourt: "Glaciologue" });
+    expect(choix.selection).toEqual([{ id: "concis", texte: "x" }]);
+  });
+
+  it("le bouton montre le nom court et le nombre de consignes de forme", () => {
+    const actif = {
+      id: "specialiste:sp1", texte: "…", selection: [{ id: "concis", texte: "a" }, { id: "rigueur", texte: "b" }],
+      specialiste: { id: "sp1", nom: "Glaciologue albédo", nomCourt: "Glaciologue", texte: "…" },
+    };
+    render(<ConsigneMenu {...base} specialistes={[glacio]} actif={actif} />);
+    const bouton = screen.getByLabelText("Spécialiste du fil");
+    expect(bouton.textContent).toBe("Glaciologue+2");
+    expect(bouton.getAttribute("title")).toContain("Glaciologue albédo");
+  });
+
+  it("« Gérer les spécialistes… » ouvre les réglages", () => {
+    const onGerer = vi.fn();
+    render(<ConsigneMenu {...base} specialistes={[]} actif={null} onGererSpecialistes={onGerer} />);
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
+    fireEvent.click(screen.getByText("Gérer les spécialistes…"));
+    expect(onGerer).toHaveBeenCalled();
+  });
+
+  it("« Aucun » retire le spécialiste et garde les formes", () => {
+    const onChoisir = vi.fn();
+    const actif = {
+      id: "specialiste:sp1", texte: "…", selection: [{ id: "concis", texte: "a" }],
+      specialiste: { id: "sp1", nom: "Glaciologue albédo", nomCourt: "Glaciologue", texte: "…" },
+    };
+    render(<ConsigneMenu {...base} specialistes={[glacio]} actif={actif} onChoisir={onChoisir} />);
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
+    fireEvent.click(screen.getByText("Aucun"));
+    expect(onChoisir).toHaveBeenCalledWith({ id: "concis", texte: "a" });
   });
 });
