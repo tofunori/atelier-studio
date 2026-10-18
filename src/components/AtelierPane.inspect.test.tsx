@@ -5,6 +5,8 @@
 // exclusion des onglets hors du serveur galerie du projet.
 import { act, render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+const openerMock = vi.hoisted(() => ({ openPath: vi.fn(async () => {}) }));
+vi.mock("@tauri-apps/plugin-opener", () => openerMock);
 import AtelierPane, { relFromTabUrl } from "./AtelierPane";
 import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
 import { setLanguage, t } from "../lib/i18n";
@@ -210,6 +212,36 @@ describe("AtelierPane — menu du pane (actions rescapées de la bande)", () => 
     await waitFor(() => expect(document.querySelector(".workspace-pane-swatch")).toBeTruthy());
     fireEvent.click(document.querySelectorAll(".workspace-pane-swatch")[0]);
     expect(props.onColorTab).toHaveBeenCalledWith("t1", expect.any(String));
+  });
+
+  it("page HTML rendue : code source et navigateur au menu, pas dans la barre", async () => {
+    const { props } = pane({
+      tabs: [{ id: "h", url: `${ORIGIN}/out/carte.html#atelier_nonce=abc`, title: "carte.html" }],
+      activeTab: "h",
+    });
+    await openPaneMenu();
+    fireEvent.click(screen.getByText("Voir le code source"));
+    expect(props.onOpenFile).toHaveBeenCalledWith("out/carte.html", { source: true });
+
+    await openPaneMenu();
+    fireEvent.click(screen.getByText("Ouvrir dans le navigateur"));
+    expect(openerMock.openPath).toHaveBeenCalledWith(`${ROOT}/out/carte.html`);
+    expect(screen.queryByText("Voir le rendu")).toBeNull();
+  });
+
+  it("page HTML ouverte en code : le menu ramène au rendu", async () => {
+    const { props } = pane({
+      tabs: [{
+        id: "c",
+        url: `${ORIGIN}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(`${ROOT}/out/carte.html`)}#atelier_nonce=abc`,
+        title: "carte.html",
+      }],
+      activeTab: "c",
+    });
+    await openPaneMenu();
+    expect(screen.queryByText("Voir le code source")).toBeNull();
+    fireEvent.click(screen.getByText("Voir le rendu"));
+    expect(props.onOpenFile).toHaveBeenCalledWith("out/carte.html");
   });
 
   it("onglet sans fichier projet : pas d'entrée Inspecter", async () => {

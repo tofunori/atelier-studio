@@ -65,7 +65,7 @@ for (const theme of ['dark', 'light']) {
       await main(kb.getByPlaceholder('Contenu…'));
       await close();
 
-      const style = page.getByRole('button', { name: 'Consigne du fil', exact: true });
+      const style = page.getByRole('button', { name: 'Spécialiste du fil', exact: true });
       await style.click();
       await panel('.composer-style-menu', 'style');
       await main(page.locator('.consigne-nom').first());

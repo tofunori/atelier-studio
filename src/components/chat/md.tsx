@@ -2,9 +2,11 @@
 // fichier:ligne, coloration hljs, blocs code (streaming ou non), Mermaid,
 // KaTeX, découpage en blocs mémoïsés + réparation du bloc de queue pendant
 // le streaming (MdBody/MdBlock).
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useContext, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { localImagePreviewUrl } from "../../lib/localImage";
+import { FigureGalleryBar } from "../FigureGalleryBar";
+import { MdThreadContext } from "./mdThread";
 import { useStreamingHighlight } from "./useStreamingHighlight";
 // `lib/core` + enregistrement EXPLICITE, jamais `lib/common` : common tire
 // 36 langages (375 Ko de source, 13 % de l'entrée) pour la quinzaine
@@ -42,6 +44,7 @@ import { CopyIcon } from "../icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconButton, RowButton } from "../ui";
 import { PassageCard } from "./PassageCard";
+import { fileRefFromLink } from "./fileRefLink";
 import { setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 
 for (const [nom, def] of [
@@ -262,6 +265,42 @@ export function lonePassageRef(children: any): PassageRef | null {
   const href = only.props.href;
   if (typeof href !== "string") return null;
   return parseZoteroPassageRef(href) ?? parseRagdocPassageRef(href) ?? parseGbrainPassageRef(href);
+}
+
+// Citation en écho (2026-10-09) : une carte passage affiche déjà sa phrase ;
+// l'agent la recopie souvent juste dessous en `>` ou en italique. Le bloc qui
+// suit un lien passage seul et répète sa citation est retiré du texte, avant
+// le découpage en blocs (la carte et l'écho tombent dans deux MdBlock). En
+// streaming, un écho encore partiel en queue de texte est retiré aussi.
+const LONE_PASSAGE_LINE = /^\s*\[[^\n]*\]\((#atelier-(?:zotero|gbrain|ragdoc)-passage\?.*)\)\s*$/;
+const echoNorm = (text: string) => text.replace(/[*_`]/g, "")
+  .replace(/^[\s«“"„]+|[\s»”"]+$/g, "").replace(/\s+/g, " ").trim();
+
+export function dropEchoedPassageQuotes(text: string, streaming = false): string {
+  if (!text.includes("-passage?")) return text;
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let fence = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    out.push(line);
+    const href = fence ? null : LONE_PASSAGE_LINE.exec(line)?.[1];
+    const ref = href ? parseZoteroPassageRef(href) ?? parseRagdocPassageRef(href) ?? parseGbrainPassageRef(href) : null;
+    const quote = ref ? echoNorm(ref.quote) : "";
+    if (!quote) continue;
+    let start = i + 1;
+    while (start < lines.length && !lines[start].trim()) start += 1;
+    let end = start;
+    while (end < lines.length && lines[end].trim()) end += 1;
+    if (start === end) continue;
+    const block = lines.slice(start, end);
+    const quoted = block.every((l) => /^\s*>/.test(l));
+    const echo = echoNorm(block.map((l) => quoted ? l.replace(/^\s*>\s?/, "") : l).join(" "));
+    const atTail = streaming && end === lines.length;
+    if (echo && (echo === quote || (atTail && quote.startsWith(echo)))) i = end - 1;
+  }
+  return out.join("\n");
 }
 
 // texte complet des enfants markdown (string, tableau, éléments imbriqués)
@@ -538,6 +577,7 @@ export function PreBlock(props: any) {
 
 /** Local paths in Markdown are files, not routes under tauri://localhost. */
 export function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
+  const threadId = useContext(MdThreadContext);
   const local = Boolean(src?.startsWith("/") && !src.startsWith("//"));
   const [preview, setPreview] = useState<{ source: string; url?: string; failed?: boolean } | null>(null);
   useEffect(() => {
@@ -555,8 +595,12 @@ export function MarkdownImage({ src, alt, title }: { src?: string; alt?: string;
   const current = preview?.source === src ? preview : null;
   if (local && current?.failed) return <span className="md-image-error">Image indisponible : {alt || src.split("/").pop()}</span>;
   if (local && !current?.url) return <span role="status">Chargement de l’image…</span>;
-  return <img className="md-inline-image" src={local ? current?.url : src} alt={alt || ""} title={title}
+  const img = <img className="md-inline-image" src={local ? current?.url : src} alt={alt || ""} title={title}
     onError={() => { if (local) setPreview({ source: src, failed: true }); }} />;
+  // Figure locale d'un fil (graphique du noyau, image produite) : l'ouvrir ou
+  // l'enregistrer dans la galerie depuis le chat.
+  if (!local || !threadId) return img;
+  return <span className="md-figure">{img}<FigureGalleryBar path={src} threadId={threadId} /></span>;
 }
 
 // composants markdown : liens externes stylés + réfs fichier:ligne cliquables
@@ -615,7 +659,7 @@ export const MD_COMPONENTS = {
           {label}
         </RowButton>
       );
-    const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
+    const ref = fileRefFromLink(label, href, FILE_REF);
     if (ref)
       return (
         <RowButton className="file-ref" onClick={() => openFileRef(ref, { page: pdfPageFromLink(label, ref) })} title={t("action.open-file", { ref })}>
@@ -811,7 +855,8 @@ function MarkdownBlocks({ text, streaming, components, remarkPlugins, rehypePlug
 }
 
 export function MdBody(props: MdBodyProps) {
-  const segments = useMemo(() => splitInsightBlocks(props.text, props.streaming), [props.text, props.streaming]);
+  const segments = useMemo(() => splitInsightBlocks(dropEchoedPassageQuotes(props.text, props.streaming), props.streaming),
+    [props.text, props.streaming]);
   return <>{segments.map((segment, index) => {
     const streaming = props.streaming && index === segments.length - 1
       && (segment.kind === "markdown" || !segment.complete);

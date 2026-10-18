@@ -3,7 +3,7 @@
 // = une ligne ici + un fichier dans sections/.
 import type { I18nKey } from "../../lib/i18n";
 
-export type SectionId = "general" | "modeles" | "environnement" | "apparence" | "atelier" | "integrations" | "consignes";
+export type SectionId = "general" | "modeles" | "environnement" | "apparence" | "atelier" | "integrations" | "consignes" | "specialistes" | "memoire";
 
 export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
   { id: "general", labelKey: "settings.general" },
@@ -17,6 +17,10 @@ export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
   // rien n'est rempli ici.
   { id: "integrations", labelKey: "settings.integrations" },
   { id: "consignes", labelKey: "settings.consignes" },
+  // Fiches nommées (rôle, instructions, skills) qu'un fil peut porter.
+  { id: "specialistes", labelKey: "settings.specialistes" },
+  // Souvenirs de projet : import Claude Science, injection, propositions.
+  { id: "memoire", labelKey: "settings.memoire" },
 ];
 
 /** Les anciennes sections (setup, providers, review, appsnap, avance) sont

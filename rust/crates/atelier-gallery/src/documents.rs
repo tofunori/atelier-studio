@@ -465,7 +465,7 @@ pub struct PdfAnnotQuery {
 
 /// Store commun aux serveurs de projets. Seules les cles Zotero y sont
 /// ecrites : les chemins relatifs ordinaires ne sont pas globalement uniques.
-fn shared_pdf_annots_path(root: &Path) -> PathBuf {
+pub(crate) fn shared_pdf_annots_path(root: &Path) -> PathBuf {
     if let Some(dir) = std::env::var_os("ATELIER_APP_DIR") {
         let dir = PathBuf::from(dir);
         if !dir.as_os_str().is_empty() {
@@ -482,7 +482,7 @@ fn legacy_pdf_annots_path(root: &Path) -> PathBuf {
     root.join(".fig_thumbs").join("pdf_annots.json")
 }
 
-fn is_zotero_pdf_rel(rel: &str) -> bool {
+pub(crate) fn is_zotero_pdf_rel(rel: &str) -> bool {
     let Some(rest) = rel.strip_prefix("zotero/") else {
         return false;
     };
@@ -831,7 +831,9 @@ pub async fn get_pdfannot_stamp(
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|elapsed| elapsed.as_millis() as u64)
         .unwrap_or(0);
-    (StatusCode::OK, Json(json!({"stamp": stamp}))).into_response()
+    // livre de codes : un code renommé ailleurs se voit dans le lecteur ouvert
+    let codebook = crate::codes::codebook_stamp(&state.root);
+    (StatusCode::OK, Json(json!({"stamp": stamp, "codebook": codebook}))).into_response()
 }
 
 /// GET /pdfannot-all — les annotations Zotero communes, superposees aux

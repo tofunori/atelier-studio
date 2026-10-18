@@ -2,9 +2,9 @@ import ProjectGallery from "./ProjectGallery";
 import type { ProjectFolders } from "../lib/projectFolders";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { useWorkspacePaneMenuHost } from "./WorkspacePaneMenuSlot";
 import Explorer from "./Explorer";
-import AnnotationsPanel from "./AnnotationsPanel";
 const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
 const KnowledgeSurface = lazyWithRetry(() => import("./KnowledgeSurface"));
 const GitSurface = lazyWithRetry(() => import("./GitSurface"));
@@ -13,6 +13,7 @@ import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
 const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 const CalculsSurface = lazyWithRetry(() => import("./CalculsSurface"));
+const KernelSurface = lazyWithRetry(() => import("./KernelSurface"));
 const EvidenceSurface = lazyWithRetry(() => import("./EvidenceSurface"));
 import { t } from "../lib/i18n";
 import { loadGalleryFavorites, setGalleryFavorite } from "../lib/galleryFavorites";
@@ -106,6 +107,16 @@ export function relFromTabUrl(url: string, projectRoot: string, baseUrl?: string
   }
 }
 
+/** Onglet d'une page HTML servie telle quelle (rendue), par opposition à
+ *  l'éditeur de code qui l'ouvre via `.fig_thumbs/…?path=`. */
+function htmlTabIsRendered(url: string): boolean {
+  try {
+    return !new URL(url).pathname.startsWith("/.fig_thumbs/");
+  } catch {
+    return false;
+  }
+}
+
 function surfaceLabel(surface: Surface): string {
   if (surface === "atelier") return t("atelier.gallery");
   const entry = SURFACES.find((candidate) => candidate.id === surface);
@@ -138,9 +149,6 @@ export default function AtelierPane({
   onActiveSurfaceChange = NOOP_SURFACE_CHANGE,
   reloadKey,
   showExplorer,
-  showAnnots = false,
-  onOpenAnnot,
-  onQuoteAnnot,
   layout,
   onToggleExpand,
   recentFiles,
@@ -150,6 +158,7 @@ export default function AtelierPane({
   onAddFileToChat,
   kbBinding,
   kbThreadTitle,
+  kernelEnabled,
   agent,
   agentEvents,
   agentEventStore,
@@ -172,15 +181,12 @@ export default function AtelierPane({
   onActiveSurfaceChange?: (surface: Surface) => void;
   reloadKey: number;
   showExplorer: boolean;
-  showAnnots?: boolean;
-  onOpenAnnot?: (rel: string, annotId: string) => void;
-  onQuoteAnnot?: (text: string) => void;
   files: string[];
   /** catalogue tronqué : l'arbre est incomplet */
   filesTruncated?: boolean;
   recentFiles: string[];
   onOpenExplorer: () => void;
-  onOpenFile: (rel: string) => void;
+  onOpenFile: (rel: string, options?: { source?: boolean }) => void;
   onPinTab: (id: string) => void;
   onColorTab: (id: string, color?: string) => void;
   onReorderTabs: (ids: string[]) => void;
@@ -194,6 +200,8 @@ export default function AtelierPane({
   onAddFileToChat?: (rel: string) => void;
   kbBinding?: import("../lib/kbSources").KbBinding | null;
   kbThreadTitle?: string;
+  /** Interrupteur du noyau Python du fil actif (surface Noyau). */
+  kernelEnabled?: boolean;
   agent?: AgentDisplay | null;
   agentEvents?: AgentEvent[];
   agentEventStore?: ThreadEventStore;
@@ -315,6 +323,22 @@ export default function AtelierPane({
     if (orderedIds.every((id, index) => id === documentIds[index])) return;
     onReorderTabs(orderedIds);
   }, [documentIds, onReorderTabs, workspace.root]);
+
+  // Bouton « Annotations » de la barre du haut : le panneau d'annotations
+  // est celui du lecteur PDF actif (Annotations, Codes, Plan).
+  useEffect(() => {
+    const onToggle = () => {
+      const active = new Set(listWorkspacePanes(workspace.root)
+        .map((current) => current.activeTabId)
+        .filter((id): id is string => Boolean(id?.startsWith("document:")))
+        .map((id) => id.slice("document:".length)));
+      const frame = [...document.querySelectorAll<HTMLIFrameElement>("iframe.atelier[data-atelier-tab]")]
+        .find((f) => active.has(f.dataset.atelierTab ?? "") && /\/pdf_viewer\.html(\?|$)/.test(f.src));
+      frame?.contentWindow?.postMessage({ type: "atelier-annots-pane" }, "*");
+    };
+    window.addEventListener("atelier-annots-pane", onToggle);
+    return () => window.removeEventListener("atelier-annots-pane", onToggle);
+  }, [workspace]);
 
   useEffect(() => {
     for (const current of listWorkspacePanes(workspace.root)) {
@@ -771,6 +795,22 @@ export default function AtelierPane({
       if (relative && onInspectFile) {
         documentItems.push({ key: "inspect", label: t("inspector.open"), onSelect: () => onInspectFile(relative) });
       }
+      // Page HTML : l'onglet la montre rendue ; le code et le navigateur
+      // restent à un clic, sans bouton de plus dans la barre.
+      if (relative && /\.html?$/i.test(relative)) {
+        const rendered = htmlTabIsRendered(documentById.get(ref.tabId)?.url ?? "");
+        documentItems.push(rendered
+          ? { key: "view-source", label: t("action.view-source"), onSelect: () => onOpenFile(relative, { source: true }) }
+          : { key: "view-rendered", label: t("action.view-rendered"), onSelect: () => onOpenFile(relative) });
+        if (projectRoot && !relative.startsWith("/")) {
+          const absolute = `${projectRoot.replace(/\/$/, "")}/${relative}`;
+          documentItems.push({
+            key: "open-browser",
+            label: t("action.open-browser"),
+            onSelect: () => { void openPath(absolute).catch(() => {}); },
+          });
+        }
+      }
       menuGroups.push({ key: "document-actions", items: documentItems, separatorBefore: true });
       navigationItems.push({
         key: "colors",
@@ -988,6 +1028,21 @@ export default function AtelierPane({
         </div>
       );
     }
+    if (ref.surface === "noyau") {
+      return (
+        <div key="surface:noyau" className="workspace-tab-content surface-body" style={{ display }}>
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <KernelSurface
+              threadId={activeThreadId ?? null}
+              threadTitle={kbThreadTitle}
+              enabled={!!kernelEnabled}
+              projectRoot={projectRoot}
+              visible={active && layout !== "chat" && !overlayOpen}
+            />
+          </LazyBoundary>
+        </div>
+      );
+    }
     return (
       <div key="surface:calculs" className="workspace-tab-content surface-body" style={{ display }}>
         <LazyBoundary fallback={<div className="pane-slot" />}>
@@ -1142,13 +1197,6 @@ export default function AtelierPane({
           )}
         </div>
         {showExplorer && <Explorer files={files} truncated={filesTruncated} onOpen={onOpenFile} />}
-        {showAnnots && (
-          <AnnotationsPanel
-            galleryOrigin={url ? new URL(url).origin : null}
-            onOpenAnnot={onOpenAnnot ?? (() => {})}
-            onQuote={onQuoteAnnot ?? (() => {})}
-          />
-        )}
       </div>
     </div>
   );

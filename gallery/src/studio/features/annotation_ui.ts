@@ -68,7 +68,33 @@ export function createNoteEditor(host: HTMLElement, options: {
   const status = host.querySelector<HTMLElement>(".annotation-status")!;
   input.value = options.value || "";
   if(memoInput) memoInput.value = options.memo?.value || "";
-  const fit = () => {input.style.height="24px";input.style.height=Math.min(88,input.scrollHeight)+"px";};
+  const field = host.querySelector<HTMLElement>(".atelier-note-field")!;
+  // Au-delà d'une ligne, la bulle s'élargit en « composer » : le texte prend
+  // toute la largeur, les boutons passent dessous. On mesure toujours à la
+  // largeur de la pilule, sinon un texte qui tient sur une ligne élargie
+  // basculerait d'une forme à l'autre à chaque frappe.
+  const fit = () => {
+    const wasWide = field.classList.contains("is-multiline");
+    if(wasWide){field.classList.remove("is-multiline");host.classList.remove("atelier-note-wide");}
+    input.style.height="24px";
+    const wide = input.scrollHeight>28;
+    field.classList.toggle("is-multiline",wide);host.classList.toggle("atelier-note-wide",wide);
+    input.style.height="24px";
+    const maxHeight = parseFloat(host.ownerDocument.defaultView?.getComputedStyle(input).maxHeight || "") || 124;
+    input.style.height=Math.min(maxHeight,input.scrollHeight)+"px";
+    keepInView();
+  };
+  // La bulle grandit vers la droite et vers le bas depuis la position choisie
+  // par l'hôte : un décalage la ramène dans la fenêtre sans toucher left/top.
+  const keepInView = () => {
+    host.style.translate="";
+    const rect=host.getBoundingClientRect();
+    if(!rect.width)return;
+    const view=host.ownerDocument.documentElement;
+    const dx=Math.max(8-rect.left,Math.min(0,view.clientWidth-8-rect.right));
+    const dy=Math.max(8-rect.top,Math.min(0,(host.ownerDocument.defaultView?.innerHeight || view.clientHeight)-8-rect.bottom));
+    if(dx||dy)host.style.translate=`${Math.round(dx)}px ${Math.round(dy)}px`;
+  };
   input.oninput = () => {fit();options.onChange?.(input.value);};
   input.onkeydown = event => {
     event.stopPropagation();
@@ -104,6 +130,7 @@ export function createNoteEditor(host: HTMLElement, options: {
 }
 export function createSelectionActions(host: HTMLElement, options: {
   onColor?(name: string, value: string): void; onAdd?(): void; onAnnotate(): void; onAsk?(): void;
+  onCode?(): void;
   onHighlight?(color: string): void; highlightColor?: string; colors?: readonly AnnotationColor[];
 }) {
   host.classList.add("atelier-selection");host.replaceChildren();
@@ -115,6 +142,8 @@ export function createSelectionActions(host: HTMLElement, options: {
   };
   if(options.onAdd) add("Ajouter au chat",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4zM8 10h8M12 6v8"/></svg>',options.onAdd);
   add("Annoter",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg>',options.onAnnotate);
+  // Codage qualitatif (lecteur PDF) : étiquette, ouvre le menu des codes.
+  if(options.onCode) add("Coder",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>',options.onCode);
   if(options.onAsk) add("Question rapide",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-7z"/></svg>',options.onAsk);
   if(options.onHighlight) {
     const colors=options.colors || annotationColors;

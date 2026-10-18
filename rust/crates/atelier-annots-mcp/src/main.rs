@@ -1,7 +1,8 @@
 //! `atelier-annots-mcp` — serveur MCP stdio qui expose à un client externe
 //! (Claude Desktop) les annotations PDF posées dans Atelier et les notes
-//! personnelles qui les accompagnent. Une seule écriture : `highlight_passage`
-//! (`highlight.rs`) ajoute des surlignages au store du lecteur.
+//! personnelles qui les accompagnent. Écritures : `highlight_passage` et ses
+//! retouches (`highlight.rs`) sur les surlignages de Claude, et le codage
+//! qualitatif (`coding.rs`) : créer un code, proposer des codes.
 //!
 //! Sources :
 //! - `$ATELIER_APP_DIR/pdf_annots.json` (défaut
@@ -15,6 +16,7 @@
 //! note : seule la note personnelle (`memo`) l'est, plus le texte d'une note
 //! libre (`kind: "note"`), qui est une note par nature.
 
+mod coding;
 mod highlight;
 mod library;
 mod server;

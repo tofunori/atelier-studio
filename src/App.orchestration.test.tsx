@@ -24,6 +24,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   }),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => dialogMock);
+const openerMock = vi.hoisted(() => ({ openPath: vi.fn(async () => {}) }));
+vi.mock("@tauri-apps/plugin-opener", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tauri-apps/plugin-opener")>()),
+  ...openerMock,
+}));
 vi.mock("./lib/notify", () => ({
   init: vi.fn(async () => {}),
   notifyRunDone: vi.fn(async () => {}),
@@ -563,7 +568,7 @@ describe("orchestration App — caractérisation", () => {
     // ferait normaliser provider→claude et perdre le projet côté backend
     // pour un id qu'il ne connaît pas encore (ThreadStore::upsert / normalize).
     const { sock } = await mountApp();
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
 
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
@@ -600,7 +605,7 @@ describe("orchestration App — caractérisation", () => {
       }],
     }));
 
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
 
     fireEvent.click(screen.getByLabelText(t("kb.open")));
@@ -638,7 +643,7 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock, [THREAD_A]);
     await selectThread(sock, "Fil A — albédo");
 
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
     await act(async () => { await flushMicrotasks(4); });
 
@@ -657,7 +662,7 @@ describe("orchestration App — caractérisation", () => {
     // Sans ce repli, le choix était bien mémorisé (pendingConsigne) mais
     // invisible : l'utilisateur ne pouvait pas savoir qu'il avait pris.
     await mountApp();
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
     await act(async () => { await flushMicrotasks(4); });
     expect(document.querySelector(".consigne-pilule-nom")?.textContent).toBe("Concis");
@@ -670,7 +675,7 @@ describe("orchestration App — caractérisation", () => {
     // catalogue a bougé — et `send.rs::consigne_du_fil` ne trouvait donc
     // aucun `extra.consigne` : consigne perdue en silence dès le 1er tour.
     const { sock } = await mountApp();
-    fireEvent.click(screen.getByLabelText(t("consigne.menu-title")));
+    fireEvent.click(screen.getByLabelText(t("specialiste.menu-title")));
     fireEvent.click(screen.getByText("Concis"));
 
     // la socket meurt AVANT la création : aucun upsertThread ne peut partir
@@ -1669,6 +1674,60 @@ describe("orchestration App — caractérisation", () => {
     expect(url.searchParams.get("path")).toBe(`${PROJECT_ROOT}/scripts/plot.py`);
     expect(url.searchParams.get("diff")).toBe("1");
     expect(url.searchParams.get("base")).toBe(baseSha);
+  });
+
+  it("une page HTML du chat s'ouvre rendue ; figures_index.html ramène la galerie", async () => {
+    // Vécu 2026-10-18 : la pilule figures_index.html empilait une seconde
+    // galerie dans un onglet, le clic semblait ne rien faire.
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    await push(sock, { type: "files", projectRoot: PROJECT_ROOT, files: ["out/carte.html"] });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify({ hits: ["figures_index.html"] })));
+    const shown = () => Array.from(document.querySelectorAll<HTMLElement>(".workspace-content-layer"))
+      .filter((layer) => layer.style.display !== "none")
+      .map((layer) => layer.dataset.workspaceContent ?? "");
+    const open = async (detail: Record<string, unknown>) => {
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("chat-open-file", { detail: { line: null, ...detail } }));
+        await vi.advanceTimersByTimeAsync(100);
+        await flushMicrotasks(8);
+      });
+    };
+    try {
+      await open({ rel: "out/carte.html" });
+      const rendered = document.querySelector<HTMLIFrameElement>('iframe[src*="/out/carte.html"]');
+      expect(rendered, "la page est servie telle quelle, donc rendue").toBeTruthy();
+      expect(document.querySelector('iframe[src*="latex_studio.html"]')).toBeNull();
+      expect(shown().some((key) => key.startsWith("document:"))).toBe(true);
+
+      await open({ rel: "out/carte.html", source: true });
+      const source = document.querySelector<HTMLIFrameElement>('iframe[src*="latex_studio.html"]');
+      expect(new URL(source!.src).searchParams.get("path")).toBe(`${PROJECT_ROOT}/out/carte.html`);
+
+      await open({ rel: "figures_index.html" });
+      expect(document.querySelector('iframe[src*="/figures_index.html"]')).toBeNull();
+      expect(shown()).toContain("surface:atelier");
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("une page HTML hors du projet s'ouvre rendue dans le navigateur, jamais en code", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, "Fil A — albédo");
+    openerMock.openPath.mockClear();
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("chat-open-file", {
+        detail: { rel: "/var/folders/xy/T/noyau/rapport.html", line: null },
+      }));
+      await flushMicrotasks(8);
+    });
+    expect(openerMock.openPath).toHaveBeenCalledTimes(1);
+    expect(openerMock.openPath).toHaveBeenCalledWith("/var/folders/xy/T/noyau/rapport.html");
+    expect(document.querySelector('iframe[src*="rapport.html"]')).toBeNull();
   });
 
   it("recliquer un fichier déjà ouvert le ramène à l'écran, pas la galerie", async () => {

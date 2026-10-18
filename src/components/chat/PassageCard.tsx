@@ -34,6 +34,16 @@ function PinIcon({ size = 12 }: { size?: number }) {
   );
 }
 
+function OpenIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6.5 3.5h-3v9h9v-3" />
+      <path d="M9 3h4v4M13 3 7.5 8.5" />
+    </svg>
+  );
+}
+
 export function PassageCard({ refData }: { refData: PassageRef }) {
   const [open, setOpen] = useState(false);
   const plugins = useMdPlugins();
@@ -86,25 +96,11 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
   const openPassage = () => (refData.kind === "ragdoc" ? openRagdocPassage(refData) : refData.kind === "gbrain" ? openGbrainPassage(refData) : openZoteroPassage(refData));
   const openLabel = isGbrain ? t("passage.open-gbrain") : t("passage.open-pdf", { page: refData.page });
 
+  // Maquette A « Filet » (2026-10-09) : la phrase d'abord, sous un filet ;
+  // l'identité dessous, sur une ligne ; ouvrir/épingler en icônes, visibles au
+  // survol, au focus ou quand le passage est épinglé. Le titre reste cliquable.
   return (
     <div className={`passage-card${open ? " open" : ""}${pin ? " has-pin" : ""}`}>
-      <div className="passage-card-meta">
-        <RowButton className="passage-card-source" onClick={openPassage} title={fullLabel}>
-          <DocIcon />
-          <span className="evidence-meta-src" title={fullLabel}>{label}</span>
-        </RowButton>
-        {refData.kind !== "gbrain" && refData.page ? <span className="evidence-meta-page">p. {refData.page}</span> : null}
-        <Tooltip label={pin ? t("passage.unpin") : t("passage.pin")}>
-          <IconButton
-            className={pin ? "passage-card-pin is-pinned" : "passage-card-pin"}
-            label={pin ? t("passage.unpin") : t("passage.pin")}
-            aria-pressed={Boolean(pin)}
-            onClick={togglePin}
-          >
-            <PinIcon size={15} />
-          </IconButton>
-        </Tooltip>
-      </div>
       {hasQuote ? (
         <div className={`passage-card-quote${isLong && !open ? " is-clamped" : ""}`}>
           {/* Isolated prose renderer: a quoted link must not become a nested
@@ -117,19 +113,35 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
       ) : (
         <p className="passage-card-quote is-absent">{t("passage.no-excerpt")}</p>
       )}
-      <div className="passage-card-actions">
-        <RowButton className="passage-card-open" onClick={openPassage} title={openLabel}>
-          {t("passage.open-source")}
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-            strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 8h10M9 4l4 4-4 4" />
-          </svg>
+      <div className="passage-card-meta">
+        <RowButton className="passage-card-source" onClick={openPassage} title={fullLabel}>
+          <DocIcon size={13} />
+          <span className="evidence-meta-src" title={fullLabel}>{label}</span>
         </RowButton>
+        {refData.kind !== "gbrain" && refData.page ? <span className="evidence-meta-page">p. {refData.page}</span> : null}
         {isLong && (
           <RowButton className="passage-card-collapse" aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? t("passage.collapse") : t("passage.expand")}
           </RowButton>
         )}
+        <span className="passage-card-tools">
+          <Tooltip label={openLabel}>
+            <IconButton size="s" className="passage-card-open" label={t("passage.open-source")} onClick={openPassage}>
+              <OpenIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={pin ? t("passage.unpin") : t("passage.pin")}>
+            <IconButton
+              size="s"
+              className={pin ? "passage-card-pin is-pinned" : "passage-card-pin"}
+              label={pin ? t("passage.unpin") : t("passage.pin")}
+              aria-pressed={Boolean(pin)}
+              onClick={togglePin}
+            >
+              <PinIcon size={14} />
+            </IconButton>
+          </Tooltip>
+        </span>
       </div>
     </div>
   );

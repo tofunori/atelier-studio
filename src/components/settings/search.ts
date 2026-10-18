@@ -62,6 +62,7 @@ export const SEARCH_LABELS: Record<SectionId, readonly I18nKey[]> = {
   atelier: [
     "settings.gallery-folder",
     "settings.auto-refresh",
+    "settings.recipes",
     "settings.group.gallery-exts",
     "settings.gallery-exts-default",
     "settings.review",
@@ -94,6 +95,14 @@ export const SEARCH_LABELS: Record<SectionId, readonly I18nKey[]> = {
     "settings.integrations-zotero",
   ],
   consignes: [
+  ],
+  specialistes: [
+    "specialistes.import",
+  ],
+  memoire: [
+    "memoire.injection",
+    "memoire.extraction",
+    "memoire.group-import",
   ],
 };
 

@@ -479,6 +479,25 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     expect(post).toHaveBeenLastCalledWith({ type: "atelier-tab-visibility", visible: true }, "*");
   });
 
+  it("recliquer la même citation renvoie le lecteur au passage sans recharger le PDF", () => {
+    const ws = makeWs();
+    renderUi(<BiblioSurface ws={ws} projectRoot="/proj" galleryUrl="http://gallery" />);
+    const items = ITEMS.map((item) => item.key === "A" ? { ...item, pdfKey: "PDFKEY01", pdfFile: "paper.pdf" } : item);
+    deliver(items);
+    const detail = { key: "A", page: 6, quote: "kriging uncertainty grows with distance" };
+    act(() => window.dispatchEvent(new CustomEvent("chat-open-zotero-passage", { detail })));
+    deliver(items);
+    const frame = document.querySelector(".biblio-frame") as HTMLIFrameElement;
+    expect(frame.getAttribute("src")).toContain("quote=kriging");
+    const src = frame.getAttribute("src");
+    const post = vi.spyOn(frame.contentWindow!, "postMessage");
+    act(() => window.dispatchEvent(new CustomEvent("chat-open-zotero-passage", { detail })));
+    deliver(items);
+    expect(document.querySelector(".biblio-frame")).toBe(frame);
+    expect(frame.getAttribute("src")).toBe(src);
+    expect(post).toHaveBeenCalledWith({ type: "atelier-pdf-passage", page: 6, quote: detail.quote }, "*");
+  });
+
   it("le menu contextuel d'une rangée ouvre les actions et copie la clé Zotero", async () => {
     const writeText = vi.fn();
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });

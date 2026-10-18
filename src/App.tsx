@@ -116,6 +116,9 @@ import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
+import { garderProposition, ouvrirFicheSpecialiste, specialisteAJour, type PropositionSpecialiste } from "./lib/specialistes";
+import { demanderMemoire, messageErreur } from "./lib/memoire";
+import type { DetailPropositionMemoire } from "./components/chat/MemoryProposalCard";
 import { THEME_PRESETS } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
@@ -1273,7 +1276,6 @@ export default function App() {
   // le bouton reflète son état actif). Fermé par défaut à chaque démarrage —
   // pas de persistance : il ne se rouvre plus tout seul, on l'ouvre au besoin.
   const [showExplorer, setShowExplorer] = useState(false);
-  const [showAnnots, setShowAnnots] = useState(false);
 
   function ensureThreadForContext(title: string): string {
     const existing = activeIdRef.current;
@@ -2102,6 +2104,19 @@ export default function App() {
       setQaContext((d.context as QaContext | undefined) ?? null);
       setQaMode("open");
     };
+    const onKernelToggle = () => {
+      const id = activeIdRef.current;
+      if (!id) return;
+      const th = allThreadsRef.current.find((x) => x.id === id);
+      patchKernelDuFil(id, !th?.kernelEnabled);
+    };
+    // Bouton du compositeur : le noyau s'ouvre comme surface du panneau droit.
+    const onKernelPanel = () => switchToSurface("noyau");
+    // Sélection dans la surface Noyau → contexte du chat, comme le lecteur PDF.
+    const onKernelAddToChat = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (typeof text === "string" && text.trim()) attachContextToChat(text);
+    };
     const onAutoReviewToggle = () => {
       setSettings((s) => ({ ...s, autoReview: { ...s.autoReview, enabled: !s.autoReview.enabled } }));
     };
@@ -2192,10 +2207,39 @@ export default function App() {
     };
     const onOpenPalette = () => setPaletteOpen(true);
     const onUsageToggle = () => setUsageOpen((v) => !v);
+    // Carte « Proposition de spécialiste » (propose_specialist) : rien n'est
+    // enregistré avant ce clic. « Modifier » garde la fiche puis l'ouvre.
+    const onSpecialisteProposition = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { action?: string; proposal?: PropositionSpecialiste } | undefined;
+      if (!detail?.proposal || (detail.action !== "garder" && detail.action !== "modifier")) return;
+      const resultat = garderProposition(settingsRef.current.specialistes ?? [], detail.proposal);
+      setSettings((current) => ({ ...current, specialistes: resultat.specialistes }));
+      if (detail.action === "modifier") {
+        ouvrirFicheSpecialiste(resultat.id);
+        openSettings("specialistes");
+      }
+    };
+    // Carte « souvenir proposé » (propose_memory, extraction de fin de tour) :
+    // rien n'entre dans la mémoire avant ce clic.
+    const onMemoireProposition = (e: Event) => {
+      const detail = (e as CustomEvent).detail as DetailPropositionMemoire | undefined;
+      if (!detail?.proposal) return;
+      const { proposal } = detail;
+      void demanderMemoire(ws.current, "memorySave", {
+        memory: { projectRoot: proposal.projectRoot, text: proposal.text },
+        replaceId: proposal.replaceId ?? undefined,
+        origin: { kind: detail.origin, threadId: detail.threadId },
+      }).then((r) => detail.done(!!r.ok, r.ok ? undefined : messageErreur(r.error)));
+    };
     useWorkspaceEvents({
+      "specialiste-proposition": onSpecialisteProposition,
+      "memoire-proposition": onMemoireProposition,
       "atelier-add-to-chat-citation": onCitation,
       "quick-ask-open": onQaOpen,
       "autoreview-toggle": onAutoReviewToggle,
+      "kernel-toggle": onKernelToggle,
+      "kernel-panel-toggle": onKernelPanel,
+      "kernel-add-to-chat": onKernelAddToChat,
       "permission-answer": onPermAnswer,
       "interaction-answer": onInteractionAnswer,
       "correct-issues": onCorrectIssues,
@@ -2396,6 +2440,9 @@ export default function App() {
         const message = themeMessage(settingsRef.current, atelierNonce);
         (e.source as Window).postMessage(message, e.origin);
       }
+      if (data.type === "atelier-open-thread") {
+        window.dispatchEvent(new CustomEvent("open-thread", { detail: { threadId: data.threadId } }));
+      }
       if (data.type === "atelier-open-tab" || data.type === "atelier-open-pdf") {
         let openUrl: string;
         let needsGalleryToken = false;
@@ -2513,12 +2560,29 @@ export default function App() {
       [clean, ...current.filter((item) => item !== clean)].slice(0, 24));
   }
 
-  type OpenFileTabOptions = { diff?: boolean; baseSha?: string | null; page?: number | null };
+  // `source` : une page HTML s'ouvre RENDUE ; seul « Voir le code source »
+  // (menu de l'onglet) demande l'éditeur de code.
+  type OpenFileTabOptions = { diff?: boolean; baseSha?: string | null; page?: number | null; source?: boolean };
 
   function openFileTab(rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
     const associated = activeProject && resolveAssociatedFile(activeProject, settingsRef.current.projectFolders?.[activeProject], rel);
     if (associated) {
       void openSourceFile(associated.root, associated.rel, line, options).catch(error => void showError(String(error)));
+      return;
+    }
+    const renderHtml = /\.html?$/i.test(rel) && !line && !options.diff && !options.source;
+    // page HTML hors du projet actif : le serveur galerie ne sert que le
+    // projet, et l'éditeur intégré n'en montrerait que le code. Le navigateur
+    // du système la rend, ressources voisines comprises.
+    const projectPrefix = activeProject ? (activeProject.endsWith("/") ? activeProject : activeProject + "/") : null;
+    if (renderHtml && (rel.startsWith("/") || rel.startsWith("~/")) && !(projectPrefix && rel.startsWith(projectPrefix))) {
+      const absolute = rel;
+      void (async () => {
+        const path = absolute.startsWith("~/")
+          ? `${(await import("@tauri-apps/api/path").then((m) => m.homeDir())).replace(/\/$/, "")}/${absolute.slice(2)}`
+          : absolute;
+        await openPath(path);
+      })().catch((error) => void showError(String(error)));
       return;
     }
     // JAMAIS de non-op muet : un clic sur une pilule fichier doit répondre
@@ -2546,9 +2610,18 @@ export default function App() {
         return;
       }
     }
+    const ext = (outside ?? rel).split(".").pop()?.toLowerCase() ?? "";
+    // figures_index.html à la racine EST la galerie (coquille live servie par
+    // le serveur) : l'ouvrir dans un onglet empilait une deuxième galerie
+    // par-dessus la première, et le clic semblait sans effet (Thierry
+    // 2026-10-18). Son rendu, c'est la galerie elle-même.
+    if (!outside && renderHtml && rel.replace(/^\.\//, "") === "figures_index.html") {
+      switchToSurface("atelier");
+      setActiveTab("gallery");
+      return;
+    }
     if (!outside) rememberFile(rel);
     const origin = new URL(atelierUrl).origin;
-    const ext = (outside ?? rel).split(".").pop()?.toLowerCase() ?? "";
     const name = (outside ?? rel).split("/").pop() ?? rel;
     const lineQ = line ? `&line=${encodeURIComponent(line)}` : "";
     const page = Number.isInteger(options.page) && Number(options.page) >= 1 && Number(options.page) <= 100_000
@@ -2579,9 +2652,10 @@ export default function App() {
       url = `${origin}/.fig_thumbs/svg_viewer.html?file=${encodeURIComponent(rel)}`;
     } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       url = `${origin}/${rel}`;
-    } else if (["html", "htm"].includes(ext) && !line && !options.diff) {
-      // pages web : rendu direct (comme les ouvertures depuis la galerie) ;
-      // une ligne ciblée ou un diff demandé garde l'éditeur de code
+    } else if (renderHtml) {
+      // pages web : rendu direct (comme les ouvertures depuis la galerie),
+      // servi sous CSP sandbox par le serveur galerie ; une ligne ciblée, un
+      // diff ou « Voir le code source » gardent l'éditeur de code
       url = `${origin}/${rel}`;
     } else if (ext === "md" && !options.diff) {
       url = `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}`;
@@ -2661,39 +2735,7 @@ export default function App() {
     });
     setActiveTab(id); revealAtelierTab(id);
   }
-  /** Panneau Annotations : ouvrir le PDF de `rel` défilé sur l'annotation.
-   * Zotero → URL viewer avec `path` (stockage servi) ; fichier de projet →
-   * URL viewer simple. Même identité d'onglet que openFileTab. */
-  function openAnnotationTarget(rel: string, annotId: string) {
-    const origin = atelierUrl ? new URL(atelierUrl).origin : null;
-    if (!origin) {
-      hardReloadAtelier();
-      showError(t("annots.load-error"));
-      return;
-    }
-    const params = new URLSearchParams();
-    params.set("file", rel);
-    if (rel.startsWith("zotero/")) {
-      params.set("path", `${origin}/${rel.split("/").map(encodeURIComponent).join("/")}`);
-    }
-    params.set("annot", annotId);
-    let url = withAtelierNonce(`${origin}/.fig_thumbs/pdf_viewer.html?${params.toString()}`, atelierNonce);
-    if (galleryTokenRef.current) url = withAtelierToken(url, galleryTokenRef.current);
-    const name = rel.split("/").pop() ?? rel;
-    const baseUrl = atelierTabIdentity(url);
-    // même règle qu'openFileTab : focus résolu avant le setState, id stable
-    const existingTab = atelierTabsRef.current.find((t) => atelierTabIdentity(t.url) === baseUrl);
-    const focusId = existingTab?.id ?? stableTabId(baseUrl);
-    setAtelierTabs((tabs) => {
-      const existing = tabs.find((t) => atelierTabIdentity(t.url) === baseUrl);
-      if (existing) {
-        return tabs.map((t) => (t.id === existing.id ? { ...t, url } : t));
-      }
-      return [...tabs, { id: focusId, url, title: name, projectRoot: activeProject ?? undefined }];
-    });
-    setActiveTab(focusId);
-    revealAtelierTab(focusId);
-  }
+
 
   const openFileTabRef = useRef(openFileTab);
   openFileTabRef.current = openFileTab;
@@ -2773,14 +2815,15 @@ export default function App() {
       openFileTabRef.current(target, line, options);
     };
     const onOpen = (e: Event) => {
-      const { rel, line, diff, baseSha, page } = (e as CustomEvent).detail as {
+      const { rel, line, diff, baseSha, page, source } = (e as CustomEvent).detail as {
         rel: string;
         line: string | null;
         diff?: boolean;
         baseSha?: string | null;
         page?: number | null;
+        source?: boolean;
       };
-      const options = { diff: diff === true, baseSha: baseSha ?? null, page: page ?? null };
+      const options = { diff: diff === true, baseSha: baseSha ?? null, page: page ?? null, source: source === true };
       // Le clic suit le PROJET DU CHAT, pas celui du rail (vécu 2026-08-16 :
       // pilule d'un fil Albedo résolue contre le serveur d'atelier-studio →
       // findfile vide → chemin nu → « file not found »). Si le rail est
@@ -3502,7 +3545,11 @@ export default function App() {
       // ce message doit donc partir AVANT, sur la même connexion.
       if (id === activeThread?.id && activeThread.consigne) {
         const refresh = consigneAJour(activeThread.consigne);
-        if (refresh && refresh.texte !== activeThread.consigne.texte) {
+        // Les connecteurs du spécialiste décident des MCP branchés côté Rust :
+        // une copie qui ne les porte pas encore part aussi.
+        const connecteursChanges = JSON.stringify(refresh?.specialiste?.connecteurs ?? [])
+          !== JSON.stringify(activeThread.consigne.specialiste?.connecteurs ?? []);
+        if (refresh && (refresh.texte !== activeThread.consigne.texte || connecteursChanges)) {
           patchConsigneDuFil(id, refresh);
         }
       }
@@ -3795,6 +3842,25 @@ export default function App() {
       }));
     }
   }
+  /** Interrupteur du noyau Python persistant (chantier 5), par fil. Même
+   *  patch que la consigne : identité du fil réémise. Couper arrête aussi le
+   *  noyau, et ses variables avec. */
+  function patchKernelDuFil(id: string, kernelEnabled: boolean) {
+    setThreads((current) => current.map((th) => (th.id === id ? { ...th, kernelEnabled } : th)));
+    setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, kernelEnabled } : th)));
+    if (ws.current?.readyState === 1) {
+      const th = allThreadsRef.current.find((x) => x.id === id);
+      ws.current.send(JSON.stringify({
+        type: "upsertThread",
+        thread: {
+          id,
+          ...(th ? { provider: th.provider, projectRoot: th.projectRoot, title: th.title } : {}),
+          kernelEnabled,
+        },
+      }));
+      if (!kernelEnabled) ws.current.send(JSON.stringify({ type: "kernelStop", threadId: id }));
+    }
+  }
   function onChoisirConsigne(choix: ConsigneDuFil | null) {
     const id = activeIdRef.current;
     if (!id) {
@@ -3824,6 +3890,9 @@ export default function App() {
   // conversation en cours.
   function consigneAJour(actif: ConsigneDuFil | null | undefined): ConsigneDuFil | null {
     if (!actif) return null;
+    // Spécialiste : sa fiche courante (instructions éditées dans les réglages)
+    // repart au tour suivant ; une fiche supprimée garde la dernière copie.
+    if (actif.specialiste) return specialisteAJour(actif, settingsRef.current.specialistes ?? []);
     if (actif.composition || actif.selection) return actif;
     const c = settingsRef.current.consignes.find((x) => x.id === actif.id);
     return c ? { id: c.id, texte: c.texte } : actif;
@@ -4036,9 +4105,11 @@ export default function App() {
     () => window.dispatchEvent(new CustomEvent("quick-ask-toggle")),
     [],
   );
+  // Un seul panneau d'annotations : celui du lecteur PDF (onglets
+  // Annotations, Codes, Plan). Le bouton du haut l'ouvre dans le PDF actif.
   const handleToggleAnnots = useCallback(() => {
     setLayout((l) => (l === "chat" ? "split" : l));
-    setShowAnnots((v) => !v);
+    window.dispatchEvent(new CustomEvent("atelier-annots-pane"));
   }, []);
   const handleToggleExplorer = useCallback(() => {
     // toggle seul : ne change PAS la surface active (sinon fermer
@@ -4088,7 +4159,6 @@ export default function App() {
       activeSurface={activeSurface}
       showAtelier={showAtelier}
       showExplorer={showExplorer}
-      showAnnots={showAnnots}
       onToggleAnnots={handleToggleAnnots}
       onToggleExplorer={handleToggleExplorer}
       onSelectSurface={switchToSurface}
@@ -4404,7 +4474,8 @@ export default function App() {
           onKbChange={(next) => handleKbChangeForSource(activeId, next)}
           consigneDuFil={activeId ? (activeThreadEntry?.consigne ?? null) : pendingConsigne}
           onChoisirConsigne={onChoisirConsigne}
-          onOuvrirReglagesConsignes={() => openSettings("consignes")}
+          onOuvrirReglagesConsignes={(section = "consignes") => openSettings(section)}
+          kernelOn={activeId ? !!activeThreadEntry?.kernelEnabled : undefined}
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}
@@ -4510,6 +4581,7 @@ export default function App() {
                 onChange: (next) => handleKbChangeForSource(activeId, next),
               }}
               kbThreadTitle={activeThreadEntry?.title ?? ""}
+              kernelEnabled={!!activeThreadEntry?.kernelEnabled}
               files={files}
               filesTruncated={filesTruncated}
               // `ids` ne décrit que les onglets VISIBLES : remapper la liste
@@ -4518,7 +4590,7 @@ export default function App() {
               ws={ws.current}
               onPinTab={(id) => updatePinnedTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t)))}
               onColorTab={(id, color) => updatePinnedTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, color } : t)))}
-              onOpenFile={(rel) => openFileTab(rel)}
+              onOpenFile={(rel, options) => openFileTab(rel, null, options)}
               tabs={visibleAtelierTabs}
               activeTab={activeTab}
               onSelectTab={setActiveTab}
@@ -4526,9 +4598,6 @@ export default function App() {
               onCloseTab={closeAtelierTab}
               reloadKey={atelierReload}
               showExplorer={showExplorer}
-              showAnnots={showAnnots}
-              onOpenAnnot={openAnnotationTarget}
-              onQuoteAnnot={(text) => attachContextToChat(text)}
               recentFiles={recentFiles.filter((f) => files.includes(f)).slice(0, 8)}
               onOpenExplorer={() => setShowExplorer(true)}
               projectName={null /* le crumb TopBar porte déjà le projet — pas de duplication */}

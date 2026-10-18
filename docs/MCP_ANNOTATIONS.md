@@ -5,7 +5,8 @@ stdio qui donne à Claude Desktop les passages surlignés dans le lecteur PDF
 d'Atelier et les notes personnelles qui les accompagnent. Trois outils écrivent :
 `highlight_passage`, qui surligne un passage cité dans un PDF Zotero, et
 `update_highlights` / `remove_highlights`, qui changent ou retirent les
-surlignages **faits par Claude** (jamais ceux de Thierry).
+surlignages **faits par Claude** (jamais ceux de Thierry). Deux autres,
+`create_code` et `code_passages`, servent au codage qualitatif (voir plus bas).
 
 ## Ce qu'il lit
 
@@ -35,11 +36,41 @@ qui n'ont pas encore été recopiés dans le store commun.
 | `highlight_passage` | surligne dans le PDF Zotero d'un article (`article` : clé, auteur et année, ou mots du titre) les passages cités mot pour mot (`passages: [{quote, page?, memo?, color?, style?}]`, 20 au plus, ou `quote` seul), en `color` jaune (défaut), vert, bleu, rose, orange ou violet, et en `style` surligner (défaut) ou souligner ; `color` et `style` de premier niveau valent pour les passages qui n'ont pas les leurs |
 | `update_highlights` | change la `color`, le `style` (surligner / souligner) et/ou la note (`memo`, vide = retirée) de surlignages faits par Claude, désignés par un extrait de leur texte (`passages: [{quote, page?}]` ou `quote`) ou `all: true` |
 | `remove_highlights` | supprime des surlignages faits par Claude, désignés de la même façon |
+| `list_codes` | livre de codes (codage qualitatif façon NVivo) : arbre des codes avec passages et articles (sous-codes compris), propositions en attente et mémo |
+| `get_code_passages` | tous les passages d'un `code` (nom ou chemin « Parent › Code »), groupés par article ; `subcodes` (oui par défaut), `suggested` (non par défaut), `articles`, `limit` |
+| `create_code` | ajoute un code (`name`, `parent?`, `memo?`) ; un code du même nom au même endroit est gardé tel quel |
+| `code_passages` | **propose** des codes existants pour des passages cités mot pour mot (`article`, `passages: [{quote, page?, codes?}]`, `codes`) ; rien n'est posé d'office |
 
 Les instructions du serveur demandent à Claude de ne jamais parcourir les
 articles un par un : « des passages pour ma discussion » se fait en un seul
 `search_annotations` avec `match: "any"` et des mots-clés en anglais et en
 français (les articles sont en anglais, les notes en français).
+
+`search_annotations` accepte aussi `code` : seuls les passages portant ce
+code (ou un de ses sous-codes) sont gardés.
+
+## Codage qualitatif
+
+Le livre de codes vit à côté du store : `codebook.json`
+(`{"codes": [{id, name, parent, memo}]}`), lu et écrit par le serveur galerie
+(`GET`/`POST /codebook`) sous le même verrou. Une annotation porte ses codes
+dans `codes` (ids gardés) et les propositions de Claude dans `suggested`.
+Un passage codé sans surlignage est une annotation `kind: "code"` (voile gris,
+sans teinte) ; elle disparaît quand son dernier code est retiré.
+
+`code_passages` n'écrit que dans `suggested` : Atelier montre ces codes en
+pointillé (bande de marge, fiche du passage, onglet Codes) et Thierry les
+garde ou les refuse (`POST /pdfannot-codes`, `keep` / `reject`). Un passage
+déjà annoté reçoit la proposition ; sinon un passage codé est créé, marqué
+`"by": "claude"`. Supprimer un code le retire de toutes les annotations.
+
+Il n'y a qu'un panneau d'annotations : celui du lecteur PDF (onglets
+Annotations, Codes et Plan ; portée Article ou Bibliothèque). Le bouton
+« Annotations » de la barre du haut de l'app l'ouvre dans le PDF actif
+(message `atelier-annots-pane`). L'onglet Codes montre l'arbre du livre de
+codes avec ses effectifs (sous-codes compris) et la vue d'un code : mémo,
+propositions de Claude à garder ou refuser, passages groupés par article.
+L'onglet Annotations filtre aussi par code.
 
 ## Surligner depuis Claude Desktop
 

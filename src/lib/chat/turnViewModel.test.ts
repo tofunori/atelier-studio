@@ -838,3 +838,48 @@ it("une réflexion antérieure ne masque pas la réponse actuellement en streami
     expect(buildChatTurnViewModels(events, T0)[0].activeState).toEqual({ kind: "answering", eventIndex: 2 });
   }
 });
+
+describe("carte de calcul dans la projection de timeline", () => {
+  // Chantier 4 : la carte est proposée pendant le tour, puis son état arrive
+  // bien après (tâche terminée, autre tour déjà commencé). Elle doit rester
+  // UNE rangée, à sa place, visible une fois le tour replié, et à jour.
+  const job = (eventId: string, sequence: number, status: string, full = false): AgentEvent => ({
+    kind: "compute_job",
+    jobId: "a1b2c3d4e5f6",
+    status,
+    ...(full ? { job: { host: "narval", hostLabel: "Narval", label: "fit M42", workDir: "/scratch/u", script: "python fit.py" } } : {}),
+    meta: meta(eventId, "turn-1", sequence),
+  } as AgentEvent);
+
+  it("reste une seule rangée dans son tour, replié ou non, avec l'état le plus récent", () => {
+    const raw: AgentEvent[] = [
+      { kind: "user", text: "Lance l'ajustement sur Narval", meta: meta("u1", "turn-1", 1) },
+      job("c1", 2, "proposed", true),
+      { kind: "text", text: "La carte attend ton clic.", meta: meta("a1", "turn-1", 3) },
+      { kind: "done", ok: true, result: "", meta: meta("d1", "turn-1", 4) },
+      job("c2", 5, "queued"),
+      { kind: "user", text: "Et ensuite ?", meta: meta("u2", "turn-2", 6) },
+      { kind: "done", ok: true, result: "", meta: meta("d2", "turn-2", 7) },
+      job("c3", 8, "completed"),
+    ];
+    const events = materializeHarnessHistory(raw);
+    const cards = events.filter((e) => e.kind === "compute_job");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ status: "completed", job: { label: "fit M42" } });
+    const turns = buildChatTurnViewModels(events, null);
+    expect(turns.map((turn) => turn.key)).toEqual(["turn:turn-1", "turn:turn-2"]);
+    const rows = projectChatTimeline(events, turns, new Set());
+    const cardIndex = rows.findIndex((r) => r.type === "event" && r.event.kind === "compute_job");
+    expect(cardIndex, "la carte s'évapore quand le tour se replie").toBeGreaterThanOrEqual(0);
+    const secondUser = rows.findIndex((r) => r.type === "event" && r.event.kind === "user" && r.event.text === "Et ensuite ?");
+    expect(cardIndex).toBeLessThan(secondUser);
+
+    // en direct aussi : la mise à jour se fond dans la rangée d'origine
+    let live: AgentEvent[] = [];
+    for (const event of raw) live = reduceHarnessEvent(live, event);
+    expect(live.filter((e) => e.kind === "compute_job")).toEqual([expect.objectContaining({ status: "completed" })]);
+    // un état relayé en retard ne fait pas revenir une tâche finie
+    live = reduceHarnessEvent(live, job("c9", 9, "running"));
+    expect(live.find((e) => e.kind === "compute_job")).toMatchObject({ status: "completed" });
+  });
+});

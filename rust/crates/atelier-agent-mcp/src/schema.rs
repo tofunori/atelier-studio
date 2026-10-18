@@ -7,7 +7,7 @@ pub const TOOL_NAME: &str = "atelier_sessions";
 pub fn tool_definition() -> Value {
     json!({
         "name": TOOL_NAME,
-        "description": "Inspect and coordinate Atelier linked-agent sessions. Use action=help for details.",
+        "description": "Inspect and coordinate Atelier linked-agent sessions, read or propose the user's specialists (action=specialists, action=propose_specialist), and search or propose project notes (action=memories, action=propose_memory). Use action=help for details.",
         "inputSchema": {
             "type": "object",
             "required": ["action"],
@@ -22,7 +22,11 @@ pub fn tool_definition() -> Value {
                         "read_context",
                         "wait",
                         "send_message",
-                        "report_to_parent"
+                        "report_to_parent",
+                        "specialists",
+                        "propose_specialist",
+                        "memories",
+                        "propose_memory"
                     ]
                 },
                 "targetThreadId": { "type": "string" },
@@ -35,7 +39,15 @@ pub fn tool_definition() -> Value {
                 "report": { "type": ["object", "null"] },
                 "timeoutMs": { "type": "integer" },
                 "traceId": { "type": "string" },
-                "hop": { "type": "integer" }
+                "hop": { "type": "integer" },
+                "nom": { "type": "string", "description": "propose_specialist: full name" },
+                "nomCourt": { "type": "string", "description": "propose_specialist: one word, used in the composer and as @mention" },
+                "role": { "type": "string", "description": "propose_specialist: when to use this specialist, 1-2 sentences" },
+                "instructions": { "type": "string", "description": "propose_specialist: standing instructions for conversations carrying it" },
+                "skills": { "type": "array", "items": { "type": "string" } },
+                "connecteurs": { "type": "array", "items": { "type": "string" } },
+                "replaceId": { "type": "string", "description": "propose_specialist: id of the profile to change (from action specialists); propose_memory: id of the note it corrects (from action memories)" },
+                "query": { "type": "string", "description": "memories: words to look for in the project notes (empty = most recent)" }
             },
             "additionalProperties": false
         }
@@ -128,12 +140,112 @@ pub fn widget_guide_text() -> Value {
     })
 }
 
+pub const PYTHON_TOOL_NAME: &str = "atelier_python";
+
+/// Noyau Python persistant du fil (chantier 5). Toujours listé — la liste
+/// d'outils est figée à l'ouverture de la session — mais il ne s'exécute que
+/// si l'utilisateur a allumé le noyau pour le fil ; sinon le pont répond
+/// `kernel_disabled` et l'agent garde son shell.
+pub fn python_tool_definition() -> Value {
+    json!({
+        "name": PYTHON_TOOL_NAME,
+        "description": "Persistent Python kernel of this conversation (like a notebook: variables and \
+    loaded data stay in memory between calls; every cell is logged). Only works when the user turned it on \
+    for this conversation; otherwise use your shell. Actions: run (code, optional env on first run), \
+    wait (cell), variables, interrupt, restart (optional env), envs, status.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["run", "wait", "variables", "interrupt", "restart", "envs", "status"]
+                },
+                "code": { "type": "string", "description": "Python code of the cell (run). The value of a last bare expression is returned." },
+                "cell": { "type": "integer", "description": "Cell number (wait)" },
+                "env": { "type": "string", "description": "Env name from action envs, or an absolute path (run, restart)" },
+                "waitSeconds": { "type": "integer", "description": "Max seconds to wait before returning status running (default 45, max 50)" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
+pub const COMPUTE_TOOL_NAME: &str = "atelier_compute";
+
+/// Calculs sur le Mac, le NAS, Narval ou Rorqual (chantier 4 du plan
+/// rattrapage-claude-science). L'outil ne lance RIEN lui-même : il propose,
+/// et l'utilisateur clique Lancer sur la carte du fil.
+pub fn compute_tool_definition() -> Value {
+    json!({
+        "name": COMPUTE_TOOL_NAME,
+        "description": "Run a computation on the user's Mac, NAS, or the Narval / Rorqual \
+    clusters. Use this instead of running sbatch, nohup or long jobs over ssh yourself. \
+    Steps: action=hosts (what is configured), then action=host for the notes of the host \
+    you target (resources, venvs, pitfalls, quotas: read them before writing the script), \
+    then action=propose_job. propose_job shows the user a card with the host, the script \
+    and the estimated cost; nothing runs until they click Launch. The job then appears in \
+    the Calculs tab and the card updates when it ends. action=job_status gives the state \
+    and the log tail. Nothing is ever deleted on a host; cancelling is the user's click.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": { "type": "string", "enum": ["hosts", "host", "propose_job", "job_status"] },
+                "host": { "type": "string", "enum": ["mac", "nas", "narval", "rorqual"] },
+                "label": { "type": "string", "description": "Short name of the job (80 chars max)" },
+                "purpose": { "type": "string", "description": "One sentence for the user: why this job" },
+                "workDir": { "type": "string", "description": "Absolute directory the script runs in (on the clusters: under /home, /project or /scratch)" },
+                "script": { "type": "string", "description": "Bash script body, 64 KB max. No #SBATCH lines needed: resources go in resources" },
+                "resources": {
+                    "type": "object",
+                    "description": "Clusters only. time is required (Slurm format, e.g. 2:00:00)",
+                    "properties": {
+                        "cpus": { "type": "integer" },
+                        "gpus": { "type": "integer" },
+                        "mem": { "type": "string", "description": "e.g. 16G" },
+                        "time": { "type": "string" },
+                        "account": { "type": "string" },
+                        "partition": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                },
+                "jobId": { "type": "string", "description": "job_status: one job (omit for this conversation's recent jobs)" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
+/// Ce que `tools/list` sert, dans l'ordre.
+pub fn all_tool_definitions() -> Vec<Value> {
+    vec![
+        tool_definition(),
+        widget_tool_definition(),
+        widget_guide_tool_definition(),
+        python_tool_definition(),
+        compute_tool_definition(),
+    ]
+}
+
 /// Traduit un `tools/call` en couple (action, arguments) pour le pont.
 /// `atelier_sessions` porte son action dans ses arguments ; `atelier_widget`
 /// est un outil plat dont l'action est fixe.
 pub fn bridge_call_for(tool_name: &str, args: &Value) -> Option<(String, Value)> {
     match tool_name {
         WIDGET_TOOL_NAME => Some(("show_widget".to_string(), args.clone())),
+        PYTHON_TOOL_NAME => {
+            let action = args
+                .get("action")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())?;
+            Some((format!("kernel_{action}"), args.clone()))
+        }
+        COMPUTE_TOOL_NAME => {
+            let action = args.get("action").and_then(|v| v.as_str())?;
+            matches!(action, "hosts" | "host" | "propose_job" | "job_status")
+                .then(|| (format!("compute_{action}"), args.clone()))
+        }
         TOOL_NAME => {
             let action = args
                 .get("action")
@@ -156,7 +268,11 @@ pub fn help_text() -> Value {
             "read_context": "Paginated projection (targetThreadId, afterSequence/beforeSequence, limit)",
             "wait": "Wait for status/sequence change (timeoutMs max 60000)",
             "send_message": "Queue semantic message (targetThreadId, text, requestId required)",
-            "report_to_parent": "Queue structured report to parent (requestId, report/text)"
+            "report_to_parent": "Queue structured report to parent (requestId, report/text)",
+            "specialists": "The user's specialist profiles (Settings › Specialists), full text",
+            "propose_specialist": "Show a proposal card for a new or changed specialist (nom, nomCourt, role, instructions, skills, connecteurs, replaceId); saved only if the user clicks Keep",
+            "memories": "Search the project notes Atelier keeps (query, limit)",
+            "propose_memory": "Show a card proposing a durable project note (text; replaceId to correct one); saved only if the user clicks Keep"
         },
         "auth": "Caller is authenticated by process capability — never pass callerThreadId as authority",
         "scope": "Direct parent/children only, same project"
@@ -307,17 +423,45 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_serves_three_tools() {
-        let defs = [
-            tool_definition(),
-            widget_tool_definition(),
-            widget_guide_tool_definition(),
-        ];
+    fn tools_list_serves_five_tools() {
+        let defs = all_tool_definitions();
         let names: Vec<String> = defs
             .iter()
             .map(|d| d["name"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(names, [TOOL_NAME, WIDGET_TOOL_NAME, WIDGET_GUIDE_TOOL_NAME]);
+        assert_eq!(
+            names,
+            [
+                TOOL_NAME,
+                WIDGET_TOOL_NAME,
+                WIDGET_GUIDE_TOOL_NAME,
+                PYTHON_TOOL_NAME,
+                COMPUTE_TOOL_NAME
+            ]
+        );
+    }
+
+    #[test]
+    fn python_call_routes_to_a_kernel_action_with_its_arguments() {
+        let args = json!({"action": "run", "code": "x = 1", "env": "pymc-albedo"});
+        let (action, forwarded) = bridge_call_for(PYTHON_TOOL_NAME, &args).unwrap();
+        assert_eq!(action, "kernel_run");
+        assert_eq!(forwarded["code"], "x = 1");
+        assert!(bridge_call_for(PYTHON_TOOL_NAME, &json!({})).is_none());
+        // La description repart à chaque tour : elle reste courte.
+        let def = python_tool_definition();
+        assert!(def["description"].as_str().unwrap().len() < 500);
+    }
+
+    #[test]
+    fn compute_actions_route_to_their_bridge_action_and_nothing_else() {
+        for action in ["hosts", "host", "propose_job", "job_status"] {
+            let (bridge, _) = bridge_call_for(COMPUTE_TOOL_NAME, &json!({"action": action})).unwrap();
+            assert_eq!(bridge, format!("compute_{action}"));
+        }
+        // l'outil de calcul n'atteint aucune autre action du pont
+        assert!(bridge_call_for(COMPUTE_TOOL_NAME, &json!({"action": "send_message"})).is_none());
+        assert!(bridge_call_for(COMPUTE_TOOL_NAME, &json!({})).is_none());
     }
 
     #[test]

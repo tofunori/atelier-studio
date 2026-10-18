@@ -68,6 +68,13 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "removeHighlight",
     "getSettings",
     "saveSettings",
+    "importClaudeScience",
+    "memoryList",
+    "memorySave",
+    "memoryDelete",
+    "memoryClaudeSciencePreview",
+    "memoryClaudeScienceImport",
+    "listMcpServers",
     "getLedger",
     "upsertThread",
     "listFiles",
@@ -81,6 +88,10 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "computeSnapshot",
     "computeReadLog",
     "computeForgetRun",
+    "computeJobDecision",
+    "computeHosts",
+    "computeHostSave",
+    "computeHostsImport",
     "listCommands",
     "listPlugins",
     "listCodexApps",
@@ -349,6 +360,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let _ = state.threads().lock().await.delete(id);
             let _ = state.journal().delete_thread(id);
             crate::widgets::purge_thread_widgets(state.app_dir(), id);
+            crate::kernel::on_delete_thread(state, id).await;
             broadcast_threads(state).await
         }
         "getHistory" => {
@@ -550,6 +562,51 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 json!({"type":"settingsFile","settings": settings}),
             )]
         }
+        "importClaudeScience" => {
+            // Réglages › Spécialistes : lecture seule de la base de Claude
+            // Science (plusieurs Go, l'app peut tourner) hors du runtime async.
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let home = std::env::var("HOME").map(std::path::PathBuf::from);
+            let result = tokio::task::spawn_blocking(move || {
+                let home = home.map_err(|_| "HOME introuvable".to_string())?;
+                atelier_workspace::import_claude_science(&home)
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+            vec![json_msg(match result {
+                Ok(import) => json!({"type":"claudeScienceImport","requestId":request_id,
+                    "ok":true,"base":import.base,"specialistes":import.specialistes}),
+                Err(error) => json!({"type":"claudeScienceImport","requestId":request_id,
+                    "ok":false,"error":error,"specialistes":[]}),
+            })]
+        }
+        // Réglages › Mémoire et cartes de proposition (chantier 3).
+        "memoryList" => vec![json_msg(crate::memory::handle_list(state, &msg).await)],
+        "memorySave" => vec![json_msg(crate::memory::handle_save(state, &msg).await)],
+        "memoryDelete" => vec![json_msg(crate::memory::handle_delete(state, &msg).await)],
+        "memoryClaudeSciencePreview" => {
+            vec![json_msg(crate::memory::handle_claude_science_preview(state, &msg).await)]
+        }
+        "memoryClaudeScienceImport" => {
+            vec![json_msg(crate::memory::handle_claude_science_import(state, &msg).await)]
+        }
+        "listMcpServers" => {
+            // Fiche d'un spécialiste : quels connecteurs existent sur le Mac
+            // (Claude Code, Claude Desktop, Codex), pour signaler les absents.
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let serveurs = tokio::task::spawn_blocking(|| {
+                let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+                    return Vec::new();
+                };
+                let codex_home = std::env::var_os("CODEX_HOME")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| home.join(".codex"));
+                atelier_workspace::mcp_du_mac(&home, &codex_home)
+            })
+            .await
+            .unwrap_or_default();
+            vec![json_msg(json!({"type":"mcpServers","requestId":request_id,"serveurs":serveurs}))]
+        }
         "saveSettings" => {
             let mut settings = msg.get("settings").cloned().unwrap_or(Value::Null);
             if !settings.is_object() {
@@ -605,6 +662,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "entries": entries,
             }))]
         }
+        "kernelCells" => crate::kernel::handle_cells(state, &msg).await,
+        "kernelStop" => crate::kernel::handle_stop(state, &msg).await,
+        "kernelCommand" => crate::kernel::handle_command(state, &msg).await,
         "upsertThread" => {
             let patch = msg.get("thread").cloned().unwrap_or(msg.clone());
             let result = {
@@ -849,6 +909,49 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 })
                 .await,
             )
+        }
+        // Carte « Lancer / Refuser / Annuler » d'une tâche proposée par
+        // l'agent (chantier 4). Le front n'envoie que l'identifiant : le
+        // script lancé est celui que le serveur a enregistré et montré.
+        "computeJobDecision" => {
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let job_id = msg.get("jobId").and_then(Value::as_str).unwrap_or("").to_string();
+            let decision = msg.get("decision").and_then(Value::as_str).unwrap_or("");
+            let always = msg.get("always").and_then(Value::as_bool).unwrap_or(false);
+            let backend = crate::compute_jobs::Backend::production();
+            let mut reply = json!({"type": "computeJobDecision", "requestId": request_id, "jobId": job_id});
+            match crate::compute_jobs::decide(state, &backend, &job_id, decision, always).await {
+                Ok(status) => reply["status"] = json!(status),
+                Err(error) => reply["error"] = json!(error),
+            }
+            vec![json_msg(reply)]
+        }
+        // Fiches d'hôte de Calculs › Hôtes : lecture, édition, import depuis
+        // Claude Science. Toutes répondent `computeHosts` (liste à jour).
+        "computeHosts" | "computeHostSave" | "computeHostsImport" => {
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let mut extra = json!({});
+            let outcome = match msg_type {
+                "computeHostSave" => crate::compute_jobs::save_host(state, &msg).await,
+                "computeHostsImport" => {
+                    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
+                    crate::compute_jobs::import_hosts(state, home).await.map(|hosts| {
+                        extra = json!({"imported": hosts});
+                    })
+                }
+                _ => Ok(()),
+            };
+            let backend = crate::compute_jobs::Backend::production();
+            let mut reply = crate::compute_jobs::hosts_payload(state, &backend);
+            reply["type"] = json!("computeHosts");
+            reply["requestId"] = request_id;
+            if let Some(imported) = extra.get("imported") {
+                reply["imported"] = imported.clone();
+            }
+            if let Err(error) = outcome {
+                reply["error"] = json!(error);
+            }
+            vec![json_msg(reply)]
         }
         "listCommands" => {
             let root = msg.get("projectRoot").and_then(|v| v.as_str());

@@ -129,9 +129,14 @@ fn replace_phone_marks(dir: &std::path::Path, rel: &str, groups: &[(String, Vec<
             list.retain(|a| !member(a));
             let fresh = annots.iter().map(|annot| {
                 let mut annot = annot.clone();
-                // A chat text typed on the Mac for this passage stays.
-                if let Some(note) = old.iter().find(|o| o["id"] == annot["id"]).and_then(|o| o.get("note")) {
-                    annot["note"] = note.clone();
+                // A chat text and the codes (qualitative coding) put on the
+                // Mac for this passage stay: the phone knows neither.
+                if let Some(prev) = old.iter().find(|o| o["id"] == annot["id"]) {
+                    for key in ["note", "codes", "suggested"] {
+                        if let Some(value) = prev.get(key) {
+                            annot[key] = value.clone();
+                        }
+                    }
                 }
                 annot
             });
@@ -420,7 +425,7 @@ fn zotero_error(_: reqwest::Error) -> ApiError { ApiError::new(StatusCode::BAD_G
         let store = dir.path().join("pdf_annots.json");
         let rel = "zotero/ABCD2345/a.pdf";
         let mac = json!({"id": "1700-3", "page": 3, "text": "Mac", "kind": "hl"});
-        let stale = json!({"id": format!("iphone-{MARK}-p9"), "page": 9, "note": "déjà au chat"});
+        let stale = json!({"id": format!("iphone-{MARK}-p9"), "page": 9, "note": "déjà au chat", "codes": ["c1"], "suggested": ["c2"]});
         let kept = json!({"id": format!("iphone-{MARK}0-p1"), "page": 1});
         std::fs::write(&store, json!({rel: [mac, stale, kept], "other.pdf": [{"id": "x"}]}).to_string()).unwrap();
         let mut groups = phone(json!({"marks": [{"id": MARK, "annots": [page(9, "")]}]})).unwrap();
@@ -428,6 +433,9 @@ fn zotero_error(_: reqwest::Error) -> ApiError { ApiError::new(StatusCode::BAD_G
         let ids: Vec<_> = annots.as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap().to_owned()).collect();
         assert_eq!(ids, ["1700-3".to_owned(), format!("iphone-{MARK}-p9"), format!("iphone-{MARK}0-p1")]);
         assert_eq!(annots[1]["note"], "déjà au chat");
+        // codes put on the Mac survive the phone sending the mark again
+        assert_eq!(annots[1]["codes"], json!(["c1"]));
+        assert_eq!(annots[1]["suggested"], json!(["c2"]));
         assert_eq!(annots[1]["text"], "Black carbon");
         let written: Value = serde_json::from_slice(&std::fs::read(&store).unwrap()).unwrap();
         assert_eq!(written["other.pdf"], json!([{"id": "x"}]));

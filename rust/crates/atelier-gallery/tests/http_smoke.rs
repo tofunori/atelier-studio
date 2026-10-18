@@ -456,6 +456,58 @@ fn rescan_uses_rust_builder() {
 }
 
 #[test]
+fn codebook_and_passage_codes_roundtrip() {
+    let app_dir = tempfile::tempdir().unwrap();
+    let env = [("ATELIER_APP_DIR", app_dir.path().to_string_lossy().to_string())];
+    let srv = start_server_with(&env);
+    let rel = "zotero/ABCD1234/article.pdf";
+    let (st, body) = http(srv.port, "GET", "/codebook", None);
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains(r#""codes":[]"#), "{body}");
+
+    let create = |name: &str, parent: &str| {
+        let payload = serde_json::json!({"op": "create", "name": name, "parent": parent}).to_string();
+        let (st, body) = http(srv.port, "POST", "/codebook", Some(&payload));
+        assert_eq!(st, 200, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        v["code"]["id"].as_str().unwrap().to_string()
+    };
+    let parent = create("Processus", "");
+    let child = create("Rétroaction albédo", &parent);
+    let (st, body) = http(srv.port, "GET", "/codebook", None);
+    assert_eq!(st, 200);
+    assert!(body.contains("Processus › Rétroaction albédo"), "{body}");
+    // un nom vide est une erreur de l'utilisateur, pas du serveur
+    let (st, _) = http(srv.port, "POST", "/codebook", Some(r#"{"op":"create","name":"  "}"#));
+    assert_eq!(st, 400);
+
+    let annots = serde_json::json!({"rel": rel, "annots": [
+        {"id": "h1", "page": 1, "kind": "hl", "text": "albedo fell", "suggested": [child]},
+        {"id": "k1", "page": 2, "kind": "code", "text": "dark ice", "codes": [child]}
+    ]}).to_string();
+    assert_eq!(http(srv.port, "POST", "/pdfannot", Some(&annots)).0, 200);
+    let keep = serde_json::json!({"rel": rel, "id": "h1", "keep": [child]}).to_string();
+    let (st, body) = http(srv.port, "POST", "/pdfannot-codes", Some(&keep));
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains(&child) && !body.contains("suggested"), "{body}");
+    // un passage codé sans plus aucun code disparaît
+    let remove = serde_json::json!({"rel": rel, "id": "k1", "remove": [child]}).to_string();
+    let (st, body) = http(srv.port, "POST", "/pdfannot-codes", Some(&remove));
+    assert_eq!(st, 200, "{body}");
+    let (_, body) = http(srv.port, "GET", "/pdfannot?rel=zotero%2FABCD1234%2Farticle.pdf", None);
+    assert!(!body.contains("k1") && body.contains("h1"), "{body}");
+
+    // supprimer le parent emporte le sous-code et ses traces
+    let del = serde_json::json!({"op": "delete", "id": parent}).to_string();
+    let (st, body) = http(srv.port, "POST", "/codebook", Some(&del));
+    assert_eq!(st, 200, "{body}");
+    let (_, body) = http(srv.port, "GET", "/pdfannot?rel=zotero%2FABCD1234%2Farticle.pdf", None);
+    assert!(!body.contains(&child), "{body}");
+    let (_, stamp) = http(srv.port, "GET", "/pdfannot-stamp?rel=zotero%2FABCD1234%2Farticle.pdf", None);
+    assert!(stamp.contains(r#""codebook":"#), "{stamp}");
+}
+
+#[test]
 fn origin_boundary_guards_every_route_before_routing() {
     let srv = start_server();
     // plan 005 : inter-origines refusé AVANT tout routage — y compris les
@@ -1085,6 +1137,38 @@ fn prov_sert_le_sidecar_absent_present_et_malforme() {
     let (st, body) = http(srv.port, "GET", "/prov?file=tiny.png", None);
     assert_eq!(st, 422, "{body}");
     assert!(body.contains("invalid prov.json"), "{body}");
+}
+
+/// Chantier 2d : une figure annotée qui a une recette donne à l'agent son
+/// script et sa commande, sans qu'il ait à les chercher.
+#[test]
+fn annotation_d_une_figure_avec_recette_porte_script_et_commande() {
+    let srv = start_server();
+    fs::write(
+        srv.root.join("tiny.png.prov.json"),
+        br#"{"version":2,"figure":"tiny.png","history":[{"scripts":["plot.py"],"command":"python3 plot.py --out tiny.png","env":{"conda":"albedo"}}]}"#,
+    )
+    .unwrap();
+    let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==";
+    let payload = format!(
+        r#"{{"name":"tiny.png","rel":"tiny.png","dataURL":"{png}","direct":true,"previewOnly":true,"notes":[{{"n":1,"text":"axe y en log"}}]}}"#
+    );
+    let (st, body) = http(srv.port, "POST", "/save", Some(&payload));
+    assert_eq!(st, 200, "{body}");
+    let message = serde_json::from_str::<serde_json::Value>(&body).unwrap()["message"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(message.contains("Script qui l'a produite : plot.py"), "{message}");
+    assert!(message.contains("Commande : python3 plot.py --out tiny.png"), "{message}");
+    assert!(message.contains("Env conda : albedo"), "{message}");
+    assert!(message.contains("relance cette commande"), "{message}");
+
+    // Sans recette : le message reste celui d'avant.
+    fs::remove_file(srv.root.join("tiny.png.prov.json")).unwrap();
+    let (_, body) = http(srv.port, "POST", "/save", Some(&payload));
+    assert!(!body.contains("Recette de la figure"), "{body}");
+    assert!(body.contains("retrouve le script"), "{body}");
 }
 
 /// Confinement : `/prov` ne sort jamais du projet, et reste derrière le garde

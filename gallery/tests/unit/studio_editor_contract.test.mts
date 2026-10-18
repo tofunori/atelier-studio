@@ -494,3 +494,8 @@ test("every embedded HTML surface loads the shared Atelier theme bridge", async 
   const galleryTemplate = await readFile(new URL("../../assets/gallery_template.html", import.meta.url), "utf8");
   assert.match(galleryTemplate, /atelier-theme-request/, "Gallery keeps its build-safe inline bridge");
 });
+
+test("LaTeX editor draws no active-line background (a logical line is a whole paragraph)", () => {
+  assert.match(source, /\.\.\.\(opts\.ext === "tex" \? \[\] : \[highlightActiveLine\(\)\]\)/);
+  assert.match(source, /highlightActiveLineGutter\(\)/);
+});

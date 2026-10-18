@@ -134,6 +134,8 @@ pub fn read(
                 by_claude: false,
                 kind: "hl".into(),
                 stamp: String::new(),
+                codes: Vec::new(),
+                suggested: Vec::new(),
             });
         }
     }

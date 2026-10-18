@@ -25,11 +25,14 @@ export type GalleryFileTypePreset = {id: string; label: string; extensions: stri
 export interface GalleryFileTypeState {
   projectName: string; types: GalleryFileType[]; pinned: string[];
   presets: GalleryFileTypePreset[]; summary: string;
+  /** Fichiers marqués archive (_archive*, menage_, tmp…) affichés ; masqués par défaut. */
+  archives?: boolean; archiveCount?: number;
 }
 export interface GalleryFileTypeAdapter {
   getState(): GalleryFileTypeState;
   setActive(extensions: string[]): void; setPinned(extensions: string[]): void;
   applyPreset(id: string): void; savePreset(name: string): void; removePreset(id: string): void;
+  setArchives?(on: boolean): void;
   resetFilters(): void;
 }
 export type GallerySelectionState = {rels: string[]; imageCount: number};

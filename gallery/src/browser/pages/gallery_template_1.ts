@@ -733,7 +733,7 @@ function checkHealth(){
 }
 function updateViewChip(){
   const c=(document.getElementById('viewChip') as HTMLSpanElement); if(!c) return;
-  c.classList.toggle('on', !showArch || showHidden || hideRules.length>0);  // a non-default view is active
+  c.classList.toggle('on', showArch || showHidden || hideRules.length>0);  // a non-default view is active
 }
 function buildViewMenu(){
   const menu=(document.getElementById('viewMenu') as HTMLDivElement); if(!menu) return;
@@ -754,7 +754,7 @@ function buildViewMenu(){
     healthRows(healthStatus);
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll<HTMLElement>('[data-theme]').forEach(el=>el.onclick=()=>{ applyTheme(el.dataset.theme); buildViewMenu(); });
-  menu.querySelector<HTMLInputElement>('#vArch').onchange=function(){ showArch=(this as HTMLInputElement).checked; updateViewChip(); render(); };
+  menu.querySelector<HTMLInputElement>('#vArch').onchange=function(){ showArch=(this as HTMLInputElement).checked; updateViewChip(); render(); galleryFileTypesChanged(); };
   menu.querySelector<HTMLInputElement>('#vHidden').onchange=function(){ showHidden=(this as HTMLInputElement).checked; updateViewChip(); render(); };
   menu.querySelectorAll<HTMLElement>('[data-rm]').forEach(el=>el.onclick=()=>{ hideRules=hideRules.filter((x)=>x!==el.dataset.rm); saveRules(); buildViewMenu(); render(); });
   const inp=menu.querySelector<HTMLInputElement>('#ruleInput'), add=menu.querySelector<HTMLButtonElement>('#ruleAdd');
@@ -809,6 +809,7 @@ function cardMenu(anchor, rel: string){
       `<div class="mi${curWf===v?' on':''}"><span class="lbl" data-wfset="${escA(v)}">${curWf===v?'✓ ':''}${esc(l)}</span></div>`).join('')
     +'<div class="mhd sep"></div>'
     +'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
+    +'<div class="mi"><span class="lbl" data-cact="recipe">Recette</span></div>'
     +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>'
     +'<div class="mi"><span class="lbl" data-cact="hide">'+(isHid?'Unhide':'Hide')+'</span></div>'
     +'<div class="mi clr"><span class="lbl" data-cact="del">Move to Trash</span></div>';
@@ -822,6 +823,7 @@ function cardMenu(anchor, rel: string){
   m.querySelectorAll<HTMLElement>('[data-wfset]').forEach(sp=>{ sp.onclick=()=>{ closeFloat(); setWorkflow(rel, sp.dataset.wfset); }; });
   m.querySelectorAll<HTMLElement>('[data-act="rate"]').forEach(sp=>{ sp.onclick=(ev)=>{ setRate(rel, +sp.dataset.n, ev); closeFloat(); }; });
   const _src=m.querySelector<HTMLElement>('[data-cact="src"]'); if(_src) _src.onclick=()=>{ closeFloat(); findScript(rel); };
+  const _rec=m.querySelector<HTMLElement>('[data-cact="recipe"]'); if(_rec) _rec.onclick=()=>{ recipeOpen(rel,_rec); };
   const _bd=m.querySelector<HTMLElement>('[data-cact="board"]'); if(_bd) _bd.onclick=()=>{ closeFloat(); sendToBoard(rel, anchor); };
   m.querySelector<HTMLElement>('[data-cact="hide"]').onclick=()=>{ closeFloat(); toggleHide(rel); };
   m.querySelector<HTMLElement>('[data-cact="del"]').onclick=()=>{ closeFloat(); delOne(rel); };
@@ -1290,36 +1292,92 @@ function provFmtDate(ts: string|number|Date){
   catch(e){ return d.toISOString().slice(0,10); }
 }
 function provHead(pill: string,off?: boolean){
-  return '<div class="pvHead"><h3>Provenance</h3><span class="pvPill'+(off?' off':'')+'">'+esc(pill)+'</span></div>';
+  return '<div class="pvHead"><h3>Recette</h3><span class="pvPill'+(off?' off':'')+'">'+esc(pill)+'</span></div>';
 }
 function provFirst(list){ return (Array.isArray(list)?list.filter(Boolean):[])[0]||''; }
 function provAbs(){ return '__ROOT__/'+provRel; }
 function provSidecar(){ return (provState&&provState.path)||(provAbs()+'.prov.json'); }
+// ─── Recette (chantier 2, 2026-10-18) ─────────────────────────────────────
+// Le sidecar v2 ajoute à la provenance la commande retenue (`command`), les
+// empreintes des scripts (`scriptVersions`), les données d'entrée
+// (`inputs` : chemin, taille, sha256) et l'environnement (`env.packages`).
+// Un sidecar v1 n'a rien de tout ça : les rangées absentes ne s'affichent pas.
+const RECIPE_INPUTS_SHOWN=5;
+function recipeCommand(e){ return String(e.command||provFirst(e.commands)||''); }
+function recipeHash(e,path: string){
+  const v=(Array.isArray(e.scriptVersions)?e.scriptVersions:[]).find(x=>x&&x.path===path);
+  return v&&v.sha256?String(v.sha256).slice(0,7):'';
+}
+function recipeEnvLine(env){
+  const parts=[];
+  if(env.conda) parts.push('conda '+env.conda);
+  if(env.python) parts.push('Python '+env.python);
+  return parts.join(' · ');
+}
+function recipePackages(env){
+  const p=env&&env.packages&&typeof env.packages==='object'?env.packages:{};
+  return Object.keys(p).map(k=>k+' '+p[k]).join(' · ');
+}
+// Message de reproduction : PRÉPARÉ dans le compositeur, jamais envoyé ni
+// exécuté (plan 048, lot C). L'agent vérifie les empreintes, propose les
+// commandes, attend l'accord et écrit à côté au lieu d'écraser.
+function recipeDraft(abs: string,sidecar: string,e){
+  const env=e.env||{}, script=provFirst(e.scripts), cmd=recipeCommand(e);
+  const inputs=Array.isArray(e.inputs)?e.inputs:[];
+  const lines=['Reproduis ce résultat : '+abs,'Recette : '+sidecar];
+  if(cmd) lines.push('Commande enregistrée : '+cmd);
+  if(script) lines.push('Script : '+script+(recipeHash(e,script)?' (sha256 '+recipeHash(e,script)+'…)':''));
+  if(inputs.length) lines.push('Entrées : '+inputs.length+' fichier'+(inputs.length>1?'s':'')+', empreintes dans la recette');
+  if(recipeEnvLine(env)) lines.push('Environnement : '+recipeEnvLine(env));
+  if(e.head) lines.push('Commit au moment du tour : '+String(e.head).slice(0,7));
+  lines.push('Avant de lancer quoi que ce soit : vérifie que le script et les entrées ont encore les empreintes de la recette et signale tout écart, puis propose les commandes exactes et attends mon accord. Écris la sortie à côté de l’original (suffixe _repro) et compare-les, sans jamais écraser l’original.');
+  return lines.join('\n');
+}
 function provRenderRich(){
   const e=provState.entry||{}, prov=provState.prov||{}, env=e.env||{};
   const hist=Array.isArray(prov.history)?prov.history:[];
-  const script=provFirst(e.scripts), cmd=provFirst(e.commands);
+  const script=provFirst(e.scripts), cmd=recipeCommand(e);
+  const inputs=Array.isArray(e.inputs)?e.inputs.filter(x=>x&&x.path):[];
   const meta=[];
-  if(env.python) meta.push('py '+env.python);
-  if(env.conda) meta.push('conda '+env.conda);
   if(e.head) meta.push(String(e.head).slice(0,7));
+  if(e.model) meta.push(String(e.model));
   if(e.ts) meta.push(provFmtDate(e.ts));
-  let h=provHead('tracée');
-  if(script) h+='<div class="pvRow"><span class="pvL">Script</span>'
-    +'<button type="button" class="pvLink" data-pvscript="'+escA(script)+'">'+esc(script)+'</button></div>';
+  let h=provHead(e.reconstructed?'reconstruite':'tracée');
   if(cmd) h+='<div class="pvRow"><span class="pvL">Commande</span><div class="pvCmd">'+esc(cmd)+'</div></div>';
+  if(script){
+    const hash=recipeHash(e,script);
+    h+='<div class="pvRow"><span class="pvL">Script</span><span class="pvLine">'
+      +'<button type="button" class="pvLink" data-pvscript="'+escA(script)+'">'+esc(script)+'</button>'
+      +(hash?'<span class="pvSub" title="Empreinte sha256 du script à la fin du tour">'+esc(hash)+'</span>':'')+'</span></div>';
+  }
+  if(inputs.length){
+    h+='<div class="pvRow"><span class="pvL">Entrées ('+inputs.length+')</span><div class="pvFiles">'
+      +inputs.slice(0,RECIPE_INPUTS_SHOWN).map(x=>{
+        const sub=[typeof x.size==='number'?fmtSize(x.size):'', x.sha256?String(x.sha256).slice(0,7):'trop gros pour l’empreinte'].filter(Boolean).join(' · ');
+        return '<div class="pvFile"><span class="pvPath" title="'+escA(x.path)+'">'+esc(x.path)+'</span><span class="pvSub">'+esc(sub)+'</span></div>';
+      }).join('')
+      +(inputs.length>RECIPE_INPUTS_SHOWN?'<div class="pvNote">'+esc('+'+(inputs.length-RECIPE_INPUTS_SHOWN)+' dans la recette')+'</div>':'')
+      +'</div></div>';
+  }
+  const envLine=recipeEnvLine(env), pkgs=recipePackages(env);
+  if(envLine||pkgs) h+='<div class="pvRow"><span class="pvL">Environnement</span>'
+    +(envLine?'<span class="pvV">'+esc(envLine)+'</span>':'')
+    +(pkgs?'<span class="pvSub pvWrap">'+esc(pkgs)+'</span>':'')+'</div>';
   if(e.prompt) h+='<div class="pvRow"><span class="pvL">Contexte</span><div class="pvQuote">'+esc(e.prompt)+'</div></div>';
-  if(e.threadTitle) h+='<div class="pvRow"><span class="pvL">Conversation</span><span class="pvV">'+esc(e.threadTitle)+'</span></div>';
+  if(e.threadId) h+='<div class="pvRow"><span class="pvL">Conversation</span>'
+    +(EMB?'<button type="button" class="pvLink" data-pvthread="'+escA(e.threadId)+'">'+esc(e.threadTitle||'Ouvrir la conversation')+'</button>'
+      :'<span class="pvV">'+esc(e.threadTitle||e.threadId)+'</span>')+'</div>';
   if(meta.length) h+='<div class="pvMeta">'+esc(meta.join(' · '))+'</div>';
-  h+='<div class="pvAct"><button type="button" class="pvBtn on" data-pvact="regen">Régénérer</button>'
+  h+='<div class="pvAct"><button type="button" class="pvBtn on" data-pvact="repro" title="Prépare le message dans le chat, sans l’envoyer">Reproduire</button>'
+    +'<button type="button" class="pvBtn" data-pvact="regen">Régénérer</button>'
     +(script?'<button type="button" class="pvBtn" data-pvscript="'+escA(script)+'">Ouvrir le script</button>':'')
     +'</div>';
   if(hist.length>1){
     h+='<button type="button" class="pvHistTog" aria-expanded="'+(provHistOpen?'true':'false')+'">'
       +'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>'
-      +esc(hist.length+' générations')+'</button>';
+      +esc(hist.length+' versions')+'</button>';
     if(provHistOpen) h+='<div class="pvHistList">'+hist.map((g,i: number)=>{
-      const label=String(g.prompt||provFirst(g.commands)||provFirst(g.scripts)||'génération');
+      const label=String(g.prompt||recipeCommand(g)||provFirst(g.scripts)||'version');
       return '<div class="pvGen'+(i===0?' now':'')+'"><span class="pvDot"></span>'
         +'<span class="pvGenD">'+esc(provFmtDate(g.ts))+'</span>'
         +'<span class="pvGenT" title="'+escA(label)+'">'+esc(label)+'</span></div>';
@@ -1335,7 +1393,7 @@ function provRenderEmpty(){
 }
 function provRenderError(){
   return provHead('illisible',true)
-    +'<div class="pvEmpty"><b>Provenance illisible</b>'
+    +'<div class="pvEmpty"><b>Recette illisible</b>'
     +'Le fichier existe mais n’a pas pu être lu. Une reconstruction le réécrira proprement.</div>'
     +'<div class="pvAct"><button type="button" class="pvBtn on" data-pvact="rebuild">Reconstruire</button></div>';
 }
@@ -1349,6 +1407,7 @@ function provPaint(){
     : provHead('…',true)+'<div class="pvNote">Lecture de la provenance…</div>';
   el.querySelectorAll<HTMLElement>('[data-pvscript]').forEach(b=>b.onclick=()=>provOpenScript(b.dataset.pvscript));
   el.querySelectorAll<HTMLElement>('[data-pvact]').forEach(b=>b.onclick=()=>provAction(b.dataset.pvact,b));
+  el.querySelectorAll<HTMLElement>('[data-pvthread]').forEach(b=>b.onclick=()=>__atelierPost({type:'atelier-open-thread',threadId:b.dataset.pvthread}));
   const tog=el.querySelector<HTMLButtonElement>('.pvHistTog');
   if(tog) tog.onclick=()=>{ provHistOpen=!provHistOpen; provPaint(); };
 }
@@ -1393,6 +1452,18 @@ function provToggle(){
   if(provOpen){ provState=null; provRel=''; }
   provSync();
 }
+// Entrée « Recette » du menu ⋯ d'une carte. Une image ouvre le visionneur
+// avec le panneau déplié ; les autres fichiers (CSV, .tex, .md, PDF) ouvrent
+// leur sidecar dans l'éditeur de code.
+function recipeOpen(rel: string,item: HTMLElement){
+  fetch('/prov?file='+encodeURIComponent(rel)).then(r=>{
+    if(!r.ok){ item.textContent=r.status===404?'Aucune recette':'Recette illisible'; return; }
+    closeFloat();
+    const f=FILES.find(x=>x.rel===rel);
+    if(f&&imgExt(f.ext)&&lbOpenAny(rel)){ provOpen=true; provState=null; provRel=''; provSync(); return; }
+    provOpenScript(rel+'.prov.json');
+  }).catch(()=>{ item.textContent='Recette illisible'; });
+}
 function provOpenScript(rel: string){
   if(!rel) return;
   // Script présent au catalogue : même chemin que l'inspecteur. Sinon (script
@@ -1410,23 +1481,28 @@ function provAction(kind: string,btn: Element){
   const abs=provAbs(), name=provRel.split('/').pop();
   // Pas de rejeu aveugle de la commande : l'agent lit la provenance et décide
   // (spec D — comme pour une annotation, c'est lui qui rééedite son script).
-  const text = kind==='regen'
-    ? abs+'\nProvenance : '+provSidecar()
+  const entry=(provState&&provState.entry)||{};
+  const text = kind==='repro'
+    ? recipeDraft(abs,provSidecar(),entry)
+    : kind==='regen'
+    ? abs+'\nRecette : '+provSidecar()
+      +(recipeCommand(entry)?'\nCommande enregistrée : '+recipeCommand(entry):'')
       +'\nRégénère cette figure : lis d’abord ce prov.json (script générateur, commande et environnement y sont), applique la correction demandée dans le script, puis relance la génération.'
     : abs+'\nAucune provenance enregistrée pour cette figure (pas de '+abs+'.prov.json).'
       +'\nRetrouve le script qui la génère, puis écris à côté d’elle un '+name+'.prov.json rétroactif (format v1, entrée d’historique marquée "reconstructed": true).';
   const label=btn.textContent;
   (btn as HTMLInputElement).disabled=true; btn.textContent='Envoi…';
   const done=(ok)=>{
-    btn.textContent=ok?'Envoyé ✓':'Échec';
+    btn.textContent=ok?(kind==='repro'?'Prêt dans le chat':'Envoyé ✓'):'Échec';
     setTimeout(()=>{ (btn as HTMLInputElement).disabled=false; btn.textContent=label; },1800);
   };
   if(EMB){
     postChatPayload({text,path:abs,name}).then(()=>done(true)).catch(()=>done(false));
     return;
   }
+  // Hors d'Atelier : « Reproduire » reste un brouillon (direct:false).
   fetch('/quote',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({rel:provRel,text,direct:true,target:provClaudeTarget()})})
+    body:JSON.stringify({rel:provRel,text,direct:kind!=='repro',target:provClaudeTarget()})})
     .then(r=>done(r.ok)).catch(()=>done(false));
 }
 function lbNav(dir: number){
@@ -1724,7 +1800,10 @@ const saveExts = ()=>{
   localStorage.setItem(galleryProjectStorageKey('figExts'), JSON.stringify(exts));
   pushState();
 };
-let showArch = true;
+// Copies de sauvegarde (_archive*, menage_, tmp…) masquées par défaut : elles
+// doublaient chaque .tex d'un badge ARCHIVE (2026-09-30). Interrupteur « Archives »
+// dans le panneau Filtres, ou Settings → Include archives.
+let showArch = false;
 const fmtSize = (b) => b>1048576?(b/1048576).toFixed(1)+' MB':b>1024?(b/1024).toFixed(0)+' KB':b+' B';
 const imgExt = (e) => e==='png'||e==='jpg'||e==='jpeg'||e==='svg';
 const videoExt = (e) => e==='mp4'||e==='m4v'||e==='mov'||e==='webm';
@@ -1839,6 +1918,8 @@ window.__galleryFileTypes={
       pinned:[...pinnedFileTypes],
       presets,
       summary:match?match.label:(activeLabels.length<=2?activeLabels.join(' + '):'Custom file types'),
+      archives:showArch,
+      archiveCount:FILES.filter(f=>f.archive).length,
     };
   },
   setActive(keys){ setGalleryActiveTypes(keys,true); },
@@ -1866,7 +1947,8 @@ window.__galleryFileTypes={
     pushState();
     galleryFileTypesChanged();
   },
-  resetFilters(){ clearAllFilters(); galleryFileTypesChanged(); },
+  setArchives(on){ showArch=on===true; updateViewChip(); render(); galleryFileTypesChanged(); },
+  resetFilters(){ showArch=false; updateViewChip(); clearAllFilters(); galleryFileTypesChanged(); },
 };
 
 const fsel = (document.getElementById('folder') as HTMLSelectElement);
@@ -1975,7 +2057,8 @@ function render(){
     // recherche et types se combinent au lieu que l'un annule l'autre.
     if((!terms.length || formatFilterExplicit) && !exts[f.ext]
       && !(onlyFavs && favs.has(f.rel))) return false;
-    if(!showArch && f.archive) return false;
+    // Choisir un sous-dossier d'archives dans Filtres vaut demande explicite.
+    if(!showArch && f.archive && !(fld && f.folder===fld)) return false;
     if(!showHidden && (hidden.has(f.rel) || matchesRule(f.rel))) return false;
     if(activeCollection && !(collections[activeCollection]||[]).includes(f.rel)) return false;
     if(activeWorkflow && workflow[f.rel]!==activeWorkflow) return false;
@@ -2644,7 +2727,9 @@ function annotInit(){
     const versionContext=lbVersionContext();
     const sentSession=annotSession;
     const sentNotes=(only?[only]:annotStrokes).filter(s=>s.note).map(s=>({stroke:structuredClone(s),note:s.note,n:s.n}));
-    const body=(dataURL: string)=>JSON.stringify({name:f.name,dataURL,direct:!!direct,sourceContext:versionContext,
+    // `rel` : le serveur y lit la recette de la figure et donne à l'agent le
+    // script et la commande qui l'ont produite (chantier 2d).
+    const body=(dataURL: string)=>JSON.stringify({name:f.name,rel:f.rel,dataURL,direct:!!direct,sourceContext:versionContext,
         target:claudeTarget(),embed:ANNOT_EMBEDDED,
         notes:sentNotes.map(s=>({n:s.n,text:s.note}))});
     annotRedraw(sentNotes.map(s=>s.stroke));

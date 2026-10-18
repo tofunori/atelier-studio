@@ -4,20 +4,23 @@
 //! et par cycle, résultats bornés (≤ 200 runs, 40 lignes de log embarquées).
 
 mod exec;
+pub mod hosts;
 mod local;
 mod nas;
 mod slurm;
+pub mod submit;
 mod types;
 
-pub use exec::{Exec, SystemExec};
+pub use exec::{Exec, ExecError, Output, SystemExec};
 pub use types::{ForgetOutcome, Host, HostError, LogChunk, Run, RunState, Snapshot};
+pub use types::format_rfc3339;
 
 use local::LocalAdapter;
 use nas::NasAdapter;
 use slurm::SlurmAdapter;
 use std::path::PathBuf;
 use std::time::SystemTime;
-use types::{format_rfc3339, window_start};
+use types::window_start;
 
 pub const MAX_RUNS: usize = 200;
 pub const MAX_LOG_LINES: u32 = 400;

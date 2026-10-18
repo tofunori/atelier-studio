@@ -19,7 +19,7 @@ export function TopBarBench() {
     <TopBar activeProject="/Chapitre1-Albedo"
       layout={layout} onSetLayout={setLayout}
       onOpenPalette={noop} onQuickAsk={noop} activeSurface="atelier" showAtelier={layout !== "chat"}
-      showExplorer={false} showAnnots={false} onToggleExplorer={noop} onToggleAnnots={noop}
+      showExplorer={false} onToggleExplorer={noop} onToggleAnnots={noop}
       onSelectSurface={noop} onSelectIde={noop} ideActive={true}
       tabs={[{id:"pdf",title:"main_ngeo.pdf",kind:"document"},{id:"tex",title:"discussion_en.tex",kind:"document"}]}
       activeTab="tex" onSelectTab={noop} onCloseTab={noop}

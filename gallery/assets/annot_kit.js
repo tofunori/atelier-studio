@@ -98,7 +98,7 @@ function installAnnotKitApi() {
       +'<button class="akClear" title="Tout effacer">&#10006;</button>'
       +'</div>');
     var note = el('<div class="akNote"></div>');
-    window.AtelierAnnotationUI.createNoteEditor(note,{onSubmit:function(){},onDelete:function(){}});
+    var noteUI = window.AtelierAnnotationUI.createNoteEditor(note,{onSubmit:function(){},onDelete:function(){}});
     note.querySelector             ('.delete-note').classList.add('del');
     note.querySelector             ('.send2').classList.add('anSave');
     var pill = el('<div class="akPill"><span>&#128172;</span><span class="n"></span>'
@@ -187,6 +187,7 @@ function installAnnotKitApi() {
       // positionnement adaptatif : sous le point par défaut, basculé à gauche /
       // au-dessus quand la place manque (la carte grandit avec le textarea)
       var place = function(){
+        (note               ).style.translate = ''; // place() recale seule la carte
         var w = (note               ).offsetWidth, h = (note               ).offsetHeight;
         var W = window.innerWidth, H = window.innerHeight;
         var left = cx;
@@ -219,7 +220,7 @@ function installAnnotKitApi() {
         renumber(); close();
       };
       note.querySelector             ('.anSave').onclick = function(e                                  ){ e.stopPropagation(); save(); };
-      inp.oninput = function(){ inp.style.height = '20px'; inp.style.height = Math.min(120, inp.scrollHeight) + 'px'; place(); };
+      inp.oninput = function(){ noteUI.fit(); place(); };
       inp.oninput(undefined);
       inp.onkeydown = function(e){
         e.stopPropagation();

@@ -1,31 +1,41 @@
-//! Provenance des figures — sidecars `<figure>.prov.json` (spec
-//! `docs/superpowers/specs/2026-08-27-provenance-figures-design.md`, sections
-//! A et B).
+//! Provenance et recette des fichiers produits — sidecars `<fichier>.prov.json`
+//! (spec `docs/superpowers/specs/2026-08-27-provenance-figures-design.md`,
+//! étendue par le chantier 2 du rattrapage Claude Science, 2026-10-18).
 //!
 //! Principe : la provenance est un SOUS-PRODUIT du tour d'agent, jamais une
 //! instrumentation des scripts de Thierry. Rien à installer côté Python/R —
 //! le runtime sait déjà, au `done`, quels fichiers le tour a touchés
 //! (`changed_since_stats` contre le snapshot du tour) et quelles commandes
-//! l'agent a lancées (les événements outils qui traversent la pompe). Il ne
-//! reste qu'à déposer ce contexte à côté de chaque figure produite.
+//! l'agent a lancées (les événements outils qui traversent la pompe).
 //!
-//! Le sidecar voyage avec la figure (rsync, NAS, git) : pas de base centrale,
-//! pas d'index à resynchroniser, lisible par n'importe quel outil.
+//! Depuis le chantier 2 :
+//! - chaque tour terminé laisse une entrée dans le journal des tours
+//!   (`ledger/<projet>--<hash>.jsonl`) : demande, commandes, fichiers lus et
+//!   écrits, état Git, fournisseur et modèle (lot 2a) ;
+//! - la recette couvre les figures, les PDF, les tableaux (CSV…), le LaTeX et
+//!   le Markdown, et garde le script avec son empreinte, la commande exacte,
+//!   les entrées avec leur empreinte et l'environnement (lot 2b,
+//!   `recipe.rs`) ;
+//! - tout s'écrit APRÈS le terminal du tour, hors du chemin du chat : le
+//!   calcul des empreintes ne retarde jamais la réponse.
+//!
+//! Le sidecar voyage avec le fichier (rsync, NAS, git) : pas de base
+//! centrale, pas d'index à resynchroniser, lisible par n'importe quel outil.
 
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// Extensions considérées comme des figures. Le PDF en fait partie : les
-/// figures d'article sortent en vectoriel, pas seulement en PNG.
-const FIGURE_EXTS: [&str; 3] = ["png", "svg", "pdf"];
-/// Extensions des scripts susceptibles d'AVOIR produit la figure. Volontairement
-/// large (`.tex` compile un PDF, `.mjs` génère des SVG) : une entrée de trop
-/// dans `scripts[]` coûte moins cher qu'un script générateur manquant.
-const SCRIPT_EXTS: [&str; 6] = ["py", "r", "jl", "sh", "tex", "mjs"];
+/// Fichiers qui reçoivent une recette, par famille. Le PDF en fait partie : les
+/// figures d'article sortent en vectoriel, et `latexmk` en produit aussi.
+const FIGURE_EXTS: [&str; 5] = ["png", "svg", "jpg", "jpeg", "pdf"];
+const TABLE_EXTS: [&str; 4] = ["csv", "tsv", "xlsx", "parquet"];
+const DOCUMENT_EXTS: [&str; 2] = ["tex", "md"];
+/// Fichiers d'instructions pour agents : ce ne sont pas des résultats.
+const NOT_RESULTS: [&str; 3] = ["CLAUDE.md", "AGENTS.md", "GEMINI.md"];
 /// Plafond de `history` (spec B). Une régénération AJOUTE une entrée en tête ;
 /// au-delà, les plus vieilles tombent — le sidecar reste un fichier de quelques
-/// kilo-octets même après des centaines de tours sur la même figure.
+/// kilo-octets même après des centaines de tours sur le même fichier.
 const HISTORY_MAX: usize = 20;
 /// Le prompt sert de phrase de contexte dans le panneau Provenance, pas
 /// d'archive : ~500 caractères suffisent, et un prompt collé de 40 ko n'a
@@ -37,6 +47,11 @@ const PROMPT_MAX_CHARS: usize = 500;
 const COMMANDS_MAX: usize = 30;
 const COMMAND_MAX_CHARS: usize = 400;
 const SCRIPTS_MAX: usize = 20;
+const READS_MAX: usize = 50;
+const TOOLS_MAX: usize = 40;
+/// Une recette par fichier au plus pour cette quantité de fichiers : un tour
+/// qui régénère 300 vignettes n'écrit pas 300 recettes.
+const RECIPES_MAX: usize = 60;
 
 /// Noms d'outils qui exécutent réellement un shell, tous providers confondus.
 /// Claude émet `Bash`, Codex `Bash` (item `commandExecution`), opencode/kimi
@@ -53,23 +68,53 @@ const SHELL_TOOL_NAMES: [&str; 8] = [
     "run_command",
     "runcommand",
 ];
+/// Outils qui LISENT un fichier (journal : « fichiers lus »).
+const READ_TOOL_NAMES: [&str; 6] = ["read", "read_file", "readfile", "view", "notebookread", "open_file"];
+
+/// Les écritures de sidecars passent une à une : deux tours qui finissent en
+/// même temps sur la même figure ne se volent pas leur entrée d'historique.
+static SIDECAR_LOCK: Mutex<()> = Mutex::new(());
+
+/// Ce que la pompe d'événements accumule pendant le tour.
+#[derive(Default)]
+struct TurnLog {
+    commands: Vec<String>,
+    reads: Vec<String>,
+    tools: Vec<(String, Option<String>)>,
+    usage: Option<Value>,
+    done_ok: Option<bool>,
+    changed: Option<Vec<String>>,
+}
 
 /// Contexte d'un tour, partagé entre la pompe d'événements (qui accumule les
-/// commandes au fil de l'eau) et le point de `done` (qui écrit les sidecars).
+/// commandes au fil de l'eau), le point de `done` (qui relève les fichiers du
+/// tour) et la finalisation (qui écrit le journal et les recettes).
 ///
-/// `commands` est derrière un `Arc<Mutex<…>>` parce que le tour a DEUX sorties
+/// Le journal est derrière un `Arc<Mutex<…>>` parce que le tour a DEUX sorties
 /// possibles : le `done` natif du provider, qui passe par la pompe, et le
 /// `done` synthétique de repli (providers sans terminal natif), émis depuis une
-/// autre tâche. Les deux s'excluent mutuellement — mais chacune doit voir les
-/// commandes accumulées.
+/// autre tâche. Les deux s'excluent mutuellement — mais chacune doit voir la
+/// même matière.
 #[derive(Clone)]
 pub struct TurnProvenance {
     thread_id: String,
     thread_title: Option<String>,
+    turn_id: Option<String>,
     provider: String,
     model: Option<String>,
+    effort: Option<String>,
     prompt: String,
-    commands: Arc<Mutex<Vec<String>>>,
+    started_at: String,
+    recipes: bool,
+    log: Arc<Mutex<TurnLog>>,
+}
+
+/// Issue d'un tour, telle que la finalisation la reçoit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnEnd {
+    Done,
+    Error,
+    Interrupted,
 }
 
 impl TurnProvenance {
@@ -83,14 +128,34 @@ impl TurnProvenance {
         Self {
             thread_id,
             thread_title: thread_title.filter(|t| !t.trim().is_empty()),
+            turn_id: None,
             provider,
             model: model.filter(|m| !m.trim().is_empty()),
+            effort: None,
             prompt,
-            commands: Arc::new(Mutex::new(Vec::new())),
+            started_at: now_iso(),
+            recipes: true,
+            log: Arc::new(Mutex::new(TurnLog::default())),
         }
     }
 
-    /// Repère les commandes shell dans le flux d'événements du tour.
+    /// Identité du tour dans le journal du harnais, et effort demandé.
+    pub fn with_turn(mut self, turn_id: &str, effort: Option<String>) -> Self {
+        self.turn_id = Some(turn_id.to_string()).filter(|t| !t.is_empty());
+        self.effort = effort.filter(|e| !e.trim().is_empty());
+        self
+    }
+
+    /// Interrupteur « Recette des fichiers produits » (Réglages › Atelier,
+    /// allumé par défaut). Coupé, aucun sidecar n'est écrit dans le projet ;
+    /// le journal des tours, lui, reste tenu (il vit hors du projet).
+    pub fn with_recipes(mut self, enabled: bool) -> Self {
+        self.recipes = enabled;
+        self
+    }
+
+    /// Repère les commandes shell, les fichiers lus et les outils dans le
+    /// flux d'événements du tour.
     ///
     /// Forme réelle constatée (2026-08-27) : le contrat frontend est
     /// `kind:"tool_update"` — `kind:"tool"` ne sert plus qu'aux marqueurs
@@ -102,95 +167,286 @@ impl TurnProvenance {
     /// dernier recours quand `input` est absent (Grok/ACP sans `rawInput`).
     pub fn note_event(&self, event: &Value) {
         let kind = event.get("kind").and_then(Value::as_str).unwrap_or("");
+        if kind == "done" {
+            if let Ok(mut log) = self.log.lock() {
+                log.done_ok = Some(event.get("ok").and_then(Value::as_bool).unwrap_or(true));
+                if let Some(usage) = event.get("usage").filter(|u| u.is_object()) {
+                    log.usage = Some(usage.clone());
+                }
+            }
+            return;
+        }
         if kind != "tool_update" && kind != "tool" {
             return;
         }
         let name = event.get("name").and_then(Value::as_str).unwrap_or("");
-        if name.starts_with("__") || !is_shell_tool(name) {
+        if name.is_empty() || name.starts_with("__") {
+            return;
+        }
+        let Ok(mut log) = self.log.lock() else {
+            return;
+        };
+        let status = event.get("status").and_then(Value::as_str).map(str::to_string);
+        if let Some(slot) = log.tools.iter_mut().find(|(n, _)| n == name) {
+            if status.is_some() {
+                slot.1 = status;
+            }
+        } else if log.tools.len() < TOOLS_MAX {
+            log.tools.push((name.to_string(), status));
+        }
+        if is_read_tool(name) {
+            if let Some(path) = read_path_from_tool_event(event) {
+                if !log.reads.contains(&path) && log.reads.len() < READS_MAX {
+                    log.reads.push(path);
+                }
+            }
+            return;
+        }
+        if !is_shell_tool(name) {
             return;
         }
         let Some(command) = command_from_tool_event(event) else {
             return;
         };
-        let Ok(mut commands) = self.commands.lock() else {
-            return;
-        };
         // Un même appel d'outil émet plusieurs `tool_update` (running →
         // completed, plus un par delta de sortie chez Codex) : sans cette
         // déduplication, `commands[]` répéterait trente fois la même ligne.
-        if commands.iter().any(|c| c == &command) || commands.len() >= COMMANDS_MAX {
+        if log.commands.iter().any(|c| c == &command) || log.commands.len() >= COMMANDS_MAX {
             return;
         }
-        commands.push(command);
+        log.commands.push(command);
     }
 
-    /// Écrit/complète les sidecars des figures touchées par le tour.
+    /// Relève les fichiers touchés par le tour, au `done`.
     ///
     /// `changed` = les chemins (relatifs à la racine du dépôt) déjà calculés
-    /// pour `filesChanged`/`fileStats` : AUCUN spawn git supplémentaire ici.
-    /// Un tour sans figure n'écrit rien du tout.
-    pub fn record_done(&self, project_root: &str, snapshot_sha: Option<&str>, changed: &[String]) {
-        if project_root.is_empty() || changed.is_empty() {
+    /// pour `filesChanged`/`fileStats` : AUCUN spawn git supplémentaire ici, et
+    /// aucune écriture — le journal et les recettes partent à la
+    /// finalisation, une fois la réponse rendue au chat.
+    pub fn record_done(&self, _project_root: &str, _snapshot_sha: Option<&str>, changed: &[String]) {
+        if let Ok(mut log) = self.log.lock() {
+            log.changed = Some(changed.to_vec());
+        }
+    }
+
+    /// Finalisation du tour, une seule fois, après son terminal : écrit les
+    /// recettes (tour réussi, interrupteur allumé) puis l'entrée du journal.
+    /// Les échecs sont journalisés, jamais remontés : le chat a déjà sa
+    /// réponse.
+    pub fn finish(
+        &self,
+        project_root: &str,
+        snapshot_sha: Option<&str>,
+        ledger_dir: &Path,
+        end: TurnEnd,
+    ) {
+        let (changed, done_ok) = {
+            let log = self.log.lock().ok();
+            (
+                log.as_ref().and_then(|l| l.changed.clone()),
+                log.as_ref().and_then(|l| l.done_ok),
+            )
+        };
+        let end = if end == TurnEnd::Done && done_ok == Some(false) {
+            TurnEnd::Error
+        } else {
+            end
+        };
+        // Un tour en erreur ou interrompu ne passe pas par `done` : ses
+        // fichiers se relèvent ici, hors du chemin du chat.
+        let changed = changed.unwrap_or_else(|| {
+            snapshot_sha
+                .filter(|_| !project_root.is_empty())
+                .and_then(|sha| atelier_workspace::changed_since_stats(project_root, sha).ok())
+                .map(|stats| stats.into_iter().map(|s| s.path).collect())
+                .unwrap_or_default()
+        });
+        let recipes = if end == TurnEnd::Done && self.recipes {
+            self.write_recipes(project_root, snapshot_sha, &changed)
+        } else {
+            Vec::new()
+        };
+        if project_root.is_empty() {
             return;
         }
+        let entry = self.ledger_entry(project_root, snapshot_sha, &changed, &recipes, end);
+        if let Err(error) = atelier_store::append_ledger(ledger_dir, project_root, &entry) {
+            tracing::warn!(%error, thread_id = %self.thread_id, "journal des tours : écriture impossible");
+        }
+    }
+
+    /// Écrit/complète les recettes des fichiers produits par le tour et rend
+    /// la liste des fichiers qui en ont reçu une. Un tour sans fichier
+    /// produit n'écrit rien.
+    pub fn write_recipes(
+        &self,
+        project_root: &str,
+        snapshot_sha: Option<&str>,
+        changed: &[String],
+    ) -> Vec<String> {
+        if project_root.is_empty() || changed.is_empty() {
+            return Vec::new();
+        }
         let root = Path::new(project_root);
-        let figures: Vec<&String> = changed
+        let targets: Vec<&String> = changed
             .iter()
-            .filter(|rel| is_figure(rel))
-            // Une figure SUPPRIMÉE pendant le tour ressort aussi du diff :
+            .filter(|rel| recipe_kind(rel).is_some())
+            // Un fichier SUPPRIMÉ pendant le tour ressort aussi du diff :
             // déposer un sidecar orphelin à côté d'un fichier disparu ne
             // ferait que salir le dossier.
             .filter(|rel| root.join(rel.as_str()).is_file())
+            .take(RECIPES_MAX)
             .collect();
-        if figures.is_empty() {
-            return;
+        if targets.is_empty() {
+            return Vec::new();
         }
-        let entry = self.entry(project_root, snapshot_sha, changed);
-        for figure in figures {
-            let sidecar = sidecar_path(root, figure);
-            if let Err(error) = append_history(&sidecar, figure, &entry) {
-                // Contrat : un échec d'écriture ne casse JAMAIS le tour. La
-                // provenance est un bonus, l'événement `done` est la mission.
-                eprintln!("[prov] écriture impossible pour {figure} : {error}");
-            }
-        }
-    }
-
-    /// Une entrée d'historique (spec B). `reconstructed:false` : cette entrée
-    /// est capturée en direct, pas devinée après coup par un agent (le champ
-    /// existe pour distinguer les prov.json rétroactifs, section E).
-    fn entry(&self, project_root: &str, snapshot_sha: Option<&str>, changed: &[String]) -> Value {
-        let scripts: Vec<&String> = changed
+        let commands_text = self.log.lock().map(|l| l.commands.clone()).unwrap_or_default();
+        let commands: Vec<crate::recipe::CommandFacts> = commands_text
+            .iter()
+            .map(|c| crate::recipe::command_facts(root, c))
+            .collect();
+        let changed_scripts: Vec<String> = changed
             .iter()
             .filter(|rel| is_script(rel))
             .take(SCRIPTS_MAX)
+            .cloned()
             .collect();
-        let commands = self.commands.lock().map(|c| c.clone()).unwrap_or_default();
+        let base = self.base_entry(project_root, snapshot_sha, &commands_text);
+        let mut fingerprints = crate::recipe::Fingerprints::default();
+        let mut written = Vec::new();
+        for rel in targets {
+            let recipe = crate::recipe::build(root, rel, &commands, &changed_scripts, &mut fingerprints);
+            let mut entry = base.clone();
+            let obj = entry.as_object_mut().expect("entrée objet");
+            obj.insert("kind".into(), json!(recipe_kind(rel)));
+            obj.insert("scripts".into(), json!(recipe.scripts));
+            obj.insert("scriptVersions".into(), json!(recipe.script_versions));
+            obj.insert("command".into(), json!(recipe.command));
+            obj.insert("inputs".into(), json!(recipe.inputs));
+            obj.insert("env".into(), merge_env(env_snapshot(), recipe.env));
+            let sidecar = sidecar_path(root, rel);
+            let _guard = SIDECAR_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+            match append_history(&sidecar, rel, &entry) {
+                Ok(()) => written.push(rel.clone()),
+                // Contrat : un échec d'écriture ne casse JAMAIS le tour. La
+                // provenance est un bonus, l'événement `done` est la mission.
+                Err(error) => eprintln!("[prov] écriture impossible pour {rel} : {error}"),
+            }
+        }
+        written
+    }
+
+    /// Champs communs à toutes les recettes du tour (spec B). `reconstructed:
+    /// false` : cette entrée est capturée en direct, pas devinée après coup
+    /// par un agent (le champ existe pour distinguer les prov.json
+    /// rétroactifs, section E).
+    fn base_entry(&self, project_root: &str, snapshot_sha: Option<&str>, commands: &[String]) -> Value {
         let mut entry = json!({
-            "ts": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "ts": now_iso(),
             "threadId": self.thread_id,
             "provider": self.provider,
             "prompt": truncate_chars(self.prompt.trim(), PROMPT_MAX_CHARS),
-            "scripts": scripts,
             "commands": commands,
             "snapshotSha": snapshot_sha,
             "head": head_sha(Path::new(project_root)),
             "projectRoot": project_root,
-            "env": env_snapshot(),
             "reconstructed": false,
         });
         let obj = entry.as_object_mut().expect("entrée objet");
         // Champs omis quand inconnus plutôt que `null` : le panneau galerie
         // teste la présence, pas la nullité (spec B — « threadTitle si
         // accessible sinon omets »).
+        if let Some(turn) = self.turn_id.as_ref() {
+            obj.insert("turnId".into(), json!(turn));
+        }
         if let Some(title) = self.thread_title.as_ref() {
             obj.insert("threadTitle".into(), json!(title));
         }
         if let Some(model) = self.model.as_ref() {
             obj.insert("model".into(), json!(model));
         }
+        if let Some(effort) = self.effort.as_ref() {
+            obj.insert("effort".into(), json!(effort));
+        }
         entry
     }
+
+    /// Entrée du journal des tours (plan 048, Run Ledger v2). Jamais de
+    /// sortie d'outil, d'environnement complet ni de prompt entier.
+    fn ledger_entry(
+        &self,
+        project_root: &str,
+        snapshot_sha: Option<&str>,
+        changed: &[String],
+        recipes: &[String],
+        end: TurnEnd,
+    ) -> Value {
+        let (commands, reads, tools, usage) = self
+            .log
+            .lock()
+            .map(|l| (l.commands.clone(), l.reads.clone(), l.tools.clone(), l.usage.clone()))
+            .unwrap_or_default();
+        let root = Path::new(project_root);
+        let reads: Vec<String> = reads
+            .iter()
+            .map(|p| {
+                let path = Path::new(p);
+                if path.is_absolute() {
+                    crate::recipe::display_path(root, path)
+                } else {
+                    p.clone()
+                }
+            })
+            .collect();
+        let mut files_changed = changed.to_vec();
+        files_changed.sort();
+        files_changed.dedup();
+        let ended = now_iso();
+        json!({
+            "schemaVersion": 2,
+            "projectId": atelier_store::project_id(project_root),
+            "projectRoot": project_root,
+            "ts": ended,
+            "startedAt": self.started_at,
+            "endedAt": ended,
+            "status": match end {
+                TurnEnd::Done => "done",
+                TurnEnd::Error => "error",
+                TurnEnd::Interrupted => "interrupted",
+            },
+            "threadId": self.thread_id,
+            "turnId": self.turn_id,
+            "threadTitle": self.thread_title,
+            "provider": self.provider,
+            "model": self.model,
+            "effort": self.effort,
+            "promptExcerpt": truncate_chars(self.prompt.trim(), PROMPT_MAX_CHARS),
+            "usage": usage,
+            "tools": tools.iter().map(|(name, status)| json!({"name": name, "status": status})).collect::<Vec<_>>(),
+            "commands": commands,
+            "filesRead": reads,
+            "filesChanged": files_changed,
+            "recipes": recipes,
+            "snapshotSha": snapshot_sha,
+            "head": head_sha(root),
+        })
+    }
+}
+
+/// L'env vu par le serveur (python du PATH, `$CONDA_DEFAULT_ENV`) sert de
+/// repli ; celui lu dans la commande et le script a le dernier mot.
+fn merge_env(base: Value, specific: Value) -> Value {
+    let mut out = base.as_object().cloned().unwrap_or_default();
+    if let Some(specific) = specific.as_object() {
+        for (key, value) in specific {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(out)
+}
+
+fn now_iso() -> String {
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 /// Les tests et le panneau lisent le même chemin : `figure.png` →
@@ -206,6 +462,8 @@ fn sidecar_path(root: &Path, rel_figure: &str) -> PathBuf {
 /// Relit le sidecar existant, empile la nouvelle entrée EN TÊTE, plafonne.
 /// Un sidecar illisible ou malformé est reparti de zéro : perdre un historique
 /// corrompu vaut mieux que refuser d'enregistrer la génération courante.
+/// Version 2 : mêmes champs que la v1, plus la recette (`command`,
+/// `scriptVersions`, `inputs`, `env.packages`) ; un lecteur v1 l'ignore.
 fn append_history(sidecar: &Path, rel_figure: &str, entry: &Value) -> std::io::Result<()> {
     let mut history: Vec<Value> = std::fs::read_to_string(sidecar)
         .ok()
@@ -220,13 +478,27 @@ fn append_history(sidecar: &Path, rel_figure: &str, entry: &Value) -> std::io::R
     history.insert(0, entry.clone());
     history.truncate(HISTORY_MAX);
     let document = json!({
-        "version": 1,
+        "version": 2,
         "figure": rel_figure,
         "history": history,
     });
     let body = serde_json::to_string_pretty(&document)
         .map_err(|e| std::io::Error::other(e.to_string()))?;
     crate::atomic::write_file_atomic(sidecar, format!("{body}\n"))
+}
+
+fn is_read_tool(name: &str) -> bool {
+    READ_TOOL_NAMES.contains(&name.to_ascii_lowercase().as_str())
+}
+
+fn read_path_from_tool_event(event: &Value) -> Option<String> {
+    let input = event.get("input")?;
+    ["file_path", "path", "filePath", "notebook_path"]
+        .iter()
+        .find_map(|key| input.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && p.len() <= 1024)
+        .map(str::to_string)
 }
 
 fn is_shell_tool(name: &str) -> bool {
@@ -266,7 +538,7 @@ fn command_from_tool_event(event: &Value) -> Option<String> {
     if text.is_empty() {
         return None;
     }
-    Some(truncate_chars(text, COMMAND_MAX_CHARS))
+    Some(truncate_chars(&crate::recipe::redact_command(text), COMMAND_MAX_CHARS))
 }
 
 fn extension_lower(rel: &str) -> Option<String> {
@@ -285,9 +557,10 @@ fn in_hidden_dir(rel: &str) -> bool {
         .any(|part| part.starts_with('.') && part != "." && part != "..")
 }
 
-fn is_figure(rel: &str) -> bool {
+/// Famille d'un fichier qui reçoit une recette, `None` sinon.
+fn recipe_kind(rel: &str) -> Option<&'static str> {
     if in_hidden_dir(rel) {
-        return false;
+        return None;
     }
     let path = Path::new(rel);
     // `annotations/` = les captures annotées de la galerie (une figure
@@ -298,23 +571,29 @@ fn is_figure(rel: &str) -> bool {
         .filter_map(|c| c.as_os_str().to_str())
         .any(|part| part == "annotations")
     {
-        return false;
+        return None;
     }
-    if path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|n| n.starts_with("_view_"))
-    {
-        return false;
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if name.starts_with("_view_") || NOT_RESULTS.contains(&name) {
+        return None;
     }
-    extension_lower(rel).is_some_and(|ext| FIGURE_EXTS.contains(&ext.as_str()))
+    let ext = extension_lower(rel)?;
+    if FIGURE_EXTS.contains(&ext.as_str()) {
+        Some(if ext == "pdf" { "pdf" } else { "figure" })
+    } else if TABLE_EXTS.contains(&ext.as_str()) {
+        Some("table")
+    } else if DOCUMENT_EXTS.contains(&ext.as_str()) {
+        Some(if ext == "tex" { "latex" } else { "markdown" })
+    } else {
+        None
+    }
 }
 
 fn is_script(rel: &str) -> bool {
     if in_hidden_dir(rel) {
         return false;
     }
-    extension_lower(rel).is_some_and(|ext| SCRIPT_EXTS.contains(&ext.as_str()))
+    crate::recipe::is_script_path(rel)
 }
 
 fn truncate_chars(text: &str, max: usize) -> String {
@@ -463,7 +742,7 @@ mod tests {
             "input": {"file_path": "scripts/plot_albedo_trend.py"},
         }));
 
-        prov.record_done(
+        prov.write_recipes(
             root.to_str().unwrap(),
             Some("abc1234"),
             &[
@@ -474,7 +753,7 @@ mod tests {
         );
 
         let doc = read_prov(root, "figures/albedo_trend.png");
-        assert_eq!(doc["version"], 1);
+        assert_eq!(doc["version"], 2);
         assert_eq!(doc["figure"], "figures/albedo_trend.png");
         let entry = &doc["history"][0];
         assert_eq!(entry["threadId"], "th-1");
@@ -494,16 +773,27 @@ mod tests {
             entry["commands"],
             json!(["python3 scripts/plot_albedo_trend.py --region sask"])
         );
+        assert_eq!(
+            entry["command"],
+            "python3 scripts/plot_albedo_trend.py --region sask"
+        );
+        assert_eq!(entry["kind"], "figure");
+        assert_eq!(entry["scriptVersions"][0]["path"], "scripts/plot_albedo_trend.py");
+        assert_eq!(
+            entry["scriptVersions"][0]["sha256"],
+            "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+            "empreinte du script tel qu'il était à la fin du tour"
+        );
         assert!(entry["ts"].as_str().unwrap().ends_with('Z'));
         assert!(entry["env"].is_object());
     }
 
     #[test]
-    fn tour_sans_figure_n_ecrit_rien() {
+    fn tour_sans_fichier_produit_n_ecrit_rien() {
         let dir = tempdir().unwrap();
         let root = dir.path();
         touch(root, "scripts/plot.py");
-        turn().record_done(
+        turn().write_recipes(
             root.to_str().unwrap(),
             Some("abc1234"),
             &["scripts/plot.py".into(), "README.md".into()],
@@ -526,7 +816,7 @@ mod tests {
                 None,
                 format!("tour {i}"),
             );
-            prov.record_done(root.to_str().unwrap(), None, &["fig.png".into()]);
+            prov.write_recipes(root.to_str().unwrap(), None, &["fig.png".into()]);
         }
         let doc = read_prov(root, "fig.png");
         let history = doc["history"].as_array().unwrap();
@@ -546,7 +836,7 @@ mod tests {
         touch(root, "annotations/fig_annotee.png");
         touch(root, ".fig_thumbs/thumb.png");
         touch(root, "figures/vrai.svg");
-        turn().record_done(
+        turn().write_recipes(
             root.to_str().unwrap(),
             None,
             &[
@@ -566,7 +856,7 @@ mod tests {
     fn figure_supprimee_pendant_le_tour_ne_recoit_pas_de_sidecar() {
         let dir = tempdir().unwrap();
         let root = dir.path();
-        turn().record_done(root.to_str().unwrap(), None, &["figures/partie.png".into()]);
+        turn().write_recipes(root.to_str().unwrap(), None, &["figures/partie.png".into()]);
         assert!(!root.join("figures/partie.png.prov.json").exists());
     }
 
@@ -587,7 +877,7 @@ mod tests {
             "name": "shell",
             "detail": "latexmk -pdf figure.tex",
         }));
-        prov.record_done(root.to_str().unwrap(), None, &["fig.pdf".into()]);
+        prov.write_recipes(root.to_str().unwrap(), None, &["fig.pdf".into()]);
         let doc = read_prov(root, "fig.pdf");
         assert_eq!(
             doc["history"][0]["commands"],
@@ -601,7 +891,7 @@ mod tests {
         let root = dir.path();
         touch(root, "fig.png");
         std::fs::write(root.join("fig.png.prov.json"), b"{pas du json").unwrap();
-        turn().record_done(root.to_str().unwrap(), None, &["fig.png".into()]);
+        turn().write_recipes(root.to_str().unwrap(), None, &["fig.png".into()]);
         let doc = read_prov(root, "fig.png");
         assert_eq!(doc["history"].as_array().unwrap().len(), 1);
     }
@@ -639,7 +929,7 @@ mod tests {
         let root = dir.path();
         touch(root, "fig.png");
         let long = "é".repeat(900);
-        TurnProvenance::new("th".into(), None, "claude".into(), None, long).record_done(
+        TurnProvenance::new("th".into(), None, "claude".into(), None, long).write_recipes(
             root.to_str().unwrap(),
             None,
             &["fig.png".into()],
@@ -652,5 +942,91 @@ mod tests {
             "500 + l'ellipse"
         );
         assert!(prompt.ends_with('…'));
+    }
+
+    #[test]
+    fn tableaux_latex_et_markdown_recoivent_une_recette() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        for rel in ["out/stats.csv", "these/chap1.tex", "notes/bilan.md", "CLAUDE.md", "data/raw.nc"] {
+            touch(root, rel);
+        }
+        let written = turn().write_recipes(
+            root.to_str().unwrap(),
+            None,
+            &[
+                "out/stats.csv".into(),
+                "these/chap1.tex".into(),
+                "notes/bilan.md".into(),
+                "CLAUDE.md".into(),
+                "data/raw.nc".into(),
+            ],
+        );
+        assert_eq!(written, vec!["out/stats.csv", "these/chap1.tex", "notes/bilan.md"]);
+        assert_eq!(read_prov(root, "out/stats.csv")["history"][0]["kind"], "table");
+        assert_eq!(read_prov(root, "these/chap1.tex")["history"][0]["kind"], "latex");
+        assert_eq!(read_prov(root, "notes/bilan.md")["history"][0]["kind"], "markdown");
+        assert!(!root.join("CLAUDE.md.prov.json").exists());
+        assert!(!root.join("data/raw.nc.prov.json").exists());
+    }
+
+    #[test]
+    fn finalisation_ecrit_le_journal_et_les_recettes() {
+        let dir = tempdir().unwrap();
+        let ledger = tempdir().unwrap();
+        let root = dir.path();
+        touch(root, "fig.png");
+        let prov = turn().with_turn("turn-7", Some("high".into()));
+        prov.note_event(&json!({"kind":"tool_update","name":"Read","input":{"file_path": root.join("data.csv").to_str().unwrap()},"status":"completed"}));
+        prov.note_event(&json!({"kind":"tool_update","name":"Bash","input":{"command":"API_TOKEN=s3cret python3 plot.py"},"status":"running"}));
+        prov.note_event(&json!({"kind":"tool_update","name":"Bash","input":{"command":"API_TOKEN=s3cret python3 plot.py"},"status":"completed"}));
+        prov.note_event(&json!({"kind":"done","ok":true,"usage":{"output":12,"cost":0.5}}));
+        prov.record_done(root.to_str().unwrap(), Some("abc1234"), &["fig.png".into()]);
+        prov.finish(root.to_str().unwrap(), Some("abc1234"), ledger.path(), TurnEnd::Done);
+
+        let entries = atelier_store::get_ledger(ledger.path(), root.to_str().unwrap(), 10);
+        assert_eq!(entries.len(), 1);
+        let entry = &entries[0];
+        assert_eq!(entry["schemaVersion"], 2);
+        assert_eq!(entry["status"], "done");
+        assert_eq!(entry["turnId"], "turn-7");
+        assert_eq!(entry["effort"], "high");
+        assert_eq!(entry["filesChanged"], json!(["fig.png"]));
+        assert_eq!(entry["filesRead"], json!(["data.csv"]));
+        assert_eq!(entry["recipes"], json!(["fig.png"]));
+        assert_eq!(entry["commands"], json!(["API_TOKEN=*** python3 plot.py"]));
+        assert_eq!(entry["tools"], json!([{"name":"Read","status":"completed"},{"name":"Bash","status":"completed"}]));
+        assert_eq!(entry["usage"]["cost"], 0.5);
+        let text = std::fs::read_to_string(root.join("fig.png.prov.json")).unwrap();
+        assert!(!text.contains("s3cret"), "le secret ne quitte pas la commande");
+        assert_eq!(read_prov(root, "fig.png")["history"][0]["turnId"], "turn-7");
+    }
+
+    #[test]
+    fn interrupteur_coupe_et_tour_en_erreur_n_ecrivent_pas_de_recette() {
+        let dir = tempdir().unwrap();
+        let ledger = tempdir().unwrap();
+        let root = dir.path();
+        touch(root, "fig.png");
+        let off = turn().with_turn("t-off", None).with_recipes(false);
+        off.record_done(root.to_str().unwrap(), None, &["fig.png".into()]);
+        off.finish(root.to_str().unwrap(), None, ledger.path(), TurnEnd::Done);
+        assert!(!root.join("fig.png.prov.json").exists());
+
+        let failed = turn().with_turn("t-err", None);
+        failed.note_event(&json!({"kind":"done","ok":false,"result":"boom"}));
+        failed.record_done(root.to_str().unwrap(), None, &["fig.png".into()]);
+        failed.finish(root.to_str().unwrap(), None, ledger.path(), TurnEnd::Done);
+        assert!(!root.join("fig.png.prov.json").exists());
+
+        let stopped = turn().with_turn("t-stop", None);
+        stopped.finish(root.to_str().unwrap(), None, ledger.path(), TurnEnd::Interrupted);
+
+        let entries = atelier_store::get_ledger(ledger.path(), root.to_str().unwrap(), 10);
+        let status: Vec<_> = entries.iter().map(|e| (e["turnId"].clone(), e["status"].clone())).collect();
+        assert_eq!(status.len(), 3);
+        assert!(status.contains(&(json!("t-off"), json!("done"))));
+        assert!(status.contains(&(json!("t-err"), json!("error"))));
+        assert!(status.contains(&(json!("t-stop"), json!("interrupted"))));
     }
 }

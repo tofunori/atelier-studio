@@ -745,7 +745,10 @@ export function createStudioEditor(parent, opts) {
       doc: opts.value || "",
       extensions: [
         ...(opts.ext === "tex" ? [autocompletion({override: [bibliographyCompletion]}), keymap.of([{key:"Ctrl-Space", run:startCompletion}]), latexDiagnosticsExtension()] : []),
-        lineNumbers(), history(), highlightActiveLine(), highlightActiveLineGutter(),
+        // Pas de fond de ligne active en .tex : une ligne logique y est un
+        // paragraphe entier (texte fluide ou non), donc un clic grisait tout
+        // le bloc. Le numéro de ligne actif reste marqué dans la gouttière.
+        lineNumbers(), history(), ...(opts.ext === "tex" ? [] : [highlightActiveLine()]), highlightActiveLineGutter(),
         bracketMatching(), closeBrackets(), foldGutter(), restingSelectionMatches,
         // Un clic reste un clic : ni tremblement de souris, ni glisser natif
         // d'une sélection (PIEGES_CONNUS §18).
