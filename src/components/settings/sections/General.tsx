@@ -22,6 +22,7 @@ import { Advanced, Group, Row, Toggle } from "../primitives";
 import type { SectionProps, SetupStatus } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { setLanguage, t } from "../../../lib/i18n";
+import { BUILD_IDENTITY, versionWithBuild } from "../../../lib/buildIdentity";
 import { Button, InlineNotice, Select } from "../../ui";
 import { Textarea } from "../../shadcn/textarea";
 import { RemoteDevicesPanel } from "../../RemoteDevicesPanel";
@@ -95,10 +96,11 @@ export default function General(p: SectionProps) {
   // Rangée Sidecar fusionnée : port (message `status`) + pid/version/dossier
   // (message `setupStatus`, ex-section setup) dans UNE seule description —
   // le badge connecté/déconnecté (dérivé de p.ws.readyState) ne se répète
-  // qu'une fois, pas une par source de données.
+  // qu'une fois, pas une par source de données. La version (2.0.0 sur toutes
+  // les builds) est suivie du commit et de la date de la build en cours.
   const sidecarDesc = setup
     ? t("settings.sidecar-desc-full", {
-      appVersion: setup.sidecar.appVersion,
+      appVersion: versionWithBuild(setup.sidecar.appVersion, BUILD_IDENTITY),
       pid: setup.sidecar.pid,
       port: status?.port ?? "?",
       dir: setup.sidecar.dir,
