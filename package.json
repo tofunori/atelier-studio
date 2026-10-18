@@ -34,6 +34,7 @@
     "test:rust-workspace": "cargo test --manifest-path rust/Cargo.toml --locked",
     "test:remote": "cargo test -p atelier-remote --manifest-path rust/Cargo.toml --locked",
     "test:protocol": "npm --prefix packages/atelier-protocol test",
+    "test:relance": "bash scripts/tests/test-relance-app.sh",
     "protocol:export-fixtures": "node --experimental-strip-types packages/atelier-protocol/scripts/export-fixtures.ts",
     "mobile:check-secrets": "node scripts/check-mobile-secrets.mts",
     "check:backend-policy": "node scripts/check-backend-policy.mts",

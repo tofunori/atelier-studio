@@ -183,10 +183,16 @@ npm run tauri:build:app
 ```
 
 The app lands in `src-tauri/target/release/bundle/macos/Atelier.app`, signed
-ad hoc. Before building over a running copy, stop it and its servers exactly as
-described in [PROTOCOLE_RELANCE.md](PROTOCOLE_RELANCE.md) (in French). That file
-is the only build and restart procedure; the checks, the stop list and the
-restart verification live there. `npm run tauri dev` gives a hot-reloading
+ad hoc. To build, install and restart it on your Mac, run
+`bash scripts/relance-app.sh --confirme` from Terminal, as described in
+[PROTOCOLE_RELANCE.md](PROTOCOLE_RELANCE.md) (in French). It builds while the
+running copy keeps working, checks that no chat turn is running, stops the app
+and its servers, installs the new build in `~/Applications/Atelier.app` and
+keeps the previous one in `~/Applications/Atelier-precedente/` for
+`bash scripts/relance-app.sh --retour --confirme`. That file is the only build
+and restart procedure; the checks, the stop list and the restart verification
+live there. **Settings → General → Diagnostics and maintenance → Sidecar** shows
+the commit and date of the running build. `npm run tauri dev` gives a hot-reloading
 development build when run from your own terminal.
 
 More developer references: [TypeScript sources](agent-reference/typescript-sources.md)

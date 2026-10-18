@@ -100,6 +100,7 @@ pub fn app_router(state: AppState) -> Router {
 
     Router::new()
         .route("/health", get(health_handler))
+        .route("/activity", get(activity_handler))
         .route("/providers", get(providers_handler))
         .route("/setup", get(setup_handler))
         .route("/uistate", get(uistate_get).post(uistate_post))
@@ -325,6 +326,24 @@ async fn health_handler(
 ) -> Result<impl IntoResponse, StatusCode> {
     auth_or_401(&state, &headers)?;
     Ok(Json(state.health().await))
+}
+
+/// Tours de chat en cours : `scripts/relance-app.sh` refuse d'arrêter
+/// l'app (et le CLI de chaque tour) tant que `runningTurns` n'est pas 0.
+async fn activity_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    auth_or_401(&state, &headers)?;
+    let running = state.harness().running_threads().await;
+    let threads: Vec<Value> = running
+        .iter()
+        .map(|(thread, provider)| serde_json::json!({ "threadId": thread, "provider": provider }))
+        .collect();
+    Ok(Json(serde_json::json!({
+        "runningTurns": running.len(),
+        "running": threads,
+    })))
 }
 
 async fn providers_handler(
@@ -654,6 +673,53 @@ mod tests {
         assert_eq!(v["service"], "atelier-sidecar");
         assert_eq!(v["tokenRequired"], true);
         assert_eq!(v["bundleHash"], "testhash");
+    }
+
+    #[tokio::test]
+    async fn activity_compte_les_tours_en_cours_et_exige_le_jeton() {
+        let (state, _dir) = test_state(Some("secret")).await;
+        let request = |token: Option<&str>| {
+            let mut builder = Request::builder().uri("/activity");
+            if let Some(token) = token {
+                builder = builder.header("x-atelier-token", token);
+            }
+            builder.body(Body::empty()).unwrap()
+        };
+        let res = app_router(state.clone())
+            .oneshot(request(None))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), Sc::UNAUTHORIZED);
+
+        let body = |res: axum::response::Response| async move {
+            let bytes = res.into_body().collect().await.unwrap().to_bytes();
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()
+        };
+        let res = app_router(state.clone())
+            .oneshot(request(Some("secret")))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), Sc::OK);
+        assert_eq!(
+            body(res).await,
+            serde_json::json!({ "runningTurns": 0, "running": [] })
+        );
+
+        state
+            .harness()
+            .set_running("fil-1", "tour-1", "claude")
+            .await;
+        let res = app_router(state.clone())
+            .oneshot(request(Some("secret")))
+            .await
+            .unwrap();
+        assert_eq!(
+            body(res).await,
+            serde_json::json!({
+                "runningTurns": 1,
+                "running": [{ "threadId": "fil-1", "provider": "claude" }],
+            })
+        );
     }
 
     #[tokio::test]

@@ -27,6 +27,12 @@ cleanup_temporary_dmgs
 trap cleanup_temporary_dmgs EXIT
 
 cd "$REPO_ROOT"
+# macOS 27 (constaté le 2026-10-08 avec ld-27037 de macOS 27.0.1) : les
+# proc-macros strippées et compilées pour la cible 12.3 sont refusées au
+# chargement (« mis-aligned LINKEDIT string pool ») et le build s'arrête.
+# Ne pas stripper les build-scripts ni les proc-macros contourne le problème
+# sans toucher aux exécutables livrés ; une valeur déjà exportée l'emporte.
+export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
 source "$REPO_ROOT/scripts/tauri-signing-args.sh"
 # ${arr[@]+…} : bash 3.2 de macOS refuse un tableau vide sous `set -u`.
 npm run tauri -- build --bundles dmg ${SIGNING_ARGS[@]+"${SIGNING_ARGS[@]}"} "$@"
