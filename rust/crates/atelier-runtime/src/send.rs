@@ -139,6 +139,7 @@ pub(crate) fn strip_file_scope_instruction(text: &str) -> String {
         ("<atelier-file-scope>", "</atelier-file-scope>"),
         ("<atelier-discussion-workspace>", "</atelier-discussion-workspace>"),
         ("<atelier-consigne-du-fil>", "</atelier-consigne-du-fil>"),
+        ("<atelier-kernel>", "</atelier-kernel>"),
         ("<atelier-specialists>", "</atelier-specialists>"),
         ("<atelier-memory>", "</atelier-memory>"),
     ] {
@@ -1325,6 +1326,16 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         Some(bloc) => format!("{provider_prompt}{bloc}"),
         None => provider_prompt,
     };
+    // Noyau Python persistant (chantier 5) : allumé ou coupé en cours de
+    // session, l'agent l'apprend dans le message, une fois par changement.
+    let kernel_announced = (!state.harness().is_running(&thread_id).await)
+        .then(|| crate::kernel::announcement(previous.as_ref(), &provider))
+        .flatten();
+    let provider_prompt = match &kernel_announced {
+        Some((bloc, _)) => format!("{provider_prompt}{bloc}"),
+        None => provider_prompt,
+    };
+    let kernel_announced = kernel_announced.map(|(_, on)| on);
     let discussion_document = msg
         .get("discussionDocument")
         .and_then(Value::as_str)
@@ -2160,6 +2171,14 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                     patch["kbBlockHash"] = Value::Null;
                     patch["specialistesHash"] = Value::Null;
                     patch["memoiresDonnees"] = Value::Null;
+                }
+                if let (true, Some(on)) = (succeeded, kernel_announced.as_ref()) {
+                    patch[crate::kernel::ANNOUNCED_KEY] =
+                        json!({"session": sid.clone(), "on": on});
+                }
+                if compacte.load(Ordering::SeqCst) {
+                    // Le résumé ne garantit pas la consigne du noyau.
+                    patch[crate::kernel::ANNOUNCED_KEY] = Value::Null;
                 }
                 if succeeded && pimpl.id() == "claude" {
                     patch["consigneClaude"] =

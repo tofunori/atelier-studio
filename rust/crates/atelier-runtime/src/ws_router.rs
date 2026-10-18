@@ -355,6 +355,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let _ = state.threads().lock().await.delete(id);
             let _ = state.journal().delete_thread(id);
             crate::widgets::purge_thread_widgets(state.app_dir(), id);
+            crate::kernel::on_delete_thread(state, id).await;
             broadcast_threads(state).await
         }
         "getHistory" => {
@@ -639,6 +640,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "entries": entries,
             }))]
         }
+        "kernelCells" => crate::kernel::handle_cells(state, &msg).await,
+        "kernelStop" => crate::kernel::handle_stop(state, &msg).await,
+        "kernelCommand" => crate::kernel::handle_command(state, &msg).await,
         "upsertThread" => {
             let patch = msg.get("thread").cloned().unwrap_or(msg.clone());
             let result = {

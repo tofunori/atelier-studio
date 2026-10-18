@@ -108,6 +108,12 @@ const RELAYS: Record<string, Relay> = {
   computeSnapshot: forward("compute-message"),
   computeLog: forward("compute-message"),
   computeForgotRun: forward("compute-message"),
+  // noyau Python persistant du fil (chantier 5) : panneau Cellules
+  kernelCells: forward("kernel-cells"),
+  kernelCell: forward("kernel-cell"),
+  kernelStatus: forward("kernel-status"),
+  kernelStopped: forward("kernel-stopped"),
+  kernelCommand: forward("kernel-command"),
 };
 
 /** Relaie `msg` s'il est d'un type purement relayé ; renvoie `true` si c'est le cas. */

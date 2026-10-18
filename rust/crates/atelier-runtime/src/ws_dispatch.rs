@@ -83,6 +83,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "getReviews"
         | "integrations"
         | "environmentStatus"
+        | "kernelCells"
         // N'ajoute que les CLI absents du registre (RwLock) : aucune session
         // vivante n'est touchée, donc pas de barrière globale.
         | "refreshProviders" => Class::Read,
@@ -99,7 +100,8 @@ pub(crate) fn lane(request: &Value) -> Option<String> {
     let id = match kind {
         "upsertThread" => request.pointer("/thread/id").or_else(|| request.get("id")),
         "send" | "renameThread" | "moveThread" | "deleteThread" | "prepareMessageEdit"
-        | "codexCompact" | "codexClear" | "goalSet" | "goalGet" | "goalClear" | "requestReview" => {
+        | "codexCompact" | "codexClear" | "goalSet" | "goalGet" | "goalClear" | "requestReview"
+        | "kernelStop" | "kernelCommand" => {
             request.get("threadId")
         }
         _ => None,
@@ -375,6 +377,8 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
             request["type"].as_str()
         }
         "computeReadLog" => Some("computeLog"),
+        "kernelCells" => Some("kernelCells"),
+        "kernelCommand" => Some("kernelCommand"),
         _ => None,
     };
     if let Some(kind) = response_type {

@@ -267,6 +267,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-kernel"
+version = "0.1.0"
+dependencies = [
+ "atelier-core",
+ "chrono",
+ "hex",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "atelier-pdf"
 version = "0.1.0"
 dependencies = [
@@ -342,6 +358,7 @@ dependencies = [
  "atelier-harness",
  "atelier-integrations",
  "atelier-kb",
+ "atelier-kernel",
  "atelier-protocol",
  "atelier-providers",
  "atelier-store",

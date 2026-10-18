@@ -38,6 +38,9 @@ const PREUVES_MIGRATION_KEY = "atelier-studio.topbar-surfaces.preuves-v1";
  * demande explicite 2026-08-17) s'épingle après Connaissances. Retiré ensuite
  * par l'utilisateur = respecté. */
 const ANNOTS_MIGRATION_KEY = "atelier-studio.topbar-surfaces.annots-v1";
+/** Migration une-fois : la surface Noyau Python (chantier 5) s'épingle en fin
+ * de barre, à côté des autres surfaces. Retirée ensuite = respecté. */
+const NOYAU_MIGRATION_KEY = "atelier-studio.topbar-surfaces.noyau-v1";
 
 export function readPinned(): TargetId[] {
   try {
@@ -54,6 +57,7 @@ export function readPinned(): TargetId[] {
         localStorage.setItem(TRIM_MIGRATION_KEY, "1");
         localStorage.setItem(PREUVES_MIGRATION_KEY, "1");
         localStorage.setItem(ANNOTS_MIGRATION_KEY, "1");
+        localStorage.setItem(NOYAU_MIGRATION_KEY, "1");
       } catch { /* stockage indisponible */ }
       return DEFAULT_PINNED;
     }
@@ -87,6 +91,13 @@ export function readPinned(): TargetId[] {
         const trimmed = list.slice(0, DEFAULT_PINNED.length);
         localStorage.setItem(PIN_KEY, JSON.stringify(trimmed));
         return trimmed;
+      }
+    }
+    if (!list.includes("noyau") && !localStorage.getItem(NOYAU_MIGRATION_KEY)) {
+      localStorage.setItem(NOYAU_MIGRATION_KEY, "1");
+      if (list.length < MAX_PINNED) {
+        list.push("noyau");
+        localStorage.setItem(PIN_KEY, JSON.stringify(list));
       }
     }
     return list;

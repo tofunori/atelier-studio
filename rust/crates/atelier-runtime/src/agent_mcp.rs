@@ -496,6 +496,7 @@ async fn handle_action(
             crate::agent_mailbox::action_report_to_parent(state, caller_id, req).await
         }
         "show_widget" => crate::widgets::action_show_widget(state, caller_id, req).await,
+        a if a.starts_with("kernel_") => crate::kernel::action(state, caller_id, a, req).await,
         "specialists" => Ok(crate::specialists::action_specialists(
             &atelier_store::read_settings(&state.settings_path()).unwrap_or(Value::Null),
         )),

@@ -140,12 +140,60 @@ pub fn widget_guide_text() -> Value {
     })
 }
 
+pub const PYTHON_TOOL_NAME: &str = "atelier_python";
+
+/// Noyau Python persistant du fil (chantier 5). Toujours listé — la liste
+/// d'outils est figée à l'ouverture de la session — mais il ne s'exécute que
+/// si l'utilisateur a allumé le noyau pour le fil ; sinon le pont répond
+/// `kernel_disabled` et l'agent garde son shell.
+pub fn python_tool_definition() -> Value {
+    json!({
+        "name": PYTHON_TOOL_NAME,
+        "description": "Persistent Python kernel of this conversation (like a notebook: variables and \
+    loaded data stay in memory between calls; every cell is logged). Only works when the user turned it on \
+    for this conversation; otherwise use your shell. Actions: run (code, optional env on first run), \
+    wait (cell), variables, interrupt, restart (optional env), envs, status.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["run", "wait", "variables", "interrupt", "restart", "envs", "status"]
+                },
+                "code": { "type": "string", "description": "Python code of the cell (run). The value of a last bare expression is returned." },
+                "cell": { "type": "integer", "description": "Cell number (wait)" },
+                "env": { "type": "string", "description": "Env name from action envs, or an absolute path (run, restart)" },
+                "waitSeconds": { "type": "integer", "description": "Max seconds to wait before returning status running (default 45, max 50)" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
+/// Ce que `tools/list` sert, dans l'ordre.
+pub fn all_tool_definitions() -> Vec<Value> {
+    vec![
+        tool_definition(),
+        widget_tool_definition(),
+        widget_guide_tool_definition(),
+        python_tool_definition(),
+    ]
+}
+
 /// Traduit un `tools/call` en couple (action, arguments) pour le pont.
 /// `atelier_sessions` porte son action dans ses arguments ; `atelier_widget`
 /// est un outil plat dont l'action est fixe.
 pub fn bridge_call_for(tool_name: &str, args: &Value) -> Option<(String, Value)> {
     match tool_name {
         WIDGET_TOOL_NAME => Some(("show_widget".to_string(), args.clone())),
+        PYTHON_TOOL_NAME => {
+            let action = args
+                .get("action")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())?;
+            Some((format!("kernel_{action}"), args.clone()))
+        }
         TOOL_NAME => {
             let action = args
                 .get("action")
@@ -323,17 +371,28 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_serves_three_tools() {
-        let defs = [
-            tool_definition(),
-            widget_tool_definition(),
-            widget_guide_tool_definition(),
-        ];
+    fn tools_list_serves_four_tools() {
+        let defs = all_tool_definitions();
         let names: Vec<String> = defs
             .iter()
             .map(|d| d["name"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(names, [TOOL_NAME, WIDGET_TOOL_NAME, WIDGET_GUIDE_TOOL_NAME]);
+        assert_eq!(
+            names,
+            [TOOL_NAME, WIDGET_TOOL_NAME, WIDGET_GUIDE_TOOL_NAME, PYTHON_TOOL_NAME]
+        );
+    }
+
+    #[test]
+    fn python_call_routes_to_a_kernel_action_with_its_arguments() {
+        let args = json!({"action": "run", "code": "x = 1", "env": "pymc-albedo"});
+        let (action, forwarded) = bridge_call_for(PYTHON_TOOL_NAME, &args).unwrap();
+        assert_eq!(action, "kernel_run");
+        assert_eq!(forwarded["code"], "x = 1");
+        assert!(bridge_call_for(PYTHON_TOOL_NAME, &json!({})).is_none());
+        // La description repart à chaque tour : elle reste courte.
+        let def = python_tool_definition();
+        assert!(def["description"].as_str().unwrap().len() < 500);
     }
 
     #[test]

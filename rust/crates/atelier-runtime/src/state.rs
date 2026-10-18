@@ -107,6 +107,8 @@ struct Inner {
     delivery_tx: tokio::sync::mpsc::UnboundedSender<AgentDelivery>,
     delivery_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<AgentDelivery>>>,
     mailbox_drain_lock: Mutex<()>,
+    /// Noyau Python persistant par fil (chantier 5).
+    kernels: Arc<atelier_kernel::KernelManager>,
 }
 
 impl AppState {
@@ -128,6 +130,16 @@ impl AppState {
         let mailbox = AgentMailboxStore::open(paths.app_dir.join("agent-mailbox.json"));
         let (delivery_tx, delivery_rx) = tokio::sync::mpsc::unbounded_channel();
         let (bus, _) = broadcast::channel(128);
+        let kernels = Arc::new(atelier_kernel::KernelManager::new(
+            &paths.app_dir,
+            &std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_default(),
+        ));
+        let kernel_bus = bus.clone();
+        kernels.set_listener(Arc::new(move |event| {
+            let _ = kernel_bus.send(crate::kernel::cell_message(&event));
+        }));
         let (terminal_bus, _) = broadcast::channel(512);
         let terminal_sink = terminal_bus.clone();
         let terminals = Arc::new(TerminalHub::with_event_sink(move |event| {
@@ -202,6 +214,7 @@ impl AppState {
                 delivery_tx,
                 delivery_rx: Mutex::new(Some(delivery_rx)),
                 mailbox_drain_lock: Mutex::new(()),
+                kernels,
             }),
         };
 
@@ -361,6 +374,10 @@ impl AppState {
 
     pub fn terminals(&self) -> &TerminalHub {
         &self.inner.terminals
+    }
+
+    pub fn kernels(&self) -> &atelier_kernel::KernelManager {
+        &self.inner.kernels
     }
 
     pub fn app_dir(&self) -> &std::path::Path {

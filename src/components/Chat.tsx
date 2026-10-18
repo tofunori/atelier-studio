@@ -19,6 +19,7 @@ import { IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { effortOptionsFor, sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
+import { MdThreadContext } from "./chat/mdThread";
 import { ToolOutputLine, distinctToolActions, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { useReviews } from "./chat/useReviews";
@@ -142,6 +143,8 @@ export default function Chat(p: {
   consigneDuFil?: ConsigneDuFil | null;
   onChoisirConsigne?: (choix: ConsigneDuFil | null) => void;
   onOuvrirReglagesConsignes?: (section?: string) => void;
+  /** Noyau Python persistant du fil actif (chantier 5) ; absent sans fil. */
+  kernelOn?: boolean;
   layout: "split" | "chat" | "atelier";
   onToggleExpand: () => void;
   usage: { context: number; output: number; cost: number | null; turns: number | null; window?: number | null } | null;
@@ -1100,6 +1103,7 @@ export default function Chat(p: {
   ) : null;
 
   return (
+    <MdThreadContext.Provider value={p.threadId ?? null}>
     <div className={`chat ${localSelectedAgent ? "with-agent-detail" : ""}`}>
       <div className="chat-primary">
       {!p.threadId && p.notice && <div className="chat-notice-home"><ChatNotice notice={p.notice}/></div>}
@@ -1199,6 +1203,7 @@ export default function Chat(p: {
           consigneDuFil: p.consigneDuFil ?? null,
           onChoisirConsigne: p.onChoisirConsigne ?? (() => {}),
           onOuvrirReglagesConsignes: p.onOuvrirReglagesConsignes ?? (() => {}),
+          kernel: p.threadId && p.kernelOn !== undefined ? { on: p.kernelOn } : undefined,
         }}
       />
       {/* DANS le panneau, délibérément : la webview NATIVE du navigateur peint
@@ -1249,5 +1254,6 @@ export default function Chat(p: {
         events={p.eventsByThreadId?.get(localSelectedAgent.threadId) ?? []}
         onClose={() => setLocalSelectedAgent(null)} /> : null}
     </div>
+    </MdThreadContext.Provider>
   );
 }
