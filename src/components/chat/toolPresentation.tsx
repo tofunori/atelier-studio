@@ -9,6 +9,9 @@ import { eventLabel, t } from "../../lib/i18n";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { highlightCode } from "./md";
 import { RowButton } from "../ui";
+import { fmtClock } from "./LiveClock";
+
+export { fmtClock };
 
 export type ToolCat =
   | "search" | "read" | "list" | "edit" | "command" | "web" | "todo"
@@ -174,7 +177,7 @@ function isJsonText(text: string): boolean {
   }
 }
 
-/** Durée d'un appel d'outil : lisible du ms à la minute, virgule française
+/** Durée d'un appel d'outil : lisible du ms à l'heure, virgule française
  * sous 10 s (le seul régime où la décimale change la lecture). */
 export function fmtToolDur(ms: number): string {
   if (ms < 1000) return `${Math.max(1, Math.round(ms))} ms`;
@@ -183,10 +186,53 @@ export function fmtToolDur(ms: number): string {
     const short = s.toFixed(1);
     return short.endsWith(".0") ? `${Math.round(s)} s` : `${short.replace(".", ",")} s`;
   }
-  if (s < 60) return `${Math.round(s)} s`;
-  const m = Math.floor(s / 60);
-  const rs = Math.round(s % 60);
-  return rs ? `${m} min ${rs} s` : `${m} min`;
+  return fmtClock(ms);
+}
+
+/** Phrase que l'agent a écrite pour décrire sa commande (`description` de
+ * l'outil Bash de Claude : « Vérifie la largeur des figures »). Elle titre la
+ * rangée ; la commande complète reste dans le détail déplié. Codex n'en
+ * fournit pas : chaîne vide, la rangée garde la commande. */
+export function toolPhrase(action: ToolAction): string {
+  if (action.kind !== "tool_update" || !shellTool(action.name)) return "";
+  const input = action.input as Record<string, unknown> | null | undefined;
+  const raw = input && typeof input === "object" ? input.description : null;
+  return typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
+}
+
+/** Instant où l'interface a vu un appel d'outil pour la première fois. Le
+ * réducteur réécrit `ts` à chaque mise à jour (chaque bout de sortie Codex),
+ * il ne peut donc pas dater le DÉBUT d'une commande : on le retient ici, au
+ * niveau du module, pour qu'un démontage de la liste virtualisée ne remette
+ * pas le chrono à zéro. */
+const toolFirstSeen = new Map<string, number>();
+export function toolStartedAt(action: Extract<AgentEvent, { kind: "tool_update" }>): number {
+  const known = toolFirstSeen.get(action.id);
+  if (known != null) return known;
+  const now = Date.now();
+  if (toolFirstSeen.size > 2000) toolFirstSeen.clear();
+  toolFirstSeen.set(action.id, now);
+  return now;
+}
+
+/** Dernières lignes non vides d'une sortie, pour la traîne d'une commande en
+ * cours (Codex envoie sa sortie au fil de l'eau ; Claude seulement à la fin). */
+export function outputTail(output: string, lines = 3): string[] {
+  return stripAnsi(output).split(/\r?\n/u).map((line) => line.replace(/\s+$/u, ""))
+    .filter((line) => line.trim() !== "").slice(-lines);
+}
+
+/** État d'une rangée, dans sa colonne fixe : anneau fin pendant l'exécution,
+ * coche neutre une fois faite, croix (seule couleur) en cas d'échec. */
+export function ToolStateGlyph({ outcome }: { outcome: ToolOutcome | "none" }) {
+  const c = { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
+    strokeWidth: 1.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  if (outcome === "running") {
+    return <svg {...c} className="tool-run-ring"><circle cx="8" cy="8" r="5.5" opacity=".28" /><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" /></svg>;
+  }
+  if (outcome === "done") return <svg {...c} className="tool-status-icon"><path d="M3.5 8.5l3 3 6-7" /></svg>;
+  if (outcome === "failed") return <svg {...c} className="tool-status-icon"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg>;
+  return null;
 }
 
 /** Nom porté par l'input d'un appel : le fichier, le motif, ou la première
@@ -235,8 +281,10 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
   // Rangée compacte : le libellé sémantique d'abord, complété par le NOM que
   // porte l'input quand ce libellé reste générique (« Commande exécutée »).
-  const compactLabel = compact ? summarizeActivity([event]).label : "";
-  const compactTarget = compact ? toolInputName(event.input) : "";
+  // La phrase rédigée par l'agent, quand il y en a une, remplace les deux.
+  const phrase = compact ? toolPhrase(event) : "";
+  const compactLabel = compact ? (phrase || summarizeActivity([event]).label) : "";
+  const compactTarget = compact && !phrase ? toolInputName(event.input) : "";
   const compactNamed = Boolean(compactTarget) && !compactLabel.toLowerCase().includes(compactTarget.toLowerCase());
   const trimmedOutput = output.trim();
   // Requêtes d'une recherche web (Rust web_search_update → input.queries) :
@@ -252,8 +300,9 @@ export const ToolOutputLine = memo(function ToolOutputLine(
       && isJsonText(trimmedOutput),
     [cleanOutput.length, trimmedOutput],
   );
+  const failedTitle = failed ? t("chat.action-failed") : undefined;
   return (
-    <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""} ${outcome === "done" ? "is-done" : ""}`}>
+    <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""} ${outcome === "done" ? "is-done" : ""}${compact ? " is-compact" : ""}`}>
       <RowButton className="tool-output-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className="tool-output-icon" data-activity-icon={icon.cat}>
           <ToolGlyph icon={icon} />
@@ -263,24 +312,38 @@ export const ToolOutputLine = memo(function ToolOutputLine(
           {compactNamed ? <span className="tool-output-target">{compactTarget}</span> : null}
           {!compact && event.source ? <span className="tool-source">{event.source}</span> : null}
         </span>
+        {/* Rangée compacte : UNE grille fixe (icône · texte · durée · état ·
+            chevron), les colonnes vides restent posées pour que durée, état et
+            chevron tombent au même endroit sur toutes les rangées du fil. */}
+        {compact ? (
+          <>
+            {/* Un échec montre son code de sortie, plus parlant que sa durée. */}
+            <span className="tool-duration">
+              {failed && event.exitCode != null && event.exitCode !== 0
+                ? `exit ${event.exitCode}`
+                : event.durationMs != null && event.durationMs > 0 ? fmtToolDur(event.durationMs) : null}
+            </span>
+            <span className="tool-status" title={failedTitle} aria-label={failedTitle}>
+              <ToolStateGlyph outcome={outcome} />
+            </span>
+            <Tick open={open} />
+          </>
+        ) : null}
         {!compact && summary && <span className="tool-output-summary">{summary}</span>}
-        {event.exitCode != null && event.exitCode !== 0 && (
+        {!compact && event.exitCode != null && event.exitCode !== 0 && (
           <span className="tool-exit">exit {event.exitCode}</span>
         )}
-        {event.durationMs != null && event.durationMs > 0 && (
+        {!compact && event.durationMs != null && event.durationMs > 0 && (
           <span className="tool-duration">{fmtToolDur(event.durationMs)}</span>
         )}
         {/* La COULEUR est réservée à l'échec (système de design) : une action
-            réussie n'a qu'une coche, sans le mot d'état brut du provider. */}
-        {event.status && (outcome !== "running" || !compact) && (
+            réussie n'a qu'une coche neutre, sans le mot d'état brut du provider. */}
+        {!compact && event.status && (
           <span className="tool-status">
             {outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
-            {compact
-              ? (failed ? t("chat.action-failed") : outcome === "done" ? null : event.status)
-              : event.status}
+            {event.status}
           </span>
         )}
-        {compact && <Tick open={open} />}
       </RowButton>
       {queries.length > 1 && (!compact || open) && (
         <div className="tool-query-chips" data-testid="tool-query-chips">
@@ -678,6 +741,9 @@ export function activeToolLabel(action: Extract<AgentEvent, { kind: "tool" | "to
     ? action.status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? ""
     : "";
   if (cat === "command") {
+    // La phrase de l'agent dit déjà ce que fait la commande, au présent.
+    const phrase = toolPhrase(action);
+    if (phrase) return phrase;
     const completed = COMPLETED_STATUS.test(status);
     if (/\b(test|vitest|jest|pytest|cargo test|swift test|xcodebuild test)\b/iu.test(target)) {
       return t(completed ? "chat.activity-ran-tests" : "chat.activity-running-tests");

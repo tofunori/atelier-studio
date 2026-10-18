@@ -280,12 +280,16 @@ pub fn map_turn_notification(method: &str, params: &Value, state: &mut TurnMapSt
             let delta = params.get("delta").and_then(Value::as_str).unwrap_or("");
             let output = state.command_outputs.entry(id.to_string()).or_default();
             output.push_str(delta);
+            // Pendant l'exécution, c'est la FIN qui compte : le fil montre les
+            // dernières lignes sous la rangée en cours. Garder le début figeait
+            // cette traîne dès 64 Kio de sortie (un `cargo test` bavard). La
+            // sortie finale vient de `aggregatedOutput`, pas de ce tampon.
             if output.len() > TOOL_OUTPUT_MAX {
-                let mut boundary = TOOL_OUTPUT_MAX;
-                while boundary > 0 && !output.is_char_boundary(boundary) {
-                    boundary -= 1;
+                let mut start = output.len() - TOOL_OUTPUT_MAX;
+                while start < output.len() && !output.is_char_boundary(start) {
+                    start += 1;
                 }
-                output.truncate(boundary);
+                output.drain(..start);
             }
             let fallback = json!({"id": id, "command": "", "cwd": null, "commandActions": []});
             let command = state.command_items.get(id).unwrap_or(&fallback);
@@ -1305,6 +1309,30 @@ mod tests {
         assert_eq!(delta[0]["detail"], "pwd && sed -n '1,20p' src/App.tsx");
         assert_eq!(delta[0]["input"]["commandActions"][1]["type"], "read");
         assert_eq!(delta[0]["output"], "first line\n");
+    }
+
+    #[test]
+    fn command_output_delta_keeps_the_latest_output_past_the_cap() {
+        let mut st = TurnMapState::default();
+        map_turn_notification(
+            "item/started",
+            &json!({"item":{"id":"cmd-2","type":"commandExecution","command":"cargo test","status":"inProgress"}}),
+            &mut st,
+        );
+        let filler = "é".repeat(TOOL_OUTPUT_MAX / 2 + 10);
+        map_turn_notification(
+            "item/commandExecution/outputDelta",
+            &json!({"itemId":"cmd-2","delta":filler}),
+            &mut st,
+        );
+        let last = map_turn_notification(
+            "item/commandExecution/outputDelta",
+            &json!({"itemId":"cmd-2","delta":"\ntest noyau::redemarre ... ok\n"}),
+            &mut st,
+        );
+        let output = last[0]["output"].as_str().unwrap();
+        assert!(output.len() <= TOOL_OUTPUT_MAX);
+        assert!(output.ends_with("test noyau::redemarre ... ok\n"));
     }
 
     #[test]

@@ -4,12 +4,12 @@ import type { ToolAction } from '../../lib/chat/turnViewModel';
 import type { AgentEvent } from '../../lib/ws';
 import { isStoppedTerminal } from '../../lib/chat/turnViewModel';
 import type { PluginCatalogEntry } from '../../lib/plugins';
-import { activityPartKind, distinctToolActions, fmtToolDur, summarizeActivity, type SummaryPartKind, Tick, ToolGlyph, toolOutcome } from './toolPresentation';
+import { activeToolLabel, activityPartKind, distinctToolActions, fmtToolDur, outputTail, summarizeActivity, type SummaryPartKind, Tick, tickerRows, ToolGlyph, toolOutcome, toolStartedAt } from './toolPresentation';
 import { AgentActivityGroup, isAgentActivityAction, type AgentDisplay, type AgentToolAction } from './AgentActivity';
 import type { ActivityAction } from './groupActivityRows';
 import { EditLine } from './turnParts';
 import { TurnActivityStatus } from './turns';
-import { Working } from './turnParts';
+import { LiveClock } from './LiveClock';
 
 /** The turn owns disclosure; its actions stay in chronological order. */
 export function ActivityBatch(p: {
@@ -83,12 +83,23 @@ function ThoughtLeaf({ text, collapsed }: { text: string; collapsed: boolean }) 
         onClick={() => setOpen((previous) => !previous)}
       >
         <ToolGlyph icon={{ cat: 'thinking' }} />
-        <span className="activity-thought-preview">{preview}</span>
+        <span className="activity-thought-preview">{inlineCode(preview)}</span>
+        {/* Colonnes durée et état vides : le chevron tombe sous ceux des outils. */}
+        <span className="activity-thought-meta" aria-hidden="true" />
+        <span className="activity-thought-state" aria-hidden="true" />
         <Tick open={open} />
       </RowButton>
       {open && <div className="activity-thought-body">{text}</div>}
     </div>
   );
+}
+
+/** Aperçu d'une pensée : le code en ligne (`bascule.py`) passe en mono au
+ * lieu de montrer ses backticks bruts. */
+function inlineCode(text: string): ReactNode {
+  const parts = text.split(/`([^`\n]+)`/u);
+  if (parts.length === 1) return text;
+  return parts.map((part, index) => (index % 2 ? <code key={index}>{part}</code> : part));
 }
 
 /** Une erreur reste LISIBLE sous une étape repliée : elle vit à côté du pli,
@@ -178,6 +189,13 @@ function ClusterLine(p: {
   const failed = p.actions.some((action) => action.kind === 'tool_update' && toolOutcome(action) === 'failed');
   const soloRunning = p.actions.length === 1
     && (p.actions[0].kind === 'tool' || toolOutcome(p.actions[0] as Extract<ToolAction, { kind: 'tool_update' }>) === 'running');
+  // L'appel qui tourne, s'il est seul : il prête à la rangée vivante son
+  // chrono (le SIEN, pas celui du tour), sa commande en mono et sa traîne.
+  const running = p.actions.filter((action): action is Extract<ToolAction, { kind: 'tool_update' }> => (
+    action.kind === 'tool_update' && toolOutcome(action) === 'running'));
+  const runningOne = p.live && running.length === 1 ? running[0] : null;
+  const liveRow = runningOne && activeToolLabel(runningOne) === p.live?.label ? tickerRows([runningOne])[0] : null;
+  const tail = runningOne ? outputTail(runningOne.output) : [];
   // Le libellé de synthèse attend 160 ms de stabilité : une rafale d'outils de
   // 40 ms faisait clignoter la ligne (leçon ActivityGroup, 2026-08).
   const nextLabel = summary.label;
@@ -208,13 +226,24 @@ function ClusterLine(p: {
             {!soloRunning && <span className="activity-cluster-summary">{shownLabel}</span>}
             {!soloRunning && <span className="activity-cluster-sep" aria-hidden="true"> · </span>}
             <span className="active-turn-tail activity-cluster-live">
-              <span className="turn-quiet is-on turn-working-shimmer" role="status" aria-live="polite">{p.live.label}</span>
+              {/* Pas de balayage : l'anneau de la colonne d'état dit déjà que
+                  ça tourne (une seule boucle par rangée). */}
+              <span className="turn-quiet is-on activity-live-label" role="status" aria-live="polite">
+                {liveRow?.code != null
+                  ? <>{liveRow.pre?.trim()}<code className="activity-live-target">{liveRow.code}</code>{liveRow.post}</>
+                  : p.live.label}
+              </span>
             </span>
           </>
         : shownLabel}
       meta={p.live
-        ? <Working since={p.live.since} compact />
+        ? (runningOne ? <LiveClock since={toolStartedAt(runningOne)} /> : undefined)
         : (p.stamp ?? (totalMs > 0 ? fmtToolDur(totalMs) : undefined))}
+      aside={tail.length ? (
+        <div className="activity-live-tail" aria-hidden="true">
+          {tail.map((line, index) => <div key={`${index}:${line}`}>{line}</div>)}
+        </div>
+      ) : undefined}
     >
       {p.children}
     </ActivityDisclosure>

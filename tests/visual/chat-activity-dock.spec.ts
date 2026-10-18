@@ -18,7 +18,10 @@ test('live activity stays in the transcript tail and shows above the composer at
   await expect(page.getByRole('button', { name: 'Interrompre', exact: true })).toHaveCount(1);
   await expect(page.locator('.turn-activity-glyph')).toBeVisible();
   await expect(page.locator('.messages .active-turn-header')).toHaveCount(0);
-  const elapsed = page.locator('.active-turn-tail .turn-activity-elapsed');
+  // Le temps du TOUR vit à côté du bouton Arrêter (refonte 2026-10-18) ; les
+  // rangées du fil ne portent que la durée de leur propre action.
+  await expect(page.locator('.active-turn-tail .turn-activity-elapsed')).toHaveCount(0);
+  const elapsed = page.locator('.composer .composer-turn-clock');
   await expect(elapsed).toBeVisible();
   const initialTime = await elapsed.innerText();
   await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-duration', '3s');
@@ -35,11 +38,15 @@ test('live activity stays in the transcript tail and shows above the composer at
     const composer = (await page.locator('.composer').boundingBox())!;
     expect(box.y + box.height).toBeLessThanOrEqual(composer.y);
     expect(box.y).toBeGreaterThan(0);
-    await expect(status).toHaveCSS('animation-name', 'turn-working-sweep');
-    await expect(status).toHaveCSS('animation-play-state', 'running');
   };
   await expect(status).toContainText('Exécute', { timeout: 10000 });
   await checkAboveComposer();
+  // Une commande en cours : plus de balayage sur son libellé, l'anneau de la
+  // colonne d'état porte seul le mouvement.
+  const ring = page.locator('.activity-cluster.is-active .ui-activity-state .tool-run-ring');
+  await expect(ring).toBeVisible();
+  await expect(ring).toHaveCSS('animation-name', 'tool-run-spin');
+  await expect(status).toHaveCSS('animation-name', 'none');
   await expect(status).toContainText('Rédaction', { timeout: 10000 });
   await checkAboveComposer();
   await expect(elapsed).not.toHaveText(initialTime);
@@ -61,12 +68,12 @@ test('live activity stays in the transcript tail and shows above the composer at
   await expect.poll(distanceToEnd).toBeLessThanOrEqual(2);
   await checkAboveComposer();
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-name', 'none');
+  await expect(page.locator('.turn-activity-glyph, .tool-run-ring').first()).toHaveCSS('animation-name', 'none');
   await expect(status).toHaveCSS('animation-name', 'none');
   await expect(status).not.toHaveCSS('color', 'rgba(0, 0, 0, 0)');
 });
 
-test('tool disclosures keep readable sizing, a nearby chevron and keyboard access', async ({ page }) => {
+test('tool disclosures keep readable sizing, a row-end chevron and keyboard access', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 760 });
   await page.goto('/#chatbench-slottransition');
   const trigger = page.locator('.ui-activity-trigger').first();
@@ -74,9 +81,13 @@ test('tool disclosures keep readable sizing, a nearby chevron and keyboard acces
   await expect(trigger).toHaveCSS('font-size', '13px');
   await expect(trigger).toHaveCSS('min-height', '36px');
   await expect(trigger.locator('.ui-activity-icon svg')).toHaveCSS('width', '15px');
-  const label = (await trigger.locator('.ui-activity-label').boundingBox())!;
+  // Le chevron ferme la rangée (même colonne que les rangées d'outil), il
+  // n'est plus collé au libellé : il ne peut donc plus mordre sur son fondu.
+  const row = (await trigger.boundingBox())!;
   const chevron = (await trigger.locator('.tool-tick').boundingBox())!;
-  expect(chevron.x - label.x - label.width).toBeLessThanOrEqual(12);
+  expect(Math.abs(row.x + row.width - 8 - (chevron.x + chevron.width))).toBeLessThanOrEqual(1);
+  const label = (await trigger.locator('.ui-activity-label').boundingBox())!;
+  expect(label.x + label.width).toBeLessThanOrEqual(chevron.x);
   await trigger.focus();
   await page.keyboard.press('Enter');
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
@@ -106,12 +117,11 @@ test('short action labels end before the fade, including accented final letters'
         range.selectNodeContents(el);
         const content = range.getBoundingClientRect();
         const box = el.getBoundingClientRect();
-        const tick = el.parentElement!.querySelector('.tool-tick')!.getBoundingClientRect();
-        return { textEnd: content.right, fadeStart: box.right - 16, tickStart: tick.left };
+        const meta = el.parentElement!.querySelector('.ui-activity-meta')!.getBoundingClientRect();
+        return { textEnd: content.right, fadeStart: box.right - 16, metaStart: meta.left };
       }, text);
       expect(geometry.textEnd).toBeLessThanOrEqual(geometry.fadeStart + 1);
-      expect(geometry.tickStart - geometry.textEnd).toBeGreaterThanOrEqual(8);
-      expect(geometry.tickStart - geometry.textEnd).toBeLessThanOrEqual(12);
+      expect(geometry.metaStart - geometry.textEnd).toBeGreaterThanOrEqual(8);
     }
   }
 });

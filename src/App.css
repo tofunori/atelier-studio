@@ -669,7 +669,7 @@ button.kernel-file:hover { color: var(--text-primary); }
   color: var(--text-disabled); white-space: nowrap; }
 .tool-status-icon { width: 12px; height: 12px; flex: none; stroke-width: 1.35; }
 .tool-duration { color: var(--text-disabled); white-space: nowrap;
-  font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
+  font-variant-numeric: tabular-nums; font-size: var(--fs-s); }
 .timeline-stamp { color: var(--text-disabled); font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tool-exit { color: var(--u-hot, #e06c75); white-space: nowrap;
@@ -678,10 +678,10 @@ button.kernel-file:hover { color: var(--text-primary); }
 .tool-source { margin-left: 6px; color: var(--text-disabled); font: var(--eyebrow-size)/1 var(--code-font);
   text-transform: uppercase; letter-spacing: var(--eyebrow-tracking); }
 .tool-output.failed .tool-status { color: var(--u-hot, #e06c75); }
-/* Le mot d'état est le SEUL élément coloré de la rangée : l'icône de tête et
-   le nom de l'outil restent neutres. Classe `is-done` et non `done` — `.done`
-   est déjà pris plus haut par les lignes de fin de tour. */
-.tool-output.is-done .tool-status { color: var(--status-success); }
+/* La couleur est réservée à l'ÉCHEC : une réussite garde une coche neutre,
+   l'icône de tête et le nom de l'outil restent neutres. Classe `is-done` et
+   non `done` — `.done` est déjà pris plus haut par les lignes de fin de tour. */
+.tool-output.is-done .tool-status { color: var(--text-disabled); }
 /* min-width:0 sur toute la chaîne grid : sans lui, un item de grille refuse de
    rétrécir sous la largeur de son contenu — un input/output large poussait tout
    le chat en scroll horizontal. */
@@ -5970,20 +5970,63 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .activity-action-list > :is(.tool-output, .ui-activity, .tool) { margin: 0; width: 100%; min-width: 0; }
 .activity-action-list .tool-output-head { min-height: 36px; padding-block: 8px; }
 .activity-action-list .tool-output-name { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+/* Rangées d'action du fil (outils, pensées, ligne vivante) : UNE grille —
+   icône · texte · durée (56 px) · état (12 px) · chevron (12 px) — et le même
+   survol que les rangées .ui-activity (fond qui déborde de 8 px). */
+.tool-output.is-compact .tool-output-head, .activity-thought-head {
+  grid-template-columns: 15px minmax(0, 1fr) 56px 12px 12px;
+  width: calc(100% + 16px); margin: 0 -8px; padding: 8px; border-radius: var(--radius-control);
+  transition: background-color var(--motion-fast) ease; }
+.tool-output.is-compact .tool-output-head:hover, .tool-output.is-compact.open .tool-output-head,
+.activity-thought-head:hover, .activity-thought.open .activity-thought-head {
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
+.activity-action-list .tool-output.is-compact .tool-output-name, .tool-output.is-compact .tool-output-name {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+.tool-output.is-compact .tool-output-head:hover .tool-output-name { color: var(--text-primary); }
+.tool-output.is-compact .tool-output-target { margin-left: 8px; color: var(--text-muted);
+  font-family: var(--code-font); font-size: var(--fs-m); }
+.tool-output.is-compact .tool-duration { justify-self: end; }
+.tool-output.is-compact .tool-status { justify-content: center; width: 12px; height: 12px; }
+.tool-output.is-compact .tool-output-head > .tool-tick { width: 12px; height: 12px; color: var(--text-disabled); }
+.tool-output.is-compact.failed .tool-duration, .tool-output.is-compact.failed .tool-status { color: var(--status-error); }
+.tool-output.is-compact:not(.is-done):not(.failed) .tool-status { color: var(--text-muted); }
+/* Anneau d'une action en cours : la seule boucle d'une rangée vivante (le
+   libellé ne balaie plus). 1 s par tour, coupé sous reduced-motion. */
+.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: tool-run-spin 1s linear infinite; }
+@keyframes tool-run-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: none; }
+  .tool-output.is-compact .tool-output-head, .activity-thought-head { transition: none; } }
+/* Ligne vivante : verbe au plein contraste, commande en mono, puis les trois
+   dernières lignes de sortie (Codex seulement : Claude n'envoie la sortie
+   qu'à la fin de la commande), alignées sur le texte, sans cadre. */
+.activity-live-label { color: var(--text-primary); }
+.activity-live-target { margin-left: 8px; padding: 0; background: none; border-radius: 0;
+  color: var(--text-muted); font-family: var(--code-font); font-size: var(--fs-m); }
+.activity-live-tail { margin: -4px 0 4px 23px; min-width: 0; color: var(--text-disabled);
+  font: var(--fs-s)/1.6 var(--code-font); font-variant-numeric: tabular-nums; }
+.activity-live-tail > div { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.activity-live-tail > div:first-child:not(:last-child) { opacity: .55; }
+.activity-live-tail > div:last-child { color: var(--text-muted); }
+/* Temps du tour, à côté du bouton Arrêter. */
+.composer-turn-clock { align-self: center; padding: 0 4px; color: var(--text-muted);
+  font-size: var(--fs-m); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Une ÉTAPE : la ligne de synthèse, ses erreurs (toujours visibles) puis
    l'unique ligne de statut vivant du fil. */
 /* Grappe d'une étape : le déclencheur .ui-activity (max-width + marges auto,
    pensé pour flotter au centre de la colonne) doit ici occuper toute la
    largeur, comme dans .working-stack — sinon la ligne de synthèse se centre. */
 .activity-cluster { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.activity-cluster > .ui-activity { width: 100%; max-width: none; margin-left: 0; margin-right: 0; }
+.activity-cluster > .ui-activity { width: 100%; max-width: none; margin: 0; }
 .activity-cluster-live { width: 100%; max-width: none; margin: 0; }
 .activity-cluster-live .turn-quiet { min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 .activity-batch-thought { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 8px 4px; color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); line-height: 1.6; white-space: pre-wrap; }
 .activity-batch-thought svg { flex: 0 0 auto; margin-top: 2px; }
 .activity-thought { min-width: 0; color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); }
-.activity-thought-head { display: grid; grid-template-columns: 15px minmax(0, 1fr) auto; width: 100%; min-height: 36px; align-items: center; gap: 8px; padding: 8px 0; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.activity-thought-head { display: grid; min-height: 36px; align-items: center; gap: 8px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.activity-thought-head > .tool-tick { width: 12px; height: 12px; color: var(--text-disabled); }
+.activity-thought-preview code { font-family: var(--code-font); font-size: var(--fs-m); color: inherit; background: none; padding: 0; }
 .activity-thought-head:hover .activity-thought-preview { color: var(--text-secondary); }
 .activity-thought-head > svg { width: 15px; height: 15px; flex: 0 0 15px; }
 .activity-thought-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

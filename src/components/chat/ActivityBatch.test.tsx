@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { renderUi } from '../../test/render';
 import { ActivityBatch, ActivityStep, mergeSettledStep, segmentStep } from './ActivityBatch';
-import { ToolOutputLine } from './toolPresentation';
+import { activeToolLabel, ToolOutputLine } from './toolPresentation';
 import type { ToolAction } from '../../lib/chat/turnViewModel';
 afterEach(cleanup);
 const command = (id: string): ToolAction => ({ kind: 'tool_update', id, name: 'Bash', status: 'completed', output: id });
@@ -36,6 +36,7 @@ describe('ActivityBatch', () => {
     const button = screen.getByRole('button');
     expect(button.getAttribute('aria-expanded')).toBe('false');
     expect(screen.getByText('exit 1')).toBeTruthy();
+    expect(document.querySelector('.tool-status')?.getAttribute('aria-label')).toBeTruthy();
     fireEvent.click(button);
     expect(screen.getByText('failure')).toBeTruthy();
   });
@@ -80,10 +81,11 @@ describe('ActivityStep', () => {
     const live = document.querySelectorAll('.activity-cluster-live [role=status]');
     expect(live).toHaveLength(1);
     expect(live[0].textContent).toContain('Réflexion en cours');
-    // Le reflet vit sur le STATUT fusionné, jamais sur la synthèse : sinon la
-    // phrase entière clignoterait (v2, 2026-09-10).
-    expect(live[0]).toHaveClass('turn-working-shimmer');
+    // Plus de balayage sur la ligne vivante (refonte 2026-10-18) : l'anneau de
+    // la colonne d'état porte seul le mouvement, et la synthèse reste fixe.
+    expect(live[0]).not.toHaveClass('turn-working-shimmer');
     expect(document.querySelector('.ui-activity-label.is-shimmering')).toBeNull();
+    expect(document.querySelector('.ui-activity-state .tool-run-ring')).toBeTruthy();
   });
 
   it('étape active de deux outils : une seule ligne fusionnée, rangées au clic', () => {
@@ -165,6 +167,32 @@ describe('segmentStep', () => {
 describe('ActivityStep — ligne vivante fusionnée', () => {
   const timed = (id: string, ms: number) => ({ ...command(id), durationMs: ms }) as ToolAction;
 
+  it('commande seule en cours : sa commande en mono, SON chrono, sa traîne de sortie', () => {
+    const running = { kind: 'tool_update', id: 'run-1', name: 'Bash', status: 'inProgress', output: 'cas a ... ok\n\ncas b ... ok\ncas c ... ok\ncas d ... ok\n',
+      input: { command: 'python scripts/verifier.py --dpi 300' } } as Extract<ToolAction, { kind: 'tool_update' }>;
+    renderUi(<ActivityStep {...props} actions={[running]} active liveLabel={activeToolLabel(running)} liveSince={Date.now() - 60_000} />);
+    const line = document.querySelector('.activity-cluster.is-active .ui-activity') as HTMLElement;
+    expect(line.querySelector('.activity-live-target')?.textContent).toBe('python scripts/verifier.py --dpi 300');
+    // Le chrono part de l'appel, pas du tour commencé une minute plus tôt.
+    expect(line.querySelector('.ui-activity-meta')?.textContent).toBe('1 s');
+    expect(line.querySelector('.ui-activity-state .tool-run-ring')).toBeTruthy();
+    const tail = [...line.querySelectorAll('.activity-live-tail > div')].map((row) => row.textContent);
+    expect(tail).toEqual(['cas b ... ok', 'cas c ... ok', 'cas d ... ok']);
+    // Le chevron ferme la rangée, après la méta et l'état.
+    const trigger = line.querySelector('.ui-activity-trigger') as HTMLElement;
+    expect(trigger.lastElementChild).toHaveClass('tool-tick');
+  });
+
+  it('commande Claude décrite : la phrase de l’agent titre la ligne vivante', () => {
+    const running = { kind: 'tool_update', id: 'run-2', name: 'Bash', status: 'running', output: '',
+      input: { command: 'for f in a.png b.png; do sips -g pixelWidth "$f"; done', description: 'Vérifie la largeur des figures' } } as ToolAction;
+    renderUi(<ActivityStep {...props} actions={[running]} active liveLabel="Vérifie la largeur des figures" liveSince={Date.now()} />);
+    const status = document.querySelector('.activity-cluster-live [role=status]') as HTMLElement;
+    expect(status.textContent).toBe('Vérifie la largeur des figures');
+    expect(document.querySelector('.activity-live-target')).toBeNull();
+    expect(document.querySelector('.activity-live-tail')).toBeNull();
+  });
+
   it('fusionne « synthèse · statut » sur une ligne, chrono en méta', () => {
     const view = renderUi(<ActivityStep {...props} actions={[timed('a', 1200), timed('b', 800), timed('c', 1000)]}
       active liveLabel="Réflexion en cours…" liveSince={Date.now() - 3000} />);
@@ -177,9 +205,10 @@ describe('ActivityStep — ligne vivante fusionnée', () => {
     expect(label.querySelector('.activity-cluster-sep')?.textContent).toContain('·');
     const status = label.querySelector('.active-turn-tail.activity-cluster-live [role=status]') as HTMLElement;
     expect(status.textContent).toBe('Réflexion en cours…');
-    // Méta = chrono du tour tant que ça travaille, PAS la durée cumulée.
-    expect(line.querySelector('.ui-activity-meta .turn-activity-elapsed')).toBeTruthy();
-    expect(line.querySelector('.ui-activity-meta')?.textContent).not.toBe('3 s');
+    // Aucun outil ne tourne : ni durée cumulée ni chrono du tour (celui-ci vit
+    // à côté du bouton Arrêter) ; l'anneau dit que l'étape travaille encore.
+    expect(line.querySelector('.ui-activity-meta')?.textContent).toBe('');
+    expect(line.querySelector('.ui-activity-state .tool-run-ring')).toBeTruthy();
 
     // Une fois l'étape posée, la MÊME ligne redevient une synthèse simple.
     view.rerender(<ActivityStep {...props} actions={[timed('a', 1200), timed('b', 800), timed('c', 1000)]} />);

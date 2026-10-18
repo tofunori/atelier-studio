@@ -20,7 +20,7 @@ import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { effortOptionsFor, sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
 import { MdThreadContext } from "./chat/mdThread";
-import { ToolOutputLine, distinctToolActions, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
+import { ToolOutputLine, distinctToolActions, fmtClock, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { useReviews } from "./chat/useReviews";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -921,13 +921,8 @@ export default function Chat(p: {
     [openFolds, p.events, turnViewModels],
   );
 
-  const fmtWorkDur = (ms: number) => {
-    const s = Math.max(1, Math.round(ms / 1000));
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
-    return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
-  };
+  // Un seul format de durée dans tout le fil (« 44 s », « 3 min 47 s »).
+  const fmtWorkDur = fmtClock;
 
   const actionId = (action: ToolAction, at: number) => {
     const meta = action.meta && "turnId" in action.meta ? action.meta : null;

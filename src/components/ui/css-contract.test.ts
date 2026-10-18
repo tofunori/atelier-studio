@@ -465,6 +465,10 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       ".turn-activity-glyph",
       ".turn-working-shimmer",
       ".ui-activity-label.is-shimmering .tool-ticker-row, .ui-activity-label.is-shimmering:not(:has(.tool-ticker))",
+      // anneau d'une action en cours (colonne d'état de la rangée, refonte du
+      // 2026-10-18) — il REMPLACE le balayage de la ligne vivante, qui ne
+      // tourne plus : une seule boucle par rangée, coupée sous reduced-motion
+      ".ui-activity-state .tool-run-ring, .tool-status .tool-run-ring",
       ".working-label::before",
     ]);
   });

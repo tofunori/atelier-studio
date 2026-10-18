@@ -97,6 +97,16 @@ fn with_file_scope_instruction(prompt: String) -> String {
     )
 }
 
+/// Claude écrit une `description` pour chaque appel Bash ; Atelier en fait le
+/// titre de la rangée du fil. Sans consigne, elle arrive en anglais même sur
+/// une demande en français (sonde CLI 2.1.302, 2026-10-18) : on demande la
+/// langue de l'utilisateur. Codex n'a pas ce champ, la consigne ne le vise pas.
+fn with_command_description_instruction(prompt: String) -> String {
+    format!(
+        "{prompt}\n\n<atelier-command-descriptions>\nAtelier shows the `description` of each Bash call as the title of its row in the chat. Write it in the language the user writes in, as a short phrase that starts with a present-tense verb (for a French-speaking user: « Vérifie la largeur des figures »). Never leave it empty.\n</atelier-command-descriptions>"
+    )
+}
+
 fn with_discussion_workspace_instruction(
     prompt: String,
     project_root: &str,
@@ -142,6 +152,7 @@ pub(crate) fn strip_file_scope_instruction(text: &str) -> String {
         ("<atelier-kernel>", "</atelier-kernel>"),
         ("<atelier-specialists>", "</atelier-specialists>"),
         ("<atelier-memory>", "</atelier-memory>"),
+        ("<atelier-command-descriptions>", "</atelier-command-descriptions>"),
     ] {
         while let Some(start) = out.find(open) {
             let Some(rel_end) = out[start + open.len()..].find(close) else {
@@ -1362,6 +1373,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         crate::project_folders::context(&project_root, &folder_settings)
     );
     let provider_prompt = with_file_scope_instruction(provider_prompt);
+    let provider_prompt = if provider == "claude" {
+        with_command_description_instruction(provider_prompt)
+    } else {
+        provider_prompt
+    };
     // Consigne changée d'un fil Claude : le prompt système de la session est
     // figé, elle part donc aussi dans le message. Pas pendant un tour : un
     // steer ne la porte pas (reçu `consigneDeferred`).
@@ -3630,6 +3646,15 @@ mod tests {
         assert!(enriched.contains("do not demand special exception wording"));
         assert!(!enriched.contains("Never modify, stage, commit, restore, or delete it"));
         assert!(enriched.contains("Do not include a file-change summary"));
+    }
+
+    #[test]
+    fn command_description_instruction_asks_the_user_language_and_stays_hidden() {
+        let enriched = with_command_description_instruction("vérifie les figures".into());
+        assert!(enriched.starts_with("vérifie les figures"));
+        assert!(enriched.contains("`description` of each Bash call"));
+        assert!(enriched.contains("language the user writes in"));
+        assert_eq!(strip_file_scope_instruction(&enriched), "vérifie les figures");
     }
 
     #[test]

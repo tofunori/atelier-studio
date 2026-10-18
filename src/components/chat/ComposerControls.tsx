@@ -21,6 +21,7 @@ import type { FollowUpMode } from "../../lib/chatDraftStore";
 import { KbPicker, type KbBinding } from "./KbPicker";
 import { ConsigneMenu } from "./ConsigneMenu";
 import { KERNEL_PROVIDERS } from "../../lib/kernel";
+import { LiveClock } from "./LiveClock";
 
 /** Crochets de cellule : le noyau Python du fil. */
 function KernelGlyph() {
@@ -804,6 +805,11 @@ export function ComposerControls(p: {
                 : <SquareIcon data-icon="inline-start" aria-hidden="true" />}
             </IconButton>
           )}
+          {/* Temps du TOUR : une seule place, à côté du bouton qui l'arrête.
+              Les rangées du fil ne portent que la durée de leur action. */}
+          {p.workingSince != null ? (
+            <LiveClock since={p.workingSince} className="composer-turn-clock" label={t("chat.turn-elapsed")} />
+          ) : null}
           {p.workingSince != null ? (
             p.hasContent ? (
               <Tooltip
