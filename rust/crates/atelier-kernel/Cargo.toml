@@ -1,0 +1,20 @@
+[package]
+name = "atelier-kernel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Noyau Python persistant par fil : lancement, exécution des cellules, journal (chantier 5)"
+
+[dependencies]
+atelier-core = { path = "../atelier-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+sha2 = "0.10"
+hex = "0.4"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -20,6 +20,16 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "../shadcn/input-gr
 import type { FollowUpMode } from "../../lib/chatDraftStore";
 import { KbPicker, type KbBinding } from "./KbPicker";
 import { ConsigneMenu } from "./ConsigneMenu";
+import { KERNEL_PROVIDERS } from "../../lib/kernel";
+
+/** Crochets de cellule : le noyau Python du fil. */
+function KernelGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5.5 2.5h-2v11h2M10.5 2.5h2v11h-2M6.5 8h3" />
+    </svg>
+  );
+}
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
 import { ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, MicIcon, RotateCcwIcon, SearchIcon, SquareIcon } from "lucide-react";
@@ -156,6 +166,8 @@ export function ComposerControls(p: {
   consigneDuFil: ConsigneDuFil | null;
   onChoisirConsigne: (choix: ConsigneDuFil | null) => void;
   onOuvrirReglagesConsignes: () => void;
+  /** Noyau Python persistant du fil (chantier 5) ; absent sans fil actif. */
+  kernel?: { on: boolean; panelOpen: boolean };
 }) {
   const {
     provider, model, setModel, effort, setEffort, fastMode, setFastMode,
@@ -341,6 +353,14 @@ export function ComposerControls(p: {
                   label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" /><path d="M5.8 8l1.6 1.6L10.5 6.3" /></svg><span>Auto-review</span></>,
                   onSelect: () => window.dispatchEvent(new CustomEvent("autoreview-toggle")),
                 },
+                ...(p.kernel && KERNEL_PROVIDERS.includes(provider) ? [{
+                  key: "kernel",
+                  checked: p.kernel.on,
+                  keepOpen: false,
+                  className: "mp-item",
+                  label: <><KernelGlyph /><span>{t("kernel.menu")}</span></>,
+                  onSelect: () => window.dispatchEvent(new CustomEvent("kernel-toggle")),
+                }] : []),
                 ...(goalsSupported && p.onGoal ? [{
                   key: "goal",
                   className: "mp-item",
@@ -359,6 +379,17 @@ export function ComposerControls(p: {
               onChoisir={p.onChoisirConsigne}
               onOuvrirReglages={p.onOuvrirReglagesConsignes}
             />
+            {p.kernel?.on ? (
+              <RowButton
+                className="consigne-trigger kernel-trigger"
+                data-active={p.kernel.panelOpen}
+                aria-label={t("kernel.open-panel")}
+                title={t("kernel.open-panel")}
+                onClick={() => window.dispatchEvent(new CustomEvent("kernel-panel-toggle"))}
+              >
+                <KernelGlyph />
+              </RowButton>
+            ) : null}
           {permissionOptions.length > 0 && (
             <>
               <ButtonGroupSeparator />

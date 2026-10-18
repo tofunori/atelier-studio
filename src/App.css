@@ -299,6 +299,31 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .agent-tool-line-text { min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
 .agent-detail-empty { margin: 20px 0 0; color: var(--text-muted); font-size: var(--fs-m); }
+/* Noyau Python persistant du fil (chantier 5) : même coque que le panneau
+   d'agent, une carte par cellule, plus récente en haut. */
+.kernel-meta { display: flex; align-items: center; gap: 8px; padding: 8px 16px 8px 20px;
+  color: var(--text-muted); font-size: var(--fs-s); }
+.kernel-meta-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
+.kernel-meta button { margin-left: auto; flex: none; }
+.kernel-cells { display: flex; flex-direction: column; gap: 16px; padding: 16px 20px 24px; }
+.kernel-cell { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.kernel-cell-head { display: flex; align-items: baseline; gap: 8px; color: var(--text-muted);
+  font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.kernel-cell-num { color: var(--text-secondary); font-family: var(--font-code); }
+.kernel-cell-state { margin-left: auto; }
+.kernel-cell[data-status="error"] .kernel-cell-state { color: var(--status-error); }
+.kernel-code, .kernel-out { margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap;
+  overflow-wrap: anywhere; padding: 8px 12px; border-radius: var(--r-s);
+  font-family: var(--font-code); font-size: var(--fs-s); line-height: 1.5; }
+.kernel-code { background: var(--bg-card); color: var(--text-primary); }
+.kernel-out { color: var(--text-secondary); }
+.kernel-out.kernel-stderr { color: var(--text-muted); }
+.kernel-out.kernel-error { color: var(--status-error); }
+.kernel-files { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+  color: var(--text-muted); font-size: var(--fs-xs); }
+.kernel-files-label { color: var(--text-secondary); }
+.kernel-file { font-family: var(--font-code); overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .agent-detail-panel:not(.agent-detail-embedded) { position: absolute; inset: 0 0 0 auto; z-index: 70; width: min(420px, 86%);
     box-shadow: -16px 0 40px color-mix(in srgb, #000 28%, transparent); }

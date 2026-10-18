@@ -2101,6 +2101,12 @@ export default function App() {
       setQaContext((d.context as QaContext | undefined) ?? null);
       setQaMode("open");
     };
+    const onKernelToggle = () => {
+      const id = activeIdRef.current;
+      if (!id) return;
+      const th = allThreadsRef.current.find((x) => x.id === id);
+      patchKernelDuFil(id, !th?.kernelEnabled);
+    };
     const onAutoReviewToggle = () => {
       setSettings((s) => ({ ...s, autoReview: { ...s.autoReview, enabled: !s.autoReview.enabled } }));
     };
@@ -2195,6 +2201,7 @@ export default function App() {
       "atelier-add-to-chat-citation": onCitation,
       "quick-ask-open": onQaOpen,
       "autoreview-toggle": onAutoReviewToggle,
+      "kernel-toggle": onKernelToggle,
       "permission-answer": onPermAnswer,
       "interaction-answer": onInteractionAnswer,
       "correct-issues": onCorrectIssues,
@@ -3762,6 +3769,25 @@ export default function App() {
       }));
     }
   }
+  /** Interrupteur du noyau Python persistant (chantier 5), par fil. Même
+   *  patch que la consigne : identité du fil réémise. Couper arrête aussi le
+   *  noyau, et ses variables avec. */
+  function patchKernelDuFil(id: string, kernelEnabled: boolean) {
+    setThreads((current) => current.map((th) => (th.id === id ? { ...th, kernelEnabled } : th)));
+    setDraftThreads((current) => current.map((th) => (th.id === id ? { ...th, kernelEnabled } : th)));
+    if (ws.current?.readyState === 1) {
+      const th = allThreadsRef.current.find((x) => x.id === id);
+      ws.current.send(JSON.stringify({
+        type: "upsertThread",
+        thread: {
+          id,
+          ...(th ? { provider: th.provider, projectRoot: th.projectRoot, title: th.title } : {}),
+          kernelEnabled,
+        },
+      }));
+      if (!kernelEnabled) ws.current.send(JSON.stringify({ type: "kernelStop", threadId: id }));
+    }
+  }
   function onChoisirConsigne(choix: ConsigneDuFil | null) {
     const id = activeIdRef.current;
     if (!id) {
@@ -4373,6 +4399,7 @@ export default function App() {
           consigneDuFil={activeId ? (activeThreadEntry?.consigne ?? null) : pendingConsigne}
           onChoisirConsigne={onChoisirConsigne}
           onOuvrirReglagesConsignes={() => openSettings("consignes")}
+          kernelOn={activeId ? !!activeThreadEntry?.kernelEnabled : undefined}
           highlights={highlights}
           defaults={settings as any}
           providers={providerList}

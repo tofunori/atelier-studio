@@ -294,6 +294,10 @@ export type Thread = {
   /** Consigne de réponse (plan 2026-09-01) — copie {id, texte} portée par le
    *  fil ; `null`/absent = aucune consigne active. */
   consigne?: ConsigneDuFil | null;
+  /** Noyau Python persistant (chantier 5) : coupé par défaut. */
+  kernelEnabled?: boolean;
+  /** Env du dernier noyau lancé dans ce fil. */
+  kernelEnv?: string | null;
 };
 
 export type AgentMessageEvent = {

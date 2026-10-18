@@ -224,6 +224,9 @@ pub async fn serve_once(
         crate::agent_mailbox::drain_mailbox(&recovery_state).await;
     });
 
+    // Noyaux Python : arrêtés après 30 min sans cellule.
+    crate::kernel::spawn_idle_reaper(state.clone());
+
     // Rafraîchissement auto de la bibliothèque Zotero (non fatal si absente).
     let _zotero_watch =
         crate::zotero_watch::spawn_zotero_watcher(state.clone(), atelier_workspace::zotero_dir());
