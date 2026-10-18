@@ -2560,12 +2560,29 @@ export default function App() {
       [clean, ...current.filter((item) => item !== clean)].slice(0, 24));
   }
 
-  type OpenFileTabOptions = { diff?: boolean; baseSha?: string | null; page?: number | null };
+  // `source` : une page HTML s'ouvre RENDUE ; seul « Voir le code source »
+  // (menu de l'onglet) demande l'éditeur de code.
+  type OpenFileTabOptions = { diff?: boolean; baseSha?: string | null; page?: number | null; source?: boolean };
 
   function openFileTab(rel: string, line?: string | null, options: OpenFileTabOptions = {}) {
     const associated = activeProject && resolveAssociatedFile(activeProject, settingsRef.current.projectFolders?.[activeProject], rel);
     if (associated) {
       void openSourceFile(associated.root, associated.rel, line, options).catch(error => void showError(String(error)));
+      return;
+    }
+    const renderHtml = /\.html?$/i.test(rel) && !line && !options.diff && !options.source;
+    // page HTML hors du projet actif : le serveur galerie ne sert que le
+    // projet, et l'éditeur intégré n'en montrerait que le code. Le navigateur
+    // du système la rend, ressources voisines comprises.
+    const projectPrefix = activeProject ? (activeProject.endsWith("/") ? activeProject : activeProject + "/") : null;
+    if (renderHtml && (rel.startsWith("/") || rel.startsWith("~/")) && !(projectPrefix && rel.startsWith(projectPrefix))) {
+      const absolute = rel;
+      void (async () => {
+        const path = absolute.startsWith("~/")
+          ? `${(await import("@tauri-apps/api/path").then((m) => m.homeDir())).replace(/\/$/, "")}/${absolute.slice(2)}`
+          : absolute;
+        await openPath(path);
+      })().catch((error) => void showError(String(error)));
       return;
     }
     // JAMAIS de non-op muet : un clic sur une pilule fichier doit répondre
@@ -2593,9 +2610,18 @@ export default function App() {
         return;
       }
     }
+    const ext = (outside ?? rel).split(".").pop()?.toLowerCase() ?? "";
+    // figures_index.html à la racine EST la galerie (coquille live servie par
+    // le serveur) : l'ouvrir dans un onglet empilait une deuxième galerie
+    // par-dessus la première, et le clic semblait sans effet (Thierry
+    // 2026-10-18). Son rendu, c'est la galerie elle-même.
+    if (!outside && renderHtml && rel.replace(/^\.\//, "") === "figures_index.html") {
+      switchToSurface("atelier");
+      setActiveTab("gallery");
+      return;
+    }
     if (!outside) rememberFile(rel);
     const origin = new URL(atelierUrl).origin;
-    const ext = (outside ?? rel).split(".").pop()?.toLowerCase() ?? "";
     const name = (outside ?? rel).split("/").pop() ?? rel;
     const lineQ = line ? `&line=${encodeURIComponent(line)}` : "";
     const page = Number.isInteger(options.page) && Number(options.page) >= 1 && Number(options.page) <= 100_000
@@ -2626,9 +2652,10 @@ export default function App() {
       url = `${origin}/.fig_thumbs/svg_viewer.html?file=${encodeURIComponent(rel)}`;
     } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       url = `${origin}/${rel}`;
-    } else if (["html", "htm"].includes(ext) && !line && !options.diff) {
-      // pages web : rendu direct (comme les ouvertures depuis la galerie) ;
-      // une ligne ciblée ou un diff demandé garde l'éditeur de code
+    } else if (renderHtml) {
+      // pages web : rendu direct (comme les ouvertures depuis la galerie),
+      // servi sous CSP sandbox par le serveur galerie ; une ligne ciblée, un
+      // diff ou « Voir le code source » gardent l'éditeur de code
       url = `${origin}/${rel}`;
     } else if (ext === "md" && !options.diff) {
       url = `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}`;
@@ -2788,14 +2815,15 @@ export default function App() {
       openFileTabRef.current(target, line, options);
     };
     const onOpen = (e: Event) => {
-      const { rel, line, diff, baseSha, page } = (e as CustomEvent).detail as {
+      const { rel, line, diff, baseSha, page, source } = (e as CustomEvent).detail as {
         rel: string;
         line: string | null;
         diff?: boolean;
         baseSha?: string | null;
         page?: number | null;
+        source?: boolean;
       };
-      const options = { diff: diff === true, baseSha: baseSha ?? null, page: page ?? null };
+      const options = { diff: diff === true, baseSha: baseSha ?? null, page: page ?? null, source: source === true };
       // Le clic suit le PROJET DU CHAT, pas celui du rail (vécu 2026-08-16 :
       // pilule d'un fil Albedo résolue contre le serveur d'atelier-studio →
       // findfile vide → chemin nu → « file not found »). Si le rail est
@@ -4562,7 +4590,7 @@ export default function App() {
               ws={ws.current}
               onPinTab={(id) => updatePinnedTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t)))}
               onColorTab={(id, color) => updatePinnedTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, color } : t)))}
-              onOpenFile={(rel) => openFileTab(rel)}
+              onOpenFile={(rel, options) => openFileTab(rel, null, options)}
               tabs={visibleAtelierTabs}
               activeTab={activeTab}
               onSelectTab={setActiveTab}

@@ -76,6 +76,22 @@ export function openFileRef(ref: string, options: OpenFileRefOptions = {}) {
   }));
 }
 
+/** Pilule d'un lien markdown vers un fichier. Le libellé porte souvent le
+ * seul nom (`[carte.html](/chemin/complet/carte.html)`) : le href, quand il
+ * désigne le même fichier, donne le chemin réel — un nom nu se résolvait
+ * contre le projet et ratait un fichier écrit ailleurs. Le `:ligne` du
+ * libellé survit. */
+export function fileRefFromLink(label: string, href: string): string | null {
+  const labelOk = FILE_REF.test(label);
+  const hrefOk = FILE_REF.test(href);
+  if (!labelOk) return hrefOk ? href : null;
+  if (!hrefOk) return label;
+  const [labelPath, labelLine] = label.split(/:(?=\d)/);
+  const [hrefPath, hrefLine] = href.split(/:(?=\d)/);
+  if (hrefPath === labelPath || !hrefPath.endsWith("/" + labelPath.replace(/^\.\//, ""))) return label;
+  return hrefLine || !labelLine ? href : `${hrefPath}:${labelLine}`;
+}
+
 /** Certains liens PDF portent la page cible dans leur libellé plutôt que dans
  * le href (par exemple « Voir le PDF, page 6 »). Conserver cette intention
  * utile quand le fichier s'ouvre dans le lecteur intégré d'Atelier. */
@@ -658,7 +674,7 @@ export const MD_COMPONENTS = {
           {label}
         </RowButton>
       );
-    const ref = FILE_REF.test(label) ? label : FILE_REF.test(href) ? href : null;
+    const ref = fileRefFromLink(label, href);
     if (ref)
       return (
         <RowButton className="file-ref" onClick={() => openFileRef(ref, { page: pdfPageFromLink(label, ref) })} title={t("action.open-file", { ref })}>
