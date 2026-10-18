@@ -1670,16 +1670,67 @@ button.kernel-file:hover { color: var(--text-primary); }
 .activity-step-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text-secondary); opacity: 0.72; }
 @keyframes toolGroupIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
-/* ligne « fichier édité » : ✎ nom +N −N, dépliable en diff */
-.edit-lines { margin: 4px auto; }
-.edit-line-row { display: flex; align-items: center; gap: 0; }
-.edit-line-open, .edit-line-difftoggle { display: inline-flex; align-items: center; gap: 6px;
-  background: transparent; border: none; color: var(--text-muted); padding: 2px 4px; cursor: pointer;
-  font: inherit; font-size: var(--fs-m); border-radius: var(--r-s, 6px); }
-.edit-line-open:hover, .edit-line-difftoggle:hover { color: var(--text-secondary); }
-.edit-line-file { color: var(--info); }
+/* Ligne « fichier édité » (refonte 2026-10-18, maquette
+   captures/fichiers-modifies-2026-10-18) : même grille et même hauteur que
+   .tool-output-head, alignée à gauche comme toutes les lignes d'outil. Le
+   diff vit dans une carte en retrait, calée sur le libellé (icône 15 + 8). */
+.edit-lines { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; }
+.edit-line { min-width: 0; color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); }
+.edit-line-head { display: grid; grid-template-columns: 15px auto minmax(0, 1fr) auto auto;
+  align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 8px 0; border: 0;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.edit-line-icon { display: inline-flex; width: 15px; height: 15px; align-items: center; justify-content: center; }
+.edit-line-icon > svg { display: block; width: 15px; height: 15px; }
+.edit-line-verb { white-space: nowrap; transition: color var(--ease); }
+.edit-line-file { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-secondary); }
+.edit-line-head:hover .edit-line-verb, .edit-line.is-open .edit-line-verb { color: var(--text-secondary); }
+.edit-line-counts { display: inline-flex; gap: 8px; font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.edit-line-counts:empty { display: none; }
 .edit-line-add { color: var(--status-success); }
 .edit-line-del { color: var(--status-error); }
+.edit-line-card { min-width: 0; margin: 0 0 8px 23px; overflow: hidden; border-radius: var(--r-m);
+  background: var(--bg-side); animation: toolGroupIn 0.12s ease-out; }
+@media (prefers-reduced-motion: reduce) { .edit-line-card { animation: none; } }
+.edit-line-card-head { display: flex; align-items: center; gap: 12px; min-height: 32px;
+  padding: 0 4px 0 12px; border-bottom: 1px solid var(--border-subtle); font-size: var(--fs-s); }
+.edit-line-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-disabled); font-family: var(--code-font); }
+.edit-line-path-name { color: var(--text-muted); }
+.edit-line-meta { color: var(--text-disabled); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.edit-line-open { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px;
+  border: 0; border-radius: var(--r-s); background: transparent; color: var(--text-muted);
+  font: inherit; cursor: pointer; transition: background var(--ease), color var(--ease); }
+.edit-line-open:hover { background: var(--surface-hover); color: var(--text-primary); }
+.edit-line-card-body { max-height: 320px; overflow: auto; }
+.edit-line-status { padding: 8px 12px; color: var(--text-disabled); font-size: var(--fs-s); }
+/* Corps de diff commun (ligne du fil et carte de fin de tour) : fond léger
+   par ligne, signe + / −, seuls les mots changés marqués, jamais soulignés. */
+.file-diff { padding: 4px 0; color: var(--text-secondary); font: var(--fs-s)/1.6 var(--code-font); white-space: normal; }
+.file-diff-line { display: grid; grid-template-columns: 40px 16px minmax(0, 1fr); }
+.file-diff.is-created .file-diff-line { grid-template-columns: 40px minmax(0, 1fr); }
+.file-diff.is-unnumbered .file-diff-line { grid-template-columns: 24px minmax(0, 1fr); }
+.file-diff-no { padding-right: 8px; text-align: right; color: var(--text-disabled);
+  font-variant-numeric: tabular-nums; user-select: none; }
+.file-diff-sign { text-align: center; color: var(--text-disabled); user-select: none; }
+.file-diff-text { min-width: 0; padding-right: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.file-diff.is-created .file-diff-text { padding-left: 12px; }
+.file-diff-line.is-add { background: color-mix(in srgb, var(--status-success) 9%, transparent); }
+.file-diff-line.is-del { background: color-mix(in srgb, var(--status-error) 9%, transparent); }
+.file-diff-line.is-add .file-diff-sign { color: var(--status-success); }
+.file-diff-line.is-del .file-diff-sign { color: var(--status-error); }
+.file-diff-line.is-add .file-diff-no, .file-diff-line.is-del .file-diff-no { color: var(--text-muted); }
+.file-diff-line mark { color: inherit; background: color-mix(in srgb, var(--status-success) 24%, transparent); }
+.file-diff-line.is-del mark { background: color-mix(in srgb, var(--status-error) 24%, transparent); }
+.file-diff-line.is-hunk, .file-diff-fold { margin: 2px 0; color: var(--text-disabled);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
+.file-diff-fold { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 24px;
+  padding: 0 12px 0 44px; border: 0; font: var(--fs-s)/1.6 var(--ui-font); text-align: left; cursor: pointer;
+  transition: background var(--ease), color var(--ease); }
+.file-diff.is-unnumbered .file-diff-fold { padding-left: 8px; }
+.file-diff-fold:hover { color: var(--text-secondary); background: var(--surface-hover); }
+.file-diff-more { padding: 4px 12px; color: var(--text-disabled); font-family: var(--ui-font); }
+.turn-diff-body.is-file-diff { padding: 0; white-space: normal; }
 /* capsule résultat (plan 020, retouche 2026-07-10) : LIGNE discrète cardless
    — glyphe + méta muted, actions révélées au hover/focus (pattern msg-actions).
    Les erreurs/warnings restent visibles en permanence via le glyphe warn. */

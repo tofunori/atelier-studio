@@ -1013,7 +1013,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".edit-line")).toHaveLength(1);
     expect(document.querySelector(".edit-line")?.textContent).toContain("plot.py");
     expect(document.querySelector(".edit-line")?.textContent).toContain("+5");
-    expect(document.querySelector(".edit-line")?.textContent).toContain("-3");
+    expect(document.querySelector(".edit-line")?.textContent).toContain("−3");
     // La ligne « fichier édité » porte déjà le travail (nom + ±) : aucune
     // ligne d'outil ne la double.
     expect(document.querySelectorAll(".ui-activity:not(.is-summary)")).toHaveLength(0);
@@ -1034,6 +1034,8 @@ describe("anatomie du tour — header d'activité", () => {
         },
       ];
       renderUi(<Chat {...chatProps({ events: evs, workingSince: FIXED_TS })} />);
+      // toute la ligne déplie le diff ; le fichier s'ouvre depuis la carte
+      fireEvent.click(document.querySelector(".edit-line-head") as HTMLButtonElement);
       fireEvent.click(document.querySelector(".edit-line-open") as HTMLButtonElement);
       expect(onOpen).toHaveBeenCalledTimes(1);
       expect((onOpen.mock.calls[0][0] as CustomEvent).detail).toEqual({
@@ -1072,7 +1074,7 @@ describe("anatomie du tour — header d'activité", () => {
       { kind: "edit", projectRoot: "/tmp/fixtures/albedo-pipeline", files: [{ path: "scripts/plot.py", add: 1, del: 0 }] },
     ] as AgentEvent[];
     renderUi(<Chat {...chatProps({ events: evs })} />);
-    fireEvent.click(document.querySelector(".edit-line-difftoggle") as HTMLButtonElement);
+    fireEvent.click(document.querySelector(".edit-line-head") as HTMLButtonElement);
     act(() => window.dispatchEvent(new CustomEvent("git-diff", { detail: {
       type: "gitDiff", projectRoot: "/tmp/fixtures/albedo-pipeline",
       path: "scripts/plot.py", diff: "", error: "diff indisponible",
@@ -1091,11 +1093,11 @@ describe("anatomie du tour — header d'activité", () => {
         files: [{ path: "scripts/plot.py", add: 1, del: 1, oldText: "x = 1", newText: "x = 2" }] },
     ] as AgentEvent[];
     renderUi(<Chat {...chatProps({ events: evs })} />);
-    expect(document.querySelector(".edit-line-difftoggle")?.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector(".turn-diff-body")).toBeTruthy();
+    expect(document.querySelector(".edit-line-head")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".edit-line-card")).toBeTruthy();
     // un clic referme — le choix manuel garde la main
-    fireEvent.click(document.querySelector(".edit-line-difftoggle") as HTMLButtonElement);
-    expect(document.querySelector(".turn-diff-body")).toBeNull();
+    fireEvent.click(document.querySelector(".edit-line-head") as HTMLButtonElement);
+    expect(document.querySelector(".edit-line-card")).toBeNull();
   });
 
   it("un edit sans snippet reste fermé par défaut", () => {
@@ -1105,8 +1107,8 @@ describe("anatomie du tour — header d'activité", () => {
         files: [{ path: "scripts/plot.py", add: 1, del: 0 }] },
     ] as AgentEvent[];
     renderUi(<Chat {...chatProps({ events: evs })} />);
-    expect(document.querySelector(".edit-line-difftoggle")?.getAttribute("aria-expanded")).toBe("false");
-    expect(document.querySelector(".turn-diff-body")).toBeNull();
+    expect(document.querySelector(".edit-line-head")?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".edit-line-card")).toBeNull();
   });
 
   it("aucun chevron texte ▸/▾ dans le fil", () => {

@@ -567,6 +567,47 @@ type BenchState = {
   draftText?: string;
 };
 
+
+// Fichiers modifiés dans le fil (refonte 2026-10-18) : une édition à extrait,
+// un fichier créé, une édition sans extrait, au milieu des autres lignes.
+const COMPARER_PY = [
+  '"""Compare deux sorties de controle.py tableau par tableau. Usage : python comparer.py a.npz b.npz.',
+  "Écrit sur la sortie standard, pour chaque tableau, « identique » ou l'écart maximal.",
+  "",
+  "Les log-densités (clés logp_*) sont comparées à une tolérance relative de 1e-13.",
+  'Tout le reste doit être identique au bit près."""',
+  "import sys",
+  "",
+  "import numpy as np",
+  "",
+  "TOLERANCE_LOGP = 1e-13",
+  "",
+  "a, b = np.load(sys.argv[1]), np.load(sys.argv[2])",
+  'assert sorted(a.files) == sorted(b.files), f"clés différentes : {set(a.files) ^ set(b.files)}"',
+  "ecart = 0",
+  "for cle in sorted(a.files):",
+  "    x, y = a[cle], b[cle]",
+  "",
+].join("\n");
+const EDITS: AgentEvent[] = [
+  { kind: "user", text: "Ajoute un script qui compare les deux sorties.", ts: ts(80) } as AgentEvent,
+  { kind: "started", ts: ts(79) } as AgentEvent,
+  tool("e1", "Bash", "PY=/Users/thierry/.claude-science/conda/envs/pymc-albedo/bin/python controle.py", "ok", 8300, 75),
+  { kind: "tool_update", id: "e2", name: "Edit", output: "", status: "completed", durationMs: 120, ts: ts(70) } as AgentEvent,
+  { kind: "edit", projectRoot: "/tmp/bench", ts: ts(70), files: [{
+    path: "build/controle_bayes_mv_lib/controle.py", add: null, del: null,
+    oldText: 'for nom, f in modeles.items():\n    idata = f(donnees, seed=SEED)\n    np.savez(sortie / f"{nom}.npz", **extraire(idata))\n    print(nom, "ok")\n',
+    newText: 'for nom, f in modeles.items():\n    idata = f(donnees, seed=SEED)\n    tableaux = extraire(idata, logp=True)\n    np.savez_compressed(sortie / f"{nom}.npz", **tableaux)\n    print(nom, "ok")\n',
+  }] } as AgentEvent,
+  { kind: "tool_update", id: "e3", name: "Write", output: "", status: "completed", durationMs: 90, ts: ts(60) } as AgentEvent,
+  { kind: "edit", projectRoot: "/tmp/bench", ts: ts(60), files: [{
+    path: "build/controle_bayes_mv_lib/comparer.py", add: null, del: null, newText: COMPARER_PY,
+  }] } as AgentEvent,
+  { kind: "tool_update", id: "e4", name: "Edit", output: "", status: "completed", durationMs: 80, ts: ts(50) } as AgentEvent,
+  { kind: "edit", projectRoot: "/tmp/bench", ts: ts(50), files: [{ path: "README.md", add: 6, del: 2 }] } as AgentEvent,
+  { kind: "tool_update", id: "e5", name: "Bash", detail: "python comparer.py a.npz b.npz", output: "", status: "running", input: {}, source: null, ts: ts(40) } as AgentEvent,
+];
+
 const STATES: Record<string, BenchState> = {
   annotations: {events: [
     {kind:"user",text:"Relis les résultats et les méthodes.",label:"results_en.tex · methods_en.tex",ts:ts(10)},
@@ -575,6 +616,7 @@ const STATES: Record<string, BenchState> = {
   firstmessage: { events: [], workingSince: null, attachments: [], usage: null },
   livestream: { events: [], workingSince: NOW, attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   long: { events: LONG_TRANSCRIPT, workingSince: null, attachments: [], usage: null, pins: LONG_PINS },
+  edits: { events: EDITS, workingSince: ts(80), attachments: [], usage: { context: 30000, output: 900, cost: null, turns: 1 } },
   rich: { events: RICH, workingSince: null, attachments: [], usage: { context: 84200, output: 8120, cost: 0.42, turns: 3 } },
   running: { events: RUNNING, workingSince: ts(272), attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   stream: { events: STREAM, workingSince: ts(30), attachments: [], usage: { context: 18500, output: 420, cost: null, turns: 1 } },
