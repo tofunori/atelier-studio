@@ -570,3 +570,63 @@ async fn connector_catalog_has_a_bounded_longer_budget_without_blocking_ping() {
     assert_eq!(result["requestId"], "apps");
     }
 }
+
+/// Plan 078 : deleteAutomation est une requête ordonnée sans couloir, donc une
+/// barrière globale. Tant qu'elle gardait le verrou du magasin, elle ne
+/// répondait jamais et toutes les mutations ordonnées suivantes (envois,
+/// surlignages, réglages) restaient en file jusqu'à la relance.
+#[tokio::test]
+async fn delete_automation_answers_and_releases_ordered_queue() {
+    let (mut client, _fixture) = fixture(Duration::from_secs(15)).await;
+    send(
+        &mut client,
+        json!({"type":"createAutomation","automation":{
+            "name":"Veille","prompt":"p","rrule":"FREQ=DAILY","kind":"cron"}}),
+    )
+    .await;
+    let id = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let reply = receive(&mut client).await;
+            if reply["type"] == "automations" {
+                if let Some(id) = reply["automations"][0]["id"].as_str() {
+                    break id.to_string();
+                }
+            }
+        }
+    })
+    .await
+    .expect("createAutomation sans réponse");
+    send(&mut client, json!({"type":"deleteAutomation","id":id})).await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let reply = receive(&mut client).await;
+            if reply["type"] == "automations"
+                && reply["automations"].as_array().is_some_and(Vec::is_empty)
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("deleteAutomation ne répond pas");
+    send(
+        &mut client,
+        json!({"type":"upsertThread","thread":{"id":"after-delete","title":"t"}}),
+    )
+    .await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let reply = receive(&mut client).await;
+            if reply["type"] == "threads"
+                && reply["threads"]
+                    .as_array()
+                    .is_some_and(|ts| ts.iter().any(|t| t["id"] == "after-delete"))
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("la mutation ordonnée suivante reste bloquée derrière deleteAutomation");
+    client.close(None).await.unwrap();
+}
