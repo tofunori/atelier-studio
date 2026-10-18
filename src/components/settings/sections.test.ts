@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { SECTIONS, resolveSection } from "./sections";
 
 describe("SECTIONS", () => {
-  it("expose les quatre sections du lot 1, « environnement » (premier lancement) après les modèles, puis « integrations », « consignes » (tâche 9) et « specialistes », dans l'ordre de lecture", () => {
-    expect(SECTIONS.map((s) => s.id)).toEqual(["general", "modeles", "environnement", "apparence", "atelier", "integrations", "consignes", "specialistes"]);
+  it("expose les quatre sections du lot 1, « environnement » (premier lancement) après les modèles, puis « integrations », « consignes » (tâche 9), « specialistes » et « memoire », dans l'ordre de lecture", () => {
+    expect(SECTIONS.map((s) => s.id)).toEqual(["general", "modeles", "environnement", "apparence", "atelier", "integrations", "consignes", "specialistes", "memoire"]);
   });
 
   it("chaque section porte une clé i18n, jamais un libellé en dur", () => {

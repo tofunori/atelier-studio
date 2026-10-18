@@ -2,7 +2,7 @@
 """atelier-run — lance une commande longue et l'enregistre pour la surface Calculs.
 
 Usage :
-  atelier-run [--label L] [--total N] [--unit U] [--runs-dir D] -- cmd args…
+  atelier-run [--label L] [--total N] [--unit U] [--runs-dir D] [--run-id ID] -- cmd args…
 
 Écrit ~/.atelier/runs/<id>/run.json et log.txt (stdout+stderr, tee vers le
 terminal). Une ligne de sortie de la forme `::progress current=<n> total=<m>`
@@ -22,6 +22,10 @@ import uuid
 
 MANIFEST_VERSION = 1
 PROGRESS_RE = re.compile(r"::progress\s+current=(\d+)(?:\s+total=(\d+))?")
+# `--run-id` : identifiant imposé par Atelier quand l'agent lance un calcul
+# (même forme que les identifiants tirés ici), pour suivre la tâche sans
+# relire le dossier des runs.
+RUN_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
 def _now() -> str:
@@ -63,19 +67,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--unit", default="")
     parser.add_argument("--run-tag", default="")
     parser.add_argument("--runs-dir")
+    parser.add_argument("--run-id")
     parser.add_argument("cmd", nargs=argparse.REMAINDER)
     ns = parser.parse_args(argv)
     if ns.cmd and ns.cmd[0] == "--":
         ns.cmd = ns.cmd[1:]
     if not ns.cmd:
         parser.error("commande manquante après --")
+    if ns.run_id is not None and not RUN_ID_RE.match(ns.run_id):
+        parser.error("--run-id : 12 caractères hexadécimaux attendus")
     return ns
 
 
 def main(argv: list[str] | None = None) -> int:
     ns = parse_args(sys.argv[1:] if argv is None else argv)
     runs_dir = ns.runs_dir or default_runs_dir()
-    run_id = uuid.uuid4().hex[:12]
+    run_id = ns.run_id or uuid.uuid4().hex[:12]
     run_dir = os.path.join(runs_dir, run_id)
     os.makedirs(run_dir, exist_ok=True)
     manifest_path = os.path.join(run_dir, "run.json")

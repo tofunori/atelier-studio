@@ -101,6 +101,19 @@ class AtelierRunTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("True", out)
 
+    def test_imposed_run_id_names_the_run(self):
+        args = [sys.executable, WRAPPER, "--runs-dir", self.runs, "--run-id", "0123456789ab", "--", "true"]
+        self.assertEqual(subprocess.run(args, capture_output=True, timeout=30).returncode, 0)
+        m, d = _manifest(self.runs)
+        self.assertEqual(m["id"], "0123456789ab")
+        self.assertEqual(os.path.basename(d), "0123456789ab")
+
+    def test_malformed_run_id_is_refused_before_anything_is_written(self):
+        for bad in ["../x", "ABCDEF012345", "123"]:
+            args = [sys.executable, WRAPPER, "--runs-dir", self.runs, "--run-id", bad, "--", "true"]
+            self.assertEqual(subprocess.run(args, capture_output=True, timeout=30).returncode, 2, bad)
+        self.assertEqual(os.listdir(self.runs), [])
+
 
 if __name__ == "__main__":
     unittest.main()

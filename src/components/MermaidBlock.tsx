@@ -3,211 +3,82 @@
 // en clair). Intégration par composant custom (pas rehype-mermaid, pas de
 // plugin remark) : on intercepte language-mermaid dans le composant `pre`.
 //
-// Décisions (cf. docs/superpowers/specs/2026-07-08-markdown-mermaid-polish.md) :
-// - import("mermaid") dynamique, promesse module-level partagée (lazy, jamais
+// Moteur : Pele (obsidianmd/pele, MIT), qui lit la syntaxe Mermaid et rend un
+// SVG sans dépendance. Remplace mermaid.js (2026-10-18) :
+// - import("pele") dynamique, promesse module-level partagée (lazy, jamais
 //   dans le chunk principal — vite code-split automatiquement les import()).
-// - Validation avant rendu (mermaid.parse suppressErrors) puis try/catch
-//   autour du render quand même (Open WebUI #18340/#2776 : un diagramme
-//   invalide qui "réussit" à parser peut planter/geler au render). Le SVG
-//   d'erreur rouge de mermaid n'est jamais affiché — repli sur le bloc de
-//   code normal + mention sobre.
-// - securityLevel "strict" (contenu LLM non fiable) + htmlLabels false (bug
-//   WebKit foreignObject #23113 sous WKWebView).
-// - Theming : mermaid ne lit pas les variables CSS (issue mermaid #6677) —
-//   palette résolue à l'exécution via resolveToken (getComputedStyle en
-//   prod, mocké en test).
-// - Cache module-level borné par hash(source)+signature de thème : les
-//   re-renders de la liste (chaque event ajouté re-rend tous les messages)
-//   ne doivent jamais relancer mermaid sur un diagramme inchangé.
+// - parse() avant mount() : un diagramme invalide ou d'un type inconnu
+//   retombe sur le bloc de code normal + mention sobre, jamais sur le message
+//   d'erreur de Pele.
+// - Contenu LLM non fiable : liens et images désactivés (une image ferait une
+//   requête réseau, un lien naviguerait la webview). Pele échappe le texte et
+//   ignore les callbacks `click`.
+// - Theming : Pele lit ses variables CSS (--pele-*), branchées sur les tokens
+//   dans App.css (.mermaid-block) : la bascule clair/sombre ne re-rend rien.
+// - mount() adapte la mise en page à la largeur du conteneur (et la refait
+//   au redimensionnement) au lieu de rétrécir le dessin.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Maximize2Icon, XIcon } from "lucide-react";
-import { LruCache } from "../lib/lruCache";
+import type { MountOptions } from "pele";
 import { t } from "../lib/i18n";
 import { CopyIcon } from "./icons";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "./shadcn/dialog";
 import { Button, IconButton } from "./ui";
 
-// ============================================================
-// Helpers purs — exportés pour test (sidecar/mermaid.test.mjs)
-// ============================================================
+type PeleModule = typeof import("pele");
 
-/**
- * Hash FNV-1a 32-bit du source : stable (pas de Math.random ni compteur),
- * même source => même hash toujours. Sert d'id DOM de rendu et de clé de
- * cache.
- */
-export function hashMermaidSource(source: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < source.length; i++) {
-    h ^= source.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, "0");
-}
-
-/** Résout une variable CSS projet (injectable — getComputedStyle en prod). */
-export type ResolveToken = (name: string) => string;
-
-// Tokens lus pour construire la palette mermaid ET la signature de thème.
-const THEME_TOKEN_NAMES = ["--bg-side", "--fg2", "--muted", "--border", "--border2", "--accent"] as const;
-
-/**
- * Concat des couleurs résolues : si elle change entre deux rendus (bascule
- * clair/sombre), mermaid doit être ré-initialisé avant de re-render.
- */
-export function mermaidThemeSignature(resolveToken: ResolveToken): string {
-  return THEME_TOKEN_NAMES.map((name) => resolveToken(name).trim()).join("|");
-}
-
-/**
- * Construit les themeVariables mermaid (theme "base") depuis les tokens
- * projet résolus. Palette sobre : fond --bg-side, traits/texte
- * --fg2/--muted, accent --accent avec parcimonie (bordures actives
- * seulement). Aucun hex en dur ici — tout vient de resolveToken.
- */
-export function buildMermaidThemeVariables(resolveToken: ResolveToken): Record<string, string> {
-  const bg = resolveToken("--bg-side").trim();
-  const fg2 = resolveToken("--fg2").trim();
-  const muted = resolveToken("--muted").trim();
-  const border = resolveToken("--border").trim();
-  const border2 = resolveToken("--border2").trim();
-  const accent = resolveToken("--accent").trim();
-  return {
-    background: bg,
-    fontFamily: "inherit",
-    primaryColor: bg,
-    primaryTextColor: fg2,
-    primaryBorderColor: border2,
-    secondaryColor: bg,
-    secondaryTextColor: fg2,
-    secondaryBorderColor: border,
-    tertiaryColor: bg,
-    tertiaryTextColor: fg2,
-    tertiaryBorderColor: border,
-    lineColor: muted,
-    textColor: fg2,
-    mainBkg: bg,
-    nodeBorder: border2,
-    clusterBkg: bg,
-    clusterBorder: border,
-    defaultLinkColor: muted,
-    titleColor: fg2,
-    edgeLabelBackground: bg,
-    actorBkg: bg,
-    actorBorder: border2,
-    actorTextColor: fg2,
-    actorLineColor: muted,
-    signalColor: muted,
-    signalTextColor: fg2,
-    labelBoxBkgColor: bg,
-    labelBoxBorderColor: border,
-    labelTextColor: fg2,
-    loopTextColor: fg2,
-    noteBorderColor: border,
-    noteBkgColor: bg,
-    noteTextColor: fg2,
-    activationBorderColor: accent,
-    activationBkgColor: bg,
-    sectionBkgColor: bg,
-    altSectionBkgColor: bg,
-    gridColor: border,
-    taskBorderColor: border2,
-    taskBkgColor: bg,
-    taskTextColor: fg2,
-    activeTaskBorderColor: accent,
-    activeTaskBkgColor: bg,
-    doneTaskBkgColor: bg,
-    doneTaskBorderColor: border,
-    critBorderColor: accent,
-    critBkgColor: bg,
-    todayLineColor: accent,
-  };
-}
-
-// Cache module-level borné (svg déjà rendu) : clé = hash(source) + signature
-// de thème. Cap 50, éviction LRU (même mécanisme que highlightCache dans
-// Chat.tsx).
-const MERMAID_SVG_CACHE_SIZE = 50;
-export const mermaidSvgCache = new LruCache<string>(MERMAID_SVG_CACHE_SIZE);
-
-export function mermaidCacheKey(source: string, themeSignature: string): string {
-  return `${hashMermaidSource(source)}:${themeSignature}`;
-}
-
-/**
- * Certains diagrammes "invalides" réussissent quand même à render en
- * dessinant l'icône d'erreur mermaid — jamais l'afficher (cf. spec).
- * Cherche "error-icon" comme classe à part entière (séparée par des espaces)
- * dans un attribut class="...", pas comme simple sous-chaîne.
- */
-export function containsMermaidErrorIcon(svg: string): boolean {
-  return /class="(?:[^"]*\s)?error-icon(?:\s[^"]*)?"/.test(svg);
-}
-
-// ============================================================
-// Partie impure : chargement paresseux + rendu mermaid
-// ============================================================
-
-type MermaidNamespace = typeof import("mermaid");
-type MermaidInstance = MermaidNamespace["default"];
-
-// Promesse module-level partagée : un seul import("mermaid") pour toute la
+// Promesse module-level partagée : un seul import("pele") pour toute la
 // session, même si plusieurs diagrammes sont rencontrés en parallèle.
-let mermaidModulePromise: Promise<MermaidNamespace> | null = null;
-function loadMermaidModule(): Promise<MermaidNamespace> {
-  if (!mermaidModulePromise) mermaidModulePromise = import("mermaid");
-  return mermaidModulePromise;
+let peleModulePromise: Promise<PeleModule> | null = null;
+function loadPele(): Promise<PeleModule> {
+  if (!peleModulePromise) peleModulePromise = import("pele");
+  return peleModulePromise;
 }
 
-function resolveCssToken(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name);
-}
+/** Options communes : taille de texte du système (13 px), rien qui sorte du SVG. */
+export const PELE_OPTIONS = { fontSize: 13, links: false, images: false } as const satisfies MountOptions;
 
-let initializedThemeSignature: string | null = null;
+type RenderState = { status: "loading" } | { status: "ready"; pele: PeleModule } | { status: "invalid" };
 
-function ensureMermaidInitialized(mermaid: MermaidInstance, themeSignature: string) {
-  if (initializedThemeSignature === themeSignature) return;
-  mermaid.initialize({
-    startOnLoad: false,
-    // contenu généré par un LLM = non fiable.
-    securityLevel: "strict",
-    // bug WebKit foreignObject #23113 : les labels HTML se positionnent mal
-    // sous Safari/WKWebView — forcer les labels SVG natifs.
-    htmlLabels: false,
-    theme: "base",
-    themeVariables: buildMermaidThemeVariables(resolveCssToken),
-  });
-  initializedThemeSignature = themeSignature;
-}
-
-type RenderState = { status: "loading" } | { status: "ready"; svg: string } | { status: "invalid" };
-
-async function renderMermaidDiagram(source: string): Promise<RenderState> {
+/** Valide le source sans le dessiner : invalide ou type inconnu → bloc de code. */
+async function prepareDiagram(source: string): Promise<RenderState> {
   try {
-    const mod = await loadMermaidModule();
-    const mermaid = mod.default;
-    const themeSignature = mermaidThemeSignature(resolveCssToken);
-    const cacheKey = mermaidCacheKey(source, themeSignature);
-    const cached = mermaidSvgCache.get(cacheKey);
-    if (cached !== undefined) return { status: "ready", svg: cached };
-
-    // validation avant rendu — jamais le SVG d'erreur rouge de mermaid.
-    const parseResult = await mermaid.parse(source, { suppressErrors: true });
-    if (!parseResult) return { status: "invalid" };
-
-    ensureMermaidInitialized(mermaid, themeSignature);
-    const id = `mermaid-svg-${hashMermaidSource(source)}`;
-    const { svg } = await mermaid.render(id, source);
-    if (containsMermaidErrorIcon(svg)) return { status: "invalid" };
-
-    mermaidSvgCache.set(cacheKey, svg);
-    return { status: "ready", svg };
+    const pele = await loadPele();
+    pele.parse(source);
+    return { status: "ready", pele };
   } catch {
-    // un diagramme invalide qui parvient quand même à planter/geler le
-    // render (Open WebUI #18340/#2776) ne doit jamais remonter jusqu'à React.
     return { status: "invalid" };
   }
+}
+
+/**
+ * Ref de rappel qui monte le diagramme dans l'élément et le démonte avec lui
+ * (React 19 : la ref renvoie son nettoyage). Stable tant que pele/source/zoom
+ * ne changent pas, donc les re-rendus de la liste ne remontent rien.
+ */
+function usePeleMount(
+  pele: PeleModule | null,
+  source: string,
+  zoom: MountOptions["zoom"],
+  onInvalid: () => void,
+) {
+  return useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el || !pele) return;
+      let mounted: ReturnType<PeleModule["mount"]> | null = null;
+      try {
+        mounted = pele.mount(el, source, { ...PELE_OPTIONS, zoom, onError: onInvalid });
+      } catch {
+        onInvalid();
+      }
+      return () => {
+        mounted?.destroy();
+        el.replaceChildren();
+      };
+    },
+    [pele, source, zoom, onInvalid],
+  );
 }
 
 // ============================================================
@@ -228,34 +99,23 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
   const [mode, setMode] = useState<ViewMode>("diagram");
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const mountedRef = useRef(true);
 
+  // rendu initial / re-validation si le source change (guard "toujours monté").
   useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  // rendu initial / re-render si le source change (guard "toujours monté").
-  useEffect(() => {
+    let alive = true;
     setState({ status: "loading" });
-    void renderMermaidDiagram(source).then((next) => {
-      if (mountedRef.current) setState(next);
+    void prepareDiagram(source).then((next) => {
+      if (alive) setState(next);
     });
+    return () => {
+      alive = false;
+    };
   }, [source]);
 
-  // le SVG bake les couleurs résolues : un changement de thème (clair/sombre)
-  // doit re-render (même pattern que Terminal.tsx pour xterm).
-  useEffect(() => {
-    const onTheme = () => {
-      void renderMermaidDiagram(source).then((next) => {
-        if (mountedRef.current) setState(next);
-      });
-    };
-    window.addEventListener("app-theme-changed", onTheme);
-    return () => window.removeEventListener("app-theme-changed", onTheme);
-  }, [source]);
+  const markInvalid = useCallback(() => setState({ status: "invalid" }), []);
+  const pele = state.status === "ready" ? state.pele : null;
+  const inlineRef = usePeleMount(pele, source, false, markInvalid);
+  const fullscreenRef = usePeleMount(pele, source, true, markInvalid);
 
   const ready = state.status === "ready";
 
@@ -300,8 +160,8 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
           </IconButton>
         </div>
       </div>
-      {mode === "diagram" && state.status === "ready" ? (
-        <div className="mermaid-svg-wrap" dangerouslySetInnerHTML={{ __html: state.svg }} />
+      {mode === "diagram" && ready ? (
+        <div className="mermaid-svg-wrap" ref={inlineRef} />
       ) : (
         <>
           <pre>
@@ -314,7 +174,7 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
         </>
       )}
       <Dialog open={expanded} onOpenChange={setExpanded}>
-        {state.status === "ready" ? (
+        {ready ? (
           <DialogContent
             showCloseButton={false}
             closeLabel={t("chat.mermaid-close-fullscreen")}
@@ -342,10 +202,7 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
                 <span className="tw:sr-only">{t("chat.mermaid-close-fullscreen")}</span>
               </DialogClose>
             </div>
-            <div
-              className="mermaid-fullscreen-canvas"
-              dangerouslySetInnerHTML={{ __html: state.svg }}
-            />
+            <div className="mermaid-fullscreen-canvas" ref={fullscreenRef} />
           </DialogContent>
         ) : null}
       </Dialog>

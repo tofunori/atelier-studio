@@ -139,7 +139,9 @@ pub(crate) fn strip_file_scope_instruction(text: &str) -> String {
         ("<atelier-file-scope>", "</atelier-file-scope>"),
         ("<atelier-discussion-workspace>", "</atelier-discussion-workspace>"),
         ("<atelier-consigne-du-fil>", "</atelier-consigne-du-fil>"),
+        ("<atelier-kernel>", "</atelier-kernel>"),
         ("<atelier-specialists>", "</atelier-specialists>"),
+        ("<atelier-memory>", "</atelier-memory>"),
     ] {
         while let Some(start) = out.find(open) {
             let Some(rel_end) = out[start + open.len()..].find(close) else {
@@ -226,6 +228,24 @@ requests: never write an HTML file to disk, never open a browser, never send the
 to the Atelier Gallery — those are the wrong channels and the user will see nothing in \
 the chat. A static figure or saved file is only appropriate when the user explicitly \
 asks for a file or a gallery figure.\n</atelier-widget-integration>"
+    )
+}
+
+/// Calculs lancés par l'agent (chantier 4) : même raison que les widgets,
+/// la consigne vit dans le message. Sans elle, l'agent soumet par ssh ou
+/// sbatch lui-même et rien ne passe par la carte Lancer / Refuser.
+fn with_compute_instruction(prompt: String, provider: &str) -> String {
+    if !crate::agent_mcp::is_mcp_compatible_provider(provider) {
+        return prompt;
+    }
+    format!(
+        "{prompt}\n\n<atelier-compute>\nTo run a computation that takes more than a few minutes, \
+or anything on the NAS, Narval or Rorqual, use the MCP tool `atelier_compute`: action=hosts, \
+then action=host for the notes of the host you target (read them before writing the script), \
+then action=propose_job. The user approves each job on a card in the chat. Never submit \
+with sbatch, nohup, setsid or ssh yourself, never delete files on a host, and do not wait \
+in a loop for a job to end: the card and the Calculs tab follow it, and action=job_status \
+reads its state when the user asks.\n</atelier-compute>"
     )
 }
 
@@ -1354,6 +1374,16 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         Some(bloc) => format!("{provider_prompt}{bloc}"),
         None => provider_prompt,
     };
+    // Noyau Python persistant (chantier 5) : allumé ou coupé en cours de
+    // session, l'agent l'apprend dans le message, une fois par changement.
+    let kernel_announced = (!state.harness().is_running(&thread_id).await)
+        .then(|| crate::kernel::announcement(previous.as_ref(), &provider))
+        .flatten();
+    let provider_prompt = match &kernel_announced {
+        Some((bloc, _)) => format!("{provider_prompt}{bloc}"),
+        None => provider_prompt,
+    };
+    let kernel_announced = kernel_announced.map(|(_, on)| on);
     let discussion_document = msg
         .get("discussionDocument")
         .and_then(Value::as_str)
@@ -1388,7 +1418,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let p = with_gallery_tool_instruction(provider_prompt, &project_root, state.server_dir());
         let p = with_zotero_passage_instruction(p, state.server_dir());
         let p = with_figure_qc_instruction(p, state.server_dir());
-        with_widget_tool_instruction(p, &provider)
+        let p = with_widget_tool_instruction(p, &provider);
+        with_compute_instruction(p, &provider)
     };
     // Spécialistes (plan specialistes-2026-10-18) : l'agent doit savoir ce
     // que l'utilisateur appelle « spécialiste » et lesquels existent. Même
@@ -1410,6 +1441,26 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             format!("{provider_prompt}{bloc}")
         }
         _ => provider_prompt,
+    };
+    // Mémoire de projet (chantier 3c) : les souvenirs du projet qui partagent
+    // les mots rares de la demande, jamais deux fois dans la même session.
+    let memoires_avant = if seeded {
+        crate::memory::deja_donnes(previous.as_ref())
+    } else {
+        std::collections::HashSet::new()
+    };
+    let (provider_prompt, turn_memory_ids) = match crate::memory::bloc_du_tour(
+        state,
+        &folder_settings,
+        &project_root,
+        &prompt,
+        &memoires_avant,
+        &provider,
+    )
+    .await
+    {
+        Some((bloc, ids)) => (format!("{provider_prompt}{bloc}"), ids),
+        None => (provider_prompt, Vec::new()),
     };
     // Bloc base de connaissances (plan 049 T4) : sources attachées au thread —
     // ne bloque jamais un envoi (dégrade en prompt inchangé / fiches).
@@ -1803,6 +1854,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let cancelled_probe = Arc::clone(&cancelled);
     let state2 = state.clone();
     let tid = thread_id.clone();
+    let memoire_root = project_root.clone();
+    let memoire_prompt = prompt.clone();
     let h2 = Arc::clone(&h);
     let pimpl = Arc::clone(&provider_impl);
     let session_id = state
@@ -1866,8 +1919,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         // avant les blocs d'instructions ambiantes) : c'est la phrase de
         // contexte que le panneau Provenance affichera.
         prompt.clone(),
-    );
+    )
+    .with_turn(&turn_id, effort.clone())
+    // Interrupteur « Recette des fichiers produits » (allumé par défaut).
+    .with_recipes(folder_settings.get("recipes").and_then(Value::as_bool).unwrap_or(true));
     let prov_pump = prov_turn.clone();
+    // Finalisation (journal des tours + recettes), après le terminal.
+    let prov_finish = prov_turn.clone();
+    let cancelled_finish = Arc::clone(&cancelled);
+    let ledger_dir = state.ledger_dir();
     let linked_reply = if origin_agent {
         let from = msg
             .get("agentFromThreadId")
@@ -2026,6 +2086,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     tokio::spawn(async move {
         let fallback_root = project_root.clone();
         let fallback_snapshot = snapshot_sha.clone();
+        let finish_root = fallback_root.clone();
+        let finish_snapshot = fallback_snapshot.clone();
         // Même contexte de provenance que la pompe (commandes partagées) : un
         // provider sans `done` natif doit produire les mêmes sidecars. Les
         // deux chemins s'excluent (`turn_status != Done`), donc jamais deux
@@ -2101,6 +2163,19 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             persistence_error
         }).await.unwrap_or_else(|error| Some(format!("terminal worker: {error}")));
         let succeeded = result.ok && persistence_error.is_none();
+        // Journal des tours et recettes (chantier 2) : une fois par tour,
+        // après le terminal, sur un fil à part. Les empreintes des données
+        // d'entrée ne retardent ni la réponse ni le tour suivant.
+        let end = if cancelled_finish.load(Ordering::SeqCst) && persistence_error.is_none() {
+            crate::prov::TurnEnd::Interrupted
+        } else if succeeded {
+            crate::prov::TurnEnd::Done
+        } else {
+            crate::prov::TurnEnd::Error
+        };
+        tokio::task::spawn_blocking(move || {
+            prov_finish.finish(&finish_root, finish_snapshot.as_deref(), &ledger_dir, end);
+        });
         update_receipt(
             &state2,
             receipt_id.as_deref(),
@@ -2131,10 +2206,28 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 let mut patch = json!({"id": tid, "status": "idle",
                     "blocksSeededFor": sid, "kbBlockHash": turn_kb_hash,
                     "specialistesHash": turn_specialists_hash});
+                let avant = if prev_session.as_deref() == Some(sid.as_str()) {
+                    memoires_avant.clone()
+                } else {
+                    std::collections::HashSet::new()
+                };
+                if !avant.is_empty() || !turn_memory_ids.is_empty() {
+                    patch["memoiresDonnees"] =
+                        crate::memory::donnes_apres(&sid, &avant, &turn_memory_ids);
+                }
                 if compacte.load(Ordering::SeqCst) {
                     patch["blocksSeededFor"] = Value::Null;
                     patch["kbBlockHash"] = Value::Null;
                     patch["specialistesHash"] = Value::Null;
+                    patch["memoiresDonnees"] = Value::Null;
+                }
+                if let (true, Some(on)) = (succeeded, kernel_announced.as_ref()) {
+                    patch[crate::kernel::ANNOUNCED_KEY] =
+                        json!({"session": sid.clone(), "on": on});
+                }
+                if compacte.load(Ordering::SeqCst) {
+                    // Le résumé ne garantit pas la consigne du noyau.
+                    patch[crate::kernel::ANNOUNCED_KEY] = Value::Null;
                 }
                 if succeeded && pimpl.id() == "claude" {
                     patch["consigneClaude"] =
@@ -2169,6 +2262,17 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             crate::agent_mailbox::drain_mailbox(&drain_state).await;
         });
         state2.publish(state2.threads_snapshot().await);
+        // Extraction de souvenirs (chantier 3d) : coupée par défaut, et ne
+        // pose que des cartes à garder ou écarter.
+        if succeeded {
+            tokio::spawn(crate::memory::extraire_apres_le_tour(
+                state2.clone(),
+                tid.clone(),
+                turn_id.clone(),
+                memoire_root,
+                memoire_prompt,
+            ));
+        }
         if succeeded && auto_title {
             let title_state = state2.clone();
             let title_thread_id = tid.clone();
@@ -3411,6 +3515,9 @@ mod tests {
         }));
         let event =
             normalize_provider_event(json!({"kind":"done"}), root, None, Some(&sha), Some(&prov));
+        // Les recettes s'écrivent à la finalisation, après le terminal.
+        let ledger = tempfile::tempdir().unwrap();
+        prov.finish(root, Some(&sha), ledger.path(), crate::prov::TurnEnd::Done);
 
         // L'événement garde son contrat intact (l'échec d'écriture ne fuit pas).
         assert!(event["filesChanged"]
@@ -3421,14 +3528,18 @@ mod tests {
 
         let sidecar = dir.path().join("figures/trend.png.prov.json");
         let doc: Value = serde_json::from_str(&std::fs::read_to_string(sidecar).unwrap()).unwrap();
-        assert_eq!(doc["version"], 1);
+        assert_eq!(doc["version"], 2);
         assert_eq!(doc["figure"], "figures/trend.png");
         let entry = &doc["history"][0];
         assert_eq!(entry["threadId"], "th-9");
         assert_eq!(entry["provider"], "codex");
         assert_eq!(entry["scripts"], json!(["plot.py"]));
         assert_eq!(entry["commands"], json!(["python3 plot.py"]));
+        assert_eq!(entry["command"], "python3 plot.py");
         assert_eq!(entry["snapshotSha"], sha);
+        let journal = atelier_store::get_ledger(ledger.path(), root, 10);
+        assert_eq!(journal.len(), 1);
+        assert!(journal[0]["recipes"].as_array().unwrap().contains(&json!("figures/trend.png")));
         assert!(entry["head"].as_str().is_some_and(|h| h.len() >= 7));
         assert!(!dir
             .path()
@@ -3564,6 +3675,15 @@ mod tests {
 
         let api = with_widget_tool_instruction("fais-moi un widget".into(), "openrouter");
         assert_eq!(api, "fais-moi un widget");
+    }
+
+    #[test]
+    fn compute_instruction_sends_jobs_through_the_approval_card() {
+        let enriched = with_compute_instruction("lance l'ajustement sur Narval".into(), "claude");
+        assert!(enriched.starts_with("lance l'ajustement sur Narval"));
+        assert!(enriched.contains("atelier_compute"));
+        assert!(enriched.contains("Never submit"));
+        assert_eq!(with_compute_instruction("x".into(), "openrouter"), "x");
     }
 
     #[test]

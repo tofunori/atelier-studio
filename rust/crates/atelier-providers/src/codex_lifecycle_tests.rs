@@ -608,3 +608,59 @@ async fn goal_created_on_first_turn_has_an_atelier_owner_before_send_returns() {
     assert_eq!(goals[0].0, "ui");
     assert_eq!(goals[0].1["goal"]["objective"], "first turn");
 }
+
+fn review_request(model: &str, effort: &str) -> ReviewRequest {
+    ReviewRequest { model: model.into(), effort: effort.into(), dossier: "DOSSIER-123".into() }
+}
+
+#[tokio::test]
+async fn structured_review_runs_in_a_read_only_ephemeral_thread() {
+    let fake = FakeCodex::new("normal");
+    let provider = provider(&fake);
+    assert!(provider.structured_review());
+    let response = provider.review(review_request("gpt-5.5", "high")).await.unwrap();
+    assert_eq!(response.text, "OK");
+    let requests = fake.requests();
+    let start = requests.iter().find(|r| r["method"] == "thread/start").unwrap();
+    assert_eq!(start["params"]["sandbox"], "read-only");
+    assert_eq!(start["params"]["approvalPolicy"], "never");
+    assert!(start["params"].get("threadId").is_none());
+    let turn = requests.iter().find(|r| r["method"] == "turn/start").unwrap();
+    assert_eq!(turn["params"]["model"], "gpt-5.5");
+    let text = turn["params"]["input"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with(crate::traits::REVIEW_SYSTEM_PROMPT), "{text}");
+    assert!(text.ends_with("DOSSIER-123"), "{text}");
+    assert!(!requests.iter().any(|r| r["method"] == "review/start"));
+}
+
+#[tokio::test]
+async fn structured_review_without_model_lets_codex_choose() {
+    let fake = FakeCodex::new("normal");
+    let provider = provider(&fake);
+    provider.review(review_request("", "")).await.unwrap();
+    let requests = fake.requests();
+    let turn = requests.iter().find(|r| r["method"] == "turn/start").unwrap();
+    assert!(turn["params"].get("model").is_none());
+    assert!(turn["params"].get("effort").is_none());
+}
+
+#[tokio::test]
+async fn failed_review_turn_is_a_provider_error_not_a_verdict() {
+    let fake = FakeCodex::new("turn-failed");
+    let provider = provider(&fake);
+    let error = provider.review(review_request("gpt-5.5", "high")).await.unwrap_err();
+    assert_eq!(error, ReviewError::Provider("relecture Codex : quota atteint".into()));
+}
+
+#[tokio::test]
+async fn abandoned_review_interrupts_its_ephemeral_turn() {
+    let fake = FakeCodex::new("turn-hang");
+    let provider = provider(&fake);
+    let error = provider
+        .run_structured_review(review_request("gpt-5.5", "high"), Duration::from_millis(200))
+        .await
+        .unwrap_err();
+    assert_eq!(error, ReviewError::Timeout);
+    let interrupt = fake.requests().into_iter().find(|r| r["method"] == "turn/interrupt").unwrap();
+    assert_eq!(interrupt["params"], json!({"threadId": "native", "turnId": "turn"}));
+}

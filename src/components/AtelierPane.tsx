@@ -12,6 +12,7 @@ import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
 const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 const CalculsSurface = lazyWithRetry(() => import("./CalculsSurface"));
+const KernelSurface = lazyWithRetry(() => import("./KernelSurface"));
 const EvidenceSurface = lazyWithRetry(() => import("./EvidenceSurface"));
 import { t } from "../lib/i18n";
 import { loadGalleryFavorites, setGalleryFavorite } from "../lib/galleryFavorites";
@@ -146,6 +147,7 @@ export default function AtelierPane({
   onAddFileToChat,
   kbBinding,
   kbThreadTitle,
+  kernelEnabled,
   agent,
   agentEvents,
   agentEventStore,
@@ -187,6 +189,8 @@ export default function AtelierPane({
   onAddFileToChat?: (rel: string) => void;
   kbBinding?: import("../lib/kbSources").KbBinding | null;
   kbThreadTitle?: string;
+  /** Interrupteur du noyau Python du fil actif (surface Noyau). */
+  kernelEnabled?: boolean;
   agent?: AgentDisplay | null;
   agentEvents?: AgentEvent[];
   agentEventStore?: ThreadEventStore;
@@ -993,6 +997,21 @@ export default function AtelierPane({
         <div key="surface:preuves" className="workspace-tab-content surface-body" style={{ display }}>
           <LazyBoundary fallback={<div className="pane-slot" />}>
             <EvidenceSurface projectRoot={projectRoot} />
+          </LazyBoundary>
+        </div>
+      );
+    }
+    if (ref.surface === "noyau") {
+      return (
+        <div key="surface:noyau" className="workspace-tab-content surface-body" style={{ display }}>
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <KernelSurface
+              threadId={activeThreadId ?? null}
+              threadTitle={kbThreadTitle}
+              enabled={!!kernelEnabled}
+              projectRoot={projectRoot}
+              visible={active && layout !== "chat" && !overlayOpen}
+            />
           </LazyBoundary>
         </div>
       );

@@ -75,6 +75,12 @@ const RELAYS: Record<string, Relay> = {
   consigneReformulee: forward("consigne-reformulee"),
   // Réglages › Spécialistes : import en lecture seule depuis Claude Science.
   claudeScienceImport: forward("claude-science-import"),
+  // Réglages › Mémoire et cartes de souvenir : lib/memoire corrèle par requestId.
+  memories: forward("memoire-reponse"),
+  memorySaved: forward("memoire-reponse"),
+  memoryDeleted: forward("memoire-reponse"),
+  memoryClaudeScience: forward("memoire-reponse"),
+  memoryImported: forward("memoire-reponse"),
   mcpServers: forward("mcp-servers"),
   imageGenerated: forward("image-generated"),
   ledger: forward("ledger"),
@@ -103,6 +109,16 @@ const RELAYS: Record<string, Relay> = {
   computeSnapshot: forward("compute-message"),
   computeLog: forward("compute-message"),
   computeForgotRun: forward("compute-message"),
+  // noyau Python persistant du fil (chantier 5) : panneau Cellules
+  kernelCells: forward("kernel-cells"),
+  kernelCell: forward("kernel-cell"),
+  kernelStatus: forward("kernel-status"),
+  kernelStopped: forward("kernel-stopped"),
+  kernelCommand: forward("kernel-command"),
+  // calculs lancés par l'agent (chantier 4) : réponse au clic de la carte,
+  // fiches d'hôte de Calculs › Hôtes
+  computeJobDecision: forward("compute-job-decision"),
+  computeHosts: forward("compute-hosts"),
 };
 
 /** Relaie `msg` s'il est d'un type purement relayé ; renvoie `true` si c'est le cas. */

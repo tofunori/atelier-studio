@@ -7,7 +7,7 @@ use atelier_protocol::Health;
 use atelier_providers::{build_registry, build_registry_except, Provider};
 use atelier_store::{
     AgentMailboxStore, AutomationStore, CommandReceiptStore, HarnessJournal, HighlightStore,
-    ReviewStore, ThreadStore,
+    MemoryStore, ReviewStore, ThreadStore,
 };
 use atelier_workspace::{TermEvent, TerminalHub};
 use serde_json::Value;
@@ -69,6 +69,8 @@ struct Inner {
     port: RwLock<Option<u16>>,
     threads: Mutex<ThreadStore>,
     highlights: Mutex<HighlightStore>,
+    /// Mémoire de projet (chantier 3, `memories.json`).
+    memories: Mutex<MemoryStore>,
     automations: Mutex<AutomationStore>,
     automation_runs: Mutex<HashMap<String, (String, String)>>,
     journal: HarnessJournal,
@@ -105,6 +107,8 @@ struct Inner {
     delivery_tx: tokio::sync::mpsc::UnboundedSender<AgentDelivery>,
     delivery_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<AgentDelivery>>>,
     mailbox_drain_lock: Mutex<()>,
+    /// Noyau Python persistant par fil (chantier 5).
+    kernels: Arc<atelier_kernel::KernelManager>,
 }
 
 impl AppState {
@@ -118,6 +122,7 @@ impl AppState {
     ) -> Self {
         let threads = ThreadStore::open(paths.app_dir.join("threads.json"));
         let highlights = HighlightStore::open(paths.app_dir.join("highlights.json"));
+        let memories = MemoryStore::open(paths.app_dir.join("memories.json"));
         let automations = AutomationStore::open(paths.app_dir.join("automations.json"));
         let journal = HarnessJournal::new(&paths.app_dir);
         let receipts = CommandReceiptStore::open(paths.app_dir.join("chat-receipts.json"));
@@ -125,6 +130,16 @@ impl AppState {
         let mailbox = AgentMailboxStore::open(paths.app_dir.join("agent-mailbox.json"));
         let (delivery_tx, delivery_rx) = tokio::sync::mpsc::unbounded_channel();
         let (bus, _) = broadcast::channel(128);
+        let kernels = Arc::new(atelier_kernel::KernelManager::new(
+            &paths.app_dir,
+            &std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_default(),
+        ));
+        let kernel_bus = bus.clone();
+        kernels.set_listener(Arc::new(move |event| {
+            let _ = kernel_bus.send(crate::kernel::cell_message(&event));
+        }));
         let (terminal_bus, _) = broadcast::channel(512);
         let terminal_sink = terminal_bus.clone();
         let terminals = Arc::new(TerminalHub::with_event_sink(move |event| {
@@ -173,6 +188,7 @@ impl AppState {
                 port: RwLock::new(None),
                 threads: Mutex::new(threads),
                 highlights: Mutex::new(highlights),
+                memories: Mutex::new(memories),
                 automations: Mutex::new(automations),
                 automation_runs: Mutex::new(HashMap::new()),
                 journal,
@@ -198,6 +214,7 @@ impl AppState {
                 delivery_tx,
                 delivery_rx: Mutex::new(Some(delivery_rx)),
                 mailbox_drain_lock: Mutex::new(()),
+                kernels,
             }),
         };
 
@@ -306,6 +323,10 @@ impl AppState {
         &self.inner.highlights
     }
 
+    pub fn memories(&self) -> &Mutex<MemoryStore> {
+        &self.inner.memories
+    }
+
     pub fn automations(&self) -> &Mutex<AutomationStore> {
         &self.inner.automations
     }
@@ -353,6 +374,10 @@ impl AppState {
 
     pub fn terminals(&self) -> &TerminalHub {
         &self.inner.terminals
+    }
+
+    pub fn kernels(&self) -> &atelier_kernel::KernelManager {
+        &self.inner.kernels
     }
 
     pub fn app_dir(&self) -> &std::path::Path {

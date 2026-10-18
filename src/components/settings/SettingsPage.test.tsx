@@ -41,10 +41,10 @@ beforeEach(() => { resetTestState(); setLanguage("fr"); vi.clearAllMocks(); });
 afterEach(cleanup);
 
 describe("SettingsPage — navigation et fermeture", () => {
-  it("rend les huit sections (lot 1 + environnement + intégrations + consignes, tâche 9, + spécialistes) ; la section active porte aria-current", () => {
+  it("rend les neuf sections (lot 1 + environnement + intégrations + consignes, tâche 9, + spécialistes + mémoire) ; la section active porte aria-current", () => {
     renderUi(<SettingsPage {...props()} />);
     const items = screen.getAllByRole("button").filter((b) => b.classList.contains("set-nav-item"));
-    expect(items).toHaveLength(8);
+    expect(items).toHaveLength(9);
     expect(items[0]).toHaveAttribute("aria-current", "true");
   });
 
