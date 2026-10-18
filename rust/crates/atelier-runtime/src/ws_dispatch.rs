@@ -96,7 +96,7 @@ pub(crate) fn lane(request: &Value) -> Option<String> {
         "upsertThread" => request.pointer("/thread/id").or_else(|| request.get("id")),
         "send" | "renameThread" | "moveThread" | "deleteThread" | "prepareMessageEdit"
         | "codexCompact" | "codexClear" | "goalSet" | "goalGet" | "goalClear" | "requestReview"
-        | "kernelStop" => {
+        | "kernelStop" | "kernelCommand" => {
             request.get("threadId")
         }
         _ => None,
@@ -368,6 +368,7 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
         }
         "computeReadLog" => Some("computeLog"),
         "kernelCells" => Some("kernelCells"),
+        "kernelCommand" => Some("kernelCommand"),
         _ => None,
     };
     if let Some(kind) = response_type {

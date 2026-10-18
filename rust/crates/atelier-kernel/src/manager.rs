@@ -127,6 +127,14 @@ pub struct KernelManager {
 }
 
 impl KernelManager {
+    /// Dossier des figures captées pour un fil (hors du projet : rien n'y
+    /// entre tant que l'utilisateur ne l'enregistre pas dans la galerie).
+    pub fn figures_dir(&self, thread_id: &str) -> PathBuf {
+        self.driver_dir
+            .join("figures")
+            .join(crate::journal::thread_key(thread_id))
+    }
+
     /// `data_dir` : dossier d'Atelier où vivent le pilote et le journal.
     pub fn new(data_dir: &Path, home: &Path) -> Self {
         Self {
@@ -280,7 +288,8 @@ impl KernelManager {
             return Err(KernelError::Busy(busy.id));
         }
         let id = self.next_id(req.thread_id);
-        let cell = slot.kernel.submit(id, req.code).await.map_err(|e| {
+        let figures = self.figures_dir(req.thread_id);
+        let cell = slot.kernel.submit(id, req.code, Some(&figures)).await.map_err(|e| {
             match e.strip_prefix("busy:").and_then(|n| n.parse().ok()) {
                 Some(busy) => KernelError::Busy(busy),
                 None => KernelError::Other(e),
@@ -523,6 +532,7 @@ impl Finisher {
             error: p.error,
             files_read: read,
             files_written: written,
+            figures: p.figures,
             truncated: p.truncated,
             env: info.env.name.clone(),
             python: info.executable.clone(),
@@ -578,6 +588,13 @@ fn finished(r: &CellRecord) -> RunOutcome {
     }
     if !r.files_read.is_empty() {
         o.insert("filesRead".into(), json!(r.files_read));
+    }
+    if !r.figures.is_empty() {
+        o.insert("figures".into(), json!(r.figures));
+        o.insert(
+            "figuresHint".into(),
+            json!("Figures captées en PNG. Pour en montrer une dans ta réponse : ![légende](chemin absolu). L'utilisateur peut l'enregistrer dans la galerie du projet."),
+        );
     }
     if r.truncated > 0 {
         o.insert("truncatedBytes".into(), json!(r.truncated));

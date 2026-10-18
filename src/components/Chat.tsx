@@ -19,6 +19,7 @@ import { IconButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { effortOptionsFor, sortEffortLevels } from "../lib/effortOrder";
 import { ImageViewPreview } from "./chat/ImageViewPreview";
+import { MdThreadContext } from "./chat/md";
 import { ToolOutputLine, distinctToolActions, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { ChatTimeline } from "./chat/ChatTimeline";
 import { useReviews } from "./chat/useReviews";
@@ -26,7 +27,6 @@ import { ChatHeader } from "./chat/ChatHeader";
 import { ChatNotice, type ChatNoticeData } from './chat/ChatNotice';
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
-import { KernelPanel } from "./chat/KernelPanel";
 import { QueuedTurns } from "./chat/QueuedTurns";
 import {
   AgentDetailPanel,
@@ -222,16 +222,6 @@ export default function Chat(p: {
     p.eventsByThreadId?.get(localSelectedAgent.threadId) ?? [],
   ) : null;
   const openAgent = p.onOpenAgent ?? setLocalSelectedAgent;
-  // Panneau « Noyau Python » : ouvert depuis le bouton du rail du compositeur,
-  // fermé dès qu'on change de fil (il retient le fil pour lequel il s'est ouvert).
-  const [kernelPanelThread, setKernelPanelThread] = useState<string | null>(null);
-  useEffect(() => {
-    const threadId = p.threadId ?? null;
-    const toggle = () => setKernelPanelThread((open) => (open === threadId ? null : threadId));
-    window.addEventListener("kernel-panel-toggle", toggle);
-    return () => window.removeEventListener("kernel-panel-toggle", toggle);
-  }, [p.threadId]);
-  const kernelPanelShown = !!p.threadId && kernelPanelThread === p.threadId && !localSelectedAgent;
   const [localText, setLocalText] = useState("");
   const sourcedText = usePromptText(p.draftSource);
   const text = p.draftSource ? sourcedText : (p.draftText ?? localText);
@@ -1113,7 +1103,8 @@ export default function Chat(p: {
   ) : null;
 
   return (
-    <div className={`chat ${localSelectedAgent || kernelPanelShown ? "with-agent-detail" : ""}`}>
+    <MdThreadContext.Provider value={p.threadId ?? null}>
+    <div className={`chat ${localSelectedAgent ? "with-agent-detail" : ""}`}>
       <div className="chat-primary">
       {!p.threadId && p.notice && <div className="chat-notice-home"><ChatNotice notice={p.notice}/></div>}
       {p.headerInTopBar ? (headerHost && createPortal(chatHeader, headerHost)) : chatHeader}
@@ -1212,7 +1203,7 @@ export default function Chat(p: {
           consigneDuFil: p.consigneDuFil ?? null,
           onChoisirConsigne: p.onChoisirConsigne ?? (() => {}),
           onOuvrirReglagesConsignes: p.onOuvrirReglagesConsignes ?? (() => {}),
-          kernel: p.threadId && p.kernelOn !== undefined ? { on: p.kernelOn, panelOpen: kernelPanelShown } : undefined,
+          kernel: p.threadId && p.kernelOn !== undefined ? { on: p.kernelOn } : undefined,
         }}
       />
       {/* DANS le panneau, délibérément : la webview NATIVE du navigateur peint
@@ -1262,8 +1253,7 @@ export default function Chat(p: {
       {!p.onOpenAgent && localSelectedAgent && localCurrentAgent ? <AgentDetailPanel agent={localCurrentAgent}
         events={p.eventsByThreadId?.get(localSelectedAgent.threadId) ?? []}
         onClose={() => setLocalSelectedAgent(null)} /> : null}
-      {kernelPanelShown && p.threadId ? <KernelPanel threadId={p.threadId} enabled={!!p.kernelOn}
-        onClose={() => setKernelPanelThread(null)} /> : null}
     </div>
+    </MdThreadContext.Provider>
   );
 }

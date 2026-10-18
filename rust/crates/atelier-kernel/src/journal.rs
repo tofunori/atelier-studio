@@ -47,6 +47,9 @@ pub struct CellRecord {
     pub files_read: Vec<String>,
     #[serde(default)]
     pub files_written: Vec<String>,
+    /// PNG des figures matplotlib captées à la fin de la cellule.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub figures: Vec<String>,
     /// Octets de sortie perdus aux plafonds.
     #[serde(default)]
     pub truncated: u64,
@@ -91,8 +94,23 @@ impl CellJournal {
     }
 
     pub fn path_for(&self, thread_id: &str) -> PathBuf {
-        let h = Sha256::digest(thread_id.as_bytes());
-        self.dir.join(format!("{}.jsonl", hex::encode(&h[..16])))
+        self.dir.join(format!("{}.jsonl", thread_key(thread_id)))
+    }
+
+    /// Ajoute un fichier aux écritures d'une cellule déjà journalisée (une
+    /// figure copiée dans le projet depuis le panneau) : la copie garde ainsi
+    /// sa recette. La cellule est réécrite en fin de journal ; `list` et `get`
+    /// ne gardent que sa dernière version.
+    pub fn add_written(&self, thread_id: &str, id: u64, file: &str) -> std::io::Result<bool> {
+        let Some(mut record) = self.get(thread_id, id) else {
+            return Ok(false);
+        };
+        if !record.files_written.iter().any(|w| w == file) {
+            record.files_written.push(file.to_string());
+            record.files_written.sort();
+            self.append(&record)?;
+        }
+        Ok(true)
     }
 
     pub fn append(&self, record: &CellRecord) -> std::io::Result<()> {
@@ -138,7 +156,7 @@ impl CellJournal {
 
     /// Les `limit` dernières cellules du fil, de la plus ancienne à la plus récente.
     pub fn list(&self, thread_id: &str, limit: usize) -> Vec<CellRecord> {
-        let all = read_records(&self.path_for(thread_id));
+        let all = latest(read_records(&self.path_for(thread_id)));
         all[all.len().saturating_sub(limit)..].to_vec()
     }
 
@@ -160,7 +178,7 @@ impl CellJournal {
     /// Cellules qui ont écrit ce fichier, la plus récente en dernier : la
     /// recette d'un fichier produit dans le noyau.
     pub fn writers_of(&self, thread_id: &str, file: &str) -> Vec<CellRecord> {
-        read_records(&self.path_for(thread_id))
+        latest(read_records(&self.path_for(thread_id)))
             .into_iter()
             .filter(|r| r.files_written.iter().any(|w| w == file))
             .collect()
@@ -178,6 +196,30 @@ fn ends_mid_line(path: &Path) -> bool {
     };
     let mut last = [0u8; 1];
     f.seek(SeekFrom::End(-1)).is_ok() && f.read_exact(&mut last).is_ok() && last[0] != b'\n'
+}
+
+/// Clé de fichier d'un fil : sha256 tronqué, pour ne pas mettre son id brut
+/// dans un nom de fichier.
+pub fn thread_key(thread_id: &str) -> String {
+    let h = Sha256::digest(thread_id.as_bytes());
+    hex::encode(&h[..16])
+}
+
+/// Une cellule réécrite (voir `add_written`) remplace sa version précédente,
+/// à la place de celle-ci.
+fn latest(records: Vec<CellRecord>) -> Vec<CellRecord> {
+    let mut out: Vec<CellRecord> = Vec::with_capacity(records.len());
+    let mut index = std::collections::HashMap::new();
+    for r in records {
+        match index.get(&r.id) {
+            Some(&i) => out[i] = r,
+            None => {
+                index.insert(r.id, out.len());
+                out.push(r);
+            }
+        }
+    }
+    out
 }
 
 fn read_records(path: &Path) -> Vec<CellRecord> {
@@ -211,6 +253,7 @@ mod tests {
             error: None,
             files_read: vec![],
             files_written: written.iter().map(|s| s.to_string()).collect(),
+            figures: vec![],
             truncated: 0,
             env: "base".into(),
             python: "/usr/bin/python3".into(),

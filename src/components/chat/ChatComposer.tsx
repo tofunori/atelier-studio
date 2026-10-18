@@ -128,7 +128,7 @@ export type ComposerHost = {
   onChoisirConsigne: (choix: ConsigneDuFil | null) => void;
   onOuvrirReglagesConsignes: (section?: string) => void;
   /** Noyau Python persistant du fil (chantier 5) ; absent sans fil actif. */
-  kernel?: { on: boolean; panelOpen: boolean };
+  kernel?: { on: boolean };
 };
 
 export function ChatComposer(props: {

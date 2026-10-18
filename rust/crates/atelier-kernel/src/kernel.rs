@@ -38,6 +38,8 @@ pub struct CellProgress {
     pub error: Option<Value>,
     pub files_read: Vec<String>,
     pub files_written: Vec<String>,
+    /// PNG des figures matplotlib laissées ouvertes par la cellule.
+    pub figures: Vec<String>,
     pub duration_ms: Option<u64>,
     pub truncated: u64,
     pub finished: bool,
@@ -281,6 +283,7 @@ import atelier_noyau as _m; _m.main()",
                                 p.duration_ms = msg["duration_ms"].as_u64();
                                 p.files_read = strings(&msg["files"]["read"]);
                                 p.files_written = strings(&msg["files"]["written"]);
+                                p.figures = strings(&msg["figures"]);
                             });
                         }
                     }
@@ -387,7 +390,13 @@ import atelier_noyau as _m; _m.main()",
     }
 
     /// Lance une cellule. Refuse si une autre tourne : le noyau est séquentiel.
-    pub async fn submit(&self, id: u64, code: &str) -> Result<Arc<Cell>, String> {
+    /// `figures` : dossier où le pilote enregistre les figures de la cellule.
+    pub async fn submit(
+        &self,
+        id: u64,
+        code: &str,
+        figures: Option<&Path>,
+    ) -> Result<Arc<Cell>, String> {
         if !self.is_alive() {
             return Err("le noyau s'est arrêté".into());
         }
@@ -404,7 +413,7 @@ import atelier_noyau as _m; _m.main()",
             *running = Some(cell.clone());
         }
         if let Err(e) = self
-            .write(json!({"op": "exec", "id": id, "code": code}))
+            .write(json!({"op": "exec", "id": id, "code": code, "figdir": figures}))
             .await
         {
             self.shared

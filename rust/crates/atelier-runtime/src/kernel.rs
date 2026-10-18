@@ -5,7 +5,7 @@
 use crate::state::AppState;
 use atelier_kernel::{CellEvent, RunRequest};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Un noyau sans cellule depuis ce délai est arrêté (ses variables avec).
@@ -261,9 +261,81 @@ pub async fn handle_stop(state: &AppState, msg: &Value) -> Vec<String> {
 }
 
 /// Fil supprimé : noyau arrêté, journal effacé.
+/// Commandes de la surface Noyau : variables, interruption, redémarrage
+/// (dans un autre env au besoin), liste des envs, et lien d'une figure
+/// enregistrée dans la galerie à sa cellule. Mêmes règles que l'outil de
+/// l'agent (`action`), le fil étant celui que la surface affiche.
+pub async fn handle_command(state: &AppState, msg: &Value) -> Vec<String> {
+    let thread_id = msg.get("threadId").and_then(Value::as_str).unwrap_or("");
+    let op = msg.get("op").and_then(Value::as_str).unwrap_or("");
+    let result = match op {
+        "variables" | "interrupt" | "restart" | "envs" => {
+            action(state, thread_id, &format!("kernel_{op}"), msg).await
+        }
+        "link" => link_file(state, thread_id, msg).await,
+        _ => Err("unknown_op".into()),
+    };
+    let mut reply = json!({
+        "type": "kernelCommand",
+        "requestId": msg.get("requestId"),
+        "threadId": thread_id,
+        "op": op,
+    });
+    match result {
+        Ok(value) => reply["result"] = value,
+        Err(error) => reply["error"] = json!(error),
+    }
+    vec![reply.to_string()]
+}
+
+/// Une figure du noyau copiée dans le projet entre dans les écritures de sa
+/// cellule : `CellJournal::writers_of` retrouve alors la recette de la copie.
+async fn link_file(state: &AppState, thread_id: &str, msg: &Value) -> Result<Value, String> {
+    let cell = msg
+        .get("cell")
+        .and_then(Value::as_u64)
+        .ok_or("kernel_missing_cell")?;
+    let given = msg
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|p| !p.trim().is_empty())
+        .ok_or("kernel_missing_path")?;
+    // Chemin rendu par l'enregistrement dans la galerie : relatif au projet.
+    let path = if Path::new(given).is_absolute() {
+        given.to_string()
+    } else {
+        let root = state
+            .threads()
+            .lock()
+            .await
+            .get(thread_id)
+            .map(|t| t.project_root.clone())
+            .filter(|r| !r.is_empty())
+            .ok_or("kernel_no_folder")?;
+        Path::new(&root).join(given).display().to_string()
+    };
+    let journal = state.kernels().journal().clone();
+    let id = thread_id.to_string();
+    let linked = tokio::task::spawn_blocking(move || journal.add_written(&id, cell, &path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    if linked {
+        if let Some(record) = state.kernels().journal().get(thread_id, cell) {
+            state.publish(cell_message(&CellEvent {
+                thread_id: thread_id.to_string(),
+                phase: "finished",
+                cell: atelier_kernel::panel_view(&record),
+            }));
+        }
+    }
+    Ok(json!({"linked": linked}))
+}
+
 pub async fn on_delete_thread(state: &AppState, thread_id: &str) {
     state.kernels().shutdown(thread_id).await;
     state.kernels().journal().delete_thread(thread_id);
+    let _ = std::fs::remove_dir_all(state.kernels().figures_dir(thread_id));
 }
 
 /// Bloc de message qui annonce l'interrupteur à la session provider, une

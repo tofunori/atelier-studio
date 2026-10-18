@@ -200,3 +200,53 @@ async fn l_inactivite_arrete_le_noyau_mais_pas_un_calcul_en_cours() {
     assert!(m.status("occupe").running);
     m.shutdown_all().await;
 }
+
+#[tokio::test]
+async fn les_figures_restees_ouvertes_sont_captees_hors_des_fichiers_ecrits() {
+    let Some(py) = python() else {
+        eprintln!("pas de python3 : test sauté");
+        return;
+    };
+    let py = py.display().to_string();
+    let data = tempfile::tempdir().unwrap();
+    let projet = tempfile::tempdir().unwrap();
+    let m = KernelManager::new(data.path(), data.path());
+    // Faux pyplot (matplotlib n'est pas requis pour tester le pilote) : deux
+    // figures ouvertes, que le pilote doit enregistrer puis fermer.
+    let code = r#"
+import sys, types
+plt = types.ModuleType("matplotlib.pyplot")
+ouvertes = [1, 2]
+class Fig:
+    def __init__(self, n): self.n = n
+    def savefig(self, chemin, **kw): open(chemin, "w").write("png %d" % self.n)
+plt.get_fignums = lambda: list(ouvertes)
+plt.figure = lambda n: Fig(n)
+plt.close = lambda quoi: ouvertes.clear()
+sys.modules["matplotlib.pyplot"] = plt
+"#;
+    let r = m
+        .run(req("fil", projet.path(), Some(&py), code))
+        .await
+        .unwrap();
+    assert_eq!(r.cell["status"], "ok", "{}", r.cell);
+    let figures: Vec<String> = serde_json::from_value(r.cell["figures"].clone()).unwrap();
+    assert_eq!(figures.len(), 2, "{}", r.cell);
+    let dossier = m.figures_dir("fil");
+    assert!(figures[0].starts_with(&dossier.display().to_string()));
+    assert_eq!(std::fs::read_to_string(&figures[1]).unwrap(), "png 2");
+    assert!(r.cell.get("filesWritten").is_none(), "les PNG ne sont pas des écritures de la cellule");
+
+    // Fermées : la cellule suivante n'en recapte aucune.
+    let r = m.run(req("fil", projet.path(), None, "1")).await.unwrap();
+    assert!(r.cell.get("figures").is_none(), "{}", r.cell);
+
+    // Une figure copiée dans le projet rejoint les écritures de sa cellule.
+    let copie = projet.path().join("figure.png").display().to_string();
+    assert!(m.journal().add_written("fil", 1, &copie).unwrap());
+    let cellules = m.journal().list("fil", 10);
+    assert_eq!(cellules.len(), 2, "la cellule réécrite remplace l'ancienne");
+    assert_eq!(cellules[0].files_written, vec![copie.clone()]);
+    assert_eq!(m.journal().writers_of("fil", &copie)[0].id, 1);
+    m.shutdown_all().await;
+}

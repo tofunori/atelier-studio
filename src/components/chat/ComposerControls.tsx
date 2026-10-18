@@ -170,7 +170,7 @@ export function ComposerControls(p: {
   onChoisirConsigne: (choix: ConsigneDuFil | null) => void;
   onOuvrirReglagesConsignes: (section?: string) => void;
   /** Noyau Python persistant du fil (chantier 5) ; absent sans fil actif. */
-  kernel?: { on: boolean; panelOpen: boolean };
+  kernel?: { on: boolean };
 }) {
   const {
     provider, model, setModel, effort, setEffort, fastMode, setFastMode,
@@ -387,7 +387,6 @@ export function ComposerControls(p: {
             {p.kernel?.on ? (
               <RowButton
                 className="consigne-trigger kernel-trigger"
-                data-active={p.kernel.panelOpen}
                 aria-label={t("kernel.open-panel")}
                 title={t("kernel.open-panel")}
                 onClick={() => window.dispatchEvent(new CustomEvent("kernel-panel-toggle"))}

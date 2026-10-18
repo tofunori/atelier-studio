@@ -2,9 +2,10 @@
 // fichier:ligne, coloration hljs, blocs code (streaming ou non), Mermaid,
 // KaTeX, découpage en blocs mémoïsés + réparation du bloc de queue pendant
 // le streaming (MdBody/MdBlock).
-import { memo, useEffect, useMemo, useState } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { localImagePreviewUrl } from "../../lib/localImage";
+import { FigureGalleryBar } from "../FigureGalleryBar";
 import { useStreamingHighlight } from "./useStreamingHighlight";
 // `lib/core` + enregistrement EXPLICITE, jamais `lib/common` : common tire
 // 36 langages (375 Ko de source, 13 % de l'entrée) pour la quinzaine
@@ -572,8 +573,12 @@ export function PreBlock(props: any) {
   return <MarkdownCodeBlock {...props} />;
 }
 
+/** Fil du message rendu, pour les actions galerie des images locales. */
+export const MdThreadContext = createContext<string | null>(null);
+
 /** Local paths in Markdown are files, not routes under tauri://localhost. */
 export function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
+  const threadId = useContext(MdThreadContext);
   const local = Boolean(src?.startsWith("/") && !src.startsWith("//"));
   const [preview, setPreview] = useState<{ source: string; url?: string; failed?: boolean } | null>(null);
   useEffect(() => {
@@ -591,8 +596,12 @@ export function MarkdownImage({ src, alt, title }: { src?: string; alt?: string;
   const current = preview?.source === src ? preview : null;
   if (local && current?.failed) return <span className="md-image-error">Image indisponible : {alt || src.split("/").pop()}</span>;
   if (local && !current?.url) return <span role="status">Chargement de l’image…</span>;
-  return <img className="md-inline-image" src={local ? current?.url : src} alt={alt || ""} title={title}
+  const img = <img className="md-inline-image" src={local ? current?.url : src} alt={alt || ""} title={title}
     onError={() => { if (local) setPreview({ source: src, failed: true }); }} />;
+  // Figure locale d'un fil (graphique du noyau, image produite) : l'ouvrir ou
+  // l'enregistrer dans la galerie depuis le chat.
+  if (!local || !threadId) return img;
+  return <span className="md-figure">{img}<FigureGalleryBar path={src} threadId={threadId} /></span>;
 }
 
 // composants markdown : liens externes stylés + réfs fichier:ligne cliquables

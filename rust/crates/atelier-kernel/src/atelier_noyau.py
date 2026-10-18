@@ -11,13 +11,13 @@
 #
 # Protocole : une ligne JSON par message.
 #   Rust -> pilote (stdin d'origine) :
-#     {"op": "exec", "id": N, "code": "..."}
+#     {"op": "exec", "id": N, "code": "...", "figdir": "..."}
 #     {"op": "vars", "id": N}
 #     {"op": "shutdown"}
 #   pilote -> Rust (stdout d'origine, dupliqué avant toute exécution) :
 #     {"t": "ready", ...}
 #     {"t": "stream", "id": N, "name": "stdout"|"stderr", "text": "..."}
-#     {"t": "done", "id": N, "status": "ok"|"error", ...}
+#     {"t": "done", "id": N, "status": "ok"|"error", "figures": [...], ...}
 #     {"t": "vars", "id": N, "vars": [...]}
 #
 # Le descripteur 1 est redirigé vers 2 : ce qu'une bibliothèque C écrit
@@ -42,6 +42,7 @@ RESULT_MAX = 20 * 1024
 VAR_REPR_MAX = 160
 VARS_MAX = 300
 FILES_MAX = 200
+FIGURES_MAX = 12
 
 _ICI = os.path.abspath(__file__)
 
@@ -197,6 +198,39 @@ def _traceback_utilisateur(erreur):
     return "".join(lignes)
 
 
+def _capturer_figures(dossier, ident):
+    """Enregistre en PNG les figures matplotlib restées ouvertes après la
+    cellule, puis les ferme, comme l'affichage en ligne de Jupyter : le
+    noyau tourne en Agg, sans fenêtre, et une figure non enregistrée serait
+    sinon perdue. Rien n'est importé si la cellule n'a pas chargé pyplot."""
+    plt = sys.modules.get("matplotlib.pyplot")
+    if plt is None or not dossier:
+        return []
+    try:
+        numeros = list(plt.get_fignums())
+    except Exception:
+        return []
+    if not numeros:
+        return []
+    chemins = []
+    try:
+        os.makedirs(dossier, exist_ok=True)
+        for rang, numero in enumerate(numeros[:FIGURES_MAX], 1):
+            chemin = os.path.join(dossier, "cellule-%d-%d.png" % (ident, rang))
+            try:
+                plt.figure(numero).savefig(chemin, dpi=144, bbox_inches="tight", facecolor="white")
+                chemins.append(chemin)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        plt.close("all")
+    except Exception:
+        pass
+    return chemins
+
+
 def _nom_type(valeur):
     t = type(valeur)
     module = getattr(t, "__module__", "")
@@ -212,7 +246,7 @@ class Pilote(object):
         self.espace = espace
         self.de_base = set(espace.keys())
 
-    def executer(self, ident, code):
+    def executer(self, ident, code, dossier_figures=None):
         etat = self.etat
         etat.cellule = ident
         etat.envoye = 0
@@ -254,6 +288,8 @@ class Pilote(object):
                 pass
             sys.stdout, sys.stderr = stdout, stderr
             etat.cellule = None
+        # Hors cellule : les PNG des figures ne comptent pas comme fichiers écrits.
+        figures = _capturer_figures(dossier_figures, ident)
         message = {
             "t": "done",
             "id": ident,
@@ -262,6 +298,7 @@ class Pilote(object):
             "error": erreur,
             "truncated": etat.coupe,
             "files": {"read": sorted(etat.lus), "written": sorted(etat.ecrits)},
+            "figures": figures,
             "duration_ms": int((time.time() - debut) * 1000),
         }
         etat.envoyer(message)
@@ -339,7 +376,11 @@ def main():
         op = requete.get("op")
         try:
             if op == "exec":
-                pilote.executer(int(requete.get("id", 0)), str(requete.get("code", "")))
+                pilote.executer(
+                    int(requete.get("id", 0)),
+                    str(requete.get("code", "")),
+                    requete.get("figdir") or None,
+                )
             elif op == "vars":
                 pilote.variables(int(requete.get("id", 0)))
             elif op == "shutdown":

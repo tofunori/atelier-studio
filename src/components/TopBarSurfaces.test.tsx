@@ -169,12 +169,14 @@ describe("TopBarSurfaces", () => {
 
 const TRIM_KEY = "atelier-studio.topbar-surfaces.trim-v1";
 const ANNOTS_KEY = "atelier-studio.topbar-surfaces.annots-v1";
+const NOYAU_KEY = "atelier-studio.topbar-surfaces.noyau-v1";
 
 describe("migration preuves-v1 (fix 2026-08-16)", () => {
   // la coupe du lot 068 et la migration annots-v1 sont neutralisées ici : ces
   // cas testent l'insertion de Preuves, pas la longueur de la barre
   const sansCoupe = () => {
     localStorage.clear();
+    localStorage.setItem(NOYAU_KEY, "1"); // noyau-v1 testée à part
     localStorage.setItem(TRIM_KEY, "1");
     localStorage.setItem(ANNOTS_KEY, "1");
   };
@@ -205,6 +207,7 @@ describe("migration preuves-v1 (fix 2026-08-16)", () => {
 describe("migration trim-v1 (lot 068)", () => {
   it("coupe UNE fois la longue liste d'avant, en gardant l'ordre de l'utilisateur", () => {
     localStorage.clear();
+    localStorage.setItem(NOYAU_KEY, "1"); // noyau-v1 testée à part
     localStorage.setItem("atelier-studio.topbar-surfaces",
       JSON.stringify(["terminal", "git", "atelier", "preuves", "connaissances", "ide", "explorer"]));
     // la coupe garde les DEFAULT_PINNED.length premières (4 depuis le panneau
@@ -217,6 +220,7 @@ describe("migration trim-v1 (lot 068)", () => {
 
   it("ne recoupe jamais ce que l'utilisateur ré-épingle ensuite", () => {
     localStorage.clear();
+    localStorage.setItem(NOYAU_KEY, "1"); // noyau-v1 testée à part
     localStorage.setItem("atelier-studio.topbar-surfaces",
       JSON.stringify(["explorer", "ide", "connaissances", "git", "terminal"]));
     expect(readPinned()).toHaveLength(DEFAULT_PINNED.length);
@@ -228,6 +232,7 @@ describe("migration trim-v1 (lot 068)", () => {
 
   it("une installation neuve naît courte et n'est jamais tronquée après coup", () => {
     localStorage.clear();
+    localStorage.setItem(NOYAU_KEY, "1"); // noyau-v1 testée à part
     expect(readPinned()).toEqual(DEFAULT_PINNED);
     // l'utilisateur épingle une quatrième surface : elle DOIT survivre
     localStorage.setItem("atelier-studio.topbar-surfaces",
@@ -240,6 +245,7 @@ describe("migration trim-v1 (lot 068)", () => {
     // (preuves-v1) retrouvait de quoi mordre et s'ajoutait toute seule à la
     // première liste écrite par un utilisateur qui n'a rien demandé.
     localStorage.clear();
+    localStorage.setItem(NOYAU_KEY, "1"); // noyau-v1 testée à part
     readPinned();
     localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "ide"]));
     expect(readPinned()).toEqual(["explorer", "ide"]);
@@ -250,6 +256,7 @@ describe("migration annots-v1 (panneau Annotations)", () => {
   // même neutralisation que pour preuves-v1 : on teste l'insertion, pas la coupe
   const sansCoupe = () => {
     localStorage.clear();
+    localStorage.setItem(NOYAU_KEY, "1"); // noyau-v1 testée à part
     localStorage.setItem(TRIM_KEY, "1");
     localStorage.setItem("atelier-studio.topbar-surfaces.preuves-v1", "1");
   };
@@ -268,6 +275,28 @@ describe("migration annots-v1 (panneau Annotations)", () => {
     readPinned(); // migre + pose le flag
     localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "git"]));
     expect(readPinned()).toEqual(["explorer", "git"]);
+  });
+});
+
+describe("migration noyau-v1 (surface Noyau Python)", () => {
+  const sansAutres = () => {
+    localStorage.clear();
+    for (const k of [TRIM_KEY, ANNOTS_KEY, "atelier-studio.topbar-surfaces.preuves-v1"]) localStorage.setItem(k, "1");
+  };
+
+  it("liste persistée d'avant : Noyau ajouté une fois à la fin", () => {
+    sansAutres();
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer", "git"]));
+    expect(readPinned()).toEqual(["explorer", "git", "noyau"]);
+    expect(readPinned().filter((id) => id === "noyau")).toHaveLength(1);
+  });
+
+  it("l'utilisateur qui retire Noyau après migration est respecté", () => {
+    sansAutres();
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer"]));
+    readPinned();
+    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["explorer"]));
+    expect(readPinned()).toEqual(["explorer"]);
   });
 });
 

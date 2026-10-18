@@ -627,6 +627,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "kernelCells" => crate::kernel::handle_cells(state, &msg).await,
         "kernelStop" => crate::kernel::handle_stop(state, &msg).await,
+        "kernelCommand" => crate::kernel::handle_command(state, &msg).await,
         "upsertThread" => {
             let patch = msg.get("thread").cloned().unwrap_or(msg.clone());
             let result = {

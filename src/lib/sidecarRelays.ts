@@ -107,6 +107,7 @@ const RELAYS: Record<string, Relay> = {
   kernelCell: forward("kernel-cell"),
   kernelStatus: forward("kernel-status"),
   kernelStopped: forward("kernel-stopped"),
+  kernelCommand: forward("kernel-command"),
 };
 
 /** Relaie `msg` s'il est d'un type purement relayé ; renvoie `true` si c'est le cas. */

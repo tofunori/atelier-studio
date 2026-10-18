@@ -3,6 +3,7 @@
 // `kernelStatus` poussés sur le bus).
 import { useEffect, useState } from "react";
 import { wsSend } from "./wsBus";
+import { t } from "./i18n";
 
 export type KernelCell = {
   id: number;
@@ -19,6 +20,8 @@ export type KernelCell = {
   error?: { ename?: string; evalue?: string; traceback?: string } | null;
   filesRead?: string[];
   filesWritten?: string[];
+  /** PNG des figures matplotlib laissées ouvertes par la cellule. */
+  figures?: string[];
   env?: string;
   pythonVersion?: string;
 };
@@ -84,8 +87,60 @@ export function stopKernel(threadId: string) {
   wsSend({ type: "kernelStop", threadId });
 }
 
+export type KernelVariable = { name: string; type: string; shape?: number[]; dtype?: string; len?: number; repr?: string };
+export type KernelEnv = { name: string; source: string; prefix: string };
+
+/** Commande de la surface Noyau (`kernelCommand`), résolue par sa réponse. */
+export function kernelCommand<T = unknown>(
+  threadId: string,
+  op: "variables" | "interrupt" | "restart" | "envs" | "link",
+  args: Record<string, unknown> = {},
+  timeoutMs = 60_000,
+): Promise<T> {
+  const requestId = `kcmd-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return new Promise<T>((resolve, reject) => {
+    const done = (event: Event) => {
+      const d = (event as CustomEvent).detail;
+      if (d?.requestId !== requestId) return;
+      cleanup();
+      if (d.error) reject(new Error(String(d.error)));
+      else resolve(d.result as T);
+    };
+    const timer = window.setTimeout(() => { cleanup(); reject(new Error("timeout")); }, timeoutMs);
+    const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("kernel-command", done); };
+    window.addEventListener("kernel-command", done);
+    if (!wsSend({ type: "kernelCommand", threadId, op, requestId, ...args })) {
+      cleanup();
+      reject(new Error("offline"));
+    }
+  });
+}
+
+/** Cellule d'une figure captée par le noyau (`…/kernel/figures/<fil>/cellule-N-k.png`). */
+export function figureCell(path: string): number | null {
+  const m = /\/kernel\/figures\/[0-9a-f]{32}\/cellule-(\d+)-\d+\.png$/u.exec(path);
+  return m ? Number(m[1]) : null;
+}
+
+/** Taille lisible d'une variable : forme, longueur ou rien. */
+export function variableSize(v: KernelVariable): string {
+  if (v.shape) return `(${v.shape.join(", ")})${v.dtype ? ` ${v.dtype}` : ""}`;
+  if (v.len != null) return t("kernel.items", { n: v.len });
+  return "";
+}
+
 /** Dernier segment d'un chemin, pour une liste lisible. */
 export function baseName(path: string): string {
   const parts = path.split("/");
   return parts[parts.length - 1] || path;
+}
+
+/** Texte envoyé au chat pour une sélection : d'où elle vient, puis le passage. */
+export function selectionContext(cell: number, part: "code" | "output", text: string, lines?: [number, number]): string {
+  const source = t("kernel.selection-source", { n: cell });
+  if (part === "code" && lines) {
+    const span = lines[0] === lines[1] ? `L${lines[0]}` : `L${lines[0]}-${lines[1]}`;
+    return `${source} (${span}) : « ${text} »`;
+  }
+  return `${source}, ${t("kernel.selection-output")}\n« ${text} »`;
 }

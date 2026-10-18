@@ -2108,6 +2108,13 @@ export default function App() {
       const th = allThreadsRef.current.find((x) => x.id === id);
       patchKernelDuFil(id, !th?.kernelEnabled);
     };
+    // Bouton du compositeur : le noyau s'ouvre comme surface du panneau droit.
+    const onKernelPanel = () => switchToSurface("noyau");
+    // Sélection dans la surface Noyau → contexte du chat, comme le lecteur PDF.
+    const onKernelAddToChat = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (typeof text === "string" && text.trim()) attachContextToChat(text);
+    };
     const onAutoReviewToggle = () => {
       setSettings((s) => ({ ...s, autoReview: { ...s.autoReview, enabled: !s.autoReview.enabled } }));
     };
@@ -2216,6 +2223,8 @@ export default function App() {
       "quick-ask-open": onQaOpen,
       "autoreview-toggle": onAutoReviewToggle,
       "kernel-toggle": onKernelToggle,
+      "kernel-panel-toggle": onKernelPanel,
+      "kernel-add-to-chat": onKernelAddToChat,
       "permission-answer": onPermAnswer,
       "interaction-answer": onInteractionAnswer,
       "correct-issues": onCorrectIssues,
@@ -4522,6 +4531,7 @@ export default function App() {
                 onChange: (next) => handleKbChangeForSource(activeId, next),
               }}
               kbThreadTitle={activeThreadEntry?.title ?? ""}
+              kernelEnabled={!!activeThreadEntry?.kernelEnabled}
               files={files}
               filesTruncated={filesTruncated}
               // `ids` ne décrit que les onglets VISIBLES : remapper la liste
