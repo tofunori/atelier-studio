@@ -31,6 +31,9 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "getSettings" | "listHighlights" | "listAutomations" => Class::FastRead,
         "getHistory" | "getAgentHistory" => Class::History,
         "articleImport" | "articleImportDoi" | "articleWrite" | "kbRagdocPromote" => Class::Corpus,
+        // Lit la base de Claude Science (plusieurs Go) : ne doit pas tenir
+        // la barrière globale devant les envois du chat.
+        "memoryClaudeScienceImport" => Class::Corpus,
         "clientLog"
         | "getLedger"
         | "listFiles"
@@ -71,6 +74,8 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "generateCommitMsg"
         | "reformulerConsigne"
         | "importClaudeScience"
+        | "memoryList"
+        | "memoryClaudeSciencePreview"
         | "zoteroCollections"
         | "listSessions"
         | "getUsage"
@@ -358,6 +363,11 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
         "gbrainSearch" => Some("gbrainResults"),
         "generateCommitMsg" => Some("commitMsg"),
         "reformulerConsigne" => Some("consigneReformulee"),
+        "memoryList" => Some("memories"),
+        "memorySave" => Some("memorySaved"),
+        "memoryDelete" => Some("memoryDeleted"),
+        "memoryClaudeSciencePreview" => Some("memoryClaudeScience"),
+        "memoryClaudeScienceImport" => Some("memoryImported"),
         "narvalListDirectory" => Some("narvalDirectory"),
         "narvalInspectJob" => Some("narvalJobDetail"),
         "narvalReadText" => Some("narvalText"),
@@ -627,6 +637,8 @@ mod tests {
             "goalClear",
             "pinPassage",
             "unpinPassage",
+            "memorySave",
+            "memoryDelete",
         ];
         for kind in crate::ws_router::ALL_MESSAGE_TYPES {
             if *kind == "ping" {

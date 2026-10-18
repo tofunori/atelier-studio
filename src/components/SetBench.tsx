@@ -60,6 +60,22 @@ function benchSocket(): WebSocket {
         ] });
       }
       if (msg.type === "apiProviders") reply({ type: "apiProviders", providers: [] });
+      // #setbench-memoire : souvenirs factices (aucune donnée personnelle).
+      const memoire = (detail: Record<string, unknown>) => setTimeout(() => window.dispatchEvent(
+        new CustomEvent("memoire-reponse", { detail: { requestId: msg.requestId, ok: true, ...detail } })), 0);
+      if (msg.type === "memoryList") memoire({ total: 3, counts: { "/Users/demo/Chapitre1-Albedo": 3, "": 1 }, items: [
+        { id: "m1", projectRoot: "/Users/demo/Chapitre1-Albedo", text: "Le dépôt de carbone suie du chapitre 1 est FireWork moins noFire, en mol m-2, sur la fenêtre JJA.",
+          origin: { kind: "claude-science", sourceProject: "Analyses Feux-Albédo", evidence: "observed" }, createdAt: "2026-10-12T08:00:00.000Z", updatedAt: "2026-10-12T08:00:00.000Z" },
+        { id: "m2", projectRoot: "/Users/demo/Chapitre1-Albedo", text: "Les figures suivent la largeur d'une colonne Nature (89 mm), texte de 7 pt au moins.",
+          origin: { kind: "agent", threadId: "t1" }, createdAt: "2026-10-15T14:20:00.000Z", updatedAt: "2026-10-15T14:20:00.000Z" },
+        { id: "m3", projectRoot: "/Users/demo/Chapitre1-Albedo", text: "Le modèle s'appelle RAQDPS dans le texte, jamais FireWork.",
+          origin: { kind: "manual" }, createdAt: "2026-10-17T09:05:00.000Z", updatedAt: "2026-10-17T10:00:00.000Z", edited: true },
+      ] });
+      if (msg.type === "memoryClaudeSciencePreview") memoire({ base: "operon-cli.db", projects: [
+        { id: "p1", name: "Analyses Feux-Albédo", count: 7671, imported: 0, projectRoot: null },
+        { id: "p2", name: "Demande de bourse", count: 111, imported: 0, projectRoot: null },
+        { id: "", name: "", count: 38, imported: 0, projectRoot: null },
+      ] });
       if (msg.type === "importClaudeScience") {
         setTimeout(() => window.dispatchEvent(new CustomEvent("claude-science-import", { detail: {
           requestId: msg.requestId, ok: true, specialistes: [
@@ -87,6 +103,10 @@ export function SetBench() {
       btns.find((b) => (b.textContent ?? "").includes("Spécialistes"))?.click();
       return;
     }
+    if (hash.includes("-memoire")) {
+      btns.find((b) => (b.textContent ?? "").includes("Mémoire"))?.click();
+      return;
+    }
     const target = hash.includes("-setup") ? "Modèles" : null;
     if (!target) return;
     btns.find((b) => (b.textContent ?? "").toLowerCase().includes("modèle") || (b.textContent ?? "").toLowerCase().includes("model"))?.click();
@@ -95,7 +115,7 @@ export function SetBench() {
   // route doit se voir tout de suite, comme dans l'app), sinon la variante
   // historique reste figée sur DEFAULT_SETTINGS et un socket nul.
   const opencode = hash.includes("-opencode");
-  const consignes = hash.includes("-consignes") || hash.includes("-specialistes");
+  const consignes = hash.includes("-consignes") || hash.includes("-specialistes") || hash.includes("-memoire");
   const ws = useMemo(() => (opencode || consignes ? benchSocket() : null), [opencode, consignes]);
   const [live, setLive] = useState<Settings>({ ...DEFAULT_SETTINGS, ...(consignes ? { consignes: [
     ...DEFAULT_SETTINGS.consignes,
@@ -116,6 +136,8 @@ export function SetBench() {
           onChange={(patch) => setLive((prev) => ({ ...prev, ...patch }))}
           onClose={noop}
           ws={ws}
+          projects={hash.includes("-memoire") ? ["/Users/demo/Chapitre1-Albedo", "/Users/demo/Demande-bourse"] : undefined}
+          projectRoot={hash.includes("-memoire") ? "/Users/demo/Chapitre1-Albedo" : undefined}
         />
       ) : (
         <SettingsPage settings={{ ...DEFAULT_SETTINGS }} onChange={noop} onClose={noop} ws={null} />

@@ -140,6 +140,7 @@ pub(crate) fn strip_file_scope_instruction(text: &str) -> String {
         ("<atelier-discussion-workspace>", "</atelier-discussion-workspace>"),
         ("<atelier-consigne-du-fil>", "</atelier-consigne-du-fil>"),
         ("<atelier-specialists>", "</atelier-specialists>"),
+        ("<atelier-memory>", "</atelier-memory>"),
     ] {
         while let Some(start) = out.find(open) {
             let Some(rel_end) = out[start + open.len()..].find(close) else {
@@ -1381,6 +1382,26 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         }
         _ => provider_prompt,
     };
+    // Mémoire de projet (chantier 3c) : les souvenirs du projet qui partagent
+    // les mots rares de la demande, jamais deux fois dans la même session.
+    let memoires_avant = if seeded {
+        crate::memory::deja_donnes(previous.as_ref())
+    } else {
+        std::collections::HashSet::new()
+    };
+    let (provider_prompt, turn_memory_ids) = match crate::memory::bloc_du_tour(
+        state,
+        &folder_settings,
+        &project_root,
+        &prompt,
+        &memoires_avant,
+        &provider,
+    )
+    .await
+    {
+        Some((bloc, ids)) => (format!("{provider_prompt}{bloc}"), ids),
+        None => (provider_prompt, Vec::new()),
+    };
     // Bloc base de connaissances (plan 049 T4) : sources attachées au thread —
     // ne bloque jamais un envoi (dégrade en prompt inchangé / fiches).
     let pre_kb = provider_prompt.clone();
@@ -1773,6 +1794,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let cancelled_probe = Arc::clone(&cancelled);
     let state2 = state.clone();
     let tid = thread_id.clone();
+    let memoire_root = project_root.clone();
+    let memoire_prompt = prompt.clone();
     let h2 = Arc::clone(&h);
     let pimpl = Arc::clone(&provider_impl);
     let session_id = state
@@ -2123,10 +2146,20 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 let mut patch = json!({"id": tid, "status": "idle",
                     "blocksSeededFor": sid, "kbBlockHash": turn_kb_hash,
                     "specialistesHash": turn_specialists_hash});
+                let avant = if prev_session.as_deref() == Some(sid.as_str()) {
+                    memoires_avant.clone()
+                } else {
+                    std::collections::HashSet::new()
+                };
+                if !avant.is_empty() || !turn_memory_ids.is_empty() {
+                    patch["memoiresDonnees"] =
+                        crate::memory::donnes_apres(&sid, &avant, &turn_memory_ids);
+                }
                 if compacte.load(Ordering::SeqCst) {
                     patch["blocksSeededFor"] = Value::Null;
                     patch["kbBlockHash"] = Value::Null;
                     patch["specialistesHash"] = Value::Null;
+                    patch["memoiresDonnees"] = Value::Null;
                 }
                 if succeeded && pimpl.id() == "claude" {
                     patch["consigneClaude"] =
@@ -2161,6 +2194,17 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             crate::agent_mailbox::drain_mailbox(&drain_state).await;
         });
         state2.publish(state2.threads_snapshot().await);
+        // Extraction de souvenirs (chantier 3d) : coupée par défaut, et ne
+        // pose que des cartes à garder ou écarter.
+        if succeeded {
+            tokio::spawn(crate::memory::extraire_apres_le_tour(
+                state2.clone(),
+                tid.clone(),
+                turn_id.clone(),
+                memoire_root,
+                memoire_prompt,
+            ));
+        }
         if succeeded && auto_title {
             let title_state = state2.clone();
             let title_thread_id = tid.clone();

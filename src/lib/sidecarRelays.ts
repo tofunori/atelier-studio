@@ -75,6 +75,12 @@ const RELAYS: Record<string, Relay> = {
   consigneReformulee: forward("consigne-reformulee"),
   // Réglages › Spécialistes : import en lecture seule depuis Claude Science.
   claudeScienceImport: forward("claude-science-import"),
+  // Réglages › Mémoire et cartes de souvenir : lib/memoire corrèle par requestId.
+  memories: forward("memoire-reponse"),
+  memorySaved: forward("memoire-reponse"),
+  memoryDeleted: forward("memoire-reponse"),
+  memoryClaudeScience: forward("memoire-reponse"),
+  memoryImported: forward("memoire-reponse"),
   imageGenerated: forward("image-generated"),
   ledger: forward("ledger"),
   zoteroCollections: forward("zotero-collections"),
