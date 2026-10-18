@@ -108,6 +108,20 @@ export function splitModelLabel(label: string): { route: string; name: string } 
  * gris tant que rien n'est à décider, prend un doré éteint quand la
  * compaction approche vraiment, et ne passe au rouge qu'au bord de la
  * fenêtre. */
+/** Mode rendu quand on quitte le mode Plan par l'entrée « Mode plan » du menu
+ * « + ». Le menu basculait entre plan et bypassPermissions : un fil en
+ * acceptEdits (le défaut) qui passait en Plan puis en sortait tournait ensuite
+ * en accès complet, sans approbation. On revient donc au mode d'avant Plan,
+ * sinon au défaut acceptEdits — jamais à l'accès complet par ce chemin : il
+ * se choisit explicitement dans le sélecteur de permission. */
+export function modeApresPlan(precedent: string | null | undefined, permis: readonly string[]): string {
+  const repli = (mode: string | null | undefined): mode is string =>
+    !!mode && mode !== "plan" && mode !== "bypassPermissions" && permis.includes(mode);
+  if (repli(precedent)) return precedent;
+  if (repli("acceptEdits")) return "acceptEdits";
+  return permis.find((mode) => repli(mode)) ?? "acceptEdits";
+}
+
 export function contextRingStroke(pct: number): string {
   if (pct > 92) return "var(--status-error)";
   if (pct > 80) return "color-mix(in srgb, var(--status-warning) 55%, var(--mark-neutral-strong))";
@@ -190,6 +204,12 @@ export function ComposerControls(p: {
     : PERMISSION_MODES.map((m) => m.id);
   // seuls les modes connus du front sont listés, dans l'ordre UI existant
   const permissionOptions = PERMISSION_MODES.filter((m) => allowedPermissionModes.includes(m.id));
+  // Dernier mode hors Plan, quel que soit le chemin d'entrée en Plan (menu +,
+  // sélecteur, /plan) : c'est lui que l'entrée « Mode plan » rend en sortie.
+  const modeAvantPlan = useRef<string | null>(permissionMode === "plan" ? null : permissionMode);
+  useEffect(() => {
+    if (permissionMode !== "plan") modeAvantPlan.current = permissionMode;
+  }, [permissionMode]);
   const goalsSupported = caps ? caps.goals === true : provider === "codex";
   const activeProviderInfo = providerInfo();
   const effortTitle = activeProviderInfo?.kind === "api" ? t("chat.thinking") : t("chat.effort");
@@ -347,7 +367,9 @@ export function ComposerControls(p: {
                   keepOpen: false,
                   className: "mp-item",
                   label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" /></svg><span>{t("permission.plan")}</span></>,
-                  onSelect: () => setPermissionMode(permissionMode === "plan" ? "bypassPermissions" : "plan"),
+                  onSelect: () => setPermissionMode(permissionMode === "plan"
+                    ? modeApresPlan(modeAvantPlan.current, allowedPermissionModes)
+                    : "plan"),
                 }] : []),
                 {
                   key: "auto-review",
