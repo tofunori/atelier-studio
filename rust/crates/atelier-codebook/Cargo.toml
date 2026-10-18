@@ -6,7 +6,7 @@ license.workspace = true
 description = "Livre de codes du codage qualitatif (codebook.json) et codes posés sur les annotations PDF"
 
 [dependencies]
-atelier-core = { path = "../atelier-core" }
+atelier-store = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]

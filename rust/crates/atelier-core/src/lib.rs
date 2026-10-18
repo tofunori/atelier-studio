@@ -4,11 +4,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-pub mod durable;
 pub mod gallery_builder;
 pub mod gallery_favorites;
-pub mod pdf_annots;
 pub mod svg_edits;
+/// Lecteur et écrivain durables communs (atelier-store), réexportés pour la
+/// galerie : `atelier_core::durable`, `atelier_core::pdf_annots`.
+pub use atelier_store::{durable, pdf_annots};
 
 pub const ARTIFACT_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "svg", "pdf", "html", "htm", "docx", "xlsx", "xls", "csv", "md", "py",

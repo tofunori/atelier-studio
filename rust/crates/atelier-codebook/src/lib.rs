@@ -12,11 +12,11 @@
 //!
 //! Les deux fichiers s'écrivent sous le verrou du serveur galerie
 //! (`pdf_annots.lock`), partagé avec le lecteur, la passerelle iPhone et le MCP
-//! des annotations, par le lecteur et l'écrivain communs d'`atelier_core` ;
+//! des annotations, par le lecteur et l'écrivain communs d'`atelier_store` ;
 //! un fichier illisible n'est jamais remplacé.
 
-use atelier_core::durable::{self, Shape};
-use atelier_core::pdf_annots;
+use atelier_store::durable::{self, Shape};
+use atelier_store::pdf_annots;
 use serde_json::{json, Map, Value};
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -463,7 +463,7 @@ pub fn read(dir: &Path) -> Result<Codebook, String> {
 }
 
 /// Ouvre le store d'annotations et le livre de codes de `dir` sous le verrou
-/// du serveur galerie (`atelier_core::pdf_annots`) ; `op` renvoie sa valeur
+/// du serveur galerie (`atelier_store::pdf_annots`) ; `op` renvoie sa valeur
 /// et ce qu'elle a changé (store, livre). Seuls les fichiers changés sont
 /// réécrits, chacun d'un bloc, après la sauvegarde du jour. Un store ou un
 /// livre illisible n'atteint jamais `op` : rien n'est écrit.

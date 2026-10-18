@@ -5,10 +5,12 @@
 mod agent_mailbox;
 mod automations;
 pub mod context_projection;
+pub mod durable;
 mod highlights;
 mod journal;
 mod ledger;
 mod memories;
+pub mod pdf_annots;
 mod receipts;
 mod reviews;
 mod reverse_lines;

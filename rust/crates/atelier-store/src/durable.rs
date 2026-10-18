@@ -8,15 +8,15 @@
 //! - fichier absent : magasin vide ;
 //! - fichier présent mais illisible (vide, tronqué, JSON invalide, forme
 //!   inattendue) : erreur [`StoreError::Unreadable`]. Le fichier reste en
-//!   place, une copie est mise de côté en `<nom>.corrupt-<horodatage>` (jamais
+//!   place, une copie est mise de côté en `<nom>.corrupt-<horodatage UTC>` (jamais
 //!   par-dessus une copie existante, et une seule par contenu), et l'appelant
 //!   refuse d'écrire tant qu'il n'est pas réparé. Un échec n'est jamais mis
 //!   en cache : la lecture suivante relit le disque ;
 //! - écriture : fichier temporaire du même dossier, fsync, rename, fsync du
 //!   dossier ([`write_durable`]) ;
 //! - avant de réécrire un magasin ([`save`]), une sauvegarde datée par jour
-//!   dans `backups/<nom>.<AAAA-MM-JJ>.<ext>` à côté du fichier, les
-//!   [`BACKUPS_KEPT`] dernières gardées.
+//!   (date UTC) dans `backups/<nom>.<AAAA-MM-JJ>.<ext>` à côté du fichier,
+//!   les [`BACKUPS_KEPT`] dernières gardées.
 //!
 //! Le format des fichiers ne change pas : d'autres lecteurs (app iPhone via
 //! la passerelle, MCP, anciennes versions de l'app) les lisent.
@@ -138,7 +138,7 @@ fn file_name(path: &Path) -> String {
 
 static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// `.<nom>.<pid>.<nanos>.<n>.tmp` : le motif que [`crate::clean_stale_tmp`]
+/// `.<nom>.<pid>.<nanos>.<n>.tmp` : le motif que `atelier_core::clean_stale_tmp`
 /// balaie après une écriture interrompue.
 fn tmp_path(path: &Path) -> PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -266,7 +266,10 @@ pub fn load_typed<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, StoreEr
 /// `path`, sans jamais écraser une copie existante. Une copie au contenu
 /// identique est réutilisée : chaque lecture refusée n'en refait pas une.
 pub fn quarantine(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    // 2026-10-18T22:41:28.123Z → 20261018-224128
+    let iso = crate::iso_now();
+    let digits = |range: std::ops::Range<usize>| iso[range].replace(['-', ':'], "");
+    let stamp = format!("{}-{}", digits(0..10), digits(11..19));
     quarantine_at(path, bytes, &stamp)
 }
 
@@ -346,7 +349,7 @@ fn backup_date<'a>(name: &'a str, stem: &str, ext: Option<&str>) -> Option<&'a s
 /// puis élagage aux [`BACKUPS_KEPT`] plus récentes. La première écriture du
 /// jour garde donc l'état de la veille. Rien si `path` est absent.
 pub fn backup_daily(path: &Path) -> io::Result<Option<PathBuf>> {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let today = crate::iso_now()[..10].to_owned();
     backup_daily_at(path, &today)
 }
 
@@ -458,6 +461,11 @@ mod tests {
             let copies = corrupt_copies(dir.path(), "store.json");
             assert_eq!(copies.len(), 1, "{case}");
             assert_eq!(fs::read_to_string(&copies[0]).unwrap(), raw, "{case}");
+            // store.json.corrupt-AAAAMMJJ-HHMMSS (UTC)
+            let name = copies[0].file_name().unwrap().to_string_lossy().into_owned();
+            let stamp = name.strip_prefix("store.json.corrupt-").unwrap();
+            assert!(stamp.len() == 15 && stamp.as_bytes()[8] == b'-', "{case}: {name}");
+            assert!(stamp.bytes().enumerate().all(|(i, b)| i == 8 || b.is_ascii_digit()), "{name}");
             assert!(error.to_string().contains(".corrupt-"), "{case}: {error}");
             // une deuxième lecture refusée ne refait pas de copie
             assert!(load_object(&path).is_err());

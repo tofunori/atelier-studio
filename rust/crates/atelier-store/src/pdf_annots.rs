@@ -6,6 +6,10 @@
 //!
 //! Un store illisible n'est jamais remplacé : ce serait perdre tous les
 //! surlignages et notes de la thèse (voir [`crate::durable`]).
+//!
+//! Le module vit dans atelier-store, que l'app Tauri compile déjà : la
+//! galerie (via atelier-core), le MCP, la passerelle et le livre de codes en
+//! dépendent sans cycle.
 
 use crate::durable::{self, StoreError};
 use serde_json::{Map, Value};
