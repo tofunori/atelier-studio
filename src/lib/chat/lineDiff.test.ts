@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { countChanges, diffLines, foldUnchanged, pairChangedLines, parseUnifiedDiff, wordMarks } from "./lineDiff";
-import { markHtml, splitHighlightedLines } from "../../components/chat/FileDiff";
+import { markHtml, splitHighlightedLines } from "./diffHtml";
 
 describe("diffLines", () => {
   it("numérote les deux côtés et place le retrait avant l'ajout", () => {

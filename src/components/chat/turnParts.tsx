@@ -200,26 +200,15 @@ export function EditLine({ event, threadId }: {
 }
 
 type EditedFile = Extract<AgentEvent, { kind: "edit" }>["files"][number];
+type EditEvent = Extract<AgentEvent, { kind: "edit" }>;
+type FileDiffView = { rows: DiffRow[]; numbered: boolean };
 
-function EditFileLine({ file, event, threadId }: {
-  file: EditedFile;
-  event: Extract<AgentEvent, { kind: "edit" }>;
-  threadId: string | null;
-}) {
-  // avant/après portés par l'événement (input du tool) : diff immédiat, sans
-  // aller-retour git — sinon fallback gitDiff à la demande. `unified` =
-  // variante Codex (diff unifié brut).
-  const hasSnippet = file.newText !== undefined || file.unified !== undefined;
-  // Façon Claude Code desktop (demande Thierry 2026-08-22) : un diff déjà
-  // porté par l'événement s'ouvre tout seul ; les autres restent au clic,
-  // pour ne pas déclencher une rafale de sous-processus git pendant le tour.
-  const [open, setOpen] = useState(hasSnippet);
+/** Diff git d'un fichier, demandé au premier dépliage quand l'événement ne
+ * porte pas déjà l'avant/après. */
+function useGitDiffOnDemand(file: EditedFile, event: EditEvent, threadId: string | null) {
   const [diff, setDiff] = useState<ChatDiffPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Un fichier neuf (Write sur un chemin absent, ACP avec oldText vide) se lit
-  // comme du code, pas comme un mur d'ajouts.
-  const created = file.newText !== undefined && !file.oldText && file.unified === undefined;
 
   useEffect(() => {
     const onDiff = (ev: Event) => {
@@ -240,29 +229,8 @@ function EditFileLine({ file, event, threadId }: {
     return () => window.removeEventListener("git-diff", onDiff);
   }, [event.projectRoot, file.path]);
 
-  // Lignes du diff et numérotation : un extrait d'Edit (old/new_string) n'a
-  // pas les numéros du fichier, on ne les invente pas.
-  const view = useMemo(() => {
-    if (file.newText !== undefined) {
-      return { rows: diffLines(file.oldText ?? "", file.newText), numbered: created };
-    }
-    if (file.unified !== undefined) return { rows: parseUnifiedDiff(file.unified), numbered: true };
-    if (diff && !diff.binary && diff.before !== undefined && diff.after !== undefined) {
-      return { rows: diffLines(diff.before, diff.after), numbered: true };
-    }
-    if (diff?.diff.trim()) return { rows: parseUnifiedDiff(diff.diff), numbered: true };
-    return null;
-  }, [file.newText, file.oldText, file.unified, diff, created]);
-  const counted = view ? countChanges(view.rows) : null;
-  const add = file.add ?? counted?.add ?? null;
-  const del = file.del ?? counted?.del ?? null;
-
-  const base = file.path.split("/").pop() || file.path;
-  const dir = file.path.slice(0, file.path.length - base.length);
-
-  const toggle = () => {
-    setOpen(!open);
-    if (open || hasSnippet || diff != null || loading) return;
+  const request = () => {
+    if (diff != null || loading) return;
     setError(null);
     setLoading(true);
     const sent = wsSend({
@@ -274,18 +242,54 @@ function EditFileLine({ file, event, threadId }: {
       baseSha: event.baseSha,
       scope: "changes",
     });
-    if (!sent) setLoading(false);
-    else window.setTimeout(() => {
+    if (!sent) { setLoading(false); return; }
+    window.setTimeout(() => {
       setLoading((current) => {
         if (current) setError(t("chat.diff-timeout"));
         return false;
       });
     }, 8000);
   };
+  return { diff, loading, error, request };
+}
 
-  const status = (text: string, alert = false) => (
-    <div className="edit-line-status" role={alert ? "alert" : undefined}>{text}</div>
-  );
+/** Lignes du diff et numérotation. Un extrait d'Edit (old/new_string) n'a pas
+ * les numéros du fichier : on ne les invente pas. */
+function editFileView(file: EditedFile, diff: ChatDiffPayload | null, created: boolean): FileDiffView | null {
+  if (file.newText !== undefined) return { rows: diffLines(file.oldText ?? "", file.newText), numbered: created };
+  if (file.unified !== undefined) return { rows: parseUnifiedDiff(file.unified), numbered: true };
+  if (!diff || diff.binary) return null;
+  if (diff.before !== undefined && diff.after !== undefined) return { rows: diffLines(diff.before, diff.after), numbered: true };
+  if (diff.diff.trim()) return { rows: parseUnifiedDiff(diff.diff), numbered: true };
+  return null;
+}
+
+function EditFileLine({ file, event, threadId }: {
+  file: EditedFile;
+  event: EditEvent;
+  threadId: string | null;
+}) {
+  // avant/après portés par l'événement (input du tool) : diff immédiat, sans
+  // aller-retour git. `unified` = variante Codex (diff unifié brut).
+  const hasSnippet = file.newText !== undefined || file.unified !== undefined;
+  // Façon Claude Code desktop (demande Thierry 2026-08-22) : un diff déjà
+  // porté par l'événement s'ouvre tout seul ; les autres restent au clic,
+  // pour ne pas déclencher une rafale de sous-processus git pendant le tour.
+  const [open, setOpen] = useState(hasSnippet);
+  const git = useGitDiffOnDemand(file, event, threadId);
+  // Un fichier neuf (Write sur un chemin absent, ACP avec oldText vide) se lit
+  // comme du code, pas comme un mur d'ajouts.
+  const created = file.newText !== undefined && !file.oldText && file.unified === undefined;
+  const view = useMemo(() => editFileView(file, git.diff, created), [file, git.diff, created]);
+  const counted = view ? countChanges(view.rows) : null;
+  const add = file.add ?? counted?.add ?? 0;
+  const del = created ? 0 : file.del ?? counted?.del ?? 0;
+  const base = file.path.split("/").pop() || file.path;
+
+  const toggle = () => {
+    setOpen(!open);
+    if (!open && !hasSnippet) git.request();
+  };
 
   return (
     <div className={`edit-line${open ? " is-open" : ""}`}>
@@ -294,41 +298,61 @@ function EditFileLine({ file, event, threadId }: {
         <span className="edit-line-verb">{t(created ? "chat.created" : "chat.edited")}</span>
         <span className="edit-line-file">{base}</span>
         <span className="edit-line-counts">
-          {add != null && add > 0 && <span className="edit-line-add">+{add}</span>}
-          {!created && del != null && del > 0 && <span className="edit-line-del">−{del}</span>}
+          {add > 0 && <span className="edit-line-add">+{add}</span>}
+          {del > 0 && <span className="edit-line-del">−{del}</span>}
         </span>
         <Tick open={open} />
       </RowButton>
       {open && (
-        <div className="edit-line-card">
-          <div className="edit-line-card-head">
-            <span className="edit-line-path">{dir}<span className="edit-line-path-name">{base}</span></span>
-            {created && view && (
-              <span className="edit-line-meta">
-                {view.rows.length === 1 ? t("chat.diff-new-file-one") : t("chat.diff-new-file", { count: view.rows.length })}
-              </span>
-            )}
-            <RowButton
-              className="edit-line-open"
-              onClick={() => openFileRef(file.path, { diff: !created, baseSha: event.baseSha })}
-              title={t("action.open-file", { ref: file.path })}
-            >
-              <OpenIcon />
-              <span>{t("chat.diff-open")}</span>
-            </RowButton>
-          </div>
-          <div className="edit-line-card-body">
-            {view && view.rows.length ? (
-              <Suspense fallback={status(t("common.loading"))}>
-                <FileDiff rows={view.rows} path={file.path} created={created} numbered={view.numbered} />
-              </Suspense>
-            ) : loading ? status(t("common.loading"))
-              : error ? status(error, true)
-              : diff?.binary ? status(t("git.binary-changed"))
-              : status(t("git.diff-empty"))}
-          </div>
-        </div>
+        <EditLineCard path={file.path} baseSha={event.baseSha} created={created} view={view}
+          fallback={git.loading ? t("common.loading")
+            : git.error ?? (git.diff?.binary ? t("git.binary-changed") : t("git.diff-empty"))}
+          alert={!git.loading && git.error != null} />
       )}
+    </div>
+  );
+}
+
+/** Carte dépliée : chemin complet, Ouvrir, puis le diff ou son état. */
+function EditLineCard({ path, baseSha, created, view, fallback, alert }: {
+  path: string;
+  baseSha?: string | null;
+  created: boolean;
+  view: FileDiffView | null;
+  fallback: string;
+  alert: boolean;
+}) {
+  const base = path.split("/").pop() || path;
+  const dir = path.slice(0, path.length - base.length);
+  const lineCount = view?.rows.length ?? 0;
+  const status = (text: string, isAlert = false) => (
+    <div className="edit-line-status" role={isAlert ? "alert" : undefined}>{text}</div>
+  );
+  return (
+    <div className="edit-line-card">
+      <div className="edit-line-card-head">
+        <span className="edit-line-path">{dir}<span className="edit-line-path-name">{base}</span></span>
+        {created && lineCount > 0 && (
+          <span className="edit-line-meta">
+            {lineCount === 1 ? t("chat.diff-new-file-one") : t("chat.diff-new-file", { count: lineCount })}
+          </span>
+        )}
+        <RowButton
+          className="edit-line-open"
+          onClick={() => openFileRef(path, { diff: !created, baseSha })}
+          title={t("action.open-file", { ref: path })}
+        >
+          <OpenIcon />
+          <span>{t("chat.diff-open")}</span>
+        </RowButton>
+      </div>
+      <div className="edit-line-card-body">
+        {view && lineCount ? (
+          <Suspense fallback={status(t("common.loading"))}>
+            <FileDiff rows={view.rows} path={path} created={created} numbered={view.numbered} />
+          </Suspense>
+        ) : status(fallback, alert)}
+      </div>
     </div>
   );
 }
