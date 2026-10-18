@@ -120,6 +120,7 @@ async fn first_message_after_goal_read_still_initializes_thread_mcp() {
         server_name: "atelier_test".into(),
         env: Default::default(),
         linked: false,
+        restriction: None,
     });
     assert!(provider.send(req).await.ok);
     let requests = fake.requests();

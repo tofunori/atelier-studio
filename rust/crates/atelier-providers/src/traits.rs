@@ -75,6 +75,21 @@ pub struct AtelierMcpLaunch {
     /// MCP du CLI ; un fil ordinaire doit continuer de charger la config MCP
     /// personnelle de l'utilisateur.
     pub linked: bool,
+    /// Spécialiste du fil avec des connecteurs : SEULS ces serveurs MCP
+    /// restent branchés (plus atelier). `None` = config MCP habituelle.
+    pub restriction: Option<RestrictionMcp>,
+}
+
+/// Connecteurs d'un spécialiste (plan specialistes-2026-10-18), déjà mis
+/// au format du provider par le runtime.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RestrictionMcp {
+    /// Serveurs à déclarer en plus d'atelier (Claude : entrée `mcpServers` ;
+    /// Codex : entrée `mcp_servers`).
+    pub serveurs: Vec<(String, Value)>,
+    /// Codex : serveurs de `config.toml` hors fiche, coupés pour ce fil
+    /// (`enabled = false`). Claude n'en a pas besoin : `--strict-mcp-config`.
+    pub a_couper: Vec<String>,
 }
 
 /// ACP représente les variables d'environnement d'un serveur MCP comme une
@@ -547,6 +562,7 @@ mod tests {
                 ("ATELIER_AGENT_CAPABILITY".into(), "secret".into()),
             ]),
             linked: false,
+            restriction: None,
         };
 
         assert_eq!(
@@ -575,6 +591,7 @@ mod tests {
                 server_name: "atelier-sessions".into(),
                 env: HashMap::from([("ATELIER_MCP_CAPABILITY".into(), jeton.to_string())]),
                 linked: false,
+                restriction: None,
             }))
         };
         assert_eq!(

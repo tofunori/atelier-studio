@@ -2,16 +2,16 @@
 // disposition que Consignes (bibliothèque à gauche, fiche à droite) ; on
 // crée, modifie, masque ou supprime une fiche, et on importe celles de
 // Claude Science (lecture seule de sa base, côté Rust).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Plus } from "lucide-react";
 import type { SectionProps } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { t } from "../../../lib/i18n";
 import {
-  appliquerVersion, fusionnerImport, nomCourtDe, normaliserNomCourt, prendreFicheDemandee, specialisteVide,
+  appliquerVersion, connecteursAbsents, fusionnerImport, nomCourtDe, normaliserNomCourt, prendreFicheDemandee, specialisteVide,
   type BilanImport, type Specialiste,
 } from "../../../lib/specialistes";
-import { importerDepuisClaudeScience, type ReponseImport } from "../../../lib/claudeScienceImport";
+import { importerDepuisClaudeScience, listerMcpDuMac, type McpDuMac, type ReponseImport } from "../../../lib/claudeScienceImport";
 import { Button, InlineNotice, RowButton } from "../../ui";
 import { Toggle } from "../primitives";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "../../shadcn/field";
@@ -28,6 +28,8 @@ export function Specialistes(p: {
   specialistes: Specialiste[];
   onChange: (specialistes: Specialiste[]) => void;
   importer?: (() => Promise<ReponseImport>) | null;
+  /** Serveurs MCP du Mac ; `null` tant qu'on ne les connaît pas. */
+  mcpDuMac?: McpDuMac[] | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     const demandee = prendreFicheDemandee();
@@ -120,7 +122,7 @@ export function Specialistes(p: {
           <RowButton className="set-consignes-new" onClick={ajouter}><Plus size={14} aria-hidden="true" />{t("specialistes.new")}</RowButton>
         </nav>
         <div className="set-consignes-form">
-          {selected ? <FicheSpecialiste key={`${selected.id}:${revision}`} fiche={selected} onPatch={patch} onSupprimer={supprimer} />
+          {selected ? <FicheSpecialiste key={`${selected.id}:${revision}`} fiche={selected} mcpDuMac={p.mcpDuMac ?? null} onPatch={patch} onSupprimer={supprimer} />
            : <div className="consignes-empty"><p className="set-empty">{t("specialistes.empty")}</p></div>}
         </div>
       </div>
@@ -129,8 +131,12 @@ export function Specialistes(p: {
 }
 
 /** Formulaire d'une fiche, remonté à chaque changement de fiche (clé). */
-function FicheSpecialiste(p: { fiche: Specialiste; onPatch: (changes: Partial<Specialiste>) => void; onSupprimer: () => void }) {
+function FicheSpecialiste(p: {
+  fiche: Specialiste; mcpDuMac: McpDuMac[] | null;
+  onPatch: (changes: Partial<Specialiste>) => void; onSupprimer: () => void;
+}) {
   const { fiche } = p;
+  const absents = p.mcpDuMac ? connecteursAbsents(fiche.connecteurs, p.mcpDuMac) : [];
   // Les listes se tapent séparées par des virgules : on garde la saisie
   // brute pendant la frappe, sinon « a, » perdrait sa virgule à chaque touche.
   const [skillsBrut, setSkillsBrut] = useState(() => fiche.skills.join(", "));
@@ -181,6 +187,8 @@ function FicheSpecialiste(p: { fiche: Specialiste; onPatch: (changes: Partial<Sp
           <Input id="specialiste-connecteurs" value={connecteursBrut} placeholder="scholar"
             onChange={(e) => { setConnecteursBrut(e.target.value); p.onPatch({ connecteurs: enListe(e.target.value) }); }} />
           <FieldDescription>{t("specialistes.tools-hint")}</FieldDescription>
+          {absents.length > 0 && <p className="specialistes-mcp-absents" role="status">{t("specialistes.mcp-absents", { liste: absents.join(", ") })}</p>}
+          {p.mcpDuMac && p.mcpDuMac.length > 0 && <p className="specialistes-mcp-du-mac">{t("specialistes.mcp-du-mac", { liste: p.mcpDuMac.map((m) => m.nom).join(", ") })}</p>}
         </Field>
         <div className="specialistes-toggle">
           <span>{t("specialistes.visible")}</span>
@@ -194,6 +202,14 @@ function FicheSpecialiste(p: { fiche: Specialiste; onPatch: (changes: Partial<Sp
 
 export default function SpecialistesSection(p: SectionProps) {
   const save = (patch: Partial<Settings>) => { p.set(patch); p.onSaved(); };
+  const [mcpDuMac, setMcpDuMac] = useState<McpDuMac[] | null>(null);
+  const socket = p.ws?.readyState === SOCKET_OPEN ? p.ws : null;
+  useEffect(() => {
+    if (!socket) return;
+    let actif = true;
+    void listerMcpDuMac(socket).then((liste) => { if (actif) setMcpDuMac(liste); });
+    return () => { actif = false; };
+  }, [socket]);
   return (
     <>
       <h1>{t("settings.specialistes")}</h1>
@@ -201,7 +217,8 @@ export default function SpecialistesSection(p: SectionProps) {
       <Specialistes
         specialistes={p.s.specialistes ?? []}
         onChange={(specialistes) => save({ specialistes })}
-        importer={p.ws?.readyState === SOCKET_OPEN ? () => importerDepuisClaudeScience(p.ws) : null}
+        importer={socket ? () => importerDepuisClaudeScience(socket) : null}
+        mcpDuMac={mcpDuMac}
       />
     </>
   );

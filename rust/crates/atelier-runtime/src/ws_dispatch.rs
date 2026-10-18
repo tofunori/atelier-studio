@@ -71,6 +71,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "generateCommitMsg"
         | "reformulerConsigne"
         | "importClaudeScience"
+        | "listMcpServers"
         | "zoteroCollections"
         | "listSessions"
         | "getUsage"

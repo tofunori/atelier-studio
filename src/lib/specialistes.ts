@@ -36,7 +36,12 @@ export type Specialiste = {
 
 /** Ce que le fil retient du spécialiste : une copie, pour qu'un fil ancien
  *  garde son sens si la fiche disparaît. */
-export type SpecialisteDuFil = { id: string; nom: string; nomCourt: string; texte: string };
+export type SpecialisteDuFil = {
+  id: string; nom: string; nomCourt: string; texte: string;
+  /** Seuls ces serveurs MCP restent branchés dans le fil (lu par le
+   *  backend, `restriction_mcp`). Vide ou absent : tous les MCP. */
+  connecteurs?: string[];
+};
 
 /** Spécialiste lu dans Claude Science (`claudeScienceImport` du backend). */
 export type SpecialisteClaudeScience = {
@@ -83,20 +88,20 @@ export function specialisteVide(existants: Specialiste[]): Specialiste {
   };
 }
 
-/** Texte envoyé à l'agent pour un fil qui porte ce spécialiste. Skills et
- *  connecteurs sont des préférences (lot 1) : Claude et Codex chargent déjà
- *  tout leur catalogue, on leur dit lesquels privilégier. */
+/** Texte envoyé à l'agent pour un fil qui porte ce spécialiste. Les skills
+ *  restent une préférence (Claude et Codex chargent tout leur catalogue) ;
+ *  les connecteurs, eux, sont les seuls MCP branchés dans le fil. */
 export function texteSpecialiste(s: Specialiste): string {
   const lignes = [`Specialist for this conversation: ${s.nom}.`];
   if (s.role.trim()) lignes.push(`Role: ${s.role.trim()}`);
   if (s.instructions.trim()) lignes.push(s.instructions.trim());
   if (!s.tousSkills && s.skills.length) lignes.push(`Prefer these skills when they apply: ${s.skills.join(", ")}.`);
-  if (s.connecteurs.length) lignes.push(`Prefer these connectors (MCP servers) when they apply: ${s.connecteurs.join(", ")}.`);
+  if (s.connecteurs.length) lignes.push(`Connectors (MCP servers) of this specialist: ${s.connecteurs.join(", ")}. Other MCP servers are not connected in this conversation.`);
   return lignes.join("\n");
 }
 
 export function specialisteDuFil(s: Specialiste): SpecialisteDuFil {
-  return { id: s.id, nom: s.nom, nomCourt: nomCourtDe(s), texte: texteSpecialiste(s) };
+  return { id: s.id, nom: s.nom, nomCourt: nomCourtDe(s), texte: texteSpecialiste(s), connecteurs: [...s.connecteurs] };
 }
 
 /** Consignes de forme du fil, sans le spécialiste. */
@@ -240,4 +245,16 @@ export function prendreFicheDemandee(): string | null {
   const id = ficheDemandee;
   ficheDemandee = null;
   return id;
+}
+
+/** Clé de comparaison d'un nom de connecteur, la même que le backend
+ *  (`cle_mcp`) : minuscules, lettres et chiffres seulement. */
+export function cleMcp(nom: string): string {
+  return nom.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+/** Connecteurs de la fiche introuvables parmi les MCP du Mac. */
+export function connecteursAbsents(connecteurs: string[], duMac: { nom: string }[]): string[] {
+  const presents = new Set(duMac.map((m) => cleMcp(m.nom)));
+  return connecteurs.filter((c) => !presents.has(cleMcp(c)));
 }

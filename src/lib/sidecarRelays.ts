@@ -75,6 +75,7 @@ const RELAYS: Record<string, Relay> = {
   consigneReformulee: forward("consigne-reformulee"),
   // Réglages › Spécialistes : import en lecture seule depuis Claude Science.
   claudeScienceImport: forward("claude-science-import"),
+  mcpServers: forward("mcp-servers"),
   imageGenerated: forward("image-generated"),
   ledger: forward("ledger"),
   zoteroCollections: forward("zotero-collections"),

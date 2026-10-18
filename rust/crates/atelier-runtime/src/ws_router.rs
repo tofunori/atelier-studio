@@ -69,6 +69,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "getSettings",
     "saveSettings",
     "importClaudeScience",
+    "listMcpServers",
     "getLedger",
     "upsertThread",
     "listFiles",
@@ -568,6 +569,23 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 Err(error) => json!({"type":"claudeScienceImport","requestId":request_id,
                     "ok":false,"error":error,"specialistes":[]}),
             })]
+        }
+        "listMcpServers" => {
+            // Fiche d'un spécialiste : quels connecteurs existent sur le Mac
+            // (Claude Code, Claude Desktop, Codex), pour signaler les absents.
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let serveurs = tokio::task::spawn_blocking(|| {
+                let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+                    return Vec::new();
+                };
+                let codex_home = std::env::var_os("CODEX_HOME")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| home.join(".codex"));
+                atelier_workspace::mcp_du_mac(&home, &codex_home)
+            })
+            .await
+            .unwrap_or_default();
+            vec![json_msg(json!({"type":"mcpServers","requestId":request_id,"serveurs":serveurs}))]
         }
         "saveSettings" => {
             let mut settings = msg.get("settings").cloned().unwrap_or(Value::Null);
