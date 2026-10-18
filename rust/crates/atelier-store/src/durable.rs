@@ -254,6 +254,59 @@ pub fn load_array(path: &Path) -> Result<Vec<Value>, StoreError> {
     })
 }
 
+/// Entrées d'un magasin-liste : celles que le lecteur reconnaît, et les
+/// autres, gardées telles quelles pour être réécrites sans perte (une version
+/// plus récente ou plus ancienne de l'app peut les avoir écrites).
+#[derive(Debug)]
+pub struct ListEntries<T> {
+    pub items: Vec<T>,
+    pub kept: Vec<Value>,
+}
+
+impl<T> Default for ListEntries<T> {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            kept: Vec::new(),
+        }
+    }
+}
+
+/// Lit un magasin-liste (tableau JSON) ; absent : vide ; illisible : erreur
+/// et copie de côté. Une entrée que `parse` refuse va dans `kept`.
+pub fn load_list<T>(
+    path: &Path,
+    mut parse: impl FnMut(&Value) -> Option<T>,
+) -> Result<ListEntries<T>, StoreError> {
+    let mut entries = ListEntries::default();
+    for value in load_array(path)? {
+        match parse(&value) {
+            Some(item) => entries.items.push(item),
+            None => entries.kept.push(value),
+        }
+    }
+    Ok(entries)
+}
+
+/// Refus d'écrire d'un magasin dont le chargement a échoué : le message dit
+/// quel fichier réparer et où est sa copie.
+pub fn writable(load_error: &Option<String>) -> Result<(), String> {
+    match load_error {
+        Some(error) => Err(error.clone()),
+        None => Ok(()),
+    }
+}
+
+/// Liste à écrire : les entrées reconnues puis celles gardées telles quelles.
+pub fn with_kept<T: Serialize>(items: &[T], kept: &[Value]) -> Result<Vec<Value>, String> {
+    let mut out = Vec::with_capacity(items.len() + kept.len());
+    for item in items {
+        out.push(serde_json::to_value(item).map_err(|e| e.to_string())?);
+    }
+    out.extend(kept.iter().cloned());
+    Ok(out)
+}
+
 /// Valeur typée ; absent : `Ok(None)`. Un JSON valide qui ne correspond pas
 /// au type est illisible lui aussi : le réécrire perdrait ce qu'il contient.
 pub fn load_typed<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, StoreError> {
@@ -420,6 +473,31 @@ pub const UNREADABLE_SAMPLES: [(&str, &str); 4] = [
     ("JSON invalide", "{pas du json}"),
     ("non-objet", "[1, 2, 3]"),
 ];
+
+/// Les mêmes pour un magasin-liste : la mauvaise forme est un objet.
+#[doc(hidden)]
+pub const UNREADABLE_LIST_SAMPLES: [(&str, &str); 4] = [
+    ("vide", ""),
+    ("tronqué", "[{\"id\": \"mem_1\", \"text\": \"Albé"),
+    ("JSON invalide", "[pas du json]"),
+    ("non-tableau", "{\"id\": \"mem_1\"}"),
+];
+
+/// Nombre de copies `<nom>.corrupt-*` de `path` qui portent exactement `raw`
+/// (aide aux tests des magasins).
+#[doc(hidden)]
+pub fn corrupt_copies_of(path: &Path, raw: &[u8]) -> usize {
+    let prefix = format!("{}{CORRUPT_MARK}", file_name(path));
+    fs::read_dir(parent_dir(path))
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                .filter(|e| fs::read(e.path()).is_ok_and(|b| b == raw))
+                .count()
+        })
+        .unwrap_or(0)
+}
 
 #[cfg(test)]
 mod tests {

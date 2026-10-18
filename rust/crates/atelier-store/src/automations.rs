@@ -1,6 +1,6 @@
 //! Durable scheduled tasks — `automations.json`.
 
-use crate::write_file_atomic;
+use crate::durable;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -54,19 +54,35 @@ pub struct Automation {
 pub struct AutomationStore {
     path: PathBuf,
     items: Vec<Automation>,
+    /// Entrées que cette version ne sait pas lire : réécrites telles quelles.
+    kept: Vec<serde_json::Value>,
+    /// `automations.json` présent mais illisible : aucune écriture.
+    load_error: Option<String>,
 }
 
 impl AutomationStore {
     pub fn open(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
-        let items = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Vec<Automation>>(&raw).ok())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(valid)
-            .collect();
-        Self { path, items }
+        // Une entrée d'une autre version (champ en plus ou en moins) ne fait
+        // plus perdre toutes les autres : elle est gardée telle quelle.
+        let loaded = durable::load_list(&path, |v| {
+            serde_json::from_value::<Automation>(v.clone()).ok().filter(valid)
+        });
+        let (entries, load_error) = match loaded {
+            Ok(entries) => (entries, None),
+            Err(error) => (durable::ListEntries::default(), Some(error.to_string())),
+        };
+        Self {
+            path,
+            items: entries.items,
+            kept: entries.kept,
+            load_error,
+        }
+    }
+
+    /// Pourquoi le magasin refuse d'écrire (fichier illisible), s'il le refuse.
+    pub fn load_error(&self) -> Option<&str> {
+        self.load_error.as_deref()
     }
 
     pub fn list(&self) -> Vec<Automation> {
@@ -94,6 +110,7 @@ impl AutomationStore {
     }
 
     pub fn upsert(&mut self, mut item: Automation) -> Result<Automation, String> {
+        durable::writable(&self.load_error)?;
         if !valid(&item) {
             return Err("automatisation invalide".into());
         }
@@ -104,16 +121,17 @@ impl AutomationStore {
         } else {
             self.items.push(item.clone());
         }
-        self.persist().map_err(|error| error.to_string())?;
+        self.persist()?;
         Ok(item)
     }
 
     pub fn delete(&mut self, id: &str) -> Result<bool, String> {
+        durable::writable(&self.load_error)?;
         let before = self.items.len();
         self.items.retain(|item| item.id != id);
         let deleted = before != self.items.len();
         if deleted {
-            self.persist().map_err(|error| error.to_string())?;
+            self.persist()?;
         }
         Ok(deleted)
     }
@@ -134,9 +152,11 @@ impl AutomationStore {
         &self.path
     }
 
-    fn persist(&self) -> std::io::Result<()> {
-        let bytes = serde_json::to_vec_pretty(&self.items).unwrap_or_else(|_| b"[]".to_vec());
-        write_file_atomic(&self.path, bytes)
+    fn persist(&self) -> Result<(), String> {
+        durable::writable(&self.load_error)?;
+        let list = durable::with_kept(&self.items, &self.kept)?;
+        let bytes = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
+        durable::save(&self.path, &bytes).map_err(|e| e.to_string())
     }
 }
 
@@ -193,5 +213,35 @@ mod tests {
         assert!(store.active_heartbeat_for_thread("thread-1", None));
         assert!(!store.active_heartbeat_for_thread("thread-2", None));
         assert_eq!(AutomationStore::open(path).list().len(), 2);
+    }
+
+    #[test]
+    fn an_unreadable_file_is_never_rewritten() {
+        for (case, raw) in crate::durable::UNREADABLE_LIST_SAMPLES {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("automations.json");
+            std::fs::write(&path, raw).unwrap();
+            let mut store = AutomationStore::open(&path);
+            assert!(store.load_error().is_some(), "{case}");
+            assert!(store.upsert(heartbeat("a", "thread-1", "ACTIVE")).is_err(), "{case}");
+            assert!(store.list().is_empty(), "{case}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), raw, "{case}");
+            assert_eq!(crate::durable::corrupt_copies_of(&path, raw.as_bytes()), 1, "{case}");
+        }
+    }
+
+    #[test]
+    fn an_entry_from_another_version_no_longer_drops_the_others() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("automations.json");
+        let foreign = serde_json::json!({"id": "z", "name": "Sans prompt"});
+        let good = serde_json::to_value(heartbeat("a", "thread-1", "ACTIVE")).unwrap();
+        std::fs::write(&path, serde_json::to_vec(&serde_json::json!([good, foreign])).unwrap()).unwrap();
+        let mut store = AutomationStore::open(&path);
+        assert_eq!(store.list().len(), 1);
+        store.upsert(heartbeat("b", "thread-2", "PAUSED")).unwrap();
+        let disk: Vec<serde_json::Value> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(disk.len(), 3);
+        assert!(disk.contains(&foreign));
     }
 }

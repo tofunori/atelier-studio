@@ -556,12 +556,15 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let _ = state.highlights().lock().await.remove(id);
             broadcast_highlights(state).await
         }
-        "getSettings" => {
-            let settings = read_settings(&state.settings_path());
-            vec![json_msg(
+        "getSettings" => match atelier_store::load_settings(&state.settings_path()) {
+            Ok(settings) => vec![json_msg(
                 json!({"type":"settingsFile","settings": settings}),
-            )]
-        }
+            )],
+            // Illisible n'est pas « premier lancement » : sans settingsFile, le
+            // front ne pousse pas son état local par-dessus, et le bandeau
+            // d'erreur (requestType getSettings) dit quel fichier réparer.
+            Err(error) => vec![err(format!("Réglages illisibles : {error}"))],
+        },
         "importClaudeScience" => {
             // Réglages › Spécialistes : lecture seule de la base de Claude
             // Science (plusieurs Go, l'app peut tourner) hors du runtime async.
@@ -637,6 +640,10 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     }
                     rejected = true;
                 }
+            }
+            if let Err(error) = atelier_store::load_settings(&state.settings_path()) {
+                return vec![json_msg(json!({"type":"settingsSaved","ok":false,
+                    "reason":"settings_unreadable","error":error.to_string()}))];
             }
             let ok_flag = write_settings(&state.settings_path(), &settings);
             if rejected {
@@ -3550,6 +3557,55 @@ mod tests {
         let out = route_ws(&s, r#"{"type":"getSettings"}"#).await;
         let v: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(v["settings"]["theme"], "dark");
+    }
+
+    /// settings.json illisible : ni settingsFile à `null` (le front y verrait
+    /// un premier lancement et pousserait son état local), ni écriture.
+    #[tokio::test]
+    async fn unreadable_settings_are_reported_and_never_overwritten() {
+        for (case, raw) in atelier_store::durable::UNREADABLE_SAMPLES {
+            let dir = tempdir().unwrap();
+            let s = state(dir.path());
+            std::fs::write(s.settings_path(), raw).unwrap();
+            let out = route_ws(&s, r#"{"type":"getSettings"}"#).await;
+            let v: Value = serde_json::from_str(&out[0]).unwrap();
+            assert_eq!(v["type"], "error", "{case}: {v}");
+            assert!(v["message"].as_str().unwrap().contains("illisible"), "{case}: {v}");
+            let out = route_ws(&s, r#"{"type":"saveSettings","settings":{"theme":"dark"}}"#).await;
+            let v: Value = serde_json::from_str(&out[0]).unwrap();
+            assert_eq!(v["ok"], false, "{case}: {v}");
+            assert_eq!(std::fs::read_to_string(s.settings_path()).unwrap(), raw, "{case}");
+            assert_eq!(
+                atelier_store::durable::corrupt_copies_of(&s.settings_path(), raw.as_bytes()),
+                1,
+                "{case}"
+            );
+        }
+    }
+
+    /// memories.json illisible : Réglages › Mémoire reçoit l'erreur, pas une
+    /// liste vide, et le premier souvenir ajouté ne remplace pas le fichier.
+    #[tokio::test]
+    async fn unreadable_memories_are_reported_and_never_overwritten() {
+        for (case, raw) in atelier_store::durable::UNREADABLE_LIST_SAMPLES {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("memories.json");
+            std::fs::write(&path, raw).unwrap();
+            let s = state(dir.path());
+            let out = route_ws(&s, r#"{"type":"memoryList","requestId":"r1"}"#).await;
+            let v: Value = serde_json::from_str(&out[0]).unwrap();
+            assert_eq!(v["ok"], false, "{case}: {v}");
+            assert!(v["error"].as_str().unwrap().contains("illisible"), "{case}: {v}");
+            let out = route_ws(
+                &s,
+                r#"{"type":"memorySave","requestId":"r2","memory":{"text":"Un souvenir","projectRoot":""}}"#,
+            )
+            .await;
+            let v: Value = serde_json::from_str(&out[0]).unwrap();
+            assert_eq!(v["ok"], false, "{case}: {v}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), raw, "{case}");
+            assert_eq!(atelier_store::durable::corrupt_copies_of(&path, raw.as_bytes()), 1, "{case}");
+        }
     }
 
     #[tokio::test]
