@@ -19,7 +19,7 @@ pub use automations::{Automation, AutomationRun, AutomationStore};
 pub use context_projection::{build_child_envelope, project_events};
 pub use highlights::{Highlight, HighlightStore};
 pub use journal::{HarnessJournal, JournalError};
-pub use ledger::{append_ledger, get_all_ledgers, get_ledger, slug_for};
+pub use ledger::{append_ledger, get_all_ledgers, get_ledger, project_id, slug_for};
 pub use receipts::{request_fingerprint, CommandReceipt, CommandReceiptStore, ReceiptError, ReceiptReservation};
 pub use reviews::{
     canonical_sha256, dedup_key, evidence_sha256, hash_config, hash_input, new_review_id, now_iso,

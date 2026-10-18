@@ -25,6 +25,9 @@ export type Settings = {
   galleryExts: string; // extensions par défaut de la galerie ("" = liste intégrée)
   galleryExtsByProject: Record<string, string>; // racine projet -> extensions
   autoRefreshAtelier: boolean;
+  /** Recette des fichiers produits (`<fichier>.prov.json`), lue par le
+   * runtime au début de chaque tour. Allumée par défaut. */
+  recipes: boolean;
   enableAppSnap: boolean;
   appSnapPlaySound: boolean;
   autoReview: {
@@ -91,6 +94,7 @@ export const DEFAULT_SETTINGS: Settings = {
   galleryExts: "",
   galleryExtsByProject: {},
   autoRefreshAtelier: true,
+  recipes: true,
   enableAppSnap: false,
   appSnapPlaySound: true,
   autoReview: { enabled: false, provider: "codex", model: "gpt-5.5", effort: "high", trigger: "files-changed", autofix: false },

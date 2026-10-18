@@ -41,6 +41,14 @@ export type AtelierAddToChatMessage = {
 
 /** Bouton « Joindre le PDF au chat » du lecteur PDF : `rel` est le chemin du
  *  lecteur (`zotero/<clé>/<fichier>` ou relatif au projet) ; l'app résout. */
+/** Panneau Recette de la galerie : « Ouvrir la conversation » du tour qui a
+ *  produit la figure. L'app ignore un fil inconnu. */
+export type AtelierOpenThreadMessage = {
+  type: "atelier-open-thread";
+  nonce: string;
+  threadId: string;
+};
+
 export type AtelierAttachPdfMessage = {
   type: "atelier-attach-pdf";
   nonce: string;
@@ -114,6 +122,7 @@ export type AtelierInboundMessage =
   | AtelierOpenPdfMessage
   | AtelierAddToChatMessage
   | AtelierAttachPdfMessage
+  | AtelierOpenThreadMessage
   | AtelierQuickAskMessage
   | BrowserAddToChatMessage
   | AtelierGalleryResultMessage;
@@ -222,6 +231,8 @@ export function isTrustedAtelierMessage(
         (data.direct === undefined || typeof data.direct === "boolean") &&
         isOptionalBoundedString(data.requestId, MAX_NONCE_LENGTH)
       );
+    case "atelier-open-thread":
+      return hasOnlyKeys(data, ["type", "nonce", "threadId"]) && isBoundedString(data.threadId, MAX_TITLE_LENGTH);
     case "atelier-attach-pdf":
       return hasOnlyKeys(data, ["type", "nonce", "rel", "requestId"]) && isBoundedString(data.rel, MAX_URL_LENGTH)
         && isOptionalBoundedString(data.requestId, MAX_NONCE_LENGTH);

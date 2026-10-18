@@ -106,6 +106,9 @@ export default function Atelier(p: SectionProps) {
         <Row title={t("settings.auto-refresh")} desc={t("settings.auto-refresh-desc")}>
           <Toggle label={t("settings.auto-refresh")} checked={s.autoRefreshAtelier} onChange={(v) => save({ autoRefreshAtelier: v })} />
         </Row>
+        <Row title={t("settings.recipes")} desc={t("settings.recipes-desc")}>
+          <Toggle label={t("settings.recipes")} checked={s.recipes !== false} onChange={(v) => save({ recipes: v })} />
+        </Row>
       </Group>
 
       {/* Settings.tsx:986-1003 */}
