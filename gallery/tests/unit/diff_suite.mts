@@ -320,6 +320,10 @@ function makeModuleHarness({
   onMarks = null,
   onNavigate = null,
   individualReview = false,
+  // Délai au-delà duquel setTimeout est RETENU (h.runTimers) au lieu d'être
+  // synchrone. 399 retient le debounce de persistance (400 ms) : le POST part
+  // alors après le premier restore, comme dans le navigateur.
+  syncTimeoutMax = 400,
 }: Record<string, any> = {}) {
   const el = () => {
     const e: Record<string, any> = { style: {} as Record<string, any>, classList: { add(..._args) {}, remove(..._args) {}, toggle(..._args) {}, contains: () => false }, _children: [],
@@ -423,7 +427,7 @@ function makeModuleHarness({
     // ≤ 400 ms : synchrone (debounce de persistance). Au-delà (toast Annuler
     // 8 s, flash…) : retenu dans `timers`, déclenché par h.runTimers(maxDelay).
     setTimeout(f: () => void, d: number) {
-      if (f && (d === undefined || d <= 400)) { f(); return 0; }
+      if (f && (d === undefined || d <= syncTimeoutMax)) { f(); return 0; }
       const id = ++timerSeq; timers.set(id, { f, d }); return id;
     },
     clearTimeout(id) { timers.delete(id); },
@@ -1152,6 +1156,31 @@ async function moduleTests() {
       JSON.stringify({timelineTitle, historyMessage}));
   }
 
+  // B16b. ⌘S AVANT le premier restore (dans les 300 ms du chargement) alors
+  // qu'une AUTRE vue du même fichier a laissé son journal dans le localStorage,
+  // partagé par l'origine : le restore remplaçait le journal par celui de
+  // l'autre vue et l'intervention disparaissait, la page n'envoyant plus qu'un
+  // set-current (diff.spec « two open pages », count 1, 2026-10-18).
+  {
+    const base = "base deux vues\n", mine = "edition de cette vue avant restore\n";
+    const otherView = durableState("/x/m.tex", 0, base, [], base);
+    const server = {ok: true, ...durableState("/x/m.tex", 1, base, [], base)};
+    const h = makeModuleHarness({headText: base, localState: otherView, serverState: server,
+      syncTimeoutMax: 399});
+    h.cm._v = mine;
+    h.dv.push(base, mine, {source: "user-save", status: "applied"});
+    h.ctx.__tick();
+    await sleep(0); await sleep(0); await sleep(0);
+    h.runTimers(400);
+    await sleep(0); await sleep(0); await sleep(0);
+    const appends = h.posts.flatMap((post) => post.ops || []).filter((op) => op.type === "append");
+    contractOk("push avant le premier restore survit au journal d'une autre vue",
+      h.posts.length === 1 && h.posts[0].expectedRevision === 1
+        && appends.length === 1 && appends[0].intervention.toHash === sha256(mine)
+        && persistedInterventions(h).some((it: { after: string; }) => it.after === mine),
+      JSON.stringify({posts: h.posts, notes: h.notes}));
+  }
+
   // B16. Si un push arrive pendant le GET initial, sa génération gagne : la
   // réponse stale ne peut ni doubler l'action ni inverser le journal.
   {
@@ -1202,6 +1231,48 @@ async function moduleTests() {
         && persistedInterventions(h).some((it: { id: string; }) => it.id === "remote-1")
         && persistedInterventions(h).some((it: { before: string; after: string; }) => it.before === base && it.after === local),
       JSON.stringify(h.posts));
+  }
+  // B17b. Deux vues qui enregistrent ensemble peuvent se croiser deux fois :
+  // l'autre vue réécrit entre la fusion du 409 et la reprise. La reprise
+  // fusionne à nouveau au lieu d'arrêter la persistance de toute la session
+  // (problème 20 de l'audit du 2026-10-18, docs/TESTS_INSTABLES.md).
+  {
+    const base = "base double conflit\n", r1 = "etat distant un\n", r2 = "etat distant deux\n";
+    const local = "etat local double conflit\n";
+    const e1 = {id: "remote-1", before: base, after: r1, ts: 10, source: "user-save", status: "applied"};
+    const e2 = {id: "remote-2", before: r1, after: r2, ts: 11, source: "user-save", status: "applied"};
+    const h = makeModuleHarness({headText: base, postResponses: [
+      {status: 409, body: {ok: false, error: "revision-conflict", revision: 1,
+        state: durableState("/x/m.tex", 1, base, [e1], r1)}},
+      {status: 409, body: {ok: false, error: "revision-conflict", revision: 2,
+        state: durableState("/x/m.tex", 2, base, [e1, e2], r2)}},
+      {status: 200, body: {ok: true, revision: 3}},
+    ]});
+    h.cm._v = local;
+    h.dv.push(base, local, {source: "user-save", status: "applied"});
+    await sleep(0); await sleep(0); await sleep(0); await sleep(0);
+    const appended = (post) => (post?.ops || []).filter((op) => op.type === "append")
+      .map((op) => op.intervention.toHash);
+    contractOk("deux 409 de suite : nouvelle fusion puis reprise acquittée",
+      h.posts.length === 3 && h.posts[1].expectedRevision === 1 && h.posts[2].expectedRevision === 2
+        && appended(h.posts[2]).join() === sha256(local)
+        && !h.notes.some((note) => /persistance du diff arrêtée/.test(note))
+        && persistedInterventions(h).some((it: { id: string; }) => it.id === "remote-2"),
+      JSON.stringify({posts: h.posts.map((post) => post.expectedRevision), notes: h.notes}));
+  }
+  {
+    // … mais un conflit qui ne cesse jamais s'arrête, visible, sans boucler.
+    const base = "base conflit sans fin\n", remote = "etat distant sans fin\n", local = "etat local sans fin\n";
+    const entry = {id: "remote-sans-fin", before: base, after: remote, ts: 10, source: "user-save", status: "applied"};
+    const h = makeModuleHarness({headText: base, postResponses: Array.from({length: 12}, (_, i) => ({
+      status: 409, body: {ok: false, error: "revision-conflict", revision: i + 1,
+        state: durableState("/x/m.tex", i + 1, base, [entry], remote)}}))});
+    h.cm._v = local;
+    h.dv.push(base, local, {source: "user-save", status: "applied"});
+    for (let i = 0; i < 12; i++) await sleep(0);
+    contractOk("409 sans fin : arrêt visible après un nombre borné de reprises",
+      h.posts.length === 5 && h.notes.some((note) => /conflit de révision répété/.test(note)),
+      JSON.stringify({posts: h.posts.length, notes: h.notes}));
   }
   {
     const base = "base id conflict\n", local = "local divergent\n", remote = "remote divergent\n";

@@ -409,7 +409,12 @@ const createDiffVersions = function(opts){
     serverBaseHash = decoded.baseHash;
     return true;
   }
-  async function flushWrites(retried: boolean){
+  // 409 consécutifs fusionnés avant d'abandonner. Deux vues du même fichier
+  // qui enregistrent ensemble peuvent se croiser plusieurs fois : l'autre vue
+  // réécrit entre la fusion et la reprise. Un seul essai arrêtait la
+  // persistance de toute la session sur un simple croisement (2026-10-18).
+  const REVISION_CONFLICT_RETRIES = 4;
+  async function flushWrites(conflicts = 0){
     if(persistenceStopped) return;
     if(writeRunning){ writeAgain = true; return; }
     writeRunning = true;
@@ -474,9 +479,9 @@ const createDiffVersions = function(opts){
         body: JSON.stringify({path, expectedRevision: serverRevision, ops})});
       const body = await response.json();
       if(response.status === 409 || body?.error === "revision-conflict"){
-        if(retried || !mergeConflictState(body.state, snapshot.base.hash)){ if(!persistenceStopped) stopPersistence("conflit de révision répété"); return; }
+        if(conflicts >= REVISION_CONFLICT_RETRIES || !mergeConflictState(body.state, snapshot.base.hash)){ if(!persistenceStopped) stopPersistence("conflit de révision répété"); return; }
         writeRunning = false;
-        await flushWrites(true);
+        await flushWrites(conflicts + 1);
         return;
       }
       if(!body?.ok || !Number.isInteger(body.revision)) throw new Error(body?.error || "ack invalide");
@@ -493,13 +498,13 @@ const createDiffVersions = function(opts){
       notify("échec de persistance du diff — nouvelle tentative à la prochaine modification");
     }finally{
       writeRunning = false;
-      if(writeAgain){ writeAgain = false; await flushWrites(false); }
+      if(writeAgain){ writeAgain = false; await flushWrites(); }
     }
   }
   function persist(afterText?: string){
     if(typeof afterText === "string") lastKnown = afterText;
     clearTimeout(postTimer);
-    postTimer = setTimeout(() => { flushWrites(false); }, 400);
+    postTimer = setTimeout(() => { flushWrites(); }, 400);
   }
   function arm(){
     if(els.group) els.group.style.display = "";
@@ -2447,8 +2452,32 @@ const createDiffVersions = function(opts){
     if(!data || typeof data !== "object") return 0;
     return data.v === 2 ? addV2(data) : addV1(data);
   }
+  /** Remet dans le journal réconcilié les interventions journalisées avant le
+   *  restore (absentes par id), dans l'ordre chronologique. */
+  function keepRuntime(items){
+    let kept = 0;
+    for(const it of items){
+      if(INTERVENTIONS.some(existing => existing.id === it.id)) continue;
+      INTERVENTIONS.push(it); kept++;
+    }
+    if(!kept) return;
+    const at = (it) => it.ts === null || !Number.isFinite(Number(it.ts)) ? -Infinity : Number(it.ts);
+    INTERVENTIONS.sort((a, b) => at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1);
+    const first = INTERVENTIONS[0];
+    if(!baseVersion) baseVersion = {before: first.before, ts: first.ts, head: false, sha: ""};
+    if(!journalBase) journalBase = {before: first.before, ts: first.ts, head: false, sha: ""};
+    arm();
+  }
   async function restoreVersions(){
     const generation = runtimePushes;
+    // Interventions journalisées AVANT ce premier chargement (⌘S ou passage
+    // d'agent avant le premier tick de waitCm) : ni le serveur ni le
+    // localStorage ne les ont forcément. Ce dernier est partagé par toutes les
+    // vues du même fichier et peut tenir le journal d'une AUTRE vue : le
+    // remplacer par le journal réconcilié effaçait l'intervention, la page
+    // n'envoyait plus qu'un set-current (diff.spec « two open pages », count 1,
+    // 2026-10-18).
+    const runtimeBefore = INTERVENTIONS.slice();
     let localData = null;
     try{ localData = JSON.parse(localStorage.getItem(KEY) || "null"); }catch(e){}
     const hasLocalV2 = !!(localData && localData.v === 2);
@@ -2487,6 +2516,7 @@ const createDiffVersions = function(opts){
             head: baseOwner.baseMeta?.kind === "git", sha: baseOwner.baseMeta?.sha || ""};
           if(!baseGitLocked) baseVersion = {...journalBase};
         }
+        keepRuntime(runtimeBefore);
       } else loadData(serverData);
     }
     else if(serverData && !hasLocalV2){
