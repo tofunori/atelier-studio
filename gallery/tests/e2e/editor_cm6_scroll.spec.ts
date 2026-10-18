@@ -328,3 +328,66 @@ test('external merge keeps a distant selection and viewport while the review ope
     await expect(page.locator('.dv-count')).toHaveText('1/1');
   });
 });
+
+// PIEGES_CONNUS §18 : un clic reste un clic.
+test('a click whose pointer trembles across a row boundary leaves a caret, not a selection', async ({page}) => {
+  await withLongLatex(async ({url}) => {
+    await page.goto(url);
+    await waitForEditor(page);
+    // Rangée visuelle suivante (le texte fluide peut joindre plusieurs lignes
+    // source sur une même rangée).
+    const {row, next} = await page.evaluate(() => {
+      const row = cm.charCoords({line: 20, ch: 12}, 'window');
+      for (let line = 21; line < 80; line += 1) {
+        const next = cm.charCoords({line, ch: 12}, 'window');
+        if (next.top > row.bottom) return {row, next};
+      }
+      throw new Error('no next row');
+    });
+    // Appui juste au-dessus de la limite entre les deux rangées, relâché 3 px
+    // plus bas : la souris franchit la limite pendant l'appui.
+    const boundary = (row.bottom + next.top) / 2;
+    await page.mouse.move(row.left, boundary - 1.5);
+    await page.mouse.down();
+    await page.mouse.move(row.left + 2, boundary + 1.5);
+    await page.mouse.up();
+    await expect.poll(() => page.evaluate(() => cm.getCursor().line)).toBe(20);
+    expect(await page.evaluate(() => cm.getSelection())).toBe('');
+
+    // Un vrai glisser, lui, sélectionne toujours.
+    const far = await page.evaluate(() => cm.charCoords({line: 22, ch: 30}, 'window'));
+    await page.mouse.move(row.left, (row.top + row.bottom) / 2);
+    await page.mouse.down();
+    await page.mouse.move(far.left, (far.top + far.bottom) / 2, {steps: 6});
+    await page.mouse.up();
+    await expect.poll(() => page.evaluate(() => cm.getSelection().length)).toBeGreaterThan(40);
+  });
+});
+
+test('a click inside the selection collapses it and never drags the text away', async ({page}) => {
+  await withLongLatex(async ({url, lines}) => {
+    await page.goto(url);
+    await waitForEditor(page);
+    const from = await page.evaluate(() => cm.charCoords({line: 30, ch: 4}, 'window'));
+    const to = await page.evaluate(() => cm.charCoords({line: 34, ch: 20}, 'window'));
+    await page.mouse.move(from.left, (from.top + from.bottom) / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.left, (to.top + to.bottom) / 2, {steps: 6});
+    await page.mouse.up();
+    await expect.poll(() => page.evaluate(() => cm.getSelection().length)).toBeGreaterThan(100);
+
+    // Clic au milieu de la sélection avec 6 px de mouvement : assez pour lancer
+    // un glisser-déposer natif du texte si l'éditeur laissait faire.
+    const inside = await page.evaluate(() => cm.charCoords({line: 32, ch: 10}, 'window'));
+    const y = (inside.top + inside.bottom) / 2;
+    await page.mouse.move(inside.left, y);
+    await page.mouse.down();
+    await page.mouse.move(inside.left + 6, y, {steps: 3});
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const state = await page.evaluate(() => ({anchor: cm.getCursor('anchor'), selection: cm.getSelection(), value: cm.getValue()}));
+    expect(state.anchor).toEqual({line: 32, ch: 10});
+    expect(state.selection.length).toBeLessThan(4);
+    expect(state.value).toBe(lines);
+  });
+});

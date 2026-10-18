@@ -59,6 +59,7 @@ import {solarizedDarkInit} from "@uiw/codemirror-theme-solarized";
 import {linter, lintGutter, setDiagnostics as setLintDiagnostics} from "@codemirror/lint";
 import {ghostAiExtension} from "./ghost_ai.ts";
 import {fluidText} from "./fluid_text.ts";
+import {clickGesture} from "./click_gesture.ts";
 import {latexVisual} from "./latex_visual.ts";
 import {reviewGutter} from "./review_gutter.ts";
 import {latex, latexOutline, latexStructureDiagnostics} from "./latex_lang/index.ts";
@@ -749,6 +750,9 @@ export function createStudioEditor(parent, opts) {
         // le bloc. Le numéro de ligne actif reste marqué dans la gouttière.
         lineNumbers(), history(), ...(opts.ext === "tex" ? [] : [highlightActiveLine()]), highlightActiveLineGutter(),
         bracketMatching(), closeBrackets(), foldGutter(), restingSelectionMatches,
+        // Un clic reste un clic : ni tremblement de souris, ni glisser natif
+        // d'une sélection (PIEGES_CONNUS §18).
+        clickGesture,
         indentUnit.of(opts.ext === "py" ? "    " : "  "),
         languageExtensionFor(opts.ext),
         themeComp.of(themeExtensions(themeId)),
