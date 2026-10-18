@@ -7,7 +7,7 @@ pub const TOOL_NAME: &str = "atelier_sessions";
 pub fn tool_definition() -> Value {
     json!({
         "name": TOOL_NAME,
-        "description": "Inspect and coordinate Atelier linked-agent sessions, and read or propose the user's specialists (action=specialists, action=propose_specialist). Use action=help for details.",
+        "description": "Inspect and coordinate Atelier linked-agent sessions, read or propose the user's specialists (action=specialists, action=propose_specialist), and search or propose project notes (action=memories, action=propose_memory). Use action=help for details.",
         "inputSchema": {
             "type": "object",
             "required": ["action"],
@@ -24,7 +24,9 @@ pub fn tool_definition() -> Value {
                         "send_message",
                         "report_to_parent",
                         "specialists",
-                        "propose_specialist"
+                        "propose_specialist",
+                        "memories",
+                        "propose_memory"
                     ]
                 },
                 "targetThreadId": { "type": "string" },
@@ -44,7 +46,8 @@ pub fn tool_definition() -> Value {
                 "instructions": { "type": "string", "description": "propose_specialist: standing instructions for conversations carrying it" },
                 "skills": { "type": "array", "items": { "type": "string" } },
                 "connecteurs": { "type": "array", "items": { "type": "string" } },
-                "replaceId": { "type": "string", "description": "propose_specialist: id of the profile to change (from action specialists)" }
+                "replaceId": { "type": "string", "description": "propose_specialist: id of the profile to change (from action specialists); propose_memory: id of the note it corrects (from action memories)" },
+                "query": { "type": "string", "description": "memories: words to look for in the project notes (empty = most recent)" }
             },
             "additionalProperties": false
         }
@@ -167,7 +170,9 @@ pub fn help_text() -> Value {
             "send_message": "Queue semantic message (targetThreadId, text, requestId required)",
             "report_to_parent": "Queue structured report to parent (requestId, report/text)",
             "specialists": "The user's specialist profiles (Settings › Specialists), full text",
-            "propose_specialist": "Show a proposal card for a new or changed specialist (nom, nomCourt, role, instructions, skills, connecteurs, replaceId); saved only if the user clicks Keep"
+            "propose_specialist": "Show a proposal card for a new or changed specialist (nom, nomCourt, role, instructions, skills, connecteurs, replaceId); saved only if the user clicks Keep",
+            "memories": "Search the project notes Atelier keeps (query, limit)",
+            "propose_memory": "Show a card proposing a durable project note (text; replaceId to correct one); saved only if the user clicks Keep"
         },
         "auth": "Caller is authenticated by process capability — never pass callerThreadId as authority",
         "scope": "Direct parent/children only, same project"

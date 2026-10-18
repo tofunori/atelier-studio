@@ -98,6 +98,11 @@ export const SEARCH_LABELS: Record<SectionId, readonly I18nKey[]> = {
   specialistes: [
     "specialistes.import",
   ],
+  memoire: [
+    "memoire.injection",
+    "memoire.extraction",
+    "memoire.group-import",
+  ],
 };
 
 const GROUP_LABELS = new Set<I18nKey>(["settings.group.agents", "settings.group.tools", "settings.group.conversations", "settings.setup-runtime", "settings.remote-devices", "settings.interface", "settings.reading", "settings.group.theme", "settings.group.colors", "settings.group.typography", "settings.models-picker-order", "settings.api-providers", "settings.models-slug-group", "settings.group.gallery-exts", "settings.review", "appsnap.group.capture", "appsnap.group.permissions", "settings.integrations-status", "settings.integrations-compute", "settings.integrations-references"]);

@@ -6,6 +6,12 @@ pub use claude_science::{
     claude_science_data_dir, find_claude_science_db, import_claude_science,
     read_claude_science_specialists, ClaudeScienceImport, ClaudeScienceSpecialist,
 };
+mod claude_science_memories;
+pub use claude_science_memories::{
+    claude_science_memory_overview, claude_science_memory_projects, import_claude_science_memories,
+    read_claude_science_memories, ClaudeScienceMemory, ClaudeScienceMemoryOverview,
+    ClaudeScienceMemoryProject,
+};
 mod compute;
 mod git;
 mod generated_images;

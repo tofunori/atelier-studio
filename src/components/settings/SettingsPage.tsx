@@ -11,12 +11,12 @@ import { SavedIndicator, useSavedFlash } from "./primitives";
 import { SECTIONS, resolveSection, type SectionId } from "./sections";
 import type { SectionProps } from "./shared";
 import { Input } from "../shadcn/input";
-import { ArrowLeft, Search, SlidersHorizontal, Contrast, Cpu, Images, FileText, Plug, RotateCcw, ChevronRight, Wrench, UserRound } from "lucide-react";
+import { ArrowLeft, Search, SlidersHorizontal, Contrast, Cpu, Images, FileText, Plug, RotateCcw, ChevronRight, Wrench, UserRound, Brain } from "lucide-react";
 import { searchSettings } from "./search";
 import { SettingsSearchTarget, type SearchTarget } from "./searchTarget";
 import "../../styles/settings-refined.css";
 
-const SECTION_ICONS = { general: SlidersHorizontal, apparence: Contrast, modeles: Cpu, environnement: Wrench, atelier: Images, integrations: Plug, consignes: FileText, specialistes: UserRound };
+const SECTION_ICONS = { general: SlidersHorizontal, apparence: Contrast, modeles: Cpu, environnement: Wrench, atelier: Images, integrations: Plug, consignes: FileText, specialistes: UserRound, memoire: Brain };
 
 // lazyWithRetry (pas React.lazy nu) : React.lazy mémorise un import rejeté,
 // donc un chunk de section en échec resterait mort jusqu'au redémarrage de
@@ -30,11 +30,12 @@ const Atelier = lazyWithRetry(() => import("./sections/Atelier"));
 const Integrations = lazyWithRetry(() => import("./sections/Integrations"));
 const Consignes = lazyWithRetry(() => import("./sections/Consignes"));
 const Specialistes = lazyWithRetry(() => import("./sections/Specialistes"));
+const Memoire = lazyWithRetry(() => import("./sections/Memoire"));
 
 type PanelComponent = React.ComponentType<SectionProps>;
 
 const PANELS: Record<SectionId, PanelComponent> = {
-  general: General, modeles: Models, environnement: Environment, apparence: Appearance, atelier: Atelier, integrations: Integrations, consignes: Consignes, specialistes: Specialistes,
+  general: General, modeles: Models, environnement: Environment, apparence: Appearance, atelier: Atelier, integrations: Integrations, consignes: Consignes, specialistes: Specialistes, memoire: Memoire,
 };
 
 export default function SettingsPage(p: {

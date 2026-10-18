@@ -117,6 +117,15 @@ type AgentEventBody =
       proposal: { nom: string; nomCourt: string; role: string; instructions: string; skills: string[]; connecteurs: string[]; replaceId: string | null };
       ts?: number;
     }
+  /** Carte posée par `propose_memory` ou par l'extraction de fin de tour
+   *  (chantier 3 du plan rattrapage-claude-science). */
+  | {
+      kind: "memory_proposal";
+      id: string;
+      origin: "agent" | "extraction";
+      proposal: { text: string; replaceId: string | null; replacedText: string | null; projectRoot: string };
+      ts?: number;
+    }
   | {
       kind: "edit";
       projectRoot?: string | null;

@@ -117,6 +117,8 @@ import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAU
 import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
 import { garderProposition, ouvrirFicheSpecialiste, specialisteAJour, type PropositionSpecialiste } from "./lib/specialistes";
+import { demanderMemoire, messageErreur } from "./lib/memoire";
+import type { DetailPropositionMemoire } from "./components/chat/MemoryProposalCard";
 import { THEME_PRESETS } from "./lib/themes";
 import { setLanguage, t } from "./lib/i18n";
 import { kbSourcesSnapshot, requestKbSources } from "./lib/kbSources";
@@ -2204,8 +2206,21 @@ export default function App() {
         openSettings("specialistes");
       }
     };
+    // Carte « souvenir proposé » (propose_memory, extraction de fin de tour) :
+    // rien n'entre dans la mémoire avant ce clic.
+    const onMemoireProposition = (e: Event) => {
+      const detail = (e as CustomEvent).detail as DetailPropositionMemoire | undefined;
+      if (!detail?.proposal) return;
+      const { proposal } = detail;
+      void demanderMemoire(ws.current, "memorySave", {
+        memory: { projectRoot: proposal.projectRoot, text: proposal.text },
+        replaceId: proposal.replaceId ?? undefined,
+        origin: { kind: detail.origin, threadId: detail.threadId },
+      }).then((r) => detail.done(!!r.ok, r.ok ? undefined : messageErreur(r.error)));
+    };
     useWorkspaceEvents({
       "specialiste-proposition": onSpecialisteProposition,
+      "memoire-proposition": onMemoireProposition,
       "atelier-add-to-chat-citation": onCitation,
       "quick-ask-open": onQaOpen,
       "autoreview-toggle": onAutoReviewToggle,

@@ -33,6 +33,7 @@ import { doublonsDePensee } from "../../lib/chat/thinkingDedup";
 import { highlightCode } from "./md";
 import { HarnessInteraction } from "./HarnessInteraction";
 import { SpecialistProposalCard } from "./SpecialistProposalCard";
+import { MemoryProposalCard } from "./MemoryProposalCard";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { WidgetFrame } from "./WidgetFrame";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
@@ -1146,6 +1147,7 @@ export function ChatTimeline(p: {
           if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
           if (e.kind === "widget") return <WidgetFrame key={e.id} event={e} threadId={threadId} />;
           if (e.kind === "specialist_proposal") return <SpecialistProposalCard key={e.id} event={e} />;
+          if (e.kind === "memory_proposal") return <MemoryProposalCard key={e.id} event={e} threadId={threadId ?? undefined} />;
           if (e.kind === "edit") {
             // La carte « fichiers modifiés » du dernier tour terminé liste
             // déjà ces fichiers avec leurs +/− et leur diff par fichier : la

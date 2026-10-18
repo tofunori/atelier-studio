@@ -319,6 +319,19 @@ pub trait Provider: Send + Sync {
         Ok(None)
     }
 
+    /// Mémoire de projet (chantier 3d) : propose au plus quelques souvenirs
+    /// durables tirés d'un échange (`exchange` = demande et réponse du tour),
+    /// sans redire `known`. Défaut : ce fournisseur n'a pas de tour un-coup,
+    /// rien n'est proposé.
+    async fn extract_memories(
+        &self,
+        _exchange: &str,
+        _known: &[String],
+        _project_root: &str,
+    ) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+
     /// Reformule une consigne de l'éditeur. `model` vient du réglage
     /// `consignesAssist` : l'utilisateur choisit ce qui réécrit ses textes.
     /// Défaut `None` = ce CLI n'a pas de tour un-coup exploitable ; l'UI

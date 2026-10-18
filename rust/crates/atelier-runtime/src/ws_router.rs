@@ -69,6 +69,11 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "getSettings",
     "saveSettings",
     "importClaudeScience",
+    "memoryList",
+    "memorySave",
+    "memoryDelete",
+    "memoryClaudeSciencePreview",
+    "memoryClaudeScienceImport",
     "getLedger",
     "upsertThread",
     "listFiles",
@@ -568,6 +573,16 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 Err(error) => json!({"type":"claudeScienceImport","requestId":request_id,
                     "ok":false,"error":error,"specialistes":[]}),
             })]
+        }
+        // Réglages › Mémoire et cartes de proposition (chantier 3).
+        "memoryList" => vec![json_msg(crate::memory::handle_list(state, &msg).await)],
+        "memorySave" => vec![json_msg(crate::memory::handle_save(state, &msg).await)],
+        "memoryDelete" => vec![json_msg(crate::memory::handle_delete(state, &msg).await)],
+        "memoryClaudeSciencePreview" => {
+            vec![json_msg(crate::memory::handle_claude_science_preview(state, &msg).await)]
+        }
+        "memoryClaudeScienceImport" => {
+            vec![json_msg(crate::memory::handle_claude_science_import(state, &msg).await)]
         }
         "saveSettings" => {
             let mut settings = msg.get("settings").cloned().unwrap_or(Value::Null);

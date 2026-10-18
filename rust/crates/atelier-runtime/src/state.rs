@@ -7,7 +7,7 @@ use atelier_protocol::Health;
 use atelier_providers::{build_registry, build_registry_except, Provider};
 use atelier_store::{
     AgentMailboxStore, AutomationStore, CommandReceiptStore, HarnessJournal, HighlightStore,
-    ReviewStore, ThreadStore,
+    MemoryStore, ReviewStore, ThreadStore,
 };
 use atelier_workspace::{TermEvent, TerminalHub};
 use serde_json::Value;
@@ -69,6 +69,8 @@ struct Inner {
     port: RwLock<Option<u16>>,
     threads: Mutex<ThreadStore>,
     highlights: Mutex<HighlightStore>,
+    /// Mémoire de projet (chantier 3, `memories.json`).
+    memories: Mutex<MemoryStore>,
     automations: Mutex<AutomationStore>,
     automation_runs: Mutex<HashMap<String, (String, String)>>,
     journal: HarnessJournal,
@@ -118,6 +120,7 @@ impl AppState {
     ) -> Self {
         let threads = ThreadStore::open(paths.app_dir.join("threads.json"));
         let highlights = HighlightStore::open(paths.app_dir.join("highlights.json"));
+        let memories = MemoryStore::open(paths.app_dir.join("memories.json"));
         let automations = AutomationStore::open(paths.app_dir.join("automations.json"));
         let journal = HarnessJournal::new(&paths.app_dir);
         let receipts = CommandReceiptStore::open(paths.app_dir.join("chat-receipts.json"));
@@ -173,6 +176,7 @@ impl AppState {
                 port: RwLock::new(None),
                 threads: Mutex::new(threads),
                 highlights: Mutex::new(highlights),
+                memories: Mutex::new(memories),
                 automations: Mutex::new(automations),
                 automation_runs: Mutex::new(HashMap::new()),
                 journal,
@@ -304,6 +308,10 @@ impl AppState {
 
     pub fn highlights(&self) -> &Mutex<HighlightStore> {
         &self.inner.highlights
+    }
+
+    pub fn memories(&self) -> &Mutex<MemoryStore> {
+        &self.inner.memories
     }
 
     pub fn automations(&self) -> &Mutex<AutomationStore> {

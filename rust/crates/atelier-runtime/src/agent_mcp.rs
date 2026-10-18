@@ -502,6 +502,8 @@ async fn handle_action(
         "propose_specialist" => {
             crate::specialists::action_propose_specialist(state, caller_id, req).await
         }
+        "memories" => crate::memory::action_memories(state, caller_id, req).await,
+        "propose_memory" => crate::memory::action_propose_memory(state, caller_id, req).await,
         "" => Err("missing_action".into()),
         _ => Err("unknown_action".into()),
     }
@@ -520,7 +522,9 @@ fn help_doc() -> Value {
             {"action":"send_message","mutation":true,"params":["targetThreadId","text","requestId"]},
             {"action":"report_to_parent","mutation":true,"params":["requestId","report"]},
             {"action":"specialists","mutation":false},
-            {"action":"propose_specialist","mutation":false,"params":["nom","nomCourt","role","instructions","skills","connecteurs","replaceId"]}
+            {"action":"propose_specialist","mutation":false,"params":["nom","nomCourt","role","instructions","skills","connecteurs","replaceId"]},
+            {"action":"memories","mutation":false,"params":["query","limit"]},
+            {"action":"propose_memory","mutation":false,"params":["text","replaceId"]}
         ]
     })
 }
