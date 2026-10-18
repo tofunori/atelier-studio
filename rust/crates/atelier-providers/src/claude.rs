@@ -722,7 +722,10 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
     // le serveur atelier part sur tout fil compatible (2026-08-28), le mode
     // strict doit donc suivre le lien, pas la simple présence du serveur.
     if let Some(path) = mcp_config_path {
-        if req.atelier_mcp.as_ref().is_some_and(|l| l.linked) {
+        // Spécialiste avec connecteurs : même isolation, la config du fil
+        // déclare elle-même les seuls serveurs retenus (voir
+        // `write_mcp_config_in`).
+        if req.atelier_mcp.as_ref().is_some_and(|l| l.linked || l.restriction.is_some()) {
             args.push("--strict-mcp-config".into());
         }
         args.push("--mcp-config".into());
@@ -748,10 +751,10 @@ fn write_thread_mcp_config(req: &SendRequest) -> Option<std::path::PathBuf> {
     write_mcp_config_in(&app_dir, &req.thread_id, launch)
 }
 
-/// Écrit le fichier `--mcp-config` du fil. Le document ne déclare QUE le
-/// serveur atelier, lié ou non : c'est `--strict-mcp-config` (voir
-/// `build_args`) qui décide si la configuration MCP personnelle de
-/// l'utilisateur s'ajoute à celle-ci ou disparaît.
+/// Écrit le fichier `--mcp-config` du fil. Le document déclare le serveur
+/// atelier, plus les connecteurs du spécialiste du fil s'il en a : c'est
+/// `--strict-mcp-config` (voir `build_args`) qui décide si la configuration
+/// MCP personnelle de l'utilisateur s'ajoute à celle-ci ou disparaît.
 fn write_mcp_config_in(
     app_dir: &std::path::Path,
     thread_id: &str,
@@ -769,15 +772,19 @@ fn write_mcp_config_in(
     h.update(thread_id.as_bytes());
     let name = format!("{}.json", hex::encode(&h.finalize()[..16]));
     let path = dir.join(name);
-    let cfg = serde_json::json!({
-        "mcpServers": {
-            launch.server_name.clone(): {
-                "command": launch.command,
-                "args": [],
-                "env": launch.env,
-            }
-        }
-    });
+    let mut serveurs = serde_json::Map::new();
+    for (nom, definition) in launch.restriction.iter().flat_map(|r| r.serveurs.iter()) {
+        serveurs.insert(nom.clone(), definition.clone());
+    }
+    serveurs.insert(
+        launch.server_name.clone(),
+        serde_json::json!({
+            "command": launch.command,
+            "args": [],
+            "env": launch.env,
+        }),
+    );
+    let cfg = serde_json::json!({ "mcpServers": serveurs });
     let data = serde_json::to_vec_pretty(&cfg).ok()?;
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, &data).ok()?;
@@ -1801,6 +1808,7 @@ mod drapeaux_tests {
             server_name: "atelier-sessions".into(),
             env: std::collections::HashMap::new(),
             linked,
+            restriction: None,
         });
         r
     }
@@ -1896,6 +1904,26 @@ mod drapeaux_tests {
                 "plus de positionnel : le séparateur n'a plus lieu d'être — {args:?}"
             );
         }
+    }
+
+    /// Spécialiste avec connecteurs : mode strict, et la config du fil déclare
+    /// ses seuls serveurs en plus d'atelier — les autres MCP sont coupés.
+    #[test]
+    fn un_specialiste_ne_branche_que_ses_connecteurs() {
+        let mut r = req_mcp(false);
+        r.atelier_mcp.as_mut().unwrap().restriction = Some(crate::traits::RestrictionMcp {
+            serveurs: vec![("scholar".into(), serde_json::json!({"command": "scholar-mcp"}))],
+            a_couper: vec![],
+        });
+        let path = std::path::PathBuf::from("/tmp/mcp.json");
+        assert!(build_args(&r, Some(&path)).iter().any(|a| a == "--strict-mcp-config"));
+        let base = std::env::temp_dir().join(format!("atelier-mcp-spec-{}", std::process::id()));
+        let fichier = write_mcp_config_in(&base, "fil-specialiste", r.atelier_mcp.as_ref().unwrap()).unwrap();
+        let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&fichier).unwrap()).unwrap();
+        let noms: Vec<_> = doc["mcpServers"].as_object().unwrap().keys().cloned().collect();
+        assert_eq!(noms, ["atelier-sessions", "scholar"], "{doc}");
+        assert_eq!(doc["mcpServers"]["scholar"]["command"], "scholar-mcp");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// L'isolation stricte des sous-agents liés est délibérée (plan 057 :

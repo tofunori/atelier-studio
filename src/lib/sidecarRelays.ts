@@ -81,6 +81,7 @@ const RELAYS: Record<string, Relay> = {
   memoryDeleted: forward("memoire-reponse"),
   memoryClaudeScience: forward("memoire-reponse"),
   memoryImported: forward("memoire-reponse"),
+  mcpServers: forward("mcp-servers"),
   imageGenerated: forward("image-generated"),
   ledger: forward("ledger"),
   zoteroCollections: forward("zotero-collections"),

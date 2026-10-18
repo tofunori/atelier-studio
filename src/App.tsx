@@ -3517,7 +3517,11 @@ export default function App() {
       // ce message doit donc partir AVANT, sur la même connexion.
       if (id === activeThread?.id && activeThread.consigne) {
         const refresh = consigneAJour(activeThread.consigne);
-        if (refresh && refresh.texte !== activeThread.consigne.texte) {
+        // Les connecteurs du spécialiste décident des MCP branchés côté Rust :
+        // une copie qui ne les porte pas encore part aussi.
+        const connecteursChanges = JSON.stringify(refresh?.specialiste?.connecteurs ?? [])
+          !== JSON.stringify(activeThread.consigne.specialiste?.connecteurs ?? []);
+        if (refresh && (refresh.texte !== activeThread.consigne.texte || connecteursChanges)) {
           patchConsigneDuFil(id, refresh);
         }
       }

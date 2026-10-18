@@ -50,7 +50,7 @@ pub use registry::{
     build_registry, build_registry_except, builtin_catalog, provider_status_list, ProviderId,
 };
 pub use traits::{
-    AtelierMcpLaunch, CommitMessageDetails, InteractionFn, Provider, ProviderCaps, ReviewError,
+    AtelierMcpLaunch, CommitMessageDetails, RestrictionMcp, InteractionFn, Provider, ProviderCaps, ReviewError,
     ReviewRequest, ReviewResponse, RewriteOptions, SendMode, SendRequest, SendResult,
     SessionBindingFn,
 };

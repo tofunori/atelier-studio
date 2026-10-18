@@ -294,11 +294,13 @@ async fn atelier_mcp_for_turn(
                     launch.server_name, launch.command
                 ),
             );
+            let restriction = restriction_du_specialiste(state, thread_id, project_root, provider, previous);
             Some(atelier_providers::AtelierMcpLaunch {
                 command: std::path::PathBuf::from(launch.command),
                 server_name: launch.server_name,
                 env: launch.env,
                 linked: launch.linked,
+                restriction,
             })
         }
         Err(e) => {
@@ -310,6 +312,34 @@ async fn atelier_mcp_for_turn(
             None
         }
     }
+}
+
+/// Spécialiste du fil avec des connecteurs : seuls ses serveurs MCP restent
+/// branchés, comme dans Claude Science (plan specialistes-2026-10-18).
+fn restriction_du_specialiste(
+    state: &AppState,
+    thread_id: &str,
+    project_root: &str,
+    provider: &str,
+    previous: Option<&atelier_store::Thread>,
+) -> Option<atelier_providers::RestrictionMcp> {
+    let connecteurs = crate::specialists::connecteurs_du_fil(previous);
+    let home = std::path::PathBuf::from(std::env::var_os("HOME")?);
+    let codex_home = std::env::var_os("CODEX_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".codex"));
+    let cwd = (!project_root.is_empty()).then(|| std::path::Path::new(project_root));
+    let (restriction, absents) =
+        crate::specialists::restriction_mcp(provider, &connecteurs, &home, &codex_home, cwd)?;
+    let retenus: Vec<&str> = restriction.serveurs.iter().map(|(n, _)| n.as_str()).collect();
+    journal_mcp(
+        state,
+        &format!(
+            "specialiste fil={thread_id} provider={provider} retenus={retenus:?} coupes={:?} absents={absents:?}",
+            restriction.a_couper
+        ),
+    );
+    Some(restriction)
 }
 
 fn normalize_display_event(msg: &Value) -> Value {

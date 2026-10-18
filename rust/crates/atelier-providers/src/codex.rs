@@ -307,10 +307,21 @@ fn thread_opts(req: &SendRequest) -> Value {
             "args": [],
             "env": env,
         });
-        config.insert(
-            "mcp_servers".into(),
-            json!({ launch.server_name.clone(): server }),
-        );
+        // Spécialiste avec connecteurs : ses serveurs absents de config.toml
+        // s'ajoutent, les autres serveurs de config.toml sont coupés pour ce
+        // fil (`enabled = false`, fusionné avec leur définition par
+        // l'app-server, comme le serveur atelier).
+        let mut serveurs = serde_json::Map::new();
+        if let Some(restriction) = launch.restriction.as_ref() {
+            for nom in &restriction.a_couper {
+                serveurs.insert(nom.clone(), json!({ "enabled": false }));
+            }
+            for (nom, definition) in &restriction.serveurs {
+                serveurs.insert(nom.clone(), definition.clone());
+            }
+        }
+        serveurs.insert(launch.server_name.clone(), server);
+        config.insert("mcp_servers".into(), Value::Object(serveurs));
     }
     if !config.is_empty() {
         opts.as_object_mut()
@@ -2224,6 +2235,7 @@ mod steer_mcp_repli_tests {
             server_name: "atelier-sessions".into(),
             env: env.into_iter().collect(),
             linked: false,
+            restriction: None,
         }
     }
 
@@ -2241,6 +2253,22 @@ mod steer_mcp_repli_tests {
         let atelier = &serveurs["atelier-sessions"];
         assert_eq!(atelier["command"], json!("/tmp/atelier-agent-mcp"));
         assert_eq!(atelier["env"]["ATELIER_MCP_CAPABILITY"], json!("jeton"));
+    }
+
+    /// Spécialiste avec connecteurs : les serveurs de config.toml hors fiche
+    /// sont coupés, ceux trouvés ailleurs sur le Mac sont ajoutés.
+    #[test]
+    fn un_specialiste_coupe_les_autres_serveurs_codex() {
+        let mut l = launch();
+        l.restriction = Some(crate::traits::RestrictionMcp {
+            serveurs: vec![("scholar".into(), json!({"command": "scholar-mcp", "args": [], "env": {}}))],
+            a_couper: vec!["gbrain".into()],
+        });
+        let opts = thread_opts(&request(Some(l)));
+        let serveurs = &opts["config"]["mcp_servers"];
+        assert_eq!(serveurs["gbrain"], json!({"enabled": false}));
+        assert_eq!(serveurs["scholar"]["command"], json!("scholar-mcp"));
+        assert_eq!(serveurs["atelier-sessions"]["command"], json!("/tmp/atelier-agent-mcp"));
     }
 
     /// Le témoin : sans capacité, aucun serveur — c'était l'état du chemin

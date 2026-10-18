@@ -249,6 +249,68 @@ pub async fn action_propose_specialist(
     }))
 }
 
+/// Connecteurs du spécialiste que le fil porte (copie
+/// `extra.consigne.specialiste.connecteurs`, posée par l'interface).
+pub fn connecteurs_du_fil(thread: Option<&atelier_store::Thread>) -> Vec<String> {
+    thread
+        .and_then(|t| t.extra.get("consigne"))
+        .and_then(|c| c.get("specialiste"))
+        .map(|s| liste(s, "connecteurs"))
+        .unwrap_or_default()
+}
+
+/// Ne garder que les connecteurs du spécialiste (comme Claude Science) :
+/// chaque nom est cherché parmi les serveurs MCP du Mac, à la casse et la
+/// ponctuation près. Rend la restriction au format du provider et les noms
+/// introuvables. `None` sans connecteur (le fil garde tous ses MCP) ou pour
+/// un provider qui ne sait pas filtrer.
+pub fn restriction_mcp(
+    provider: &str,
+    connecteurs: &[String],
+    home: &std::path::Path,
+    codex_home: &std::path::Path,
+    cwd: Option<&std::path::Path>,
+) -> Option<(atelier_providers::RestrictionMcp, Vec<String>)> {
+    use atelier_workspace::{cle_mcp, definition_codex, noms_mcp_codex, serveurs_mcp_claude};
+    if connecteurs.is_empty() || !matches!(provider, "claude" | "codex") {
+        return None;
+    }
+    let voulus: Vec<String> = connecteurs.iter().map(|c| cle_mcp(c)).collect();
+    let claude = serveurs_mcp_claude(home, cwd);
+    let mut restriction = atelier_providers::RestrictionMcp::default();
+    let mut trouves: Vec<String> = Vec::new();
+    if provider == "codex" {
+        for nom in noms_mcp_codex(codex_home) {
+            if voulus.contains(&cle_mcp(&nom)) {
+                trouves.push(cle_mcp(&nom));
+            } else {
+                restriction.a_couper.push(nom);
+            }
+        }
+    }
+    for serveur in claude {
+        let cle = cle_mcp(&serveur.nom);
+        if !voulus.contains(&cle) || trouves.contains(&cle) {
+            continue;
+        }
+        let definition = if provider == "codex" {
+            definition_codex(&serveur.definition)
+        } else {
+            Some(serveur.definition)
+        };
+        if let Some(definition) = definition {
+            restriction.serveurs.push((serveur.nom, definition));
+            trouves.push(cle);
+        }
+    }
+    let absents = connecteurs
+        .iter()
+        .filter(|c| !trouves.contains(&cle_mcp(c)))
+        .cloned()
+        .collect();
+    Some((restriction, absents))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,5 +403,33 @@ mod tests {
         assert_eq!(ev["meta"]["turnId"], "turn-9");
         assert_eq!(ev["meta"]["sequence"], 4);
         assert_eq!(ev["proposal"]["nom"], "X");
+    }
+
+    #[test]
+    fn restriction_claude_et_codex() {
+        let home = tempfile::tempdir().unwrap();
+        let codex = tempfile::tempdir().unwrap();
+        std::fs::write(
+            home.path().join(".claude.json"),
+            r#"{"mcpServers":{"Scholar":{"command":"scholar-mcp"},"gbrain":{"command":"g"},"ragdoc":{"type":"http","url":"https://r"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(codex.path().join("config.toml"), "[mcp_servers.gbrain]\ncommand = \"g\"\n[mcp_servers.context7]\ncommand = \"c\"\n").unwrap();
+        let voulus = vec!["scholar".to_string(), "ragdoc".into(), "zotero".into()];
+
+        let (claude, absents) = restriction_mcp("claude", &voulus, home.path(), codex.path(), None).unwrap();
+        let noms: Vec<_> = claude.serveurs.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(noms, ["Scholar", "ragdoc"]);
+        assert!(claude.a_couper.is_empty());
+        assert_eq!(absents, ["zotero"]);
+
+        let (codex_r, absents) = restriction_mcp("codex", &voulus, home.path(), codex.path(), None).unwrap();
+        assert_eq!(codex_r.a_couper, ["gbrain", "context7"]);
+        assert_eq!(codex_r.serveurs[0], ("Scholar".to_string(), json!({"command": "scholar-mcp", "args": [], "env": {}})));
+        assert_eq!(codex_r.serveurs[1].1, json!({"url": "https://r"}));
+        assert_eq!(absents, ["zotero"]);
+
+        assert!(restriction_mcp("claude", &[], home.path(), codex.path(), None).is_none());
+        assert!(restriction_mcp("grok", &voulus, home.path(), codex.path(), None).is_none());
     }
 }

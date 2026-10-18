@@ -27,6 +27,18 @@ describe("Réglages › Spécialistes", () => {
     expect(screen.getByText("Importé de Claude Science.")).toBeTruthy();
   });
 
+  it("signale les connecteurs absents du Mac", () => {
+    render(<Specialistes specialistes={[{ ...glacio, connecteurs: ["Scholar", "zotero"] }]} onChange={() => {}}
+      mcpDuMac={[{ nom: "scholar", sources: ["claude-desktop"] }, { nom: "gbrain", sources: ["codex"] }]} />);
+    expect(screen.getByText("Absents du Mac : zotero")).toBeTruthy();
+    expect(screen.getByText("Sur ton Mac : scholar, gbrain")).toBeTruthy();
+  });
+
+  it("sans liste du Mac, ne signale aucun absent", () => {
+    render(<Specialistes specialistes={[{ ...glacio, connecteurs: ["zotero"] }]} onChange={() => {}} />);
+    expect(screen.queryByText(/Absents du Mac/)).toBeNull();
+  });
+
   it("le nom court reste un mot", () => {
     const onChange = vi.fn();
     render(<Specialistes specialistes={[glacio]} onChange={onChange} />);

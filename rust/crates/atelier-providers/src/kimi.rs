@@ -1809,6 +1809,7 @@ mod tests {
             server_name: "atelier-sessions".into(),
             env: HashMap::from([("ATELIER_MCP_CAPABILITY".into(), jeton.to_string())]),
             linked: false,
+            restriction: None,
         }
     }
 

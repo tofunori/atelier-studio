@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CONSIGNES_LIVREES, basculerConsigne } from "./consignes";
 import {
-  appliquerVersion, basculerForme, choisirSpecialiste, composerFil, empreinteSpecialiste, formesDuFil,
+  appliquerVersion, basculerForme, connecteursAbsents, choisirSpecialiste, composerFil, empreinteSpecialiste, formesDuFil,
   fusionnerImport, garderProposition, nomCourtPropose, normaliserNomCourt, specialisteAJour,
   type Specialiste, type SpecialisteClaudeScience,
 } from "./specialistes";
@@ -33,7 +33,8 @@ describe("le fil porte le spécialiste par le chemin des consignes", () => {
     expect(fil.specialiste).toMatchObject({ id: "sp1", nom: "Glaciologue albédo", nomCourt: "Glaciologue" });
     expect(fil.texte.indexOf("Tu es glaciologue.")).toBeLessThan(fil.texte.indexOf(CONSIGNES_LIVREES[0].texte));
     expect(fil.texte).toContain("Prefer these skills when they apply: bilan-energie-fonte.");
-    expect(fil.texte).toContain("Prefer these connectors (MCP servers) when they apply: scholar.");
+    expect(fil.texte).toContain("Connectors (MCP servers) of this specialist: scholar. Other MCP servers are not connected in this conversation.");
+    expect(fil.specialiste?.connecteurs).toEqual(["scholar"]);
     expect(fil.selection).toEqual([{ id: "concis", texte: CONSIGNES_LIVREES[0].texte }]);
   });
 
@@ -124,5 +125,11 @@ describe("proposition de l'agent", () => {
     expect(id).toBe("sp1");
     expect(specialistes).toHaveLength(1);
     expect(specialistes[0].instructions).toBe("Tu connais Peyto.");
+  });
+});
+
+describe("connecteurs du Mac", () => {
+  it("compare les noms à la casse et la ponctuation près", () => {
+    expect(connecteursAbsents(["Scholar Sidekick", "zotero"], [{ nom: "scholar-sidekick" }, { nom: "gbrain" }])).toEqual(["zotero"]);
   });
 });

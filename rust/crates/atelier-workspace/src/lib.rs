@@ -13,6 +13,10 @@ pub use claude_science_memories::{
     ClaudeScienceMemoryProject,
 };
 mod compute;
+mod mcp_du_mac;
+pub use mcp_du_mac::{
+    cle_mcp, definition_codex, mcp_du_mac, noms_mcp_codex, serveurs_mcp_claude, McpDuMac, ServeurMcp,
+};
 mod git;
 mod generated_images;
 pub use generated_images::save_generated_image;

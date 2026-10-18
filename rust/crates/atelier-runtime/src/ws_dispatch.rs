@@ -83,6 +83,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "importClaudeScience"
         | "memoryList"
         | "memoryClaudeSciencePreview"
+        | "listMcpServers"
         | "zoteroCollections"
         | "listSessions"
         | "getUsage"
