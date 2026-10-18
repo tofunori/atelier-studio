@@ -161,14 +161,38 @@ pub struct AgentStore {
     inbox: Vec<Value>,
     history: Vec<Value>,
     consumers: BTreeMap<String, Value>,
+    /// Fichier illisible au chargement : plus aucune écriture.
+    load_error: Option<String>,
 }
 
 impl AgentStore {
     pub fn load(root: &Path) -> Self {
-        let (inbox_path, history_path, consumers_path) = paths(root);
-        let inbox = read_list(&inbox_path);
-        let history = read_list(&history_path);
-        let consumers = read_object(&consumers_path);
+        Self::load_from(root, paths(root))
+    }
+
+    /// Un des trois fichiers présent mais illisible : il est mis de côté
+    /// (`.corrupt-…`), la file part vide EN MÉMOIRE et `persist` refuse —
+    /// sinon le premier envoi réécrirait la file et l'historique à vide.
+    fn load_from(root: &Path, (inbox_path, history_path, consumers_path): (PathBuf, PathBuf, PathBuf)) -> Self {
+        let mut errors = Vec::new();
+        let mut keep = |result: Result<Option<Value>, atelier_core::durable::StoreError>| match result {
+            Ok(value) => value,
+            Err(error) => {
+                errors.push(error.to_string());
+                None
+            }
+        };
+        use atelier_core::durable::{load_json, Shape};
+        let as_list = |v: Option<Value>| match v {
+            Some(Value::Array(list)) => list,
+            _ => Vec::new(),
+        };
+        let inbox = as_list(keep(load_json(&inbox_path, Shape::Array)));
+        let history = as_list(keep(load_json(&history_path, Shape::Array)));
+        let consumers = match keep(load_json(&consumers_path, Shape::Object)) {
+            Some(Value::Object(map)) => map.into_iter().collect(),
+            _ => BTreeMap::new(),
+        };
         Self {
             root: root.to_path_buf(),
             inbox_path,
@@ -177,6 +201,7 @@ impl AgentStore {
             inbox,
             history,
             consumers,
+            load_error: (!errors.is_empty()).then(|| errors.join(" ; ")),
         }
     }
 
@@ -195,7 +220,7 @@ impl AgentStore {
                 .partial_cmp(&key(a))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        json!({
+        let mut payload = json!({
             "ok": true,
             "agentHost": "codex",
             "pending": self.inbox.iter().map(public_event).collect::<Vec<_>>(),
@@ -205,7 +230,11 @@ impl AgentStore {
                 "staged": self.inbox.iter().filter(|item| item.get("status") == Some(&json!("staged"))).count(),
                 "queued": self.inbox.iter().filter(|item| item.get("status") != Some(&json!("staged"))).count(),
             }
-        })
+        });
+        if let Some(error) = &self.load_error {
+            payload["error"] = json!(format!("file des demandes à l'agent illisible : {error}"));
+        }
+        payload
     }
 
     #[allow(dead_code)] // used by diagnostic health payloads when re-enabled
@@ -726,6 +755,9 @@ impl AgentStore {
     }
 
     fn persist(&self) -> Result<(), String> {
+        if let Some(error) = &self.load_error {
+            return Err(format!("file des demandes à l'agent illisible, rien n'est écrit : {error}"));
+        }
         atomic_write_json(&self.inbox_path, &self.inbox).map_err(|error| error.to_string())?;
         atomic_write_json(&self.history_path, &self.history).map_err(|error| error.to_string())?;
         atomic_write_json(&self.consumers_path, &self.consumers)
@@ -809,16 +841,25 @@ pub fn normalize_anchor(request: &Value, rel: &str) -> Value {
     json!({"kind": "artifact"})
 }
 
-fn read_list(path: &Path) -> Vec<Value> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|data| serde_json::from_str(&data).ok())
-        .unwrap_or_default()
-}
 
-fn read_object(path: &Path) -> BTreeMap<String, Value> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|data| serde_json::from_str(&data).ok())
-        .unwrap_or_default()
+#[cfg(test)]
+mod durable_tests {
+    use super::*;
+    use atelier_core::durable::{corrupt_copies_of, UNREADABLE_LIST_SAMPLES};
+
+    #[test]
+    fn an_unreadable_inbox_is_reported_and_never_rewritten() {
+        for (label, raw) in UNREADABLE_LIST_SAMPLES {
+            let dir = tempfile::tempdir().unwrap();
+            let base = dir.path();
+            let paths = (base.join("k.json"), base.join("k-history.json"), base.join("k-consumers.json"));
+            fs::write(&paths.1, raw).unwrap();
+            let store = AgentStore::load_from(base, paths.clone());
+            assert!(store.status(10)["error"].as_str().is_some_and(|e| e.contains("illisible")), "{label}");
+            assert!(store.persist().is_err(), "{label} : écriture refusée");
+            assert!(!paths.0.exists(), "{label} : rien d'écrit");
+            assert_eq!(fs::read(&paths.1).unwrap(), raw.as_bytes(), "{label} : historique intact");
+            assert_eq!(corrupt_copies_of(&paths.1, raw.as_bytes()), 1, "{label} : copie");
+        }
+    }
 }
