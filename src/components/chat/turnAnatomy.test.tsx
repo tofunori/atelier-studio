@@ -321,7 +321,7 @@ describe("anatomie du tour — header d'activité", () => {
     fireEvent.click(ligne.querySelector(".ui-activity-trigger") as HTMLButtonElement);
     expect(document.querySelector(".activity-action-list .tool-output.failed")).toBeNull();
     expect(document.querySelector(".activity-action-list .is-shimmering")).toBeNull();
-    expect(document.querySelectorAll(".active-turn-tail .turn-working-shimmer")).toHaveLength(1);
+    expect(document.querySelectorAll(".active-turn-tail [role=status]")).toHaveLength(1);
   });
 
   it("n'anime pas les outils d'un tour précédent quand un nouveau tour démarre", () => {
@@ -439,16 +439,19 @@ describe("anatomie du tour — header d'activité", () => {
       expect(row?.textContent).toContain("Réflexion en cours");
       act(() => { vi.advanceTimersByTime(30_000); });
       expect(row?.textContent).toContain("Réflexion en cours");
-      expect(row?.querySelector(".activity-cluster-live .turn-working-shimmer")).toBeTruthy();
+      expect(row?.querySelector(".activity-cluster-live .activity-live-label")).toBeTruthy();
       // A new receipt (re-render without any prop change) preserves the persistent status and Stop.
       view.rerender(<Chat {...props} />);
       expect(document.querySelector(".activity-cluster .ui-activity")).toBe(row);
       expect(row?.textContent).toContain("Réflexion en cours");
       expect(row?.querySelector(".stop-hint")).toBeNull();
-      // Le losange du statut cède la place à l'icône de la synthèse, et le
-      // chrono reste en méta de la même ligne.
+      // Le losange du statut cède la place à l'icône de la synthèse ; aucun
+      // outil ne tourne, donc pas de chrono sur la rangée (le temps du tour vit
+      // à côté du bouton Arrêter) mais l'anneau de la colonne d'état.
       expect(row?.querySelector(".ui-activity-icon")).toBeTruthy();
-      expect(row?.querySelector(".ui-activity-meta .turn-activity-elapsed")).toBeTruthy();
+      expect(row?.querySelector(".ui-activity-meta .turn-activity-elapsed")).toBeNull();
+      expect(row?.querySelector(".ui-activity-state .tool-run-ring")).toBeTruthy();
+      expect(document.querySelector(".composer-turn-clock")?.textContent).toMatch(/\d+ s|\d+ min/);
     } finally { vi.useRealTimers(); }
   });
 
@@ -460,11 +463,11 @@ describe("anatomie du tour — header d'activité", () => {
       const view = renderUi(<Chat {...base} events={[events.user("Analyse.", FIXED_TS),
         events.tool({ id: "cmd", status: "inProgress", ts: FIXED_TS })]} />);
       expect(document.querySelector(".active-turn-tail")?.textContent).toContain("Lit");
-      expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
+      expect(document.querySelector(".active-turn-tail [role=status]")).toBeTruthy();
       view.rerender(<Chat {...base} events={[events.user("Analyse.", FIXED_TS),
         { kind: "streaming", text: "Début", ts: FIXED_TS }]} />);
       expect(document.querySelector(".active-turn-tail")?.textContent).toContain("Rédaction en cours");
-      expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
+      expect(document.querySelector(".active-turn-tail [role=status]")).toBeTruthy();
     } finally { vi.useRealTimers(); }
   });
 
@@ -532,8 +535,8 @@ describe("anatomie du tour — header d'activité", () => {
     const fold = document.querySelector(".ui-activity.is-summary .ui-activity-trigger") as HTMLButtonElement;
     expect(fold).toBeTruthy();
     expect(fold.getAttribute("aria-expanded")).toBe("false");
-    expect(fold.textContent).toContain(t("chat.worked-for", { duration: "1s" }));
-    expect(fold.textContent).toContain("1s"); // durée user→done (600 ms → ≥1s)
+    expect(fold.textContent).toContain(t("chat.worked-for", { duration: "1 s" }));
+    expect(fold.textContent).toContain("1 s"); // durée user→done (600 ms → ≥1 s)
     expect(fold.textContent).not.toContain(t("chat.activity-steps", { n: 2 }));
     // replié : le détail des outils n'est pas rendu
     expect(document.querySelector(".ui-activity:not(.is-summary)")).toBeNull();
@@ -617,7 +620,7 @@ describe("anatomie du tour — header d'activité", () => {
     // « synthèse · statut », aucune rangée empilée.
     expect(etape.querySelectorAll(".tool-output")).toHaveLength(0);
     expect(document.querySelectorAll(".activity-cluster-live [role=status]")).toHaveLength(1);
-    expect(document.querySelectorAll(".active-turn-tail .turn-working-shimmer")).toHaveLength(1);
+    expect(document.querySelectorAll(".active-turn-tail [role=status]")).toHaveLength(1);
     const vivante = etape.querySelector(".ui-activity-trigger") as HTMLButtonElement;
     fireEvent.click(vivante);
     expect(etape.querySelectorAll(".tool-output")).toHaveLength(2);
@@ -651,7 +654,7 @@ describe("anatomie du tour — header d'activité", () => {
       && !Array.from(element.children).some((child) => child.textContent === "Je laisse les tests se terminer."));
     const tail = document.querySelector(".active-turn-tail") as HTMLElement;
     expect(message.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(document.querySelectorAll(".active-turn-tail .turn-working-shimmer")).toHaveLength(1);
+    expect(document.querySelectorAll(".active-turn-tail [role=status]")).toHaveLength(1);
     expect(inlineActivity.textContent).not.toContain(t("chat.working"));
     expect(document.querySelector(".active-turn-tail .thinking-shimmer")).toBeNull();
   });
@@ -790,7 +793,7 @@ describe("anatomie du tour — header d'activité", () => {
     const ligneVivante = document.querySelector(".activity-action-list") as HTMLElement;
     expect(ligneVivante.querySelector("[data-activity-icon='read']")).toBeTruthy();
     expect(ligneVivante.querySelector(".tool-output")).toBeTruthy();
-    expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
+    expect(document.querySelector(".active-turn-tail [role=status]")).toBeTruthy();
     expect(initialTail.querySelector(".thinking-shimmer")).toBeNull();
 
     const thinking: AgentEvent[] = [
@@ -805,7 +808,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(document.querySelectorAll(".active-turn-tail")).toHaveLength(1);
     expect(document.querySelector(".activity-action-list")).toBe(ligneVivante);
     expect(ligneVivante.querySelector(".is-shimmering")).toBeNull();
-    expect(document.querySelector(".active-turn-tail .turn-working-shimmer")).toBeTruthy();
+    expect(document.querySelector(".active-turn-tail [role=status]")).toBeTruthy();
     expect(ligneVivante.querySelector(".tool-output")).toHaveClass("is-done");
     // Pensée sans texte : aucune ligne « Réflexion » inventée.
     expect(updatedTail.querySelector(".thinking-shimmer")).toBeNull();
@@ -833,7 +836,7 @@ describe("anatomie du tour — header d'activité", () => {
     fireEvent.click(vivante.querySelector(".ui-activity-trigger") as HTMLButtonElement);
     const command = vivante.querySelector(".activity-action-list [data-activity-icon='command']")?.closest(".tool-output");
     expect(command?.querySelector(".tool-output-name")?.textContent).toContain("Commande exécutée");
-    expect(document.querySelectorAll(".active-turn-tail .turn-working-shimmer")).toHaveLength(1);
+    expect(document.querySelectorAll(".active-turn-tail [role=status]")).toHaveLength(1);
     expect(etape.querySelectorAll(".tool-output")).toHaveLength(2);
   });
 
@@ -875,7 +878,9 @@ describe("anatomie du tour — header d'activité", () => {
     expect(header).toBeNull();
     expect(tail).toBeTruthy();
     expect(tail.querySelector(".thinking-shimmer")).toBeNull();
-    expect(tail.querySelector(".turn-activity-elapsed")).toBeTruthy();
+    // Le temps du tour n'est plus dans le fil : il vit à côté du bouton Arrêter.
+    expect(tail.querySelector(".turn-activity-elapsed")).toBeNull();
+    expect(document.querySelector(".composer-turn-clock")).toBeTruthy();
     expect(message.compareDocumentPosition(tail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

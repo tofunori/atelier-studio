@@ -8,6 +8,9 @@ import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import { openFileRef } from "./md";
 import { Tick } from "./toolPresentation";
+import { fmtClock } from "./clock";
+
+export { LiveClock } from "./LiveClock";
 import { ActivityDisclosure, IconButton, RowButton, Tooltip } from "../ui";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { useSmoothedStream } from "./useSmoothedStream";
@@ -611,13 +614,7 @@ export function ReasoningTrace({ texts }: { texts: string[] }) {
   );
 }
 
-function workDuration(ms: number): string {
-  const totalSeconds = Math.max(1, Math.round(ms / 1000));
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  if (minutes < 60) return `${minutes}m ${String(totalSeconds % 60).padStart(2, "0")}s`;
-  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
-}
+const workDuration = fmtClock;
 
 /** 842 → « 842 », 8 214 → « 8.2k », 128 400 → « 128k » (tabular-nums en CSS,
  * point décimal quel que soit le locale — même rendu que Claude Code). */

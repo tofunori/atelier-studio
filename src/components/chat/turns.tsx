@@ -600,7 +600,11 @@ export function ActiveTurnTail(p: {
   );
 }
 
-export function TurnActivityStatus({ label, since, kind = "processing" }: { label: string; since: number; kind?: string }) {
+/** Ligne de statut du tour quand aucune action ne tourne. Le temps du tour
+ * n'y figure plus : il vit à côté du bouton Arrêter du compositeur, et les
+ * rangées d'outil ne portent que leur propre durée (`since` reste accepté
+ * pour les appelants existants). */
+export function TurnActivityStatus({ label, kind = "processing" }: { label: string; since?: number; kind?: string }) {
   const settled = kind === "failed" || kind === "interrupted";
   return (
     <div className={`turn-tail-row${settled ? " is-settled" : ""}`} data-activity-state={kind}>
@@ -614,7 +618,6 @@ export function TurnActivityStatus({ label, since, kind = "processing" }: { labe
         >
           {label}
         </span>
-      <Working since={since} compact />
     </div>
   );
 }

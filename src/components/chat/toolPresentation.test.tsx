@@ -4,6 +4,8 @@ import type { PluginCatalogEntry } from "../../lib/plugins";
 import { cleanup, screen } from "@testing-library/react";
 import { renderUi } from "../../test/render";
 import { setLanguage, t } from "../../lib/i18n";
+import { fmtClock } from "./clock";
+import { outputTail } from "./toolLive";
 import {
   activeToolLabel,
   activitySegments,
@@ -135,6 +137,13 @@ describe("Codex-style activity presentation", () => {
     expect(fmtToolDur(12_000)).toBe("12 s");
     expect(fmtToolDur(125_000)).toBe("2 min 5 s");
     expect(fmtToolDur(120_000)).toBe("2 min");
+    expect(fmtToolDur(59_700)).toBe("1 min");
+    expect(fmtToolDur(3_900_000)).toBe("1 h 5 min");
+    // Les chronos (tour, commande en cours, repli) parlent la même langue.
+    expect(fmtClock(600)).toBe("1 s");
+    expect(fmtClock(44_000)).toBe("44 s");
+    expect(fmtClock(227_000)).toBe("3 min 47 s");
+    expect(outputTail("a\n\nb\nc\nd\n")).toEqual(["b", "c", "d"]);
   });
 
   // Étapes de raisonnement (façon Codex desktop) : les titres **gras** du
@@ -468,10 +477,29 @@ describe("ToolOutputLine — rangée compacte", () => {
     expect(container.querySelector(".tool-output-target")?.textContent).toBe("albedo");
   });
 
-  it("un échec garde son libellé, seul élément coloré de la rangée", () => {
+  it("un échec : croix et code de sortie, seuls éléments colorés de la rangée", () => {
     const { container } = renderUi(<ToolOutputLine compact event={update({ status: "failed", exitCode: 2 })} />);
-    expect(container.querySelector(".tool-status")?.textContent).toBe(t("chat.action-failed"));
+    expect(container.querySelector(".tool-status")).toHaveAttribute("aria-label", t("chat.action-failed"));
+    expect(container.querySelector(".tool-status .tool-status-icon")).toBeTruthy();
+    expect(container.querySelector(".tool-duration")?.textContent).toBe("exit 2");
     expect(container.querySelector(".tool-output")).toHaveClass("failed");
+  });
+
+  it("la phrase de l'agent remplace le libellé générique et la commande", () => {
+    const { container } = renderUi(<ToolOutputLine compact event={update({
+      input: { command: "for f in a.png b.png; do sips -g pixelWidth \"$f\"; done", description: "Vérifie la largeur des figures" },
+    })} />);
+    expect(container.querySelector(".tool-output-name")?.textContent).toBe("Vérifie la largeur des figures");
+    expect(container.querySelector(".tool-output-target")).toBeNull();
+  });
+
+  it("grille fixe : durée, état et chevron toujours posés, même vides", () => {
+    const { container } = renderUi(<ToolOutputLine compact event={update({ status: "inProgress", input: { command: "make" } })} />);
+    const head = container.querySelector(".tool-output-head") as HTMLElement;
+    expect([...head.children].map((child) => child.getAttribute("class"))).toEqual([
+      "tool-output-icon", "tool-output-name", "tool-duration", "tool-status", "tool-tick",
+    ]);
+    expect(head.querySelector(".tool-status .tool-run-ring")).toBeTruthy();
   });
 
   it("affiche la durée en compact", () => {

@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex.
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -525,6 +525,38 @@ const PROPOSAL: AgentEvent[] = [
   } } as AgentEvent,
 ];
 
+// Rangées d'actions (refonte 2026-10-18) : Claude décrit chaque commande
+// (`input.description`, la phrase devient le titre de la rangée), une pensée
+// cite du code entre backticks, un échec porte son code de sortie, et la
+// dernière commande tourne encore. Pendant Codex : la sortie arrive au fil de
+// l'eau, les trois dernières lignes vivent sous la rangée en cours.
+const bash = (id: string, command: string, description: string | null, output: string, status: string, offsetS: number, extra: Record<string, unknown> = {}): AgentEvent => ({
+  kind: "tool_update", id, name: "Bash", detail: command, output, status, source: null, ts: ts(offsetS),
+  input: description ? { command, description } : { command }, ...extra,
+} as AgentEvent);
+
+const ACTIONS_CLAUDE: AgentEvent[] = [
+  { kind: "user", text: "Vérifie que les figures du chapitre 2 tiennent dans la colonne, puis recompile.", ts: ts(58) } as AgentEvent,
+  { kind: "thinking", text: "Les figures sont dans `figures/ch2/`. Je compare leur largeur au `\\columnwidth` du gabarit avant de recompiler.", ts: ts(56) } as AgentEvent,
+  tool("ac-read", "Read", "manuscrit/chapitre2.tex", "412 lignes", 300, 54),
+  bash("ac-width", "python scripts/largeur_figures.py figures/ch2 --max 8.4cm", "Vérifie la largeur des figures du chapitre 2",
+    "7 figures conformes, 1 trop large : fig2_5.pdf (9,1 cm)", "completed", 50, { durationMs: 1300 }),
+  bash("ac-build", "latexmk -pdf -interaction=nonstopmode manuscrit/these.tex", "Compile la thèse en PDF",
+    "! LaTeX Error: File `fig2_5_v2.pdf' not found.", "failed", 44, { durationMs: 4200, exitCode: 12 }),
+  { kind: "text", text: "La compilation cherche `fig2_5_v2.pdf`, qui n'existe pas encore. Je régénère la figure à 8,4 cm puis je relance.", ts: ts(38) } as AgentEvent,
+  tool("ac-edit", "Edit", "analysis/fig2_5.py", "Largeur fixée à 8,4 cm", 900, 30),
+  bash("ac-regen", "python analysis/fig2_5.py --width 8.4cm -o figures/ch2/fig2_5_v2.pdf", "Régénère la figure 2.5 à la largeur de colonne",
+    "", "running", 12),
+];
+
+const ACTIONS_CODEX: AgentEvent[] = [
+  { kind: "user", text: "Lance les tests du pipeline d'albédo.", ts: ts(40) } as AgentEvent,
+  bash("cx-ls", "ls tests/", null, "test_masque.py  test_pentes.py  test_regions.py", "completed", 36, { durationMs: 120, source: "codex" }),
+  bash("cx-test", "pytest tests/ -q", null,
+    ["tests/test_masque.py ........".padEnd(44) + "[ 34%]", "tests/test_pentes.py ..........".padEnd(44) + "[ 77%]", "tests/test_regions.py ..."].join("\n"),
+    "inProgress", 18, { source: "codex" }),
+];
+
 type BenchState = {
   events: AgentEvent[];
   workingSince: number | null;
@@ -602,6 +634,8 @@ const STATES: Record<string, BenchState> = {
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
   typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },
   proposal: { events: PROPOSAL, workingSince: null, attachments: [], usage: null },
+  actionsclaude: { events: ACTIONS_CLAUDE, workingSince: ts(58), attachments: [], usage: { context: 31000, output: 640, cost: null, turns: 1 } },
+  actionscodex: { events: ACTIONS_CODEX, workingSince: ts(40), attachments: [], usage: { context: 19000, output: 220, cost: null, turns: 1 } },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   queue: {
@@ -694,7 +728,7 @@ export function ChatBench() {
         onQuote={noop}
         threadId="bench-thread"
         threadTitle="Validation W&M — régions ouest"
-        threadProvider={replay ? replayFixture.provider : (menuBench && hash.includes("-codex")) || key === "goal" || key === "agents" ? "codex" : "claude"}
+        threadProvider={replay ? replayFixture.provider : (menuBench && hash.includes("-codex")) || key === "goal" || key === "agents" || key === "actionscodex" ? "codex" : "claude"}
         onPasteImage={noop} onPasteText={noop} onStop={noop}
         layout="chat" onToggleExpand={noop}
         usage={activeState.usage}

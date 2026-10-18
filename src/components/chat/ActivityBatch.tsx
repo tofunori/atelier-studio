@@ -4,12 +4,13 @@ import type { ToolAction } from '../../lib/chat/turnViewModel';
 import type { AgentEvent } from '../../lib/ws';
 import { isStoppedTerminal } from '../../lib/chat/turnViewModel';
 import type { PluginCatalogEntry } from '../../lib/plugins';
-import { activityPartKind, distinctToolActions, fmtToolDur, summarizeActivity, type SummaryPartKind, Tick, ToolGlyph, toolOutcome } from './toolPresentation';
+import { activityPartKind, distinctToolActions, fmtToolDur, summarizeActivity, type SummaryPartKind, Tick, ToolGlyph } from './toolPresentation';
+import { clusterFacts, toolStartedAt } from './toolLive';
 import { AgentActivityGroup, isAgentActivityAction, type AgentDisplay, type AgentToolAction } from './AgentActivity';
 import type { ActivityAction } from './groupActivityRows';
 import { EditLine } from './turnParts';
 import { TurnActivityStatus } from './turns';
-import { Working } from './turnParts';
+import { LiveClock } from './LiveClock';
 
 /** The turn owns disclosure; its actions stay in chronological order. */
 export function ActivityBatch(p: {
@@ -83,12 +84,23 @@ function ThoughtLeaf({ text, collapsed }: { text: string; collapsed: boolean }) 
         onClick={() => setOpen((previous) => !previous)}
       >
         <ToolGlyph icon={{ cat: 'thinking' }} />
-        <span className="activity-thought-preview">{preview}</span>
+        <span className="activity-thought-preview">{inlineCode(preview)}</span>
+        {/* Colonnes durée et état vides : le chevron tombe sous ceux des outils. */}
+        <span className="activity-thought-meta" aria-hidden="true" />
+        <span className="activity-thought-state" aria-hidden="true" />
         <Tick open={open} />
       </RowButton>
       {open && <div className="activity-thought-body">{text}</div>}
     </div>
   );
+}
+
+/** Aperçu d'une pensée : le code en ligne (`bascule.py`) passe en mono au
+ * lieu de montrer ses backticks bruts. */
+function inlineCode(text: string): ReactNode {
+  const parts = text.split(/`([^`\n]+)`/u);
+  if (parts.length === 1) return text;
+  return parts.map((part, index) => (index % 2 ? <code key={`${index}:${part}`}>{part}</code> : part));
 }
 
 /** Une erreur reste LISIBLE sous une étape repliée : elle vit à côté du pli,
@@ -160,6 +172,43 @@ export function mergeSettledStep(segments: StepSegment[]): StepSegment[] {
   return [merged, ...flats];
 }
 
+/** Libellé d'une grappe active : synthèse (si elle dit autre chose que le
+ * statut) · statut vivant, avec la commande en cours en mono. Pas de
+ * balayage : l'anneau de la colonne d'état dit déjà que ça tourne (une seule
+ * boucle par rangée). */
+function clusterLiveLabel(summary: string | null, label: string, row: ReturnType<typeof clusterFacts>['liveRow']): ReactNode {
+  return (
+    <>
+      {summary != null && <span className="activity-cluster-summary">{summary}</span>}
+      {summary != null && <span className="activity-cluster-sep" aria-hidden="true"> · </span>}
+      <span className="active-turn-tail activity-cluster-live">
+        <span className="turn-quiet is-on activity-live-label" role="status" aria-live="polite">
+          {row?.code != null
+            ? <>{row.pre?.trim()}<code className="activity-live-target">{row.code}</code>{row.post}</>
+            : label}
+        </span>
+      </span>
+    </>
+  );
+}
+
+/** Colonne de durée d'une grappe : le chrono de l'appel en cours pendant le
+ * travail, sinon l'horodatage fourni ou la durée cumulée. */
+function clusterMeta(facts: ReturnType<typeof clusterFacts>, live: boolean, stamp?: ReactNode): ReactNode {
+  if (live) return facts.runningOne ? <LiveClock since={toolStartedAt(facts.runningOne)} /> : undefined;
+  return stamp ?? (facts.totalMs > 0 ? fmtToolDur(facts.totalMs) : undefined);
+}
+
+/** Traîne de sortie sous la commande en cours (Codex seulement). */
+function liveTail(lines: string[]): ReactNode {
+  if (!lines.length) return undefined;
+  return (
+    <div className="activity-live-tail" aria-hidden="true">
+      {lines.map((line, index) => <div key={`${index}:${line}`}>{line}</div>)}
+    </div>
+  );
+}
+
 /** Une grappe : une ligne de synthèse repliable ; active, elle porte AUSSI
  * la partie vivante (« 8 commandes exécutées · Réflexion en cours… »). */
 function ClusterLine(p: {
@@ -172,12 +221,7 @@ function ClusterLine(p: {
   children: ReactNode;
 }) {
   const summary = summarizeActivity(p.actions, p.plugins);
-  const totalMs = p.actions.reduce((sum, action) => (
-    action.kind === 'tool_update' && typeof action.durationMs === 'number' && action.durationMs > 0
-      ? sum + action.durationMs : sum), 0);
-  const failed = p.actions.some((action) => action.kind === 'tool_update' && toolOutcome(action) === 'failed');
-  const soloRunning = p.actions.length === 1
-    && (p.actions[0].kind === 'tool' || toolOutcome(p.actions[0] as Extract<ToolAction, { kind: 'tool_update' }>) === 'running');
+  const facts = clusterFacts(p.actions, p.live?.label);
   // Le libellé de synthèse attend 160 ms de stabilité : une rafale d'outils de
   // 40 ms faisait clignoter la ligne (leçon ActivityGroup, 2026-08).
   const nextLabel = summary.label;
@@ -197,24 +241,17 @@ function ClusterLine(p: {
     <ActivityDisclosure
       open={p.open}
       onToggle={p.onToggle}
-      status={failed ? 'failed' : p.live ? 'running' : 'completed'}
+      status={facts.failed ? 'failed' : p.live ? 'running' : 'completed'}
       shimmer={false}
       icon={summary.icon}
       label={p.live
-        ? <>
-            {/* Une seule action encore en cours : la synthèse décrirait la
-                même chose au passé (« contexte compacté · Compacte le
-                contexte ») — le statut vivant suffit (Thierry 2026-09-10). */}
-            {!soloRunning && <span className="activity-cluster-summary">{shownLabel}</span>}
-            {!soloRunning && <span className="activity-cluster-sep" aria-hidden="true"> · </span>}
-            <span className="active-turn-tail activity-cluster-live">
-              <span className="turn-quiet is-on turn-working-shimmer" role="status" aria-live="polite">{p.live.label}</span>
-            </span>
-          </>
+        // Une seule action encore en cours : la synthèse décrirait la même
+        // chose au passé (« contexte compacté · Compacte le contexte ») — le
+        // statut vivant suffit (Thierry 2026-09-10).
+        ? clusterLiveLabel(facts.soloRunning ? null : shownLabel, p.live.label, facts.liveRow)
         : shownLabel}
-      meta={p.live
-        ? <Working since={p.live.since} compact />
-        : (p.stamp ?? (totalMs > 0 ? fmtToolDur(totalMs) : undefined))}
+      meta={clusterMeta(facts, Boolean(p.live), p.stamp)}
+      aside={liveTail(facts.tail)}
     >
       {p.children}
     </ActivityDisclosure>
