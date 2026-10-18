@@ -289,9 +289,10 @@ function ImportClaudeScience(p: { projets: string[]; requete: Requete | null; on
 
 export default function MemoireSection(p: SectionProps) {
   const ws = p.ws;
+  const ouvert = ws?.readyState === SOCKET_OPEN;
   const requete = useMemo<Requete | null>(
-    () => (ws && ws.readyState === SOCKET_OPEN ? (type, payload) => demanderMemoire(ws, type, payload) : null),
-    [ws, ws?.readyState],
+    () => (ws && ouvert ? (type, payload) => demanderMemoire(ws, type, payload) : null),
+    [ws, ouvert],
   );
   return (
     <>
