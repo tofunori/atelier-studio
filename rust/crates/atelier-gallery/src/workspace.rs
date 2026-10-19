@@ -99,7 +99,10 @@ fn read_current(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 
 /// `Some(réponse 409)` quand `base` est donné et ne correspond plus au
 /// disque. Sans `base` (agents, scripts, anciens clients), pas de contrôle.
-fn stale_base(path: &Path, base: Option<&str>) -> Result<Option<Vec<u8>>, axum::response::Response> {
+fn stale_base(
+    path: &Path,
+    base: Option<&str>,
+) -> Result<Option<Vec<u8>>, axum::response::Response> {
     let Some(base) = base else { return Ok(None) };
     let current = read_current(path)
         .map_err(|error| json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
@@ -121,11 +124,19 @@ pub async fn notes_load(State(state): State<AppState>) -> impl IntoResponse {
         Ok(bytes) => {
             let markdown = String::from_utf8_lossy(&bytes).into_owned();
             let version = content_version(&bytes);
-            (StatusCode::OK, Json(json!({"markdown": markdown, "version": version}))).into_response()
+            (
+                StatusCode::OK,
+                Json(json!({"markdown": markdown, "version": version})),
+            )
+                .into_response()
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let version = content_version(b"");
-            (StatusCode::OK, Json(json!({"markdown": "", "version": version}))).into_response()
+            (
+                StatusCode::OK,
+                Json(json!({"markdown": "", "version": version})),
+            )
+                .into_response()
         }
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
