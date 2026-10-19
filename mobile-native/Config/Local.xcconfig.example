@@ -19,10 +19,13 @@ PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*] = com.example.atelier
 
 // Identifiant d'équipe Apple (10 caractères). Avec un compte gratuit, c'est
 // l'équipe « Personal Team » : Xcode > Settings > Accounts, ou dans un projet
-// déjà signé, Build Settings > Signing > Development Team.
+// déjà signé, Build Settings > Signing > Development Team. Il doit être celui
+// qui a signé l'app installée, sinon iOS refuse la mise à jour (README,
+// « Compte développeur payant »).
 DEVELOPMENT_TEAM[sdk=iphoneos*] = ABCDE12345
 
 // Signature automatique : Xcode crée ou renouvelle le profil (7 jours avec un
-// compte gratuit) quand xcodebuild reçoit -allowProvisioningUpdates.
+// compte gratuit, un an avec l'Apple Developer Program) quand xcodebuild
+// reçoit -allowProvisioningUpdates.
 CODE_SIGN_STYLE[sdk=iphoneos*] = Automatic
 CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Development

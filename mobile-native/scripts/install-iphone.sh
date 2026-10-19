@@ -162,7 +162,7 @@ xcodebuild -project "$project" -scheme AtelierNative -configuration "$configurat
 # 5. Installation en place : jamais de désinstallation préalable.
 log "Installation sur $device_name (mise à jour en place, données conservées)"
 xcrun devicectl device install app --device "$device_id" "$app" \
-  || fail 5 "l'installation a échoué. iPhone déverrouillé et en mode développeur ? En Wi-Fi : même réseau que le Mac et jumelage réseau actif dans Xcode."
+  || fail 5 "l'installation a échoué. iPhone déverrouillé et en mode développeur ? En Wi-Fi : même réseau que le Mac et jumelage réseau actif dans Xcode. Si l'erreur parle d'application-identifier, l'équipe de Local.xcconfig n'est pas celle qui a signé l'app installée : ne PAS supprimer l'app, voir mobile-native/README.md, « Compte développeur payant »."
 
 # 6. Échéance du profil embarqué, pour le journal du renouvellement.
 security cms -D -i "$app/embedded.mobileprovision" >"$work/profile.plist" 2>/dev/null \
