@@ -457,8 +457,9 @@ function reapplyLocalEdits(now: ReturnType<typeof stateSnapshot>){
   beforeHidden.forEach((r)=>{ if(!curHidden.has(r)) hidden.delete(r); });
   curHidden.forEach((r)=>{ if(!beforeHidden.has(r)) hidden.add(r); });
   const beforeRules: string[]=pageStartState.hideRules||[], curRules: string[]=now.hideRules||[];
-  hideRules=[...hideRules.filter((g: string)=>!beforeRules.includes(g)||curRules.includes(g)),
-    ...curRules.filter((g)=>!beforeRules.includes(g)&&!hideRules.includes(g))];
+  const beforeRuleSet=new Set(beforeRules), curRuleSet=new Set(curRules), keptRules=new Set(hideRules);
+  hideRules=[...hideRules.filter((g: string)=>!beforeRuleSet.has(g)||curRuleSet.has(g)),
+    ...curRules.filter((g)=>!beforeRuleSet.has(g)&&!keptRules.has(g))];
   return !sameJson(pageStartState,now);
 }
 function loadInitialState(){
