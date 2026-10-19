@@ -740,7 +740,10 @@ impl OpenCodeProvider {
 
         loop {
             if (req.is_cancelled)() {
-                if let Some(mut c) = self.runs.lock().await.remove(&req.thread_id) {
+                // Liaison avant le `if let` : la garde de `runs` ne doit pas
+                // rester tenue pendant l'arrêt du process (audit 2026-10-18).
+                let run = self.runs.lock().await.remove(&req.thread_id);
+                if let Some(mut c) = run {
                     #[cfg(unix)]
                     if let Some(pid) = c.id() {
                         unsafe {
@@ -803,7 +806,9 @@ impl OpenCodeProvider {
             }
         }
 
-        if let Some(mut c) = self.runs.lock().await.remove(&req.thread_id) {
+        // Même motif : ne pas tenir `runs` pendant l'attente de fin du process.
+        let run = self.runs.lock().await.remove(&req.thread_id);
+        if let Some(mut c) = run {
             let _ = c.wait().await;
         }
 

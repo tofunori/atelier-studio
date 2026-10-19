@@ -103,11 +103,6 @@ export function splitModelLabel(label: string): { route: string; name: string } 
   return { route: label.slice(0, cut + 1), name: label.slice(cut + 1) };
 }
 
-/** Couleur de l'anneau de contexte. L'anneau vivait en doré dès 61 % — donc
- * presque tout le temps, et la couleur ne voulait plus rien dire. Il reste
- * gris tant que rien n'est à décider, prend un doré éteint quand la
- * compaction approche vraiment, et ne passe au rouge qu'au bord de la
- * fenêtre. */
 /** Mode rendu quand on quitte le mode Plan par l'entrée « Mode plan » du menu
  * « + ». Le menu basculait entre plan et bypassPermissions : un fil en
  * acceptEdits (le défaut) qui passait en Plan puis en sortait tournait ensuite
@@ -122,6 +117,11 @@ export function modeApresPlan(precedent: string | null | undefined, permis: read
   return permis.find((mode) => repli(mode)) ?? "acceptEdits";
 }
 
+/** Couleur de l'anneau de contexte. L'anneau vivait en doré dès 61 % — donc
+ * presque tout le temps, et la couleur ne voulait plus rien dire. Il reste
+ * gris tant que rien n'est à décider, prend un doré éteint quand la
+ * compaction approche vraiment, et ne passe au rouge qu'au bord de la
+ * fenêtre. */
 export function contextRingStroke(pct: number): string {
   if (pct > 92) return "var(--status-error)";
   if (pct > 80) return "color-mix(in srgb, var(--status-warning) 55%, var(--mark-neutral-strong))";

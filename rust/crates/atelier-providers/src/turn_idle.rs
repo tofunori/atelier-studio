@@ -29,7 +29,7 @@ const TICK: Duration = Duration::from_secs(5);
 /// Fenêtre de SILENCE tolérée avant d'interrompre un tour (le filet ne vise
 /// que le CLI figé — vivant mais muet ; un tour long reste légitime, quelle
 /// que soit sa durée). Commune à tous les providers app-server/CLI (codex,
-/// claude, grok, kimi ; opencode borne son flux SSE avec la même fenêtre).
+/// claude, grok, kimi, opencode : tous lisent cette fenêtre).
 const TURN_IDLE_SECS_DEFAULT: u64 = 600;
 
 /// Lit la fenêtre d'inactivité depuis `ATELIER_TURN_TIMEOUT_SECS` (défaut
