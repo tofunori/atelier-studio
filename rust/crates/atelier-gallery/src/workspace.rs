@@ -142,11 +142,9 @@ fn stale_base(
     path: &Path,
     base: Option<&str>,
     own_last: Option<&str>,
-) -> Result<Option<Vec<u8>>, axum::response::Response> {
+) -> std::io::Result<Option<Vec<u8>>> {
     let Some(base) = base else { return Ok(None) };
-    let current = read_current(path)
-        .map_err(|error| json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-        .unwrap_or_default();
+    let current = read_current(path)?.unwrap_or_default();
     let version = content_version(&current);
     if version == base || own_last == Some(version.as_str()) {
         Ok(None)
@@ -232,7 +230,7 @@ pub async fn notes_save(
         body.base.as_deref(),
         writers.last_write("notes", writer),
     ) {
-        Err(response) => return response,
+        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
         Ok(Some(current)) => {
             // le fichier a changé depuis le chargement : rien n'est écrit,
             // l'éditeur garde sa version et reçoit celle du disque
@@ -334,7 +332,7 @@ pub async fn board_save(
         body.base.as_deref(),
         writers.last_write("board", writer),
     ) {
-        Err(response) => return response,
+        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
         Ok(Some(current)) => {
             return (
                 StatusCode::CONFLICT,
