@@ -33,6 +33,10 @@
       "output": "gallery/assets/figure_annotation_geometry.js"
     },
     {
+      "source": "gallery/src/browser/svg_sanitize.ts",
+      "output": "gallery/assets/svg_sanitize.js"
+    },
+    {
       "source": "gallery/src/browser/gallery_commands.ts",
       "output": "gallery/assets/gallery_commands.js"
     },

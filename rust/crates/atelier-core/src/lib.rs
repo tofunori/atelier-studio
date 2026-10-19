@@ -7,6 +7,9 @@ use thiserror::Error;
 pub mod gallery_builder;
 pub mod gallery_favorites;
 pub mod svg_edits;
+/// Lecteur et écrivain durables communs (atelier-store), réexportés pour la
+/// galerie : `atelier_core::durable`, `atelier_core::pdf_annots`.
+pub use atelier_store::{durable, pdf_annots};
 
 pub const ARTIFACT_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "svg", "pdf", "html", "htm", "docx", "xlsx", "xls", "csv", "md", "py",
@@ -383,9 +386,20 @@ pub fn artifact_snapshot(project: &Path) -> Result<BTreeMap<String, (u128, u64)>
     Ok(out)
 }
 
-/// Write `data` via a same-directory temp file + rename (atomic on the same FS).
-/// Never truncates an existing destination on failure mid-write.
+/// Write `data` via a same-directory temp file, fsync, rename, then fsync of
+/// the directory (`durable::write_durable`). Never truncates an existing
+/// destination on failure mid-write, and a crash right after the call cannot
+/// leave an empty or torn file.
 pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), CoreError> {
+    durable::write_durable(path, data)?;
+    Ok(())
+}
+
+/// Same temp file + rename as `atomic_write`, without fsync: only for files
+/// the gallery regenerates at every scan (`figures_index.html`,
+/// `figures_data.json`), where a durable write would cost a full flush per
+/// rebuild for nothing.
+pub fn atomic_write_regenerable(path: &Path, data: &[u8]) -> Result<(), CoreError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
     let nonce = std::time::SystemTime::now()
@@ -399,7 +413,9 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), CoreError> {
         nonce
     ));
     fs::write(&tmp, data)?;
-    fs::rename(&tmp, path)?;
+    fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })?;
     Ok(())
 }
 

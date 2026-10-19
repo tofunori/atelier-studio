@@ -23,6 +23,7 @@ gallery/assets/pdf_selection.js linguist-generated=true
 gallery/assets/pdfjs_compat.js linguist-generated=true
 gallery/assets/sel_overlay.js linguist-generated=true
 gallery/assets/sel_pill.js linguist-generated=true
+gallery/assets/svg_sanitize.js linguist-generated=true
 mobile/public/sw.js linguist-generated=true
 
 # Upstream libraries are retained as distributed.

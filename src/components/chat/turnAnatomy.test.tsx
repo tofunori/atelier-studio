@@ -1220,7 +1220,19 @@ describe("capsule résultat — honnêteté et actions", () => {
     ) as HTMLElement;
     expect(action).toBeTruthy();
     fireEvent.click(action);
+    // Rembobiner demande d'abord confirmation (audit 2026-10-18, problème 3).
+    expect(onRevert).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: t("chat.revert-confirm") }));
     expect(onRevert).toHaveBeenCalledWith(0, "Analyse l'albédo.", false);
+  });
+
+  it("rembobiner : annuler la confirmation ne rembobine rien", () => {
+    const onRevert = vi.fn();
+    renderUi(<Chat {...chatProps({ events: finishedTurn(), onRevert })} />);
+    fireEvent.click(document.querySelector(`.user-message [aria-label="${t("chat.revert-title")}"]`) as HTMLElement);
+    expect(screen.getByText(t("chat.revert-confirm-title"))).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: t("action.cancel") }));
+    expect(onRevert).not.toHaveBeenCalled();
   });
 
   it("fichiers modifiés : le libellé honnête compte les fichiers, le diff est à la demande", () => {

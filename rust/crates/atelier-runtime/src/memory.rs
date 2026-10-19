@@ -29,8 +29,11 @@ pub const EXTRACTION_MAX: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reglages {
-    /// Souvenirs utiles en tête du message. Allumé par défaut : sans
-    /// souvenir, rien ne part.
+    /// Souvenirs utiles en tête du message. Éteint par défaut tant que
+    /// Thierry ne l'a pas essayé (audit du 2026-10-18) : né allumé avec #54,
+    /// le bloc partait dans chaque tour (automatisations et messages entre
+    /// agents compris) dès qu'un souvenir partageait un mot avec la demande,
+    /// sans paraître dans le reçu du tour. Seul un `true` explicite l'allume.
     pub injection: bool,
     /// Extraction automatique en fin de tour. Coupée par défaut (plan).
     pub extraction: bool,
@@ -44,7 +47,7 @@ pub fn reglages(settings: &Value) -> Reglages {
             .unwrap_or(default)
     };
     Reglages {
-        injection: flag("injection", true),
+        injection: flag("injection", false),
         extraction: flag("extraction", false),
     }
 }
@@ -217,15 +220,23 @@ pub async fn handle_list(state: &AppState, msg: &Value) -> Value {
             .unwrap_or(50)
             .min(500) as usize,
     };
-    let store = state.memories().lock().await;
+    let mut store = state.memories().lock().await;
+    store.refresh();
     let (items, total) = store.list(&q);
-    json!({
+    let mut reply = json!({
         "type": "memories",
         "requestId": msg.get("requestId").cloned().unwrap_or(Value::Null),
         "items": items.iter().map(memory_json).collect::<Vec<_>>(),
         "total": total,
         "counts": store.counts(),
-    })
+    });
+    // memories.json illisible : Réglages › Mémoire affiche l'erreur au lieu
+    // d'une liste vide (et tout ajout est refusé tant qu'il n'est pas réparé).
+    if let Some(error) = store.load_error() {
+        reply["ok"] = json!(false);
+        reply["error"] = json!(error);
+    }
+    reply
 }
 
 pub async fn handle_save(state: &AppState, msg: &Value) -> Value {
@@ -385,7 +396,8 @@ pub async fn handle_claude_science_import(state: &AppState, msg: &Value) -> Valu
         .collect();
     match state.memories().lock().await.import(batch) {
         Ok(r) => json!({"type":"memoryImported","requestId":request_id,"ok":true,
-            "added":r.added,"updated":r.updated,"unchanged":r.unchanged}),
+            "added":r.added,"updated":r.updated,"unchanged":r.unchanged,
+            "forgotten":r.forgotten}),
         Err(error) => {
             json!({"type":"memoryImported","requestId":request_id,"ok":false,"error":error})
         }
@@ -673,15 +685,25 @@ mod tests {
         }
     }
 
+    /// Injection et extraction éteintes par défaut (audit du 2026-10-18 :
+    /// l'injection, née allumée avec #54, attend que Thierry l'essaie).
     #[test]
     fn reglages_par_defaut_du_plan() {
         assert_eq!(
             reglages(&Value::Null),
             Reglages {
-                injection: true,
+                injection: false,
                 extraction: false
             }
         );
+        assert_eq!(
+            reglages(&json!({"memoire":{"extraction":false}})),
+            Reglages {
+                injection: false,
+                extraction: false
+            }
+        );
+        assert!(reglages(&json!({"memoire":{"injection":true}})).injection);
         let r = reglages(&json!({"memoire":{"injection":false,"extraction":true}}));
         assert_eq!(
             r,

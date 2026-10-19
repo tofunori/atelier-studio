@@ -115,6 +115,8 @@ export type ComposerHost = {
   activeGoal?: GoalInfo | null;
   defaults: {
     autoReview?: { enabled: boolean };
+    /** Mode de permission par défaut (Settings) : repli de la sortie du mode Plan. */
+    defaultPermissionMode?: string;
     providerOrder?: string[];
     hiddenProviders?: string[];
     /** Catalogue des consignes de réponse (plan 2026-09-01) — Settings.consignes. */
@@ -162,6 +164,7 @@ export function ChatComposer(props: {
     hasContent,
     ...model, ...menus, ...catalog, ...host,
     kb,
+    scopeKey: props.scopeKey,
   };
 
   function resolvedFollowUpMode(): FollowUpMode {

@@ -322,14 +322,20 @@ test("la compilation automatique est opt-in, hydratée et persistée comme le re
   const fetchServer = async () => ({json: async () => ({texAutoCompile: true})});
   assert.equal(await latex.hydrateAutoCompile(storage, fetchServer), true);
   assert.equal(cache.get("texAutoCompile"), "1");
-  // persistance : fusion avec l'état existant, sans l'écraser
+  // persistance : le serveur fusionne /state par clé (http_smoke
+  // a_partial_state_post_keeps_every_other_key) — le client n'envoie que son
+  // réglage et ne relit plus l'état : renvoyer un état relu écrasait les
+  // changements faits entre-temps, et un GET raté (`{}`) effaçait tout.
   const posts: any[] = [];
+  let reads = 0;
   const fetchMerge = async (url, init: { method: string; body: string; }) => {
     if (init?.method === "POST") { posts.push(JSON.parse(init.body)); return {json: async () => ({})}; }
+    reads += 1;
     return {json: async () => ({autre: "réglage", texAutoRewrap: true})};
   };
   await latex.persistAutoCompile(true, fetchMerge);
-  assert.deepEqual(posts, [{autre: "réglage", texAutoRewrap: true, texAutoCompile: true}]);
+  assert.deepEqual(posts, [{texAutoCompile: true}]);
+  assert.equal(reads, 0, "aucune relecture de l'état avant l'envoi");
 });
 
 test("window rewrap column uses the real text rectangle with a safety margin", () => {

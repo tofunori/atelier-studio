@@ -202,20 +202,8 @@ pub(super) fn save_api_provider(app_dir: &std::path::Path, provider: Value) -> R
         .and_then(|v| v.as_str())
         .ok_or_else(|| "id requis".to_string())?
         .to_string();
-    let path = app_dir.join("api_providers.json");
-    let mut list: Vec<Value> = if let Ok(raw) = std::fs::read_to_string(&path) {
-        let val: Value = serde_json::from_str(&raw).unwrap_or(json!([]));
-        if let Some(arr) = val.as_array() {
-            arr.clone()
-        } else {
-            val.get("providers")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default()
-        }
-    } else {
-        Vec::new()
-    };
+    let mut list = atelier_providers::load_api_provider_list(app_dir)
+        .map_err(|e| format!("Fournisseurs API illisibles, rien n'est écrit : {e}"))?;
     // If UI omitted apiKey but entry exists, keep previous key.
     let mut provider = provider;
     if provider
@@ -251,20 +239,8 @@ pub(super) fn delete_api_provider(app_dir: &std::path::Path, id: &str) -> Result
     if id.is_empty() {
         return Err("id requis".into());
     }
-    let path = app_dir.join("api_providers.json");
-    let mut list: Vec<Value> = if let Ok(raw) = std::fs::read_to_string(&path) {
-        let val: Value = serde_json::from_str(&raw).unwrap_or(json!([]));
-        if let Some(arr) = val.as_array() {
-            arr.clone()
-        } else {
-            val.get("providers")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default()
-        }
-    } else {
-        Vec::new()
-    };
+    let mut list = atelier_providers::load_api_provider_list(app_dir)
+        .map_err(|e| format!("Fournisseurs API illisibles, rien n'est écrit : {e}"))?;
     list.retain(|p| p.get("id").and_then(|v| v.as_str()) != Some(id));
     atelier_providers::write_api_configs(app_dir, &list)?;
     Ok(list_api_providers_public(app_dir))

@@ -149,7 +149,7 @@ dependencies = [
  "atelier-codebook",
  "atelier-integrations",
  "atelier-pdf",
- "fs2",
+ "atelier-store",
  "roxmltree",
  "rusqlite",
  "serde_json",
@@ -161,6 +161,7 @@ dependencies = [
 name = "atelier-codebook"
 version = "0.1.0"
 dependencies = [
+ "atelier-store",
  "fs2",
  "serde_json",
  "tempfile",
@@ -170,6 +171,7 @@ dependencies = [
 name = "atelier-core"
 version = "0.1.0"
 dependencies = [
+ "atelier-store",
  "chrono",
  "hex",
  "libc",
@@ -196,6 +198,7 @@ dependencies = [
  "atelier-core",
  "atelier-fdlimit",
  "atelier-integrations",
+ "atelier-logs",
  "atelier-pdf",
  "axum",
  "base64",
@@ -283,6 +286,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-logs"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tempfile",
+]
+
+[[package]]
 name = "atelier-pdf"
 version = "0.1.0"
 dependencies = [
@@ -325,11 +336,11 @@ version = "0.1.0"
 dependencies = [
  "atelier-core",
  "atelier-fdlimit",
+ "atelier-logs",
  "atelier-protocol",
  "atelier-store",
  "atelier-workspace",
  "axum",
- "fs2",
  "futures-util",
  "hex",
  "http-body-util",
@@ -395,7 +406,9 @@ name = "atelier-server"
 version = "0.1.0"
 dependencies = [
  "atelier-fdlimit",
+ "atelier-logs",
  "atelier-runtime",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

@@ -4,19 +4,17 @@
 //! rsvg-convert, ruff. Chemins pinnés sous le projet. SyncTeX est lu en Rust
 //! (`crate::synctex`) : plus besoin de la CLI `synctex` de MacTeX.
 
-use atelier_core::{atomic_write, atomic_write_text, find_tex_root, safe_project_path};
+use atelier_core::{atomic_write, find_tex_root, pdf_annots, safe_project_path};
 use axum::{
     Json,
     extract::{Query, State},
     http::{HeaderMap, StatusCode, header},
     response::IntoResponse,
 };
-use fs2::FileExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     fs,
-    fs::OpenOptions,
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
@@ -475,9 +473,12 @@ pub(crate) fn shared_pdf_annots_path(root: &Path) -> PathBuf {
     root.join(".fig_thumbs").join("pdf_annots.json")
 }
 
-/// Ancien emplacement (par projet) : lu en secours pour ne pas perdre les
-/// annotations posées avant le passage au store partagé. La première
-/// écriture les recopie dans le store partagé.
+/// Store du projet (`.fig_thumbs/pdf_annots.json`) : il porte toujours les
+/// annotations des PDF hors Zotero (PDF du projet, thèse compilée), les
+/// commentaires LaTeX (`tex-comments:`), les couleurs de section
+/// (`tex-marks:`) et les commentaires Markdown (`md-comments:`). Seules ses
+/// entrées Zotero d'avant le store partagé sont recopiées, une fois, dans
+/// celui-ci (`merge_legacy_zotero_entries`).
 fn legacy_pdf_annots_path(root: &Path) -> PathBuf {
     root.join(".fig_thumbs").join("pdf_annots.json")
 }
@@ -504,12 +505,14 @@ struct PdfStoreStamp {
     identity: (u64, i64, i64),
 }
 impl PdfStoreStamp {
-    fn read(path: &Path) -> Option<Self> {
-        let meta = fs::metadata(path).ok()?;
-        Some(Self { modified:meta.modified().ok(), size:meta.len(),
+    fn of(meta: &fs::Metadata) -> Self {
+        Self { modified:meta.modified().ok(), size:meta.len(),
             #[cfg(unix)]
             identity:{ use std::os::unix::fs::MetadataExt; (meta.ino(), meta.ctime(), meta.ctime_nsec()) },
-        })
+        }
+    }
+    fn read(path: &Path) -> Option<Self> {
+        fs::metadata(path).ok().map(|meta| Self::of(&meta))
     }
 }
 struct CachedPdfStore { stamp:PdfStoreStamp, value:std::sync::Arc<Value>, bytes:u64 }
@@ -521,13 +524,24 @@ fn pdf_store_cache() -> &'static std::sync::Mutex<std::collections::HashMap<Path
 /// Shared immutable values make a one-document GET clone only its annotations.
 /// Atomic replacements and in-place edits invalidate via inode/ctime/mtime/size;
 /// all metadata and JSON work runs on a blocking worker at the route boundary.
-fn read_pdf_store(path: &Path) -> std::sync::Arc<Value> {
-    let Some(stamp) = PdfStoreStamp::read(path) else { return std::sync::Arc::new(json!({})); };
+///
+/// Absent = store vide. Présent mais illisible (vide, tronqué, JSON invalide,
+/// pas un objet) = erreur, copie mise de côté par `atelier_core::durable`, et
+/// rien n'est mis en cache : la lecture suivante relit le disque. Le GET
+/// répond alors une erreur, jamais `[]` en 200, et aucun POST ne réécrit le
+/// fichier par-dessus (c'était tout perdre).
+fn read_pdf_store(path: &Path) -> Result<std::sync::Arc<Value>, String> {
+    let stamp = match fs::metadata(path) {
+        Ok(meta) => PdfStoreStamp::of(&meta),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(std::sync::Arc::new(json!({}))),
+        Err(error) => return Err(format!("{} : {error}", path.display())),
+    };
     {
         let cache = pdf_store_cache().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(cached) = cache.get(path).filter(|entry| entry.stamp == stamp) { return cached.value.clone(); }
+        if let Some(cached) = cache.get(path).filter(|entry| entry.stamp == stamp) { return Ok(cached.value.clone()); }
     }
-    let value = std::sync::Arc::new(fs::read(path).ok().and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_else(|| json!({})));
+    let store = atelier_core::durable::load_object(path).map_err(|error| error.to_string())?;
+    let value = std::sync::Arc::new(Value::Object(store));
     // Do not cache a read that raced an external writer. The next GET will
     // retry; shared-store reads additionally retain their interprocess lock.
     if stamp.size <= 16 * 1024 * 1024 && PdfStoreStamp::read(path).as_ref() == Some(&stamp) {
@@ -535,17 +549,15 @@ fn read_pdf_store(path: &Path) -> std::sync::Arc<Value> {
         if cache.len() >= 16 || cache.values().map(|entry| entry.bytes).sum::<u64>() + stamp.size > 32 * 1024 * 1024 { cache.clear(); }
         cache.insert(path.to_path_buf(), CachedPdfStore {bytes:stamp.size, stamp, value:value.clone()});
     }
-    value
+    Ok(value)
 }
 
+/// Sauvegarde du jour puis écriture durable (`atelier_core::durable::save`),
+/// au format de tous les écrivains du store : JSON indenté, saut de ligne final.
 fn write_pdf_store(path: &Path, store: &Value) -> Result<(), String> {
-    let payload = format!(
-        "{}\n",
-        serde_json::to_string_pretty(store).unwrap_or_else(|_| "{}".into())
-    );
-    atomic_write_text(path, &payload).map_err(|error| error.to_string())?;
+    let result = atelier_core::durable::save_json_pretty(path, store).map_err(|error| error.to_string());
     pdf_store_cache().lock().unwrap_or_else(|e| e.into_inner()).remove(path);
-    Ok(())
+    result
 }
 
 #[cfg(test)]
@@ -556,14 +568,14 @@ mod pdf_store_cache_tests {
     fn cached_reads_share_a_value_and_external_atomic_updates_invalidate_it() {
         let root = tempfile::tempdir().unwrap(); let path = root.path().join("pdf_annots.json");
         write_pdf_store(&path, &json!({"a.pdf":[{"id":"old"}]})).unwrap();
-        let first = read_pdf_store(&path); let warm = read_pdf_store(&path);
+        let first = read_pdf_store(&path).unwrap(); let warm = read_pdf_store(&path).unwrap();
         assert!(std::sync::Arc::ptr_eq(&first, &warm));
-        atomic_write_text(&path, r#"{"a.pdf":[{"id":"new"}]}"#).unwrap();
-        let external = read_pdf_store(&path);
+        atomic_write(&path, br#"{"a.pdf":[{"id":"new"}]}"#).unwrap();
+        let external = read_pdf_store(&path).unwrap();
         assert_eq!(external["a.pdf"][0]["id"], "new");
         assert!(!std::sync::Arc::ptr_eq(&first, &external));
         write_pdf_store(&path, &json!({"a.pdf":[]})).unwrap();
-        assert_eq!(read_pdf_store(&path)["a.pdf"], json!([]));
+        assert_eq!(read_pdf_store(&path).unwrap()["a.pdf"], json!([]));
         // Readers holding the old snapshot remain immutable across writes.
         assert_eq!(first["a.pdf"][0]["id"], "old");
     }
@@ -574,8 +586,22 @@ mod pdf_store_cache_tests {
         let a = a.path().join("pdf_annots.json"); let b = b.path().join("pdf_annots.json");
         write_pdf_store(&a, &json!({"same.pdf":[{"id":"a"}]})).unwrap();
         write_pdf_store(&b, &json!({"same.pdf":[{"id":"b"}]})).unwrap();
-        assert_eq!(read_pdf_store(&a)["same.pdf"][0]["id"], "a");
-        assert_eq!(read_pdf_store(&b)["same.pdf"][0]["id"], "b");
+        assert_eq!(read_pdf_store(&a).unwrap()["same.pdf"][0]["id"], "a");
+        assert_eq!(read_pdf_store(&b).unwrap()["same.pdf"][0]["id"], "b");
+    }
+
+    #[test]
+    fn an_unreadable_store_is_an_error_that_is_never_cached() {
+        for (case, raw) in atelier_core::durable::UNREADABLE_SAMPLES {
+            let root = tempfile::tempdir().unwrap(); let path = root.path().join("pdf_annots.json");
+            fs::write(&path, raw).unwrap();
+            let error = read_pdf_store(&path).unwrap_err();
+            assert!(error.contains("illisible") && error.contains(".corrupt-"), "{case}: {error}");
+            // l'échec n'est pas en cache : une fois réparé, le fichier est relu
+            assert!(pdf_store_cache().lock().unwrap().get(&path).is_none(), "{case}");
+            fs::write(&path, r#"{"a":[]}"#).unwrap();
+            assert_eq!(read_pdf_store(&path).unwrap()["a"], json!([]), "{case}");
+        }
     }
 }
 
@@ -647,52 +673,52 @@ fn migration_key(root: &Path) -> String {
 /// Ouvre le store Zotero sous verrou inter-processus, puis importe une seule
 /// fois l'ancien store du projet courant. Plusieurs serveurs Galerie peuvent
 /// ainsi partager le fichier sans perdre la derniere ecriture.
+///
+/// Un store partagé illisible est une erreur : `operation` ne le voit jamais
+/// et rien n'est réécrit. Un journal de migration ou un store de projet
+/// illisible fait seulement remettre la migration à plus tard.
 fn with_shared_pdf_store<T>(
     root: &Path,
     operation: impl FnOnce(&mut std::sync::Arc<Value>) -> Result<(T, bool), String>,
 ) -> Result<T, String> {
     let shared_path = shared_pdf_annots_path(root);
     let legacy_path = legacy_pdf_annots_path(root);
-    if let Some(parent) = shared_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    let lock_path = shared_path.with_file_name("pdf_annots.lock");
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
-        .map_err(|error| error.to_string())?;
-    lock.lock_exclusive().map_err(|error| error.to_string())?;
+    let _lock = pdf_annots::lock(atelier_core::durable::parent_dir(&shared_path))?;
 
-    let result = (|| {
-        let mut store = read_pdf_store(&shared_path);
-        let ledger_path = shared_path.with_file_name("pdf_annots_migrations.json");
-        let mut ledger = read_pdf_store(&ledger_path);
-        if !ledger.is_object() {
-            ledger = std::sync::Arc::new(json!({}));
-        }
-        let key = migration_key(root);
-        let should_migrate =
-            shared_path != legacy_path && ledger.get(&key).and_then(Value::as_bool) != Some(true);
-        let migrated = should_migrate
-            && merge_legacy_zotero_entries(std::sync::Arc::make_mut(&mut store), &read_pdf_store(&legacy_path));
-        let (value, changed) = operation(&mut store)?;
-        if migrated || changed {
-            write_pdf_store(&shared_path, &store)?;
-        }
-        if should_migrate {
-            if let Some(entries) = std::sync::Arc::make_mut(&mut ledger).as_object_mut() {
-                entries.insert(key, Value::Bool(true));
+    let mut store = read_pdf_store(&shared_path)?;
+    let ledger_path = shared_path.with_file_name("pdf_annots_migrations.json");
+    let key = migration_key(root);
+    let mut ledger = None;
+    let mut legacy = None;
+    if shared_path != legacy_path {
+        match read_pdf_store(&ledger_path) {
+            Ok(entries) if entries.get(&key).and_then(Value::as_bool) != Some(true) => {
+                match read_pdf_store(&legacy_path) {
+                    Ok(old) => {
+                        ledger = Some(entries);
+                        legacy = Some(old);
+                    }
+                    Err(error) => eprintln!("[atelier-gallery] migration remise : {error}"),
+                }
             }
-            write_pdf_store(&ledger_path, &ledger)?;
+            Ok(_) => {}
+            Err(error) => eprintln!("[atelier-gallery] migration remise : {error}"),
         }
-        Ok(value)
-    })();
-
-    let _ = FileExt::unlock(&lock);
-    result
+    }
+    let migrated = legacy
+        .as_ref()
+        .is_some_and(|old| merge_legacy_zotero_entries(std::sync::Arc::make_mut(&mut store), old));
+    let (value, changed) = operation(&mut store)?;
+    if migrated || changed {
+        write_pdf_store(&shared_path, &store)?;
+    }
+    if let Some(mut ledger) = ledger {
+        if let Some(entries) = std::sync::Arc::make_mut(&mut ledger).as_object_mut() {
+            entries.insert(key, Value::Bool(true));
+        }
+        write_pdf_store(&ledger_path, &ledger)?;
+    }
+    Ok(value)
 }
 
 fn updated_annotations(store: &Value, rel: &str, body: &Value) -> Result<Value, String> {
@@ -782,9 +808,7 @@ fn apply_pdf_store_update(
         )
         .map_err(|error| error.to_string())?;
     }
-    if !store.is_object() {
-        *store = json!({});
-    }
+    // `read_pdf_store` ne rend qu'un objet : un autre store n'est jamais remis à {}.
     store
         .as_object_mut()
         .ok_or_else(|| "invalid annotation store".to_string())?
@@ -801,7 +825,7 @@ pub async fn get_pdfannot(
         if is_zotero_pdf_rel(&rel) {
             with_shared_pdf_store(&state.root, |store| Ok((store.get(&rel).cloned().unwrap_or_else(|| json!([])), false)))
         } else {
-            Ok(read_pdf_store(&legacy_pdf_annots_path(&state.root)).get(&rel).cloned().unwrap_or_else(|| json!([])))
+            Ok(read_pdf_store(&legacy_pdf_annots_path(&state.root))?.get(&rel).cloned().unwrap_or_else(|| json!([])))
         }
     }).await;
     match result {
@@ -841,8 +865,7 @@ pub async fn get_pdfannot_stamp(
 pub async fn get_pdfannot_all(State(state): State<AppState>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || -> Result<Value, String> {
         let shared = with_shared_pdf_store(&state.root, |store| Ok((store.clone(), false)))?;
-        let mut combined = (*read_pdf_store(&legacy_pdf_annots_path(&state.root))).clone();
-        if !combined.is_object() { combined = json!({}); }
+        let mut combined = (*read_pdf_store(&legacy_pdf_annots_path(&state.root))?).clone();
         if let (Some(combined), Some(shared)) = (combined.as_object_mut(), shared.as_object()) {
             for (rel, annots) in shared {
                 if is_zotero_pdf_rel(rel) { combined.insert(rel.clone(), annots.clone()); }
@@ -895,15 +918,10 @@ pub async fn post_pdfannot(
             })
         } else {
             let store_path = legacy_pdf_annots_path(&state.root);
-            if let Some(parent) = store_path.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
-            let lock = OpenOptions::new().create(true).truncate(false).read(true).write(true)
-                .open(store_path.with_file_name("pdf_annots.lock")).map_err(|e| e.to_string())?;
-            lock.lock_exclusive().map_err(|e| e.to_string())?;
-            let mut store = read_pdf_store(&store_path);
-            let result = apply_pdf_store_update(&store_path, std::sync::Arc::make_mut(&mut store), &rel_key, &body)
-                .and_then(|()| write_pdf_store(&store_path, &store));
-            let _ = FileExt::unlock(&lock);
-            result
+            let _lock = pdf_annots::lock(atelier_core::durable::parent_dir(&store_path))?;
+            let mut store = read_pdf_store(&store_path)?;
+            apply_pdf_store_update(&store_path, std::sync::Arc::make_mut(&mut store), &rel_key, &body)?;
+            write_pdf_store(&store_path, &store)
         }
     }).await.unwrap_or_else(|error| Err(error.to_string()));
     match result {

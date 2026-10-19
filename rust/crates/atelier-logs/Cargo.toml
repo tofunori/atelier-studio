@@ -1,0 +1,13 @@
+[package]
+name = "atelier-logs"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+description = "Journaux durables et tournants des serveurs d'Atelier, et panic hook qui y écrit"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

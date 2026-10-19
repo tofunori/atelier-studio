@@ -39,9 +39,9 @@ pub use compute::{
 /// Calculs lancés par l'agent : fiches d'hôte et soumission (chantier 4).
 pub use compute::{hosts as compute_hosts, submit as compute_submit};
 pub use git::{
-    changed_since, changed_since_stats, commit, commit_details, commit_summary, commit_file_contents, create_branch, create_branch_at, delete_branch, diff,
+    changed_since, changed_since_stats, changed_since_stats_and_tree, commit, commit_details, commit_summary, commit_file_contents, create_branch, create_branch_at, delete_branch, diff,
     diff_contents, diff_staged, fetch_all, ignore_pattern, log, merge_branch, pull, push, reset_to_commit,
-    restore, restore_file_from_commit, revert_commit, revert_file, snapshot, stage_file, stage_files,
+    restore, restore_file_from_commit, revert_commit, revert_conflicts, revert_file, set_aside_before_rewind, snapshot, stage_file, stage_files,
     status, switch_branch, undo_last_commit, unstage_file, unstage_files, ChangedStat, DiffContents, GitCommitDetails,
     GitCommitFile, GitCommitSummary, GitFile, GitLogPage, GitStatus,
 };

@@ -1938,8 +1938,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         prompt.clone(),
     )
     .with_turn(&turn_id, effort.clone())
-    // Interrupteur « Recette des fichiers produits » (allumé par défaut).
-    .with_recipes(folder_settings.get("recipes").and_then(Value::as_bool).unwrap_or(true));
+    // Interrupteur « Recette des fichiers produits » (éteint par défaut).
+    .with_recipes(crate::prov::recipes_enabled(&folder_settings));
     let prov_pump = prov_turn.clone();
     // Finalisation (journal des tours + recettes), après le terminal.
     let prov_finish = prov_turn.clone();
@@ -2365,8 +2365,12 @@ fn normalize_provider_event(
         // Un seul spawn git : les stats portent les chemins ET les ± contre le
         // snapshot du TOUR (remplace l'enrichissement numstat du sidecar Node,
         // perdu au port Rust — il comptait contre HEAD, donc trop large).
-        let file_stats = snapshot_sha
-            .and_then(|sha| atelier_workspace::changed_since_stats(project_root, sha).ok())
+        // `end_tree` : arbre du worktree à la FIN du tour (calculé par le même
+        // diff, sans spawn de plus). Le rembobinage s'en sert pour repérer les
+        // fichiers modifiés après le tour au lieu de les écraser en silence.
+        let (file_stats, end_tree) = snapshot_sha
+            .and_then(|sha| atelier_workspace::changed_since_stats_and_tree(project_root, sha).ok())
+            .map(|(stats, tree)| (stats, Some(tree)))
             .unwrap_or_default();
         let files_changed: Vec<String> =
             file_stats.iter().map(|entry| entry.path.clone()).collect();
@@ -2401,6 +2405,7 @@ fn normalize_provider_event(
                     json!({
                         "snapshotSha":sha,
                         "filesChanged":files_changed,
+                        "endTree":end_tree,
                     }),
                 );
             }
@@ -3542,6 +3547,10 @@ mod tests {
             .unwrap()
             .contains(&json!("figures/trend.png")));
         assert_eq!(event["checkpoint"]["snapshotSha"], sha);
+        // Arbre de fin de tour, pour que le rembobinage repère ce qui change
+        // ensuite (audit 2026-10-18, problème 3).
+        let end_tree = event["checkpoint"]["endTree"].as_str().expect("endTree");
+        assert!(end_tree.len() >= 40 && end_tree.chars().all(|c| c.is_ascii_hexdigit()), "{end_tree}");
 
         let sidecar = dir.path().join("figures/trend.png.prov.json");
         let doc: Value = serde_json::from_str(&std::fs::read_to_string(sidecar).unwrap()).unwrap();

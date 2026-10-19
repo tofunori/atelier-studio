@@ -9,14 +9,21 @@ if (!output) {
   console.error('Usage: node scripts/sample-memory.mts OUTPUT.jsonl [phase]');
   process.exit(1);
 }
-const binary = resolve('src-tauri/target/release/bundle/macos/Atelier.app/Contents/MacOS/tauri-app');
+// Depuis scripts/relance-app.sh, l'app tourne depuis ~/Applications/Atelier.app ;
+// avant, depuis le target/ d'un worktree, ou /Applications pour le DMG. Tout
+// bundle Atelier.app compte ; celui du target/ de ce checkout est préféré
+// s'il tourne en même temps qu'un autre.
+const APP_SUFFIX = '/Atelier.app/Contents/MacOS/tauri-app';
+const checkoutBinary = resolve('src-tauri/target/release/bundle/macos' + APP_SUFFIX);
 const processes = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,%cpu=,etime=,comm='], { encoding: 'utf8' })
   .trim().split('\n').flatMap(line => {
     const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.+)$/);
     return m ? [{ pid: +m[1], ppid: +m[2], rssKiB: +m[3], cpuPercent: +m[4], elapsed: m[5], command: m[6] }] : [];
   });
-const roots = processes.filter(p => p.command === binary);
-if (roots.length !== 1) throw new Error(`Expected one running app from this checkout; found ${roots.length}`);
+const apps = processes.filter(p => p.command.endsWith(APP_SUFFIX));
+const fromCheckout = apps.filter(p => p.command === checkoutBinary);
+const roots = fromCheckout.length === 1 ? fromCheckout : apps;
+if (roots.length !== 1) throw new Error(`Expected one running Atelier.app; found ${roots.length}`);
 const ids = new Set([roots[0].pid]);
 let size;
 do {

@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-use crate::atomic::write_file_atomic;
 
 /// Une épingle : un passage cité (quote), soit d'un PDF Zotero (`source:
 /// "zotero"`, champs `zotero_key`/`pdf_key`/`pdf_file`/`page` renseignés),
@@ -112,17 +111,18 @@ fn store_path(app_dir: &Path, project_root: &str) -> PathBuf {
     app_dir.join("evidence").join(format!("{hash}.json"))
 }
 
-/// Charge les épingles du projet. Tolérant : fichier absent ou corrompu → vide.
-fn load(app_dir: &Path, project_root: &str) -> Vec<EvidencePin> {
+/// Épingles du projet pour les réécrire. Absent : aucune. Présent mais
+/// illisible : erreur (copie `.corrupt-…` mise de côté) — jamais une liste
+/// vide que l'ajout suivant écrirait par-dessus toutes les épingles.
+fn load_for_write(app_dir: &Path, project_root: &str) -> std::io::Result<Vec<EvidencePin>> {
     let path = store_path(app_dir, project_root);
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    match serde_json::from_str::<EvidenceFile>(&raw) {
-        Ok(f) => f.pins,
-        Err(_) => Vec::new(),
-    }
+    let file: Option<EvidenceFile> = atelier_store::durable::load_typed(&path)?;
+    Ok(file.map(|f| f.pins).unwrap_or_default())
+}
+
+/// Lecture seule (liste affichée) : illisible → vide, rien n'est écrit.
+fn load(app_dir: &Path, project_root: &str) -> Vec<EvidencePin> {
+    load_for_write(app_dir, project_root).unwrap_or_default()
 }
 
 /// Trie ts desc et écrit atomiquement.
@@ -136,9 +136,7 @@ fn save(
         version: 1,
         pins: pins.clone(),
     };
-    let data = serde_json::to_vec_pretty(&file)
-        .unwrap_or_else(|_| b"{\"version\":1,\"pins\":[]}".to_vec());
-    write_file_atomic(&store_path(app_dir, project_root), data)?;
+    atelier_store::durable::save_json_pretty(&store_path(app_dir, project_root), &file)?;
     Ok(pins)
 }
 
@@ -167,7 +165,7 @@ pub fn add_pin(
     if pin.ts == 0 {
         pin.ts = now_ms();
     }
-    let mut pins = load(app_dir, project_root);
+    let mut pins = load_for_write(app_dir, project_root)?;
     let is_gbrain = pin.source == "gbrain" || pin.source == "ragdoc";
     pins.retain(|p| {
         if p.source != pin.source {
@@ -189,7 +187,7 @@ pub fn remove_pin(
     project_root: &str,
     pin_id: &str,
 ) -> std::io::Result<Vec<EvidencePin>> {
-    let mut pins = load(app_dir, project_root);
+    let mut pins = load_for_write(app_dir, project_root)?;
     pins.retain(|p| p.id != pin_id);
     save(app_dir, project_root, pins)
 }
@@ -242,6 +240,36 @@ pub fn fig_selection_supports(max_age_secs: u64) -> Option<EvidenceSupports> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unreadable_pins_are_never_overwritten() {
+        use atelier_store::durable::{corrupt_copies_of, UNREADABLE_SAMPLES};
+        for (label, raw) in UNREADABLE_SAMPLES {
+            let dir = tempfile::tempdir().unwrap();
+            let path = store_path(dir.path(), "/proj");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, raw).unwrap();
+            let pin = EvidencePin {
+                id: String::new(),
+                ts: 0,
+                quote: "q".into(),
+                source: "zotero".into(),
+                zotero_key: "Z".into(),
+                pdf_key: "P".into(),
+                pdf_file: "f.pdf".into(),
+                page: 1,
+                cite_label: "c".into(),
+                gbrain_slug: None,
+                supports: None,
+                thread_id: None,
+                provider: None,
+            };
+            assert!(add_pin(dir.path(), "/proj", pin).is_err(), "{label}");
+            assert!(remove_pin(dir.path(), "/proj", "x").is_err(), "{label}");
+            assert_eq!(std::fs::read(&path).unwrap(), raw.as_bytes(), "{label} : intact");
+            assert_eq!(corrupt_copies_of(&path, raw.as_bytes()), 1, "{label} : copie");
+        }
+    }
 
     #[test]
     fn add_list_remove_roundtrip() {

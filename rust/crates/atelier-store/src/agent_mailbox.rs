@@ -1,6 +1,6 @@
 //! Durable inter-agent mailbox (plan 057).
 
-use crate::write_file_atomic;
+use crate::durable;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -37,6 +37,10 @@ pub struct AgentMailboxStore {
     messages: HashMap<String, MailboxMessage>,
     /// pair + request_id → message id (idempotence is scoped to one link)
     by_request: HashMap<String, String>,
+    /// Entries this version cannot read: written back unchanged.
+    kept: Vec<Value>,
+    /// `agent-mailbox.json` present but unreadable: nothing is written.
+    load_error: Option<String>,
 }
 
 fn request_key(from: &str, to: &str, request_id: &str) -> String {
@@ -48,23 +52,41 @@ impl AgentMailboxStore {
         let file_path = file_path.into();
         let mut messages = HashMap::new();
         let mut by_request = HashMap::new();
-        if let Ok(raw) = std::fs::read_to_string(&file_path) {
-            if let Ok(Value::Array(arr)) = serde_json::from_str(&raw) {
-                for item in arr {
-                    if let Ok(m) = serde_json::from_value::<MailboxMessage>(item) {
-                        by_request.insert(
-                            request_key(&m.from_thread_id, &m.to_thread_id, &m.request_id),
-                            m.id.clone(),
-                        );
-                        messages.insert(m.id.clone(), m);
-                    }
-                }
-            }
+        let loaded = durable::load_list(&file_path, |item| {
+            serde_json::from_value::<MailboxMessage>(item.clone()).ok()
+        });
+        let (entries, load_error) = match loaded {
+            Ok(entries) => (entries, None),
+            Err(error) => (durable::ListEntries::default(), Some(error.to_string())),
+        };
+        for m in entries.items {
+            by_request.insert(
+                request_key(&m.from_thread_id, &m.to_thread_id, &m.request_id),
+                m.id.clone(),
+            );
+            messages.insert(m.id.clone(), m);
         }
         Self {
             file_path,
             messages,
             by_request,
+            kept: entries.kept,
+            load_error,
+        }
+    }
+
+    /// Why the store refuses to write (unreadable file), if it does.
+    pub fn load_error(&self) -> Option<&str> {
+        self.load_error.as_deref()
+    }
+
+    /// Fichier illisible à l'ouverture : on le relit, au cas où il a été
+    /// réparé depuis (sans relancer l'app). Encore illisible : l'erreur reste,
+    /// et la copie de côté identique est réutilisée. Lisible : le magasin
+    /// repart de son contenu et accepte de nouveau les écritures.
+    pub fn refresh(&mut self) {
+        if self.load_error.is_some() {
+            *self = Self::open(self.file_path.clone());
         }
     }
 
@@ -125,6 +147,8 @@ impl AgentMailboxStore {
 
     /// Insert or return existing message for the same pair + request_id.
     pub fn enqueue(&mut self, msg: MailboxMessage) -> Result<MailboxMessage, String> {
+        self.refresh();
+        durable::writable(&self.load_error)?;
         if let Some(existing) = self
             .get_by_request(&msg.from_thread_id, &msg.to_thread_id, &msg.request_id)
             .cloned()
@@ -136,7 +160,7 @@ impl AgentMailboxStore {
             msg.id.clone(),
         );
         self.messages.insert(msg.id.clone(), msg.clone());
-        self.persist().map_err(|e| e.to_string())?;
+        self.persist()?;
         Ok(msg)
     }
 
@@ -147,6 +171,7 @@ impl AgentMailboxStore {
         error_code: Option<String>,
         updated_at: &str,
     ) -> Result<Option<MailboxMessage>, String> {
+        self.refresh();
         let Some(m) = self.messages.get_mut(id) else {
             return Ok(None);
         };
@@ -154,7 +179,7 @@ impl AgentMailboxStore {
         m.updated_at = updated_at.to_string();
         m.error_code = error_code;
         let out = m.clone();
-        self.persist().map_err(|e| e.to_string())?;
+        self.persist()?;
         Ok(Some(out))
     }
 
@@ -164,6 +189,7 @@ impl AgentMailboxStore {
         error_code: &str,
         updated_at: &str,
     ) -> Result<usize, String> {
+        self.refresh();
         let mut n = 0;
         for m in self.messages.values_mut() {
             if m.status != "queued" {
@@ -179,7 +205,7 @@ impl AgentMailboxStore {
             }
         }
         if n > 0 {
-            self.persist().map_err(|e| e.to_string())?;
+            self.persist()?;
         }
         Ok(n)
     }
@@ -191,6 +217,7 @@ impl AgentMailboxStore {
         error_code: &str,
         updated_at: &str,
     ) -> Result<usize, String> {
+        self.refresh();
         let mut n = 0;
         for m in self.messages.values_mut() {
             if !matches!(m.status.as_str(), "queued" | "delivering" | "paused") {
@@ -206,12 +233,13 @@ impl AgentMailboxStore {
             }
         }
         if n > 0 {
-            self.persist().map_err(|e| e.to_string())?;
+            self.persist()?;
         }
         Ok(n)
     }
 
     pub fn recover_delivering(&mut self, updated_at: &str) -> Result<usize, String> {
+        self.refresh();
         let mut n = 0;
         for m in self.messages.values_mut() {
             if m.status == "delivering" {
@@ -222,7 +250,7 @@ impl AgentMailboxStore {
             }
         }
         if n > 0 {
-            self.persist().map_err(|e| e.to_string())?;
+            self.persist()?;
         }
         Ok(n)
     }
@@ -234,6 +262,7 @@ impl AgentMailboxStore {
         paused_error_code: &str,
         updated_at: &str,
     ) -> Result<usize, String> {
+        self.refresh();
         let mut n = 0;
         for message in self.messages.values_mut() {
             let same_link = (message.from_thread_id == a && message.to_thread_id == b)
@@ -249,16 +278,18 @@ impl AgentMailboxStore {
             }
         }
         if n > 0 {
-            self.persist().map_err(|error| error.to_string())?;
+            self.persist()?;
         }
         Ok(n)
     }
 
-    fn persist(&self) -> std::io::Result<()> {
+    fn persist(&self) -> Result<(), String> {
+        durable::writable(&self.load_error)?;
         let mut list: Vec<_> = self.messages.values().cloned().collect();
         list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-        let data = serde_json::to_vec_pretty(&list).unwrap_or_else(|_| b"[]".to_vec());
-        write_file_atomic(&self.file_path, data)
+        let list = durable::with_kept(&list, &self.kept)?;
+        let data = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
+        durable::save(&self.file_path, &data).map_err(|e| e.to_string())
     }
 }
 
@@ -298,6 +329,37 @@ mod tests {
             reloaded.get_by_request("a", "b", "r1").unwrap().text,
             "hello"
         );
+    }
+
+    #[test]
+    fn an_unreadable_file_is_never_rewritten() {
+        for (case, raw) in crate::durable::UNREADABLE_LIST_SAMPLES {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("agent-mailbox.json");
+            std::fs::write(&path, raw).unwrap();
+            let mut store = AgentMailboxStore::open(&path);
+            assert!(store.load_error().is_some(), "{case}");
+            let msg = MailboxMessage {
+                id: "m1".into(),
+                request_id: "r1".into(),
+                trace_id: "t1".into(),
+                hop: 0,
+                from_thread_id: "a".into(),
+                to_thread_id: "b".into(),
+                relation: "parent_to_child".into(),
+                kind: "message".into(),
+                text: "hello".into(),
+                structured: None,
+                status: "queued".into(),
+                created_at: "2026-01-01T00:00:00.000Z".into(),
+                updated_at: "2026-01-01T00:00:00.000Z".into(),
+                error_code: None,
+            };
+            assert!(store.enqueue(msg).is_err(), "{case}");
+            assert!(store.queued().is_empty(), "{case}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), raw, "{case}");
+            assert_eq!(crate::durable::corrupt_copies_of(&path, raw.as_bytes()), 1, "{case}");
+        }
     }
 
     #[test]

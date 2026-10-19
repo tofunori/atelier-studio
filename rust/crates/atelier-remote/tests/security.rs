@@ -136,9 +136,14 @@ async fn shared_zotero_annotations_are_scoped_authenticated_and_read_only() {
     assert_eq!(std::fs::read_to_string(&store).unwrap(), raw);
     let invalid = format!("{base}/remote/v1/zotero/annotations/PDF00001?file=..%2Fsecret.pdf");
     assert_eq!(client().get(invalid).header("host", &host).bearer_auth(&token).send().await.unwrap().status(), 400);
-    std::fs::write(&store, "broken").unwrap();
-    assert_eq!(client().get(&url).header("host", &host).bearer_auth(&token).send().await.unwrap().status(), 503);
-    assert_eq!(std::fs::read_to_string(&store).unwrap(), "broken");
+    for raw in ["", "{\"zotero/PDF00001/paper space.pdf\": [", "broken", "[1, 2]"] {
+        std::fs::write(&store, raw).unwrap();
+        let response = client().get(&url).header("host", &host).bearer_auth(&token).send().await.unwrap();
+        assert_eq!(response.status(), 503, "{raw:?}");
+        let body: Value = response.json().await.unwrap();
+        assert!(body["error"].as_str().unwrap().contains("illisibles"), "{raw:?}: {body}");
+        assert_eq!(std::fs::read_to_string(&store).unwrap(), raw);
+    }
     h.shutdown().await;
 }
 

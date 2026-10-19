@@ -95,6 +95,22 @@ impl HarnessManager {
             .count()
     }
 
+    /// Fils dont un tour tourne, avec leur fournisseur, triés par fil (le
+    /// protocole de relance refuse d'arrêter l'app tant que la liste n'est
+    /// pas vide).
+    pub async fn running_threads(&self) -> Vec<(String, String)> {
+        let mut running: Vec<(String, String)> = self
+            .runs
+            .lock()
+            .await
+            .iter()
+            .filter(|(_, run)| run.status == "running")
+            .map(|(thread, run)| (thread.clone(), run.provider.clone()))
+            .collect();
+        running.sort();
+        running
+    }
+
     pub async fn run_provider(&self, thread_id: &str) -> Option<String> {
         self.runs
             .lock()
@@ -196,5 +212,26 @@ mod tests {
         assert_eq!(manager.running_count().await, 1);
         manager.clear_running_turn("b", "t2").await;
         assert_eq!(manager.running_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn running_threads_liste_les_fils_en_cours_tries() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = HarnessManager::new(HarnessJournal::new(dir.path()));
+        assert!(manager.running_threads().await.is_empty());
+        manager.set_running("b", "t1", "codex").await;
+        manager.set_running("a", "t2", "claude").await;
+        assert_eq!(
+            manager.running_threads().await,
+            vec![
+                ("a".to_string(), "claude".to_string()),
+                ("b".to_string(), "codex".to_string())
+            ]
+        );
+        manager.clear_running("b").await;
+        assert_eq!(
+            manager.running_threads().await,
+            vec![("a".to_string(), "claude".to_string())]
+        );
     }
 }

@@ -12,7 +12,11 @@ path = "src/main.rs"
 
 [dependencies]
 atelier-fdlimit = { workspace = true }
+atelier-logs = { workspace = true }
 atelier-runtime = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

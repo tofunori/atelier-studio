@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 atelier-core = { path = "../atelier-core" }
 atelier-fdlimit = { workspace = true }
+atelier-logs = { workspace = true }
 atelier-protocol = { workspace = true }
 atelier-store = { workspace = true }
 atelier-workspace = { workspace = true }
@@ -27,7 +28,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 sha2 = "0.10"
-fs2 = "0.4"
 hex = "0.4"
 rand = "0.8"
 uuid = { version = "1", features = ["v4"] }

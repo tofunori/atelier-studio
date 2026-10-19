@@ -469,6 +469,47 @@ test('annotate: SVG viewer posts save and PNG export payloads', async ({ page })
   });
 });
 
+// Audit 2026-10-18, problème 18 : un SVG de projet ne s'exécute plus avec les
+// droits de la page de confiance ; l'édition et l'enregistrement continuent.
+test('annotate: SVG viewer strips active content before showing a project SVG', async ({ page }) => {
+  await withGallery(async ({ port }) => {
+    let saved = null;
+    await page.route('**/save-svg', async route => {
+      saved = route.request().postDataJSON();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, path: 'trap.svg' }) });
+    });
+    const pwned = [];
+    await page.exposeFunction('__pwned', (what: string) => { pwned.push(what); });
+
+    await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/svg_viewer.html?file=trap.svg`);
+    await expect(page.locator('#plot svg')).toBeVisible();
+    await expect(page.locator('#plot')).toContainText('Trap label');
+    await expect(page.locator('#sanitized')).toBeVisible();
+    await expect(page.locator('#sanitized')).toContainText('(');
+    await page.locator('#plot text').first().click();
+    await page.waitForTimeout(300);
+    expect(pwned).toEqual([]);
+    const live = await page.locator('#plot').innerHTML();
+    expect(live).not.toMatch(/onload|onerror|<script|foreignObject|javascript:/i);
+
+    await page.locator('#savesvg').click();
+    await expect.poll(() => saved && saved.rel).toBe('trap.svg');
+    expect(saved.svg).toContain('trap_curve');
+    expect(saved.svg).not.toMatch(/onload|onerror|<script|javascript:/i);
+  }, root => {
+    writeFileSync(path.join(root, 'trap.svg'), `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="240" height="140" viewBox="0 0 240 140" onload="window.__pwned('onload')">
+  <script>window.__pwned('script')</script>
+  <image href="missing.png" width="1" height="1" onerror="window.__pwned('onerror')"/>
+  <animate attributeName="opacity" begin="0s" dur="0.01s" onbegin="window.__pwned('onbegin')"/>
+  <foreignObject width="10" height="10"><img xmlns="http://www.w3.org/1999/xhtml" src="missing.png" onerror="window.__pwned('fo')"/></foreignObject>
+  <a xlink:href="javascript:window.__pwned('href')"><text id="trap_label" x="30" y="38" font-size="20">Trap label</text></a>
+  <path id="trap_curve" d="M20 115 C70 30 130 120 220 45" fill="none" stroke="#1f77b4" stroke-width="5"/>
+</svg>
+`);
+  });
+});
+
 // ============ plan 019 — barre de commande, sélection/inspecteur, transfert ==
 
 test('filters: workflow filter via popover shows an active chip, reset restores the grid', async ({ page }) => {
@@ -703,6 +744,40 @@ test('workflow: status set from the card menu survives a reload (server-backed)'
     await page.locator('.card[data-card="plot-alpha.svg"]').hover();
     await page.locator('[data-act="more"][data-rel="plot-alpha.svg"]').click();
     await expect(page.locator('[data-wfset="candidate"]').locator('..')).toHaveClass(/on/);
+  });
+});
+
+test('state: a failed initial GET /state never lets a click overwrite the project state', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    const stateUrl = new URL('/state', url).href;
+    // état déjà sur le disque : une note et un statut posés ailleurs
+    const seed = await page.request.post(stateUrl, {data: {ratings: {'plot-beta.svg': 5}, workflow: {'plot-beta.svg': 'final'}}});
+    expect(seed.ok()).toBe(true);
+    let failGet = true, posts = 0;
+    await page.route('**/state', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') { posts += 1; return route.continue(); }
+      if (failGet) return route.fulfill({status: 500, contentType: 'application/json', body: '{"error":"état illisible"}'});
+      return route.continue();
+    });
+    await page.goto(url);
+    await expect(page.locator('#favChip')).toHaveAttribute('title', /non chargé/);
+    // visible sans survol : classe d'avertissement et mention « non enregistré »
+    await expect(page.locator('#favChip')).toHaveClass(/state-unloaded/);
+    expect(await page.locator('#favChip').evaluate((el) => getComputedStyle(el, '::after').content)).toContain('non enregistré');
+    await page.locator('.card[data-card="plot-alpha.svg"]').hover();
+    await page.locator('[data-act="more"][data-rel="plot-alpha.svg"]').click();
+    await page.locator('[data-wfset="candidate"]').click();
+    await page.waitForTimeout(700);                 // au-delà du debounce de 400 ms
+    expect(posts, 'aucun POST tant que le GET initial a échoué').toBe(0);
+    failGet = false;                                // le nouvel essai (2 s) réussit
+    await expect.poll(() => posts, {timeout: 8_000}).toBeGreaterThan(0);
+    await expect(page.locator('#favChip')).not.toHaveAttribute('title', /non chargé/);
+    await expect(page.locator('#favChip')).not.toHaveClass(/state-unloaded/);
+    await expect.poll(async () => (await (await page.request.get(stateUrl)).json()).workflow?.['plot-alpha.svg']).toBe('candidate');
+    const disk = await (await page.request.get(stateUrl)).json();
+    expect(disk.ratings).toEqual({'plot-beta.svg': 5});
+    expect(disk.workflow['plot-beta.svg']).toBe('final');
   });
 });
 
