@@ -118,7 +118,7 @@ import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, withBootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
-import { garderProposition, ouvrirFicheSpecialiste, specialisteAJour, type PropositionSpecialiste } from "./lib/specialistes";
+import { garderProposition, mentionSpecialiste, ouvrirFicheSpecialiste, specialisteAJour, type PropositionSpecialiste } from "./lib/specialistes";
 import { demanderMemoire, messageErreur } from "./lib/memoire";
 import type { DetailPropositionMemoire } from "./components/chat/MemoryProposalCard";
 import { THEME_PRESETS } from "./lib/themes";
@@ -3233,6 +3233,53 @@ export default function App() {
     }
     if (!activeId && !activeProject) return;
     const agentMention = parseLinkedAgentMention(prompt);
+    const specialisteMention = agentMention ? null : mentionSpecialiste(prompt, settingsRef.current.specialistes ?? []);
+    if (specialisteMention) {
+      // Délégation (lot 2 des spécialistes) : la tâche part dans un fil lié
+      // qui porte la fiche ; le backend crée ou réutilise ce fil.
+      if (!activeId || !activeThread) {
+        void showInfo(t("linkedAgent.mentionNeedsThread"));
+        return;
+      }
+      if (activeThread.provider !== "claude" && activeThread.provider !== "codex") {
+        setAppBanner({ text: t("specialistes.mention-provider"), closable: true });
+        return;
+      }
+      if (ws.current?.readyState !== 1) {
+        setAppBanner({ kind: "connection", text: t("app.sidecar-disconnected"), closable: true });
+        return;
+      }
+      if (!specialisteMention.task && attachments.length === 0) {
+        void showInfo(t("linkedAgent.mentionNeedsPrompt"));
+        return;
+      }
+      const requestId = crypto.randomUUID();
+      pendingAgentMentions.current.set(requestId, { threadId: activeId, provider: activeThread.provider });
+      setEvents((current) => ({
+        ...current,
+        [activeId]: [
+          ...(current[activeId] ?? []),
+          { kind: "user", text: displayPrompt, ts: Date.now(), meta: { provisional: true, messageId: requestId } },
+        ],
+      }));
+      pdfAnnotationDelivery.current.track(requestId, attachments);
+      try {
+        ws.current.send(JSON.stringify({
+          type: "mentionAgent",
+          sourceThreadId: activeId,
+          specialistId: specialisteMention.specialiste.id,
+          targetProvider: activeThread.provider,
+          text: promptWithAttachments(specialisteMention.task, attachments),
+          displayText: displayPrompt,
+          requestId,
+        }));
+        clearSubmittedAttachments();
+      } catch {
+        pendingAgentMentions.current.delete(requestId);
+        setAppBanner({ kind: "connection", text: t("app.sidecar-disconnected"), closable: true });
+      }
+      return;
+    }
     if (agentMention) {
       const targetProvider = agentMention.provider;
       const targetInfo = providerList.find((entry) => entry.id === targetProvider);
@@ -3566,10 +3613,10 @@ export default function App() {
       // ce message doit donc partir AVANT, sur la même connexion.
       if (id === activeThread?.id && activeThread.consigne) {
         const refresh = consigneAJour(activeThread.consigne);
-        // Les connecteurs du spécialiste décident des MCP branchés côté Rust :
-        // une copie qui ne les porte pas encore part aussi.
-        const connecteursChanges = JSON.stringify(refresh?.specialiste?.connecteurs ?? [])
-          !== JSON.stringify(activeThread.consigne.specialiste?.connecteurs ?? []);
+        // Les connecteurs et les skills du spécialiste décident de ce qui est
+        // branché côté Rust : une copie qui ne les porte pas encore part aussi.
+        const outils = (c: ConsigneDuFil | null | undefined) => JSON.stringify([c?.specialiste?.connecteurs ?? [], c?.specialiste?.skills ?? null]);
+        const connecteursChanges = outils(refresh) !== outils(activeThread.consigne);
         if (refresh && (refresh.texte !== activeThread.consigne.texte || connecteursChanges)) {
           patchConsigneDuFil(id, refresh);
         }

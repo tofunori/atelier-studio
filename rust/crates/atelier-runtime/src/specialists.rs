@@ -87,11 +87,76 @@ fn nom_court(fiche: &Value) -> String {
         .to_string()
 }
 
+/// Fiche désignée par l'agent ou par une @mention : identifiant, nom court
+/// ou nom complet, sans tenir compte de la casse ni de la ponctuation.
+pub fn fiche_designee(settings: &Value, designation: &str) -> Option<Value> {
+    let cle = atelier_workspace::cle_mcp(designation.trim().trim_start_matches('@'));
+    if cle.is_empty() {
+        return None;
+    }
+    let fiches = fiches(settings);
+    fiches
+        .iter()
+        .find(|f| texte(f, "id") == designation.trim())
+        .or_else(|| fiches.iter().find(|f| atelier_workspace::cle_mcp(&nom_court(f)) == cle))
+        .or_else(|| fiches.iter().find(|f| atelier_workspace::cle_mcp(&texte(f, "nom")) == cle))
+        .cloned()
+}
+
+/// Texte envoyé à l'agent d'un fil qui porte ce spécialiste : même texte que
+/// `texteSpecialiste` (src/lib/specialistes.ts), à garder identiques.
+pub fn texte_specialiste(fiche: &Value) -> String {
+    let mut lignes = vec![format!("Specialist for this conversation: {}.", texte(fiche, "nom"))];
+    let role = texte(fiche, "role");
+    if !role.is_empty() {
+        lignes.push(format!("Role: {role}"));
+    }
+    let instructions = texte(fiche, "instructions");
+    if !instructions.is_empty() {
+        lignes.push(instructions);
+    }
+    let skills = liste(fiche, "skills");
+    let tous = fiche.get("tousSkills").and_then(Value::as_bool).unwrap_or(false);
+    if !tous && !skills.is_empty() {
+        lignes.push(format!(
+            "Skills of this specialist: {}. Other skills are not loaded in this conversation.",
+            skills.join(", ")
+        ));
+    }
+    let connecteurs = liste(fiche, "connecteurs");
+    if !connecteurs.is_empty() {
+        lignes.push(format!(
+            "Connectors (MCP servers) of this specialist: {}. Other MCP servers are not connected in this conversation.",
+            connecteurs.join(", ")
+        ));
+    }
+    lignes.join("\n")
+}
+
+/// Copie `extra.consigne` d'un fil qui porte la fiche, sans consigne de
+/// forme (même forme que `composerFil` côté interface).
+pub fn consigne_du_specialiste(fiche: &Value) -> Value {
+    let texte_fiche = texte_specialiste(fiche);
+    json!({
+        "id": format!("specialiste:{}", texte(fiche, "id")),
+        "texte": texte_fiche,
+        "selection": [],
+        "specialiste": {
+            "id": texte(fiche, "id"),
+            "nom": texte(fiche, "nom"),
+            "nomCourt": nom_court(fiche),
+            "texte": texte_fiche,
+            "connecteurs": liste(fiche, "connecteurs"),
+            "skills": if fiche.get("tousSkills").and_then(Value::as_bool).unwrap_or(false) { Value::Null } else { json!(liste(fiche, "skills")) },
+        },
+    })
+}
+
 /// Bloc ajouté au message (Claude, Codex : les fournisseurs qui ont le MCP
 /// d'Atelier). `None` quand le fournisseur ne peut pas proposer de fiche.
 /// Sans fiche, le bloc explique quand même le mot : c'est justement le cas
 /// où l'utilisateur dira « crée-moi un spécialiste ».
-pub fn bloc_contexte(settings: &Value, provider: &str) -> Option<String> {
+pub fn bloc_contexte(settings: &Value, provider: &str, peut_deleguer: bool) -> Option<String> {
     if !crate::agent_mcp::is_mcp_compatible_provider(provider) {
         return None;
     }
@@ -113,8 +178,13 @@ pub fn bloc_contexte(settings: &Value, provider: &str) -> Option<String> {
         }
         format!("The user's specialists:\n{}", lignes.join("\n"))
     };
+    let delegation = if peut_deleguer && !fiches.is_empty() {
+        format!("\nTo hand a self-contained sub-task to a specialist (as in Claude Science), call `atelier_sessions` with action \"delegate\" (specialist: its @name, task). It runs in a linked conversation beside this one, with that specialist's instructions and connectors, at most {} at once, and reports back with report_to_parent. Delegate only when the user asks for it or when a sub-task clearly belongs to a specialist; follow it with wait/read_context when you need its result in this turn.", crate::delegation::MAX_EN_PARALLELE)
+    } else {
+        String::new()
+    };
     Some(format!(
-        "\n\n<atelier-specialists>\nIn Atelier, a \"specialist\" (spécialiste) is a named profile the user keeps in Settings › Specialists: a role, standing instructions, preferred skills and connectors. A conversation can carry one specialist, picked in the composer's Specialist menu; its instructions then apply to the whole conversation. When the user talks about specialists (\"mes spécialistes\", \"le spécialiste …\", \"@Name\"), they mean these profiles.\n{liste}\nTo read full profiles, call the MCP tool `atelier_sessions` with action \"specialists\". When the user asks you to create or change a specialist, ask at most one or two short questions, then call `atelier_sessions` with action \"propose_specialist\" (nom, nomCourt: one word, role, instructions, skills, connecteurs; replaceId to change an existing one). It shows a proposal card that the user keeps, edits in Settings or dismisses: nothing is saved until they click, so never write a profile to a file.\n</atelier-specialists>"
+        "\n\n<atelier-specialists>\nIn Atelier, a \"specialist\" (spécialiste) is a named profile the user keeps in Settings › Specialists: a role, standing instructions, preferred skills and connectors. A conversation can carry one specialist, picked in the composer's Specialist menu; its instructions then apply to the whole conversation. When the user talks about specialists (\"mes spécialistes\", \"le spécialiste …\", \"@Name\"), they mean these profiles.\n{liste}\nTo read full profiles, call the MCP tool `atelier_sessions` with action \"specialists\". When the user asks you to create or change a specialist, ask at most one or two short questions, then call `atelier_sessions` with action \"propose_specialist\" (nom, nomCourt: one word, role, instructions, skills, connecteurs; replaceId to change an existing one). It shows a proposal card that the user keeps, edits in Settings or dismisses: nothing is saved until they click, so never write a profile to a file.{delegation}\n</atelier-specialists>"
     ))
 }
 
@@ -259,6 +329,53 @@ pub fn connecteurs_du_fil(thread: Option<&atelier_store::Thread>) -> Vec<String>
         .unwrap_or_default()
 }
 
+/// Skills du spécialiste que le fil porte (`extra.consigne.specialiste.skills`).
+/// `None` : la fiche donne accès à tous les skills (copie sans liste, ou
+/// liste vide, qu'on ne lit jamais comme « aucun skill »).
+pub fn skills_du_fil(thread: Option<&atelier_store::Thread>) -> Option<Vec<String>> {
+    let skills = thread
+        .and_then(|t| t.extra.get("consigne"))
+        .and_then(|c| c.get("specialiste"))
+        .map(|s| liste(s, "skills"))?;
+    (!skills.is_empty()).then_some(skills)
+}
+
+/// Ne garder que les skills du spécialiste (comme Claude Science) : les
+/// autres skills que le CLI du fil voit sur le Mac sont coupés. Rend aussi
+/// les skills de la fiche que ce CLI ne voit pas (à copier depuis Réglages ›
+/// Spécialistes).
+pub fn restriction_skills(
+    provider: &str,
+    voulus: &[String],
+    home: &std::path::Path,
+    codex_home: &std::path::Path,
+    cwd: Option<&std::path::Path>,
+) -> Option<(atelier_providers::RestrictionSkills, Vec<String>)> {
+    use atelier_workspace::{cle_mcp, skills_claude, skills_codex};
+    if voulus.is_empty() || !matches!(provider, "claude" | "codex") {
+        return None;
+    }
+    let cles: Vec<String> = voulus.iter().map(|v| cle_mcp(v)).collect();
+    let presents = if provider == "claude" { skills_claude(home, cwd) } else { skills_codex(home, codex_home, cwd) };
+    let mut restriction = atelier_providers::RestrictionSkills::default();
+    for skill in &presents {
+        if cles.contains(&cle_mcp(&skill.nom)) {
+            continue;
+        }
+        if skill.source == "compte" {
+            restriction.comptes_coupes.push(skill.nom.clone());
+        } else {
+            restriction.coupes.push(skill.nom.clone());
+        }
+    }
+    let absents = voulus
+        .iter()
+        .filter(|v| !presents.iter().any(|s| cle_mcp(&s.nom) == cle_mcp(v)))
+        .cloned()
+        .collect();
+    Some((restriction, absents))
+}
+
 /// Ne garder que les connecteurs du spécialiste (comme Claude Science) :
 /// chaque nom est cherché parmi les serveurs MCP du Mac, à la casse et la
 /// ponctuation près. Rend la restriction au format du provider et les noms
@@ -326,7 +443,7 @@ mod tests {
 
     #[test]
     fn le_bloc_liste_les_fiches_visibles_avec_leur_mention() {
-        let bloc = bloc_contexte(&reglages(), "codex").unwrap();
+        let bloc = bloc_contexte(&reglages(), "codex", true).unwrap();
         assert!(bloc.contains("<atelier-specialists>") && bloc.contains("</atelier-specialists>"));
         assert!(bloc.contains("- Glaciologue albédo (@Glaciologue): Albédo des glaciers"));
         assert!(!bloc.contains("Paper Writer"), "une fiche masquée n'est pas annoncée");
@@ -337,22 +454,22 @@ mod tests {
 
     #[test]
     fn sans_fiche_le_bloc_explique_quand_meme_le_mot() {
-        let bloc = bloc_contexte(&json!({}), "claude").unwrap();
+        let bloc = bloc_contexte(&json!({}), "claude", true).unwrap();
         assert!(bloc.contains("no specialist yet"));
         assert!(bloc.contains("propose_specialist"));
     }
 
     #[test]
     fn un_fournisseur_sans_mcp_n_a_pas_de_bloc() {
-        assert_eq!(bloc_contexte(&reglages(), "openrouter"), None);
+        assert_eq!(bloc_contexte(&reglages(), "openrouter", true), None);
     }
 
     #[test]
     fn l_empreinte_suit_la_liste() {
-        let a = bloc_contexte(&reglages(), "codex").unwrap();
+        let a = bloc_contexte(&reglages(), "codex", true).unwrap();
         let mut autres = reglages();
         autres["specialistes"][0]["role"] = json!("Autre rôle");
-        let b = bloc_contexte(&autres, "codex").unwrap();
+        let b = bloc_contexte(&autres, "codex", true).unwrap();
         assert_eq!(empreinte_bloc(&a), empreinte_bloc(&a));
         assert_ne!(empreinte_bloc(&a), empreinte_bloc(&b));
     }
@@ -403,6 +520,51 @@ mod tests {
         assert_eq!(ev["meta"]["turnId"], "turn-9");
         assert_eq!(ev["meta"]["sequence"], 4);
         assert_eq!(ev["proposal"]["nom"], "X");
+    }
+
+    #[test]
+    fn restriction_des_skills_claude_et_codex() {
+        let home = tempfile::tempdir().unwrap();
+        let codex = tempfile::tempdir().unwrap();
+        let ecrire = |racine: std::path::PathBuf, nom: &str| {
+            std::fs::create_dir_all(racine.join(nom)).unwrap();
+            std::fs::write(racine.join(nom).join("SKILL.md"), format!("---\nname: {nom}\n---\n")).unwrap();
+        };
+        ecrire(home.path().join(".claude/skills"), "concis");
+        ecrire(home.path().join(".claude/skills"), "write");
+        ecrire(home.path().join(".claude/skills/synced/org_1"), "bilan-energie-fonte");
+        ecrire(home.path().join(".claude/skills/synced/org_1"), "pdf");
+        ecrire(home.path().join(".agents/skills"), "write");
+        ecrire(codex.path().join("skills"), "kami");
+        let voulus = vec!["bilan-energie-fonte".to_string(), "Write".into(), "literature-review".into()];
+
+        let (claude, absents) = restriction_skills("claude", &voulus, home.path(), codex.path(), None).unwrap();
+        assert_eq!(claude.coupes, ["concis"]);
+        assert_eq!(claude.comptes_coupes, ["pdf"]);
+        assert_eq!(absents, ["literature-review"]);
+
+        let (codex_r, absents) = restriction_skills("codex", &voulus, home.path(), codex.path(), None).unwrap();
+        assert_eq!(codex_r.coupes, ["kami"]);
+        assert_eq!(absents, ["bilan-energie-fonte", "literature-review"]);
+
+        assert!(restriction_skills("claude", &[], home.path(), codex.path(), None).is_none());
+        assert!(restriction_skills("kimi", &voulus, home.path(), codex.path(), None).is_none());
+    }
+
+    #[test]
+    fn la_copie_du_fil_suit_la_fiche_et_l_interface() {
+        let fiche = json!({"id": "s1", "nom": "Analyste stats", "nomCourt": "Stats", "role": "Modèles", "instructions": "Vérifie R-hat.",
+            "skills": ["pymc-modeling"], "tousSkills": false, "connecteurs": ["ragdoc"]});
+        let c = consigne_du_specialiste(&fiche);
+        assert_eq!(c["id"], "specialiste:s1");
+        assert_eq!(
+            c["texte"],
+            "Specialist for this conversation: Analyste stats.\nRole: Modèles\nVérifie R-hat.\nSkills of this specialist: pymc-modeling. Other skills are not loaded in this conversation.\nConnectors (MCP servers) of this specialist: ragdoc. Other MCP servers are not connected in this conversation."
+        );
+        assert_eq!(c["specialiste"]["skills"], json!(["pymc-modeling"]));
+        let tous = consigne_du_specialiste(&json!({"id": "s2", "nom": "X", "tousSkills": true, "skills": ["a"]}));
+        assert_eq!(tous["specialiste"]["skills"], Value::Null);
+        assert_eq!(fiche_designee(&json!({"specialistes": [fiche]}), "@stats").unwrap()["id"], "s1");
     }
 
     #[test]

@@ -34,15 +34,17 @@ struct NativeChatView: View {
                 if showsComposer, chat.selected != nil { NativeComposerView(workspace: workspace, composing: composing) }
             }
         }
+        .background(AtelierTheme.background)
         .toolbar(composing.wrappedValue ? .hidden : .visible, for: .tabBar)
         .toolbar {
             if workspace.chat.selected != nil {
-                ToolbarItem(placement: .topBarTrailing) {
+                // Adjacent items share one glass capsule on iOS 26.
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button("Nouvelle conversation", systemImage: "square.and.pencil") { workspace.newChatRequested = true }
+                        .disabled(chat.sending)
                     Menu {
                         Button("Autorisations · " + chat.permissionMode.title, systemImage: "slider.horizontal.3") { showingOptions = true }
                         Button("Travail du Mac", systemImage: "desktopcomputer") { showingWork = true }
-                        Button("Nouvelle conversation", systemImage: "square.and.pencil") { workspace.newChatRequested = true }
-                            .disabled(chat.sending)
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Options du chat")
                 }
             }
@@ -191,8 +193,8 @@ private struct ChatEventRow: View {
                                     ChatHistoryFiles(items: workspace.chat.files(for: row), workspace: workspace)
                                 }
                                 if !userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    messageContent.padding(12)
-                                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+                                    messageContent.padding(.horizontal, 12).padding(.vertical, 10)
+                                        .background(AtelierTheme.control, in: RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous))
                                 }
                             }
                         }
@@ -228,7 +230,7 @@ private struct ChatEventRow: View {
                             } label: { Image(systemName: "ellipsis").frame(width: actionWidth, height: actionHeight).contentShape(Rectangle()) }
                                 .accessibilityLabel("Actions du message")
                                 .disabled(workspace.chat.running || workspace.chat.sending)
-                        }.font(.system(size: actionIconSize, weight: .regular)).foregroundStyle(.secondary).buttonStyle(.plain)
+                        }.font(.system(size: actionIconSize, weight: .regular)).foregroundStyle(AtelierTheme.tertiaryText).buttonStyle(.plain)
                     }
                 }.frame(maxWidth: .infinity, alignment: row.kind == "user" ? .trailing : .leading)
 

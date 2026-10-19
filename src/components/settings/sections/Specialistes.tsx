@@ -8,10 +8,13 @@ import type { SectionProps } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { t } from "../../../lib/i18n";
 import {
-  appliquerVersion, connecteursAbsents, fusionnerImport, nomCourtDe, normaliserNomCourt, prendreFicheDemandee, specialisteVide,
+  appliquerVersion, connecteursAbsents, fusionnerImport, nomCourtDe, normaliserNomCourt, prendreFicheDemandee, skillsAbsents, specialisteVide,
   type BilanImport, type Specialiste,
 } from "../../../lib/specialistes";
-import { importerDepuisClaudeScience, listerMcpDuMac, type McpDuMac, type ReponseImport } from "../../../lib/claudeScienceImport";
+import {
+  copierSkillsSpecialiste, importerDepuisClaudeScience, listerMcpDuMac, listerSkillsDuMac,
+  type McpDuMac, type ReponseCopieSkills, type ReponseImport, type SkillDuMac,
+} from "../../../lib/claudeScienceImport";
 import { Button, InlineNotice, RowButton } from "../../ui";
 import { Toggle } from "../primitives";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "../../shadcn/field";
@@ -30,6 +33,10 @@ export function Specialistes(p: {
   importer?: (() => Promise<ReponseImport>) | null;
   /** Serveurs MCP du Mac ; `null` tant qu'on ne les connaît pas. */
   mcpDuMac?: McpDuMac[] | null;
+  /** Skills que Claude Code et Codex voient sur le Mac ; `null` tant qu'on
+   *  ne les connaît pas. */
+  skillsDuMac?: SkillDuMac[] | null;
+  copierSkills?: ((skills: string[]) => Promise<ReponseCopieSkills>) | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     const demandee = prendreFicheDemandee();
@@ -122,7 +129,8 @@ export function Specialistes(p: {
           <RowButton className="set-consignes-new" onClick={ajouter}><Plus size={14} aria-hidden="true" />{t("specialistes.new")}</RowButton>
         </nav>
         <div className="set-consignes-form">
-          {selected ? <FicheSpecialiste key={`${selected.id}:${revision}`} fiche={selected} mcpDuMac={p.mcpDuMac ?? null} onPatch={patch} onSupprimer={supprimer} />
+          {selected ? <FicheSpecialiste key={`${selected.id}:${revision}`} fiche={selected} mcpDuMac={p.mcpDuMac ?? null}
+            skillsDuMac={p.skillsDuMac ?? null} copierSkills={p.copierSkills ?? null} onPatch={patch} onSupprimer={supprimer} />
            : <div className="consignes-empty"><p className="set-empty">{t("specialistes.empty")}</p></div>}
         </div>
       </div>
@@ -133,6 +141,7 @@ export function Specialistes(p: {
 /** Formulaire d'une fiche, remonté à chaque changement de fiche (clé). */
 function FicheSpecialiste(p: {
   fiche: Specialiste; mcpDuMac: McpDuMac[] | null;
+  skillsDuMac: SkillDuMac[] | null; copierSkills: ((skills: string[]) => Promise<ReponseCopieSkills>) | null;
   onPatch: (changes: Partial<Specialiste>) => void; onSupprimer: () => void;
 }) {
   const { fiche } = p;
@@ -181,6 +190,8 @@ function FicheSpecialiste(p: {
           <FieldLabel htmlFor="specialiste-skills">{t("specialistes.field-skills")}</FieldLabel>
           <Input id="specialiste-skills" value={skillsBrut} placeholder="bilan-energie-fonte, recherche-references"
             onChange={(e) => { setSkillsBrut(e.target.value); p.onPatch({ skills: enListe(e.target.value) }); }} />
+          <FieldDescription>{t("specialistes.skills-hint")}</FieldDescription>
+          <SkillsAbsents skills={fiche.skills} skillsDuMac={p.skillsDuMac} copier={p.copierSkills} />
         </Field>}
         <Field>
           <FieldLabel htmlFor="specialiste-connecteurs">{t("specialistes.field-connectors")}</FieldLabel>
@@ -200,16 +211,61 @@ function FicheSpecialiste(p: {
   );
 }
 
+/** Skills de la fiche que Claude Code ou Codex ne voient pas, et le bouton
+ *  qui les copie depuis le compte claude.ai ou Claude Science. */
+function SkillsAbsents(p: {
+  skills: string[]; skillsDuMac: SkillDuMac[] | null;
+  copier: ((skills: string[]) => Promise<ReponseCopieSkills>) | null;
+}) {
+  const [enCours, setEnCours] = useState(false);
+  const [resultat, setResultat] = useState<ReponseCopieSkills | null>(null);
+  if (!p.skillsDuMac) return null;
+  const absents = skillsAbsents(p.skills, p.skillsDuMac);
+  const manquants = [...new Set([...absents.claude, ...absents.codex])];
+  async function copier() {
+    if (!p.copier) return;
+    setEnCours(true);
+    setResultat(await p.copier(manquants));
+    setEnCours(false);
+  }
+  const copies = resultat?.bilan?.copies.length ?? 0;
+  const introuvables = resultat?.bilan?.introuvables ?? [];
+  return (
+    <>
+      {absents.codex.length > 0 && <p className="specialistes-mcp-absents" role="status">{t("specialistes.skills-absents-codex", { liste: absents.codex.join(", ") })}</p>}
+      {absents.claude.length > 0 && <p className="specialistes-mcp-absents" role="status">{t("specialistes.skills-absents-claude", { liste: absents.claude.join(", ") })}</p>}
+      {manquants.length > 0 && p.copier && (
+        <div className="specialistes-skills-copie">
+          <Button variant="outline" loading={enCours} onClick={copier}>{t("specialistes.skills-copy")}</Button>
+          <span className="specialistes-mcp-du-mac">{t("specialistes.skills-copy-hint")}</span>
+        </div>
+      )}
+      {resultat && !resultat.ok && <p className="specialistes-mcp-absents" role="status">{resultat.error ?? t("specialistes.skills-copy-failed")}</p>}
+      {resultat?.ok && <p className="specialistes-mcp-du-mac" role="status">
+        {[copies ? t("specialistes.skills-copied", { n: copies }) : t("specialistes.skills-copied-none"),
+          introuvables.length ? t("specialistes.skills-introuvables", { liste: introuvables.join(", ") }) : ""].filter(Boolean).join(" ")}
+      </p>}
+    </>
+  );
+}
+
 export default function SpecialistesSection(p: SectionProps) {
   const save = (patch: Partial<Settings>) => { p.set(patch); p.onSaved(); };
   const [mcpDuMac, setMcpDuMac] = useState<McpDuMac[] | null>(null);
+  const [skillsDuMac, setSkillsDuMac] = useState<SkillDuMac[] | null>(null);
   const socket = p.ws?.readyState === SOCKET_OPEN ? p.ws : null;
   useEffect(() => {
     if (!socket) return;
     let actif = true;
     void listerMcpDuMac(socket).then((liste) => { if (actif) setMcpDuMac(liste); });
+    void listerSkillsDuMac(socket).then((liste) => { if (actif) setSkillsDuMac(liste); });
     return () => { actif = false; };
   }, [socket]);
+  async function copierSkills(skills: string[]) {
+    const reponse = await copierSkillsSpecialiste(socket, skills);
+    if (reponse.ok && reponse.skills) setSkillsDuMac(reponse.skills);
+    return reponse;
+  }
   return (
     <>
       <h1>{t("settings.specialistes")}</h1>
@@ -219,6 +275,8 @@ export default function SpecialistesSection(p: SectionProps) {
         onChange={(specialistes) => save({ specialistes })}
         importer={socket ? () => importerDepuisClaudeScience(socket) : null}
         mcpDuMac={mcpDuMac}
+        skillsDuMac={skillsDuMac}
+        copierSkills={socket ? copierSkills : null}
       />
     </>
   );

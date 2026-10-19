@@ -7,7 +7,7 @@ pub const TOOL_NAME: &str = "atelier_sessions";
 pub fn tool_definition() -> Value {
     json!({
         "name": TOOL_NAME,
-        "description": "Inspect and coordinate Atelier linked-agent sessions, read or propose the user's specialists (action=specialists, action=propose_specialist), and search or propose project notes (action=memories, action=propose_memory). Use action=help for details.",
+        "description": "Inspect and coordinate Atelier linked-agent sessions, read, delegate to or propose the user's specialists (action=specialists, action=delegate, action=propose_specialist), and search or propose project notes (action=memories, action=propose_memory). Use action=help for details.",
         "inputSchema": {
             "type": "object",
             "required": ["action"],
@@ -24,6 +24,7 @@ pub fn tool_definition() -> Value {
                         "send_message",
                         "report_to_parent",
                         "specialists",
+                        "delegate",
                         "propose_specialist",
                         "memories",
                         "propose_memory"
@@ -40,6 +41,8 @@ pub fn tool_definition() -> Value {
                 "timeoutMs": { "type": "integer" },
                 "traceId": { "type": "string" },
                 "hop": { "type": "integer" },
+                "specialist": { "type": "string", "description": "delegate: nomCourt, name or id of the specialist (from action specialists)" },
+                "task": { "type": "string", "description": "delegate: the sub-task, self-contained (the specialist does not see this conversation)" },
                 "nom": { "type": "string", "description": "propose_specialist: full name" },
                 "nomCourt": { "type": "string", "description": "propose_specialist: one word, used in the composer and as @mention" },
                 "role": { "type": "string", "description": "propose_specialist: when to use this specialist, 1-2 sentences" },
@@ -270,6 +273,7 @@ pub fn help_text() -> Value {
             "send_message": "Queue semantic message (targetThreadId, text, requestId required)",
             "report_to_parent": "Queue structured report to parent (requestId, report/text)",
             "specialists": "The user's specialist profiles (Settings › Specialists), full text",
+            "delegate": "Hand a sub-task to one of the user's specialists (specialist, task). It runs in a linked conversation beside this one, at most 3 at once, and reports back with report_to_parent; follow it with wait/read_context",
             "propose_specialist": "Show a proposal card for a new or changed specialist (nom, nomCourt, role, instructions, skills, connecteurs, replaceId); saved only if the user clicks Keep",
             "memories": "Search the project notes Atelier keeps (query, limit)",
             "propose_memory": "Show a card proposing a durable project note (text; replaceId to correct one); saved only if the user clicks Keep"

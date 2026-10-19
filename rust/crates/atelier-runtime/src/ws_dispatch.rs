@@ -34,6 +34,8 @@ pub(crate) fn classify(kind: &str) -> Class {
         // Lit la base de Claude Science (plusieurs Go) : ne doit pas tenir
         // la barrière globale devant les envois du chat.
         "memoryClaudeScienceImport" => Class::Corpus,
+        // Copie de dossiers de skills sur le Mac : pas devant les envois.
+        "copySpecialistSkills" => Class::Corpus,
         "clientLog"
         | "getLedger"
         | "listFiles"
@@ -84,6 +86,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "memoryList"
         | "memoryClaudeSciencePreview"
         | "listMcpServers"
+        | "listSkillsDuMac"
         | "zoteroCollections"
         | "listSessions"
         | "getUsage"

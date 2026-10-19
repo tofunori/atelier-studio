@@ -307,12 +307,14 @@ async fn atelier_mcp_for_turn(
                 ),
             );
             let restriction = restriction_du_specialiste(state, thread_id, project_root, provider, previous);
+            let skills = skills_du_specialiste(state, thread_id, project_root, provider, previous);
             Some(atelier_providers::AtelierMcpLaunch {
                 command: std::path::PathBuf::from(launch.command),
                 server_name: launch.server_name,
                 env: launch.env,
                 linked: launch.linked,
                 restriction,
+                skills,
             })
         }
         Err(e) => {
@@ -349,6 +351,33 @@ fn restriction_du_specialiste(
         &format!(
             "specialiste fil={thread_id} provider={provider} retenus={retenus:?} coupes={:?} absents={absents:?}",
             restriction.a_couper
+        ),
+    );
+    Some(restriction)
+}
+
+/// Spécialiste du fil avec une liste de skills : les autres skills du Mac
+/// sont coupés pour ce fil, comme dans Claude Science.
+fn skills_du_specialiste(
+    state: &AppState,
+    thread_id: &str,
+    project_root: &str,
+    provider: &str,
+    previous: Option<&atelier_store::Thread>,
+) -> Option<atelier_providers::RestrictionSkills> {
+    let voulus = crate::specialists::skills_du_fil(previous)?;
+    let home = std::path::PathBuf::from(std::env::var_os("HOME")?);
+    let codex_home = std::env::var_os("CODEX_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".codex"));
+    let cwd = (!project_root.is_empty()).then(|| std::path::Path::new(project_root));
+    let (restriction, absents) =
+        crate::specialists::restriction_skills(provider, &voulus, &home, &codex_home, cwd)?;
+    journal_mcp(
+        state,
+        &format!(
+            "specialiste fil={thread_id} provider={provider} skills={voulus:?} coupes={} absents={absents:?}",
+            restriction.coupes.len() + restriction.comptes_coupes.len()
         ),
     );
     Some(restriction)
@@ -1442,7 +1471,11 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     // que l'utilisateur appelle « spécialiste » et lesquels existent. Même
     // cadence que le bloc KB : premier tour de la session, puis seulement
     // quand la liste change (fiche ajoutée, renommée, masquée).
-    let bloc_specialistes = crate::specialists::bloc_contexte(&folder_settings, &provider);
+    let bloc_specialistes = crate::specialists::bloc_contexte(
+        &folder_settings,
+        &provider,
+        previous.as_ref().map_or(true, |t| t.agent_link.is_none()),
+    );
     let turn_specialists_hash = bloc_specialistes
         .as_deref()
         .map(crate::specialists::empreinte_bloc);
@@ -2327,6 +2360,8 @@ pub async fn handle_interrupt(state: &AppState, msg: &Value) -> Vec<String> {
     }
     if !crate::ws_dispatch::interruption_admitted() { state.ws_budget().cancel_sends(thread_id); }
     state.harness().request_cancel(thread_id).await;
+    // Stop arrête aussi les spécialistes que ce fil a mis au travail.
+    crate::delegation::arreter_les_delegues(state, thread_id).await;
     let provider = state.threads().lock().await.get(thread_id).map(|t| t.provider.clone());
     if let Some(p) = provider.as_deref().and_then(|id| state.provider(id)) {
         let _ = p.interrupt(thread_id).await;

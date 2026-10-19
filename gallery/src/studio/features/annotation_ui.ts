@@ -23,6 +23,7 @@ const markLabels: Record<MarkKind, string> = {hl: "Surligner", ul: "Souligner", 
 const selectionColors = new WeakMap<Document, string>();
 const trash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>';
 const arrowUp = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
+const enterKey = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 5v7a3 3 0 0 1-3 3H6M10 11l-4 4 4 4"/></svg>';
 const chatBubble = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg>';
 const escapeText = (text: string) => text.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c]!);
 /** `memo` ajoute, au-dessus du champ du chat, une note personnelle gardée avec
@@ -57,22 +58,24 @@ export function createNoteEditor(host: HTMLElement, options: {
   const memo = options.memo
     ? '<div class="atelier-memo"><textarea class="atelier-memo-input" aria-label="Note personnelle, jamais envoyée au chat" title="Note personnelle, jamais envoyée au chat" placeholder="Note personnelle…" rows="1"></textarea></div>'
     : '';
+  // Fiche d'un seul tenant (Thierry 2026-10-19, maquette A) : la carte est le
+  // champ ; en pied, la corbeille à gauche, loin de l'envoi à droite.
   host.innerHTML = heading + mark + memo + '<div class="atelier-note-row"><div class="atelier-note-field"><textarea class="atelier-note-input" aria-label="Commentaire sur le passage" placeholder="'
     + (options.placeholder || "Ajouter une note…") + '" rows="1"></textarea>'
+    + '<div class="atelier-note-actions">' + (options.heading ? '' : deleteButton)
+    + '<span class="atelier-note-gap"></span><span class="atelier-note-hint" aria-hidden="true">'+enterKey+'Ajouter</span>'
     + (options.onSendDirect ? '<button type="button" class="send-direct" title="Envoyer au chat" aria-label="Envoyer au chat">'+chatBubble+'</button>' : '')
     + '<button type="button" class="send2" title="Ajouter au brouillon (Entrée)" aria-label="Ajouter l’annotation au chat">'+arrowUp+'</button>'
-    + '</div>' + (options.heading ? '' : deleteButton)
-    + '</div><div class="annotation-status" role="status"></div>';
+    + '</div></div></div><div class="annotation-status" role="status"></div>';
   const input = host.querySelector<HTMLTextAreaElement>("textarea.atelier-note-input")!;
   const memoInput = host.querySelector<HTMLTextAreaElement>("textarea.atelier-memo-input");
   const status = host.querySelector<HTMLElement>(".annotation-status")!;
   input.value = options.value || "";
   if(memoInput) memoInput.value = options.memo?.value || "";
   const field = host.querySelector<HTMLElement>(".atelier-note-field")!;
-  // Au-delà d'une ligne, la bulle s'élargit en « composer » : le texte prend
-  // toute la largeur, les boutons passent dessous. On mesure toujours à la
-  // largeur de la pilule, sinon un texte qui tient sur une ligne élargie
-  // basculerait d'une forme à l'autre à chaque frappe.
+  // Au-delà d'une ligne, la bulle s'élargit en « composer ». On mesure
+  // toujours à la largeur étroite, sinon un texte qui tient sur une ligne
+  // élargie basculerait d'une forme à l'autre à chaque frappe.
   const fit = () => {
     const wasWide = field.classList.contains("is-multiline");
     if(wasWide){field.classList.remove("is-multiline");host.classList.remove("atelier-note-wide");}

@@ -14,6 +14,11 @@ pub use claude_science_memories::{
 };
 mod compute;
 mod mcp_du_mac;
+mod skills_du_mac;
+pub use skills_du_mac::{
+    copier_skills_manquants, skills_claude, skills_claude_science, skills_codex, skills_du_mac, BilanCopieSkills,
+    SkillCopie, SkillDuMac, SkillVu,
+};
 pub use mcp_du_mac::{
     cle_mcp, definition_codex, mcp_du_mac, noms_mcp_codex, serveurs_mcp_claude, McpDuMac, ServeurMcp,
 };

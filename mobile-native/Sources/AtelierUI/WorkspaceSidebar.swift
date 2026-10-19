@@ -42,30 +42,35 @@ struct WorkspaceSidebar: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("atelier.").font(.title2.weight(.semibold))
-                Spacer()
-                Button("Fermer le menu", systemImage: "sidebar.left") { workspace.sidebarRequested = false }
-                    .labelStyle(.iconOnly).frame(width: 44, height: 44)
-                Button("Nouvelle conversation", systemImage: "square.and.pencil") {
-                    workspace.sidebarRequested = false; workspace.newChatRequested = true
-                }.labelStyle(.iconOnly).frame(width: 44, height: 44)
-            }.padding(.horizontal, 18)
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    glassButton("Fermer le menu", symbol: "sidebar.left") { workspace.sidebarRequested = false }
+                    Spacer()
+                    glassButton("Réglages et apparence", symbol: "gearshape") { workspace.sidebarRequested = false; openSettings() }
+                    glassButton("Nouvelle conversation", symbol: "square.and.pencil") {
+                        workspace.sidebarRequested = false; workspace.newChatRequested = true
+                    }
+                }
+            }.padding(.horizontal, 12).padding(.top, 12)
+            Text("Conversations").font(.title2.weight(.semibold)).kerning(-0.2)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 10)
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Rechercher une conversation", text: $workspace.sidebarQuery).focused($searching)
+                Image(systemName: "magnifyingglass").font(.subheadline).foregroundStyle(AtelierTheme.tertiaryText)
+                TextField("Rechercher", text: $workspace.sidebarQuery).focused($searching)
                     .submitLabel(.search).autocorrectionDisabled()
-                if !query.isEmpty { Button("Effacer la recherche", systemImage: "xmark.circle.fill") { workspace.sidebarQuery = "" }.labelStyle(.iconOnly) }
-            }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 12)).padding(.horizontal, 18).padding(.bottom, 12)
+                if !query.isEmpty { Button("Effacer la recherche", systemImage: "xmark.circle.fill") { workspace.sidebarQuery = "" }.labelStyle(.iconOnly).foregroundStyle(AtelierTheme.tertiaryText) }
+            }.font(.subheadline).padding(.horizontal, 10).frame(minHeight: 40)
+                .background(AtelierTheme.control, in: RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous))
+                .padding(.horizontal, 16).padding(.bottom, 6)
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(query.isEmpty ? "Projets" : "Résultats · tous les projets").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                        Text(query.isEmpty ? "Projets" : "Résultats · tous les projets")
                         Spacer()
-                        Button("Gérer") { searching = false; managingProjects = true }
-                            .font(.caption.weight(.medium)).frame(minHeight: 44)
+                        Button("Modifier") { searching = false; managingProjects = true }
+                            .frame(minHeight: 44)
                             .accessibilityLabel("Gérer les projets affichés")
-                    }.padding(.top, 12).padding(.horizontal, 12)
+                    }.font(.caption.weight(.medium)).foregroundStyle(AtelierTheme.secondaryText).padding(.horizontal, 10)
                     ForEach(groups) { group in
                         projectSection(group)
                     }
@@ -83,20 +88,13 @@ struct WorkspaceSidebar: View {
                 }.padding(.horizontal, 10)
             }.scrollDismissesKeyboard(.interactively)
                 .refreshable { await workspace.chat.loadCatalog(using: workspace.gallery, refreshProviders: false) }
-            Divider()
-            Button {
-                workspace.sidebarRequested = false; openSettings()
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "person.crop.circle.fill").font(.title)
-                    Text("Réglages et apparence").font(.subheadline.weight(.medium))
-                    Spacer()
-                    Image(systemName: "gearshape")
-                }.padding(18).frame(minHeight: 60)
-            }
+            Rectangle().fill(AtelierTheme.separator).frame(height: 1)
+            macStatus
         }
         .buttonStyle(.plain).foregroundStyle(.primary)
-        .background(Color(uiColor: .secondarySystemBackground))
+        .background(AtelierTheme.sidebar, in: RoundedRectangle(cornerRadius: 38, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
+        .shadow(color: .black.opacity(0.22), radius: 20, y: 8)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { workspace.sidebarRequested = false }
         .sheet(isPresented: $managingProjects) { SidebarProjectsView(workspace: workspace) }
@@ -114,6 +112,26 @@ struct WorkspaceSidebar: View {
             }
         }
     }
+    private func glassButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(title, systemImage: symbol, action: action)
+            .labelStyle(.iconOnly).font(.system(size: 17))
+            .frame(width: 44, height: 44)
+            .atelierGlass(in: Circle(), interactive: true)
+    }
+    /// Which Mac the conversations come from, in place of a generic profile row.
+    private var macStatus: some View {
+        let live = workspace.chat.connection == .live
+        return HStack(spacing: 8) {
+            Circle().fill(live ? AtelierTheme.accent : AtelierTheme.tertiaryText).frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(workspace.gallery.macHost.map { $0.components(separatedBy: ".").first ?? $0 } ?? "Mac").font(.footnote.weight(.medium)).lineLimit(1)
+                Text(workspace.chat.connectionLabel).font(.caption).foregroundStyle(AtelierTheme.secondaryText)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 18)
+        .accessibilityElement(children: .combine)
+    }
     private func projectSection(_ group: ConversationProjectGroup) -> some View {
         let isExpanded = !collapsed.contains(group.id) || !query.isEmpty
         let threads = query.isEmpty && !expandedHistory.contains(group.id) ? Array(group.threads.prefix(6)) : group.threads
@@ -122,14 +140,14 @@ struct WorkspaceSidebar: View {
                 if isExpanded { workspace.sidebarCollapsed.insert(group.id) }
                 else { workspace.sidebarCollapsed.remove(group.id) }
             } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: group.id.isEmpty ? "bubble" : group.id == ConversationProjectGroup.unavailableID ? "archivebox" : "folder").font(.subheadline).foregroundStyle(.secondary)
-                    Text(group.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(AtelierTheme.tertiaryText).frame(width: 12)
+                    Text(group.name).font(.footnote.weight(.semibold)).kerning(-0.1).foregroundStyle(Color.primary.opacity(0.85)).lineLimit(1)
                     Spacer(minLength: 4)
-                    if workspace.sidebarPreferences.settings.pinned.contains(group.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary) }
-                    Text("\(group.threads.count)").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                }.padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 46)
+                    if workspace.sidebarPreferences.settings.pinned.contains(group.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(AtelierTheme.tertiaryText) }
+                    Text("\(group.threads.count)").font(.caption2.monospacedDigit()).foregroundStyle(AtelierTheme.tertiaryText)
+                }.padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 40)
                 .contentShape(Rectangle())
             }.accessibilityValue(isExpanded ? "Déplié" : "Replié")
             .contextMenu {
@@ -144,16 +162,15 @@ struct WorkspaceSidebar: View {
                 VStack(spacing: 0) {
                     ForEach(threads) { thread in
                         conversationRow(thread)
-                        if thread.id != threads.last?.id { Divider().opacity(0.4).padding(.leading, 14) }
                     }
-                    if threads.isEmpty { Text("Aucune conversation").font(.caption).foregroundStyle(.secondary).padding(12) }
+                    if threads.isEmpty { Text("Aucune conversation").font(.caption).foregroundStyle(AtelierTheme.secondaryText).padding(12) }
                     if query.isEmpty && group.threads.count > 6 {
                         Button(expandedHistory.contains(group.id) ? "Réduire la liste" : "Voir les \(group.threads.count) conversations") {
                             if expandedHistory.contains(group.id) { expandedHistory.remove(group.id) }
                             else { expandedHistory.insert(group.id) }
-                        }.font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(.leading, 14)
+                        }.font(.caption).foregroundStyle(AtelierTheme.secondaryText).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(.leading, 10)
                     }
-                }.padding(.leading, 22).padding(.trailing, 6).padding(.bottom, 10)
+                }.padding(.leading, 16).padding(.bottom, 8)
             }
         }
     }
@@ -165,22 +182,20 @@ struct WorkspaceSidebar: View {
             workspace.chat.select(thread, workspace: workspace)
             workspace.sidebarRequested = false
         } label: {
-            HStack(spacing: 10) {
-                RoundedRectangle(cornerRadius: 1).fill(selected ? AtelierTheme.accent : .clear).frame(width: 2)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(thread.title).font(.subheadline.weight(selected ? .medium : .regular)).lineLimit(2).multilineTextAlignment(.leading)
-                    HStack(spacing: 5) {
-                        Text(provider)
-                        if let date = SidebarProjectPreferences.date(thread.updatedAt) {
-                            Text("·")
-                            Text(date, format: .dateTime.day().month(.abbreviated).locale(Locale(identifier: "fr_CA")))
-                        }
-                        if thread.status == "running" { Image(systemName: "circle.dotted"); Text("En cours") }
-                    }.font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }.padding(.vertical, 11).padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-                .background(selected ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 9))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(thread.title).font(.subheadline).lineLimit(1).multilineTextAlignment(.leading)
+                HStack(spacing: 5) {
+                    if thread.status == "running" { Image(systemName: "circle.dotted").foregroundStyle(AtelierTheme.accent) }
+                    Text(provider)
+                    if thread.status == "running" { Text("· en cours") }
+                    else if let date = SidebarProjectPreferences.date(thread.updatedAt) {
+                        Text("·")
+                        Text(date, format: .dateTime.day().month(.abbreviated).locale(Locale(identifier: "fr_CA")))
+                    }
+                }.font(.caption).foregroundStyle(AtelierTheme.secondaryText).lineLimit(1)
+            }.padding(.vertical, 8).padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                .background(selected ? AtelierTheme.control : .clear, in: RoundedRectangle(cornerRadius: AtelierTheme.controlRadius, style: .continuous))
+                .contentShape(Rectangle())
         }.disabled(workspace.chat.sending)
             .accessibilityAddTraits(selected ? .isSelected : [])
     }

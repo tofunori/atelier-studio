@@ -71,7 +71,7 @@ pub async fn handle_create_linked_thread(state: &AppState, msg: &Value) -> Vec<S
             if let Some(existing) = store
                 .children_of(source_id)
                 .into_iter()
-                .find(|thread| thread.provider == target_provider)
+                .find(|thread| thread.provider == target_provider && crate::delegation::specialiste_delegue(thread).is_none())
             {
                 return vec![json_msg(json!({
                     "type": "linkedThreadCreated",
@@ -179,6 +179,10 @@ pub async fn handle_create_linked_thread(state: &AppState, msg: &Value) -> Vec<S
 /// durably enqueue exactly one user-requested turn. The frontend never selects
 /// a guessed UUID and receives one explicit acknowledgement for the operation.
 pub async fn handle_mention_agent(state: &AppState, msg: &Value) -> Vec<String> {
+    // `@NomCourt` d'un spécialiste : délégation (lot 2 des spécialistes).
+    if msg.get("specialistId").and_then(Value::as_str).is_some_and(|s| !s.is_empty()) {
+        return crate::delegation::handle_mention_specialiste(state, msg).await;
+    }
     let source_id = msg
         .get("sourceThreadId")
         .and_then(Value::as_str)
@@ -206,7 +210,7 @@ pub async fn handle_mention_agent(state: &AppState, msg: &Value) -> Vec<String> 
         store
             .children_of(source_id)
             .into_iter()
-            .find(|thread| thread.provider == target_provider)
+            .find(|thread| thread.provider == target_provider && crate::delegation::specialiste_delegue(thread).is_none())
             .map(|thread| thread.id)
     };
     let reused = existing.is_some();

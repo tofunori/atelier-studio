@@ -108,6 +108,21 @@ identifiant (sinon iOS en créerait une seconde, vide) ; pour une toute premièr
 installation : `ATELIER_IPHONE_FIRST_INSTALL=1`. Autres réglages en tête du
 script (`ATELIER_IPHONE_DEVICE` pour viser un appareil précis).
 
+### Compte développeur payant
+
+Avec l'Apple Developer Program, le profil vaut un an au lieu de 7 jours ; le
+renouvellement hebdomadaire ci-dessous devient inutile. Une contrainte : iOS ne
+met une app à jour que si la nouvelle build porte le même `application-identifier`
+(identifiant d'équipe + identifiant d'app) que celle installée. Si l'équipe
+payante a un autre identifiant que la Personal Team qui a signé l'app actuelle,
+l'installation est refusée (« application-identifier entitlement does not
+match ») et l'app en place reste intacte : **ne pas la supprimer pour
+contourner**. Comparer d'abord l'identifiant de l'équipe payante (Xcode →
+Settings → Accounts) avec celui de l'app installée, et ne changer
+`DEVELOPMENT_TEAM` dans `Local.xcconfig` que s'ils sont identiques, ou après
+avoir mis à l'abri les données de l'app (annotations envoyées au Mac,
+association refaisable).
+
 ### Renouvellement automatique
 
 Avec un compte Apple gratuit, l'app cesse de s'ouvrir 7 jours après la création

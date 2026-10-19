@@ -15,3 +15,10 @@
 @container (max-width: 660px) {
   .specialistes-noms { grid-template-columns: minmax(0, 1fr); }
 }
+
+.specialistes-skills-copie {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}

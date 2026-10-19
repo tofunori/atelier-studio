@@ -39,7 +39,7 @@ import { modelDisplayLabel } from "../lib/modelCatalog";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
 import { usePromptText, type DraftAttachment, type FollowUpMode, type PromptSource, type QueuedTurn } from "../lib/chatDraftStore";
 import type { Consigne, ConsigneDuFil } from "../lib/consignes";
-import type { Specialiste } from "../lib/specialistes";
+import { nomCourtDe, type Specialiste } from "../lib/specialistes";
 import {
   buildChatTurnViewModels,
   isImageGenerationAction,
@@ -725,6 +725,18 @@ export default function Chat(p: {
           label: `@${agent.label}`,
           hint: t("linkedAgent.mentionHint"),
           section: t("linkedAgent.agentsSection"),
+          icon: "bot",
+        })),
+    );
+    suggestions.push(
+      ...(p.defaults.specialistes ?? [])
+        .filter((s) => s.visible && (nomCourtDe(s).toLowerCase().includes(q) || s.nom.toLowerCase().includes(q)))
+        .slice(0, 8)
+        .map((s) => ({
+          insert: `${base}@${nomCourtDe(s)} `,
+          label: `@${nomCourtDe(s)}`,
+          hint: s.role || s.nom,
+          section: t("specialistes.mention-section"),
           icon: "bot",
         })),
     );
