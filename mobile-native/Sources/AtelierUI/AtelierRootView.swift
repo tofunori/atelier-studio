@@ -138,10 +138,9 @@ public struct AtelierRootView: View {
     private var workbench: some View {
         GeometryReader { geometry in
         ZStack(alignment: .leading) {
-            VStack(spacing: 0) {
-                mainSurfaces.frame(maxWidth: .infinity, maxHeight: .infinity)
-                bottomCommandPanel
-            }
+            mainSurfaces.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(AtelierTheme.background.ignoresSafeArea())
+                .safeAreaInset(edge: .bottom, spacing: 0) { bottomCommandPanel }
                 .allowsHitTesting(!workspace.sidebarRequested)
                 .accessibilityHidden(workspace.sidebarRequested)
             if workspace.sidebarRequested {
@@ -150,6 +149,7 @@ public struct AtelierRootView: View {
                     .accessibilityHidden(true)
                 WorkspaceSidebar(workspace: workspace) { showAbout = true }
                     .frame(width: min(geometry.size.width * 0.86, sizeClass == .regular ? 340 : 360))
+                    .padding(.leading, 8).padding(.vertical, 4)
                     .transition(.move(edge: .leading))
                     .gesture(DragGesture(minimumDistance: 30).onEnded { gesture in
                         if gesture.translation.width < -60 && abs(gesture.translation.width) > abs(gesture.translation.height) { workspace.sidebarRequested = false }
@@ -220,14 +220,18 @@ public struct AtelierRootView: View {
                 }
         }
     }
+    /// Composer and tabs float in glass over the content; the tabs step aside while typing.
     private var bottomCommandPanel: some View {
-        VStack(spacing: 0) {
-            if sizeClass != .regular, workspace.surface == .chat, workspace.chat.selected != nil {
-                NativeComposerView(workspace: workspace, composing: $composing, embedded: true)
+        GlassEffectContainer(spacing: 10) {
+            VStack(spacing: 10) {
+                if sizeClass != .regular, workspace.surface == .chat, workspace.chat.selected != nil {
+                    NativeComposerView(workspace: workspace, composing: $composing, embedded: true)
+                }
+                if sizeClass == .regular || !composing { workSurfaceSwitcher }
             }
-            workSurfaceSwitcher
         }
-        .background(AtelierTheme.surface.ignoresSafeArea(edges: .bottom))
+        .padding(.horizontal, 16).padding(.bottom, 4)
+        .animation(systemReduceMotion || motion == "off" ? nil : .smooth(duration: 0.15), value: composing)
     }
     private var workSurfaceSwitcher: some View {
         HStack(spacing: 0) {
@@ -237,9 +241,8 @@ public struct AtelierRootView: View {
             workSurfaceButton(.articles, glyph: .book, title: "Articles", label: "Article Zotero")
             workSurfaceButton(.calculations, glyph: .calculations, title: "Calculs", label: "Calculs")
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 2)
-        .padding(.bottom, 5)
+        .padding(5)
+        .atelierGlass(in: Capsule(), interactive: true)
     }
     private func workSurfaceButton(_ target: WorkspaceModel.Surface, glyph: WorkSurfaceGlyph.Kind, title: String, label: String) -> some View {
         let selected = workspace.selectedWorkSurface == target
@@ -255,8 +258,9 @@ public struct AtelierRootView: View {
                     .foregroundStyle(selected ? Color.primary : Color.secondary)
                     .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity, minHeight: 50)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background { if selected { Capsule().fill(AtelierTheme.fill) } }
+            .contentShape(Capsule())
         }.buttonStyle(.plain).frame(maxWidth: .infinity)
             .disabled(target == .document && !workspace.hasWorkingFile)
             .accessibilityLabel(label)

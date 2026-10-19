@@ -27,46 +27,51 @@ struct NativeGalleryView: View {
             catch { self.error = error.localizedDescription }
         }
     }
-    private var projectSelector: some View {
-        Group {
-            if workspace.gallery.connected {
-                Menu {
-                    ForEach(workspace.gallery.projects) { project in
-                        Button {
-                            workspace.gallery.selectedProject = project.id
-                            workspace.sidebarPreferences.markOpened(project.id)
-                        } label: {
-                            if project.id == workspace.gallery.selectedProject { Label(project.name, systemImage: "checkmark") }
-                            else { Text(project.name) }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(workspace.gallery.projects.first { $0.id == workspace.gallery.selectedProject }?.name ?? "Projet")
-                            .lineLimit(2).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
-                        Image(systemName: "chevron.up.chevron.down").font(.caption)
-                    }.frame(minHeight: 44)
-                }.accessibilityLabel("Projet")
-                    .accessibilityValue(workspace.gallery.projects.first { $0.id == workspace.gallery.selectedProject }?.name ?? "Aucun")
-            } else {
-                Button("Connecter le Mac", systemImage: "desktopcomputer") { showConnection = true }
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+    private var projectName: String {
+        workspace.gallery.projects.first { $0.id == workspace.gallery.selectedProject }?.name ?? "Aucun projet"
     }
-    private var filterActions: some View {
-        HStack(spacing: 8) {
-            Button("Favoris seulement", systemImage: filterState.favoritesOnly ? "star.fill" : "star") {
-                updateFilter { $0.favoritesOnly.toggle() }
-            }.labelStyle(.iconOnly).frame(width: 44, height: 44)
-                .accessibilityValue(filterState.favoritesOnly ? "Activé" : "Désactivé")
-                .foregroundStyle(filterState.favoritesOnly ? AtelierTheme.accent : .primary)
-            Button("Filtrer les fichiers", systemImage: "line.3.horizontal.decrease") {
-                updateFilter { $0.expanded.toggle() }
-            }.labelStyle(.iconOnly).frame(width: 44, height: 44)
-                .accessibilityValue(filterState.expanded ? "Déplié" : "Replié")
-            Button("Importer un fichier", systemImage: "plus") { workspace.importRequested = true }
-                .labelStyle(.iconOnly).frame(width: 44, height: 44)
+    /// Project choice lives under the title, as in Apple's own apps.
+    @ViewBuilder private var projectMenu: some View {
+        ForEach(workspace.gallery.projects) { project in
+            Button {
+                workspace.gallery.selectedProject = project.id
+                workspace.sidebarPreferences.markOpened(project.id)
+            } label: {
+                if project.id == workspace.gallery.selectedProject { Label(project.name, systemImage: "checkmark") }
+                else { Text(project.name) }
+            }
         }
+    }
+    private func chip(_ title: String, symbol: String? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if let symbol { Image(systemName: symbol).font(.caption) }
+                Text(title)
+            }
+            .font(.footnote.weight(.medium)).padding(.horizontal, 12).frame(minHeight: 30)
+            .foregroundStyle(selected ? Color(uiColor: .systemBackground) : AtelierTheme.secondaryText)
+            .background { Capsule().fill(selected ? Color.primary : Color.clear) }
+            .overlay { if !selected { Capsule().strokeBorder(AtelierTheme.separator) } }
+            .frame(minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+    private var filterChips: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                chip("Favoris", symbol: filterState.favoritesOnly ? "star.fill" : "star", selected: filterState.favoritesOnly) {
+                    updateFilter { $0.favoritesOnly.toggle() }
+                }.accessibilityLabel("Favoris seulement")
+                ForEach(GalleryFilterState.types, id: \.self) { type in
+                    chip(type == "Tous" ? "Tout" : type, selected: filter == type) { updateFilter { $0.type = type } }
+                }
+            }.padding(.horizontal, 16)
+        }.scrollIndicators(.hidden).padding(.horizontal, -16)
+    }
+    private func meta(_ item: GalleryArtifact) -> String {
+        let bytes = item.size > 0 ? item.size : item.data?.count ?? 0
+        let origin = item.fileID == nil ? "Importé" : "Mac"
+        return bytes > 0 ? Int64(bytes).formatted(.byteCount(style: .file)) + " · " + origin : item.kind + " · " + origin
     }
     private func favoriteButton(_ item: GalleryArtifact) -> some View {
         Button(item.favorite == true ? "Retirer des favoris" : "Ajouter aux favoris",
@@ -82,26 +87,13 @@ struct NativeGalleryView: View {
         @Bindable var gallery = workspace.gallery
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if dynamicTypeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: 8) {
-                        projectSelector
-                        filterActions.frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                } else { HStack(spacing: 8) { projectSelector; filterActions } }
-                if filterState.expanded {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 8) {
-                            ForEach(GalleryFilterState.types, id: \.self) { type in
-                                Button(type) { updateFilter { $0.type = type } }
-                                    .font(.subheadline.weight(.medium)).padding(.horizontal, 14).frame(minHeight: 44)
-                                    .background(filter == type ? AtelierTheme.accent.opacity(0.18) : Color.primary.opacity(0.05), in: Capsule())
-                                    .foregroundStyle(filter == type ? AtelierTheme.accent : .primary)
-                                    .accessibilityAddTraits(filter == type ? .isSelected : [])
-                            }
-                        }
-                    }.scrollIndicators(.hidden)
+                if !gallery.connected {
+                    Button("Connecter le Mac", systemImage: "desktopcomputer") { showConnection = true }
+                        .buttonStyle(.bordered).frame(minHeight: 44)
                 }
-                Text("\(items.count.formatted(.number.locale(Locale(identifier: "fr_CA")))) fichier\(items.count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+                filterChips
+                Text("\(items.count.formatted(.number.locale(Locale(identifier: "fr_CA")))) fichier\(items.count == 1 ? "" : "s")")
+                    .font(.caption.monospacedDigit()).foregroundStyle(AtelierTheme.tertiaryText)
                 if let problem = gallery.error { Text(problem).font(.footnote).foregroundStyle(.red) }
                 if gallery.busy { ProgressView("Chargement des artefacts…").frame(maxWidth: .infinity) }
                 if items.isEmpty && !gallery.busy {
@@ -127,9 +119,19 @@ struct NativeGalleryView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 ArtifactThumbnail(item: item, gallery: gallery)
-                                    .frame(height: 145).frame(maxWidth: .infinity)
-                                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .frame(height: 132).frame(maxWidth: .infinity)
+                                    .background(AtelierTheme.card)
+                                    .clipShape(RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous).strokeBorder(AtelierTheme.separator))
+                                    .overlay(alignment: .topLeading) {
+                                        if !item.ext.isEmpty {
+                                            Text(item.ext.uppercased()).font(.system(size: 10, weight: .semibold)).kerning(0.2)
+                                                .foregroundStyle(AtelierTheme.secondaryText)
+                                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                                .background(AtelierTheme.background, in: Capsule()).padding(8)
+                                                .accessibilityHidden(true)
+                                        }
+                                    }
                                     .overlay { if opening == item.id { ProgressView().padding().background(.regularMaterial, in: Circle()) } }
                                 if !item.supported { Text("Aperçu non disponible").font(.caption2).foregroundStyle(.secondary) }
                             }
@@ -142,25 +144,27 @@ struct NativeGalleryView: View {
                         }
                         HStack(alignment: .top, spacing: 0) {
                             Button { open(item) } label: {
-                                Text(item.name).font(.subheadline.weight(.medium)).lineLimit(2)
-                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name).font(.footnote.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                                    Text(meta(item)).font(.caption2.monospacedDigit()).foregroundStyle(AtelierTheme.secondaryText)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
                             }.buttonStyle(.plain).disabled(opening != nil || !item.supported)
                             if item.fileID != nil {
                                 favoriteButton(item).labelStyle(.iconOnly)
-                                    .font(.system(size: 16, weight: .regular))
-                                    .frame(width: 44, height: 44)
+                                    .font(.system(size: 13, weight: .regular))
+                                    .frame(width: 36, height: 44)
                                     .contentShape(Rectangle()).buttonStyle(.plain)
                             }
                         }
-                        Text("\(item.kind) · \(item.fileID == nil ? "Importé" : "Mac")")
-                            .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
 
             }.padding(16)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(AtelierTheme.background)
+        .navigationSubtitle(gallery.connected ? projectName : "Mac non connecté")
+        .toolbarTitleMenu { projectMenu }
         .searchable(text: Binding(get: { query }, set: { value in updateFilter { $0.query = value } }), prompt: "Rechercher un fichier")
         .refreshable { await gallery.refresh() }
         .onChange(of: scenePhase) { _, phase in

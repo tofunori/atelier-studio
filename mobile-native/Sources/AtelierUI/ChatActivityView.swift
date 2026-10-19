@@ -152,7 +152,7 @@ struct ChatActivityView: View {
             if presentation.interrupted { return presentation.summary + " · interrompue" }
             return presentation.summary
         }
-        return active ? "Thinking" : "Activité terminée"
+        return active ? "Réflexion…" : "Activité terminée"
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -171,7 +171,10 @@ struct ChatActivityView: View {
                     ForEach(rows.filter { $0.kind != "interaction" || $0.resolved }) { row in
                         activityStep(row)
                     }
-                }.padding(.bottom, 6)
+                }
+                .padding(.leading, 14)
+                .overlay(alignment: .leading) { Rectangle().fill(AtelierTheme.separator).frame(width: 1).padding(.leading, 9) }
+                .padding(.bottom, 6)
             }
             ForEach(pending) { row in
                 VStack(alignment: .leading, spacing: 8) {
@@ -192,16 +195,16 @@ struct ChatActivityView: View {
                 HStack(spacing: 9) {
                     Image(systemName: !pending.isEmpty ? "hand.raised" : current.map { ChatActivityPresentation(row: $0, turnRunning: active).category.symbol } ?? "sparkle")
                         .font(.subheadline).frame(width: 20)
-                    ChatActivityLabel(text: label, active: active && pending.isEmpty && workspace.surface == .chat)
+                    ChatActivityLabel(text: label, active: active && pending.isEmpty && workspace.surface == .chat, font: .subheadline)
                         .contentTransition(.opacity)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: current?.id)
-                    if rows.count > 1 { Text("\(rows.count) étapes").font(.subheadline).foregroundStyle(.secondary) }
+                    if rows.count > 1 { Text("\(rows.count) étapes").font(.footnote.monospacedDigit()).foregroundStyle(AtelierTheme.tertiaryText) }
                     if !rows.isEmpty {
                         Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium))
                             .rotationEffect(.degrees(expanded ? 90 : 0)).opacity(0.6)
                     }
-                }.font(.body).foregroundStyle(.secondary)
-                    .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                }.font(.subheadline).foregroundStyle(AtelierTheme.secondaryText)
+                    .frame(minHeight: 40, alignment: .leading).contentShape(Rectangle())
     }
     private func activityStep(_ row: RemoteChatModel.Row) -> some View {
         let presentation = ChatActivityPresentation(row: row, turnRunning: active)
@@ -215,13 +218,13 @@ struct ChatActivityView: View {
                 HStack(spacing: 10) {
                     Image(systemName: presentation.failed ? "exclamationmark.circle" : presentation.category.symbol)
                         .font(.subheadline).frame(width: 20)
-                    Text(presentation.summary).font(.body).lineLimit(1).truncationMode(.tail)
+                    Text(presentation.summary).font(.subheadline).lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if presentation.inProgress { ProgressView().controlSize(.mini) }
                     Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium))
                         .rotationEffect(.degrees(detailsOpen ? 90 : 0))
-                }.foregroundStyle(presentation.failed ? Color.orange : Color.secondary)
-                    .frame(minHeight: 44).contentShape(Rectangle())
+                }.foregroundStyle(presentation.failed ? Color.orange : AtelierTheme.secondaryText)
+                    .frame(minHeight: 40).contentShape(Rectangle())
             }.buttonStyle(.plain)
                 .accessibilityLabel(presentation.summary)
                 .accessibilityValue(presentation.state + (detailsOpen ? ", déplié" : ", replié"))
@@ -253,7 +256,8 @@ struct ChatActivityView: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 .padding(16)
-                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+                .background(AtelierTheme.card, in: RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous).strokeBorder(AtelierTheme.separator))
                 .padding(.bottom, 12)
             }
         }
@@ -269,12 +273,13 @@ struct ChatActivityView: View {
 struct ChatActivityLabel: View {
     let text: String
     let active: Bool
+    var font: Font = .body
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("atelier.motion") private var motion = "native"
     static let sweepDuration = 1.05
     var body: some View {
-        Text(text).font(.body).lineLimit(1).multilineTextAlignment(.leading)
+        Text(text).font(font).lineLimit(1).multilineTextAlignment(.leading)
             .foregroundStyle(.secondary)
             .overlay {
                 if active && !reduceMotion && motion != "off" && scenePhase == .active {
@@ -285,7 +290,7 @@ struct ChatActivityLabel: View {
                                 .frame(width: geometry.size.width * 0.7)
                                 .offset(x: geometry.size.width * (phase * 1.7 - 0.7))
                         }
-                    }.mask(Text(text).font(.body).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading))
+                    }.mask(Text(text).font(font).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading))
                         .accessibilityHidden(true)
                 }
             }
