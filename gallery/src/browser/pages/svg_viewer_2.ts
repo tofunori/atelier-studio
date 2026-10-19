@@ -804,7 +804,8 @@ function showSanitized(report: { total: number; removed: Record<string, number> 
   if(!report || !report.total){ note.hidden = true; note.textContent = ""; return; }
   note.textContent = "Contenu actif retiré (" + report.total + ")";
   note.title = "Retiré à l'affichage pour la sécurité : " + AtelierSvgSanitize.describe(report)
-    + ". Enregistrer écrit la version assainie (le .orig.bak garde l'original).";
+    + ". Enregistrer écrit la version assainie et perd ce contenu : le .orig.bak"
+    + " n'est créé qu'au premier enregistrement du fichier, et ne suit pas ses régénérations.";
   note.hidden = false;
 }
 
