@@ -231,25 +231,32 @@ public struct AtelierRootView: View {
     }
     private var workSurfaceSwitcher: some View {
         HStack(spacing: 0) {
-            workSurfaceButton(.chat, glyph: .chat, label: "Conversation")
-            workSurfaceButton(.document, glyph: .document, label: "Fichier actif")
-            workSurfaceButton(.gallery, glyph: .gallery, label: "Galerie")
-            workSurfaceButton(.articles, glyph: .book, label: "Article Zotero")
+            workSurfaceButton(.chat, glyph: .chat, title: "Chat", label: "Conversation")
+            workSurfaceButton(.document, glyph: .document, title: "Fichier", label: "Fichier actif")
+            workSurfaceButton(.gallery, glyph: .gallery, title: "Galerie", label: "Galerie")
+            workSurfaceButton(.articles, glyph: .book, title: "Articles", label: "Article Zotero")
+            workSurfaceButton(.calculations, glyph: .calculations, title: "Calculs", label: "Calculs")
         }
         .padding(.horizontal, 12)
         .padding(.top, 2)
         .padding(.bottom, 5)
     }
-    private func workSurfaceButton(_ target: WorkspaceModel.Surface, glyph: WorkSurfaceGlyph.Kind, label: String) -> some View {
+    private func workSurfaceButton(_ target: WorkspaceModel.Surface, glyph: WorkSurfaceGlyph.Kind, title: String, label: String) -> some View {
         let selected = workspace.selectedWorkSurface == target
         return Button {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             workspace.switchWorkSurface(target)
         } label: {
-            WorkSurfaceGlyph(kind: glyph)
-                .frame(width: 25, height: 25)
-                .foregroundStyle(selected ? AtelierTheme.accent : Color.secondary)
-                .frame(maxWidth: .infinity, minHeight: 44)
+            VStack(spacing: 3) {
+                WorkSurfaceGlyph(kind: glyph)
+                    .frame(width: 22, height: 22)
+                    .foregroundStyle(selected ? AtelierTheme.accent : Color.secondary)
+                Text(title).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .contentShape(Rectangle())
         }.buttonStyle(.plain).frame(maxWidth: .infinity)
             .disabled(target == .document && !workspace.hasWorkingFile)
             .accessibilityLabel(label)
@@ -266,7 +273,6 @@ public struct AtelierRootView: View {
         ToolbarItem(placement: .topBarLeading) { sidebarButton }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                Button("Calculs", systemImage: "chart.bar.xaxis") { workspace.switchWorkSurface(.calculations) }
                 Button("Importer un fichier", systemImage: "folder") { workspace.importRequested = true }
                 Button("Réglages", systemImage: "gearshape") { showAbout = true }
             } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Options d’Atelier")
@@ -275,7 +281,7 @@ public struct AtelierRootView: View {
 }
 
 private struct WorkSurfaceGlyph: View {
-    enum Kind { case chat, document, gallery, book }
+    enum Kind { case chat, document, gallery, book, calculations }
     let kind: Kind
     var body: some View {
         Canvas { context, size in
@@ -310,6 +316,11 @@ private struct WorkSurfaceGlyph: View {
             path.move(to: CGPoint(x: 21, y: 5)); path.addCurve(to: CGPoint(x: 12.2, y: 7), control1: CGPoint(x: 18, y: 3.7), control2: CGPoint(x: 14.7, y: 4.5))
             path.addLine(to: CGPoint(x: 12.2, y: 20)); path.addCurve(to: CGPoint(x: 21, y: 18), control1: CGPoint(x: 15, y: 17.6), control2: CGPoint(x: 18.2, y: 17))
             path.closeSubpath()
+        case .calculations:
+            path.move(to: CGPoint(x: 4, y: 19.5)); path.addLine(to: CGPoint(x: 20, y: 19.5))
+            path.move(to: CGPoint(x: 7, y: 16)); path.addLine(to: CGPoint(x: 7, y: 11))
+            path.move(to: CGPoint(x: 12, y: 16)); path.addLine(to: CGPoint(x: 12, y: 6.5))
+            path.move(to: CGPoint(x: 17, y: 16)); path.addLine(to: CGPoint(x: 17, y: 8))
         }
         return path
     }
@@ -326,19 +337,17 @@ private extension View {
 private struct ChatConnectionTitle: View {
     let chat: RemoteChatModel
     @State private var showingDetails = false
-    private var color: Color {
-        switch chat.connection {
-        case .live: return .green
-        case .connecting, .reconnecting: return .orange
-        case .associationRequired: return .red
-        case .idle: return .secondary
-        }
+    /// Assistant and model while the Mac is live; otherwise the connection state.
+    private var subtitle: String {
+        guard chat.connection == .live, let provider = chat.provider else { return chat.connectionLabel }
+        let model = provider.modelLabels?[chat.model] ?? chat.model
+        return model.isEmpty ? provider.label : provider.label + " · " + model
     }
     var body: some View {
         Button { showingDetails = true } label: {
-            HStack(spacing: 7) {
-                Circle().fill(color).frame(width: 6, height: 6)
-                Text(chat.title).font(.headline).foregroundStyle(.primary).lineLimit(1)
+            VStack(spacing: 1) {
+                Text(chat.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                Text(subtitle).font(.caption).foregroundStyle(chat.connection == .associationRequired ? Color.red : Color.secondary).lineLimit(1)
             }.frame(minHeight: 44)
         }
         .buttonStyle(.plain)

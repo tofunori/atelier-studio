@@ -73,7 +73,7 @@ struct ChatActivityPresentation {
     var hasDetails: Bool { !row.detail.isEmpty || !row.text.isEmpty || !row.changes.isEmpty }
     var inProgress: Bool { turnRunning && (row.isStreaming || ["inprogress", "in_progress", "running", "pending"].contains(row.toolStatus.lowercased())) }
     var category: (title: String, symbol: String) {
-        if row.toolName == "__steered" || row.text == "__steered" { return ("Steered", "arrow.turn.up.right") }
+        if row.toolName == "__steered" || row.text == "__steered" { return ("Réorienté", "arrow.turn.up.right") }
         if row.kind == "interaction" { return (row.resolved ? "Confirmation traitée" : "Votre accord est nécessaire", "hand.raised") }
         if row.kind == "thinking" || row.toolName.hasPrefix("__thinking") { return ("Réflexion", "sparkle") }
         let name = (row.toolName.isEmpty ? row.text : row.toolName).lowercased()
@@ -94,7 +94,7 @@ struct ChatActivityPresentation {
         return turnRunning ? "Étape reçue" : "Activité terminée"
     }
     var summary: String {
-        if row.toolName == "__steered" || row.text == "__steered" { return "Steered" }
+        if row.toolName == "__steered" || row.text == "__steered" { return "Réorienté" }
         if row.kind == "thinking" { return row.text }
         if let path = row.changes.first?.path { return "Modification de " + path + (row.changes.count > 1 ? " (+\(row.changes.count - 1))" : "") }
         let fields = row.toolFields ?? [:]
@@ -232,7 +232,7 @@ struct ChatActivityView: View {
                     ScrollView([.vertical, .horizontal]) {
                         VStack(alignment: .leading, spacing: 12) {
                             if !row.text.isEmpty && row.text != row.toolName && !["tool", "tool_update", "edit"].contains(row.text) {
-                                Text(row.text == "__steered" ? "Steered" : row.text)
+                                Text(row.text == "__steered" ? "Réorienté" : row.text)
                             }
                             if !row.detail.isEmpty {
                                 Text(row.detail)

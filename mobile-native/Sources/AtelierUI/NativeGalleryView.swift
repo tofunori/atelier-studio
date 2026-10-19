@@ -101,7 +101,7 @@ struct NativeGalleryView: View {
                         }
                     }.scrollIndicators(.hidden)
                 }
-                Text("\(items.count) fichier\(items.count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+                Text("\(items.count.formatted(.number.locale(Locale(identifier: "fr_CA")))) fichier\(items.count == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
                 if let problem = gallery.error { Text(problem).font(.footnote).foregroundStyle(.red) }
                 if gallery.busy { ProgressView("Chargement des artefacts…").frame(maxWidth: .infinity) }
                 if items.isEmpty && !gallery.busy {
