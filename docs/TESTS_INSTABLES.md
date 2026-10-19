@@ -96,6 +96,27 @@ pas vérifiable ici), `corrigé` (preuve avant / après citée).
   rejoué. Piste : arrêter le poll sur `pagehide` dans `App.tsx` (puis
   reconstruire `gallery/assets/whiteboard/`), ou attendre la fin du poll en
   cours avant `page.reload()` dans le test.
+- Sous Chromium Linux (machines des agents), le même test échoue à chaque
+  passage, avec le code de main comme avec celui de la branche (3 sur 3 le
+  2026-10-19), sur des `pageerror` « The source image cannot be decoded » et
+  « Failed to fetch » : symptôme distinct, propre à cet environnement, jamais
+  vu en CI macOS.
+
+### `gallery/tests/e2e/diff.spec.ts:348` — « latex: reload preserves the latest content after historical navigation »
+
+- **Vu** : machine Linux des agents, Chromium, 2026-10-19 ; jamais signalé en
+  CI macOS.
+- **Symptôme** : après `page.reload()`, `#diffTag` reste actif et le compteur
+  affiche `3/3` au lieu de `0` (ligne 377 ou 378).
+- **Mesure** : sous charge (`--repeat-each=12 --workers=3`), 9 échecs sur 12
+  avec le code de main (9bcdc0e) et 10 sur 12 sur `claude/maturite-3-ci` :
+  le défaut précède les correctifs du 409. Une pause de 2 s avant le reload
+  ne change rien (10 sur 12) : ce n'est pas une écriture en vol coupée par
+  le rechargement.
+- **Statut** : ouvert. Le test attend qu'aucune intervention ne reste à revoir
+  après rechargement, alors que le journal du serveur en rend trois. Il faut
+  établir laquelle des deux est la règle voulue avant de corriger le code ou
+  l'attente.
 
 ### `gallery/tests/e2e/pdf_toolbar.spec.ts:383` et `:477`
 
