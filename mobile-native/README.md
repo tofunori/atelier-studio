@@ -123,6 +123,19 @@ Settings → Accounts) avec celui de l'app installée, et ne changer
 avoir mis à l'abri les données de l'app (annotations envoyées au Mac,
 association refaisable).
 
+### TestFlight (sans câble ni Mac allumé)
+
+Avec le compte payant, `mobile-native/scripts/upload-testflight.sh` archive
+l'app et l'envoie sur App Store Connect ; elle s'installe ensuite depuis l'app
+TestFlight de l'iPhone, et chaque build y reste 90 jours. Une fois au préalable,
+dans le navigateur : enregistrer l'identifiant de l'app installée comme App ID
+explicite (developer.apple.com → Identifiers), puis créer la fiche de l'app
+dans App Store Connect avec cet identifiant. Le numéro de build (date UTC)
+croît tout seul ; `ITSAppUsesNonExemptEncryption` vaut `false` (HTTPS et
+trousseau seulement), donc TestFlight ne pose pas la question d'export. Même
+identifiant et même équipe : le build TestFlight remplace l'app en gardant ses
+données.
+
 ### Renouvellement automatique
 
 Avec un compte Apple gratuit, l'app cesse de s'ouvrir 7 jours après la création
