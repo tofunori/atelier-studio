@@ -167,3 +167,25 @@ fn tout_accepter_d_un_seul_auteur() {
     assert_eq!(batch.done, 0);
     assert!(!d.is_dirty());
 }
+
+#[test]
+fn mise_en_page_resolue_comme_word() {
+    let mut d = open("christophe");
+    let m = d.model().unwrap();
+    let page = m.page.as_ref().unwrap();
+    assert_eq!((page.width, page.height, page.left, page.right), (612.0, 792.0, 72.0, 72.0));
+    let ln = page.line_numbers.as_ref().unwrap();
+    assert_eq!((ln.count_by, ln.start, ln.restart.as_str(), ln.size), (1, 1, "continuous", Some(12.0)));
+    // Titre 1 : gras et 16 pt du style, espacements du style, interligne hérité de Normal.
+    let t = &m.paragraphs[0].look;
+    assert_eq!((t.b, t.size, t.before, t.after, t.line), (Some(true), Some(16.0), Some(12.0), Some(3.0), Some(1.5)));
+    assert_eq!(t.font.as_deref(), Some("Times New Roman"));
+    // Corps : 12 pt des valeurs par défaut, alignement direct.
+    let b = &m.paragraphs[1].look;
+    assert_eq!((b.size, b.b, b.align.as_deref(), b.after), (Some(12.0), None, Some("both"), Some(6.0)));
+    // Légende : italique 10 pt, centrée.
+    let c = m.paragraphs.iter().find(|p| p.style.as_deref() == Some("Lgende")).unwrap();
+    assert_eq!((c.look.i, c.look.size, c.look.align.as_deref()), (Some(true), Some(10.0), Some("center")));
+    // Le texte sans taille directe suit celle du paragraphe.
+    assert!(m.paragraphs[2].segments.iter().filter(|s| s.kind == "text").all(|s| s.size.is_none()));
+}

@@ -1,6 +1,7 @@
 //! Vue du document pour l'interface et pour l'agent.
 
 use crate::story::{ENDNOTES, FOOTNOTES, Scope};
+use crate::layout::{Look, Page, Styles};
 use crate::walk::{self, Fmt, Kind};
 use crate::xml::{self, R, W, W14, W15, id_of, is_w, w_attr, w_child};
 use crate::{COMMENTS, COMMENTS_EXT, Docx, Result};
@@ -10,6 +11,9 @@ use std::collections::{BTreeMap, HashMap};
 #[derive(Serialize, Debug)]
 pub struct DocModel {
     pub revision: String,
+    /// Format de la page et numéros de ligne de la dernière section.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<Page>,
     pub paragraphs: Vec<Para>,
     /// Notes de bas de page et de fin, dans l'ordre de leurs appels.
     pub notes: Vec<Note>,
@@ -71,6 +75,8 @@ pub struct Para {
     /// Texte courant : suivis d'insertion compris, suppressions exclues.
     pub text: String,
     pub segments: Vec<Segment>,
+    /// Apparence résolue (styles, valeurs par défaut, propriétés directes).
+    pub look: Look,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -233,7 +239,7 @@ fn seg_of(p: &walk::Piece) -> Segment {
         Kind::Field(k) => ("field", Some(k.clone())),
         Kind::Object(k) => ("object", Some(k.clone())),
     };
-    let Fmt { b, i, u, strike, sup, sub, font, size, highlight } = p.fmt.clone();
+    let Fmt { b, i, u, strike, sup, sub, font, size, highlight, style: _ } = p.fmt.clone();
     Segment {
         text: p.text.clone(),
         kind,
@@ -272,7 +278,7 @@ struct Acc {
 }
 
 /// Paragraphes d'une histoire (corps, note, en-tête), suivis compris.
-fn story_paragraphs(src: &str, scope: &Scope, prefix: &str, levels: &HashMap<String, u8>, acc: &mut Acc) -> Result<Vec<Para>> {
+fn story_paragraphs(src: &str, scope: &Scope, prefix: &str, levels: &HashMap<String, u8>, styles: &Styles, acc: &mut Acc) -> Result<Vec<Para>> {
     let doc = xml::parse(src)?;
     let Some(root) = crate::story::container(&doc, scope) else { return Ok(Vec::new()) };
     // Le corps compte aussi les suivis de sections (sectPr hors de body).
@@ -357,7 +363,13 @@ fn story_paragraphs(src: &str, scope: &Scope, prefix: &str, levels: &HashMap<Str
                     acc.quotes.entry(*c).or_default().push_str(&piece.text);
                 }
             }
-            let seg = seg_of(piece);
+            let mut seg = seg_of(piece);
+            if let Some(cs) = piece.fmt.style.as_deref().map(|id| styles.character(id)) {
+                seg.b |= cs.b == Some(true);
+                seg.i |= cs.i == Some(true);
+                if seg.size.is_none() { seg.size = cs.size; }
+                if seg.font.is_none() { seg.font = cs.font; }
+            }
             match segments.last_mut() {
                 Some(last) if last.kind == "text" && seg.kind == "text" && Segment { text: String::new(), ..last.clone() } == Segment { text: String::new(), ..seg.clone() } => {
                     last.text.push_str(&seg.text)
@@ -384,7 +396,17 @@ fn story_paragraphs(src: &str, scope: &Scope, prefix: &str, levels: &HashMap<Str
             mark_change,
             text,
             segments,
+            look: styles.paragraph(p),
         });
+    }
+    // Espacement contextuel : rien entre deux paragraphes du même style.
+    for k in 1..paragraphs.len() {
+        let (a, b) = paragraphs.split_at_mut(k);
+        let (prev, cur) = (a.last_mut().unwrap(), &mut b[0]);
+        if prev.style == cur.style && prev.cell.is_none() == cur.cell.is_none() {
+            if prev.look.contextual { prev.look.after = Some(0.0); }
+            if cur.look.contextual { cur.look.before = Some(0.0); }
+        }
     }
     Ok(paragraphs)
 }
@@ -392,11 +414,13 @@ fn story_paragraphs(src: &str, scope: &Scope, prefix: &str, levels: &HashMap<Str
 pub fn build(docx: &mut Docx) -> Result<DocModel> {
     let styles = docx.part("word/styles.xml")?;
     let levels = heading_levels(styles.as_deref());
+    let theme = docx.part("word/theme/theme1.xml")?;
+    let looks = Styles::parse(styles.as_deref(), theme.as_deref());
     let comments_xml = docx.part(COMMENTS)?;
     let ext_xml = docx.part(COMMENTS_EXT)?;
     let src = docx.document_xml().to_string();
     let mut acc = Acc::default();
-    let mut paragraphs = story_paragraphs(&src, &Scope::Body, "", &levels, &mut acc)?;
+    let mut paragraphs = story_paragraphs(&src, &Scope::Body, "", &levels, &looks, &mut acc)?;
 
     // Notes, numérotées dans l'ordre de leurs appels dans le corps.
     let mut notes = Vec::new();
@@ -424,7 +448,7 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
         drop(ndoc);
         for id in ids {
             let prefix = format!("{letter}{id}.");
-            let paras = story_paragraphs(&nsrc, &Scope::Note(tag, id), &prefix, &levels, &mut acc)?;
+            let paras = story_paragraphs(&nsrc, &Scope::Note(tag, id), &prefix, &levels, &looks, &mut acc)?;
             let number = order.iter().position(|x| *x == id).map(|i| i + 1);
             notes.push(Note { id: format!("{letter}{id}"), kind: tag, number, paragraphs: paras });
         }
@@ -458,7 +482,7 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
     for (name, kind, which) in seen {
         let part = format!("word/{name}.xml");
         let Some(hsrc) = docx.part(&part)? else { continue };
-        let paras = story_paragraphs(&hsrc, &Scope::Root, &format!("{name}."), &levels, &mut acc)?;
+        let paras = story_paragraphs(&hsrc, &Scope::Root, &format!("{name}."), &levels, &looks, &mut acc)?;
         headers.push(HeaderFooter { id: name, kind, which, paragraphs: paras });
     }
 
@@ -485,8 +509,10 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
         }
     }
 
+    let page = crate::layout::page(&src, &looks);
     Ok(DocModel {
         revision: docx.revision(),
+        page,
         paragraphs,
         notes,
         headers,
@@ -538,5 +564,3 @@ fn read_comments(xml_text: Option<&str>, ext: Option<&str>, quotes: &BTreeMap<u3
     }
     Ok(out)
 }
-
-

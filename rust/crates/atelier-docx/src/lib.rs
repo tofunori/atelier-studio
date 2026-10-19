@@ -21,6 +21,7 @@
 
 pub mod comments;
 pub mod edit;
+pub mod layout;
 pub mod math;
 pub mod model;
 pub mod objects;

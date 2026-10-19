@@ -25,6 +25,16 @@
 
 
 
+  /** Apparence résolue par la base (styles de Word), en points. */
+
+
+
+
+
+
+
+
+
 
 
 
@@ -64,6 +74,7 @@
 
   const $ = (id        ) => document.getElementById(id)               ;
   const paper = $("paper");
+  const scroller = $("scroll");
   const cardsEl = $("cards");
   const foot = $("foot");
   const notice = $("notice");
@@ -229,7 +240,8 @@
     const el = document.createElement("p");
     el.className = "d-p";
     el.dataset.idx = String(idx);
-    if (p.heading !== undefined && p.heading !== null) el.classList.add(`h${Math.min(p.heading, 3)}`);
+    if (p.look && model .page) applyLook(el, p.look);
+    else if (p.heading !== undefined && p.heading !== null) el.classList.add(`h${Math.min(p.heading, 3)}`);
     if (p.align && p.align !== "left") el.classList.add(`a-${p.align}`);
     if (p.list) el.classList.add("list");
     const changes = changeById();
@@ -256,7 +268,7 @@
           img.src = `/docx/media?path=${enc(PATH)}&para=${enc(p.id)}&rel=${enc(s.media)}`;
           img.alt = s.alt || "Figure";
           img.draggable = false;
-          if (s.width) img.style.width = `${s.width}px`;
+          if (s.width) img.style.width = model .page ? `calc(var(--pt) * ${s.width * 0.75})` : `${s.width}px`;
           node.appendChild(img);
         } else {
           node.textContent = isNote && s.number ? String(s.number) : s.text || (label === "image" ? "[figure]" : label === "équation" ? "[équation]" : `[${label || "objet"}]`);
@@ -275,7 +287,7 @@
         if (s.sub) wrap("sub");
         node.appendChild(inner);
         if (s.font) node.style.fontFamily = `"${s.font}", ${getComputedStyle(paper).fontFamily}`;
-        if (s.size) node.style.fontSize = `${s.size}pt`;
+        if (s.size) node.style.fontSize = model .page ? `calc(var(--pt) * ${s.size})` : `${s.size}pt`;
         if (s.highlight && s.highlight !== "white" && s.highlight !== "black") node.style.backgroundColor = HIGHLIGHT[s.highlight] || `color-mix(in srgb, ${s.highlight} 40%, transparent)`;
       }
       node.dataset.off = String(off);
@@ -375,11 +387,110 @@
     frag.appendChild(footers);
     paper.replaceChildren(frag);
     paper.contentEditable = view === "original" ? "false" : "true";
+    pageSetup();
+  }
+
+  // ----------------------------------------------- page à l'échelle de Word
+  // La page garde ses proportions réelles (format, marges, tailles en
+  // points) et suit la largeur du panneau, comme « Largeur de page » dans
+  // Word : `--pt` vaut un point du document à l'échelle courante.
+  const PT = 4 / 3;
+  const lnLayer = $("lnums");
+  function pageSetup() {
+    const pg = model?.page;
+    paper.classList.toggle("pg", !!pg);
+    if (!pg) return;
+    const u = (v        ) => `calc(var(--pt) * ${v})`;
+    paper.style.width = u(pg.width);
+    paper.style.padding = `${u(pg.top)} ${u(pg.right)} ${u(pg.bottom)} ${u(pg.left)}`;
+    fitPage();
+  }
+  function fitPage() {
+    const pg = model?.page;
+    if (!pg) return;
+    const cs = getComputedStyle(scroller);
+    const room = scroller.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const z = Math.max(0.4, Math.min(1.5, room / (pg.width * PT)));
+    document.documentElement.style.setProperty("--pt", `${(PT * z).toFixed(4)}px`);
+    scheduleLines();
+  }
+  function applyLook(el             , l      ) {
+    const u = (v        ) => `calc(var(--pt) * ${v})`;
+    el.classList.add("lk");
+    const st = el.style;
+    if (l.font) st.fontFamily = `"${l.font}", "Times New Roman", serif`;
+    if (l.size) st.fontSize = u(l.size);
+    if (l.b) st.fontWeight = "bold";
+    if (l.i) st.fontStyle = "italic";
+    if (l.caps) st.textTransform = "uppercase";
+    if (l.color && l.color !== "000000") { el.classList.add("ink"); st.setProperty("--ink", `#${l.color}`); }
+    // Word compte une ligne simple à environ 1,15 fois la taille du corps.
+    if (l.line_exact) st.lineHeight = u(l.line_exact);
+    else if (l.line_min) st.lineHeight = `max(1.15em, ${u(l.line_min)})`;
+    else st.lineHeight = String(1.15 * (l.line ?? 1));
+    // Espacements en remplissage : Word les additionne, la marge CSS les fusionnerait.
+    if (l.before) st.paddingTop = u(l.before);
+    if (l.after) st.paddingBottom = u(l.after);
+    if (l.left) st.paddingLeft = u(l.left);
+    if (l.right) st.paddingRight = u(l.right);
+    if (l.first) st.textIndent = u(l.first);
+    if (l.no_ln) el.dataset.noLn = "1";
+    if (l.align && l.align !== "left") el.classList.add(`a-${l.align}`);
+  }
+
+  // Numéros de ligne de Word, dans la marge de gauche, comptés ligne
+  // affichée par ligne affichée sur les paragraphes du corps.
+  let linesFrame = 0;
+  function scheduleLines() {
+    if (linesFrame) return;
+    linesFrame = requestAnimationFrame(() => { linesFrame = 0; drawLines(); });
+  }
+  function drawLines() {
+    const ln = model?.page?.line_numbers;
+    if (!ln || !model?.page) { lnLayer.replaceChildren(); return; }
+    const pt = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pt")) || PT;
+    const host = scroller.getBoundingClientRect();
+    const box = paper.getBoundingClientRect();
+    const right = box.left + (model.page.left - ln.distance) * pt - host.left + scroller.scrollLeft;
+    const size = (ln.size || 10) * pt;
+    const frag = document.createDocumentFragment();
+    let n = ln.start;
+    const range = document.createRange();
+    for (const el of Array.from(paper.children)                 ) {
+      if (!el.classList.contains("d-p") || el.dataset.noLn) continue;
+      range.selectNodeContents(el);
+      const rects = Array.from(range.getClientRects()).filter((r) => r.height > 0).sort((a, b) => a.top - b.top);
+      const lines                                    = [];
+      for (const r of rects) {
+        const last = lines[lines.length - 1];
+        if (last && r.top < last.bottom - 2) last.bottom = Math.max(last.bottom, r.bottom);
+        else lines.push({ top: r.top, bottom: r.bottom });
+      }
+      if (!lines.length) {
+        const b = el.getBoundingClientRect();
+        const top = b.top + parseFloat(getComputedStyle(el).paddingTop);
+        lines.push({ top, bottom: top + size * 1.15 });
+      }
+      for (const line of lines) {
+        if (n % ln.count_by === 0) {
+          const num = document.createElement("span");
+          num.textContent = String(n);
+          num.style.fontSize = `${size}px`;
+          num.style.left = `${right}px`;
+          num.style.top = `${line.bottom - host.top + scroller.scrollTop - size * 1.15}px`;
+          frag.appendChild(num);
+        }
+        n++;
+      }
+    }
+    if (ln.font) lnLayer.style.fontFamily = `"${ln.font}", "Times New Roman", serif`;
+    lnLayer.replaceChildren(frag);
   }
 
   function repaint(idx        ) {
     const old = paper.querySelector(`.d-p[data-idx="${idx}"]`);
     if (old) old.replaceWith(renderPara(idx));
+    scheduleLines();
   }
 
   // ------------------------------------------------ positions ↔ DOM
@@ -1256,6 +1367,7 @@
     const visible = view === "revue";
     // Sans fiche à montrer, la marge de revue disparaît : la page reprend la largeur du panneau.
     document.body.classList.toggle("no-margin", !visible || !cardItems.length);
+    fitPage();
     const base = cardsEl.getBoundingClientRect().top;
     let bottom = 0;
     const order                                   = [];
@@ -1457,7 +1569,6 @@
   // Curseur dessiné à la place du natif : WebKit lui donne toute la hauteur
   // de ligne (1,7), Word le garde à la hauteur des lettres.
   const caret = $("caret");
-  const scroller = $("scroll");
   function placeCaret() {
     const s = getSelection();
     const node = s && s.rangeCount ? s.focusNode : null;
@@ -1481,6 +1592,8 @@
     caret.classList.add("on");
   }
   paper.addEventListener("focus", placeCaret);
+  paper.addEventListener("input", scheduleLines);
+  document.fonts?.ready.then(scheduleLines).catch(() => undefined);
   paper.addEventListener("blur", () => caret.classList.remove("on"));
   addEventListener("resize", placeCaret);
   document.addEventListener("selectionchange", () => {

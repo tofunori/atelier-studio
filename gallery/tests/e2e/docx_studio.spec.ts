@@ -95,8 +95,11 @@ test('docx: la frappe, Entrée et le retour arrière arrivent en suivi signé da
   await expect(page.locator('#caret')).toHaveClass(/\bon\b/);
   const [cb, pb] = await Promise.all([page.locator('#caret').boundingBox(), page.locator('.d-p[data-idx="2"]').boundingBox()]);
   expect(cb!.width).toBeLessThanOrEqual(1.5);
-  expect(cb!.height).toBeGreaterThan(12);
-  expect(cb!.height).toBeLessThanOrEqual(19);
+  const fs = await page.locator('.d-p[data-idx="2"]').evaluate(el => parseFloat(getComputedStyle(el).fontSize));
+  const lh = await page.locator('.d-p[data-idx="2"]').evaluate(el => parseFloat(getComputedStyle(el).lineHeight));
+  expect(cb!.height).toBeGreaterThan(fs * 0.9);
+  expect(cb!.height).toBeLessThanOrEqual(fs * 1.3);
+  expect(cb!.height).toBeLessThan(lh);
   expect(cb!.y).toBeGreaterThanOrEqual(pb!.y);
   expect(cb!.y + cb!.height).toBeLessThanOrEqual(pb!.y + pb!.height);
   await expect.poll(async () => (await disk(page, project)).paragraphs[2].text).toContain('retenu ici, fixé a priori, offre');
@@ -293,4 +296,25 @@ test('docx: lignes et colonnes de tableau depuis la barre', async ({page, projec
   await page.locator('#btnTable').click();
   await page.locator('.menu .mi', {hasText: 'Supprimer la colonne'}).click();
   await expect.poll(cells).toBe(6);
+});
+
+test('docx: la page suit les styles de Word, ses marges et ses numéros de ligne', async ({page, project}) => {
+  await open(page, project);
+  const title = page.locator('.d-p[data-idx="0"]');
+  await expect(title).toHaveCSS('font-weight', '700');
+  // Légende : italique et centrée par son style.
+  const caption = page.locator('.d-p', {hasText: 'Figure 2.4 – Fraction'});
+  await expect(caption).toHaveCSS('font-style', 'italic');
+  await expect(caption).toHaveCSS('text-align', 'center');
+  // Numéros continus dans la marge de gauche, à gauche du texte.
+  await expect(page.locator('#lnums span').first()).toHaveText('1');
+  const [num, text] = await Promise.all([page.locator('#lnums span').first().boundingBox(), title.boundingBox()]);
+  expect(num!.x + num!.width).toBeLessThan(text!.x);
+  // La page suit la largeur du panneau, proportions gardées (Lettre US).
+  const wide = (await page.locator('#paper').boundingBox())!;
+  await page.setViewportSize({width: 700, height: 900});
+  await expect.poll(async () => (await page.locator('#paper').boundingBox())!.width).toBeLessThan(wide.width);
+  const narrow = (await page.locator('#paper').boundingBox())!;
+  expect(narrow.x).toBeGreaterThanOrEqual(0);
+  expect(narrow.x + narrow.width).toBeLessThanOrEqual(700);
 });
