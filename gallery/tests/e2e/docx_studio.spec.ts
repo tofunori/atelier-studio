@@ -351,4 +351,18 @@ test('docx: le texte se coupe en pages comme dans Word, numéros de ligne repris
   await page.keyboard.type('§');
   await expect.poll(async () => (await disk(page, project)).paragraphs[cut.idx].text).toContain(`§${cut.next}`);
   expect((await disk(page, project)).paragraphs.length).toBe(m.paragraphs.length + 10);
+  // La frappe ne recoupe qu'à partir de sa feuille : le résultat doit être
+  // celui d'une mise en page complète (rechargement).
+  const late = (await disk(page, project)).paragraphs.findIndex(p => p.text.startsWith('1. '));
+  expect(await page.evaluate(i => document.querySelector(`.d-p[data-idx="${i}"]`)!.getBoundingClientRect().top - document.querySelectorAll('#sheets .sheet')[2].getBoundingClientRect().top, late)).toBeGreaterThan(0);
+  await caretAfter(page, late, '1. Les glaciers');
+  await page.keyboard.type(' — une incise assez longue pour ajouter une ligne au paragraphe et décaler toute la suite du document', {delay: 5});
+  await expect.poll(async () => (await disk(page, project)).paragraphs[late].text).toContain('toute la suite du document');
+  const layout = () => page.evaluate(() => Array.from(document.querySelectorAll('#lnums span')).map(e => `${e.textContent}@${Math.round((e as HTMLElement).offsetTop)}`).join(' '));
+  await page.waitForTimeout(300);
+  const typed = await layout();
+  await page.reload();
+  await expect(page.locator('#sheets .sheet').nth(1)).toBeAttached();
+  await page.waitForTimeout(300);
+  expect(await layout()).toBe(typed);
 });

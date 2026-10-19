@@ -455,23 +455,64 @@
     if (l.align && l.align !== "left") el.classList.add(`a-${l.align}`);
   }
 
+  // Mise en page différée à l'image suivante. `dirtyFrom` : premier
+  // paragraphe retouché ; la coupe repart une feuille avant lui, le début du
+  // document garde ses coupures (la frappe ne refait pas tout le manuscrit).
   let linesFrame = 0;
-  function scheduleLines() {
+  let dirtyFrom: number | null = null;
+  let dirtyAll = false;
+  function scheduleLines(from?: number) {
+    if (typeof from === "number") dirtyFrom = dirtyFrom === null ? from : Math.min(dirtyFrom, from);
+    else dirtyAll = true;
     if (linesFrame) return;
-    linesFrame = requestAnimationFrame(() => { linesFrame = 0; layoutPages(); });
+    linesFrame = requestAnimationFrame(() => {
+      linesFrame = 0;
+      const from = dirtyAll ? null : dirtyFrom;
+      dirtyAll = false;
+      dirtyFrom = null;
+      layoutPages(from);
+    });
   }
-  function layoutPages() {
+  /** Blocs du flux, dans l'ordre : paragraphes, lignes de tableau, notes,
+   *  en-têtes et pieds particuliers ; les en-tête et pied courants sont épinglés. */
+  function flowBlocks(): HTMLElement[] {
+    const blocks: HTMLElement[] = [];
+    for (const c of Array.from(paper.children) as HTMLElement[]) {
+      if (c.classList.contains("d-p")) blocks.push(c);
+      else if (c.tagName === "TABLE") blocks.push(...(Array.from((c as HTMLTableElement).rows) as HTMLElement[]));
+      else if ((c.classList.contains("d-notes") || c.classList.contains("d-zone")) && !c.classList.contains("pinned")) blocks.push(...(Array.from(c.querySelectorAll(".d-p")) as HTMLElement[]));
+    }
+    return blocks;
+  }
+  function layoutPages(from: number | null = null) {
     const pg = model?.page;
     if (!pg) return;
     const s = getSelection();
     const keep = s && s.rangeCount && paper.contains(s.anchorNode) ? readSel() : null;
+    const blocks = flowBlocks();
+    const stride = pg.height * ptPx + GAP;
+    const o = paper.getBoundingClientRect().top;
+    // Premier bloc à recouper : le premier de la feuille qui précède le paragraphe retouché.
+    let start = 0;
+    let page = 0;
+    const el = from === null ? null : paper.querySelector(`.d-p[data-idx="${from}"]`);
+    const at = el ? blocks.findIndex((b) => b === el || b.contains(el)) : -1;
+    if (at > 0) {
+      page = Math.max(0, Math.floor((blocks[at].getBoundingClientRect().top - o) / stride) - 1);
+      const limit = page * stride - 1;
+      start = blocks.findIndex((b) => b.getBoundingClientRect().top - o >= limit);
+      if (start <= 0) { start = 0; page = 0; }
+    }
+    const first = blocks[start];
     for (const g of Array.from(paper.querySelectorAll(".d-gap"))) {
+      // Les coupures avant le premier bloc recoupé restent en place.
+      if (start > 0 && first && !(first.compareDocumentPosition(g) & (Node.DOCUMENT_POSITION_FOLLOWING | Node.DOCUMENT_POSITION_CONTAINED_BY))) continue;
       const parent = g.parentNode;
       g.remove();
       parent?.normalize();
     }
     paper.style.minHeight = "";
-    const pages = paginate(pg);
+    const pages = paginate(pg, blocks, start, page);
     if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
     drawSheets(pg, pages);
     drawLines(pg);
@@ -532,21 +573,13 @@
   }
 
   /** Coupe le flux en feuilles ; rend le nombre de feuilles. */
-  function paginate(pg: Page): number {
+  function paginate(pg: Page, blocks: HTMLElement[], start = 0, page0 = 0): number {
     const pt = ptPx, pageH = pg.height * pt, stride = pageH + GAP;
     const o = paper.getBoundingClientRect().top;
     const topOf = (k: number) => k * stride + pg.top * pt;
     const bottomOf = (k: number) => k * stride + pageH - pg.bottom * pt;
     const pageAt = (y: number) => Math.max(0, Math.floor(y / stride));
     const lookOf = (el: Element) => (el as HTMLElement).dataset.idx !== undefined ? model!.paragraphs[Number((el as HTMLElement).dataset.idx)]?.look || {} : {};
-    // Blocs du flux, dans l'ordre : paragraphes, lignes de tableau, notes,
-    // en-têtes et pieds particuliers ; les en-tête et pied courants sont épinglés.
-    const blocks: HTMLElement[] = [];
-    for (const c of Array.from(paper.children) as HTMLElement[]) {
-      if (c.classList.contains("d-p")) blocks.push(c);
-      else if (c.tagName === "TABLE") blocks.push(...(Array.from((c as HTMLTableElement).rows) as HTMLElement[]));
-      else if ((c.classList.contains("d-notes") || c.classList.contains("d-zone")) && !c.classList.contains("pinned")) blocks.push(...(Array.from(c.querySelectorAll(".d-p")) as HTMLElement[]));
-    }
     const topOfEl = (el: Element) => el.getBoundingClientRect().top - o;
     // Intervalle avant un bloc entier ; le premier paragraphe d'une note emporte son numéro.
     const gapBefore = (el: HTMLElement, target: number) => {
@@ -559,9 +592,9 @@
         host.before(tr);
       } else host.before(gapEl(false, h));
     };
-    let page = 0;
+    let page = page0;
     let forceNext = false;
-    for (let b = 0; b < blocks.length; b++) {
+    for (let b = start; b < blocks.length; b++) {
       const el = blocks[b];
       if (el.tagName === "TR") {
         const r = el.getBoundingClientRect();
@@ -601,7 +634,7 @@
         if (at === 0) {
           // Les paragraphes « garder avec le suivant » partent avec lui.
           let k = b;
-          while (k > 0 && blocks[k - 1].classList.contains("d-p") && blocks[k - 1].parentElement === el.parentElement && lookOf(blocks[k - 1]).keep_next && topOfEl(blocks[k - 1]) > topOf(page) + 1) k--;
+          while (k > start && blocks[k - 1].classList.contains("d-p") && blocks[k - 1].parentElement === el.parentElement && lookOf(blocks[k - 1]).keep_next && topOfEl(blocks[k - 1]) > topOf(page) + 1) k--;
           const first = blocks[k];
           if (topOfEl(first) <= topOf(page) + 1) {
             // Déjà en haut de feuille : couper dans le paragraphe, ou laisser déborder.
@@ -710,9 +743,15 @@
   }
 
   function repaint(idx: number) {
-    const old = paper.querySelector(`.d-p[data-idx="${idx}"]`);
-    if (old) old.replaceWith(renderPara(idx));
-    scheduleLines();
+    const old = paper.querySelector(`.d-p[data-idx="${idx}"]`) as HTMLElement | null;
+    if (!old) { scheduleLines(); return; }
+    // Hauteur inchangée et pas de coupure dedans : rien ne bouge en dessous,
+    // la mise en page reste valable (le cas de presque toutes les frappes).
+    const same = model?.page && !old.querySelector(".d-gap") ? old.offsetHeight : -1;
+    const next = renderPara(idx);
+    old.replaceWith(next);
+    if (same >= 0 && next.offsetHeight === same) return;
+    scheduleLines(idx);
   }
 
   // ------------------------------------------------ positions ↔ DOM
@@ -1820,11 +1859,17 @@
     caret.classList.add("on");
   }
   paper.addEventListener("focus", placeCaret);
-  paper.addEventListener("input", scheduleLines);
+  paper.addEventListener("input", () => scheduleLines());
   // Une image qui arrive après la mise en page déplace la suite : on recoupe.
-  paper.addEventListener("load", (e) => { if ((e.target as HTMLElement).tagName === "IMG") scheduleLines(); }, true);
-  paper.addEventListener("error", (e) => { if ((e.target as HTMLElement).tagName === "IMG") scheduleLines(); }, true);
-  document.fonts?.ready.then(scheduleLines).catch(() => undefined);
+  const imageArrived = (e: Event) => {
+    const img = e.target as HTMLElement;
+    if (img.tagName !== "IMG") return;
+    const idx = (img.closest(".d-p") as HTMLElement | null)?.dataset.idx;
+    scheduleLines(idx === undefined ? undefined : Number(idx));
+  };
+  paper.addEventListener("load", imageArrived, true);
+  paper.addEventListener("error", imageArrived, true);
+  document.fonts?.ready.then(() => scheduleLines()).catch(() => undefined);
   paper.addEventListener("blur", () => caret.classList.remove("on"));
   addEventListener("resize", placeCaret);
   document.addEventListener("selectionchange", () => {
