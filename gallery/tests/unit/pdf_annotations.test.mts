@@ -70,10 +70,12 @@ test('clicking away attaches the note; Shift+Enter is available for multiline in
 });
 
 test('annotation writes are serialized snapshots, HTTP errors are not success', async () => {
-  const calls=[];let release;
+  const calls=[];let release;const statuses: string[]=[];
   const context=vm.createContext({
     ANNOTS_LOADED:true,ANNOT_SAVE:Promise.resolve(true),PDF_ANNOTS:[{id:'a',note:'first'}],rel:'paper.pdf',
-    KNOWN_IDS:new Set(['seen']),SAVE_SEQ:0,
+    KNOWN_IDS:new Set(['seen']),SAVE_SEQ:0,ANNOTS_UNSAVED:false,ANNOT_RETRY_TIMER:null,ANNOT_RETRY_ATTEMPT:0,
+    retries:0,ANNOTS_SAVE_FAILED_MSG:'Annotation non enregistrée',ANNOTS_SAVED_AGAIN_MSG:'Annotations enregistrées.',
+    annotStatus(text){statuses.push(text);},clearAnnotStatus(){},scheduleAnnotRetry(){context.retries++;},
     annPane:{refresh(..._args){}},document:{getElementById:()=>({textContent:''})},
     fetch:async (_url,init: { body: string; })=>{calls.push(JSON.parse(init.body));if(calls.length===1)await new Promise(r=>{release=r;});return {ok:calls.length===1,status:500,json:async()=>({ok:true})};},
   });
@@ -86,6 +88,10 @@ test('annotation writes are serialized snapshots, HTTP errors are not success', 
   assert.deepEqual(calls[0].known,['seen']);assert.deepEqual(calls[1].known,['seen']);
   assert.ok(context.KNOWN_IDS.has('a'));
   assert.equal(context.SAVE_SEQ,2);
+  // l'échec reste signalé et un nouvel essai est programmé (audit 2026-10-18, problème 10)
+  assert.equal(context.ANNOTS_UNSAVED,true);
+  assert.equal(context.retries,1);
+  assert.match(statuses.at(-1),/non enregistrée/);
 });
 
 test('a store change is merged without losing local work', () => {

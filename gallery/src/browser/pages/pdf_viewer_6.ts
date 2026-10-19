@@ -2315,18 +2315,64 @@ let ANNOTS_LOADED = false;  // garde anti-écrasement : jamais de POST avant un 
 // fenêtre pendant la lecture — au lieu de l'écraser avec notre liste.
 const KNOWN_IDS = new Set();
 let SAVE_SEQ = 0;           // sauvegardes demandées (voir syncAnnotsFromStore)
+// Un enregistrement a échoué et n'est pas encore rattrapé : le lecteur
+// retente (recul croissant, et dès que la veille revoit le serveur).
+let ANNOTS_UNSAVED = false;
+let ANNOT_RETRY_TIMER: ReturnType<typeof setTimeout> | null = null;
+let ANNOT_RETRY_ATTEMPT = 0;
+function scheduleAnnotRetry(){
+  if (ANNOT_RETRY_TIMER) return;
+  ANNOT_RETRY_TIMER = setTimeout(() => { ANNOT_RETRY_TIMER = null; void saveAnnots(); },
+    annotRetryDelay(ANNOT_RETRY_ATTEMPT++));
+}
+function retryAnnotSaveNow(){
+  if (!ANNOTS_UNSAVED) return;
+  if (ANNOT_RETRY_TIMER) { clearTimeout(ANNOT_RETRY_TIMER); ANNOT_RETRY_TIMER = null; }
+  void saveAnnots();
+}
+// Fermeture de l'onglet avec un enregistrement en échec : dernier envoi.
+window.addEventListener("pagehide", () => {
+  if (!ANNOTS_UNSAVED || !ANNOTS_LOADED) return;
+  const sent = PDF_ANNOTS.map(({fresh, ...a}) => a);
+  try {
+    void fetch("/pdfannot", {method: "POST", keepalive: true, headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({rel, annots: sent, known: [...KNOWN_IDS]})}).catch(() => {});
+  } catch(e) { /* corps trop gros pour keepalive : rien de plus possible à la fermeture */ }
+});
 function redrawAllAnnots(){
   document.querySelectorAll<HTMLElement>(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
   if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
   annPane.refresh();
 }
+// Retour d'état des annotations (audit 2026-10-18, problème 10) : un
+// chargement ou un enregistrement raté reste affiché dans #status tant qu'il
+// n'est pas rattrapé, et le lecteur retente seul, sans abandonner.
+const ANNOTS_LOAD_FAILED_MSG = "Annotations non chargées — nouvel essai automatique…";
+const ANNOTS_SAVE_FAILED_MSG = "Annotation non enregistrée — nouvel essai automatique…";
+const ANNOTS_SAVED_AGAIN_MSG = "Annotations enregistrées.";
+function annotStatus(text: string){
+  const el = document.getElementById("status") as HTMLSpanElement | null;
+  if (el) el.textContent = text;
+}
+function clearAnnotStatus(text: string){
+  const el = document.getElementById("status") as HTMLSpanElement | null;
+  if (el && el.textContent === text) el.textContent = "";
+}
+/** Délai du prochain essai : 2 s, 4 s, 8 s… plafonné à 30 s. */
+function annotRetryDelay(attempt: number){ return Math.min(2000 * 2 ** Math.min(attempt, 4), 30000); }
 function loadAnnots(attempt: number){
   fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>{ if(!r.ok) throw new Error("Chargement impossible"); return r.json(); })
     .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
       PDF_ANNOTS.forEach((a) => KNOWN_IDS.add(String(a.id)));
+      clearAnnotStatus(ANNOTS_LOAD_FAILED_MSG);
       redrawAllAnnots();
       revealTargetAnnot(); })
-    .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
+    .catch(()=>{
+      // jamais d'abandon : sans chargement, aucune annotation ne peut être
+      // enregistrée (ANNOTS_LOADED), il faut donc que l'échec se voie
+      if((attempt||0) >= 1) annotStatus(ANNOTS_LOAD_FAILED_MSG);
+      setTimeout(()=>loadAnnots((attempt||0)+1), annotRetryDelay(attempt||0));
+    });
 }
 loadAnnots(0);
 if (rel) loadCodebook().then(changed => { if (changed) redrawAllAnnots(); });
@@ -2408,6 +2454,9 @@ if (rel) (async function(){
     try {
       const next = await annotStoreStamp();
       if (next === null) return;
+      // serveur revu : l'enregistrement en échec part avant toute relecture,
+      // pour que la fusion ne reprenne pas l'ancienne version du store
+      retryAnnotSaveNow();
       const storeMoved = !stamp || next.store !== stamp.store;
       const bookMoved = !stamp || next.codebook !== stamp.codebook;
       if (!storeMoved && !bookMoved) return;
@@ -2455,9 +2504,19 @@ function saveAnnots(){
       const result = await response.json();
       if(result.error) throw new Error(result.error);
       sent.forEach(a => KNOWN_IDS.add(String(a.id)));
+      if (ANNOTS_UNSAVED) {
+        // la liste entière part à chaque envoi : ce succès rattrape l'échec
+        ANNOTS_UNSAVED = false;
+        ANNOT_RETRY_ATTEMPT = 0;
+        if (ANNOT_RETRY_TIMER) { clearTimeout(ANNOT_RETRY_TIMER); ANNOT_RETRY_TIMER = null; }
+        annotStatus(ANNOTS_SAVED_AGAIN_MSG);
+        setTimeout(() => clearAnnotStatus(ANNOTS_SAVED_AGAIN_MSG), 3000);
+      }
       return true;
     } catch(error) {
-      (document.getElementById("status") as HTMLSpanElement).textContent = "Annotation non enregistrée — réessaie depuis la note.";
+      ANNOTS_UNSAVED = true;
+      annotStatus(ANNOTS_SAVE_FAILED_MSG);
+      scheduleAnnotRetry();
       return false;
     }
   });
@@ -4088,7 +4147,8 @@ if(window.self !== window.top){
     header{background:var(--surface-header,#1a1d22) !important;border-bottom:1px solid var(--border,#333a45) !important;
       padding:4px 10px !important;min-height:0 !important;gap:10px}
     header #fname{font-weight:500;font-size:var(--fs-body,13px);color:var(--txt)}
-    header .muted{display:none}
+    header .muted:not(#status){display:none}
+    header #status:empty{display:none}
     header #selinfo{color:var(--muted) !important;font-size:var(--fs-body-s,12px)}
     header #status{font-size:var(--fs-body-s,12px)}
     header button{background:transparent !important;border:none !important;

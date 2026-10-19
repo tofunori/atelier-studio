@@ -4271,7 +4271,9 @@ export default function App() {
               try {
                 await navigator.clipboard.writeText(md);
                 showSuccess(t("highlights.export-copied"));
-              } catch {}
+              } catch {
+                void showError(t("action.copy-failed"));
+              }
             }}
             onCompact={() => setCompact(true)}
           />
