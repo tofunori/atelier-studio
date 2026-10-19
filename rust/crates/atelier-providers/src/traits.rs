@@ -78,6 +78,21 @@ pub struct AtelierMcpLaunch {
     /// Spécialiste du fil avec des connecteurs : SEULS ces serveurs MCP
     /// restent branchés (plus atelier). `None` = config MCP habituelle.
     pub restriction: Option<RestrictionMcp>,
+    /// Skills du spécialiste : les autres skills du Mac sont coupés pour ce
+    /// fil. `None` = tous les skills.
+    pub skills: Option<RestrictionSkills>,
+}
+
+/// Skills coupés pour un fil (plan specialistes-2026-10-18), noms déjà
+/// relevés par le runtime dans les dossiers que lit chaque CLI.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RestrictionSkills {
+    /// Claude : `skillOverrides` à `"off"` ; Codex : `skills.config` avec
+    /// `enabled = false`.
+    pub coupes: Vec<String>,
+    /// Claude : skills du compte claude.ai (`anthropic-skills:<nom>`), que
+    /// `skillOverrides` ne touche pas ; refusés par règle `Skill(…)`.
+    pub comptes_coupes: Vec<String>,
 }
 
 /// Connecteurs d'un spécialiste (plan specialistes-2026-10-18), déjà mis
@@ -586,6 +601,7 @@ mod tests {
             ]),
             linked: false,
             restriction: None,
+            skills: None,
         };
 
         assert_eq!(
@@ -615,6 +631,7 @@ mod tests {
                 env: HashMap::from([("ATELIER_MCP_CAPABILITY".into(), jeton.to_string())]),
                 linked: false,
                 restriction: None,
+                skills: None,
             }))
         };
         assert_eq!(

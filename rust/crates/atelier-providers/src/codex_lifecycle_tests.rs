@@ -121,6 +121,7 @@ async fn first_message_after_goal_read_still_initializes_thread_mcp() {
         env: Default::default(),
         linked: false,
         restriction: None,
+        skills: None,
     });
     assert!(provider.send(req).await.ok);
     let requests = fake.requests();
