@@ -140,7 +140,7 @@ final class PDFReadingFlowTests: XCTestCase {
 
     func testHighlightCoversTheSpacesBetweenMarkedWords() {
         let text = "This is very important"
-        let anchors: [PDFReadingAnchor?] = text.utf16.indices.enumerated().map { index, unit in
+        let anchors: [PDFReadingAnchor?] = text.utf16.enumerated().map { index, unit in
             unit == 0x20 ? nil : PDFReadingAnchor(offset: index, bounds: CGRect(x: Double(index) * 5, y: 100, width: 5, height: 9), line: 0)
         }
         let block = PDFReadingBlock(id: 0, text: text, heading: false, anchors: anchors)
@@ -150,7 +150,7 @@ final class PDFReadingFlowTests: XCTestCase {
                        [NSRange(location: 0, length: 4), NSRange(location: 13, length: 9)])
     }
 
-    func testReadingTextShowsScriptsParagraphNumberAndFigureLink() {
+    @MainActor func testReadingTextShowsScriptsParagraphNumberAndFigureLink() {
         let text = "[29] Snow (Figure 9a) with r0e"
         var levels = [Int8](repeating: 0, count: text.utf16.count); levels[28] = 1; levels[29] = -1
         let font = UIFont.systemFont(ofSize: 18)
