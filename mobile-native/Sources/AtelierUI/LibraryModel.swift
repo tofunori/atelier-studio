@@ -50,10 +50,24 @@ struct LibraryNote: Codable, Identifiable {
         if let folder = self.folder {
             // articles.json is a cache of the Mac's Zotero list, rewritten on refresh.
             articles = (try? JSONDecoder().decode([LibraryArticle].self, from: Data(contentsOf: folder.appendingPathComponent("articles.json")))) ?? []
-            do {
-                notes = try JSONDecoder().decode([LibraryNote].self, from: Data(contentsOf: folder.appendingPathComponent("notes.json")))
-            } catch let error as CocoaError where error.code == .fileReadNoSuchFile {} catch { loadError = error.localizedDescription }
+            readNotes()
         }
+    }
+    /// Reads notes.json: absent = no note; unreadable = loadError, file kept.
+    private func readNotes() {
+        guard let folder else { return }
+        do {
+            notes = try JSONDecoder().decode([LibraryNote].self, from: Data(contentsOf: folder.appendingPathComponent("notes.json")))
+            loadError = nil
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            notes = []; loadError = nil
+        } catch { loadError = error.localizedDescription }
+    }
+    /// An unreadable notes.json is read again before refusing a write: once it
+    /// is repaired, saving works without relaunching the app.
+    private func writableNotes() throws {
+        if loadError != nil { readNotes() }
+        guard loadError == nil else { throw StoreError.unavailable }
     }
     func refresh(using gallery: GalleryModel) async {
         let id = UUID(); refreshID = id
@@ -111,7 +125,7 @@ struct LibraryNote: Codable, Identifiable {
     }
     func save(_ draft: AnnotationDraft) throws {
         guard let key = draft.passage.articleKey else { return }
-        guard loadError == nil else { throw StoreError.unavailable }
+        try writableNotes()
         let previous = notes.first { $0.id == draft.id }
         var updated = notes.filter { $0.id != draft.id }
         updated.append(LibraryNote(id: draft.id, articleKey: key, citation: draft.passage.citation, passage: draft.passage.text, text: draft.note, date: Date(), zoteroKey: previous?.zoteroKey, zoteroVersions: previous?.zoteroVersions, syncedText: previous?.syncedText))

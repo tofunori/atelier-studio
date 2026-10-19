@@ -188,6 +188,11 @@ final class RedesignTests: XCTestCase {
             XCTAssertThrowsError(try broken.save(draft), corrupt)
             XCTAssertEqual(try Data(contentsOf: file), Data(corrupt.utf8), corrupt)
             XCTAssertTrue(broken.notes.isEmpty)
+            // repaired without relaunching: the next save is accepted
+            try Data("[]".utf8).write(to: file)
+            XCTAssertNoThrow(try broken.save(draft), corrupt)
+            XCTAssertNil(broken.loadError, corrupt)
+            XCTAssertEqual(broken.notes.count, 1, corrupt)
         }
     }
     @MainActor func testReadingNotesPersistDistinctOccurrencesAndPreserveAnchorOnEdit() throws {
