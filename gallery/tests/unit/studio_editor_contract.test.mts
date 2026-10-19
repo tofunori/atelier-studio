@@ -212,7 +212,14 @@ test("all editor surfaces delegate document lifecycle to the shared TypeScript s
     assert.match(implementation, /(?:AtelierStudioCore\.)?createDocumentSession/);
   }
   assert.match(latexSurfaceSource, /externalReload:\s*["']when-clean["']/);
-  assert.match(codeSurfaceSource, /externalReload:\s*["']always["']/);
+  // Audit 2026-10-18, problème 4 : « always » rechargeait le disque par-dessus
+  // un tampon modifié. Le code suit le disque quand il est propre et fusionne
+  // (ou signale le conflit) sinon, comme LaTeX.
+  assert.match(codeSurfaceSource, /externalReload:\s*["']when-clean["']/);
+  assert.doesNotMatch(codeSurfaceSource, /externalReload:\s*["']always["']/);
+  for (const implementation of [latexSurfaceSource, codeSurfaceSource]) {
+    assert.match(implementation, /conflictPolicy:\s*["']merge["']/);
+  }
   assert.match(markdownSurfaceSource, /externalReload:\s*["']when-clean["']/);
 });
 

@@ -1,6 +1,7 @@
 mod agent;
 mod codes;
 mod documents;
+mod drafts;
 mod files;
 mod gallery;
 mod git;
@@ -81,8 +82,9 @@ pub(crate) struct AppState {
     chrome_sem: Arc<Semaphore>,
     /// Whiteboard command queue (drained by GET /board/poll).
     board: Arc<Mutex<BoardQueue>>,
-    /// Serialize notes/board disk writes.
-    workspace_lock: Arc<Mutex<()>>,
+    /// Serialize notes/board disk writes ; garde la dernière version écrite
+    /// par chaque fenêtre (`writer`), voir `workspace::stale_base`.
+    workspace_lock: Arc<Mutex<workspace::WorkspaceWriters>>,
     /// Zotero readonly copy mtime cache.
     zotero: Arc<std::sync::Mutex<ZoteroCache>>,
     /// Coquille live `/` (+`/figures_index.html`) rendue au boot depuis le
@@ -2547,7 +2549,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         thumb_sem: Arc::new(Semaphore::new(thumb_permits)),
         chrome_sem: Arc::new(Semaphore::new(2)),
         board: Arc::new(Mutex::new(BoardQueue::default())),
-        workspace_lock: Arc::new(Mutex::new(())),
+        workspace_lock: Arc::new(Mutex::new(workspace::WorkspaceWriters::default())),
         zotero: Arc::new(std::sync::Mutex::new(ZoteroCache::default())),
         started_at,
         app_version,
@@ -2586,6 +2588,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/codesave", post(files::codesave))
         .route("/save-svg", post(files::save_svg))
         .route("/selinfo", post(files::selinfo))
+        // Brouillons de secours des éditeurs : un tampon non enregistré
+        // survit au démontage de l'iframe (onglet fermé, projet changé, app
+        // quittée). Même plafond que le journal des versions.
+        .route(
+            "/draft",
+            get(drafts::get_draft)
+                .post(drafts::post_draft)
+                .layer(axum::extract::DefaultBodyLimit::max(drafts::DRAFT_MAX_BYTES + 64 * 1024)),
+        )
         // Phase 2 — galerie, miniatures, actions, toast events
         .route("/thumb", get(gallery::thumb))
         .route("/rasterize", get(gallery::rasterize))

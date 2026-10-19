@@ -1471,6 +1471,9 @@ const annPane = (function(){
     ta.onblur = () => finish(true);
     requestAnimationFrame(() => {
       fit();
+      // Déjà dans le champ (frappe rapide, sélection faite) : ne pas
+      // ramener le curseur à la fin, la saisie s'ajouterait au texte.
+      if (document.activeElement === ta) return;
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
     });
@@ -1493,20 +1496,59 @@ const annPane = (function(){
       return;
     }
     if (!LIB || !Array.isArray(LIB[relX])) return;
-    // `known` : ce qui n'est pas dans notre copie (posé ailleurs depuis) reste.
-    fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({rel: relX, annots: LIB[relX], known: LIB[relX].map(x => String(x.id))})})
-      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); })
-      .catch(() => {
-        (document.getElementById("status") as HTMLSpanElement).textContent = "Note non enregistrée — réessaie.";
-      });
+    void commitLibField(relX, a, field, value, before);
+  }
+  // Autre article, depuis la portée Bibliothèque : LIB est un instantané
+  // chargé une fois. Réécrire LIB[relX] tel quel ramenait en arrière ce que
+  // l'onglet de l'article, le MCP ou l'iPhone avaient changé depuis, et
+  // recréait ce qu'ils avaient retiré (audit du 2026-10-18, problème 7).
+  // On relit donc l'article, on n'y change que ce champ, puis on écrit la
+  // liste relue (son `known` est à jour).
+  async function commitLibField(relX: string, a, field: string, value: string, before: string){
+    const restore = () => {
+      if (field === "memo" && !before) delete a.memo; else a[field] = before;
+    };
+    try {
+      const r = await fetch("/pdfannot?rel=" + encodeURIComponent(relX));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const fresh = (await r.json()).annots;
+      if (!Array.isArray(fresh)) throw new Error("réponse sans annots");
+      const target = fresh.find(x => String(x.id) === String(a.id));
+      if (!target) {
+        LIB[relX] = fresh;
+        annotStatus("Annotation retirée ailleurs — note non enregistrée.");
+        refresh();
+        return;
+      }
+      if (field === "memo") { if (value.trim()) target.memo = value; else delete target.memo; }
+      else target[field] = value;
+      const w = await fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({rel: relX, annots: fresh, known: fresh.map(x => String(x.id))})});
+      if (!w.ok) throw new Error("HTTP " + w.status);
+      LIB[relX] = fresh;
+      refresh();
+    } catch(e) {
+      restore();
+      annotStatus("Note non enregistrée — réessaie.");
+      refresh();
+    }
   }
   function removeAnnotIn(relX: string, a){
     if (!relX || relX === rel) { removeAnnot(a); return; }
     if (!LIB || !Array.isArray(LIB[relX])) return;
+    const index = LIB[relX].findIndex(x => x.id === a.id);
     LIB[relX] = LIB[relX].filter(x => x.id !== a.id);
+    // retrait ciblé (removeIds) ; un échec remet la ligne et se signale
     fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({rel: relX, removeIds: [String(a.id)]})}).catch(()=>{});
+      body: JSON.stringify({rel: relX, removeIds: [String(a.id)]})})
+      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); })
+      .catch(() => {
+        if (LIB && Array.isArray(LIB[relX]) && !LIB[relX].some(x => x.id === a.id)) {
+          LIB[relX].splice(Math.max(0, index), 0, a);
+        }
+        annotStatus("Suppression non enregistrée — réessaie.");
+        refresh();
+      });
     refresh();
   }
   function renderDoc(){
@@ -2314,19 +2356,79 @@ let ANNOTS_LOADED = false;  // garde anti-écrasement : jamais de POST avant un 
 // jamais vu — un surlignage posé par Claude Desktop (MCP) ou une autre
 // fenêtre pendant la lecture — au lieu de l'écraser avec notre liste.
 const KNOWN_IDS = new Set();
+// Forme canonique (canonAnnot) de chaque annotation telle que le store la
+// porte d'après ce lecteur : posée au chargement, à chaque envoi réussi et à
+// chaque fusion. Une annotation dont la forme locale s'en écarte a été
+// modifiée ici sans être encore écrite : la fusion avec le store la garde, au
+// lieu de la ramener à la version du disque (relecture du 2026-10-19).
+const STORE_CANON = new Map<string, string>();
 let SAVE_SEQ = 0;           // sauvegardes demandées (voir syncAnnotsFromStore)
+// Un enregistrement a échoué et n'est pas encore rattrapé : le lecteur
+// retente (recul croissant, et dès que la veille revoit le serveur).
+let ANNOTS_UNSAVED = false;
+let ANNOT_RETRY_TIMER: ReturnType<typeof setTimeout> | null = null;
+let ANNOT_RETRY_ATTEMPT = 0;
+// Le dernier échec venait d'un serveur injoignable (fetch rejeté) : la veille
+// relance alors dès qu'elle le revoit. Un refus du serveur (4xx, 5xx,
+// result.error) suit seulement le recul, sinon la veille renverrait la liste
+// entière toutes les 2,5 s tant que le refus dure (relecture du 2026-10-19).
+let ANNOT_FAIL_UNREACHABLE = false;
+function scheduleAnnotRetry(){
+  if (ANNOT_RETRY_TIMER) return;
+  ANNOT_RETRY_TIMER = setTimeout(() => { ANNOT_RETRY_TIMER = null; void saveAnnots(); },
+    annotRetryDelay(ANNOT_RETRY_ATTEMPT++));
+}
+function retryAnnotSaveNow(){
+  if (!ANNOTS_UNSAVED) return;
+  if (ANNOT_RETRY_TIMER) { clearTimeout(ANNOT_RETRY_TIMER); ANNOT_RETRY_TIMER = null; }
+  void saveAnnots();
+}
+// Fermeture de l'onglet avec un enregistrement en échec : dernier envoi.
+window.addEventListener("pagehide", () => {
+  if (!ANNOTS_UNSAVED || !ANNOTS_LOADED) return;
+  const sent = PDF_ANNOTS.map(({fresh, ...a}) => a);
+  try {
+    void fetch("/pdfannot", {method: "POST", keepalive: true, headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({rel, annots: sent, known: [...KNOWN_IDS]})}).catch(() => {});
+  } catch(e) { /* corps trop gros pour keepalive : rien de plus possible à la fermeture */ }
+});
 function redrawAllAnnots(){
   document.querySelectorAll<HTMLElement>(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
   if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
   annPane.refresh();
 }
+// Retour d'état des annotations (audit 2026-10-18, problème 10) : un
+// chargement ou un enregistrement raté reste affiché dans #status tant qu'il
+// n'est pas rattrapé, et le lecteur retente seul, sans abandonner.
+const ANNOTS_LOAD_FAILED_MSG = "Annotations non chargées — nouvel essai automatique…";
+const ANNOTS_SAVE_FAILED_MSG = "Annotation non enregistrée — nouvel essai automatique…";
+const ANNOTS_SAVED_AGAIN_MSG = "Annotations enregistrées.";
+// La classe `annot-state` marque ces messages : dans l'iframe d'Atelier, seuls
+// eux s'affichent dans #status ; les messages de navigation (« Page N »,
+// « Passage retrouvé ») y restent masqués comme avant (relecture du 2026-10-19).
+function annotStatus(text: string){
+  const el = document.getElementById("status") as HTMLSpanElement | null;
+  if (el) { el.textContent = text; el.classList.add("annot-state"); }
+}
+function clearAnnotStatus(text: string){
+  const el = document.getElementById("status") as HTMLSpanElement | null;
+  if (el && el.textContent === text) { el.textContent = ""; el.classList.remove("annot-state"); }
+}
+/** Délai du prochain essai : 2 s, 4 s, 8 s… plafonné à 30 s. */
+function annotRetryDelay(attempt: number){ return Math.min(2000 * 2 ** Math.min(attempt, 4), 30000); }
 function loadAnnots(attempt: number){
   fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>{ if(!r.ok) throw new Error("Chargement impossible"); return r.json(); })
     .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
-      PDF_ANNOTS.forEach((a) => KNOWN_IDS.add(String(a.id)));
+      PDF_ANNOTS.forEach((a) => { KNOWN_IDS.add(String(a.id)); STORE_CANON.set(String(a.id), canonAnnot(a)); });
+      clearAnnotStatus(ANNOTS_LOAD_FAILED_MSG);
       redrawAllAnnots();
       revealTargetAnnot(); })
-    .catch(()=>{ if((attempt||0) < 10) setTimeout(()=>loadAnnots((attempt||0)+1), 2000); });
+    .catch(()=>{
+      // jamais d'abandon : sans chargement, aucune annotation ne peut être
+      // enregistrée (ANNOTS_LOADED), il faut donc que l'échec se voie
+      if((attempt||0) >= 1) annotStatus(ANNOTS_LOAD_FAILED_MSG);
+      setTimeout(()=>loadAnnots((attempt||0)+1), annotRetryDelay(attempt||0));
+    });
 }
 loadAnnots(0);
 if (rel) loadCodebook().then(changed => { if (changed) redrawAllAnnots(); });
@@ -2344,6 +2446,11 @@ function canonAnnot(value){
   }
   return JSON.stringify(value);
 }
+/** Modifiée ici depuis la dernière version connue du store, pas encore écrite. */
+function editedHere(a){
+  const base = STORE_CANON.get(String(a.id));
+  return base !== undefined && canonAnnot(a) !== base;
+}
 function applyStoreAnnots(server){
   const byId = new Map();
   for (const s of server) if (s && s.id != null) byId.set(String(s.id), s);
@@ -2353,14 +2460,18 @@ function applyStoreAnnots(server){
     const id = String(a.id), s = byId.get(id);
     if (s) {
       byId.delete(id);
-      // mise à jour EN PLACE : une bulle ouverte garde sa référence
-      if (!a.fresh && canonAnnot(a) !== canonAnnot(s)) {
+      // mise à jour EN PLACE : une bulle ouverte garde sa référence. Une
+      // modification locale pas encore écrite (envoi raté, ou en attente)
+      // garde la priorité : le prochain envoi la portera.
+      const storeCanon = canonAnnot(s);
+      if (!a.fresh && canonAnnot(a) !== storeCanon && !editedHere(a)) {
         for (const k of Object.keys(a)) if (!(k in s)) delete a[k];
         Object.assign(a, s);
         changed = true;
       }
+      if (!editedHere(a)) STORE_CANON.set(id, storeCanon);
       next.push(a);
-    } else if (KNOWN_IDS.has(id) && !a.fresh) {
+    } else if (KNOWN_IDS.has(id) && !a.fresh && !editedHere(a)) {
       changed = true;               // retirée ailleurs (chat, panneau de l'app)
     } else {
       next.push(a);                 // créée ici, écriture pas encore faite
@@ -2368,6 +2479,7 @@ function applyStoreAnnots(server){
   }
   for (const [id, s] of byId) {
     if (KNOWN_IDS.has(id)) continue; // supprimée ici, écriture en échec
+    STORE_CANON.set(id, canonAnnot(s));
     next.push(s);
     changed = true;
   }
@@ -2408,6 +2520,10 @@ if (rel) (async function(){
     try {
       const next = await annotStoreStamp();
       if (next === null) return;
+      // serveur revu après un échec réseau : l'enregistrement en échec part
+      // avant toute relecture, pour que la fusion ne reprenne pas l'ancienne
+      // version du store
+      if (ANNOT_FAIL_UNREACHABLE) retryAnnotSaveNow();
       const storeMoved = !stamp || next.store !== stamp.store;
       const bookMoved = !stamp || next.codebook !== stamp.codebook;
       if (!storeMoved && !bookMoved) return;
@@ -2446,18 +2562,37 @@ function saveAnnots(){
   // `fresh` (commentaire créé mais jamais validé) vit en mémoire seulement :
   // il ne doit pas survivre à un rechargement dans le fichier d'annotations.
   const sent = PDF_ANNOTS.map(({fresh, ...a}) => a);
+  const sentCanon = sent.map(a => [String(a.id), canonAnnot(a)]);
   const body = JSON.stringify({rel, annots: sent, known: [...KNOWN_IDS]});
   SAVE_SEQ++;
   ANNOT_SAVE = ANNOT_SAVE.then(async () => {
+    ANNOT_FAIL_UNREACHABLE = false;
     try {
-      const response = await fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"}, body});
+      let response: Response;
+      try {
+        response = await fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"}, body});
+      } catch(error) {
+        ANNOT_FAIL_UNREACHABLE = true;
+        throw error;
+      }
       if(!response.ok) throw new Error("HTTP " + response.status);
       const result = await response.json();
       if(result.error) throw new Error(result.error);
       sent.forEach(a => KNOWN_IDS.add(String(a.id)));
+      for (const [id, c] of sentCanon) STORE_CANON.set(id, c);
+      if (ANNOTS_UNSAVED) {
+        // la liste entière part à chaque envoi : ce succès rattrape l'échec
+        ANNOTS_UNSAVED = false;
+        ANNOT_RETRY_ATTEMPT = 0;
+        if (ANNOT_RETRY_TIMER) { clearTimeout(ANNOT_RETRY_TIMER); ANNOT_RETRY_TIMER = null; }
+        annotStatus(ANNOTS_SAVED_AGAIN_MSG);
+        setTimeout(() => clearAnnotStatus(ANNOTS_SAVED_AGAIN_MSG), 3000);
+      }
       return true;
     } catch(error) {
-      (document.getElementById("status") as HTMLSpanElement).textContent = "Annotation non enregistrée — réessaie depuis la note.";
+      ANNOTS_UNSAVED = true;
+      annotStatus(ANNOTS_SAVE_FAILED_MSG);
+      scheduleAnnotRetry();
       return false;
     }
   });
@@ -4088,7 +4223,8 @@ if(window.self !== window.top){
     header{background:var(--surface-header,#1a1d22) !important;border-bottom:1px solid var(--border,#333a45) !important;
       padding:4px 10px !important;min-height:0 !important;gap:10px}
     header #fname{font-weight:500;font-size:var(--fs-body,13px);color:var(--txt)}
-    header .muted{display:none}
+    header .muted:not(#status){display:none}
+    header #status:not(.annot-state),header #status:empty{display:none}
     header #selinfo{color:var(--muted) !important;font-size:var(--fs-body-s,12px)}
     header #status{font-size:var(--fs-body-s,12px)}
     header button{background:transparent !important;border:none !important;

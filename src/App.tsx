@@ -84,6 +84,7 @@ import { useHomeThreadEvents } from "./hooks/useThreadEvents";
 import { type AgentDisplay } from "./components/chat/AgentActivity";
 import AtelierPane from "./components/AtelierPane";
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
+import { RenderBoundary } from "./components/RenderBoundary";
 const ContextInspector = lazyWithRetry<Parameters<(typeof import("./components/ContextInspector"))["ContextInspector"]>[0]>(
   () => import("./components/ContextInspector").then((m) => ({ default: m.ContextInspector })),
 );
@@ -181,6 +182,8 @@ import { applyAppearance, themeMessage } from "./lib/appTheme";
 import { HighlightsPanel } from "./components/HighlightsPanel";
 import { DeliveryStatusAnnouncer } from "./components/DeliveryStatusAnnouncer";
 import { NewChatProviderDialog } from "./components/NewChatProviderDialog";
+import { UnsavedDocumentsGuard } from "./components/UnsavedDocumentsGuard";
+import { pruneUnsavedDocuments } from "./lib/unsavedDocuments";
 // tokens → shadcn/Typeset → primitives → App.css : les alias sémantiques et les classes ui-*
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
@@ -413,6 +416,9 @@ export default function App() {
   const atelierTabsRef = useRef(atelierTabs);
   useEffect(() => {
     atelierTabsRef.current = atelierTabs;
+    // Un onglet disparu n'a plus de tampon à protéger (son brouillon de
+    // secours, lui, reste sur le serveur jusqu'à la prochaine ouverture).
+    pruneUnsavedDocuments(new Set(atelierTabs.map((tab) => tab.id)));
   }, [atelierTabs]);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [providerList, setProviderList] = useState<ProviderInfo[]>([]);
@@ -4280,7 +4286,9 @@ export default function App() {
               try {
                 await navigator.clipboard.writeText(md);
                 showSuccess(t("highlights.export-copied"));
-              } catch {}
+              } catch {
+                void showError(t("action.copy-failed"));
+              }
             }}
             onCompact={() => setCompact(true)}
           />
@@ -4390,6 +4398,7 @@ export default function App() {
         />
       </LazyBoundary>
       <SetupWelcomeHost />
+      <UnsavedDocumentsGuard />
       {paletteOpen && (
         <LazyBoundary fallback={null}>
           <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
@@ -4438,7 +4447,14 @@ export default function App() {
     && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? appBanner : null;
 
   return (
-    <WorkspaceShell topBar={topBarNode} rail={railNode} viewPanel={viewPanelNode} overlays={overlaysNode}
+    // Barre du haut, rail, panneau de vue : chacun sa frontière, pour qu'une
+    // exception de rendu là-bas ne remonte pas jusqu'à BootBoundary, qui
+    // démonterait aussi les éditeurs de l'atelier (relecture du 2026-10-19).
+    <WorkspaceShell
+      topBar={<RenderBoundary>{topBarNode}</RenderBoundary>}
+      rail={<RenderBoundary>{railNode}</RenderBoundary>}
+      viewPanel={viewPanelNode == null ? null : <RenderBoundary>{viewPanelNode}</RenderBoundary>}
+      overlays={<RenderBoundary>{overlaysNode}</RenderBoundary>}
       dragging={dragging} onDraggingChange={setDragging}>
     <PanelGroup direction="horizontal" className="app">
       <Panel id="chat" order={2} defaultSize={50} minSize={layout === "atelier" ? 0 : 30}
@@ -4460,6 +4476,10 @@ export default function App() {
           </div>
         )}
         {activeDeliveryState && <DeliveryStatusAnnouncer status={activeDeliveryState.status} />}
+        {/* Une exception de rendu dans le chat n'efface plus la fenêtre :
+            la notice « Recharger » remonte le chat seul (audit 2026-10-18,
+            problème 14). */}
+        <RenderBoundary message={t("render.chat-error")}>
         <ThreadChat
           headerInTopBar
           notice={activeBanner ? chatNotice : null}
@@ -4570,6 +4590,7 @@ export default function App() {
           onGoal={threadActions.goal}
           onSubmit={submit}
         />
+        </RenderBoundary>
       </Panel>
       {showAtelier && activeProject && (
         <>

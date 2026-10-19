@@ -354,6 +354,108 @@ fn notes_roundtrip() {
     assert!(body.contains("hello smoke"));
 }
 
+/// Audit du 2026-10-18, problème 6 : l'onglet Notes et le tableau blanc
+/// envoient la version chargée ; un fichier changé depuis par un autre
+/// écrivain n'est jamais écrasé (409, contenu du disque renvoyé).
+#[test]
+fn notes_and_board_refuse_a_stale_base() {
+    let srv = start_server();
+    let json = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    let (st, body) = http(srv.port, "GET", "/notes/load", None);
+    assert_eq!(st, 200, "{body}");
+    let base = json(&body)["version"].as_str().unwrap().to_string();
+    // un agent écrit notes.md pendant que l'onglet est ouvert
+    fs::write(srv.root.join("notes.md"), "# notes\n\nparagraphe de l'agent\n").unwrap();
+    let stale = format!(r#"{{"markdown":"tapé dans l'onglet","base":"{base}"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&stale));
+    assert_eq!(st, 409, "{body}");
+    assert!(json(&body)["markdown"].as_str().unwrap().contains("paragraphe de l'agent"));
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md")).unwrap(),
+        "# notes\n\nparagraphe de l'agent\n"
+    );
+    // version à jour : l'écriture passe et renvoie la nouvelle version
+    let fresh = json(&body)["version"].as_str().unwrap().to_string();
+    let ok = format!(r#"{{"markdown":"fusionné","base":"{fresh}"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&ok));
+    assert_eq!(st, 200, "{body}");
+    let (_, loaded) = http(srv.port, "GET", "/notes/load", None);
+    assert_eq!(json(&body)["version"], json(&loaded)["version"]);
+    // sans base (agents, scripts) : comportement inchangé
+    let (st, _) = http(srv.port, "POST", "/notes/save", Some(r#"{"markdown":"libre"}"#));
+    assert_eq!(st, 200);
+
+    let (_, body) = http(srv.port, "GET", "/board/load", None);
+    let board_base = json(&body)["version"].as_str().unwrap().to_string();
+    let first = format!(r#"{{"snapshot":{{"a":1}},"base":"{board_base}"}}"#);
+    let (st, body) = http(srv.port, "POST", "/board/save", Some(&first));
+    assert_eq!(st, 200, "{body}");
+    let (st, body) = http(srv.port, "POST", "/board/save", Some(&first));
+    assert_eq!(st, 409, "une seconde fenêtre sur l'ancienne base : {body}");
+    let (_, loaded) = http(srv.port, "GET", "/board/load", None);
+    assert_eq!(json(&loaded)["snapshot"]["a"], 1);
+}
+
+#[test]
+fn a_window_behind_its_own_beacon_is_not_a_conflict() {
+    // relecture du 2026-10-19 : une sauvegarde envoyée par sendBeacon écrit
+    // le fichier sans que la fenêtre lise la nouvelle version ; la sauvegarde
+    // suivante de la même fenêtre ne doit pas recevoir 409.
+    let srv = start_server();
+    let json = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    let (_, body) = http(srv.port, "GET", "/notes/load", None);
+    let base = json(&body)["version"].as_str().unwrap().to_string();
+    let beacon = format!(r#"{{"markdown":"Premier.","base":"{base}","writer":"w1"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&beacon));
+    assert_eq!(st, 200, "{body}");
+    // même fenêtre, base restée en arrière : accepté
+    let next = format!(r#"{{"markdown":"Premier. Second.","base":"{base}","writer":"w1"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&next));
+    assert_eq!(st, 200, "{body}");
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md")).unwrap(),
+        "Premier. Second."
+    );
+    // une autre fenêtre sur la même vieille base : 409, rien d'écrit, sa
+    // version est gardée dans notes.md.conflit
+    let other = format!(r#"{{"markdown":"autre fenêtre","base":"{base}","writer":"w2"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&other));
+    assert_eq!(st, 409, "{body}");
+    assert_eq!(json(&body)["rescue"], "notes.md.conflit");
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md")).unwrap(),
+        "Premier. Second."
+    );
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md.conflit")).unwrap(),
+        "autre fenêtre"
+    );
+    // un agent écrit : la fenêtre w1 n'est plus « seulement en retard »
+    fs::write(srv.root.join("notes.md"), "agent").unwrap();
+    let (st, _) = http(srv.port, "POST", "/notes/save", Some(&next));
+    assert_eq!(st, 409);
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md")).unwrap(),
+        "agent"
+    );
+
+    let (_, body) = http(srv.port, "GET", "/board/load", None);
+    let board_base = json(&body)["version"].as_str().unwrap().to_string();
+    let one = format!(r#"{{"snapshot":{{"a":1}},"base":"{board_base}","writer":"b1"}}"#);
+    let (st, _) = http(srv.port, "POST", "/board/save", Some(&one));
+    assert_eq!(st, 200);
+    let two = format!(r#"{{"snapshot":{{"a":2}},"base":"{board_base}","writer":"b1"}}"#);
+    let (st, body) = http(srv.port, "POST", "/board/save", Some(&two));
+    assert_eq!(st, 200, "{body}");
+    let (_, loaded) = http(srv.port, "GET", "/board/load", None);
+    assert_eq!(json(&loaded)["snapshot"]["a"], 2);
+    let three = format!(r#"{{"snapshot":{{"a":3}},"base":"{board_base}","writer":"b2"}}"#);
+    let (st, body) = http(srv.port, "POST", "/board/save", Some(&three));
+    assert_eq!(st, 409, "{body}");
+    let rescued = fs::read_to_string(srv.root.join(".fig_thumbs/board.tldr.json.conflit")).unwrap();
+    assert_eq!(json(&rescued)["a"], 3);
+}
+
 #[test]
 fn zotero_annotations_migrate_to_shared_store_without_reappearing_after_delete() {
     let app_dir = tempfile::tempdir().unwrap();
@@ -427,6 +529,62 @@ fn path_escape_rejected() {
     let srv = start_server();
     let (st, _) = http(srv.port, "GET", "/code?path=../outside.py", None);
     assert_eq!(st, 404);
+}
+
+#[test]
+fn un_brouillon_d_editeur_survit_puis_s_efface_sans_toucher_au_fichier() {
+    // Problème 1 de l'audit du 2026-10-18 : un tampon non enregistré doit
+    // survivre au démontage de l'éditeur, sans jamais être écrit dans le
+    // fichier lui-même.
+    let srv = start_server();
+    let target = srv.root.join("script.py");
+    let path = target.to_str().unwrap().to_string();
+    let query = format!("/draft?path={}", path.replace('/', "%2F"));
+    let (st, body) = http(srv.port, "GET", &query, None);
+    assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["draft"], serde_json::Value::Null, "aucun brouillon au départ");
+
+    let payload = serde_json::json!({
+        "path": path,
+        "text": "print('tapé sans ⌘S')\n",
+        "base": "print('fixture')\n",
+        "baseMtime": 12.5,
+    })
+    .to_string();
+    let (st, body) = http(srv.port, "POST", "/draft", Some(&payload));
+    assert_eq!(st, 200, "{body}");
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        "print('fixture')\n",
+        "le fichier n'est jamais écrit par un brouillon"
+    );
+    let (st, body) = http(srv.port, "GET", &query, None);
+    assert_eq!(st, 200);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["draft"]["text"], "print('tapé sans ⌘S')\n");
+    assert_eq!(v["draft"]["base"], "print('fixture')\n");
+    assert_eq!(v["draft"]["baseMtime"], 12.5);
+    assert!(v["draft"]["savedAt"].as_f64().unwrap() > 0.0);
+
+    // Une autre origine ne peut ni écrire ni effacer un brouillon.
+    let (st, _) = http_with_origin(srv.port, "POST", "/draft", Some(&payload), Some("https://evil.example"));
+    assert_eq!(st, 403);
+    // Hors projet : refusé.
+    let outside = serde_json::json!({"path": "/etc/passwd", "text": "x"}).to_string();
+    let (st, _) = http(srv.port, "POST", "/draft", Some(&outside));
+    assert_eq!(st, 403);
+
+    let clear = serde_json::json!({"path": path, "clear": true}).to_string();
+    let (st, body) = http(srv.port, "POST", "/draft", Some(&clear));
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains("\"cleared\":true"), "{body}");
+    let (_, body) = http(srv.port, "GET", &query, None);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["draft"], serde_json::Value::Null, "brouillon effacé");
+    // Effacer deux fois n'est pas une erreur.
+    let (st, _) = http(srv.port, "POST", "/draft", Some(&clear));
+    assert_eq!(st, 200);
 }
 
 #[test]

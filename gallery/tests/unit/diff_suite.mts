@@ -1538,10 +1538,19 @@ function editorCallSiteTests() {
       callCarriesMeta(session, spec.callee, "event.previousText", "event.snapshot.text", "user-save", "applied"));
     contractOk(`${spec.name} call site external-reload/applied`,
       callCarriesMeta(session, spec.callee, "event.previousText", "event.snapshot.text", "external-reload", "applied"));
-    contractOk(`${spec.name} politique de rechargement explicite sans fusion`,
-      (spec.name === "latex_studio" ? /externalReload:\s*["']when-clean["']/.test(session) : /externalReload:\s*["']always["']/.test(session))
-      && /conflictPolicy:\s*["']reload["']/.test(session)
+    // Audit 2026-10-18, problème 4 : un tampon modifié n'est jamais remplacé
+    // par la version disque. L'ancienne politique (« always » pour le code,
+    // « reload » au 409 pour les deux) rechargeait par-dessus les retouches.
+    // La politique reste explicite au site d'appel ; la fusion vient du
+    // module partagé (core/disk_merge.ts), jamais d'un applyPatch local.
+    contractOk(`${spec.name} politique explicite : tampon modifié jamais remplacé`,
+      /externalReload:\s*["']when-clean["']/.test(session)
+      && /conflictPolicy:\s*["']merge["']/.test(session)
+      && !/conflictPolicy:\s*["']reload["']|externalReload:\s*["']always["']/.test(session)
+      && /createDiskMerge\(/.test(spec.src)
       && !/Diff\.applyPatch|conflictGuard/.test(session));
+    contractOk(`${spec.name} conflit : version disque versée à l'historique`,
+      callCarriesMeta(session, spec.callee, "event.previousText", "event.snapshot.text", "external-conflict", "applied"));
   }
   contractOk("latex_studio composes the shared typed diff controller",
     /diff\s*=\s*createStudioDiffController\s*\(/.test(specs[0].src));

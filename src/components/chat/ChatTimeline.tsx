@@ -51,6 +51,7 @@ import {
   type AgentToolAction,
 } from "./AgentActivity";
 import { AgentMessageCard } from "./AgentMessageCard";
+import { Deferred, RenderBoundary } from "../RenderBoundary";
 import { TimelineStamp } from "./TimelineStamp";
 import { ActivityStep } from './ActivityBatch';
 import { activeTurnStatus } from './activeTurnStatus';
@@ -959,7 +960,11 @@ export function ChatTimeline(p: {
             id={messageId}
             data-message-id={messageId}
           >
-          {(() => {
+          {/* Un message que le rendu ne supporte pas cède la place à une
+              notice « Recharger » au lieu de vider le chat (audit
+              2026-10-18, problème 14). */}
+          <RenderBoundary message={t("render.message-error")}>
+          <Deferred render={() => {
           if (item.type === "fold") {
             const { fold, open } = item;
             const foldTimestamps = events.slice(fold.start, fold.end)
@@ -1221,7 +1226,8 @@ export function ChatTimeline(p: {
             );
           }
           return null;
-          })()}
+          }} />
+          </RenderBoundary>
           </div>
           );
         }}

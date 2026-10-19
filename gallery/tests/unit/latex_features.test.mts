@@ -683,7 +683,8 @@ test("LaTeX notes persist exact passages, keep their mark until authenticated de
   const dom=new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>',{url:'http://localhost'});
   const win=dom.window,doc=win.document,sends=[],writes=[];
   win.__atelierNonce='test-nonce';let fail=false;
-  win.fetch=async(_url,options: { body: string; })=>{writes.push(JSON.parse(options.body));return {ok:!fail,json:async()=>fail?{error:'disk'}:{ok:true}};};
+  // GET : liste du serveur (vide) ; seule base d'écriture admise
+  win.fetch=async(_url,options?: { body: string; })=>{if(!options)return {ok:true,json:async()=>({annots:[]})};writes.push(JSON.parse(options.body));return {ok:!fail,json:async()=>fail?{error:'disk'}:{ok:true}};};
   const passage='Un passage très long '.repeat(40), from={line:4,ch:2},to={line:8,ch:5};
   const editor={charCoords:()=>({left:40,top:80,bottom:100}),markText:()=>({clear(..._args){},find:()=>({from,to})})};
   const notes=latex.createLatexAnnotationsController({path:'paper.tex',getEditor:()=>editor,popover:doc.getElementById('pop'),panel:doc.getElementById('panel'),button:doc.getElementById('notes'),postToHost:(p)=>sends.push(p),document:doc,window:win});
@@ -707,11 +708,12 @@ test("LaTeX direct chat icon waits for persistence and preserves draft actions",
   const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>', {url:'http://localhost'});
   const win=dom.window, doc=win.document, sends=[];
   let finish;
-  win.fetch=()=>new Promise(resolve=>{finish=(ok)=>resolve({ok,json:async()=>ok?{ok:true}:{error:'disk'}});});
+  win.fetch=(_url,options?)=>options?new Promise(resolve=>{finish=(ok)=>resolve({ok,json:async()=>ok?{ok:true}:{error:'disk'}});}):Promise.resolve({ok:true,json:async()=>({annots:[]})});
   const from={line:0,ch:0},to={line:0,ch:7};
   const editor={charCoords:()=>({left:100,top:80,bottom:100}),markText:()=>({clear(..._args){},find:()=>({from,to})})};
   const notes=latex.createLatexAnnotationsController({path:'paper.tex',getEditor:()=>editor,popover:doc.getElementById('pop'),panel:doc.getElementById('panel'),button:doc.getElementById('notes'),postToHost:(p)=>sends.push(p),document:doc,window:win});
   const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+  await notes.load();
   const direct=doc.querySelector('.send-direct');
   assert.equal(direct.textContent,'');
   assert.equal(direct.getAttribute('aria-label'),'Envoyer au chat');
@@ -736,7 +738,7 @@ test("LaTeX direct chat icon waits for persistence and preserves draft actions",
 test("LaTeX: a fresh Annoter left empty and closed via Escape leaves no mark, no push, no save", async () => {
   const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>', {url: 'http://localhost'});
   const win = dom.window, doc = win.document, writes = [];
-  win.fetch = async (_url, options: { body: string; }) => { writes.push(JSON.parse(options.body)); return {ok: true, json: async () => ({ok: true})}; };
+  win.fetch = async (_url, options?: { body: string; }) => { if (!options) return {ok: true, json: async () => ({annots: []})}; writes.push(JSON.parse(options.body)); return {ok: true, json: async () => ({ok: true})}; };
   const passage = 'Un passage à annoter puis abandonner.', from = {line: 2, ch: 0}, to = {line: 2, ch: passage.length};
   let marked = 0;
   const editor = {charCoords: () => ({left: 40, top: 80, bottom: 100}), markText: () => { marked += 1; return {clear(..._args){}, find: () => ({from, to})}; }};
@@ -757,7 +759,7 @@ test("LaTeX: a fresh Annoter left empty and closed via Escape leaves no mark, no
 test("LaTeX: an explicit Enter on an empty fresh comment keeps it (deliberate blank marker)", async () => {
   const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>', {url: 'http://localhost'});
   const win = dom.window, doc = win.document, writes = [];
-  win.fetch = async (_url, options: { body: string; }) => { writes.push(JSON.parse(options.body)); return {ok: true, json: async () => ({ok: true})}; };
+  win.fetch = async (_url, options?: { body: string; }) => { if (!options) return {ok: true, json: async () => ({annots: []})}; writes.push(JSON.parse(options.body)); return {ok: true, json: async () => ({ok: true})}; };
   const passage = 'Un passage marqué sans commentaire.', from = {line: 5, ch: 0}, to = {line: 5, ch: passage.length};
   const editor = {charCoords: () => ({left: 40, top: 80, bottom: 100}), markText: () => ({clear(..._args){}, find: () => ({from, to})})};
   const notes = latex.createLatexAnnotationsController({path: 'paper.tex', getEditor: () => editor, popover: doc.getElementById('pop'), panel: doc.getElementById('panel'), button: doc.getElementById('notes'), postToHost(..._args){}, document: doc, window: win});
@@ -954,4 +956,101 @@ test("compile joins repeated clicks and drains the latest saved edit including f
   text='latest'; const auto=coordinator.compile(true); coordinator.compile(false,true);
   release(); await Promise.all([first,auto]);
   assert.deepEqual(requests,[{text:'initial',force:false},{text:'latest',force:true}]);
+});
+
+// Audit 2026-10-18, problème 6 : un chargement raté ne doit jamais laisser
+// une écriture remplacer la liste stockée (commentaires et marge de Lecture).
+// highlight() tire ses ids de crypto.randomUUID, absent du contexte vm nu
+context.crypto ??= globalThis.crypto;
+function storeServer(win, stored: Record<string, any[]>) {
+  const state = {getFails: true, posts: [] as any[]};
+  win.fetch = async (url: string, options?: {body: string}) => {
+    if (!options) {
+      if (state.getFails) return {ok: false, status: 500, json: async () => ({error: 'lecture impossible'})};
+      const rel = decodeURIComponent(String(url).split('rel=')[1] || '');
+      return {ok: true, json: async () => ({annots: stored[rel] || []})};
+    }
+    const body = JSON.parse(options.body);
+    state.posts.push(body);
+    // même règle que le serveur : sans known, la liste envoyée remplace tout
+    const known = new Set(body.known || []), sentIds = new Set(body.annots.map(a => String(a.id)));
+    const kept = body.known ? (stored[body.rel] || []).filter(a => !known.has(String(a.id)) && !sentIds.has(String(a.id))) : [];
+    stored[body.rel] = [...body.annots, ...kept];
+    return {ok: true, json: async () => ({ok: true})};
+  };
+  return state;
+}
+
+test("LaTeX comments: a failed load blocks writes, then a later load merges and keeps the stored list", async () => {
+  const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>', {url: 'http://localhost'});
+  const win = dom.window, doc = win.document, errors: string[] = [];
+  const disk = {id: 'disk-1', from: {line: 1, ch: 0}, to: {line: 1, ch: 4}, text: 'Avec', comment: 'déjà là', kind: 'comment', number: 1};
+  const stored: Record<string, any[]> = {'tex-comments:paper.tex': [disk]};
+  const server = storeServer(win, stored);
+  const from = {line: 0, ch: 0}, to = {line: 0, ch: 6};
+  const editor = {getValue: () => 'Passage\nAvec', getRange: () => 'Passage', charCoords: () => ({left: 40, top: 80, bottom: 100}), markText: () => ({clear() {}, find: () => ({from, to})})};
+  const notes = latex.createLatexAnnotationsController({path: 'paper.tex', getEditor: () => editor, popover: doc.getElementById('pop'),
+    panel: doc.getElementById('panel'), button: doc.getElementById('notes'), postToHost() {}, onError: (m: string) => errors.push(m), document: doc, window: win});
+  assert.equal(await notes.load(), false);
+  assert.match(errors.at(-1), /non chargés/);
+  notes.highlight({text: 'Passage', from, to}, 'amber');
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(server.posts.length, 0, 'aucune écriture avant un chargement réussi');
+  assert.deepEqual(stored['tex-comments:paper.tex'].map(a => a.id), ['disk-1']);
+
+  server.getFails = false;
+  notes.highlight({text: 'Passage', from, to}, 'red');
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(server.posts.length, 1);
+  assert.deepEqual(server.posts[0].known, ['disk-1']);
+  const ids = stored['tex-comments:paper.tex'].map(a => a.id);
+  assert.ok(ids.includes('disk-1'), 'le commentaire stocké survit');
+  assert.equal(ids.length, 3, 'les deux surlignages posés pendant la panne sont gardés');
+  dom.window.close();
+});
+
+test("LaTeX comments: a comment written elsewhere after loading is not erased by the next save", async () => {
+  const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button>', {url: 'http://localhost'});
+  const win = dom.window, doc = win.document;
+  const stored: Record<string, any[]> = {'tex-comments:paper.tex': []};
+  const server = storeServer(win, stored);
+  server.getFails = false;
+  const from = {line: 0, ch: 0}, to = {line: 0, ch: 6};
+  const editor = {getValue: () => 'Passage', getRange: () => 'Passage', charCoords: () => ({left: 40, top: 80, bottom: 100}), markText: () => ({clear() {}, find: () => ({from, to})})};
+  const notes = latex.createLatexAnnotationsController({path: 'paper.tex', getEditor: () => editor, popover: doc.getElementById('pop'),
+    panel: doc.getElementById('panel'), button: doc.getElementById('notes'), postToHost() {}, document: doc, window: win});
+  assert.equal(await notes.load(), true);
+  stored['tex-comments:paper.tex'].push({id: 'claude-1', from, to, text: 'Passage', comment: 'posé par Claude', kind: 'comment'});
+  notes.highlight({text: 'Passage', from, to}, 'amber');
+  await new Promise(r => setTimeout(r, 0));
+  assert.ok(stored['tex-comments:paper.tex'].some(a => a.id === 'claude-1'));
+  dom.window.close();
+});
+
+test("reading marge: a failed load never replaces the stored section colors", async () => {
+  const dom = new JSDOM('<div id="split"><div id="right"><div id="texread"></div></div></div>', {url: 'http://localhost'});
+  const win = dom.window, doc = win.document;
+  const stored: Record<string, any[]> = {'tex-marks:paper.tex': [{id: 'sec3', text: 'Méthodes', line: 2, color: 'red'}]};
+  const server = storeServer(win, stored);
+  const editor = {getValue: () => '\\section{Introduction}\n\n\\section{Méthodes}\n'};
+  const marge = latex.createLatexReadingMarge({path: 'paper.tex', host: doc.getElementById('split'), scroller: doc.getElementById('right'),
+    reading: doc.getElementById('texread'), getEditor: () => editor, revealSourceLine() {}, isReading: () => true, document: doc, window: win});
+  assert.equal(await marge.load(), false);
+  marge.paint();
+  const pick = async (title: string, color: string) => {
+    const row = [...doc.querySelectorAll('.tr-mark')].find(b => b.textContent.includes(title));
+    row.dispatchEvent(new win.MouseEvent('contextmenu', {bubbles: true, cancelable: true}));
+    (doc.querySelector(`.tr-menu-colors [data-color="${color}"]`) as HTMLElement).click();
+    await new Promise(r => setTimeout(r, 0));
+  };
+  await pick('Introduction', 'blue');
+  assert.equal(server.posts.length, 0, 'aucune écriture avant un chargement réussi');
+  assert.deepEqual(stored['tex-marks:paper.tex'].map(m => m.id), ['sec3']);
+
+  server.getFails = false;
+  await pick('Introduction', 'green');
+  assert.equal(server.posts.length, 1);
+  assert.deepEqual(server.posts[0].known, ['sec3']);
+  assert.deepEqual(stored['tex-marks:paper.tex'].map(m => `${m.id}:${m.color}`).sort(), ['sec1:green', 'sec3:red']);
+  dom.window.close();
 });

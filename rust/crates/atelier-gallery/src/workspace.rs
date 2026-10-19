@@ -9,8 +9,9 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     fs,
     path::{Path, PathBuf},
     process::Stdio,
@@ -77,6 +78,92 @@ fn keep_previous(path: &Path) {
     }
 }
 
+/// Version d'un fichier de l'atelier (notes.md, tableau blanc) : empreinte
+/// du contenu, absent valant vide. L'éditeur la renvoie en `base` à chaque
+/// sauvegarde ; un écart veut dire qu'un autre écrivain (agent, autre
+/// fenêtre) a changé le fichier depuis le chargement (audit du 2026-10-18,
+/// problème 6).
+pub(crate) fn content_version(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().take(12).map(|b| format!("{b:02x}")).collect()
+}
+
+/// Contenu actuel du fichier, `None` si absent ; erreur d'E/S remontée.
+fn read_current(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Dernière version écrite par chaque fenêtre d'éditeur (`writer`, tiré au
+/// hasard à l'ouverture), par fichier. Une sauvegarde envoyée par
+/// `sendBeacon` (onglet caché ou fermé) écrit le fichier sans que l'éditeur
+/// lise jamais la réponse : sa `base` reste l'ancienne version. Sans cette
+/// mémoire, la sauvegarde suivante de la même fenêtre recevait un 409 alors
+/// que personne d'autre n'avait écrit, et la frappe suivante restait non
+/// enregistrée (relecture du 2026-10-19). Perdue au redémarrage du serveur :
+/// on retombe alors sur le 409, jamais sur un écrasement.
+#[derive(Default)]
+pub(crate) struct WorkspaceWriters {
+    last: HashMap<(&'static str, String), String>,
+}
+
+/// Plafond de fenêtres mémorisées ; au-delà on repart de zéro (409 au pire).
+const WRITERS_MAX: usize = 256;
+
+impl WorkspaceWriters {
+    fn wrote(&mut self, file: &'static str, writer: Option<&str>, version: &str) {
+        let Some(writer) = writer.filter(|w| !w.is_empty()) else {
+            return;
+        };
+        if self.last.len() >= WRITERS_MAX {
+            self.last.clear();
+        }
+        self.last
+            .insert((file, writer.to_string()), version.to_string());
+    }
+
+    fn last_write(&self, file: &'static str, writer: Option<&str>) -> Option<&str> {
+        let writer = writer.filter(|w| !w.is_empty())?;
+        self.last
+            .get(&(file, writer.to_string()))
+            .map(String::as_str)
+    }
+}
+
+/// `Some(contenu du disque)` quand `base` est donné et ne correspond plus au
+/// disque, sauf si le disque porte encore la dernière écriture de cette même
+/// fenêtre : sa base est seulement en retard sur sa propre sauvegarde (beacon
+/// ou réponse pas encore lue), aucun autre écrivain n'est passé entre-temps.
+/// Sans `base` (agents, scripts, anciens clients), pas de contrôle.
+fn stale_base(
+    path: &Path,
+    base: Option<&str>,
+    own_last: Option<&str>,
+) -> std::io::Result<Option<Vec<u8>>> {
+    let Some(base) = base else { return Ok(None) };
+    let current = read_current(path)?.unwrap_or_default();
+    let version = content_version(&current);
+    if version == base || own_last == Some(version.as_str()) {
+        Ok(None)
+    } else {
+        Ok(Some(current))
+    }
+}
+
+/// Une sauvegarde refusée (409) n'est pas jetée : elle est gardée à côté du
+/// fichier (`<fichier>.conflit`), qui n'est jamais relu en silence. Ainsi la
+/// frappe envoyée à la fermeture d'un onglet en conflit survit.
+fn keep_rejected(path: &Path, bytes: &[u8]) -> Option<String> {
+    let rescue = PathBuf::from(format!("{}.conflit", path.display()));
+    atomic_write(&rescue, bytes).ok()?;
+    rescue
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+}
+
 // ---------------------------------------------------------------------------
 // Notes
 // ---------------------------------------------------------------------------
@@ -86,10 +173,20 @@ pub async fn notes_load(State(state): State<AppState>) -> impl IntoResponse {
     match tokio::fs::read(&path).await {
         Ok(bytes) => {
             let markdown = String::from_utf8_lossy(&bytes).into_owned();
-            (StatusCode::OK, Json(json!({"markdown": markdown}))).into_response()
+            let version = content_version(&bytes);
+            (
+                StatusCode::OK,
+                Json(json!({"markdown": markdown, "version": version})),
+            )
+                .into_response()
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            (StatusCode::OK, Json(json!({"markdown": ""}))).into_response()
+            let version = content_version(b"");
+            (
+                StatusCode::OK,
+                Json(json!({"markdown": "", "version": version})),
+            )
+                .into_response()
         }
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
@@ -98,6 +195,13 @@ pub async fn notes_load(State(state): State<AppState>) -> impl IntoResponse {
 #[derive(Deserialize)]
 pub struct NotesSaveBody {
     markdown: Value,
+    /// Version chargée par l'éditeur (`content_version`) ; absente = pas de
+    /// contrôle de conflit.
+    #[serde(default)]
+    base: Option<String>,
+    /// Identifiant de la fenêtre (voir `WorkspaceWriters`).
+    #[serde(default)]
+    writer: Option<String>,
 }
 
 pub async fn notes_save(
@@ -119,10 +223,41 @@ pub async fn notes_save(
         return json_error(StatusCode::BAD_REQUEST, "markdown must be a string");
     };
     let path = state.root.join("notes.md");
-    let _guard = state.workspace_lock.lock().await;
+    let writer = body.writer.as_deref();
+    let mut writers = state.workspace_lock.lock().await;
+    match stale_base(
+        &path,
+        body.base.as_deref(),
+        writers.last_write("notes", writer),
+    ) {
+        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+        Ok(Some(current)) => {
+            // le fichier a changé depuis le chargement : rien n'est écrit,
+            // l'éditeur garde sa version et reçoit celle du disque
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "conflict",
+                    "markdown": String::from_utf8_lossy(&current),
+                    "version": content_version(&current),
+                    "rescue": keep_rejected(&path, md.as_bytes()),
+                })),
+            )
+                .into_response();
+        }
+        Ok(None) => {}
+    }
     keep_previous(&path);
     match atomic_write_text(&path, md) {
-        Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
+        Ok(()) => {
+            let version = content_version(md.as_bytes());
+            writers.wrote("notes", writer, &version);
+            (
+                StatusCode::OK,
+                Json(json!({"ok": true, "version": version})),
+            )
+                .into_response()
+        }
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
 }
@@ -135,12 +270,18 @@ pub async fn board_load(State(state): State<AppState>) -> impl IntoResponse {
     let path = state.root.join(".fig_thumbs").join("board.tldr.json");
     match tokio::fs::read_to_string(&path).await {
         Ok(raw) => match serde_json::from_str::<Value>(&raw) {
-            Ok(snapshot) => (StatusCode::OK, Json(json!({"snapshot": snapshot}))).into_response(),
+            Ok(snapshot) => (
+                StatusCode::OK,
+                Json(json!({"snapshot": snapshot, "version": content_version(raw.as_bytes())})),
+            )
+                .into_response(),
             Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
         },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            (StatusCode::OK, Json(json!({"snapshot": null}))).into_response()
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (
+            StatusCode::OK,
+            Json(json!({"snapshot": null, "version": content_version(b"")})),
+        )
+            .into_response(),
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
 }
@@ -148,6 +289,12 @@ pub async fn board_load(State(state): State<AppState>) -> impl IntoResponse {
 #[derive(Deserialize)]
 pub struct BoardSaveBody {
     snapshot: Value,
+    /// Version chargée (`content_version`) ; absente = pas de contrôle.
+    #[serde(default)]
+    base: Option<String>,
+    /// Identifiant de la fenêtre (voir `WorkspaceWriters`).
+    #[serde(default)]
+    writer: Option<String>,
 }
 
 pub async fn board_save(
@@ -170,18 +317,46 @@ pub async fn board_save(
     }
     let dir = state.root.join(".fig_thumbs");
     let path = dir.join("board.tldr.json");
-    let _guard = state.workspace_lock.lock().await;
+    let writer = body.writer.as_deref();
+    let mut writers = state.workspace_lock.lock().await;
     if let Err(error) = fs::create_dir_all(&dir) {
         return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string());
     }
-    keep_previous(&path);
     // Python: json.dump without indent — compact is fine for parity of content.
     let payload = match serde_json::to_vec(&body.snapshot) {
         Ok(bytes) => bytes,
         Err(error) => return json_error(StatusCode::BAD_REQUEST, error.to_string()),
     };
+    match stale_base(
+        &path,
+        body.base.as_deref(),
+        writers.last_write("board", writer),
+    ) {
+        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+        Ok(Some(current)) => {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "conflict",
+                    "version": content_version(&current),
+                    "rescue": keep_rejected(&path, &payload),
+                })),
+            )
+                .into_response();
+        }
+        Ok(None) => {}
+    }
+    keep_previous(&path);
     match atomic_write(&path, &payload) {
-        Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
+        Ok(()) => {
+            let version = content_version(&payload);
+            writers.wrote("board", writer, &version);
+            (
+                StatusCode::OK,
+                Json(json!({"ok": true, "version": version})),
+            )
+                .into_response()
+        }
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
 }

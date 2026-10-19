@@ -75,6 +75,7 @@
         display: none;
       }
       #save-indicator.show { display: block; }
+      #save-indicator.action { cursor: pointer; max-width: 420px; }
     </style>
   </head>
   <body>
@@ -102,7 +103,7 @@
     </div>
     <div id="app"></div>
     <textarea id="source" spellcheck="false" aria-label="Markdown source"></textarea>
-    <div id="save-indicator">save failed</div>
+    <div id="save-indicator" aria-live="polite"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

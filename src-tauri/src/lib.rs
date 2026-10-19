@@ -13,6 +13,7 @@ mod sidecar;
 #[cfg(target_os = "macos")]
 mod single_instance;
 mod ui_state;
+mod unsaved_guard;
 
 use std::path::{Path, PathBuf};
 use tauri::Manager;
@@ -60,8 +61,16 @@ pub fn run() {
     };
     let boot_clock = boot_metrics::BootClock::new();
     let _ = fix_path_env::fix();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(boot_clock)
+        .manage(atelier_workspace::QuitGuard::new())
+        .on_window_event(unsaved_guard::on_window_event);
+    // ⌘Q passe par la garde des documents modifiés (voir unsaved_guard)
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(unsaved_guard::app_menu)
+        .on_menu_event(unsaved_guard::on_menu_event);
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -106,11 +115,19 @@ pub fn run() {
             browser::browser_probe,
             boot_metrics::boot_clock_elapsed_ms,
             boot_metrics::record_boot_metrics,
-            ui_state::ui_state_snapshot
+            ui_state::ui_state_snapshot,
+            unsaved_guard::set_unsaved_documents,
+            unsaved_guard::ack_quit_request,
+            unsaved_guard::confirm_quit
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| {
+        .run(|app_handle, event| {
+            // Documents modifiés non enregistrés : la sortie demandée par
+            // l'utilisateur attend la confirmation de l'app.
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
+                unsaved_guard::on_exit_requested(app_handle, *code, api);
+            }
             // Les serveurs galerie sont détachés (un par projet visité) ;
             // sans ce hook ils survivent à la fermeture de l'app. Seule la
             // sortie ACTÉE (Exit, pas ExitRequested) déclenche le SIGTERM.

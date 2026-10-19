@@ -18,22 +18,67 @@ import {
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
 
 const SAVE_DEBOUNCE_MS = 1000
+const LOAD_RETRY_MS = 3000
+const SAVE_RETRY_MS = 5000
 const indicator = document.getElementById('save-indicator')
 
-function showSaveFailed(failed) {
-  indicator.classList.toggle('show', failed)
+// Garde anti-écrasement (audit du 2026-10-18, problème 6) : l'éditeur ne
+// monte qu'après un chargement réussi, chaque sauvegarde porte la version
+// chargée (`base`) et le serveur refuse (409) d'écraser un notes.md changé
+// ailleurs depuis — par un agent, par exemple.
+let onIndicatorClick: (() => void) | null = null
+function showIndicator(text: string | null, action: (() => void) | null = null) {
+  indicator.textContent = text ?? ''
+  indicator.classList.toggle('show', text != null)
+  indicator.classList.toggle('action', action != null)
+  if (action) {
+    indicator.setAttribute('role', 'button')
+    indicator.tabIndex = 0
+  } else {
+    indicator.removeAttribute('role')
+    indicator.removeAttribute('tabindex')
+  }
+  onIndicatorClick = action
+}
+indicator.addEventListener('click', () => onIndicatorClick?.())
+indicator.addEventListener('keydown', (event) => {
+  if (onIndicatorClick && (event.key === 'Enter' || event.key === ' ')) {
+    event.preventDefault()
+    onIndicatorClick()
+  }
+})
+
+async function loadNotes(): Promise<{ markdown: string; version: string | null }> {
+  for (;;) {
+    try {
+      const r = await fetch('/notes/load')
+      if (!r.ok) throw new Error('bad status ' + r.status)
+      const data = await r.json()
+      if (data && typeof data.markdown === 'string') {
+        return { markdown: data.markdown, version: typeof data.version === 'string' ? data.version : null }
+      }
+      throw new Error('réponse sans markdown')
+    } catch (e) {
+      // jamais un document vide à la place du fichier : on attend le serveur
+      console.warn('notes/load failed', e)
+      showIndicator('Notes non chargées — nouvel essai…')
+      await new Promise((resolve) => setTimeout(resolve, LOAD_RETRY_MS))
+    }
+  }
 }
 
 async function main() {
   // ---- 1. Initial load ----
-  let initial = ''
-  try {
-    const r = await fetch('/notes/load')
-    const data = await r.json()
-    if (data && typeof data.markdown === 'string') initial = data.markdown
-  } catch (e) {
-    console.warn('notes/load failed', e)
-  }
+  const loaded = await loadNotes()
+  showIndicator(null)
+  const initial = loaded.markdown
+  let baseVersion = loaded.version
+  // identifiant de cette fenêtre : le serveur reconnaît sa propre dernière
+  // écriture (beacon dont la réponse n'est jamais lue) et ne la prend pas
+  // pour un conflit (relecture du 2026-10-19)
+  const writer = Math.random().toString(36).slice(2) + Date.now().toString(36)
+  // version du disque reçue avec un 409 : en attente de la décision
+  let conflictVersion: string | null = null
 
   const appEl = document.getElementById('app')
   const sourceEl = document.getElementById('source') as HTMLTextAreaElement
@@ -147,35 +192,64 @@ async function main() {
 
   // ---- 2. Autosave (debounced) ----
   let saveTimer = null
+  // frappe arrivée pendant un conflit : envoyée à la fermeture (voir flushOnHide)
+  let typedInConflict = false
+  const saveBody = () => JSON.stringify(baseVersion == null
+    ? { markdown: currentMarkdown() }
+    : { markdown: currentMarkdown(), base: baseVersion, writer })
+  // le serveur garde aussi chaque version refusée dans notes.md.conflit
+  const conflictMessage = 'notes.md a changé ailleurs : ta version reste ici (copie dans notes.md.conflit), non enregistrée. Cliquer pour la garder (l’autre ira dans notes.md.bak).'
+  const keepMine = () => {
+    // choix explicite : la version de l'onglet remplace celle du disque,
+    // qui reste dans notes.md.bak
+    baseVersion = conflictVersion
+    conflictVersion = null
+    typedInConflict = false
+    showIndicator(null)
+    doSave()
+  }
   const doSave = () => {
     saveTimer = null
-    const markdown = currentMarkdown()
+    // conflit en attente : rien ne part tant que l'utilisateur n'a pas choisi
+    if (conflictVersion != null) return
     fetch('/notes/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ markdown }),
+      body: saveBody(),
     })
-      .then((r) => {
+      .then(async (r) => {
+        const data = await r.json().catch(() => null)
+        if (r.status === 409 && data && typeof data.version === 'string') {
+          conflictVersion = data.version
+          showIndicator(conflictMessage, keepMine)
+          return
+        }
         if (!r.ok) throw new Error('bad status ' + r.status)
-        showSaveFailed(false)
+        if (data && typeof data.version === 'string') baseVersion = data.version
+        showIndicator(null)
       })
       .catch((e) => {
         console.warn('notes/save failed', e)
-        showSaveFailed(true)
+        showIndicator('Notes non enregistrées — nouvel essai…')
+        if (!saveTimer) saveTimer = setTimeout(doSave, SAVE_RETRY_MS)
       })
   }
   const scheduleSave = () => {
+    if (conflictVersion != null) typedInConflict = true
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(doSave, SAVE_DEBOUNCE_MS)
   }
 
   // ---- 3. Flush pending save on hide via sendBeacon ----
+  // En conflit, le beacon part quand même avec l'ancienne base : le serveur
+  // le refuse (409, notes.md intact) et garde le texte dans notes.md.conflit,
+  // si bien que la frappe d'un onglet fermé sans choisir n'est pas perdue.
   const flushOnHide = () => {
-    if (!saveTimer) return
-    clearTimeout(saveTimer)
+    if (!saveTimer && !typedInConflict) return
+    if (saveTimer) clearTimeout(saveTimer)
     saveTimer = null
-    const body = JSON.stringify({ markdown: currentMarkdown() })
-    navigator.sendBeacon('/notes/save', new Blob([body], { type: 'application/json' }))
+    typedInConflict = false
+    navigator.sendBeacon('/notes/save', new Blob([saveBody()], { type: 'application/json' }))
   }
   window.addEventListener('pagehide', flushOnHide)
   document.addEventListener('visibilitychange', () => {

@@ -95,6 +95,12 @@ compilation. Choisir ceux qui couvrent la surface modifiée :
 Avant de toucher aux éditeurs de la galerie (diff, versions, rewrap,
 commentaires), lire aussi [PIEGES_CONNUS.md](PIEGES_CONNUS.md).
 
+Documents modifiés : l'arrêt du script (SIGTERM puis SIGKILL) ne passe pas
+par la confirmation de sortie de l'app. Avant de le lancer, demander à Thierry
+d'enregistrer les documents ouverts dans l'atelier (onglet marqué modifié).
+Un tampon oublié n'est pas perdu pour autant : son brouillon de secours,
+écrit chaque seconde pendant la frappe, revient à la réouverture du fichier.
+
 ### 2 à 4. Construire, arrêter, installer, relancer
 
 Seulement avec l'accord explicite de Thierry. Depuis **Terminal** (ou une
@@ -119,11 +125,11 @@ refuse sinon. Dans l'ordre, il :
    chat, avec le port et le jeton du verrou) ; s'il y en a un, code 3 et rien
    n'est arrêté. Une build antérieure sans `/activity` donne « état inconnu » :
    vérifier dans l'app qu'aucun fil n'est « en cours » ;
-5. **prévient pour les éditeurs**, sans pouvoir les vérifier : LaTeX, code,
-   Markdown et notes ne signalent pas encore leurs modifications non
-   enregistrées à l'app, donc l'avertissement est le même à chaque fois et
-   c'est à Thierry de dire qu'ils sont enregistrés ; un tampon non enregistré
-   est perdu à l'arrêt ;
+5. **prévient pour les éditeurs**, sans pouvoir les vérifier : le script ne
+   voit pas les modifications non enregistrées de LaTeX, code, Markdown et
+   notes, donc l'avertissement est le même à chaque fois et c'est à Thierry de
+   dire qu'ils sont enregistrés ; un tampon non enregistré n'est pas écrit
+   dans son fichier, mais son brouillon de secours revient à la réouverture ;
 6. **garde la build qui tourne** si rien n'est encore installé dans
    `~/Applications/Atelier.app` (premier passage) : l'app qui tourne depuis
    `/Applications/Atelier.app` (DMG) ou le `target/` d'un autre worktree est
