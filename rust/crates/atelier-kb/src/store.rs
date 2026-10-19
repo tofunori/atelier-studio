@@ -172,6 +172,10 @@ pub struct KnowledgeStore {
     pub source_order: Vec<String>,
     pub collections: Vec<Value>,
     pub warning: Option<String>,
+    /// Registre présent mais qu'on n'a pas pu lire ni mettre de côté (droits,
+    /// E/S, renommage refusé) : la base est vide EN MÉMOIRE seulement, et
+    /// `persist` refuse — sinon la prochaine écriture effacerait le registre.
+    read_error: Option<String>,
 }
 
 impl KnowledgeStore {
@@ -186,6 +190,7 @@ impl KnowledgeStore {
             source_order: Vec::new(),
             collections: Vec::new(),
             warning: None,
+            read_error: None,
             zotero_storage_root: None,
             youtube_fetcher: None,
         };
@@ -213,12 +218,22 @@ impl KnowledgeStore {
         self.sources = Map::new();
         self.source_order.clear();
         self.collections = Vec::new();
+        self.read_error = None;
         let raw = match std::fs::read_to_string(&self.registry_path) {
             Ok(r) => r,
-            Err(_) => return,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(e) => {
+                let message = format!("Registre illisible ({e}) — rien n'est écrit tant qu'il ne l'est pas");
+                eprintln!("[atelier-kb] {message}");
+                self.warning = Some(message.clone());
+                self.read_error = Some(message);
+                return;
+            }
         };
-        match serde_json::from_str::<Value>(&raw) {
-            Ok(parsed) => {
+        // Un JSON valide qui n'est pas un objet (`[]`, `3`…) est illisible lui
+        // aussi : lu comme une base vide, il serait écrasé à la prochaine écriture.
+        match serde_json::from_str::<Value>(&raw).ok().filter(Value::is_object) {
+            Some(parsed) => {
                 self.collections = parsed
                     .get("collections")
                     .and_then(Value::as_array)
@@ -244,7 +259,7 @@ impl KnowledgeStore {
                     }
                 }
             }
-            Err(_) => {
+            None => {
                 let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
                 let backup = self.registry_path.with_file_name(format!(
                     "knowledge.json.corrupt-{ts}"
@@ -255,8 +270,10 @@ impl KnowledgeStore {
                         "Registre illisible — sauvegardé dans {name}, base repartie à vide"
                     ));
                 } else {
-                    self.warning =
-                        Some("Registre illisible et non sauvegardable — base repartie à vide".to_string());
+                    // Le fichier reste en place : rien ne doit l'écraser.
+                    let message = "Registre illisible et non sauvegardable — base repartie à vide, rien n'est écrit".to_string();
+                    self.read_error = Some(message.clone());
+                    self.warning = Some(message);
                 }
                 eprintln!("[atelier-kb] {}", self.warning.as_deref().unwrap_or(""));
             }
@@ -343,6 +360,9 @@ impl KnowledgeStore {
     }
 
     fn persist(&self) -> Result<(), String> {
+        if let Some(error) = &self.read_error {
+            return Err(error.clone());
+        }
         let payload = json!({
             "version": REGISTRY_VERSION,
             "collections": self.collections,
@@ -1354,6 +1374,38 @@ mod tests {
             err,
             "Kind non pris en charge (v1: file, pdf, web, note, folder, youtube, gbrain, zotero, ragdoc) : bogus"
         );
+    }
+
+    #[test]
+    fn registre_non_objet_est_sauvegarde_et_jamais_ecrase() {
+        for raw in ["[1, 2, 3]", "3", "\"texte\"", ""] {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("knowledge.json");
+            std::fs::write(&path, raw).unwrap();
+            let store = KnowledgeStore::open(dir.path().to_path_buf());
+            assert!(store.warning.as_deref().is_some_and(|w| w.contains("illisible")), "{raw:?}");
+            let copies: Vec<_> = std::fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().starts_with("knowledge.json.corrupt-"))
+                .collect();
+            assert_eq!(copies.len(), 1, "{raw:?}");
+            assert_eq!(std::fs::read_to_string(copies[0].path()).unwrap(), raw, "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn registre_illisible_autrement_qu_absent_n_est_jamais_ecrase() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("knowledge.json");
+        // un dossier à la place du fichier : la lecture échoue autrement que
+        // par « absent », même en root (qui ignore les droits)
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("garde"), "x").unwrap();
+        let store = KnowledgeStore::open(dir.path().to_path_buf());
+        assert!(store.warning.as_deref().is_some_and(|w| w.contains("rien n'est écrit")));
+        assert!(store.persist().is_err());
+        assert!(path.join("garde").exists());
     }
 
     #[test]
