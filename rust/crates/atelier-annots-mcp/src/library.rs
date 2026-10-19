@@ -219,16 +219,18 @@ impl Library {
     pub fn load(config: &Config) -> Self {
         let mut warnings = Vec::new();
         let path = config.app_dir.join("pdf_annots.json");
-        let store = match std::fs::read_to_string(&path) {
-            Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|e| {
-                warnings.push(format!("{} illisible : {e}", path.display()));
-                Value::Null
-            }),
-            Err(_) => {
+        // même lecteur que les écrivains : illisible = avertissement et copie de côté
+        let store = match atelier_store::pdf_annots::read(&config.app_dir) {
+            Ok(map) if map.is_empty() && !path.exists() => {
                 warnings.push(format!(
                     "aucune annotation Atelier ({} absent)",
                     path.display()
                 ));
+                Value::Null
+            }
+            Ok(map) => Value::Object(map),
+            Err(e) => {
+                warnings.push(e.to_string());
                 Value::Null
             }
         };

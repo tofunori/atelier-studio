@@ -1811,3 +1811,168 @@ fn compile_reports_a_failed_tectonic_download() {
     );
     assert!(!app.join("tools/tectonic-0.17.0/tectonic").exists());
 }
+
+/// Copie `<nom>.corrupt-*` de `dir` qui porte exactement `raw`.
+fn has_corrupt_copy(dir: &std::path::Path, name: &str, raw: &str) -> bool {
+    fs::read_dir(dir).unwrap().flatten().any(|e| {
+        e.file_name().to_string_lossy().starts_with(&format!("{name}.corrupt-"))
+            && fs::read(e.path()).is_ok_and(|b| b == raw.as_bytes())
+    })
+}
+
+/// Un store d'annotations présent mais illisible (vide, tronqué, JSON
+/// invalide, pas un objet) : le GET répond une erreur (jamais `[]` en 200),
+/// le POST est refusé, le fichier reste tel quel et une copie `.corrupt-` est
+/// mise de côté. Vaut pour le store partagé (PDF Zotero) comme pour le store
+/// du projet (PDF du projet, commentaires LaTeX).
+#[test]
+fn unreadable_annotation_stores_are_reported_and_never_rewritten() {
+    let app_dir = tempfile::tempdir().unwrap();
+    let srv = start_server_with(&[("ATELIER_APP_DIR", app_dir.path().display().to_string())]);
+    let thumbs = srv.root.join(".fig_thumbs");
+    fs::create_dir_all(&thumbs).unwrap();
+    let cases = [
+        ("vide", ""),
+        ("tronqué", "{\"zotero/ABCD1234/a.pdf\": [{\"id\": \"1\", \"te"),
+        ("JSON invalide", "{pas du json}"),
+        ("non-objet", "[1, 2, 3]"),
+    ];
+    let shared = app_dir.path().join("pdf_annots.json");
+    let local = thumbs.join("pdf_annots.json");
+    for (case, raw) in cases {
+        // store partagé illisible, store du projet sain
+        fs::write(&shared, raw).unwrap();
+        fs::write(&local, r#"{"these.pdf":[{"id":"t1"}]}"#).unwrap();
+        let (status, body) = http(srv.port, "GET", "/pdfannot?rel=zotero%2FABCD1234%2Fa.pdf", None);
+        assert_eq!(status, 500, "{case}: {body}");
+        assert!(body.contains("illisible") && !body.contains("\"annots\""), "{case}: {body}");
+        let (status, body) = http(srv.port, "GET", "/pdfannot-all", None);
+        assert_eq!(status, 500, "{case}: {body}");
+        let post = r#"{"rel":"zotero/ABCD1234/a.pdf","annots":[{"id":"nouveau"}]}"#;
+        let (status, body) = http(srv.port, "POST", "/pdfannot", Some(post));
+        assert_eq!(status, 500, "{case}: {body}");
+        assert_eq!(fs::read_to_string(&shared).unwrap(), raw, "{case}: store partagé intact");
+        assert!(has_corrupt_copy(app_dir.path(), "pdf_annots.json", raw), "{case}");
+        // le store du projet, lui, reste utilisable
+        let (status, body) = http(srv.port, "GET", "/pdfannot?rel=these.pdf", None);
+        assert_eq!(status, 200, "{case}: {body}");
+        assert!(body.contains("t1"), "{case}: {body}");
+
+        // store du projet illisible
+        fs::write(&local, raw).unwrap();
+        let (status, body) = http(srv.port, "GET", "/pdfannot?rel=these.pdf", None);
+        assert_eq!(status, 500, "{case}: {body}");
+        assert!(body.contains("illisible"), "{case}: {body}");
+        let post = r#"{"rel":"tex-comments:chapitre1.tex","annots":[{"id":"c1"}]}"#;
+        let (status, body) = http(srv.port, "POST", "/pdfannot", Some(post));
+        assert_eq!(status, 500, "{case}: {body}");
+        assert_eq!(fs::read_to_string(&local).unwrap(), raw, "{case}: store du projet intact");
+        assert!(has_corrupt_copy(&thumbs, "pdf_annots.json", raw), "{case}");
+    }
+    // réparé : tout repart, et la première réécriture du jour est sauvegardée
+    fs::write(&shared, r#"{"zotero/ABCD1234/b.pdf":[{"id":"b1"}]}"#).unwrap();
+    let post = r#"{"rel":"zotero/ABCD1234/a.pdf","annots":[{"id":"nouveau"}]}"#;
+    let (status, body) = http(srv.port, "POST", "/pdfannot", Some(post));
+    assert_eq!(status, 200, "{body}");
+    let store: serde_json::Value = serde_json::from_slice(&fs::read(&shared).unwrap()).unwrap();
+    assert_eq!(store["zotero/ABCD1234/b.pdf"][0]["id"], "b1");
+    assert_eq!(store["zotero/ABCD1234/a.pdf"][0]["id"], "nouveau");
+    let backups: Vec<_> = fs::read_dir(app_dir.path().join("backups")).unwrap().flatten().collect();
+    assert_eq!(backups.len(), 1);
+    assert!(fs::read_to_string(backups[0].path()).unwrap().contains("b1"));
+}
+
+/// Problème 8 : un `.fig_state.json` illisible n'est ni servi comme un état
+/// vide (GET 500, jamais 200 `{}`), ni réécrit par un POST /state ou /favorite.
+#[test]
+fn an_unreadable_gallery_state_is_reported_and_never_rewritten() {
+    let srv = start_server();
+    let path = srv.root.join(".fig_state.json");
+    for (label, raw) in [
+        ("vide", ""),
+        ("tronqué", r#"{"favs":["a.png"],"ratings":{"a.png":4"#),
+        ("JSON invalide", "{pas du json}"),
+        ("non-objet", "[1, 2, 3]"),
+    ] {
+        fs::write(&path, raw).unwrap();
+        let (st, body) = http(srv.port, "GET", "/state", None);
+        assert_eq!(st, 500, "{label} : GET — {body}");
+        assert!(body.contains("illisible"), "{label} : erreur dite — {body}");
+        let (st, _) = http(srv.port, "POST", "/state", Some(r#"{"favs":["b.png"]}"#));
+        assert_eq!(st, 500, "{label} : POST /state refusé");
+        let (st, _) = http(srv.port, "POST", "/favorite", Some(r#"{"rel":"b.png","on":true}"#));
+        assert_eq!(st, 500, "{label} : POST /favorite refusé");
+        assert_eq!(fs::read_to_string(&path).unwrap(), raw, "{label} : fichier intact");
+        assert!(has_corrupt_copy(&srv.root, ".fig_state.json", raw), "{label} : copie mise de côté");
+    }
+}
+
+/// Un onglet dont le GET initial a échoué, ou un éditeur LaTeX qui ne POSTe
+/// qu'un réglage, n'efface plus le reste de l'état : le serveur fusionne par
+/// clé au lieu de remplacer. Les réglages de Lecture passent la liste blanche.
+#[test]
+fn a_partial_state_post_keeps_every_other_key() {
+    let srv = start_server();
+    let plein = r#"{"favs":["a.png"],"ratings":{"a.png":4},"hidden":["h.png"],
+        "tags":{"a.png":["albedo"]},"hideRules":["*.tmp"],"collections":{"Article":["a.png"]},
+        "workflow":{"a.png":"final"},"fileTypes":["png"],"texAutoRewrap":true}"#;
+    assert_eq!(http(srv.port, "POST", "/state", Some(plein)).0, 200);
+    for partial in [
+        r#"{"texReadTheme":"sepia"}"#,
+        r#"{"texReadFontSize":99}"#,
+        r#"{"texVisualEditor":true}"#,
+        r#"{"texReadTheme":"fluo","texReadFontSize":"x"}"#,
+    ] {
+        assert_eq!(http(srv.port, "POST", "/state", Some(partial)).0, 200, "{partial}");
+    }
+    let (st, body) = http(srv.port, "GET", "/state", None);
+    assert_eq!(st, 200);
+    let state: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(state["favs"], serde_json::json!(["a.png"]));
+    assert_eq!(state["ratings"]["a.png"], 4);
+    assert_eq!(state["hidden"], serde_json::json!(["h.png"]));
+    assert_eq!(state["tags"]["a.png"], serde_json::json!(["albedo"]));
+    assert_eq!(state["hideRules"], serde_json::json!(["*.tmp"]));
+    assert_eq!(state["collections"]["Article"], serde_json::json!(["a.png"]));
+    assert_eq!(state["workflow"]["a.png"], "final");
+    assert_eq!(state["fileTypes"], serde_json::json!(["png"]));
+    assert_eq!(state["texAutoRewrap"], true);
+    assert_eq!(state["texReadTheme"], "sepia", "valeur hors liste ignorée");
+    assert_eq!(state["texReadFontSize"], 24, "borné à 13–24");
+    assert_eq!(state["texVisualEditor"], true);
+    // chaque réécriture garde d'abord la sauvegarde du jour, sous .fig_thumbs/
+    // (jamais un backups/ au milieu des figures du projet)
+    let backups: Vec<_> = fs::read_dir(srv.root.join(".fig_thumbs").join("backups"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(".fig_state."))
+        .collect();
+    assert_eq!(backups.len(), 1, "une sauvegarde par jour");
+    assert!(fs::read_to_string(backups[0].path()).unwrap().contains("a.png"));
+    assert!(!srv.root.join("backups").exists());
+}
+
+/// `stateBase` : un onglet resté sur une vue ancienne n'applique que SES
+/// changements ; une note, un masquage ou un tag posés ailleurs entre-temps
+/// survivent, et ce qu'il a retiré disparaît.
+#[test]
+fn a_stale_tab_applies_only_its_own_changes_since_state_base() {
+    let srv = start_server();
+    let base = r#"{"favs":["a.png"],"ratings":{"a.png":4},"hidden":["h.png"],"tags":{},
+        "hideRules":[],"collections":{},"workflow":{}}"#;
+    assert_eq!(http(srv.port, "POST", "/state", Some(base)).0, 200);
+    // un autre onglet ajoute une note et un masquage
+    let other = r#"{"stateBase":{"favs":["a.png"],"ratings":{"a.png":4},"hidden":["h.png"]},
+        "favs":["a.png"],"ratings":{"a.png":4,"b.png":5},"hidden":["h.png","k.png"]}"#;
+    assert_eq!(http(srv.port, "POST", "/state", Some(other)).0, 200);
+    // l'onglet ancien retire la note de a.png, note c.png, démasque h.png
+    let stale = r#"{"stateBase":{"favs":["a.png"],"ratings":{"a.png":4},"hidden":["h.png"]},
+        "favs":["a.png"],"ratings":{"c.png":3},"hidden":[],"tags":{"c.png":["glace"]}}"#;
+    assert_eq!(http(srv.port, "POST", "/state", Some(stale)).0, 200);
+    let (_, body) = http(srv.port, "GET", "/state", None);
+    let state: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(state["ratings"], serde_json::json!({"b.png":5,"c.png":3}), "{body}");
+    assert_eq!(state["hidden"], serde_json::json!(["k.png"]), "{body}");
+    assert_eq!(state["tags"]["c.png"], serde_json::json!(["glace"]));
+    assert!(state.get("stateBase").is_none(), "la base n'est jamais écrite");
+}

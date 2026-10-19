@@ -706,6 +706,40 @@ test('workflow: status set from the card menu survives a reload (server-backed)'
   });
 });
 
+test('state: a failed initial GET /state never lets a click overwrite the project state', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    const stateUrl = new URL('/state', url).href;
+    // état déjà sur le disque : une note et un statut posés ailleurs
+    const seed = await page.request.post(stateUrl, {data: {ratings: {'plot-beta.svg': 5}, workflow: {'plot-beta.svg': 'final'}}});
+    expect(seed.ok()).toBe(true);
+    let failGet = true, posts = 0;
+    await page.route('**/state', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') { posts += 1; return route.continue(); }
+      if (failGet) return route.fulfill({status: 500, contentType: 'application/json', body: '{"error":"état illisible"}'});
+      return route.continue();
+    });
+    await page.goto(url);
+    await expect(page.locator('#favChip')).toHaveAttribute('title', /non chargé/);
+    // visible sans survol : classe d'avertissement et mention « non enregistré »
+    await expect(page.locator('#favChip')).toHaveClass(/state-unloaded/);
+    expect(await page.locator('#favChip').evaluate((el) => getComputedStyle(el, '::after').content)).toContain('non enregistré');
+    await page.locator('.card[data-card="plot-alpha.svg"]').hover();
+    await page.locator('[data-act="more"][data-rel="plot-alpha.svg"]').click();
+    await page.locator('[data-wfset="candidate"]').click();
+    await page.waitForTimeout(700);                 // au-delà du debounce de 400 ms
+    expect(posts, 'aucun POST tant que le GET initial a échoué').toBe(0);
+    failGet = false;                                // le nouvel essai (2 s) réussit
+    await expect.poll(() => posts, {timeout: 8_000}).toBeGreaterThan(0);
+    await expect(page.locator('#favChip')).not.toHaveAttribute('title', /non chargé/);
+    await expect(page.locator('#favChip')).not.toHaveClass(/state-unloaded/);
+    await expect.poll(async () => (await (await page.request.get(stateUrl)).json()).workflow?.['plot-alpha.svg']).toBe('candidate');
+    const disk = await (await page.request.get(stateUrl)).json();
+    expect(disk.ratings).toEqual({'plot-beta.svg': 5});
+    expect(disk.workflow['plot-beta.svg']).toBe('final');
+  });
+});
+
 test('add-to-chat from an embedded gallery card is idempotent on rapid double activation', async ({ page }) => {
   await withGallery(async ({ root, port }) => {
     // la galerie doit se croire embarquée (window.self !== window.top) : une

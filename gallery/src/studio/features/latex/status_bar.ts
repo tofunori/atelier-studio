@@ -100,22 +100,20 @@ async function hydrateServerPref(
   return storage.getItem(key) === "1";
 }
 
-/** Persiste un réglage booléen côté serveur, en fusionnant pour ne pas
- * écraser le reste de l'état de la galerie. */
+/** Persiste un réglage booléen côté serveur. Le serveur fusionne /state par
+ * clé : on n'envoie que ce réglage, le reste de l'état de la galerie reste
+ * tel que le disque le porte (renvoyer un état relu écrasait les changements
+ * faits entre-temps, et un GET raté l'effaçait). */
 async function persistServerPref(
   enabled: boolean,
   fetchImpl: typeof fetch,
   key: string,
 ): Promise<void> {
   try {
-    const current = await fetchImpl("/state")
-      .then((response) => response.json() as Promise<Record<string, unknown>>)
-      .catch(() => ({}));
-    const next = {...(current && typeof current === "object" ? current : {}), [key]: enabled};
     await fetchImpl("/state", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(next),
+      body: JSON.stringify({[key]: enabled}),
     });
   } catch { /* le réglage reste actif pour la session en cours */ }
 }

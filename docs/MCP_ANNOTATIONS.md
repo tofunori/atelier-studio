@@ -23,8 +23,11 @@ La « Note » d'une annotation est le champ du haut de la bulle d'annotation
 (`kind: "note"`), qui est une note par nature. Pour Zotero, la note est le
 commentaire de l'annotation.
 
-Non lus : les très anciens stores par projet (`.fig_thumbs/pdf_annots.json`)
-qui n'ont pas encore été recopiés dans le store commun.
+Non lus : les stores par projet (`.fig_thumbs/pdf_annots.json`). Seules
+leurs entrées Zotero d'avant le store commun y sont recopiées, une fois ; le
+reste y vit toujours et n'existe nulle part ailleurs (annotations des PDF du
+projet, commentaires LaTeX et Markdown, couleurs de section). Ce fichier
+n'est donc pas un cache : ne jamais supprimer `.fig_thumbs/`.
 
 ## Outils
 

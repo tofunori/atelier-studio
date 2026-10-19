@@ -200,27 +200,36 @@ fn extract_year(raw: &str) -> String {
     String::new()
 }
 
+/// Lecture pour l'affichage : un fichier illisible n'affiche aucune étoile
+/// (le basculement, lui, refuse d'écrire — voir [`read_favs_at`]).
 fn load_favs() -> BTreeSet<String> {
-    let path = zotero_favs_path();
-    match fs::read_to_string(path) {
-        Ok(raw) => serde_json::from_str::<Vec<String>>(&raw)
-            .unwrap_or_default()
-            .into_iter()
-            .collect(),
-        Err(_) => BTreeSet::new(),
-    }
+    read_favs_at(&zotero_favs_path()).unwrap_or_default()
 }
 
-fn save_favs(favs: &BTreeSet<String>) -> Result<(), String> {
-    let dir = zotero_cache_dir();
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = zotero_favs_path();
-    let tmp = dir.join(format!("zotero-favs.json.tmp.{}", std::process::id()));
+/// Favoris Zotero. Absent : aucun. Présent mais illisible (vide, tronqué,
+/// pas une liste) : erreur et copie `.corrupt-` mise de côté — le clic
+/// suivant sur l'étoile ne repart jamais d'une liste vide.
+fn read_favs_at(path: &std::path::Path) -> Result<BTreeSet<String>, String> {
+    let list = atelier_core::durable::load_array(path).map_err(|error| error.to_string())?;
+    Ok(list.iter().filter_map(Value::as_str).map(str::to_string).collect())
+}
+
+/// Écriture durable (fsync, rename, fsync du dossier) après la sauvegarde
+/// du jour ; même format qu'avant (liste JSON compacte).
+fn save_favs_at(path: &std::path::Path, favs: &BTreeSet<String>) -> Result<(), String> {
     let list: Vec<&String> = favs.iter().collect();
-    let payload = serde_json::to_vec(&list).map_err(|e| e.to_string())?;
-    fs::write(&tmp, payload).map_err(|e| e.to_string())?;
-    fs::rename(tmp, path).map_err(|e| e.to_string())?;
-    Ok(())
+    atelier_core::durable::save_json_compact(path, &list).map_err(|error| error.to_string())
+}
+
+/// Bascule une étoile : relit strictement, refuse si le fichier est illisible.
+fn toggle_fav_at(path: &std::path::Path, key: &str, on: bool) -> Result<(), String> {
+    let mut favs = read_favs_at(path)?;
+    if on {
+        favs.insert(key.to_string());
+    } else {
+        favs.remove(key);
+    }
+    save_favs_at(path, &favs)
 }
 
 fn search_items(
@@ -384,13 +393,7 @@ pub async fn zotero_fav(
         Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
         _ => false,
     };
-    let mut favs = load_favs();
-    if on {
-        favs.insert(key.clone());
-    } else {
-        favs.remove(&key);
-    }
-    match save_favs(&favs) {
+    match toggle_fav_at(&zotero_favs_path(), &key, on) {
         Ok(()) => (StatusCode::OK, Json(json!({"key": key, "fav": on}))).into_response(),
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error),
     }
@@ -756,6 +759,27 @@ mod ragdoc_preview_tests {
         #[cfg(unix)] {
             let outside=tempfile::NamedTempFile::new().unwrap();std::os::unix::fs::symlink(outside.path(),bundle.join("escape.png")).unwrap();
             assert!(ragdoc_asset_path(dir.path(),id,"escape.png").is_none());
+        }
+    }
+}
+
+#[cfg(test)]
+mod favs_tests {
+    use super::*;
+
+    #[test]
+    fn an_unreadable_favorites_file_is_never_rewritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("zotero-favs.json");
+        toggle_fav_at(&path, "ABCD1234", true).unwrap();
+        toggle_fav_at(&path, "EFGH5678", true).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), r#"["ABCD1234","EFGH5678"]"#, "format inchangé");
+        for (label, raw) in atelier_core::durable::UNREADABLE_LIST_SAMPLES {
+            fs::write(&path, raw).unwrap();
+            let error = toggle_fav_at(&path, "IJKL9012", true).unwrap_err();
+            assert!(error.contains("illisible"), "{label} : {error}");
+            assert_eq!(fs::read_to_string(&path).unwrap(), raw, "{label} : intact");
+            assert_eq!(atelier_core::durable::corrupt_copies_of(&path, raw.as_bytes()), 1, "{label} : copie");
         }
     }
 }

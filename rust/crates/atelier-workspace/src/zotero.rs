@@ -626,12 +626,50 @@ fn item_key_exists(conn: &Connection, key: &str) -> Result<bool, String> {
     .map(|found| found.unwrap_or(false))
 }
 
+/// Favoris Zotero pour les réécrire. Absent : aucun. Présent mais illisible
+/// (vide, tronqué, pas une liste de clés) : ses octets sont mis de côté en
+/// `zotero-favs.json.corrupt-<secondes>` et l'écriture est refusée — sinon le
+/// prochain clic sur l'étoile repartirait d'une liste vide. Règle
+/// d'`atelier_store::durable`, refaite ici sans la dépendance (ce crate est
+/// aussi dans le verrou de src-tauri, qui ne se résout pas hors ligne).
+fn favs_for_write(path: &Path) -> Result<Vec<String>, String> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.to_string()),
+    };
+    match serde_json::from_slice::<Vec<String>>(&bytes) {
+        Ok(favs) if !bytes.is_empty() => Ok(favs),
+        _ => {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let already = std::fs::read_dir(path.parent().unwrap_or(Path::new(".")))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|entry| {
+                    entry.file_name().to_string_lossy().starts_with(&format!("{name}.corrupt-"))
+                        && std::fs::read(entry.path()).is_ok_and(|old| old == bytes)
+                });
+            if !already {
+                let copy = path.with_file_name(format!("{name}.corrupt-{stamp}"));
+                let _ = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&copy)
+                    .and_then(|mut file| std::io::Write::write_all(&mut file, &bytes).and_then(|()| file.sync_all()));
+            }
+            Err("favoris Zotero illisibles : rien n'est écrit, une copie est mise de côté".into())
+        }
+    }
+}
+
 fn write_favs(app_dir: &Path, key: &str, on: bool) -> Result<bool, String> {
     let path = app_dir.join("zotero-favs.json");
-    let mut favs: Vec<String> = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
+    let mut favs = favs_for_write(&path)?;
     if on {
         if !favs.iter().any(|k| k == key) {
             favs.push(key.to_string());
@@ -641,10 +679,21 @@ fn write_favs(app_dir: &Path, key: &str, on: bool) -> Result<bool, String> {
         favs.retain(|k| k != key);
     }
     let data = serde_json::to_vec_pretty(&favs).map_err(|e| e.to_string())?;
-    // atomic-ish
+    // tmp, fsync, rename, fsync du dossier
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
-    std::fs::rename(tmp, path).map_err(|e| e.to_string())?;
+    let written = (|| {
+        let mut file = std::fs::File::create(&tmp)?;
+        std::io::Write::write_all(&mut file, &data)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, &path)
+    })();
+    if let Err(error) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(error.to_string());
+    }
+    if let Ok(dir) = std::fs::File::open(app_dir) {
+        let _ = dir.sync_all();
+    }
     Ok(on)
 }
 
@@ -1312,6 +1361,31 @@ mod tests {
         write_favs(app_dir.path(), "ITEM0001", true).unwrap();
         let favs = load_favs(app_dir.path());
         assert!(favs.contains("ITEM0001"));
+    }
+
+    #[test]
+    fn unreadable_zotero_favs_are_never_rewritten() {
+        for (label, raw) in [
+            ("vide", ""),
+            ("tronqué", "[\"ITEM0001\", \"ITE"),
+            ("JSON invalide", "[pas du json]"),
+            ("non-tableau", "{\"ITEM0001\": true}"),
+        ] {
+            let app_dir = tempfile::tempdir().unwrap();
+            let path = app_dir.path().join("zotero-favs.json");
+            std::fs::write(&path, raw).unwrap();
+            for _ in 0..2 {
+                assert!(write_favs(app_dir.path(), "ITEM0002", true).is_err(), "{label}");
+            }
+            assert_eq!(std::fs::read(&path).unwrap(), raw.as_bytes(), "{label} : intact");
+            let copies: Vec<_> = std::fs::read_dir(app_dir.path())
+                .unwrap()
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().starts_with("zotero-favs.json.corrupt-"))
+                .collect();
+            assert_eq!(copies.len(), 1, "{label} : une seule copie");
+            assert_eq!(std::fs::read(copies[0].path()).unwrap(), raw.as_bytes(), "{label}");
+        }
     }
 
     #[test]

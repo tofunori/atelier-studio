@@ -16,6 +16,7 @@
 //! (même compactage que `agent_message`). Le registre des tâches vit dans
 //! `compute_jobs.json` ; le serveur en est le seul écrivain.
 
+use atelier_store::durable::{self, StoreError};
 use crate::state::AppState;
 use crate::ws_router::json_msg;
 use atelier_workspace::compute_hosts::{import_claude_science_sheets, HostBook};
@@ -109,14 +110,23 @@ fn registry_path(app_dir: &Path) -> std::path::PathBuf {
     app_dir.join(REGISTRY_FILE)
 }
 
-fn load(app_dir: &Path) -> Registry {
-    std::fs::read_to_string(registry_path(app_dir))
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+/// Lecture pour écrire : un registre présent mais illisible est une erreur
+/// (copie `.corrupt-…` mise de côté), jamais un registre vide qu'on
+/// réécrirait par-dessus les tâches existantes.
+fn try_load(app_dir: &Path) -> Result<Registry, StoreError> {
+    Ok(durable::load_typed(&registry_path(app_dir))?.unwrap_or_default())
 }
 
-fn save(app_dir: &Path, registry: &mut Registry) {
+/// Lecture seule (statut, veille) : un registre illisible se lit comme vide,
+/// sans rien écrire — les écrivains passent par [`try_load`] et refusent.
+fn load(app_dir: &Path) -> Registry {
+    try_load(app_dir).unwrap_or_else(|error| {
+        tracing::warn!(%error, "registre des calculs illisible");
+        Registry::default()
+    })
+}
+
+fn save(app_dir: &Path, registry: &mut Registry) -> Result<(), StoreError> {
     // Plafond : on oublie d'abord les plus anciennes tâches terminées.
     while registry.jobs.len() > REGISTRY_MAX {
         match registry.jobs.iter().position(|j| j.status.is_terminal()) {
@@ -126,14 +136,24 @@ fn save(app_dir: &Path, registry: &mut Registry) {
             None => break,
         }
     }
-    let path = registry_path(app_dir);
-    let tmp = path.with_extension("json.tmp");
-    let written = std::fs::create_dir_all(app_dir)
-        .and_then(|_| std::fs::write(&tmp, serde_json::to_vec_pretty(registry).unwrap_or_default()))
-        .and_then(|_| std::fs::rename(&tmp, &path));
-    if let Err(error) = written {
+    durable::save_json_pretty(&registry_path(app_dir), registry).inspect_err(|error| {
         tracing::warn!(%error, "registre des calculs non écrit");
-    }
+    })
+}
+
+/// Carnet des hôtes pour l'écrire : présent mais illisible → erreur (copie
+/// `.corrupt-…`), jamais un carnet vide qui effacerait fiches et accords.
+/// Les lectures seules gardent `HostBook::load` (illisible → carnet vide,
+/// rien n'est écrit). `atelier-workspace` ne dépend pas d'`atelier-store`
+/// (verrou de `src-tauri`), d'où la lecture-écriture durable ici.
+fn book_for_write(app_dir: &Path) -> Result<HostBook, String> {
+    durable::load_typed(&HostBook::path(app_dir))
+        .map(Option::unwrap_or_default)
+        .map_err(|error| error.to_string())
+}
+
+fn save_book(app_dir: &Path, book: &HostBook) -> Result<(), String> {
+    durable::save_json_pretty(&HostBook::path(app_dir), book).map_err(|error| error.to_string())
 }
 
 /// Ce qu'il faut pour toucher les hôtes. Production : réglages courants,
@@ -223,14 +243,20 @@ async fn update_job(
     change: impl FnOnce(&mut JobRecord) -> bool,
 ) -> Option<JobRecord> {
     let _guard = REGISTRY_LOCK.lock().await;
-    let mut registry = load(state.app_dir());
+    let mut registry = match try_load(state.app_dir()) {
+        Ok(registry) => registry,
+        Err(error) => {
+            tracing::warn!(%error, job = id, "tâche non mise à jour : registre illisible");
+            return None;
+        }
+    };
     let job = registry.jobs.iter_mut().find(|j| j.id == id)?;
     if !change(job) {
         return None;
     }
     job.updated_at = atelier_store::iso_now();
     let job = job.clone();
-    save(state.app_dir(), &mut registry);
+    save(state.app_dir(), &mut registry).ok()?;
     drop(_guard);
     emit(state, &job, false);
     Some(job)
@@ -333,9 +359,11 @@ pub async fn action_propose_job(
     };
     {
         let _guard = REGISTRY_LOCK.lock().await;
-        let mut registry = load(state.app_dir());
+        let mut registry = try_load(state.app_dir())
+            .map_err(|error| format!("compute_registry_unreadable: {error}; tell the user"))?;
         registry.jobs.push(job.clone());
-        save(state.app_dir(), &mut registry);
+        save(state.app_dir(), &mut registry)
+            .map_err(|error| format!("compute_registry_unwritable: {error}; tell the user"))?;
     }
     emit(state, &job, true);
     if auto {
@@ -471,9 +499,15 @@ pub async fn decide(
             .ok_or("job_not_pending")?;
             if always {
                 let _guard = REGISTRY_LOCK.lock().await;
-                let mut book = HostBook::load(state.app_dir());
-                book.set_auto_launch(job.spec.host, true);
-                let _ = book.save(state.app_dir());
+                match book_for_write(state.app_dir()) {
+                    Ok(mut book) => {
+                        book.set_auto_launch(job.spec.host, true);
+                        if let Err(error) = save_book(state.app_dir(), &book) {
+                            tracing::warn!(%error, "accord permanent non enregistré");
+                        }
+                    }
+                    Err(error) => tracing::warn!(%error, "accord permanent non enregistré : carnet illisible"),
+                }
             }
             let (state, backend, id) = (state.clone(), backend.clone(), id.to_string());
             tokio::spawn(async move { launch(&state, &backend, &id).await });
@@ -672,14 +706,14 @@ pub async fn save_host(state: &AppState, req: &Value) -> Result<(), String> {
     let raw = req.get("host").and_then(Value::as_str).unwrap_or("");
     let host = Target::parse(raw).ok_or("hôte inconnu")?;
     let _guard = REGISTRY_LOCK.lock().await;
-    let mut book = HostBook::load(state.app_dir());
+    let mut book = book_for_write(state.app_dir())?;
     if let Some(notes) = req.get("notes").and_then(Value::as_str) {
         book.set_notes(host, notes, None, &atelier_store::iso_now());
     }
     if let Some(on) = req.get("autoLaunch").and_then(Value::as_bool) {
         book.set_auto_launch(host, on);
     }
-    book.save(state.app_dir()).map_err(|e| e.to_string())
+    save_book(state.app_dir(), &book)
 }
 
 /// Import des fiches de Claude Science (lecture seule de sa base). Rend les
@@ -689,12 +723,12 @@ pub async fn import_hosts(state: &AppState, home: std::path::PathBuf) -> Result<
         .await
         .map_err(|e| e.to_string())??;
     let _guard = REGISTRY_LOCK.lock().await;
-    let mut book = HostBook::load(state.app_dir());
+    let mut book = book_for_write(state.app_dir())?;
     let now = atelier_store::iso_now();
     for sheet in &sheets {
         book.set_notes(sheet.host, &sheet.notes, Some(format!("claude-science:{}", sheet.name)), &now);
     }
-    book.save(state.app_dir()).map_err(|e| e.to_string())?;
+    save_book(state.app_dir(), &book)?;
     Ok(sheets.iter().map(|s| s.host.as_str().to_string()).collect())
 }
 
@@ -939,7 +973,7 @@ mod tests {
         {
             let mut registry = load(state.app_dir());
             registry.jobs[0].status = JobStatus::Launching;
-            save(state.app_dir(), &mut registry);
+            save(state.app_dir(), &mut registry).unwrap();
         }
         recover(&state).await;
         let job = load(state.app_dir()).jobs.into_iter().find(|j| j.id == id).unwrap();
@@ -977,5 +1011,26 @@ mod tests {
         let other = action_job_status(&state, &b, "t2", &json!({})).await.unwrap();
         assert!(other["jobs"].as_array().unwrap().is_empty());
         assert_eq!(action_job_status(&state, &b, "t2", &json!({"jobId": id})).await.unwrap_err(), "unknown_job");
+    }
+
+    #[tokio::test]
+    async fn un_registre_ou_un_carnet_illisible_n_est_jamais_ecrase() {
+        use atelier_store::durable::{corrupt_copies_of, UNREADABLE_SAMPLES};
+        for (label, raw) in UNREADABLE_SAMPLES {
+            let (state, dir) = test_state().await;
+            let b = backend(dir.path(), Arc::new(Fake::default()));
+            let registry = registry_path(state.app_dir());
+            std::fs::write(&registry, raw).unwrap();
+            let error = action_propose_job(&state, &b, "t1", &narval_job()).await.unwrap_err();
+            assert!(error.starts_with("compute_registry_unreadable"), "{label} : {error}");
+            assert_eq!(std::fs::read(&registry).unwrap(), raw.as_bytes(), "{label} : registre intact");
+            assert_eq!(corrupt_copies_of(&registry, raw.as_bytes()), 1, "{label} : copie mise de côté");
+
+            let book = HostBook::path(state.app_dir());
+            std::fs::write(&book, raw).unwrap();
+            assert!(save_host(&state, &json!({"host":"narval","notes":"x"})).await.is_err(), "{label}");
+            assert_eq!(std::fs::read(&book).unwrap(), raw.as_bytes(), "{label} : carnet intact");
+            assert_eq!(corrupt_copies_of(&book, raw.as_bytes()), 1, "{label} : copie du carnet");
+        }
     }
 }
