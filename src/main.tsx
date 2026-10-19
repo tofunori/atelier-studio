@@ -8,6 +8,10 @@ import { hydrateUiStateBeforeRender } from "./lib/uiStateBootstrap";
 import { AppOverlays } from "./components/ui";
 import { BootProbe } from "./components/BootProbe";
 import { markBootMetric, setBootMetricFlags, startBootMetrics } from "./lib/bootMetrics";
+import { createRuntimeErrorGuard, isBenignResizeObserverError } from "./lib/runtimeErrors";
+import { showError } from "./components/ui/toast";
+import { BoundaryNotice } from "./components/LazyBoundary";
+import { t } from "./lib/i18n";
 
 void startBootMetrics().catch(() => {});
 
@@ -35,11 +39,28 @@ function renderFatal(error: unknown) {
   root.appendChild(box);
 }
 
-class BootBoundary extends React.Component<React.PropsWithChildren, { error: unknown }> {
-  state = { error: null };
+// L'écran fatal ne sert qu'à l'échec du démarrage (audit du 2026-10-18,
+// problème 14). Une fois le premier rendu commité, une erreur non rattrapée
+// est journalisée et signalée par un toast : la fenêtre et ses éditeurs
+// (tampons non enregistrés compris) restent en place.
+const runtimeErrors = createRuntimeErrorGuard({
+  renderFatal,
+  report: (message) => {
+    void showError(t("runtime.error-reported", { message })).catch(() => {});
+  },
+});
+
+/** Posé après l'app : son effet court quand tout le premier rendu est commité. */
+function BootReady() {
+  React.useEffect(() => { runtimeErrors.markBooted(); }, []);
+  return null;
+}
+
+class BootBoundary extends React.Component<React.PropsWithChildren, { error: unknown; attempt: number }> {
+  state = { error: null as unknown, attempt: 0 };
 
   static getDerivedStateFromError(error: unknown) {
-    return { error };
+    return { error: error ?? new Error("render error") };
   }
 
   componentDidCatch(error: unknown) {
@@ -47,6 +68,19 @@ class BootBoundary extends React.Component<React.PropsWithChildren, { error: unk
   }
 
   render() {
+    if (this.state.error && runtimeErrors.booted) {
+      // Après le démarrage : notice récupérable, pas d'écran fatal.
+      return (
+        <div style={{ padding: 16 }}>
+          <BoundaryNotice
+            message={t("render.error")}
+            actionLabel={t("action.reload")}
+            onRetry={() => this.setState((state) => ({ error: null, attempt: state.attempt + 1 }))}
+            error={this.state.error}
+          />
+        </div>
+      );
+    }
     if (this.state.error) {
       return (
         <div style={{
@@ -61,15 +95,8 @@ class BootBoundary extends React.Component<React.PropsWithChildren, { error: unk
         </div>
       );
     }
-    return this.props.children;
+    return <React.Fragment key={this.state.attempt}>{this.props.children}</React.Fragment>;
   }
-}
-
-function isBenignResizeObserverError(event: ErrorEvent) {
-  return event.error == null && (
-    event.message === "ResizeObserver loop limit exceeded"
-    || event.message === "ResizeObserver loop completed with undelivered notifications."
-  );
 }
 
 window.addEventListener("error", (event) => {
@@ -78,9 +105,9 @@ window.addEventListener("error", (event) => {
   // exception React ni d'un échec de boot, donc l'écran fatal ne doit pas
   // remplacer une interface saine.
   if (isBenignResizeObserverError(event)) return;
-  renderFatal(event.error ?? event.message);
+  runtimeErrors.handle(event.error ?? event.message);
 });
-window.addEventListener("unhandledrejection", (event) => renderFatal(event.reason));
+window.addEventListener("unhandledrejection", (event) => runtimeErrors.handle(event.reason));
 
 async function boot() {
   // Les fixtures visuelles ne font pas partie du bundle release. Le script
@@ -210,6 +237,7 @@ async function boot() {
         <AppOverlays>
           <BootProbe />
           <App />
+          <BootReady />
         </AppOverlays>
       </BootBoundary>
     </React.StrictMode>,

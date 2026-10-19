@@ -83,6 +83,7 @@ import { useHomeThreadEvents } from "./hooks/useThreadEvents";
 import { type AgentDisplay } from "./components/chat/AgentActivity";
 import AtelierPane from "./components/AtelierPane";
 import { LazyBoundary, lazyWithRetry } from "./components/LazyBoundary";
+import { RenderBoundary } from "./components/RenderBoundary";
 const ContextInspector = lazyWithRetry<Parameters<(typeof import("./components/ContextInspector"))["ContextInspector"]>[0]>(
   () => import("./components/ContextInspector").then((m) => ({ default: m.ContextInspector })),
 );
@@ -4451,6 +4452,10 @@ export default function App() {
           </div>
         )}
         {activeDeliveryState && <DeliveryStatusAnnouncer status={activeDeliveryState.status} />}
+        {/* Une exception de rendu dans le chat n'efface plus la fenêtre :
+            la notice « Recharger » remonte le chat seul (audit 2026-10-18,
+            problème 14). */}
+        <RenderBoundary message={t("render.chat-error")}>
         <ThreadChat
           headerInTopBar
           notice={activeBanner ? chatNotice : null}
@@ -4561,6 +4566,7 @@ export default function App() {
           onGoal={threadActions.goal}
           onSubmit={submit}
         />
+        </RenderBoundary>
       </Panel>
       {showAtelier && activeProject && (
         <>

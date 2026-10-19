@@ -38,6 +38,29 @@ export function lazyWithRetry<P extends object>(
   };
 }
 
+/** Notice d'erreur actionnable des frontières (chunk introuvable, rendu en
+ * erreur) : même composition partout — message, bouton, détail technique. */
+export function BoundaryNotice(props: {
+  message: React.ReactNode;
+  actionLabel: string;
+  onRetry: () => void;
+  error: unknown;
+  className?: string;
+}) {
+  const error = props.error as { message?: unknown } | null;
+  return (
+    <InlineNotice tone="error" className={props.className ?? "lazy-error"}>
+      {props.message}
+      <Button variant="secondary" onClick={props.onRetry}>
+        {props.actionLabel}
+      </Button>
+      {/* détail technique utile quand le chunk embarqué ne correspond
+          plus au HTML du bundle */}
+      <span className="lazy-error-detail">{String(error?.message ?? error)}</span>
+    </InlineNotice>
+  );
+}
+
 type State = { error: Error | null; attempt: number };
 
 export class LazyBoundary extends React.Component<
@@ -53,18 +76,12 @@ export class LazyBoundary extends React.Component<
   render() {
     if (this.state.error) {
       const notice = (
-        <InlineNotice tone="error" className="lazy-error">
-          {t("lazy.chunk-error")}
-          <Button
-            variant="secondary"
-            onClick={() => this.setState((s) => ({ error: null, attempt: s.attempt + 1 }))}
-          >
-            {t("action.retry")}
-          </Button>
-          {/* détail technique utile quand le chunk embarqué ne correspond
-              plus au HTML du bundle */}
-          <span className="lazy-error-detail">{String(this.state.error?.message ?? this.state.error)}</span>
-        </InlineNotice>
+        <BoundaryNotice
+          message={t("lazy.chunk-error")}
+          actionLabel={t("action.retry")}
+          onRetry={() => this.setState((s) => ({ error: null, attempt: s.attempt + 1 }))}
+          error={this.state.error}
+        />
       );
       // A fullscreen reader is itself a popover; a normal z-index cannot
       // place the retry above it when the reading-chat chunk fails to load.
