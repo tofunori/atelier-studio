@@ -2621,6 +2621,122 @@ async function undoToastTests() {
     JSON.stringify([...h.timers.values()].map((t) => t.d)));
 }
 
+// ----------------------------------- revue cumulée des passages d'agent (2026-10-18)
+// Diff unifié (maquette A) : toutes les écritures d'agent non décidées se
+// voient et se décident ensemble dans le texte vivant, avec une barre en bas
+// du volet (Tout refuser / Tout accepter). Les sauvegardes de l'auteur
+// d'avant la première écriture d'agent n'entrent pas dans la revue.
+async function cumulativeReviewTests() {
+  const onePoint = () => [{ pos: { line: 0, ch: 0 }, ch: 0 }];
+  const agent = { source: "external-reload", status: "applied" };
+  const reviewBar = (host) => host._children.find((c) => c && c.className === "dv-review-bar");
+  const setup = () => {
+    const h = makeModuleHarness({ individualReview: true });
+    const host = fakeReviewHost();
+    h.cm.getWrapperElement = () => ({ parentElement: host });
+    h.cm.hasNativeMergeDiff = true;
+    const compared: string[] = [];
+    h.cm.showMergeDiff = (b) => { compared.push(b); return [...onePoint(), { pos: { line: 2, ch: 0 }, ch: 9 }]; };
+    return { h, host, compared };
+  };
+
+  // 1. Deux écritures d'agent : la revue compare au texte d'avant la première.
+  {
+    const base = "p1\n\np2\n", mid = "P1\n\np2\n", last = "P1\n\nP2\n";
+    const { h, host, compared } = setup();
+    h.cm._v = mid; h.dv.push(base, mid, agent);
+    h.cm._v = last; h.dv.push(mid, last, agent);
+    await sleep(50);
+    ok("revue cumulée : ouverte d'elle-même sur 2/2", h.dv.isShown() === true && h.nav()?.count.textContent === "2/2",
+      JSON.stringify({ shown: h.dv.isShown(), count: h.nav()?.count.textContent }));
+    ok("revue cumulée : base = texte d'avant la première écriture d'agent", compared.at(-1) === base, JSON.stringify(compared));
+    const bar = reviewBar(host);
+    ok("revue cumulée : barre affichée avec l'auteur et le nombre de passages",
+      !!bar && bar.hidden === false && bar._children[0].textContent === "Agent · 2 passages"
+        && bar._children[1]._children[1].textContent === "1 / 2", JSON.stringify(bar && { hidden: bar.hidden, who: bar._children[0].textContent }));
+    const acceptAll = h.group._children.find((c) => c && c.id === "diffAcceptAll");
+    ok("revue cumulée : le Tout accepter du haut s'efface pendant la revue", acceptAll.hidden === true, String(acceptAll.hidden));
+    h.tag.onclick();
+    ok("revue cumulée : barre masquée à la fermeture", bar.hidden === true, String(bar.hidden));
+  }
+
+  // 2. Décision partielle puis nouvelle écriture d'agent : la base ajustée tient.
+  {
+    const base = "p1\n\np2\n\np3\n", mid = "P1\n\np2\n\np3\n", last = "P1\n\nP2\n\np3\n", third = "P1\n\nP2\n\nP3\n";
+    const adjusted = "P1\n\np2\n\np3\n";
+    const { h, compared } = setup();
+    h.cm._v = mid; h.dv.push(base, mid, agent);
+    h.cm._v = last; h.dv.push(mid, last, agent);
+    await sleep(50);
+    h.cm.decideMergeChunk = (k) => ({ kind: k, current: h.cm.getValue(), text: h.cm.getValue(), base: adjusted });
+    h.fireKeydown({ altKey: true, metaKey: false, ctrlKey: false, code: "Enter", key: "Enter" });
+    await sleep(50);
+    ok("revue cumulée : décision partielle, la revue reste ouverte (2/2)", h.dv.isShown() === true && h.nav()?.count.textContent === "2/2",
+      h.nav()?.count.textContent);
+    h.cm._v = third; h.dv.push(last, third, agent);
+    await sleep(50);
+    ok("revue cumulée : une nouvelle écriture repart de la base ajustée", compared.at(-1) === adjusted && h.nav()?.count.textContent === "3/3",
+      JSON.stringify({ compared, count: h.nav()?.count.textContent }));
+    h.tag.onclick();
+  }
+
+  // 3. Une sauvegarde de l'auteur AVANT l'agent reste hors de la revue.
+  {
+    const base = "p1\n\np2\n", saved = "p1 ok\n\np2\n", agentText = "p1 ok\n\nP2\n";
+    const { h, compared } = setup();
+    h.cm._v = saved; h.dv.push(base, saved);
+    h.cm._v = agentText; h.dv.push(saved, agentText, agent);
+    await sleep(50);
+    ok("revue cumulée : la sauvegarde de l'auteur d'avant l'agent n'est pas à décider", compared.at(-1) === saved, JSON.stringify(compared));
+    h.tag.onclick();
+  }
+
+  // 4. Tout accepter (barre) : chaque passage d'agent est décidé, la revue se
+  // ferme, aucun fichier n'est écrit ; Annuler rend les deux interventions.
+  {
+    const base = "p1\n\np2\n", mid = "P1\n\np2\n", last = "P1\n\nP2\n";
+    const { h, host } = setup();
+    h.cm._v = mid; h.dv.push(base, mid, agent);
+    h.cm._v = last; h.dv.push(mid, last, agent);
+    await sleep(50);
+    const ids = persistedInterventions(h).map((it) => it.id);
+    const bar = reviewBar(host);
+    const acceptBtn = bar._children[4];
+    acceptBtn.onclick({ preventDefault() {} });
+    await sleep(50);
+    const saved = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
+    ok("revue cumulée (tout accepter) : les deux interventions sont acceptées",
+      saved[ids[0]]?.accepted === true && saved[ids[1]]?.accepted === true, JSON.stringify(saved));
+    ok("revue cumulée (tout accepter) : revue fermée, compteur à 0, rien d'écrit",
+      h.dv.isShown() === false && h.nav()?.count.textContent === "0" && h.restored.length === 0,
+      JSON.stringify({ count: h.nav()?.count.textContent, restored: h.restored }));
+    ok("revue cumulée (tout accepter) : message « acceptées »", h.notes.at(-1) === "Toutes les modifications sont acceptées", JSON.stringify(h.notes));
+    const undo = host._children.find((c) => c && c.id === "diffUndo");
+    await undo.onclick();
+    await sleep(50);
+    const restoredState = JSON.parse(h.storage.get("texReviewV1:" + h.filePath) || "{}");
+    ok("revue cumulée (annulation) : les deux interventions reviennent à décider (2/2)",
+      h.dv.isShown() === true && h.nav()?.count.textContent === "2/2" && !restoredState[ids[0]] && !restoredState[ids[1]],
+      JSON.stringify({ count: h.nav()?.count.textContent, restoredState }));
+    h.tag.onclick();
+  }
+
+  // 5. Tout refuser (barre) : le fichier revient au texte d'avant l'agent.
+  {
+    const base = "p1\n\np2\n", mid = "P1\n\np2\n", last = "P1\n\nP2\n";
+    const { h, host } = setup();
+    h.cm._v = mid; h.dv.push(base, mid, agent);
+    h.cm._v = last; h.dv.push(mid, last, agent);
+    await sleep(50);
+    reviewBar(host)._children[3].onclick({ preventDefault() {} });
+    await sleep(50);
+    ok("revue cumulée (tout refuser) : fichier restauré au texte d'avant l'agent",
+      h.restored.at(-1) === base && h.cm.getValue() === base, JSON.stringify(h.restored));
+    ok("revue cumulée (tout refuser) : revue fermée, message « décidées »",
+      h.dv.isShown() === false && h.notes.at(-1) === "Toutes les modifications sont décidées", JSON.stringify(h.notes));
+  }
+}
+
 // -------------------------------------------------------------------- run all
 try {
   await serverTests();
@@ -2633,6 +2749,7 @@ try {
   await individualReviewCardTests();
   await durableReviewTests();
   await reviewCompletionTests();
+  await cumulativeReviewTests();
   await undoToastTests();
   if (CONTRACT_FAILURES.length)
     throw new Error(`${CONTRACT_FAILURES.length} explicit intervention contract assertion(s) failed`);

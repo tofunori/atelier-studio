@@ -55,6 +55,12 @@ pub enum TaskOp {
 pub struct SubagentMeta {
     pub agent_path: Value,
     pub prompt: Value,
+    /// Mission en quelques mots (`description` de task_started) : titre de
+    /// la rangée de l'agent dans le fil. Fixe, contrairement à `message`.
+    pub description: Option<String>,
+    /// Heure de lancement (ms depuis l'époque Unix) : le fil ne garde que le
+    /// dernier état de l'agent (même `id`), la durée de sa rangée part d'ici.
+    pub started_at_ms: Option<u64>,
     /// Dernière activité connue (verbe d'outil, résumé ou description).
     pub message: Option<String>,
 }
@@ -462,6 +468,14 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     SubagentMeta {
                         agent_path: msg.get("subagent_type").cloned().unwrap_or(Value::Null),
                         prompt: msg.get("prompt").cloned().unwrap_or(Value::Null),
+                        description: description
+                            .map(str::trim)
+                            .filter(|d| !d.is_empty())
+                            .map(|d| truncate_chars(d, 200)),
+                        started_at_ms: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .ok()
+                            .map(|d| d.as_millis() as u64),
                         message: description.map(str::to_string),
                     },
                 );
@@ -484,6 +498,7 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                     "prompt".into(),
                     msg.get("prompt").cloned().unwrap_or(Value::Null),
                 );
+                with_subagent_identity(state, &task_id, &mut activity);
                 out.push(subagent_event(
                     &task_id,
                     "inProgress",
@@ -625,6 +640,9 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                 activity.insert("agentsStates".into(), Value::Object(agents_states));
                 activity.insert("agentThreadId".into(), json!(task_id.clone()));
                 activity.insert("activityKind".into(), json!("notification"));
+                if let Some(ms) = usage.get("duration_ms").and_then(|v| v.as_u64()) {
+                    activity.insert("durationMs".into(), json!(ms));
+                }
                 with_subagent_identity(state, &task_id, &mut activity);
                 let tool_status = if matches!(
                     status.replace(['_', '-'], "").to_ascii_lowercase().as_str(),
@@ -1337,6 +1355,12 @@ fn with_subagent_identity(
         }
         if !meta.prompt.is_null() {
             activity.insert("prompt".into(), meta.prompt.clone());
+        }
+        if let Some(description) = &meta.description {
+            activity.insert("description".into(), json!(description));
+        }
+        if let Some(started_at) = meta.started_at_ms {
+            activity.insert("startedAt".into(), json!(started_at));
         }
     }
 }
@@ -2544,6 +2568,8 @@ mod tests {
         assert_eq!(act["agentPath"], "Explore");
         assert_eq!(act["activityKind"], "started");
         assert_eq!(act["prompt"], "Respond with exactly: pong");
+        assert_eq!(act["description"], "Simple test agent");
+        assert!(act["startedAt"].as_u64().is_some());
         assert_eq!(act["agentsStates"]["a927b98e"]["status"], "running");
         assert_eq!(
             act["agentsStates"]["a927b98e"]["message"],
@@ -2646,6 +2672,12 @@ mod tests {
             "pong"
         );
         assert_eq!(notif[0]["detail"], "13,6k tokens · 2 outils · 1,1 s");
+        assert_eq!(notif[0]["agentActivity"]["durationMs"], 1100);
+        // La mission reste le titre de la rangée jusqu'à la fin.
+        assert_eq!(
+            notif[0]["agentActivity"]["description"],
+            "Simple test agent"
+        );
 
         // 7. `background_tasks_changed` : ignoré.
         let ignored = parse_line(

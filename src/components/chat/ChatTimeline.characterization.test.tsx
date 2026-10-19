@@ -510,5 +510,5 @@ it('keeps one subagent surface across prose and commands, including after the tu
     {kind:'done' as const,ok:true,result:'Synthèse finale.',ts:FIXED_TS+60}];
   rerender(<Chat {...chatProps({events:completed,workingSince:null})}/>);
   await waitFor(()=>expect(screen.getAllByTestId('subagent-activity-inline-group')).toHaveLength(1));
-  expect(screen.getByTestId('subagent-activity-inline-group').querySelector('.agent-group-head')).toHaveAttribute('aria-expanded','false');
+  expect(screen.getByTestId('subagent-activity-inline-group').querySelector('.ui-activity-trigger')).toHaveAttribute('aria-expanded','false');
 });
