@@ -29,7 +29,6 @@ import { nomConsigne as composedConsigneName } from "../../lib/consignes";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import { formesDuFil } from "../../lib/specialistes";
 import "../../styles/local-headers.css";
-import { ChatNotice, type ChatNoticeData } from './ChatNotice';
 import { AgentDuration, AgentRowGlyph, type AgentDisplay } from "./AgentActivity";
 import { agentTitle } from "./agentText";
 import { ToolGlyph, ToolStateGlyph } from "./toolPresentation";
@@ -53,7 +52,6 @@ export function ChatHeader(p: {
   activeId?: string;
   onSelectChat?: (id: string) => void;
   onNewChat?: () => void;
-  notice?: ChatNoticeData | null;
   /** "claude" | "codex" | … — méta discrète à côté du badge. */
   provider: string;
   projectName: string | null;
@@ -150,10 +148,9 @@ export function ChatHeader(p: {
       // exposer le nom complet du titre que le CSS .title tronque.
       title={<>{p.projectChats?.length && p.activeId && p.onSelectChat && p.onNewChat
         ? <ProjectChatTabs chats={p.projectChats} activeId={p.activeId} onSelect={p.onSelectChat} onNew={p.onNewChat} />
-        : <span title={p.title}>{p.title}</span>}{!p.compact && p.notice && <ChatNotice key={p.notice.clientMessageId || p.notice.requestType || p.notice.kind || 'notice'} notice={p.notice}/>}</>}
+        : <span title={p.title}>{p.title}</span>}</>}
       actions={
         <>
-          {p.compact && p.notice && <ChatNotice notice={p.notice} />}
           {/* demande Thierry (2026-07-10) : pas de méta provider dans
               l'en-tête — le provider est visible dans le composer */}
           {p.subagents?.length && p.onOpenSubagent ? (() => {
@@ -198,7 +195,10 @@ export function ChatHeader(p: {
                     aria-label={t("chat.subagents-menu-label", { count: all.length })}
                     aria-haspopup="menu" aria-expanded={agentsMenuOpen}>
                     <ToolGlyph icon={{ cat: "agent" }} />
-                    <span className="chat-subagents-count">{running || all.length}</span>
+                    {/* Chiffre seulement pour ceux qui travaillent : le total
+                        du fil (« 171 ») ne disait rien et encombrait la barre.
+                        Il reste dans l'en-tête du menu et le nom accessible. */}
+                    {running > 0 && <span className="chat-subagents-count">{running}</span>}
                   </Button>
                 }
                 groups={groups}
@@ -245,7 +245,9 @@ export function ChatHeader(p: {
               {badge.label}
             </StatusBadge>
           )}
-          {nomConsigne != null ? (
+          {/* Dans la barre du haut, le spécialiste et les consignes ne se
+              répètent pas : le bouton du compositeur les montre déjà. */}
+          {nomConsigne != null && !p.compact ? (
             <span className="chat-header-consigne" title={specialiste ? t("specialiste.header", { nom: nomConsigne }) : t("chat.consigne-header", { nom: nomConsigne })}>
               {nomConsigne}
             </span>

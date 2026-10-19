@@ -1,7 +1,9 @@
-.chat-notice-trigger{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:24px;height:24px;margin-left:8px;padding: 4px;border:0;border-radius:50%;background:transparent;color:var(--warning,#e99a45);cursor:pointer;flex:none}
-.chat-notice-trigger svg{width:18px;height:18px;stroke-width:1.7}.chat-notice-trigger:focus-visible{outline:2px solid currentColor;outline-offset:2px}
-.chat-notice-card{max-width:calc(100vw - 24px)}.chat-notice-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.chat-notice-close{flex:none}.chat-notice-close svg{width:16px;height:16px}
-.chat-notice-detail{display:flex;align-items:center;gap:8px}.chat-notice-detail p,.chat-notice-hint{margin:0}.chat-notice-hint{color:var(--text-muted);font-size:var(--fs-caption)}
-.chat-notice-spinner{width:16px;height:16px;flex:none;animation:chat-notice-spin 1s linear infinite}@keyframes chat-notice-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.chat-notice-spinner{animation:none}}
-.chat-surface-header .title{display:flex;align-items:center}.chat-surface-header .title>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chat-primary{position:relative}.chat-notice-home{position:absolute;top:10px;right:12px;z-index:5}
+.chat-notice-line{display:flex;align-items:center;gap:8px;width:calc(100% - 32px);max-width:var(--chat-col,var(--chat-w,760px));margin:8px auto 0;padding:4px 4px 4px 12px;min-height:32px;box-sizing:border-box;border-radius:var(--r-m);background:color-mix(in srgb,var(--status-warning) 10%,var(--bg-ctl));color:var(--text-secondary);font-size:var(--fs-m);line-height:1.5}
+.chat-notice-line+.queued-turns,.chat-notice-line+.composer{margin-top:8px}
+.chat-notice-icon,.chat-notice-spinner{width:14px;height:14px;flex:none;stroke-width:1.5;color:var(--status-warning)}
+.chat-notice-text{flex:1;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-notice-title{color:var(--text-primary);font-weight:500;margin-right:8px}
+.chat-notice-hint{color:var(--text-muted);margin-left:8px}
+.chat-notice-close{flex:none}.chat-notice-close svg{width:12px;height:12px;stroke-width:1.5}
+.chat-notice-spinner{animation:chat-notice-spin 1s linear infinite}@keyframes chat-notice-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.chat-notice-spinner{animation:none}}
+.chat-surface-header .title{display:flex;align-items:center}.chat-surface-header .title>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chat-primary{position:relative}
