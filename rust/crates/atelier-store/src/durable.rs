@@ -420,12 +420,23 @@ fn backup_date<'a>(name: &'a str, stem: &str, ext: Option<&str>) -> Option<&'a s
 /// puis élagage aux [`BACKUPS_KEPT`] plus récentes. La première écriture du
 /// jour garde donc l'état de la veille. Rien si `path` est absent.
 pub fn backup_daily(path: &Path) -> io::Result<Option<PathBuf>> {
-    let today = crate::iso_now()[..10].to_owned();
-    backup_daily_at(path, &today)
+    backup_daily_in(path, &parent_dir(path).join(BACKUP_DIR))
 }
 
+/// [`backup_daily`] dans un dossier choisi : pour un magasin rangé à la
+/// racine d'un projet (`.fig_state.json`), où un `backups/` se mêlerait aux
+/// fichiers de Thierry.
+pub fn backup_daily_in(path: &Path, dir: &Path) -> io::Result<Option<PathBuf>> {
+    let today = crate::iso_now()[..10].to_owned();
+    backup_daily_at_in(path, dir, &today)
+}
+
+#[cfg(test)]
 fn backup_daily_at(path: &Path, today: &str) -> io::Result<Option<PathBuf>> {
-    let dir = parent_dir(path).join(BACKUP_DIR);
+    backup_daily_at_in(path, &parent_dir(path).join(BACKUP_DIR), today)
+}
+
+fn backup_daily_at_in(path: &Path, dir: &Path, today: &str) -> io::Result<Option<PathBuf>> {
     let (stem, ext) = split_name(path);
     let target = dir.join(backup_name(&stem, today, ext.as_deref()));
     if target.exists() {
@@ -437,7 +448,7 @@ fn backup_daily_at(path: &Path, today: &str) -> io::Result<Option<PathBuf>> {
         Err(error) => return Err(error),
     };
     write_durable_as(&target, &bytes, permissions_of(path))?;
-    prune_backups(&dir, &stem, ext.as_deref(), BACKUPS_KEPT);
+    prune_backups(dir, &stem, ext.as_deref(), BACKUPS_KEPT);
     Ok(Some(target))
 }
 
@@ -462,9 +473,13 @@ fn prune_backups(dir: &Path, stem: &str, ext: Option<&str>, keep: usize) {
 /// Réécrit un magasin : sauvegarde du jour, puis écriture durable. Sans
 /// sauvegarde possible, rien n'est écrit.
 pub fn save(path: &Path, data: &[u8]) -> Result<(), StoreError> {
-    backup_daily(path).map_err(|error| {
-        StoreError::io(&parent_dir(path).join(BACKUP_DIR), format!("sauvegarde impossible : {error}"))
-    })?;
+    save_in(path, data, &parent_dir(path).join(BACKUP_DIR))
+}
+
+/// [`save`] avec la sauvegarde du jour rangée dans `backup_dir`.
+pub fn save_in(path: &Path, data: &[u8], backup_dir: &Path) -> Result<(), StoreError> {
+    backup_daily_in(path, backup_dir)
+        .map_err(|error| StoreError::io(backup_dir, format!("sauvegarde impossible : {error}")))?;
     write_durable(path, data).map_err(|error| StoreError::io(path, error))
 }
 

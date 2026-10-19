@@ -350,7 +350,7 @@ async fn save_gallery_state(
         "ratings": merged["ratings"].as_object().map(serde_json::Map::len).unwrap_or(0),
         "hidden": merged["hidden"].as_array().map(Vec::len).unwrap_or(0),
     });
-    match atelier_core::atomic_write_json(&state.root.join(".fig_state.json"), &merged) {
+    match atelier_core::gallery_favorites::write(&state.root, &merged) {
         Ok(()) => (StatusCode::OK, Json(counts)).into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -390,7 +390,6 @@ async fn toggle_favorite(
         Ok(lock) => lock,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"state lock failed"}))).into_response(),
     };
-    let path = state.root.join(".fig_state.json");
     let mut current = match atelier_core::gallery_favorites::read(&state.root) {
         Ok(value) => value,
         Err(error) => return state_unreadable(error),
@@ -419,7 +418,7 @@ async fn toggle_favorite(
     let count = favs.len();
     current["favs"] = Value::Array(favs.into_iter().map(Value::String).collect());
 
-    match atelier_core::atomic_write_json(&path, &current) {
+    match atelier_core::gallery_favorites::write(&state.root, &current) {
         Ok(()) => (
             StatusCode::OK,
             Json(json!({"ok": true, "rel": rel, "fav": fav, "favs": count})),

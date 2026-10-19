@@ -34,8 +34,22 @@ pub fn set(root: &Path, relative: &str, on: bool) -> Result<(), Box<dyn std::err
     let mut favs = favorites(&value);
     if on { favs.insert(relative.into()); } else { favs.remove(relative); }
     value["favs"] = json!(favs);
-    crate::atomic_write_json(&root.join(".fig_state.json"), &value)?;
+    write(root, &value)?;
     Ok(())
+}
+/// Dossier des sauvegardes quotidiennes de `.fig_state.json` : sous
+/// `.fig_thumbs/`, à côté de `pdf_annots.json`, plutôt qu'un `backups/` à la
+/// racine du projet, au milieu des figures de Thierry.
+pub fn backup_dir(root: &Path) -> std::path::PathBuf {
+    root.join(".fig_thumbs").join(crate::durable::BACKUP_DIR)
+}
+/// Réécrit `.fig_state.json` (même format indenté qu'avant) : sauvegarde du
+/// jour, puis écriture durable. L'appelant tient [`lock`] et a relu l'état.
+pub fn write(root: &Path, value: &Value) -> io::Result<()> {
+    let path = root.join(".fig_state.json");
+    reject_symlink(&path)?;
+    let payload = serde_json::to_vec_pretty(value).map_err(io::Error::other)?;
+    crate::durable::save_in(&path, &payload, &backup_dir(root)).map_err(io::Error::from)
 }
 /// Apply only changes since the UI last read favorites, keeping other devices' changes.
 pub fn merge(current: &Value, base: &Value, requested: &Value) -> Value {
@@ -54,6 +68,24 @@ mod tests {
     fn merge_preserves_remote_additions_and_removals() {
         assert_eq!(merge(&json!({"favs":["phone.py"]}), &json!(["old.pdf"]), &json!(["old.pdf","mac.py"])), json!(["mac.py","phone.py"]));
         assert_eq!(merge(&json!({"favs":["phone.py","old.pdf"]}), &json!(["old.pdf"]), &json!([])), json!(["phone.py"]));
+    }
+    #[test]
+    fn each_rewrite_keeps_the_day_backup_under_fig_thumbs() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(".fig_state.json");
+        std::fs::write(&path, r#"{"favs":["old.py"],"notes":{"a.py":"garder"}}"#).unwrap();
+        set(root.path(), "new.py", true).unwrap();
+        let backups: Vec<_> = std::fs::read_dir(backup_dir(root.path())).unwrap().flatten().map(|e| e.path()).collect();
+        assert_eq!(backups.len(), 1);
+        let name = backups[0].file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with(".fig_state.") && name.ends_with(".json"), "{name}");
+        assert!(std::fs::read_to_string(&backups[0]).unwrap().contains("old.py"));
+        assert!(!std::fs::read_to_string(&backups[0]).unwrap().contains("new.py"));
+        assert!(!root.path().join(crate::durable::BACKUP_DIR).exists(), "rien à la racine du projet");
+        // le format reste l'indentation de serde_json, sans saut de ligne final
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("\n  \"favs\"") && !written.ends_with('\n'), "{written}");
+        assert_eq!(read(root.path()).unwrap()["notes"]["a.py"], "garder");
     }
     #[test]
     fn malformed_or_symlink_state_is_never_overwritten() {
