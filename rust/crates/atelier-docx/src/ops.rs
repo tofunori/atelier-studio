@@ -39,6 +39,12 @@ pub enum Op {
     FormatRange { paragraph: String, start: usize, end: usize, props: RunProps },
     FormatText { paragraph: Option<String>, find: String, occurrence: Option<usize>, props: RunProps },
     FormatParagraph { paragraph: String, props: ParaProps },
+    /// Ligne vide au-dessus ou en dessous de celle du paragraphe (cellule).
+    InsertRow { paragraph: String, #[serde(default)] above: bool },
+    DeleteRow { paragraph: String },
+    /// Colonne vide à gauche ou à droite (jamais en suivi).
+    InsertColumn { paragraph: String, #[serde(default)] left: bool },
+    DeleteColumn { paragraph: String },
     /// Appel de note à la position `at`, et la note qui porte `text`.
     InsertNote { paragraph: String, at: usize, text: String, #[serde(default)] endnote: bool },
     /// Figure du projet (`path`, chargé par l'appelant via [`Op::load_images`]).
@@ -72,6 +78,7 @@ impl Op {
             Op::DeleteComment { .. } => "suppression de commentaire",
             Op::FormatRange { .. } | Op::FormatText { .. } | Op::FormatParagraph { .. } => "mise en forme",
             Op::InsertNote { .. } => "note",
+            Op::InsertRow { .. } | Op::DeleteRow { .. } | Op::InsertColumn { .. } | Op::DeleteColumn { .. } => "tableau",
             Op::InsertImage { .. } => "figure",
             Op::Batch { .. } => "retouches groupées",
         }
@@ -205,6 +212,22 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
         Op::FormatParagraph { paragraph, props } => {
             format::format_paragraph(docx, paragraph, props, tracked, sig)?;
             json!({})
+        }
+        Op::InsertRow { paragraph, above } => {
+            crate::table::insert_row(docx, paragraph, *above, tracked, sig)?;
+            json!({})
+        }
+        Op::DeleteRow { paragraph } => {
+            crate::table::delete_row(docx, paragraph, tracked, sig)?;
+            json!({})
+        }
+        Op::InsertColumn { paragraph, left } => {
+            crate::table::insert_column(docx, paragraph, *left)?;
+            json!({"tracked": false})
+        }
+        Op::DeleteColumn { paragraph } => {
+            crate::table::delete_column(docx, paragraph)?;
+            json!({"tracked": false})
         }
         Op::InsertNote { paragraph, at, text, endnote } => json!(crate::objects::insert_note(docx, paragraph, *at, text, *endnote, tracked, sig)?),
         Op::InsertImage { paragraph, at, path, alt, bytes } => {

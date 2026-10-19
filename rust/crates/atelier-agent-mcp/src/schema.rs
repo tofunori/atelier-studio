@@ -221,7 +221,7 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 8] = ["read", "edit", "insert_paragraph", "comment", "reply", "format", "insert_note", "insert_figure"];
+const DOCX_ACTIONS: [&str; 10] = ["read", "edit", "insert_paragraph", "comment", "reply", "format", "insert_note", "insert_figure", "insert_row", "delete_row"];
 
 /// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
 /// toujours des suivis de modifications signés de son nom : l'utilisateur
@@ -234,7 +234,7 @@ pub fn docx_tool_definition() -> Value {
     changes [+ins+]#id [-del-]#id, comments c1…. Every write is a tracked change or comment signed \
     with your name; the user accepts or rejects (you cannot). find = exact current text (add paragraph \
     or occurrence if ambiguous). insert_note / insert_figure go right after find (text = note text or \
-    alt; figure = image path in the project). Citations and others' insertions are not editable.",
+    alt; figure = image path in the project). insert_row / delete_row: table row of paragraph (a cell).",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -250,6 +250,7 @@ pub fn docx_tool_definition() -> Value {
                 "after": { "type": "string", "description": "insert_paragraph: new paragraph goes after this one (p12)" },
                 "text": { "type": "string", "description": "insert_paragraph / comment / reply / insert_note: the text; insert_figure: alt text" },
                 "figure": { "type": "string", "description": "insert_figure: PNG/JPEG/GIF path in the project" },
+                "above": { "type": "boolean", "description": "insert_row: above instead of below" },
                 "comment": { "type": "integer", "description": "reply: comment number (c3 → 3)" },
                 "bold": { "type": "boolean" }, "italic": { "type": "boolean" }, "underline": { "type": "boolean" },
                 "strike": { "type": "boolean" }, "superscript": { "type": "boolean" }, "subscript": { "type": "boolean" },

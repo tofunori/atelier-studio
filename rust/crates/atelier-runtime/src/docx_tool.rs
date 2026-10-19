@@ -79,6 +79,8 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
             with: req.get("with").and_then(Value::as_str).unwrap_or("").to_string(),
         },
         "insert_paragraph" => Op::InsertParagraph { after: need("after")?, text: need("text")? },
+        "insert_row" => Op::InsertRow { paragraph: paragraph.ok_or("paragraph manquant : une cellule du tableau (p7)")?, above: req.get("above").and_then(Value::as_bool).unwrap_or(false) },
+        "delete_row" => Op::DeleteRow { paragraph: paragraph.ok_or("paragraph manquant : une cellule du tableau (p7)")? },
         "comment" => Op::Comment { paragraph, find: need("find")?, occurrence, text: need("text")? },
         "reply" => Op::Reply {
             parent: req.get("comment").and_then(Value::as_u64).ok_or("comment manquant : numéro du commentaire (c3 → 3)")? as u32,
@@ -242,6 +244,12 @@ mod tests {
         assert!(run(root, "claude", "insert_figure", &json!({"path": "article.docx", "find": "Nouveau.", "figure": "../a.png"})).unwrap_err().contains("introuvable") );
         let read = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap();
         assert!(read["text"].as_str().unwrap().contains("Bandes 1 à 7.+]"), "{}", read["text"]);
+        let cell = read["text"].as_str().unwrap().lines().find(|l| l.contains("[tableau 0 ligne 0 cellule 0]")).unwrap().split(' ').next().unwrap().to_string();
+        run(root, "claude", "insert_row", &json!({"path": "article.docx", "paragraph": cell})).unwrap();
+        run(root, "claude", "delete_row", &json!({"path": "article.docx", "paragraph": cell})).unwrap();
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        assert!(m.changes.iter().any(|c| c.kind == "row-ins" && c.author == "Claude"));
+        assert!(m.changes.iter().any(|c| c.kind == "row-del" && c.author == "Claude"));
 
         // Les décisions ne sont pas exposées.
         for forbidden in ["accept", "reject", "accept_all", "resolve", "delete_comment"] {

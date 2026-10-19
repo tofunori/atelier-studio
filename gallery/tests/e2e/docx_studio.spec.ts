@@ -242,3 +242,27 @@ test('docx: notes, en-tête, pied de page et figures se retouchent dans la page'
   await expect.poll(async () => (await disk(page, project)).paragraphs[2].segments.filter(s => s.media && s.rev !== 'del').length).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('docx: lignes et colonnes de tableau depuis la barre', async ({page, project}) => {
+  await open(page, project);
+  const cells = async () => (await disk(page, project)).paragraphs.filter(p => (p as {cell?: number[]}).cell).length;
+  await caretAfter(page, 6, 'Zone');
+  await page.locator('#btnTable').click();
+  await page.locator('.menu .mi', {hasText: 'Insérer une ligne en dessous'}).click();
+  await expect.poll(cells).toBe(6);
+  // Le curseur est dans la nouvelle ligne : on y écrit, en suivi.
+  await page.keyboard.type('Z4');
+  await expect.poll(async () => (await disk(page, project)).paragraphs[8].text).toBe('Z4');
+  const m = await disk(page, project);
+  expect(m.changes.some(c => c.kind === 'row-ins' && c.author === 'Thierry')).toBe(true);
+  await expect(page.locator('.card', {hasText: 'Ligne ajoutée'}).filter({hasText: 'Thierry'})).toHaveCount(1);
+
+  await caretAfter(page, 8, 'Z4');
+  await page.locator('#btnTable').click();
+  await page.locator('.menu .mi', {hasText: 'Insérer une colonne à droite'}).click();
+  await expect.poll(cells).toBe(9);
+  await expect(page.locator('#foot')).toContainText('Word ne suit pas les colonnes');
+  await page.locator('#btnTable').click();
+  await page.locator('.menu .mi', {hasText: 'Supprimer la colonne'}).click();
+  await expect.poll(cells).toBe(6);
+});

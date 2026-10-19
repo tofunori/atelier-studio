@@ -15,6 +15,7 @@
 //! - [`format`] : police, taille, gras…, style et alignement.
 //! - [`ops`] : une retouche en JSON (panneau et agent), et le texte pour l'agent.
 //! - [`objects`] : appels de note et figures insérés.
+//! - [`table`] : lignes (en suivi) et colonnes de tableau.
 //! - [`story`] : corps, notes, en-têtes et pieds de page, chacun dans sa partie.
 
 pub mod comments;
@@ -26,6 +27,7 @@ pub mod structure;
 pub mod format;
 pub mod ops;
 pub mod story;
+pub mod table;
 mod walk;
 mod xml;
 

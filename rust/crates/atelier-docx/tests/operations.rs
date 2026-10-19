@@ -409,3 +409,50 @@ fn effacer_sa_propre_figure_ou_note_en_suivi_ne_laisse_pas_de_trace() {
     assert_eq!(m.notes.len(), 1);
     assert!(!m.changes.iter().any(|c| c.author == "Thierry"), "{:?}", m.changes);
 }
+
+#[test]
+fn lignes_en_suivi_et_colonnes_de_tableau() {
+    let me = sig("Thierry");
+    let mut d = open("christophe");
+    let cells = |d: &mut atelier_docx::Docx| -> Vec<(String, [u32; 3])> {
+        d.model().unwrap().paragraphs.iter().filter_map(|p| p.cell.map(|c| (p.text.clone(), c))).collect()
+    };
+    // Ligne ajoutée sous l'en-tête, en suivi ; on y écrit.
+    apply(&mut d, &op(json!({"op": "insert_row", "paragraph": "p7"})), true, &me).unwrap();
+    let c = cells(&mut d);
+    assert_eq!(c.len(), 6);
+    assert_eq!((c[2].0.as_str(), c[2].1), ("", [0, 1, 0]));
+    apply(&mut d, &op(json!({"op": "insert", "paragraph": "p9", "at": 0, "with": "Z4"})), true, &me).unwrap();
+    let m = d.model().unwrap();
+    assert!(m.changes.iter().any(|c| c.kind == "row-ins" && c.author == "Thierry"));
+    // La ligne de Christophe ne se supprime pas : on refuse son ajout.
+    assert!(apply(&mut d, &op(json!({"op": "delete_row", "paragraph": "p11"})), true, &me).unwrap_err().0.contains("Christophe"));
+    // Sa propre ligne part sans trace.
+    apply(&mut d, &op(json!({"op": "delete_row", "paragraph": "p9"})), true, &me).unwrap();
+    assert_eq!(cells(&mut d).len(), 4);
+    assert!(!d.model().unwrap().changes.iter().any(|c| c.author == "Thierry"));
+
+    // Ligne d'en-tête supprimée en suivi : marquée, texte barré ; accepter l'enlève.
+    apply(&mut d, &op(json!({"op": "delete_row", "paragraph": "p7"})), true, &me).unwrap();
+    let mut d = reopen(&d);
+    let m = d.model().unwrap();
+    let row = m.changes.iter().find(|c| c.kind == "row-del" && c.author == "Thierry").unwrap().id;
+    assert!(m.changes.iter().any(|c| c.kind == "del" && c.text == "Zone"), "{:?}", m.changes);
+    apply(&mut d, &op(json!({"op": "accept", "id": row})), true, &me).unwrap();
+    let c = cells(&mut d);
+    assert_eq!(c.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["Z3", "0,41"]);
+
+    // Colonnes : directement, la largeur partagée.
+    apply(&mut d, &op(json!({"op": "insert_column", "paragraph": "p6"})), true, &me).unwrap();
+    let c = cells(&mut d);
+    assert_eq!(c.iter().map(|x| x.1).collect::<Vec<_>>(), [[0, 0, 0], [0, 0, 1], [0, 0, 2]]);
+    let x = d.part("word/document.xml").unwrap().unwrap();
+    assert!(x.contains(r#"<w:gridCol w:w="2250"/><w:gridCol w:w="2250"/><w:gridCol w:w="4500"/>"#), "{x}");
+    apply(&mut d, &op(json!({"op": "insert", "paragraph": "p7", "at": 0, "with": "n"})), false, &me).unwrap();
+    // La colonne de Christophe porte un suivi : on ne la supprime pas.
+    assert!(apply(&mut d, &op(json!({"op": "delete_column", "paragraph": "p6"})), true, &me).is_err());
+    apply(&mut d, &op(json!({"op": "delete_column", "paragraph": "p7"})), true, &me).unwrap();
+    let x = reopen(&d).part("word/document.xml").unwrap().unwrap();
+    assert!(x.contains(r#"<w:tblGrid><w:gridCol w:w="4500"/><w:gridCol w:w="4500"/></w:tblGrid>"#), "{x}");
+    assert_eq!(cells(&mut d).len(), 2);
+}

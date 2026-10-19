@@ -104,6 +104,7 @@
     trash: svg('<path d="M6 7h12M10 7V5h4v2M8 7l1 12h6l1-12"/>'),
     reply: svg('<path d="M10 8L5 12l5 4"/><path d="M5.5 12H14a5 5 0 0 1 5 5v1"/>'),
     note: svg('<path d="M4 18h10M4 13h10M4 8h7"/><path d="M16.5 6.5l1.5-1v5"/>'),
+    table: svg('<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10h16M4 14.5h16M10 5v14"/>'),
     figure: svg('<rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M5 17l5-4 3 3 2-2 4 3"/>'),
   };
   const esc = (s        ) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]          );
@@ -954,6 +955,7 @@
     <button class="tb" id="btnComment" data-tooltip="Commenter la sélection">${ICON.comment}</button>
     <button class="tb" id="btnNote" data-tooltip="Insérer une note de bas de page">${ICON.note}</button>
     <button class="tb" id="btnFigure" data-tooltip="Insérer une figure du projet">${ICON.figure}</button>
+    <button class="tb" id="btnTable" data-tooltip="Lignes et colonnes du tableau">${ICON.table}</button>
     <button class="tb" id="btnUndo" data-tooltip="Annuler (⌘Z)">${ICON.undo}</button>
     <button class="tb" id="btnRedo" data-tooltip="Rétablir (⌘⇧Z)">${ICON.redo}</button>
     <span class="sp"></span>
@@ -1039,6 +1041,32 @@
       });
     });
   });
+  $("btnTable").addEventListener("click", (e) => {
+    const sel = readSel();
+    const p = sel && model ? model.paragraphs[sel.a.idx] : null;
+    if (!sel || !p || !p.cell || view === "original") return;
+    const [t, r, c] = p.cell;
+    const story = p.story || "";
+    // Curseur dans la première cellule de la ligne voulue, après le geste.
+    const toCell = (row        , col        ) => (m       ) => {
+      const k = m.paragraphs.findIndex((q) => (q.story || "") === story && q.cell && q.cell[0] === t && q.cell[1] === row && q.cell[2] === col);
+      return k >= 0 ? { a: { idx: k, off: 0 }, b: { idx: k, off: 0 } } : null;
+    };
+    const run = (op    , caret                                        , note         ) => structural(async () => {
+      const ok = await sendOp(op, caret);
+      if (ok && note) status(note);
+    });
+    const direct = tracked ? "sans suivi : Word ne suit pas les colonnes" : "";
+    showMenu(e.currentTarget               , [
+      { label: "Insérer une ligne au-dessus", run: () => run({ op: "insert_row", paragraph: ref(sel.a.idx), above: true }, toCell(r, 0)) },
+      { label: "Insérer une ligne en dessous", run: () => run({ op: "insert_row", paragraph: ref(sel.a.idx) }, toCell(r + 1, 0)) },
+      { label: "Insérer une colonne à gauche", run: () => run({ op: "insert_column", paragraph: ref(sel.a.idx), left: true }, toCell(r, c), direct && `Colonne ajoutée ${direct}`) },
+      { label: "Insérer une colonne à droite", run: () => run({ op: "insert_column", paragraph: ref(sel.a.idx) }, toCell(r, c + 1), direct && `Colonne ajoutée ${direct}`) },
+      { label: "", sep: true },
+      { label: "Supprimer la ligne", danger: true, run: () => run({ op: "delete_row", paragraph: ref(sel.a.idx) }, () => null) },
+      { label: "Supprimer la colonne", danger: true, run: () => run({ op: "delete_column", paragraph: ref(sel.a.idx) }, () => null, direct && `Colonne supprimée ${direct}`) },
+    ]);
+  });
   $("btnFigure").addEventListener("click", async (e) => {
     const trigger = e.currentTarget               ;
     const sel = readSel();
@@ -1110,6 +1138,7 @@
     ($("btnNumbers")                     ).disabled = !listStyle(/num[ée]ro|number/i);
     ($("btnComment")                     ).disabled = !sel || collapsed(sel);
     ($("btnNote")                     ).disabled = !sel || !!(p && p.story);
+    ($("btnTable")                     ).disabled = !p || !p.cell;
   }
 
   async function decideAll(op        , who         ) {

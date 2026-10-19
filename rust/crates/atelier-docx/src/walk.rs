@@ -28,7 +28,7 @@ impl RevKind {
             RevKind::MoveFrom => "moveFrom",
         }
     }
-    fn of(node: Node) -> Option<Self> {
+    pub(crate) fn of(node: Node) -> Option<Self> {
         if node.tag_name().namespace() != Some(W) {
             return None;
         }
