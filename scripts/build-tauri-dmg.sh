@@ -33,6 +33,19 @@ cd "$REPO_ROOT"
 # Ne pas stripper les build-scripts ni les proc-macros contourne le problème
 # sans toucher aux exécutables livrés ; une valeur déjà exportée l'emporte.
 export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
+# Un Developer ID du trousseau passe avant « Atelier Dev Signing » : c'est le
+# seul certificat qu'Apple notarise (voir tauri-signing-args.sh).
+export ATELIER_PREFER_DEVELOPER_ID=1
 source "$REPO_ROOT/scripts/tauri-signing-args.sh"
 # ${arr[@]+…} : bash 3.2 de macOS refuse un tableau vide sous `set -u`.
 npm run tauri -- build --bundles dmg ${SIGNING_ARGS[@]+"${SIGNING_ARGS[@]}"} "$@"
+
+# Signé Developer ID : notariser le DMG (Apple vérifie aussi l'app qu'il
+# contient) puis agrafer le ticket au DMG et au bundle resté dans target/.
+if [[ -n "${ATELIER_RESOURCE_SIGNING_IDENTITY:-}" ]]; then
+  DMG="$(ls -t "$REPO_ROOT"/src-tauri/target/release/bundle/dmg/*.dmg 2>/dev/null | head -n 1)"
+  [[ -n "$DMG" ]] || { echo "DMG introuvable après le build." >&2; exit 1; }
+  bash "$REPO_ROOT/scripts/notarize-macos.sh" "$DMG"
+  xcrun stapler staple "$BUNDLE_DIR/Atelier.app" \
+    || echo "Avertissement : ticket non agrafé à $BUNDLE_DIR/Atelier.app (le DMG, lui, l'est)." >&2
+fi
