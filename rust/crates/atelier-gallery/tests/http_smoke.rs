@@ -2219,3 +2219,68 @@ fn a_stale_tab_applies_only_its_own_changes_since_state_base() {
     assert_eq!(state["tags"]["c.png"], serde_json::json!(["glace"]));
     assert!(state.get("stateBase").is_none(), "la base n'est jamais écrite");
 }
+
+/// La copie corrigée de la fixture d'atelier-docx, zippée comme Word.
+fn christophe_docx() -> Vec<u8> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../atelier-docx/tests/fixtures/christophe");
+    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(String, PathBuf)>) {
+        for e in fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk(root, &p, out);
+            } else {
+                out.push((p.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/"), p));
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&dir, &dir, &mut files);
+    files.sort_by_key(|(rel, _)| (rel != "[Content_Types].xml", rel.clone()));
+    let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (rel, p) in files {
+        z.start_file(rel, zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(&fs::read(p).unwrap()).unwrap();
+    }
+    z.finish().unwrap().into_inner()
+}
+
+#[test]
+fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
+    let srv = start_server();
+    let target = srv.root.join("Chapitre 2 corrigé CK.docx");
+    fs::write(&target, christophe_docx()).unwrap();
+    let rel = "Chapitre%202%20corrig%C3%A9%20CK.docx";
+    let (st, body) = http(srv.port, "GET", &format!("/docx/model?path={rel}"), None);
+    assert_eq!(st, 200, "{body}");
+    let m: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let rev0 = m["revision"].as_str().unwrap().to_string();
+    assert_eq!(m["paragraphs"][0]["heading"], 1);
+    assert!(m["styles"].as_array().unwrap().iter().any(|s| s["id"] == "Titre2"));
+    assert_eq!(m["openInWord"], false);
+
+    let op = |revision: &str, op: serde_json::Value| {
+        serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "revision": revision, "author": "Thierry", "op": op}).to_string()
+    };
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev0, serde_json::json!({"op": "accept", "id": 101}))));
+    assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let rev1 = v["revision"].as_str().unwrap().to_string();
+    assert_ne!(rev0, rev1);
+    assert_eq!(v["model"]["revision"], rev1.as_str(), "le modèle rendu est celui du disque");
+    assert!(!v["model"]["changes"].as_array().unwrap().iter().any(|c| c["id"] == 101));
+
+    // Version périmée : 409, rien n'est écrit.
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev0, serde_json::json!({"op": "accept", "id": 102}))));
+    assert_eq!(st, 409, "{body}");
+    // Retouche impossible : 422 avec la raison en français.
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev1, serde_json::json!({"op": "replace", "find": "On", "paragraph": "p1", "with": "Puis on"}))));
+    assert_eq!(st, 422, "{body}");
+    assert!(body.contains("suivi"), "{body}");
+    // Hors du projet et autre extension : refusés.
+    let (st, _) = http(srv.port, "GET", "/docx/model?path=..%2F..%2Fetc%2Fx.docx", None);
+    assert!(st == 403 || st == 404, "{st}");
+    let (st, _) = http(srv.port, "GET", "/docx/model?path=notes.md", None);
+    assert_eq!(st, 400);
+    let (st, body) = http(srv.port, "GET", &format!("/docx/stat?path={rel}"), None);
+    assert_eq!(st, 200, "{body}");
+}

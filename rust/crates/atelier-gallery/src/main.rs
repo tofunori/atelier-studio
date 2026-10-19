@@ -1,5 +1,6 @@
 mod agent;
 mod codes;
+mod docx;
 mod documents;
 mod drafts;
 mod files;
@@ -2644,6 +2645,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/pdfannot-codes", post(codes::post_pdfannot_codes))
         .route("/codebook", get(codes::get_codebook).post(codes::post_codebook))
         .route("/export-png", post(documents::export_png))
+        // Panneau .docx (copie corrigée du directeur, aller-retour avec Word)
+        .route("/docx/model", get(docx::model))
+        .route("/docx/stat", get(docx::stat))
+        .route("/docx/op", post(docx::op))
         .route("/lint", get(documents::lint))
         // Phase 5 — notes + whiteboard
         .route("/notes/load", get(workspace::notes_load))

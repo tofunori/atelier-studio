@@ -184,6 +184,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-docx"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "zip",
+]
+
+[[package]]
 name = "atelier-fdlimit"
 version = "0.1.0"
 dependencies = [
@@ -196,6 +209,7 @@ version = "0.1.0"
 dependencies = [
  "atelier-codebook",
  "atelier-core",
+ "atelier-docx",
  "atelier-fdlimit",
  "atelier-integrations",
  "atelier-logs",
