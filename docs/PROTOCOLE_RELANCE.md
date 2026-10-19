@@ -73,6 +73,12 @@ compilation. Choisir ceux qui couvrent la surface modifiée :
 Avant de toucher aux éditeurs de la galerie (diff, versions, rewrap,
 commentaires), lire aussi [PIEGES_CONNUS.md](PIEGES_CONNUS.md).
 
+Documents modifiés : l'arrêt de l'étape 2 (`kill -9`) ne passe pas par la
+confirmation de sortie de l'app. Avant de lancer le script, demander à Thierry
+d'enregistrer les documents ouverts dans l'atelier (onglet marqué modifié).
+Un tampon oublié n'est pas perdu pour autant : son brouillon de secours,
+écrit chaque seconde pendant la frappe, revient à la réouverture du fichier.
+
 ### 2 à 4. Arrêter, construire, relancer
 
 À exécuter avec Bash depuis le worktree qui contient les changements. Le script

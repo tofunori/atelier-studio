@@ -61,10 +61,16 @@ pub fn run() {
     };
     let boot_clock = boot_metrics::BootClock::new();
     let _ = fix_path_env::fix();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(boot_clock)
         .manage(atelier_workspace::QuitGuard::new())
-        .on_window_event(unsaved_guard::on_window_event)
+        .on_window_event(unsaved_guard::on_window_event);
+    // ⌘Q passe par la garde des documents modifiés (voir unsaved_guard)
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(unsaved_guard::app_menu)
+        .on_menu_event(unsaved_guard::on_menu_event);
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())

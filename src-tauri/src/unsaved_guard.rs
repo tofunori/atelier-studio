@@ -5,14 +5,25 @@
 //! l'app reçoit `atelier-quit-requested`, demande confirmation, puis appelle
 //! `confirm_quit`.
 //!
-//! Limite connue : l'élément de menu natif « Quitter » (⌘Q, `terminate:`)
-//! ne passe ni par CloseRequested ni par ExitRequested ; les brouillons de
-//! secours, écrits pendant la frappe, couvrent ce cas.
+//! L'élément de menu natif « Quitter » (⌘Q) envoie `terminate:` à NSApp :
+//! tao 0.35.3 n'implémente pas `applicationShouldTerminate`, ce chemin ne
+//! passe donc ni par CloseRequested ni par ExitRequested et l'app partait
+//! sans dialogue (relecture du 2026-10-19). Sur macOS, le menu par défaut de
+//! Tauri garde tous ses éléments, sauf ce Quitter prédéfini, remplacé par un
+//! élément ordinaire (même raccourci ⌘Q) qui passe par la même garde.
 
 use atelier_workspace::QuitGuard;
 use tauri::{AppHandle, Emitter, ExitRequestApi, Manager, State, Window, WindowEvent};
+#[cfg(target_os = "macos")]
+use tauri::{
+    Runtime,
+    menu::{Menu, MenuEvent, MenuItem, MenuItemKind},
+};
 
 pub const QUIT_REQUESTED_EVENT: &str = "atelier-quit-requested";
+/// Identifiant de l'élément « Quitter » qui remplace le prédéfini.
+#[cfg(target_os = "macos")]
+const QUIT_MENU_ID: &str = "atelier-quit";
 const MAIN_WINDOW: &str = "main";
 
 #[tauri::command]
@@ -49,5 +60,57 @@ pub fn on_exit_requested(app: &AppHandle, code: Option<i32>, api: &ExitRequestAp
     if guard.should_hold_exit(code.is_some(), main_window_open) {
         api.prevent_exit();
         let _ = app.emit(QUIT_REQUESTED_EVENT, ());
+    }
+}
+
+/// Sortie demandée par l'utilisateur hors événement Tauri (⌘Q) : même règle
+/// que `on_exit_requested`, puis `AppHandle::exit`, dont l'ExitRequested
+/// porte un code et n'est donc pas retenu.
+#[cfg(target_os = "macos")]
+fn request_quit<R: Runtime>(app: &AppHandle<R>) {
+    let main_window_open = app.get_webview_window(MAIN_WINDOW).is_some();
+    let hold = app
+        .try_state::<QuitGuard>()
+        .is_some_and(|guard| guard.should_hold_exit(false, main_window_open));
+    if hold {
+        let _ = app.emit(QUIT_REQUESTED_EVENT, ());
+    } else {
+        app.exit(0);
+    }
+}
+
+/// Menu de l'app : `Menu::default` de Tauri (Édition, Fenêtre… inchangés),
+/// dont le dernier élément du menu de l'app — le Quitter prédéfini — est
+/// remplacé par `QUIT_MENU_ID`. Si la forme attendue n'est pas là, le menu
+/// par défaut est rendu tel quel (on retombe sur l'ancien comportement).
+#[cfg(target_os = "macos")]
+pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let menu = Menu::default(app)?;
+    let Some(MenuItemKind::Submenu(app_submenu)) = menu.items()?.into_iter().next() else {
+        return Ok(menu);
+    };
+    let items = app_submenu.items()?;
+    let Some(last) = items.len().checked_sub(1) else {
+        return Ok(menu);
+    };
+    if !matches!(items[last], MenuItemKind::Predefined(_)) {
+        return Ok(menu);
+    }
+    let quit = MenuItem::with_id(
+        app,
+        QUIT_MENU_ID,
+        format!("Quitter {}", app.package_info().name),
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
+    app_submenu.remove_at(last)?;
+    app_submenu.append(&quit)?;
+    Ok(menu)
+}
+
+#[cfg(target_os = "macos")]
+pub fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
+    if event.id() == QUIT_MENU_ID {
+        request_quit(app);
     }
 }
