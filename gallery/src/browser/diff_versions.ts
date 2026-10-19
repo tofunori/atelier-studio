@@ -1009,6 +1009,7 @@ const createDiffVersions = function(opts){
     if(reviewBusy || tt || !shown) return;
     const cm = getCm(), it = interList()[navMode];
     if(!it || navMode !== interList().length - 1 || cm.getValue() !== decision.current) {notify("Ce passage a changé — afficher la dernière intervention");return;}
+    const span = pendingAgentSpan(interList());
     reviewBusy = true; cm.setOption("readOnly", true); updateNav();
     const oldState = reviewState[it.id];
     // Plus aucun bloc après cette décision : l'intervention est entièrement
@@ -1021,6 +1022,16 @@ const createDiffVersions = function(opts){
       if(cm.getValue() !== decision.text) cm.setValue(decision.text);
       completed = equivalent(liveText(), decision.base);
       reviewState[it.id] = {base: decision.base, text: decision.text, ...(completed ? {accepted: true} : {})};
+      // Revue cumulée entièrement décidée : chaque passage d'agent qu'elle
+      // couvrait est décidé avec elle (annulable avec la décision).
+      if(completed && span){
+        reviewUndo.others = [];
+        for(const other of span){
+          if(other.id === it.id) continue;
+          reviewUndo.others.push({id: other.id, previous: reviewState[other.id]});
+          reviewState[other.id] = {base: other.after, text: other.after, accepted: true};
+        }
+      }
       extCmp = {...extCmp, before: decision.base};
       saveReviewState();persist(decision.text);
       if(!completed){
@@ -1032,7 +1043,11 @@ const createDiffVersions = function(opts){
     if(!completed) return;
     // showStep/toggle refusent de tourner pendant reviewBusy : navigation après.
     const remaining = interList();
-    if(remaining.length){
+    // Revue cumulée : il ne reste que des sauvegardes de l'auteur, rien à décider.
+    if(span && !pendingAgentSpan(remaining)){
+      toggle(false);
+      notify(decision.kind === "accept" ? "Toutes les modifications sont acceptées" : "Toutes les modifications sont décidées");
+    } else if(remaining.length){
       // La précédente devient la dernière et se comparera au texte vivant, qui
       // contient déjà les changements que l'on vient d'accepter : les lui
       // transplanter dans sa base, sinon ils réapparaissent comme blocs à décider.
@@ -1081,6 +1096,8 @@ const createDiffVersions = function(opts){
         if(undo.previous) reviewState[undo.id] = undo.previous;else delete reviewState[undo.id];
         // Base transplantée dans l'intervention précédente à la clôture : rendue aussi.
         if(undo.seeded){ if(undo.seeded.previous) reviewState[undo.seeded.id] = undo.seeded.previous; else delete reviewState[undo.seeded.id]; }
+        // Passages d'agent décidés avec la revue cumulée : rendus aussi.
+        for(const other of undo.others || []){ if(other.previous) reviewState[other.id] = other.previous; else delete reviewState[other.id]; }
         saveReviewState();persist(undo.text);reviewUndo = null;hideUndo();
       }catch(e){notify("Annulation non enregistrée : sauvegarde indisponible");return;}finally{reviewBusy = false;cm.setOption("readOnly", !!tt);}
       showStep(interList().findIndex(it=>it.id === undo.id));
@@ -1105,6 +1122,71 @@ const createDiffVersions = function(opts){
       notify(`${list.length} intervention${list.length>1?"s":""} acceptée${list.length>1?"s":""}`);
     };
     els.group.appendChild(acceptAllButton);
+  }
+  // ---- Barre de revue (diff unifié, maquette A, 2026-10-18) : flottante en
+  // bas du volet éditeur pendant la revue vivante — qui a écrit, combien de
+  // passages, ‹ i / n ›, Tout refuser, Tout accepter. Les deux décisions
+  // globales passent par decideReview (même journal, même toast Annuler).
+  const reviewBar = individualReview && els.group ? document.createElement("div") : null;
+  let reviewBarWho: HTMLSpanElement = null, reviewBarCount: HTMLSpanElement = null;
+  let reviewBarPrev: HTMLButtonElement = null, reviewBarNext: HTMLButtonElement = null;
+  let reviewBarReject: HTMLButtonElement = null, reviewBarAccept: HTMLButtonElement = null;
+  if(reviewBar){
+    reviewBar.className = "dv-review-bar";
+    reviewBar.setAttribute("role", "toolbar");
+    reviewBar.setAttribute("aria-label", "Revue des modifications");
+    reviewBar.hidden = true;
+    const icon = (d: string) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"/></svg>';
+    const btn = (cls: string, html: string, label: string, onClick: () => void) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = cls; b.innerHTML = html; b.setAttribute("aria-label", label); b.title = label;
+      b.onmousedown = e => e.preventDefault();
+      b.onclick = e => { e.preventDefault(); onClick(); };
+      return b;
+    };
+    reviewBarWho = document.createElement("span");
+    reviewBarWho.className = "dv-rb-who";
+    const nav = document.createElement("span");
+    nav.className = "dv-rb-nav";
+    reviewBarPrev = btn("dv-rb-icon", icon("m15 18-6-6 6-6"), "Passage précédent", () => gotoChange(changeAt - 1, true));
+    reviewBarCount = document.createElement("span");
+    reviewBarCount.className = "dv-rb-count";
+    reviewBarNext = btn("dv-rb-icon", icon("m9 18 6-6-6-6"), "Passage suivant", () => gotoChange(changeAt + 1, true));
+    nav.append(reviewBarPrev, reviewBarCount, reviewBarNext);
+    const sep = document.createElement("span");
+    sep.className = "dv-rb-sep";
+    reviewBarReject = btn("dv-rb-act", "<span>Tout refuser</span>", "Tout refuser", () => decideAll("reject"));
+    reviewBarAccept = btn("dv-rb-act fill", "<span>Tout accepter</span>", "Tout accepter", () => decideAll("accept"));
+    reviewBar.append(reviewBarWho, nav, sep, reviewBarReject, reviewBarAccept);
+  }
+  /** Tout accepter / tout refuser les passages affichés par la revue vivante. */
+  function decideAll(kind: "accept" | "reject"){
+    const cm = getCm();
+    if(!cm || !shown || tt || reviewBusy || !extCmp || !changePts.length) return;
+    const current = cm.getValue();
+    const target = kind === "accept" ? current : extCmp.before;
+    void decideReview({kind, current, text: target, base: target});
+  }
+  function updateReviewBar(it){
+    if(!reviewBar) return;
+    const visible = !!it && shown && !tt && changePts.length > 0;
+    if(visible && !reviewBar.parentElement){
+      const host = undoToastHost();
+      if(host && typeof host.appendChild === "function") host.appendChild(reviewBar);
+    }
+    reviewBar.hidden = !visible;
+    // « Tout accepter » de la barre du haut fait double emploi pendant la revue.
+    if(acceptAllButton) acceptAllButton.hidden = visible;
+    if(!visible) return;
+    const n = changePts.length, at = Math.max(0, Math.min(n - 1, changeAt));
+    const span = pendingAgentSpan(interList());
+    const author = authorOf((span ? span[span.length - 1] : it).source);
+    reviewBarWho.textContent = author + " · " + n + " passage" + (n > 1 ? "s" : "");
+    reviewBarCount.textContent = (at + 1) + " / " + n;
+    reviewBarPrev.disabled = reviewBusy || at <= 0;
+    reviewBarNext.disabled = reviewBusy || at >= n - 1;
+    reviewBarReject.disabled = reviewBusy;
+    reviewBarAccept.disabled = reviewBusy;
   }
   let navMode = -1;   // -1 = tout (cumulatif) ; sinon index dans interList()
   let tt = null;      // voyage dans le temps : {realText} — buffer réel à restaurer
@@ -1168,6 +1250,26 @@ const createDiffVersions = function(opts){
     updateTag();
     render();
   }
+  // Écritures d'agent : rechargement externe ou fusion trois-voies appliquée
+  // (les sauvegardes de l'auteur ne sont pas des modifications à décider).
+  const AGENT_SOURCES = new Set(["external-reload", "external-merge"]);
+  /** Interventions encore à décider depuis la première écriture d'agent non
+   * décidée (les retouches de l'auteur intercalées en font partie), ou null
+   * s'il n'y en a pas — la revue retombe alors sur la dernière intervention seule. */
+  function pendingAgentSpan(list){
+    const first = list.findIndex(it => AGENT_SOURCES.has(it.source) && it.status !== "pending-conflict");
+    return first < 0 ? null : list.slice(first).filter(it => it.status !== "pending-conflict");
+  }
+  /** Base de la revue cumulée : la dernière base ajustée par une décision
+   * (elle porte déjà tout ce qui a été accepté avant elle), sinon le texte
+   * d'avant la première écriture d'agent. */
+  function pendingBase(span){
+    for(let k = span.length - 1; k >= 0; k--){
+      const state = reviewState[span[k].id];
+      if(state && typeof state.base === "string") return state.base;
+    }
+    return span[0].before;
+  }
   function showStep(j: number, {navigate = true} = {}){
     if(reviewBusy) return;
     hideUndo();
@@ -1185,7 +1287,11 @@ const createDiffVersions = function(opts){
     // (Thierry 2026-09-10, methods_en.tex 29/29).
     if(individualReview && j === list.length - 1){
       const state = reviewState[it.id];
-      it = {...it, from: state ? state.base : it.before, to: liveText(), live: true};
+      // Diff unifié (Thierry 2026-10-18) : les modifications de TOUS les
+      // passages d'agent pas encore décidés se voient et se décident ici,
+      // ensemble — plus d'intervention antérieure en lecture seule.
+      const span = pendingAgentSpan(list);
+      it = {...it, from: span ? pendingBase(span) : state ? state.base : it.before, to: liveText(), live: true};
     }
     navMode = j;
     const cm = getCm();
@@ -1540,6 +1646,7 @@ const createDiffVersions = function(opts){
       if(els.prev) els.prev.disabled = !shown || changeAt <= 0;
       if(els.next) els.next.disabled = !shown || changeAt >= changePts.length - 1;
       updateMeta(shown && n ? interList()[navMode] : null);
+      updateReviewBar(shown && n && navMode === n - 1 ? interList()[navMode] : null);
       return;
     }
     if(!navPill) return;

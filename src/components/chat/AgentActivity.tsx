@@ -1,14 +1,15 @@
-import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, GitBranchIcon, CheckIcon, CircleAlertIcon, LoaderCircleIcon, CircleSlashIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { ChevronLeftIcon, GitBranchIcon, CheckIcon, CircleAlertIcon, LoaderCircleIcon, CircleSlashIcon } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
 import { normalizeMathDelimiters } from "../../lib/markdown";
 import { ScrollArea } from "../shadcn/scroll-area";
 import { Separator } from "../shadcn/separator";
-import { Button, RowButton } from "../ui";
+import { ActivityDisclosure, Button, RowButton } from "../ui";
 import { MdBody, MD_COMPONENTS, MD_COMPONENTS_STREAMING, useMdPlugins } from "./md";
-import { ToolGlyph, activityIconForAction, activeToolLabel } from "./toolPresentation";
+import { Tick, ToolGlyph, ToolStateGlyph, activityIconForAction, activeToolLabel, fmtToolDur } from "./toolPresentation";
+import { LiveClock } from "./LiveClock";
 
 export type AgentToolAction = Extract<AgentEvent, { kind: "tool_update" }> & {
   agentActivity: NonNullable<Extract<AgentEvent, { kind: "tool_update" }>["agentActivity"]>;
@@ -29,7 +30,16 @@ export type AgentDisplay = {
   model: string | null;
   reasoningEffort: string | null;
   agentPath: string | null;
+  /** Mission en quelques mots (`description` de l'outil Agent de Claude) :
+   * titre de la rangée. Codex n'en donne pas, le nom tient lieu de titre. */
+  description?: string | null;
   statusTs?: number;
+  /** Première observation de l'agent et, une fois posé, son dernier état :
+   * bornes de la durée affichée sur sa rangée. */
+  startTs?: number;
+  endTs?: number;
+  /** Durée exacte annoncée par le CLI à la fin (Claude). */
+  durationMs?: number;
 };
 
 export function isAgentActivityAction(event: AgentEvent): event is AgentToolAction {
@@ -39,6 +49,8 @@ export function isAgentActivityAction(event: AgentEvent): event is AgentToolActi
 function displayNameFromPath(path: string | null | undefined): string | null {
   const leaf = path?.split("/").filter(Boolean).pop()?.trim();
   if (!leaf) return null;
+  // Type d'agent intégré au CLI Claude : nom anglais générique.
+  if (leaf === "general-purpose") return t("chat.subagent-type-general");
   const spaced = leaf.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : null;
 }
@@ -97,6 +109,14 @@ export function agentsFromActions(actions: AgentToolAction[]): AgentDisplay[] {
       if (activity.prompt) agent.prompt = activity.prompt;
       if (activity.model) agent.model = activity.model;
       if (activity.reasoningEffort) agent.reasoningEffort = activity.reasoningEffort;
+      // Claude ne laisse au fil que le dernier état de l'agent (même id) : son
+      // heure de lancement voyage avec. Codex garde un événement par étape.
+      const startedAt = activity.agentThreadId === threadId && activity.startedAt != null ? activity.startedAt : action.ts;
+      if (startedAt != null && (agent.startTs == null || startedAt < agent.startTs)) agent.startTs = startedAt;
+      if (activity.durationMs != null && activity.agentThreadId === threadId) agent.durationMs = activity.durationMs;
+      if (activity.description?.trim() && (!activity.agentThreadId || activity.agentThreadId === threadId)) {
+        agent.description = activity.description.replace(/\s+/g, " ").trim();
+      }
       if (activity.agentPath && (!activity.agentThreadId || activity.agentThreadId === threadId)) {
         agent.agentPath = activity.agentPath;
         agent.displayName = displayNameFromPath(activity.agentPath) ?? agent.displayName;
@@ -107,9 +127,11 @@ export function agentsFromActions(actions: AgentToolAction[]): AgentDisplay[] {
         agent.status = normalizedStatus(state.status);
         agent.statusMessage = state.message?.trim() || null;
         agent.statusTs = action.ts;
+        agent.endTs = agent.status === "working" ? undefined : action.ts;
       } else if (!state && current && activity.activityKind === "interrupted") {
         agent.status = "interrupted";
         agent.statusTs = action.ts;
+        agent.endTs = action.ts;
       }
     }
   }
@@ -130,7 +152,8 @@ export function agentWithTranscriptState(agent: AgentDisplay, events: AgentEvent
     if (agent.statusTs != null && event.ts != null && event.ts < agent.statusTs) return agent;
     if (agent.status !== "working" && (agent.statusTs == null || event.ts == null)) return agent;
     const status = event.kind === "started" ? "working" : event.ok ? "done" : "failed";
-    return status === agent.status ? agent : { ...agent, status };
+    if (status === agent.status) return agent;
+    return { ...agent, status, endTs: status === "working" ? undefined : event.ts ?? agent.endTs };
   }
   return agent;
 }
@@ -214,12 +237,42 @@ function AgentStateIcon({status}: {status: AgentDisplay["status"]}) {
   return <Icon className="agent-state-icon" data-agent-status={status} size={16} aria-hidden="true" />;
 }
 
+/** Glyphe d'un sous-agent dans sa rangée (étincelle trait fin, même gabarit
+ * que les icônes d'outil) ; l'en-tête du groupe garde le glyphe « agent ». */
+function AgentRowGlyph() {
+  return <svg width={15} height={15} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.35}
+    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M8 2.4c.4 3.2 2.1 5 5.6 5.6-3.5.6-5.2 2.4-5.6 5.6-.4-3.2-2.1-5-5.6-5.6 3.5-.6 5.2-2.4 5.6-5.6z" />
+  </svg>;
+}
+
+/** Titre d'une rangée : la mission quand l'agent en donne une, sinon son nom. */
+function agentTitle(agent: AgentDisplay): string {
+  return agent.description || agent.displayName;
+}
+
+/** Colonne de durée : chrono pendant le travail, mot court sur un échec ou
+ * une interruption (comme « exit N » des commandes), durée posée sinon. */
+function agentDuration(agent: AgentDisplay): ReactNode {
+  if (agent.status === "working") {
+    return agent.startTs != null ? <LiveClock since={agent.startTs} className="tool-duration" /> : <span className="tool-duration" />;
+  }
+  const label = agent.status === "failed" ? t("chat.subagent-short-failed")
+    : agent.status === "interrupted" ? t("chat.subagent-short-interrupted")
+    : agent.durationMs != null && agent.durationMs > 0 ? fmtToolDur(agent.durationMs)
+    : agent.startTs != null && agent.endTs != null && agent.endTs > agent.startTs ? fmtToolDur(agent.endTs - agent.startTs) : null;
+  return <span className="tool-duration">{label}</span>;
+}
+
+/** Les sous-agents d'un tour, comme une grappe d'actions : UNE rangée de
+ * synthèse sur la grille du fil (icône · libellé · durée · état · chevron),
+ * dépliée tant qu'un agent travaille, puis une rangée par agent. Un clic sur
+ * un agent ouvre son compte rendu dans le panneau. */
 export function AgentActivityGroup({actions, onOpenAgent, eventsByThreadId}: {
   actions: AgentToolAction[];
   eventsByThreadId?: ReadonlyMap<string, AgentEvent[]>;
   onOpenAgent: (agent: AgentDisplay) => void;
 }) {
-  const id = useId();
   const agents = agentsFromActions(actions).map(agent => agentWithTranscriptState(agent, eventsByThreadId?.get(agent.threadId) ?? []));
   const working = agents.filter(agent => agent.status === "working").length;
   const done = agents.filter(agent => agent.status === "done").length;
@@ -233,30 +286,50 @@ export function AgentActivityGroup({actions, onOpenAgent, eventsByThreadId}: {
   if (disclosure && disclosure.phase !== phase) setDisclosure(null);
   const open = disclosure?.phase === phase ? disclosure.open : !allDone;
   if (!agents.length) return null;
-  const summary = allDone ? t("chat.subagents-all-done") : [
-    done ? t(done === 1 ? "chat.subagents-count-done-one" : "chat.subagents-count-done", {count: done}) : null,
-    working ? t("chat.subagents-count-working", {count: working}) : null,
+  const title = t(agents.length === 1 ? "chat.subagents-title-one" : "chat.subagents-title", {count: agents.length});
+  // La coche, l'anneau ou la croix disent déjà l'état : la note ne nomme que
+  // l'avancement d'un groupe en cours et ce qui n'a pas abouti.
+  const note = [
+    working && agents.length > 1 ? t(done <= 1 ? "chat.subagents-progress-one" : "chat.subagents-progress", {done, count: agents.length}) : null,
     failed ? t("chat.subagents-count-failed", {count: failed}) : null,
     interrupted ? t(interrupted === 1 ? "chat.subagents-count-interrupted-one" : "chat.subagents-count-interrupted", {count: interrupted}) : null,
   ].filter(Boolean).join(" · ");
-  return <section className="agent-activity-group" data-testid="subagent-activity-inline-group"
-    aria-label={t(agents.length === 1 ? "chat.subagents-title-one" : "chat.subagents-title", {count: agents.length})}>
-    <RowButton className="agent-group-head" aria-expanded={open} aria-controls={id}
-      onClick={() => setDisclosure({phase, open: !open})}>
-      <GitBranchIcon size={16} aria-hidden="true" />
-      <span>{t(agents.length === 1 ? "chat.subagents-title-one" : "chat.subagents-title", {count: agents.length})}</span>
-      <span className="agent-group-summary" role="status">{summary}</span>
-      <ChevronDownIcon size={14} className="agent-disclosure-icon" aria-hidden="true" />
-    </RowButton>
-    <div id={id} hidden={!open} className="agent-group-rows">
-      {agents.map(agent => <RowButton key={agent.threadId} className="agent-row" data-agent-status={agent.status}
-        aria-label={t("chat.subagent-open", {name: agent.displayName})} onClick={() => onOpenAgent(agent)}>
-        <AgentStateIcon status={agent.status} />
-        <span className="agent-row-copy"><span className="agent-row-name">{agent.displayName}</span>
-          <span className="agent-row-description">{agent.status === "working" ? currentAgentActivity(agent, eventsByThreadId?.get(agent.threadId) ?? []) : statusLabel(agent)}</span></span>
-        <ChevronRightIcon size={14} className="agent-row-arrow" aria-hidden="true" />
-      </RowButton>)}
-    </div>
+  const starts = agents.map(agent => agent.startTs).filter((ts): ts is number => ts != null);
+  // Fin d'un agent : sa durée exacte quand le CLI la donne, sinon son dernier état.
+  const ends = agents.map(agent => agent.durationMs != null && agent.startTs != null ? agent.startTs + agent.durationMs : agent.endTs)
+    .filter((ts): ts is number => ts != null);
+  const start = starts.length ? Math.min(...starts) : null;
+  const end = ends.length === agents.length && ends.length ? Math.max(...ends) : null;
+  const meta = working
+    ? start != null ? <LiveClock since={start} /> : undefined
+    : start != null && end != null && end > start ? fmtToolDur(end - start) : undefined;
+  return <section className="agent-activity-group" data-testid="subagent-activity-inline-group" aria-label={title}>
+    <ActivityDisclosure open={open} onToggle={() => setDisclosure({phase, open: !open})}
+      icon={{cat: "agent"}} status={working ? "running" : failed ? "failed" : "completed"} meta={meta}
+      label={<>{title}{note ? <span className="agent-group-note" role="status">{note}</span> : null}</>}>
+      <div className="agent-group-rows">
+        {agents.map(agent => {
+          const name = agentTitle(agent);
+          const events = eventsByThreadId?.get(agent.threadId) ?? [];
+          const live = agent.status === "working" ? currentAgentActivity(agent, events) : null;
+          const showLive = live && live !== name && live !== statusLabel(agent);
+          return <div key={agent.threadId} className="agent-item">
+            <RowButton className="agent-row" data-agent-status={agent.status}
+              aria-label={t("chat.subagent-open", {name})} onClick={() => onOpenAgent(agent)}>
+              <span className="agent-row-icon"><AgentRowGlyph /></span>
+              <span className="agent-row-name">{name}
+                {agent.description ? <span className="agent-row-type">{agent.displayName}</span> : null}</span>
+              {agentDuration(agent)}
+              <span className="tool-status" title={agent.status === "failed" ? statusLabel(agent) : undefined}>
+                <ToolStateGlyph outcome={agent.status === "working" ? "running" : agent.status === "done" ? "done" : agent.status === "failed" ? "failed" : "none"} />
+              </span>
+              <Tick />
+            </RowButton>
+            {showLive ? <div className="agent-row-live">{live}</div> : null}
+          </div>;
+        })}
+      </div>
+    </ActivityDisclosure>
   </section>;
 }
 
