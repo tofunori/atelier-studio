@@ -47,6 +47,7 @@ import { useContextInspector } from "./hooks/useContextInspector";
 import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
 import { useStoredJson } from "./hooks/useStoredJson";
 import { relaySidecarMessage } from "./lib/sidecarRelays";
+import { notifySetAside } from "./lib/setAsideNotice";
 import {
   closeSetupWelcome,
   openSetupWelcome,
@@ -1824,6 +1825,8 @@ export default function App() {
         }
       }
       if (msg.type === "reverted") {
+        // « Rembobiner quand même » : les retouches écrasées ont été copiées.
+        notifySetAside(msg.setAsideTo, "rewind");
         if (typeof msg.threadId === "string") historyCursorsRef.current.delete(msg.threadId);
         if (typeof msg.historyEpoch === "string" && typeof msg.historyRevision === "number") {
           const baseline = historySnapshotRefs.current.get(msg.threadId);

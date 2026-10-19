@@ -3942,8 +3942,20 @@ mod tests {
         let mut confirme = demande.clone();
         confirme["confirmModified"] = json!(true);
         let out = route_ws(&s, &confirme.to_string()).await;
-        assert!(out.iter().any(|m| serde_json::from_str::<Value>(m).unwrap()["type"] == "reverted"), "{out:?}");
+        let reverted = out
+            .iter()
+            .map(|m| serde_json::from_str::<Value>(m).unwrap())
+            .find(|v| v["type"] == "reverted")
+            .unwrap_or_else(|| panic!("{out:?}"));
         assert_eq!(std::fs::read_to_string(project.join("note.txt")).unwrap(), "avant\n");
+        // La retouche écrasée a été copiée dans la Corbeille (ou, sans
+        // Corbeille, dans .git/atelier-trash/), et la réponse dit où.
+        let kept = std::path::PathBuf::from(reverted["setAsideTo"].as_str().expect("setAsideTo"));
+        assert_eq!(std::fs::read_to_string(kept.join("note.txt")).unwrap(), "Thierry a corrigé\n");
+        // Ne pas laisser de trace dans la vraie Corbeille de la machine de test.
+        if !kept.starts_with(&project) {
+            let _ = std::fs::remove_dir_all(&kept);
+        }
     }
 
     /// Fichiers intacts depuis la fin du tour : pas de question, rembobinage direct.

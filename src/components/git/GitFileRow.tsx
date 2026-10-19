@@ -78,7 +78,11 @@ export function GitFileRow({
             items={[
               {
                 key: "restore",
-                label: <span>{restoreArmed ? t("action.confirm") : t("action.restore")}</span>,
+                // Non suivi : « Restaurer » n'a rien à restaurer, le fichier
+                // part à la Corbeille — le libellé le dit.
+                label: <span>{restoreArmed
+                  ? t("action.confirm")
+                  : file.status === "?" ? t("git.trash-file") : t("action.restore")}</span>,
                 destructive: restoreArmed,
                 keepOpen: !restoreArmed,
                 onSelect: () => {

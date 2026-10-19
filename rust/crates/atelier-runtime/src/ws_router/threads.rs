@@ -398,6 +398,40 @@ async fn revert_needs_confirm(
     }))])
 }
 
+/// « Rembobiner quand même » (`confirmModified:true`) : avant d'écraser les
+/// fichiers du tour, copie dans la Corbeille ceux qui diffèrent du snapshot
+/// (relecture de l'audit 2026-10-18, problème 3 : un clic confirmé restait
+/// irréversible). `Err` = réponse d'erreur, rien n'a été touché.
+async fn set_aside_if_confirmed(
+    state: &AppState,
+    msg: &Value,
+    thread_id: &str,
+    project_root: &str,
+) -> Result<Option<String>, Vec<String>> {
+    if msg.get("confirmModified").and_then(Value::as_bool) != Some(true) || project_root.is_empty() {
+        return Ok(None);
+    }
+    let Some(sha) = msg.get("snapshotSha").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let turn_id = msg.get("turnId").and_then(Value::as_str);
+    let Some(event) = checkpoint_event(&state.journal().materialize(thread_id), sha, turn_id) else {
+        return Ok(None); // l'erreur « checkpoint introuvable » suit
+    };
+    let scope_paths = checkpoint_scope(&event);
+    let root = project_root.to_string();
+    let sha_owned = sha.to_string();
+    match crate::ws_dispatch::blocking(move || {
+        atelier_workspace::set_aside_before_rewind(&root, &sha_owned, scope_paths.as_deref())
+    })
+    .await
+    {
+        Ok(Ok(kept)) => Ok(kept.map(|path| path.to_string_lossy().into_owned())),
+        Ok(Err(error)) => Err(vec![err_thread(thread_id, error.to_string())]),
+        Err(error) => Err(vec![err_thread(thread_id, error.to_string())]),
+    }
+}
+
 pub(super) async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg.get("threadId").and_then(|v| v.as_str()).unwrap_or("");
     if thread_id.is_empty() {
@@ -417,6 +451,10 @@ pub(super) async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> 
     if let Some(reply) = revert_needs_confirm(state, msg, thread_id, &thread.project_root, scope).await {
         return reply;
     }
+    let set_aside_to = match set_aside_if_confirmed(state, msg, thread_id, &thread.project_root).await {
+        Ok(kept) => kept,
+        Err(reply) => return reply,
+    };
     // Let the old run finish its event pump and persist its session before
     // touching either history. Otherwise resend is treated as a steer.
     if scope == "thread" && thread.provider == "codex"
@@ -462,6 +500,7 @@ pub(super) async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> 
         if scope == "files" {
             return vec![json_msg(json!({
                 "type":"reverted","threadId":thread_id,"scope":"files","snapshotSha":sha,
+                "setAsideTo":set_aside_to,
             }))];
         }
     } else if scope == "files" {
@@ -579,7 +618,9 @@ pub(super) async fn handle_revert(state: &AppState, msg: &Value) -> Vec<String> 
     if thread.provider == "codex" && !truncated {
         return vec![err_thread(thread_id, "Message introuvable : historique conservé")];
     }
-    let out = json_msg(json!({"type":"reverted","threadId": thread_id,"scope":"thread"}));
+    let out = json_msg(json!({
+        "type":"reverted","threadId": thread_id,"scope":"thread","setAsideTo":set_aside_to,
+    }));
     let mut replies = broadcast_threads(state).await;
     replies.insert(0, out);
     replies

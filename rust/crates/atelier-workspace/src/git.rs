@@ -931,6 +931,26 @@ fn trash_dirs(real: &Path, home_trash: Option<&Path>) -> Vec<PathBuf> {
     dirs
 }
 
+/// Premier nom libre de `dir` : `name`, puis « stem 2.ext », « stem 3.ext »…
+/// Un nom n'est libre que si le système dit qu'il n'existe PAS : une autre
+/// erreur (droits, E/S, composant qui n'est pas un dossier) remonte, au lieu
+/// d'être prise pour « libre » et de laisser rename() écraser un fichier déjà
+/// dans la Corbeille.
+fn free_name(dir: &Path, name: &str, stem: &str, ext: &str) -> std::io::Result<PathBuf> {
+    let mut dest = dir.join(name);
+    let mut n = 2u32;
+    loop {
+        match std::fs::symlink_metadata(&dest) {
+            Ok(_) => {
+                dest = dir.join(format!("{stem} {n}{ext}"));
+                n += 1;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(dest),
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 /// Déplace `abs` (fichier, lien ou dossier) dans la première destination qui
 /// l'accepte, sous un nom libre. Un simple `rename` : rien n'est recopié ni
 /// supprimé. Aucune destination possible = erreur, le fichier reste en place.
@@ -949,12 +969,13 @@ fn move_to_trash(abs: &Path, dirs: &[PathBuf]) -> Result<PathBuf> {
             last_error = Some(error);
             continue;
         }
-        let mut dest = dir.join(&name);
-        let mut n = 2u32;
-        while std::fs::symlink_metadata(&dest).is_ok() {
-            dest = dir.join(format!("{stem} {n}{ext}"));
-            n += 1;
-        }
+        let dest = match free_name(dir, &name, &stem, &ext) {
+            Ok(dest) => dest,
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        };
         match std::fs::rename(abs, &dest) {
             Ok(()) => return Ok(dest),
             Err(error) => last_error = Some(error),
@@ -1303,6 +1324,111 @@ pub fn revert_conflicts(
     conflicts.sort();
     conflicts.dedup();
     Ok(Some(conflicts))
+}
+
+/// Avant un rembobinage CONFIRMÉ par-dessus des retouches (audit 2026-10-18,
+/// problème 3) : copie dans la Corbeille, sous un dossier
+/// « Atelier rembobinage <sha> », chaque fichier que `restore` va écraser —
+/// présent dans le snapshot, dans le périmètre, et différent du snapshot sur
+/// disque. Une copie, pas un déplacement : si la restauration échoue ensuite,
+/// le projet n'a rien perdu. Rien à écraser = `Ok(None)`. Aucune destination
+/// possible = erreur, et l'appelant ne rembobine pas.
+pub fn set_aside_before_rewind(root: &str, sha: &str, paths: Option<&[String]>) -> Result<Option<PathBuf>> {
+    let home_trash = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".Trash"));
+    set_aside_before_rewind_with_trash(root, sha, paths, home_trash.as_deref())
+}
+
+fn set_aside_before_rewind_with_trash(
+    root: &str,
+    sha: &str,
+    paths: Option<&[String]>,
+    home_trash: Option<&Path>,
+) -> Result<Option<PathBuf>> {
+    let real = confined_root(root)?;
+    ensure_repo(&real)?;
+    if !is_hex_id(sha) {
+        return Err(msg("sha invalide"));
+    }
+    let tree_ref = format!("{sha}^{{tree}}");
+    let snap_out = git(&real, &["ls-tree", "-r", "--name-only", "-z", &tree_ref], &[])?;
+    if !snap_out.status.success() {
+        return Err(msg("snapshot inconnu"));
+    }
+    let snap_paths: std::collections::HashSet<String> = String::from_utf8_lossy(&snap_out.stdout)
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    let targets: Option<std::collections::HashSet<String>> = match paths {
+        Some(list) => Some(
+            list.iter()
+                .map(|p| assert_relative(&real, p))
+                .collect::<Result<_>>()?,
+        ),
+        None => None,
+    };
+    let now_tree = worktree_tree(&real)?;
+    let out = git(&real, &["diff-tree", "-r", "--name-only", "-z", &tree_ref, &now_tree], &[])?;
+    if !out.status.success() {
+        return Err(msg("diff avant rembobinage impossible"));
+    }
+    let mut overwritten: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|p| !p.is_empty())
+        .filter(|p| snap_paths.contains(*p))
+        .filter(|p| targets.as_ref().is_none_or(|t| t.contains(*p)))
+        .filter(|p| std::fs::symlink_metadata(real.join(p)).is_ok())
+        .map(str::to_string)
+        .collect();
+    overwritten.sort();
+    overwritten.dedup();
+    if overwritten.is_empty() {
+        return Ok(None);
+    }
+    let short = &sha[..sha.len().min(8)];
+    let mut last_error: Option<String> = None;
+    for dir in trash_dirs(&real, home_trash) {
+        let base = format!("Atelier rembobinage {short}");
+        let dest = match std::fs::create_dir_all(&dir).and_then(|()| free_name(&dir, &base, &base, "")) {
+            Ok(dest) => dest,
+            Err(error) => {
+                last_error = Some(error.to_string());
+                continue;
+            }
+        };
+        match copy_rel_files(&real, &overwritten, &dest) {
+            Ok(()) => return Ok(Some(dest)),
+            Err(error) => {
+                // Copie partielle : on la laisse (elle ne coûte rien) et on
+                // essaie la destination suivante.
+                last_error = Some(error.to_string());
+            }
+        }
+    }
+    Err(msg(format!(
+        "rembobinage annulé : impossible de mettre de côté les fichiers retouchés{}",
+        last_error.map(|e| format!(" ({e})")).unwrap_or_default()
+    )))
+}
+
+/// Copie `rels` (chemins relatifs à `real`) sous `dest`, en gardant
+/// l'arborescence. Un lien symbolique est recopié comme lien.
+fn copy_rel_files(real: &Path, rels: &[String], dest: &Path) -> std::io::Result<()> {
+    for rel in rels {
+        let from = real.join(rel);
+        let to = dest.join(rel);
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let meta = std::fs::symlink_metadata(&from)?;
+        if meta.file_type().is_symlink() {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(std::fs::read_link(&from)?, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn restore(root: &str, sha: &str, paths: Option<&[String]>) -> Result<()> {
@@ -1674,6 +1800,60 @@ mod tests {
         );
         assert_eq!(revert_conflicts(&root, &sha, None, Some(&scope)).unwrap(), None);
         assert_eq!(revert_conflicts(&root, &sha, Some("0000000000000000000000000000000000000000"), Some(&scope)).unwrap(), None);
+    }
+
+    /// « Rembobiner quand même » : les retouches d'après le tour sont copiées
+    /// dans la Corbeille avant d'être écrasées ; une création du tour et un
+    /// fichier hors périmètre ne le sont pas ; rien à écraser = `None`.
+    #[test]
+    fn set_aside_before_rewind_copie_ce_que_restore_va_ecraser() {
+        let dir = init_repo();
+        let root = dir.path().to_string_lossy().to_string();
+        let sha = snapshot(&root).unwrap();
+        let corbeille = tempdir().unwrap();
+        let scope = vec!["a.txt".to_string(), "c.txt".to_string()];
+        assert_eq!(
+            set_aside_before_rewind_with_trash(&root, &sha, Some(&scope), Some(corbeille.path())).unwrap(),
+            None
+        );
+        std::fs::create_dir_all(dir.path().join("sous")).unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"retouche").unwrap();
+        std::fs::write(dir.path().join("c.txt"), b"cree par le tour").unwrap();
+        std::fs::write(dir.path().join("hors.txt"), b"ailleurs").unwrap();
+        let gardé = set_aside_before_rewind_with_trash(&root, &sha, Some(&scope), Some(corbeille.path()))
+            .unwrap()
+            .expect("a.txt va être écrasé");
+        assert!(gardé.starts_with(corbeille.path()), "{gardé:?}");
+        assert_eq!(std::fs::read(gardé.join("a.txt")).unwrap(), b"retouche");
+        assert!(!gardé.join("c.txt").exists(), "une création du tour n'est pas écrasée");
+        assert!(!gardé.join("hors.txt").exists());
+        // Copie, pas déplacement : le projet garde la retouche jusqu'au restore.
+        assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"retouche");
+        // Deuxième mise de côté : nouveau dossier, la première n'est pas écrasée.
+        std::fs::write(dir.path().join("a.txt"), b"retouche 2").unwrap();
+        let second = set_aside_before_rewind_with_trash(&root, &sha, Some(&scope), Some(corbeille.path()))
+            .unwrap()
+            .unwrap();
+        assert_ne!(second, gardé);
+        assert_eq!(std::fs::read(gardé.join("a.txt")).unwrap(), b"retouche");
+        restore(&root, &sha, Some(&scope)).unwrap();
+        assert_eq!(std::fs::read(second.join("a.txt")).unwrap(), b"retouche 2");
+    }
+
+    /// Une erreur autre que « introuvable » sur un nom de la Corbeille ne le
+    /// rend pas libre (avant : `symlink_metadata(..).is_ok()` faux = libre).
+    #[test]
+    fn free_name_ne_tient_pas_une_erreur_pour_un_nom_libre() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("notes.md"), b"deja la").unwrap();
+        assert_eq!(
+            free_name(dir.path(), "notes.md", "notes", ".md").unwrap(),
+            dir.path().join("notes 2.md")
+        );
+        // Un composant qui est un fichier : ENOTDIR, pas NotFound.
+        let plat = dir.path().join("notes.md");
+        let error = free_name(&plat, "x.md", "x", ".md").unwrap_err();
+        assert_ne!(error.kind(), std::io::ErrorKind::NotFound);
     }
 
     #[test]
