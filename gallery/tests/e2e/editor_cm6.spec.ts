@@ -573,6 +573,10 @@ test('latex individual review automatically opens, accepts, rejects and protects
     await page.unroute('**/codesave');
     await page.locator('#diffUndo').click();
     await expect.poll(()=>readFileSync(path.join(root,'sample.tex'),'utf8')).toBe(after);
+    // Le disque est écrit avant que la page ait reçu la réponse : tant que le
+    // tampon est encore marqué modifié, une écriture externe passe par la
+    // fusion au lieu du rechargement. Attendre la fin de la sauvegarde.
+    await expect(page.locator('#ddot')).toBeHidden();
     const rewrapped = after.replace('Unchanged context.', 'Unchanged\ncontext.');
     writeFileSync(path.join(root,'sample.tex'),rewrapped);
     await expect.poll(()=>page.evaluate(()=>cm.getValue()),{timeout:10000}).toBe(rewrapped);
