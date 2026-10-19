@@ -74,7 +74,7 @@ test('annotation writes are serialized snapshots, HTTP errors are not success', 
   const context=vm.createContext({
     ANNOTS_LOADED:true,ANNOT_SAVE:Promise.resolve(true),PDF_ANNOTS:[{id:'a',note:'first'}],rel:'paper.pdf',
     KNOWN_IDS:new Set(['seen']),SAVE_SEQ:0,ANNOTS_UNSAVED:false,ANNOT_RETRY_TIMER:null,ANNOT_RETRY_ATTEMPT:0,
-    retries:0,ANNOTS_SAVE_FAILED_MSG:'Annotation non enregistrée',ANNOTS_SAVED_AGAIN_MSG:'Annotations enregistrées.',
+    ANNOT_FAIL_UNREACHABLE:false,retries:0,ANNOTS_SAVE_FAILED_MSG:'Annotation non enregistrée',ANNOTS_SAVED_AGAIN_MSG:'Annotations enregistrées.',
     annotStatus(text){statuses.push(text);},clearAnnotStatus(){},scheduleAnnotRetry(){context.retries++;},
     annPane:{refresh(..._args){}},document:{getElementById:()=>({textContent:''})},
     fetch:async (_url,init: { body: string; })=>{calls.push(JSON.parse(init.body));if(calls.length===1)await new Promise(r=>{release=r;});return {ok:calls.length===1,status:500,json:async()=>({ok:true})};},
@@ -92,6 +92,34 @@ test('annotation writes are serialized snapshots, HTTP errors are not success', 
   assert.equal(context.ANNOTS_UNSAVED,true);
   assert.equal(context.retries,1);
   assert.match(statuses.at(-1),/non enregistrée/);
+  // un refus du serveur (500) n'est pas un serveur injoignable : la veille
+  // ne court-circuite pas le recul (relecture du 2026-10-19)
+  assert.equal(context.ANNOT_FAIL_UNREACHABLE,false);
+});
+
+test('only an unreachable server lets the watcher retry a failed save at once', async () => {
+  let mode='down';
+  const context=vm.createContext({
+    ANNOTS_LOADED:true,ANNOT_SAVE:Promise.resolve(true),PDF_ANNOTS:[{id:'a'}],rel:'paper.pdf',
+    KNOWN_IDS:new Set(),SAVE_SEQ:0,ANNOTS_UNSAVED:false,ANNOT_RETRY_TIMER:null,ANNOT_RETRY_ATTEMPT:0,
+    ANNOT_FAIL_UNREACHABLE:false,ANNOTS_SAVE_FAILED_MSG:'x',ANNOTS_SAVED_AGAIN_MSG:'y',
+    annotStatus(){},clearAnnotStatus(){},scheduleAnnotRetry(){},setTimeout(){},
+    annPane:{refresh(){}},
+    fetch:async ()=>{
+      if(mode==='down') throw new TypeError('Failed to fetch');
+      if(mode==='refused') return {ok:false,status:403,json:async()=>({error:'cross-origin blocked'})};
+      return {ok:true,status:200,json:async()=>({ok:true})};
+    },
+  });
+  vm.runInContext(saveCode,context);
+  assert.equal(await context.saveAnnots(),false);
+  assert.equal(context.ANNOT_FAIL_UNREACHABLE,true);
+  mode='refused';
+  assert.equal(await context.saveAnnots(),false);
+  assert.equal(context.ANNOT_FAIL_UNREACHABLE,false);
+  mode='ok';
+  assert.equal(await context.saveAnnots(),true);
+  assert.equal(context.ANNOTS_UNSAVED,false);
 });
 
 test('a store change is merged without losing local work', () => {

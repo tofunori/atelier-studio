@@ -104,3 +104,27 @@ test('un chargement raté se signale et le lecteur retente sans abandonner', asy
   expect(await frame.evaluate(() => PDF_ANNOTS.map(a => a.id))).toEqual(['disk-1']);
   await expect(status).toBeHidden();
 });
+
+// Relecture du 2026-10-19 : un refus durable d'un serveur joignable (403,
+// 413, result.error) ne doit pas faire renvoyer la liste à chaque passage
+// de la veille (2,5 s) ; seul le recul (2, 4, 8… s) s'applique.
+test('un refus durable du serveur suit le recul, pas la veille', async ({page}) => {
+  const frame = await openInIframe(page);
+  let posts = 0;
+  await page.route(url => url.pathname === '/pdfannot', route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    posts++;
+    return route.fulfill({status: 403, contentType: 'application/json', body: '{"error":"cross-origin blocked"}'});
+  });
+  await frame.evaluate(() => {
+    PDF_ANNOTS.push({id: 'refus-1', page: 1, kind: 'hl', color: 'rgba(255,213,74,.40)', note: '',
+      text: 'passage', rects: [[0.1, 0.3, 0.3, 0.012]]});
+    return saveAnnots();
+  });
+  await page.waitForTimeout(10_000);
+  // recul : envoi initial, +2 s, +4 s (le suivant à +8 s) ; la veille seule
+  // en aurait ajouté un toutes les 2,5 s
+  expect(posts).toBeLessThanOrEqual(3);
+  expect(posts).toBeGreaterThanOrEqual(2);
+  await page.unroute(url => url.pathname === '/pdfannot');
+});

@@ -2359,6 +2359,11 @@ let SAVE_SEQ = 0;           // sauvegardes demandées (voir syncAnnotsFromStore)
 let ANNOTS_UNSAVED = false;
 let ANNOT_RETRY_TIMER: ReturnType<typeof setTimeout> | null = null;
 let ANNOT_RETRY_ATTEMPT = 0;
+// Le dernier échec venait d'un serveur injoignable (fetch rejeté) : la veille
+// relance alors dès qu'elle le revoit. Un refus du serveur (4xx, 5xx,
+// result.error) suit seulement le recul, sinon la veille renverrait la liste
+// entière toutes les 2,5 s tant que le refus dure (relecture du 2026-10-19).
+let ANNOT_FAIL_UNREACHABLE = false;
 function scheduleAnnotRetry(){
   if (ANNOT_RETRY_TIMER) return;
   ANNOT_RETRY_TIMER = setTimeout(() => { ANNOT_RETRY_TIMER = null; void saveAnnots(); },
@@ -2493,9 +2498,10 @@ if (rel) (async function(){
     try {
       const next = await annotStoreStamp();
       if (next === null) return;
-      // serveur revu : l'enregistrement en échec part avant toute relecture,
-      // pour que la fusion ne reprenne pas l'ancienne version du store
-      retryAnnotSaveNow();
+      // serveur revu après un échec réseau : l'enregistrement en échec part
+      // avant toute relecture, pour que la fusion ne reprenne pas l'ancienne
+      // version du store
+      if (ANNOT_FAIL_UNREACHABLE) retryAnnotSaveNow();
       const storeMoved = !stamp || next.store !== stamp.store;
       const bookMoved = !stamp || next.codebook !== stamp.codebook;
       if (!storeMoved && !bookMoved) return;
@@ -2537,8 +2543,15 @@ function saveAnnots(){
   const body = JSON.stringify({rel, annots: sent, known: [...KNOWN_IDS]});
   SAVE_SEQ++;
   ANNOT_SAVE = ANNOT_SAVE.then(async () => {
+    ANNOT_FAIL_UNREACHABLE = false;
     try {
-      const response = await fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"}, body});
+      let response: Response;
+      try {
+        response = await fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"}, body});
+      } catch(error) {
+        ANNOT_FAIL_UNREACHABLE = true;
+        throw error;
+      }
       if(!response.ok) throw new Error("HTTP " + response.status);
       const result = await response.json();
       if(result.error) throw new Error(result.error);
