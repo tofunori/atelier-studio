@@ -988,8 +988,8 @@ export default function Chat(p: {
       });
       offset = nextOffset - 1;
     }
-    return groupAgentRows(groupActivityRows(rows), turnViewModels);
-  }, [editTurns, mergedEdits, projectedTimeline, turnViewModels]);
+    return groupAgentRows(groupActivityRows(rows), turnViewModels, p.events);
+  }, [editTurns, mergedEdits, p.events, projectedTimeline, turnViewModels]);
 
   // À la fin du tour, le pli se ferme TOUJOURS : le travail intermédiaire
   // (outils, narrations d'étape) se regroupe sous « A travaillé pendant… »,

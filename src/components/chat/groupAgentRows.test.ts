@@ -1,7 +1,9 @@
-import {expect, it} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {groupAgentRows} from './groupAgentRows';
 import {agentsFromActions, type AgentToolAction} from './AgentActivity';
 import {buildChatTurnViewModels, projectChatTimeline} from '../../lib/chat/turnViewModel';
+import {groupActivityRows} from './groupActivityRows';
+import type {AgentEvent} from '../../lib/ws';
 const turns = [{key:'turn',startIndex:0,endIndex:10}];
 const agent = (id: string, status: string, index: number) => ({type:'event' as const,key:`e${index}`,index,event:{
   kind:'tool_update' as const,id,name:'agent:activity',status:'completed' as const,output:'',ts:index,
@@ -43,4 +45,37 @@ it('keeps the completed agent available outside a closed execution fold',()=>{
   const groups=rows.filter(r=>r.type==='agents');
   expect(groups).toHaveLength(1);
   expect(agentsFromActions(groups[0].actions)[0].status).toBe('done');
+});
+describe('a steer message inside the running turn', () => {
+  let n = 0;
+  const meta = () => ({eventId: `ev${n++}`, turnId: 'T', provider: 'claude'});
+  const live = (id: string, status: string) => ({...agent(id, status, n).event, meta: meta()});
+  const shape = (events: AgentEvent[], active: boolean) => {
+    const models = buildChatTurnViewModels(events, active ? Date.now() : null);
+    return groupAgentRows(groupActivityRows(projectChatTimeline(events, models, new Set())), models, events)
+      .filter(r => r.type === 'agents' || r.type === 'event')
+      .map(r => r.type === 'event' ? (r.event.kind === 'user' ? `user:${r.event.text}` : r.event.kind) : 'agents');
+  };
+  it('moves the cluster below the steer when an agent launches after it', () => {
+    const events = [{kind: 'user', text: 'oui', meta: meta()}, live('a', 'running'),
+      {kind: 'user', text: 'steer', meta: meta()}, {kind: 'text', text: 'Nouveau lecteur', meta: meta()},
+      live('b', 'running'), live('a', 'running'), {kind: 'text', text: 'Lancé', meta: meta()}] as AgentEvent[];
+    expect(shape(events, true)).toEqual(['user:oui', 'user:steer', 'text', 'agents', 'text']);
+  });
+  it('follows the steer when only an earlier agent keeps reporting', () => {
+    const events = [{kind: 'user', text: 'oui', meta: meta()}, live('a', 'running'),
+      {kind: 'user', text: 'steer', meta: meta()}, {kind: 'text', text: 'ok', meta: meta()}, live('a', 'running')] as AgentEvent[];
+    expect(shape(events, true)).toEqual(['user:oui', 'user:steer', 'agents', 'text']);
+  });
+  it('stays above a steer when every agent finished before it', () => {
+    const events = [{kind: 'user', text: 'oui', meta: meta()}, live('c', 'completed'),
+      {kind: 'user', text: 'steer', meta: meta()}, {kind: 'text', text: 'ok', meta: meta()}] as AgentEvent[];
+    expect(shape(events, true)).toEqual(['user:oui', 'agents', 'user:steer', 'text']);
+  });
+  it('keeps the steer and the cluster below it once the turn is folded', () => {
+    const events = [{kind: 'user', text: 'oui', meta: meta()}, live('a', 'running'),
+      {kind: 'user', text: 'steer', meta: meta()}, live('b', 'running'), live('a', 'completed'), live('b', 'completed'),
+      {kind: 'text', text: 'x'.repeat(300), meta: meta()}, {kind: 'done', ok: true, meta: meta()}] as AgentEvent[];
+    expect(shape(events, false)).toEqual(['user:oui', 'user:steer', 'agents', 'text', 'done']);
+  });
 });
