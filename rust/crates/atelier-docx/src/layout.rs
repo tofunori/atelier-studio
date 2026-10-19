@@ -54,6 +54,16 @@ pub struct Look {
     /// Paragraphe exclu de la numérotation des lignes.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub no_ln: bool,
+    /// Enchaînement : garder avec le suivant, lignes solidaires, saut de
+    /// page avant ; contrôle des veuves et orphelines coupé.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub keep_next: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub keep_lines: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub page_break_before: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub widow_off: bool,
     /// Pas d'espace entre paragraphes du même style.
     #[serde(skip)]
     pub contextual: bool,
@@ -70,6 +80,10 @@ struct Partial {
     first: Option<f32>,
     contextual: Option<bool>,
     no_ln: Option<bool>,
+    keep_next: Option<bool>,
+    keep_lines: Option<bool>,
+    page_break_before: Option<bool>,
+    widow: Option<bool>,
     run: Run,
 }
 
@@ -105,7 +119,7 @@ impl Partial {
         macro_rules! take {
             ($($f:ident),*) => { $( if o.$f.is_some() { self.$f = o.$f.clone(); } )* };
         }
-        take!(align, before, after, line, left, right, first, contextual, no_ln);
+        take!(align, before, after, line, left, right, first, contextual, no_ln, keep_next, keep_lines, page_break_before, widow);
         self.run.over(&o.run);
     }
 
@@ -133,6 +147,11 @@ impl Partial {
             font: self.run.font.clone(),
             color: self.run.color.clone(),
             no_ln: self.no_ln.unwrap_or(false),
+            keep_next: self.keep_next.unwrap_or(false),
+            keep_lines: self.keep_lines.unwrap_or(false),
+            page_break_before: self.page_break_before.unwrap_or(false),
+            // Word contrôle les veuves sauf réglage contraire.
+            widow_off: self.widow == Some(false),
             contextual: self.contextual.unwrap_or(false),
         }
     }
@@ -203,6 +222,10 @@ fn partial_of(ppr: Option<Node>, rpr: Option<Node>, theme: &Theme) -> Partial {
     }
     p.contextual = on(w_child(n, "contextualSpacing"));
     p.no_ln = on(w_child(n, "suppressLineNumbers"));
+    p.keep_next = on(w_child(n, "keepNext"));
+    p.keep_lines = on(w_child(n, "keepLines"));
+    p.page_break_before = on(w_child(n, "pageBreakBefore"));
+    p.widow = on(w_child(n, "widowControl"));
     p
 }
 
@@ -339,6 +362,9 @@ pub struct Page {
     pub right: f32,
     pub bottom: f32,
     pub left: f32,
+    /// Distance de l'en-tête au haut de la page, du pied au bas, en points.
+    pub header: f32,
+    pub footer: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line_numbers: Option<LineNumbers>,
 }
@@ -386,6 +412,8 @@ pub fn page(document_xml: &str, styles: &Styles) -> Option<Page> {
         right: get(mar, "right", 72.0),
         bottom: get(mar, "bottom", 72.0).abs(),
         left: get(mar, "left", 72.0),
+        header: get(mar, "header", 36.0),
+        footer: get(mar, "footer", 36.0),
         line_numbers,
     })
 }

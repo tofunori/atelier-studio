@@ -66,6 +66,15 @@ button:focus-visible,[contenteditable]:focus-visible,textarea:not(.atelier-note-
 /* Page à l'échelle du document (format, marges, styles de Word) : --pt = un point. */
 #paper.pg{box-sizing:border-box;max-width:none;flex:none;font-size:calc(var(--pt) * 10);line-height:1.15}
 #paper.pg .d-p.lk{margin:0;min-height:0}
+/* Feuilles : le texte passe devant, transparent ; chaque feuille porte le fond et l'ombre. */
+body #paper.pg,body.blanche #paper.pg{z-index:1;background:transparent;box-shadow:none;border-radius:0}
+#sheets{position:absolute;left:0;top:0;width:0;height:0;z-index:0}
+#sheets .sheet{position:absolute;border-radius:6px;background:var(--surface-raised,var(--card));box-shadow:0 1px 3px rgba(0,0,0,.18);overflow:hidden;color:var(--text-primary);font-size:calc(var(--pt) * 10);line-height:1.15}
+body.blanche #sheets .sheet{background:var(--doc-paper);color:var(--doc-ink)}
+#paper.pg .d-zone.pinned,#sheets .d-zone{position:absolute;left:var(--ml,0);right:var(--mr,0);margin:0;padding:0;border:0}
+#sheets .d-p{position:relative;white-space:pre-wrap;min-height:0}
+#paper.pg .d-gap{display:inline-block;width:100%;vertical-align:top;pointer-events:none;user-select:none;-webkit-user-select:none}
+#paper.pg div.d-gap{display:block}
 body.blanche #paper .d-p.ink{color:var(--ink)}
 #lnums{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;user-select:none;-webkit-user-select:none;color:var(--text-muted);font-family:"Times New Roman",serif}
 body.blanche #lnums{color:var(--doc-ink)}

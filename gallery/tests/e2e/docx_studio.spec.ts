@@ -318,3 +318,37 @@ test('docx: la page suit les styles de Word, ses marges et ses numéros de ligne
   expect(narrow.x).toBeGreaterThanOrEqual(0);
   expect(narrow.x + narrow.width).toBeLessThanOrEqual(700);
 });
+
+test('docx: le texte se coupe en pages comme dans Word, numéros de ligne repris à chaque page', async ({page, project}) => {
+  await open(page, project);
+  const m = await disk(page, project);
+  const long = 'Les glaciers tropicaux perdent leur masse plus vite que la moyenne mondiale, et leur albédo baisse à chaque saison sèche. ';
+  const ops = Array.from({length: 10}, (_, k) => ({op: "insert_paragraph", after: "p2", text: `${k + 1}. ${long.repeat(6)}`}));
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: 'Thierry', tracked: false, op: {op: 'batch', ops}}});
+  expect(r.ok()).toBe(true);
+  await expect.poll(async () => page.locator('#sheets .sheet').count(), {timeout: 6000}).toBeGreaterThanOrEqual(2);
+  const sheets = await page.locator('#sheets .sheet').evaluateAll(els => els.map(e => e.getBoundingClientRect()).map(r => ({top: r.top, bottom: r.bottom})));
+  // L'en-tête et le pied de page se répètent sur la deuxième feuille.
+  await expect(page.locator('#sheets .sheet').nth(1).locator('.d-hdr')).toContainText('Albédo des glaciers tropicaux');
+  await expect(page.locator('#sheets .sheet').nth(1).locator('.d-ftr')).toContainText('Page');
+  // Chaque numéro de ligne tombe dans une feuille, et la numérotation repart à 1 sur la deuxième.
+  const nums = await page.locator('#lnums span').evaluateAll(els => els.map(e => ({n: e.textContent, top: e.getBoundingClientRect().top, bottom: e.getBoundingClientRect().bottom})));
+  for (const n of nums) expect(sheets.some(s => n.top >= s.top && n.bottom <= s.bottom)).toBe(true);
+  const second = nums.find(n => n.top >= sheets[1].top);
+  expect(second?.n).toBe('1');
+  // On écrit juste après la coupure d'un paragraphe à cheval sur deux feuilles.
+  const cut = await page.evaluate(() => {
+    const gap = document.querySelector('#paper span.d-gap')!;
+    const p = gap.closest('.d-p') as HTMLElement;
+    const t = gap.nextSibling as Text;
+    const r = document.createRange();
+    r.setStart(t, 0);
+    r.collapse(true);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(r);
+    return {idx: Number(p.dataset.idx), next: t.data.slice(0, 12)};
+  });
+  await page.keyboard.type('§');
+  await expect.poll(async () => (await disk(page, project)).paragraphs[cut.idx].text).toContain(`§${cut.next}`);
+  expect((await disk(page, project)).paragraphs.length).toBe(m.paragraphs.length + 10);
+});

@@ -127,6 +127,8 @@ pub struct Piece {
     pub media: Option<Media>,
     /// Équation : son LaTeX.
     pub math: Option<String>,
+    /// Saut de page (ou de colonne) forcé : `w:br w:type="page"`.
+    pub page_break: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -494,8 +496,10 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
             }
         }
         let run_ref = run_idx.zip(tok);
+        let forced = matches!(kind, Kind::Break) && tok.is_none();
         push(ctx, state, out, text, kind, fmt.clone(), run_ref);
         let last = out.pieces.last_mut().unwrap();
+        last.page_break = forced;
         last.media = media.clone();
         // Objet seul dans son run, hors suivi et hors champ : supprimable.
         let alone = r.children().filter(|n| n.is_element() && !is_w(*n, "rPr")).count() == 1;
@@ -547,6 +551,7 @@ fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fm
         unit_ins: None,
         media: None,
         math: None,
+        page_break: false,
     });
 }
 

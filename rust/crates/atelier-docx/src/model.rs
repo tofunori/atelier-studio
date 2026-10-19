@@ -235,7 +235,7 @@ fn seg_of(p: &walk::Piece) -> Segment {
     let (kind, label) = match &p.kind {
         Kind::Text => ("text", None),
         Kind::Tab => ("tab", None),
-        Kind::Break => ("break", None),
+        Kind::Break => ("break", p.page_break.then(|| "page".to_string())),
         Kind::Field(k) => ("field", Some(k.clone())),
         Kind::Object(k) => ("object", Some(k.clone())),
     };

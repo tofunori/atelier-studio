@@ -57,6 +57,7 @@
 
 
 
+
   const W = window
 
 
@@ -303,6 +304,7 @@
         node.style.setProperty("--rev-color", authorColor(c ? c.author : ""));
         changed = changed || c;
       }
+      if (s.kind === "break" && s.label === "page") node.classList.add("pbr");
       if (removed) { node.contentEditable = "false"; node.dataset.del = "1"; }
       if (s.comments && s.comments.length) {
         node.classList.add("cmt");
@@ -353,7 +355,12 @@
       if (hf && hf.which !== "default") {
         z.innerHTML = `<div class="d-zone-l" contenteditable="false">${hf.kind === "footer" ? "Pied de page" : "En-tête"} ${hf.which === "first" ? "de la première page" : "des pages paires"}</div>`;
       }
-      (hf && hf.kind === "footer" ? footers : headers).appendChild(z);
+      // En pages, l'en-tête et le pied courants sont épinglés dans les marges
+      // (et répétés sur chaque feuille) ; les particuliers suivent le texte.
+      if (model .page && hf) {
+        if (hf.which === "default") { z.classList.add("pinned"); (hf.kind === "footer" ? footers : headers).appendChild(z); }
+        else footers.appendChild(z);
+      } else (hf && hf.kind === "footer" ? footers : headers).appendChild(z);
       zones.set(story, z);
       return z;
     };
@@ -393,25 +400,34 @@
   // ----------------------------------------------- page à l'échelle de Word
   // La page garde ses proportions réelles (format, marges, tailles en
   // points) et suit la largeur du panneau, comme « Largeur de page » dans
-  // Word : `--pt` vaut un point du document à l'échelle courante.
+  // Word : `--pt` vaut un point du document à l'échelle courante. Le texte
+  // est coupé en feuilles : un intervalle (.d-gap) repousse la ligne qui
+  // déborde en haut de la feuille suivante, comme le ferait Word.
   const PT = 4 / 3;
+  const GAP = 24;
   const lnLayer = $("lnums");
+  const sheets = $("sheets");
+  let ptPx = PT;
   function pageSetup() {
     const pg = model?.page;
     paper.classList.toggle("pg", !!pg);
-    if (!pg) return;
+    if (!pg) { sheets.replaceChildren(); lnLayer.replaceChildren(); return; }
     const u = (v        ) => `calc(var(--pt) * ${v})`;
     paper.style.width = u(pg.width);
     paper.style.padding = `${u(pg.top)} ${u(pg.right)} ${u(pg.bottom)} ${u(pg.left)}`;
-    fitPage();
+    document.documentElement.style.setProperty("--ml", u(pg.left));
+    document.documentElement.style.setProperty("--mr", u(pg.right));
+    fitPage(true);
   }
-  function fitPage() {
+  function fitPage(force = false) {
     const pg = model?.page;
     if (!pg) return;
     const cs = getComputedStyle(scroller);
     const room = scroller.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const z = Math.max(0.4, Math.min(1.5, room / (pg.width * PT)));
-    document.documentElement.style.setProperty("--pt", `${(PT * z).toFixed(4)}px`);
+    const next = PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT)));
+    if (!force && Math.abs(next - ptPx) < 1e-3) return;
+    ptPx = next;
+    document.documentElement.style.setProperty("--pt", `${next.toFixed(4)}px`);
     scheduleLines();
   }
   function applyLook(el             , l      ) {
@@ -438,46 +454,250 @@
     if (l.align && l.align !== "left") el.classList.add(`a-${l.align}`);
   }
 
-  // Numéros de ligne de Word, dans la marge de gauche, comptés ligne
-  // affichée par ligne affichée sur les paragraphes du corps.
   let linesFrame = 0;
   function scheduleLines() {
     if (linesFrame) return;
-    linesFrame = requestAnimationFrame(() => { linesFrame = 0; drawLines(); });
+    linesFrame = requestAnimationFrame(() => { linesFrame = 0; layoutPages(); });
   }
-  function drawLines() {
-    const ln = model?.page?.line_numbers;
-    if (!ln || !model?.page) { lnLayer.replaceChildren(); return; }
-    const pt = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pt")) || PT;
-    const host = scroller.getBoundingClientRect();
-    const box = paper.getBoundingClientRect();
-    const right = box.left + (model.page.left - ln.distance) * pt - host.left + scroller.scrollLeft;
+  function layoutPages() {
+    const pg = model?.page;
+    if (!pg) return;
+    const s = getSelection();
+    const keep = s && s.rangeCount && paper.contains(s.anchorNode) ? readSel() : null;
+    for (const g of Array.from(paper.querySelectorAll(".d-gap"))) {
+      const parent = g.parentNode;
+      g.remove();
+      parent?.normalize();
+    }
+    const pages = paginate(pg);
+    if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
+    drawSheets(pg, pages);
+    drawLines(pg);
+    placeCards();
+  }
+
+
+  /** Lignes affichées d'un paragraphe, en coordonnées de la page, sans les intervalles. */
+  function linesOf(el             , o        )         {
+    const frags         = [];
+    const range = document.createRange();
+    const walk = (n      ) => {
+      for (let c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) {
+          range.selectNodeContents(c);
+          Array.from(range.getClientRects()).forEach((r, k) => { if (r.height > 0) frags.push({ top: r.top - o, bottom: r.bottom - o, atom: c , frag: k }); });
+        } else if (c instanceof HTMLElement) {
+          if (c.classList.contains("d-gap")) continue;
+          if (c.dataset.chip || c.tagName === "BR" || c.tagName === "IMG") {
+            const r = c.getBoundingClientRect();
+            if (r.height > 0) frags.push({ top: r.top - o, bottom: r.bottom - o, atom: c, frag: 0 });
+          } else walk(c);
+        }
+      }
+    };
+    walk(el);
+    const lines         = [];
+    for (const f of frags) {
+      const last = lines[lines.length - 1];
+      if (last && f.top < last.bottom - 2) { last.bottom = Math.max(last.bottom, f.bottom); last.top = Math.min(last.top, f.top); }
+      else lines.push({ ...f });
+    }
+    return lines;
+  }
+  /** Début d'une ligne : (nœud, décalage) où glisser l'intervalle. */
+  function lineStart(line      , o        )                                      {
+    const a = line.atom;
+    if (a.nodeType !== 3 || line.frag === 0) return { node: a.parentNode , before: a };
+    const t = a        ;
+    const r = document.createRange();
+    let lo = 1, hi = t.length - 1;
+    // Premier caractère dont le haut atteint la ligne.
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      r.setStart(t, mid); r.setEnd(t, mid + 1);
+      const rect = r.getClientRects()[0] || r.getBoundingClientRect();
+      if (rect.top - o >= line.top - 1) hi = mid; else lo = mid + 1;
+    }
+    const rest = t.splitText(lo);
+    return { node: rest.parentNode , before: rest };
+  }
+  function gapEl(inline         , h        ) {
+    const g = document.createElement(inline ? "span" : "div");
+    g.className = "d-gap";
+    g.contentEditable = "false";
+    g.style.height = `${Math.max(0, h)}px`;
+    return g;
+  }
+
+  /** Coupe le flux en feuilles ; rend le nombre de feuilles. */
+  function paginate(pg      )         {
+    const pt = ptPx, pageH = pg.height * pt, stride = pageH + GAP;
+    const o = paper.getBoundingClientRect().top;
+    const topOf = (k        ) => k * stride + pg.top * pt;
+    const bottomOf = (k        ) => k * stride + pageH - pg.bottom * pt;
+    const pageAt = (y        ) => Math.max(0, Math.floor(y / stride));
+    const lookOf = (el         ) => (el               ).dataset.idx !== undefined ? model .paragraphs[Number((el               ).dataset.idx)]?.look || {} : {};
+    // Blocs du flux, dans l'ordre : paragraphes, lignes de tableau, notes,
+    // en-têtes et pieds particuliers ; les en-tête et pied courants sont épinglés.
+    const blocks                = [];
+    for (const c of Array.from(paper.children)                 ) {
+      if (c.classList.contains("d-p")) blocks.push(c);
+      else if (c.tagName === "TABLE") blocks.push(...(Array.from((c                    ).rows)                 ));
+      else if ((c.classList.contains("d-notes") || c.classList.contains("d-zone")) && !c.classList.contains("pinned")) blocks.push(...(Array.from(c.querySelectorAll(".d-p"))                 ));
+    }
+    const topOfEl = (el         ) => el.getBoundingClientRect().top - o;
+    // Intervalle avant un bloc entier ; le premier paragraphe d'une note emporte son numéro.
+    const gapBefore = (el             , target        ) => {
+      const host = el.closest(".d-note") && !el.previousElementSibling ? el.closest(".d-note")                : el;
+      const h = target - topOfEl(host);
+      if (host.tagName === "TR") {
+        const tr = document.createElement("tr");
+        tr.className = "d-gap";
+        tr.innerHTML = `<td colspan="99" style="padding:0;border:0"><div style="height:${Math.max(0, h)}px"></div></td>`;
+        host.before(tr);
+      } else host.before(gapEl(false, h));
+    };
+    let page = 0;
+    let forceNext = false;
+    for (let b = 0; b < blocks.length; b++) {
+      const el = blocks[b];
+      if (el.tagName === "TR") {
+        const r = el.getBoundingClientRect();
+        const top = r.top - o, bottom = r.bottom - o;
+        page = Math.max(page, pageAt(top));
+        if ((forceNext || bottom > bottomOf(page) + 0.5) && top > topOf(page) + 1) { gapBefore(el, topOf(page + 1)); page++; }
+        forceNext = false;
+        continue;
+      }
+      const lk = lookOf(el);
+      let lines = linesOf(el, o);
+      if (!lines.length) continue;
+      page = Math.max(page, pageAt(lines[0].top));
+      if ((forceNext || (lk.page_break_before && b > 0)) && topOfEl(el) > topOf(page) + 1) {
+        gapBefore(el, topOf(page + 1));
+        page++;
+        lines = linesOf(el, o);
+      }
+      forceNext = false;
+      // Sauts de page forcés dans le paragraphe : la ligne qui suit change de feuille.
+      const forced = (Array.from(el.querySelectorAll(".pbr"))                 ).map((x) => x.getBoundingClientRect().top - o);
+      let i = 0;
+      let restart = false;
+      while (i < lines.length) {
+        const ln = lines[i];
+        page = Math.max(page, pageAt(ln.top));
+        const breakHere = i > 0 && forced.some((y) => y >= lines[i - 1].top - 1 && y < ln.top - 1);
+        if (!breakHere && ln.bottom <= bottomOf(page) + 0.5) { i++; continue; }
+        let at = i;
+        if (!breakHere) {
+          if (lk.keep_lines) at = 0;
+          else if (!lk.widow_off) {
+            if (at === 1) at = 0; // orpheline : une seule ligne en bas de feuille
+            else if (at === lines.length - 1 && at >= 2) at -= 1; // veuve : une seule ligne en haut de la suivante
+          }
+        }
+        if (at === 0) {
+          // Les paragraphes « garder avec le suivant » partent avec lui.
+          let k = b;
+          while (k > 0 && blocks[k - 1].classList.contains("d-p") && blocks[k - 1].parentElement === el.parentElement && lookOf(blocks[k - 1]).keep_next && topOfEl(blocks[k - 1]) > topOf(page) + 1) k--;
+          const first = blocks[k];
+          if (topOfEl(first) <= topOf(page) + 1) {
+            // Déjà en haut de feuille : couper dans le paragraphe, ou laisser déborder.
+            if (i === 0) { i++; continue; }
+            at = i;
+          } else {
+            // Comme Word, l'espace avant disparaît en haut d'une feuille après un saut naturel.
+            const before = first.classList.contains("d-p") ? parseFloat(getComputedStyle(first).paddingTop) || 0 : 0;
+            gapBefore(first, topOf(page + 1) - before);
+            page++;
+            if (k !== b) { b = k - 1; restart = true; break; }
+            lines = linesOf(el, o);
+            i = 0;
+            continue;
+          }
+        }
+        const target = topOf(page + 1);
+        const L = parseFloat(getComputedStyle(el).lineHeight) || (lines[at].bottom - lines[at].top);
+        const lead = Math.max(0, (L - (lines[at].bottom - lines[at].top)) / 2);
+        const want = lines[at].top;
+        const { node, before } = lineStart(lines[at], o);
+        const gap = gapEl(true, target - (want - lead));
+        node.insertBefore(gap, before);
+        // Ajustement : la ligne repoussée doit commencer au haut de la feuille.
+        const moved = linesOf(el, o)[at];
+        if (moved) gap.style.height = `${Math.max(0, parseFloat(gap.style.height) + (target + lead - moved.top))}px`;
+        page++;
+        lines = linesOf(el, o);
+        i = at + 1;
+      }
+      if (restart) continue;
+      // Saut de page en fin de paragraphe : le bloc suivant change de feuille.
+      const lastLine = lines[lines.length - 1];
+      if (forced.some((y) => y >= lastLine.top - 1)) forceNext = true;
+    }
+    const end = paper.scrollHeight;
+    return Math.max(1, pageAt(Math.max(0, end - pg.bottom * pt - 1)) + 1);
+  }
+
+  /** Feuilles derrière le texte, en-tête et pied de page répétés. */
+  function drawSheets(pg      , pages        ) {
+    const pt = ptPx, pageH = pg.height * pt, stride = pageH + GAP;
+    paper.style.minHeight = `${pages * stride - GAP}px`;
+    const pinned = Array.from(paper.querySelectorAll(":scope > .d-zone.pinned"))                 ;
+    for (const z of pinned) {
+      if (z.classList.contains("d-ftr")) z.style.top = `${pageH - pg.footer * pt - z.offsetHeight}px`;
+      else z.style.top = `${pg.header * pt}px`;
+    }
+    const frag = document.createDocumentFragment();
+    for (let k = 0; k < pages; k++) {
+      const sh = document.createElement("div");
+      sh.className = "sheet";
+      sh.style.left = `${paper.offsetLeft}px`;
+      sh.style.top = `${paper.offsetTop + k * stride}px`;
+      sh.style.width = `${paper.offsetWidth}px`;
+      sh.style.height = `${pageH}px`;
+      if (k > 0) {
+        for (const z of pinned) {
+          const c = z.cloneNode(true)               ;
+          c.removeAttribute("contenteditable");
+          c.querySelectorAll("[contenteditable]").forEach((x) => x.removeAttribute("contenteditable"));
+          c.querySelectorAll("[data-idx]").forEach((x) => x.removeAttribute("data-idx"));
+          sh.appendChild(c);
+        }
+      }
+      frag.appendChild(sh);
+    }
+    sheets.replaceChildren(frag);
+  }
+
+  // Numéros de ligne de Word, dans la marge de gauche, comptés ligne
+  // affichée par ligne affichée sur les paragraphes du corps.
+  function drawLines(pg      ) {
+    const ln = pg.line_numbers;
+    if (!ln) { lnLayer.replaceChildren(); return; }
+    const pt = ptPx, stride = pg.height * pt + GAP;
+    const o = paper.getBoundingClientRect().top;
+    const x = paper.offsetLeft + (pg.left - ln.distance) * pt;
     const size = (ln.size || 10) * pt;
     const frag = document.createDocumentFragment();
     let n = ln.start;
-    const range = document.createRange();
+    let page = 0;
     for (const el of Array.from(paper.children)                 ) {
       if (!el.classList.contains("d-p") || el.dataset.noLn) continue;
-      range.selectNodeContents(el);
-      const rects = Array.from(range.getClientRects()).filter((r) => r.height > 0).sort((a, b) => a.top - b.top);
-      const lines                                    = [];
-      for (const r of rects) {
-        const last = lines[lines.length - 1];
-        if (last && r.top < last.bottom - 2) last.bottom = Math.max(last.bottom, r.bottom);
-        else lines.push({ top: r.top, bottom: r.bottom });
-      }
+      let lines = linesOf(el, o);
       if (!lines.length) {
-        const b = el.getBoundingClientRect();
-        const top = b.top + parseFloat(getComputedStyle(el).paddingTop);
-        lines.push({ top, bottom: top + size * 1.15 });
+        const top = el.getBoundingClientRect().top - o + parseFloat(getComputedStyle(el).paddingTop);
+        lines = [{ top, bottom: top + size * 1.15, atom: el, frag: 0 }];
       }
       for (const line of lines) {
+        const p = Math.floor(line.top / stride);
+        if (p !== page) { page = p; if (ln.restart === "newPage") n = ln.start; }
         if (n % ln.count_by === 0) {
           const num = document.createElement("span");
           num.textContent = String(n);
           num.style.fontSize = `${size}px`;
-          num.style.left = `${right}px`;
-          num.style.top = `${line.bottom - host.top + scroller.scrollTop - size * 1.15}px`;
+          num.style.left = `${x}px`;
+          num.style.top = `${paper.offsetTop + line.bottom - size * 1.15}px`;
           frag.appendChild(num);
         }
         n++;
@@ -1216,6 +1436,7 @@
     revbar.querySelectorAll("[data-view]").forEach((x) => x.classList.toggle("on", x === b));
     paper.contentEditable = view === "original" ? "false" : "true";
     layoutCards();
+    scheduleLines();
   }));
   function setPage(next        , save         ) {
     page = next;
@@ -1368,6 +1589,11 @@
     // Sans fiche à montrer, la marge de revue disparaît : la page reprend la largeur du panneau.
     document.body.classList.toggle("no-margin", !visible || !cardItems.length);
     fitPage();
+    placeCards();
+  }
+
+  function placeCards() {
+    const visible = view === "revue";
     const base = cardsEl.getBoundingClientRect().top;
     let bottom = 0;
     const order                                   = [];
