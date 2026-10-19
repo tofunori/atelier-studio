@@ -11,8 +11,8 @@ import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit, Hig
 import {tags} from "@lezer/highlight";
 import {diff as computeTextDiff, getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView, getOriginalDoc, Chunk, Change} from "@codemirror/merge";
 import {reviewAnchored, setReviewFocus, currentReviewOffset} from "./review_anchored.ts";
+import {reviewUnified} from "./review_unified.ts";
 import {snapChangesToTokens} from "./review_tokens.ts";
-import {reviewInline} from "./review_inline.ts";
 
 const REVIEW_DIFF = {scanLimit: 1000, timeout: 250};
 // LaTeX : le diff de revue ne coupe ni un mot ni une commande (maquette A,
@@ -1110,7 +1110,10 @@ export function createStudioEditor(parent, opts) {
       const decideChunk = (kind: string, chunk: Chunk) => decideMergeChunkIn(view, kind, chunk);
       const anchored = review?.anchored === true;
       const inText = !!review?.onDecision && review.toolbar !== true && !anchored;
-      const texInline = opts.ext === "tex" && !inText;
+      // .tex : diff unifié (Thierry 2026-10-18, maquette A) — l'ancienne
+      // version au-dessus, non modifiable, la nouvelle dessous, mots changés
+      // surlignés des deux côtés. Jamais d'affichage en ligne.
+      const texUnified = opts.ext === "tex" && !inText;
       view.dispatch({effects: mergeDiffComp.reconfigure([
         // WebKit native selection can paint recycled deletion widgets on scroll.
         // Draw only the editor state selection while the merge view is active.
@@ -1125,12 +1128,10 @@ export function createStudioEditor(parent, opts) {
         })] : []),
         unifiedMergeView({
         original: String(original ?? ""),
-        // .tex : chaque changement se dessine dans le texte (review_inline.ts),
-        // jamais d'ancienne version en bloc au-dessus.
-        highlightChanges: !texInline,
+        highlightChanges: true,
         gutter: true,
         syntaxHighlightDeletions: true,
-        allowInlineDiffs: !texInline,
+        allowInlineDiffs: !texUnified,
         mergeControls: inText ? (kind) => {
           const button = document.createElement("button");
           button.type = "button";
@@ -1157,7 +1158,7 @@ export function createStudioEditor(parent, opts) {
         } : false,
         collapseUnchanged: review?.individual ? undefined : {margin: 3, minSize: 8},
         diffConfig: opts.ext === "tex" ? texReviewDiff : REVIEW_DIFF,
-      }), texInline ? reviewInline : []])});
+      }), texUnified ? reviewUnified : []])});
       const chunks = getChunks(view.state)?.chunks || [];
       return chunks.map((chunk) => {
         const offset = Math.min(chunk.fromB, doc().length);

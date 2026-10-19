@@ -48,8 +48,9 @@ test('Atelier subagents keep one group, open reports and settle without duplicat
  await page.setViewportSize({width:390,height:800});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.setViewportSize({width:1000,height:760});
- expect(await page.locator('.agent-row').evaluateAll(rows=>rows.every(row=>getComputedStyle(row).display==='flex'))).toBe(true);
- const workingColors=await page.locator('.agent-row[data-agent-status="working"]').evaluate(row=>({description:getComputedStyle(row.querySelector('.agent-row-description')).color,indicator:getComputedStyle(row.querySelector('.agent-state-icon')).color}));
+ // Même grille que les rangées d'action du fil : durée, état et chevron alignés.
+ expect(await page.locator('.agent-row').evaluateAll(rows=>rows.every(row=>getComputedStyle(row).display==='grid'&&getComputedStyle(row).gridTemplateColumns.split(' ').length===5))).toBe(true);
+ const workingColors=await page.locator('.agent-row[data-agent-status="working"]').evaluate(row=>({description:getComputedStyle(row.querySelector('.agent-row-name')).color,indicator:getComputedStyle(row.querySelector('.tool-status')).color}));
  expect(workingColors.description).not.toBe(workingColors.indicator);
  expect(errors).toEqual([]);
  await group.getByRole('button',{name:/2 sous-agents/}).focus();
