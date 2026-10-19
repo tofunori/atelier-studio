@@ -562,64 +562,8 @@ fn sha256_file(path: &Path) -> Option<String> {
     Some(hex::encode(hasher.finalize()))
 }
 
-/// Masque les secrets visibles dans une commande (`TOKEN=…`, `--password x`,
-/// `Bearer …`, `user:motdepasse@hôte`). La commande reste rejouable à l'œil ;
-/// le secret n'atterrit ni dans le journal ni à côté des figures.
-pub fn redact_command(command: &str) -> String {
-    const HINTS: [&str; 8] = [
-        "TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "APIKEY", "ACCESS_KEY", "PRIVATE_KEY",
-    ];
-    const FLAGS: [&str; 6] = [
-        "--password", "--passwd", "--token", "--api-key", "--secret", "--access-key",
-    ];
-    let mut changed = false;
-    let mut mask_next = false;
-    let mut parts: Vec<String> = Vec::new();
-    for word in command.split(' ') {
-        if mask_next && !word.is_empty() {
-            parts.push("***".into());
-            mask_next = false;
-            changed = true;
-            continue;
-        }
-        let lower = word.to_ascii_lowercase();
-        if FLAGS.contains(&lower.as_str()) || lower == "bearer" {
-            mask_next = true;
-            parts.push(word.to_string());
-            continue;
-        }
-        if let Some((key, value)) = word.split_once('=') {
-            let upper = key.trim_start_matches('-').to_ascii_uppercase().replace('-', "_");
-            if !value.is_empty() && HINTS.iter().any(|hint| upper.contains(hint)) {
-                parts.push(format!("{key}=***"));
-                changed = true;
-                continue;
-            }
-        }
-        // `https://user:secret@hôte/…`
-        if let Some(scheme_end) = word.find("://") {
-            let after = &word[scheme_end + 3..];
-            if let Some(at) = after.find('@') {
-                if let Some(colon) = after[..at].find(':') {
-                    let user = &after[..colon];
-                    parts.push(format!(
-                        "{}{user}:***{}",
-                        &word[..scheme_end + 3],
-                        &after[at..]
-                    ));
-                    changed = true;
-                    continue;
-                }
-            }
-        }
-        parts.push(word.to_string());
-    }
-    if changed {
-        parts.join(" ")
-    } else {
-        command.to_string()
-    }
-}
+/// Masquage des secrets d'une commande : voir `crate::redact`.
+pub use crate::redact::redact_command;
 
 /// Recette d'un fichier produit pendant un tour.
 pub struct Recipe {
@@ -893,11 +837,14 @@ mod tests {
 
     #[test]
     fn secrets_masques_dans_les_commandes() {
+        // Le détail des formes couvertes vit dans crate::redact ; ici, le
+        // chemin public reste celui que prov.rs appelle.
         assert_eq!(
             redact_command("GITHUB_TOKEN=abc123 curl -H Authorization: Bearer xyz https://u:pw@h/x"),
             "GITHUB_TOKEN=*** curl -H Authorization: Bearer *** https://u:***@h/x"
         );
         assert_eq!(redact_command("tool --password hunter2 run"), "tool --password *** run");
         assert_eq!(redact_command("python3 plot.py --region=sask"), "python3 plot.py --region=sask");
+        assert_eq!(redact_command("curl -u thierry:Glacier2026 u"), "curl -u thierry:*** u");
     }
 }

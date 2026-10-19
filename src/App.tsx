@@ -47,6 +47,7 @@ import { useContextInspector } from "./hooks/useContextInspector";
 import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
 import { useStoredJson } from "./hooks/useStoredJson";
 import { relaySidecarMessage } from "./lib/sidecarRelays";
+import { notifySetAside } from "./lib/setAsideNotice";
 import {
   closeSetupWelcome,
   openSetupWelcome,
@@ -113,7 +114,7 @@ import { linkedAgentSummaries, linkedConversationForProvider } from "./lib/threa
 import { catalogSkillForPrompt } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { CloseIcon } from "./components/icons";
-import { loadSettings, saveSettings, bootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
+import { loadSettings, saveSettings, withBootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
 import { garderProposition, ouvrirFicheSpecialiste, specialisteAJour, type PropositionSpecialiste } from "./lib/specialistes";
@@ -166,6 +167,7 @@ import {
 } from "./lib/composerAttachments";
 import { playAppSnapSound } from "./lib/appSnapSound";
 import { type PendingGoal, type PendingResend, type PendingRevert, createThreadActions } from "./lib/threadActions";
+import { RevertConfirmDialog } from "./components/chat/RevertConfirmDialog";
 import { whenGalleryFrameReady } from "./lib/galleryFrameReady";
 import {
   DISCUSSION_WORKSPACE_IDS_KEY,
@@ -349,6 +351,9 @@ export default function App() {
   const [annotation, setAnnotation] = useState<string | null>(null);
   const [injectText, setInjectText] = useState<string | null>(null);
   const [appBanner, setAppBanner] = useState<AppBanner | null>(null);
+  // Rembobinage suspendu par le serveur : fichiers du tour modifiés depuis sa
+  // fin (`modified`) ou état de fin inconnu (`unknown`). Rien n'a bougé.
+  const [revertQuestion, setRevertQuestion] = useState<{ threadId: string; reason: string; paths: string[] } | null>(null);
   const chatNotice = useMemo(() => appBanner ? {
     ...appBanner,
     onDismiss: appBanner.closable ? () => setAppBanner(current => current === appBanner ? null : current) : undefined,
@@ -1442,11 +1447,9 @@ export default function App() {
           // pour une migration locale qui n'existait pas encore dans ce
           // fichier (favoris historiques de l'ancien picker de modèles).
           setSettings((current) => ({
-            ...DEFAULT_SETTINGS,
-            ...diskSettings,
             // Les promotions de CE boot gagnent sur un miroir disque qui les
             // précède — sinon elles sont perdues à jamais (marquées appliquées).
-            ...bootPromotions(),
+            ...withBootPromotions({ ...DEFAULT_SETTINGS, ...diskSettings }),
             favoriteModels: diskSettings.favoriteModels && typeof diskSettings.favoriteModels === "object"
               ? diskSettings.favoriteModels
               : current.favoriteModels,
@@ -1457,7 +1460,7 @@ export default function App() {
           // réglages simples aussi, mais sans piétiner la vue actuellement
           // affichée (activeView reste local) NI les promotions de ce boot —
           // le miroir, antérieur à elles, les écraserait définitivement.
-          setSettings((current) => ({ ...current, ...diskSettings, ...bootPromotions() }));
+          setSettings((current) => withBootPromotions({ ...current, ...diskSettings }));
         }
         // Remplacement (pas fusion) pour chaque clé miroitée présente sur
         // disque : une fusion additive/union ne peut jamais représenter une
@@ -1811,7 +1814,19 @@ export default function App() {
         }
       }
       if (msg.type === "annotation" && msg.text !== lastInjected.current) setAnnotation(msg.text);
+      if (msg.type === "revertNeedsConfirm") {
+        const pending = pendingRevert.current;
+        if (pending && pending.threadId === msg.threadId) {
+          setRevertQuestion({
+            threadId: String(msg.threadId),
+            reason: msg.reason === "unknown" ? "unknown" : "modified",
+            paths: Array.isArray(msg.paths) ? msg.paths.map(String) : [],
+          });
+        }
+      }
       if (msg.type === "reverted") {
+        // « Rembobiner quand même » : les retouches écrasées ont été copiées.
+        notifySetAside(msg.setAsideTo, "rewind");
         if (typeof msg.threadId === "string") historyCursorsRef.current.delete(msg.threadId);
         if (typeof msg.historyEpoch === "string" && typeof msg.historyRevision === "number") {
           const baseline = historySnapshotRefs.current.get(msg.threadId);
@@ -4651,6 +4666,15 @@ export default function App() {
           attachments: draft.attachments.filter(attachment => !attachment.pdfAnnotation),
         }))}
       /></LazyBoundary>}
+      <RevertConfirmDialog
+        open={revertQuestion != null}
+        title={t(revertQuestion?.reason === "unknown" ? "chat.revert-unknown-title" : "chat.revert-modified-title")}
+        description={t(revertQuestion?.reason === "unknown" ? "chat.revert-unknown-help" : "chat.revert-modified-help")}
+        confirmLabel={t("chat.revert-anyway")}
+        paths={revertQuestion?.paths}
+        onCancel={() => { setRevertQuestion(null); threadActions.cancelRevert(); }}
+        onConfirm={() => { setRevertQuestion(null); threadActions.confirmRevert(); }}
+      />
       {newChatRequest && (
         <NewChatProviderDialog
           providers={providerList}

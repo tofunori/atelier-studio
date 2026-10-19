@@ -109,6 +109,18 @@ pub struct TurnProvenance {
     log: Arc<Mutex<TurnLog>>,
 }
 
+/// Interrupteur « Recette des fichiers produits » lu dans settings.json.
+///
+/// Éteint tant que Thierry ne l'a pas allumé (audit de maturité du
+/// 2026-10-18) : allumé par défaut depuis #53, il déposait un
+/// `<fichier>.prov.json` à côté de chaque .tex, .md, .csv ou figure touché
+/// pendant un tour, y compris des changements faits par Thierry ou par un
+/// autre fil, avec chemins absolus et demande. Seul un `true` explicite
+/// l'allume ; une clé absente ou illisible le laisse éteint.
+pub fn recipes_enabled(settings: &Value) -> bool {
+    settings.get("recipes").and_then(Value::as_bool).unwrap_or(false)
+}
+
 /// Issue d'un tour, telle que la finalisation la reçoit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TurnEnd {
@@ -147,8 +159,9 @@ impl TurnProvenance {
     }
 
     /// Interrupteur « Recette des fichiers produits » (Réglages › Atelier,
-    /// allumé par défaut). Coupé, aucun sidecar n'est écrit dans le projet ;
-    /// le journal des tours, lui, reste tenu (il vit hors du projet).
+    /// éteint par défaut : voir `recipes_enabled`). Coupé, aucun sidecar
+    /// n'est écrit dans le projet ; le journal des tours, lui, reste tenu (il
+    /// vit hors du projet).
     pub fn with_recipes(mut self, enabled: bool) -> Self {
         self.recipes = enabled;
         self
@@ -460,21 +473,31 @@ fn sidecar_path(root: &Path, rel_figure: &str) -> PathBuf {
 }
 
 /// Relit le sidecar existant, empile la nouvelle entrée EN TÊTE, plafonne.
-/// Un sidecar illisible ou malformé est reparti de zéro : perdre un historique
-/// corrompu vaut mieux que refuser d'enregistrer la génération courante.
+/// Un sidecar illisible (vide, tronqué, sans `history`) n'est PAS lu comme
+/// vide puis écrasé : ses octets sont d'abord mis de côté en
+/// `<figure>.prov.json.corrupt-<horodatage>`, puis l'historique repart de la
+/// génération courante. Exception assumée à « illisible = écriture refusée » :
+/// refuser priverait de provenance toutes les générations suivantes de la
+/// figure sans que personne le voie (le tour n'affiche pas cette erreur),
+/// alors que la copie garde l'ancien historique intact. Si la copie échoue,
+/// rien n'est écrit. Pas de sauvegarde du jour ici : un dossier `backups/`
+/// dans chaque dossier de figures serait du bruit chez l'utilisateur.
 /// Version 2 : mêmes champs que la v1, plus la recette (`command`,
 /// `scriptVersions`, `inputs`, `env.packages`) ; un lecteur v1 l'ignore.
 fn append_history(sidecar: &Path, rel_figure: &str, entry: &Value) -> std::io::Result<()> {
-    let mut history: Vec<Value> = std::fs::read_to_string(sidecar)
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|value| {
-            value
-                .get("history")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter(|e| e.is_object()).cloned().collect())
-        })
-        .unwrap_or_default();
+    let parsed = atelier_store::durable::load_with(sidecar, |bytes| {
+        let value: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        value
+            .get("history")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter(|e| e.is_object()).cloned().collect::<Vec<Value>>())
+            .ok_or_else(|| "pas de liste « history »".to_string())
+    });
+    let mut history = match parsed {
+        Ok(history) => history.unwrap_or_default(),
+        Err(atelier_store::durable::StoreError::Unreadable { copy: Some(_), .. }) => Vec::new(),
+        Err(error) => return Err(error.into()),
+    };
     history.insert(0, entry.clone());
     history.truncate(HISTORY_MAX);
     let document = json!({
@@ -484,7 +507,7 @@ fn append_history(sidecar: &Path, rel_figure: &str, entry: &Value) -> std::io::R
     });
     let body = serde_json::to_string_pretty(&document)
         .map_err(|e| std::io::Error::other(e.to_string()))?;
-    crate::atomic::write_file_atomic(sidecar, format!("{body}\n"))
+    atelier_store::durable::write_durable(sidecar, format!("{body}\n").as_bytes())
 }
 
 fn is_read_tool(name: &str) -> bool {
@@ -890,10 +913,18 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = dir.path();
         touch(root, "fig.png");
-        std::fs::write(root.join("fig.png.prov.json"), b"{pas du json").unwrap();
-        turn().write_recipes(root.to_str().unwrap(), None, &["fig.png".into()]);
-        let doc = read_prov(root, "fig.png");
-        assert_eq!(doc["history"].as_array().unwrap().len(), 1);
+        for (label, raw) in atelier_store::durable::UNREADABLE_SAMPLES {
+            let sidecar = root.join("fig.png.prov.json");
+            std::fs::write(&sidecar, raw).unwrap();
+            turn().write_recipes(root.to_str().unwrap(), None, &["fig.png".into()]);
+            let doc = read_prov(root, "fig.png");
+            assert_eq!(doc["history"].as_array().unwrap().len(), 1, "{label}");
+            assert_eq!(
+                atelier_store::durable::corrupt_copies_of(&sidecar, raw.as_bytes()),
+                1,
+                "{label} : l'ancien historique est mis de côté avant la réécriture"
+            );
+        }
     }
 
     #[test]
@@ -1000,6 +1031,15 @@ mod tests {
         let text = std::fs::read_to_string(root.join("fig.png.prov.json")).unwrap();
         assert!(!text.contains("s3cret"), "le secret ne quitte pas la commande");
         assert_eq!(read_prov(root, "fig.png")["history"][0]["turnId"], "turn-7");
+    }
+
+    #[test]
+    fn recette_eteinte_sauf_choix_explicite() {
+        assert!(!recipes_enabled(&json!({})));
+        assert!(!recipes_enabled(&json!({"recipes": null})));
+        assert!(!recipes_enabled(&json!({"recipes": "true"})));
+        assert!(!recipes_enabled(&json!({"recipes": false})));
+        assert!(recipes_enabled(&json!({"recipes": true})));
     }
 
     #[test]

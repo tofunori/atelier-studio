@@ -19,15 +19,11 @@ pub(super) async fn annotations(State(state): State<GatewayState>, headers: Head
     guard_headers(&state, &headers).await?;
     require_device(&state, &headers, Scope::FilesRead).await?;
     let rel = shared_rel(&key, &query.file)?;
-    let path = state.inner.lock().await.config.atelier_dir.join("pdf_annots.json");
+    let dir = state.inner.lock().await.config.atelier_dir.clone();
     let payload = tokio::task::spawn_blocking(move || -> ApiResult<Value> {
         let failed = || ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "annotations_unavailable", "Annotations du Mac indisponibles");
-        let store: Value = match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| failed())?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
-            Err(_) => return Err(failed()),
-        };
-        let object = store.as_object().ok_or_else(failed)?;
+        // Same reader as every writer: an unreadable store is an error, never `[]`.
+        let object = atelier_store::pdf_annots::read(&dir).map_err(store_failure)?;
         let annots = object.get(&rel).cloned().unwrap_or_else(|| json!([]));
         if !annots.is_array() { return Err(failed()); }
         Ok(json!({"attachmentKey":key, "fileName":query.file, "annots":annots}))
@@ -96,64 +92,61 @@ fn phone_groups(body: &PhoneMarks) -> ApiResult<Vec<(String, Vec<Value>)>> {
     Ok(groups)
 }
 
+/// The Mac store could not be read or written. An unreadable store says so:
+/// the phone must not believe the Mac simply has no marks.
+fn store_failure(error: atelier_store::durable::StoreError) -> ApiError {
+    eprintln!("[atelier-remote] {error}");
+    let message = if error.is_unreadable() {
+        "Annotations du Mac illisibles : rien n'est écrit, une copie est mise de côté sur le Mac"
+    } else {
+        "Annotations du Mac indisponibles"
+    };
+    ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "annotations_unavailable", message)
+}
+
 /// Replaces each group in place and returns the attachment's marks. The store
-/// is rewritten (in one rename) only when something changed, so a mark sent
-/// again does not make an open viewer reload.
+/// is rewritten (in one durable rename, after the day's backup) only when
+/// something changed, so a mark sent again does not make an open viewer
+/// reload. Lock, reader and writer are the shared ones
+/// (`atelier_store::pdf_annots`): an unreadable store is never replaced.
 fn replace_phone_marks(dir: &std::path::Path, rel: &str, groups: &[(String, Vec<Value>)]) -> ApiResult<Value> {
-    use fs2::FileExt;
+    use atelier_store::pdf_annots;
     let failed = || ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "annotations_unavailable", "Annotations du Mac indisponibles");
-    std::fs::create_dir_all(dir).map_err(|_| failed())?;
-    let path = dir.join("pdf_annots.json");
-    let lock = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true)
-        .open(dir.join("pdf_annots.lock")).map_err(|_| failed())?;
-    lock.lock_exclusive().map_err(|_| failed())?;
-    let result = (|| {
-        // An unreadable store is never replaced: that would lose every mark.
-        let mut store: Value = match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| failed())?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
-            Err(_) => return Err(failed()),
-        };
-        let map = store.as_object_mut().ok_or_else(failed)?;
-        let before = map.get(rel).cloned();
-        let mut list = match &before {
-            Some(Value::Array(list)) => list.clone(),
-            None => Vec::new(),
-            Some(_) => return Err(failed()),
-        };
-        for (group, annots) in groups {
-            let member = |a: &Value| a["id"].as_str()
-                .is_some_and(|id| id.strip_prefix(group.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with('-')));
-            let at = list.iter().position(member).unwrap_or(list.len());
-            let old: Vec<Value> = list.iter().filter(|a| member(a)).cloned().collect();
-            list.retain(|a| !member(a));
-            let fresh = annots.iter().map(|annot| {
-                let mut annot = annot.clone();
-                // A chat text and the codes (qualitative coding) put on the
-                // Mac for this passage stay: the phone knows neither.
-                if let Some(prev) = old.iter().find(|o| o["id"] == annot["id"]) {
-                    for key in ["note", "codes", "suggested"] {
-                        if let Some(value) = prev.get(key) {
-                            annot[key] = value.clone();
-                        }
+    let _lock = pdf_annots::lock(dir).map_err(store_failure)?;
+    let mut map = pdf_annots::read(dir).map_err(store_failure)?;
+    let before = map.get(rel).cloned();
+    let mut list = match &before {
+        Some(Value::Array(list)) => list.clone(),
+        None => Vec::new(),
+        Some(_) => return Err(failed()),
+    };
+    for (group, annots) in groups {
+        let member = |a: &Value| a["id"].as_str()
+            .is_some_and(|id| id.strip_prefix(group.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with('-')));
+        let at = list.iter().position(member).unwrap_or(list.len());
+        let old: Vec<Value> = list.iter().filter(|a| member(a)).cloned().collect();
+        list.retain(|a| !member(a));
+        let fresh = annots.iter().map(|annot| {
+            let mut annot = annot.clone();
+            // A chat text and the codes (qualitative coding) put on the
+            // Mac for this passage stay: the phone knows neither.
+            if let Some(prev) = old.iter().find(|o| o["id"] == annot["id"]) {
+                for key in ["note", "codes", "suggested"] {
+                    if let Some(value) = prev.get(key) {
+                        annot[key] = value.clone();
                     }
                 }
-                annot
-            });
-            list.splice(at.min(list.len())..at.min(list.len()), fresh);
-        }
-        let after = Value::Array(list);
-        if before.as_ref().unwrap_or(&json!([])) != &after {
-            map.insert(rel.to_owned(), after.clone());
-            let payload = format!("{}\n", serde_json::to_string_pretty(&store).map_err(|_| failed())?);
-            let tmp = dir.join(format!(".pdf_annots.json.{}.remote.tmp", std::process::id()));
-            std::fs::write(&tmp, payload).map_err(|_| failed())?;
-            std::fs::rename(&tmp, &path).map_err(|_| failed())?;
-        }
-        Ok(after)
-    })();
-    let _ = FileExt::unlock(&lock);
-    result
+            }
+            annot
+        });
+        list.splice(at.min(list.len())..at.min(list.len()), fresh);
+    }
+    let after = Value::Array(list);
+    if before.as_ref().unwrap_or(&json!([])) != &after {
+        map.insert(rel.to_owned(), after.clone());
+        pdf_annots::write(dir, &map).map_err(store_failure)?;
+    }
+    Ok(after)
 }
 
 #[derive(Default, Deserialize)]
@@ -447,10 +440,18 @@ fn zotero_error(_: reqwest::Error) -> ApiError { ApiError::new(StatusCode::BAD_G
         groups[0].1.clear();
         let annots = replace_phone_marks(dir.path(), rel, &groups).unwrap();
         assert_eq!(annots.as_array().unwrap().len(), 2);
-        // an unreadable store is never replaced
-        std::fs::write(&store, "broken").unwrap();
-        assert!(replace_phone_marks(dir.path(), rel, &groups).is_err());
-        assert_eq!(std::fs::read_to_string(&store).unwrap(), "broken");
+        // an unreadable store is never replaced, and a copy is set aside
+        for (case, raw) in atelier_store::durable::UNREADABLE_SAMPLES {
+            std::fs::write(&store, raw).unwrap();
+            let error = replace_phone_marks(dir.path(), rel, &groups).unwrap_err();
+            assert!(error.message.contains("illisibles"), "{case}: {}", error.message);
+            assert_eq!(std::fs::read_to_string(&store).unwrap(), raw, "{case}");
+            let copied = std::fs::read_dir(dir.path()).unwrap().flatten().any(|e| {
+                e.file_name().to_string_lossy().starts_with("pdf_annots.json.corrupt-")
+                    && std::fs::read(e.path()).is_ok_and(|b| b == raw.as_bytes())
+            });
+            assert!(copied, "{case}");
+        }
     }
     #[test] fn note_markup_is_escaped_and_invalid_rects_refused() {
         assert_eq!(html_text("<script>&"), "&lt;script&gt;&amp;");

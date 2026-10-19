@@ -358,15 +358,19 @@ function toggleHide(rel: unknown){if(hidden.has(rel))hidden.delete(rel);else hid
 let ratings = JSON.parse(localStorage.getItem('figRatings')||'{}');
 let stateTimer: string|number|NodeJS.Timeout=null, stateLoaded=false, pendingPush=false;
 let favsBase=[], stateSaving=false;
+// Ce que l'onglet a lu (ou écrit) en dernier : le serveur n'applique que nos
+// changements depuis cette base — une note posée entre-temps ailleurs survit.
+let stateBase: Record<string,unknown>|null=null;
+const stateSnapshot=()=>JSON.parse(JSON.stringify({ratings,hidden:[...hidden],tags,hideRules,collections,workflow}));
 const initialFavoriteBaseline=new Set(favs);
 function pushState(){
   if(!stateLoaded || stateSaving){ pendingPush=true; return; }   // never POST before the initial /state merge lands (a partial save would clobber disk)
   clearTimeout(stateTimer);
   stateTimer=setTimeout(()=>{
     stateTimer=null; stateSaving=true;
-    const sentFavs=[...favs];
+    const sentFavs=[...favs], sentState=stateSnapshot();
     fetch('/state',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({favs:sentFavs,favsBase,ratings,hidden:[...hidden],tags,hideRules,collections,workflow,
+      body:JSON.stringify({favs:sentFavs,favsBase,...(stateBase?{stateBase}:{}),...sentState,
         // Filtre de types du PROJET : le localStorage du WebView meurt à chaque
         // relance de l'app (PIEGES_CONNUS §1) — le disque fait foi, comme pour
         // les favoris. N'est envoyé qu'une fois un choix EXPLICITE fait, sinon
@@ -374,7 +378,7 @@ function pushState(){
         fileTypes: formatFilterExplicit?galleryActiveTypeKeys():null,
         pinnedTypes:pinnedFileTypes, filePresets:customFilePresets, presentation:{...galleryPresentation,widths:detailWidths}})}).then(r=>{
           if(!r.ok) throw new Error('state save failed');
-          favsBase=sentFavs;
+          favsBase=sentFavs; stateBase=sentState;
         }).catch(()=>{pendingPush=true;}).finally(()=>{
           stateSaving=false;
           if(pendingPush){pendingPush=false;pushState();}
@@ -430,7 +434,41 @@ function matchesRule(rel: string|string[]){
   return hideRules.some((g)=>{ const o=ruleToRe(g); return o.re.test(o.onBase?base:rel); });
 }
 function saveRules(){ localStorage.setItem('figHideRules', JSON.stringify(hideRules)); for(const k in _ruleRe) delete _ruleRe[k]; pushState(); }
-fetch('/state').then(r=>r.json()).then(st=>{
+// GET initial : tant qu'il n'a pas RÉUSSI, aucun POST ne part (garde
+// stateLoaded) — un serveur qui répond une erreur (état illisible, 500) ou
+// injoignable ne vaut pas « état vide ». Nouvel essai avec délai croissant ;
+// les changements faits entre-temps attendent dans pendingPush.
+let stateLoadDelay=2000;
+// Vue de l'onglet à son ouverture : ce qui a changé depuis (clic fait pendant
+// que le GET échouait) est réappliqué sur l'état du disque une fois lu, puis
+// envoyé comme un changement — ni perdu, ni pris pour un état complet.
+const pageStartState=stateSnapshot();
+function reapplyLocalEdits(now: ReturnType<typeof stateSnapshot>){
+  const sameJson=(a: unknown,b: unknown)=>JSON.stringify(a)===JSON.stringify(b);
+  for(const key of ['ratings','tags','collections','workflow'] as const){
+    const before=pageStartState[key]||{}, cur=now[key]||{};
+    const target=key==='ratings'?ratings:key==='tags'?tags:key==='collections'?collections:workflow;
+    for(const name of new Set([...Object.keys(before),...Object.keys(cur)])){
+      if(sameJson(before[name],cur[name])) continue;
+      if(name in cur) target[name]=cur[name]; else delete target[name];
+    }
+  }
+  const beforeHidden=new Set(pageStartState.hidden), curHidden=new Set(now.hidden);
+  beforeHidden.forEach((r)=>{ if(!curHidden.has(r)) hidden.delete(r); });
+  curHidden.forEach((r)=>{ if(!beforeHidden.has(r)) hidden.add(r); });
+  const beforeRules: string[]=pageStartState.hideRules||[], curRules: string[]=now.hideRules||[];
+  const beforeRuleSet=new Set(beforeRules), curRuleSet=new Set(curRules), keptRules=new Set(hideRules);
+  hideRules=[...hideRules.filter((g: string)=>!beforeRuleSet.has(g)||curRuleSet.has(g)),
+    ...curRules.filter((g)=>!beforeRuleSet.has(g)&&!keptRules.has(g))];
+  return !sameJson(pageStartState,now);
+}
+function loadInitialState(){
+fetch('/state').then(r=>{
+  if(!r.ok) return r.json().catch(()=>({})).then((e)=>{ throw new Error((e&&e.error)||('HTTP '+r.status)); });
+  return r.json();
+}).then(st=>{
+  if(!st || typeof st!=='object' || Array.isArray(st)) throw new Error('état invalide');
+  const localNow=stateSnapshot();                    // avant que le disque ne remplace la vue
   const localAdded=[...favs].filter(f=>!initialFavoriteBaseline.has(f));
   const localRemoved=[...initialFavoriteBaseline].filter(f=>!favs.has(f));
   favsBase=Array.isArray(st.favs)?st.favs:[];
@@ -446,6 +484,7 @@ fetch('/state').then(r=>r.json()).then(st=>{
     workflow = {};
     for(const [rel,v] of Object.entries(st.workflow)) if(validWorkflow(v)) workflow[rel]=v as string;
   }
+  if(reapplyLocalEdits(localNow)) pendingPush=true;  // clics faits pendant l'attente du GET
   for(const k in _ruleRe) delete _ruleRe[k];
   // Filtre de types : présent sur disque = choix du projet, il gagne sur le
   // cache local (et sur les défauts intégrés). Absent = jamais choisi ici.
@@ -476,10 +515,21 @@ fetch('/state').then(r=>r.json()).then(st=>{
   (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favorites ('+favs.size+')';
   updateHideChip(); buildCollectionChip(); buildWorkflowChip(); buildViewMenu();
   render();
-}).catch(()=>{}).finally(()=>{
+  stateBase=st;                                     // base = ce que le disque portait à la lecture
   stateLoaded=true;                                 // disk state is merged in now; saves are safe
+  (document.getElementById('favChip') as HTMLSpanElement).removeAttribute('title');
+  (document.getElementById('favChip') as HTMLSpanElement).classList.remove('state-unloaded');
   if(pendingPush){ pendingPush=false; pushState(); }
+}).catch((e)=>{
+  (document.getElementById('favChip') as HTMLSpanElement).title='État du projet non chargé ('+((e&&e.message)||'serveur injoignable')+') — rien n’est enregistré, nouvel essai automatique';
+  // Visible sans survol : la puce passe en couleur d'avertissement et dit
+  // « non enregistré » (CSS ::after) tant que le GET /state n'a pas abouti.
+  (document.getElementById('favChip') as HTMLSpanElement).classList.add('state-unloaded');
+  setTimeout(loadInitialState, stateLoadDelay);
+  stateLoadDelay=Math.min(stateLoadDelay*2, 30000);
 });
+}
+loadInitialState();
 function setRate(rel: string|number, n: number, ev: PointerEvent){
   ev.stopPropagation();
   if(ratings[rel]===n) delete ratings[rel]; else ratings[rel]=n;

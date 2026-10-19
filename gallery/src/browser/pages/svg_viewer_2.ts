@@ -796,6 +796,19 @@ function onFullscreenChange(){ if(!fsActiveEl() && document.body.classList.conta
 document.addEventListener("fullscreenchange", onFullscreenChange);
 document.addEventListener("webkitfullscreenchange", onFullscreenChange);
 
+/** Dit, sans bloquer, que du contenu actif a été retiré à l'affichage — et
+ *  donc aussi du fichier si on enregistre. */
+function showSanitized(report: { total: number; removed: Record<string, number> }){
+  const note = (document.getElementById("sanitized") as HTMLSpanElement);
+  if(!note) return;
+  if(!report || !report.total){ note.hidden = true; note.textContent = ""; return; }
+  note.textContent = "Contenu actif retiré (" + report.total + ")";
+  note.title = "Retiré à l'affichage pour la sécurité : " + AtelierSvgSanitize.describe(report)
+    + ". Enregistrer écrit la version assainie et perd ce contenu : le .orig.bak"
+    + " n'est créé qu'au premier enregistrement du fichier, et ne suit pas ses régénérations.";
+  note.hidden = false;
+}
+
 async function load(){
   try{
     const ver = new URLSearchParams(location.search).get("v") || "";
@@ -806,6 +819,10 @@ async function load(){
     const doc = new DOMParser().parseFromString(txt, "image/svg+xml");
     const root = doc.querySelector<SVGSVGElement>("svg");
     if(!root || doc.querySelector<HTMLElement>("parsererror")) throw new Error("could not parse SVG");
+    // Le SVG vient du projet (peut-être d'un dépôt cloné) : on retire script,
+    // on*, javascript:, foreignObject… DANS le document de DOMParser, où rien
+    // ne s'exécute, avant de l'insérer dans cette page de confiance.
+    showSanitized(AtelierSvgSanitize.sanitize(root));
     svg = document.importNode(root, true);
     plot.textContent = "";
     plot.appendChild(svg);

@@ -122,11 +122,17 @@ Your conversations and settings are kept.
   integrations, PDF highlights and notes, and tectonic if Atelier downloaded
   it (`tools/`). Highlights are kept here rather than written into your PDF
   files.
-- A `.fig_thumbs/` folder in each project: figure thumbnails, safe to delete.
+- A `.fig_thumbs/` folder in each project. It holds figure thumbnails, but
+  also data you cannot get back: highlights and notes on the project's own
+  PDFs (`pdf_annots.json`), LaTeX and Markdown comments, the whiteboard
+  (`board.tldr.json`), figure and diff version history
+  (`figure_versions.sqlite`, `dv_versions/`). **Do not delete it.** Back it up
+  with the project.
 
 To uninstall, quit Atelier and move it from Applications to the Trash. Delete
-the folder above only if you also want to erase your conversations, settings
-and PDF highlights.
+the `atelier-studio` folder above only if you also want to erase your
+conversations, settings and PDF highlights. Keep each project's `.fig_thumbs/`
+folder unless you also want to lose that project's notes and comments.
 
 ## Logs
 

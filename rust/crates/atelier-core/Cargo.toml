@@ -6,6 +6,7 @@ license = "MIT"
 description = "Shared gallery core (vendored from cmux-gallery; reunify ticket plan 033 Porte 2)"
 
 [dependencies]
+atelier-store = { path = "../atelier-store" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

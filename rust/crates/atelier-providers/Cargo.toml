@@ -6,6 +6,7 @@ license.workspace = true
 description = "Provider engine + registry (plan 033 Portes 5–8)"
 
 [dependencies]
+atelier-store = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = "0.1"
@@ -23,4 +24,3 @@ hex = "0.4"
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 tempfile = { workspace = true }
-atelier-store = { workspace = true }

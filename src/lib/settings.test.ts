@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { bootPromotions, DEFAULT_SETTINGS, loadSettings, saveSettings } from "./settings";
+import { bootPromotions, DEFAULT_SETTINGS, loadSettings, saveSettings, withBootPromotions } from "./settings";
 
 beforeEach(() => localStorage.clear());
 
@@ -187,5 +187,83 @@ describe("bootPromotions : les clés promues survivent au miroir disque", () => 
     // Simulation du merge avec un miroir disque antérieur à la promotion :
     const disk = { thinkingCollapsed: false };
     expect({ ...loadSettings(), ...disk, ...bootPromotions() }.thinkingCollapsed).toBe(true);
+  });
+});
+
+describe("recette .prov.json : éteinte tant qu'elle n'a pas été essayée (audit 2026-10-18)", () => {
+  it("un profil neuf démarre éteint", () => {
+    expect(DEFAULT_SETTINGS.recipes).toBe(false);
+    expect(loadSettings().recipes).toBe(false);
+  });
+
+  it("un true hérité du 2026-10-18 est éteint une fois, écrit, et survit au miroir disque", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ recipes: true, chatFontSize: 13.5 }));
+    expect(loadSettings().recipes).toBe(false);
+    expect(JSON.parse(localStorage.getItem("atelier-studio.settings") ?? "{}").recipes).toBe(false);
+    expect(bootPromotions()).toMatchObject({ recipes: false });
+    // Le miroir disque settings.json, antérieur, disait encore true.
+    expect({ ...loadSettings(), ...{ recipes: true }, ...bootPromotions() }.recipes).toBe(false);
+  });
+
+  it("une clé absente du stockage local ne laisse pas le miroir disque rallumer la recette", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ chatFontSize: 13.5 }));
+    expect(loadSettings().recipes).toBe(false);
+    expect(bootPromotions()).toMatchObject({ recipes: false });
+  });
+
+  it("un false explicite reste, et une remise en marche après la promotion est respectée", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ recipes: false }));
+    expect(loadSettings().recipes).toBe(false);
+    saveSettings({ ...loadSettings(), recipes: true });
+    expect(loadSettings().recipes).toBe(true);
+  });
+});
+
+describe("rappel des souvenirs : éteint tant qu'il n'a pas été essayé (audit 2026-10-18)", () => {
+  it("un profil neuf démarre éteint, extraction comprise", () => {
+    expect(DEFAULT_SETTINGS.memoire).toEqual({ injection: false, extraction: false });
+    expect(loadSettings().memoire).toEqual({ injection: false, extraction: false });
+  });
+
+  it("un true hérité est éteint une fois, sans toucher l'extraction, et survit au miroir disque", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ memoire: { injection: true, extraction: true } }));
+    expect(loadSettings().memoire).toEqual({ injection: false, extraction: true });
+    expect(JSON.parse(localStorage.getItem("atelier-studio.settings") ?? "{}").memoire)
+      .toEqual({ injection: false, extraction: true });
+    const disk = { memoire: { injection: true, extraction: true } };
+    expect({ ...loadSettings(), ...disk, ...bootPromotions() }.memoire)
+      .toEqual({ injection: false, extraction: true });
+  });
+
+  it("un false explicite reste, et une remise en marche après la promotion est respectée", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ memoire: { injection: false, extraction: false } }));
+    expect(loadSettings().memoire.injection).toBe(false);
+    saveSettings({ ...loadSettings(), memoire: { injection: true, extraction: false } });
+    expect(loadSettings().memoire.injection).toBe(true);
+  });
+});
+
+describe("webview vierge : les promotions du 2026-10-18 ne recoupent pas un choix du miroir disque", () => {
+  it("stockage local vide : la recette et le rappel rallumés sur disque restent allumés, extraction comprise", () => {
+    // Webview vierge : le marqueur de migration a disparu avec le stockage.
+    // Le miroir disque porte des choix faits APRÈS la promotion.
+    const settings = loadSettings();
+    expect(settings.recipes).toBe(false);
+    expect(bootPromotions()).not.toHaveProperty("recipes");
+    expect(bootPromotions()).not.toHaveProperty("memoire");
+    const disk = { recipes: true, memoire: { injection: true, extraction: true } };
+    // Fusion du boot d'App.tsx, chemin hasLocal=false.
+    const merged = withBootPromotions({ ...DEFAULT_SETTINGS, ...disk });
+    expect(merged.recipes).toBe(true);
+    expect(merged.memoire).toEqual({ injection: true, extraction: true });
+  });
+
+  it("la promotion du rappel ne touche que l'injection, même si le stockage local n'avait pas memoire", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ chatFontSize: 13.5 }));
+    loadSettings();
+    // Chemin hasLocal=true : le miroir disque, antérieur, portait l'extraction.
+    const disk = { memoire: { injection: true, extraction: true } };
+    const merged = withBootPromotions({ ...loadSettings(), ...disk });
+    expect(merged.memoire).toEqual({ injection: false, extraction: true });
   });
 });

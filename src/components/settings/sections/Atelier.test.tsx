@@ -41,14 +41,25 @@ describe("Section Atelier", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
-  it("la recette des fichiers produits est allumée par défaut et se coupe", () => {
+  // Audit du 2026-10-18 (problème 17) : éteinte par défaut tant que Thierry
+  // ne l'a pas essayée ; le défaut précédent (allumée) est volontairement
+  // abandonné.
+  it("la recette des fichiers produits est éteinte par défaut et s'allume", () => {
     const set = vi.fn(); const onSaved = vi.fn();
     renderUi(<Atelier {...props({ set, onSaved })} />);
     const toggle = screen.getByRole("switch", { name: /recette des fichiers produits/i });
-    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(toggle).toHaveAttribute("aria-checked", "false");
     fireEvent.click(toggle);
-    expect(set).toHaveBeenCalledWith({ recipes: false });
+    expect(set).toHaveBeenCalledWith({ recipes: true });
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("une clé recipes absente se lit éteinte, comme le runtime", () => {
+    const s = { ...DEFAULT_SETTINGS } as Partial<typeof DEFAULT_SETTINGS>;
+    delete s.recipes;
+    renderUi(<Atelier {...props({ s: s as typeof DEFAULT_SETTINGS })} />);
+    const toggle = screen.getByRole("switch", { name: /recette des fichiers produits/i });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
   });
 
   it("ne rend pas RemoteDevicesPanel (déjà migré dans General.tsx, éviter le doublon)", () => {

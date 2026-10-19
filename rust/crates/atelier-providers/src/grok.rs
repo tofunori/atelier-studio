@@ -33,21 +33,11 @@ const MAX_LIVE_RUNTIMES: usize = 8;
 const IDLE_TTL_MS: u64 = 60 * 60 * 1_000;
 const LATE_EVENT_QUIET_MS: u64 = 150;
 const LATE_EVENT_MAX_MS: u64 = 1_000;
-/// Plafond d'un tour `session/prompt` — même valeur que le filet Codex. Un
-/// CLI figé (vivant, muet) ne doit jamais laisser un tour sans terminal.
-/// Plafond d'un tour `session/prompt` — même valeur que le filet Codex/Grok. Un
-/// CLI figé (vivant, muet) ne doit jamais laisser un tour sans terminal.
-/// Surchargable pour les tests (`ATELIER_TURN_TIMEOUT_SECS`), jamais en prod
-/// (config.yaml ne le propose pas : un tour long reste légitime, seul le CLI
-/// FIGÉ est visé).
-const TURN_TIMEOUT_SECS_DEFAULT: u64 = 600;
-
-fn turn_timeout_secs() -> u64 {
-    std::env::var("ATELIER_TURN_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(TURN_TIMEOUT_SECS_DEFAULT)
-}
+// Filet anti-CLI-figé : le même que claude.rs et codex.rs (`turn_idle`). Un
+// CLI figé (vivant, muet) ne doit jamais laisser un tour sans terminal, mais un
+// tour long qui parle reste légitime. Avant l'audit du 2026-10-18 (problème
+// 31), un `tokio::time::timeout` SEC de 600 s, relu dans l'env à chaque tour,
+// coupait aussi un tour en plein travail.
 
 #[derive(Clone, Default)]
 struct GrokSelection {
@@ -164,6 +154,10 @@ pub struct GrokProvider {
     /// internes à Grok (compact, context, hooks-list…) : aucun scan de disque
     /// ne peut les découvrir.
     native_commands: Arc<StdMutex<Vec<Value>>>,
+    /// Fenêtre de SILENCE tolérée (`turn_idle`), lue UNE FOIS à la
+    /// construction : relire l'env par tour ouvrirait une course avec les
+    /// tests qui mutent `ATELIER_TURN_TIMEOUT_SECS`.
+    idle: Duration,
 }
 
 impl GrokProvider {
@@ -183,7 +177,15 @@ impl GrokProvider {
             runtimes: Mutex::new(HashMap::new()),
             catalog: StdMutex::new(GrokCatalog::default()),
             native_commands: Arc::new(StdMutex::new(Vec::new())),
+            idle: crate::turn_idle::idle_from_env(),
         }
+    }
+
+    /// Fenêtre d'inactivité injectée sur l'instance (tests du filet).
+    #[cfg(test)]
+    fn with_idle(mut self, idle: Duration) -> Self {
+        self.idle = idle;
+        self
     }
 
     async fn runtime_for(&self, thread_id: &str, cwd: &str) -> Arc<GrokThreadRuntime> {
@@ -472,11 +474,14 @@ impl GrokProvider {
     fn make_server_handler(
         permission_mode: Option<String>,
         on_interaction: Option<InteractionFn>,
+        activity: crate::turn_idle::TurnActivity,
     ) -> ServerRequestHandler {
         Arc::new(move |method: String, params: Value| {
             let mode = permission_mode.clone();
             let relay = on_interaction.clone();
+            let activity = activity.clone();
             Box::pin(async move {
+                activity.bump();
                 if method != "session/request_permission" {
                     return Value::Null;
                 }
@@ -492,6 +497,9 @@ impl GrokProvider {
                 if mode.as_deref() == Some("acceptEdits") && permission_is_edit(&params) {
                     return auto_permission_outcome(&params).unwrap_or_else(cancelled_outcome);
                 }
+                // Le CLI attend Thierry : le filet s'arrête le temps de la
+                // question.
+                let _attente = activity.wait_for_human();
                 let answer = match relay {
                     Some(relay) => relay(method, params.clone()).await,
                     None => None,
@@ -560,9 +568,12 @@ impl GrokProvider {
         let handler_state = Arc::clone(&state);
         let saw = Arc::clone(&saw_content);
         let activity = Arc::clone(&last_update);
+        let turn_activity = crate::turn_idle::TurnActivity::new();
+        let handler_activity = turn_activity.clone();
         let commands_cache = Arc::clone(&self.native_commands);
         let handler: SessionUpdateHandler = Arc::new(move |update: &Value| {
             activity.store(now_ms(), Ordering::Relaxed);
+            handler_activity.bump();
             if update.get("sessionUpdate").and_then(Value::as_str)
                 == Some("available_commands_update")
             {
@@ -597,7 +608,11 @@ impl GrokProvider {
             .acp
             .set_session_server_handler(
                 &sid,
-                Self::make_server_handler(req.permission_mode.clone(), req.on_interaction.clone()),
+                Self::make_server_handler(
+                    req.permission_mode.clone(),
+                    req.on_interaction.clone(),
+                    turn_activity.clone(),
+                ),
             )
             .await;
         *runtime.active_session.lock().unwrap() = Some(sid.clone());
@@ -617,23 +632,36 @@ impl GrokProvider {
             }
         });
 
-        let prompt_result = tokio::time::timeout(
-            // Réplique le filet Codex : `session/prompt` est en attente
-            // illimitée (acp_rpc), donc un CLI vivant mais FIGÉ (ni réponse ni
-            // mort) laissait le tour « en cours » pour toujours, sans terminal
-            // — l'interrupt ne peut rien contre un agent qui n'écoute plus.
-            Duration::from_secs(turn_timeout_secs()),
+        // `session/prompt` est en attente illimitée (acp_rpc) : un CLI vivant
+        // mais FIGÉ (ni réponse ni mort) laisserait le tour « en cours » pour
+        // toujours. Seul un SILENCE complet de `idle` (aucune notification,
+        // aucune requête serveur, personne n'attend Thierry) l'interrompt.
+        let mut muet = false;
+        let prompt_result = match crate::turn_idle::with_idle_timeout(
             runtime.acp.request(
                 "session/prompt",
                 json!({"sessionId": sid, "prompt": [{"type":"text", "text": prompt}]}),
                 None,
             ),
+            self.idle,
+            &turn_activity,
         )
         .await
-        .unwrap_or_else(|_| Err(AcpRpcError::transport(format!(
-            "timeout Grok ({}s) — CLI figé sans répondre",
-            turn_timeout_secs()
-        ))));
+        {
+            Ok(result) => result,
+            Err(()) => {
+                muet = true;
+                // Le CLI reste vivant : lui demander d'abandonner le tour.
+                runtime
+                    .acp
+                    .notify("session/cancel", json!({"sessionId": sid}))
+                    .await;
+                Err(AcpRpcError::transport(format!(
+                    "timeout Grok — CLI muet depuis {} (aucun signe de vie), tour interrompu",
+                    crate::turn_idle::describe(self.idle)
+                )))
+            }
+        };
         watcher.abort();
         last_update.store(now_ms(), Ordering::Relaxed);
         wait_for_quiet(&last_update).await;
@@ -670,7 +698,9 @@ impl GrokProvider {
             }
             Err(error) => {
                 state.lock().unwrap().2.flush();
-                let message = grok_user_error(&error);
+                // Le CLI n'est pas « injoignable » quand il est muet : le
+                // message du filet se suffit.
+                let message = if muet { error.to_string() } else { grok_user_error(&error) };
                 (req.on_event)(json!({"kind":"error", "message": message}));
                 Ok(SendResult {
                     session_id: Some(sid),
@@ -1880,12 +1910,12 @@ mod tests {
                 {"optionId":"reject", "kind":"reject_once"}
             ]
         });
-        let plan = GrokProvider::make_server_handler(Some("plan".into()), None);
+        let plan = GrokProvider::make_server_handler(Some("plan".into()), None, Default::default());
         assert_eq!(
             plan("session/request_permission".into(), params.clone()).await,
             cancelled_outcome()
         );
-        let bypass = GrokProvider::make_server_handler(Some("bypassPermissions".into()), None);
+        let bypass = GrokProvider::make_server_handler(Some("bypassPermissions".into()), None, Default::default());
         assert_eq!(
             bypass("session/request_permission".into(), params).await,
             selected_outcome("always")
@@ -2311,6 +2341,77 @@ mod tests {
         let serialized = serde_json::to_string(&*events.lock().unwrap()).unwrap();
         assert!(!serialized.contains("réponse historique"));
         assert!(serialized.contains("réponse"));
+    }
+
+    fn texte_et_erreurs(events: &[Value]) -> (String, Vec<String>) {
+        let texte = events
+            .iter()
+            .filter(|e| e["kind"] == "delta")
+            .filter_map(|e| e["text"].as_str())
+            .collect::<String>();
+        let erreurs = events
+            .iter()
+            .filter(|e| e["kind"] == "error")
+            .filter_map(|e| e["message"].as_str().map(str::to_string))
+            .collect();
+        (texte, erreurs)
+    }
+
+    /// Audit 2026-10-18, problème 31 : un CLI vivant mais muet est coupé
+    /// après la fenêtre d'inactivité, avec une erreur qui le dit.
+    #[tokio::test]
+    async fn un_cli_muet_est_coupe_par_le_filet_d_inactivite() {
+        let Some(provider) = fixture_provider().map(|p| p.with_idle(Duration::from_secs(1))) else {
+            return;
+        };
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let result = provider
+            .send(send_request("thread-hang", "[hang]", None, Arc::clone(&events), Arc::new(AtomicBool::new(false))))
+            .await;
+        assert!(!result.ok, "{result:?}");
+        let (_, erreurs) = texte_et_erreurs(&events.lock().unwrap());
+        assert!(
+            erreurs.iter().any(|m| m.contains("timeout Grok") && m.contains("muet depuis 1 s") && !m.contains("injoignable")),
+            "{erreurs:?}"
+        );
+    }
+
+    /// Un tour plus long que la fenêtre mais qui parle sans arrêt survit
+    /// (l'ancien `tokio::time::timeout` sec le coupait).
+    #[tokio::test]
+    async fn un_tour_long_qui_parle_n_est_pas_coupe() {
+        let Some(provider) = fixture_provider().map(|p| p.with_idle(Duration::from_secs(1))) else {
+            return;
+        };
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let debut = std::time::Instant::now();
+        let result = provider
+            .send(send_request("thread-chatty", "[chatty]", None, Arc::clone(&events), Arc::new(AtomicBool::new(false))))
+            .await;
+        let (texte, erreurs) = texte_et_erreurs(&events.lock().unwrap());
+        assert!(result.ok, "{result:?} {erreurs:?}");
+        assert!(texte.contains("fin bavarde"), "{texte}");
+        assert!(debut.elapsed() >= Duration::from_secs(2));
+    }
+
+    /// Une question à Thierry plus longue que la fenêtre ne coupe pas le tour.
+    #[tokio::test]
+    async fn une_permission_lente_ne_declenche_pas_le_filet() {
+        let Some(provider) = fixture_provider().map(|p| p.with_idle(Duration::from_secs(1))) else {
+            return;
+        };
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let mut req = send_request("thread-perm", "[permission]", None, Arc::clone(&events), Arc::new(AtomicBool::new(false)));
+        req.on_interaction = Some(Arc::new(|_m, _p| {
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_millis(2_500)).await;
+                Some(json!({"optionId": "approve_once"}))
+            })
+        }));
+        let result = provider.send(req).await;
+        let (texte, erreurs) = texte_et_erreurs(&events.lock().unwrap());
+        assert!(result.ok, "{result:?} {erreurs:?}");
+        assert!(texte.contains("perm:selected:approve_once"), "{texte}");
     }
 
     #[tokio::test]

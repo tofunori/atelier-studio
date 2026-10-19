@@ -105,9 +105,27 @@ describe("révisions du fil actif", () => {
     const events = [user("a", "e0"), user("b", "e1")];
     const h = setup({ eventsRef: { current: { t1: events } } });
     h.actions.revert(1, "b", true);
-    expect(h.ctx.pendingRevert.current).toEqual({ threadId: "t1", snapshot: events, index: 1 });
+    expect(h.ctx.pendingRevert.current).toEqual({ threadId: "t1", snapshot: events, index: 1, payload: h.sent[0] });
     expect(h.sent[0]).toMatchObject({ type: "revert", scope: "thread", threadId: "t1", text: "b", eventId: "e1" });
     expect(h.ctx.setInjectText).toHaveBeenCalledWith("b");
+  });
+
+  it("revert confirmé après revertNeedsConfirm : rejoue la même demande avec confirmModified", () => {
+    const h = setup({ eventsRef: { current: { t1: [user("a", "e0")] } } });
+    h.actions.revert(0, "a");
+    h.actions.confirmRevert();
+    expect(h.sent).toHaveLength(2);
+    expect(h.sent[1]).toEqual({ ...h.sent[0], confirmModified: true });
+    expect(h.sent[0].confirmModified).toBeUndefined();
+  });
+
+  it("revert abandonné : la demande en vol est oubliée, rien n'est renvoyé", () => {
+    const h = setup({ eventsRef: { current: { t1: [user("a", "e0")] } } });
+    h.actions.revert(0, "a");
+    h.actions.cancelRevert();
+    h.actions.confirmRevert();
+    expect(h.ctx.pendingRevert.current).toBeNull();
+    expect(h.sent).toHaveLength(1);
   });
 
   it("édition : prépare le renvoi puis demande le revert de l'ancien texte", () => {

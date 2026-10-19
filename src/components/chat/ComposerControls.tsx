@@ -36,6 +36,7 @@ import type { Specialiste } from "../../lib/specialistes";
 import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
 import { ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, MicIcon, RotateCcwIcon, SearchIcon, SquareIcon } from "lucide-react";
 import type { DictationPhase } from "./useComposerDictation";
+import { modeApresPlan } from "./modeApresPlan";
 
 const PERMISSION_MODES = [
   { id: "bypassPermissions", labelKey: "permission.full" },
@@ -158,6 +159,8 @@ export function ComposerControls(p: {
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   defaults: {
     autoReview?: { enabled: boolean };
+    /** Mode de permission par défaut (Settings) : repli de la sortie du mode Plan. */
+    defaultPermissionMode?: string;
     /** Catalogue des consignes de réponse (plan 2026-09-01) — Settings.consignes. */
     consignes?: Consigne[];
     /** Spécialistes (plan specialistes-2026-10-18) — Settings.specialistes. */
@@ -172,6 +175,8 @@ export function ComposerControls(p: {
   onOuvrirReglagesConsignes: (section?: string) => void;
   /** Noyau Python persistant du fil (chantier 5) ; absent sans fil actif. */
   kernel?: { on: boolean };
+  /** Fil affiché (projet:fil) : le mode d'avant Plan est mémorisé par fil. */
+  scopeKey?: string;
 }) {
   const {
     provider, model, setModel, effort, setEffort, fastMode, setFastMode,
@@ -190,6 +195,24 @@ export function ComposerControls(p: {
     : PERMISSION_MODES.map((m) => m.id);
   // seuls les modes connus du front sont listés, dans l'ordre UI existant
   const permissionOptions = PERMISSION_MODES.filter((m) => allowedPermissionModes.includes(m.id));
+  // Dernier mode hors Plan, quel que soit le chemin d'entrée en Plan (menu +,
+  // sélecteur, /plan) : c'est lui que l'entrée « Mode plan » rend en sortie.
+  // Mémorisé PAR FIL : le composer survit à un changement de fil, et le mode
+  // d'un autre fil ne doit pas ressortir ici. Au rendu où le fil change, le
+  // mode affiché est encore celui de l'ancien fil (Chat l'hydrate dans un
+  // effet, qui court APRÈS celui-ci) : on n'enregistre rien à ce rendu-là.
+  // Sans dépendances : le rendu suivant enregistre le mode hydraté, même
+  // quand il est égal à celui de l'ancien fil.
+  const modeAvantPlan = useRef<Map<string, string>>(new Map());
+  const filCourant = p.scopeKey ?? "";
+  const filVu = useRef(filCourant);
+  useEffect(() => {
+    if (filVu.current !== filCourant) {
+      filVu.current = filCourant;
+      return;
+    }
+    if (permissionMode !== "plan") modeAvantPlan.current.set(filCourant, permissionMode);
+  });
   const goalsSupported = caps ? caps.goals === true : provider === "codex";
   const activeProviderInfo = providerInfo();
   const effortTitle = activeProviderInfo?.kind === "api" ? t("chat.thinking") : t("chat.effort");
@@ -347,7 +370,9 @@ export function ComposerControls(p: {
                   keepOpen: false,
                   className: "mp-item",
                   label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" /></svg><span>{t("permission.plan")}</span></>,
-                  onSelect: () => setPermissionMode(permissionMode === "plan" ? "bypassPermissions" : "plan"),
+                  onSelect: () => setPermissionMode(permissionMode === "plan"
+                    ? modeApresPlan(modeAvantPlan.current.get(filCourant), allowedPermissionModes, p.defaults.defaultPermissionMode)
+                    : "plan"),
                 }] : []),
                 {
                   key: "auto-review",

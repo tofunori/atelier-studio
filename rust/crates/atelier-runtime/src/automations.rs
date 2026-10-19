@@ -23,11 +23,13 @@ pub fn spawn_scheduler(state: AppState) -> JoinHandle<()> {
 }
 
 pub async fn run_due_once(state: &AppState) {
-    let due = state
-        .automations()
-        .lock()
-        .await
-        .due(now_ms(), MAX_RUNS_PER_TICK);
+    let due = {
+        let mut store = state.automations().lock().await;
+        // automations.json réparé pendant que l'app tourne : ses tâches
+        // reprennent sans relance.
+        store.refresh();
+        store.due(now_ms(), MAX_RUNS_PER_TICK)
+    };
     for item in due {
         if let Err(error) = execute(state, &item.id, true).await {
             tracing::warn!(automation_id = %item.id, %error, "automation skipped");
@@ -60,7 +62,11 @@ pub async fn delete(state: &AppState, msg: &Value) -> Vec<String> {
     if id.is_empty() {
         return vec![error_reply("id d’automatisation requis")];
     }
-    match state.automations().lock().await.delete(id) {
+    // Le verrou du magasin est relâché AVANT automations_reply, qui le reprend :
+    // un garde temporaire dans le scrutin du `match` vivrait jusqu'à la fin du
+    // match et la requête ne répondrait jamais (interblocage, plan 078).
+    let deleted = state.automations().lock().await.delete(id);
+    match deleted {
         Ok(_) => automations_reply(state).await,
         Err(error) => vec![error_reply(error)],
     }
@@ -411,13 +417,36 @@ async fn postpone_busy(state: &AppState, item: &Automation) -> Result<(), String
     Ok(())
 }
 
+/// Liste des automatisations. `automations.json` illisible : une erreur
+/// (`requestType` listAutomations : bandeau de l'app et nouveaux essais) au
+/// lieu d'une liste vide — les tâches planifiées ne disparaissent pas sans
+/// bruit, et le planificateur n'en lance aucune tant qu'il n'est pas réparé.
 async fn automations_reply(state: &AppState) -> Vec<String> {
-    let items = state.automations().lock().await.list();
+    let mut store = state.automations().lock().await;
+    store.refresh();
+    if let Some(error) = store.load_error() {
+        return vec![json!({
+            "type": "error",
+            "requestType": "listAutomations",
+            "message": format!("Automatisations illisibles : {error}"),
+        })
+        .to_string()];
+    }
+    let items = store.list();
     vec![json!({"type":"automations","automations":items}).to_string()]
 }
 
 async fn publish_automations(state: &AppState) {
-    if let Some(message) = automations_reply(state).await.into_iter().next() {
+    // Une erreur de lecture n'est pas diffusée à tous les onglets : chacun la
+    // reçoit en réponse à son propre listAutomations.
+    if let Some(message) = automations_reply(state)
+        .await
+        .into_iter()
+        .next()
+        .filter(|message| {
+            serde_json::from_str::<Value>(message).is_ok_and(|reply| reply["type"] != "error")
+        })
+    {
         state.publish(message);
     }
 }
@@ -658,5 +687,48 @@ mod tests {
         assert!(next > after);
         assert_eq!(next.div_euclid(60_000).rem_euclid(5), 0);
         assert!(validate_rrule("FREQ=YEARLY;BYMONTH=13").is_err());
+    }
+
+    fn test_state(dir: &tempfile::TempDir) -> AppState {
+        AppState::new(
+            crate::paths::AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "test".into(),
+            "h".into(),
+            "/tmp".into(),
+        )
+    }
+
+    /// Régression du plan 078 : `delete` gardait le verrou du magasin dans le
+    /// scrutin du `match`, puis `automations_reply` le redemandait. La requête
+    /// ne répondait jamais ; le délai borne le test au lieu de le figer.
+    #[tokio::test]
+    async fn delete_repond_et_relache_le_verrou() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(&dir);
+        let created = create(
+            &state,
+            &json!({"automation":{"name":"Veille","prompt":"p","rrule":"FREQ=DAILY","kind":"cron"}}),
+        )
+        .await;
+        let listed: Value = serde_json::from_str(&created[0]).unwrap();
+        assert_eq!(listed["type"], "automations", "{created:?}");
+        let id = listed["automations"][0]["id"].as_str().unwrap().to_string();
+
+        let replies = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            delete(&state, &json!({"id": id})),
+        )
+        .await
+        .expect("deleteAutomation ne répond pas : verrou du magasin gardé");
+        let reply: Value = serde_json::from_str(&replies[0]).unwrap();
+        assert_eq!(reply["type"], "automations");
+        assert_eq!(reply["automations"].as_array().unwrap().len(), 0);
+
+        // Le verrou est bien libre après la réponse.
+        tokio::time::timeout(std::time::Duration::from_secs(1), state.automations().lock())
+            .await
+            .expect("verrou du magasin encore tenu après delete");
     }
 }

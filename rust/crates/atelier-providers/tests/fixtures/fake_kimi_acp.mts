@@ -32,6 +32,8 @@
 //   [commands]    émet available_commands_update
 //   [usage]       émet usage_update (hors contrat Kimi 0.26 — tolérance)
 //   [cancel]      stream sans fin jusqu'à session/cancel → stopReason cancelled
+//   [chatty]      tour long qui PARLE : un agent_thought_chunk toutes les
+//                 200 ms pendant ~2,4 s, puis end_turn (filet d'inactivité)
 //   [refusal]     stopReason refusal
 //   [invalid-json] émet une ligne non-JSON isolée au milieu du stream
 //   [late]        répond après FAKE_KIMI_LATE_MS (défaut 250 ms)
@@ -226,6 +228,16 @@ async function handlePrompt(id, params) {
     // Grok/Kimi). Répond à session/cancel pour permettre un nettoyage.
     st.hang = true;
     return undefined;
+  }
+  if (text.includes("[chatty]")) {
+    // Tour plus long que la fenêtre d'inactivité des tests (1 s), mais qui ne
+    // se tait jamais plus de 200 ms : le filet ne doit pas le couper.
+    for (let n = 0; n < 12; n += 1) {
+      await new Promise((r) => setTimeout(r, 200));
+      await update(sid, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: `pense${n} ` } });
+    }
+    await update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "fin bavarde" } });
+    return reply(id, { stopReason: "end_turn" });
   }
   if (text.includes("[late]")) {
     await new Promise((r) => setTimeout(r, LATE_MS));

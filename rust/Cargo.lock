@@ -149,7 +149,7 @@ dependencies = [
  "atelier-codebook",
  "atelier-integrations",
  "atelier-pdf",
- "fs2",
+ "atelier-store",
  "roxmltree",
  "rusqlite",
  "serde_json",
@@ -161,6 +161,7 @@ dependencies = [
 name = "atelier-codebook"
 version = "0.1.0"
 dependencies = [
+ "atelier-store",
  "fs2",
  "serde_json",
  "tempfile",
@@ -170,6 +171,7 @@ dependencies = [
 name = "atelier-core"
 version = "0.1.0"
 dependencies = [
+ "atelier-store",
  "chrono",
  "hex",
  "libc",
@@ -339,7 +341,6 @@ dependencies = [
  "atelier-store",
  "atelier-workspace",
  "axum",
- "fs2",
  "futures-util",
  "hex",
  "http-body-util",

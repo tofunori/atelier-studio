@@ -42,7 +42,9 @@ impl HostBook {
         app_dir.join(FILE_NAME)
     }
 
-    /// Fichier absent ou abîmé → carnet vide (jamais d'erreur bloquante).
+    /// LECTURE SEULE : fichier absent ou abîmé → carnet vide (jamais d'erreur
+    /// bloquante). Les écrivains de l'app (`atelier-runtime::compute_jobs`)
+    /// relisent par `atelier_store::durable` et refusent un carnet illisible.
     pub fn load(app_dir: &Path) -> Self {
         std::fs::read_to_string(Self::path(app_dir))
             .ok()

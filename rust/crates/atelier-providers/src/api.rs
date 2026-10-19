@@ -53,14 +53,34 @@ pub fn load_api_configs(app_dir: &Path) -> Vec<ApiProviderConfig> {
     list.into_iter().filter_map(normalize_config).collect()
 }
 
+/// Liste brute des fournisseurs, pour la réécrire. Absent : liste vide.
+/// Présent mais illisible (vide, tronqué, ni tableau ni `{providers: […]}`) :
+/// erreur et copie `.corrupt-…`, jamais une liste vide qui effacerait les
+/// autres fournisseurs et leurs clés au prochain enregistrement.
+pub fn load_api_provider_list(app_dir: &Path) -> Result<Vec<Value>, String> {
+    let path = config_path(app_dir);
+    atelier_store::durable::load_with(&path, |bytes| {
+        let value: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        match value {
+            Value::Array(list) => Ok(list),
+            Value::Object(mut obj) => match obj.remove("providers") {
+                Some(Value::Array(list)) => Ok(list),
+                _ => Err("objet sans liste « providers »".to_string()),
+            },
+            _ => Err("ni tableau ni objet".to_string()),
+        }
+    })
+    .map(Option::unwrap_or_default)
+    .map_err(|e| e.to_string())
+}
+
 /// Persist API provider configs (chmod 600 when possible). Never logs keys.
+/// Écriture durable avec sauvegarde du jour ; la réécriture, la sauvegarde et
+/// une copie `.corrupt-…` gardent les droits 0600 du fichier.
 pub fn write_api_configs(app_dir: &Path, providers: &[Value]) -> Result<(), String> {
     let path = config_path(app_dir);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
     let raw = serde_json::to_string_pretty(providers).map_err(|e| e.to_string())?;
-    std::fs::write(&path, raw).map_err(|e| e.to_string())?;
+    atelier_store::durable::save(&path, raw.as_bytes()).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

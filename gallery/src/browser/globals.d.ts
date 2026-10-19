@@ -9,6 +9,7 @@ declare global {
   var AtelierPdfRuntime: import('./pdf_runtime').AtelierPdfRuntimeApi;
   var AtelierPdfTools: import('./pdf_tools').AtelierPdfToolsApi;
   var FigureAnnotationGeometry: import('./figure_annotation_geometry').FigureAnnotationGeometryApi;
+  var AtelierSvgSanitize: import('./svg_sanitize').SvgSanitizeApi;
   var AtelierGalleryCommands: import('./gallery_commands').AtelierGalleryCommandsApi;
   var __atelierPost: import('./annot_kit').__atelierPostApi;
   var AnnotKit: import('./annot_kit').AnnotKitApi;
