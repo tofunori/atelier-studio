@@ -336,19 +336,18 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
       await expect(direct).toBeVisible();
       await expect(direct).toHaveText('');
       await expect(direct.locator('svg')).toBeVisible();
-      // Régression : sur plusieurs lignes, la pilule rognait le haut du texte.
-      const field = page.locator('#texcPop .atelier-note-field');
+      // Texte long : la bulle garde sa largeur, passe à la ligne et grandit
+      // en hauteur sans rogner ni déborder (Thierry 2026-10-19).
+      const pop = page.locator('#texcPop');
+      const narrow = (await pop.boundingBox())!;
       await page.locator('#texcPop textarea').fill('Relis le paragraphe et propose une meilleure formulation pour le début de la discussion, cherche dans le corpus');
-      await expect(field).toHaveClass(/is-multiline/);
-      // texte long : la bulle s'élargit en « composer » et reste dans la fenêtre
-      await expect(page.locator('#texcPop')).toHaveClass(/atelier-note-wide/);
-      const wide = (await page.locator('#texcPop').boundingBox())!;
-      expect(wide.width).toBeGreaterThan(400);
-      expect(wide.x + wide.width).toBeLessThanOrEqual(page.viewportSize()!.width - 7);
+      const tall = (await pop.boundingBox())!;
+      expect(tall.width).toBe(narrow.width);
+      expect(tall.height).toBeGreaterThan(narrow.height);
+      expect(tall.x + tall.width).toBeLessThanOrEqual(page.viewportSize()!.width - 7);
       expect(await page.locator('#texcPop textarea').evaluate(ta => ta.scrollHeight - ta.clientHeight)).toBe(0);
       await page.locator('#texcPop textarea').fill('Vérifier ce passage');
-      await expect(field).not.toHaveClass(/is-multiline/);
-      await expect(page.locator('#texcPop')).not.toHaveClass(/atelier-note-wide/);
+      expect((await pop.boundingBox())!.height).toBe(narrow.height);
       const saved = page.waitForResponse(response => response.url().includes('/pdfannot')
         && response.request().method() === 'POST');
       await page.locator('#texcPop .send2').click();
@@ -370,9 +369,9 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
 });
 
 // Régression (Thierry 2026-10-19) : rouverte, la bulle d'une note d'une
-// ligne et demie restait parfois étroite, texte coupé à droite. La largeur
-// ne dépend plus que du texte, et le champ ne déborde jamais.
-test('latex note bubble keeps one width per text when reopened', async ({page}) => {
+// ligne et demie changeait de largeur, texte coupé à droite. Elle garde
+// maintenant une seule largeur : le texte passe à la ligne, sans déborder.
+test('latex note bubble keeps one width and wraps long notes', async ({page}) => {
   await withProject({'note.tex': '\\section{Intro}\nBetween 2000 and 2023, glaciers lost mass.\n'}, async ({url}) => {
     await page.goto(url('latex_studio.html', 'note.tex', '&engine=cm6'));
     await expectEngine(page, 'cm6');
@@ -381,29 +380,25 @@ test('latex note bubble keeps one width per text when reopened', async ({page}) 
     const fits = () => input.evaluate((ta: HTMLTextAreaElement) =>
       ta.scrollWidth <= ta.clientWidth && ta.scrollHeight <= ta.clientHeight);
     await page.evaluate(() => texcOpen({from:{line:1,ch:0},to:{line:1,ch:20},text:'Between 2000 and 202'}));
-    await input.pressSequentially("je pense ici on pourrait ameliorer la phrase d'intro");
-    await expect(pop).toHaveClass(/atelier-note-wide/);
-    const typed = (await pop.boundingBox())!.width;
+    await expect(pop).toBeVisible();
+    const empty = (await pop.boundingBox())!;
+    await input.pressSequentially("je pense ici on pourrait ameliorer la phrase d'intro et la suite");
+    const typed = (await pop.boundingBox())!;
+    expect(typed.width).toBe(empty.width);
+    expect(typed.height).toBeGreaterThan(empty.height);
     expect(await fits()).toBe(true);
     await pop.locator('.send2').click();
     await expect(pop).toBeHidden();
     for (let round = 0; round < 2; round++) {
       await page.locator('.atelier-annotation-number').first().click();
       await expect(pop).toBeVisible();
-      await expect(pop).toHaveClass(/atelier-note-wide/);
-      expect((await pop.boundingBox())!.width).toBe(typed);
+      const reopened = (await pop.boundingBox())!;
+      expect(reopened.width).toBe(empty.width);
+      expect(reopened.height).toBe(typed.height);
       expect(await fits()).toBe(true);
       await page.keyboard.press('Escape');
       await expect(pop).toBeHidden();
     }
-    // une note courte rouvre étroite, puis s'élargit dès qu'elle déborde
-    await page.evaluate(() => texcOpen({from:{line:1,ch:0},to:{line:1,ch:7},text:'Between'}));
-    await expect(pop).not.toHaveClass(/atelier-note-wide/);
-    await input.pressSequentially('Court');
-    await expect(pop).not.toHaveClass(/atelier-note-wide/);
-    await input.pressSequentially(' puis bien assez long pour passer à la ligne suivante');
-    await expect(pop).toHaveClass(/atelier-note-wide/);
-    expect(await fits()).toBe(true);
   });
 });
 

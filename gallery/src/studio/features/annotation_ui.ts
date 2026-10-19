@@ -72,30 +72,14 @@ export function createNoteEditor(host: HTMLElement, options: {
   const status = host.querySelector<HTMLElement>(".annotation-status")!;
   input.value = options.value || "";
   if(memoInput) memoInput.value = options.memo?.value || "";
-  const field = host.querySelector<HTMLElement>(".atelier-note-field")!;
-  // Au-delà d'une ligne, la bulle s'élargit en « composer ». La décision se
-  // prend sur un double invisible, toujours à la largeur étroite : rétrécir
-  // puis rélargir le champ lui-même à chaque frappe pouvait laisser WebKit avec
-  // un texte mal remis en page (bulle étroite, ligne coupée à droite).
-  const measure = host.ownerDocument.createElement("div");
-  measure.className = "atelier-note-measure";
-  measure.setAttribute("aria-hidden", "true");
-  field.prepend(measure);
+  // Largeur fixe (Thierry 2026-10-19) : un texte long passe à la ligne et
+  // la bulle grandit en hauteur, jamais en largeur.
   const sizeHeight = () => {
     input.style.height="24px";
-    const maxHeight = parseFloat(host.ownerDocument.defaultView?.getComputedStyle(input).maxHeight || "") || 124;
+    const maxHeight = parseFloat(host.ownerDocument.defaultView?.getComputedStyle(input).maxHeight || "") || 244;
     input.style.height=Math.min(maxHeight,input.scrollHeight)+"px";
   };
-  const fit = () => {
-    // l'espace sans chasse fait compter une ligne finale vide, comme le textarea
-    measure.textContent = input.value + "\u200b";
-    const wide = measure.scrollHeight>28;
-    if(field.classList.contains("is-multiline")!==wide){
-      field.classList.toggle("is-multiline",wide);host.classList.toggle("atelier-note-wide",wide);
-    }
-    sizeHeight();
-    keepInView();
-  };
+  const fit = () => {sizeHeight();keepInView();};
   // Fenêtre ou panneau redimensionné : la hauteur suit la nouvelle largeur.
   let lastWidth = 0;
   const view = host.ownerDocument.defaultView;
