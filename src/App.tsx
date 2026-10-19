@@ -4432,7 +4432,14 @@ export default function App() {
     && (!appBanner.projectRoot || appBanner.projectRoot === activeProject) ? appBanner : null;
 
   return (
-    <WorkspaceShell topBar={topBarNode} rail={railNode} viewPanel={viewPanelNode} overlays={overlaysNode}
+    // Barre du haut, rail, panneau de vue : chacun sa frontière, pour qu'une
+    // exception de rendu là-bas ne remonte pas jusqu'à BootBoundary, qui
+    // démonterait aussi les éditeurs de l'atelier (relecture du 2026-10-19).
+    <WorkspaceShell
+      topBar={<RenderBoundary>{topBarNode}</RenderBoundary>}
+      rail={<RenderBoundary>{railNode}</RenderBoundary>}
+      viewPanel={viewPanelNode == null ? null : <RenderBoundary>{viewPanelNode}</RenderBoundary>}
+      overlays={<RenderBoundary>{overlaysNode}</RenderBoundary>}
       dragging={dragging} onDraggingChange={setDragging}>
     <PanelGroup direction="horizontal" className="app">
       <Panel id="chat" order={2} defaultSize={50} minSize={layout === "atelier" ? 0 : 30}
