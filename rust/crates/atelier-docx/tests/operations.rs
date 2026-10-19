@@ -340,3 +340,45 @@ fn figures_notes_citations_et_equations_s_effacent_d_un_bloc() {
     assert_eq!(d.part("word/document.xml").unwrap().unwrap().matches("<m:oMath>").count(), 0);
     reopen(&d);
 }
+
+#[test]
+fn inserer_une_note_et_une_figure() {
+    let me = sig("Claude");
+    let mut d = open("christophe");
+    // Note en suivi : appel dans le corps, note signée dans footnotes.xml.
+    let r = apply(&mut d, &op(json!({"op": "insert_note", "paragraph": "p2", "at": 5, "text": "Voir Rabatel et al. (2013)."})), true, &me).unwrap();
+    assert_eq!(r["id"], "n2");
+    let mut d = reopen(&d);
+    let m = d.model().unwrap();
+    let note = m.notes.iter().find(|n| n.id == "n2").unwrap();
+    assert_eq!(note.paragraphs[0].text, " Voir Rabatel et al. (2013).");
+    assert_eq!(note.paragraphs[0].style.as_deref(), Some("Notedebasdepage"));
+    assert_eq!(m.changes.iter().filter(|c| c.author == "Claude" && c.kind == "ins").count(), 2);
+    // Refuser l'appel fait disparaître la note.
+    let call = m.changes.iter().find(|c| c.author == "Claude" && c.paragraph.as_deref() == Some("p2")).unwrap().id;
+    apply(&mut d, &op(json!({"op": "reject", "id": call})), true, &me).unwrap();
+    assert!(d.model().unwrap().notes.iter().all(|n| n.id != "n2"));
+    // Pas de note dans une note.
+    assert!(apply(&mut d, &op(json!({"op": "insert_note", "paragraph": "n1.p0", "at": 0, "text": "x"})), true, &me).is_err());
+
+    // Figure : chargée par l'appelant, réduite à la largeur du texte.
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    png.extend_from_slice(&1200u32.to_be_bytes());
+    png.extend_from_slice(&600u32.to_be_bytes());
+    png.extend_from_slice(&[8, 6, 0, 0, 0]);
+    let mut o = op(json!({"op": "insert_image", "paragraph": "p2", "at": 0, "path": "figures/albedo.png", "alt": "Albédo 2019"}));
+    assert!(apply(&mut d, &o, false, &me).is_err());
+    o.load_images(&mut |p| { assert_eq!(p, "figures/albedo.png"); Ok(png.clone()) }).unwrap();
+    let r = apply(&mut d, &o, false, &me).unwrap();
+    let rel = r["id"].as_str().unwrap().to_string();
+    let mut d = reopen(&d);
+    let m = d.model().unwrap();
+    let s = m.paragraphs[2].segments.iter().find(|s| s.media.as_deref() == Some(rel.as_str())).unwrap();
+    // 6,5 po de texte = 624 px ; 1200×600 → 624×312.
+    assert_eq!((s.width, s.height, s.alt.as_deref()), (Some(624), Some(312), Some("Albédo 2019")));
+    let (bytes, mime) = atelier_docx::objects::media(&mut d, "p2", &rel).unwrap().unwrap();
+    assert_eq!((bytes, mime), (png, "image/png"));
+    assert!(d.part("[Content_Types].xml").unwrap().unwrap().contains(r#"Extension="png""#));
+    // La figure d'origine se lit aussi.
+    assert_eq!(atelier_docx::objects::media(&mut d, "p11", "rId5").unwrap().unwrap().1, "image/png");
+}

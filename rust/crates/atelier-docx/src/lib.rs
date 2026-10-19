@@ -14,11 +14,13 @@
 //! - [`structure`] : Entrée et retour arrière entre paragraphes.
 //! - [`format`] : police, taille, gras…, style et alignement.
 //! - [`ops`] : une retouche en JSON (panneau et agent), et le texte pour l'agent.
+//! - [`objects`] : appels de note et figures insérés.
 //! - [`story`] : corps, notes, en-têtes et pieds de page, chacun dans sa partie.
 
 pub mod comments;
 pub mod edit;
 pub mod model;
+pub mod objects;
 pub mod review;
 pub mod structure;
 pub mod format;
@@ -41,7 +43,6 @@ pub const DOCUMENT: &str = "word/document.xml";
 pub const COMMENTS: &str = "word/comments.xml";
 pub const COMMENTS_EXT: &str = "word/commentsExtended.xml";
 const CONTENT_TYPES: &str = "[Content_Types].xml";
-const DOCUMENT_RELS: &str = "word/_rels/document.xml.rels";
 
 #[derive(Debug)]
 pub struct DocxError(pub String);
@@ -117,6 +118,8 @@ pub struct Docx {
     names: Vec<String>,
     parts: BTreeMap<String, String>,
     dirty: BTreeSet<String>,
+    /// Parties binaires ajoutées (figures insérées).
+    binaries: BTreeMap<String, Vec<u8>>,
 }
 
 impl Docx {
@@ -130,7 +133,7 @@ impl Docx {
         if !names.iter().any(|n| n == DOCUMENT) {
             return err("ce fichier n'est pas un document Word (.docx) : word/document.xml manque");
         }
-        let mut docx = Docx { bytes, names, parts: BTreeMap::new(), dirty: BTreeSet::new() };
+        let mut docx = Docx { bytes, names, parts: BTreeMap::new(), dirty: BTreeSet::new(), binaries: BTreeMap::new() };
         docx.load(DOCUMENT)?;
         Ok(docx)
     }
@@ -142,7 +145,80 @@ impl Docx {
     }
 
     pub fn has_part(&self, name: &str) -> bool {
-        self.parts.contains_key(name) || self.names.iter().any(|n| n == name)
+        self.parts.contains_key(name) || self.binaries.contains_key(name) || self.names.iter().any(|n| n == name)
+    }
+
+    /// Octets d'une partie (image…), ou `None` si elle n'existe pas.
+    pub fn binary(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        if let Some(b) = self.binaries.get(name) {
+            return Ok(Some(b.clone()));
+        }
+        if !self.names.iter().any(|n| n == name) {
+            return Ok(None);
+        }
+        let mut archive = ZipArchive::new(Cursor::new(self.bytes.as_slice()))?;
+        let mut file = archive.by_name(name)?;
+        let mut raw = Vec::new();
+        file.read_to_end(&mut raw)?;
+        Ok(Some(raw))
+    }
+
+    pub(crate) fn add_binary(&mut self, name: &str, bytes: Vec<u8>) {
+        self.binaries.insert(name.to_string(), bytes);
+    }
+
+    /// Ajoute une relation depuis `part` (`word/document.xml`…) et rend son
+    /// identifiant ; `target` est relatif au dossier de la partie.
+    pub(crate) fn add_rel(&mut self, part: &str, rel_type: &str, target: &str) -> Result<String> {
+        let rels_name = rels_of(part);
+        let rels = self.part(&rels_name)?.unwrap_or_else(|| {
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>"#
+                .to_string()
+        });
+        let mut n = 1;
+        while rels.contains(&format!("Id=\"rIdAtelier{n}\"")) {
+            n += 1;
+        }
+        let id = format!("rIdAtelier{n}");
+        let rel = format!(r#"<Relationship Id="{id}" Type="{rel_type}" Target="{}"/>"#, xml::escape_attr(target));
+        let close = rels.rfind("</Relationships>").ok_or_else(|| DocxError(format!("{rels_name} illisible")))?;
+        self.set_part(&rels_name, format!("{}{rel}{}", &rels[..close], &rels[close..]));
+        Ok(id)
+    }
+
+    /// Cible (chemin dans le paquet) de la relation `id` de `part`.
+    pub(crate) fn rel_target(&mut self, part: &str, id: &str) -> Result<Option<String>> {
+        let Some(rels) = self.part(&rels_of(part))? else { return Ok(None) };
+        let doc = xml::parse(&rels)?;
+        let Some(r) = doc.descendants().find(|n| n.tag_name().name() == "Relationship" && n.attribute("Id") == Some(id)) else {
+            return Ok(None);
+        };
+        if r.attribute("TargetMode") == Some("External") {
+            return Ok(None);
+        }
+        let target = r.attribute("Target").unwrap_or("");
+        Ok(Some(resolve(part, target)))
+    }
+
+    /// Déclare un type de contenu par extension s'il manque (`png`…).
+    pub(crate) fn ensure_default_type(&mut self, ext: &str, content_type: &str) -> Result<()> {
+        let ct = self.part(CONTENT_TYPES)?.ok_or_else(|| DocxError("[Content_Types].xml manque".into()))?;
+        if ct.to_ascii_lowercase().contains(&format!("extension=\"{}\"", ext.to_ascii_lowercase())) {
+            return Ok(());
+        }
+        let close = ct.rfind("</Types>").ok_or_else(|| DocxError("[Content_Types].xml illisible".into()))?;
+        let tag = format!(r#"<Default Extension="{ext}" ContentType="{content_type}"/>"#);
+        self.set_part(CONTENT_TYPES, format!("{}{tag}{}", &ct[..close], &ct[close..]));
+        Ok(())
+    }
+
+    /// Noms des entrées du paquet (lues et ajoutées).
+    pub(crate) fn entry_names(&self) -> Vec<String> {
+        let mut v = self.names.clone();
+        v.extend(self.binaries.keys().cloned());
+        v.extend(self.parts.keys().filter(|k| !self.names.contains(k)).cloned());
+        v
     }
 
     fn load(&mut self, name: &str) -> Result<Option<&String>> {
@@ -177,7 +253,7 @@ impl Docx {
     }
 
     pub fn is_dirty(&self) -> bool {
-        !self.dirty.is_empty()
+        !self.dirty.is_empty() || !self.binaries.is_empty()
     }
 
     /// Ajoute une partie absente (commentaires) avec son type de contenu et
@@ -193,18 +269,7 @@ impl Docx {
         let close = ct.rfind("</Types>").ok_or_else(|| DocxError("[Content_Types].xml illisible".into()))?;
         self.set_part(CONTENT_TYPES, format!("{}{override_tag}{}", &ct[..close], &ct[close..]));
 
-        let rels = self.part(DOCUMENT_RELS)?.unwrap_or_else(|| {
-            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>"#
-                .to_string()
-        });
-        let mut n = 1;
-        while rels.contains(&format!("Id=\"rIdAtelier{n}\"")) {
-            n += 1;
-        }
-        let rel = format!(r#"<Relationship Id="rIdAtelier{n}" Type="{rel_type}" Target="{target}"/>"#);
-        let close = rels.rfind("</Relationships>").ok_or_else(|| DocxError("relations de document.xml illisibles".into()))?;
-        self.set_part(DOCUMENT_RELS, format!("{}{rel}{}", &rels[..close], &rels[close..]));
+        self.add_rel(DOCUMENT, rel_type, target)?;
         self.set_part(name, text);
         Ok(())
     }
@@ -232,6 +297,11 @@ impl Docx {
         for name in self.dirty.iter().filter(|n| !self.names.contains(n)) {
             out.start_file(name.as_str(), SimpleFileOptions::default().compression_method(CompressionMethod::Deflated))?;
             out.write_all(self.parts[name].as_bytes())?;
+        }
+        for (name, bytes) in &self.binaries {
+            // Images déjà compressées : stockées telles quelles, comme Word.
+            out.start_file(name.as_str(), SimpleFileOptions::default().compression_method(CompressionMethod::Stored))?;
+            out.write_all(bytes)?;
         }
         Ok(out.finish()?.into_inner())
     }
@@ -317,6 +387,32 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         let _ = std::fs::remove_file(&tmp);
     })?;
     Ok(())
+}
+
+/// `word/document.xml` → `word/_rels/document.xml.rels`.
+pub(crate) fn rels_of(part: &str) -> String {
+    match part.rsplit_once('/') {
+        Some((dir, f)) => format!("{dir}/_rels/{f}.rels"),
+        None => format!("_rels/{part}.rels"),
+    }
+}
+
+/// Résout une cible de relation relative au dossier de `part`.
+pub(crate) fn resolve(part: &str, target: &str) -> String {
+    if let Some(abs) = target.strip_prefix('/') {
+        return abs.to_string();
+    }
+    let mut segs: Vec<&str> = part.rsplit_once('/').map(|(d, _)| d.split('/').collect()).unwrap_or_default();
+    for s in target.split('/') {
+        match s {
+            ".." => {
+                segs.pop();
+            }
+            "." | "" => {}
+            s => segs.push(s),
+        }
+    }
+    segs.join("/")
 }
 
 pub fn revision_of(bytes: &[u8]) -> String {

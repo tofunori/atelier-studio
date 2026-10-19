@@ -39,6 +39,18 @@ pub enum Op {
     FormatRange { paragraph: String, start: usize, end: usize, props: RunProps },
     FormatText { paragraph: Option<String>, find: String, occurrence: Option<usize>, props: RunProps },
     FormatParagraph { paragraph: String, props: ParaProps },
+    /// Appel de note à la position `at`, et la note qui porte `text`.
+    InsertNote { paragraph: String, at: usize, text: String, #[serde(default)] endnote: bool },
+    /// Figure du projet (`path`, chargé par l'appelant via [`Op::load_images`]).
+    InsertImage {
+        paragraph: String,
+        at: usize,
+        path: String,
+        #[serde(default)]
+        alt: String,
+        #[serde(skip)]
+        bytes: Option<Vec<u8>>,
+    },
     /// Plusieurs retouches d'un seul geste (sélection sur plusieurs
     /// paragraphes, collage de plusieurs lignes) : tout ou rien, un seul
     /// enregistrement, une seule annulation.
@@ -59,8 +71,25 @@ impl Op {
             Op::Resolve { .. } => "résolution",
             Op::DeleteComment { .. } => "suppression de commentaire",
             Op::FormatRange { .. } | Op::FormatText { .. } | Op::FormatParagraph { .. } => "mise en forme",
+            Op::InsertNote { .. } => "note",
+            Op::InsertImage { .. } => "figure",
             Op::Batch { .. } => "retouches groupées",
         }
+    }
+
+    /// Charge les figures à insérer : `read` valide le chemin (dans le
+    /// projet) et rend ses octets. Le moteur ne lit jamais le disque seul.
+    pub fn load_images(&mut self, read: &mut dyn FnMut(&str) -> Result<Vec<u8>>) -> Result<()> {
+        match self {
+            Op::InsertImage { path, bytes, .. } => *bytes = Some(read(path)?),
+            Op::Batch { ops } => {
+                for op in ops {
+                    op.load_images(read)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 
@@ -162,6 +191,12 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
         Op::FormatParagraph { paragraph, props } => {
             format::format_paragraph(docx, paragraph, props, tracked, sig)?;
             json!({})
+        }
+        Op::InsertNote { paragraph, at, text, endnote } => json!(crate::objects::insert_note(docx, paragraph, *at, text, *endnote, tracked, sig)?),
+        Op::InsertImage { paragraph, at, path, alt, bytes } => {
+            let Some(b) = bytes else { return err("figure non chargée") };
+            let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("figure");
+            json!(crate::objects::insert_image(docx, paragraph, *at, b.clone(), name, alt, tracked, sig)?)
         }
         Op::Batch { ops } => {
             // Sur une copie : une étape qui échoue n'en laisse aucune à moitié.
