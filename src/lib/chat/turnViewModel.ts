@@ -515,7 +515,10 @@ export function projectChatTimeline(
           const agentActivity = innerEvent.kind === "tool_update" && innerEvent.agentActivity != null;
           // La carte d'un calcul (chantier 4) aussi : Lancer, puis l'état
           // de la tâche, doivent rester sous les yeux une fois le tour fini.
-          if (innerKind !== "todos" && innerKind !== "widget" && innerKind !== "specialist_proposal" && innerKind !== "memory_proposal" && innerKind !== "compute_job" && !needsAttention && !agentActivity) continue;
+          // Un message de pilotage (steer) entre dans le tour en cours : c'est
+          // la parole de l'utilisateur, jamais un détail d'exécution. Avalé
+          // par le pli, il disparaissait dès la fin du tour.
+          if (innerKind !== "user" && innerKind !== "todos" && innerKind !== "widget" && innerKind !== "specialist_proposal" && innerKind !== "memory_proposal" && innerKind !== "compute_job" && !needsAttention && !agentActivity) continue;
           const innerTurn = turnByIndex.get(inner);
           rows.push({
             type: "event",
