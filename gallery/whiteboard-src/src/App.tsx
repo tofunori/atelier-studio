@@ -14,9 +14,15 @@ import 'tldraw/tldraw.css'
 
 const SAVE_DEBOUNCE_MS = 1000
 const POLL_MS = 1000
+const LOAD_RETRY_MS = 3000
+const SAVE_RETRY_MS = 5000
 
+// Garde anti-écrasement (audit du 2026-10-18, problème 6) : le tableau reste
+// en lecture seule et rien n'est enregistré avant un chargement réussi ;
+// chaque sauvegarde porte la version chargée (`base`) et le serveur refuse
+// (409) d'écraser un tableau changé ailleurs (autre fenêtre) depuis.
 export default function App() {
-  const [saveFailed, setSaveFailed] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const handleMount = useCallback((editor) => {
     let disposed = false
@@ -29,40 +35,77 @@ export default function App() {
     }
 
     // ---- 1. Initial load ----
-    fetch('/board/load')
-      .then((r) => r.json())
-      .then((data) => {
-        if (disposed) return
-        if (data && data.snapshot) {
-          try {
-            loadSnapshot(editor.store, data.snapshot)
-          } catch (e) {
-            console.warn('load_snapshot failed', e)
+    let loaded = false
+    let baseVersion: string | null = null
+    let conflict = false
+    editor.updateInstanceState({ isReadonly: true })
+    const load = () => {
+      fetch('/board/load')
+        .then((r) => {
+          if (!r.ok) throw new Error('bad status ' + r.status)
+          return r.json()
+        })
+        .then((data) => {
+          if (disposed) return
+          if (!data || !('snapshot' in data)) throw new Error('réponse sans snapshot')
+          if (data.snapshot) {
+            try {
+              loadSnapshot(editor.store, data.snapshot)
+            } catch (e) {
+              // illisible pour tldraw : on n'écrase pas le fichier avec un
+              // tableau vide, il reste en lecture seule
+              console.warn('load_snapshot failed', e)
+              setNotice('Tableau illisible : rien ne sera enregistré par-dessus.')
+              return
+            }
           }
-        }
-      })
-      .catch((e) => console.warn('board/load failed', e))
+          baseVersion = typeof data.version === 'string' ? data.version : null
+          loaded = true
+          editor.updateInstanceState({ isReadonly: false })
+          setNotice(null)
+        })
+        .catch((e) => {
+          if (disposed) return
+          console.warn('board/load failed', e)
+          setNotice('Tableau non chargé — nouvel essai…')
+          setTimeout(load, LOAD_RETRY_MS)
+        })
+    }
+    load()
 
     // ---- 2. Autosave (debounced) ----
     let saveTimer = null
+    const saveBody = () => JSON.stringify(baseVersion == null
+      ? { snapshot: getSnapshot(editor.store) }
+      : { snapshot: getSnapshot(editor.store), base: baseVersion })
     const doSave = () => {
-      const snapshot = getSnapshot(editor.store)
+      saveTimer = null
+      if (!loaded || conflict) return
       fetch('/board/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ snapshot }),
+        body: saveBody(),
       })
-        .then((r) => {
+        .then(async (r) => {
+          const data = await r.json().catch(() => null)
+          if (r.status === 409) {
+            conflict = true
+            setNotice('Le tableau a changé dans une autre fenêtre : ces modifications ne sont pas enregistrées. Recharge pour reprendre.')
+            return
+          }
           if (!r.ok) throw new Error('bad status ' + r.status)
-          setSaveFailed(false)
+          if (data && typeof data.version === 'string') baseVersion = data.version
+          setNotice(null)
         })
         .catch((e) => {
           console.warn('board/save failed', e)
-          setSaveFailed(true)
+          setNotice('Tableau non enregistré — nouvel essai…')
+          if (!saveTimer) saveTimer = setTimeout(doSave, SAVE_RETRY_MS)
         })
     }
     const unlisten = editor.store.listen(
       () => {
+        if (!loaded) return
         if (saveTimer) clearTimeout(saveTimer)
         saveTimer = setTimeout(doSave, SAVE_DEBOUNCE_MS)
       },
@@ -74,8 +117,8 @@ export default function App() {
       if (!saveTimer) return
       clearTimeout(saveTimer)
       saveTimer = null
-      const body = JSON.stringify({ snapshot: getSnapshot(editor.store) })
-      navigator.sendBeacon('/board/save', new Blob([body], { type: 'application/json' }))
+      if (!loaded || conflict) return
+      navigator.sendBeacon('/board/save', new Blob([saveBody()], { type: 'application/json' }))
     }
     window.addEventListener('pagehide', flushOnHide)
     document.addEventListener('visibilitychange', () => {
@@ -279,7 +322,7 @@ export default function App() {
   return (
     <div style={{ position: 'fixed', inset: 0 }}>
       <Tldraw onMount={handleMount} />
-      {saveFailed && (
+      {notice && (
         <div
           style={{
             position: 'fixed',
@@ -296,7 +339,7 @@ export default function App() {
             pointerEvents: 'none',
           }}
         >
-          save failed — will retry
+          {notice}
         </div>
       )}
     </div>

@@ -33,13 +33,16 @@ export interface LatexAnnotationsOptions {
   /** Prévenu à chaque mutation du jeu (chargement, ajout, édition, retrait) —
    *  la vue Lecture s'en sert pour rafraîchir ses surlignages. */
   onMutated?(): void;
+  /** Échec à signaler hors du popover (chargement des commentaires raté). */
+  onError?(message: string): void;
   document?: Document;
   window?: Window;
 }
 
 export interface LatexAnnotationsController {
   bind(): void;
-  load(): Promise<void>;
+  /** `true` quand la liste du serveur est chargée (seule base d'écriture). */
+  load(): Promise<boolean>;
   open(selection: LatexAnnotationSelection): void;
   highlight(selection: LatexAnnotationSelection, color: string): void;
   anchorAll(): void;
@@ -144,19 +147,29 @@ export function createLatexAnnotationsController(
   let reanchorTimer: number | null = null;
   let deleteArmTimer: number | null = null;
   let bound = false;
-  let localMutation = 0;
+  // Garde anti-écrasement, comme le lecteur PDF (ANNOTS_LOADED, KNOWN_IDS) :
+  // aucune écriture avant un chargement réussi, et chaque écriture dit au
+  // serveur ce que l'éditeur a vu (`known`) pour qu'il garde le reste au
+  // lieu de remplacer la liste stockée (audit 2026-10-18, problème 6).
+  let loaded = false;
+  let loading: Promise<boolean> | null = null;
+  const knownIds = new Set<string>();
+  const LOAD_FAILED = "Commentaires non chargés : rien n'est enregistré tant que la liste n'est pas relue. Ta note reste disponible.";
 
   const editor = (): AnnotationEditor | null => options.getEditor();
   let saveQueue: Promise<boolean> = Promise.resolve(true);
   const save = (): Promise<boolean> => {
-    localMutation += 1;
-    const body = JSON.stringify({rel:relation, annots:all});
     options.onMutated?.();
     saveQueue = saveQueue.then(async () => {
+      if (!(await ensureLoaded())) { noteUI.status.textContent = LOAD_FAILED; return false; }
+      // instantané pris au tour de la file : l'état le plus récent part
+      const sent = all.map((annotation) => ({...annotation}));
+      const body = JSON.stringify({rel:relation, annots:sent, known:[...knownIds]});
       try {
         const response=await win.fetch("/pdfannot",{method:"POST",headers:{"Content-Type":"application/json"},body});
         const result=await response.json();
         if(!response.ok || result.error) throw new Error("save failed");
+        sent.forEach((annotation) => knownIds.add(String(annotation.id)));
         return true;
       } catch {noteUI.status.textContent="Enregistrement impossible. Ta note reste disponible.";return false;}
     });
@@ -409,22 +422,41 @@ export function createLatexAnnotationsController(
     }
   });
 
-  const load = async (): Promise<void> => {
-    const mutationAtStart = localMutation;
+  const load = async (): Promise<boolean> => {
     try {
       const response = await win.fetch(`/pdfannot?rel=${encodeURIComponent(relation)}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json() as {annots?: LatexAnnotation[]};
-      if (localMutation !== mutationAtStart) return;
-      all = Array.isArray(payload.annots) ? payload.annots : [];
-      anchorAll();
-      options.onMutated?.();
-    } catch { /* annotations remain optional */ }
+      if (!Array.isArray(payload.annots)) throw new Error("réponse sans annots");
+      const server = payload.annots;
+      const serverIds = new Set(server.map((annotation) => String(annotation.id)));
+      // posé ici avant la fin du chargement : gardé, il partira à la
+      // prochaine écriture (jamais jeté, jamais à la place du stock)
+      const localOnly = all.filter((annotation) => !serverIds.has(String(annotation.id)) && !knownIds.has(String(annotation.id)));
+      for (const annotation of all) clearMark(annotation.id);
+      all = [...server, ...localOnly];
+      serverIds.forEach((id) => knownIds.add(id));
+      loaded = true;
+    } catch {
+      options.onError?.(LOAD_FAILED);
+      return false;
+    }
+    // hors du try : un ancrage qui échoue n'annule pas un chargement réussi
+    try { anchorAll(); } catch { /* ancrage repris au prochain passage */ }
+    options.onMutated?.();
+    return true;
   };
+  // Relance le chargement au besoin (comme ensureLoaded de l'éditeur Markdown).
+  function ensureLoaded(): Promise<boolean> {
+    if (loaded) return Promise.resolve(true);
+    loading ??= load().finally(() => { loading = null; });
+    return loading;
+  }
   const bind = (): void => {
     const activeEditor = editor();
     if (bound || !activeEditor) return;
     bound = true;
-    void load();
+    void ensureLoaded();
     activeEditor.on("change", (...args: unknown[]) => {
       const change = args[1] as {origin?: string} | undefined;
       if (reanchorTimer !== null) win.clearTimeout(reanchorTimer);
@@ -453,7 +485,7 @@ export function createLatexAnnotationsController(
       all.push(annotation);mark(annotation);void save();
     },
     bind,
-    load,
+    load: ensureLoaded,
     open,
     focus,
     anchorAll,

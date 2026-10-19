@@ -300,6 +300,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       button: doc.getElementById("texcBtn") as HTMLElement,
       postToHost: dependencies.postToHost,
       onMutated: () => reader?.refreshAnnotations(),
+      onError: (message) => showStickyNotice("err", message),
       document: doc,
       window: win,
     });

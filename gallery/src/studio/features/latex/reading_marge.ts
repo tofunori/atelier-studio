@@ -145,7 +145,7 @@ export interface LatexReadingMargeOptions {
 export interface LatexReadingMargeController {
   /** Reconstruit le rail à partir du fichier et des couleurs. */
   paint(): void;
-  load(): Promise<void>;
+  load(): Promise<boolean>;
   marks(): readonly SectionMark[];
 }
 
@@ -168,12 +168,27 @@ export function createLatexReadingMarge(
   let showAll = false;
   let rows: Array<{line: number; button: HTMLElement}> = [];
 
+  // Garde anti-écrasement (audit 2026-10-18, problème 6) : jamais d'écriture
+  // avant un chargement réussi, et `known` pour que le serveur garde ce que
+  // la marge n'a pas vu au lieu de remplacer la liste stockée.
+  let loaded = false;
+  const knownIds = new Set<string>();
+  // sections recolorées avant la fin du chargement : leur choix l'emporte
+  const touchedBeforeLoad = new Set<string>();
+  let saveQueue: Promise<void> = Promise.resolve();
   const save = (): void => {
-    void win.fetch("/pdfannot", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({rel: relation, annots: all}),
-    }).catch(() => { /* la couleur vaut au moins pour la session */ });
+    saveQueue = saveQueue.then(async () => {
+      if (!loaded && !(await load())) return; // la couleur vaut pour la session
+      const sent = all.map((mark) => ({...mark}));
+      try {
+        const response = await win.fetch("/pdfannot", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({rel: relation, annots: sent, known: [...knownIds]}),
+        });
+        if (response.ok) sent.forEach((mark) => knownIds.add(String(mark.id)));
+      } catch { /* la couleur vaut au moins pour la session */ }
+    });
   };
 
   // ---- palette d'une section : cinq teintes et « aucune » -----------------
@@ -194,6 +209,7 @@ export function createLatexReadingMarge(
     if (!target) return;
     const title = target.title;
     const line = target.line;
+    if (!loaded) touchedBeforeLoad.add(title);
     // Une seule couleur par section : reposer ou effacer remplace, n'empile pas.
     all = all.filter((mark) => margeLabel(mark.text) !== title);
     if (color !== MARGE_NO_COLOR) {
@@ -368,15 +384,22 @@ export function createLatexReadingMarge(
     here();
   };
 
-  const load = async (): Promise<void> => {
+  const load = async (): Promise<boolean> => {
+    if (loaded) return true;
     try {
       const response = await win.fetch(`/pdfannot?rel=${encodeURIComponent(relation)}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json() as {annots?: SectionMark[]};
-      all = Array.isArray(payload.annots)
-        ? payload.annots.filter((mark) => mark && typeof mark.text === "string" && mark.color)
-        : [];
+      if (!Array.isArray(payload.annots)) throw new Error("réponse sans annots");
+      if (loaded) return true; // un chargement concurrent a déjà fusionné
+      payload.annots.forEach((mark) => { if (mark && mark.id != null) knownIds.add(String(mark.id)); });
+      const server = payload.annots.filter((mark) => mark && typeof mark.text === "string" && mark.color);
+      all = [...server.filter((mark) => !touchedBeforeLoad.has(margeLabel(mark.text))), ...all];
+      touchedBeforeLoad.clear();
+      loaded = true;
       paint();
-    } catch { /* les couleurs restent optionnelles */ }
+      return true;
+    } catch { return false; /* les couleurs restent optionnelles */ }
   };
 
   options.scroller.addEventListener("scroll", () => {

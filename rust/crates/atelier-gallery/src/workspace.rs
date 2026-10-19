@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     collections::VecDeque,
     fs,
@@ -77,6 +78,39 @@ fn keep_previous(path: &Path) {
     }
 }
 
+/// Version d'un fichier de l'atelier (notes.md, tableau blanc) : empreinte
+/// du contenu, absent valant vide. L'éditeur la renvoie en `base` à chaque
+/// sauvegarde ; un écart veut dire qu'un autre écrivain (agent, autre
+/// fenêtre) a changé le fichier depuis le chargement (audit du 2026-10-18,
+/// problème 6).
+pub(crate) fn content_version(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().take(12).map(|b| format!("{b:02x}")).collect()
+}
+
+/// Contenu actuel du fichier, `None` si absent ; erreur d'E/S remontée.
+fn read_current(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// `Some(réponse 409)` quand `base` est donné et ne correspond plus au
+/// disque. Sans `base` (agents, scripts, anciens clients), pas de contrôle.
+fn stale_base(path: &Path, base: Option<&str>) -> Result<Option<Vec<u8>>, axum::response::Response> {
+    let Some(base) = base else { return Ok(None) };
+    let current = read_current(path)
+        .map_err(|error| json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .unwrap_or_default();
+    if content_version(&current) == base {
+        Ok(None)
+    } else {
+        Ok(Some(current))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Notes
 // ---------------------------------------------------------------------------
@@ -86,10 +120,12 @@ pub async fn notes_load(State(state): State<AppState>) -> impl IntoResponse {
     match tokio::fs::read(&path).await {
         Ok(bytes) => {
             let markdown = String::from_utf8_lossy(&bytes).into_owned();
-            (StatusCode::OK, Json(json!({"markdown": markdown}))).into_response()
+            let version = content_version(&bytes);
+            (StatusCode::OK, Json(json!({"markdown": markdown, "version": version}))).into_response()
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            (StatusCode::OK, Json(json!({"markdown": ""}))).into_response()
+            let version = content_version(b"");
+            (StatusCode::OK, Json(json!({"markdown": "", "version": version}))).into_response()
         }
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
@@ -98,6 +134,10 @@ pub async fn notes_load(State(state): State<AppState>) -> impl IntoResponse {
 #[derive(Deserialize)]
 pub struct NotesSaveBody {
     markdown: Value,
+    /// Version chargée par l'éditeur (`content_version`) ; absente = pas de
+    /// contrôle de conflit.
+    #[serde(default)]
+    base: Option<String>,
 }
 
 pub async fn notes_save(
@@ -120,9 +160,30 @@ pub async fn notes_save(
     };
     let path = state.root.join("notes.md");
     let _guard = state.workspace_lock.lock().await;
+    match stale_base(&path, body.base.as_deref()) {
+        Err(response) => return response,
+        Ok(Some(current)) => {
+            // le fichier a changé depuis le chargement : rien n'est écrit,
+            // l'éditeur garde sa version et reçoit celle du disque
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "conflict",
+                    "markdown": String::from_utf8_lossy(&current),
+                    "version": content_version(&current),
+                })),
+            )
+                .into_response();
+        }
+        Ok(None) => {}
+    }
     keep_previous(&path);
     match atomic_write_text(&path, md) {
-        Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
+        Ok(()) => (
+            StatusCode::OK,
+            Json(json!({"ok": true, "version": content_version(md.as_bytes())})),
+        )
+            .into_response(),
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
 }
@@ -135,12 +196,18 @@ pub async fn board_load(State(state): State<AppState>) -> impl IntoResponse {
     let path = state.root.join(".fig_thumbs").join("board.tldr.json");
     match tokio::fs::read_to_string(&path).await {
         Ok(raw) => match serde_json::from_str::<Value>(&raw) {
-            Ok(snapshot) => (StatusCode::OK, Json(json!({"snapshot": snapshot}))).into_response(),
+            Ok(snapshot) => (
+                StatusCode::OK,
+                Json(json!({"snapshot": snapshot, "version": content_version(raw.as_bytes())})),
+            )
+                .into_response(),
             Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
         },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            (StatusCode::OK, Json(json!({"snapshot": null}))).into_response()
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (
+            StatusCode::OK,
+            Json(json!({"snapshot": null, "version": content_version(b"")})),
+        )
+            .into_response(),
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
 }
@@ -148,6 +215,9 @@ pub async fn board_load(State(state): State<AppState>) -> impl IntoResponse {
 #[derive(Deserialize)]
 pub struct BoardSaveBody {
     snapshot: Value,
+    /// Version chargée (`content_version`) ; absente = pas de contrôle.
+    #[serde(default)]
+    base: Option<String>,
 }
 
 pub async fn board_save(
@@ -174,6 +244,17 @@ pub async fn board_save(
     if let Err(error) = fs::create_dir_all(&dir) {
         return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string());
     }
+    match stale_base(&path, body.base.as_deref()) {
+        Err(response) => return response,
+        Ok(Some(current)) => {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({"error": "conflict", "version": content_version(&current)})),
+            )
+                .into_response();
+        }
+        Ok(None) => {}
+    }
     keep_previous(&path);
     // Python: json.dump without indent — compact is fine for parity of content.
     let payload = match serde_json::to_vec(&body.snapshot) {
@@ -181,7 +262,11 @@ pub async fn board_save(
         Err(error) => return json_error(StatusCode::BAD_REQUEST, error.to_string()),
     };
     match atomic_write(&path, &payload) {
-        Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
+        Ok(()) => (
+            StatusCode::OK,
+            Json(json!({"ok": true, "version": content_version(&payload)})),
+        )
+            .into_response(),
         Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     }
 }

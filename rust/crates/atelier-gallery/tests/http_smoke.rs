@@ -354,6 +354,48 @@ fn notes_roundtrip() {
     assert!(body.contains("hello smoke"));
 }
 
+/// Audit du 2026-10-18, problème 6 : l'onglet Notes et le tableau blanc
+/// envoient la version chargée ; un fichier changé depuis par un autre
+/// écrivain n'est jamais écrasé (409, contenu du disque renvoyé).
+#[test]
+fn notes_and_board_refuse_a_stale_base() {
+    let srv = start_server();
+    let json = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    let (st, body) = http(srv.port, "GET", "/notes/load", None);
+    assert_eq!(st, 200, "{body}");
+    let base = json(&body)["version"].as_str().unwrap().to_string();
+    // un agent écrit notes.md pendant que l'onglet est ouvert
+    fs::write(srv.root.join("notes.md"), "# notes\n\nparagraphe de l'agent\n").unwrap();
+    let stale = format!(r#"{{"markdown":"tapé dans l'onglet","base":"{base}"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&stale));
+    assert_eq!(st, 409, "{body}");
+    assert!(json(&body)["markdown"].as_str().unwrap().contains("paragraphe de l'agent"));
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md")).unwrap(),
+        "# notes\n\nparagraphe de l'agent\n"
+    );
+    // version à jour : l'écriture passe et renvoie la nouvelle version
+    let fresh = json(&body)["version"].as_str().unwrap().to_string();
+    let ok = format!(r#"{{"markdown":"fusionné","base":"{fresh}"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&ok));
+    assert_eq!(st, 200, "{body}");
+    let (_, loaded) = http(srv.port, "GET", "/notes/load", None);
+    assert_eq!(json(&body)["version"], json(&loaded)["version"]);
+    // sans base (agents, scripts) : comportement inchangé
+    let (st, _) = http(srv.port, "POST", "/notes/save", Some(r#"{"markdown":"libre"}"#));
+    assert_eq!(st, 200);
+
+    let (_, body) = http(srv.port, "GET", "/board/load", None);
+    let board_base = json(&body)["version"].as_str().unwrap().to_string();
+    let first = format!(r#"{{"snapshot":{{"a":1}},"base":"{board_base}"}}"#);
+    let (st, body) = http(srv.port, "POST", "/board/save", Some(&first));
+    assert_eq!(st, 200, "{body}");
+    let (st, body) = http(srv.port, "POST", "/board/save", Some(&first));
+    assert_eq!(st, 409, "une seconde fenêtre sur l'ancienne base : {body}");
+    let (_, loaded) = http(srv.port, "GET", "/board/load", None);
+    assert_eq!(json(&loaded)["snapshot"]["a"], 1);
+}
+
 #[test]
 fn zotero_annotations_migrate_to_shared_store_without_reappearing_after_delete() {
     let app_dir = tempfile::tempdir().unwrap();
