@@ -3953,7 +3953,7 @@ mod tests {
         let kept = std::path::PathBuf::from(reverted["setAsideTo"].as_str().expect("setAsideTo"));
         assert_eq!(std::fs::read_to_string(kept.join("note.txt")).unwrap(), "Thierry a corrigé\n");
         // Ne pas laisser de trace dans la vraie Corbeille de la machine de test.
-        if !kept.starts_with(&project) {
+        if !kept.canonicalize().unwrap_or(kept.clone()).starts_with(project.canonicalize().unwrap_or(project.clone())) {
             let _ = std::fs::remove_dir_all(&kept);
         }
     }

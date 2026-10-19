@@ -1704,7 +1704,10 @@ mod tests {
         let gardé = revert_file_with_trash(&root, "sorties/", Some(&dir.path().join("pas-de-corbeille")))
             .unwrap()
             .unwrap();
-        assert!(gardé.starts_with(dir.path().join(".git/atelier-trash")), "{gardé:?}");
+        // macOS : le tempdir /var/… est un lien vers /private/var/…, et le
+        // chemin rendu est canonique.
+        let racine = dir.path().canonicalize().unwrap();
+        assert!(gardé.canonicalize().unwrap().starts_with(racine.join(".git/atelier-trash")), "{gardé:?}");
         assert_eq!(std::fs::read(gardé.join("run.nc")).unwrap(), b"netcdf");
         let st = status(&root).unwrap();
         assert!(st.files.is_empty(), "{:?}", st.files);
