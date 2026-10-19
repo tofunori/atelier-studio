@@ -8,6 +8,7 @@ mod acp_rpc;
 mod api;
 mod claude;
 mod cli_login;
+mod claude_history;
 mod claude_parse;
 mod claude_permissions;
 mod codex;
@@ -31,6 +32,7 @@ pub use api::{
     load_api_configs, load_api_provider_list, parse_sse_chunk, write_api_configs, ApiChatProvider, ApiProviderConfig,
 };
 pub use claude::ClaudeProvider;
+pub use claude_history::{claude_subagent_events, load_claude_subagent_history};
 pub use claude_parse::{parse_line, parse_message, ClaudeStreamState};
 pub use claude_permissions::interaction_spec as claude_interaction_spec;
 pub use codex::CodexProvider;

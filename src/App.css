@@ -282,6 +282,60 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .agent-state-icon[data-agent-status="working"] { animation: agent-working-spin 1.4s linear infinite; }
 @keyframes agent-working-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .agent-state-icon[data-agent-status="working"] { animation: none; } .agent-row { transition: none; } }
+/* Sous-agent lu à la place du chat (2026-10-19) : couvre le fil et le
+   compositeur, restés montés dessous pour garder la position de lecture. */
+.subagent-view { position: absolute; inset: 0; z-index: 70; display: flex; flex-direction: column;
+  background: var(--bg); color: var(--text-primary); animation: subagent-view-in var(--motion-fast) ease-out; }
+@keyframes subagent-view-in { from { opacity: 0; } to { opacity: 1; } }
+.subagent-view-header { flex: 0 0 var(--surface-header-height); display: flex; align-items: center; gap: 8px;
+  min-width: 0; padding: 0 16px 0 12px; border-bottom: 1px solid var(--border-subtle); }
+.subagent-crumb { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0;
+  font-size: var(--fs-l); line-height: 1.3; white-space: nowrap; }
+.subagent-crumb-thread { flex: 0 1 auto; min-width: 40px; max-width: 40%; overflow: hidden; text-overflow: ellipsis;
+  padding: 4px 4px; border-radius: var(--radius-control); color: var(--text-muted);
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease; }
+.subagent-crumb-thread:hover, .subagent-crumb-thread.ui-rowbtn:focus-visible { outline: none; color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
+.subagent-crumb-sep { display: inline-flex; flex: none; color: var(--text-disabled); }
+.subagent-crumb-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-primary); font-weight: 600; letter-spacing: -0.01em; padding-left: 4px; }
+.subagent-crumb-type { flex: none; margin-left: 4px; color: var(--text-disabled); font-size: var(--fs-m); }
+.subagent-view-state { flex: none; display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted);
+  white-space: nowrap; }
+.subagent-view-state .tool-status { display: inline-flex; width: 12px; height: 12px; }
+.subagent-view[data-agent-status="failed"] .subagent-view-state { color: var(--status-error); }
+.subagent-view-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.subagent-view-body { width: var(--chat-col); margin: 0 auto; padding: 20px 0 24px; display: flex; flex-direction: column; gap: 8px; }
+.subagent-mission { margin-bottom: 8px; padding: 12px 16px; border-radius: var(--radius-surface); background: var(--surface-inset); }
+.subagent-mission-label { margin-bottom: 4px; color: var(--text-muted); font-size: var(--fs-s); }
+.subagent-mission-text { color: var(--text-secondary); font-size: var(--fs-m); line-height: 1.5; white-space: pre-wrap;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.subagent-prose.is-error { color: var(--status-error); }
+.subagent-view-empty { color: var(--text-muted); font-size: var(--fs-m); }
+.subagent-view-foot { flex: 0 0 40px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  border-top: 1px solid var(--border-subtle); color: var(--text-disabled); font-size: var(--fs-s); }
+.subagent-view-foot kbd { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: var(--radius-control);
+  background: var(--surface-inset); color: var(--text-muted); font: inherit; font-size: var(--fs-xs); }
+@media (prefers-reduced-motion: reduce) { .subagent-view { animation: none; } .subagent-crumb-thread { transition: none; } }
+/* Bouton « Sous-agents » de l'en-tête et son menu (modèle commun des menus). */
+.chat-subagents-trigger { gap: 6px; color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.chat-subagents-trigger[data-running] { color: var(--text-secondary); }
+.chat-subagents-trigger svg { width: 15px; height: 15px; }
+.subagents-menu { width: min(440px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
+.subagents-menu-head { display: inline-flex; align-items: center; gap: 8px; }
+.subagents-menu-count { color: var(--text-disabled); font-variant-numeric: tabular-nums; }
+.subagents-mi { display: grid; grid-template-columns: 15px minmax(0, 1fr) 64px 12px; align-items: center; column-gap: 8px;
+  width: 100%; min-width: 0; white-space: nowrap; color: var(--text-secondary); }
+.subagents-mi-icon { display: inline-flex; color: var(--text-disabled); }
+.subagents-mi-icon svg { width: 15px; height: 15px; }
+.subagents-mi-text { display: flex; min-width: 0; }
+.subagents-mi-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.subagents-mi-type { flex: none; margin-left: 8px; color: var(--text-disabled); }
+.subagents-mi .tool-duration { justify-self: end; color: var(--text-disabled); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.subagents-mi .tool-status { display: inline-flex; width: 12px; height: 12px; color: var(--text-disabled); }
+.subagents-mi[data-agent-status="working"] .subagents-mi-title { color: var(--text-primary); }
+.subagents-mi[data-agent-status="working"] :is(.tool-duration, .tool-status) { color: var(--text-muted); }
+.subagents-mi[data-agent-status="failed"] :is(.tool-duration, .tool-status) { color: var(--status-error); }
 .agent-detail-panel { flex: 0 0 clamp(320px, 31vw, 470px); min-width: 0; height: 100%;
   display: flex; flex-direction: column; border-left: var(--gutter) solid var(--surface-canvas);
   background: var(--bg); color: var(--text-secondary); }
@@ -406,10 +460,6 @@ button.kernel-file:hover { color: var(--text-primary); }
 .kernel-selection button[aria-label="Annoter"] { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .kernel-dot, .kernel-copy, .kernel-code, .kernel-vars-head svg { transition: none; animation: none; }
-}
-@media (max-width: 900px) {
-  .agent-detail-panel:not(.agent-detail-embedded) { position: absolute; inset: 0 0 0 auto; z-index: 70; width: min(420px, 86%);
-    box-shadow: -16px 0 40px color-mix(in srgb, #000 28%, transparent); }
 }
 .empty { color: var(--text-muted); padding-top: 24px; }
 .empty-card { width: min(360px, 100%); margin: auto; border: 1px solid var(--border);

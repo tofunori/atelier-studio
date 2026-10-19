@@ -158,7 +158,7 @@ export function agentWithTranscriptState(agent: AgentDisplay, events: AgentEvent
   return agent;
 }
 
-function opaqueAgentText(text: string | null | undefined): boolean {
+export function opaqueAgentText(text: string | null | undefined): boolean {
   return /\bgAAAAA[A-Za-z0-9_-]{24,}/u.test(text ?? "");
 }
 
@@ -216,6 +216,14 @@ function wrappedCommandDisplay(command: string): { name: string; detail: string;
   return { name: "command", detail: command, input: { command } };
 }
 
+/** Outil d'un enfant Codex lisible comme une action du fil : le wrapper
+ * `functions.exec` cède la place à la commande qu'il porte. */
+export function readableAgentTool<T extends Extract<AgentEvent, { kind: "tool" | "tool_update" }>>(event: T): T {
+  if (!/^(?:functions\.)?exec$/u.test(event.name)) return event;
+  const command = wrappedExecCommand(event);
+  return command ? { ...event, ...wrappedCommandDisplay(command) } : event;
+}
+
 function agentToolLabel(event: Extract<AgentEvent, { kind: "tool" | "tool_update" }>): string {
   if (/^(?:functions\.)?exec$/u.test(event.name)) {
     const command = wrappedExecCommand(event);
@@ -239,7 +247,7 @@ function AgentStateIcon({status}: {status: AgentDisplay["status"]}) {
 
 /** Glyphe d'un sous-agent dans sa rangée (étincelle trait fin, même gabarit
  * que les icônes d'outil) ; l'en-tête du groupe garde le glyphe « agent ». */
-function AgentRowGlyph() {
+export function AgentRowGlyph() {
   return <svg width={15} height={15} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.35}
     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M8 2.4c.4 3.2 2.1 5 5.6 5.6-3.5.6-5.2 2.4-5.6 5.6-.4-3.2-2.1-5-5.6-5.6 3.5-.6 5.2-2.4 5.6-5.6z" />
@@ -247,13 +255,13 @@ function AgentRowGlyph() {
 }
 
 /** Titre d'une rangée : la mission quand l'agent en donne une, sinon son nom. */
-function agentTitle(agent: AgentDisplay): string {
+export function agentTitle(agent: AgentDisplay): string {
   return agent.description || agent.displayName;
 }
 
 /** Colonne de durée : chrono pendant le travail, mot court sur un échec ou
  * une interruption (comme « exit N » des commandes), durée posée sinon. */
-function agentDuration(agent: AgentDisplay): ReactNode {
+export function agentDuration(agent: AgentDisplay): ReactNode {
   if (agent.status === "working") {
     return agent.startTs != null ? <LiveClock since={agent.startTs} className="tool-duration" /> : <span className="tool-duration" />;
   }
@@ -333,7 +341,7 @@ export function AgentActivityGroup({actions, onOpenAgent, eventsByThreadId}: {
   </section>;
 }
 
-function currentAgentActivity(agent: AgentDisplay, events: AgentEvent[], toolsOnly = false): string {
+export function currentAgentActivity(agent: AgentDisplay, events: AgentEvent[], toolsOnly = false): string {
   // A resumed child must not show the previous turn's last command or report.
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
@@ -364,22 +372,11 @@ function statusLabel(agent: AgentDisplay) {
   return t("chat.subagent-failed");
 }
 
-export function AgentDetailPanel({
-  agent,
-  onClose,
-  embedded = false,
-  events = [],
-}: {
-  agent: AgentDisplay;
-  onClose: () => void;
-  /** Rendu comme contenu d'un onglet Atelier, plutôt que tiroir du chat. */
-  embedded?: boolean;
-  /** Transcript du rollout enfant, demandé séparément du thread parent. */
-  events?: AgentEvent[];
-}) {
-  const transcript = events.filter((event): event is TranscriptEvent => {
-    // Outils de l'enfant : on les montre, sauf ses propres appels collab
-    // (préfixe `agent:`) — pas de chips imbriquées dans le panneau.
+/** Événements d'un sous-agent montrés à l'écran, dans l'ordre : prose,
+ * pensée et outils, sans ses propres appels collab (préfixe `agent:`) ni les
+ * blobs chiffrés de Codex. */
+export function subagentTranscript(events: AgentEvent[]): TranscriptEvent[] {
+  return events.filter((event): event is TranscriptEvent => {
     if (event.kind === "tool" || event.kind === "tool_update") {
       return !/^(?:agent:|(?:functions\.)?collaboration[.:])/u.test(event.name)
         && !opaqueAgentText(event.detail)
@@ -393,6 +390,22 @@ export function AgentDetailPanel({
       || event.kind === "thinking_live"
       || event.kind === "error";
   });
+}
+
+export function AgentDetailPanel({
+  agent,
+  onClose,
+  embedded = false,
+  events = [],
+}: {
+  agent: AgentDisplay;
+  onClose: () => void;
+  /** Rendu comme contenu d'un onglet Atelier, plutôt que tiroir du chat. */
+  embedded?: boolean;
+  /** Transcript du rollout enfant, demandé séparément du thread parent. */
+  events?: AgentEvent[];
+}) {
+  const transcript = subagentTranscript(events);
   const plugins = useMdPlugins();
   const prose = transcript.filter(event => event.kind === "text" || event.kind === "streaming" || event.kind === "error");
   const activity = transcript.filter(event => event.kind === "tool" || event.kind === "tool_update" || event.kind === "thinking" || event.kind === "thinking_live");

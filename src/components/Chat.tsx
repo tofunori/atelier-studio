@@ -30,10 +30,10 @@ import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
 import { QueuedTurns } from "./chat/QueuedTurns";
 import {
-  AgentDetailPanel,
   agentsFromActions, agentWithTranscriptState, isAgentActivityAction,
   type AgentDisplay,
 } from "./chat/AgentActivity";
+import { SubagentView } from "./chat/SubagentView";
 import { mentionLabel } from "./chat/mentions";
 import { modelDisplayLabel } from "../lib/modelCatalog";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
@@ -217,12 +217,11 @@ export default function Chat(p: {
   ) => void;
 }) {
   const headerHost = useChatHeaderHost();
-  const [localSelectedAgent, setLocalSelectedAgent] = useState<AgentDisplay | null>(null);
-  const localCurrentAgent = localSelectedAgent ? agentWithTranscriptState(
-    agentsFromActions(p.events.filter(isAgentActivityAction)).find(agent => agent.threadId === localSelectedAgent.threadId) ?? localSelectedAgent,
-    p.eventsByThreadId?.get(localSelectedAgent.threadId) ?? [],
-  ) : null;
-  const openAgent = p.onOpenAgent ?? setLocalSelectedAgent;
+  // Sous-agent lu à la place du chat (fil d'Ariane, Échap pour revenir) ; le
+  // fil reste monté dessous et garde sa position de défilement.
+  const [viewedAgentId, setViewedAgentId] = useState<string | null>(null);
+  useEffect(() => setViewedAgentId(null), [p.threadId]);
+  const openAgent = p.onOpenAgent ?? ((agent: AgentDisplay) => setViewedAgentId(agent.threadId));
   const [localText, setLocalText] = useState("");
   const sourcedText = usePromptText(p.draftSource);
   const text = p.draftSource ? sourcedText : (p.draftText ?? localText);
@@ -873,6 +872,22 @@ export default function Chat(p: {
     [p.events, p.workingSince],
   );
 
+  // Tous les sous-agents du fil, par tour, du plus récent au plus ancien :
+  // le menu de l'en-tête et la vue d'un agent lisent la même liste.
+  const threadSubagents = React.useMemo(() => {
+    const latestTurnKey = turnViewModels[turnViewModels.length - 1]?.key ?? null;
+    return turnViewModels.flatMap((turn) => {
+      const actions = p.events.slice(turn.startIndex, turn.endIndex).filter(isAgentActivityAction);
+      if (!actions.length) return [];
+      return agentsFromActions(actions).map((agent) => ({
+        agent: agentWithTranscriptState(agent, p.eventsByThreadId?.get(agent.threadId) ?? []),
+        latestTurn: turn.key === latestTurnKey,
+      }));
+    }).reverse().sort((a, b) => Number(b.latestTurn) - Number(a.latestTurn)
+      || (b.agent.startTs ?? 0) - (a.agent.startTs ?? 0));
+  }, [p.events, p.eventsByThreadId, turnViewModels]);
+  const viewedAgent = viewedAgentId ? threadSubagents.find((entry) => entry.agent.threadId === viewedAgentId)?.agent ?? null : null;
+
   const { mergedEdits, editTurns } = React.useMemo(() => {
     const merged = new Map<number, EditEvent>();
     const turnsWithEdits = new Set<number>();
@@ -1095,12 +1110,14 @@ export default function Chat(p: {
           onTranscriptViewChange={p.onTranscriptViewChange}
           consigneDuFil={p.consigneDuFil ?? null}
           consignes={p.defaults.consignes ?? []}
+          subagents={threadSubagents}
+          onOpenSubagent={openAgent}
         />
   ) : null;
 
   return (
     <MdThreadContext.Provider value={p.threadId ?? null}>
-    <div className={`chat ${localSelectedAgent ? "with-agent-detail" : ""}`}>
+    <div className="chat">
       <div className="chat-primary">
       {!p.threadId && p.notice && <div className="chat-notice-home"><ChatNotice notice={p.notice}/></div>}
       {p.headerInTopBar ? (headerHost && createPortal(chatHeader, headerHost)) : chatHeader}
@@ -1245,10 +1262,14 @@ export default function Chat(p: {
           </div>
         </div>
       )}
+      {viewedAgent ? <SubagentView agent={viewedAgent}
+        events={p.eventsByThreadId?.get(viewedAgent.threadId) ?? []}
+        threadTitle={p.threadTitle || t("app.new-chat-title")}
+        onClose={() => setViewedAgentId(null)}
+        renderToolLine={renderToolLine} plugins={p.plugins ?? []} threadId={p.threadId}
+        hideThinking={p.defaults.transcriptView === "resume"}
+        thinkingCollapsed={p.defaults.transcriptView !== "reflexion" && p.defaults.transcriptView !== "detaille"} /> : null}
       </div>
-      {!p.onOpenAgent && localSelectedAgent && localCurrentAgent ? <AgentDetailPanel agent={localCurrentAgent}
-        events={p.eventsByThreadId?.get(localSelectedAgent.threadId) ?? []}
-        onClose={() => setLocalSelectedAgent(null)} /> : null}
     </div>
     </MdThreadContext.Provider>
   );

@@ -99,7 +99,8 @@ async function openAgentPane(sock: FakeWS) {
   await push(sock, { type: "event", threadId: THREAD_A.id, event: events.started() });
   await push(sock, { type: "event", threadId: THREAD_A.id, event: agentRunAction(Date.now()) });
   // depuis df9505b6, la chip a cédé la place à une rangée (.agent-row) sous un
-  // pli de groupe, ouvert tant qu'un sous-agent travaille
+  // pli de groupe, ouvert tant qu'un sous-agent travaille ; son clic ouvre la
+  // vue du sous-agent à la place du chat
   const opener = document.querySelector(".agent-row");
   expect(opener, "rangée d'ouverture du panneau agent (.agent-row)").toBeTruthy();
   await act(async () => {
@@ -142,30 +143,29 @@ describe("polling getAgentHistory", () => {
     vi.useRealTimers();
   });
 
-  it("affiche le panneau dès le premier clic et le réactive après la galerie", async () => {
+  it("ouvre la vue du sous-agent à la place du chat, Échap y ramène", async () => {
     const { sock } = await mountApp();
     await openAgentPane(sock);
-    expect(document.querySelector(".agent-detail-panel")).toBeVisible();
+    const view = () => document.querySelector('[data-testid="subagent-view"]');
+    expect(view()).toBeVisible();
+    expect(view()).toHaveTextContent("trace la figure");
     await act(async () => {
-      window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: "atelier" } }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
       await flushMicrotasks(4);
     });
-    expect(document.querySelector(".agent-detail-panel")).not.toBeVisible();
-    await act(async () => {
-      (document.querySelector(".agent-row") as HTMLButtonElement).click();
-      await flushMicrotasks(4);
-    });
-    expect(document.querySelector(".agent-detail-panel")).toBeVisible();
-    await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", code: "Digit1", metaKey: true }));
-      await flushMicrotasks(4);
-    });
-    expect(document.querySelector(".agent-detail-panel")).toBeNull();
+    expect(view()).toBeNull();
+    expect(document.querySelector(".agent-row")).toBeTruthy();
     await act(async () => {
       (document.querySelector(".agent-row") as HTMLButtonElement).click();
       await flushMicrotasks(4);
     });
-    expect(document.querySelector(".agent-detail-panel")).toBeVisible();
+    expect(view()).toBeVisible();
+    // le fil d'Ariane ramène aussi au chat
+    await act(async () => {
+      (document.querySelector(".subagent-crumb-thread") as HTMLButtonElement).click();
+      await flushMicrotasks(4);
+    });
+    expect(view()).toBeNull();
   });
 
   it("applique une révision à taille constante sans rematérialiser les doublons", async () => {
@@ -176,7 +176,7 @@ describe("polling getAgentHistory", () => {
     const first = harnessSpies.materialize.mock.calls.length;
     await push(sock, { ...message, revision: "completed", events: [{ kind: "text", text: "Résultat final" }] });
     expect(harnessSpies.materialize.mock.calls.length).toBe(first + 1);
-    expect(document.querySelector(".agent-transcript")).toHaveTextContent("Résultat final");
+    expect(document.querySelector('[data-testid="agent-transcript"]')).toHaveTextContent("Résultat final");
     await push(sock, { ...message, revision: "completed", events: [{ kind: "text", text: "Résultat final" }] });
     expect(harnessSpies.materialize.mock.calls.length).toBe(first + 1);
   });
@@ -189,10 +189,10 @@ describe("polling getAgentHistory", () => {
         { kind: "text", text: "Compte rendu de l'enfant" },
         { kind: "done", ok: true, result: "Compte rendu de l'enfant", ts: Date.now() + 1 },
       ] });
-    const panel = document.querySelector(".agent-detail-panel") as HTMLElement;
-    expect(panel).toBeVisible();
-    expect(panel).toHaveTextContent("Done");
-    expect(panel).not.toHaveTextContent("Working");
+    const view = document.querySelector('[data-testid="subagent-view"]') as HTMLElement;
+    expect(view).toBeVisible();
+    expect(view).toHaveAttribute("data-agent-status", "done");
+    expect(view).toHaveTextContent("Compte rendu de l'enfant");
   });
 
   it("interroge pendant le tour parent puis s'arrête au done", async () => {

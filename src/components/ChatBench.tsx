@@ -558,10 +558,34 @@ function claudeAgent(id: string, type: string, description: string, status: stri
     status: status === "running" ? "inProgress" : "completed", source: "claude",
     agentActivity: { tool: "activity", receiverThreadIds: [id], agentThreadId: id, agentPath: type, description, startedAt: ts(64),
       ...(status === "running" ? {} : { durationMs: (64 - offsetS) * 1000 }),
+      prompt: AGENT_PROMPTS[id],
       agentsStates: { [id]: { status, message: message ?? description } }, activityKind: status === "running" ? "started" : "notification" },
     ts: ts(offsetS),
   } as AgentEvent;
 }
+const AGENT_PROMPTS: Record<string, string> = {
+  fig: "Liste toutes les figures citées dans manuscrit/chapitre2.tex et vérifie que chaque fichier existe dans figures/ch2/ à la largeur de colonne (8,4 cm).",
+  meth: "Relis la section Méthode de manuscrit/chapitre2.tex. Repère les phrases ambiguës ou les étapes du traitement MODIS qui manquent, et propose une reformulation courte pour chacune.",
+  calc: "Recalcule l'albédo moyen de juin à août pour la région ouest avec analysis/albedo_jja.py et compare-le à la valeur du tableau 2.3.",
+};
+// Transcripts des sous-agents (vue à la place du chat, 2026-10-19) : ce que
+// getAgentHistory relit du disque pour un agent Claude.
+const AGENT_TRANSCRIPTS = new Map<string, AgentEvent[]>([
+  ["meth", [
+    { kind: "thinking", text: "Je lis d'abord la section en entier pour repérer l'ordre des étapes.", ts: ts(62) } as AgentEvent,
+    tool("m-read", "Read", "manuscrit/chapitre2.tex", "lignes 120 à 310", 400, 60),
+    { ...tool("m-grep", "Grep", "MOD10A1|MCD43A3", "7 occurrences", 200, 56), input: { pattern: "MOD10A1|MCD43A3", path: "manuscrit" } } as AgentEvent,
+    { kind: "text", text: "La section décrit le filtrage des pixels nuageux mais ne dit pas quel seuil de qualité est retenu (QA ≤ 1 ou QA ≤ 2). La correction de pente est annoncée sans référence.", ts: ts(50) } as AgentEvent,
+    tool("m-read2", "Read", "analysis/masque_qa.py", "84 lignes", 300, 44),
+    { kind: "text", text: "Le script garde QA ≤ 1 : la phrase peut le dire explicitement. Je vérifie maintenant la troisième étape, l'agrégation journalière.", ts: ts(36) } as AgentEvent,
+    { ...tool("m-read3", "Read", "analysis/agregation.py", "", 0, 32), status: "running" } as AgentEvent,
+  ]],
+  ["fig", [
+    { ...tool("f-grep", "Grep", "includegraphics", "6 figures citées", 200, 62), input: { pattern: "includegraphics", path: "manuscrit/chapitre2.tex" } } as AgentEvent,
+    { ...tool("f-glob", "Glob", "figures/ch2/*.pdf", "6 fichiers", 100, 58), input: { pattern: "figures/ch2/*.pdf" } } as AgentEvent,
+    { kind: "text", text: "Six figures dans figures/ch2/. Deux dépassent la colonne : **fig2_3.pdf** (9,1 cm) et **fig2_5.pdf** (10,2 cm).", ts: ts(48) } as AgentEvent,
+  ]],
+]);
 const AGENTS_CLAUDE_START: AgentEvent[] = [
   { kind: "user", text: "Vérifie les figures du chapitre 2, relis la section Méthode et recalcule l'albédo moyen JJA.", ts: ts(70) } as AgentEvent,
   tool("sa-read", "Read", "manuscrit/chapitre2.tex", "412 lignes", 300, 68),
@@ -792,6 +816,7 @@ export function ChatBench() {
           }, 250);
         } : noop}
         onGoal={noop}
+        eventsByThreadId={key === "claudeagents" || key === "finagents" ? AGENT_TRANSCRIPTS : undefined}
       />
     </div>
   );
