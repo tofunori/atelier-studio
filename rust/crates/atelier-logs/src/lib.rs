@@ -13,7 +13,9 @@
 //!   stderr à l'enfant : un FICHIER, jamais un pipe, avec son chemin dans
 //!   [`LOG_FILE_ENV`]. Un serveur réutilisé par une autre instance de l'app
 //!   écrit donc toujours dans un fichier vivant ;
-//! - l'enfant appelle [`ServerLog::from_env`] : il reprend ce fichier pour
+//! - l'enfant appelle [`ServerLog::from_env`] : si son stderr est bien ce
+//!   fichier (la variable seule, héritée par les petits-enfants, ne suffit
+//!   pas), il le reprend pour
 //!   son fd 2 (et son fd 1 après sa ligne de démarrage), le fait tourner au
 //!   delà de [`Rotation::max_bytes`] en gardant [`Rotation::keep`] anciens
 //!   fichiers, et installe un panic hook qui y écrit la pile ;
@@ -508,6 +510,33 @@ fn dup_onto(file: &File, fd: i32) -> io::Result<()> {
     }
 }
 
+/// Vrai si le descripteur 2 du processus est le fichier `path` (même
+/// périphérique et même inode). Faux si `path` n'existe pas, si fd 2 est un
+/// pipe, un terminal, /dev/null ou un autre fichier.
+pub fn stderr_is(path: &Path) -> bool {
+    fd_is(2, path)
+}
+
+#[cfg(unix)]
+fn fd_is(fd: i32, path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(on_disk) = std::fs::metadata(path) else {
+        return false;
+    };
+    // SAFETY: fstat remplit la structure `stat` fournie, de taille correcte,
+    // à partir d'un descripteur entier ; un descripteur fermé rend -1.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(fd, &mut st) } != 0 {
+        return false;
+    }
+    st.st_dev as u64 == on_disk.dev() && st.st_ino as u64 == on_disk.ino()
+}
+
+#[cfg(not(unix))]
+fn fd_is(_fd: i32, _path: &Path) -> bool {
+    false
+}
+
 fn same_file(file: &File, path: &Path) -> bool {
     #[cfg(unix)]
     {
@@ -554,9 +583,19 @@ impl ServerLog {
     /// Journal demandé par le parent ([`LOG_FILE_ENV`]) : stderr adopté et
     /// fil de maintenance lancé. `None` sans la variable (tests, `cargo
     /// run`) : le serveur garde alors son stderr tel quel.
+    ///
+    /// La variable seule ne suffit pas : les CLI d'agent lancés par le
+    /// serveur de chat en héritent, et avec eux tout ce qu'ils lancent (un
+    /// `atelier-gallery-server` de test, par exemple). Le journal n'est
+    /// adopté que si le stderr actuel (fd 2) EST ce fichier, preuve que le
+    /// parent l'y a branché ([`ChildLog::attach`]) ; sinon la variable est
+    /// ignorée et rien n'est écrit dans le journal d'un autre processus.
     pub fn from_env() -> Option<Self> {
-        let path = non_empty(std::env::var_os(LOG_FILE_ENV))?;
-        let log = Self::open(PathBuf::from(path), Rotation::DEFAULT).ok()?;
+        let path = PathBuf::from(non_empty(std::env::var_os(LOG_FILE_ENV))?);
+        if !stderr_is(&path) {
+            return None;
+        }
+        let log = Self::open(path, Rotation::DEFAULT).ok()?;
         let _ = log.adopt_stderr();
         log.spawn_watchdog(WATCHDOG_EVERY);
         Some(log)

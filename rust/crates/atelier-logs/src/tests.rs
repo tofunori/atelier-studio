@@ -475,3 +475,88 @@ fn nom_invalide_refuse_a_l_ouverture() {
     let error = ChildLog::open("../evasion").err().unwrap();
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
 }
+
+#[cfg(unix)]
+#[test]
+fn enfant_from_env() {
+    let Some(dir) = child_dir() else { return };
+    let log = ServerLog::from_env();
+    println!("adopte={}", log.is_some());
+    eprintln!("stderr de l'enfant é");
+    let _ = dir;
+}
+
+#[cfg(unix)]
+fn run_from_env_child(dir: &Path, log_path: &Path, stderr: Stdio) -> std::process::Output {
+    Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "tests::enfant_from_env",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(CHILD_ENV, dir)
+        .env(LOG_FILE_ENV, log_path)
+        .stdout(Stdio::piped())
+        .stderr(stderr)
+        .output()
+        .unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn variable_heritee_sans_le_fichier_en_stderr_est_ignoree() {
+    // Un CLI d'agent hérite d'ATELIER_LOG_FILE du serveur de chat et lance
+    // un serveur galerie de test dont le stderr est un pipe : celui-ci ne
+    // doit rien écrire dans le journal du serveur de chat.
+    if child_dir().is_some() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("studio-server.log");
+    std::fs::write(&path, "journal d'un autre processus\n").unwrap();
+    let out = run_from_env_child(dir.path(), &path, Stdio::piped());
+    assert!(out.status.success(), "{out:?}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("adopte=false"), "{stdout}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("stderr de l'enfant é"),
+        "{out:?}"
+    );
+    assert_eq!(read(&path), "journal d'un autre processus\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn variable_et_fichier_en_stderr_adoptent_le_journal() {
+    if child_dir().is_some() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let mut log =
+        ChildLog::open_at(dir.path().join("studio-server.log"), Rotation::DEFAULT).unwrap();
+    log.mark("lancement");
+    let path = log.path().to_path_buf();
+    let stderr = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    let out = run_from_env_child(dir.path(), &path, Stdio::from(stderr));
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("adopte=true"),
+        "{out:?}"
+    );
+    assert!(log
+        .output_since_open(10_000)
+        .contains("stderr de l'enfant é"));
+}
+
+#[cfg(unix)]
+#[test]
+fn stderr_is_compare_l_inode() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(!stderr_is(&dir.path().join("absent.log")));
+    std::fs::write(dir.path().join("autre.log"), "").unwrap();
+    assert!(!stderr_is(&dir.path().join("autre.log")));
+}

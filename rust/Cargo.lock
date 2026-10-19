@@ -334,6 +334,7 @@ version = "0.1.0"
 dependencies = [
  "atelier-core",
  "atelier-fdlimit",
+ "atelier-logs",
  "atelier-protocol",
  "atelier-store",
  "atelier-workspace",

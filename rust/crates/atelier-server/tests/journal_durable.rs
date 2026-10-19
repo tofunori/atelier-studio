@@ -28,18 +28,21 @@ fn health_status(port: u16) -> String {
 fn le_serveur_survit_a_la_fermeture_de_ses_pipes_et_journalise_sur_disque() {
     let dir = tempfile::tempdir().unwrap();
     let log_path = dir.path().join("logs").join("studio-server.log");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_atelier-studio-server"))
-        .env("HOME", dir.path().join("home"))
+    // Comme sidecar.rs : le journal est ouvert par le parent et donné comme
+    // stderr (fichier, jamais pipe), avec son chemin dans ATELIER_LOG_FILE.
+    let parent_log =
+        atelier_logs::ChildLog::open_at(&log_path, atelier_logs::Rotation::DEFAULT).unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_atelier-studio-server"));
+    cmd.env("HOME", dir.path().join("home"))
         .env("ATELIER_APP_DIR", dir.path().join("app"))
         .env("ATELIER_SKIP_SINGLE_INSTANCE", "1")
         .env("ATELIER_TOKEN", "jeton")
-        .env("ATELIER_LOG_FILE", &log_path)
         // debug : chaque requête écrit deux lignes tracing (TraceLayer).
         .env("RUST_LOG", "debug")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn atelier-studio-server");
+        .stdout(Stdio::piped());
+    assert!(parent_log.attach(&mut cmd));
+    let mut child = cmd.spawn().expect("spawn atelier-studio-server");
+    drop(cmd);
 
     let stdout = child.stdout.take().unwrap();
     let (tx, rx) = mpsc::channel();
@@ -59,8 +62,9 @@ fn le_serveur_survit_a_la_fermeture_de_ses_pipes_et_journalise_sur_disque() {
         .and_then(|digits| digits.parse().ok())
         .unwrap_or_else(|| panic!("port absent de {line:?}"));
 
-    // L'app « quitte » : plus personne ne lit stdout ni stderr.
-    drop(child.stderr.take());
+    // L'app « quitte » : plus personne ne lit stdout (le lecteur est fini)
+    // et le parent lâche son descripteur du journal.
+    drop(parent_log);
     std::thread::sleep(Duration::from_millis(200));
 
     for _ in 0..3 {
@@ -97,4 +101,44 @@ fn le_serveur_survit_a_la_fermeture_de_ses_pipes_et_journalise_sur_disque() {
         !text.contains("\u{1b}["),
         "pas de couleurs ANSI dans le fichier"
     );
+}
+
+#[test]
+fn la_variable_seule_ne_fait_pas_ecrire_dans_le_journal_d_un_autre() {
+    // Un CLI d'agent hérite d'ATELIER_LOG_FILE du serveur de chat ; un
+    // serveur qu'il lance avec un stderr à lui (pipe) ne doit pas écrire
+    // dans le journal du serveur de chat de Thierry.
+    let dir = tempfile::tempdir().unwrap();
+    let log_path = dir.path().join("studio-server.log");
+    std::fs::write(&log_path, "journal du vrai serveur\n").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_atelier-studio-server"))
+        .env("HOME", dir.path().join("home"))
+        .env("ATELIER_APP_DIR", dir.path().join("app"))
+        .env("ATELIER_SKIP_SINGLE_INSTANCE", "1")
+        .env("ATELIER_TOKEN", "jeton")
+        .env("ATELIER_LOG_FILE", &log_path)
+        .env("RUST_LOG", "debug")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn atelier-studio-server");
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let _ = BufReader::new(stdout).read_line(&mut line);
+        let _ = tx.send(line);
+    });
+    let line = rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("ligne de démarrage");
+    assert!(line.contains("\"port\":"), "{line:?}");
+    let _ = child.kill();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&log_path).unwrap(),
+        "journal du vrai serveur\n"
+    );
+    // Les journaux tracing sont restés sur son propre stderr.
+    assert!(!out.stderr.is_empty(), "{out:?}");
 }

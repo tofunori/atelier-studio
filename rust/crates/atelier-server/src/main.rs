@@ -17,10 +17,25 @@ use tracing_subscriber::EnvFilter;
 
 const PROGRAM: &str = "atelier-studio-server";
 
-#[tokio::main]
-async fn main() {
+fn main() {
     atelier_fdlimit::raise_nofile_limit();
     let log = ServerLog::from_env();
+    // Les CLI d'agent et tout ce qu'ils lancent ne doivent pas hériter du
+    // chemin de CE journal (ils y écriraient leurs propres serveurs de
+    // test). Retiré ici, avant que le runtime ne démarre le moindre fil :
+    // modifier l'environnement n'est sûr que dans un processus à un fil.
+    std::env::remove_var(atelier_logs::LOG_FILE_ENV);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|e| {
+            eprintln!("{PROGRAM} error: runtime tokio : {e}");
+            std::process::exit(1);
+        });
+    runtime.block_on(run(log));
+}
+
+async fn run(log: Option<ServerLog>) {
     if let Some(log) = &log {
         log.install_panic_hook(PROGRAM);
         log.line(&format!(

@@ -64,6 +64,21 @@ async fn main() {
     let loopback_hosts = config.allowed_hosts.clone();
     let local_socket = config.data_dir.join("pair.sock");
     let log_path = config.data_dir.join("gateway.log");
+    // Lancé par l'app (remote_gateway.rs), stderr EST gateway.log : le
+    // journal est alors repris pour tourner à taille bornée (fichiers 0600)
+    // et un panic hook y écrit lieu, message et pile. En terminal, rien ne
+    // change.
+    let _server_log = if atelier_logs::stderr_is(&log_path) {
+        atelier_logs::ServerLog::open(&log_path, atelier_logs::Rotation::DEFAULT)
+            .ok()
+            .inspect(|log| {
+                let _ = log.adopt_stderr();
+                log.install_panic_hook("atelier-remote-gateway");
+                log.spawn_watchdog(atelier_logs::WATCHDOG_EVERY);
+            })
+    } else {
+        None
+    };
     let rotation_marker = config.data_dir.join(".sec062_admin_rotated");
     let migration_pending = !rotation_marker.exists();
 
