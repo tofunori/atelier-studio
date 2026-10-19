@@ -2283,4 +2283,18 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     assert_eq!(st, 400);
     let (st, body) = http(srv.port, "GET", &format!("/docx/stat?path={rel}"), None);
     assert_eq!(st, 200, "{body}");
+
+    // Annuler puis rétablir l'acceptation.
+    let undo = |revision: &str, redo: bool| serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "revision": revision, "redo": redo}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/undo", Some(&undo(&rev1, false)));
+    assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["revision"], rev0.as_str());
+    assert!(v["model"]["changes"].as_array().unwrap().iter().any(|c| c["id"] == 101));
+    let (st, body) = http(srv.port, "POST", "/docx/undo", Some(&undo(&rev0, false)));
+    assert_eq!(st, 409, "rien à annuler : {body}");
+    let (st, body) = http(srv.port, "POST", "/docx/undo", Some(&undo(&rev0, true)));
+    assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["revision"], rev1.as_str());
 }

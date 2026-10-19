@@ -143,3 +143,54 @@ fn l_agent_ajoute_un_paragraphe_en_suivi() {
     assert_eq!(back.paragraphs.len(), n);
     assert!(libreoffice_text(&d.to_bytes().unwrap()).is_none_or(|t| !t.contains("discuté en 2.3")));
 }
+
+#[test]
+fn une_selection_sur_plusieurs_paragraphes_s_efface_d_un_seul_geste() {
+    // Ce que le panneau envoie pour « sélection de p2 (après « Le seuil ») à
+    // p4 (avant « 0,04 ») puis retour arrière », sans suivi : du dernier au premier.
+    let me = sig("Thierry");
+    let mut d = open("christophe");
+    let m = d.model().unwrap();
+    let len = |i: usize| m.paragraphs[i].text.chars().count();
+    let o4 = m.paragraphs[4].text.find("0,04").map(|b| m.paragraphs[4].text[..b].chars().count()).unwrap();
+    let batch = json!({"op": "batch", "ops": [
+        {"op": "replace_range", "paragraph": "p4", "start": 0, "end": o4, "with": ""},
+        {"op": "join", "paragraph": "p4"},
+        {"op": "replace_range", "paragraph": "p3", "start": 0, "end": len(3), "with": ""},
+        {"op": "join", "paragraph": "p3"},
+        {"op": "replace_range", "paragraph": "p2", "start": 8, "end": len(2), "with": ""},
+    ]});
+    let n = m.paragraphs.len();
+    apply(&mut d, &op(batch.clone()), false, &me).unwrap();
+    let after = d.model().unwrap();
+    assert_eq!(after.paragraphs.len(), n - 2);
+    assert!(after.paragraphs[2].text.starts_with("Le seuil0,04"), "{}", after.paragraphs[2].text);
+
+    // Une étape impossible : rien n'est touché.
+    let mut d = open("christophe");
+    let before = d.document_xml().to_string();
+    let bad = json!({"op": "batch", "ops": [
+        {"op": "replace_range", "paragraph": "p2", "start": 0, "end": 3, "with": ""},
+        {"op": "accept", "id": 999},
+    ]});
+    let e = apply(&mut d, &op(bad), true, &me).unwrap_err();
+    assert!(e.0.starts_with("étape 2"), "{e}");
+    assert_eq!(d.document_xml(), before);
+    assert!(!d.is_dirty());
+}
+
+#[test]
+fn annuler_remet_le_paquet_d_avant() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.docx");
+    std::fs::write(&path, build("christophe")).unwrap();
+    let me = sig("Thierry");
+    let (_, rev1, before) = atelier_docx::edit_file_keep(&path, None, |d| apply(d, &op(json!({"op": "accept", "id": 101})), true, &me)).unwrap();
+    let before = before.unwrap();
+    let rev0 = atelier_docx::revision_of(&before);
+    let undone = atelier_docx::replace_file(&path, &rev1, &before).unwrap();
+    assert_eq!(atelier_docx::Docx::open(&path).unwrap().revision(), rev0);
+    assert!(atelier_docx::replace_file(&path, &rev1, &undone).unwrap_err().is_conflict());
+    atelier_docx::replace_file(&path, &rev0, &undone).unwrap();
+    assert_eq!(atelier_docx::Docx::open(&path).unwrap().revision(), rev1);
+}

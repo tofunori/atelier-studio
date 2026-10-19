@@ -2649,6 +2649,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/model", get(docx::model))
         .route("/docx/stat", get(docx::stat))
         .route("/docx/op", post(docx::op))
+        .route("/docx/undo", post(docx::undo))
         .route("/lint", get(documents::lint))
         // Phase 5 — notes + whiteboard
         .route("/notes/load", get(workspace::notes_load))

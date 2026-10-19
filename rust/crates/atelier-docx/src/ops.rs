@@ -39,6 +39,10 @@ pub enum Op {
     FormatRange { paragraph: String, start: usize, end: usize, props: RunProps },
     FormatText { paragraph: Option<String>, find: String, occurrence: Option<usize>, props: RunProps },
     FormatParagraph { paragraph: String, props: ParaProps },
+    /// Plusieurs retouches d'un seul geste (sélection sur plusieurs
+    /// paragraphes, collage de plusieurs lignes) : tout ou rien, un seul
+    /// enregistrement, une seule annulation.
+    Batch { ops: Vec<Op> },
 }
 
 impl Op {
@@ -55,6 +59,7 @@ impl Op {
             Op::Resolve { .. } => "résolution",
             Op::DeleteComment { .. } => "suppression de commentaire",
             Op::FormatRange { .. } | Op::FormatText { .. } | Op::FormatParagraph { .. } => "mise en forme",
+            Op::Batch { .. } => "retouches groupées",
         }
     }
 }
@@ -154,6 +159,17 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
         Op::FormatParagraph { paragraph, props } => {
             format::format_paragraph(docx, paragraph, props, tracked, sig)?;
             json!({})
+        }
+        Op::Batch { ops } => {
+            // Sur une copie : une étape qui échoue n'en laisse aucune à moitié.
+            let mut results = Vec::with_capacity(ops.len());
+            let mut work = docx.clone();
+            for (k, op) in ops.iter().enumerate() {
+                let r = apply(&mut work, op, tracked, sig).map_err(|e| crate::DocxError(format!("étape {} ({}) : {}", k + 1, op.label(), e.0)))?;
+                results.push(r);
+            }
+            *docx = work;
+            json!({"results": results})
         }
     })
 }

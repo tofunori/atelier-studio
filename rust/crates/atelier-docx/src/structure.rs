@@ -164,8 +164,10 @@ pub fn join(docx: &mut Docx, paragraph: &str, tracked: bool, sig: &Signature) ->
     let mark = ppr.and_then(|n| w_child(n, "rPr")).and_then(|r| r.children().find(|c| is_w(*c, "ins") || is_w(*c, "del")));
     // Marque insérée par l'auteur lui-même : on défait simplement son Entrée.
     let own_insert = mark.is_some_and(|m| is_w(m, "ins") && w_attr(m, "author") == Some(sig.author.as_str()));
-    if mark.is_some_and(|m| is_w(m, "del")) {
-        return Ok(()); // déjà supprimée en suivi
+    // Déjà supprimée en suivi : rien à ajouter. Sans suivi, on fusionne pour
+    // de bon (la marque supprimée disparaît avec le paragraphe).
+    if tracked && mark.is_some_and(|m| is_w(m, "del")) {
+        return Ok(());
     }
     if tracked && !own_insert {
         let id = crate::edit::next_ids(docx, 1)?[0];

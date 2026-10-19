@@ -16,7 +16,9 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use crate::{AppState, request_allowed};
@@ -43,6 +45,46 @@ pub struct OpBody {
 
 fn yes() -> bool {
     true
+}
+
+#[derive(Deserialize)]
+pub struct UndoBody {
+    path: String,
+    revision: String,
+    #[serde(default)]
+    redo: bool,
+}
+
+/// Une étape annulable : la révision qu'elle a produite et le paquet d'avant.
+struct Step {
+    after: String,
+    before: Vec<u8>,
+}
+
+#[derive(Default)]
+struct History {
+    undo: Vec<Step>,
+    redo: Vec<Step>,
+}
+
+const HISTORY_STEPS: usize = 50;
+const HISTORY_BYTES: usize = 160 * 1024 * 1024;
+
+/// Annuler / rétablir, par document, en mémoire du serveur : une retouche
+/// de Word ou de l'agent entre-temps rend la pile caduque (contrôle de
+/// révision), elle ne réécrit jamais leur travail.
+static HISTORIES: Mutex<Option<HashMap<PathBuf, History>>> = Mutex::new(None);
+
+fn with_history<T>(path: &Path, f: impl FnOnce(&mut History) -> T) -> T {
+    let mut guard = HISTORIES.lock().unwrap_or_else(|e| e.into_inner());
+    let map = guard.get_or_insert_with(HashMap::new);
+    f(map.entry(path.to_path_buf()).or_default())
+}
+
+fn trim(steps: &mut Vec<Step>) {
+    while steps.len() > HISTORY_STEPS || (steps.len() > 1 && steps.iter().map(|s| s.before.len()).sum::<usize>() > HISTORY_BYTES) {
+        steps.remove(0);
+    }
 }
 
 fn docx_path(state: &AppState, rel: &str) -> Result<PathBuf, axum::response::Response> {
@@ -134,10 +176,57 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
     }
     let sig = Signature::now(&author);
     let job = move || -> Result<Value, (StatusCode, String)> {
-        let (result, revision) = atelier_docx::edit_file(&path, body.revision.as_deref(), |d| ops::apply(d, &body.op, body.tracked, &sig))
+        let (result, revision, before) = atelier_docx::edit_file_keep(&path, body.revision.as_deref(), |d| ops::apply(d, &body.op, body.tracked, &sig))
             .map_err(|e| (if e.is_conflict() { StatusCode::CONFLICT } else { StatusCode::UNPROCESSABLE_ENTITY }, e.0))?;
+        if let Some(before) = before {
+            with_history(&path, |h| {
+                h.undo.push(Step { after: revision.clone(), before });
+                trim(&mut h.undo);
+                h.redo.clear();
+            });
+        }
         let model = model_json(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
         Ok(json!({"ok": true, "result": result, "revision": revision, "model": model}))
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err((status, e))) => json_error(status, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `POST /docx/undo` — annule (ou rétablit, `redo`) la dernière retouche
+/// faite depuis le panneau, si le document n'a pas bougé depuis.
+pub async fn undo(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<UndoBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &body.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || -> Result<Value, (StatusCode, String)> {
+        let step = with_history(&path, |h| if body.redo { h.redo.pop() } else { h.undo.pop() });
+        let Some(step) = step else {
+            return Err((StatusCode::CONFLICT, if body.redo { "rien à rétablir".into() } else { "rien à annuler".into() }));
+        };
+        if step.after != body.revision {
+            // Le document a changé (Word, l'agent) : la pile ne vaut plus.
+            with_history(&path, |h| *h = History::default());
+            return Err((StatusCode::CONFLICT, "le document a changé depuis : plus rien à annuler ici".into()));
+        }
+        let replaced = atelier_docx::replace_file(&path, &step.after, &step.before).map_err(|e| {
+            with_history(&path, |h| *h = History::default());
+            (StatusCode::CONFLICT, e.0)
+        })?;
+        let revision = atelier_docx::revision_of(&step.before);
+        with_history(&path, |h| {
+            let other = if body.redo { &mut h.undo } else { &mut h.redo };
+            other.push(Step { after: revision.clone(), before: replaced });
+            trim(other);
+        });
+        let model = model_json(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        Ok(json!({"ok": true, "revision": revision, "model": model}))
     };
     match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),

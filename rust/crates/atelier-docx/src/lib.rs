@@ -109,6 +109,7 @@ pub fn iso_now() -> String {
 
 /// Un .docx ouvert en mémoire. Les parties lues sont gardées en cache ;
 /// seules les parties modifiées sont réécrites à l'enregistrement.
+#[derive(Clone)]
 pub struct Docx {
     bytes: Vec<u8>,
     names: Vec<String>,
@@ -258,6 +259,12 @@ impl DocxError {
 /// fichier a changé depuis, rien n'est écrit ([`DocxError::is_conflict`]).
 /// Rend le résultat de `f` et la nouvelle révision.
 pub fn edit_file<T>(path: &Path, expected: Option<&str>, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String)> {
+    edit_file_keep(path, expected, f).map(|(v, rev, _)| (v, rev))
+}
+
+/// Comme [`edit_file`], et rend en plus le paquet d'avant quand le fichier a
+/// été réécrit (pour annuler).
+pub fn edit_file_keep<T>(path: &Path, expected: Option<&str>, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String, Option<Vec<u8>>)> {
     let lock = lock_file(path)?;
     lock.lock()?;
     let mut docx = Docx::open(path)?;
@@ -266,13 +273,29 @@ pub fn edit_file<T>(path: &Path, expected: Option<&str>, f: impl FnOnce(&mut Doc
     }
     let value = f(&mut docx)?;
     if !docx.is_dirty() {
-        return Ok((value, docx.revision()));
+        return Ok((value, docx.revision(), None));
     }
     let bytes = docx.to_bytes()?;
     // Relire ce qu'on vient d'écrire : un paquet illisible ne remplace jamais l'original.
     Docx::from_bytes(bytes.clone())?.model()?;
     write_atomic(path, &bytes)?;
-    Ok((value, revision_of(&bytes)))
+    let rev = revision_of(&bytes);
+    Ok((value, rev, Some(docx.bytes)))
+}
+
+/// Remet `bytes` à la place du fichier (annuler, rétablir), seulement s'il
+/// est encore à la révision `expected`. Rend la révision d'avant et le
+/// paquet remplacé.
+pub fn replace_file(path: &Path, expected: &str, bytes: &[u8]) -> Result<Vec<u8>> {
+    let lock = lock_file(path)?;
+    lock.lock()?;
+    let current = std::fs::read(path)?;
+    if revision_of(&current) != expected {
+        return err(CONFLICT);
+    }
+    Docx::from_bytes(bytes.to_vec())?;
+    write_atomic(path, bytes)?;
+    Ok(current)
 }
 
 /// Verrou dans le dossier temporaire, nommé d'après le chemin : rien ne
