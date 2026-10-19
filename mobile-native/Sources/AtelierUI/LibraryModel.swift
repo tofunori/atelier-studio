@@ -36,12 +36,23 @@ struct LibraryNote: Codable, Identifiable {
     private var displayedCollection = 0
     var busy = false
     var error: String?
+    /// notes.json present but unreadable: no note is written until it is
+    /// readable again, so the next save cannot replace every earlier note
+    /// with this one (same guard as PDFAnnotations and DocumentReadingNotes).
+    private(set) var loadError: String?
+    enum StoreError: LocalizedError {
+        case unavailable
+        var errorDescription: String? { "Les notes d’articles enregistrées sont illisibles. Leur fichier a été conservé." }
+    }
     private let folder: URL?
     init(folder: URL? = nil) {
         self.folder = folder ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("Library", isDirectory: true)
         if let folder = self.folder {
+            // articles.json is a cache of the Mac's Zotero list, rewritten on refresh.
             articles = (try? JSONDecoder().decode([LibraryArticle].self, from: Data(contentsOf: folder.appendingPathComponent("articles.json")))) ?? []
-            notes = (try? JSONDecoder().decode([LibraryNote].self, from: Data(contentsOf: folder.appendingPathComponent("notes.json")))) ?? []
+            do {
+                notes = try JSONDecoder().decode([LibraryNote].self, from: Data(contentsOf: folder.appendingPathComponent("notes.json")))
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile {} catch { loadError = error.localizedDescription }
         }
     }
     func refresh(using gallery: GalleryModel) async {
@@ -94,11 +105,13 @@ struct LibraryNote: Codable, Identifiable {
             notes[index].zoteroKey = result.key
             notes[index].zoteroVersions = result.versions
             notes[index].syncedText = draft.note
+            guard loadError == nil else { throw StoreError.unavailable }
             try store(JSONEncoder().encode(notes), name: "notes.json")
         }
     }
     func save(_ draft: AnnotationDraft) throws {
         guard let key = draft.passage.articleKey else { return }
+        guard loadError == nil else { throw StoreError.unavailable }
         let previous = notes.first { $0.id == draft.id }
         var updated = notes.filter { $0.id != draft.id }
         updated.append(LibraryNote(id: draft.id, articleKey: key, citation: draft.passage.citation, passage: draft.passage.text, text: draft.note, date: Date(), zoteroKey: previous?.zoteroKey, zoteroVersions: previous?.zoteroVersions, syncedText: previous?.syncedText))
@@ -225,6 +238,7 @@ struct NativeLibraryView: View {
                         if let error = library.error { Text(error).font(.footnote).foregroundStyle(.red) }
                     }
                     Section("Notes conservées dans Atelier") {
+                        if library.loadError != nil { Text(LibraryModel.StoreError.unavailable.localizedDescription).font(.footnote).foregroundStyle(.red) }
                         ForEach(library.notes.filter { $0.articleKey == article.key }) { note in
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(note.citation).font(.caption).foregroundStyle(.secondary)

@@ -172,6 +172,24 @@ final class RedesignTests: XCTestCase {
         XCTAssertEqual(reopened.notes.first?.text, "Note corrigée")
         XCTAssertEqual(reopened.notes.first?.articleKey, "ABCD2345")
     }
+    @MainActor func testUnreadableArticleNotesAreNeverOverwritten() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        XCTAssertNil(LibraryModel(folder: folder).loadError, "absent = aucune note, pas une erreur")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("notes.json")
+        let passage = DocumentPassage(documentID: UUID(), fileName: "article.pdf", location: "page 2", text: "Passage", articleKey: "ABCD2345")
+        for corrupt in ["", "[{\"id\":", "not-json", "{\"notes\":[]}"] {
+            try Data(corrupt.utf8).write(to: file)
+            let broken = LibraryModel(folder: folder)
+            XCTAssertNotNil(broken.loadError, corrupt)
+            XCTAssertTrue(broken.notes.isEmpty)
+            let draft = AnnotationDraft(passage: passage); draft.note = "Nouvelle note"
+            XCTAssertThrowsError(try broken.save(draft), corrupt)
+            XCTAssertEqual(try Data(contentsOf: file), Data(corrupt.utf8), corrupt)
+            XCTAssertTrue(broken.notes.isEmpty)
+        }
+    }
     @MainActor func testReadingNotesPersistDistinctOccurrencesAndPreserveAnchorOnEdit() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
