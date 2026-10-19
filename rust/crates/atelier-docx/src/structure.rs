@@ -101,9 +101,32 @@ pub fn split(docx: &mut Docx, paragraph: &str, at: usize, tracked: bool, sig: &S
         let pos = pos.or_else(|| content.as_ref().map(|r| r.start)).unwrap_or_else(|| t.ppr_end.or(t.p_inner_end).unwrap_or(t.p_range.end));
         cut_at = Some((pos, None));
     }
-    let (pos, split_run) = cut_at.unwrap();
+    let (mut pos, split_run) = cut_at.unwrap();
     if t.inline.pieces.iter().any(|pc| pc.top.start < pos && pos < pc.top.end && pc.run.is_none()) {
         return err("coupe au milieu d'un champ ou d'un suivi : placer le curseur ailleurs");
+    }
+    // Coupe dans un enveloppant (w:ins d'une frappe, w:hyperlink…) : collée à
+    // un bord, elle passe dehors ; au milieu, il est fermé puis rouvert.
+    let mut wrap: Option<(String, String, Option<String>)> = None;
+    if let Some(top) = t.inline.pieces.iter().find(|pc| pc.run.is_some() && pc.top.start < pos && pos < pc.top.end).map(|pc| pc.top.clone()) {
+        let spans = || t.inline.pieces.iter().zip(&t.spans).filter(|(pc, _)| pc.top == top).filter_map(|(_, s)| *s).filter(|(s, e)| e > s);
+        let before = spans().any(|(s, _)| s < at);
+        let after = spans().any(|(_, e)| e > at);
+        if split_run.is_none() && !after {
+            pos = top.end;
+        } else if split_run.is_none() && !before {
+            pos = top.start;
+        } else {
+            let node = doc.descendants().find(|n| n.is_element() && n.range() == top).unwrap();
+            let direct = node.children().any(|c| is_w(c, "r") && (c.range().start == pos || c.range().end == pos));
+            if !direct {
+                return err("coupe impossible à cet endroit : placer le curseur ailleurs");
+            }
+            let open = open_tag(&src, node);
+            let name: String = open[1..].chars().take_while(|c| !c.is_whitespace() && *c != '>' && *c != '/').collect();
+            let rev = ["ins", "del", "moveFrom", "moveTo"].iter().any(|k| is_w(node, k));
+            wrap = Some((format!("</{name}>"), open, w_attr(node, "id").filter(|_| rev).map(str::to_string)));
+        }
     }
 
     let ppr = w_child(p, "pPr");
@@ -119,7 +142,14 @@ pub fn split(docx: &mut Docx, paragraph: &str, at: usize, tracked: bool, sig: &S
     let first_content = if content.start < pos { &src[content.start..pos] } else { "" };
     let second_content = if resume < content.end { &src[resume..content.end] } else { "" };
 
-    let id = crate::edit::next_ids(docx, 1)?[0];
+    let ids = crate::edit::next_ids(docx, 2)?;
+    let id = ids[0];
+    // La moitié rouverte d'un suivi prend un identifiant neuf.
+    let (wrap_close, wrap_open) = match wrap {
+        Some((close, open, Some(old))) => (close, open.replacen(&format!("w:id=\"{old}\""), &format!("w:id=\"{}\"", ids[1]), 1)),
+        Some((close, open, None)) => (close, open),
+        None => (String::new(), String::new()),
+    };
     let mark = tracked.then(|| marker("ins", id, sig));
     // Première moitié : nouveau paragraphe (paraId neuf), mêmes propriétés.
     let pid = xml::new_para_id(&format!("{}{at}{}", t.text, sig.date), id);
@@ -127,7 +157,7 @@ pub fn split(docx: &mut Docx, paragraph: &str, at: usize, tracked: bool, sig: &S
         Some(old) => open_tag(&src, p).replace(&format!("w14:paraId=\"{old}\""), &format!("w14:paraId=\"{pid}\"")),
         None => open_tag(&src, p),
     };
-    let first = format!("{first_open}{}{first_content}{first_tail}</w:p>", ppr_for_first_half(&src, ppr, mark.as_deref()));
+    let first = format!("{first_open}{}{first_content}{first_tail}{wrap_close}</w:p>", ppr_for_first_half(&src, ppr, mark.as_deref()));
     // Seconde moitié : garde l'identité du paragraphe et sa marque. Entrée
     // en fin de titre : la suite prend le style suivant (Normal).
     let style = ppr.and_then(|n| w_child(n, "pStyle")).and_then(|n| w_attr(n, "val")).map(str::to_string);
@@ -143,7 +173,7 @@ pub fn split(docx: &mut Docx, paragraph: &str, at: usize, tracked: bool, sig: &S
         (Some(ppr), None) => src[ppr.range()].to_string(),
         (None, _) => String::new(),
     };
-    let second = format!("{}{second_ppr}{second_head}{second_content}</w:p>", open_tag(&src, p));
+    let second = format!("{}{second_ppr}{wrap_open}{second_head}{second_content}</w:p>", open_tag(&src, p));
     drop(doc);
     let out = xml::splice(&src, vec![(t.p_range.clone(), format!("{first}{second}"))])?;
     docx.set_part(DOCUMENT, out);

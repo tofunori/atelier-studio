@@ -194,3 +194,34 @@ fn annuler_remet_le_paquet_d_avant() {
     atelier_docx::replace_file(&path, &rev0, &undone).unwrap();
     assert_eq!(atelier_docx::Docx::open(&path).unwrap().revision(), rev1);
 }
+
+#[test]
+fn entree_dans_sa_propre_frappe_ou_un_lien_garde_un_xml_valide() {
+    // Le paragraphe ne doit jamais se couper à l'intérieur d'un w:ins resté
+    // ouvert : au bord, la coupe passe dehors ; au milieu, il est rouvert.
+    let me = sig("Thierry");
+    for (at, first, second) in [(41, "Le seuil de 0,6 retenu ici, fixé a priori", " offre"), (32, "Le seuil de 0,6 retenu ici, fixé", " a priori offre"), (26, "Le seuil de 0,6 retenu ici", ", fixé a priori offre")] {
+        let mut d = open("christophe");
+        apply(&mut d, &op(json!({"op": "insert", "paragraph": "p2", "at": 26, "with": ", fixé a priori"})), true, &me).unwrap();
+        assert!(d.model().unwrap().paragraphs[2].text.starts_with("Le seuil de 0,6 retenu ici, fixé a priori offre"));
+        apply(&mut d, &op(json!({"op": "split", "paragraph": "p2", "at": at})), true, &me).unwrap();
+        let m = d.model().unwrap();
+        assert_eq!(m.paragraphs[2].text, first, "at={at}");
+        assert!(m.paragraphs[3].text.starts_with(second), "at={at} : {}", m.paragraphs[3].text);
+        // L'insertion reste une insertion de part et d'autre.
+        let ins: String = m.changes.iter().filter(|c| c.author == "Thierry" && c.kind == "ins").map(|c| c.text.as_str()).collect();
+        assert_eq!(ins, ", fixé a priori", "at={at}");
+        let mut ids: Vec<u32> = m.changes.iter().map(|c| c.id).collect();
+        let n = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), n, "identifiants uniques");
+    }
+    // Entrée au milieu du lien vers le NSIDC.
+    let mut d = open("christophe");
+    let p = d.model().unwrap().paragraphs.iter().position(|p| p.text.contains("site du NSIDC")).unwrap();
+    let text = d.model().unwrap().paragraphs[p].text.clone();
+    let at = text.chars().count() - text.split("NSIDC").nth(1).unwrap().chars().count() - 2;
+    apply(&mut d, &op(json!({"op": "split", "paragraph": format!("p{p}"), "at": at})), false, &me).unwrap();
+    let m = d.model().unwrap();
+    assert_eq!(format!("{}{}", m.paragraphs[p].text, m.paragraphs[p + 1].text), text);
+}
