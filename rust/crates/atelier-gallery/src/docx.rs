@@ -175,8 +175,11 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
         return json_error(StatusCode::BAD_REQUEST, "auteur manquant");
     }
     let sig = Signature::now(&author);
+    let root = state.root.clone();
     let job = move || -> Result<Value, (StatusCode, String)> {
-        let (result, revision, before) = atelier_docx::edit_file_keep(&path, body.revision.as_deref(), |d| ops::apply(d, &body.op, body.tracked, &sig))
+        let mut op = body.op;
+        op.load_images(&mut |rel| read_figure(&root, rel)).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0))?;
+        let (result, revision, before) = atelier_docx::edit_file_keep(&path, body.revision.as_deref(), |d| ops::apply(d, &op, body.tracked, &sig))
             .map_err(|e| (if e.is_conflict() { StatusCode::CONFLICT } else { StatusCode::UNPROCESSABLE_ENTITY }, e.0))?;
         if let Some(before) = before {
             with_history(&path, |h| {
@@ -191,6 +194,100 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
     match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
         Ok(Err((status, e))) => json_error(status, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+const FIGURE_EXTS: [&str; 4] = ["png", "jpg", "jpeg", "gif"];
+const FIGURE_MAX: u64 = 40 * 1024 * 1024;
+
+fn is_figure(p: &Path) -> bool {
+    p.extension().and_then(|e| e.to_str()).is_some_and(|e| FIGURE_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// Une figure du projet à insérer : chemin dans le projet, format d'image.
+fn read_figure(root: &Path, rel: &str) -> atelier_docx::Result<Vec<u8>> {
+    let bad = |m: &str| atelier_docx::DocxError(m.to_string());
+    let path = safe_project_path(root, rel).map_err(|_| bad("figure hors du projet"))?;
+    if !is_figure(&path) {
+        return Err(bad("figure : PNG, JPEG ou GIF"));
+    }
+    let meta = std::fs::metadata(&path).map_err(|_| bad("figure introuvable"))?;
+    if !meta.is_file() || meta.len() > FIGURE_MAX {
+        return Err(bad("figure introuvable ou trop lourde"));
+    }
+    std::fs::read(&path).map_err(|e| bad(&format!("figure illisible : {e}")))
+}
+
+#[derive(Deserialize)]
+pub struct MediaQuery {
+    path: String,
+    para: String,
+    rel: String,
+}
+
+/// `GET /docx/media?path=&para=&rel=` — une image du document.
+pub async fn media(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<MediaQuery>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &q.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || -> Result<Option<(Vec<u8>, &'static str)>, String> {
+        let mut d = Docx::open(&path).map_err(|e| e.0)?;
+        atelier_docx::objects::media(&mut d, &q.para, &q.rel).map_err(|e| e.0)
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(Some((bytes, mime)))) => {
+            ([(axum::http::header::CONTENT_TYPE, mime), (axum::http::header::CACHE_CONTROL, "private, max-age=60")], bytes).into_response()
+        }
+        Ok(Ok(None)) => json_error(StatusCode::NOT_FOUND, "image introuvable"),
+        Ok(Err(e)) => json_error(StatusCode::UNPROCESSABLE_ENTITY, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `GET /docx/figures` — images du projet à insérer (les plus récentes
+/// d'abord), sans dossiers cachés ni dépendances.
+pub async fn figures(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let root = state.root.clone();
+    let job = move || {
+        let mut out: Vec<(u64, String)> = Vec::new();
+        let mut stack = vec![(root.clone(), 0usize)];
+        let mut seen = 0usize;
+        while let Some((dir, depth)) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for e in entries.flatten() {
+                seen += 1;
+                if seen > 50_000 {
+                    break;
+                }
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || matches!(name.as_str(), "node_modules" | "target" | "__pycache__" | "venv") {
+                    continue;
+                }
+                let p = e.path();
+                let Ok(ft) = e.file_type() else { continue };
+                if ft.is_dir() && depth < 8 {
+                    stack.push((p, depth + 1));
+                } else if ft.is_file() && is_figure(&p)
+                    && let Ok(rel) = p.strip_prefix(&root)
+                {
+                    out.push((mtime_ms(&p), rel.to_string_lossy().replace('\\', "/")));
+                }
+            }
+        }
+        out.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        out.truncate(400);
+        out.into_iter().map(|(m, p)| json!({"path": p, "mtime": m})).collect::<Vec<_>>()
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(v) => (StatusCode::OK, Json(json!({"figures": v}))).into_response(),
         Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
