@@ -677,6 +677,7 @@ impl OpenCodeProvider {
                 };
             }
         };
+        crate::agent_groups::register(child.id());
         let stdout = child.stdout.take().expect("stdout");
         let _ = child.stderr.take();
         self.runs.lock().await.insert(req.thread_id.clone(), child);

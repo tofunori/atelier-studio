@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests de scripts/relance-app.sh sous Linux ou macOS, sans toucher au vrai
 # Atelier : faux bundle, faux serveurs (dont un qui ignore SIGTERM), faux CLI
-# dans son propre groupe de processus, faux verrou, fausses builds installées.
+# dans son propre groupe de processus, faux calcul détaché qui doit survivre,
+# faux verrou, fausses builds installées.
 #
 #   bash scripts/tests/test-relance-app.sh
 set -o pipefail
@@ -46,7 +47,9 @@ source "$SCRIPT"
 mkdir -p "$SERVERS"
 cp "$(command -v sleep)" "$WORK/$RELANCE_NOM_APP"
 # Serveur de chat : lance un faux CLI dans son propre groupe (comme
-# process_group(0) côté Rust), qui lance lui-même un enfant.
+# process_group(0) côté Rust), qui lance lui-même un enfant, puis un faux
+# calcul détaché, lui aussi en groupe propre et stdio sur /dev/null (comme
+# SystemExec::spawn_detached d'atelier-workspace), qui doit survivre.
 cat >"$SERVERS/atelier-studio-server" <<'EOF'
 #!/usr/bin/env bash
 python3 -c '
@@ -57,6 +60,14 @@ with open(sys.argv[1], "a") as fh:
     fh.write("%d\n%d\n" % (os.getpid(), child.pid))
 time.sleep(300)
 ' "$1" &
+sleep 0.2
+python3 -c '
+import os, sys, time
+os.setpgrp()
+with open(sys.argv[1], "a") as fh:
+    fh.write("%d\n" % os.getpid())
+time.sleep(300)
+' "$1" </dev/null >/dev/null 2>&1 &
 wait
 EOF
 # Serveur galerie qui ignore SIGTERM : seul SIGKILL l'arrête.
@@ -83,7 +94,7 @@ start_fake_atelier() {
   echo $! >>"$PIDS_FILE"
   disown $!
   local tries=0
-  while [ "$(cat "$WORK/cli" 2>/dev/null | wc -l | tr -d " ")" -lt 2 ] && [ "$tries" -lt 40 ]; do
+  while [ "$(cat "$WORK/cli" 2>/dev/null | wc -l | tr -d " ")" -lt 3 ] && [ "$tries" -lt 40 ]; do
     sleep 0.1
     tries=$((tries + 1))
   done
@@ -96,20 +107,41 @@ rm -f "$WORK/cli"
 start_fake_atelier
 CLI_PID="$(sed -n 1p "$WORK/cli")"
 CLI_CHILD="$(sed -n 2p "$WORK/cli")"
+COMPUTE_PID="$(sed -n 3p "$WORK/cli")"
 check "le faux CLI a son propre groupe" '[ -n "$CLI_PID" ] && [ "$(pgid_of "$CLI_PID")" = "$CLI_PID" ] && [ "$CLI_PID" != "$(pgid_of $$)" ]'
 check "deux serveurs galerie trouvés (cas multi-PID)" '[ "$(server_pids | wc -l | tr -d " ")" -ge 3 ]'
 check "le CLI descend du serveur de chat" 'descendants $(studio_pids) | grep -x "$CLI_PID" >/dev/null'
 
+check "le faux calcul a son propre groupe" '[ -n "$COMPUTE_PID" ] && [ "$(pgid_of "$COMPUTE_PID")" = "$COMPUTE_PID" ]'
+
 OWN_PGID="$(pgid_of $$)"
-(stop_atelier) >"$WORK/stop.out" 2>&1
+# Groupes publiés par /activity : le CLI seulement, et un pgid sans
+# rapport, qui ne descend pas du serveur et n'est donc jamais visé.
+(AGENT_GROUPS="$CLI_PID $$" stop_atelier) >"$WORK/stop.out" 2>&1
 STOP_STATUS=$?
 check "arrêt : code 0" '[ "$STOP_STATUS" = 0 ]'
 check "arrêt : SIGKILL pour le serveur qui ignore SIGTERM" 'grep -q SIGKILL "$WORK/stop.out"'
 check "arrêt : plus d'app ni de serveur" '[ -z "$(app_pids)" ] && [ -z "$(server_pids)" ]'
 check "arrêt : le CLI et son enfant sont arrêtés" '! alive "$CLI_PID" && ! alive "$CLI_CHILD"'
 check "arrêt : le groupe du test survit" 'kill -0 $$ && [ "$(pgid_of $$)" = "$OWN_PGID" ]'
+check "arrêt : le calcul détaché survit" 'alive "$COMPUTE_PID"'
+check "arrêt : le calcul détaché est listé comme laissé en vie" 'grep -q "Laissés en vie" "$WORK/stop.out" && grep -q "^ *$COMPUTE_PID " "$WORK/stop.out"'
+check "arrêt : seul le groupe du CLI est visé" 'grep -q "groupes de CLI d.agent : $CLI_PID$" "$WORK/stop.out"'
+kill -KILL "$COMPUTE_PID" 2>/dev/null
 (stop_atelier) >"$WORK/stop2.out" 2>&1
 check "arrêt sans rien qui tourne : code 0" '[ $? = 0 ] && grep -q "aucun processus" "$WORK/stop2.out"'
+
+# Groupes inconnus (/activity muet) : aucun groupe n'est arrêté, et le CLI
+# est listé avec la commande pour l'arrêter à la main.
+rm -f "$WORK/cli"
+start_fake_atelier
+CLI_PID="$(sed -n 1p "$WORK/cli")"
+COMPUTE_PID="$(sed -n 3p "$WORK/cli")"
+(AGENT_GROUPS="?" stop_atelier) >"$WORK/stop3.out" 2>&1
+check "groupes inconnus : code 0, app et serveurs arrêtés" '[ $? = 0 ] && [ -z "$(app_pids)" ] && [ -z "$(server_pids)" ]'
+check "groupes inconnus : ni le CLI ni le calcul ne sont tués" 'alive "$CLI_PID" && alive "$COMPUTE_PID"'
+check "groupes inconnus : le dit et donne la commande" 'grep -q "groupes de CLI d.agent inconnus" "$WORK/stop3.out" && grep -q "kill -TERM -- -PGID" "$WORK/stop3.out"'
+kill -KILL "-$CLI_PID" "$COMPUTE_PID" 2>/dev/null
 
 # Un processus hors Atelier n'est jamais visé.
 sleep 300 &
@@ -142,14 +174,18 @@ printf '{\n  "port": 4321,\n  "token": "abcdef0123",\n  "identity": {\n    "port
 check "verrou indenté : port" '[ "$(lock_field port)" = 4321 ]'
 check "verrou indenté : jeton" '[ "$(lock_field token)" = abcdef0123 ]'
 check "aucun serveur de chat : zéro tour" '[ "$(count_turns)" = 0 ]'
-check "serveur injoignable : état inconnu" '[ "$(count_turns_at 1 x)" = "?" ]'
+check "serveur injoignable : état inconnu" '[ "$(turns_of "$(activity_at 1 x)")" = "?" ] && [ "$(groups_of "$(activity_at 1 x)")" = "?" ]'
+check "aucun serveur de chat : aucun groupe" '[ -z "$(groups_of "$(activity)")" ]'
+check "agentGroups : liste lue" '[ "$(groups_of "{\"runningTurns\":0,\"agentGroups\":[12, 345,6]}")" = "12 345 6" ]'
+check "agentGroups vide" '[ -z "$(groups_of "{\"agentGroups\": []}")" ]'
+check "agentGroups absent (build antérieure) : inconnu" '[ "$(groups_of "{\"runningTurns\":0}")" = "?" ]'
 # Faux /activity : vérifie l'en-tête du jeton et répond comme le serveur.
 python3 -c '
 import http.server, sys
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         ok = self.path == "/activity" and self.headers.get("x-atelier-token") == "jeton"
-        body = b"{\"runningTurns\": 2, \"running\": []}" if ok else b"{}"
+        body = b"{\"runningTurns\": 2, \"running\": [], \"agentGroups\": [77, 78]}" if ok else b"{}"
         self.send_response(200 if ok else 401)
         self.end_headers()
         self.wfile.write(body)
@@ -164,8 +200,8 @@ echo "$FAKE_HTTP" >>"$PIDS_FILE"
 disown "$FAKE_HTTP"
 tries=0
 while [ ! -s "$WORK/port" ] && [ "$tries" -lt 50 ]; do sleep 0.1; tries=$((tries + 1)); done
-check "/activity : tours comptés avec le bon jeton" '[ "$(count_turns_at "$(cat "$WORK/port")" jeton)" = 2 ]'
-check "/activity : mauvais jeton, état inconnu" '[ "$(count_turns_at "$(cat "$WORK/port")" autre)" = "?" ]'
+check "/activity : tours et groupes lus avec le bon jeton" 'B="$(activity_at "$(cat "$WORK/port")" jeton)"; [ "$(turns_of "$B")" = 2 ] && [ "$(groups_of "$B")" = "77 78" ]'
+check "/activity : mauvais jeton, état inconnu" '[ "$(turns_of "$(activity_at "$(cat "$WORK/port")" autre)")" = "?" ]'
 kill "$FAKE_HTTP" 2>/dev/null
 
 # --- Builds installées : installation et retour arrière ------------------
@@ -246,16 +282,28 @@ check "rien ne tourne ni n'est installé : dit qu'aucune précédente n'est gard
 (
   fresh_install Apps5
   : >"$WORK/turns"
-  count_turns() {
+  activity() {
     echo x >>"$WORK/turns"
     # 0 au premier contrôle, 1 au second (après la confirmation).
-    [ "$(wc -l <"$WORK/turns" | tr -d " ")" -ge 2 ] && echo 1 || echo 0
+    if [ "$(wc -l <"$WORK/turns" | tr -d " ")" -ge 2 ]; then
+      echo '{"runningTurns":1,"agentGroups":[]}'
+    else
+      echo '{"runningTurns":0,"agentGroups":[]}'
+    fi
   }
   stop_atelier() { echo ARRET; }
   CONFIRMED=1
   confirm_and_stop
 ) >"$WORK/race.out" 2>&1
 check "tour démarré pendant la confirmation : refus (code 3), rien d'arrêté" '[ $? = 3 ] && ! grep -q ARRET "$WORK/race.out" && grep -q "1 tour(s) de chat en cours" "$WORK/race.out"'
+
+# --- Copie DMG dans /Applications ----------------------------------------
+
+mkdir -p "$WORK/DMG/Atelier.app"
+(RELANCE_APP_DMG="$WORK/DMG/Atelier.app"; DMG_APP="$RELANCE_APP_DMG"; warn_dmg_copy) >"$WORK/dmg.out" 2>&1
+check "copie DMG présente : signalée, pas supprimée" 'grep -q "existe aussi" "$WORK/dmg.out" && [ -d "$WORK/DMG/Atelier.app" ]'
+(DMG_APP="$WORK/DMG/absente.app"; warn_dmg_copy) >"$WORK/dmg2.out" 2>&1
+check "pas de copie DMG : rien à dire" '[ ! -s "$WORK/dmg2.out" ]'
 
 # --- Options et refus -----------------------------------------------------
 

@@ -45,7 +45,11 @@ pas ».
   et `docs/soak/galerie-COMPLETE.md`). Les CLI d'agent (claude,
   codex…) d'un tour en cours sont lancés par le serveur de chat **dans leur
   propre groupe de processus** : ils survivent à l'arrêt du serveur, même par
-  `kill -9`. Le script relève leurs groupes avant l'arrêt et les arrête aussi.
+  `kill -9`. Le serveur publie la liste de ces groupes (`agentGroups` de
+  `GET /activity`) et le script n'arrête que ceux-là. Le serveur lance aussi
+  en groupe propre ce qui **doit survivre** à une relance : calculs détachés
+  (`atelier-run`), jobs `nohup … &` du terminal intégré, noyaux, outils. Le
+  script les laisse vivre et les liste.
 - Les serveurs écrivent leurs journaux dans `~/Library/Logs/Atelier/`
   (`studio-server.log`, `gallery-<port>.log`, 5 Mo par fichier, trois anciens
   gardés), y compris la trace d'un panic.
@@ -131,12 +135,27 @@ refuse sinon. Dans l'ordre, il :
    arrêté) ;
 8. **arrête** `tauri-app`, tous les processus de
    `Atelier.app/Contents/Resources/rust-server/` (chat, galeries, passerelle,
-   outils), leurs descendants et les groupes de processus des CLI : SIGTERM,
-   5 s de grâce, puis SIGKILL ; un survivant = code 1 avec sa liste ;
+   outils), leurs descendants **du même groupe de processus**, et les groupes
+   des CLI d'agent publiés par `/activity` : SIGTERM, 5 s de grâce, puis
+   SIGKILL ; un survivant = code 1 avec sa liste. **Survivent** et sont listés
+   (« Laissés en vie ») : les autres groupes lancés par l'app ou ses serveurs,
+   c'est-à-dire les calculs détachés en cours, les jobs `nohup` du terminal
+   intégré, les noyaux et les outils. Si `/activity` est muet (build antérieure,
+   serveur bloqué), aucun groupe n'est arrêté : un CLI d'agent resté dans la
+   liste s'arrête à la main avec `kill -TERM -- -PGID` (PGID = deuxième
+   colonne) ;
 9. **installe** : la courante devient la précédente (l'ancienne précédente est
    supprimée), la nouvelle devient la courante ;
 10. **relance** `~/Applications/Atelier.app` et vérifie que `tauri-app` tourne
-    depuis ce bundle.
+    depuis ce bundle ; si `/Applications/Atelier.app` (DMG) existe aussi, il
+    le signale sans la supprimer.
+
+**Après le premier passage, `/Applications/Atelier.app`.** Si l'app venait du
+DMG, cette copie reste en place avec le même identifiant de bundle : le Dock,
+Spotlight ou Launch Services peuvent la rouvrir et servir l'ancien code. Sa
+build est déjà gardée comme précédente (étape 6). Une fois la nouvelle build
+validée, mettre `/Applications/Atelier.app` à la corbeille (avec l'accord de
+Thierry) et garder dans le Dock l'icône de `~/Applications/Atelier.app`.
 
 | Code | Sens |
 |---|---|
@@ -252,7 +271,10 @@ les a lancés est fermée.
 
 D'abord **Réglages → Général → Diagnostic et maintenance**, ligne
 **Sidecar** : le commit et la date affichés doivent être ceux de la build
-attendue (« inconnu » si git manquait au build). Puis :
+attendue (« inconnu » si git manquait au build). Si l'app lancée vient de
+`/Applications/Atelier.app` (copie du DMG) et non de
+`~/Applications/Atelier.app`, c'est la copie périmée : voir « Après le premier
+passage » plus haut. Puis :
 
 ```bash
 bash scripts/relance-app.sh --etat   # builds installées, app et serveurs lancés

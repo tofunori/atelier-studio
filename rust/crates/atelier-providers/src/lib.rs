@@ -2,6 +2,7 @@
 //!
 //! Transport and lifecycle are shared; capabilities stay provider-specific.
 
+pub mod agent_groups;
 mod acp_map;
 mod acp_rpc;
 mod api;

@@ -193,7 +193,13 @@ keeps the previous one in `~/Applications/Atelier-precedente/` for
 nothing is installed there yet, the app that is running (from
 `/Applications/Atelier.app` or another worktree's `target/`) is copied first
 and becomes the previous build; if no app runs, the script says that no
-previous build is kept. That file is the only build
+previous build is kept. A DMG copy left in `/Applications/Atelier.app` has the
+same bundle identifier, so the Dock or Spotlight may reopen it and run old
+code: the script reports it without deleting it; once the new build works,
+move `/Applications/Atelier.app` to the Trash and keep
+`~/Applications/Atelier.app` in the Dock. The restart stops only the chat
+agents' process groups: detached computations, `nohup` jobs started from the
+built-in terminal and kernels keep running and are listed. That file is the only build
 and restart procedure; the checks, the stop list and the restart verification
 live there. **Settings → General → Diagnostics and maintenance → Sidecar** shows
 the commit and date of the running build. `npm run tauri dev` gives a hot-reloading

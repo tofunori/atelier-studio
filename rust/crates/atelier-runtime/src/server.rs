@@ -330,6 +330,9 @@ async fn health_handler(
 
 /// Tours de chat en cours : `scripts/relance-app.sh` refuse d'arrêter
 /// l'app (et le CLI de chaque tour) tant que `runningTurns` n'est pas 0.
+/// `agentGroups` liste les groupes de processus des CLI d'agent : le script
+/// n'arrête que ceux-là, jamais les autres groupes lancés par le serveur
+/// (calculs détachés, noyaux, jobs du terminal), qui doivent survivre.
 async fn activity_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -343,6 +346,7 @@ async fn activity_handler(
     Ok(Json(serde_json::json!({
         "runningTurns": running.len(),
         "running": threads,
+        "agentGroups": atelier_providers::agent_groups::current(),
     })))
 }
 
@@ -700,10 +704,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), Sc::OK);
-        assert_eq!(
-            body(res).await,
-            serde_json::json!({ "runningTurns": 0, "running": [] })
-        );
+        let first = body(res).await;
+        assert_eq!(first["runningTurns"], 0);
+        assert_eq!(first["running"], serde_json::json!([]));
+        assert!(first["agentGroups"].is_array(), "{first}");
 
         state
             .harness()
@@ -713,12 +717,11 @@ mod tests {
             .oneshot(request(Some("secret")))
             .await
             .unwrap();
+        let second = body(res).await;
+        assert_eq!(second["runningTurns"], 1);
         assert_eq!(
-            body(res).await,
-            serde_json::json!({
-                "runningTurns": 1,
-                "running": [{ "threadId": "fil-1", "provider": "claude" }],
-            })
+            second["running"],
+            serde_json::json!([{ "threadId": "fil-1", "provider": "claude" }])
         );
     }
 
