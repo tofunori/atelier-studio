@@ -11,6 +11,9 @@ import {removeTempRoot} from './temp-root.ts';
 // chaque geste arrive dans le fichier sur le disque.
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'christophe.docx');
 const NAME = 'Chapitre 2 corrigé CK.docx';
+// Manuscrit court suivi d'une bibliographie Zotero de 40 entrées, toutes
+// « garder avec le suivant » (chaîne plus longue qu'une feuille).
+const BIBLIO = path.join(path.dirname(FIXTURE), 'bibliographie.docx');
 // PNG 2×1 (en-tête et IHDR suffisent au moteur ; le navigateur l'affiche).
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGO4WR5uX7EVAAsuAxTa261lAAAAAElFTkSuQmCC', 'base64');
 
@@ -18,6 +21,7 @@ const test = base.extend<{project: {root: string; url: string; doc: string}}>({
   project: async ({}, use) => {
     const root = await mkdtemp(path.join(tmpdir(), 'atelier-docx-'));
     await copyFile(FIXTURE, path.join(root, NAME));
+    await copyFile(BIBLIO, path.join(root, 'Bibliographie.docx'));
     const port = await freePort();
     const server = spawnGalleryServer({root, port, watch: false});
     try {
@@ -365,4 +369,38 @@ test('docx: le texte se coupe en pages comme dans Word, numéros de ligne repris
   await expect(page.locator('#sheets .sheet').nth(1)).toBeAttached();
   await page.waitForTimeout(300);
   expect(await layout()).toBe(typed);
+});
+
+test('docx: une bibliographie Zotero passe à la ligne et se coupe en feuilles pleines', async ({page, project}) => {
+  await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path.join(project.root, 'Bibliographie.docx'))}`);
+  await expect(page.locator('#sheets .sheet').nth(1)).toBeAttached();
+  await page.waitForTimeout(300);
+  const r = await page.evaluate(() => {
+    const paper = document.getElementById('paper')!;
+    const cs = getComputedStyle(paper);
+    const mt = parseFloat(cs.paddingTop), mb = parseFloat(cs.paddingBottom);
+    const areas = Array.from(document.querySelectorAll('#sheets .sheet')).map(s => s.getBoundingClientRect()).map(b => [b.top + mt, b.bottom - mb]);
+    // Chaque ligne affichée tombe dans la zone de texte d'une feuille.
+    const out: string[] = [];
+    const range = document.createRange();
+    for (const el of Array.from(paper.querySelectorAll(':scope > .d-p'))) {
+      const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let t = w.nextNode(); t; t = w.nextNode()) {
+        range.selectNodeContents(t);
+        for (const q of Array.from(range.getClientRects())) if (q.height && !areas.some(([a, z]) => q.top >= a - 1 && q.bottom <= z + 1)) out.push((t as Text).data.slice(0, 30));
+      }
+    }
+    const entry = Array.from(paper.querySelectorAll('.d-p')).find(p => p.textContent!.startsWith('Pavlovic')) as HTMLElement;
+    return {sheets: areas.length, out, wraps: entry.offsetHeight / parseFloat(getComputedStyle(entry).lineHeight), italic: !!entry.querySelector('i'), wide: entry.scrollWidth <= entry.clientWidth + 1};
+  });
+  expect(r.out).toEqual([]);
+  // Les entrées passent à la ligne (titre de revue en italique) au lieu de déborder.
+  expect(r.wraps).toBeGreaterThan(2);
+  expect(r.italic).toBe(true);
+  expect(r.wide).toBe(true);
+  // La chaîne, plus longue qu'une feuille, se coupe comme du texte courant :
+  // pas une feuille par entrée.
+  expect(r.sheets).toBeLessThanOrEqual(10);
+  // Le pied de page porte le numéro de chaque feuille.
+  await expect(page.locator('#sheets .sheet').nth(1).locator('.d-ftr')).toHaveText('2');
 });

@@ -236,6 +236,18 @@
   const virtualText = (idx        ) => virtualSegments(idx).filter((s) => !(s.rev === "del" || s.rev === "moveFrom")).map((s) => s.text).join("");
 
   // ------------------------------------------------------------------ rendu
+  /** Texte d'un segment avec sa mise en forme (gras, italique…). */
+  function styled(s     )       {
+    let inner       = document.createTextNode(s.text);
+    const wrap = (tag        ) => { const w = document.createElement(tag); w.appendChild(inner); inner = w; };
+    if (s.b) wrap("b");
+    if (s.i) wrap("i");
+    if (s.u) wrap("u");
+    if (s.strike) wrap("s");
+    if (s.sup) wrap("sup");
+    if (s.sub) wrap("sub");
+    return inner;
+  }
   function renderPara(idx        )              {
     const p = model .paragraphs[idx];
     const el = document.createElement("p");
@@ -273,6 +285,11 @@
           // Hauteur réservée avant le chargement : sans elle, la coupure en pages se ferait sur une image vide.
           if (s.width && s.height) img.style.aspectRatio = `${s.width} / ${s.height}`;
           node.appendChild(img);
+        } else if (s.kind === "field" && s.text) {
+          // Résultat de champ (citation, bibliographie) : texte mis en forme
+          // qui passe à la ligne comme le reste, mais non modifiable.
+          node.classList.add(label === "zotero-bibliographie" ? "flow" : "fld");
+          node.appendChild(styled(s));
         } else {
           node.textContent = isNote && s.number ? String(s.number) : s.text || (label === "image" ? "[figure]" : label === "équation" ? "[équation]" : `[${label || "objet"}]`);
         }
@@ -280,15 +297,7 @@
         node.title = s.kind === "field" ? (label.startsWith("zotero") ? "Citation Zotero : à modifier dans Word" : `Champ ${label}`) : (isNote ? (label === "note" ? "Note de bas de page" : "Note de fin") : s.media ? (s.alt || "Figure") : label);
       } else {
         node = document.createElement("span");
-        let inner       = document.createTextNode(s.text);
-        const wrap = (tag        ) => { const w = document.createElement(tag); w.appendChild(inner); inner = w; };
-        if (s.b) wrap("b");
-        if (s.i) wrap("i");
-        if (s.u) wrap("u");
-        if (s.strike) wrap("s");
-        if (s.sup) wrap("sup");
-        if (s.sub) wrap("sub");
-        node.appendChild(inner);
+        node.appendChild(styled(s));
         if (s.font) node.style.fontFamily = `"${s.font}", ${getComputedStyle(paper).fontFamily}`;
         if (s.size) node.style.fontSize = model .page ? `calc(var(--pt) * ${s.size})` : `${s.size}pt`;
         if (s.highlight && s.highlight !== "white" && s.highlight !== "black") node.style.backgroundColor = HIGHLIGHT[s.highlight] || `color-mix(in srgb, ${s.highlight} 40%, transparent)`;
@@ -296,6 +305,7 @@
       node.dataset.off = String(off);
       node.dataset.len = String(len);
       if (chip) node.dataset.chip = "1";
+      if (s.kind === "field") node.dataset.field = s.label || "";
       if (s.ghost) {
         node.classList.add("ins", "pending");
         node.style.setProperty("--rev-color", authorColor(author));
@@ -532,7 +542,7 @@
           Array.from(range.getClientRects()).forEach((r, k) => { if (r.height > 0) frags.push({ top: r.top - o, bottom: r.bottom - o, atom: c , frag: k }); });
         } else if (c instanceof HTMLElement) {
           if (c.classList.contains("d-gap")) continue;
-          if (c.dataset.chip || c.tagName === "BR" || c.tagName === "IMG") {
+          if ((c.dataset.chip && !c.classList.contains("fld") && !c.classList.contains("flow")) || c.tagName === "BR" || c.tagName === "IMG") {
             const r = c.getBoundingClientRect();
             if (r.height > 0) frags.push({ top: r.top - o, bottom: r.bottom - o, atom: c, frag: 0 });
           } else walk(c);
@@ -634,8 +644,19 @@
         }
         if (at === 0) {
           // Les paragraphes « garder avec le suivant » partent avec lui.
+          const chained = (j        ) => blocks[j].classList.contains("d-p") && blocks[j].parentElement === el.parentElement && lookOf(blocks[j]).keep_next;
           let k = b;
-          while (k > start && blocks[k - 1].classList.contains("d-p") && blocks[k - 1].parentElement === el.parentElement && lookOf(blocks[k - 1]).keep_next && topOfEl(blocks[k - 1]) > topOf(page) + 1) k--;
+          while (k > start && chained(k - 1) && topOfEl(blocks[k - 1]) > topOf(page) + 1) k--;
+          // Comme Word, une chaîne qui ne tient pas sur une feuille (une
+          // bibliographie entière, par exemple) se coupe comme du texte courant.
+          if (k !== b) {
+            let head = k, tail = b;
+            while (head > 0 && chained(head - 1)) head--;
+            while (tail + 1 < blocks.length && chained(tail) && blocks[tail + 1].parentElement === el.parentElement) tail++;
+            const end = linesOf(blocks[tail], o);
+            const reach = end.length ? end[Math.min(1, end.length - 1)].bottom : blocks[tail].getBoundingClientRect().bottom - o;
+            if (reach - topOfEl(blocks[head]) > bottomOf(0) - topOf(0)) k = b;
+          }
           const first = blocks[k];
           if (topOfEl(first) <= topOf(page) + 1) {
             // Déjà en haut de feuille : couper dans le paragraphe, ou laisser déborder.
@@ -675,6 +696,14 @@
     return Math.max(1, pageAt(Math.max(0, end - pg.bottom * pt - 1)) + 1);
   }
 
+  /** Champs PAGE et NUMPAGES d'un en-tête ou d'un pied : le numéro de la feuille. */
+  function pageFields(zone             , n        , pages        ) {
+    for (const f of Array.from(zone.querySelectorAll("[data-field]"))                 ) {
+      const kind = f.dataset.field;
+      if (kind === "page") f.textContent = String(n);
+      else if (kind === "numpages" || kind === "sectionpages") f.textContent = String(pages);
+    }
+  }
   /** Feuilles derrière le texte, en-tête et pied de page répétés. */
   function drawSheets(pg      , pages        ) {
     const pt = ptPx, pageH = pg.height * pt, stride = pageH + GAP;
@@ -684,6 +713,7 @@
       if (z.classList.contains("d-ftr")) z.style.top = `${pageH - pg.footer * pt - z.offsetHeight}px`;
       else z.style.top = `${pg.header * pt}px`;
     }
+    for (const z of pinned) pageFields(z, 1, pages);
     const frag = document.createDocumentFragment();
     for (let k = 0; k < pages; k++) {
       const sh = document.createElement("div");
@@ -698,6 +728,7 @@
           c.removeAttribute("contenteditable");
           c.querySelectorAll("[contenteditable]").forEach((x) => x.removeAttribute("contenteditable"));
           c.querySelectorAll("[data-idx]").forEach((x) => x.removeAttribute("data-idx"));
+          pageFields(c, k + 1, pages);
           sh.appendChild(c);
         }
       }

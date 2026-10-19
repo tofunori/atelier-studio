@@ -109,6 +109,9 @@ table.d-t .d-p.changed::before{display:none}
 .cmt{background:var(--doc-hl)}
 .cmt.on{background:var(--doc-hl-on)}
 .chip{border-radius:6px;padding:0 4px;background:color-mix(in srgb,currentColor 7%,transparent);white-space:nowrap}
+.chip.fld{white-space:inherit;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.chip[data-field="page"],.chip[data-field="numpages"],.chip[data-field="sectionpages"]{background:none;padding:0}
+.chip.flow{white-space:inherit;padding:0;border-radius:0;background:none}
 .chip.obj{font:400 12px/1.5 var(--ui-font);color:var(--text-muted)}
 .chip.note{font-size:10px;vertical-align:super;padding:0 2px}
 .chip.fig{display:inline-block;padding:0;border-radius:0;background:none;vertical-align:bottom;max-width:100%}
