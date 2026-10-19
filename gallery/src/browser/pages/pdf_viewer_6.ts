@@ -2353,6 +2353,12 @@ let ANNOTS_LOADED = false;  // garde anti-écrasement : jamais de POST avant un 
 // jamais vu — un surlignage posé par Claude Desktop (MCP) ou une autre
 // fenêtre pendant la lecture — au lieu de l'écraser avec notre liste.
 const KNOWN_IDS = new Set();
+// Forme canonique (canonAnnot) de chaque annotation telle que le store la
+// porte d'après ce lecteur : posée au chargement, à chaque envoi réussi et à
+// chaque fusion. Une annotation dont la forme locale s'en écarte a été
+// modifiée ici sans être encore écrite : la fusion avec le store la garde, au
+// lieu de la ramener à la version du disque (relecture du 2026-10-19).
+const STORE_CANON = new Map<string, string>();
 let SAVE_SEQ = 0;           // sauvegardes demandées (voir syncAnnotsFromStore)
 // Un enregistrement a échoué et n'est pas encore rattrapé : le lecteur
 // retente (recul croissant, et dès que la veille revoit le serveur).
@@ -2394,20 +2400,23 @@ function redrawAllAnnots(){
 const ANNOTS_LOAD_FAILED_MSG = "Annotations non chargées — nouvel essai automatique…";
 const ANNOTS_SAVE_FAILED_MSG = "Annotation non enregistrée — nouvel essai automatique…";
 const ANNOTS_SAVED_AGAIN_MSG = "Annotations enregistrées.";
+// La classe `annot-state` marque ces messages : dans l'iframe d'Atelier, seuls
+// eux s'affichent dans #status ; les messages de navigation (« Page N »,
+// « Passage retrouvé ») y restent masqués comme avant (relecture du 2026-10-19).
 function annotStatus(text: string){
   const el = document.getElementById("status") as HTMLSpanElement | null;
-  if (el) el.textContent = text;
+  if (el) { el.textContent = text; el.classList.add("annot-state"); }
 }
 function clearAnnotStatus(text: string){
   const el = document.getElementById("status") as HTMLSpanElement | null;
-  if (el && el.textContent === text) el.textContent = "";
+  if (el && el.textContent === text) { el.textContent = ""; el.classList.remove("annot-state"); }
 }
 /** Délai du prochain essai : 2 s, 4 s, 8 s… plafonné à 30 s. */
 function annotRetryDelay(attempt: number){ return Math.min(2000 * 2 ** Math.min(attempt, 4), 30000); }
 function loadAnnots(attempt: number){
   fetch("/pdfannot?rel=" + encodeURIComponent(rel)).then(r=>{ if(!r.ok) throw new Error("Chargement impossible"); return r.json(); })
     .then(j => { PDF_ANNOTS = j.annots || []; ANNOTS_LOADED = true;
-      PDF_ANNOTS.forEach((a) => KNOWN_IDS.add(String(a.id)));
+      PDF_ANNOTS.forEach((a) => { KNOWN_IDS.add(String(a.id)); STORE_CANON.set(String(a.id), canonAnnot(a)); });
       clearAnnotStatus(ANNOTS_LOAD_FAILED_MSG);
       redrawAllAnnots();
       revealTargetAnnot(); })
@@ -2434,6 +2443,11 @@ function canonAnnot(value){
   }
   return JSON.stringify(value);
 }
+/** Modifiée ici depuis la dernière version connue du store, pas encore écrite. */
+function editedHere(a){
+  const base = STORE_CANON.get(String(a.id));
+  return base !== undefined && canonAnnot(a) !== base;
+}
 function applyStoreAnnots(server){
   const byId = new Map();
   for (const s of server) if (s && s.id != null) byId.set(String(s.id), s);
@@ -2443,14 +2457,18 @@ function applyStoreAnnots(server){
     const id = String(a.id), s = byId.get(id);
     if (s) {
       byId.delete(id);
-      // mise à jour EN PLACE : une bulle ouverte garde sa référence
-      if (!a.fresh && canonAnnot(a) !== canonAnnot(s)) {
+      // mise à jour EN PLACE : une bulle ouverte garde sa référence. Une
+      // modification locale pas encore écrite (envoi raté, ou en attente)
+      // garde la priorité : le prochain envoi la portera.
+      const storeCanon = canonAnnot(s);
+      if (!a.fresh && canonAnnot(a) !== storeCanon && !editedHere(a)) {
         for (const k of Object.keys(a)) if (!(k in s)) delete a[k];
         Object.assign(a, s);
         changed = true;
       }
+      if (!editedHere(a)) STORE_CANON.set(id, storeCanon);
       next.push(a);
-    } else if (KNOWN_IDS.has(id) && !a.fresh) {
+    } else if (KNOWN_IDS.has(id) && !a.fresh && !editedHere(a)) {
       changed = true;               // retirée ailleurs (chat, panneau de l'app)
     } else {
       next.push(a);                 // créée ici, écriture pas encore faite
@@ -2458,6 +2476,7 @@ function applyStoreAnnots(server){
   }
   for (const [id, s] of byId) {
     if (KNOWN_IDS.has(id)) continue; // supprimée ici, écriture en échec
+    STORE_CANON.set(id, canonAnnot(s));
     next.push(s);
     changed = true;
   }
@@ -2540,6 +2559,7 @@ function saveAnnots(){
   // `fresh` (commentaire créé mais jamais validé) vit en mémoire seulement :
   // il ne doit pas survivre à un rechargement dans le fichier d'annotations.
   const sent = PDF_ANNOTS.map(({fresh, ...a}) => a);
+  const sentCanon = sent.map(a => [String(a.id), canonAnnot(a)]);
   const body = JSON.stringify({rel, annots: sent, known: [...KNOWN_IDS]});
   SAVE_SEQ++;
   ANNOT_SAVE = ANNOT_SAVE.then(async () => {
@@ -2556,6 +2576,7 @@ function saveAnnots(){
       const result = await response.json();
       if(result.error) throw new Error(result.error);
       sent.forEach(a => KNOWN_IDS.add(String(a.id)));
+      for (const [id, c] of sentCanon) STORE_CANON.set(id, c);
       if (ANNOTS_UNSAVED) {
         // la liste entière part à chaque envoi : ce succès rattrape l'échec
         ANNOTS_UNSAVED = false;
@@ -4200,7 +4221,7 @@ if(window.self !== window.top){
       padding:4px 10px !important;min-height:0 !important;gap:10px}
     header #fname{font-weight:500;font-size:var(--fs-body,13px);color:var(--txt)}
     header .muted:not(#status){display:none}
-    header #status:empty{display:none}
+    header #status:not(.annot-state),header #status:empty{display:none}
     header #selinfo{color:var(--muted) !important;font-size:var(--fs-body-s,12px)}
     header #status{font-size:var(--fs-body-s,12px)}
     header button{background:transparent !important;border:none !important;

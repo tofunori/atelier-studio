@@ -64,6 +64,11 @@ test('dans l’iframe, un enregistrement raté se voit dans #status et part seul
   const status = page.frameLocator('iframe[title="Lecteur PDF"]').locator('#status');
   // au repos, le span vide ne prend aucune place
   await expect(status).toBeHidden();
+  // un message de navigation (« Page N », jamais effacé) reste masqué dans
+  // Atelier : seuls les messages d'annotation y apparaissent
+  await frame.evaluate(() => { document.getElementById('status')!.textContent = 'Page 3'; });
+  await expect(status).toBeHidden();
+  await frame.evaluate(() => { document.getElementById('status')!.textContent = ''; });
 
   let failing = true;
   await page.route(url => url.pathname === '/pdfannot', route => {

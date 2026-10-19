@@ -9,7 +9,10 @@ const sharedUI = fs.readFileSync(new URL('../../assets/annotation_ui.bundle.js',
 const pdfSelection = fs.readFileSync(new URL('../../assets/pdf_selection.js', import.meta.url), 'utf8');
 const pdfTools = fs.readFileSync(new URL('../../assets/pdf_tools.js', import.meta.url), 'utf8');
 const menuCode = html.slice(html.indexOf('let annotationEditor = null;'), html.indexOf('// mode Studio :'));
-const saveCode = html.slice(html.indexOf('function saveAnnots(){'), html.indexOf('function drawAnnots'));
+// saveAnnots retient la forme canonique de ce qu'il a écrit (STORE_CANON) :
+// il lui faut canonAnnot, chargé avec lui
+const saveCode = html.slice(html.indexOf('function canonAnnot('), html.indexOf('function applyStoreAnnots('))
+  + html.slice(html.indexOf('function saveAnnots(){'), html.indexOf('function drawAnnots'));
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
 function menu(saved = true, initialNote = "") {
@@ -74,7 +77,7 @@ test('annotation writes are serialized snapshots, HTTP errors are not success', 
   const context=vm.createContext({
     ANNOTS_LOADED:true,ANNOT_SAVE:Promise.resolve(true),PDF_ANNOTS:[{id:'a',note:'first'}],rel:'paper.pdf',
     KNOWN_IDS:new Set(['seen']),SAVE_SEQ:0,ANNOTS_UNSAVED:false,ANNOT_RETRY_TIMER:null,ANNOT_RETRY_ATTEMPT:0,
-    ANNOT_FAIL_UNREACHABLE:false,retries:0,ANNOTS_SAVE_FAILED_MSG:'Annotation non enregistrée',ANNOTS_SAVED_AGAIN_MSG:'Annotations enregistrées.',
+    ANNOT_FAIL_UNREACHABLE:false,retries:0,STORE_CANON:new Map(),ANNOTS_SAVE_FAILED_MSG:'Annotation non enregistrée',ANNOTS_SAVED_AGAIN_MSG:'Annotations enregistrées.',
     annotStatus(text){statuses.push(text);},clearAnnotStatus(){},scheduleAnnotRetry(){context.retries++;},
     annPane:{refresh(..._args){}},document:{getElementById:()=>({textContent:''})},
     fetch:async (_url,init: { body: string; })=>{calls.push(JSON.parse(init.body));if(calls.length===1)await new Promise(r=>{release=r;});return {ok:calls.length===1,status:500,json:async()=>({ok:true})};},
@@ -102,7 +105,7 @@ test('only an unreachable server lets the watcher retry a failed save at once', 
   const context=vm.createContext({
     ANNOTS_LOADED:true,ANNOT_SAVE:Promise.resolve(true),PDF_ANNOTS:[{id:'a'}],rel:'paper.pdf',
     KNOWN_IDS:new Set(),SAVE_SEQ:0,ANNOTS_UNSAVED:false,ANNOT_RETRY_TIMER:null,ANNOT_RETRY_ATTEMPT:0,
-    ANNOT_FAIL_UNREACHABLE:false,ANNOTS_SAVE_FAILED_MSG:'x',ANNOTS_SAVED_AGAIN_MSG:'y',
+    ANNOT_FAIL_UNREACHABLE:false,ANNOTS_SAVE_FAILED_MSG:'x',ANNOTS_SAVED_AGAIN_MSG:'y',STORE_CANON:new Map(),
     annotStatus(){},clearAnnotStatus(){},scheduleAnnotRetry(){},setTimeout(){},
     annPane:{refresh(){}},
     fetch:async ()=>{
@@ -126,6 +129,7 @@ test('a store change is merged without losing local work', () => {
   const code=html.slice(html.indexOf('function canonAnnot('),html.indexOf('async function syncAnnotsFromStore('));
   const edited={id:'known-edited',page:1,memo:'old',text:'x'};
   const context=vm.createContext({
+    STORE_CANON:new Map(),
     KNOWN_IDS:new Set(['known-edited','known-kept','deleted-elsewhere','deleted-here']),
     PDF_ANNOTS:[edited,{id:'known-kept',page:1,rects:[[0.1,0.2,0.3,0.01]]},{id:'deleted-elsewhere'},
       {id:'local-unsaved'},{id:'fresh',fresh:true}],
@@ -143,6 +147,48 @@ test('a store change is merged without losing local work', () => {
   assert.equal('memo' in edited,false);
   assert.ok(context.KNOWN_IDS.has('claude-1'));
   assert.equal(context.applyStoreAnnots(context.PDF_ANNOTS.filter((a)=>!a.fresh && a.id!=='local-unsaved')),false,'a second pass changes nothing');
+});
+
+test('a local edit whose save failed survives a store change made elsewhere', async () => {
+  // relecture du 2026-10-19 : envoi refusé (500), puis un autre écrivain
+  // (panneau de l'app, MCP) change le store ; la fusion ne doit pas ramener
+  // la note locale à la version du disque
+  const code=html.slice(html.indexOf('function canonAnnot('),html.indexOf('async function annotStoreStamp('))
+    + html.slice(html.indexOf('function saveAnnots(){'),html.indexOf('function drawAnnots'));
+  let disk=[{id:'a',page:1,note:'ancienne'},{id:'c',page:1,note:'retirée ailleurs'}];
+  let refuse=1;const sent: string[][]=[];
+  const context=vm.createContext({
+    ANNOTS_LOADED:true,ANNOT_SAVE:Promise.resolve(true),rel:'p.pdf',SAVE_SEQ:0,ANNOTS_UNSAVED:false,STORE_CANON:new Map(),
+    ANNOT_RETRY_TIMER:null,ANNOT_RETRY_ATTEMPT:0,ANNOT_FAIL_UNREACHABLE:false,ANNOTS_SAVE_FAILED_MSG:'x',ANNOTS_SAVED_AGAIN_MSG:'y',
+    annotStatus(){},clearAnnotStatus(){},scheduleAnnotRetry(){},setTimeout(){},annPane:{refresh(){}},
+    fetch:async (_url: string,init?: {method?: string; body: string})=>{
+      if(init&&init.method==='POST'){
+        const b=JSON.parse(init.body);sent.push(b.annots.map((a: {note: string})=>a.note));
+        if(refuse-->0) return {ok:false,status:500,json:async()=>({})};
+        disk=b.annots;return {ok:true,status:200,json:async()=>({ok:true})};
+      }
+      return {ok:true,status:200,json:async()=>({annots:disk})};
+    },
+  });
+  vm.runInContext(code,context);
+  // état après loadAnnots : ce lecteur a vu a et c dans le store
+  context.PDF_ANNOTS=JSON.parse(JSON.stringify(disk));
+  context.KNOWN_IDS=new Set(['a','c']);
+  for(const a of context.PDF_ANNOTS) context.STORE_CANON.set(a.id,context.canonAnnot(a));
+  context.PDF_ANNOTS[0].note='MODIF LOCALE';
+  context.PDF_ANNOTS[1].note='modifiée ici aussi';
+  assert.equal(await context.saveAnnots(),false);
+  // l'autre écrivain ajoute b, change la note de a sur le disque, retire c
+  disk=[{id:'a',page:1,note:'ancienne, vue ailleurs'},{id:'b',page:1,note:'autre'}];
+  await context.syncAnnotsFromStore();
+  assert.deepEqual(Array.from(context.PDF_ANNOTS,(a: {note: string})=>a.note),['MODIF LOCALE','modifiée ici aussi','autre']);
+  assert.equal(await context.saveAnnots(),true);
+  assert.deepEqual(disk.map(a=>a.note),['MODIF LOCALE','modifiée ici aussi','autre']);
+  // une fois écrite, la note n'est plus « modifiée ici » : un changement
+  // ultérieur du store l'emporte de nouveau
+  disk=[{id:'a',page:1,note:'reprise ailleurs'},{id:'b',page:1,note:'autre'}];
+  await context.syncAnnotsFromStore();
+  assert.deepEqual(Array.from(context.PDF_ANNOTS,(a: {note: string})=>a.note),['reprise ailleurs','autre']);
 });
 
  test('an existing saved note can be explicitly added again, including after a prior failure', async () => {
