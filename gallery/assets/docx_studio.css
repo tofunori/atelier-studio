@@ -60,7 +60,7 @@ button:focus-visible,[contenteditable]:focus-visible,textarea:not(.atelier-note-
 .notice .sp{flex:1}
 
 /* ---- page ---- */
-#scroll{position:relative;flex:1 1 auto;overflow:auto;padding:24px 340px 48px 32px;background:color-mix(in srgb,var(--surface-app,var(--bg)) 60%,var(--surface-inset))}
+#scroll{position:relative;flex:1 1 auto;overflow:auto;padding:24px 340px 48px 32px;background:color-mix(in srgb,var(--surface-app,var(--bg)) 60%,var(--surface-inset));--scroll-track:color-mix(in srgb,var(--surface-app,var(--bg)) 60%,var(--surface-inset))}
 #paper{position:relative;max-width:760px;min-height:calc(100% - 24px);margin:0 auto;padding:48px 64px;border-radius:6px;background:var(--surface-raised,var(--card));color:var(--text-primary);box-shadow:0 1px 3px rgba(0,0,0,.18);font:400 15px/1.7 'Times New Roman',Georgia,'Iowan Old Style',serif;outline:none;caret-color:transparent;word-wrap:break-word}
 /* Curseur dessiné : fin, couleur de l'encre, à la hauteur des lettres (le curseur natif de WebKit prend toute la hauteur de ligne). */
 /* Page à l'échelle du document (format, marges, styles de Word) : --pt = un point. */
