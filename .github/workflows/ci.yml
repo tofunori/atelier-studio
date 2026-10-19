@@ -7,9 +7,13 @@ on:
 # Un nouveau push sur une PR annule le run précédent de cette PR (seul le
 # dernier état compte). Sur main, chaque commit garde son run jusqu'au bout :
 # annuler laisserait des commits fusionnés sans verdict, et un rouge introduit
-# par l'un d'eux serait imputé au suivant.
+# par l'un d'eux serait imputé au suivant. Un groupe partagé ne suffit pas :
+# même sans cancel-in-progress, GitHub ne garde qu'UN run en attente par
+# groupe et annule celui qui attendait quand un autre arrive. Chaque push
+# reçoit donc son propre groupe (github.run_id), et seules les PR partagent
+# le leur (github.ref).
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
