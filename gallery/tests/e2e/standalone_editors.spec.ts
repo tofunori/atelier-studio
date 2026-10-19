@@ -111,3 +111,75 @@ test('whiteboard: nothing is saved before a successful load', async ({page, proj
   // nouvel essai seul : le message disparaît une fois le tableau chargé
   await expect(page.getByText('Tableau non chargé')).toBeHidden({timeout: 10_000});
 });
+
+// Relecture du 2026-10-19 : une sauvegarde partie par sendBeacon (fenêtre
+// cachée pendant la seconde d'attente) écrit le fichier sans que l'éditeur
+// lise la nouvelle version. La frappe suivante ne doit pas tomber en conflit.
+const hideOnce = (page: import('@playwright/test').Page) => page.evaluate(() => {
+  Object.defineProperty(document, 'visibilityState', {value: 'hidden', configurable: true});
+  document.dispatchEvent(new Event('visibilitychange'));
+  Object.defineProperty(document, 'visibilityState', {value: 'visible', configurable: true});
+});
+
+test('Notes: typing after a save sent while hidden is saved, not a conflict', async ({page, project}) => {
+  const notes = path.join(project.root, 'notes.md');
+  await writeFile(notes, '# Notes\n\nDébut.\n');
+  await page.goto(`${project.url}/.fig_thumbs/notes/index.html`);
+  await expect(page.locator('.milkdown .ProseMirror')).toContainText('Début.');
+  await page.locator('[data-mode="source"]').click();
+  await page.locator('#source').fill('# Notes\n\nDébut.\n\nPremier.\n');
+  await hideOnce(page);
+  await expect.poll(() => readFile(notes, 'utf8')).toContain('Premier.');
+  await page.locator('#source').fill('# Notes\n\nDébut.\n\nPremier.\n\nSecond.\n');
+  await expect.poll(() => readFile(notes, 'utf8')).toContain('Second.');
+  await expect(page.locator('#save-indicator')).not.toContainText('a changé ailleurs');
+});
+
+test('Notes: text typed during a conflict survives the tab being hidden', async ({page, project}) => {
+  const notes = path.join(project.root, 'notes.md');
+  await writeFile(notes, '# Notes\n\nDébut.\n');
+  await page.goto(`${project.url}/.fig_thumbs/notes/index.html`);
+  await expect(page.locator('.milkdown .ProseMirror')).toContainText('Début.');
+  await writeFile(notes, '# Notes\n\nVersion de l’agent.\n');
+  await page.locator('[data-mode="source"]').click();
+  await page.locator('#source').fill('# Notes\n\nDébut.\n\nAvant le choix.\n');
+  await expect(page.locator('#save-indicator')).toContainText('a changé ailleurs', {timeout: 5_000});
+  // l'utilisateur continue sans choisir, puis la fenêtre se ferme
+  await page.locator('#source').fill('# Notes\n\nDébut.\n\nAvant le choix.\n\nTapé après.\n');
+  await hideOnce(page);
+  await expect.poll(() => readFile(notes + '.conflit', 'utf8').catch(() => '')).toContain('Tapé après.');
+  expect(await readFile(notes, 'utf8')).toBe('# Notes\n\nVersion de l’agent.\n');
+});
+
+test('whiteboard: edits after a save sent while hidden are saved, not a conflict', async ({page, request, project}) => {
+  await page.goto(`${project.url}/.fig_thumbs/whiteboard/index.html`);
+  await expect(page.locator('.tl-container')).toBeVisible();
+  const snapshot = async () => JSON.stringify((await (await request.get(`${project.url}/board/load`)).json()).snapshot);
+  await request.post(`${project.url}/board/command`, {data: {type: 'create_rectangle', x: 0, y: 0, w: 200, h: 120, label: 'Un'}});
+  await expect(page.locator('.tl-shape')).toContainText('Un');
+  await hideOnce(page);
+  await expect.poll(snapshot).toContain('Un');
+  await request.post(`${project.url}/board/command`, {data: {type: 'create_rectangle', x: 300, y: 0, w: 200, h: 120, label: 'Deux'}});
+  await expect(page.locator('.tl-shape').nth(1)).toBeVisible();
+  await expect.poll(snapshot).toContain('Deux');
+  await expect(page.getByText('changé dans une autre fenêtre')).toHaveCount(0);
+});
+
+test('whiteboard: a conflict offers to keep this board instead of a reload', async ({page, request, project}) => {
+  await page.goto(`${project.url}/.fig_thumbs/whiteboard/index.html`);
+  await expect(page.locator('.tl-container')).toBeVisible();
+  await expect.poll(async () => (await request.get(`${project.url}/board/load`)).ok()).toBe(true);
+  await page.waitForTimeout(500);
+  // une autre fenêtre (sans writer de cette page) écrit le tableau
+  const other = await request.post(`${project.url}/board/save`, {data: {snapshot: {autre: 'fenêtre'}}});
+  expect(other.ok()).toBe(true);
+  await request.post(`${project.url}/board/command`, {data: {type: 'create_rectangle', x: 0, y: 0, w: 200, h: 120, label: 'Mien'}});
+  const notice = page.getByText('changé dans une autre fenêtre');
+  await expect(notice).toBeVisible({timeout: 5_000});
+  const disk = async () => JSON.stringify((await (await request.get(`${project.url}/board/load`)).json()).snapshot);
+  expect(await disk()).toContain('fenêtre');
+  await notice.click();
+  await expect.poll(disk).toContain('Mien');
+  await expect(notice).toHaveCount(0);
+  expect(await readFile(path.join(project.root, '.fig_thumbs', 'board.tldr.json.bak'), 'utf8')).toContain('fenêtre');
+});

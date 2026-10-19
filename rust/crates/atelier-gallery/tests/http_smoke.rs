@@ -397,6 +397,66 @@ fn notes_and_board_refuse_a_stale_base() {
 }
 
 #[test]
+fn a_window_behind_its_own_beacon_is_not_a_conflict() {
+    // relecture du 2026-10-19 : une sauvegarde envoyée par sendBeacon écrit
+    // le fichier sans que la fenêtre lise la nouvelle version ; la sauvegarde
+    // suivante de la même fenêtre ne doit pas recevoir 409.
+    let srv = start_server();
+    let json = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    let (_, body) = http(srv.port, "GET", "/notes/load", None);
+    let base = json(&body)["version"].as_str().unwrap().to_string();
+    let beacon = format!(r#"{{"markdown":"Premier.","base":"{base}","writer":"w1"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&beacon));
+    assert_eq!(st, 200, "{body}");
+    // même fenêtre, base restée en arrière : accepté
+    let next = format!(r#"{{"markdown":"Premier. Second.","base":"{base}","writer":"w1"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&next));
+    assert_eq!(st, 200, "{body}");
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md")).unwrap(),
+        "Premier. Second."
+    );
+    // une autre fenêtre sur la même vieille base : 409, rien d'écrit, sa
+    // version est gardée dans notes.md.conflit
+    let other = format!(r#"{{"markdown":"autre fenêtre","base":"{base}","writer":"w2"}}"#);
+    let (st, body) = http(srv.port, "POST", "/notes/save", Some(&other));
+    assert_eq!(st, 409, "{body}");
+    assert_eq!(json(&body)["rescue"], "notes.md.conflit");
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md")).unwrap(),
+        "Premier. Second."
+    );
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md.conflit")).unwrap(),
+        "autre fenêtre"
+    );
+    // un agent écrit : la fenêtre w1 n'est plus « seulement en retard »
+    fs::write(srv.root.join("notes.md"), "agent").unwrap();
+    let (st, _) = http(srv.port, "POST", "/notes/save", Some(&next));
+    assert_eq!(st, 409);
+    assert_eq!(
+        fs::read_to_string(srv.root.join("notes.md")).unwrap(),
+        "agent"
+    );
+
+    let (_, body) = http(srv.port, "GET", "/board/load", None);
+    let board_base = json(&body)["version"].as_str().unwrap().to_string();
+    let one = format!(r#"{{"snapshot":{{"a":1}},"base":"{board_base}","writer":"b1"}}"#);
+    let (st, _) = http(srv.port, "POST", "/board/save", Some(&one));
+    assert_eq!(st, 200);
+    let two = format!(r#"{{"snapshot":{{"a":2}},"base":"{board_base}","writer":"b1"}}"#);
+    let (st, body) = http(srv.port, "POST", "/board/save", Some(&two));
+    assert_eq!(st, 200, "{body}");
+    let (_, loaded) = http(srv.port, "GET", "/board/load", None);
+    assert_eq!(json(&loaded)["snapshot"]["a"], 2);
+    let three = format!(r#"{{"snapshot":{{"a":3}},"base":"{board_base}","writer":"b2"}}"#);
+    let (st, body) = http(srv.port, "POST", "/board/save", Some(&three));
+    assert_eq!(st, 409, "{body}");
+    let rescued = fs::read_to_string(srv.root.join(".fig_thumbs/board.tldr.json.conflit")).unwrap();
+    assert_eq!(json(&rescued)["a"], 3);
+}
+
+#[test]
 fn zotero_annotations_migrate_to_shared_store_without_reappearing_after_delete() {
     let app_dir = tempfile::tempdir().unwrap();
     let shared_env = || {

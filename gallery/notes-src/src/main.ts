@@ -73,6 +73,10 @@ async function main() {
   showIndicator(null)
   const initial = loaded.markdown
   let baseVersion = loaded.version
+  // identifiant de cette fenêtre : le serveur reconnaît sa propre dernière
+  // écriture (beacon dont la réponse n'est jamais lue) et ne la prend pas
+  // pour un conflit (relecture du 2026-10-19)
+  const writer = Math.random().toString(36).slice(2) + Date.now().toString(36)
   // version du disque reçue avec un 409 : en attente de la décision
   let conflictVersion: string | null = null
 
@@ -188,14 +192,19 @@ async function main() {
 
   // ---- 2. Autosave (debounced) ----
   let saveTimer = null
+  // frappe arrivée pendant un conflit : envoyée à la fermeture (voir flushOnHide)
+  let typedInConflict = false
   const saveBody = () => JSON.stringify(baseVersion == null
     ? { markdown: currentMarkdown() }
-    : { markdown: currentMarkdown(), base: baseVersion })
+    : { markdown: currentMarkdown(), base: baseVersion, writer })
+  // le serveur garde aussi chaque version refusée dans notes.md.conflit
+  const conflictMessage = 'notes.md a changé ailleurs : ta version reste ici (copie dans notes.md.conflit), non enregistrée. Cliquer pour la garder (l’autre ira dans notes.md.bak).'
   const keepMine = () => {
     // choix explicite : la version de l'onglet remplace celle du disque,
     // qui reste dans notes.md.bak
     baseVersion = conflictVersion
     conflictVersion = null
+    typedInConflict = false
     showIndicator(null)
     doSave()
   }
@@ -212,7 +221,7 @@ async function main() {
         const data = await r.json().catch(() => null)
         if (r.status === 409 && data && typeof data.version === 'string') {
           conflictVersion = data.version
-          showIndicator('notes.md a changé ailleurs : ta version reste ici, non enregistrée. Cliquer pour la garder (l’autre ira dans notes.md.bak).', keepMine)
+          showIndicator(conflictMessage, keepMine)
           return
         }
         if (!r.ok) throw new Error('bad status ' + r.status)
@@ -226,16 +235,20 @@ async function main() {
       })
   }
   const scheduleSave = () => {
+    if (conflictVersion != null) typedInConflict = true
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(doSave, SAVE_DEBOUNCE_MS)
   }
 
   // ---- 3. Flush pending save on hide via sendBeacon ----
+  // En conflit, le beacon part quand même avec l'ancienne base : le serveur
+  // le refuse (409, notes.md intact) et garde le texte dans notes.md.conflit,
+  // si bien que la frappe d'un onglet fermé sans choisir n'est pas perdue.
   const flushOnHide = () => {
-    if (!saveTimer) return
-    clearTimeout(saveTimer)
+    if (!saveTimer && !typedInConflict) return
+    if (saveTimer) clearTimeout(saveTimer)
     saveTimer = null
-    if (conflictVersion != null) return // jamais d'écrasement à la fermeture
+    typedInConflict = false
     navigator.sendBeacon('/notes/save', new Blob([saveBody()], { type: 'application/json' }))
   }
   window.addEventListener('pagehide', flushOnHide)

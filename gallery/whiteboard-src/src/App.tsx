@@ -23,6 +23,8 @@ const SAVE_RETRY_MS = 5000
 // (409) d'écraser un tableau changé ailleurs (autre fenêtre) depuis.
 export default function App() {
   const [notice, setNotice] = useState<string | null>(null)
+  // action du bandeau (conflit : garder la version de cette fenêtre)
+  const noticeAction = useRef<(() => void) | null>(null)
 
   const handleMount = useCallback((editor) => {
     let disposed = false
@@ -38,6 +40,16 @@ export default function App() {
     let loaded = false
     let baseVersion: string | null = null
     let conflict = false
+    // version du disque reçue avec le 409, imposée seulement sur un clic
+    let conflictVersion: string | null = null
+    // identifiant de cette fenêtre : le serveur reconnaît sa propre dernière
+    // écriture (beacon dont la réponse n'est jamais lue) et ne la prend pas
+    // pour un conflit (relecture du 2026-10-19)
+    const writer = Math.random().toString(36).slice(2) + Date.now().toString(36)
+    const say = (text: string | null, action: (() => void) | null = null) => {
+      noticeAction.current = action
+      setNotice(text)
+    }
     editor.updateInstanceState({ isReadonly: true })
     const load = () => {
       fetch('/board/load')
@@ -55,19 +67,19 @@ export default function App() {
               // illisible pour tldraw : on n'écrase pas le fichier avec un
               // tableau vide, il reste en lecture seule
               console.warn('load_snapshot failed', e)
-              setNotice('Tableau illisible : rien ne sera enregistré par-dessus.')
+              say('Tableau illisible : rien ne sera enregistré par-dessus.')
               return
             }
           }
           baseVersion = typeof data.version === 'string' ? data.version : null
           loaded = true
           editor.updateInstanceState({ isReadonly: false })
-          setNotice(null)
+          say(null)
         })
         .catch((e) => {
           if (disposed) return
           console.warn('board/load failed', e)
-          setNotice('Tableau non chargé — nouvel essai…')
+          say('Tableau non chargé — nouvel essai…')
           setTimeout(load, LOAD_RETRY_MS)
         })
     }
@@ -77,7 +89,18 @@ export default function App() {
     let saveTimer = null
     const saveBody = () => JSON.stringify(baseVersion == null
       ? { snapshot: getSnapshot(editor.store) }
-      : { snapshot: getSnapshot(editor.store), base: baseVersion })
+      : { snapshot: getSnapshot(editor.store), base: baseVersion, writer })
+    const keepMine = () => {
+      // choix explicite : ce tableau remplace celui du disque, qui reste
+      // dans board.tldr.json.bak
+      if (conflictVersion == null) return
+      baseVersion = conflictVersion
+      conflictVersion = null
+      conflict = false
+      typedInConflict = false
+      say(null)
+      doSave()
+    }
     const doSave = () => {
       saveTimer = null
       if (!loaded || conflict) return
@@ -90,22 +113,32 @@ export default function App() {
           const data = await r.json().catch(() => null)
           if (r.status === 409) {
             conflict = true
-            setNotice('Le tableau a changé dans une autre fenêtre : ces modifications ne sont pas enregistrées. Recharge pour reprendre.')
+            conflictVersion = data && typeof data.version === 'string' ? data.version : null
+            say(
+              'Le tableau a changé dans une autre fenêtre : ces modifications ne sont pas enregistrées (copie dans board.tldr.json.conflit). Cliquer pour garder ce tableau (l’autre ira dans board.tldr.json.bak).',
+              conflictVersion != null ? keepMine : null,
+            )
             return
           }
           if (!r.ok) throw new Error('bad status ' + r.status)
           if (data && typeof data.version === 'string') baseVersion = data.version
-          setNotice(null)
+          say(null)
         })
         .catch((e) => {
           console.warn('board/save failed', e)
-          setNotice('Tableau non enregistré — nouvel essai…')
+          say('Tableau non enregistré — nouvel essai…')
           if (!saveTimer) saveTimer = setTimeout(doSave, SAVE_RETRY_MS)
         })
     }
+    // frappe arrivée pendant un conflit : envoyée à la fermeture (flushOnHide)
+    let typedInConflict = false
     const unlisten = editor.store.listen(
       () => {
         if (!loaded) return
+        if (conflict) {
+          typedInConflict = true
+          return
+        }
         if (saveTimer) clearTimeout(saveTimer)
         saveTimer = setTimeout(doSave, SAVE_DEBOUNCE_MS)
       },
@@ -113,11 +146,14 @@ export default function App() {
     )
     // Flush a pending debounced save when the tab closes/hides (fetch would be
     // cancelled mid-flight; sendBeacon survives page teardown).
+    // En conflit, le beacon part quand même avec l'ancienne base : le serveur
+    // le refuse (409, tableau intact) et le garde dans board.tldr.json.conflit.
     const flushOnHide = () => {
-      if (!saveTimer) return
-      clearTimeout(saveTimer)
+      if (!saveTimer && !typedInConflict) return
+      if (saveTimer) clearTimeout(saveTimer)
       saveTimer = null
-      if (!loaded || conflict) return
+      typedInConflict = false
+      if (!loaded) return
       navigator.sendBeacon('/board/save', new Blob([saveBody()], { type: 'application/json' }))
     }
     window.addEventListener('pagehide', flushOnHide)
@@ -336,7 +372,17 @@ export default function App() {
             fontSize: 13,
             fontFamily: 'sans-serif',
             zIndex: 999999,
-            pointerEvents: 'none',
+            pointerEvents: noticeAction.current ? 'auto' : 'none',
+            cursor: noticeAction.current ? 'pointer' : 'default',
+          }}
+          role={noticeAction.current ? 'button' : 'status'}
+          tabIndex={noticeAction.current ? 0 : undefined}
+          onClick={() => noticeAction.current?.()}
+          onKeyDown={(event) => {
+            if (noticeAction.current && (event.key === 'Enter' || event.key === ' ')) {
+              event.preventDefault()
+              noticeAction.current()
+            }
           }}
         >
           {notice}

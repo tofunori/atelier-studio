@@ -82,8 +82,9 @@ pub(crate) struct AppState {
     chrome_sem: Arc<Semaphore>,
     /// Whiteboard command queue (drained by GET /board/poll).
     board: Arc<Mutex<BoardQueue>>,
-    /// Serialize notes/board disk writes.
-    workspace_lock: Arc<Mutex<()>>,
+    /// Serialize notes/board disk writes ; garde la dernière version écrite
+    /// par chaque fenêtre (`writer`), voir `workspace::stale_base`.
+    workspace_lock: Arc<Mutex<workspace::WorkspaceWriters>>,
     /// Zotero readonly copy mtime cache.
     zotero: Arc<std::sync::Mutex<ZoteroCache>>,
     /// Coquille live `/` (+`/figures_index.html`) rendue au boot depuis le
@@ -2454,7 +2455,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         thumb_sem: Arc::new(Semaphore::new(thumb_permits)),
         chrome_sem: Arc::new(Semaphore::new(2)),
         board: Arc::new(Mutex::new(BoardQueue::default())),
-        workspace_lock: Arc::new(Mutex::new(())),
+        workspace_lock: Arc::new(Mutex::new(workspace::WorkspaceWriters::default())),
         zotero: Arc::new(std::sync::Mutex::new(ZoteroCache::default())),
         started_at,
         app_version,
