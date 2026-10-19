@@ -758,6 +758,10 @@ const DIRTY_SCENARIOS = {
         'Measured albedo declined near the exposed terminus late in the season.',
         'Measured albedo recovered after the external observation was applied.',
       ),
+      merged: INITIAL_TEXT.replace('dark ice.\nSummer', 'dark ice.\n\nSummer').replace(
+        'Measured albedo declined near the exposed terminus late in the season.',
+        'Measured albedo recovered after the external observation was applied.',
+      ),
     },
     conflict: {
       local: conflictZone(INITIAL_TEXT, 'LOCAL'),
@@ -768,6 +772,8 @@ const DIRTY_SCENARIOS = {
     merge: {
       local: CODE_INITIAL_TEXT.replace('    albedo =', '  albedo ='),
       disk: CODE_INITIAL_TEXT.replace('return albedo, temperature', 'return {"albedo": albedo, "temperature": temperature}'),
+      merged: CODE_INITIAL_TEXT.replace('    albedo =', '  albedo =')
+        .replace('return albedo, temperature', 'return {"albedo": albedo, "temperature": temperature}'),
     },
     conflict: {
       local: conflictZone(CODE_INITIAL_TEXT, 'LOCAL'),
@@ -777,45 +783,31 @@ const DIRTY_SCENARIOS = {
 };
 
 for (const kind of ['latex', 'code']) {
+  // Les deux éditeurs suivent la même règle (docs/PIEGES_CONNUS.md §2) :
+  // un tampon modifié n'est jamais remplacé par le disque. Le code
+  // rechargeait (« always ») par-dessus les retouches : c'est le défaut que
+  // l'audit du 2026-10-18 (problème 4) a supprimé.
   test(`${kind}: dirty non-overlap edit follows the surface reload policy`, async ({ page }) => {
     await withEditor(kind, async ({ filePath, url, initialText }) => {
       const { versionPayloads } = watchEditorTraffic(page);
       await openEditor(page, url, kind);
-      const { local, disk } = DIRTY_SCENARIOS[kind].merge;
+      const { local, disk, merged } = DIRTY_SCENARIOS[kind].merge;
 
       await setEditorText(page, local);
       writeExternal(filePath, disk);
 
-      if (kind === 'latex') {
-        // LaTeX (« when-clean » + merge, 2026-09-11) : le delta disque de
-        // l'agent est rejoué dans le buffer sale ; le disque n'est PAS
-        // réécrit (buffer toujours sale) et l'intervention external-merge va
-        // du buffer local au texte fusionné (ce que l'agent a changé chez moi).
-        const merged = local.replace(
-          'Measured albedo declined near the exposed terminus late in the season.',
-          'Measured albedo recovered after the external observation was applied.',
-        );
-        await expect.poll(() => editorText(page), { timeout: 7000 }).toBe(merged);
-        expect(readFileSync(filePath, 'utf8')).toBe(disk);
-        await expect.poll(() => hasIntervention(versionPayloads, {
-          before: local, after: merged, source: 'external-merge', status: 'applied',
-        }), { timeout: 7000 }).toBe(true);
-        expect(hasIntervention(versionPayloads, {
-          before: initialText, after: disk, source: 'external-reload', status: 'applied',
-        })).toBe(false);
-        await expect(page.locator('.atelier-conflict')).toBeHidden();
-        return;
-      }
-
-      // Code (« always ») : rechargement du disque, intervention external-reload.
+      // « when-clean » + merge : le delta disque de l'agent est rejoué dans le
+      // buffer sale ; le disque n'est PAS réécrit (buffer toujours sale) et
+      // l'intervention external-merge va du buffer local au texte fusionné.
+      await expect.poll(() => editorText(page), { timeout: 7000 }).toBe(merged);
+      expect(readFileSync(filePath, 'utf8')).toBe(disk);
       await expect.poll(() => hasIntervention(versionPayloads, {
-        before: initialText, after: disk, source: 'external-reload', status: 'applied',
+        before: local, after: merged, source: 'external-merge', status: 'applied',
       }), { timeout: 7000 }).toBe(true);
-      await expect.poll(() => editorText(page)).toBe(disk);
-      await expect(page.locator('.atelier-conflict')).toBeHidden();
-      await expectSingleStableIntervention(page, versionPayloads, {
+      expect(hasIntervention(versionPayloads, {
         before: initialText, after: disk, source: 'external-reload', status: 'applied',
-      });
+      })).toBe(false);
+      await expect(page.locator('.atelier-conflict')).toBeHidden();
     });
   });
 
@@ -828,25 +820,14 @@ for (const kind of ['latex', 'code']) {
       await setEditorText(page, local);
       writeExternal(filePath, disk);
 
-      if (kind === 'latex') {
-        await page.waitForTimeout(2500);
-        expect(await editorText(page)).toBe(local);
-        expect(readFileSync(filePath, 'utf8')).toBe(disk);
-        expect(versionPayloads.some(payload => hasIntervention([payload], {
-          before: initialText, after: disk, source: 'external-reload', status: 'applied',
-        }))).toBe(false);
-        return;
-      }
-
-      await expect.poll(() => hasIntervention(versionPayloads, {
-        before: initialText, after: disk, source: 'external-reload', status: 'applied',
-      }), { timeout: 7000 }).toBe(true);
-      await expect.poll(() => editorText(page)).toBe(disk);
-      await expectSingleStableIntervention(page, versionPayloads, {
-        before: initialText, after: disk, source: 'external-reload', status: 'applied',
-      });
-      await expect(page.locator('.atelier-conflict')).toBeHidden();
+      // chevauchement : le tampon reste, le disque n'est pas réécrit, aucun
+      // rechargement ne remplace les retouches
+      await page.waitForTimeout(2500);
+      expect(await editorText(page)).toBe(local);
       expect(readFileSync(filePath, 'utf8')).toBe(disk);
+      expect(versionPayloads.some(payload => hasIntervention([payload], {
+        before: initialText, after: disk, source: 'external-reload', status: 'applied',
+      }))).toBe(false);
     });
   });
 }
