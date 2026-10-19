@@ -80,6 +80,16 @@ impl AgentMailboxStore {
         self.load_error.as_deref()
     }
 
+    /// Fichier illisible à l'ouverture : on le relit, au cas où il a été
+    /// réparé depuis (sans relancer l'app). Encore illisible : l'erreur reste,
+    /// et la copie de côté identique est réutilisée. Lisible : le magasin
+    /// repart de son contenu et accepte de nouveau les écritures.
+    pub fn refresh(&mut self) {
+        if self.load_error.is_some() {
+            *self = Self::open(self.file_path.clone());
+        }
+    }
+
     pub fn path(&self) -> &Path {
         &self.file_path
     }
@@ -137,6 +147,7 @@ impl AgentMailboxStore {
 
     /// Insert or return existing message for the same pair + request_id.
     pub fn enqueue(&mut self, msg: MailboxMessage) -> Result<MailboxMessage, String> {
+        self.refresh();
         durable::writable(&self.load_error)?;
         if let Some(existing) = self
             .get_by_request(&msg.from_thread_id, &msg.to_thread_id, &msg.request_id)
@@ -160,6 +171,7 @@ impl AgentMailboxStore {
         error_code: Option<String>,
         updated_at: &str,
     ) -> Result<Option<MailboxMessage>, String> {
+        self.refresh();
         let Some(m) = self.messages.get_mut(id) else {
             return Ok(None);
         };
@@ -177,6 +189,7 @@ impl AgentMailboxStore {
         error_code: &str,
         updated_at: &str,
     ) -> Result<usize, String> {
+        self.refresh();
         let mut n = 0;
         for m in self.messages.values_mut() {
             if m.status != "queued" {
@@ -204,6 +217,7 @@ impl AgentMailboxStore {
         error_code: &str,
         updated_at: &str,
     ) -> Result<usize, String> {
+        self.refresh();
         let mut n = 0;
         for m in self.messages.values_mut() {
             if !matches!(m.status.as_str(), "queued" | "delivering" | "paused") {
@@ -225,6 +239,7 @@ impl AgentMailboxStore {
     }
 
     pub fn recover_delivering(&mut self, updated_at: &str) -> Result<usize, String> {
+        self.refresh();
         let mut n = 0;
         for m in self.messages.values_mut() {
             if m.status == "delivering" {
@@ -247,6 +262,7 @@ impl AgentMailboxStore {
         paused_error_code: &str,
         updated_at: &str,
     ) -> Result<usize, String> {
+        self.refresh();
         let mut n = 0;
         for message in self.messages.values_mut() {
             let same_link = (message.from_thread_id == a && message.to_thread_id == b)

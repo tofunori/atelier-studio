@@ -530,10 +530,7 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "events": events,
             }))]
         }
-        "listHighlights" => {
-            let list = state.highlights().lock().await.list();
-            vec![json_msg(json!({"type":"highlights","highlights": list}))]
-        }
+        "listHighlights" => broadcast_highlights(state).await,
         "listAutomations" => crate::automations::list(state).await,
         "createAutomation" => crate::automations::create(state, &msg).await,
         "updateAutomation" => crate::automations::update(state, &msg).await,
@@ -553,8 +550,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         }
         "removeHighlight" => {
             let id = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            let _ = state.highlights().lock().await.remove(id);
-            broadcast_highlights(state).await
+            let removed = state.highlights().lock().await.remove(id);
+            match removed {
+                Ok(_) => broadcast_highlights(state).await,
+                Err(e) => vec![err(format!("surlignage: {e}"))],
+            }
         }
         "getSettings" => match atelier_store::load_settings(&state.settings_path()) {
             Ok(settings) => vec![json_msg(
@@ -2172,8 +2172,20 @@ pub(crate) async fn broadcast_threads(state: &AppState) -> Vec<String> {
     vec![state.threads_snapshot().await]
 }
 
+/// Liste des surlignages. `highlights.json` illisible : une erreur
+/// (`requestType` listHighlights, donc le bandeau de l'app et ses nouveaux
+/// essais) plutôt qu'une liste vide qui ferait croire qu'il n'y en a plus.
 async fn broadcast_highlights(state: &AppState) -> Vec<String> {
-    let list = state.highlights().lock().await.list();
+    let mut store = state.highlights().lock().await;
+    store.refresh();
+    if let Some(error) = store.load_error() {
+        return vec![json_msg(json!({
+            "type": "error",
+            "requestType": "listHighlights",
+            "message": format!("Surlignages illisibles : {error}"),
+        }))];
+    }
+    let list = store.list();
     vec![json_msg(json!({"type":"highlights","highlights": list}))]
 }
 
@@ -3618,6 +3630,81 @@ mod tests {
 
     /// memories.json illisible : Réglages › Mémoire reçoit l'erreur, pas une
     /// liste vide, et le premier souvenir ajouté ne remplace pas le fichier.
+    #[tokio::test]
+    async fn unreadable_highlights_are_reported_and_never_overwritten() {
+        for (case, raw) in atelier_store::durable::UNREADABLE_LIST_SAMPLES {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("highlights.json");
+            std::fs::write(&path, raw).unwrap();
+            let s = state(dir.path());
+            for request in [
+                r#"{"type":"listHighlights"}"#,
+                r#"{"type":"addHighlight","highlight":{"text":"Albédo","kind":"hl"}}"#,
+                r#"{"type":"removeHighlight","id":"h1"}"#,
+            ] {
+                let out = route_ws(&s, request).await;
+                let v: Value = serde_json::from_str(&out[0]).unwrap();
+                assert_eq!(v["type"], "error", "{case} {request}: {v}");
+                assert!(v["message"].as_str().unwrap().contains("illisible"), "{case}: {v}");
+            }
+            let out = route_ws(&s, r#"{"type":"listHighlights"}"#).await;
+            let v: Value = serde_json::from_str(&out[0]).unwrap();
+            assert_eq!(v["requestType"], "listHighlights", "{case}: {v}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), raw, "{case}");
+            assert_eq!(atelier_store::durable::corrupt_copies_of(&path, raw.as_bytes()), 1, "{case}");
+            // réparé sans relancer : la liste revient et l'ajout est accepté
+            std::fs::write(&path, r#"[{"id":"h0","text":"Gardé","kind":"hl"}]"#).unwrap();
+            let out = route_ws(&s, r#"{"type":"addHighlight","highlight":{"text":"Albédo","kind":"hl"}}"#).await;
+            let v: Value = serde_json::from_str(&out[0]).unwrap();
+            assert_eq!(v["type"], "highlights", "{case}: {v}");
+            assert_eq!(v["highlights"].as_array().unwrap().len(), 2, "{case}: {v}");
+        }
+    }
+
+    #[tokio::test]
+    async fn unreadable_automations_are_reported_and_never_overwritten() {
+        let create = r#"{"type":"createAutomation","automation":{"name":"Veille","prompt":"Résume","rrule":"FREQ=DAILY","kind":"cron","status":"PAUSED"}}"#;
+        for (case, raw) in atelier_store::durable::UNREADABLE_LIST_SAMPLES {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("automations.json");
+            std::fs::write(&path, raw).unwrap();
+            let s = state(dir.path());
+            let out = route_ws(&s, r#"{"type":"listAutomations"}"#).await;
+            let v: Value = serde_json::from_str(&out[0]).unwrap();
+            assert_eq!(v["type"], "error", "{case}: {v}");
+            assert_eq!(v["requestType"], "listAutomations", "{case}: {v}");
+            assert!(v["message"].as_str().unwrap().contains("illisible"), "{case}: {v}");
+            let out = route_ws(&s, create).await;
+            let v: Value = serde_json::from_str(&out[0]).unwrap();
+            assert_eq!(v["type"], "error", "{case}: {v}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), raw, "{case}");
+            assert_eq!(atelier_store::durable::corrupt_copies_of(&path, raw.as_bytes()), 1, "{case}");
+            // réparé sans relancer : la création est acceptée
+            std::fs::write(&path, "[]").unwrap();
+            let out = route_ws(&s, create).await;
+            let v: Value = serde_json::from_str(&out[0]).unwrap();
+            assert_eq!(v["type"], "automations", "{case}: {v}");
+            assert_eq!(v["automations"].as_array().unwrap().len(), 1, "{case}: {v}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_repaired_memories_file_is_accepted_without_restart() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("memories.json");
+        std::fs::write(&path, "[pas du json]").unwrap();
+        let s = state(dir.path());
+        let save = r#"{"type":"memorySave","requestId":"r1","memory":{"text":"Un souvenir","projectRoot":""}}"#;
+        let v: Value = serde_json::from_str(&route_ws(&s, save).await[0]).unwrap();
+        assert_eq!(v["ok"], false, "{v}");
+        std::fs::write(&path, "[]").unwrap();
+        let v: Value = serde_json::from_str(&route_ws(&s, save).await[0]).unwrap();
+        assert_eq!(v["ok"], true, "{v}");
+        let v: Value = serde_json::from_str(&route_ws(&s, r#"{"type":"memoryList","requestId":"r2"}"#).await[0]).unwrap();
+        assert!(v.get("error").is_none(), "{v}");
+        assert_eq!(v["total"], 1, "{v}");
+    }
+
     #[tokio::test]
     async fn unreadable_memories_are_reported_and_never_overwritten() {
         for (case, raw) in atelier_store::durable::UNREADABLE_LIST_SAMPLES {

@@ -217,7 +217,8 @@ pub async fn handle_list(state: &AppState, msg: &Value) -> Value {
             .unwrap_or(50)
             .min(500) as usize,
     };
-    let store = state.memories().lock().await;
+    let mut store = state.memories().lock().await;
+    store.refresh();
     let (items, total) = store.list(&q);
     let mut reply = json!({
         "type": "memories",

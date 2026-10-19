@@ -85,6 +85,16 @@ impl AutomationStore {
         self.load_error.as_deref()
     }
 
+    /// Fichier illisible à l'ouverture : on le relit, au cas où il a été
+    /// réparé depuis (sans relancer l'app). Encore illisible : l'erreur reste,
+    /// et la copie de côté identique est réutilisée. Lisible : le magasin
+    /// repart de son contenu et accepte de nouveau les écritures.
+    pub fn refresh(&mut self) {
+        if self.load_error.is_some() {
+            *self = Self::open(self.path.clone());
+        }
+    }
+
     pub fn list(&self) -> Vec<Automation> {
         let mut items = self.items.clone();
         items.sort_by(|a, b| {
@@ -110,6 +120,7 @@ impl AutomationStore {
     }
 
     pub fn upsert(&mut self, mut item: Automation) -> Result<Automation, String> {
+        self.refresh();
         durable::writable(&self.load_error)?;
         if !valid(&item) {
             return Err("automatisation invalide".into());
@@ -126,6 +137,7 @@ impl AutomationStore {
     }
 
     pub fn delete(&mut self, id: &str) -> Result<bool, String> {
+        self.refresh();
         durable::writable(&self.load_error)?;
         let before = self.items.len();
         self.items.retain(|item| item.id != id);

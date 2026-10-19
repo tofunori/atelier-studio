@@ -205,6 +205,17 @@ impl AgentStore {
         }
     }
 
+    /// Un des fichiers était illisible : on les relit, au cas où ils ont été
+    /// réparés depuis (sans relancer le serveur). Encore illisible : l'erreur
+    /// reste et la copie de côté identique est réutilisée.
+    pub fn refresh(&mut self) {
+        if self.load_error.is_some() {
+            let root = self.root.clone();
+            let files = (self.inbox_path.clone(), self.history_path.clone(), self.consumers_path.clone());
+            *self = Self::load_from(&root, files);
+        }
+    }
+
     pub fn status(&self, limit: usize) -> Value {
         // Mêmes vues publiques que le serveur Python : les champs internes
         // (pid, consumer, threadId côté consommateurs) ne sortent jamais.
@@ -860,6 +871,17 @@ mod durable_tests {
             assert!(!paths.0.exists(), "{label} : rien d'écrit");
             assert_eq!(fs::read(&paths.1).unwrap(), raw.as_bytes(), "{label} : historique intact");
             assert_eq!(corrupt_copies_of(&paths.1, raw.as_bytes()), 1, "{label} : copie");
+            // encore illisible : la relecture garde l'erreur, sans nouvelle copie
+            let mut store = store;
+            store.refresh();
+            assert!(store.persist().is_err(), "{label}");
+            assert_eq!(corrupt_copies_of(&paths.1, raw.as_bytes()), 1, "{label} : une seule copie");
+            // réparé sans relancer le serveur : l'écriture est de nouveau acceptée
+            fs::write(&paths.1, r#"[{"id":"e0"}]"#).unwrap();
+            store.refresh();
+            assert!(store.status(10).get("error").is_none(), "{label}");
+            assert!(store.persist().is_ok(), "{label}");
+            assert!(fs::read_to_string(&paths.1).unwrap().contains("e0"), "{label} : historique gardé");
         }
     }
 }

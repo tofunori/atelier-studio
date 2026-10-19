@@ -213,6 +213,14 @@ async fn gallery_state(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+/// File de l'agent, relue si elle était illisible (réparée depuis ?) :
+/// un échec de lecture n'est jamais gardé jusqu'à la relance du serveur.
+async fn lock_agent(state: &AppState) -> tokio::sync::MutexGuard<'_, agent::AgentStore> {
+    let mut store = state.agent.lock().await;
+    store.refresh();
+    store
+}
+
 fn with_state_defaults(value: Value) -> Value {
     let mut out = default_gallery_state();
     if let (Some(out), Value::Object(disk)) = (out.as_object_mut(), value) {
@@ -668,7 +676,7 @@ async fn agent_status(
             .into_response();
     }
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
-    let mut payload = state.agent.lock().await.status(limit);
+    let mut payload = lock_agent(&state).await.status(limit);
     if state.agent_token.is_empty() {
         payload["agentHost"] = Value::Null;
     }
@@ -1422,7 +1430,7 @@ async fn quote(
         )
             .into_response();
     }
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     let mut payload = serde_json::Map::new();
     payload.insert("type".to_string(), json!("text_annotation"));
     payload.insert("path".to_string(), json!(rel));
@@ -1622,7 +1630,7 @@ async fn save_annotation(
         .get("held")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     let mut payload = serde_json::Map::new();
     payload.insert("type".to_string(), json!("image_annotation"));
     payload.insert("path".to_string(), json!(rel));
@@ -1677,7 +1685,7 @@ async fn get_agent_selection(
         )
             .into_response();
     }
-    let agent = state.agent.lock().await;
+    let agent = lock_agent(&state).await;
     let (pending, latest) = agent.peek();
     (
         StatusCode::OK,
@@ -1710,7 +1718,7 @@ async fn agent_preferences(
         )
             .into_response();
     }
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.set_preferences(&request.destination, request.automatic, request.label) {
         Ok(destination) => (
             StatusCode::OK,
@@ -1740,7 +1748,7 @@ async fn batch_release(
             .into_response();
     }
     let batch_id = request.batch_id.unwrap_or_default();
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.release_batch(&batch_id) {
         Ok(released) => {
             let ids: Vec<_> = released
@@ -1770,7 +1778,7 @@ async fn batch_cancel(
             .into_response();
     }
     let batch_id = request.batch_id.unwrap_or_default();
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.cancel_batch(&batch_id) {
         Ok(cancelled) => {
             let ids: Vec<_> = cancelled
@@ -1819,7 +1827,7 @@ async fn selection(
         )
             .into_response();
     };
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     let rel = match agent.resolve_rel(requested_path) {
         Ok(rel) if !requested_path.is_empty() => rel,
         _ => {
@@ -1912,7 +1920,7 @@ async fn register_consumer(
         )
             .into_response();
     }
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.register(
         request.destination,
         request.consumer,
@@ -1943,7 +1951,7 @@ async fn selections(
             .into_response();
     }
     let destination = query.destination.unwrap_or_else(|| query.consumer.clone());
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.claim(&query.consumer, &destination) {
         Ok(items) => {
             let count = items.len();
@@ -1965,7 +1973,7 @@ async fn acknowledge(
         )
             .into_response();
     }
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.acknowledge(
         &request.ids,
         request.consumer.as_deref().unwrap_or_default(),
@@ -1998,7 +2006,7 @@ async fn release(
         )
             .into_response();
     };
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.release(&request.ids, destination) {
         Ok(count) => (StatusCode::OK, Json(json!({"ok":true,"released":count}))).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
@@ -2017,7 +2025,7 @@ async fn delete_annotations(
         )
             .into_response();
     }
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.delete(&request.ids) {
         Ok(count) => (StatusCode::OK, Json(json!({"ok":true,"deleted":count}))).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
@@ -2036,7 +2044,7 @@ async fn restore_annotations(
         )
             .into_response();
     }
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.restore(&request.ids) {
         Ok(count) => (StatusCode::OK, Json(json!({"ok":true,"restored":count}))).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
@@ -2055,7 +2063,7 @@ async fn annotation_status(
         )
             .into_response();
     }
-    let mut agent = state.agent.lock().await;
+    let mut agent = lock_agent(&state).await;
     match agent.update_status(
         &request.ids,
         request.status.as_deref().unwrap_or_default(),

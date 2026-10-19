@@ -153,7 +153,18 @@ impl MemoryStore {
         self.load_error.as_deref()
     }
 
-    fn writable(&self) -> Result<(), String> {
+    /// Fichier illisible à l'ouverture : on le relit, au cas où il a été
+    /// réparé depuis (sans relancer l'app). Encore illisible : l'erreur reste,
+    /// et la copie de côté identique est réutilisée. Lisible : le magasin
+    /// repart de son contenu et accepte de nouveau les écritures.
+    pub fn refresh(&mut self) {
+        if self.load_error.is_some() {
+            *self = Self::open(self.file_path.clone());
+        }
+    }
+
+    fn writable(&mut self) -> Result<(), String> {
+        self.refresh();
         durable::writable(&self.load_error)
     }
 
@@ -481,7 +492,7 @@ impl MemoryStore {
     }
 
     fn persist(&self) -> Result<(), String> {
-        self.writable()?;
+        durable::writable(&self.load_error)?;
         let list = durable::with_kept(&self.items, &self.kept)?;
         durable::save_json_compact(&self.file_path, &list).map_err(|e| e.to_string())
     }

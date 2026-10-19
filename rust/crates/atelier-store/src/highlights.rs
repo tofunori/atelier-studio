@@ -107,6 +107,16 @@ impl HighlightStore {
         self.load_error.as_deref()
     }
 
+    /// Fichier illisible à l'ouverture : on le relit, au cas où il a été
+    /// réparé depuis (sans relancer l'app). Encore illisible : l'erreur reste,
+    /// et la copie de côté identique est réutilisée. Lisible : le magasin
+    /// repart de son contenu et accepte de nouveau les écritures.
+    pub fn refresh(&mut self) {
+        if self.load_error.is_some() {
+            *self = Self::open(self.file_path.clone());
+        }
+    }
+
     pub fn list(&self) -> Vec<Highlight> {
         let mut v: Vec<_> = self.items.values().cloned().collect();
         v.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -114,6 +124,7 @@ impl HighlightStore {
     }
 
     pub fn add(&mut self, entry: serde_json::Value) -> Result<Highlight, String> {
+        self.refresh();
         durable::writable(&self.load_error)?;
         let h = normalize(&entry, Uuid::new_v4().to_string(), iso_now())
             .ok_or_else(|| "surlignage invalide (texte requis)".to_string())?;
@@ -126,6 +137,7 @@ impl HighlightStore {
     }
 
     pub fn remove(&mut self, id: &str) -> Result<bool, String> {
+        self.refresh();
         durable::writable(&self.load_error)?;
         let existed = self.items.remove(id).is_some();
         if existed {
