@@ -41,6 +41,9 @@ const ANNOTS_MIGRATION_KEY = "atelier-studio.topbar-surfaces.annots-v1";
 /** Migration une-fois : la surface Noyau Python (chantier 5) s'épingle en fin
  * de barre, à côté des autres surfaces. Retirée ensuite = respecté. */
 const NOYAU_MIGRATION_KEY = "atelier-studio.topbar-surfaces.noyau-v1";
+/** Migration une-fois : la surface Documents (traitement de texte .docx,
+ * demande de Thierry 2026-10-19) s'épingle en fin de barre. Retirée = respecté. */
+const DOCUMENTS_MIGRATION_KEY = "atelier-studio.topbar-surfaces.documents-v1";
 
 export function readPinned(): TargetId[] {
   try {
@@ -58,6 +61,7 @@ export function readPinned(): TargetId[] {
         localStorage.setItem(PREUVES_MIGRATION_KEY, "1");
         localStorage.setItem(ANNOTS_MIGRATION_KEY, "1");
         localStorage.setItem(NOYAU_MIGRATION_KEY, "1");
+        localStorage.setItem(DOCUMENTS_MIGRATION_KEY, "1");
       } catch { /* stockage indisponible */ }
       return DEFAULT_PINNED;
     }
@@ -97,6 +101,13 @@ export function readPinned(): TargetId[] {
       localStorage.setItem(NOYAU_MIGRATION_KEY, "1");
       if (list.length < MAX_PINNED) {
         list.push("noyau");
+        localStorage.setItem(PIN_KEY, JSON.stringify(list));
+      }
+    }
+    if (!list.includes("documents") && !localStorage.getItem(DOCUMENTS_MIGRATION_KEY)) {
+      localStorage.setItem(DOCUMENTS_MIGRATION_KEY, "1");
+      if (list.length < MAX_PINNED) {
+        list.push("documents");
         localStorage.setItem(PIN_KEY, JSON.stringify(list));
       }
     }

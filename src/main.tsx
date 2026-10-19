@@ -187,6 +187,16 @@ async function boot() {
     );
     return;
   }
+  // banc de captures de la surface Documents (.docx)
+  if (visualBench && window.location.hash.startsWith("#docsbench")) {
+    const { DocumentsBench } = await import("./components/DocumentsBench");
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+      <BootBoundary>
+        <DocumentsBench />
+      </BootBoundary>,
+    );
+    return;
+  }
   // banc de captures du Quick Ask et de son sélecteur complet
   if (visualBench && window.location.hash.startsWith("#qabench")) {
     localStorage.removeItem("atelier-studio.qaBox");
