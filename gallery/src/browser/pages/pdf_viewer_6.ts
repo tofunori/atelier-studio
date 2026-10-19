@@ -1471,6 +1471,9 @@ const annPane = (function(){
     ta.onblur = () => finish(true);
     requestAnimationFrame(() => {
       fit();
+      // Déjà dans le champ (frappe rapide, sélection faite) : ne pas
+      // ramener le curseur à la fin, la saisie s'ajouterait au texte.
+      if (document.activeElement === ta) return;
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
     });
