@@ -262,7 +262,8 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
     // Tout ce qui est couvert doit être retouchable par cet auteur, ou un
     // objet entier (figure, note, citation, équation) qu'on efface d'un bloc.
     let allowed = |ri: usize| t.inline.runs[ri].ins.as_ref().is_none_or(|(_, a)| *a == sig.author);
-    let mut units: Vec<Range<usize>> = Vec::new();
+    // (position XML, effacé sans trace : ajout de l'auteur lui-même)
+    let mut units: Vec<(Range<usize>, bool)> = Vec::new();
     let mut unit_spans: Vec<(Range<usize>, usize, usize)> = Vec::new();
     for (piece, span) in t.inline.pieces.iter().zip(&t.spans) {
         let Some((ps, pe)) = *span else { continue };
@@ -270,6 +271,9 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
             continue;
         }
         if let Some(u) = &piece.unit {
+            if let Some(a) = piece.unit_ins.as_ref().filter(|a| **a != sig.author) {
+                return err(format!("le passage touche un objet ajouté en suivi par {a} : refuser cet ajout plutôt que l'effacer"));
+            }
             match unit_spans.iter_mut().find(|(r, _, _)| r == u) {
                 Some((_, a, b)) => {
                     *a = (*a).min(ps);
@@ -291,7 +295,8 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
         if tracked && src[u.clone()].contains("<m:") {
             return err("une équation s'efface sans suivi des modifications (désactiver le suivi, ou la supprimer dans Word)");
         }
-        units.push(u.clone());
+        let own = t.inline.pieces.iter().any(|p| p.unit.as_ref() == Some(u) && p.unit_ins.is_some());
+        units.push((u.clone(), own));
     }
     let starts = run_starts(t);
     let mut touched: Vec<usize> = (0..t.inline.runs.len())
@@ -327,8 +332,8 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
     let (del_id, ins_id) = (ids[0], ids[1]);
     let mut made = Vec::new();
     let mut edits: Vec<(Range<usize>, String)> = Vec::new();
-    for u in &units {
-        let out = if tracked {
+    for (u, own) in &units {
+        let out = if tracked && !own {
             let inner = src[u.clone()]
                 .replace("<w:t>", "<w:delText>")
                 .replace("<w:t ", "<w:delText ")
@@ -341,7 +346,7 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
         };
         edits.push((u.clone(), out));
     }
-    if tracked && !units.is_empty() {
+    if tracked && units.iter().any(|(_, own)| !own) {
         made.push(del_id);
     }
 
@@ -363,7 +368,7 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
                 let pieces = || t.inline.pieces.iter().zip(&t.spans).filter_map(|(p, sp)| sp.map(|x| (p, x)));
                 pieces().rfind(|(_, (ps, pe))| *pe == s && pe > ps).map(|(p, _)| outer(p).end).or_else(|| pieces().find(|(_, (ps, pe))| *ps == s && pe > ps).map(|(p, _)| outer(p).start))
             };
-            let at = units.iter().map(|u| u.end).max().or_else(next_to).or(if s == 0 { t.ppr_end.or(t.p_inner_end) } else { t.p_inner_end });
+            let at = units.iter().map(|(u, _)| u.end).max().or_else(next_to).or(if s == 0 { t.ppr_end.or(t.p_inner_end) } else { t.p_inner_end });
             match at {
                 Some(a) => edits.push((a..a, new_run(""))),
                 // `<w:p/>` ou `<w:p></w:p>` : on réécrit le paragraphe entier.
@@ -419,7 +424,7 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
     }
     let out = drop_empty_revisions(&xml::splice(src, edits)?)?;
     docx.set_part(part, out);
-    if !tracked && !units.is_empty() {
+    if units.iter().any(|(_, own)| !tracked || *own) {
         crate::story::drop_orphan_notes(docx)?;
     }
     made.sort_unstable();

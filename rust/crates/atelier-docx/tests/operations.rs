@@ -382,3 +382,30 @@ fn inserer_une_note_et_une_figure() {
     // La figure d'origine se lit aussi.
     assert_eq!(atelier_docx::objects::media(&mut d, "p11", "rId5").unwrap().unwrap().1, "image/png");
 }
+
+#[test]
+fn effacer_sa_propre_figure_ou_note_en_suivi_ne_laisse_pas_de_trace() {
+    let (claude, me) = (sig("Claude"), sig("Thierry"));
+    let mut d = open("christophe");
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    png.extend_from_slice(&[0, 0, 0, 10, 0, 0, 0, 10, 8, 6, 0, 0, 0]);
+    let mut o = op(json!({"op": "insert_image", "paragraph": "p2", "at": 0, "path": "f.png"}));
+    o.load_images(&mut |_| Ok(png.clone())).unwrap();
+    apply(&mut d, &o, true, &claude).unwrap();
+    // Un autre auteur ne l'efface pas : il refuse l'ajout.
+    let e = apply(&mut d, &op(json!({"op": "replace_range", "paragraph": "p2", "start": 0, "end": 1, "with": ""})), true, &me).unwrap_err();
+    assert!(e.0.contains("ajouté en suivi par Claude"), "{}", e.0);
+    let before = d.model().unwrap().changes.len();
+    apply(&mut d, &op(json!({"op": "replace_range", "paragraph": "p2", "start": 0, "end": 1, "with": ""})), true, &claude).unwrap();
+    let m = d.model().unwrap();
+    assert_eq!(m.changes.len(), before - 1);
+    assert!(m.paragraphs[2].segments.iter().all(|s| s.media.is_none()));
+
+    // Note ajoutée en suivi puis effacée par son auteur : la note part aussi.
+    apply(&mut d, &op(json!({"op": "insert_note", "paragraph": "p2", "at": 3, "text": "x"})), true, &me).unwrap();
+    assert_eq!(d.model().unwrap().notes.len(), 2);
+    apply(&mut d, &op(json!({"op": "replace_range", "paragraph": "p2", "start": 3, "end": 4, "with": ""})), true, &me).unwrap();
+    let m = reopen(&d).model().unwrap();
+    assert_eq!(m.notes.len(), 1);
+    assert!(!m.changes.iter().any(|c| c.author == "Thierry"), "{:?}", m.changes);
+}

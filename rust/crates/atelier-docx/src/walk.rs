@@ -116,6 +116,9 @@ pub struct Piece {
     /// Objet ou champ entier, supprimable d'un bloc (figure, appel de note,
     /// citation, équation) : sa position dans le XML.
     pub unit: Option<Range<usize>>,
+    /// Objet ajouté en suivi : auteur de l'insertion qui l'enveloppe. Son
+    /// auteur l'efface sans trace ; un autre doit refuser l'ajout.
+    pub unit_ins: Option<String>,
     /// Image : relation vers le fichier, taille affichée.
     pub media: Option<Media>,
 }
@@ -485,8 +488,14 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
         last.media = media.clone();
         // Objet seul dans son run, hors suivi et hors champ : supprimable.
         let alone = r.children().filter(|n| n.is_element() && !is_w(*n, "rPr")).count() == 1;
-        if whole && alone && ctx.revs.is_empty() && ctx.simple_field.is_none() && state.fields.is_empty() && ctx.editable_parent {
+        let plain = ctx.simple_field.is_none() && state.fields.is_empty();
+        if whole && alone && ctx.revs.is_empty() && plain && ctx.editable_parent {
             last.unit = Some(r.range());
+        } else if whole && alone && plain && ctx.revs.len() == 1 && ctx.revs[0].0 == RevKind::Ins {
+            // Seul dans son w:ins : l'insertion entière part avec lui.
+            let parent = r.parent().filter(|w| is_w(*w, "ins") && w.children().filter(|n| n.is_element()).count() == 1);
+            last.unit = Some(parent.map_or(r.range(), |w| w.range()));
+            last.unit_ins = Some(ctx.rev_authors[0].clone());
         }
         if let Some(u) = &field_unit {
             last.unit = Some(u.clone());
@@ -524,6 +533,7 @@ fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fm
         run,
         top: ctx.top.clone(),
         unit: None,
+        unit_ins: None,
         media: None,
     });
 }

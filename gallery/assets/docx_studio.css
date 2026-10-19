@@ -87,6 +87,28 @@ table.d-t .d-p.changed::before{display:none}
 .chip{border-radius:6px;padding:0 4px;background:color-mix(in srgb,currentColor 7%,transparent);white-space:nowrap}
 .chip.obj{font:400 12px/1.5 var(--ui-font);color:var(--text-muted)}
 .chip.note{font-size:10px;vertical-align:super;padding:0 2px}
+.chip.fig{display:inline-block;padding:0;border-radius:0;background:none;vertical-align:bottom;max-width:100%}
+.chip.fig img{display:block;max-width:100%;height:auto}
+.chip.fig.del img{opacity:.4;outline:2px solid var(--rev-color);outline-offset:2px}
+.chip.fig.ins img{outline:2px solid var(--rev-color);outline-offset:2px}
+body.v-final .chip.fig img,body.v-original .chip.fig img{opacity:1;outline:0}
+/* En-têtes, pieds et notes : en retrait de couleur, comme dans Word. */
+.d-zone{font-size:12px;line-height:1.5;color:var(--text-muted)}
+.d-zone .d-p{margin:0;min-height:1.5em}
+.d-hdr{margin:-24px 0 24px;padding-bottom:8px;border-bottom:1px solid color-mix(in srgb,currentColor 14%,transparent)}
+.d-ftr{margin:32px 0 -24px;padding-top:8px;border-top:1px solid color-mix(in srgb,currentColor 14%,transparent)}
+.d-zone:focus-within{color:var(--text-primary)}
+.d-zone-l{font:400 10px/1.5 var(--ui-font);color:var(--text-muted);user-select:none}
+.d-notes{margin-top:32px;font-size:12px;line-height:1.5}
+.d-notes::before{content:'';display:block;width:160px;height:1px;margin-bottom:8px;background:currentColor;opacity:.3}
+.d-note{display:flex;gap:4px}
+.d-note-n{min-width:12px;font-size:10px;line-height:1;padding-top:2px;user-select:none;font-variant-numeric:tabular-nums}
+.d-note-b{flex:1 1 auto;min-width:0}
+.d-note .d-p{margin:0 0 4px;min-height:1.5em}
+.d-note .d-p.changed::before{left:-44px}
+.mi-fig{display:flex;align-items:center;gap:8px;min-width:0}
+.mi-fig img{width:32px;height:24px;object-fit:cover;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));flex-shrink:0}
+.mi-fig span{overflow:hidden;text-overflow:ellipsis;max-width:320px}
 .d-p .flash{animation:flash 900ms ease-out}
 @keyframes flash{from{background:var(--doc-hl-on)}to{background:transparent}}
 body.v-final .del,body.v-original .ins{display:none}

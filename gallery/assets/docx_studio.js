@@ -39,6 +39,14 @@
 
 
 
+
+
+
+
+
+
+
+
   const W = window
 
 
@@ -95,6 +103,8 @@
     chat: svg('<path d="M5 6h14v10H9l-4 3z"/>'),
     trash: svg('<path d="M6 7h12M10 7V5h4v2M8 7l1 12h6l1-12"/>'),
     reply: svg('<path d="M10 8L5 12l5 4"/><path d="M5.5 12H14a5 5 0 0 1 5 5v1"/>'),
+    note: svg('<path d="M4 18h10M4 13h10M4 8h7"/><path d="M16.5 6.5l1.5-1v5"/>'),
+    figure: svg('<rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M5 17l5-4 3 3 2-2 4 3"/>'),
   };
   const esc = (s        ) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]          );
 
@@ -113,6 +123,45 @@
     return data;
   }
   const enc = encodeURIComponent;
+
+  /** Corps, puis notes, puis en-têtes et pieds dans une seule liste : un
+   *  rang (`idx`) désigne n'importe quel paragraphe modifiable. */
+  function normalize(m       )        {
+    if (m.body !== undefined) return m;
+    const body         = m.paragraphs.map((p) => ({ ...p, story: "" }));
+    const rest         = [];
+    for (const n of m.notes || []) for (const p of n.paragraphs) rest.push({ ...p, story: n.id });
+    for (const h of m.headers || []) for (const p of h.paragraphs) rest.push({ ...p, story: h.id });
+    return { ...m, body: body.length, paragraphs: body.concat(rest) };
+  }
+  const storyAt = (idx        ) => (model && model.paragraphs[idx] ? model.paragraphs[idx].story || "" : "");
+  /** Premier et dernier rang de l'histoire du paragraphe `idx`. */
+  function storySpan(idx        )                   {
+    const st = storyAt(idx);
+    let a = idx, b = idx;
+    while (a > 0 && storyAt(a - 1) === st) a--;
+    while (b + 1 < model .paragraphs.length && storyAt(b + 1) === st) b++;
+    return [a, b];
+  }
+  /** Référence d'un paragraphe pour le moteur, par rang dans son histoire
+   *  (`p3`, `n1.p0`, `header1.p0`) ; `story`/`start` pour un paragraphe
+   *  qu'un lot vient de créer. */
+  function refIn(story        , start        , idx        )         {
+    return `${story ? `${story}.` : ""}p${idx - start}`;
+  }
+  /** Segments « d'un bloc » (figure, note, citation, équation) : une
+   *  retouche qui les touche les prend en entier. */
+  function expandWhole(idx        , s        , e        )                   {
+    const p = model .paragraphs[idx];
+    if (!p) return [s, e];
+    let off = 0;
+    for (const g of p.segments) {
+      const len = g.rev === "del" || g.rev === "moveFrom" ? 0 : cp(g.text);
+      if (g.whole && len && off < e && s < off + len) { s = Math.min(s, off); e = Math.max(e, off + len); }
+      off += len;
+    }
+    return [s, e];
+  }
 
   // --------------------------------------------------------------- couleurs
   const colorCache = new Map                ();
@@ -186,10 +235,20 @@
       if (chip) {
         node = document.createElement("span");
         const label = s.label || "";
-        node.className = "chip" + (s.kind === "object" ? (label === "note" ? " note" : " obj") : "");
-        node.textContent = s.text || (label === "image" ? "[figure]" : label === "équation" ? "[équation]" : `[${label || "objet"}]`);
+        const isNote = label === "note" || label === "note de fin";
+        node.className = "chip" + (s.kind === "object" ? (isNote ? " note" : s.media ? " fig" : " obj") : "");
+        if (s.media) {
+          const img = document.createElement("img");
+          img.src = `/docx/media?path=${enc(PATH)}&para=${enc(p.id)}&rel=${enc(s.media)}`;
+          img.alt = s.alt || "Figure";
+          img.draggable = false;
+          if (s.width) img.style.width = `${s.width}px`;
+          node.appendChild(img);
+        } else {
+          node.textContent = isNote && s.number ? String(s.number) : s.text || (label === "image" ? "[figure]" : label === "équation" ? "[équation]" : `[${label || "objet"}]`);
+        }
         node.contentEditable = "false";
-        node.title = s.kind === "field" ? (label.startsWith("zotero") ? "Citation Zotero : à modifier dans Word" : `Champ ${label}`) : (label === "note" ? "Note de bas de page" : label);
+        node.title = s.kind === "field" ? (label.startsWith("zotero") ? "Citation Zotero : à modifier dans Word" : `Champ ${label}`) : (isNote ? (label === "note" ? "Note de bas de page" : "Note de fin") : s.media ? (s.alt || "Figure") : label);
       } else {
         node = document.createElement("span");
         let inner       = document.createTextNode(s.text);
@@ -249,7 +308,37 @@
     let rIdx = -1;
     let cell                              = null;
     let cIdx = -1;
+    const zones = new Map                     ();
+    const zone = (story        )              => {
+      let z = zones.get(story);
+      if (z) return z;
+      z = document.createElement("div");
+      const note = (model .notes || []).find((n) => n.id === story);
+      const hf = (model .headers || []).find((h) => h.id === story);
+      if (note) {
+        z.className = "d-note";
+        z.innerHTML = `<span class="d-note-n" contenteditable="false">${note.number ?? ""}</span><div class="d-note-b"></div>`;
+        notesBox.appendChild(z);
+        zones.set(story, z.lastElementChild               );
+        return z.lastElementChild               ;
+      }
+      z.className = `d-zone ${hf && hf.kind === "footer" ? "d-ftr" : "d-hdr"}`;
+      if (hf && hf.which !== "default") {
+        z.innerHTML = `<div class="d-zone-l" contenteditable="false">${hf.kind === "footer" ? "Pied de page" : "En-tête"} ${hf.which === "first" ? "de la première page" : "des pages paires"}</div>`;
+      }
+      (hf && hf.kind === "footer" ? footers : headers).appendChild(z);
+      zones.set(story, z);
+      return z;
+    };
+    const headers = document.createDocumentFragment();
+    const footers = document.createDocumentFragment();
+    const notesBox = document.createElement("div");
+    notesBox.className = "d-notes";
     model.paragraphs.forEach((p, idx) => {
+      if (p.story) {
+        zone(p.story).appendChild(renderPara(idx));
+        return;
+      }
       if (!p.cell) {
         table = null; tIdx = -1;
         frag.appendChild(renderPara(idx));
@@ -266,6 +355,9 @@
       if (c !== cIdx) { cell = row .insertCell(); cIdx = c; }
       cell .appendChild(renderPara(idx));
     });
+    frag.insertBefore(headers, frag.firstChild);
+    if (notesBox.childElementCount) frag.appendChild(notesBox);
+    frag.appendChild(footers);
     paper.replaceChildren(frag);
     paper.contentEditable = view === "original" ? "false" : "true";
   }
@@ -350,6 +442,11 @@
     const a = posOf(r.startContainer, r.startOffset);
     const b = posOf(r.endContainer, r.endOffset);
     if (!a || !b) return null;
+    // Une sélection reste dans son histoire (corps, une note, un en-tête).
+    if (model && storyAt(a.idx) !== storyAt(b.idx)) {
+      const last = storySpan(a.idx)[1];
+      return { a, b: { idx: last, off: cp(model.paragraphs[last].text) } };
+    }
     return { a, b };
   }
   const collapsed = (s     ) => s.a.idx === s.b.idx && s.a.off === s.b.off;
@@ -369,13 +466,15 @@
   // --------------------------------------------------------- application
   /** Paragraphe par rang : dans un lot, les jointures (du dernier au
    *  premier) et les coupes gardent valides les rangs qu'on vise ensuite. */
-  const ref = (idx        ) => `p${idx}`;
+  const ref = (idx        ) => refIn(storyAt(idx), storySpan(idx)[0], idx);
 
   function applyModel(next       , caret             ) {
+    next = normalize(next);
     const prev = model;
     model = next;
     const sameShape = prev && prev.paragraphs.length === next.paragraphs.length && paper.querySelector(".d-p")
-      && prev.paragraphs.every((p, i) => JSON.stringify(p.cell) === JSON.stringify(next.paragraphs[i].cell));
+      && prev.paragraphs.every((p, i) => p.story === next.paragraphs[i].story && JSON.stringify(p.cell) === JSON.stringify(next.paragraphs[i].cell))
+      && JSON.stringify((prev.notes || []).map((n) => n.number)) === JSON.stringify((next.notes || []).map((n) => n.number));
     if (sameShape) {
       next.paragraphs.forEach((p, i) => {
         if (JSON.stringify(p) !== JSON.stringify(prev .paragraphs[i]) || ghosts.some((g) => g.idx === i)) repaint(i);
@@ -406,7 +505,7 @@
     return run;
   }
 
-  async function sendOp(op    , caret                           , expectIdx         )                   {
+  async function sendOp(op    , caret                                        , expectIdx         )                   {
     return enqueue(async () => {
       inflight++;
       status("Enregistrement…");
@@ -415,15 +514,16 @@
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             const r = await api("/docx/op", { path: PATH, revision: model .revision, author, tracked, op });
-            const sel = caret ? caret(r.model) : readSel();
-            applyModel(r.model, sel);
+            const fresh = normalize(r.model);
+            const sel = caret ? caret(fresh, r.result) : readSel();
+            applyModel(fresh, sel);
             status("Enregistré dans le .docx");
             return true;
           } catch (e     ) {
             if (e.status === 409 && attempt === 0) {
               // Word ou l'agent a écrit entre-temps : relire, et refaire le
               // geste si son paragraphe n'a pas bougé.
-              const fresh        = await api(`/docx/model?path=${enc(PATH)}`);
+              const fresh        = normalize(await api(`/docx/model?path=${enc(PATH)}`));
               const same = expectIdx !== undefined && fresh.paragraphs[expectIdx] && fresh.paragraphs[expectIdx].text === expectText;
               const sel = readSel();
               ghosts = [];
@@ -516,9 +616,13 @@
   /** Ops qui effacent la sélection [a, b) (du dernier paragraphe au premier). */
   function deleteOps(sel     )       {
     const { a, b } = sel;
-    if (a.idx === b.idx) return a.off === b.off ? [] : [{ op: "replace_range", paragraph: ref(a.idx), start: a.off, end: b.off, with: "" }];
+    if (a.idx === b.idx) {
+      if (a.off === b.off) return [];
+      const [s, e] = expandWhole(a.idx, a.off, b.off);
+      return [{ op: "replace_range", paragraph: ref(a.idx), start: s, end: e, with: "" }];
+    }
     const ops       = [];
-    if (b.off > 0) ops.push({ op: "replace_range", paragraph: ref(b.idx), start: 0, end: b.off, with: "" });
+    if (b.off > 0) ops.push({ op: "replace_range", paragraph: ref(b.idx), start: 0, end: expandWhole(b.idx, 0, b.off)[1], with: "" });
     for (let k = b.idx; k > a.idx; k--) {
       if (k < b.idx) {
         const len = model .paragraphs[k].text.length ? cp(model .paragraphs[k].text) : 0;
@@ -527,25 +631,27 @@
       ops.push({ op: "join", paragraph: ref(k) });
     }
     const lenA = cp(model .paragraphs[a.idx].text);
-    if (lenA > a.off) ops.push({ op: "replace_range", paragraph: ref(a.idx), start: a.off, end: lenA, with: "" });
+    if (lenA > a.off) ops.push({ op: "replace_range", paragraph: ref(a.idx), start: expandWhole(a.idx, a.off, lenA)[0], end: lenA, with: "" });
     return ops;
   }
 
   async function replaceSel(sel     , text        ) {
     const lines = text.replace(/\r\n?/g, "\n").split("\n");
     const ops = deleteOps(sel);
+    const story = storyAt(sel.a.idx);
+    const start = storySpan(sel.a.idx)[0];
     let idx = sel.a.idx;
     let at = sel.a.off;
     // Après une jointure suivie, les paragraphes restent séparés (marque
     // supprimée) : on écrit dans le premier, à la position de départ.
     lines.forEach((line, k) => {
       if (k > 0) {
-        ops.push({ op: "split", paragraph: ref(idx), at });
+        ops.push({ op: "split", paragraph: refIn(story, start, idx), at });
         idx += 1;
         at = 0;
       }
       if (line) {
-        ops.push({ op: "insert", paragraph: ref(idx), at, with: line });
+        ops.push({ op: "insert", paragraph: refIn(story, start, idx), at, with: line });
         at += cp(line);
       }
     });
@@ -573,13 +679,13 @@
       const len = text.length;
       const back = kind.endsWith("Backward");
       if (back && off === 0) {
-        if (idx === 0) return;
+        if (idx === storySpan(idx)[0]) return;
         const prevLen = cp(model .paragraphs[idx - 1].text);
         await sendOp({ op: "join", paragraph: ref(idx) }, () => ({ a: { idx: idx - 1, off: prevLen }, b: { idx: idx - 1, off: prevLen } }));
         return;
       }
       if (!back && off >= len) {
-        if (idx + 1 >= model .paragraphs.length) return;
+        if (idx === storySpan(idx)[1]) return;
         await sendOp({ op: "join", paragraph: ref(idx + 1) }, () => ({ a: { idx, off }, b: { idx, off } }));
         return;
       }
@@ -598,6 +704,7 @@
       else if (kind.includes("LineForward")) e = len;
       s = Math.max(0, s); e = Math.min(len, e);
       if (s === e) return;
+      [s, e] = expandWhole(idx, s, e);
       await sendOp({ op: "replace_range", paragraph: ref(idx), start: s, end: e, with: "" }, () => ({ a: { idx, off: s }, b: { idx, off: s } }), idx);
     });
   }
@@ -845,6 +952,8 @@
     <button class="tb" id="btnNumbers" data-tooltip="Liste numérotée">${ICON.numbers}</button>
     <span class="vsep"></span>
     <button class="tb" id="btnComment" data-tooltip="Commenter la sélection">${ICON.comment}</button>
+    <button class="tb" id="btnNote" data-tooltip="Insérer une note de bas de page">${ICON.note}</button>
+    <button class="tb" id="btnFigure" data-tooltip="Insérer une figure du projet">${ICON.figure}</button>
     <button class="tb" id="btnUndo" data-tooltip="Annuler (⌘Z)">${ICON.undo}</button>
     <button class="tb" id="btnRedo" data-tooltip="Rétablir (⌘⇧Z)">${ICON.redo}</button>
     <span class="sp"></span>
@@ -917,6 +1026,35 @@
   $("btnBullets").addEventListener("click", () => { const s = listStyle(/puce|bullet/i); if (s) applyPara({ style: s.id }); });
   $("btnNumbers").addEventListener("click", () => { const s = listStyle(/num[ée]ro|number/i); if (s) applyPara({ style: s.id }); });
   $("btnComment").addEventListener("click", () => askComment());
+  $("btnNote").addEventListener("click", () => {
+    const sel = readSel();
+    if (!sel || !model || view === "original") return;
+    if (storyAt(sel.a.idx)) { status("Une note s'appelle depuis le corps du texte.", true); return; }
+    const at = collapsed(sel) ? sel.a : sel.b;
+    structural(async () => {
+      // Le curseur passe dans la nouvelle note, prête à écrire.
+      await sendOp({ op: "insert_note", paragraph: ref(at.idx), at: at.off, text: "" }, (m, r) => {
+        const k = m.paragraphs.findIndex((p) => p.id === `${r && r.id}.p0`);
+        return k >= 0 ? { a: { idx: k, off: cp(m.paragraphs[k].text) }, b: { idx: k, off: cp(m.paragraphs[k].text) } } : null;
+      });
+    });
+  });
+  $("btnFigure").addEventListener("click", async (e) => {
+    const trigger = e.currentTarget               ;
+    const sel = readSel();
+    if (!sel || !model || view === "original") return;
+    let list                     = [];
+    try { list = (await api("/docx/figures")).figures || []; } catch (err     ) { status(err.message || String(err), true); return; }
+    const at = collapsed(sel) ? sel.a : sel.b;
+    const items         = list.length
+      ? list.map((f) => ({
+        label: f.path,
+        html: `<span class="mi-fig"><img src="/${f.path.split("/").map(enc).join("/")}" alt="" loading="lazy"><span>${esc(f.path)}</span></span>`,
+        run: () => structural(async () => { await sendOp({ op: "insert_image", paragraph: ref(at.idx), at: at.off, path: f.path }, () => ({ a: { idx: at.idx, off: at.off + 1 }, b: { idx: at.idx, off: at.off + 1 } })); }),
+      }))
+      : [{ label: "Aucune image PNG, JPEG ou GIF dans le projet" }];
+    showMenu(trigger, items);
+  });
 
   revbar.querySelectorAll             ("[data-view]").forEach((b) => b.addEventListener("click", () => {
     view = b.dataset.view               ;
@@ -971,6 +1109,7 @@
     ($("btnBullets")                     ).disabled = !listStyle(/puce|bullet/i);
     ($("btnNumbers")                     ).disabled = !listStyle(/num[ée]ro|number/i);
     ($("btnComment")                     ).disabled = !sel || collapsed(sel);
+    ($("btnNote")                     ).disabled = !sel || !!(p && p.story);
   }
 
   async function decideAll(op        , who         ) {

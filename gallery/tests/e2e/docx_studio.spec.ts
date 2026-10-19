@@ -1,5 +1,5 @@
 import {test as base, expect, type Page} from '@playwright/test';
-import {copyFile, mkdtemp} from 'node:fs/promises';
+import {copyFile, mkdtemp, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -11,6 +11,8 @@ import {removeTempRoot} from './temp-root.ts';
 // chaque geste arrive dans le fichier sur le disque.
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'christophe.docx');
 const NAME = 'Chapitre 2 corrigé CK.docx';
+// PNG 2×1 (en-tête et IHDR suffisent au moteur ; le navigateur l'affiche).
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGO4WR5uX7EVAAsuAxTa261lAAAAAElFTkSuQmCC', 'base64');
 
 const test = base.extend<{project: {root: string; url: string; doc: string}}>({
   project: async ({}, use) => {
@@ -28,12 +30,13 @@ const test = base.extend<{project: {root: string; url: string; doc: string}}>({
   },
 });
 
-type Model = {revision: string; paragraphs: {text: string; align?: string; heading?: number}[]; changes: {id: number; kind: string; author: string; text: string}[]; comments: {id: number; author: string; text: string; parent?: number; done: boolean; quote: string}[]};
+type Para = {text: string; align?: string; heading?: number; segments: {media?: string; rev?: string}[]};
+type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string}[]; comments: {id: number; author: string; text: string; parent?: number; done: boolean; quote: string}[]};
 
 async function open(page: Page, project: {url: string; doc: string}) {
   await page.request.post(`${project.url}/docx/prefs`, {data: {author: 'Thierry'}});
   await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(project.doc)}`);
-  await expect(page.locator('.d-p').first()).toContainText('2.2 Fraction de glace');
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
 }
 
 const disk = async (page: Page, project: {url: string; doc: string}): Promise<Model> =>
@@ -82,7 +85,7 @@ test('docx: la frappe, Entrée et le retour arrière arrivent en suivi signé da
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   await open(page, project);
-  await expect(page.locator('.card')).toHaveCount(10);
+  await expect(page.locator('.card')).toHaveCount(11);
 
   await caretAfter(page, 2, 'retenu ici');
   await page.keyboard.type(', fixé a priori,');
@@ -191,4 +194,51 @@ test("docx: une retouche de l'agent apparaît sans recharger", async ({page, pro
   await expect(page.locator('.d-p[data-idx="2"] .ins', {hasText: 'équilibre'})).toBeVisible({timeout: 6000});
   await expect(page.locator('.card', {hasText: 'Claude'})).toHaveCount(1);
   await expect(page.locator('#foot')).toContainText('de Claude en attente');
+});
+
+test('docx: notes, en-tête, pied de page et figures se retouchent dans la page', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await writeFile(path.join(project.root, 'albedo.png'), PNG);
+  await open(page, project);
+  // En-tête, pied de page, note de Christophe et sa révision.
+  await expect(page.locator('.d-hdr')).toContainText('Albédo des glaciers tropicaux');
+  await expect(page.locator('.d-ftr')).toContainText('Page');
+  await expect(page.locator('.d-note')).toContainText('Seuil appliqué');
+  await page.locator('.card', {hasText: 'Sentinel-2'}).locator('[data-act="accept"]').click();
+  await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 120)).toBe(false);
+  // La figure du document s'affiche.
+  const img = page.locator('.chip.fig img').first();
+  await expect(img).toBeVisible();
+  expect(await img.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
+
+  // Insérer une note après « MODIS » : le curseur passe dans la note.
+  await caretAfter(page, 1, 'pixel MODIS');
+  await page.locator('#btnNote').click();
+  await expect.poll(async () => (await disk(page, project)).notes.length).toBe(2);
+  await page.keyboard.type('MOD10A1 v6.1.');
+  await expect.poll(async () => (await disk(page, project)).notes[0].paragraphs[0].text).toBe(' MOD10A1 v6.1.');
+  await expect(page.locator('.d-note').first()).toContainText('MOD10A1');
+
+  // Écrire dans l'en-tête, en suivi.
+  await page.evaluate(() => {
+    const t = document.querySelector('.d-hdr .d-p span')!.firstChild!;
+    const r = document.createRange();
+    r.setStart(t, 0);
+    r.collapse(true);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(r);
+  });
+  await page.keyboard.type('Thèse – ');
+  await expect.poll(async () => (await disk(page, project)).headers[0].paragraphs[0].text).toMatch(/^Thèse – Chapitre 2/);
+
+  // Insérer une figure du projet, puis l'effacer d'un retour arrière.
+  await caretAfter(page, 2, 'glaciaire.');
+  await page.locator('#btnFigure').click();
+  await page.locator('.menu .mi', {hasText: 'albedo.png'}).click();
+  await expect.poll(async () => (await disk(page, project)).paragraphs[2].segments.filter(s => s.media).length).toBe(1);
+  await expect(page.locator('.d-p[data-idx="2"] .chip.fig img')).toBeVisible();
+  await page.keyboard.press('Backspace');
+  await expect.poll(async () => (await disk(page, project)).paragraphs[2].segments.filter(s => s.media && s.rev !== 'del').length).toBe(0);
+  expect(errors).toEqual([]);
 });
