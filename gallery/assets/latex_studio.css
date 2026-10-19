@@ -114,12 +114,12 @@
      côtés. Ni barré ni souligné. L'ancienne garde sa coloration LaTeX,
      éteinte d'un cran ; le trait de gouttière est rouge ou vert. */
   .cm-editor.atelier-unified-review{
-    --review-add-line:color-mix(in srgb,var(--review-ok) 7%,transparent);--review-del-line:color-mix(in srgb,var(--review-cut) 7%,transparent);
-    --review-add-word:color-mix(in srgb,var(--review-ok) 22%,transparent);--review-del-word:color-mix(in srgb,var(--review-cut) 22%,transparent)}
+    --review-add-line:color-mix(in srgb,var(--review-ok) 14%,transparent);--review-del-line:color-mix(in srgb,var(--review-cut) 14%,transparent);
+    --review-add-word:color-mix(in srgb,var(--review-ok) 34%,transparent);--review-del-word:color-mix(in srgb,var(--review-cut) 34%,transparent)}
   .cm-editor.atelier-unified-review.cm-merge-b .cm-changedLine{background:var(--review-add-line)}
   .cm-editor.atelier-unified-review .cm-deletedChunk{background:var(--review-del-line);padding:0}
   .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine{color:inherit;padding:0 14px 0 10px}
-  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine>del{opacity:.78}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine>del{opacity:.9}
   .cm-editor.atelier-unified-review.cm-merge-b .cm-changedText{background:var(--review-add-word)}
   .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedText{color:inherit;background:var(--review-del-word)}
   /* Paragraphe entièrement ajouté ou retiré : le voile de ligne suffit, pas
