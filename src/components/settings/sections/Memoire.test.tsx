@@ -69,5 +69,21 @@ describe("Réglages › Mémoire", () => {
       targets: [{ projectId: "p1", projectRoot: "/t/Chapitre1-Albedo" }],
     }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("7671 ajouté(s)"));
+    expect(screen.getByRole("status").textContent).not.toContain("effacé");
+  });
+
+  it("le bilan d'un réimport dit combien de souvenirs effacés ont été ignorés", async () => {
+    const requete = faux({
+      memoryClaudeSciencePreview: { projects: [
+        { id: "p1", name: "Analyses Feux-Albédo", count: 3, imported: 2, projectRoot: "/t/Chapitre1-Albedo" },
+      ] },
+      memoryClaudeScienceImport: { added: 0, updated: 0, unchanged: 2, forgotten: 1 },
+    });
+    render(<Memoire reglages={reglages} onReglages={() => {}} projets={["/t/Chapitre1-Albedo"]} requete={requete} />);
+    fireEvent.click(screen.getByText("Lire les projets de Claude Science"));
+    await waitFor(() => expect(screen.getByText("Analyses Feux-Albédo")).toBeTruthy());
+    fireEvent.click(screen.getByText("Importer"));
+    await waitFor(() => expect(screen.getByRole("status").textContent)
+      .toContain("1 effacé(s) à la main, non réimporté(s)"));
   });
 });

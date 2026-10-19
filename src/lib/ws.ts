@@ -213,7 +213,7 @@ type AgentEventBody =
       /** ± par fichier contre le snapshot du tour (git numstat côté Rust) —
        * même ensemble de chemins que filesChanged ; null = binaire. */
       fileStats?: { path: string; add: number | null; del: number | null }[];
-      checkpoint?: { snapshotSha: string; filesChanged: string[] };
+      checkpoint?: { snapshotSha: string; filesChanged: string[]; endTree?: string | null };
       /** durationMs : temps API préféré au temps mur (Claude, plan phase A) ;
        * permissionDenials : nombre de refus du tour (détail déjà visible
        * par outil via les notes de refus, pas ici). */

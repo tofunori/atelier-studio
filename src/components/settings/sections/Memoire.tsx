@@ -223,7 +223,10 @@ function ImportClaudeScience(p: { projets: string[]; requete: Requete | null; on
     const r = await p.requete("memoryClaudeScienceImport", { targets });
     setEnCours(false);
     if (!r.ok) { setErreur(r.error ?? t("memoire.import-failed")); return; }
-    const rapport = t("memoire.import-report", { added: r.added ?? 0, updated: r.updated ?? 0, unchanged: r.unchanged ?? 0 });
+    const rapport = [
+      t("memoire.import-report", { added: r.added ?? 0, updated: r.updated ?? 0, unchanged: r.unchanged ?? 0 }),
+      ...(r.forgotten ? [t("memoire.import-forgotten", { n: r.forgotten })] : []),
+    ].join(" · ");
     p.onImporte();
     await lire();
     setBilan(rapport);

@@ -30,18 +30,11 @@ use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
-/// Plafond d'un tour `session/prompt` — même valeur que le filet Codex/Grok.
-/// Un CLI kimi-code figé (vivant, muet) ne doit jamais laisser un tour sans
-/// terminal : au timeout, `prompt_res` devient une Err → chemin error normal.
-/// Surchargable pour les tests (`ATELIER_TURN_TIMEOUT_SECS`).
-const TURN_TIMEOUT_SECS_DEFAULT: u64 = 600;
-
-fn turn_timeout_secs() -> u64 {
-    std::env::var("ATELIER_TURN_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(TURN_TIMEOUT_SECS_DEFAULT)
-}
+// Filet anti-CLI-figé : le même que claude.rs et codex.rs (`turn_idle`).
+// Un CLI kimi-code figé (vivant, muet) ne doit jamais laisser un tour sans
+// terminal, mais un tour long qui parle reste légitime. Avant l'audit du
+// 2026-10-18 (problème 31), un `tokio::time::timeout` SEC de 600 s coupait
+// aussi un tour en plein travail.
 
 /// État lié à la génération du process ACP courant — invalidé au respawn.
 #[derive(Default)]
@@ -75,10 +68,11 @@ pub struct KimiProvider {
     /// (`always_thinking` ⇒ ["on"], `thinking` ⇒ ["off","on"]) — raffiné
     /// ensuite par les snapshots configOptions des sessions ouvertes.
     discovered_reasoning: StdMutex<serde_json::Map<String, Value>>,
-    /// Plafond d'un tour, figé À LA CONSTRUCTION (jamais relu depuis l'env
-    /// pendant un send) : muter `ATELIER_TURN_TIMEOUT_SECS` en cours de route
-    /// contaminait les autres tests en parallèle (flake `interruption_via_is_cancelled`).
-    turn_timeout_secs: u64,
+    /// Fenêtre de SILENCE tolérée (`turn_idle`), figée À LA CONSTRUCTION
+    /// (jamais relue depuis l'env pendant un send) : muter
+    /// `ATELIER_TURN_TIMEOUT_SECS` en cours de route contaminait les autres
+    /// tests en parallèle (flake `interruption_via_is_cancelled`).
+    idle: Duration,
 }
 
 impl KimiProvider {
@@ -98,15 +92,15 @@ impl KimiProvider {
             active_turns: StdMutex::new(HashMap::new()),
             discovered_models: StdMutex::new(Vec::new()),
             discovered_reasoning: StdMutex::new(serde_json::Map::new()),
-            turn_timeout_secs: turn_timeout_secs(),
+            idle: crate::turn_idle::idle_from_env(),
         }
     }
 
-    /// Plafond du tour injecté sur l'instance (tests du filet de timeout) —
+    /// Fenêtre d'inactivité injectée sur l'instance (tests du filet) —
     /// jamais de mutation d'env, qui serait globale au binaire de test.
     #[cfg(test)]
-    fn with_turn_timeout_secs(mut self, secs: u64) -> Self {
-        self.turn_timeout_secs = secs;
+    fn with_idle(mut self, idle: Duration) -> Self {
+        self.idle = idle;
         self
     }
 
@@ -884,13 +878,22 @@ impl KimiProvider {
     /// Handler des requêtes serveur→client du tour : traduit
     /// `session/request_permission` vers l'interaction utilisateur d'Atelier
     /// et retourne l'outcome exact. Sans relais (UI absente) ⇒ cancelled.
-    fn make_server_handler(&self, on_interaction: Option<InteractionFn>) -> ServerRequestHandler {
+    fn make_server_handler(
+        &self,
+        on_interaction: Option<InteractionFn>,
+        activity: crate::turn_idle::TurnActivity,
+    ) -> ServerRequestHandler {
         Arc::new(move |method: String, params: Value| {
             let relay = on_interaction.clone();
+            let activity = activity.clone();
             Box::pin(async move {
+                activity.bump();
                 if method != "session/request_permission" {
                     return Value::Null; // fs/*, terminal/*… ⇒ -32601 (non annoncés)
                 }
+                // Le CLI attend Thierry, pas l'inverse : le filet s'arrête
+                // le temps de la question.
+                let _attente = activity.wait_for_human();
                 let answer = match relay {
                     Some(relay) => relay(method, params.clone()).await,
                     None => None,
@@ -960,7 +963,10 @@ impl KimiProvider {
         let config_cache = Arc::clone(&self.config);
         let commands_cache = Arc::clone(&self.commands);
         let sid_for_handler = sid.clone();
+        let activity = crate::turn_idle::TurnActivity::new();
+        let handler_activity = activity.clone();
         let handler: SessionUpdateHandler = Arc::new(move |update: &Value| {
+            handler_activity.bump();
             if matches!(
                 update.get("sessionUpdate").and_then(Value::as_str),
                 Some(
@@ -1003,7 +1009,7 @@ impl KimiProvider {
         });
         self.acp.set_session_handler(&sid, handler).await;
         self.acp
-            .set_session_server_handler(&sid, self.make_server_handler(req.on_interaction.clone()))
+            .set_session_server_handler(&sid, self.make_server_handler(req.on_interaction.clone(), activity.clone()))
             .await;
         self.active_turns
             .lock()
@@ -1027,21 +1033,26 @@ impl KimiProvider {
             }
         });
 
-        let prompt_res = tokio::time::timeout(
-            // Même filet que Grok/Codex : sans plafond, un CLI kimi-code figé
-            // (vivant, muet) laissait le tour « en cours » sans terminal.
-            Duration::from_secs(self.turn_timeout_secs),
+        // Même filet que Claude/Codex : seul un SILENCE complet de `idle`
+        // (aucune notification, aucune requête serveur, personne n'attend
+        // Thierry) interrompt le tour ; un tour long qui parle continue.
+        let prompt_res = crate::turn_idle::with_idle_timeout(
             self.acp.request(
                 "session/prompt",
                 json!({"sessionId": sid, "prompt": prompt_blocks}),
                 None,
             ),
+            self.idle,
+            &activity,
         )
-        .await
-        .unwrap_or_else(|_| Err(AcpRpcError::transport(format!(
-            "timeout Kimi ({}s) — CLI figé sans répondre",
-            self.turn_timeout_secs
-        ))));
+        .await;
+        if prompt_res.is_err() {
+            // Le CLI reste vivant : lui demander d'abandonner le tour pour
+            // qu'il ne continue pas à écrire après qu'on l'a déclaré figé.
+            self.acp
+                .notify("session/cancel", json!({"sessionId": sid}))
+                .await;
+        }
 
         // Finalisation systématique : sonde, handlers, tour actif.
         watcher.abort();
@@ -1050,7 +1061,21 @@ impl KimiProvider {
         self.active_turns.lock().unwrap().remove(&req.thread_id);
 
         let (ok, error) = match prompt_res {
-            Ok(result) => {
+            Err(()) => {
+                state.lock().unwrap().1.flush();
+                let message = format!(
+                    "timeout Kimi — CLI muet depuis {} (aucun signe de vie), tour interrompu",
+                    crate::turn_idle::describe(self.idle)
+                );
+                (req.on_event)(json!({"kind": "error", "message": message.clone()}));
+                (false, Some(message))
+            }
+            Ok(Err(e)) => {
+                state.lock().unwrap().1.flush();
+                (req.on_event)(json!({"kind": "error", "message": user_error(&e)}));
+                (false, Some(e.to_string()))
+            }
+            Ok(Ok(result)) => {
                 let mut done = {
                     let mut guard = state.lock().unwrap();
                     let (ctx, emitter) = &mut *guard;
@@ -1102,11 +1127,6 @@ impl KimiProvider {
                     })
                 };
                 (ok, error)
-            }
-            Err(e) => {
-                state.lock().unwrap().1.flush();
-                (req.on_event)(json!({"kind": "error", "message": user_error(&e)}));
-                (false, Some(e.to_string()))
             }
         };
 
@@ -1560,7 +1580,7 @@ mod tests {
         // Plafond de test : 1 s (le vrai plafond reste 600 s en prod), injecté
         // SUR L'INSTANCE. Aucune mutation d'env : elle serait globale au
         // binaire de test et volait le plafond des tests voisins en parallèle.
-        let Some(p) = fixture_provider("nominal").map(|p| p.with_turn_timeout_secs(1)) else {
+        let Some(p) = fixture_provider("nominal").map(|p| p.with_idle(Duration::from_secs(1))) else {
             return;
         };
         let out = run_turn(&p, "[hang] question", None, None, None, None, None).await;
@@ -1576,6 +1596,40 @@ mod tests {
             "un done ok=true ne doit pas suivre un timeout: {:?}",
             out.done()
         );
+    }
+
+    /// Audit 2026-10-18, problème 31 : le filet est une échéance
+    /// d'INACTIVITÉ, plus un plafond sec. Un tour qui dure 2,4 s mais parle
+    /// toutes les 200 ms survit à une fenêtre de 1 s (l'ancien
+    /// `tokio::time::timeout(1 s)` le coupait).
+    #[tokio::test]
+    async fn un_tour_long_qui_parle_n_est_pas_coupe() {
+        let Some(p) = fixture_provider("nominal").map(|p| p.with_idle(Duration::from_secs(1))) else {
+            return;
+        };
+        let debut = std::time::Instant::now();
+        let out = run_turn(&p, "[chatty] question", None, None, None, None, None).await;
+        assert!(out.result.ok, "tour bavard coupé: {:?} / {:?}", out.result, out.errors());
+        assert!(out.text().contains("fin bavarde"), "texte: {}", out.text());
+        assert!(debut.elapsed() >= Duration::from_secs(2), "le tour doit bien dépasser la fenêtre");
+    }
+
+    /// Une question à Thierry n'est pas un silence du CLI : une réponse qui
+    /// tarde plus que la fenêtre ne coupe pas le tour.
+    #[tokio::test]
+    async fn une_permission_lente_ne_declenche_pas_le_filet() {
+        let Some(p) = fixture_provider("nominal").map(|p| p.with_idle(Duration::from_secs(1))) else {
+            return;
+        };
+        let relay: InteractionFn = Arc::new(|_m, _p| {
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_millis(2_500)).await;
+                Some(json!({"optionId": "approve_once"}))
+            })
+        });
+        let out = run_turn(&p, "[permission]", None, None, None, None, Some(relay)).await;
+        assert!(out.result.ok, "coupé pendant la question: {:?}", out.errors());
+        assert!(out.text().contains("perm:selected:approve_once"), "texte: {}", out.text());
     }
 
     #[tokio::test]

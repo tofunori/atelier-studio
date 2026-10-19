@@ -13,7 +13,7 @@
 //! qui partagent les mots rares de la demande.
 
 use crate::durable;
-use crate::iso_now;
+use crate::{iso_now, write_file_atomic};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -99,12 +99,21 @@ pub struct ImportReport {
     pub added: usize,
     pub updated: usize,
     pub unchanged: usize,
+    /// Souvenirs que Thierry avait effacés un à un : l'import les ignore.
+    pub forgotten: usize,
 }
 
 #[derive(Debug)]
 pub struct MemoryStore {
     file_path: PathBuf,
     items: Vec<Memory>,
+    /// Traces d'effacement : `source_id` Claude Science des souvenirs
+    /// effacés un à un. Sans elles, l'import (qui ne reconnaît un souvenir
+    /// déjà traité que s'il est encore là) recréait au prochain clic un
+    /// souvenir effacé parce qu'il était faux. Rangées dans un fichier voisin
+    /// (`memories.forgotten.json`) pour que `memories.json` garde sa forme :
+    /// une version antérieure de l'app le relit sans rien perdre.
+    forgotten: HashSet<String>,
     /// Entrées que cette version ne sait pas lire (écrites par une autre
     /// version de l'app, ou abîmées) : réécrites telles quelles.
     kept: Vec<serde_json::Value>,
@@ -131,6 +140,13 @@ fn clean_text(text: &str) -> Result<String, String> {
 impl MemoryStore {
     pub fn open(file_path: impl Into<PathBuf>) -> Self {
         let file_path = file_path.into();
+        let forgotten = std::fs::read_to_string(forgotten_path(&file_path))
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|id| !id.is_empty())
+            .collect();
         let loaded = durable::load_list(&file_path, |v| {
             serde_json::from_value::<Memory>(v.clone())
                 .ok()
@@ -145,7 +161,13 @@ impl MemoryStore {
             items: entries.items,
             kept: entries.kept,
             load_error,
+            forgotten,
         }
+    }
+
+    /// Ce souvenir Claude Science a-t-il été effacé à la main ?
+    pub fn is_forgotten(&self, source_id: &str) -> bool {
+        self.forgotten.contains(source_id)
     }
 
     /// Pourquoi le magasin refuse d'écrire (fichier illisible), s'il le refuse.
@@ -307,9 +329,32 @@ impl MemoryStore {
         Ok(memory)
     }
 
+    /// Efface des souvenirs. Un souvenir importé laisse une trace
+    /// d'effacement (son `source_id`) : un nouvel import ne le recrée pas.
     pub fn remove(&mut self, ids: &[String]) -> Result<usize, String> {
+        self.remove_inner(ids, true)
+    }
+
+    fn remove_inner(&mut self, ids: &[String], leave_trace: bool) -> Result<usize, String> {
         self.writable()?;
         let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
+        if leave_trace {
+            let traces: Vec<String> = self
+                .items
+                .iter()
+                .filter(|m| wanted.contains(m.id.as_str()))
+                .filter_map(|m| m.origin.source_id.clone())
+                .filter(|source| !self.forgotten.contains(source))
+                .collect();
+            if !traces.is_empty() {
+                // La trace s'écrit AVANT l'effacement : si elle échoue, rien
+                // n'est effacé, et un souvenir effacé ne peut pas revenir.
+                let mut next = self.forgotten.clone();
+                next.extend(traces);
+                persist_forgotten(&self.file_path, &next)?;
+                self.forgotten = next;
+            }
+        }
         let before = self.items.len();
         self.items.retain(|m| !wanted.contains(m.id.as_str()));
         let removed = before - self.items.len();
@@ -329,7 +374,9 @@ impl MemoryStore {
 
     /// Souvenirs importés d'un projet Claude Science (`Some("")` : ceux qui
     /// n'avaient pas de projet ; `None` : tout l'import) : pour retirer un
-    /// import d'un coup.
+    /// import d'un coup. Retirer tout un import n'est pas juger chaque
+    /// souvenir faux : pas de trace d'effacement, un nouvel import les
+    /// ramène — sauf ceux déjà effacés un à un, dont la trace reste.
     pub fn remove_imported(&mut self, source_project: Option<&str>) -> Result<usize, String> {
         let ids: Vec<String> = self
             .items
@@ -342,7 +389,7 @@ impl MemoryStore {
             })
             .map(|m| m.id.clone())
             .collect();
-        self.remove(&ids)
+        self.remove_inner(&ids, false)
     }
 
     /// Identifiants Claude Science déjà importés, avec le projet Atelier
@@ -361,7 +408,8 @@ impl MemoryStore {
 
     /// Import idempotent : un souvenir déjà là (même `source_id`) prend le
     /// nouveau texte et le projet choisi s'ils ont changé ; un texte corrigé
-    /// dans Atelier depuis (`edited`) n'est pas écrasé.
+    /// dans Atelier depuis (`edited`) n'est pas écrasé ; un souvenir effacé
+    /// à la main (trace d'effacement) n'est pas recréé.
     pub fn import(&mut self, batch: Vec<ImportedMemory>) -> Result<ImportReport, String> {
         self.writable()?;
         let mut report = ImportReport::default();
@@ -373,6 +421,10 @@ impl MemoryStore {
             .collect();
         let now = iso_now();
         for item in batch {
+            if self.forgotten.contains(&item.source_id) {
+                report.forgotten += 1;
+                continue;
+            }
             let Ok(text) = clean_text(&truncate_chars(&item.text, MEMORY_TEXT_MAX)) else {
                 continue;
             };
@@ -496,6 +548,21 @@ impl MemoryStore {
         let list = durable::with_kept(&self.items, &self.kept)?;
         durable::save_json_compact(&self.file_path, &list).map_err(|e| e.to_string())
     }
+}
+
+fn forgotten_path(file_path: &std::path::Path) -> PathBuf {
+    let stem = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("memories");
+    file_path.with_file_name(format!("{stem}.forgotten.json"))
+}
+
+fn persist_forgotten(file_path: &std::path::Path, forgotten: &HashSet<String>) -> Result<(), String> {
+    let mut ids: Vec<&String> = forgotten.iter().collect();
+    ids.sort();
+    let data = serde_json::to_vec(&ids).map_err(|e| e.to_string())?;
+    write_file_atomic(&forgotten_path(file_path), data).map_err(|e| e.to_string())
 }
 
 fn truncate_chars(s: &str, max: usize) -> String {
@@ -683,7 +750,8 @@ mod tests {
             ImportReport {
                 added: 2,
                 updated: 0,
-                unchanged: 0
+                unchanged: 0,
+                forgotten: 0,
             }
         );
         let r = s
@@ -694,7 +762,8 @@ mod tests {
             ImportReport {
                 added: 0,
                 updated: 1,
-                unchanged: 1
+                unchanged: 1,
+                forgotten: 0,
             }
         );
         let a = s
@@ -724,6 +793,94 @@ mod tests {
         );
         assert_eq!(s.remove_imported(Some("Analyses Feux-Albédo")).unwrap(), 2);
         assert!(s.is_empty());
+    }
+
+    /// Audit du 2026-10-18 (problème 24) : un souvenir importé que Thierry
+    /// efface parce qu'il est faux ne revient pas au réimport, même après
+    /// réouverture du magasin.
+    #[test]
+    fn un_souvenir_efface_ne_revient_pas_au_reimport() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("memories.json");
+        let mut s = MemoryStore::open(&path);
+        s.import(vec![cs("a", "Texte A faux", "/p"), cs("b", "Texte B", "/p")])
+            .unwrap();
+        let faux = s
+            .list(&MemoryQuery {
+                text: "faux".into(),
+                ..Default::default()
+            })
+            .0[0]
+            .id
+            .clone();
+        assert_eq!(s.remove(&[faux]).unwrap(), 1);
+        assert!(s.is_forgotten("a"));
+
+        let r = s
+            .import(vec![cs("a", "Texte A faux", "/p"), cs("b", "Texte B", "/p")])
+            .unwrap();
+        assert_eq!(
+            r,
+            ImportReport {
+                added: 0,
+                updated: 0,
+                unchanged: 1,
+                forgotten: 1,
+            }
+        );
+        assert_eq!(s.len(), 1);
+
+        // La trace survit à la relance de l'app.
+        let mut rouvert = MemoryStore::open(&path);
+        assert!(rouvert.is_forgotten("a"));
+        let r = rouvert.import(vec![cs("a", "Texte A faux", "/p")]).unwrap();
+        assert_eq!((r.added, r.forgotten), (0, 1));
+        assert!(rouvert
+            .list(&MemoryQuery::default())
+            .0
+            .iter()
+            .all(|m| m.origin.source_id.as_deref() != Some("a")));
+        // memories.json garde sa forme : un tableau de souvenirs.
+        let brut: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(brut.is_array());
+    }
+
+    /// Retirer tout un import (« annuler l'import ») ne juge pas chaque
+    /// souvenir : un nouvel import les ramène, sauf ceux effacés un à un.
+    #[test]
+    fn retirer_un_import_entier_ne_laisse_pas_de_trace() {
+        let dir = tempdir().unwrap();
+        let mut s = MemoryStore::open(dir.path().join("m.json"));
+        s.import(vec![cs("a", "Texte A", "/p"), cs("b", "Texte B", "/p")])
+            .unwrap();
+        let b = s
+            .list(&MemoryQuery {
+                text: "texte b".into(),
+                ..Default::default()
+            })
+            .0[0]
+            .id
+            .clone();
+        s.remove(&[b]).unwrap();
+        assert_eq!(s.remove_imported(None).unwrap(), 1);
+        assert!(!s.is_forgotten("a"));
+        let r = s
+            .import(vec![cs("a", "Texte A", "/p"), cs("b", "Texte B", "/p")])
+            .unwrap();
+        assert_eq!((r.added, r.forgotten), (1, 1));
+    }
+
+    /// Un souvenir saisi à la main n'a pas de source : son effacement
+    /// n'écrit aucune trace.
+    #[test]
+    fn effacer_un_souvenir_manuel_n_ecrit_pas_de_trace() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("m.json");
+        let mut s = MemoryStore::open(&path);
+        let m = s.add("/p", "Note manuelle", manual()).unwrap();
+        s.remove(&[m.id]).unwrap();
+        assert!(!dir.path().join("m.forgotten.json").exists());
     }
 
     #[test]

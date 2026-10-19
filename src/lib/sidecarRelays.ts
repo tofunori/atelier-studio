@@ -9,6 +9,7 @@
 // la décision d'ouvrir l'accueil se prend au premier setupStatus.
 import "./integrations";
 import "./setupEnvironment";
+import { notifySetAside } from "./setAsideNotice";
 
 type Relay = (msg: any) => { event: string; detail?: unknown };
 
@@ -90,7 +91,12 @@ const RELAYS: Record<string, Relay> = {
   gitChanged: forward("git-changed"),
   gitStageDone: forward("git-changed"),
   gitUnstageDone: forward("git-changed"),
-  gitRevertFileDone: forward("git-changed"),
+  // « Restaurer » : dire où est partie la version écartée (Corbeille, ou
+  // .git/atelier-trash/ en repli) — sinon le fichier disparaît sans trace.
+  gitRevertFileDone: (msg) => {
+    notifySetAside(msg.trashedTo, "restore");
+    return { event: "git-changed", detail: msg };
+  },
   gitCommitDone: forward("git-changed"),
   gitUndoLastTurnDone: forward("git-changed"),
   gitUndoLastTurnError: forward("git-undo-error"),

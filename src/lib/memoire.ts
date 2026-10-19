@@ -51,6 +51,8 @@ export type ReponseMemoire = {
   added?: number;
   updated?: number;
   unchanged?: number;
+  /** Souvenirs effacés à la main que l'import a ignorés (trace d'effacement). */
+  forgotten?: number;
 };
 
 export const EVENT_MEMOIRE = "memoire-reponse";

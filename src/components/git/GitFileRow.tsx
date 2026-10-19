@@ -7,6 +7,13 @@ import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownM
 import { isLowSignalFile, shortStatus } from "./gitSurfaceModel";
 import type { GitFile, GitGroup } from "./types";
 
+/** Non suivi : « Restaurer » n'a rien à restaurer, le fichier part à la
+ * Corbeille — le libellé le dit. */
+function restoreLabel(file: GitFile, armed: boolean): string {
+  if (armed) return t("action.confirm");
+  return file.status === "?" ? t("git.trash-file") : t("action.restore");
+}
+
 export function GitFileRow({
   file,
   group,
@@ -78,7 +85,7 @@ export function GitFileRow({
             items={[
               {
                 key: "restore",
-                label: <span>{restoreArmed ? t("action.confirm") : t("action.restore")}</span>,
+                label: <span>{restoreLabel(file, restoreArmed)}</span>,
                 destructive: restoreArmed,
                 keepOpen: !restoreArmed,
                 onSelect: () => {
