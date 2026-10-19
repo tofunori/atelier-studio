@@ -500,6 +500,7 @@ async fn handle_action(
         "specialists" => Ok(crate::specialists::action_specialists(
             &atelier_store::read_settings(&state.settings_path()).unwrap_or(Value::Null),
         )),
+        "delegate" => crate::delegation::action_delegate(state, caller_id, req).await,
         "propose_specialist" => {
             crate::specialists::action_propose_specialist(state, caller_id, req).await
         }
@@ -533,6 +534,7 @@ fn help_doc() -> Value {
             {"action":"send_message","mutation":true,"params":["targetThreadId","text","requestId"]},
             {"action":"report_to_parent","mutation":true,"params":["requestId","report"]},
             {"action":"specialists","mutation":false},
+            {"action":"delegate","mutation":true,"params":["specialist","task","requestId"]},
             {"action":"propose_specialist","mutation":false,"params":["nom","nomCourt","role","instructions","skills","connecteurs","replaceId"]},
             {"action":"memories","mutation":false,"params":["query","limit"]},
             {"action":"propose_memory","mutation":false,"params":["text","replaceId"]}

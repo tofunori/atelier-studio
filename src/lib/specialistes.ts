@@ -41,6 +41,9 @@ export type SpecialisteDuFil = {
   /** Seuls ces serveurs MCP restent branchés dans le fil (lu par le
    *  backend, `restriction_mcp`). Vide ou absent : tous les MCP. */
   connecteurs?: string[];
+  /** Seuls ces skills restent chargés dans le fil (backend,
+   *  `restriction_skills`). `null`, absent ou vide : tous les skills. */
+  skills?: string[] | null;
 };
 
 /** Spécialiste lu dans Claude Science (`claudeScienceImport` du backend). */
@@ -88,20 +91,23 @@ export function specialisteVide(existants: Specialiste[]): Specialiste {
   };
 }
 
-/** Texte envoyé à l'agent pour un fil qui porte ce spécialiste. Les skills
- *  restent une préférence (Claude et Codex chargent tout leur catalogue) ;
- *  les connecteurs, eux, sont les seuls MCP branchés dans le fil. */
+/** Texte envoyé à l'agent pour un fil qui porte ce spécialiste. Ses skills
+ *  et ses connecteurs sont les seuls chargés dans le fil (backend). Même
+ *  texte que `texte_specialiste` (specialists.rs), à garder identiques. */
 export function texteSpecialiste(s: Specialiste): string {
   const lignes = [`Specialist for this conversation: ${s.nom}.`];
   if (s.role.trim()) lignes.push(`Role: ${s.role.trim()}`);
   if (s.instructions.trim()) lignes.push(s.instructions.trim());
-  if (!s.tousSkills && s.skills.length) lignes.push(`Prefer these skills when they apply: ${s.skills.join(", ")}.`);
+  if (!s.tousSkills && s.skills.length) lignes.push(`Skills of this specialist: ${s.skills.join(", ")}. Other skills are not loaded in this conversation.`);
   if (s.connecteurs.length) lignes.push(`Connectors (MCP servers) of this specialist: ${s.connecteurs.join(", ")}. Other MCP servers are not connected in this conversation.`);
   return lignes.join("\n");
 }
 
 export function specialisteDuFil(s: Specialiste): SpecialisteDuFil {
-  return { id: s.id, nom: s.nom, nomCourt: nomCourtDe(s), texte: texteSpecialiste(s), connecteurs: [...s.connecteurs] };
+  return {
+    id: s.id, nom: s.nom, nomCourt: nomCourtDe(s), texte: texteSpecialiste(s), connecteurs: [...s.connecteurs],
+    skills: s.tousSkills ? null : [...s.skills],
+  };
 }
 
 /** Consignes de forme du fil, sans le spécialiste. */
@@ -257,4 +263,33 @@ export function cleMcp(nom: string): string {
 export function connecteursAbsents(connecteurs: string[], duMac: { nom: string }[]): string[] {
   const presents = new Set(duMac.map((m) => cleMcp(m.nom)));
   return connecteurs.filter((c) => !presents.has(cleMcp(c)));
+}
+
+export type MentionSpecialiste = { specialiste: Specialiste; task: string };
+
+/** `@NomCourt tâche` dans le compositeur : confie la tâche au spécialiste
+ *  (délégation, lot 2). Seules les fiches visibles répondent, par leur nom
+ *  court, sans tenir compte de la casse. */
+export function mentionSpecialiste(prompt: string, catalogue: Specialiste[]): MentionSpecialiste | null {
+  const re = /(^|\s)@([\p{L}\p{N}_-]+)(?=\s|$|[.,!?;:])/gu;
+  for (const match of prompt.matchAll(re)) {
+    const cle = cleMcp(match[2]);
+    const specialiste = catalogue.find((s) => s.visible && cleMcp(nomCourtDe(s)) === cle);
+    if (!specialiste) continue;
+    const index = match.index ?? 0;
+    const task = `${prompt.slice(0, index)}${match[1]}${prompt
+      .slice(index + match[0].length)
+      .replace(/^[.,!?;:]\s*/, "")}`.trim();
+    return { specialiste, task };
+  }
+  return null;
+}
+
+/** Skills de la fiche que Claude Code ou Codex ne voient pas sur le Mac. */
+export function skillsAbsents(skills: string[], duMac: { nom: string; claude: boolean; codex: boolean }[]): { claude: string[]; codex: string[] } {
+  const vu = (s: string) => duMac.find((m) => cleMcp(m.nom) === cleMcp(s));
+  return {
+    claude: skills.filter((s) => !vu(s)?.claude),
+    codex: skills.filter((s) => !vu(s)?.codex),
+  };
 }
