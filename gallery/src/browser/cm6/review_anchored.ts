@@ -6,7 +6,7 @@ import {Chunk, getChunks} from "@codemirror/merge";
 
 // Revue « ancrée au passage » (variante F2, 2026-09-10) : la décision est
 // posée SUR le changement qu'elle gouverne, pas dans une carte ni une barre.
-//  - une pilule inline « l. 173–175 · 3 lignes · Ignorer · Garder » juste
+//  - une rangée « Refuser · Accepter » (l. 173–175 en infobulle) juste
 //    après le dernier caractère du changement COURANT ;
 //  - un trait gris à gauche, sur les rangées VISUELLES de chaque changement
 //    (calculé d'après les coordonnées, donc exact au milieu d'un paragraphe
@@ -109,30 +109,31 @@ class PillWidget extends WidgetType {
     const root = document.createElement("div");
     root.className = "atelier-review-pill" + (this.config.readOnly ? " is-readonly" : "");
     root.dataset.reviewChunk = chunkKey(this.chunk);
-    root.setAttribute("role", "toolbar"); root.setAttribute("aria-label", "Décision sur ce passage");
-    const where = document.createElement("span"); where.className = "atelier-review-where"; where.textContent = this.label;
-    root.append(where);
-    const button = (cls: string, d: string, text: string, title: string, onClick, withText = false) => {
+    root.setAttribute("role", "toolbar"); root.setAttribute("aria-label", "Décision sur ce passage, " + this.label);
+    const button = (cls: string, d: string, text: string, title: string, onClick, withText = false, keys = "") => {
       const b = document.createElement("button");
       b.type = "button"; b.className = "atelier-review-act " + cls; b.title = title; b.setAttribute("aria-label", text);
       if (d) b.append(svg(d));
-      // Garder / Ignorer : le symbole seul, le libellé reste en infobulle et
-      // pour les lecteurs d'écran (Thierry 2026-09-10, « juste le symbole »).
+      // Diff unifié (maquette A, 2026-10-18) : « Refuser » / « Accepter » en
+      // toutes lettres, raccourci affiché sur le passage courant seulement.
       if (withText) { const t = document.createElement("span"); t.textContent = text; b.append(t); }
+      if (keys) { const k = document.createElement("kbd"); k.textContent = keys; b.append(k); }
       b.onmousedown = e => e.preventDefault();
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); onClick(); };
       return b;
     };
     const chunk = this.chunk;
     if (this.config.readOnly) {
+      const where = document.createElement("span"); where.className = "atelier-review-where"; where.textContent = this.label;
+      root.append(where);
       const hint = document.createElement("span"); hint.className = "atelier-review-hint"; hint.textContent = "Lecture seule";
       root.append(hint);
       if (this.config.onLatest) root.append(button("latest", null, "Dernière intervention ›", "Aller à la dernière intervention pour décider (⌥→)", () => this.config.onLatest(), true));
       return root;
     }
     root.append(
-      button("drop", "M6 6l12 12M18 6L6 18", "Ignorer", "Ignorer ce passage (⌥⌫)", () => this.config.onDecision(this.config.decide("reject", chunk))),
-      button("keep", "M5 12l5 5L20 7", "Garder", "Garder ce passage (⌥↩)", () => this.config.onDecision(this.config.decide("accept", chunk))),
+      button("drop", "M6 6l12 12M18 6L6 18", "Refuser", "Refuser ce passage (⌥⌫)", () => this.config.onDecision(this.config.decide("reject", chunk)), true, "⌥⌫"),
+      button("keep", "M5 12l5 5L20 7", "Accepter", "Accepter ce passage (⌥↩)", () => this.config.onDecision(this.config.decide("accept", chunk)), true, "⌥↩"),
     );
     return root;
   }
