@@ -121,6 +121,8 @@ pub struct Piece {
     pub unit_ins: Option<String>,
     /// Image : relation vers le fichier, taille affichée.
     pub media: Option<Media>,
+    /// Équation : son LaTeX.
+    pub math: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -275,8 +277,11 @@ fn visit(node: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
     if ns == Some(M) && (name == "oMath" || name == "oMathPara") {
         let text: String = node.descendants().filter(|n| n.tag_name().namespace() == Some(M) && n.tag_name().name() == "t").filter_map(|n| n.text()).collect();
         push(ctx, state, out, text, Kind::Object("équation".into()), Fmt::default(), None);
-        if ctx.revs.is_empty() && ctx.top == node.range() && let Some(last) = out.pieces.last_mut() {
-            last.unit = Some(node.range());
+        if let Some(last) = out.pieces.last_mut() {
+            last.math = Some(crate::math::to_latex(node));
+            if ctx.revs.is_empty() && ctx.top == node.range() {
+                last.unit = Some(node.range());
+            }
         }
         return;
     }
@@ -535,6 +540,7 @@ fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fm
         unit: None,
         unit_ins: None,
         media: None,
+        math: None,
     });
 }
 

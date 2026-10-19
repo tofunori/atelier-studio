@@ -16,10 +16,12 @@
 //! - [`ops`] : une retouche en JSON (panneau et agent), et le texte pour l'agent.
 //! - [`objects`] : appels de note et figures insérés.
 //! - [`table`] : lignes (en suivi) et colonnes de tableau.
+//! - [`math`] : équations (OMML) ↔ LaTeX.
 //! - [`story`] : corps, notes, en-têtes et pieds de page, chacun dans sa partie.
 
 pub mod comments;
 pub mod edit;
+pub mod math;
 pub mod model;
 pub mod objects;
 pub mod review;
