@@ -53,6 +53,9 @@ export function UnsavedDocumentsGuard() {
     let unlisten: UnlistenFn | null = null;
     let alive = true;
     void listen(QUIT_REQUESTED_EVENT, () => {
+      // accusé de réception : sans lui, la coquille laisse passer la demande
+      // suivante (interface qui n'écoute plus, voir QuitGuard)
+      void invoke("ack_quit_request").catch(() => {});
       void confirmDiscard("quit", unsavedDocuments()).then(async (ok) => {
         if (!ok) return;
         // Les brouillons partent sur le serveur AVANT la sortie : le
@@ -68,6 +71,11 @@ export function UnsavedDocumentsGuard() {
       alive = false;
       unsubscribe();
       unlisten?.();
+      // Plus personne ne répondra à `atelier-quit-requested` (App remplacé
+      // par la notice de BootBoundary, par exemple) : la coquille ne doit
+      // plus retenir la fermeture. Les éditeurs démontés avec l'app ont
+      // laissé leurs brouillons de secours sur le serveur.
+      void invoke("set_unsaved_documents", { count: 0 }).catch(() => {});
     };
   }, []);
 

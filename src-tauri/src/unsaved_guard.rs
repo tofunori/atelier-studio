@@ -13,12 +13,12 @@
 //! élément ordinaire (même raccourci ⌘Q) qui passe par la même garde.
 
 use atelier_workspace::QuitGuard;
-use tauri::{AppHandle, Emitter, ExitRequestApi, Manager, State, Window, WindowEvent};
 #[cfg(target_os = "macos")]
 use tauri::{
-    Runtime,
     menu::{Menu, MenuEvent, MenuItem, MenuItemKind},
+    Runtime,
 };
+use tauri::{AppHandle, Emitter, ExitRequestApi, Manager, State, Window, WindowEvent};
 
 pub const QUIT_REQUESTED_EVENT: &str = "atelier-quit-requested";
 /// Identifiant de l'élément « Quitter » qui remplace le prédéfini.
@@ -29,6 +29,13 @@ const MAIN_WINDOW: &str = "main";
 #[tauri::command]
 pub fn set_unsaved_documents(guard: State<'_, QuitGuard>, count: usize) {
     guard.set_unsaved(count);
+}
+
+/// L'app a reçu `atelier-quit-requested` : sans cet accusé, une nouvelle
+/// demande après `ACK_TIMEOUT` passe (interface qui n'écoute plus).
+#[tauri::command]
+pub fn ack_quit_request(guard: State<'_, QuitGuard>) {
+    guard.acknowledge();
 }
 
 #[tauri::command]
@@ -45,7 +52,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
         let Some(guard) = window.try_state::<QuitGuard>() else {
             return;
         };
-        if guard.should_hold_close() {
+        if guard.hold_close() {
             api.prevent_close();
             let _ = window.emit(QUIT_REQUESTED_EVENT, ());
         }
@@ -57,7 +64,7 @@ pub fn on_exit_requested(app: &AppHandle, code: Option<i32>, api: &ExitRequestAp
         return;
     };
     let main_window_open = app.get_webview_window(MAIN_WINDOW).is_some();
-    if guard.should_hold_exit(code.is_some(), main_window_open) {
+    if guard.hold_exit(code.is_some(), main_window_open) {
         api.prevent_exit();
         let _ = app.emit(QUIT_REQUESTED_EVENT, ());
     }
@@ -71,7 +78,7 @@ fn request_quit<R: Runtime>(app: &AppHandle<R>) {
     let main_window_open = app.get_webview_window(MAIN_WINDOW).is_some();
     let hold = app
         .try_state::<QuitGuard>()
-        .is_some_and(|guard| guard.should_hold_exit(false, main_window_open));
+        .is_some_and(|guard| guard.hold_exit(false, main_window_open));
     if hold {
         let _ = app.emit(QUIT_REQUESTED_EVENT, ());
     } else {
@@ -96,14 +103,15 @@ pub fn app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     if !matches!(items[last], MenuItemKind::Predefined(_)) {
         return Ok(menu);
     }
-    let quit = MenuItem::with_id(
-        app,
-        QUIT_MENU_ID,
-        format!("Quitter {}", app.package_info().name),
-        true,
-        Some("CmdOrCtrl+Q"),
-    )?;
-    app_submenu.remove_at(last)?;
+    // le libellé du prédéfini retiré est repris : même langue que le reste
+    // du menu
+    let label = match app_submenu.remove_at(last)? {
+        Some(MenuItemKind::Predefined(predefined)) => predefined.text().ok(),
+        _ => None,
+    }
+    .filter(|text| !text.is_empty())
+    .unwrap_or_else(|| format!("Quit {}", app.package_info().name));
+    let quit = MenuItem::with_id(app, QUIT_MENU_ID, label, true, Some("CmdOrCtrl+Q"))?;
     app_submenu.append(&quit)?;
     Ok(menu)
 }

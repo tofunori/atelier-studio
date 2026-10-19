@@ -117,6 +117,7 @@ pub fn run() {
             boot_metrics::record_boot_metrics,
             ui_state::ui_state_snapshot,
             unsaved_guard::set_unsaved_documents,
+            unsaved_guard::ack_quit_request,
             unsaved_guard::confirm_quit
         ])
         .build(tauri::generate_context!())

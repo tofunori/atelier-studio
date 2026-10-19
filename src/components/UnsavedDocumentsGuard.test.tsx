@@ -48,6 +48,8 @@ describe("UnsavedDocumentsGuard sous Tauri", () => {
     expect(QUIT_REQUESTED_EVENT).toBe("atelier-quit-requested");
 
     act(() => quitRequested!());
+    // accusé de réception : la coquille sait que l'interface écoute
+    expect(invoke).toHaveBeenCalledWith("ack_quit_request");
     expect(await screen.findByText(t("unsaved.quit-title"))).toBeInTheDocument();
     expect(screen.getByText(t("unsaved.quit-help", { names: "main.tex" }))).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: t("action.cancel") }));
@@ -57,5 +59,13 @@ describe("UnsavedDocumentsGuard sous Tauri", () => {
     act(() => quitRequested!());
     fireEvent.click(await screen.findByRole("button", { name: t("unsaved.quit-confirm") }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("confirm_quit"));
+  });
+
+  it("démonté (App remplacé par la notice), il ne laisse pas la coquille retenir la sortie", async () => {
+    const { unmount } = render(<UnsavedDocumentsGuard />);
+    act(() => setDocumentUnsaved(doc, true));
+    await waitFor(() => expect(invoke).toHaveBeenLastCalledWith("set_unsaved_documents", { count: 1 }));
+    unmount();
+    expect(invoke).toHaveBeenLastCalledWith("set_unsaved_documents", { count: 0 });
   });
 });
