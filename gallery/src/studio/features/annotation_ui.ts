@@ -73,20 +73,35 @@ export function createNoteEditor(host: HTMLElement, options: {
   input.value = options.value || "";
   if(memoInput) memoInput.value = options.memo?.value || "";
   const field = host.querySelector<HTMLElement>(".atelier-note-field")!;
-  // Au-delà d'une ligne, la bulle s'élargit en « composer ». On mesure
-  // toujours à la largeur étroite, sinon un texte qui tient sur une ligne
-  // élargie basculerait d'une forme à l'autre à chaque frappe.
-  const fit = () => {
-    const wasWide = field.classList.contains("is-multiline");
-    if(wasWide){field.classList.remove("is-multiline");host.classList.remove("atelier-note-wide");}
-    input.style.height="24px";
-    const wide = input.scrollHeight>28;
-    field.classList.toggle("is-multiline",wide);host.classList.toggle("atelier-note-wide",wide);
+  // Au-delà d'une ligne, la bulle s'élargit en « composer ». La décision se
+  // prend sur un double invisible, toujours à la largeur étroite : rétrécir
+  // puis rélargir le champ lui-même à chaque frappe pouvait laisser WebKit avec
+  // un texte mal remis en page (bulle étroite, ligne coupée à droite).
+  const measure = host.ownerDocument.createElement("div");
+  measure.className = "atelier-note-measure";
+  measure.setAttribute("aria-hidden", "true");
+  field.prepend(measure);
+  const sizeHeight = () => {
     input.style.height="24px";
     const maxHeight = parseFloat(host.ownerDocument.defaultView?.getComputedStyle(input).maxHeight || "") || 124;
     input.style.height=Math.min(maxHeight,input.scrollHeight)+"px";
+  };
+  const fit = () => {
+    // l'espace sans chasse fait compter une ligne finale vide, comme le textarea
+    measure.textContent = input.value + "\u200b";
+    const wide = measure.scrollHeight>28;
+    if(field.classList.contains("is-multiline")!==wide){
+      field.classList.toggle("is-multiline",wide);host.classList.toggle("atelier-note-wide",wide);
+    }
+    sizeHeight();
     keepInView();
   };
+  // Fenêtre ou panneau redimensionné : la hauteur suit la nouvelle largeur.
+  let lastWidth = 0;
+  const view = host.ownerDocument.defaultView;
+  if(view?.ResizeObserver) new view.ResizeObserver(() => {
+    if(input.clientWidth && input.clientWidth!==lastWidth){lastWidth=input.clientWidth;sizeHeight();}
+  }).observe(input);
   // La bulle grandit vers la droite et vers le bas depuis la position choisie
   // par l'hôte : un décalage la ramène dans la fenêtre sans toucher left/top.
   const keepInView = () => {

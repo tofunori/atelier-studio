@@ -369,6 +369,44 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
   }
 });
 
+// Régression (Thierry 2026-10-19) : rouverte, la bulle d'une note d'une
+// ligne et demie restait parfois étroite, texte coupé à droite. La largeur
+// ne dépend plus que du texte, et le champ ne déborde jamais.
+test('latex note bubble keeps one width per text when reopened', async ({page}) => {
+  await withProject({'note.tex': '\\section{Intro}\nBetween 2000 and 2023, glaciers lost mass.\n'}, async ({url}) => {
+    await page.goto(url('latex_studio.html', 'note.tex', '&engine=cm6'));
+    await expectEngine(page, 'cm6');
+    const pop = page.locator('#texcPop');
+    const input = pop.locator('textarea.atelier-note-input');
+    const fits = () => input.evaluate((ta: HTMLTextAreaElement) =>
+      ta.scrollWidth <= ta.clientWidth && ta.scrollHeight <= ta.clientHeight);
+    await page.evaluate(() => texcOpen({from:{line:1,ch:0},to:{line:1,ch:20},text:'Between 2000 and 202'}));
+    await input.pressSequentially("je pense ici on pourrait ameliorer la phrase d'intro");
+    await expect(pop).toHaveClass(/atelier-note-wide/);
+    const typed = (await pop.boundingBox())!.width;
+    expect(await fits()).toBe(true);
+    await pop.locator('.send2').click();
+    await expect(pop).toBeHidden();
+    for (let round = 0; round < 2; round++) {
+      await page.locator('.atelier-annotation-number').first().click();
+      await expect(pop).toBeVisible();
+      await expect(pop).toHaveClass(/atelier-note-wide/);
+      expect((await pop.boundingBox())!.width).toBe(typed);
+      expect(await fits()).toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(pop).toBeHidden();
+    }
+    // une note courte rouvre étroite, puis s'élargit dès qu'elle déborde
+    await page.evaluate(() => texcOpen({from:{line:1,ch:0},to:{line:1,ch:7},text:'Between'}));
+    await expect(pop).not.toHaveClass(/atelier-note-wide/);
+    await input.pressSequentially('Court');
+    await expect(pop).not.toHaveClass(/atelier-note-wide/);
+    await input.pressSequentially(' puis bien assez long pour passer à la ligne suivante');
+    await expect(pop).toHaveClass(/atelier-note-wide/);
+    expect(await fits()).toBe(true);
+  });
+});
+
 // Régression : le rechargement agent remplaçait le document ENTIER, et CM6
 // remappait toute position à travers ce changement [0, length] — une position
 // intérieure s'écrase alors au début ou à la fin du document. Sélections et
