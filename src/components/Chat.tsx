@@ -218,10 +218,11 @@ export default function Chat(p: {
 }) {
   const headerHost = useChatHeaderHost();
   // Sous-agent lu à la place du chat (fil d'Ariane, Échap pour revenir) ; le
-  // fil reste monté dessous et garde sa position de défilement.
-  const [viewedAgentId, setViewedAgentId] = useState<string | null>(null);
-  useEffect(() => setViewedAgentId(null), [p.threadId]);
-  const openAgent = p.onOpenAgent ?? ((agent: AgentDisplay) => setViewedAgentId(agent.threadId));
+  // fil reste monté dessous et garde sa position de défilement. L'agent ouvert
+  // est lié à son fil : changer de fil referme la vue sans effet de rattrapage.
+  const [viewed, setViewed] = useState<{ threadId: string | null; agentId: string } | null>(null);
+  const viewedAgentId = viewed && viewed.threadId === (p.threadId ?? null) ? viewed.agentId : null;
+  const openAgent = p.onOpenAgent ?? ((agent: AgentDisplay) => setViewed({ threadId: p.threadId ?? null, agentId: agent.threadId }));
   const [localText, setLocalText] = useState("");
   const sourcedText = usePromptText(p.draftSource);
   const text = p.draftSource ? sourcedText : (p.draftText ?? localText);
@@ -1265,7 +1266,7 @@ export default function Chat(p: {
       {viewedAgent ? <SubagentView agent={viewedAgent}
         events={p.eventsByThreadId?.get(viewedAgent.threadId) ?? []}
         threadTitle={p.threadTitle || t("app.new-chat-title")}
-        onClose={() => setViewedAgentId(null)}
+        onClose={() => setViewed(null)}
         renderToolLine={renderToolLine} plugins={p.plugins ?? []} threadId={p.threadId}
         hideThinking={p.defaults.transcriptView === "resume"}
         thinkingCollapsed={p.defaults.transcriptView !== "reflexion" && p.defaults.transcriptView !== "detaille"} /> : null}

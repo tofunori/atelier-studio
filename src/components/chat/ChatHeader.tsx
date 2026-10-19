@@ -30,7 +30,8 @@ import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import { formesDuFil } from "../../lib/specialistes";
 import "../../styles/local-headers.css";
 import { ChatNotice, type ChatNoticeData } from './ChatNotice';
-import { AgentRowGlyph, agentDuration, agentTitle, type AgentDisplay } from "./AgentActivity";
+import { AgentDuration, AgentRowGlyph, type AgentDisplay } from "./AgentActivity";
+import { agentTitle } from "./agentText";
 import { ToolGlyph, ToolStateGlyph } from "./toolPresentation";
 
 /* Vue de la transcription (2026-08-21, façon Claude Code desktop) : le bouton
@@ -168,7 +169,7 @@ export function ChatHeader(p: {
                     <span className="subagents-mi-title">{agentTitle(agent)}</span>
                     {agent.description ? <span className="subagents-mi-type">{agent.displayName}</span> : null}
                   </span>
-                  {agentDuration(agent)}
+                  <AgentDuration agent={agent} />
                   <span className="tool-status"><ToolStateGlyph outcome={agent.status === "working" ? "running"
                     : agent.status === "done" ? "done" : agent.status === "failed" ? "failed" : "none"} /></span>
                 </span>
