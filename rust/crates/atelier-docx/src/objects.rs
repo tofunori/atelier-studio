@@ -157,7 +157,7 @@ fn text_width(docx: &mut Docx) -> Result<u64> {
     let src = docx.part(DOCUMENT)?.unwrap_or_default();
     let doc = xml::parse(&src)?;
     let twips = |n: Option<roxmltree::Node>, a: &str| n.and_then(|n| w_attr(n, a)).and_then(|v| v.parse::<u64>().ok());
-    let sect = doc.descendants().filter(|n| is_w(*n, "sectPr")).last();
+    let sect = doc.descendants().rfind(|n| is_w(*n, "sectPr"));
     let pg = sect.and_then(|s| xml::w_child(s, "pgSz"));
     let mar = sect.and_then(|s| xml::w_child(s, "pgMar"));
     let w = twips(pg, "w").unwrap_or(12240).saturating_sub(twips(mar, "left").unwrap_or(1440) + twips(mar, "right").unwrap_or(1440));

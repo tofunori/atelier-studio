@@ -361,7 +361,7 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
             let outer = |p: &Piece| p.unit.clone().unwrap_or(p.top.clone());
             let next_to = || {
                 let pieces = || t.inline.pieces.iter().zip(&t.spans).filter_map(|(p, sp)| sp.map(|x| (p, x)));
-                pieces().filter(|(_, (ps, pe))| *pe == s && pe > ps).last().map(|(p, _)| outer(p).end).or_else(|| pieces().find(|(_, (ps, pe))| *ps == s && pe > ps).map(|(p, _)| outer(p).start))
+                pieces().rfind(|(_, (ps, pe))| *pe == s && pe > ps).map(|(p, _)| outer(p).end).or_else(|| pieces().find(|(_, (ps, pe))| *ps == s && pe > ps).map(|(p, _)| outer(p).start))
             };
             let at = units.iter().map(|u| u.end).max().or_else(next_to).or(if s == 0 { t.ppr_end.or(t.p_inner_end) } else { t.p_inner_end });
             match at {

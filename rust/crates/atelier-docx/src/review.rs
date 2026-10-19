@@ -63,8 +63,7 @@ pub fn decide_all(docx: &mut Docx, decision: Decision, author: Option<&str>) -> 
     let mut skipped: BTreeSet<u32> = BTreeSet::new();
     let mut done: BTreeSet<u32> = BTreeSet::new();
     for part in docx.story_parts() {
-    loop {
-        let Some(src) = docx.part(&part)? else { break };
+    while let Some(src) = docx.part(&part)? {
         let doc = xml::parse(&src)?;
         let next = doc.descendants().find(|n| {
             n.is_element()
