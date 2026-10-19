@@ -329,6 +329,53 @@ running_app_command() {
   [ -n "$pid" ] && ps -p "$pid" -o command= 2>/dev/null
 }
 
+# Bundle (…/Atelier.app) d'où tourne l'app ; rien si elle ne tourne pas.
+running_bundle() {
+  local cmd
+  cmd="$(running_app_command)" || return 0
+  case "$cmd" in
+    */Contents/MacOS/*) printf '%s\n' "${cmd%%/Contents/MacOS/*}" ;;
+  esac
+  return 0
+}
+
+# Juste avant l'arrêt. Sans build installée dans $INSTALL_APP (premier
+# passage), l'app peut tourner depuis un autre bundle : /Applications (DMG)
+# ou le target/ d'un autre worktree. Ce bundle est alors copié comme build
+# courante, que promote_staged garde ensuite comme précédente : la relance
+# la plus risquée a elle aussi son retour arrière.
+keep_running_bundle() {
+  [ -d "$INSTALL_APP" ] && return 0
+  local bundle
+  bundle="$(running_bundle)"
+  if [ -z "$bundle" ] || [ ! -d "$bundle" ]; then
+    say "Précédente : aucune build installée ni lancée à garder ; --retour ne sera possible qu'après la prochaine relance."
+    return 0
+  fi
+  # Depuis target/ de ce worktree : cmd_relaunch l'a déjà mise en attente.
+  [ "$bundle" = "$BUILT_APP" ] && return 0
+  say "Précédente : copie de la build qui tourne ($bundle)."
+  mkdir -p "$INSTALL_ROOT" "$RESERVE_DIR" || fail 1 "dossier $INSTALL_ROOT impossible : rien n'a été arrêté"
+  if ! copy_bundle "$bundle" "$INSTALL_APP"; then
+    rm -rf "$INSTALL_APP"
+    fail 1 "copie de $bundle impossible : rien n'a été arrêté"
+  fi
+  printf 'commit=inconnu\ninstallee=%s\nsource=copie de la build qui tournait depuis %s\n' \
+    "$(date '+%Y-%m-%d %H:%M')" "$bundle" >"$RESERVE_DIR/courante.txt"
+  return 0
+}
+
+# Confirmation puis arrêt. Les tours sont recontrôlés juste avant l'arrêt :
+# la question de confirm_stop attend sans limite, et un tour a pu démarrer
+# pendant ce temps (ou pendant la copie de keep_running_bundle).
+confirm_and_stop() {
+  check_no_turn
+  confirm_stop
+  keep_running_bundle
+  check_no_turn
+  stop_atelier
+}
+
 # --- Commandes -----------------------------------------------------------
 
 preflight() {
@@ -348,9 +395,7 @@ cmd_relaunch() {
       # elle tourne depuis la copie installée.
       say "L'app tourne depuis $BUILT_APP, que le build réécrit : copie de sauvegarde, puis arrêt avant le build."
       stage_bundle "$BUILT_APP" "copie de la build qui tournait depuis target/"
-      check_no_turn
-      confirm_stop
-      stop_atelier
+      confirm_and_stop
       promote_staged
       if ! build_app; then
         say "Retour à la build qui tournait :"
@@ -365,9 +410,7 @@ cmd_relaunch() {
       ;;
   esac
   stage_bundle "$BUILT_APP" "build de $REPO_ROOT"
-  check_no_turn
-  confirm_stop
-  stop_atelier
+  confirm_and_stop
   promote_staged
   launch_installed
 }
@@ -377,9 +420,7 @@ cmd_rollback() {
   [ -d "$RESERVE_DIR/Atelier.app" ] || fail 1 "aucune build précédente dans $RESERVE_DIR"
   say "Retour arrière : la build précédente remplace la courante (et inversement)."
   [ -f "$RESERVE_DIR/precedente.txt" ] && sed 's/^/  /' "$RESERVE_DIR/precedente.txt"
-  check_no_turn
-  confirm_stop
-  stop_atelier
+  confirm_and_stop
   swap_with_previous
   launch_installed
 }

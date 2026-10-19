@@ -189,7 +189,11 @@ ad hoc. To build, install and restart it on your Mac, run
 running copy keeps working, checks that no chat turn is running, stops the app
 and its servers, installs the new build in `~/Applications/Atelier.app` and
 keeps the previous one in `~/Applications/Atelier-precedente/` for
-`bash scripts/relance-app.sh --retour --confirme`. That file is the only build
+`bash scripts/relance-app.sh --retour --confirme`. On the first run, when
+nothing is installed there yet, the app that is running (from
+`/Applications/Atelier.app` or another worktree's `target/`) is copied first
+and becomes the previous build; if no app runs, the script says that no
+previous build is kept. That file is the only build
 and restart procedure; the checks, the stop list and the restart verification
 live there. **Settings → General → Diagnostics and maintenance → Sidecar** shows
 the commit and date of the running build. `npm run tauri dev` gives a hot-reloading

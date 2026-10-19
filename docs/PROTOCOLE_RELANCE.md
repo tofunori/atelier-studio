@@ -51,7 +51,7 @@ pas ».
   gardés), y compris la trace d'un panic.
 - **Réglages → Général**, groupe **Diagnostic et maintenance**, ligne
   **Sidecar** : la version y est suivie du commit et de la date de la build
-  (« 2.1.0 · build 9bcdc0e du 2026-10-18 23:21 »). C'est la preuve, dans
+  (« 2.0.0 · build 9bcdc0e du 2026-10-18 23:21 »). C'est la preuve, dans
   l'app, de la build qui tourne.
 - `npm run tauri:build:app` passe par `scripts/build-tauri-app.sh` : un verrou
   par worktree, un `target/` par worktree, et la signature « Atelier Dev
@@ -115,17 +115,28 @@ refuse sinon. Dans l'ordre, il :
    chat, avec le port et le jeton du verrou) ; s'il y en a un, code 3 et rien
    n'est arrêté. Une build antérieure sans `/activity` donne « état inconnu » :
    vérifier dans l'app qu'aucun fil n'est « en cours » ;
-5. **prévient pour les éditeurs** : LaTeX, code, Markdown et notes ne
-   signalent pas encore leurs modifications non enregistrées à l'app ; un
-   tampon non enregistré est perdu à l'arrêt ;
-6. **arrête** `tauri-app`, tous les processus de
+5. **prévient pour les éditeurs**, sans pouvoir les vérifier : LaTeX, code,
+   Markdown et notes ne signalent pas encore leurs modifications non
+   enregistrées à l'app, donc l'avertissement est le même à chaque fois et
+   c'est à Thierry de dire qu'ils sont enregistrés ; un tampon non enregistré
+   est perdu à l'arrêt ;
+6. **garde la build qui tourne** si rien n'est encore installé dans
+   `~/Applications/Atelier.app` (premier passage) : l'app qui tourne depuis
+   `/Applications/Atelier.app` (DMG) ou le `target/` d'un autre worktree est
+   copiée comme courante, et devient la précédente à l'étape 9. Si l'app ne
+   tourne pas et que rien n'est installé, le script dit qu'aucune précédente
+   n'est gardée ;
+7. **revérifie les tours** juste avant l'arrêt : la confirmation et la copie
+   ont pu durer, et un tour a pu démarrer entre-temps (code 3, rien n'est
+   arrêté) ;
+8. **arrête** `tauri-app`, tous les processus de
    `Atelier.app/Contents/Resources/rust-server/` (chat, galeries, passerelle,
    outils), leurs descendants et les groupes de processus des CLI : SIGTERM,
    5 s de grâce, puis SIGKILL ; un survivant = code 1 avec sa liste ;
-7. **installe** : la courante devient la précédente (l'ancienne précédente est
+9. **installe** : la courante devient la précédente (l'ancienne précédente est
    supprimée), la nouvelle devient la courante ;
-8. **relance** `~/Applications/Atelier.app` et vérifie que `tauri-app` tourne
-   depuis ce bundle.
+10. **relance** `~/Applications/Atelier.app` et vérifie que `tauri-app` tourne
+    depuis ce bundle.
 
 | Code | Sens |
 |---|---|

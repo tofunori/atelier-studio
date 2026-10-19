@@ -202,6 +202,61 @@ rm -rf "$RESERVE_DIR/Atelier.app"
 (swap_with_previous) >"$WORK/swap.out" 2>&1
 check "retour sans précédente : refus, courante intacte" '[ $? = 1 ] && [ "$(installed)" = v3 ]'
 
+# --- Premier passage : l'app tourne depuis un autre bundle ---------------
+
+# Comme /Applications/Atelier.app (DMG) ou le target/ d'un autre worktree.
+OTHER_BUNDLE="$WORK/Autre dossier/Atelier.app"
+mkdir -p "$OTHER_BUNDLE/Contents/MacOS"
+cp "$(command -v sleep)" "$OTHER_BUNDLE/Contents/MacOS/$RELANCE_NOM_APP"
+"$OTHER_BUNDLE/Contents/MacOS/$RELANCE_NOM_APP" 300 &
+OTHER_PID=$!
+echo "$OTHER_PID" >>"$PIDS_FILE"
+disown "$OTHER_PID"
+sleep 0.2
+check "bundle de l'app lancée relevé (chemin avec espace)" '[ "$(running_bundle)" = "$OTHER_BUNDLE" ]'
+fresh_install() {
+  INSTALL_ROOT="$WORK/$1"
+  INSTALL_APP="$INSTALL_ROOT/Atelier.app"
+  RESERVE_DIR="$INSTALL_ROOT/Atelier-precedente"
+  STAGING_DIR="$RESERVE_DIR/.nouvelle"
+}
+fake_build v9
+(
+  fresh_install Apps2
+  keep_running_bundle && stage_bundle "$WORK/build-v9/Atelier.app" v9 && promote_staged
+) >"$WORK/keep.out" 2>&1
+check "premier passage : la build qui tournait devient la précédente" '[ "$(cat "$WORK/Apps2/Atelier.app/Contents/MacOS/tauri-app")" = v9 ] && [ -x "$WORK/Apps2/Atelier-precedente/Atelier.app/Contents/MacOS/$RELANCE_NOM_APP" ]'
+check "premier passage : fiche de la précédente" 'grep -q "^source=copie de la build qui tournait depuis $OTHER_BUNDLE$" "$WORK/Apps2/Atelier-precedente/precedente.txt"'
+(
+  fresh_install Apps3
+  BUILT_APP="$OTHER_BUNDLE"
+  keep_running_bundle
+) >/dev/null 2>&1
+check "depuis target/ de ce worktree : pas de seconde copie" '[ ! -e "$WORK/Apps3/Atelier.app" ]'
+kill -KILL "$OTHER_PID" 2>/dev/null
+sleep 0.2
+(
+  fresh_install Apps4
+  keep_running_bundle
+) >"$WORK/keep2.out" 2>&1
+check "rien ne tourne ni n'est installé : dit qu'aucune précédente n'est gardée" '[ $? = 0 ] && grep -q "aucune build installée ni lancée" "$WORK/keep2.out" && [ ! -e "$WORK/Apps4/Atelier.app" ]'
+
+# --- Un tour qui démarre pendant la confirmation -------------------------
+
+(
+  fresh_install Apps5
+  : >"$WORK/turns"
+  count_turns() {
+    echo x >>"$WORK/turns"
+    # 0 au premier contrôle, 1 au second (après la confirmation).
+    [ "$(wc -l <"$WORK/turns" | tr -d " ")" -ge 2 ] && echo 1 || echo 0
+  }
+  stop_atelier() { echo ARRET; }
+  CONFIRMED=1
+  confirm_and_stop
+) >"$WORK/race.out" 2>&1
+check "tour démarré pendant la confirmation : refus (code 3), rien d'arrêté" '[ $? = 3 ] && ! grep -q ARRET "$WORK/race.out" && grep -q "1 tour(s) de chat en cours" "$WORK/race.out"'
+
 # --- Options et refus -----------------------------------------------------
 
 bash "$SCRIPT" --inconnue </dev/null >/dev/null 2>&1
