@@ -14,7 +14,7 @@ import Chat from "../Chat";
 import { renderUi, resetTestState } from "../../test/render";
 import { makeProviderInfo } from "../../test/fixtures";
 import { t } from "../../lib/i18n";
-import { modeApresPlan } from "./ComposerControls";
+import { modeApresPlan } from "./modeApresPlan";
 
 const TOUS = ["default", "acceptEdits", "plan", "bypassPermissions"];
 
