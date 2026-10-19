@@ -2,7 +2,8 @@
 // basculait entre plan et bypassPermissions : un fil en acceptEdits (le
 // défaut) qui entrait puis sortait de Plan tournait ensuite en accès complet
 // (--dangerously-skip-permissions côté Claude, danger-full-access côté
-// Codex). On revient au mode d'avant Plan, sinon à acceptEdits, jamais à
+// Codex). On revient au mode d'avant Plan dans le fil, sinon au mode par
+// défaut des réglages, sinon à acceptEdits, jamais à
 // l'accès complet.
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -33,6 +34,15 @@ describe("modeApresPlan", () => {
     expect(modeApresPlan("plan", TOUS)).toBe("acceptEdits");
   });
 
+  it("sans mode précédent connu, revient au mode par défaut des réglages, sauf l'accès complet", () => {
+    expect(modeApresPlan(null, TOUS, "default")).toBe("default");
+    expect(modeApresPlan(undefined, TOUS, "acceptEdits")).toBe("acceptEdits");
+    expect(modeApresPlan(null, TOUS, "bypassPermissions")).toBe("acceptEdits");
+    expect(modeApresPlan(null, TOUS, "plan")).toBe("acceptEdits");
+    // le mode d'avant Plan du fil prime sur le réglage
+    expect(modeApresPlan("acceptEdits", TOUS, "default")).toBe("acceptEdits");
+  });
+
   it("ignore un mode précédent que le fournisseur n'offre pas", () => {
     expect(modeApresPlan("acceptEdits", ["default", "plan", "bypassPermissions"])).toBe("default");
     expect(modeApresPlan("default", ["acceptEdits", "plan"])).toBe("acceptEdits");
@@ -41,11 +51,11 @@ describe("modeApresPlan", () => {
 
 type Envoi = Parameters<typeof Chat>[0]["onSubmit"];
 
-function chatProps(defaultPermissionMode: string, onSubmit: Mock<Envoi>): Parameters<typeof Chat>[0] {
+function chatProps(defaultPermissionMode: string, onSubmit: Mock<Envoi>, threadId = "thread-plan"): Parameters<typeof Chat>[0] {
   return {
     events: [], workingSince: null, commands: [], files: [], recentFiles: [],
     zoteroItems: [], injectText: null, onInjected: vi.fn(), attachments: [],
-    onRemoveAttachment: vi.fn(), onQuote: vi.fn(), threadId: "thread-plan",
+    onRemoveAttachment: vi.fn(), onQuote: vi.fn(), threadId,
     onPasteImage: vi.fn(), onPasteText: vi.fn(), onStop: vi.fn(),
     layout: "chat", onToggleExpand: vi.fn(), usage: null, onRevert: vi.fn(),
     onFork: vi.fn(), onEditSend: vi.fn(), onNewChat: vi.fn(), onOpenProject: vi.fn(),
@@ -107,5 +117,21 @@ describe("menu « + » — entrée Mode plan", () => {
     expect(envoyer(onSubmit, "en plan")).toBe("plan");
     await basculerPlan();
     expect(envoyer(onSubmit, "après")).toBe("acceptEdits");
+  });
+
+  it("fil ouvert déjà en Plan : la sortie rend le défaut des réglages, pas le mode du fil précédent", async () => {
+    const selection = (permissionMode: string) => JSON.stringify({
+      activeProvider: "claude",
+      byProvider: { claude: { model: "", effort: "", permissionMode, fastMode: false } },
+    });
+    localStorage.setItem("atelier-studio.modelSel.thread:fil-a", selection("acceptEdits"));
+    localStorage.setItem("atelier-studio.modelSel.thread:fil-b", selection("plan"));
+    const onSubmit = vi.fn<Envoi>();
+    const { rerender } = renderUi(<Chat {...chatProps("default", onSubmit, "fil-a")} />);
+    await waitFor(() => expect(envoyer(onSubmit, "fil a")).toBe("acceptEdits"));
+    rerender(<Chat {...chatProps("default", onSubmit, "fil-b")} />);
+    await waitFor(() => expect(envoyer(onSubmit, "fil b")).toBe("plan"));
+    await basculerPlan();
+    expect(envoyer(onSubmit, "après")).toBe("default");
   });
 });

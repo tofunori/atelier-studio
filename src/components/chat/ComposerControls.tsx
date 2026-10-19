@@ -106,13 +106,19 @@ export function splitModelLabel(label: string): { route: string; name: string } 
 /** Mode rendu quand on quitte le mode Plan par l'entrée « Mode plan » du menu
  * « + ». Le menu basculait entre plan et bypassPermissions : un fil en
  * acceptEdits (le défaut) qui passait en Plan puis en sortait tournait ensuite
- * en accès complet, sans approbation. On revient donc au mode d'avant Plan,
- * sinon au défaut acceptEdits — jamais à l'accès complet par ce chemin : il
- * se choisit explicitement dans le sélecteur de permission. */
-export function modeApresPlan(precedent: string | null | undefined, permis: readonly string[]): string {
+ * en accès complet, sans approbation. On revient donc au mode d'avant Plan
+ * dans CE fil, sinon au mode par défaut des réglages, sinon à acceptEdits —
+ * jamais à l'accès complet par ce chemin : il se choisit explicitement dans le
+ * sélecteur de permission. */
+export function modeApresPlan(
+  precedent: string | null | undefined,
+  permis: readonly string[],
+  defaut?: string | null,
+): string {
   const repli = (mode: string | null | undefined): mode is string =>
     !!mode && mode !== "plan" && mode !== "bypassPermissions" && permis.includes(mode);
   if (repli(precedent)) return precedent;
+  if (repli(defaut)) return defaut;
   if (repli("acceptEdits")) return "acceptEdits";
   return permis.find((mode) => repli(mode)) ?? "acceptEdits";
 }
@@ -172,6 +178,8 @@ export function ComposerControls(p: {
   onGoal?: (action: "set" | "clear", objective?: string, status?: "active" | "paused") => void;
   defaults: {
     autoReview?: { enabled: boolean };
+    /** Mode de permission par défaut (Settings) : repli de la sortie du mode Plan. */
+    defaultPermissionMode?: string;
     /** Catalogue des consignes de réponse (plan 2026-09-01) — Settings.consignes. */
     consignes?: Consigne[];
     /** Spécialistes (plan specialistes-2026-10-18) — Settings.specialistes. */
@@ -186,6 +194,8 @@ export function ComposerControls(p: {
   onOuvrirReglagesConsignes: (section?: string) => void;
   /** Noyau Python persistant du fil (chantier 5) ; absent sans fil actif. */
   kernel?: { on: boolean };
+  /** Fil affiché (projet:fil) : le mode d'avant Plan est mémorisé par fil. */
+  scopeKey?: string;
 }) {
   const {
     provider, model, setModel, effort, setEffort, fastMode, setFastMode,
@@ -206,10 +216,22 @@ export function ComposerControls(p: {
   const permissionOptions = PERMISSION_MODES.filter((m) => allowedPermissionModes.includes(m.id));
   // Dernier mode hors Plan, quel que soit le chemin d'entrée en Plan (menu +,
   // sélecteur, /plan) : c'est lui que l'entrée « Mode plan » rend en sortie.
-  const modeAvantPlan = useRef<string | null>(permissionMode === "plan" ? null : permissionMode);
+  // Mémorisé PAR FIL : le composer survit à un changement de fil, et le mode
+  // d'un autre fil ne doit pas ressortir ici. Au rendu où le fil change, le
+  // mode affiché est encore celui de l'ancien fil (Chat l'hydrate dans un
+  // effet, qui court APRÈS celui-ci) : on n'enregistre rien à ce rendu-là.
+  // Sans dépendances : le rendu suivant enregistre le mode hydraté, même
+  // quand il est égal à celui de l'ancien fil.
+  const modeAvantPlan = useRef<Map<string, string>>(new Map());
+  const filCourant = p.scopeKey ?? "";
+  const filVu = useRef(filCourant);
   useEffect(() => {
-    if (permissionMode !== "plan") modeAvantPlan.current = permissionMode;
-  }, [permissionMode]);
+    if (filVu.current !== filCourant) {
+      filVu.current = filCourant;
+      return;
+    }
+    if (permissionMode !== "plan") modeAvantPlan.current.set(filCourant, permissionMode);
+  });
   const goalsSupported = caps ? caps.goals === true : provider === "codex";
   const activeProviderInfo = providerInfo();
   const effortTitle = activeProviderInfo?.kind === "api" ? t("chat.thinking") : t("chat.effort");
@@ -368,7 +390,7 @@ export function ComposerControls(p: {
                   className: "mp-item",
                   label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" /></svg><span>{t("permission.plan")}</span></>,
                   onSelect: () => setPermissionMode(permissionMode === "plan"
-                    ? modeApresPlan(modeAvantPlan.current, allowedPermissionModes)
+                    ? modeApresPlan(modeAvantPlan.current.get(filCourant), allowedPermissionModes, p.defaults.defaultPermissionMode)
                     : "plan"),
                 }] : []),
                 {
