@@ -1074,8 +1074,9 @@
     const visible = view === "revue";
     let bottom = 0;
     const order: { el: HTMLElement; y: number }[] = [];
+    const byKey = new Map(cardItems.map((c) => [c.key, c]));
     for (const el of Array.from(cardsEl.children) as HTMLElement[]) {
-      const it = cardItems.find((c) => c.key === el.dataset.key)!;
+      const it = byKey.get(el.dataset.key!)!;
       el.style.display = visible ? "block" : "none";
       const a = it.anchor && it.anchor.isConnected ? it.anchor : null;
       const want = a ? a.getBoundingClientRect().top - base : 1e6;
