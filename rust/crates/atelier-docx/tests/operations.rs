@@ -123,3 +123,23 @@ fn enregistrer_sur_disque_refuse_une_version_perimee() {
     let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert_eq!(names.len(), 1, "{names:?}");
 }
+
+#[test]
+fn l_agent_ajoute_un_paragraphe_en_suivi() {
+    let mut d = open("christophe");
+    let claude = sig("Claude");
+    let n = d.model().unwrap().paragraphs.len();
+    let r = apply(&mut d, &op(json!({"op": "insert_paragraph", "after": "p2", "text": "Ce seuil est discuté en 2.3."})), true, &claude).unwrap();
+    assert_eq!(r["paragraph"], "p3");
+    let m = d.model().unwrap();
+    assert_eq!(m.paragraphs.len(), n + 1);
+    assert_eq!(m.paragraphs[3].text, "Ce seuil est discuté en 2.3.");
+    assert!(m.paragraphs[2].text.ends_with("signal glaciaire."));
+    let kinds: Vec<&str> = m.changes.iter().filter(|c| c.author == "Claude").map(|c| c.kind.as_str()).collect();
+    assert!(kinds.contains(&"paragraph-ins") && kinds.contains(&"ins"), "{kinds:?}");
+    // Tout refuser rend le document d'origine.
+    apply(&mut d, &op(json!({"op": "reject_all", "author": "Claude"})), true, &claude).unwrap();
+    let back = d.model().unwrap();
+    assert_eq!(back.paragraphs.len(), n);
+    assert!(libreoffice_text(&d.to_bytes().unwrap()).is_none_or(|t| !t.contains("discuté en 2.3")));
+}

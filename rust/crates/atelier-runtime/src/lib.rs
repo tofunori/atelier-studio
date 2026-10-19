@@ -7,6 +7,7 @@ pub mod atomic;
 pub mod automations;
 pub mod compute_jobs;
 pub mod delegation;
+pub mod docx_tool;
 mod codex_history;
 pub mod evidence;
 mod grok_history;

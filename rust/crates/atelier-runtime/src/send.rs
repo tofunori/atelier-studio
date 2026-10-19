@@ -261,6 +261,22 @@ reads its state when the user asks.\n</atelier-compute>"
     )
 }
 
+/// Documents Word : un agent qui dézippe et réécrit un .docx lui-même casse
+/// les suivis, les commentaires et les citations Zotero. La consigne n'est
+/// ajoutée qu'aux tours qui parlent d'un .docx (le panneau .docx cite son
+/// chemin), à chaque tour concerné : la session peut en être à son 20e tour.
+fn with_docx_instruction(prompt: String, provider: &str) -> String {
+    if !crate::agent_mcp::is_mcp_compatible_provider(provider) || !prompt.to_lowercase().contains(".docx") {
+        return prompt;
+    }
+    format!(
+        "{prompt}\n\n<atelier-docx>\nFor any .docx, use the MCP tool `atelier_docx` (action=read first). \
+Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
+supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \
+signed with your name; only the user accepts or rejects them.\n</atelier-docx>"
+    )
+}
+
 /// Capacité MCP scopée du tour (plan 057 + spec widgets-chat).
 /// Partagée par le tour normal ET le steer : un steer codex qui échoue
 /// retombe sur `thread/resume` DANS le provider, et sans cette config le fil
@@ -1467,6 +1483,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let p = with_widget_tool_instruction(p, &provider);
         with_compute_instruction(p, &provider)
     };
+    let provider_prompt = with_docx_instruction(provider_prompt, &provider);
     // Spécialistes (plan specialistes-2026-10-18) : l'agent doit savoir ce
     // que l'utilisateur appelle « spécialiste » et lesquels existent. Même
     // cadence que le bloc KB : premier tour de la session, puis seulement
@@ -3746,6 +3763,14 @@ mod tests {
 
         let api = with_widget_tool_instruction("fais-moi un widget".into(), "openrouter");
         assert_eq!(api, "fais-moi un widget");
+    }
+
+    #[test]
+    fn docx_instruction_only_when_a_docx_is_in_play() {
+        let enriched = with_docx_instruction("Réponds aux commentaires de Christophe dans Chapitre2.DOCX".into(), "codex");
+        assert!(enriched.contains("atelier_docx") && enriched.contains("Never unzip"));
+        assert_eq!(with_docx_instruction("relis mon intro".into(), "claude"), "relis mon intro");
+        assert_eq!(with_docx_instruction("a.docx".into(), "openrouter"), "a.docx");
     }
 
     #[test]

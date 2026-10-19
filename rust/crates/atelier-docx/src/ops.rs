@@ -28,6 +28,9 @@ pub enum Op {
     Split { paragraph: String, at: usize },
     /// Retour arrière en début de paragraphe : le recolle au précédent.
     Join { paragraph: String },
+    /// Nouveau paragraphe après `after` (même style que lui, ou le style
+    /// suivant d'un titre), contenant `text`.
+    InsertParagraph { after: String, text: String },
     Comment { paragraph: Option<String>, find: String, occurrence: Option<usize>, text: String },
     CommentRange { paragraph: String, start: usize, end: usize, text: String },
     Reply { parent: u32, text: String },
@@ -47,7 +50,7 @@ impl Op {
             Op::AcceptAll { .. } => "tout accepter",
             Op::RejectAll { .. } => "tout refuser",
             Op::Replace { .. } | Op::ReplaceRange { .. } | Op::Insert { .. } => "retouche",
-            Op::Split { .. } | Op::Join { .. } => "paragraphe",
+            Op::Split { .. } | Op::Join { .. } | Op::InsertParagraph { .. } => "paragraphe",
             Op::Comment { .. } | Op::CommentRange { .. } | Op::Reply { .. } => "commentaire",
             Op::Resolve { .. } => "résolution",
             Op::DeleteComment { .. } => "suppression de commentaire",
@@ -113,6 +116,19 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
         Op::Join { paragraph } => {
             structure::join(docx, paragraph, tracked, sig)?;
             json!({})
+        }
+        Op::InsertParagraph { after, text } => {
+            let model = docx.model()?;
+            let Some(i) = model.paragraphs.iter().position(|p| p.id == *after || p.para_id.as_deref() == Some(after.as_str())) else {
+                return err(format!("paragraphe {after} introuvable"));
+            };
+            let end = model.paragraphs[i].text.chars().count();
+            structure::split(docx, &model.paragraphs[i].id, end, tracked, sig)?;
+            let new_id = format!("p{}", i + 1);
+            if !text.is_empty() {
+                edit::insert(docx, &new_id, 0, text, tracked, sig)?;
+            }
+            json!({"paragraph": new_id})
         }
         Op::Comment { paragraph, find, occurrence, text } => {
             let (p, occ) = locate(docx, paragraph.as_deref(), find, *occurrence)?;

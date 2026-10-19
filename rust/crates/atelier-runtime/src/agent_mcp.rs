@@ -516,6 +516,8 @@ async fn handle_action(
         "compute_job_status" => {
             crate::compute_jobs::action_job_status(state, &crate::compute_jobs::Backend::production(), caller_id, req).await
         }
+        // Outil atelier_docx : lire un .docx et y proposer des retouches en suivi.
+        a if a.starts_with("docx_") => crate::docx_tool::action(state, caller_id, a, req).await,
         "" => Err("missing_action".into()),
         _ => Err("unknown_action".into()),
     }

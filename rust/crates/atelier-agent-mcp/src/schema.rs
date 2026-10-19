@@ -220,6 +220,50 @@ pub fn compute_tool_definition() -> Value {
     })
 }
 
+pub const DOCX_TOOL_NAME: &str = "atelier_docx";
+const DOCX_ACTIONS: [&str; 6] = ["read", "edit", "insert_paragraph", "comment", "reply", "format"];
+
+/// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
+/// toujours des suivis de modifications signés de son nom : l'utilisateur
+/// les accepte ou les refuse ; l'outil n'expose aucune décision.
+pub fn docx_tool_definition() -> Value {
+    json!({
+        "name": DOCX_TOOL_NAME,
+        "description": "Read and edit a Word .docx of the project (e.g. a supervisor's corrected copy) \
+    WITHOUT breaking it for Word: never unzip or rewrite a .docx yourself, use this tool. action=read \
+    gives paragraphs (p0, p1…), tracked changes [+ins+]#id [-del-]#id and comment threads (c1…). \
+    edit, insert_paragraph, comment, reply and format write tracked changes / comments signed with \
+    your name; the user accepts or rejects them (you cannot). Quote the exact current text in find \
+    (deleted text excluded); add paragraph or occurrence when it is ambiguous. Citations {…} and \
+    other authors' tracked insertions cannot be edited.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["action", "path"],
+            "properties": {
+                "action": { "type": "string", "enum": DOCX_ACTIONS },
+                "path": { "type": "string", "description": "Path of the .docx, relative to the project or absolute" },
+                "from": { "type": "integer", "description": "read: first paragraph number" },
+                "to": { "type": "integer", "description": "read: last paragraph number" },
+                "paragraph": { "type": "string", "description": "p12 (from read); optional for edit/comment/format when find is unique" },
+                "find": { "type": "string", "description": "Exact current text to replace, comment or format" },
+                "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
+                "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
+                "after": { "type": "string", "description": "insert_paragraph: new paragraph goes after this one (p12)" },
+                "text": { "type": "string", "description": "insert_paragraph / comment / reply: the text" },
+                "comment": { "type": "integer", "description": "reply: comment number (c3 → 3)" },
+                "bold": { "type": "boolean" }, "italic": { "type": "boolean" }, "underline": { "type": "boolean" },
+                "strike": { "type": "boolean" }, "superscript": { "type": "boolean" }, "subscript": { "type": "boolean" },
+                "font": { "type": "string" },
+                "size": { "type": "number", "description": "points" },
+                "style": { "type": "string", "description": "format: paragraph style id (whole paragraph)" },
+                "align": { "type": "string", "enum": ["left", "center", "right", "both"] },
+                "revision": { "type": "string", "description": "From read: refuse the edit if the file changed since" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
 /// Ce que `tools/list` sert, dans l'ordre.
 pub fn all_tool_definitions() -> Vec<Value> {
     vec![
@@ -228,6 +272,7 @@ pub fn all_tool_definitions() -> Vec<Value> {
         widget_guide_tool_definition(),
         python_tool_definition(),
         compute_tool_definition(),
+        docx_tool_definition(),
     ]
 }
 
@@ -248,6 +293,10 @@ pub fn bridge_call_for(tool_name: &str, args: &Value) -> Option<(String, Value)>
             let action = args.get("action").and_then(|v| v.as_str())?;
             matches!(action, "hosts" | "host" | "propose_job" | "job_status")
                 .then(|| (format!("compute_{action}"), args.clone()))
+        }
+        DOCX_TOOL_NAME => {
+            let action = args.get("action").and_then(|v| v.as_str())?;
+            DOCX_ACTIONS.contains(&action).then(|| (format!("docx_{action}"), args.clone()))
         }
         TOOL_NAME => {
             let action = args
@@ -427,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_serves_five_tools() {
+    fn tools_list_serves_six_tools() {
         let defs = all_tool_definitions();
         let names: Vec<String> = defs
             .iter()
@@ -440,7 +489,8 @@ mod tests {
                 WIDGET_TOOL_NAME,
                 WIDGET_GUIDE_TOOL_NAME,
                 PYTHON_TOOL_NAME,
-                COMPUTE_TOOL_NAME
+                COMPUTE_TOOL_NAME,
+                DOCX_TOOL_NAME
             ]
         );
     }
@@ -466,6 +516,18 @@ mod tests {
         // l'outil de calcul n'atteint aucune autre action du pont
         assert!(bridge_call_for(COMPUTE_TOOL_NAME, &json!({"action": "send_message"})).is_none());
         assert!(bridge_call_for(COMPUTE_TOOL_NAME, &json!({})).is_none());
+    }
+
+    #[test]
+    fn docx_actions_route_to_their_bridge_action_and_no_decision_is_exposed() {
+        for action in DOCX_ACTIONS {
+            let (bridge, _) = bridge_call_for(DOCX_TOOL_NAME, &json!({"action": action, "path": "a.docx"})).unwrap();
+            assert_eq!(bridge, format!("docx_{action}"));
+        }
+        for action in ["accept", "reject", "accept_all", "resolve", "delete_comment", "send_message"] {
+            assert!(bridge_call_for(DOCX_TOOL_NAME, &json!({"action": action})).is_none(), "{action}");
+        }
+        assert!(docx_tool_definition()["description"].as_str().unwrap().len() < 800);
     }
 
     #[test]
