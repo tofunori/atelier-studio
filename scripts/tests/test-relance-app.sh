@@ -176,7 +176,10 @@ check "verrou indenté : jeton" '[ "$(lock_field token)" = abcdef0123 ]'
 check "aucun serveur de chat : zéro tour" '[ "$(count_turns)" = 0 ]'
 check "serveur injoignable : état inconnu" '[ "$(turns_of "$(activity_at 1 x)")" = "?" ] && [ "$(groups_of "$(activity_at 1 x)")" = "?" ]'
 check "aucun serveur de chat : aucun groupe" '[ -z "$(groups_of "$(activity)")" ]'
-check "agentGroups : liste lue" '[ "$(groups_of "{\"runningTurns\":0,\"agentGroups\":[12, 345,6]}")" = "12 345 6" ]'
+# Corps passé par variable : bash 3.2 (macOS) découpe mal un "$(…)" qui
+# contient des \" et des espaces quand il est relu par eval.
+CORPS='{"runningTurns":0,"agentGroups":[12, 345,6]}'
+check "agentGroups : liste lue" '[ "$(groups_of "$CORPS")" = "12 345 6" ]'
 check "agentGroups vide" '[ -z "$(groups_of "{\"agentGroups\": []}")" ]'
 check "agentGroups absent (build antérieure) : inconnu" '[ "$(groups_of "{\"runningTurns\":0}")" = "?" ]'
 # Faux /activity : vérifie l'en-tête du jeton et répond comme le serveur.
@@ -192,14 +195,18 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 srv = http.server.HTTPServer(("127.0.0.1", 0), H)
-open(sys.argv[1], "w").write(str(srv.server_port))
+with open(sys.argv[1] + ".tmp", "w") as f:
+    f.write(str(srv.server_port))
+import os
+os.replace(sys.argv[1] + ".tmp", sys.argv[1])
 srv.serve_forever()
 ' "$WORK/port" &
 FAKE_HTTP=$!
 echo "$FAKE_HTTP" >>"$PIDS_FILE"
 disown "$FAKE_HTTP"
 tries=0
-while [ ! -s "$WORK/port" ] && [ "$tries" -lt 50 ]; do sleep 0.1; tries=$((tries + 1)); done
+# Le premier python3 d'un runner macOS peut mettre plusieurs secondes à démarrer.
+while [ ! -s "$WORK/port" ] && [ "$tries" -lt 300 ]; do sleep 0.1; tries=$((tries + 1)); done
 check "/activity : tours et groupes lus avec le bon jeton" 'B="$(activity_at "$(cat "$WORK/port")" jeton)"; [ "$(turns_of "$B")" = 2 ] && [ "$(groups_of "$B")" = "77 78" ]'
 check "/activity : mauvais jeton, état inconnu" '[ "$(turns_of "$(activity_at "$(cat "$WORK/port")" autre)")" = "?" ]'
 kill "$FAKE_HTTP" 2>/dev/null
