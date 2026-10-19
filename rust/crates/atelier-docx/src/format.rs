@@ -32,6 +32,9 @@ pub struct RunProps {
     pub font: Option<String>,
     /// Taille en points.
     pub size: Option<f32>,
+    /// Surlignage de Word (`yellow`, `green`, `cyan`, `magenta`…) ; `none`
+    /// ou chaîne vide le retire.
+    pub highlight: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -120,6 +123,11 @@ fn apply_run(kids: &mut Vec<Child>, p: &RunProps) {
     match p.u {
         Some(true) => set(kids, "u", Some("<w:u w:val=\"single\"/>".into())),
         Some(false) => set(kids, "u", None),
+        None => {}
+    }
+    match p.highlight.as_deref() {
+        Some("" | "none") => set(kids, "highlight", None),
+        Some(c) => set(kids, "highlight", Some(format!("<w:highlight w:val=\"{}\"/>", escape_attr(c)))),
         None => {}
     }
     let va = val(kids, "vertAlign");

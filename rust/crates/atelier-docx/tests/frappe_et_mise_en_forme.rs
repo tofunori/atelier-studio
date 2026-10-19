@@ -107,6 +107,14 @@ fn mise_en_forme_des_caracteres_en_suivi() {
     // Une citation Zotero n'est pas reformatée : elle est comptée à part.
     let r = format_range(&mut d, "p1", 0, 100, &RunProps { b: Some(true), ..Default::default() }, false, &me).unwrap();
     assert_eq!(r.skipped, 1);
+    // Surligner en suivi (barre de sélection), puis retirer le surlignage.
+    format_text(&mut d, "p2", "compromis", None, &RunProps { highlight: Some("yellow".into()), ..Default::default() }, true, &me).unwrap();
+    assert!(d.document_xml().contains(r#"<w:highlight w:val="yellow"/>"#));
+    let m = d.model().unwrap();
+    assert_eq!(m.paragraphs[2].segments.iter().find(|s| s.text == "compromis").unwrap().highlight.as_deref(), Some("yellow"));
+    assert!(m.changes.iter().any(|c| c.author == "Thierry" && c.kind == "format"));
+    format_text(&mut d, "p2", "compromis", None, &RunProps { highlight: Some("none".into()), ..Default::default() }, false, &me).unwrap();
+    assert!(d.model().unwrap().paragraphs[2].segments.iter().all(|s| s.highlight.is_none()));
 }
 
 #[test]

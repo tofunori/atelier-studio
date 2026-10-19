@@ -30,7 +30,7 @@ const test = base.extend<{project: {root: string; url: string; doc: string}}>({
   },
 });
 
-type Para = {text: string; align?: string; heading?: number; segments: {media?: string; rev?: string}[]};
+type Para = {text: string; align?: string; heading?: number; segments: {text: string; media?: string; rev?: string; highlight?: string; u?: boolean}[]};
 type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string}[]; comments: {id: number; author: string; text: string; parent?: number; done: boolean; quote: string}[]};
 
 async function open(page: Page, project: {url: string; doc: string}) {
@@ -146,12 +146,32 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await page.locator('.card', {hasText: 'Pourquoi 0,6'}).locator('[data-act="resolve"]').click();
   await expect.poll(async () => (await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(true);
 
-  // Commenter une sélection.
+  // Commenter une sélection depuis la capsule commune d'Atelier (bulle de note).
   await select(page, 4, "fin d'été");
-  await page.locator('#btnComment').click();
-  await page.locator('.pop textarea').fill('Préciser la date.');
-  await page.locator('.pop [data-x="send"]').click();
+  await expect(page.locator('#selbar.atelier-selection')).toBeVisible();
+  await page.locator('#selbar [aria-label="Annoter"]').click();
+  await page.locator('.d-note-editor textarea.atelier-note-input').fill('Préciser la date.');
+  await page.locator('.d-note-editor textarea.atelier-note-input').press('Enter');
   await expect.poll(async () => (await disk(page, project)).comments.some(c => c.quote === "fin d'été" && c.text === 'Préciser la date.')).toBe(true);
+  await expect(page.locator('.d-note-editor')).toBeHidden();
+});
+
+test('docx: la capsule surligne et souligne en suivi', async ({page, project}) => {
+  await open(page, project);
+  await select(page, 2, 'compromis');
+  await page.locator('#selbar [aria-label="Choisir la couleur du surlignage"]').click();
+  await page.locator('#selbar [aria-label="Surligner en vert"]').click();
+  await expect.poll(async () => (await disk(page, project)).paragraphs[2].segments.find(s => s.text === 'compromis')?.highlight).toBe('green');
+  await expect(page.locator('.d-p[data-idx="2"] span', {hasText: /^compromis$/})).toHaveCSS('background-color', 'rgba(120, 220, 140, 0.4)');
+  await select(page, 2, 'compromis');
+  await page.locator('#selbar [aria-label="Souligner"]').click();
+  await expect.poll(async () => (await disk(page, project)).paragraphs[2].segments.find(s => s.text === 'compromis')?.u).toBe(true);
+  // Même teinte une seconde fois : le surlignage part.
+  await select(page, 2, 'compromis');
+  await page.locator('#selbar [aria-label="Surligner"]').click();
+  await expect.poll(async () => (await disk(page, project)).paragraphs[2].segments.find(s => s.text === 'compromis')?.highlight ?? null).toBe(null);
+  const m = await disk(page, project);
+  expect(m.changes.some(c => c.author === 'Thierry' && c.kind === 'format')).toBe(true);
 });
 
 test('docx: barre de mise en forme, vues et page blanche', async ({page, project}) => {

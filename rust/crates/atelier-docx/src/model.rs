@@ -104,6 +104,9 @@ pub struct Segment {
     /// Taille en points.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<f32>,
+    /// Surlignage de Word (`yellow`, `green`…).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<u32>,
     /// Appel de note : numéro affiché.
@@ -230,7 +233,7 @@ fn seg_of(p: &walk::Piece) -> Segment {
         Kind::Field(k) => ("field", Some(k.clone())),
         Kind::Object(k) => ("object", Some(k.clone())),
     };
-    let Fmt { b, i, u, strike, sup, sub, font, size } = p.fmt.clone();
+    let Fmt { b, i, u, strike, sup, sub, font, size, highlight } = p.fmt.clone();
     Segment {
         text: p.text.clone(),
         kind,
@@ -246,6 +249,7 @@ fn seg_of(p: &walk::Piece) -> Segment {
         sub,
         font,
         size: size.map(|s| s as f32 / 2.0),
+        highlight,
         comments: p.comments.clone(),
         number: None,
         whole: p.unit.is_some(),

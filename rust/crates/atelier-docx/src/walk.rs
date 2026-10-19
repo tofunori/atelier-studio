@@ -53,6 +53,8 @@ pub struct Fmt {
     pub font: Option<String>,
     /// Taille en demi-points (`w:sz`).
     pub size: Option<u32>,
+    /// Surlignage de Word (`yellow`, `green`, `cyan`, `magenta`…).
+    pub highlight: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,6 +233,7 @@ pub fn fmt_of(rpr: Option<Node>) -> Fmt {
     f.u = on("u");
     f.strike = on("strike") || on("dstrike");
     f.font = w_child(rpr, "rFonts").and_then(|n| w_attr(n, "ascii").or(w_attr(n, "hAnsi"))).map(str::to_string);
+    f.highlight = w_child(rpr, "highlight").and_then(|n| w_attr(n, "val")).filter(|v| *v != "none").map(str::to_string);
     f.size = w_child(rpr, "sz").and_then(|n| w_attr(n, "val")).and_then(|v| v.parse().ok());
     if let Some(v) = w_child(rpr, "vertAlign").and_then(|n| w_attr(n, "val")) {
         f.sup = v == "superscript";

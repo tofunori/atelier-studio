@@ -88,7 +88,7 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
         },
         "format" => {
             let has_para = req.get("style").is_some() || req.get("align").is_some();
-            let has_run = ["bold", "italic", "underline", "strike", "superscript", "subscript", "font", "size"].iter().any(|k| req.get(*k).is_some());
+            let has_run = ["bold", "italic", "underline", "strike", "superscript", "subscript", "font", "size", "highlight"].iter().any(|k| req.get(*k).is_some());
             if has_para == has_run {
                 return Err("format : soit style/align (paragraphe entier, avec paragraph), soit bold/italic/… (passage find)".into());
             }
@@ -99,6 +99,7 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
                 let props = serde_json::from_value(json!({
                     "b": req.get("bold"), "i": req.get("italic"), "u": req.get("underline"), "strike": req.get("strike"),
                     "sup": req.get("superscript"), "sub": req.get("subscript"), "font": req.get("font"), "size": req.get("size"),
+                    "highlight": req.get("highlight"),
                 }))
                 .map_err(|e| e.to_string())?;
                 Op::FormatText { paragraph, find: need("find")?, occurrence, props }

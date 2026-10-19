@@ -256,6 +256,7 @@ pub fn docx_tool_definition() -> Value {
                 "strike": { "type": "boolean" }, "superscript": { "type": "boolean" }, "subscript": { "type": "boolean" },
                 "font": { "type": "string" },
                 "size": { "type": "number", "description": "points" },
+                "highlight": { "type": "string", "description": "yellow, green, cyan, magenta…; none removes" },
                 "style": { "type": "string", "description": "format: paragraph style id (whole paragraph)" },
                 "align": { "type": "string", "enum": ["left", "center", "right", "both"] },
                 "revision": { "type": "string", "description": "From read: refuse the edit if the file changed since" }

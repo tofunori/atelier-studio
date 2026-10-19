@@ -36,6 +36,9 @@ export function createNoteEditor(host: HTMLElement, options: {
   value?: string; onSubmit(value: string): void; onDelete(): void;
   onDismiss?(): void; onChange?(value: string): void; onSendDirect?(value: string): void;
   placeholder?: string; memo?: {value?: string}; heading?: {title: string; meta?: string};
+  /** Libellé de l'envoi (Entrée) quand il ne va pas au brouillon du chat
+   *  (commentaire Word dans l'éditeur .docx). */
+  submitLabel?: string;
   mark?: {kind: string; color: string; colors: readonly AnnotationColor[]; onChange(kind: MarkKind, color: string): void};
 }) {
   host.classList.add("atelier-note");
@@ -63,9 +66,9 @@ export function createNoteEditor(host: HTMLElement, options: {
   host.innerHTML = heading + mark + memo + '<div class="atelier-note-row"><div class="atelier-note-field"><textarea class="atelier-note-input" aria-label="Commentaire sur le passage" placeholder="'
     + (options.placeholder || "Ajouter une note…") + '" rows="1"></textarea>'
     + '<div class="atelier-note-actions">' + (options.heading ? '' : deleteButton)
-    + '<span class="atelier-note-gap"></span><span class="atelier-note-hint" aria-hidden="true">'+enterKey+'Ajouter</span>'
+    + '<span class="atelier-note-gap"></span><span class="atelier-note-hint" aria-hidden="true">'+enterKey+escapeText(options.submitLabel || "Ajouter")+'</span>'
     + (options.onSendDirect ? '<button type="button" class="send-direct" title="Envoyer au chat" aria-label="Envoyer au chat">'+chatBubble+'</button>' : '')
-    + '<button type="button" class="send2" title="Ajouter au brouillon (Entrée)" aria-label="Ajouter l’annotation au chat">'+arrowUp+'</button>'
+    + '<button type="button" class="send2" title="'+escapeText(options.submitLabel ? options.submitLabel+" (Entrée)" : "Ajouter au brouillon (Entrée)")+'" aria-label="'+escapeText(options.submitLabel || "Ajouter l’annotation au chat")+'">'+arrowUp+'</button>'
     + '</div></div></div><div class="annotation-status" role="status"></div>';
   const input = host.querySelector<HTMLTextAreaElement>("textarea.atelier-note-input")!;
   const memoInput = host.querySelector<HTMLTextAreaElement>("textarea.atelier-memo-input");
@@ -135,6 +138,8 @@ export function createSelectionActions(host: HTMLElement, options: {
   onColor?(name: string, value: string): void; onAdd?(): void; onAnnotate(): void; onAsk?(): void;
   onCode?(): void;
   onHighlight?(color: string): void; highlightColor?: string; colors?: readonly AnnotationColor[];
+  /** Souligner / barrer à côté du surligneur (éditeur .docx). */
+  onMark?(kind: "ul" | "st"): void; marks?: readonly ("ul" | "st")[];
 }) {
   host.classList.add("atelier-selection");host.replaceChildren();
   const doc=host.ownerDocument;
@@ -178,6 +183,10 @@ export function createSelectionActions(host: HTMLElement, options: {
       swatch.dataset.color=entry.name;swatch.style.setProperty("--annotation-color",entry.value.replace(".40","1"));palette.append(swatch);
     }
     group.append(mark,toggle,palette);host.append(group);paint();
+    if(options.onMark) for(const kind of options.marks || ["ul"] as const){
+      const button=add(markLabels[kind],'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'+markIcons[kind]+'</svg>',()=>options.onMark?.(kind));
+      button.dataset.mark=kind;group.append(button);
+    }
     group.addEventListener("keydown",event=>{if(event.key==="Escape"&&!palette.hidden){event.stopPropagation();palette.hidden=true;toggle.setAttribute("aria-expanded","false");toggle.focus();}});
     group.addEventListener("focusout",event=>{if(!group.contains(event.relatedTarget as Node|null)){palette.hidden=true;toggle.setAttribute("aria-expanded","false");}});
   }

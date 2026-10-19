@@ -124,6 +124,8 @@ body.v-final .d-p.changed::before,body.v-original .d-p.changed::before,body.v-fi
 
 /* ---- cartes de marge ---- */
 #cards{position:absolute;top:24px;right:16px;width:300px}
+body.no-margin #scroll{padding-right:32px}
+body.no-margin #cards{display:none}
 .card{position:absolute;left:0;right:0;padding:12px;border-radius:10px;background:var(--surface-overlay);box-shadow:var(--elevation-overlay);font-size:12px;line-height:1.5;cursor:pointer;transition:transform 140ms ease-out,box-shadow 120ms ease-out,opacity 120ms ease-out}
 .card.focus{box-shadow:var(--elevation-overlay),0 0 0 1px var(--border-strong);transform:translateX(-8px)}
 .card.done{opacity:.6}
@@ -158,10 +160,11 @@ body.v-final .d-p.changed::before,body.v-original .d-p.changed::before,body.v-fi
 .mi-h1{font-weight:600;font-size:15px;letter-spacing:-.01em}.mi-h2{font-weight:600;font-size:13px}.mi-h3{font-weight:500;font-size:13px;color:var(--text-secondary)}
 
 /* ---- capsule de sélection ---- */
-#selbar{position:fixed;z-index:var(--z-popover,120);display:none;gap:4px;padding:4px;border-radius:10px;background:var(--bg-pop,var(--surface-overlay));box-shadow:var(--elev)}
-#selbar.show{display:flex}
-#selbar .btn{background:transparent;height:26px}
-#selbar .btn:hover{background:var(--bg-ctl,var(--surface-inset))}
+/* Capsule de sélection et bulle de note : celles des autres surfaces (annotation_ui.css). */
+#selbar{position:fixed;z-index:var(--z-popover,120)}
+#selbar:not(.show){display:none}
+.d-note-editor{position:fixed;z-index:var(--z-popover,120)}
+.d-note-editor:not(.show){display:none}
 .pop{position:fixed;z-index:var(--z-popover,120);width:300px;padding:12px;border-radius:10px;background:var(--bg-pop,var(--surface-overlay));box-shadow:var(--elev);display:none}
 .pop.show{display:block}
 .pop .c-foot{justify-content:flex-end}

@@ -50,6 +50,10 @@
   const W = window
 
 
+
+
+
+
    ;
   const Q = new URLSearchParams(location.search);
   const PATH = Q.get("path") || Q.get("file") || "";
@@ -83,6 +87,15 @@
   // ---------------------------------------------------------------- icônes
   const svg = (d        , w = 1.4) =>
     `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  // Teintes de surlignage de Word, rendues avec celles des annotations
+  // d'Atelier pour les quatre que la capsule propose.
+  const HIGHLIGHT                         = {
+    yellow: "rgba(255,213,74,.40)", green: "rgba(120,220,140,.40)", cyan: "rgba(120,170,255,.40)", magenta: "rgba(255,140,160,.40)",
+    darkYellow: "color-mix(in srgb, olive 40%, transparent)", darkGreen: "color-mix(in srgb, green 40%, transparent)",
+    darkCyan: "color-mix(in srgb, teal 40%, transparent)", darkMagenta: "color-mix(in srgb, purple 40%, transparent)",
+    darkBlue: "color-mix(in srgb, navy 40%, transparent)", darkRed: "color-mix(in srgb, maroon 40%, transparent)",
+    darkGray: "color-mix(in srgb, gray 40%, transparent)", lightGray: "color-mix(in srgb, silver 40%, transparent)",
+  };
   const ICON = {
     chev: svg('<path d="M8 10l4 4 4-4"/>'),
     left: svg('<path d="M14 7l-5 5 5 5"/>'),
@@ -263,6 +276,7 @@
         node.appendChild(inner);
         if (s.font) node.style.fontFamily = `"${s.font}", ${getComputedStyle(paper).fontFamily}`;
         if (s.size) node.style.fontSize = `${s.size}pt`;
+        if (s.highlight && s.highlight !== "white" && s.highlight !== "black") node.style.backgroundColor = HIGHLIGHT[s.highlight] || `color-mix(in srgb, ${s.highlight} 40%, transparent)`;
       }
       node.dataset.off = String(off);
       node.dataset.len = String(len);
@@ -1239,8 +1253,10 @@
   }
 
   function layoutCards() {
-    const base = cardsEl.getBoundingClientRect().top;
     const visible = view === "revue";
+    // Sans fiche à montrer, la marge de revue disparaît : la page reprend la largeur du panneau.
+    document.body.classList.toggle("no-margin", !visible || !cardItems.length);
+    const base = cardsEl.getBoundingClientRect().top;
     let bottom = 0;
     const order                                   = [];
     const byKey = new Map(cardItems.map((c) => [c.key, c]));
@@ -1361,36 +1377,82 @@
     pop.style.left = `${Math.max(8, Math.min(innerWidth - 308, rect.left))}px`;
   }
 
+  // Bulle de note partagée avec les autres surfaces : Entrée écrit un
+  // commentaire Word sur le passage, la bulle de chat l'envoie au chat.
+  const UI = W.AtelierAnnotationUI;
+  const noteHost = document.createElement("div");
+  noteHost.className = "d-note-editor";
+  document.body.appendChild(noteHost);
+  let noteSel             = null;
+  function hideNote() { noteHost.classList.remove("show"); noteSel = null; }
+  function quoteOf(sel     ) {
+    return `${PATH} (${model .paragraphs[sel.a.idx].id}${sel.b.idx !== sel.a.idx ? `-${model .paragraphs[sel.b.idx].id}` : ""}) : « ${selectionText(sel)} »`;
+  }
+  const noteUI = UI?.createNoteEditor(noteHost, {
+    placeholder: "Commentaire dans le .docx…",
+    submitLabel: "Commenter",
+    onSubmit: (value        ) => {
+      const sel = noteSel, text = value.trim();
+      if (!sel || !text) return;
+      hideNote();
+      // Un commentaire couvre un passage d'un seul paragraphe : on borne au premier.
+      const end = sel.a.idx === sel.b.idx ? sel.b.off : cp(virtualText(sel.a.idx));
+      structural(async () => { await sendOp({ op: "comment_range", paragraph: ref(sel.a.idx), start: sel.a.off, end, text }, () => sel); });
+    },
+    onSendDirect: (value        ) => {
+      const sel = noteSel;
+      if (!sel) return;
+      hideNote();
+      toChat(value.trim() ? `${quoteOf(sel)}\n${value.trim()}` : quoteOf(sel));
+    },
+    onDelete: hideNote,
+    onDismiss: hideNote,
+  });
   function askComment() {
     const sel = readSel();
-    if (!sel || collapsed(sel) || !model) return;
-    // Un commentaire couvre un passage d'un seul paragraphe : on borne au premier.
-    const end = sel.a.idx === sel.b.idx ? sel.b.off : cp(virtualText(sel.a.idx));
-    const range = getSelection() .getRangeAt(0).getBoundingClientRect();
-    showPopAt(range, `<textarea class="c-input" placeholder="Commentaire"></textarea><div class="c-foot"><button class="btn" data-x="cancel">Annuler</button><button class="btn primary" data-x="send">Commenter</button></div>`);
-    const ta = pop.querySelector("textarea") ;
-    ta.focus();
-    const send = () => {
-      const text = ta.value.trim();
-      if (!text) return;
-      hidePop();
-      structural(async () => { await sendOp({ op: "comment_range", paragraph: ref(sel.a.idx), start: sel.a.off, end, text }, () => sel); });
-    };
-    pop.querySelector('[data-x="send"]') .addEventListener("click", send);
-    pop.querySelector('[data-x="cancel"]') .addEventListener("click", hidePop);
-    ta.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); send(); } });
-  }
-
-  const selbar = $("selbar");
-  selbar.innerHTML = `<button class="btn" data-s="chat">${ICON.chat}Ajouter au chat</button><button class="btn" data-s="comment">${ICON.comment}Commenter</button>`;
-  selbar.addEventListener("mousedown", (e) => e.preventDefault());
-  selbar.addEventListener("click", (e) => {
-    const what = ((e.target               ).closest("[data-s]")                      )?.dataset.s;
-    const sel = readSel();
-    if (!sel || collapsed(sel)) return;
+    if (!sel || collapsed(sel) || !model || !noteUI) return;
+    const rect = getSelection() .getRangeAt(0).getBoundingClientRect();
+    noteSel = sel;
     selbar.classList.remove("show");
-    if (what === "comment") askComment();
-    else if (what === "chat") toChat(`${PATH} (${model .paragraphs[sel.a.idx].id}${sel.b.idx !== sel.a.idx ? `-${model .paragraphs[sel.b.idx].id}` : ""}) : « ${selectionText(sel)} »`);
+    noteUI.input.value = "";
+    noteUI.status.textContent = "";
+    noteHost.classList.add("show");
+    const h = noteHost.offsetHeight;
+    noteHost.style.left = `${Math.max(8, Math.min(innerWidth - noteHost.offsetWidth - 8, rect.left))}px`;
+    noteHost.style.top = `${rect.bottom + 8 + h < innerHeight - 8 ? rect.bottom + 8 : Math.max(8, rect.top - h - 8)}px`;
+    noteUI.focus();
+  }
+  paper.addEventListener("mousedown", () => { if (noteHost.classList.contains("show")) hideNote(); });
+
+  // Capsule de sélection commune à Atelier (PDF, LaTeX, Markdown, code).
+  // Surligner et souligner deviennent une mise en forme Word, en suivi si actif.
+  const selbar = $("selbar");
+  const WORD_COLOR                         = { amber: "yellow", green: "green", blue: "cyan", red: "magenta" };
+  UI?.createSelectionActions(selbar, {
+    onAdd: () => {
+      const sel = readSel();
+      if (!sel || collapsed(sel)) return;
+      selbar.classList.remove("show");
+      toChat(quoteOf(sel));
+    },
+    onAnnotate: askComment,
+    onAsk: W.__atelierPost ? () => {
+      const sel = readSel();
+      if (!sel || collapsed(sel)) return;
+      selbar.classList.remove("show");
+      W.__atelierPost ({ type: "atelier-quick-ask", text: selectionText(sel), path: PATH, page: model .paragraphs[sel.a.idx].id });
+    } : undefined,
+    onHighlight: (name        ) => {
+      const sel = readSel();
+      if (!sel || collapsed(sel)) return;
+      const word = WORD_COLOR[name] || "yellow";
+      // Même teinte déjà posée : on la retire, comme le surligneur de Word.
+      const seg = segAt({ idx: sel.a.idx, off: sel.a.off + 1 });
+      applyRun({ highlight: seg?.highlight === word ? "none" : word });
+    },
+    highlightColor: "amber",
+    onMark: () => toggleRun("u"),
+    marks: ["ul"],
   });
   // Curseur dessiné à la place du natif : WebKit lui donne toute la hauteur
   // de ligne (1,7), Word le garde à la hauteur des lettres.
