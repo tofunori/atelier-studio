@@ -117,7 +117,7 @@ fn sensitive_key(name: &str) -> bool {
     }
     let segments: Vec<&str> = upper.split('_').filter(|s| !s.is_empty()).collect();
     segments.iter().any(|s| matches!(*s, "PASS" | "AUTH" | "AUTHORIZATION"))
-        || (segments.len() > 1 && segments.iter().any(|s| *s == "PWD"))
+        || (segments.len() > 1 && segments.contains(&"PWD"))
         || (segments.len() > 1 && segments.last() == Some(&"KEY"))
 }
 
@@ -329,12 +329,11 @@ pub fn redact_command(command: &str) -> String {
                 }
             } else if (mysql || sshpass) && lower.starts_with("-p") && !lower.starts_with("--") && chars.len() > 2 {
                 spans.push((2, chars.len()));
-            } else if sshpass && lower == "-p" {
-                next = Next::Whole;
-            } else if lower.starts_with("--")
-                && !lower.contains('=')
-                && !lower[2..].starts_with("no-")
-                && sensitive_key(&lower)
+            } else if (sshpass && lower == "-p")
+                || (lower.starts_with("--")
+                    && !lower.contains('=')
+                    && !lower[2..].starts_with("no-")
+                    && sensitive_key(&lower))
             {
                 next = Next::Whole;
             } else {

@@ -53,7 +53,7 @@ pub fn idle_from_env_or(default_secs: u64) -> Duration {
 /// « 10 min », « 45 s » : la fenêtre telle que le message d'erreur la cite.
 pub fn describe(idle: Duration) -> String {
     let secs = idle.as_secs();
-    if secs >= 60 && secs % 60 == 0 {
+    if secs >= 60 && secs.is_multiple_of(60) {
         format!("{} min", secs / 60)
     } else {
         format!("{secs} s")
