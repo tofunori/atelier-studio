@@ -4,7 +4,8 @@
 // (docx_studio.html : suivis signés, commentaires, pages comme dans Word).
 // Les fichiers sont créés par le serveur galerie (POST /docx/new, en Rust).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getResolvedLanguage, t } from "../lib/i18n";
+import { t } from "../lib/i18n";
+import { shortDate } from "./documentsDate";
 import { CloseIcon, PlusIcon, SearchIcon } from "./icons";
 import { Input } from "./shadcn/input";
 import { Button, EmptyState, IconButton, Popover, PopoverContent, PopoverTitle, PopoverTrigger, RowButton, Select, showError } from "./ui";
@@ -41,17 +42,6 @@ function baseName(path: string) {
 function folderOf(path: string) {
   const parts = path.split("/");
   return parts.length > 1 ? parts.slice(0, -1).join("/") : "";
-}
-
-/** « modifié 18:39 » aujourd'hui, « hier », sinon « 12 oct. ». */
-export function shortDate(ms: number, now = new Date()): string {
-  const d = new Date(ms);
-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const diff = Math.round((day(now) - day(d)) / 86_400_000);
-  const locale = getResolvedLanguage() === "fr" ? "fr-CA" : "en-CA";
-  if (diff === 0) return t("docs.modified", { time: d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) });
-  if (diff === 1) return t("docs.yesterday");
-  return d.toLocaleDateString(locale, { day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
 }
 
 function frameUrl(galleryUrl: string, path: string): string | null {
@@ -108,6 +98,7 @@ export default function DocumentsSurface({
     if (!origin) return;
     try {
       const res = await fetch(`${origin}/docx/list`);
+      if (!res.ok) throw new Error(`docx/list ${res.status}`);
       const data = await res.json() as { documents?: DocEntry[] };
       setDocs(Array.isArray(data.documents) ? data.documents : []);
     } catch { /* serveur galerie pas encore prêt : la liste reste vide */ }
@@ -123,28 +114,22 @@ export default function DocumentsSurface({
   }, [visible, refresh]);
 
   const open = useCallback((path: string) => {
-    setTabs((current) => {
-      const next = current.includes(path) ? current : [...current, path];
-      writeList(storageKey("tabs", projectRoot), next);
-      return next;
-    });
+    const nextTabs = tabs.includes(path) ? tabs : [...tabs, path];
+    setTabs(nextTabs);
+    writeList(storageKey("tabs", projectRoot), nextTabs);
     setActive(path);
-    setRecent((current) => {
-      const next = [path, ...current.filter((p) => p !== path)].slice(0, MAX_RECENT);
-      writeList(storageKey("recent", projectRoot), next);
-      return next;
-    });
-  }, [projectRoot]);
+    const nextRecent = [path, ...recent.filter((p) => p !== path)].slice(0, MAX_RECENT);
+    setRecent(nextRecent);
+    writeList(storageKey("recent", projectRoot), nextRecent);
+  }, [projectRoot, tabs, recent]);
 
   const close = useCallback((path: string) => {
-    setTabs((current) => {
-      const at = current.indexOf(path);
-      const next = current.filter((p) => p !== path);
-      writeList(storageKey("tabs", projectRoot), next);
-      setActive((a) => (a === path ? next[Math.min(at, next.length - 1)] ?? null : a));
-      return next;
-    });
-  }, [projectRoot]);
+    const at = tabs.indexOf(path);
+    const next = tabs.filter((p) => p !== path);
+    setTabs(next);
+    writeList(storageKey("tabs", projectRoot), next);
+    if (active === path) setActive(next[Math.min(at, next.length - 1)] ?? null);
+  }, [projectRoot, tabs, active]);
 
   const byPath = useMemo(() => new Map(docs.map((d) => [d.path, d])), [docs]);
   const needle = query.trim().toLowerCase();
@@ -207,7 +192,7 @@ export default function DocumentsSurface({
           {galleryUrl && tabs.map((path) => {
             const src = frameUrl(galleryUrl, path);
             return src && (
-              <iframe key={path} className="docs-frame atelier" data-atelier-role="docx" src={src} hidden={active !== path} aria-label={baseName(path)} title="" />
+              <iframe key={path} className="docs-frame atelier" data-atelier-role="docx" src={src} hidden={active !== path} title={baseName(path)} />
             );
           })}
         </div>

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage } from "../lib/i18n";
-import DocumentsSurface, { shortDate } from "./DocumentsSurface";
+import DocumentsSurface from "./DocumentsSurface";
+import { shortDate } from "./documentsDate";
 
 const GALLERY = "http://127.0.0.1:8765/figures_index.html#atelier_nonce=abc";
 const NOW = Date.now();

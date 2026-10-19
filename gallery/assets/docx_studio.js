@@ -586,12 +586,15 @@
   /** Coupe le flux en feuilles ; rend le nombre de feuilles. */
   function paginate(pg      , blocks               , start = 0, page0 = 0)         {
     const pt = ptPx, pageH = pg.height * pt, stride = pageH + GAP;
-    const o = paper.getBoundingClientRect().top;
+    // Positions relues par rapport à la page à chaque mesure : WebKit
+    // ancre le défilement pendant qu'on insère les intervalles (le panneau
+    // défile sous la mise en page), une origine figée fausserait chaque coupe.
+    const O = () => paper.getBoundingClientRect().top;
     const topOf = (k        ) => k * stride + pg.top * pt;
     const bottomOf = (k        ) => k * stride + pageH - pg.bottom * pt;
     const pageAt = (y        ) => Math.max(0, Math.floor(y / stride));
     const lookOf = (el         ) => (el               ).dataset.idx !== undefined ? model .paragraphs[Number((el               ).dataset.idx)]?.look || {} : {};
-    const topOfEl = (el         ) => el.getBoundingClientRect().top - o;
+    const topOfEl = (el         ) => el.getBoundingClientRect().top - O();
     // Intervalle avant un bloc entier ; le premier paragraphe d'une note emporte son numéro.
     const gapBefore = (el             , target        ) => {
       const host = el.closest(".d-note") && !el.previousElementSibling ? el.closest(".d-note")                : el;
@@ -609,24 +612,24 @@
       const el = blocks[b];
       if (el.tagName === "TR") {
         const r = el.getBoundingClientRect();
-        const top = r.top - o, bottom = r.bottom - o;
+        const top = r.top - O(), bottom = r.bottom - O();
         page = Math.max(page, pageAt(top));
         if ((forceNext || bottom > bottomOf(page) + 0.5) && top > topOf(page) + 1) { gapBefore(el, topOf(page + 1)); page++; }
         forceNext = false;
         continue;
       }
       const lk = lookOf(el);
-      let lines = linesOf(el, o);
+      let lines = linesOf(el, O());
       if (!lines.length) continue;
       page = Math.max(page, pageAt(lines[0].top));
       if ((forceNext || (lk.page_break_before && b > 0)) && topOfEl(el) > topOf(page) + 1) {
         gapBefore(el, topOf(page + 1));
         page++;
-        lines = linesOf(el, o);
+        lines = linesOf(el, O());
       }
       forceNext = false;
       // Sauts de page forcés dans le paragraphe : la ligne qui suit change de feuille.
-      const forced = (Array.from(el.querySelectorAll(".pbr"))                 ).map((x) => x.getBoundingClientRect().top - o);
+      const forced = (Array.from(el.querySelectorAll(".pbr"))                 ).map((x) => x.getBoundingClientRect().top - O());
       let i = 0;
       let restart = false;
       while (i < lines.length) {
@@ -653,8 +656,8 @@
             let head = k, tail = b;
             while (head > 0 && chained(head - 1)) head--;
             while (tail + 1 < blocks.length && chained(tail) && blocks[tail + 1].parentElement === el.parentElement) tail++;
-            const end = linesOf(blocks[tail], o);
-            const reach = end.length ? end[Math.min(1, end.length - 1)].bottom : blocks[tail].getBoundingClientRect().bottom - o;
+            const end = linesOf(blocks[tail], O());
+            const reach = end.length ? end[Math.min(1, end.length - 1)].bottom : blocks[tail].getBoundingClientRect().bottom - O();
             if (reach - topOfEl(blocks[head]) > bottomOf(0) - topOf(0)) k = b;
           }
           const first = blocks[k];
@@ -668,7 +671,7 @@
             gapBefore(first, topOf(page + 1) - before);
             page++;
             if (k !== b) { b = k - 1; restart = true; break; }
-            lines = linesOf(el, o);
+            lines = linesOf(el, O());
             i = 0;
             continue;
           }
@@ -677,14 +680,14 @@
         const L = parseFloat(getComputedStyle(el).lineHeight) || (lines[at].bottom - lines[at].top);
         const lead = Math.max(0, (L - (lines[at].bottom - lines[at].top)) / 2);
         const want = lines[at].top;
-        const { node, before } = lineStart(lines[at], o);
+        const { node, before } = lineStart(lines[at], O());
         const gap = gapEl(true, target - (want - lead));
         node.insertBefore(gap, before);
         // Ajustement : la ligne repoussée doit commencer au haut de la feuille.
-        const moved = linesOf(el, o)[at];
+        const moved = linesOf(el, O())[at];
         if (moved) gap.style.height = `${Math.max(0, parseFloat(gap.style.height) + (target + lead - moved.top))}px`;
         page++;
-        lines = linesOf(el, o);
+        lines = linesOf(el, O());
         i = at + 1;
       }
       if (restart) continue;

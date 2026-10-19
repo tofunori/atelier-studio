@@ -324,6 +324,13 @@ test('docx: la page suit les styles de Word, ses marges et ses numéros de ligne
 });
 
 test('docx: le texte se coupe en pages comme dans Word, numéros de ligne repris à chaque page', async ({page, project}) => {
+  // Le panneau défile pendant qu'on insère les intervalles (ancrage du
+  // défilement de WebKit) : la coupe doit rester la même.
+  await page.addInitScript(() => {
+    const drift = (n: any) => { if (n && n.classList && n.classList.contains('d-gap')) { const sc = document.getElementById('scroll'); if (sc) sc.scrollTop += 37; } };
+    const ib = Node.prototype.insertBefore; Node.prototype.insertBefore = function (n: any, r: any) { const x = ib.call(this, n, r); drift(n); return x; } as any;
+    const bf = Element.prototype.before; Element.prototype.before = function (...a: any[]) { bf.apply(this, a); drift(a[0]); };
+  });
   await open(page, project);
   const m = await disk(page, project);
   const long = 'Les glaciers tropicaux perdent leur masse plus vite que la moyenne mondiale, et leur albédo baisse à chaque saison sèche. ';
