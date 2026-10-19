@@ -380,25 +380,90 @@ test('latex: reload preserves the latest content after historical navigation', a
   });
 });
 
+// Deux vues du même .tex (journal des versions partagé par le serveur) :
+// helpers des deux tests suivants. Voir docs/TESTS_INSTABLES.md.
+const TWO_VIEWS_LEFT = INITIAL_TEXT.replace('Summer temperatures remained moderate', 'LEFT temperatures increased');
+const TWO_VIEWS_RIGHT = INITIAL_TEXT.replace('Measured albedo declined', 'RIGHT albedo recovered');
+
+function journalSummary(page: Page) {
+  return page.evaluate(async () => {
+    const state = await (await fetch('/versions?path=' + encodeURIComponent(path as unknown as string))).json();
+    return { revision: state.revision, count: state.interventions?.length || 0,
+      distinctIds: new Set((state.interventions || []).map((item) => item.id)).size };
+  });
+}
+
+/** Réponses aux POST /versions des pages données, par statut HTTP. */
+function watchVersionWrites(...pages: Page[]) {
+  const statuses: number[] = [];
+  for (const view of pages) {
+    view.on('response', (response) => {
+      if (response.request().method() === 'POST' && response.url().endsWith('/versions')) statuses.push(response.status());
+    });
+  }
+  return { acks: () => statuses.filter((status) => status === 200).length,
+    conflicts: () => statuses.filter((status) => status === 409).length };
+}
+
+function saveBothViews(page: Page, other: Page) {
+  return Promise.all([
+    page.evaluate(({ before, after }) => { cm.setValue(after); __dv.push(before, after,
+      {source: 'user-save', status: 'applied'}); }, { before: INITIAL_TEXT, after: TWO_VIEWS_LEFT }),
+    other.evaluate(({ before, after }) => { cm.setValue(after); __dv.push(before, after,
+      {source: 'user-save', status: 'applied'}); }, { before: INITIAL_TEXT, after: TWO_VIEWS_RIGHT }),
+  ]);
+}
+
 test('latex: two open pages converge through one 409 retry without losing either intervention', async ({ page, context }) => {
   await withLatexStudio(async ({ url }) => {
     const other = await context.newPage();
+    const writes = watchVersionWrites(page, other);
     try {
+      // Préalable déterministe. La première vue pose seule la base du journal
+      // (init, révision 1) 400 ms après avoir chargé HEAD : c'est une écriture
+      // légitime, qui tombait avant ou après les ⌘S selon la charge (d'où la
+      // révision 3 « inattendue » des runs CI 230, 275 et 283).
+      await openEditor(page, url);
+      await expect.poll(() => journalSummary(page), { timeout: 7000 })
+        .toEqual({ revision: 1, count: 0, distinctIds: 0 });
+      // La seconde vue ne lit /githead qu'une fois son restore fini : elle
+      // connaît alors la révision 1, comme la première.
+      const otherRestored = other.waitForResponse((response) => response.url().includes('/githead'));
+      await openEditor(other, url);
+      await otherRestored;
+      await saveBothViews(page, other);
+      // Les deux vues postent avec la révision 1 : l'une passe (2), l'autre
+      // reçoit UN 409, fusionne et repasse (3). Rien d'autre n'écrit. Les
+      // événements de réponse peuvent suivre de peu l'état serveur : tout est
+      // relu dans le même poll.
+      await expect.poll(async () => ({ ...await journalSummary(page),
+        acks: writes.acks(), conflicts: writes.conflicts() }), { timeout: 7000 })
+        .toEqual({ revision: 3, count: 2, distinctIds: 2, acks: 3, conflicts: 1 });
+    } finally {
+      await other.close();
+    }
+  });
+});
+
+test('latex: saves racing the first restore of a second page keep both interventions', async ({ page, context }) => {
+  await withLatexStudio(async ({ url }) => {
+    const other = await context.newPage();
+    const writes = watchVersionWrites(page, other);
+    try {
+      // Sans attendre aucun restore : la seconde vue peut enregistrer avant,
+      // pendant ou après le sien, et la première avant ou après avoir posé sa
+      // base. Le nombre d'écritures dépend donc de l'ordre ; ce qui n'en
+      // dépend pas : aucune intervention perdue, et une révision par
+      // écriture acquittée (deux ok:true sur la même révision = une écriture
+      // écrasée, problème 19 de l'audit du 2026-10-18).
       await openEditor(page, url);
       await openEditor(other, url);
-      const left = INITIAL_TEXT.replace('Summer temperatures remained moderate', 'LEFT temperatures increased');
-      const right = INITIAL_TEXT.replace('Measured albedo declined', 'RIGHT albedo recovered');
-      await Promise.all([
-        page.evaluate(({ before, after }) => { cm.setValue(after); __dv.push(before, after,
-          {source: 'user-save', status: 'applied'}); }, { before: INITIAL_TEXT, after: left }),
-        other.evaluate(({ before, after }) => { cm.setValue(after); __dv.push(before, after,
-          {source: 'user-save', status: 'applied'}); }, { before: INITIAL_TEXT, after: right }),
-      ]);
-      await expect.poll(() => page.evaluate(async () => {
-        const state = await (await fetch('/versions?path=' + encodeURIComponent(path as unknown as string))).json();
-        return { revision: state.revision, count: state.interventions?.length || 0,
-          distinctIds: new Set((state.interventions || []).map((item) => item.id)).size };
-      }), { timeout: 7000 }).toEqual({ revision: 2, count: 2, distinctIds: 2 });
+      await saveBothViews(page, other);
+      await expect.poll(async () => {
+        const journal = await journalSummary(page);
+        return { count: journal.count, distinctIds: journal.distinctIds,
+          unacknowledgedRevisions: journal.revision - writes.acks() };
+      }, { timeout: 7000 }).toEqual({ count: 2, distinctIds: 2, unacknowledgedRevisions: 0 });
     } finally {
       await other.close();
     }

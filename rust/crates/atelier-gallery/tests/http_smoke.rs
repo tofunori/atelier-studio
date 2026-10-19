@@ -1051,6 +1051,91 @@ fn une_decision_de_revue_persiste_dans_le_journal() {
     assert!(body.contains("\"revision\":4"), "{body}");
 }
 
+/// Deux vues du même `.tex` (ou plus) enregistrent en même temps : le contrôle
+/// de `expectedRevision` doit être atomique avec la lecture et l'écriture du
+/// journal (problème 19 de l'audit du 2026-10-18 ; au run CI 233, une
+/// intervention manquait alors que les deux pages avaient reçu ok:true).
+/// Chaque client rejoue ici ce que fait `diff_versions` : POST avec la
+/// révision connue, et sur 409 nouvel essai avec la révision rendue. Les
+/// premiers POST partent ensemble (barrière) avec la même révision.
+#[test]
+fn des_post_versions_concurrents_ne_perdent_aucune_intervention() {
+    use serde_json::{Value, json};
+    const WRITERS: usize = 8;
+    const ROUNDS: usize = 4;
+    let srv = start_server();
+    for round in 0..ROUNDS {
+        let file = srv.root.join(format!("concurrent-{round}.tex"));
+        let base = "base commune\n";
+        fs::write(&file, base).unwrap();
+        let path = file.display().to_string();
+        let h_base = sha256_hex(base);
+        let init = json!({"path": path, "expectedRevision": 0, "ops": [{"type": "init",
+            "texts": {&h_base: base},
+            "base": {"hash": &h_base, "kind": "session", "sha": "", "ts": 1},
+            "current": {"hash": &h_base, "ts": 1}}]});
+        let (st, body) = http(srv.port, "POST", "/versions", Some(&init.to_string()));
+        assert_eq!(st, 200, "init — {body}");
+
+        let barrier = std::sync::Barrier::new(WRITERS);
+        let acked: Vec<i64> = thread::scope(|scope| {
+            let handles: Vec<_> = (0..WRITERS)
+                .map(|writer| {
+                    let (barrier, path, h_base) = (&barrier, &path, &h_base);
+                    scope.spawn(move || {
+                        let text = format!("vue {writer} du tour {round}\n");
+                        let h_text = sha256_hex(&text);
+                        let ts = 10 + writer;
+                        let mut expected = 1;
+                        barrier.wait();
+                        for _attempt in 0..(4 * WRITERS) {
+                            let post = json!({"path": path, "expectedRevision": expected,
+                                "ops": [{"type": "append", "texts": {&h_text: &text},
+                                    "intervention": {"id": format!("r{round}-w{writer}"),
+                                        "fromHash": h_base, "toHash": &h_text, "ts": ts,
+                                        "source": "user-save", "status": "applied"},
+                                    "current": {"hash": &h_text, "ts": ts}}]});
+                            let (st, body) =
+                                http(srv.port, "POST", "/versions", Some(&post.to_string()));
+                            let reply: Value = serde_json::from_str(&body)
+                                .unwrap_or_else(|_| panic!("réponse illisible {st} — {body}"));
+                            match st {
+                                200 => return reply["revision"].as_i64().unwrap(),
+                                409 => expected = reply["revision"].as_i64().unwrap(),
+                                _ => panic!("POST /versions {st} — {body}"),
+                            }
+                        }
+                        panic!("vue {writer} : jamais acquittée");
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+
+        let (_, body) = http(srv.port, "GET", &format!("/versions?path={path}"), None);
+        let state: Value = serde_json::from_str(&body).unwrap();
+        let interventions = state["interventions"].as_array().unwrap();
+        let ids: std::collections::BTreeSet<&str> = interventions
+            .iter()
+            .map(|it| it["id"].as_str().unwrap())
+            .collect();
+        let wanted: Vec<String> = (0..WRITERS).map(|w| format!("r{round}-w{w}")).collect();
+        let wanted: std::collections::BTreeSet<&str> = wanted.iter().map(String::as_str).collect();
+        assert_eq!(ids, wanted, "tour {round} : intervention perdue — {body}");
+        assert_eq!(interventions.len(), WRITERS, "tour {round} : doublon — {body}");
+        assert_eq!(state["revision"], 1 + WRITERS as i64, "tour {round} — {body}");
+        // Une révision par acquittement : deux ok:true pour la même révision,
+        // c'est une écriture qui en a écrasé une autre.
+        let mut revisions = acked.clone();
+        revisions.sort_unstable();
+        assert_eq!(
+            revisions,
+            (2..=1 + WRITERS as i64).collect::<Vec<_>>(),
+            "tour {round} : révisions acquittées {acked:?}"
+        );
+    }
+}
+
 /// Pastille git : distinguer « pas de dépôt » de « fichier non suivi », et
 /// pouvoir suivre le fichier d'un clic.
 #[test]
