@@ -170,6 +170,11 @@ type AgentEventBody =
         reasoningEffort?: string | null;
         agentThreadId?: string | null;
         agentPath?: string | null;
+        /** Mission en quelques mots (Claude : `description` de l'outil Agent). */
+        description?: string | null;
+        /** Lancement de l'agent (ms epoch) et, à la fin, sa durée exacte. */
+        startedAt?: number | null;
+        durationMs?: number | null;
         activityKind?: "started" | "interacted" | "interrupted" | string;
       };
       ts?: number;

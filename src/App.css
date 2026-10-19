@@ -246,32 +246,42 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    commentaire ci-dessus). */
 .messages { overflow-anchor: auto; }
 .timeline-virtual-row.is-live-stream { overflow-anchor: none; }
-.agent-activity-group { min-width: 0; margin: 12px 0 16px; padding: 2px 0;
-  border-block: 1px solid var(--border-subtle); color: var(--text-secondary);
-  font-size: var(--chat-activity-font-size, 13px); }
-.agent-group-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 42px;
-  padding: 0 4px; text-align: left; color: var(--text-secondary); }
-.agent-group-summary { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums; text-align: right; }
-.agent-disclosure-icon { flex-shrink: 0; transition: transform var(--motion-fast) var(--ease-out); }
-.agent-group-head[aria-expanded="false"] .agent-disclosure-icon { transform: rotate(-90deg); }
-.agent-group-rows { padding-bottom: 6px; }
-.agent-group-rows[hidden] { display: none; }
-.agent-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px;
-  padding: 8px 8px; border-radius: var(--radius-control); text-align: left; }
-.agent-row-copy { flex: 1; min-width: 0; }
-.agent-row-name { display: block; color: var(--text-primary); font-weight: 500;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-row-description { display: block; margin-top: 4px; color: var(--text-muted); font-size: var(--fs-s); }
+/* Sous-agents : une grappe comme celles des actions (maquette 2026-10-18,
+   piste A) — rangée de synthèse .ui-activity, puis une rangée par agent sur
+   la grille du fil : icône · mission · durée (56 px) · état (12 px) · chevron. */
+.agent-activity-group { min-width: 0; }
+.agent-activity-group > .ui-activity { width: 100%; max-width: none; margin: 0; }
+/* Pas d'anneau de focus sur l'en-tête (choix déjà verrouillé par l'e2e
+   subagent_ui) : le focus clavier prend le fond de survol. */
+.agent-activity-group .ui-activity-trigger:focus-visible { outline: none;
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
+.agent-group-note { margin-left: 8px; color: var(--text-muted); }
+.agent-group-rows { display: flex; flex-direction: column; gap: 4px; }
+.agent-item { min-width: 0; }
+.agent-row { display: grid; grid-template-columns: 15px minmax(0, 1fr) 56px 12px 12px; align-items: center; column-gap: 8px;
+  width: calc(100% + 16px); min-height: 36px; margin: 0 -8px; padding: 8px; border-radius: var(--radius-control);
+  color: var(--text-secondary); text-align: left; transition: background-color var(--motion-fast) ease; }
+.agent-row:hover, .agent-row.ui-rowbtn:focus-visible { outline: none; box-shadow: none;
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
+.agent-row-icon { display: inline-flex; width: 15px; height: 15px; color: var(--text-muted); }
+.agent-row-icon > svg { display: block; width: 15px; height: 15px; }
+.agent-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.agent-row:hover .agent-row-name, .agent-row[data-agent-status="working"] .agent-row-name { color: var(--text-primary); }
+.agent-row-type { margin-left: 8px; color: var(--text-disabled); font-size: var(--fs-m); }
+.agent-row .tool-duration { justify-self: end; }
+.agent-row .tool-status { justify-content: center; width: 12px; height: 12px; }
+.agent-row > .tool-tick { width: 12px; height: 12px; color: var(--text-disabled); }
+.agent-row[data-agent-status="working"] :is(.tool-duration, .tool-status) { color: var(--text-muted); }
+.agent-row[data-agent-status="failed"] :is(.tool-duration, .tool-status) { color: var(--status-error); }
+/* Ce que fait l'agent en cours : une ligne, alignée sur le texte de la rangée. */
+.agent-row-live { margin: -4px 0 4px 23px; padding-right: 88px; min-width: 0; color: var(--text-muted);
+  font-size: var(--fs-m); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-state-icon[data-agent-status="working"] { color: var(--accent); }
-.agent-row[data-agent-status="failed"] .agent-row-description, .agent-state-icon[data-agent-status="failed"] { color: var(--status-error); }
-.agent-state-icon, .agent-row-arrow, .agent-glyph { flex-shrink: 0; color: var(--text-muted); }
+.agent-state-icon[data-agent-status="failed"] { color: var(--status-error); }
+.agent-state-icon, .agent-glyph { flex-shrink: 0; color: var(--text-muted); }
 .agent-state-icon[data-agent-status="working"] { animation: agent-working-spin 1.4s linear infinite; }
-.agent-row-arrow { margin-left: auto; }
-.agent-row:hover, .agent-group-head:hover { background: var(--surface-hover); }
-.agent-row.ui-rowbtn:focus-visible, .agent-group-head.ui-rowbtn:focus-visible { outline: none; box-shadow: none; background: var(--surface-hover); }
 @keyframes agent-working-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .agent-state-icon[data-agent-status="working"] { animation: none; } .agent-disclosure-icon { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .agent-state-icon[data-agent-status="working"] { animation: none; } .agent-row { transition: none; } }
 .agent-detail-panel { flex: 0 0 clamp(320px, 31vw, 470px); min-width: 0; height: 100%;
   display: flex; flex-direction: column; border-left: var(--gutter) solid var(--surface-canvas);
   background: var(--bg); color: var(--text-secondary); }
@@ -6120,5 +6130,4 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .agent-report > :first-child { margin-top: 0; }
 .agent-report > :last-child { margin-bottom: 0; }
 .agent-detail-panel button:focus-visible { outline: none; box-shadow: none; background: var(--surface-hover); }
-.agent-row-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-detail-panel [data-slot="scroll-area-viewport"]:focus-visible { outline: none; box-shadow: none; background: var(--surface-hover); }

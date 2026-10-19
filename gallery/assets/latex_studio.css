@@ -101,17 +101,33 @@
   .cm-editor .cm-deletedChunk .cm-deletedLine{color:var(--muted);background:transparent;text-decoration:none}
   .cm-editor .cm-deletedChunk{padding-bottom:4px}
   /* Le retiré ne garde pas la coloration syntaxique : il se lit d'un seul ton. */
-  .cm-editor .cm-deletedText *,.cm-editor .cm-deletedLine *{color:inherit!important}
+  .cm-editor:not(.atelier-unified-review) .cm-deletedText *,.cm-editor:not(.atelier-unified-review) .cm-deletedLine *{color:inherit!important}
   /* Ancien puis nouveau dans la même ligne : un écart de 4 px les sépare pour
      qu'ils ne se lisent pas comme une seule phrase. */
   .cm-editor.cm-merge-b .cm-inlineChangedLine .cm-deletedText{margin-right:4px}
   .cm-editor.cm-merge-b .cm-changedLine,.cm-editor .cm-inlineChangedLine,.cm-editor .cm-deletedChunk{background:transparent}
   .cm-editor.cm-merge-b .cm-changedLineGutter,.cm-editor .cm-inlineChangedLineGutter{background:var(--review-mod)}
   .cm-editor .cm-deletedLineGutter{background:var(--review-cut)}
-  /* .tex : tout en ligne (review_inline.ts) ; le widget de bloc reste, vide. */
-  .cm-editor.atelier-inline-review .cm-deletedChunk>.cm-deletedLine{display:none}
-  .cm-editor.atelier-inline-review .cm-deletedChunk{padding-bottom:0}
-  .cm-editor.atelier-inline-review .cm-line .cm-deletedText{margin-right:4px}
+  /* .tex : diff unifié (maquette A, Thierry 2026-10-18). L'ancienne version
+     au-dessus, non modifiable, sur un voile rouge très léger ; la nouvelle
+     dessous sur un voile vert ; les mots changés un ton plus fort des deux
+     côtés. Ni barré ni souligné. L'ancienne garde sa coloration LaTeX,
+     éteinte d'un cran ; le trait de gouttière est rouge ou vert. */
+  .cm-editor.atelier-unified-review{
+    --review-add-line:color-mix(in srgb,var(--review-ok) 7%,transparent);--review-del-line:color-mix(in srgb,var(--review-cut) 7%,transparent);
+    --review-add-word:color-mix(in srgb,var(--review-ok) 22%,transparent);--review-del-word:color-mix(in srgb,var(--review-cut) 22%,transparent)}
+  .cm-editor.atelier-unified-review.cm-merge-b .cm-changedLine{background:var(--review-add-line)}
+  .cm-editor.atelier-unified-review .cm-deletedChunk{background:var(--review-del-line);padding:0}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine{color:inherit;padding:0 14px 0 10px}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine>del{opacity:.78}
+  .cm-editor.atelier-unified-review.cm-merge-b .cm-changedText{background:var(--review-add-word)}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedText{color:inherit;background:var(--review-del-word)}
+  /* Paragraphe entièrement ajouté ou retiré : le voile de ligne suffit, pas
+     de surlignage de mots par-dessus. */
+  .cm-editor.atelier-unified-review .atelier-pure-change .cm-changedText,
+  .cm-editor.atelier-unified-review .cm-deletedChunk.atelier-pure-change .cm-deletedText{background:transparent}
+  .cm-editor.atelier-unified-review.cm-merge-b .cm-changedLineGutter{background:var(--review-ok)}
+  .cm-editor.atelier-unified-review .cm-deletedLineGutter{background:var(--review-cut)}
   .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border);color:var(--text-disabled,#565e6b)}
   .cm-editor .cm-lineNumbers .cm-gutterElement{padding-left:4px;padding-right:4px}
   /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
@@ -654,23 +670,25 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
    rogné par la gouttière), boutons sans cadre, raccourcis sur la courante.
    Espacement en padding, jamais en marge : une marge verticale sur un widget
    de bloc décale les clics d'une ligne. */
-.cm-editor .atelier-review-pill{display:flex;align-items:center;gap:4px;width:max-content;max-width:100%;margin:0;padding:4px 0 8px 10px;
+.cm-editor .atelier-review-pill{display:flex;align-items:center;justify-content:flex-end;gap:4px;margin:0;padding:4px 14px 8px 10px;
   background:transparent;font-family:var(--ui-font);font-size:var(--fs-label, 11px);line-height:1;white-space:nowrap;user-select:none;
-  opacity:.55;transition:opacity .12s ease}
+  opacity:.5;transition:opacity .12s ease}
 .cm-editor .atelier-review-pill.is-current,.cm-editor .atelier-review-pill:hover{opacity:1}
+/* Lecture seule (intervention passée) : l'emplacement et le renvoi restent à gauche. */
+.cm-editor .atelier-review-pill.is-readonly{justify-content:flex-start}
 .cm-editor .atelier-review-pill .atelier-review-where{color:var(--muted);font-variant-numeric:tabular-nums;margin-right:8px}
 .cm-editor .atelier-review-pill .atelier-review-hint{color:var(--muted);padding:0 4px}
-.cm-editor .atelier-review-pill.is-current:not(.is-readonly)::after{content:"⌥⌫  ⌥↩";margin-left:8px;color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
-/* Symbole seul, bouton carré fin : la couleur dit le sens, rien de plus. */
-.cm-editor .atelier-review-act{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;
-  background:transparent;color:var(--muted);cursor:pointer;transition:background-color .12s ease,color .12s ease}
-.cm-editor .atelier-review-pill.is-current .atelier-review-act{background:color-mix(in srgb,var(--txt) 5%,transparent)}
+/* Diff unifié (maquette A, 2026-10-18) : Refuser en retrait, Accepter plein,
+   raccourci sur le passage courant seulement. */
+.cm-editor .atelier-review-act{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:24px;padding:0 8px;border:0;border-radius:6px;
+  background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:400;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .cm-editor .atelier-review-act svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
-.cm-editor .atelier-review-act.keep{color:color-mix(in srgb,var(--status-success,#98c379) 72%,var(--txt))}
-.cm-editor .atelier-review-act.keep:hover{background:color-mix(in srgb,var(--status-success,#98c379) 16%,transparent)}
-.cm-editor .atelier-review-act.drop{color:color-mix(in srgb,var(--status-error,#e06c75) 72%,var(--txt))}
-.cm-editor .atelier-review-act.drop:hover{background:color-mix(in srgb,var(--status-error,#e06c75) 15%,transparent)}
-.cm-editor .atelier-review-act.latest{width:auto;padding:0 8px;gap:6px;font:inherit;font-size:11px;color:var(--accent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.cm-editor .atelier-review-act kbd{display:none;font:inherit;font-size:11px;color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
+.cm-editor .atelier-review-pill.is-current .atelier-review-act kbd{display:inline}
+.cm-editor .atelier-review-act.drop:hover{color:var(--txt);background:color-mix(in srgb,var(--txt) 6%,transparent)}
+.cm-editor .atelier-review-act.keep{color:var(--txt);background:var(--card2);font-weight:500}
+.cm-editor .atelier-review-act.keep:hover{background:color-mix(in srgb,var(--txt) 12%,var(--card2))}
+.cm-editor .atelier-review-act.latest{gap:6px;font-size:11px;color:var(--accent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
 .cm-editor .atelier-review-act.latest:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .cm-editor .atelier-review-act:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 .cm-editor .atelier-review-brackets{pointer-events:none}
@@ -680,6 +698,34 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 #left .dv-undo-toast{position:absolute;right:16px;bottom:14px;z-index:6;height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--card);
   box-shadow:var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18));color:var(--txt);font:inherit;font-size:12px;cursor:pointer}
 #left .dv-undo-toast[hidden]{display:none}
+/* Barre de revue (diff unifié, maquette A, 2026-10-18) : surface élevée en bas
+   du volet éditeur — fond + ombre douce, sans bordure. */
+#left .dv-review-bar{position:absolute;left:50%;bottom:16px;z-index:6;transform:translateX(-50%);display:flex;align-items:center;gap:8px;
+  height:40px;max-width:calc(100% - 32px);padding:0 8px 0 16px;box-sizing:border-box;border-radius:10px;background:var(--card);
+  box-shadow:var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18));font:12px var(--ui-font);color:var(--muted);white-space:nowrap;
+  transition:opacity .14s ease}
+#left .dv-review-bar[hidden]{display:none}
+#left .dv-review-bar .dv-rb-who{display:inline-flex;align-items:center;gap:8px;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--txt)}
+#left .dv-review-bar .dv-rb-who::before{content:"";flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)}
+#left .dv-review-bar .dv-rb-nav{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+#left .dv-review-bar .dv-rb-count{min-width:40px;text-align:center}
+#left .dv-review-bar .dv-rb-sep{flex:none;width:1px;height:16px;margin:0 4px;background:var(--border)}
+#left .dv-review-bar button{display:inline-flex;align-items:center;justify-content:center;flex:none;height:24px;margin:0;border:0;border-radius:6px;
+  background:transparent;color:var(--muted);font:inherit;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+#left .dv-review-bar .dv-rb-icon{width:24px;padding:0}
+#left .dv-review-bar .dv-rb-icon svg{width:14px;height:14px}
+#left .dv-review-bar .dv-rb-act{padding:0 8px}
+#left .dv-review-bar .dv-rb-act.fill{background:var(--card2);color:var(--txt);font-weight:500}
+#left .dv-review-bar button:hover:not(:disabled){color:var(--txt);background:color-mix(in srgb,var(--txt) 6%,transparent)}
+#left .dv-review-bar .dv-rb-act.fill:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 12%,var(--card2))}
+#left .dv-review-bar button:disabled{cursor:default;opacity:.45}
+#left .dv-review-bar button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+/* Le toast Annuler passe au-dessus de la barre quand elle est là. */
+#left:has(.dv-review-bar:not([hidden])) .dv-undo-toast{bottom:64px}
+/* … et le texte peut défiler au-delà d'elle : rien ne reste caché dessous. */
+#left:has(.dv-review-bar:not([hidden])) .cm-content{padding-bottom:72px}
+#diffGrp #diffAcceptAll[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){#left .dv-review-bar,#left .dv-review-bar button{transition:none}}
 #left .dv-undo-toast:hover{background:var(--card2)}
 @media (prefers-reduced-motion:reduce){.cm-editor .atelier-review-act,.cm-editor .atelier-review-pill{transition:none}}
 /* Decision icons live in a narrow gutter, never in the paragraph flow. */

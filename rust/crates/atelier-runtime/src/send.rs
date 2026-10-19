@@ -97,13 +97,14 @@ fn with_file_scope_instruction(prompt: String) -> String {
     )
 }
 
-/// Claude écrit une `description` pour chaque appel Bash ; Atelier en fait le
-/// titre de la rangée du fil. Sans consigne, elle arrive en anglais même sur
-/// une demande en français (sonde CLI 2.1.302, 2026-10-18) : on demande la
-/// langue de l'utilisateur. Codex n'a pas ce champ, la consigne ne le vise pas.
+/// Claude écrit une `description` pour chaque appel Bash et chaque sous-agent
+/// (outil Agent) ; Atelier en fait le titre de la rangée du fil. Sans
+/// consigne, elle arrive en anglais même sur une demande en français (sonde
+/// CLI 2.1.302, 2026-10-18) : on demande la langue de l'utilisateur. Codex
+/// n'a pas ce champ, la consigne ne le vise pas.
 fn with_command_description_instruction(prompt: String) -> String {
     format!(
-        "{prompt}\n\n<atelier-command-descriptions>\nAtelier shows the `description` of each Bash call as the title of its row in the chat. Write it in the language the user writes in, as a short phrase that starts with a present-tense verb (for a French-speaking user: « Vérifie la largeur des figures »). Never leave it empty.\n</atelier-command-descriptions>"
+        "{prompt}\n\n<atelier-command-descriptions>\nAtelier shows the `description` of each Bash call, and of each Agent call that starts a subagent, as the title of its row in the chat. Write it in the language the user writes in, as a short phrase that starts with a present-tense verb (for a French-speaking user: « Vérifie la largeur des figures », « Relit la section Méthode »). Never leave it empty.\n</atelier-command-descriptions>"
     )
 }
 
@@ -3662,6 +3663,7 @@ mod tests {
         let enriched = with_command_description_instruction("vérifie les figures".into());
         assert!(enriched.starts_with("vérifie les figures"));
         assert!(enriched.contains("`description` of each Bash call"));
+        assert!(enriched.contains("each Agent call that starts a subagent"));
         assert!(enriched.contains("language the user writes in"));
         assert_eq!(strip_file_scope_instruction(&enriched), "vérifie les figures");
     }

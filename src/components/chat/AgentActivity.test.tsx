@@ -161,7 +161,9 @@ describe("Codex subagent activity", () => {
 
     expect(screen.getByTestId("subagent-activity-inline-group").textContent)
       .toContain("Editorial");
-    expect(screen.getByText("1 working")).toBeTruthy();
+    // Un seul agent en cours : l'anneau de l'en-tête suffit, sans note.
+    expect(screen.getByTestId("subagent-activity-inline-group").querySelector(".ui-activity.is-running")).toBeTruthy();
+    expect(document.querySelector(".agent-group-note")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open Editorial subagent" }));
     expect(onOpenAgent).toHaveBeenCalledWith(expect.objectContaining({ threadId: "child-1" }));
   });
@@ -270,3 +272,49 @@ it("updates the compact row from child events and clears activity on follow-up",
   expect(screen.getByRole("button", {name: /One subagent/})).toHaveAttribute("aria-expanded", "true");
   expect(screen.queryByText("Reading the sources")).toBeNull();
 });
+
+it("titre chaque agent par sa mission, avec le type en étiquette, la durée et l'avancement", () => {
+  const claude = (id: string, status: string, ts: number, description: string, agentPath = "general-purpose"): AgentToolAction => ({
+    kind: "tool_update", id: `subagent:${id}`, name: "agent:activity", output: "", ts,
+    status: status === "running" ? "inProgress" : "completed", source: "claude",
+    agentActivity: {
+      tool: "activity", receiverThreadIds: [id], agentThreadId: id, agentPath, description,
+      agentsStates: { [id]: { status, message: description } },
+    },
+  });
+  const started = [claude("a", "running", 1_000, "Find the chapter 2 figures", "Explore"),
+    claude("b", "running", 1_000, "Review the Methods section")];
+  const {rerender} = renderUi(<AgentActivityGroup actions={[...started, claude("a", "completed", 19_000, "Find the chapter 2 figures", "Explore")]} onOpenAgent={() => {}} />);
+  const rows = [...document.querySelectorAll(".agent-row")];
+  expect(rows.map(row => row.querySelector(".agent-row-name")?.textContent)).toEqual([
+    "Find the chapter 2 figuresExplore", "Review the Methods sectionGeneral purpose",
+  ]);
+  expect(rows[0].querySelector(".tool-duration")).toHaveTextContent("18 s");
+  expect(screen.getByRole("button", {name: "Open Review the Methods section subagent"})).toBeTruthy();
+  // La mission ne se répète pas en ligne d'activité sous sa propre rangée.
+  expect(document.querySelector(".agent-row-live")).toBeNull();
+  expect(document.querySelector(".agent-group-note")).toHaveTextContent("1 of 2 done");
+
+  rerender(<AgentActivityGroup actions={[...started, claude("a", "completed", 19_000, "Find the chapter 2 figures", "Explore"),
+    claude("b", "failed", 61_000, "Review the Methods section")]} onOpenAgent={() => {}} />);
+  const group = screen.getByTestId("subagent-activity-inline-group");
+  expect(group.querySelector(".ui-activity.is-failed")).toBeTruthy();
+  expect(group.querySelector(".ui-activity-meta")).toHaveTextContent("1 min");
+  expect(document.querySelector(".agent-group-note")).toHaveTextContent("1 failed");
+  expect(document.querySelectorAll(".agent-row")[1].querySelector(".tool-duration")).toHaveTextContent("failed");
+});
+
+it("garde la durée d'un agent Claude dont le fil ne conserve que le dernier état", () => {
+  const last: AgentToolAction = {
+    kind: "tool_update", id: "subagent:t9", name: "agent:activity", output: "", ts: 90_000,
+    status: "completed", source: "claude",
+    agentActivity: { tool: "activity", receiverThreadIds: ["t9"], agentThreadId: "t9", agentPath: "Explore",
+      description: "Find the figures", startedAt: 10_000, durationMs: 79_400,
+      agentsStates: { t9: { status: "completed", message: "Six figures." } }, activityKind: "notification" },
+  };
+  renderUi(<AgentActivityGroup actions={[last]} onOpenAgent={() => {}} />);
+  fireEvent.click(screen.getByRole("button", {name: /One subagent/}));
+  expect(document.querySelector(".agent-row .tool-duration")).toHaveTextContent("1 min 19 s");
+  expect(document.querySelector(".ui-activity-meta")).toHaveTextContent("1 min 19 s");
+});
+

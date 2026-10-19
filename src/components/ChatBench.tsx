@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents.
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -549,6 +549,42 @@ const ACTIONS_CLAUDE: AgentEvent[] = [
     "", "running", 12),
 ];
 
+// Sous-agents Claude (maquette 2026-10-18, piste A) : la mission titre chaque
+// rangée, le type passe en étiquette ; en cours puis terminés.
+function claudeAgent(id: string, type: string, description: string, status: string, offsetS: number, message?: string): AgentEvent {
+  // Comme le CLI : un seul id par agent, le fil n'en garde que le dernier état.
+  return {
+    kind: "tool_update", id: `subagent:${id}`, name: "agent:activity", output: "",
+    status: status === "running" ? "inProgress" : "completed", source: "claude",
+    agentActivity: { tool: "activity", receiverThreadIds: [id], agentThreadId: id, agentPath: type, description, startedAt: ts(64),
+      ...(status === "running" ? {} : { durationMs: (64 - offsetS) * 1000 }),
+      agentsStates: { [id]: { status, message: message ?? description } }, activityKind: status === "running" ? "started" : "notification" },
+    ts: ts(offsetS),
+  } as AgentEvent;
+}
+const AGENTS_CLAUDE_START: AgentEvent[] = [
+  { kind: "user", text: "Vérifie les figures du chapitre 2, relis la section Méthode et recalcule l'albédo moyen JJA.", ts: ts(70) } as AgentEvent,
+  tool("sa-read", "Read", "manuscrit/chapitre2.tex", "412 lignes", 300, 68),
+  { kind: "text", text: "Je confie les trois vérifications à des sous-agents, en parallèle.", ts: ts(66) } as AgentEvent,
+  claudeAgent("fig", "Explore", "Repère les figures du chapitre 2", "running", 64),
+  claudeAgent("meth", "general-purpose", "Relit la section Méthode", "running", 64),
+  claudeAgent("calc", "general-purpose", "Recalcule l'albédo moyen JJA", "running", 64),
+];
+const AGENTS_CLAUDE: AgentEvent[] = [
+  ...AGENTS_CLAUDE_START,
+  claudeAgent("fig", "Explore", "Repère les figures du chapitre 2", "completed", 46, "Six figures dans figures/ch2/."),
+  claudeAgent("meth", "general-purpose", "Relit la section Méthode", "running", 30, "Lit Chapitre2.tex, lignes 120 à 310"),
+  claudeAgent("calc", "general-purpose", "Recalcule l'albédo moyen JJA", "running", 28, "Exécute python albedo_jja.py --region ouest"),
+];
+const AGENTS_CLAUDE_DONE: AgentEvent[] = [
+  ...AGENTS_CLAUDE_START,
+  claudeAgent("fig", "Explore", "Repère les figures du chapitre 2", "completed", 46, "Six figures dans figures/ch2/."),
+  claudeAgent("calc", "general-purpose", "Recalcule l'albédo moyen JJA", "completed", 12, "Albédo moyen JJA 0,41."),
+  claudeAgent("meth", "general-purpose", "Relit la section Méthode", "completed", 0, "Trois phrases ambiguës."),
+  { kind: "text", text: "Deux figures dépassent la colonne et la section Méthode a trois passages à reprendre. Je commence par les figures.", ts: ts(0) } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 33000, output: 900, cost: null, turns: 1 }, ts: ts(0) } as AgentEvent,
+];
+
 const ACTIONS_CODEX: AgentEvent[] = [
   { kind: "user", text: "Lance les tests du pipeline d'albédo.", ts: ts(40) } as AgentEvent,
   bash("cx-ls", "ls tests/", null, "test_masque.py  test_pentes.py  test_regions.py", "completed", 36, { durationMs: 120, source: "codex" }),
@@ -636,6 +672,8 @@ const STATES: Record<string, BenchState> = {
   proposal: { events: PROPOSAL, workingSince: null, attachments: [], usage: null },
   actionsclaude: { events: ACTIONS_CLAUDE, workingSince: ts(58), attachments: [], usage: { context: 31000, output: 640, cost: null, turns: 1 } },
   actionscodex: { events: ACTIONS_CODEX, workingSince: ts(40), attachments: [], usage: { context: 19000, output: 220, cost: null, turns: 1 } },
+  claudeagents: { events: AGENTS_CLAUDE, workingSince: ts(70), attachments: [], usage: { context: 26000, output: 300, cost: null, turns: 1 } },
+  finagents: { events: AGENTS_CLAUDE_DONE, workingSince: null, attachments: [], usage: { context: 33000, output: 900, cost: null, turns: 1 } },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   queue: {
