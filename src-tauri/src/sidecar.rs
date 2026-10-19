@@ -10,7 +10,7 @@
 //! → spawn new → kill child on failed health (no orphan loops).
 //!
 //! Journal : le stderr du serveur est le fichier
-//! `~/Library/Logs/Atelier/studio-server.log` (crate atelier-logs), plus un
+//! `~/Library/Logs/Atelier/studio-server.log` (crate atelier-logs), et non plus un
 //! pipe. stdout reste un pipe pour la seule ligne de démarrage, puis le
 //! serveur le rebranche sur ce journal.
 
