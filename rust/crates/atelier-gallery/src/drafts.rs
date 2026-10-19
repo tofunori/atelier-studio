@@ -60,13 +60,21 @@ fn json_error(status: StatusCode, message: impl Into<String>) -> axum::response:
     (status, Json(json!({"ok": false, "error": message.into()}))).into_response()
 }
 
+/// Chemin réel d'un fichier (liens symboliques résolus), le chemin donné
+/// s'il n'existe pas encore.
+fn real_path(path: &Path) -> String {
+    fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// Même clé que le journal des versions (`dv_versions`) : chemin réel du
 /// fichier, pour qu'un même fichier ouvert par deux chemins partage son
-/// brouillon.
+/// brouillon (`read_draft` compare aussi les chemins réels).
 pub fn draft_file(project: &Path, path: &Path) -> PathBuf {
-    let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let mut hasher = Md5::new();
-    hasher.update(real.to_string_lossy().as_bytes());
+    hasher.update(real_path(path).as_bytes());
     let key = hex::encode(hasher.finalize());
     project
         .join(".fig_thumbs")
@@ -77,10 +85,11 @@ pub fn draft_file(project: &Path, path: &Path) -> PathBuf {
 /// Lit un brouillon. Un fichier absent, illisible ou d'un autre fichier
 /// (collision improbable de hachage) ne donne aucun brouillon : on ne
 /// restaure jamais un texte dont on n'est pas sûr.
-pub fn read_draft(file: &Path, path: &str) -> Option<Value> {
+pub fn read_draft(file: &Path, path: &Path) -> Option<Value> {
     let raw = fs::read(file).ok()?;
     let value: Value = serde_json::from_slice(&raw).ok()?;
-    if value.get("path").and_then(Value::as_str) != Some(path) {
+    let stored = value.get("path").and_then(Value::as_str)?;
+    if stored != path.to_string_lossy() && real_path(Path::new(stored)) != real_path(path) {
         return None;
     }
     let text = value.get("text").and_then(Value::as_str)?;
@@ -107,8 +116,7 @@ pub async fn get_draft(
     let Ok(path) = safe_project_path(&state.root, &query.path) else {
         return json_error(StatusCode::FORBIDDEN, "outside the project");
     };
-    let path_str = path.to_string_lossy().to_string();
-    let draft = read_draft(&draft_file(&state.root, &path), &path_str).unwrap_or(Value::Null);
+    let draft = read_draft(&draft_file(&state.root, &path), &path).unwrap_or(Value::Null);
     (StatusCode::OK, Json(json!({"ok": true, "draft": draft}))).into_response()
 }
 
@@ -176,8 +184,8 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert!(read_draft(&file, "/b.tex").is_none());
-        let draft = read_draft(&file, "/a.tex").unwrap();
+        assert!(read_draft(&file, Path::new("/b.tex")).is_none());
+        let draft = read_draft(&file, Path::new("/a.tex")).unwrap();
         assert_eq!(draft["text"], "x");
         assert_eq!(draft["base"], "b");
     }
@@ -187,7 +195,28 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("d.json");
         fs::write(&file, b"{\"path\":\"/a.tex\",\"text\":").unwrap();
-        assert!(read_draft(&file, "/a.tex").is_none());
-        assert!(read_draft(&dir.path().join("absent.json"), "/a.tex").is_none());
+        assert!(read_draft(&file, Path::new("/a.tex")).is_none());
+        assert!(read_draft(&dir.path().join("absent.json"), Path::new("/a.tex")).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_draft_follows_the_file_through_a_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("these.tex");
+        fs::write(&real, "x").unwrap();
+        let link = dir.path().join("lien.tex");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        // même clé de brouillon par les deux chemins
+        assert_eq!(draft_file(dir.path(), &real), draft_file(dir.path(), &link));
+        let file = dir.path().join("d.json");
+        fs::write(
+            &file,
+            serde_json::to_vec(&json!({"v":1,"path":real.to_string_lossy(),"text":"tampon"}))
+                .unwrap(),
+        )
+        .unwrap();
+        // écrit sous le vrai chemin, relu par le lien : restauré
+        assert_eq!(read_draft(&file, &link).unwrap()["text"], "tampon");
     }
 }
