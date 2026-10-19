@@ -456,3 +456,20 @@ fn lignes_en_suivi_et_colonnes_de_tableau() {
     assert!(x.contains(r#"<w:tblGrid><w:gridCol w:w="4500"/><w:gridCol w:w="4500"/></w:tblGrid>"#), "{x}");
     assert_eq!(cells(&mut d).len(), 2);
 }
+
+#[test]
+fn entree_en_fin_de_legende_laisse_le_champ_entier_dans_la_legende() {
+    // La légende finit par un champ SEQ : sa marque de fin ne doit pas
+    // partir dans le paragraphe suivant (le texte tapé deviendrait du champ).
+    let m = open("christophe").model().unwrap();
+    let cap = m.paragraphs.iter().position(|p| p.text.starts_with("Figure 2.4")).unwrap();
+    let id = m.paragraphs[cap].id.clone();
+    for (o, tracked) in [(json!({"op": "insert_paragraph", "after": id, "text": "Suite."}), true), (json!({"op": "split", "paragraph": id, "at": m.paragraphs[cap].text.chars().count()}), false)] {
+        let mut d = open("christophe");
+        apply(&mut d, &op(o), tracked, &sig("Thierry")).unwrap();
+        let m2 = d.model().unwrap();
+        let caption = &m2.paragraphs[cap];
+        assert!(caption.segments.iter().any(|s| s.kind == "field" && s.text == "4"), "{:?}", caption.segments);
+        assert!(m2.paragraphs[cap + 1].segments.iter().all(|s| s.kind != "field"), "{:?}", m2.paragraphs[cap + 1].segments);
+    }
+}

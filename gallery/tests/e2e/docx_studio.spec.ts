@@ -279,7 +279,7 @@ test('docx: lignes et colonnes de tableau depuis la barre', async ({page, projec
   const cells = async () => (await disk(page, project)).paragraphs.filter(p => (p as {cell?: number[]}).cell).length;
   await caretAfter(page, 6, 'Zone');
   await page.locator('#btnTable').click();
-  await page.locator('.menu .mi', {hasText: 'Insérer une ligne en dessous'}).click();
+  await page.locator('.menu.show .mi', {hasText: 'Insérer une ligne en dessous'}).click();
   await expect.poll(cells).toBe(6);
   // Le curseur est dans la nouvelle ligne : on y écrit, en suivi.
   await page.keyboard.type('Z4');
@@ -290,11 +290,11 @@ test('docx: lignes et colonnes de tableau depuis la barre', async ({page, projec
 
   await caretAfter(page, 8, 'Z4');
   await page.locator('#btnTable').click();
-  await page.locator('.menu .mi', {hasText: 'Insérer une colonne à droite'}).click();
+  await page.locator('.menu.show .mi', {hasText: 'Insérer une colonne à droite'}).click();
   await expect.poll(cells).toBe(9);
   await expect(page.locator('#foot')).toContainText('Word ne suit pas les colonnes');
   await page.locator('#btnTable').click();
-  await page.locator('.menu .mi', {hasText: 'Supprimer la colonne'}).click();
+  await page.locator('.menu.show .mi', {hasText: 'Supprimer la colonne'}).click();
   await expect.poll(cells).toBe(6);
 });
 

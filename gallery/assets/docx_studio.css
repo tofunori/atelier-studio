@@ -97,6 +97,8 @@ body.blanche #paper{background:var(--doc-paper);color:var(--doc-ink);--text-prim
 .d-p.mark-ins::after{content:'¶';color:var(--rev-color)}
 .d-p.changed::before{content:'';position:absolute;left:-28px;top:4px;bottom:4px;width:2px;border-radius:999px;background:var(--rev-color,var(--text-muted))}
 .d-p.list.changed::before{left:-28px;top:4px;width:2px;height:auto;border-radius:999px;background:var(--rev-color)}
+/* Page de Word : le liseré passe au bord de la feuille, à gauche des numéros de ligne. */
+#paper.pg>.d-p.changed::before,#paper.pg>.d-p.list.changed::before{left:calc(12px - var(--ml,0px))}
 table.d-t{width:100%;border-collapse:collapse;margin:0 0 16px;font-size:13px}
 table.d-t td{border:1px solid color-mix(in srgb,currentColor 22%,transparent);padding:4px 8px;vertical-align:top}
 table.d-t .d-p{margin:0;min-height:1.5em;line-height:1.5}

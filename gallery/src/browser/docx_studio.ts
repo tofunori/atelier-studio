@@ -269,6 +269,8 @@
           img.alt = s.alt || "Figure";
           img.draggable = false;
           if (s.width) img.style.width = model!.page ? `calc(var(--pt) * ${s.width * 0.75})` : `${s.width}px`;
+          // Hauteur réservée avant le chargement : sans elle, la coupure en pages se ferait sur une image vide.
+          if (s.width && s.height) img.style.aspectRatio = `${s.width} / ${s.height}`;
           node.appendChild(img);
         } else {
           node.textContent = isNote && s.number ? String(s.number) : s.text || (label === "image" ? "[figure]" : label === "équation" ? "[équation]" : `[${label || "objet"}]`);
@@ -468,6 +470,7 @@
       g.remove();
       parent?.normalize();
     }
+    paper.style.minHeight = "";
     const pages = paginate(pg);
     if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
     drawSheets(pg, pages);
@@ -1818,6 +1821,9 @@
   }
   paper.addEventListener("focus", placeCaret);
   paper.addEventListener("input", scheduleLines);
+  // Une image qui arrive après la mise en page déplace la suite : on recoupe.
+  paper.addEventListener("load", (e) => { if ((e.target as HTMLElement).tagName === "IMG") scheduleLines(); }, true);
+  paper.addEventListener("error", (e) => { if ((e.target as HTMLElement).tagName === "IMG") scheduleLines(); }, true);
   document.fonts?.ready.then(scheduleLines).catch(() => undefined);
   paper.addEventListener("blur", () => caret.classList.remove("on"));
   addEventListener("resize", placeCaret);

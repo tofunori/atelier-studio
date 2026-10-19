@@ -91,6 +91,8 @@ pub fn split(docx: &mut Docx, paragraph: &str, at: usize, tracked: bool, sig: &S
             if let Some((ps, pe)) = span
                 && *pe <= at && pe > ps {
                     pos = Some(match piece.run {
+                        // Champ ou objet entier : la coupe passe après sa marque de fin.
+                        _ if piece.unit.is_some() => piece.unit.as_ref().unwrap().end,
                         Some((ri, _)) if starts[ri].is_some_and(|rs| rs + run_len(&t, ri) == *pe) => t.inline.runs[ri].range.end,
                         Some(_) => return err("coupe impossible à cet endroit"),
                         None => piece.top.end,
