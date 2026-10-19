@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { bootPromotions, DEFAULT_SETTINGS, loadSettings, saveSettings } from "./settings";
+import { bootPromotions, DEFAULT_SETTINGS, loadSettings, saveSettings, withBootPromotions } from "./settings";
 
 beforeEach(() => localStorage.clear());
 
@@ -240,5 +240,30 @@ describe("rappel des souvenirs : éteint tant qu'il n'a pas été essayé (audit
     expect(loadSettings().memoire.injection).toBe(false);
     saveSettings({ ...loadSettings(), memoire: { injection: true, extraction: false } });
     expect(loadSettings().memoire.injection).toBe(true);
+  });
+});
+
+describe("webview vierge : les promotions du 2026-10-18 ne recoupent pas un choix du miroir disque", () => {
+  it("stockage local vide : la recette et le rappel rallumés sur disque restent allumés, extraction comprise", () => {
+    // Webview vierge : le marqueur de migration a disparu avec le stockage.
+    // Le miroir disque porte des choix faits APRÈS la promotion.
+    const settings = loadSettings();
+    expect(settings.recipes).toBe(false);
+    expect(bootPromotions()).not.toHaveProperty("recipes");
+    expect(bootPromotions()).not.toHaveProperty("memoire");
+    const disk = { recipes: true, memoire: { injection: true, extraction: true } };
+    // Fusion du boot d'App.tsx, chemin hasLocal=false.
+    const merged = withBootPromotions({ ...DEFAULT_SETTINGS, ...disk });
+    expect(merged.recipes).toBe(true);
+    expect(merged.memoire).toEqual({ injection: true, extraction: true });
+  });
+
+  it("la promotion du rappel ne touche que l'injection, même si le stockage local n'avait pas memoire", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({ chatFontSize: 13.5 }));
+    loadSettings();
+    // Chemin hasLocal=true : le miroir disque, antérieur, portait l'extraction.
+    const disk = { memoire: { injection: true, extraction: true } };
+    const merged = withBootPromotions({ ...loadSettings(), ...disk });
+    expect(merged.memoire).toEqual({ injection: false, extraction: true });
   });
 });

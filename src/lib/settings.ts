@@ -170,7 +170,12 @@ function appliedMigrations(): Set<string> {
  * Ajouter un cas ici plutôt qu'un drapeau dédié (cf.
  * CLAUDE_DEFAULTS_MIGRATION_KEY, antérieur à ce mécanisme).
  */
-const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => Partial<Settings> }[] = [
+const DEFAULT_MIGRATIONS: {
+  id: string;
+  /** `hasLocal` : le stockage local contenait des réglages AVANT toute
+   * promotion de ce boot (faux pour une webview vierge). */
+  promote: (stored: Partial<Settings>, ctx: { hasLocal: boolean }) => Partial<Settings>;
+}[] = [
   {
     // 2026-08-13 : le défaut de taille du chat passe de 15 à 13.5 (cohérence
     // typographique). Sans cette promotion, un profil créé avant garde 15 pour
@@ -228,8 +233,12 @@ const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => 
     // quelques heures entre #53 et ce correctif aurait pu l'exprimer ; on le
     // tient pour hérité. Un `false` explicite reste ; une remise en marche
     // après cette promotion est respectée (promotion ponctuelle).
+    // Un stockage local VIDE (webview vierge : mise à jour, reset WebKit) ne
+    // promeut rien : le marqueur de migration a disparu avec lui, et le miroir
+    // disque qui arrive ensuite porte peut-être un `true` choisi APRÈS cette
+    // promotion. Un profil neuf a déjà le défaut `false`.
     id: "2026-10-18.recipes-off-until-tried",
-    promote: (stored) => (stored.recipes !== false ? { recipes: false } : {}),
+    promote: (stored, { hasLocal }) => (hasLocal && stored.recipes !== false ? { recipes: false } : {}),
   },
   {
     // 2026-10-18 (audit de maturité, problème 24) : le rappel des souvenirs,
@@ -238,9 +247,11 @@ const DEFAULT_MIGRATIONS: { id: string; promote: (stored: Partial<Settings>) => 
     // paraître dans le reçu « Contexte du tour ». Même raisonnement que la
     // recette : un `true` stocké est tenu pour hérité, un `false` explicite
     // reste, une remise en marche après cette promotion est respectée.
-    // L'extraction (coupée dès l'origine) n'est pas touchée.
+    // L'extraction (coupée dès l'origine) n'est pas touchée : la fusion du
+    // boot (withBootPromotions) n'applique que la clé `injection`. Stockage
+    // local vide : rien n'est promu, comme pour la recette.
     id: "2026-10-18.memory-injection-off-until-tried",
-    promote: (stored) => (stored.memoire?.injection !== false
+    promote: (stored, { hasLocal }) => (hasLocal && stored.memoire?.injection !== false
       ? { memoire: { ...DEFAULT_SETTINGS.memoire, ...stored.memoire, injection: false } }
       : {}),
   },
@@ -251,8 +262,10 @@ function promoteDefaults(stored: Partial<Settings>): Partial<Settings> {
   const pending = DEFAULT_MIGRATIONS.filter((migration) => !applied.has(migration.id));
   if (!pending.length) return {};
   let promoted: Partial<Settings> = {};
+  // Webview vierge : le miroir disque, qui arrive ensuite, fait foi.
+  const ctx = { hasLocal: Object.keys(stored).length > 0 };
   for (const migration of pending) {
-    promoted = { ...promoted, ...migration.promote({ ...stored, ...promoted }) };
+    promoted = { ...promoted, ...migration.promote({ ...stored, ...promoted }, ctx) };
     applied.add(migration.id);
   }
   // Le marquage vaut pour TOUTES les promotions examinées, y compris celles qui
@@ -360,6 +373,18 @@ export function loadSettings(): Settings {
 let lastBootPromotions: Partial<Settings> = {};
 export function bootPromotions(): Partial<Settings> {
   return lastBootPromotions;
+}
+
+/** Applique les promotions de ce boot par-dessus une fusion avec le miroir
+ * disque. `memoire` est fusionné clé par clé : la promotion du 2026-10-18 ne
+ * porte que sur `injection`, et ne doit pas écraser l'`extraction` du disque. */
+export function withBootPromotions<T extends Partial<Settings>>(merged: T): T {
+  const promoted = lastBootPromotions;
+  const result: T = { ...merged, ...promoted };
+  if (promoted.memoire) {
+    result.memoire = { ...DEFAULT_SETTINGS.memoire, ...merged.memoire, injection: promoted.memoire.injection };
+  }
+  return result;
 }
 
 export function saveSettings(s: Settings) {
