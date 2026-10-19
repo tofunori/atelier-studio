@@ -389,6 +389,160 @@ pub async fn undo(State(state): State<AppState>, headers: HeaderMap, Json(body):
     }
 }
 
+/// Nom de fichier sûr pour un nouveau document : sans séparateur ni
+/// caractère de contrôle, sans point initial, `.docx` ajouté.
+fn clean_name(raw: &str) -> Option<String> {
+    let mut base = raw.trim();
+    if base.len() >= 5 && base.is_char_boundary(base.len() - 5) && base[base.len() - 5..].eq_ignore_ascii_case(".docx") {
+        base = base[..base.len() - 5].trim_end();
+    }
+    let name: String = base
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '-' } else { c })
+        .take(120)
+        .collect();
+    let name = name.trim().trim_start_matches('.').trim().to_string();
+    (!name.is_empty() && !name.starts_with("~$")).then_some(name)
+}
+
+/// Crée `nom.docx`, ou `nom 2.docx`… si le nom est pris : jamais d'écrasement.
+fn create_unique(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    for n in 1..100 {
+        let file = if n == 1 { format!("{name}.docx") } else { format!("{name} {n}.docx") };
+        let path = dir.join(file);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut f) => {
+                f.write_all(bytes)?;
+                f.sync_all()?;
+                return Ok(path);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "trop de documents portent déjà ce nom"))
+}
+
+#[derive(Deserialize)]
+pub struct NewBody {
+    name: String,
+    /// Dossier du projet ; `documents` par défaut.
+    dir: Option<String>,
+    /// `blank`, `article` ou `copy` (avec `from`).
+    template: String,
+    from: Option<String>,
+}
+
+/// `POST /docx/new` — nouveau document dans le projet ; rend son chemin.
+pub async fn create(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<NewBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let Some(name) = clean_name(&body.name) else {
+        return json_error(StatusCode::BAD_REQUEST, "donne un nom au document");
+    };
+    let rel_dir = body.dir.as_deref().map(str::trim).filter(|d| !d.is_empty()).unwrap_or("documents").to_string();
+    let Ok(dir) = safe_project_path(&state.root, &rel_dir) else {
+        return json_error(StatusCode::FORBIDDEN, "outside the project");
+    };
+    let from = match (body.template.as_str(), &body.from) {
+        ("copy", Some(f)) => match docx_path(&state, f) {
+            Ok(p) => Some(p),
+            Err(r) => return r,
+        },
+        ("copy", None) => return json_error(StatusCode::BAD_REQUEST, "choisis le document à copier"),
+        ("blank" | "article", _) => None,
+        _ => return json_error(StatusCode::BAD_REQUEST, "modèle inconnu"),
+    };
+    let root = state.root.clone();
+    let template = body.template.clone();
+    let job = move || -> Result<Value, (StatusCode, String)> {
+        let src = from.as_deref().map(std::fs::read).transpose().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let t = match (template.as_str(), &src) {
+            ("article", _) => atelier_docx::new::Template::Article,
+            (_, Some(bytes)) => atelier_docx::new::Template::Copy(bytes),
+            _ => atelier_docx::new::Template::Blank,
+        };
+        let bytes = atelier_docx::new::create(t).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0))?;
+        std::fs::create_dir_all(&dir).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        // Le dossier créé doit rester dans le projet (lien symbolique compris).
+        let real = std::fs::canonicalize(&dir).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let real_root = std::fs::canonicalize(&root).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if !real.starts_with(&real_root) {
+            return Err((StatusCode::FORBIDDEN, "outside the project".into()));
+        }
+        let path = create_unique(&real, &name, &bytes).map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
+        let rel = path.strip_prefix(&real_root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+        Ok(json!({"path": rel, "abs": path.to_string_lossy()}))
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err((status, e))) => json_error(status, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// Nombre de suivis d'un .docx, compté vite sur le XML brut.
+fn tracked_count(path: &Path) -> usize {
+    let Ok(file) = std::fs::File::open(path) else { return 0 };
+    let Ok(mut zip) = zip::ZipArchive::new(file) else { return 0 };
+    let Ok(mut doc) = zip.by_name(atelier_docx::DOCUMENT) else { return 0 };
+    if doc.size() > 64 * 1024 * 1024 {
+        return 0;
+    }
+    let mut xml = String::new();
+    if std::io::Read::read_to_string(&mut doc, &mut xml).is_err() {
+        return 0;
+    }
+    ["<w:ins ", "<w:del ", "<w:moveFrom ", "<w:moveTo "].iter().map(|t| xml.matches(t).count()).sum()
+}
+
+/// `GET /docx/list` — les .docx du projet, du plus récent au plus ancien.
+pub async fn list(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let root = state.root.clone();
+    let job = move || {
+        let mut out: Vec<(u64, PathBuf)> = Vec::new();
+        let mut stack = vec![(root.clone(), 0usize)];
+        let mut seen = 0usize;
+        while let Some((dir, depth)) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for e in entries.flatten() {
+                seen += 1;
+                if seen > 50_000 {
+                    break;
+                }
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || name.starts_with("~$") || matches!(name.as_str(), "node_modules" | "target" | "__pycache__" | "venv") {
+                    continue;
+                }
+                let p = e.path();
+                let Ok(ft) = e.file_type() else { continue };
+                if ft.is_dir() && depth < 8 {
+                    stack.push((p, depth + 1));
+                } else if ft.is_file() && p.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("docx")) {
+                    out.push((mtime_ms(&p), p));
+                }
+            }
+        }
+        out.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        out.truncate(300);
+        out.into_iter()
+            .map(|(m, p)| {
+                let rel = p.strip_prefix(&root).unwrap_or(&p).to_string_lossy().replace('\\', "/");
+                json!({"path": rel, "mtime": m, "changes": tracked_count(&p), "openInWord": open_in_word(&p)})
+            })
+            .collect::<Vec<_>>()
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(v) => (StatusCode::OK, Json(json!({"documents": v}))).into_response(),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,5 +556,18 @@ mod tests {
         // Word garde la fin du nom pour les noms longs.
         std::fs::write(dir.path().join("~$apitre 2 corrigé CK.docx"), b"x").unwrap();
         assert!(open_in_word(&doc));
+    }
+
+    #[test]
+    fn noms_de_nouveaux_documents() {
+        assert_eq!(clean_name(" Chapitre 3 — Bilan.docx ").as_deref(), Some("Chapitre 3 — Bilan"));
+        assert_eq!(clean_name("../../etc/passwd").as_deref(), Some("-..-etc-passwd"));
+        assert_eq!(clean_name(".docx"), None);
+        assert_eq!(clean_name("   "), None);
+        let dir = tempfile::tempdir().unwrap();
+        let a = create_unique(dir.path(), "Brouillon", b"x").unwrap();
+        let b = create_unique(dir.path(), "Brouillon", b"y").unwrap();
+        assert!(a.ends_with("Brouillon.docx") && b.ends_with("Brouillon 2.docx"));
+        assert_eq!(std::fs::read(&a).unwrap(), b"x");
     }
 }

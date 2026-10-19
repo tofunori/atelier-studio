@@ -24,6 +24,7 @@ pub mod edit;
 pub mod layout;
 pub mod math;
 pub mod model;
+pub mod new;
 pub mod objects;
 pub mod review;
 pub mod structure;

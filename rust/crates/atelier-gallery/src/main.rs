@@ -2653,6 +2653,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/prefs", get(docx::get_prefs).post(docx::post_prefs))
         .route("/docx/media", get(docx::media))
         .route("/docx/figures", get(docx::figures))
+        .route("/docx/new", post(docx::create))
+        .route("/docx/list", get(docx::list))
         .route("/lint", get(documents::lint))
         // Phase 5 — notes + whiteboard
         .route("/notes/load", get(workspace::notes_load))
