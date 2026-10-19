@@ -245,8 +245,12 @@ export default function AtelierPane({
   const loadedFramesRef = useRef(new Set<string>());
   const flushingFramesRef = useRef(new Set<string>());
   const [frameEpoch, bumpFrameEpoch] = useReducer((count: number) => count + 1, 0);
-  const frameSources = useMemo(() => {
+  // Le rendu ne fait que lire les refs ; leurs écritures attendent le commit
+  // (useLayoutEffect), pour qu'un rendu rejoué ou abandonné ne laisse rien.
+  const framePlan = useMemo(() => {
     const next = new Map<string, FrameSource>();
+    const unloaded: string[] = [];
+    const gotos: Array<[string, string]> = [];
     for (const tab of documentTabs) {
       const previous = frameSourcesRef.current.get(tab.id);
       const update = reconcileFrameSource(previous, tab.url, loadedFramesRef.current.has(tab.id));
@@ -254,14 +258,19 @@ export default function AtelierPane({
       if (update.reload && previous && isDocumentUnsaved(tab.id)) {
         source = { src: previous.src, url: tab.url, pendingSrc: tab.url };
       } else if (update.reload) {
-        loadedFramesRef.current.delete(tab.id);
+        unloaded.push(tab.id);
       }
-      if (update.gotoLine) pendingGotoRef.current.set(tab.id, update.gotoLine);
+      if (update.gotoLine) gotos.push([tab.id, update.gotoLine]);
       next.set(tab.id, source);
     }
-    frameSourcesRef.current = next;
-    return next;
+    return { next, unloaded, gotos };
   }, [documentTabs, frameEpoch]);
+  useLayoutEffect(() => {
+    frameSourcesRef.current = framePlan.next;
+    for (const id of framePlan.unloaded) loadedFramesRef.current.delete(id);
+    for (const [id, line] of framePlan.gotos) pendingGotoRef.current.set(id, line);
+  }, [framePlan]);
+  const frameSources = framePlan.next;
   const [workspace, setWorkspace] = useState<WorkspaceLayout>(() =>
     loadWorkspaceLayout(localStorage, projectRoot, documentIds, activeTab));
   const paneMenuHost = useWorkspacePaneMenuHost();
