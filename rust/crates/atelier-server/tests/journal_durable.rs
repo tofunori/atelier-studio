@@ -67,6 +67,30 @@ fn le_serveur_survit_a_la_fermeture_de_ses_pipes_et_journalise_sur_disque() {
     drop(parent_log);
     std::thread::sleep(Duration::from_millis(200));
 
+    // stdout (fd 1) n'est plus le pipe mort mais le journal, comme stderr
+    // (fd 2) : aucun println! du serveur ne passe après la ligne de
+    // démarrage, il faut donc regarder le descripteur lui-même.
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let journal = std::fs::metadata(&log_path).unwrap();
+        let same = |fd: u32| {
+            std::fs::metadata(format!("/proc/{}/fd/{fd}", child.id()))
+                .map(|meta| meta.dev() == journal.dev() && meta.ino() == journal.ino())
+                .unwrap_or(false)
+        };
+        let mut stdout_on_journal = false;
+        for _ in 0..40 {
+            if same(1) {
+                stdout_on_journal = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(stdout_on_journal, "fd 1 n'est pas le journal après la ligne de démarrage");
+        assert!(same(2), "fd 2 n'est pas le journal");
+    }
+
     for _ in 0..3 {
         assert_eq!(health_status(port), "HTTP/1.1 200 OK");
     }

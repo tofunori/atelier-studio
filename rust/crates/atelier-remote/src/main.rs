@@ -42,6 +42,21 @@ fn contains_long_hex_run(text: &str) -> bool {
     false
 }
 
+/// Contrôle SEC-03 : vrai si `gateway.log` OU l'un de ses anciens fichiers
+/// (`gateway.1.log`…, laissés par la rotation d'atelier-logs) contient un
+/// jeton en clair. Appelé AVANT d'ouvrir le journal tournant : son ouverture
+/// peut faire tourner un ancien `gateway.log` de plus de 5 Mio, et le
+/// contrôle ne doit pas lire alors un fichier neuf et vide.
+fn log_leaked_token(log_path: &std::path::Path, keep: usize) -> bool {
+    std::iter::once(log_path.to_path_buf())
+        .chain((1..=keep).map(|index| atelier_logs::rotated_path(log_path, index)))
+        .any(|path| {
+            std::fs::read(&path)
+                .map(|bytes| contains_long_hex_run(&String::from_utf8_lossy(&bytes)))
+                .unwrap_or(false)
+        })
+}
+
 // HTTPS proxy peers appear local: never expose administration through this adapter.
 async fn deny_admin_on_relay(request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
     if request.uri().path().starts_with("/remote/admin") {
@@ -64,6 +79,11 @@ async fn main() {
     let loopback_hosts = config.allowed_hosts.clone();
     let local_socket = config.data_dir.join("pair.sock");
     let log_path = config.data_dir.join("gateway.log");
+    let rotation_marker = config.data_dir.join(".sec062_admin_rotated");
+    let migration_pending = !rotation_marker.exists();
+    // Lu avant toute rotation du journal (voir log_leaked_token).
+    let leaked_before_fix =
+        migration_pending && log_leaked_token(&log_path, atelier_logs::Rotation::DEFAULT.keep);
     // Lancé par l'app (remote_gateway.rs), stderr EST gateway.log : le
     // journal est alors repris pour tourner à taille bornée (fichiers 0600)
     // et un panic hook y écrit lieu, message et pile. En terminal, rien ne
@@ -79,8 +99,6 @@ async fn main() {
     } else {
         None
     };
-    let rotation_marker = config.data_dir.join(".sec062_admin_rotated");
-    let migration_pending = !rotation_marker.exists();
 
     match serve(config).await {
         Ok(handle) => {
@@ -149,10 +167,8 @@ async fn main() {
                 // Correctif SEC-03 : un jeton admin en clair a pu être écrit
                 // dans gateway.log par une version antérieure (log non 0600,
                 // token imprimé en entier). Rotation forcée, une seule fois,
-                // si un tel jeton est détecté dans le log existant.
-                let leaked_before_fix = std::fs::read_to_string(&log_path)
-                    .map(|text| contains_long_hex_run(&text))
-                    .unwrap_or(false);
+                // si un tel jeton est détecté dans le log existant (lu au
+                // démarrage, avant la rotation du journal).
                 if leaked_before_fix {
                     let mut g = handle.state.inner.lock().await;
                     if let Ok(new_admin) = g.auth.rotate_admin_token() {
@@ -224,6 +240,43 @@ mod tests {
             "a".repeat(64)
         );
         assert!(contains_long_hex_run(&leaked));
+    }
+
+    #[test]
+    fn sec03_sees_a_leaked_token_in_a_big_log_despite_the_startup_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("gateway.log");
+        let rotation = atelier_logs::Rotation::DEFAULT;
+        // Ancien gateway.log sans limite : le jeton en tête, puis plus de
+        // 5 Mio de lignes sans hex long.
+        let mut text = format!("admin token (loopback only): {}\n", "c".repeat(64));
+        while (text.len() as u64) <= rotation.max_bytes {
+            text.push_str("GET /remote/health 200 en 1 ms\n");
+        }
+        std::fs::write(&log_path, &text).unwrap();
+        // Ordre de main : contrôle d'abord, puis ouverture (qui fait tourner).
+        assert!(log_leaked_token(&log_path, rotation.keep), "jeton manqué avant rotation");
+        let _log = atelier_logs::ServerLog::open(&log_path, rotation).unwrap();
+        assert!(
+            atelier_logs::rotated_path(&log_path, 1).exists(),
+            "la rotation de démarrage n'a pas eu lieu : le test ne prouve rien"
+        );
+        assert!(
+            !contains_long_hex_run(&std::fs::read_to_string(&log_path).unwrap()),
+            "le fichier courant neuf ne contient pas le jeton"
+        );
+        // Même lu après la rotation, le contrôle voit le jeton dans gateway.1.log.
+        assert!(log_leaked_token(&log_path, rotation.keep), "jeton manqué après rotation");
+    }
+
+    #[test]
+    fn sec03_clean_logs_trigger_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("gateway.log");
+        assert!(!log_leaked_token(&log_path, 3), "journal absent");
+        std::fs::write(&log_path, "port=18765\n").unwrap();
+        std::fs::write(atelier_logs::rotated_path(&log_path, 2), "empreinte abcdef…\n").unwrap();
+        assert!(!log_leaked_token(&log_path, 3));
     }
 
     #[test]

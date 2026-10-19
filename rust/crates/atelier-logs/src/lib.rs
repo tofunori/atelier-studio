@@ -67,6 +67,12 @@ fn non_empty(value: Option<OsString>) -> Option<OsString> {
     value.filter(|value| !value.is_empty())
 }
 
+/// Chemin du journal transmis par le parent (`ATELIER_LOG_FILE`), s'il est
+/// défini et non vide. Ne lance rien et ne modifie pas l'environnement.
+pub fn log_file_from_env() -> Option<PathBuf> {
+    non_empty(std::env::var_os(LOG_FILE_ENV)).map(PathBuf::from)
+}
+
 /// Dossier des journaux : `ATELIER_LOG_DIR` s'il est défini, sinon
 /// `~/Library/Logs/Atelier` sur macOS, `$XDG_STATE_HOME/atelier/logs` ou
 /// `~/.local/state/atelier/logs` ailleurs.
@@ -591,7 +597,14 @@ impl ServerLog {
     /// parent l'y a branché ([`ChildLog::attach`]) ; sinon la variable est
     /// ignorée et rien n'est écrit dans le journal d'un autre processus.
     pub fn from_env() -> Option<Self> {
-        let path = PathBuf::from(non_empty(std::env::var_os(LOG_FILE_ENV))?);
+        Self::adopt_path(log_file_from_env()?)
+    }
+
+    /// Comme [`ServerLog::from_env`], pour un chemin déjà lu (et la variable
+    /// déjà retirée de l'environnement par l'appelant, avant que le fil de
+    /// maintenance ne démarre : modifier l'environnement n'est sûr que dans
+    /// un processus à un seul fil).
+    pub fn adopt_path(path: PathBuf) -> Option<Self> {
         if !stderr_is(&path) {
             return None;
         }

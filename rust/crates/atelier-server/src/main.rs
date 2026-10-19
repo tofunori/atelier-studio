@@ -19,12 +19,15 @@ const PROGRAM: &str = "atelier-studio-server";
 
 fn main() {
     atelier_fdlimit::raise_nofile_limit();
-    let log = ServerLog::from_env();
     // Les CLI d'agent et tout ce qu'ils lancent ne doivent pas hériter du
     // chemin de CE journal (ils y écriraient leurs propres serveurs de
-    // test). Retiré ici, avant que le runtime ne démarre le moindre fil :
-    // modifier l'environnement n'est sûr que dans un processus à un fil.
+    // test). Le chemin est lu puis la variable retirée AVANT tout fil (ni
+    // runtime tokio, ni fil de maintenance d'atelier-logs, que adopt_path
+    // lance) : modifier l'environnement n'est sûr que dans un processus à
+    // un seul fil.
+    let log_path = atelier_logs::log_file_from_env();
     std::env::remove_var(atelier_logs::LOG_FILE_ENV);
+    let log = log_path.and_then(ServerLog::adopt_path);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
