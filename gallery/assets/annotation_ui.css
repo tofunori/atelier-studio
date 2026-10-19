@@ -31,26 +31,25 @@
 .atelier-note .atelier-note-gap{flex:1}
 .atelier-note .delete-note{width:24px;height:24px;border-radius:var(--radius-control,6px)}
 .atelier-note .delete-note:hover{background:var(--surface-hover,var(--card2,#ffffff0a));color:var(--status-error,#e06c75)}
-.atelier-note .atelier-note-row{display:flex;align-items:center;gap:4px}
-.atelier-note .atelier-note-field{flex:1;min-width:0;display:flex;align-items:flex-end;gap:4px;padding:4px 4px 4px 12px;border-radius:999px;background:var(--surface-inset,var(--bg-ctl,#2c2f34));box-shadow:inset 0 0 0 1px transparent;transition:box-shadow var(--motion-fast,120ms),border-radius var(--motion-fast,120ms)}
-/* Plusieurs lignes : rectangle arrondi (comme le composer du chat), sinon les bouts de la pilule rognent le texte. */
-.atelier-note .atelier-note-field.is-multiline{border-radius:var(--radius-surface,10px)}
-/* Texte long : bulle « composer » (Thierry 2026-09-30, maquette B) : plus large,
-   texte sur toute la largeur, boutons en dessous, corbeille à gauche. */
+/* Fiche d'un seul tenant (Thierry 2026-10-19, maquette A) : la carte est le
+   champ, sans pilule interne. Pied : corbeille à gauche, rappel « Entrée »,
+   envoi en anneau fin qui ne se remplit que lorsqu'il y a du texte. */
+.atelier-note .atelier-note-field{display:flex;flex-direction:column;gap:4px}
+.atelier-note .atelier-note-field textarea{height:24px;min-height:24px;max-height:124px;padding:2px 0}
+/* Texte long : bulle « composer » plus large (Thierry 2026-09-30). */
 .atelier-note.atelier-note-wide{width:min(520px,calc(100vw - 16px))}
-.atelier-note .atelier-note-row:has(>.is-multiline){position:relative}
-.atelier-note .atelier-note-field.is-multiline{flex-wrap:wrap;row-gap:8px;padding:8px 8px 8px 12px}
-.atelier-note .atelier-note-field.is-multiline textarea{flex:1 0 100%;max-height:244px;padding:2px 4px 2px 0}
-.atelier-note .atelier-note-field.is-multiline textarea+button{margin-left:auto}
-.atelier-note .atelier-note-row>.is-multiline+.delete-note{position:absolute;left:8px;bottom:8px;width:24px;height:24px;border-radius:999px}
-.atelier-note .atelier-note-field:focus-within{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text-primary,#dadee3) 22%,transparent)}
-.atelier-note .atelier-note-field textarea{flex:1;min-width:0;height:24px;min-height:24px;max-height:124px;padding:2px 0}
-.atelier-note .atelier-note-field button{width:24px;height:24px;border-radius:999px}
-.atelier-note .atelier-note-field .send-direct:hover{background:var(--surface-hover,var(--card2,#ffffff0a));color:var(--text-primary,var(--txt,#dadee3))}
-.atelier-note .atelier-note-field .send2{background:color-mix(in srgb,var(--text-primary,#dadee3) 8%,transparent);color:var(--text-disabled,var(--muted2,#62666c))}
-.atelier-note .atelier-note-field .send2 svg{width:14px;height:14px}
-.atelier-note .atelier-note-field:has(textarea:not(:placeholder-shown)) .send2,.atelier-note .atelier-note-field .send2:hover{background:var(--text-primary,#dadee3);color:var(--surface-overlay,#24282d)}
-.atelier-note .atelier-note-row>.delete-note{width:28px;height:28px}
+.atelier-note .atelier-note-field.is-multiline textarea{max-height:244px}
+/* Sous un titre, une note perso ou des codes (lecteur PDF), un filet sépare le champ du chat. */
+.atelier-note>.atelier-note-row:not(:first-child){margin:8px -12px 0;padding:8px 12px 0;border-top:1px solid var(--border,color-mix(in srgb,var(--text-primary,#dadee3) 10%,transparent))}
+.atelier-note .atelier-note-actions{display:flex;align-items:center;gap:4px;margin:0 -6px -4px}
+.atelier-note .atelier-note-actions button{width:24px;height:24px}
+.atelier-note .atelier-note-actions button svg{width:14px;height:14px}
+.atelier-note .atelier-note-hint{display:inline-flex;align-items:center;gap:4px;margin-right:4px;font-size:var(--fs-label,11px);line-height:1.3;color:var(--text-disabled,var(--muted2,#62666c));white-space:nowrap;user-select:none}
+.atelier-note .atelier-note-hint svg{width:12px;height:12px;flex:none}
+.atelier-note .atelier-note-actions .send-direct{border-radius:var(--radius-control,6px)}
+.atelier-note .atelier-note-actions .send-direct:hover{background:var(--surface-hover,var(--card2,#ffffff0a));color:var(--text-primary,var(--txt,#dadee3))}
+.atelier-note .atelier-note-actions .send2{border-radius:999px;color:var(--text-disabled,var(--muted2,#62666c));box-shadow:inset 0 0 0 1px var(--border-strong,#43474c)}
+.atelier-note .atelier-note-field:has(textarea:not(:placeholder-shown)) .send2,.atelier-note .atelier-note-actions .send2:hover{background:var(--text-primary,#dadee3);color:var(--surface-overlay,#24282d);box-shadow:none}
 .atelier-note .atelier-mark-style{display:flex;align-items:center;gap:8px}
 .atelier-note .atelier-mark-style button{box-sizing:border-box;outline:2px solid transparent;outline-offset:2px;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms),outline-color var(--motion-fast,120ms)}
 .atelier-note .atelier-mark-kind{width:28px;height:28px;margin-right:-4px;border-radius:var(--radius-control,6px)}
@@ -65,7 +64,7 @@
 .atelier-note .atelier-memo-input::placeholder{color:var(--text-disabled,var(--muted2,#62666c))}
 .atelier-note .annotation-status{font-size:var(--fs-label,11px);color:var(--text-secondary,var(--muted,#b8bec7));line-height:1.4}
 .atelier-note .annotation-status:empty{display:none}
-@media(prefers-reduced-motion:reduce){.atelier-selection .atelier-capsule,.atelier-selection .atelier-swatch,.atelier-note button,.atelier-note .atelier-note-field{transition:none}}
+@media(prefers-reduced-motion:reduce){.atelier-selection .atelier-capsule,.atelier-selection .atelier-swatch,.atelier-note button{transition:none}}
 /* Pastille de marge : anneau fin dans l'encre du fond qui la porte (graphite
    sur la page PDF, texte du thème ailleurs), jamais l'accent ni une teinte de
    surlignage. Elle se remplit au survol. */
