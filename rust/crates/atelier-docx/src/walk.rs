@@ -3,6 +3,7 @@
 //! leurs commentaires actifs et, pour le texte simple hors suivi, la
 //! référence au run XML qui permettra de le retoucher.
 
+use crate::story::Scope;
 use crate::xml::{M, W, id_of, inner_range, is_w, start_tag, w_attr, w_child};
 use roxmltree::{Document, Node};
 use std::ops::Range;
@@ -112,6 +113,21 @@ pub struct Piece {
     pub run: Option<(usize, usize)>,
     /// Position de l'enfant direct du paragraphe qui contient le morceau.
     pub top: Range<usize>,
+    /// Objet ou champ entier, supprimable d'un bloc (figure, appel de note,
+    /// citation, équation) : sa position dans le XML.
+    pub unit: Option<Range<usize>>,
+    /// Image : relation vers le fichier, taille affichée.
+    pub media: Option<Media>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Media {
+    /// `r:embed` (ou `r:id` d'une image VML).
+    pub rel: String,
+    /// Taille en EMU (914 400 par pouce).
+    pub cx: u64,
+    pub cy: u64,
+    pub descr: String,
 }
 
 #[derive(Default)]
@@ -128,6 +144,12 @@ struct FieldFrame {
     instr: String,
     in_result: bool,
     kind: String,
+    /// Run `begin` : début du champ, son parent, et le premier morceau du
+    /// paragraphe produit par le champ (pour le supprimer d'un bloc).
+    begin: usize,
+    parent: Option<roxmltree::NodeId>,
+    first_piece: usize,
+    clean: bool,
 }
 
 /// État qui traverse les paragraphes : commentaires ouverts, champs ouverts
@@ -144,13 +166,13 @@ pub struct ParaRef<'a, 'i> {
     pub cell: Option<(u32, u32, u32)>,
 }
 
-/// Paragraphes du corps dans l'ordre de lecture (cellules comprises,
-/// zones de texte des dessins exclues).
-pub fn paragraphs<'a, 'i>(doc: &'a Document<'i>) -> Vec<ParaRef<'a, 'i>> {
+/// Paragraphes d'une histoire (corps, note, en-tête…) dans l'ordre de
+/// lecture (cellules comprises, zones de texte des dessins exclues).
+pub(crate) fn paragraphs_in<'a, 'i>(doc: &'a Document<'i>, scope: &Scope) -> Vec<ParaRef<'a, 'i>> {
     let mut out = Vec::new();
     let mut tables = 0;
-    if let Some(body) = w_child(doc.root_element(), "body") {
-        blocks(body, None, &mut tables, &mut out);
+    if let Some(c) = crate::story::container(doc, scope) {
+        blocks(c, None, &mut tables, &mut out);
     }
     out
 }
@@ -250,6 +272,9 @@ fn visit(node: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
     if ns == Some(M) && (name == "oMath" || name == "oMathPara") {
         let text: String = node.descendants().filter(|n| n.tag_name().namespace() == Some(M) && n.tag_name().name() == "t").filter_map(|n| n.text()).collect();
         push(ctx, state, out, text, Kind::Object("équation".into()), Fmt::default(), None);
+        if ctx.revs.is_empty() && ctx.top == node.range() && let Some(last) = out.pieces.last_mut() {
+            last.unit = Some(node.range());
+        }
         return;
     }
     if ns != Some(W) {
@@ -288,10 +313,16 @@ fn visit(node: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
         }
         "fldSimple" => {
             let prev = ctx.simple_field.replace(classify_field(w_attr(node, "instr").unwrap_or("")));
+            let first = out.pieces.len();
             for c in node.children().filter(|n| n.is_element()) {
                 visit(c, ctx, state, out);
             }
             ctx.simple_field = prev;
+            if ctx.revs.is_empty() && ctx.simple_field.is_none() && state.fields.is_empty() {
+                for p in &mut out.pieces[first..] {
+                    p.unit = Some(node.range());
+                }
+            }
         }
         "commentRangeStart" => {
             if let Some(id) = id_of(node) {
@@ -315,6 +346,9 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
     let in_ins = ctx.revs.len() == 1 && ctx.revs[0].0 == RevKind::Ins;
     let mut simple = (ctx.revs.is_empty() || in_ins) && ctx.simple_field.is_none() && state.fields.is_empty() && ctx.editable_parent;
     let mut pieces: Vec<(String, Kind, Option<usize>)> = Vec::new();
+    let mut media = None;
+    let mut whole = false;
+    let mut field_unit: Option<Range<usize>> = None;
     for c in r.children().filter(|n| n.is_element()) {
         let ns = c.tag_name().namespace();
         let name = c.tag_name().name();
@@ -341,7 +375,15 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
             "fldChar" => {
                 simple = false;
                 match w_attr(c, "fldCharType") {
-                    Some("begin") => state.fields.push(FieldFrame { instr: String::new(), in_result: false, kind: String::new() }),
+                    Some("begin") => state.fields.push(FieldFrame {
+                        instr: String::new(),
+                        in_result: false,
+                        kind: String::new(),
+                        begin: r.range().start,
+                        parent: r.parent().map(|p| p.id()),
+                        first_piece: out.pieces.len(),
+                        clean: ctx.revs.is_empty() && ctx.simple_field.is_none(),
+                    }),
                     Some("separate") => {
                         if let Some(f) = state.fields.last_mut() {
                             f.in_result = true;
@@ -349,7 +391,14 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
                         }
                     }
                     Some("end") => {
-                        state.fields.pop();
+                        if let Some(f) = state.fields.pop()
+                            && state.fields.is_empty() && f.clean && ctx.revs.is_empty() && f.parent == r.parent().map(|p| p.id()) && f.first_piece <= out.pieces.len() {
+                                for p in &mut out.pieces[f.first_piece..] {
+                                    p.unit = Some(f.begin..r.range().end);
+                                }
+                                // Les morceaux du résultat sont poussés après ce run : voir plus bas.
+                                field_unit = Some(f.begin..r.range().end);
+                            }
                     }
                     _ => {}
                 }
@@ -364,8 +413,11 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
             }
             "drawing" | "pict" | "object" => {
                 simple = false;
-                let label = if name == "drawing" { "image" } else { "objet" };
-                pieces.push((String::new(), Kind::Object(label.into()), None));
+                media = media_of(c);
+                let label = if name == "drawing" || media.is_some() { "image" } else { "objet" };
+                // Un caractère de remplacement : la figure occupe une position.
+                pieces.push(("\u{FFFC}".into(), Kind::Object(label.into()), None));
+                whole = true;
                 None
             }
             "footnoteReference" | "endnoteReference" => {
@@ -373,6 +425,7 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
                 let n = w_attr(c, "id").unwrap_or("");
                 let label = if name == "footnoteReference" { "note" } else { "note de fin" };
                 pieces.push((n.to_string(), Kind::Object(label.into()), None));
+                whole = true;
                 None
             }
             "commentReference" => {
@@ -385,6 +438,7 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
             "sym" => {
                 simple = false;
                 pieces.push(("\u{FFFD}".into(), Kind::Object("symbole".into()), None));
+                whole = true;
                 None
             }
             _ => {
@@ -427,7 +481,37 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
         }
         let run_ref = run_idx.zip(tok);
         push(ctx, state, out, text, kind, fmt.clone(), run_ref);
+        let last = out.pieces.last_mut().unwrap();
+        last.media = media.clone();
+        // Objet seul dans son run, hors suivi et hors champ : supprimable.
+        let alone = r.children().filter(|n| n.is_element() && !is_w(*n, "rPr")).count() == 1;
+        if whole && alone && ctx.revs.is_empty() && ctx.simple_field.is_none() && state.fields.is_empty() && ctx.editable_parent {
+            last.unit = Some(r.range());
+        }
+        if let Some(u) = &field_unit {
+            last.unit = Some(u.clone());
+        }
     }
+}
+
+/// Image d'un dessin (DrawingML) ou d'une forme VML.
+fn media_of(node: Node) -> Option<Media> {
+    let rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let blip = node.descendants().find(|n| n.tag_name().name() == "blip").and_then(|b| b.attribute((rel_ns, "embed")));
+    let vml = node.descendants().find(|n| n.tag_name().name() == "imagedata").and_then(|b| b.attribute((rel_ns, "id")));
+    let rel = blip.or(vml)?.to_string();
+    let (mut cx, mut cy) = (0, 0);
+    if let Some(ext) = node.descendants().find(|n| n.tag_name().name() == "extent") {
+        cx = ext.attribute("cx").and_then(|v| v.parse().ok()).unwrap_or(0);
+        cy = ext.attribute("cy").and_then(|v| v.parse().ok()).unwrap_or(0);
+    } else if let Some(style) = node.descendants().find(|n| n.tag_name().name() == "shape").and_then(|s| s.attribute("style")) {
+        // VML : « width:226.8pt;height:113.4pt »
+        let pt = |key: &str| style.split(';').find_map(|kv| kv.trim().strip_prefix(key)).and_then(|v| v.trim_start_matches(':').trim().strip_suffix("pt")).and_then(|v| v.parse::<f64>().ok());
+        cx = pt("width").map(|v| (v * 12_700.0) as u64).unwrap_or(0);
+        cy = pt("height").map(|v| (v * 12_700.0) as u64).unwrap_or(0);
+    }
+    let descr = node.descendants().find(|n| n.tag_name().name() == "docPr").and_then(|d| d.attribute("descr").or(d.attribute("name"))).unwrap_or("").to_string();
+    Some(Media { rel, cx, cy, descr })
 }
 
 fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fmt: Fmt, run: Option<(usize, usize)>) {
@@ -439,6 +523,8 @@ fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fm
         comments: state.comments.clone(),
         run,
         top: ctx.top.clone(),
+        unit: None,
+        media: None,
     });
 }
 

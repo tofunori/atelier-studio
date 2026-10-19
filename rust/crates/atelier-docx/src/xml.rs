@@ -8,6 +8,7 @@ pub const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/mai
 pub const W14: &str = "http://schemas.microsoft.com/office/word/2010/wordml";
 pub const W15: &str = "http://schemas.microsoft.com/office/word/2012/wordml";
 pub const M: &str = "http://schemas.openxmlformats.org/officeDocument/2006/math";
+pub const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 pub fn parse(text: &str) -> Result<Document<'_>> {
     let opts = ParsingOptions { allow_dtd: false, ..ParsingOptions::default() };

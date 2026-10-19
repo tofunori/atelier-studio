@@ -7,7 +7,7 @@
 
 use crate::edit::{cut, find_in, next_ids, run_len, run_starts, run_xml, target};
 use crate::xml::{self, W14, W15, escape_attr, escape_text, id_of, is_w};
-use crate::{COMMENTS, COMMENTS_EXT, DOCUMENT, Docx, Result, Signature, err};
+use crate::{COMMENTS, COMMENTS_EXT, Docx, Result, Signature, err};
 use std::collections::BTreeMap;
 use std::ops::Range;
 
@@ -151,7 +151,7 @@ pub struct CommentResult {
 
 /// Commente le passage `find` du paragraphe.
 pub fn add(docx: &mut Docx, paragraph: &str, find: &str, occurrence: Option<usize>, text: &str, sig: &Signature) -> Result<CommentResult> {
-    let src = docx.document_xml().to_string();
+    let (_, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     let t = target(&src, &doc, paragraph)?;
     let (s, e) = find_in(&t.text, find, occurrence, paragraph)?;
@@ -161,7 +161,7 @@ pub fn add(docx: &mut Docx, paragraph: &str, find: &str, occurrence: Option<usiz
 
 /// Commente les caractères [start, end) du texte courant (sélection du panneau).
 pub fn add_range(docx: &mut Docx, paragraph: &str, s: usize, e: usize, text: &str, sig: &Signature) -> Result<CommentResult> {
-    let src = docx.document_xml().to_string();
+    let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
@@ -239,7 +239,7 @@ pub fn add_range(docx: &mut Docx, paragraph: &str, s: usize, e: usize, text: &st
     }
     drop(doc);
     let out = xml::splice(&src, merged)?;
-    docx.set_part(DOCUMENT, out);
+    docx.set_part(&story.part, out);
     let pid = append_comment(docx, id, text, sig)?;
     set_ext(docx, &pid, None, Some(false))?;
     Ok(CommentResult { id })
@@ -249,26 +249,35 @@ pub fn add_range(docx: &mut Docx, paragraph: &str, s: usize, e: usize, text: &st
 pub fn reply(docx: &mut Docx, parent: u32, text: &str, sig: &Signature) -> Result<CommentResult> {
     let parent_pid = comment_para_id(docx, parent)?;
     let id = next_ids(docx, 1)?[0];
-    let src = docx.document_xml().to_string();
-    let doc = xml::parse(&src)?;
-    xml::require_w_prefix(&doc)?;
-    let find = |name: &str| doc.descendants().find(|n| is_w(*n, name) && id_of(*n) == Some(parent));
-    let mut edits = Vec::new();
-    if let Some(start) = find("commentRangeStart") {
-        let at = start.range().end;
-        edits.push((at..at, format!("<w:commentRangeStart w:id=\"{id}\"/>")));
+    // L'ancrage du commentaire peut être dans le corps, une note, un en-tête.
+    let mut anchored = false;
+    for part in docx.story_parts() {
+        let Some(src) = docx.part(&part)? else { continue };
+        let doc = xml::parse(&src)?;
+        let find = |name: &str| doc.descendants().find(|n| is_w(*n, name) && id_of(*n) == Some(parent));
+        let after_ref = doc
+            .descendants()
+            .find(|n| is_w(*n, "commentReference") && id_of(*n) == Some(parent))
+            .and_then(|r| r.parent().filter(|p| is_w(*p, "r")))
+            .map(|r| r.range().end)
+            .or_else(|| find("commentRangeEnd").map(|n| n.range().end));
+        let Some(at) = after_ref else { continue };
+        xml::require_w_prefix(&doc)?;
+        let mut edits = Vec::new();
+        if let Some(start) = find("commentRangeStart") {
+            let s = start.range().end;
+            edits.push((s..s, format!("<w:commentRangeStart w:id=\"{id}\"/>")));
+        }
+        edits.push((at..at, reference_run(id)));
+        drop(doc);
+        let out = xml::splice(&src, edits)?;
+        docx.set_part(&part, out);
+        anchored = true;
+        break;
     }
-    let after_ref = doc
-        .descendants()
-        .find(|n| is_w(*n, "commentReference") && id_of(*n) == Some(parent))
-        .and_then(|r| r.parent().filter(|p| is_w(*p, "r")))
-        .map(|r| r.range().end)
-        .or_else(|| find("commentRangeEnd").map(|n| n.range().end));
-    let Some(at) = after_ref else { return err(format!("ancrage du commentaire {parent} introuvable")) };
-    edits.push((at..at, reference_run(id)));
-    drop(doc);
-    let out = xml::splice(&src, edits)?;
-    docx.set_part(DOCUMENT, out);
+    if !anchored {
+        return err(format!("ancrage du commentaire {parent} introuvable"));
+    }
     let pid = append_comment(docx, id, text, sig)?;
     set_ext(docx, &parent_pid, None, None)?;
     set_ext(docx, &pid, Some(&parent_pid), Some(false))?;
@@ -294,21 +303,26 @@ pub fn delete(docx: &mut Docx, id: u32) -> Result<()> {
     if !model.comments.iter().any(|c| c.id == id) {
         return err(format!("commentaire {id} introuvable"));
     }
-    let src = docx.document_xml().to_string();
-    let doc = xml::parse(&src)?;
-    let mut edits = Vec::new();
-    for n in doc.descendants().filter(|n| n.is_element() && id_of(*n).is_some_and(|i| ids.contains(&i))) {
-        if is_w(n, "commentRangeStart") || is_w(n, "commentRangeEnd") {
-            edits.push((n.range(), String::new()));
-        } else if is_w(n, "commentReference") {
-            let run = n.parent().filter(|p| is_w(*p, "r"));
-            let alone = run.is_some_and(|r| r.children().filter(|c| c.is_element() && !is_w(*c, "rPr")).count() == 1);
-            edits.push((if alone { run.unwrap().range() } else { n.range() }, String::new()));
+    for part in docx.story_parts() {
+        let Some(src) = docx.part(&part)? else { continue };
+        let doc = xml::parse(&src)?;
+        let mut edits = Vec::new();
+        for n in doc.descendants().filter(|n| n.is_element() && id_of(*n).is_some_and(|i| ids.contains(&i))) {
+            if is_w(n, "commentRangeStart") || is_w(n, "commentRangeEnd") {
+                edits.push((n.range(), String::new()));
+            } else if is_w(n, "commentReference") {
+                let run = n.parent().filter(|p| is_w(*p, "r"));
+                let alone = run.is_some_and(|r| r.children().filter(|c| c.is_element() && !is_w(*c, "rPr")).count() == 1);
+                edits.push((if alone { run.unwrap().range() } else { n.range() }, String::new()));
+            }
         }
+        if edits.is_empty() {
+            continue;
+        }
+        drop(doc);
+        let out = xml::splice(&src, edits)?;
+        docx.set_part(&part, out);
     }
-    drop(doc);
-    let out = xml::splice(&src, edits)?;
-    docx.set_part(DOCUMENT, out);
 
     let ctext = docx.part(COMMENTS)?.unwrap_or_default();
     let cdoc = xml::parse(&ctext)?;

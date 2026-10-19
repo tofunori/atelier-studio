@@ -75,7 +75,7 @@ fn locate(docx: &mut Docx, paragraph: Option<&str>, find: &str, occurrence: Opti
     }
     let model = docx.model()?;
     let mut hits: Vec<(String, usize)> = Vec::new();
-    for p in &model.paragraphs {
+    for p in model.all_paragraphs() {
         let n = p.text.matches(find).count();
         for k in 1..=n {
             hits.push((p.id.clone(), k));
@@ -124,12 +124,15 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
         }
         Op::InsertParagraph { after, text } => {
             let model = docx.model()?;
-            let Some(i) = model.paragraphs.iter().position(|p| p.id == *after || p.para_id.as_deref() == Some(after.as_str())) else {
+            let Some(p) = model.all_paragraphs().find(|p| p.id == *after || p.para_id.as_deref() == Some(after.as_str())) else {
                 return err(format!("paragraphe {after} introuvable"));
             };
-            let end = model.paragraphs[i].text.chars().count();
-            structure::split(docx, &model.paragraphs[i].id, end, tracked, sig)?;
-            let new_id = format!("p{}", i + 1);
+            let end = p.text.chars().count();
+            let id = p.id.clone();
+            structure::split(docx, &id, end, tracked, sig)?;
+            let (prefix, local) = id.rsplit_once('.').map(|(a, b)| (format!("{a}."), b.to_string())).unwrap_or((String::new(), id.clone()));
+            let i: usize = local.trim_start_matches('p').parse().unwrap_or(0);
+            let new_id = format!("{prefix}p{}", i + 1);
             if !text.is_empty() {
                 edit::insert(docx, &new_id, 0, text, tracked, sig)?;
             }
@@ -174,6 +177,63 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
     })
 }
 
+/// Une ligne du texte pour l'agent : identifiant, style, contenu annoté.
+fn para_line(p: &crate::model::Para) -> String {
+    let mut line = String::new();
+    let mut open: Vec<u32> = Vec::new();
+    for s in &p.segments {
+        for c in open.clone() {
+            if !s.comments.contains(&c) {
+                let _ = write!(line, "⟦/c{c}⟧");
+                open.retain(|x| *x != c);
+            }
+        }
+        for c in &s.comments {
+            if !open.contains(c) {
+                let _ = write!(line, "⟦c{c}⟧");
+                open.push(*c);
+            }
+        }
+        let body = match s.kind {
+            "tab" => "\t".to_string(),
+            "break" => "↵".to_string(),
+            "field" => match s.label.as_deref() {
+                Some(l) if l.starts_with("zotero") => format!("{{citation : {}}}", s.text),
+                Some(l) => format!("{{champ {l} : {}}}", s.text),
+                None => format!("{{champ : {}}}", s.text),
+            },
+            "object" => match (s.label.as_deref(), s.number) {
+                (Some("note"), Some(k)) => format!("{{note {k} : n{}}}", s.text),
+                (Some("note de fin"), Some(k)) => format!("{{note de fin {k} : e{}}}", s.text),
+                (l, _) => format!("{{{} : {}}}", l.unwrap_or("objet"), s.text),
+            },
+            _ => s.text.clone(),
+        };
+        match (s.rev, s.change) {
+            (Some("ins" | "moveTo"), Some(id)) => { let _ = write!(line, "[+{body}+]#{id}"); }
+            (Some(_), Some(id)) => { let _ = write!(line, "[-{body}-]#{id}"); }
+            _ => line.push_str(&body),
+        }
+    }
+    for c in open {
+        let _ = write!(line, "⟦/c{c}⟧");
+    }
+    let mut head = p.id.clone();
+    if let Some(h) = p.heading {
+        let _ = write!(head, " [titre {h}]");
+    } else if let Some(st) = &p.style
+        && st != "Normal" {
+            let _ = write!(head, " [{st}]");
+        }
+    if let Some([t, r, c]) = p.cell {
+        let _ = write!(head, " [tableau {t} ligne {r} cellule {c}]");
+    }
+    if let Some(id) = p.mark_change {
+        let _ = write!(head, " [marque de paragraphe #{id}]");
+    }
+    format!("{head} : {line}\n")
+}
+
 /// Le document en texte pour l'agent : un paragraphe par ligne, préfixé de
 /// son identifiant, suivis et commentaires marqués en ligne, puis la liste
 /// des suivis et des fils de commentaires. `from..to` borne les paragraphes ;
@@ -188,61 +248,38 @@ pub fn outline(model: &DocModel, from: usize, to: Option<usize>, max_chars: usiz
     let mut shown = 0;
     let mut cut_at = None;
     for p in model.paragraphs.iter().take(to).skip(from) {
-        let mut line = String::new();
-        let mut open: Vec<u32> = Vec::new();
-        for s in &p.segments {
-            for c in open.clone() {
-                if !s.comments.contains(&c) {
-                    let _ = write!(line, "⟦/c{c}⟧");
-                    open.retain(|x| *x != c);
-                }
-            }
-            for c in &s.comments {
-                if !open.contains(c) {
-                    let _ = write!(line, "⟦c{c}⟧");
-                    open.push(*c);
-                }
-            }
-            let body = match s.kind {
-                "tab" => "\t".to_string(),
-                "break" => "↵".to_string(),
-                "field" => match s.label.as_deref() {
-                    Some(l) if l.starts_with("zotero") => format!("{{citation : {}}}", s.text),
-                    Some(l) => format!("{{champ {l} : {}}}", s.text),
-                    None => format!("{{champ : {}}}", s.text),
-                },
-                "object" => format!("{{{} : {}}}", s.label.as_deref().unwrap_or("objet"), s.text),
-                _ => s.text.clone(),
-            };
-            match (s.rev, s.change) {
-                (Some("ins" | "moveTo"), Some(id)) => { let _ = write!(line, "[+{body}+]#{id}"); }
-                (Some(_), Some(id)) => { let _ = write!(line, "[-{body}-]#{id}"); }
-                _ => line.push_str(&body),
-            }
-        }
-        for c in open {
-            let _ = write!(line, "⟦/c{c}⟧");
-        }
-        let mut head = p.id.clone();
-        if let Some(h) = p.heading {
-            let _ = write!(head, " [titre {h}]");
-        } else if let Some(st) = &p.style
-            && st != "Normal" {
-                let _ = write!(head, " [{st}]");
-            }
-        if let Some([t, r, c]) = p.cell {
-            let _ = write!(head, " [tableau {t} ligne {r} cellule {c}]");
-        }
-        if let Some(id) = p.mark_change {
-            let _ = write!(head, " [marque de paragraphe #{id}]");
-        }
-        let entry = format!("{head} : {line}\n");
+        let entry = para_line(p);
         if shown + entry.len() > max_chars && shown > 0 {
             cut_at = Some(p.id.clone());
             break;
         }
         shown += entry.len();
         out.push_str(&entry);
+    }
+    // Notes, en-têtes et pieds : avec la fin du corps.
+    if cut_at.is_none() && to == n {
+        if !model.notes.is_empty() {
+            out.push_str("\nNotes (appel {note N : nK} dans le corps ; paragraphes nK.p0…) :\n");
+            for note in &model.notes {
+                let num = note.number.map(|k| k.to_string()).unwrap_or_else(|| "sans appel".into());
+                let kind = if note.kind == "endnote" { "note de fin" } else { "note" };
+                let _ = writeln!(out, "[{kind} {num}]");
+                for p in &note.paragraphs {
+                    out.push_str(&para_line(p));
+                }
+            }
+        }
+        if !model.headers.is_empty() {
+            out.push_str("\nEn-têtes et pieds de page :\n");
+            for h in &model.headers {
+                let kind = if h.kind == "header" { "en-tête" } else { "pied de page" };
+                let which = match h.which.as_str() { "first" => " (première page)", "even" => " (pages paires)", _ => "" };
+                let _ = writeln!(out, "[{kind}{which}]");
+                for p in &h.paragraphs {
+                    out.push_str(&para_line(p));
+                }
+            }
+        }
     }
     if let Some(id) = cut_at {
         let _ = writeln!(out, "… suite à partir de {id} : relire avec from={}.", id.trim_start_matches('p'));
@@ -265,7 +302,7 @@ pub fn outline(model: &DocModel, from: usize, to: Option<usize>, max_chars: usiz
     }
     if !model.other_parts.is_empty() {
         let parts: Vec<String> = model.other_parts.iter().map(|o| format!("{} ({})", o.part, o.changes)).collect();
-        let _ = writeln!(out, "\nSuivis hors du corps, à traiter dans Word : {}.", parts.join(", "));
+        let _ = writeln!(out, "\nSuivis dans des parties non lues, à traiter dans Word : {}.", parts.join(", "));
     }
     out
 }

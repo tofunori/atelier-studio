@@ -95,7 +95,10 @@ fn le_texte_pour_l_agent_marque_suivis_et_commentaires() {
     assert!(t.contains("c1 Christophe"), "{t}");
     assert!(t.contains("  ↳ c2 Thierry"), "{t}");
     assert!(t.contains("#103 paragraph-del Christophe"), "{t}");
-    assert!(t.contains("hors du corps"), "{t}");
+    assert!(t.contains("{note 1 : n1}"), "{t}");
+    assert!(t.contains("[note 1]\nn1.p0 [Notedebasdepage] :  Seuil appliqué à la fraction [+Sentinel-2 +]#120"), "{t}");
+    assert!(t.contains("[en-tête]\nheader1.p0"), "{t}");
+    assert!(t.contains("#120 ins Christophe 2026-10-14 (n1.p0)"), "{t}");
     // Bornes et découpe annoncée.
     let part = outline(&m, 2, Some(3), 100_000);
     assert!(part.contains("p2 : ") && !part.contains("p1 : ") && !part.contains("p3 : "));
@@ -224,4 +227,116 @@ fn entree_dans_sa_propre_frappe_ou_un_lien_garde_un_xml_valide() {
     apply(&mut d, &op(json!({"op": "split", "paragraph": format!("p{p}"), "at": at})), false, &me).unwrap();
     let m = d.model().unwrap();
     assert_eq!(format!("{}{}", m.paragraphs[p].text, m.paragraphs[p + 1].text), text);
+}
+
+#[test]
+fn notes_en_tetes_et_pieds_se_retouchent_comme_le_corps() {
+    let me = sig("Thierry");
+    let mut d = open("christophe");
+    // Frappe en suivi dans la note, puis accepter le suivi de Christophe.
+    apply(&mut d, &op(json!({"op": "insert", "paragraph": "n1.p0", "at": 1, "with": "Ce "})), true, &me).unwrap();
+    apply(&mut d, &op(json!({"op": "accept", "id": 120})), true, &me).unwrap();
+    // L'agent cite un passage de la note sans dire où il est.
+    let r = apply(&mut d, &op(json!({"op": "replace", "find": "juillet à septembre", "with": "juin à septembre"})), true, &sig("Claude")).unwrap();
+    assert_eq!(r["paragraph"], "n1.p0");
+    let c = apply(&mut d, &op(json!({"op": "comment", "paragraph": "n1.p0", "find": "Sentinel-2", "text": "Landsat aussi ?"})), true, &me).unwrap();
+    let cid = c["id"].as_u64().unwrap() as u32;
+    apply(&mut d, &op(json!({"op": "reply", "parent": cid, "text": "Non, MODIS seulement."})), true, &sig("Claude")).unwrap();
+    // En-tête : mise en forme et Entrée ; pied de page : alignement.
+    apply(&mut d, &op(json!({"op": "format_range", "paragraph": "header1.p0", "start": 0, "end": 10, "props": {"b": true}})), true, &me).unwrap();
+    apply(&mut d, &op(json!({"op": "split", "paragraph": "header1.p0", "at": 10})), true, &me).unwrap();
+    apply(&mut d, &op(json!({"op": "format_paragraph", "paragraph": "footer1.p0", "props": {"align": "right"}})), true, &me).unwrap();
+
+    let bytes = d.to_bytes().unwrap();
+    let mut d = atelier_docx::Docx::from_bytes(bytes).unwrap();
+    let m = d.model().unwrap();
+    let n = &m.notes[0].paragraphs[0];
+    assert_eq!(n.text, " Ce Seuil appliqué à la fraction Sentinel-2 moyenne de juin à septembre.");
+    assert!(!m.changes.iter().any(|c| c.id == 120));
+    assert!(m.changes.iter().any(|c| c.author == "Thierry" && c.text == "Ce " && c.paragraph.as_deref() == Some("n1.p0")));
+    assert!(m.changes.iter().any(|c| c.author == "Claude" && c.kind == "del" && c.text == "juillet à septembre"));
+    let cm = m.comments.iter().find(|x| x.id == cid).unwrap();
+    assert_eq!((cm.quote.as_str(), cm.paragraph.as_deref()), ("Sentinel-2", Some("n1.p0")));
+    assert!(m.comments.iter().any(|x| x.parent == Some(cid) && x.author == "Claude"));
+    let h = &m.headers[0].paragraphs;
+    assert_eq!((h[0].text.as_str(), h[1].text.as_str()), ("Chapitre 2", " – Albédo des glaciers tropicaux"));
+    assert!(h[0].segments[0].b);
+    assert_eq!(m.headers[1].paragraphs[0].align.as_deref(), Some("right"));
+    // Les identifiants restent uniques d'une partie à l'autre.
+    let mut ids: Vec<u32> = m.changes.iter().map(|c| c.id).collect();
+    let k = ids.len();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), k);
+
+    // Tout refuser couvre aussi la note et l'en-tête.
+    apply(&mut d, &op(json!({"op": "reject_all"})), true, &me).unwrap();
+    let m = d.model().unwrap();
+    assert!(m.changes.is_empty(), "{:?}", m.changes);
+    assert_eq!(m.headers[0].paragraphs.len(), 1);
+    // Supprimer le commentaire de la note retire ses ancrages.
+    apply(&mut d, &op(json!({"op": "delete_comment", "id": cid})), true, &me).unwrap();
+    assert!(!d.part("word/footnotes.xml").unwrap().unwrap().contains("commentRangeStart"));
+}
+
+/// Position (en caractères) et longueur du premier segment qui répond à `f`.
+fn seg(d: &mut atelier_docx::Docx, f: impl Fn(&atelier_docx::model::Segment) -> bool) -> (String, usize, usize) {
+    let m = d.model().unwrap();
+    for p in m.all_paragraphs() {
+        let mut at = 0;
+        for s in &p.segments {
+            let n = s.text.chars().count();
+            if f(s) {
+                return (p.id.clone(), at, n);
+            }
+            if s.rev != Some("del") {
+                at += n;
+            }
+        }
+    }
+    panic!("segment introuvable");
+}
+
+#[test]
+fn figures_notes_citations_et_equations_s_effacent_d_un_bloc() {
+    let me = sig("Thierry");
+    let mut d = open("christophe");
+    let (p, at, n) = seg(&mut d, |s| s.media.is_some());
+    assert_eq!(n, 1);
+    let m = d.model().unwrap();
+    let img = m.all_paragraphs().into_iter().find(|x| x.id == p).unwrap().segments.iter().find(|s| s.media.is_some()).unwrap().clone();
+    assert_eq!((img.media.as_deref(), img.width, img.alt.as_deref(), img.whole), (Some("rId5"), Some(96), Some("Figure 2.4"), true));
+
+    // Figure : effacée en suivi, elle reste dans le fichier jusqu'à l'acceptation.
+    apply(&mut d, &op(json!({"op": "replace_range", "paragraph": p, "start": at, "end": at + 1, "with": ""})), true, &me).unwrap();
+    let m = d.model().unwrap();
+    let del = m.changes.iter().find(|c| c.author == "Thierry" && c.kind == "del").unwrap().id;
+    assert!(d.part("word/document.xml").unwrap().unwrap().contains("<w:del"));
+    apply(&mut d, &op(json!({"op": "accept", "id": del})), true, &me).unwrap();
+    assert!(!d.part("word/document.xml").unwrap().unwrap().contains("<w:drawing"));
+
+    // Citation Zotero : un bloc, en suivi le code du champ passe en delInstrText.
+    let (p, at, n) = seg(&mut d, |s| s.whole && s.text == "(Ren et al., 2021)");
+    apply(&mut d, &op(json!({"op": "replace_range", "paragraph": p, "start": at, "end": at + n, "with": ""})), true, &me).unwrap();
+    let x = d.part("word/document.xml").unwrap().unwrap();
+    assert!(x.contains("<w:delInstrText") && x.contains("<w:delText>(Ren et al., 2021)</w:delText>"), "{x}");
+    // Une sélection qui coupe la citation est refusée.
+    apply(&mut d, &op(json!({"op": "reject_all"})), true, &me).unwrap();
+    let (p, at, _) = seg(&mut d, |s| s.whole && s.text == "(Ren et al., 2021)");
+    assert!(apply(&mut d, &op(json!({"op": "replace_range", "paragraph": p, "start": at + 1, "end": at + 4, "with": ""})), true, &me).is_err());
+
+    // Appel de note effacé sans suivi : la note disparaît avec lui.
+    let (p, at, n) = seg(&mut d, |s| s.label.as_deref() == Some("note"));
+    apply(&mut d, &op(json!({"op": "replace_range", "paragraph": p, "start": at, "end": at + n, "with": ""})), false, &me).unwrap();
+    let mut d = reopen(&d);
+    let m = d.model().unwrap();
+    assert!(m.notes.is_empty());
+    assert!(!d.part("word/footnotes.xml").unwrap().unwrap().contains("w:id=\"1\""));
+
+    // Équation : on ne peut pas l'effacer en suivi, mais bien sans.
+    let (p, at, n) = seg(&mut d, |s| s.whole && s.label.as_deref() == Some("équation"));
+    assert!(apply(&mut d, &op(json!({"op": "replace_range", "paragraph": p, "start": at, "end": at + n, "with": ""})), true, &me).is_err());
+    apply(&mut d, &op(json!({"op": "replace_range", "paragraph": p, "start": at, "end": at + n, "with": ""})), false, &me).unwrap();
+    assert_eq!(d.part("word/document.xml").unwrap().unwrap().matches("<m:oMath>").count(), 0);
+    reopen(&d);
 }

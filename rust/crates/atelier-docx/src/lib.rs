@@ -14,6 +14,7 @@
 //! - [`structure`] : Entrée et retour arrière entre paragraphes.
 //! - [`format`] : police, taille, gras…, style et alignement.
 //! - [`ops`] : une retouche en JSON (panneau et agent), et le texte pour l'agent.
+//! - [`story`] : corps, notes, en-têtes et pieds de page, chacun dans sa partie.
 
 pub mod comments;
 pub mod edit;
@@ -22,6 +23,7 @@ pub mod review;
 pub mod structure;
 pub mod format;
 pub mod ops;
+pub mod story;
 mod walk;
 mod xml;
 

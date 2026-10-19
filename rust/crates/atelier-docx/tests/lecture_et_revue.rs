@@ -40,7 +40,24 @@ fn modele_lit_paragraphes_suivis_et_commentaires() {
     assert!(p.iter().any(|x| x.segments.iter().any(|s| s.label.as_deref() == Some("équation") && s.text.contains("α=0,356"))));
     assert!(p.iter().any(|x| x.segments.iter().any(|s| s.label.as_deref() == Some("image"))));
     assert!(p.iter().any(|x| x.segments.iter().any(|s| s.label.as_deref() == Some("seq") && s.text == "4")));
-    assert_eq!(m.other_parts.len(), 1, "le suivi de la note de bas de page est signalé");
+    assert!(m.other_parts.is_empty());
+
+    // Note de bas de page : numérotée par son appel, lue avec son suivi.
+    let call = p[1].segments.iter().find(|s| s.label.as_deref() == Some("note")).unwrap();
+    assert_eq!(call.number, Some(1));
+    assert_eq!(m.notes.len(), 1);
+    let n = &m.notes[0];
+    assert_eq!((n.id.as_str(), n.kind, n.number), ("n1", "footnote", Some(1)));
+    assert_eq!(n.paragraphs[0].id, "n1.p0");
+    assert_eq!(n.paragraphs[0].text, " Seuil appliqué à la fraction Sentinel-2 moyenne de juillet à septembre.");
+    let c = m.changes.iter().find(|c| c.id == 120).unwrap();
+    assert_eq!((c.text.as_str(), c.paragraph.as_deref()), ("Sentinel-2 ", Some("n1.p0")));
+
+    // En-tête et pied de page de la section.
+    let ids: Vec<(&str, &str)> = m.headers.iter().map(|h| (h.id.as_str(), h.kind)).collect();
+    assert_eq!(ids, [("header1", "header"), ("footer1", "footer")]);
+    assert_eq!(m.headers[0].paragraphs[0].text, "Chapitre 2 – Albédo des glaciers tropicaux");
+    assert_eq!(m.headers[1].paragraphs[0].text, "Page 12");
 }
 
 #[test]
@@ -133,7 +150,7 @@ fn tout_accepter_et_tout_refuser() {
         let (a, b) = (entries(&build("christophe")), entries(&d.to_bytes().unwrap()));
         for ((na, va), (nb, vb)) in a.iter().zip(&b) {
             assert_eq!(na, nb);
-            if na != "word/document.xml" {
+            if na != "word/document.xml" && na != "word/footnotes.xml" {
                 assert_eq!(va, vb, "{na} a changé");
             }
         }

@@ -3,7 +3,7 @@
 use crate::model::change_kind;
 use crate::walk::content_after_ppr;
 use crate::xml::{self, W, id_of, inner_range, is_w, open_tag, w_attr, w_child};
-use crate::{DOCUMENT, Docx, Result, err};
+use crate::{Docx, Result, err};
 use roxmltree::Node;
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -24,12 +24,21 @@ pub struct Batch {
 
 /// Accepte ou refuse le suivi `id` du corps du document.
 pub fn decide(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
-    let src = docx.document_xml().to_string();
-    let doc = xml::parse(&src)?;
-    xml::require_w_prefix(&doc)?;
-    let Some(node) = doc.descendants().find(|n| n.is_element() && id_of(*n) == Some(id) && change_kind(*n).is_some()) else {
+    // La partie (corps, note, en-tête) qui porte ce suivi.
+    let mut found = None;
+    for part in docx.story_parts() {
+        if let Some(src) = docx.part(&part)?
+            && xml::parse(&src)?.descendants().any(|n| n.is_element() && id_of(n) == Some(id) && change_kind(n).is_some()) {
+                found = Some((part, src));
+                break;
+            }
+    }
+    let Some((part, src)) = found else {
         return err(format!("suivi {id} introuvable (déjà traité ?)"));
     };
+    let doc = xml::parse(&src)?;
+    xml::require_w_prefix(&doc)?;
+    let node = doc.descendants().find(|n| n.is_element() && id_of(*n) == Some(id) && change_kind(*n).is_some()).unwrap();
     let kind = change_kind(node);
     let edits = plan(&src, node, decision)?;
     let mut out = xml::splice(&src, edits)?;
@@ -44,8 +53,8 @@ pub fn decide(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
         drop(doc);
         out = next;
     }
-    docx.set_part(DOCUMENT, out);
-    Ok(())
+    docx.set_part(&part, out);
+    crate::story::drop_orphan_notes(docx)
 }
 
 /// Tous les suivis (d'un auteur, si précisé).
@@ -53,8 +62,9 @@ pub fn decide_all(docx: &mut Docx, decision: Decision, author: Option<&str>) -> 
     let mut batch = Batch::default();
     let mut skipped: BTreeSet<u32> = BTreeSet::new();
     let mut done: BTreeSet<u32> = BTreeSet::new();
+    for part in docx.story_parts() {
     loop {
-        let src = docx.document_xml().to_string();
+        let Some(src) = docx.part(&part)? else { break };
         let doc = xml::parse(&src)?;
         let next = doc.descendants().find(|n| {
             n.is_element()
@@ -66,7 +76,7 @@ pub fn decide_all(docx: &mut Docx, decision: Decision, author: Option<&str>) -> 
         let id = id_of(node).unwrap_or(0);
         match plan(&src, node, decision).and_then(|e| xml::splice(&src, e)) {
             Ok(out) => {
-                docx.set_part(DOCUMENT, out);
+                docx.set_part(&part, out);
                 done.insert(id);
             }
             Err(_) => {
@@ -77,6 +87,8 @@ pub fn decide_all(docx: &mut Docx, decision: Decision, author: Option<&str>) -> 
             break;
         }
     }
+    }
+    crate::story::drop_orphan_notes(docx)?;
     batch.done = done.len();
     batch.skipped = skipped.into_iter().collect();
     Ok(batch)

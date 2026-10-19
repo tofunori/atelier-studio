@@ -6,7 +6,7 @@
 
 use crate::walk::{self, Inline, Kind, Piece, Tok};
 use crate::xml::{self, W14, escape_attr, escape_text};
-use crate::{COMMENTS, DOCUMENT, Docx, DocxError, Result, Signature, err};
+use crate::{COMMENTS, Docx, DocxError, Result, Signature, err};
 use roxmltree::Document;
 use std::ops::Range;
 
@@ -24,10 +24,12 @@ pub(crate) struct Target {
 }
 
 pub(crate) fn target(src: &str, doc: &Document, paragraph: &str) -> Result<Target> {
-    let paras = walk::paragraphs(doc);
-    let index = match paragraph.strip_prefix('p').and_then(|n| n.parse::<usize>().ok()) {
+    let story = crate::story::parse_ref(paragraph)?;
+    let paras = walk::paragraphs_in(doc, &story.scope);
+    let local = story.local.as_str();
+    let index = match local.strip_prefix('p').and_then(|n| n.parse::<usize>().ok()) {
         Some(i) => Some(i),
-        None => paras.iter().position(|p| p.node.attribute((W14, "paraId")) == Some(paragraph)),
+        None => paras.iter().position(|p| p.node.attribute((W14, "paraId")) == Some(local)),
     };
     let Some(index) = index.filter(|i| *i < paras.len()) else {
         return err(format!("paragraphe {paragraph} introuvable"));
@@ -187,8 +189,11 @@ fn attrs(id: u32, sig: &Signature) -> String {
 }
 
 pub(crate) fn next_ids(docx: &mut Docx, n: u32) -> Result<Vec<u32>> {
-    let comments = docx.part(COMMENTS)?.unwrap_or_default();
-    let base = xml::max_w_id(docx.document_xml()).max(xml::max_w_id(&comments));
+    // Un seul espace d'identifiants pour toutes les histoires et les commentaires.
+    let mut base = xml::max_w_id(&docx.part(COMMENTS)?.unwrap_or_default());
+    for part in docx.story_parts() {
+        base = base.max(xml::max_w_id(&docx.part(&part)?.unwrap_or_default()));
+    }
     Ok((1..=n).map(|k| base + k).collect())
 }
 
@@ -201,53 +206,92 @@ pub struct EditResult {
 /// Remplace `find` par `with` dans le paragraphe `paragraph` (`p12` ou un
 /// `w14:paraId`). `with` vide = suppression ; en suivi, signé `sig`.
 pub fn replace(docx: &mut Docx, paragraph: &str, find: &str, occurrence: Option<usize>, with: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
-    let src = docx.document_xml().to_string();
+    let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     let t = target(&src, &doc, paragraph)?;
     let (s, e) = find_in(&t.text, find, occurrence, paragraph)?;
     drop(doc);
-    replace_span(docx, &src, &t, s, e, with, tracked, sig)
+    replace_span(docx, &story.part, &src, &t, s, e, with, None, tracked, sig)
 }
 
 /// Insère `with` à la position `at` (en caractères) du texte courant.
 pub fn insert(docx: &mut Docx, paragraph: &str, at: usize, with: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
-    let src = docx.document_xml().to_string();
+    let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     let t = target(&src, &doc, paragraph)?;
     if at > t.text.chars().count() {
         return err("position au-delà de la fin du paragraphe");
     }
     drop(doc);
-    replace_span(docx, &src, &t, at, at, with, tracked, sig)
+    replace_span(docx, &story.part, &src, &t, at, at, with, None, tracked, sig)
 }
 
 /// Remplace les caractères `start..end` du texte courant par `with`
 /// (frappe dans le panneau : sélection remplacée, retour arrière, Suppr).
 #[allow(clippy::too_many_arguments)]
 pub fn replace_range(docx: &mut Docx, paragraph: &str, start: usize, end: usize, with: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
-    let src = docx.document_xml().to_string();
+    let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     let t = target(&src, &doc, paragraph)?;
     if start > end || end > t.text.chars().count() {
         return err("passage au-delà de la fin du paragraphe");
     }
     drop(doc);
-    replace_span(docx, &src, &t, start, end, with, tracked, sig)
+    replace_span(docx, &story.part, &src, &t, start, end, with, None, tracked, sig)
+}
+
+/// Insère un run déjà écrit (figure, appel de note) à la position `at`.
+pub(crate) fn insert_raw(docx: &mut Docx, paragraph: &str, at: usize, raw: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
+    let (story, src) = docx.story_src(paragraph)?;
+    let doc = xml::parse(&src)?;
+    let t = target(&src, &doc, paragraph)?;
+    if at > t.text.chars().count() {
+        return err("position au-delà de la fin du paragraphe");
+    }
+    drop(doc);
+    replace_span(docx, &story.part, &src, &t, at, at, "", Some(raw), tracked, sig)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn replace_span(docx: &mut Docx, src: &str, t: &Target, s: usize, e: usize, with: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
-    if s == e && with.is_empty() {
+fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e: usize, with: &str, raw: Option<&str>, tracked: bool, sig: &Signature) -> Result<EditResult> {
+    let inserting = !with.is_empty() || raw.is_some();
+    if s == e && !inserting {
         return Ok(EditResult { changes: Vec::new() });
     }
     xml::require_w_prefix(&xml::parse(src)?)?;
-    // Tout ce qui est couvert doit être retouchable par cet auteur.
+    // Tout ce qui est couvert doit être retouchable par cet auteur, ou un
+    // objet entier (figure, note, citation, équation) qu'on efface d'un bloc.
     let allowed = |ri: usize| t.inline.runs[ri].ins.as_ref().is_none_or(|(_, a)| *a == sig.author);
+    let mut units: Vec<Range<usize>> = Vec::new();
+    let mut unit_spans: Vec<(Range<usize>, usize, usize)> = Vec::new();
     for (piece, span) in t.inline.pieces.iter().zip(&t.spans) {
-        if let Some((ps, pe)) = span
-            && *ps < e && *pe > s && ps != pe && !piece.run.is_some_and(|(ri, _)| allowed(ri)) {
-                return err(format!("le passage touche {} : retouche refusée", obstacle(piece)));
+        let Some((ps, pe)) = *span else { continue };
+        if !(ps < e && pe > s && ps != pe) || piece.run.is_some_and(|(ri, _)| allowed(ri)) {
+            continue;
+        }
+        if let Some(u) = &piece.unit {
+            match unit_spans.iter_mut().find(|(r, _, _)| r == u) {
+                Some((_, a, b)) => {
+                    *a = (*a).min(ps);
+                    *b = (*b).max(pe);
+                }
+                None => unit_spans.push((u.clone(), ps, pe)),
             }
+            continue;
+        }
+        return err(format!("le passage touche {} : retouche refusée", obstacle(piece)));
+    }
+    for (u, _, _) in &unit_spans {
+        // Bornes de l'objet entier dans le texte (tous ses morceaux).
+        let (us, ue) = t.inline.pieces.iter().zip(&t.spans).filter(|(p, _)| p.unit.as_ref() == Some(u)).filter_map(|(_, sp)| *sp).fold((usize::MAX, 0), |(a, b), (x, y)| (a.min(x), b.max(y)));
+        if us < s || ue > e {
+            let piece = t.inline.pieces.iter().find(|p| p.unit.as_ref() == Some(u)).unwrap();
+            return err(format!("le passage coupe {} : le sélectionner en entier pour l'effacer", obstacle(piece)));
+        }
+        if tracked && src[u.clone()].contains("<m:") {
+            return err("une équation s'efface sans suivi des modifications (désactiver le suivi, ou la supprimer dans Word)");
+        }
+        units.push(u.clone());
     }
     let starts = run_starts(t);
     let mut touched: Vec<usize> = (0..t.inline.runs.len())
@@ -283,26 +327,51 @@ fn replace_span(docx: &mut Docx, src: &str, t: &Target, s: usize, e: usize, with
     let (del_id, ins_id) = (ids[0], ids[1]);
     let mut made = Vec::new();
     let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+    for u in &units {
+        let out = if tracked {
+            let inner = src[u.clone()]
+                .replace("<w:t>", "<w:delText>")
+                .replace("<w:t ", "<w:delText ")
+                .replace("</w:t>", "</w:delText>")
+                .replace("<w:instrText", "<w:delInstrText")
+                .replace("</w:instrText>", "</w:delInstrText>");
+            format!("<w:del {}>{inner}</w:del>", attrs(del_id, sig))
+        } else {
+            String::new()
+        };
+        edits.push((u.clone(), out));
+    }
+    if tracked && !units.is_empty() {
+        made.push(del_id);
+    }
 
+    let plain_run = |rpr: &str| -> String { raw.map(str::to_string).unwrap_or_else(|| run_xml("<w:r>", rpr, &toks_of(with), false)) };
     let new_run = |rpr: &str| -> String {
-        let r = run_xml("<w:r>", rpr, &toks_of(with), false);
+        let r = plain_run(rpr);
         if tracked { format!("<w:ins {}>{r}</w:ins>", attrs(ins_id, sig)) } else { r }
     };
 
     if touched.is_empty() {
-        // Paragraphe sans texte retouchable autour : fin du paragraphe ou
-        // juste après ses propriétés.
-        if s != e {
+        if s != e && units.is_empty() {
             return err("aucun texte retouchable à cet endroit");
         }
-        let at = if s == 0 { t.ppr_end.or(t.p_inner_end) } else { t.p_inner_end };
-        match at {
-            Some(a) => edits.push((a..a, new_run(""))),
-            // `<w:p/>` ou `<w:p></w:p>` : on réécrit le paragraphe entier.
-            None => edits.push((t.p_range.clone(), format!("{}{}</w:p>", t.p_open, new_run("")))),
-        }
-        if tracked {
-            made.push(ins_id);
+        if inserting {
+            // Après l'objet effacé, sinon contre l'objet voisin (figure, note…),
+            // sinon en fin de paragraphe ou juste après ses propriétés.
+            let outer = |p: &Piece| p.unit.clone().unwrap_or(p.top.clone());
+            let next_to = || {
+                let pieces = || t.inline.pieces.iter().zip(&t.spans).filter_map(|(p, sp)| sp.map(|x| (p, x)));
+                pieces().filter(|(_, (ps, pe))| *pe == s && pe > ps).last().map(|(p, _)| outer(p).end).or_else(|| pieces().find(|(_, (ps, pe))| *ps == s && pe > ps).map(|(p, _)| outer(p).start))
+            };
+            let at = units.iter().map(|u| u.end).max().or_else(next_to).or(if s == 0 { t.ppr_end.or(t.p_inner_end) } else { t.p_inner_end });
+            match at {
+                Some(a) => edits.push((a..a, new_run(""))),
+                // `<w:p/>` ou `<w:p></w:p>` : on réécrit le paragraphe entier.
+                None => edits.push((t.p_range.clone(), format!("{}{}</w:p>", t.p_open, new_run("")))),
+            }
+            if tracked {
+                made.push(ins_id);
+            }
         }
     } else {
         let first_rpr = t.inline.runs[touched[0]].rpr.clone();
@@ -328,9 +397,9 @@ fn replace_span(docx: &mut Docx, src: &str, t: &Target, s: usize, e: usize, with
                 deleted_any = true;
                 out.push_str(&format!("<w:del {}>{}</w:del>", attrs(del_id, sig), run_xml(&run.start_tag, &run.rpr, &mid, true)));
             }
-            if ri == last && !with.is_empty() {
+            if ri == last && inserting {
                 if own {
-                    out.push_str(&run_xml("<w:r>", &first_rpr, &toks_of(with), false));
+                    out.push_str(&plain_run(&first_rpr));
                 } else {
                     out.push_str(&new_run(&first_rpr));
                     inserted = tracked;
@@ -349,7 +418,12 @@ fn replace_span(docx: &mut Docx, src: &str, t: &Target, s: usize, e: usize, with
         }
     }
     let out = drop_empty_revisions(&xml::splice(src, edits)?)?;
-    docx.set_part(DOCUMENT, out);
+    docx.set_part(part, out);
+    if !tracked && !units.is_empty() {
+        crate::story::drop_orphan_notes(docx)?;
+    }
+    made.sort_unstable();
+    made.dedup();
     Ok(EditResult { changes: made })
 }
 

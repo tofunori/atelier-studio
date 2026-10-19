@@ -5,7 +5,7 @@
 
 use crate::edit::{cut, find_in, run_len, run_starts, run_xml, target};
 use crate::xml::{self, W, escape_attr, is_w, w_attr, w_child};
-use crate::{DOCUMENT, Docx, Result, Signature, err};
+use crate::{Docx, Result, Signature, err};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
@@ -56,10 +56,13 @@ type Child = (String, String, bool);
 
 /// Découpe un `w:rPr`/`w:pPr` brut en enfants. Le fragment est relu dans
 /// la balise racine du document pour hériter de ses espaces de noms.
-fn children_of(root_open: &str, raw: &str, close: &str) -> Result<(Vec<Child>, Option<String>)> {
+fn children_of(root_open: &str, raw: &str) -> Result<(Vec<Child>, Option<String>)> {
     if raw.is_empty() {
         return Ok((Vec::new(), None));
     }
+    // Racine de la partie (w:document, w:footnotes, w:hdr…) refermée.
+    let name: String = root_open[1..].chars().take_while(|c| !c.is_whitespace() && *c != '>' && *c != '/').collect();
+    let close = format!("</{name}>");
     let wrapped = format!("{root_open}{raw}{close}");
     let doc = xml::parse(&wrapped)?;
     let el = doc.root_element().first_element_child().ok_or_else(|| crate::DocxError("propriétés illisibles".into()))?;
@@ -144,7 +147,7 @@ fn change_attrs(id: u32, sig: &Signature) -> String {
 
 /// Nouveau `w:rPr` d'un run.
 fn new_rpr(root_open: &str, rpr: &str, p: &RunProps, tracked: bool, id: u32, sig: &Signature) -> Result<String> {
-    let (mut kids, change) = children_of(root_open, rpr, "</w:document>")?;
+    let (mut kids, change) = children_of(root_open, rpr)?;
     let old: String = kids.iter().map(|k| k.1.clone()).collect();
     apply_run(&mut kids, p);
     let mut inner = ordered(kids, RPR_ORDER);
@@ -173,7 +176,7 @@ pub fn format_range(docx: &mut Docx, paragraph: &str, start: usize, end: usize, 
     if start >= end {
         return err("sélection vide");
     }
-    let src = docx.document_xml().to_string();
+    let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
@@ -211,13 +214,13 @@ pub fn format_range(docx: &mut Docx, paragraph: &str, start: usize, end: usize, 
         return Ok(FormatResult { skipped });
     }
     let out = xml::splice(&src, edits)?;
-    docx.set_part(DOCUMENT, out);
+    docx.set_part(&story.part, out);
     Ok(FormatResult { skipped })
 }
 
 /// Met en forme la `occurrence`-ième apparition de `find` (pour l'agent).
 pub fn format_text(docx: &mut Docx, paragraph: &str, find: &str, occurrence: Option<usize>, props: &RunProps, tracked: bool, sig: &Signature) -> Result<FormatResult> {
-    let src = docx.document_xml().to_string();
+    let (_, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     let t = target(&src, &doc, paragraph)?;
     let (s, e) = find_in(&t.text, find, occurrence, paragraph)?;
@@ -235,7 +238,7 @@ pub fn format_paragraph(docx: &mut Docx, paragraph: &str, props: &ParaProps, tra
         && !styles(docx)?.iter().any(|x| &x.id == s) {
             return err(format!("style absent du document : {s}"));
         }
-    let src = docx.document_xml().to_string();
+    let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
@@ -243,7 +246,7 @@ pub fn format_paragraph(docx: &mut Docx, paragraph: &str, props: &ParaProps, tra
     let open = xml::open_tag(&src, doc.root_element());
     let ppr = w_child(p, "pPr");
     let raw = ppr.map(|n| src[n.range()].to_string()).unwrap_or_default();
-    let (mut kids, change) = children_of(&open, &raw, "</w:document>")?;
+    let (mut kids, change) = children_of(&open, &raw)?;
     let old: String = kids.iter().filter(|k| !(k.2 && (k.0 == "rPr" || k.0 == "sectPr"))).map(|k| k.1.clone()).collect();
     if let Some(s) = &props.style {
         set(&mut kids, "pStyle", if s == "Normal" { None } else { Some(format!("<w:pStyle w:val=\"{}\"/>", escape_attr(s))) });
@@ -271,7 +274,7 @@ pub fn format_paragraph(docx: &mut Docx, paragraph: &str, props: &ParaProps, tra
     };
     drop(doc);
     let out = xml::splice(&src, vec![edit])?;
-    docx.set_part(DOCUMENT, out);
+    docx.set_part(&story.part, out);
     Ok(())
 }
 

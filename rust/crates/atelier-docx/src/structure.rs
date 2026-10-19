@@ -8,7 +8,7 @@
 use crate::edit::{cut, run_len, run_starts, run_xml, target};
 use crate::walk::content_after_ppr;
 use crate::xml::{self, W14, escape_attr, inner_range, is_w, open_tag, w_attr, w_child};
-use crate::{DOCUMENT, Docx, Result, Signature, err};
+use crate::{Docx, Result, Signature, err};
 use std::ops::Range;
 
 fn marker(kind: &str, id: u32, sig: &Signature) -> String {
@@ -63,7 +63,7 @@ fn next_style(docx: &mut Docx, style: &str) -> Result<Option<String>> {
 
 /// Coupe le paragraphe à la position `at` (en caractères du texte courant).
 pub fn split(docx: &mut Docx, paragraph: &str, at: usize, tracked: bool, sig: &Signature) -> Result<()> {
-    let src = docx.document_xml().to_string();
+    let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
@@ -176,13 +176,13 @@ pub fn split(docx: &mut Docx, paragraph: &str, at: usize, tracked: bool, sig: &S
     let second = format!("{}{second_ppr}{wrap_open}{second_head}{second_content}</w:p>", open_tag(&src, p));
     drop(doc);
     let out = xml::splice(&src, vec![(t.p_range.clone(), format!("{first}{second}"))])?;
-    docx.set_part(DOCUMENT, out);
+    docx.set_part(&story.part, out);
     Ok(())
 }
 
 /// Joint le paragraphe à celui qui le précède (sa marque est supprimée).
 pub fn join(docx: &mut Docx, paragraph: &str, tracked: bool, sig: &Signature) -> Result<()> {
-    let src = docx.document_xml().to_string();
+    let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
     xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
@@ -236,7 +236,7 @@ pub fn join(docx: &mut Docx, paragraph: &str, tracked: bool, sig: &Signature) ->
         };
         drop(doc);
         let out = xml::splice(&src, vec![edit])?;
-        docx.set_part(DOCUMENT, out);
+        docx.set_part(&story.part, out);
         return Ok(());
     }
     if ppr.and_then(|n| w_child(n, "sectPr")).is_some() {
@@ -270,6 +270,6 @@ pub fn join(docx: &mut Docx, paragraph: &str, tracked: bool, sig: &Signature) ->
     let range = p.range().start..q.range().end;
     drop(doc);
     let text = xml::splice(&src, vec![(range, out)])?;
-    docx.set_part(DOCUMENT, text);
+    docx.set_part(&story.part, text);
     Ok(())
 }
