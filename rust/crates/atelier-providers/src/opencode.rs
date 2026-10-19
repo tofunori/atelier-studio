@@ -737,9 +737,21 @@ impl OpenCodeProvider {
         let mut saw_done = false;
         let mut last_usage = json!({"context":0,"output":0,"cost":null,"turns":null});
         let mut full_text = String::new();
+        // Filet d'inactivité du repli (audit 2026-10-18, problème 31) : la
+        // lecture de ligne n'avait aucune borne, et `is_cancelled` n'était lu
+        // qu'entre deux lignes. Un `opencode run` muet laissait le tour « en
+        // cours » pour toujours. On réveille la boucle au plus toutes les
+        // secondes (`next_line` est annulable sans perte), et seul un silence
+        // complet de `self.idle` coupe le tour.
+        let poll = self.idle.min(Duration::from_secs(1));
+        let mut last_activity = Instant::now();
+        let mut idle_expired = false;
 
         loop {
-            if (req.is_cancelled)() {
+            if !idle_expired && last_activity.elapsed() >= self.idle {
+                idle_expired = true;
+            }
+            if idle_expired || (req.is_cancelled)() {
                 // Liaison avant le `if let` : la garde de `runs` ne doit pas
                 // rester tenue pendant l'arrêt du process (audit 2026-10-18).
                 let run = self.runs.lock().await.remove(&req.thread_id);
@@ -755,6 +767,18 @@ impl OpenCodeProvider {
                 if !full_text.is_empty() {
                     (req.on_event)(json!({"kind":"text","text": full_text}));
                 }
+                if idle_expired {
+                    let message = format!(
+                        "timeout OpenCode — CLI muet depuis {} (aucun signe de vie), tour interrompu",
+                        crate::turn_idle::describe(self.idle)
+                    );
+                    (req.on_event)(json!({"kind": "error", "message": message.clone()}));
+                    return SendResult {
+                        session_id: sid,
+                        ok: false,
+                        error: Some(message),
+                    };
+                }
                 (req.on_event)(
                     json!({"kind":"done","ok": false, "result": full_text, "usage": last_usage}),
                 );
@@ -764,7 +788,13 @@ impl OpenCodeProvider {
                     error: Some("interrupted".into()),
                 };
             }
-            match reader.next_line().await {
+            let next = match tokio::time::timeout(poll, reader.next_line()).await {
+                Ok(next) => next,
+                // Rien lu pendant `poll` : revérifier l'annulation et le silence.
+                Err(_) => continue,
+            };
+            last_activity = Instant::now();
+            match next {
                 Ok(Some(line)) => {
                     let (events, r) = parse_opencode_jsonl(&format!("{line}\n"), &rest);
                     rest = r;
@@ -1258,6 +1288,85 @@ mod tests {
         let texte: String = evs.iter().filter(|e| e["kind"] == "delta").filter_map(|e| e["text"].as_str()).collect();
         assert!(texte.contains("fin bavarde"), "{texte}");
         assert!(debut.elapsed() >= Duration::from_secs(2));
+    }
+
+    /// Repli `opencode run` (handshake ACP échoué) : faux binaire shell qui
+    /// ignore ses arguments et exécute `corps`.
+    #[cfg(unix)]
+    fn legacy_provider(dir: &tempfile::TempDir, corps: &str, idle: Duration) -> OpenCodeProvider {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = dir.path().join("fake-opencode");
+        std::fs::write(&bin, format!("#!/bin/sh\n{corps}\n")).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        OpenCodeProvider::with_command(bin, vec![]).with_idle(idle)
+    }
+
+    #[cfg(unix)]
+    async fn tour_legacy(p: &OpenCodeProvider, thread: &str) -> (SendResult, Vec<Value>) {
+        let events: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(vec![]));
+        let sink = Arc::clone(&events);
+        let req = SendRequest {
+            additional_directories: Vec::new(),
+            thread_id: thread.into(),
+            turn_id: "turn-1".into(),
+            prompt: "bonjour".into(),
+            inputs: None,
+            project_root: std::env::temp_dir().to_string_lossy().into_owned(),
+            session_id: None,
+            model: None,
+            effort: None,
+            fast_mode: false,
+            permission_mode: None,
+            fork_pending: false,
+            mode: SendMode::Normal,
+            on_event: Arc::new(move |ev| sink.lock().unwrap().push(ev)),
+            on_session_opened: None,
+            on_interaction: None,
+            is_cancelled: Arc::new(|| false),
+            consigne: None,
+            atelier_mcp: None,
+        };
+        let res = p.send_legacy(req).await;
+        let evs = events.lock().unwrap().clone();
+        (res, evs)
+    }
+
+    /// Relecture de l'audit 2026-10-18 (problème 31) : le repli `opencode run`
+    /// lisait stdout sans borne. Un CLI muet y est maintenant coupé, et son
+    /// groupe de process tué (sinon `sleep` tiendrait le pipe ouvert).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn repli_run_un_cli_muet_est_coupe_par_le_filet_d_inactivite() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = legacy_provider(&dir, "sleep 30", Duration::from_secs(1));
+        let (res, evs) = tokio::time::timeout(Duration::from_secs(10), tour_legacy(&p, "t-oc-legacy-hang"))
+            .await
+            .expect("le tour muet du repli doit se terminer de lui-même");
+        assert!(!res.ok, "{res:?}");
+        assert!(
+            res.error.as_deref().is_some_and(|m| m.contains("timeout OpenCode") && m.contains("muet depuis 1 s")),
+            "{res:?}"
+        );
+        assert!(evs.iter().any(|e| e["kind"] == "error"), "{evs:?}");
+        assert!(p.runs.lock().await.is_empty(), "le process du tour ne doit plus être suivi");
+    }
+
+    /// Un tour du repli plus long que la fenêtre mais qui écrit sans arrêt
+    /// n'est pas coupé.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn repli_run_un_tour_long_qui_parle_n_est_pas_coupe() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = legacy_provider(
+            &dir,
+            "for i in 1 2 3 4 5 6; do echo '{\"type\":\"text\",\"part\":{\"text\":\"ligne\"}}'; sleep 0.4; done",
+            Duration::from_secs(1),
+        );
+        let debut = std::time::Instant::now();
+        let (res, evs) = tour_legacy(&p, "t-oc-legacy-chatty").await;
+        assert!(res.ok, "{res:?} {evs:?}");
+        assert!(debut.elapsed() >= Duration::from_secs(2), "le tour a duré plus que la fenêtre");
+        assert!(evs.iter().any(|e| e["kind"] == "done" && e["ok"] == true), "{evs:?}");
     }
 
     #[tokio::test]
