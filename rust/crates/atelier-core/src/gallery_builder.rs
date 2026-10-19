@@ -1,4 +1,4 @@
-use crate::{ARTIFACT_EXTENSIONS, CoreError, atomic_write, is_excluded_dir_path};
+use crate::{ARTIFACT_EXTENSIONS, CoreError, atomic_write_regenerable, is_excluded_dir_path};
 use chrono::{DateTime, Local};
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
@@ -648,7 +648,7 @@ pub fn build(options: &GalleryBuildOptions) -> Result<GalleryBuildResult, CoreEr
         )));
     }
     let index = root.join(SELF_NAME);
-    atomic_write(&index, html.as_bytes())?;
+    atomic_write_regenerable(&index, html.as_bytes())?;
     let payload = json!({
         "files": rows, "folders": folders, "favs": favs,
         "root": root, "title": format!("{wordmark} · {project}"),
@@ -658,7 +658,7 @@ pub fn build(options: &GalleryBuildOptions) -> Result<GalleryBuildResult, CoreEr
     let data = root.join("figures_data.json");
     let mut encoded = serde_json::to_vec(&payload)?;
     encoded.push(b'\n');
-    atomic_write(&data, &encoded)?;
+    atomic_write_regenerable(&data, &encoded)?;
     Ok(GalleryBuildResult {
         count: rows.len(),
         index,

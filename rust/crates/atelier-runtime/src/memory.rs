@@ -220,15 +220,23 @@ pub async fn handle_list(state: &AppState, msg: &Value) -> Value {
             .unwrap_or(50)
             .min(500) as usize,
     };
-    let store = state.memories().lock().await;
+    let mut store = state.memories().lock().await;
+    store.refresh();
     let (items, total) = store.list(&q);
-    json!({
+    let mut reply = json!({
         "type": "memories",
         "requestId": msg.get("requestId").cloned().unwrap_or(Value::Null),
         "items": items.iter().map(memory_json).collect::<Vec<_>>(),
         "total": total,
         "counts": store.counts(),
-    })
+    });
+    // memories.json illisible : Réglages › Mémoire affiche l'erreur au lieu
+    // d'une liste vide (et tout ajout est refusé tant qu'il n'est pas réparé).
+    if let Some(error) = store.load_error() {
+        reply["ok"] = json!(false);
+        reply["error"] = json!(error);
+    }
+    reply
 }
 
 pub async fn handle_save(state: &AppState, msg: &Value) -> Value {

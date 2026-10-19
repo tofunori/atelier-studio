@@ -23,11 +23,13 @@ pub fn spawn_scheduler(state: AppState) -> JoinHandle<()> {
 }
 
 pub async fn run_due_once(state: &AppState) {
-    let due = state
-        .automations()
-        .lock()
-        .await
-        .due(now_ms(), MAX_RUNS_PER_TICK);
+    let due = {
+        let mut store = state.automations().lock().await;
+        // automations.json réparé pendant que l'app tourne : ses tâches
+        // reprennent sans relance.
+        store.refresh();
+        store.due(now_ms(), MAX_RUNS_PER_TICK)
+    };
     for item in due {
         if let Err(error) = execute(state, &item.id, true).await {
             tracing::warn!(automation_id = %item.id, %error, "automation skipped");
@@ -415,13 +417,36 @@ async fn postpone_busy(state: &AppState, item: &Automation) -> Result<(), String
     Ok(())
 }
 
+/// Liste des automatisations. `automations.json` illisible : une erreur
+/// (`requestType` listAutomations : bandeau de l'app et nouveaux essais) au
+/// lieu d'une liste vide — les tâches planifiées ne disparaissent pas sans
+/// bruit, et le planificateur n'en lance aucune tant qu'il n'est pas réparé.
 async fn automations_reply(state: &AppState) -> Vec<String> {
-    let items = state.automations().lock().await.list();
+    let mut store = state.automations().lock().await;
+    store.refresh();
+    if let Some(error) = store.load_error() {
+        return vec![json!({
+            "type": "error",
+            "requestType": "listAutomations",
+            "message": format!("Automatisations illisibles : {error}"),
+        })
+        .to_string()];
+    }
+    let items = store.list();
     vec![json!({"type":"automations","automations":items}).to_string()]
 }
 
 async fn publish_automations(state: &AppState) {
-    if let Some(message) = automations_reply(state).await.into_iter().next() {
+    // Une erreur de lecture n'est pas diffusée à tous les onglets : chacun la
+    // reçoit en réponse à son propre listAutomations.
+    if let Some(message) = automations_reply(state)
+        .await
+        .into_iter()
+        .next()
+        .filter(|message| {
+            serde_json::from_str::<Value>(message).is_ok_and(|reply| reply["type"] != "error")
+        })
+    {
         state.publish(message);
     }
 }

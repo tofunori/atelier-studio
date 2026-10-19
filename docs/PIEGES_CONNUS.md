@@ -530,6 +530,34 @@ tremble au travers d'une limite de rangées, clic dans la sélection avec 6 px
 de mouvement), rouges avant le correctif, rejoués en WebKit par le projet
 `webkit-scroll`.
 
+## 19. Deux vues du même fichier partagent le `localStorage` : une sauvegarde avant le premier restore était effacée
+
+**Symptôme** : deux pages LaTeX ouvertes sur le même fichier, ⌘S dans chacune ;
+le serveur ne garde qu'une intervention (CI, run 233), ou la révision diffère
+de celle attendue.
+
+**Cause** : `restoreVersions` part du journal `texDiffV1:<path>` du
+`localStorage`, **commun à toutes les vues de l'origine**. Une vue qui pousse
+une intervention avant la fin de son premier restore la voyait remplacée par
+le journal de l'autre vue (`replaceWithV2`), puis n'envoyait plus qu'un
+`set-current`. Côté serveur, `POST /versions` faisait lecture, contrôle de
+révision et écriture sans verrou : deux POST à la même révision pouvaient être
+acquittés tous les deux, le second écrasant le premier.
+
+**Règles** : `restoreVersions` capture les interventions de la vue
+(`runtimeBefore`) avant de recharger le journal et les remet ensuite
+(`keepRuntime`) ; un 409 fusionne puis réessaie au plus
+`REVISION_CONFLICT_RETRIES` fois avant l'avis d'arrêt ; le serveur prend un
+verrou de fichier (`<journal>.lock`, flock) autour de lecture + contrôle +
+écriture. Une révision « en trop » n'est pas une perte : la baseline (init)
+d'une vue compte une révision. Vérifier `count` et `distinctIds`, et la
+révision exacte seulement après avoir attendu cette baseline.
+
+**Vérification** : B16b, B17b et « 409 sans fin » dans `diff_suite.mts` ;
+`des_post_versions_concurrents_ne_perdent_aucune_intervention` dans
+`rust/crates/atelier-gallery/tests/http_smoke.rs` ; les deux tests « two open
+pages » de `diff.spec.ts`. Historique : [TESTS_INSTABLES.md](TESTS_INSTABLES.md).
+
 ## pdf.js ≥ 4 et le WebKit système (vécu 2026-09-06)
 - **`getTextContent()` de pdf.js 6 itère un `ReadableStream` avec `for await`** ; le WebKit livré avec macOS (Safari/WKWebView `Version/26.6`) n'a pas `ReadableStream.prototype[Symbol.asyncIterator]` → `TypeError` avalé par le pipeline, **aucune couche texte, aucune sélection dans l'app**, alors que Playwright WebKit (trunk) passe. La variante `legacy` de pdf.js a le même `for await`. Correctif : `gallery/assets/pdfjs_compat.js` (polyfill `values()`/`[Symbol.asyncIterator]`) chargé AVANT le shim module dans `pdf_viewer.html` et `latex_studio.html` (contrat : `pdfjs_compat.test.mjs`). Toute nouvelle page qui charge pdf.js doit l'inclure. Leçon : un test WebKit Playwright ne prouve pas le WebKit système — bissecter avec Safari (`open -a Safari`) et une page de diagnostic qui POSTe sur `/selinfo`.
 

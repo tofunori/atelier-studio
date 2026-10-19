@@ -505,18 +505,17 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     fsMinus.disabled = fontSize <= FS_MIN;
     fsPlus.disabled = fontSize >= FS_MAX;
   };
-  // Écritures /state sérialisées : deux réglages (taille, fond) fusionnent le
-  // même document — deux lecture-modification-écriture concurrents se
-  // perdraient l'un l'autre.
+  // Le serveur fusionne /state par clé : on n'envoie QUE le réglage. Relire
+  // puis renvoyer tout l'état écrasait les notes et favoris posés entre-temps
+  // par la galerie, et un GET raté (`{}`) effaçait tout. Envois sérialisés
+  // pour que le dernier clic gagne.
   let persistChain: Promise<unknown> = Promise.resolve();
   const persistState = (key: string, value: unknown): void => {
     persistChain = persistChain
-      .then(() => win.fetch("/state").then((response) => response.json() as Promise<Record<string, unknown>>))
-      .catch(() => ({}))
-      .then((state) => win.fetch("/state", {
+      .then(() => win.fetch("/state", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({...(state && typeof state === "object" ? state : {}), [key]: value}),
+        body: JSON.stringify({[key]: value}),
       }))
       .catch(() => { /* le réglage vaut pour la session en cours */ });
   };

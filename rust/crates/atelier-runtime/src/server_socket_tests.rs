@@ -20,6 +20,15 @@ struct Fixture {
     state: AppState,
     url: String,
     active: Arc<AtomicUsize>,
+    /// Barrière des requêtes `testGate` : chacune attend un jeton que le test
+    /// donne par `gate.add_permits(1)`. Elle remplace un délai fixe quand le
+    /// test doit tenir une action « en cours » sans dépendre de l'horloge.
+    gate: Arc<tokio::sync::Semaphore>,
+    /// `requestId` des sondes, dans l'ordre où leur route a FINI de
+    /// s'exécuter. L'ordre d'arrivée des réponses, lui, n'est pas garanti :
+    /// chaque réponse est relayée par sa propre tâche après la libération de
+    /// la réservation (voir `ws_dispatch::execute`).
+    log: Arc<std::sync::Mutex<Vec<String>>>,
     task: tokio::task::JoinHandle<()>,
     _dir: tempfile::TempDir,
 }
@@ -41,13 +50,19 @@ async fn fixture(deadline: Duration) -> (Client, Fixture) {
     )
     .with_test_provider("fake");
     let active = Arc::new(AtomicUsize::new(0));
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let log = Arc::new(std::sync::Mutex::new(Vec::new()));
     let state_handler = state.clone();
     let active_handler = active.clone();
+    let gate_handler = gate.clone();
+    let log_handler = log.clone();
     let app = Router::new().route(
         "/",
         get(move |ws: WebSocketUpgrade| {
             let state = state_handler.clone();
             let active = active_handler.clone();
+            let gate = gate_handler.clone();
+            let log = log_handler.clone();
             async move {
                 ws.on_upgrade(move |socket| {
                     handle_socket_with_router(
@@ -55,6 +70,8 @@ async fn fixture(deadline: Duration) -> (Client, Fixture) {
                         state,
                         move |state, text| {
                             let active = active.clone();
+                            let gate = gate.clone();
+                            let log = log.clone();
                             async move {
                                 let request: Value = serde_json::from_str(&text).unwrap();
                                 if let Some(delay) = request["testDelay"].as_u64() {
@@ -66,10 +83,18 @@ async fn fixture(deadline: Duration) -> (Client, Fixture) {
                                         tokio::time::sleep(Duration::from_millis(delay)).await;
                                     }
                                 }
+                                if request["testGate"] == true {
+                                    active.fetch_add(1, Ordering::SeqCst);
+                                    let _guard = CatalogGuard(active.clone());
+                                    gate.acquire().await.unwrap().forget();
+                                }
                                 if request["probe"] == true {
                                     if request["type"] == "interrupt" {
                                         crate::send::handle_interrupt(&state, &request).await;
                                     }
+                                    log.lock().unwrap().push(
+                                        request["requestId"].as_str().unwrap_or("").to_string(),
+                                    );
                                     return vec![
                                         json!({"type":"probe", "requestId":request["requestId"]})
                                             .to_string(),
@@ -110,6 +135,8 @@ async fn fixture(deadline: Duration) -> (Client, Fixture) {
             state,
             url: format!("ws://127.0.0.1:{port}"),
             active,
+            gate,
+            log,
             task,
             _dir: dir,
         },
@@ -392,15 +419,18 @@ async fn accepted_mutations_finish_after_disconnect_and_order_new_socket_actions
 
 #[tokio::test]
 async fn slow_knowledge_read_and_terminal_open_do_not_block_stop() {
-    let (mut client, _fixture) = fixture(Duration::from_secs(15)).await;
+    let (mut client, fixture) = fixture(Duration::from_secs(15)).await;
     send(
         &mut client,
         json!({"type":"kbGbrainPage","slug":"slow","testDelay":60000}),
     )
     .await;
+    // L'ouverture du terminal reste en cours tant que le test ne lève pas la
+    // barrière : Stop doit répondre pendant qu'elle tourne. L'ancien délai de
+    // 100 ms rendait le test dépendant de l'horloge (docs/TESTS_INSTABLES.md).
     send(
         &mut client,
-        json!({"type":"termOpen","termId":"t","requestId":"open","probe":true,"testDelay":100}),
+        json!({"type":"termOpen","termId":"t","requestId":"open","probe":true,"testGate":true}),
     )
     .await;
     send(
@@ -408,31 +438,67 @@ async fn slow_knowledge_read_and_terminal_open_do_not_block_stop() {
         json!({"type":"termInput","termId":"t","requestId":"input","probe":true}),
     )
     .await;
+    // La lecture lente et l'ouverture du terminal sont toutes deux en cours.
+    wait_active(&fixture, 2).await;
     send(
         &mut client,
         json!({"type":"interrupt","threadId":"a","requestId":"stop","probe":true}),
     )
     .await;
     assert_eq!(receive(&mut client).await["requestId"], "stop");
-    assert_eq!(receive(&mut client).await["requestId"], "open");
-    assert_eq!(receive(&mut client).await["requestId"], "input");
+    fixture.gate.add_permits(1);
+    // Chaque réponse est relayée par sa propre tâche une fois la réservation
+    // du terminal libérée : « input » peut arriver avant « open ». Ce qui est
+    // garanti, et vérifié ici, c'est que les deux aboutissent malgré la lecture
+    // lente, et que le terminal les EXÉCUTE dans l'ordre reçu.
+    let mut replies = std::collections::BTreeSet::new();
+    for _ in 0..2 {
+        let reply = receive(&mut client).await;
+        assert_eq!(reply["type"], "probe", "{reply}");
+        replies.insert(reply["requestId"].as_str().unwrap().to_string());
+    }
+    assert_eq!(
+        replies,
+        ["input", "open"].map(String::from).into_iter().collect()
+    );
+    assert_eq!(*fixture.log.lock().unwrap(), ["stop", "open", "input"]);
     client.close(None).await.unwrap();
 }
 
 #[tokio::test]
 async fn stop_does_not_cancel_a_send_received_after_it() {
     let (mut client, fixture) = fixture(Duration::from_secs(15)).await;
-    send(&mut client, json!({"type":"interrupt","threadId":"again","requestId":"stop","probe":true,"testDelay":100})).await;
+    // Stop reste en cours (barrière) pendant que le send arrive : c'est le cas
+    // à garder. L'ancien délai de 100 ms pouvait s'écouler avant que
+    // wait_active ne l'observe sous charge.
+    send(&mut client, json!({"type":"interrupt","threadId":"again","requestId":"stop","probe":true,"testGate":true})).await;
     wait_active(&fixture, 1).await;
     send(
         &mut client,
         json!({"type":"send","threadId":"again","requestId":"new","probe":true}),
     )
     .await;
-    assert_eq!(receive(&mut client).await["requestId"], "stop");
-    let reply = receive(&mut client).await;
-    assert_eq!(reply["requestId"], "new");
-    assert_eq!(reply["type"], "probe");
+    // Le ping est traité en ligne, dans l'ordre des trames : sa réponse prouve
+    // que le send a été reçu et enregistré pendant que Stop tournait encore
+    // (Stop est retenu, le send attend derrière lui, rien d'autre ne répond).
+    send(&mut client, json!({"type":"ping"})).await;
+    assert_eq!(receive(&mut client).await["type"], "pong");
+    fixture.gate.add_permits(1);
+    // Les deux réponses sont relayées par des tâches indépendantes : leur ordre
+    // d'arrivée n'est pas garanti. L'ordre d'exécution l'est (journal).
+    let replies = [receive(&mut client).await, receive(&mut client).await];
+    let stop = replies
+        .iter()
+        .find(|reply| reply["requestId"] == "stop")
+        .expect("Stop sans réponse");
+    assert_eq!(stop["type"], "probe", "{stop}");
+    let new = replies
+        .iter()
+        .find(|reply| reply["requestId"] == "new")
+        .expect("send sans réponse");
+    // Un send annulé répondrait une erreur REQUEST_CANCELLED.
+    assert_eq!(new["type"], "probe", "{new}");
+    assert_eq!(*fixture.log.lock().unwrap(), ["stop", "new"]);
     client.close(None).await.unwrap();
 }
 

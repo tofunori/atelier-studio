@@ -12,6 +12,7 @@
 //! milliers de phrases, pas besoin d'index sémantique pour ressortir celles
 //! qui partagent les mots rares de la demande.
 
+use crate::durable;
 use crate::{iso_now, write_file_atomic};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -113,6 +114,12 @@ pub struct MemoryStore {
     /// (`memories.forgotten.json`) pour que `memories.json` garde sa forme :
     /// une version antérieure de l'app le relit sans rien perdre.
     forgotten: HashSet<String>,
+    /// Entrées que cette version ne sait pas lire (écrites par une autre
+    /// version de l'app, ou abîmées) : réécrites telles quelles.
+    kept: Vec<serde_json::Value>,
+    /// `memories.json` présent mais illisible : aucune écriture tant qu'il
+    /// n'est pas réparé (le premier souvenir ajouté effacerait tous les autres).
+    load_error: Option<String>,
 }
 
 fn new_id() -> String {
@@ -140,17 +147,20 @@ impl MemoryStore {
             .into_iter()
             .filter(|id| !id.is_empty())
             .collect();
-        let items = std::fs::read_to_string(&file_path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Vec<serde_json::Value>>(&raw).ok())
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|v| serde_json::from_value::<Memory>(v).ok())
-            .filter(|m| !m.id.is_empty() && !m.text.trim().is_empty())
-            .collect();
+        let loaded = durable::load_list(&file_path, |v| {
+            serde_json::from_value::<Memory>(v.clone())
+                .ok()
+                .filter(|m| !m.id.is_empty() && !m.text.trim().is_empty())
+        });
+        let (entries, load_error) = match loaded {
+            Ok(entries) => (entries, None),
+            Err(error) => (durable::ListEntries::default(), Some(error.to_string())),
+        };
         Self {
             file_path,
-            items,
+            items: entries.items,
+            kept: entries.kept,
+            load_error,
             forgotten,
         }
     }
@@ -158,6 +168,26 @@ impl MemoryStore {
     /// Ce souvenir Claude Science a-t-il été effacé à la main ?
     pub fn is_forgotten(&self, source_id: &str) -> bool {
         self.forgotten.contains(source_id)
+    }
+
+    /// Pourquoi le magasin refuse d'écrire (fichier illisible), s'il le refuse.
+    pub fn load_error(&self) -> Option<&str> {
+        self.load_error.as_deref()
+    }
+
+    /// Fichier illisible à l'ouverture : on le relit, au cas où il a été
+    /// réparé depuis (sans relancer l'app). Encore illisible : l'erreur reste,
+    /// et la copie de côté identique est réutilisée. Lisible : le magasin
+    /// repart de son contenu et accepte de nouveau les écritures.
+    pub fn refresh(&mut self) {
+        if self.load_error.is_some() {
+            *self = Self::open(self.file_path.clone());
+        }
+    }
+
+    fn writable(&mut self) -> Result<(), String> {
+        self.refresh();
+        durable::writable(&self.load_error)
     }
 
     pub fn get(&self, id: &str) -> Option<&Memory> {
@@ -219,6 +249,7 @@ impl MemoryStore {
         text: &str,
         origin: MemoryOrigin,
     ) -> Result<Memory, String> {
+        self.writable()?;
         let text = clean_text(text)?;
         let now = iso_now();
         let memory = Memory {
@@ -243,6 +274,7 @@ impl MemoryStore {
         text: &str,
         project_root: Option<&str>,
     ) -> Result<Memory, String> {
+        self.writable()?;
         let text = clean_text(text)?;
         let memory = self
             .items
@@ -271,6 +303,7 @@ impl MemoryStore {
         text: &str,
         origin: MemoryOrigin,
     ) -> Result<Memory, String> {
+        self.writable()?;
         let root = self
             .get(old_id)
             .map(|m| m.project_root.clone())
@@ -303,6 +336,7 @@ impl MemoryStore {
     }
 
     fn remove_inner(&mut self, ids: &[String], leave_trace: bool) -> Result<usize, String> {
+        self.writable()?;
         let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
         if leave_trace {
             let traces: Vec<String> = self
@@ -377,6 +411,7 @@ impl MemoryStore {
     /// dans Atelier depuis (`edited`) n'est pas écrasé ; un souvenir effacé
     /// à la main (trace d'effacement) n'est pas recréé.
     pub fn import(&mut self, batch: Vec<ImportedMemory>) -> Result<ImportReport, String> {
+        self.writable()?;
         let mut report = ImportReport::default();
         let index: HashMap<String, usize> = self
             .items
@@ -509,8 +544,9 @@ impl MemoryStore {
     }
 
     fn persist(&self) -> Result<(), String> {
-        let data = serde_json::to_vec(&self.items).map_err(|e| e.to_string())?;
-        write_file_atomic(&self.file_path, data).map_err(|e| e.to_string())
+        durable::writable(&self.load_error)?;
+        let list = durable::with_kept(&self.items, &self.kept)?;
+        durable::save_json_compact(&self.file_path, &list).map_err(|e| e.to_string())
     }
 }
 
@@ -582,6 +618,45 @@ mod tests {
             kind: "manual".into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn un_fichier_illisible_n_est_jamais_reecrit() {
+        for (case, raw) in crate::durable::UNREADABLE_LIST_SAMPLES {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("memories.json");
+            std::fs::write(&path, raw).unwrap();
+            let mut s = MemoryStore::open(&path);
+            let error = s.load_error().unwrap_or_else(|| panic!("{case}")).to_string();
+            assert!(error.contains("illisible"), "{case}: {error}");
+            assert_eq!(s.add("", "Un nouveau souvenir", manual()).unwrap_err(), error, "{case}");
+            assert!(s.remove(&["mem_1".into()]).is_err(), "{case}");
+            assert!(s.import(vec![cs("x", "Importé", "")]).is_err(), "{case}");
+            assert!(s.is_empty(), "{case}: rien n'est ajouté en mémoire non plus");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), raw, "{case}");
+            assert_eq!(crate::durable::corrupt_copies_of(&path, raw.as_bytes()), 1, "{case}");
+        }
+    }
+
+    #[test]
+    fn une_entree_illisible_est_gardee_telle_quelle() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("memories.json");
+        let ancienne = serde_json::json!({"id": "mem_x", "texte": "format d'une autre version"});
+        let lisible = serde_json::json!({"id": "mem_a", "projectRoot": "", "text": "Lu",
+            "createdAt": "2026-10-01T00:00:00.000Z", "updatedAt": "2026-10-01T00:00:00.000Z"});
+        std::fs::write(&path, serde_json::to_vec(&serde_json::json!([lisible, ancienne])).unwrap()).unwrap();
+        let mut s = MemoryStore::open(&path);
+        assert!(s.load_error().is_none());
+        assert_eq!(s.len(), 1);
+        s.add("", "Ajouté", manual()).unwrap();
+        let disque: Vec<serde_json::Value> =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(disque.len(), 3);
+        assert!(disque.contains(&ancienne), "l'entrée inconnue survit à la réécriture");
+        // la réécriture a d'abord sauvegardé le fichier du jour
+        let backups = std::fs::read_dir(dir.path().join(crate::durable::BACKUP_DIR)).unwrap().count();
+        assert_eq!(backups, 1);
     }
 
     #[test]

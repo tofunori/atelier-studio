@@ -7,6 +7,8 @@ export default defineConfig({
     timeout: 5_000,
   },
   fullyParallel: false,
+  // Un `test.only` oublié ferait passer la CI au vert sur un seul test.
+  forbidOnly: !!process.env.CI,
   reporter: [['list']],
   use: {trace: 'retain-on-failure'},
   projects: [

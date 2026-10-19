@@ -9,15 +9,15 @@
 //! (« glaci- ers ») retrouve « glaciers ». Un rectangle par ligne, en fractions
 //! de la page : le format que la visionneuse produit après `mergeLineRects`.
 //!
-//! L'écriture prend le même verrou que le serveur galerie
-//! (`pdf_annots.lock`, `documents.rs`) puis remplace le fichier d'un bloc ; la
+//! L'écriture passe par le lecteur et l'écrivain communs du store
+//! (`atelier_store::pdf_annots`) : même verrou que le serveur galerie
+//! (`pdf_annots.lock`), puis remplacement durable du fichier d'un bloc ; la
 //! visionneuse ouverte le voit à la date du fichier (`/pdfannot-stamp`).
 
 use crate::library::{self, fold, Config};
 use crate::zotero;
-use fs2::FileExt;
+use atelier_store::pdf_annots;
 use serde_json::{json, Value};
-use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -525,47 +525,15 @@ pub fn resolve(config: &Config, wanted: &str) -> Result<Target, String> {
 }
 
 /// Ouvre le store sous le verrou du serveur galerie, laisse `op` changer les
-/// annotations, et ne réécrit le fichier (d'un bloc) que si `op` dit l'avoir
-/// changé.
+/// annotations, et ne réécrit le fichier (d'un bloc, après la sauvegarde du
+/// jour) que si `op` dit l'avoir changé. Lecteur, verrou et écrivain sont
+/// ceux de tous les écrivains du store (`atelier_store::pdf_annots`) : un store
+/// illisible n'est jamais remplacé, ce serait tout perdre.
 fn with_store<T>(
     app_dir: &Path,
     op: impl FnOnce(&mut serde_json::Map<String, Value>) -> Result<(T, bool), String>,
 ) -> Result<T, String> {
-    std::fs::create_dir_all(app_dir).map_err(|e| e.to_string())?;
-    let path = app_dir.join("pdf_annots.json");
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(app_dir.join("pdf_annots.lock"))
-        .map_err(|e| e.to_string())?;
-    lock.lock_exclusive().map_err(|e| e.to_string())?;
-    let result = (|| {
-        let mut store = match std::fs::read_to_string(&path) {
-            // Un store illisible n'est jamais remplacé : ce serait tout perdre.
-            Ok(raw) => serde_json::from_str::<Value>(&raw)
-                .map_err(|e| format!("{} illisible, rien n'est écrit : {e}", path.display()))?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
-            Err(e) => return Err(e.to_string()),
-        };
-        let Some(map) = store.as_object_mut() else {
-            return Err(format!("{} n'est pas un objet JSON", path.display()));
-        };
-        let (value, changed) = op(map)?;
-        if changed {
-            let payload = format!(
-                "{}\n",
-                serde_json::to_string_pretty(&store).map_err(|e| e.to_string())?
-            );
-            let tmp = app_dir.join(format!(".pdf_annots.json.{}.mcp.tmp", std::process::id()));
-            std::fs::write(&tmp, payload).map_err(|e| e.to_string())?;
-            std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-        }
-        Ok(value)
-    })();
-    let _ = FileExt::unlock(&lock);
-    result
+    pdf_annots::with_store(app_dir, op)
 }
 
 /// Ajoute `new` aux annotations de `rel`, sous le verrou du serveur galerie.
@@ -1081,13 +1049,25 @@ mod tests {
 
     #[test]
     fn an_unreadable_store_is_never_overwritten() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("pdf_annots.json"), "{ cassé").unwrap();
-        assert!(add_to_store(dir.path(), "zotero/ABCD1234/p.pdf", vec![json!({})]).is_err());
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("pdf_annots.json")).unwrap(),
-            "{ cassé"
-        );
+        for (case, raw) in atelier_store::durable::UNREADABLE_SAMPLES {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("pdf_annots.json"), raw).unwrap();
+            let error = add_to_store(dir.path(), "zotero/ABCD1234/p.pdf", vec![json!({})]).unwrap_err();
+            assert!(error.contains("illisible"), "{case}: {error}");
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("pdf_annots.json")).unwrap(),
+                raw,
+                "{case}"
+            );
+            let copies: Vec<String> = std::fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with("pdf_annots.json.corrupt-"))
+                .collect();
+            assert_eq!(copies.len(), 1, "{case}");
+            assert_eq!(std::fs::read_to_string(dir.path().join(&copies[0])).unwrap(), raw, "{case}");
+        }
     }
 
     #[test]

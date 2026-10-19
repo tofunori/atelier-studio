@@ -448,8 +448,24 @@ fn write_atomic(app_dir: &Path, config: &Value) -> std::io::Result<()> {
     let tmp = app_dir.join(format!(".{FILE_NAME}.tmp-{}", std::process::id()));
     let mut bytes = serde_json::to_vec_pretty(config).map_err(std::io::Error::other)?;
     bytes.push(b'\n');
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, &target)
+    // fsync avant le rename, puis du dossier : un arrêt brutal ne laisse ni
+    // fichier vide ni rename perdu (même règle qu'atelier_store::durable, sans
+    // la dépendance : ce crate est aussi dans le verrou de src-tauri).
+    let written = (|| {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, &target)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written?;
+    if let Ok(dir) = std::fs::File::open(app_dir) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
