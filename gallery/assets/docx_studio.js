@@ -1392,7 +1392,37 @@
     if (what === "comment") askComment();
     else if (what === "chat") toChat(`${PATH} (${model .paragraphs[sel.a.idx].id}${sel.b.idx !== sel.a.idx ? `-${model .paragraphs[sel.b.idx].id}` : ""}) : « ${selectionText(sel)} »`);
   });
+  // Curseur dessiné à la place du natif : WebKit lui donne toute la hauteur
+  // de ligne (1,7), Word le garde à la hauteur des lettres.
+  const caret = $("caret");
+  const scroller = $("scroll");
+  function placeCaret() {
+    const s = getSelection();
+    const node = s && s.rangeCount ? s.focusNode : null;
+    if (!s || !node || !s.isCollapsed || !paper.contains(node) || document.activeElement !== paper) { caret.classList.remove("on"); return; }
+    const range = s.getRangeAt(0);
+    let r                      = range.getClientRects()[0];
+    const el = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)               ;
+    if (!r || !r.height) {
+      const box = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      r = new DOMRect(box.left + parseFloat(cs.paddingLeft || "0"), box.top + parseFloat(cs.paddingTop || "0"), 0, parseFloat(cs.lineHeight) || box.height);
+    }
+    const fs = parseFloat(getComputedStyle(el).fontSize) || 15;
+    const h = Math.min(r.height, Math.round(fs * 1.25));
+    const host = scroller.getBoundingClientRect();
+    caret.style.height = `${h}px`;
+    caret.style.transform = `translate(${Math.round(r.left - host.left + scroller.scrollLeft)}px, ${Math.round(r.top + (r.height - h) / 2 - host.top + scroller.scrollTop)}px)`;
+    // Relance le clignotement à chaque déplacement, comme Word.
+    caret.classList.remove("on");
+    void caret.offsetWidth;
+    caret.classList.add("on");
+  }
+  paper.addEventListener("focus", placeCaret);
+  paper.addEventListener("blur", () => caret.classList.remove("on"));
+  addEventListener("resize", placeCaret);
   document.addEventListener("selectionchange", () => {
+    placeCaret();
     syncToolbar();
     const s = getSelection();
     const sel = readSel();

@@ -91,6 +91,14 @@ test('docx: la frappe, Entrée et le retour arrière arrivent en suivi signé da
   await page.keyboard.type(', fixé a priori,');
   // La frappe se voit tout de suite, puis part à la pause.
   await expect(page.locator('.d-p[data-idx="2"]')).toContainText('retenu ici, fixé a priori, offre');
+  // Curseur fin, à la hauteur des lettres et posé dans le paragraphe.
+  await expect(page.locator('#caret')).toHaveClass(/\bon\b/);
+  const [cb, pb] = await Promise.all([page.locator('#caret').boundingBox(), page.locator('.d-p[data-idx="2"]').boundingBox()]);
+  expect(cb!.width).toBeLessThanOrEqual(1.5);
+  expect(cb!.height).toBeGreaterThan(12);
+  expect(cb!.height).toBeLessThanOrEqual(19);
+  expect(cb!.y).toBeGreaterThanOrEqual(pb!.y);
+  expect(cb!.y + cb!.height).toBeLessThanOrEqual(pb!.y + pb!.height);
   await expect.poll(async () => (await disk(page, project)).paragraphs[2].text).toContain('retenu ici, fixé a priori, offre');
   let m = await disk(page, project);
   const mine = m.changes.filter(c => c.author === 'Thierry');
