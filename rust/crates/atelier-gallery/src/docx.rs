@@ -5,7 +5,7 @@
 //! sous verrou partagé avec l'agent). La réponse porte le modèle à jour :
 //! le panneau se redessine d'après lui, jamais d'après une prédiction.
 
-use atelier_core::safe_project_path;
+use atelier_core::{atomic_write, safe_project_path};
 use atelier_docx::ops::{self, Op};
 use atelier_docx::{Docx, Signature, format};
 use axum::{
@@ -191,6 +191,63 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
     match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
         Ok(Err((status, e))) => json_error(status, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct PrefsBody {
+    author: Option<String>,
+    page: Option<String>,
+}
+
+fn prefs_path(root: &Path) -> PathBuf {
+    root.join(".fig_thumbs").join("docx_prefs.json")
+}
+
+/// Nom complet de l'utilisateur du Mac (celui que Word propose par défaut).
+fn system_user_name() -> String {
+    let full = std::process::Command::new("id")
+        .arg("-F")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty());
+    full.or_else(|| std::env::var("USER").ok()).unwrap_or_else(|| "Moi".into())
+}
+
+/// `GET /docx/prefs` — signature des retouches et couleur de la page,
+/// gardées côté serveur (le localStorage du WebView ne survit pas à la relance).
+pub async fn get_prefs(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let stored: Value = std::fs::read(prefs_path(&state.root)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({}));
+    let fallback = tokio::task::spawn_blocking(system_user_name).await.unwrap_or_else(|_| "Moi".into());
+    (StatusCode::OK, Json(json!({
+        "author": stored.get("author").and_then(Value::as_str),
+        "page": stored.get("page").and_then(Value::as_str).unwrap_or("blanche"),
+        "systemAuthor": fallback,
+    })))
+        .into_response()
+}
+
+/// `POST /docx/prefs` — `{author?, page?: "blanche" | "theme"}`.
+pub async fn post_prefs(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<PrefsBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = prefs_path(&state.root);
+    let mut stored: Value = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+    if let Some(a) = body.author.map(|a| a.trim().chars().take(80).collect::<String>()).filter(|a| !a.is_empty()) {
+        stored["author"] = json!(a);
+    }
+    if let Some(p) = body.page.filter(|p| p == "blanche" || p == "theme") {
+        stored["page"] = json!(p);
+    }
+    match atomic_write(&path, stored.to_string().as_bytes()) {
+        Ok(()) => (StatusCode::OK, Json(stored)).into_response(),
         Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }

@@ -23,6 +23,8 @@ export default defineConfig({
     {name: 'webkit-toolbar', testMatch: /editor_cm6\.spec\.ts/, grep: /latex toolbar/, use: {browserName: 'webkit'}},
     {name: 'webkit-fluid', testMatch: /editor_cm6\.spec\.ts/, grep: /latex fluid text/, use: {browserName: 'webkit'}},
     {name: 'webkit-visual', testMatch: /latex_visual\.spec\.ts/, use: {browserName: 'webkit'}},
+    // Le panneau .docx intercepte beforeinput : WKWebView d'abord.
+    {name: 'webkit-docx', testMatch: /docx_studio\.spec\.ts/, use: {browserName: 'webkit'}},
     {name: 'chromium', use: {browserName: 'chromium'}},
     {
       name: 'webkit-scroll',

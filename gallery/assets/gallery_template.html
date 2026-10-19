@@ -2182,7 +2182,7 @@ function openInContext(rel){
   // Dans Atelier, tous les documents pris en charge restent dans le même
   // espace de travail et s'ouvrent dans un onglet IDE. En mode navigateur
   // autonome, on conserve l'ouverture dans l'application système.
-  if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='svg'||f.ext==='csv'||codeExt(f.ext))){
+  if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='svg'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))){
     lbOpenAny(rel);
     return;
   }
@@ -2209,15 +2209,16 @@ async function lbShow(i        ){
   lbIdx=i; const f=lbList[i]; lb().classList.remove('annot');
   lbVersionsReset(f);
   markRecent(f.rel);
-  const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext), isCsv=f.ext==='csv';
+  const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext), isCsv=f.ext==='csv', isDocx=f.ext==='docx';
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
   // ONGLET Studio (la galerie reste navigable), pas dans la lightbox.
-  if(EMB && (isTex||isMd||isCode||isPdf||isSvg||isCsv)){
+  if(EMB && (isTex||isMd||isCode||isPdf||isSvg||isCsv||isDocx)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
     let u;
     if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';
     else if(isSvg) u='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';
     else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
+    else if(isDocx) u='/.fig_thumbs/docx_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     __atelierPost({type:'atelier-open-tab', url:u, title:f.name});
     await lbClose();
@@ -3122,7 +3123,7 @@ function render(){
       <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selSet.has(f.rel)?'■':'▢'}</span>
       ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Open with default app">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
       <div class="hov">
-        <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}">${hovIco('open')}</button>
+        <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}">${hovIco('open')}</button>
         <button data-act="copy" data-rel="${escA(f.rel)}" aria-label="Copy path" title="Copy path">${hovIco('copy')}</button>
         <button data-act="chat" data-rel="${escA(f.rel)}" class="embOnly" aria-label="Joindre au chat de Studio" title="Joindre au chat de Studio">${hovIco('chat')}</button>
         ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" class="embHide" aria-label="Open the script that generated this figure" title="Open the script that generated this figure">${hovIco('src')}</button>`:''}

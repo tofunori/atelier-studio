@@ -75,6 +75,10 @@
     {
       "source": "gallery/src/browser/sel_pill.ts",
       "output": "gallery/assets/sel_pill.js"
+    },
+    {
+      "source": "gallery/src/browser/docx_studio.ts",
+      "output": "gallery/assets/docx_studio.js"
     }
   ],
   "inlineScripts": [
@@ -202,6 +206,11 @@
       "source": "scripts/browser/widget_presentation_2.ts",
       "output": "rust/crates/atelier-runtime/src/widget_presentation.html",
       "slot": 2
+    },
+    {
+      "source": "gallery/src/browser/pages/docx_studio_1.ts",
+      "output": "gallery/assets/docx_studio.html",
+      "slot": 1
     }
   ],
   "renamedSources": {

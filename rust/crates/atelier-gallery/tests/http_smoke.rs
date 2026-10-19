@@ -2297,4 +2297,16 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     assert_eq!(st, 200, "{body}");
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["revision"], rev1.as_str());
+
+    // Préférences gardées côté serveur.
+    let (st, body) = http(srv.port, "GET", "/docx/prefs", None);
+    assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["page"], "blanche");
+    assert!(v["systemAuthor"].as_str().is_some_and(|s| !s.is_empty()));
+    let (st, _) = http(srv.port, "POST", "/docx/prefs", Some(r#"{"author":"Thierry","page":"theme"}"#));
+    assert_eq!(st, 200);
+    let (_, body) = http(srv.port, "GET", "/docx/prefs", None);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!((v["author"].as_str(), v["page"].as_str()), (Some("Thierry"), Some("theme")));
 }
