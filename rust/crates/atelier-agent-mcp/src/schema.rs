@@ -221,7 +221,7 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 6] = ["read", "edit", "insert_paragraph", "comment", "reply", "format"];
+const DOCX_ACTIONS: [&str; 8] = ["read", "edit", "insert_paragraph", "comment", "reply", "format", "insert_note", "insert_figure"];
 
 /// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
 /// toujours des suivis de modifications signés de son nom : l'utilisateur
@@ -229,13 +229,12 @@ const DOCX_ACTIONS: [&str; 6] = ["read", "edit", "insert_paragraph", "comment", 
 pub fn docx_tool_definition() -> Value {
     json!({
         "name": DOCX_TOOL_NAME,
-        "description": "Read and edit a Word .docx of the project (e.g. a supervisor's corrected copy) \
-    WITHOUT breaking it for Word: never unzip or rewrite a .docx yourself, use this tool. action=read \
-    gives paragraphs (p0, p1…), tracked changes [+ins+]#id [-del-]#id and comment threads (c1…). \
-    edit, insert_paragraph, comment, reply and format write tracked changes / comments signed with \
-    your name; the user accepts or rejects them (you cannot). Quote the exact current text in find \
-    (deleted text excluded); add paragraph or occurrence when it is ambiguous. Citations {…} and \
-    other authors' tracked insertions cannot be edited.",
+        "description": "Read and edit a Word .docx of the project WITHOUT breaking it for Word (never unzip \
+    or rewrite it yourself). read: paragraphs p0…, then footnotes n1.p0… and header1.p0…, tracked \
+    changes [+ins+]#id [-del-]#id, comments c1…. Every write is a tracked change or comment signed \
+    with your name; the user accepts or rejects (you cannot). find = exact current text (add paragraph \
+    or occurrence if ambiguous). insert_note / insert_figure go right after find (text = note text or \
+    alt; figure = image path in the project). Citations and others' insertions are not editable.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -249,7 +248,8 @@ pub fn docx_tool_definition() -> Value {
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
                 "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
                 "after": { "type": "string", "description": "insert_paragraph: new paragraph goes after this one (p12)" },
-                "text": { "type": "string", "description": "insert_paragraph / comment / reply: the text" },
+                "text": { "type": "string", "description": "insert_paragraph / comment / reply / insert_note: the text; insert_figure: alt text" },
+                "figure": { "type": "string", "description": "insert_figure: PNG/JPEG/GIF path in the project" },
                 "comment": { "type": "integer", "description": "reply: comment number (c3 → 3)" },
                 "bold": { "type": "boolean" }, "italic": { "type": "boolean" }, "underline": { "type": "boolean" },
                 "strike": { "type": "boolean" }, "superscript": { "type": "boolean" }, "subscript": { "type": "boolean" },

@@ -41,6 +41,22 @@ fn resolve(project_root: &str, requested: &str) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
+/// Image du projet à insérer (PNG, JPEG, GIF).
+fn resolve_figure(project_root: &str, requested: &str) -> Result<PathBuf, String> {
+    let root = Path::new(project_root).canonicalize().map_err(|e| format!("projet illisible : {e}"))?;
+    let p = Path::new(requested);
+    let candidate = if p.is_absolute() { p.to_path_buf() } else { root.join(p) };
+    let resolved = candidate.canonicalize().map_err(|_| format!("figure introuvable : {requested}"))?;
+    if !resolved.starts_with(&root) {
+        return Err("la figure doit être dans le projet".into());
+    }
+    let ok = resolved.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "gif"].iter().any(|x| e.eq_ignore_ascii_case(x)));
+    if !ok {
+        return Err("figure : PNG, JPEG ou GIF".into());
+    }
+    Ok(resolved)
+}
+
 fn str_arg<'a>(req: &'a Value, key: &str) -> Option<&'a str> {
     req.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
@@ -99,10 +115,35 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         let to = usize_arg(req, "to").map(|t| t + 1);
         return Ok(json!({"revision": model.revision, "text": ops::outline(&model, from, to, READ_MAX_CHARS)}));
     }
-    let op = op_of(action, req)?;
     let sig = Signature::now(author_for(provider));
     let expected = str_arg(req, "revision");
-    let (result, revision) = atelier_docx::edit_file(&path, expected, |d| ops::apply(d, &op, true, &sig)).map_err(|e| e.0)?;
+    let (result, revision) = if action == "insert_note" || action == "insert_figure" {
+        // Placé juste après `find` ; la figure vient du projet.
+        let find = str_arg(req, "find").ok_or("find manquant : le texte juste avant l'appel de note ou la figure")?.to_string();
+        let mut bytes = None;
+        if action == "insert_figure" {
+            let fig = str_arg(req, "figure").ok_or("figure manquant : chemin de l'image dans le projet")?;
+            let fpath = resolve_figure(project_root, fig)?;
+            bytes = Some(std::fs::read(&fpath).map_err(|e| format!("figure illisible : {e}"))?);
+        }
+        let (paragraph, occurrence) = (str_arg(req, "paragraph").map(str::to_string), usize_arg(req, "occurrence"));
+        atelier_docx::edit_file(&path, expected, |d| {
+            let (p, at) = ops::place_after(d, paragraph.as_deref(), &find, occurrence)?;
+            let mut op = if action == "insert_note" {
+                Op::InsertNote { paragraph: p.clone(), at, text: str_arg(req, "text").unwrap_or("").to_string(), endnote: false }
+            } else {
+                Op::InsertImage { paragraph: p.clone(), at, path: str_arg(req, "figure").unwrap_or("").to_string(), alt: str_arg(req, "text").unwrap_or("").to_string(), bytes: None }
+            };
+            op.load_images(&mut |_| Ok(bytes.clone().unwrap_or_default()))?;
+            let mut r = ops::apply(d, &op, true, &sig)?;
+            r["paragraph"] = json!(p);
+            Ok(r)
+        })
+        .map_err(|e| e.0)?
+    } else {
+        let op = op_of(action, req)?;
+        atelier_docx::edit_file(&path, expected, |d| ops::apply(d, &op, true, &sig)).map_err(|e| e.0)?
+    };
     // Le paragraphe touché, relu tel qu'il est maintenant sur le disque.
     let para = result.get("paragraph").and_then(Value::as_str).map(str::to_string).or_else(|| str_arg(req, "paragraph").map(str::to_string));
     let mut out = json!({"ok": true, "author": sig.author, "revision": revision, "result": result});
@@ -189,6 +230,19 @@ mod tests {
         let m = d.model().unwrap();
         assert!(m.changes.iter().filter(|c| c.author == "Claude").count() >= 4);
         assert!(m.comments.iter().any(|c| c.author == "Codex" && c.parent == Some(1)));
+        // Notes et figures, en suivi signé ; la note de Christophe se retouche.
+        let r = run(root, "claude", "insert_note", &json!({"path": "article.docx", "find": "réflectances de surface", "text": "Bandes 1 à 7."})).unwrap();
+        assert_eq!(r["result"]["id"], "n2", "{r}");
+        run(root, "claude", "edit", &json!({"path": "article.docx", "paragraph": "n1.p0", "find": "juillet", "with": "juin"})).unwrap();
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        png.extend_from_slice(&[0, 0, 0, 4, 0, 0, 0, 2, 8, 6, 0, 0, 0]);
+        std::fs::create_dir_all(dir.path().join("figures")).unwrap();
+        std::fs::write(dir.path().join("figures/a.png"), &png).unwrap();
+        run(root, "claude", "insert_figure", &json!({"path": "article.docx", "find": "Nouveau.", "figure": "figures/a.png", "text": "Albédo"})).unwrap();
+        assert!(run(root, "claude", "insert_figure", &json!({"path": "article.docx", "find": "Nouveau.", "figure": "../a.png"})).unwrap_err().contains("introuvable") );
+        let read = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap();
+        assert!(read["text"].as_str().unwrap().contains("Bandes 1 à 7.+]"), "{}", read["text"]);
+
         // Les décisions ne sont pas exposées.
         for forbidden in ["accept", "reject", "accept_all", "resolve", "delete_comment"] {
             assert!(op_of(forbidden, &json!({})).is_err());

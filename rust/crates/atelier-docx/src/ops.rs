@@ -122,6 +122,20 @@ fn locate(docx: &mut Docx, paragraph: Option<&str>, find: &str, occurrence: Opti
     }
 }
 
+/// Position juste après `find` (agent : « appel de note après tel mot »).
+pub fn place_after(docx: &mut Docx, paragraph: Option<&str>, find: &str, occurrence: Option<usize>) -> Result<(String, usize)> {
+    let (p, occ) = locate(docx, paragraph, find, occurrence)?;
+    let model = docx.model()?;
+    let Some(para) = model.all_paragraphs().find(|x| x.id == p || x.para_id.as_deref() == Some(p.as_str())) else {
+        return err(format!("paragraphe {p} introuvable"));
+    };
+    let k = occ.unwrap_or(1);
+    let Some((byte, _)) = para.text.match_indices(find).nth(k.saturating_sub(1)) else {
+        return err(format!("« {find} » introuvable dans {p}"));
+    };
+    Ok((para.id.clone(), para.text[..byte].chars().count() + find.chars().count()))
+}
+
 /// Applique `op` ; `tracked` = suivi des modifications, signé `sig`.
 pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result<Value> {
     Ok(match op {
