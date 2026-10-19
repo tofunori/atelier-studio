@@ -721,6 +721,9 @@ test('state: a failed initial GET /state never lets a click overwrite the projec
     });
     await page.goto(url);
     await expect(page.locator('#favChip')).toHaveAttribute('title', /non chargé/);
+    // visible sans survol : classe d'avertissement et mention « non enregistré »
+    await expect(page.locator('#favChip')).toHaveClass(/state-unloaded/);
+    expect(await page.locator('#favChip').evaluate((el) => getComputedStyle(el, '::after').content)).toContain('non enregistré');
     await page.locator('.card[data-card="plot-alpha.svg"]').hover();
     await page.locator('[data-act="more"][data-rel="plot-alpha.svg"]').click();
     await page.locator('[data-wfset="candidate"]').click();
@@ -729,6 +732,7 @@ test('state: a failed initial GET /state never lets a click overwrite the projec
     failGet = false;                                // le nouvel essai (2 s) réussit
     await expect.poll(() => posts, {timeout: 8_000}).toBeGreaterThan(0);
     await expect(page.locator('#favChip')).not.toHaveAttribute('title', /non chargé/);
+    await expect(page.locator('#favChip')).not.toHaveClass(/state-unloaded/);
     await expect.poll(async () => (await (await page.request.get(stateUrl)).json()).workflow?.['plot-alpha.svg']).toBe('candidate');
     const disk = await (await page.request.get(stateUrl)).json();
     expect(disk.ratings).toEqual({'plot-beta.svg': 5});

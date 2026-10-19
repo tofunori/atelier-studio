@@ -192,6 +192,9 @@
         font-size:var(--fs-body-s, 12px);font-weight:500;height:30px}
   .chip:hover{border-color:var(--border-strong)}
   .chip.off{opacity:.45}
+  /* GET /state en échec : rien n'est enregistré tant qu'il n'aboutit pas */
+  #favChip.state-unloaded{opacity:1;color:var(--status-warning, var(--primary))}
+  #favChip.state-unloaded::after{content:"· non enregistré"}
   #sort,#folder{flex:0 1 auto;min-width:90px}
   #rescan{width:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;
         color:var(--muted)}
@@ -1450,9 +1453,13 @@ fetch('/state').then(r=>{
   stateBase=st;                                     // base = ce que le disque portait à la lecture
   stateLoaded=true;                                 // disk state is merged in now; saves are safe
   (document.getElementById('favChip')                   ).removeAttribute('title');
+  (document.getElementById('favChip')                   ).classList.remove('state-unloaded');
   if(pendingPush){ pendingPush=false; pushState(); }
 }).catch((e)=>{
   (document.getElementById('favChip')                   ).title='État du projet non chargé ('+((e&&e.message)||'serveur injoignable')+') — rien n’est enregistré, nouvel essai automatique';
+  // Visible sans survol : la puce passe en couleur d'avertissement et dit
+  // « non enregistré » (CSS ::after) tant que le GET /state n'a pas abouti.
+  (document.getElementById('favChip')                   ).classList.add('state-unloaded');
   setTimeout(loadInitialState, stateLoadDelay);
   stateLoadDelay=Math.min(stateLoadDelay*2, 30000);
 });

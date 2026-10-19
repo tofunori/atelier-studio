@@ -517,9 +517,13 @@ fetch('/state').then(r=>{
   stateBase=st;                                     // base = ce que le disque portait à la lecture
   stateLoaded=true;                                 // disk state is merged in now; saves are safe
   (document.getElementById('favChip') as HTMLSpanElement).removeAttribute('title');
+  (document.getElementById('favChip') as HTMLSpanElement).classList.remove('state-unloaded');
   if(pendingPush){ pendingPush=false; pushState(); }
 }).catch((e)=>{
   (document.getElementById('favChip') as HTMLSpanElement).title='État du projet non chargé ('+((e&&e.message)||'serveur injoignable')+') — rien n’est enregistré, nouvel essai automatique';
+  // Visible sans survol : la puce passe en couleur d'avertissement et dit
+  // « non enregistré » (CSS ::after) tant que le GET /state n'a pas abouti.
+  (document.getElementById('favChip') as HTMLSpanElement).classList.add('state-unloaded');
   setTimeout(loadInitialState, stateLoadDelay);
   stateLoadDelay=Math.min(stateLoadDelay*2, 30000);
 });
