@@ -51,8 +51,10 @@ export function HarnessInteraction({ event: e, threadId }: {
   const urlMode = e.interactionType === "mcp_elicitation" && !!e.urlDomain && fields.length === 0;
 
   const answer = (response: InteractionResponse) => {
+    // Carte recopiée d'un fil lié (spécialiste délégué) : la réponse part
+    // au nom de ce fil, seul détenteur de la demande côté serveur.
     window.dispatchEvent(new CustomEvent("interaction-answer", {
-      detail: { threadId, requestId: e.requestId, response },
+      detail: { threadId: e.forThreadId ?? threadId, requestId: e.requestId, response },
     }));
     setSent(true);
   };
@@ -136,6 +138,7 @@ export function HarnessInteraction({ event: e, threadId }: {
         <span className="int-title">{e.title}</span>
         <span className="int-type">{t(`interaction.type-${e.interactionType}` as Parameters<typeof t>[0])}</span>
       </div>
+      {e.forTitle ? <div className="int-for">{t("interaction.for-linked", { title: e.forTitle })}</div> : null}
       {e.detail ? <div className="int-detail">{e.detail}</div> : null}
       {e.reason && !final ? <div className="int-reason">{e.reason}</div> : null}
       {e.markdown ? (

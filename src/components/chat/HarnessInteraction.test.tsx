@@ -57,6 +57,20 @@ describe("HarnessInteraction — approval", () => {
     }
   });
 
+  it("copie d'un fil lié : nomme ce fil et répond en son nom", () => {
+    const cap = captureAnswers();
+    try {
+      render(<HarnessInteraction event={makeEvent({ forThreadId: "child-1", forTitle: "Références · Vérifier" })} threadId={THREAD} />);
+      expect(screen.getByText(t("interaction.for-linked", { title: "Références · Vérifier" }))).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: t("interaction.allow-once") }));
+      expect(cap.details).toEqual([
+        { threadId: "child-1", requestId: "req-001", response: { allow: true, scope: "once" } },
+      ]);
+    } finally {
+      cap.dispose();
+    }
+  });
+
   it("Deny émet {allow:false}", () => {
     const cap = captureAnswers();
     try {
