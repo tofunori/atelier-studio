@@ -63,6 +63,8 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     @ObservationIgnored private var projectsRequestID = UUID()
     var error: String?
     var hasAddress: Bool { baseURL != nil }
+    /// The paired Mac, shown at the foot of the conversation menu.
+    var macHost: String? { baseURL?.host }
     var annotationServerID: String? { baseURL?.absoluteString }
     private var baseURL: URL?
     private var token = ""

@@ -200,31 +200,60 @@ struct NativeLibraryView: View {
     @State private var query = ""
     @State private var opening: String?
     @State private var selected: LibraryArticle?
+    private var collectionName: String {
+        workspace.library.collections.first { $0.id == workspace.library.selectedCollection }?.name ?? "Toute la bibliothèque"
+    }
     private var refreshKey: String { "\(workspace.surface == .articles && scenePhase == .active)-\(workspace.library.selectedCollection)-\(workspace.gallery.connectionRevision)" }
     var body: some View {
         @Bindable var library = workspace.library
         List {
-            if !library.collections.isEmpty {
-                Picker("Collection", selection: $library.selectedCollection) {
-                    Text("Tous les articles").tag(0)
-                    ForEach(library.collections) { Text($0.name).tag($0.id) }
-                }
-            }
             if library.busy { ProgressView("Chargement de Zotero…") }
             if let error = library.error { Text(error).font(.footnote).foregroundStyle(.secondary) }
-            ForEach(library.articles.filter { query.isEmpty || "\($0.title) \($0.creators) \($0.year)".localizedStandardContains(query) }) { article in
-                Button { selected = article } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: article.hasPdf ? "doc.richtext" : "doc.text").foregroundStyle(AtelierTheme.accent).frame(width: 32)
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(article.title).font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(3)
-                            Text("\(article.creators) · \(article.year)").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.padding(.vertical, 6)
+            if query.isEmpty, let bookmark = workspace.lastDocuments[.articles], let article = bookmark.article {
+                Section {
+                    Button { workspace.switchWorkSurface(.articles) } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "doc.text").font(.title3).foregroundStyle(AtelierTheme.tertiaryText)
+                                .frame(width: 40, height: 52)
+                                .background(AtelierTheme.background, in: RoundedRectangle(cornerRadius: 4))
+                                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(AtelierTheme.separator))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Reprendre la lecture").font(.caption.weight(.medium)).foregroundStyle(AtelierTheme.secondaryText)
+                                Text(article.title).font(.footnote.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
+                                Text("\(article.creators) · \(article.year)").font(.caption).foregroundStyle(AtelierTheme.secondaryText).lineLimit(1)
+                            }
+                        }.padding(.vertical, 4)
+                    }
+                    .listRowBackground(AtelierTheme.card)
                 }
+            }
+            Section {
+                ForEach(library.articles.filter { query.isEmpty || "\($0.title) \($0.creators) \($0.year)".localizedStandardContains(query) }) { article in
+                    Button { selected = article } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(article.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(2)
+                            Text(([article.creators, article.year, article.publication].filter { !$0.isEmpty }).joined(separator: " · "))
+                                .font(.caption.monospacedDigit()).foregroundStyle(AtelierTheme.secondaryText).lineLimit(1)
+                        }.padding(.vertical, 4)
+                    }
+                    .listRowBackground(AtelierTheme.background)
+                    .listRowSeparatorTint(AtelierTheme.separator)
+                }
+            } header: {
+                if !library.articles.isEmpty { Text(query.isEmpty ? "Bibliothèque" : "Résultats").font(.caption.weight(.medium)).textCase(nil) }
             }
             if library.articles.isEmpty && !library.busy {
                 ContentUnavailableView("Vos articles", systemImage: "books.vertical", description: Text("Connectez le Mac pour charger votre bibliothèque Zotero. Les PDF ouverts restent disponibles sur cet appareil."))
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(AtelierTheme.background)
+        .navigationSubtitle(collectionName + (library.articles.isEmpty ? "" : " · \(library.articles.count)"))
+        .toolbarTitleMenu {
+            Picker("Collection", selection: $library.selectedCollection) {
+                Text("Toute la bibliothèque").tag(0)
+                ForEach(library.collections) { Text($0.name).tag($0.id) }
             }
         }
         .searchable(text: $query, prompt: "Titre, auteur, année")

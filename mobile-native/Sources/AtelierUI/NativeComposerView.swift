@@ -71,7 +71,7 @@ struct NativeComposerView: View {
             if !chat.attachments.isEmpty { ChatAttachmentBar(workspace: workspace) }
             HStack(spacing: 4) {
                 if !expanded { attachButton }
-                TextField("Message…", text: $workspace.draft, selection: $workspace.composerSelection, axis: .vertical)
+                TextField(placeholder, text: $workspace.draft, selection: $workspace.composerSelection, axis: .vertical)
                     .lineLimit(expanded ? 1...5 : 1...1).focused(composing)
                     .padding(.horizontal, expanded ? 6 : 0).padding(.top, expanded ? 4 : 0)
                     .accessibilityIdentifier("chatDraft")
@@ -83,9 +83,11 @@ struct NativeComposerView: View {
                     Button { choosingModel = true } label: {
                         HStack(spacing: 5) {
                             Text(chat.provider?.modelLabels?[chat.model] ?? (chat.model.isEmpty ? "Modèle du Mac" : chat.model)).lineLimit(1)
-                            Image(systemName: "chevron.down").font(.system(size: 13, weight: .medium))
-                        }.font(.subheadline).frame(minHeight: 44)
-                    }.buttonStyle(.plain).foregroundStyle(.secondary).disabled(chat.sending || chat.running)
+                            Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(AtelierTheme.tertiaryText)
+                        }.font(.footnote.weight(.medium)).padding(.horizontal, 10).frame(minHeight: 28)
+                            .background(AtelierTheme.fill, in: Capsule())
+                            .frame(minHeight: 44).contentShape(Rectangle())
+                    }.buttonStyle(.plain).foregroundStyle(.primary).disabled(chat.sending || chat.running)
                         .accessibilityLabel("Choisir le modèle")
                         .accessibilityValue(chat.provider?.modelLabels?[chat.model] ?? chat.model)
                     Button { choosingEffort = true } label: {
@@ -109,16 +111,19 @@ struct NativeComposerView: View {
             }
         }
         .padding(.horizontal, expanded ? 10 : 8).padding(.vertical, expanded ? 10 : 4)
-        .background(AtelierTheme.surface, in: RoundedRectangle(cornerRadius: expanded ? 22 : 26))
-        .overlay(RoundedRectangle(cornerRadius: expanded ? 22 : 26).strokeBorder(.primary.opacity(0.07), lineWidth: 1))
-        .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, embedded ? 3 : 8)
-        .background(embedded ? Color.clear : Color(uiColor: .systemBackground))
+        .atelierGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        // Embedded in the floating panel on iPhone; on iPad it carries its own margins.
+        .padding(.horizontal, embedded ? 0 : 12).padding(.top, embedded ? 0 : 8).padding(.bottom, embedded ? 0 : 8)
         .sheet(isPresented: $dictating) { NativeDictationSheet(workspace: workspace) }
         .sheet(isPresented: $choosingModel) { NativeModelSheet(chat: chat) }
         .sheet(isPresented: $choosingPermissions) { ChatOptionsView(chat: chat) }
         .task(id: suggestionKey) {
             await suggestions.load(kind: trigger?.kind, thread: chat.selected, project: suggestionProject, gallery: workspace.gallery, preview: chat.isPreview)
         }
+    }
+    private var placeholder: String {
+        guard let assistant = workspace.chat.provider?.label else { return "Message…" }
+        return "Écrire à " + assistant + "…"
     }
     private func insertSuggestion(_ value: String, trigger: ComposerTrigger) {
         guard let result = trigger.replacing(in: workspace.draft, with: value) else { return }

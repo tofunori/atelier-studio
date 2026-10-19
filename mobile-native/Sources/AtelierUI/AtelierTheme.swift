@@ -19,6 +19,30 @@ enum AtelierTheme {
     static let surface = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark ? UIColor(white: 0.065, alpha: 1) : .secondarySystemBackground
     })
+
+    // Same greys as the Mac app (src/App.css), so both read as one product.
+    private static func tone(_ light: UInt32, _ dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let hex = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255, blue: CGFloat(hex & 0xff) / 255, alpha: 1)
+        })
+    }
+    /// Reading surface: chat, gallery, articles.
+    static let background = tone(0xfbfcfd, 0x1b1e21)
+    /// Recessed surface: the conversation menu.
+    static let sidebar = tone(0xf1f4f7, 0x15181b)
+    /// Raised content: previews, the resume card.
+    static let card = tone(0xffffff, 0x24282d)
+    /// Controls and the user's message.
+    static let control = tone(0xe8ebef, 0x2c3035)
+    static let separator = tone(0xe1e4e8, 0x2b2f33)
+    static let secondaryText = tone(0x5f646a, 0x90969d)
+    static let tertiaryText = tone(0x8a8f95, 0x62666c)
+    /// Selected tab and chips laid on glass.
+    static let fill = Color.primary.opacity(0.07)
+    /// Radii: controls, cards, then floating glass.
+    static let controlRadius: CGFloat = 6
+    static let cardRadius: CGFloat = 10
     @MainActor static func confirmation(_ key: String = "sendHaptic") {
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: "atelier.haptics") as? Bool != false,
@@ -113,5 +137,12 @@ private struct ThemeConversationPreview: View {
         }.padding(14).background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 18))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("themeConversationPreview")
+    }
+}
+
+extension View {
+    /// Liquid Glass for what floats over content: toolbar buttons, tabs, composer.
+    func atelierGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
+        glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
     }
 }
