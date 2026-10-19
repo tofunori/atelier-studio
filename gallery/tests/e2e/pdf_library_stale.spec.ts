@@ -52,7 +52,7 @@ test('corriger une note d’un autre article ne réécrit pas son instantané p�
     hl('o1', {memo: 'note à corriger'}), hl('o2', {memo: 'ancienne note'}), hl('o3', {memo: 'à retirer ailleurs'})]});
   await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(REL)}`);
   await expect.poll(() => page.evaluate(() => ANNOTS_LOADED), {timeout: 15_000}).toBe(true);
-  await page.evaluate(() => annPane.toggle());
+  await page.evaluate('annPane.toggle()'); // const du script de page, hors des globals typés
   const pane = page.locator('#annPane');
   await pane.locator('.scope button[data-s="lib"]').click();
   await pane.locator('.art', {hasText: 'autre'}).click();
@@ -81,7 +81,7 @@ test('une suppression ratée depuis la Bibliothèque remet la ligne et se signal
   writeStore({[REL]: [hl('mine')], [OTHER]: [hl('o1', {memo: 'à garder'})]});
   await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(REL)}`);
   await expect.poll(() => page.evaluate(() => ANNOTS_LOADED), {timeout: 15_000}).toBe(true);
-  await page.evaluate(() => annPane.toggle());
+  await page.evaluate('annPane.toggle()'); // const du script de page, hors des globals typés
   const pane = page.locator('#annPane');
   await pane.locator('.scope button[data-s="lib"]').click();
   await pane.locator('.art', {hasText: 'autre'}).click();
