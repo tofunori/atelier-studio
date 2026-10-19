@@ -2109,20 +2109,59 @@ const annPane = (function(){
       return;
     }
     if (!LIB || !Array.isArray(LIB[relX])) return;
-    // `known` : ce qui n'est pas dans notre copie (posé ailleurs depuis) reste.
-    fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({rel: relX, annots: LIB[relX], known: LIB[relX].map(x => String(x.id))})})
-      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); })
-      .catch(() => {
-        (document.getElementById("status")                   ).textContent = "Note non enregistrée — réessaie.";
-      });
+    void commitLibField(relX, a, field, value, before);
+  }
+  // Autre article, depuis la portée Bibliothèque : LIB est un instantané
+  // chargé une fois. Réécrire LIB[relX] tel quel ramenait en arrière ce que
+  // l'onglet de l'article, le MCP ou l'iPhone avaient changé depuis, et
+  // recréait ce qu'ils avaient retiré (audit du 2026-10-18, problème 7).
+  // On relit donc l'article, on n'y change que ce champ, puis on écrit la
+  // liste relue (son `known` est à jour).
+  async function commitLibField(relX        , a, field        , value        , before        ){
+    const restore = () => {
+      if (field === "memo" && !before) delete a.memo; else a[field] = before;
+    };
+    try {
+      const r = await fetch("/pdfannot?rel=" + encodeURIComponent(relX));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const fresh = (await r.json()).annots;
+      if (!Array.isArray(fresh)) throw new Error("réponse sans annots");
+      const target = fresh.find(x => String(x.id) === String(a.id));
+      if (!target) {
+        LIB[relX] = fresh;
+        annotStatus("Annotation retirée ailleurs — note non enregistrée.");
+        refresh();
+        return;
+      }
+      if (field === "memo") { if (value.trim()) target.memo = value; else delete target.memo; }
+      else target[field] = value;
+      const w = await fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({rel: relX, annots: fresh, known: fresh.map(x => String(x.id))})});
+      if (!w.ok) throw new Error("HTTP " + w.status);
+      LIB[relX] = fresh;
+      refresh();
+    } catch(e) {
+      restore();
+      annotStatus("Note non enregistrée — réessaie.");
+      refresh();
+    }
   }
   function removeAnnotIn(relX        , a){
     if (!relX || relX === rel) { removeAnnot(a); return; }
     if (!LIB || !Array.isArray(LIB[relX])) return;
+    const index = LIB[relX].findIndex(x => x.id === a.id);
     LIB[relX] = LIB[relX].filter(x => x.id !== a.id);
+    // retrait ciblé (removeIds) ; un échec remet la ligne et se signale
     fetch("/pdfannot", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({rel: relX, removeIds: [String(a.id)]})}).catch(()=>{});
+      body: JSON.stringify({rel: relX, removeIds: [String(a.id)]})})
+      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); })
+      .catch(() => {
+        if (LIB && Array.isArray(LIB[relX]) && !LIB[relX].some(x => x.id === a.id)) {
+          LIB[relX].splice(Math.max(0, index), 0, a);
+        }
+        annotStatus("Suppression non enregistrée — réessaie.");
+        refresh();
+      });
     refresh();
   }
   function renderDoc(){
