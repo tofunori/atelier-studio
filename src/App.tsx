@@ -656,15 +656,6 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   activeIdRef.current = activeId;
   const homeEvents = useHomeThreadEvents(eventStore, activeId == null);
-  const openAgentInAtelier = (agent: AgentDisplay) => {
-    const nextId = `agent:${agent.threadId}`;
-    setOpenedAgent(agent);
-    setActiveTab((current) => {
-      if (!current.startsWith("agent:")) previousAtelierTab.current = current;
-      return nextId;
-    });
-    revealAtelierTab(nextId);
-  };
   const closeAgentInAtelier = () => {
     const closingId = openedAgent ? `agent:${openedAgent.threadId}` : null;
     setOpenedAgent(null);
@@ -4617,7 +4608,6 @@ export default function App() {
           onFork={threadActions.fork}
           onNewChat={newChat}
           onOpenProject={addProject}
-          onOpenAgent={activeProject ? openAgentInAtelier : undefined}
           layout={layout}
           onToggleExpand={() => setLayout((l) => (l === "chat" ? "split" : "chat"))}
           onAttachPath={(path) => {

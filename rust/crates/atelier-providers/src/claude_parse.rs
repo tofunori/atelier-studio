@@ -1722,7 +1722,7 @@ pub fn tool_detail(name: &str, input: &Value) -> String {
     }
 }
 
-fn bounded_input(input: &Value) -> Value {
+pub(crate) fn bounded_input(input: &Value) -> Value {
     match serde_json::to_string(input) {
         Ok(s) if s.len() <= TOOL_INPUT_MAX => input.clone(),
         Ok(s) => {
@@ -1732,7 +1732,7 @@ fn bounded_input(input: &Value) -> Value {
     }
 }
 
-fn normalize_tool_result(block: &Value) -> (String, bool, usize) {
+pub(crate) fn normalize_tool_result(block: &Value) -> (String, bool, usize) {
     let c = block.get("content");
     let text = match c {
         Some(Value::String(s)) => s.clone(),

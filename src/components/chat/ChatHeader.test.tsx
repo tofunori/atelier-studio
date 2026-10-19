@@ -117,6 +117,35 @@ describe("ChatHeader", () => {
     expect(onUnlink).toHaveBeenCalledWith("codex-1");
   });
 
+  // Sous-agents (2026-10-19) : bouton présent seulement si le fil en a, menu
+  // groupé « Ce tour-ci » / « Plus tôt dans le fil », clic = ouvrir la vue.
+  it("menu des sous-agents : absent sans sous-agent, groupé par tour, ouvre l'agent", async () => {
+    const agent = (threadId: string, description: string, status: "working" | "done") => ({
+      threadId, displayName: "Explore", description, status, statusMessage: null, prompt: null,
+      model: null, reasoningEffort: null, agentPath: null,
+    });
+    const { rerender } = render(<ChatHeader {...base} />);
+    expect(document.querySelector(".chat-subagents-trigger")).toBeNull();
+    const onOpen = vi.fn();
+    const subagents = [
+      { agent: agent("a2", "Relire la méthode", "working"), latestTurn: true },
+      { agent: agent("a1", "Lister les figures", "done"), latestTurn: false },
+    ];
+    rerender(<ChatHeader {...base} subagents={subagents} onOpenSubagent={onOpen} />);
+    const trigger = screen.getByRole("button", { name: t("chat.subagents-menu-label", { count: 2 }) });
+    // un seul travaille encore : le compteur montre les sous-agents en cours
+    expect(trigger).toHaveTextContent("1");
+    fireEvent.click(trigger);
+    expect(await screen.findByText(t("chat.subagents-menu-turn"))).toBeInTheDocument();
+    expect(screen.getByText(t("chat.subagents-menu-earlier"))).toBeInTheDocument();
+    const items = document.querySelectorAll(".subagents-menu-item");
+    expect([...items].map((item) => item.textContent)).toEqual([
+      expect.stringContaining("Relire la méthode"), expect.stringContaining("Lister les figures"),
+    ]);
+    fireEvent.click(screen.getByText("Lister les figures"));
+    expect(onOpen).toHaveBeenCalledWith(subagents[1].agent);
+  });
+
   // Vue de la transcription (2026-08-21) : bouton icône seule (pas de texte),
   // menu des 4 modes avec coche sur l'actif ; absent sans onTranscriptViewChange.
   it("sélecteur de vue : icône seule, 4 modes, remonte le choix", async () => {

@@ -506,7 +506,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "historyFallback": history_fallback,
             }))]
         }
-        // Chaque sous-agent Codex a son propre rollout. Le panneau Atelier
+        // Chaque sous-agent Codex a son propre rollout ; un sous-agent Claude,
+        // son transcript sous la session du parent. La vue du sous-agent
         // demande ce transcript directement, sans dupliquer le prompt parent.
         "getAgentHistory" => {
             let agent_thread_id = msg
@@ -518,7 +519,14 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .get("parentThreadId")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let events = crate::ws_dispatch::blocking(move || load_codex_history(&agent_thread_id))
+            let parent = state.threads().lock().await.get(parent_thread_id).cloned();
+            let claude_session = parent
+                .filter(|t| t.provider == "claude")
+                .and_then(|t| t.session_id);
+            let events = crate::ws_dispatch::blocking(move || match claude_session {
+                Some(session_id) => atelier_providers::load_claude_subagent_history(&session_id, &agent_thread_id),
+                None => load_codex_history(&agent_thread_id),
+            })
                 .await
                 .unwrap_or_default()
                 .into_iter()

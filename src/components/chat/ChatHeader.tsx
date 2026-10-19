@@ -30,6 +30,9 @@ import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import { formesDuFil } from "../../lib/specialistes";
 import "../../styles/local-headers.css";
 import { ChatNotice, type ChatNoticeData } from './ChatNotice';
+import { AgentDuration, AgentRowGlyph, type AgentDisplay } from "./AgentActivity";
+import { agentTitle } from "./agentText";
+import { ToolGlyph, ToolStateGlyph } from "./toolPresentation";
 
 /* Vue de la transcription (2026-08-21, façon Claude Code desktop) : le bouton
    ne montre QUE l'icône du mode actif (demande Thierry — pas de texte) ; le
@@ -76,8 +79,13 @@ export function ChatHeader(p: {
   // texte. `consignes` sert seulement à résoudre ce nom.
   consigneDuFil?: ConsigneDuFil | null;
   consignes?: Consigne[];
+  /** Sous-agents du fil, du plus récent au plus ancien ; vide = pas de bouton. */
+  subagents?: { agent: AgentDisplay; latestTurn: boolean }[];
+  onOpenSubagent?: (agent: AgentDisplay) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [agentsMenuOpen, setAgentsMenuOpen] = useState(false);
+  const agentsAnchor = useRef<HTMLButtonElement | null>(null);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   // triggerRef transmis à LazyDropdownMenu (Base UI gère dismiss et focus)
   const moreAnchor = useRef<HTMLButtonElement | null>(null);
@@ -148,6 +156,55 @@ export function ChatHeader(p: {
           {p.compact && p.notice && <ChatNotice notice={p.notice} />}
           {/* demande Thierry (2026-07-10) : pas de méta provider dans
               l'en-tête — le provider est visible dans le composer */}
+          {p.subagents?.length && p.onOpenSubagent ? (() => {
+            const all = p.subagents;
+            const running = all.filter((entry) => entry.agent.status === "working").length;
+            const item = ({ agent }: { agent: AgentDisplay }) => ({
+              key: agent.threadId,
+              className: "subagents-menu-item",
+              label: (
+                <span className="subagents-mi" data-agent-status={agent.status}>
+                  <span className="subagents-mi-icon"><AgentRowGlyph /></span>
+                  <span className="subagents-mi-text">
+                    <span className="subagents-mi-title">{agentTitle(agent)}</span>
+                    {agent.description ? <span className="subagents-mi-type">{agent.displayName}</span> : null}
+                  </span>
+                  <AgentDuration agent={agent} />
+                  <span className="tool-status"><ToolStateGlyph outcome={agent.status === "working" ? "running"
+                    : agent.status === "done" ? "done" : agent.status === "failed" ? "failed" : "none"} /></span>
+                </span>
+              ),
+              onSelect: () => p.onOpenSubagent?.(agent),
+            });
+            const latest = all.filter((entry) => entry.latestTurn);
+            const earlier = all.filter((entry) => !entry.latestTurn);
+            const groups = latest.length && earlier.length
+              ? [
+                  { key: "turn", label: t("chat.subagents-menu-turn"), items: latest.map(item) },
+                  { key: "earlier", label: t("chat.subagents-menu-earlier"), items: earlier.map(item), separatorBefore: true },
+                ]
+              : [{ key: "all", items: all.map(item) }];
+            return (
+              <LazyDropdownMenu
+                open={agentsMenuOpen}
+                onOpenChange={setAgentsMenuOpen}
+                triggerRef={agentsAnchor}
+                align="end"
+                className="subagents-menu"
+                label={t("chat.subagents-menu")}
+                header={<span className="subagents-menu-head">{t("chat.subagents-menu")}<span className="subagents-menu-count">{all.length}</span></span>}
+                trigger={
+                  <Button variant="ghost" size="sm" className="chat-subagents-trigger" data-running={running > 0 || undefined}
+                    aria-label={t("chat.subagents-menu-label", { count: all.length })}
+                    aria-haspopup="menu" aria-expanded={agentsMenuOpen}>
+                    <ToolGlyph icon={{ cat: "agent" }} />
+                    <span className="chat-subagents-count">{running || all.length}</span>
+                  </Button>
+                }
+                groups={groups}
+              />
+            );
+          })() : null}
           {p.onTranscriptViewChange != null && (() => {
             const active = p.transcriptView ?? "normal";
             const ActiveIcon = (TRANSCRIPT_VIEWS.find((v) => v.id === active) ?? TRANSCRIPT_VIEWS[0]).icon;
