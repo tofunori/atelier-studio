@@ -25,6 +25,5 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
-  "exclude": ["src/test_auto_review_*.ts"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "exclude": ["src/test_auto_review_*.ts"]
 }

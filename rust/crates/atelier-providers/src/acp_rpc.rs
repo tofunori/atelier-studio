@@ -341,6 +341,7 @@ impl AcpServer {
         let mut child = cmd
             .spawn()
             .map_err(|e| AcpRpcError::transport(format!("spawn {label} acp: {e}")))?;
+        crate::agent_groups::register(child.id());
         let stdin = child
             .stdin
             .take()

@@ -134,6 +134,21 @@ the `atelier-studio` folder above only if you also want to erase your
 conversations, settings and PDF highlights. Keep each project's `.fig_thumbs/`
 folder unless you also want to lose that project's notes and comments.
 
+## Logs
+
+Atelier's servers keep their logs in `~/Library/Logs/Atelier/` (in Finder:
+Go → Go to Folder…):
+
+- `studio-server.log`: the chat server (agents, turns, errors).
+- `gallery-<port>.log`: one per project whose gallery you opened.
+
+Each file stops at 5 MB; the three previous ones are kept as `.1.log` to
+`.3.log`. If a server crashes, the place and the stack trace of the crash are
+written there. Two other logs live elsewhere:
+`~/Library/Logs/atelier-studio/claude-cli.log` (Claude CLI calls) and
+`~/Library/Application Support/atelier-studio/remote/gateway.log` (iPhone
+gateway).
+
 ## Troubleshooting
 
 | What you see | What to do |
@@ -145,7 +160,8 @@ folder unless you also want to lose that project's notes and comments.
 | The Zotero library is empty | Set the Zotero data folder in Settings → Integrations |
 
 Report other problems in
-[GitHub issues](https://github.com/tofunori/atelier-studio/issues).
+[GitHub issues](https://github.com/tofunori/atelier-studio/issues). Attach
+the logs above.
 
 ## Build from source
 
@@ -173,10 +189,26 @@ npm run tauri:build:app
 ```
 
 The app lands in `src-tauri/target/release/bundle/macos/Atelier.app`, signed
-ad hoc. Before building over a running copy, stop it and its servers exactly as
-described in [PROTOCOLE_RELANCE.md](PROTOCOLE_RELANCE.md) (in French). That file
-is the only build and restart procedure; the checks, the stop list and the
-restart verification live there. `npm run tauri dev` gives a hot-reloading
+ad hoc. To build, install and restart it on your Mac, run
+`bash scripts/relance-app.sh --confirme` from Terminal, as described in
+[PROTOCOLE_RELANCE.md](PROTOCOLE_RELANCE.md) (in French). It builds while the
+running copy keeps working, checks that no chat turn is running, stops the app
+and its servers, installs the new build in `~/Applications/Atelier.app` and
+keeps the previous one in `~/Applications/Atelier-precedente/` for
+`bash scripts/relance-app.sh --retour --confirme`. On the first run, when
+nothing is installed there yet, the app that is running (from
+`/Applications/Atelier.app` or another worktree's `target/`) is copied first
+and becomes the previous build; if no app runs, the script says that no
+previous build is kept. A DMG copy left in `/Applications/Atelier.app` has the
+same bundle identifier, so the Dock or Spotlight may reopen it and run old
+code: the script reports it without deleting it; once the new build works,
+move `/Applications/Atelier.app` to the Trash and keep
+`~/Applications/Atelier.app` in the Dock. The restart stops only the chat
+agents' process groups: detached computations, `nohup` jobs started from the
+built-in terminal and kernels keep running and are listed. That file is the only build
+and restart procedure; the checks, the stop list and the restart verification
+live there. **Settings → General → Diagnostics and maintenance → Sidecar** shows
+the commit and date of the running build. `npm run tauri dev` gives a hot-reloading
 development build when run from your own terminal.
 
 More developer references: [TypeScript sources](agent-reference/typescript-sources.md)

@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { resolveBuildIdentity } from "./scripts/build-identity.mts";
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -20,6 +21,12 @@ function reachedFromChatMarkdown(id: string, getModuleInfo: ModuleInfoGetter, se
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+
+  // Commit court et date du build, affichés à côté de la version dans
+  // Réglages (src/lib/buildIdentity.ts) ; « inconnu » si git manque.
+  define: {
+    __ATELIER_BUILD__: JSON.stringify(resolveBuildIdentity({ cwd: __dirname })),
+  },
 
   resolve: {
     alias: {

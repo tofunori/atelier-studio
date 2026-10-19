@@ -6,6 +6,13 @@ import { DEFAULT_SETTINGS } from "../../../lib/settings";
 import type { SectionProps } from "../shared";
 import General from "./General";
 
+// Identité de build fixe : sous vitest, le `define` de vite.config.ts
+// n'existe pas.
+vi.mock("../../../lib/buildIdentity", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/buildIdentity")>()),
+  BUILD_IDENTITY: { commit: "9bcdc0e", date: "2026-10-18 22:48" },
+}));
+
 beforeEach(() => { resetTestState(); setLanguage("fr"); vi.clearAllMocks(); });
 afterEach(cleanup);
 
@@ -88,6 +95,21 @@ describe("Section Général", () => {
     // l'ex-section setup) et un seul badge « connecté ».
     expect(screen.getAllByText("Sidecar")).toHaveLength(1);
     expect(screen.getAllByText("connecté")).toHaveLength(1);
+  });
+
+  it("affiche le commit et la date de la build à côté de la version", () => {
+    const ws = fakeWs();
+    renderUi(<General {...props({ ws })} />);
+    emitWs(ws, {
+      type: "setupStatus",
+      status: {
+        runtime: { node: "22.4.0", version: "2.0.0", bundled: true },
+        sidecar: { pid: 4242, startedAt: "", appVersion: "2.0.0", bundleHash: "abc123", dir: "/tmp/atelier" },
+        providers: [],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Diagnostic et maintenance" }));
+    expect(screen.getByText("2.0.0 · build 9bcdc0e du 2026-10-18 22:48 · pid 4242 · port ? · /tmp/atelier")).toBeInTheDocument();
   });
 
   it("n'a plus de Select « provider par défaut » ni « modèle par défaut » (doublon retiré, correction C3)", () => {

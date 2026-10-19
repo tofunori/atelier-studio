@@ -17,6 +17,7 @@ path = "src/gallery_tool_main.rs"
 [dependencies]
 atelier-integrations = { workspace = true }
 atelier-fdlimit = { workspace = true }
+atelier-logs = { workspace = true }
 atelier-core = { path = "../atelier-core" }
 atelier-pdf = { workspace = true }
 atelier-codebook = { workspace = true }

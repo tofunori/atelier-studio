@@ -2453,6 +2453,18 @@ fn exit_with_parent() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     atelier_fdlimit::raise_nofile_limit();
+    // Lancé par l'app, le serveur reçoit son journal durable
+    // (`~/Library/Logs/Atelier/gallery-<port>.log`, ATELIER_LOG_FILE) :
+    // stderr et stdout y vont, il tourne à taille bornée, et une panique y
+    // laisse sa pile. Sans la variable (tests, terminal), rien ne change.
+    let _server_log = atelier_logs::ServerLog::from_env().inspect(|log| {
+        log.install_panic_hook("atelier-gallery-server");
+        let _ = log.adopt_stdout();
+        log.line(&format!(
+            "atelier-gallery-server démarre (pid {})",
+            std::process::id()
+        ));
+    });
     exit_with_parent();
     let args = Args::parse();
     let root = resolve_root(&args)?;

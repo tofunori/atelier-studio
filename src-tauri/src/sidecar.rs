@@ -8,13 +8,19 @@
 //!
 //! Lifecycle: reuse in-process handle → reuse lockfile when health+identity match
 //! → spawn new → kill child on failed health (no orphan loops).
+//!
+//! Journal : le stderr du serveur est le fichier
+//! `~/Library/Logs/Atelier/studio-server.log` (crate atelier-logs), et non plus un
+//! pipe. stdout reste un pipe pour la seule ligne de démarrage, puis le
+//! serveur le rebranche sur ce journal.
 
 use crate::identity::{self, ProcessHealth};
+use atelier_logs::ChildLog;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::Manager;
@@ -253,38 +259,48 @@ fn write_lockfile(info: &SidecarInfo) {
     }
 }
 
-fn capture_stderr<R: Read + Send + 'static>(mut reader: R) -> Arc<Mutex<String>> {
-    let buf = Arc::new(Mutex::new(String::new()));
-    let out = Arc::clone(&buf);
-    thread::spawn(move || {
-        let mut chunk = [0u8; 1024];
-        loop {
-            match reader.read(&mut chunk) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    let text = String::from_utf8_lossy(&chunk[..n]);
-                    if let Ok(mut s) = out.lock() {
-                        if s.len() < 12_000 {
-                            s.push_str(&text);
-                            if s.len() > 12_000 {
-                                s.truncate(12_000);
-                            }
-                        }
-                    }
-                }
-            }
+/// Fin de la sortie du serveur citée dans une erreur de démarrage.
+const STARTUP_OUTPUT_BYTES: usize = 4_000;
+
+/// Journal durable du serveur de chat (problème 13 de l'audit 2026-10-18).
+/// Avant, son stderr était un pipe drainé par un fil qui paniquait quand sa
+/// troncature à 12 000 octets coupait un caractère accentué, et qui était
+/// mort à coup sûr quand une autre instance de l'app réutilisait ce serveur
+/// (lock-reuse après ⌘Q) : chaque log du serveur paniquait ensuite. Un
+/// fichier reste valide quelle que soit l'app qui a lancé le serveur, et le
+/// serveur le fait tourner lui-même (5 Mio, 3 anciens gardés).
+fn open_server_log() -> Option<ChildLog> {
+    match ChildLog::open("studio-server") {
+        Ok(mut log) => {
+            log.mark(&format!(
+                "tauri-app (pid {}) lance atelier-studio-server",
+                std::process::id()
+            ));
+            Some(log)
         }
-    });
-    buf
+        Err(e) => {
+            eprintln!("[atelier] journal du serveur de chat indisponible : {e}");
+            None
+        }
+    }
 }
 
-fn stderr_snapshot(buf: &Arc<Mutex<String>>) -> String {
-    buf.lock().map(|s| s.trim().to_string()).unwrap_or_default()
+/// Ce que le serveur a écrit depuis son lancement (coupé sur une frontière
+/// de caractère), pour les erreurs de démarrage.
+fn server_output(log: Option<&ChildLog>) -> String {
+    match log {
+        Some(log) => format!(
+            "{} (journal : {})",
+            log.output_since_open(STARTUP_OUTPUT_BYTES),
+            log.path().display()
+        ),
+        None => "journal indisponible".into(),
+    }
 }
 
 fn read_startup_line<R: Read + Send + 'static>(
     stdout: R,
-    stderr: &Arc<Mutex<String>>,
+    log: Option<&ChildLog>,
     timeout: Duration,
 ) -> Result<String, String> {
     let (tx, rx) = mpsc::channel();
@@ -297,15 +313,15 @@ fn read_startup_line<R: Read + Send + 'static>(
         Ok(Ok(line)) if !line.trim().is_empty() => Ok(line),
         Ok(Ok(_)) => Err(format!(
             "sidecar stdout vide; stderr: {}",
-            stderr_snapshot(stderr)
+            server_output(log)
         )),
         Ok(Err(e)) => Err(format!(
             "lecture sidecar: {e}; stderr: {}",
-            stderr_snapshot(stderr)
+            server_output(log)
         )),
         Err(_) => Err(format!(
             "timeout au démarrage du sidecar; stderr: {}",
-            stderr_snapshot(stderr)
+            server_output(log)
         )),
     }
 }
@@ -368,31 +384,37 @@ fn sidecar_port_blocking(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
     }
 
     let token = session_token()?;
+    let server_log = open_server_log();
     // Runtime du bundle en production; PATH réparé uniquement en secours dev.
-    let mut child = spawn_cmd
+    spawn_cmd
         .env("ATELIER_TOKEN", &token)
         .env("ATELIER_APP_VERSION", identity::APP_VERSION)
         .env("ATELIER_BUNDLE_HASH", &bundle_hash)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::piped());
+    // stderr = le fichier du journal (et ATELIER_LOG_FILE), sinon /dev/null :
+    // jamais un pipe dont le lecteur meurt avec cette instance de l'app.
+    match &server_log {
+        Some(log) => {
+            let _ = log.attach(&mut spawn_cmd);
+        }
+        None => {
+            spawn_cmd.stderr(Stdio::null());
+        }
+    }
+    let mut child = spawn_cmd
         .spawn()
         .map_err(|e| format!("spawn sidecar (rust): {e}"))?;
     let Some(stdout) = child.stdout.take() else {
         kill_child(&mut child);
         return Err("pas de stdout".into());
     };
-    let stderr = child
-        .stderr
-        .take()
-        .map(capture_stderr)
-        .unwrap_or_else(|| Arc::new(Mutex::new(String::new())));
     // Tout échec post-spawn TUE le child : un sidecar non vérifié laissé vivant
     // devient l'orphelin que le spawn suivant SIGTERM via sidecar.pid, pile
     // pendant que Rust attend son health — boucle « Sidecar déconnecté ».
     let verified: Result<SidecarInfo, String> = (|| {
-        let line = read_startup_line(stdout, &stderr, startup_timeout)?;
+        let line = read_startup_line(stdout, server_log.as_ref(), startup_timeout)?;
         let startup = parse_startup(&line)
-            .map_err(|e| format!("{e}; stderr: {}", stderr_snapshot(&stderr)))?;
+            .map_err(|e| format!("{e}; stderr: {}", server_output(server_log.as_ref())))?;
         let port = startup.port.ok_or("port manquant")?;
         let mut info = SidecarInfo {
             port,
@@ -405,7 +427,7 @@ fn sidecar_port_blocking(app: tauri::AppHandle) -> Result<SidecarInfo, String> {
         let health = fetch_health_retry(&info, &bundle_hash).map_err(|e| {
             format!(
                 "sidecar démarré mais health invalide: {e}; stderr: {}",
-                stderr_snapshot(&stderr)
+                server_output(server_log.as_ref())
             )
         })?;
         info.identity = Some(health);

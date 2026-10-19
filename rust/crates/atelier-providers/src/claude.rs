@@ -1014,6 +1014,7 @@ impl Provider for ClaudeProvider {
                 };
             }
         };
+        crate::agent_groups::register(child.id());
 
         // Le prompt part sur stdin, tout de suite : le CLI attend son premier
         // message `user` avant de dire quoi que ce soit. Un échec d'écriture

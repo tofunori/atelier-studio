@@ -510,6 +510,7 @@ impl CodexAppServer {
         let mut child = cmd
             .spawn()
             .map_err(|e| format!("spawn codex app-server: {e}"))?;
+        crate::agent_groups::register(child.id());
         let stdin = child.stdin.take().ok_or("pas de stdin")?;
         let stdout = child.stdout.take().ok_or("pas de stdout")?;
         if let Some(stderr) = child.stderr.take() {
