@@ -34,6 +34,17 @@ describe("Réglages › Spécialistes", () => {
     expect(screen.getByText("Sur ton Mac : scholar, gbrain")).toBeTruthy();
   });
 
+  it("signale les skills absents et les copie sur demande", async () => {
+    const copier = vi.fn().mockResolvedValue({ ok: true, bilan: { copies: [{ nom: "bilan-energie-fonte", pour: "codex", depuis: "compte" }], introuvables: ["literature-review"] } });
+    render(<Specialistes specialistes={[{ ...glacio, tousSkills: false, skills: ["bilan-energie-fonte", "literature-review"] }]} onChange={() => {}}
+      skillsDuMac={[{ nom: "bilan-energie-fonte", claude: true, codex: false }]} copierSkills={copier} />);
+    expect(screen.getByText("Absents pour Codex : bilan-energie-fonte, literature-review")).toBeTruthy();
+    expect(screen.getByText("Absents pour Claude : literature-review")).toBeTruthy();
+    fireEvent.click(screen.getByText("Copier ceux qui manquent"));
+    await waitFor(() => expect(screen.getByText("Skills copiés sur le Mac : 1. Introuvables sur le Mac : literature-review.")).toBeTruthy());
+    expect(copier).toHaveBeenCalledWith(["literature-review", "bilan-energie-fonte"]);
+  });
+
   it("sans liste du Mac, ne signale aucun absent", () => {
     render(<Specialistes specialistes={[{ ...glacio, connecteurs: ["zotero"] }]} onChange={() => {}} />);
     expect(screen.queryByText(/Absents du Mac/)).toBeNull();

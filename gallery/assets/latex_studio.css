@@ -114,12 +114,12 @@
      côtés. Ni barré ni souligné. L'ancienne garde sa coloration LaTeX,
      éteinte d'un cran ; le trait de gouttière est rouge ou vert. */
   .cm-editor.atelier-unified-review{
-    --review-add-line:color-mix(in srgb,var(--review-ok) 7%,transparent);--review-del-line:color-mix(in srgb,var(--review-cut) 7%,transparent);
-    --review-add-word:color-mix(in srgb,var(--review-ok) 22%,transparent);--review-del-word:color-mix(in srgb,var(--review-cut) 22%,transparent)}
+    --review-add-line:color-mix(in srgb,var(--review-ok) 13%,transparent);--review-del-line:color-mix(in srgb,var(--review-cut) 13%,transparent);
+    --review-add-word:color-mix(in srgb,var(--review-ok) 36%,transparent);--review-del-word:color-mix(in srgb,var(--review-cut) 36%,transparent)}
   .cm-editor.atelier-unified-review.cm-merge-b .cm-changedLine{background:var(--review-add-line)}
   .cm-editor.atelier-unified-review .cm-deletedChunk{background:var(--review-del-line);padding:0}
   .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine{color:inherit;padding:0 14px 0 10px}
-  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine>del{opacity:.78}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine>del{opacity:.9}
   .cm-editor.atelier-unified-review.cm-merge-b .cm-changedText{background:var(--review-add-word)}
   .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedText{color:inherit;background:var(--review-del-word)}
   /* Paragraphe entièrement ajouté ou retiré : le voile de ligne suffit, pas
@@ -658,7 +658,7 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 #build span{display:inline}
 #build svg,#popPdf svg{width:14px;height:14px;stroke-width:1.4}
 #state:not(.err){display:none}
-@media(max-width:700px){header{gap:5px;padding-inline:6px}#build span{display:none}#build{width:28px;padding:0}header .modeseg #editBtn{width:28px;padding:0}header .modeseg #editBtn span{display:none}#diffGrp{padding-left:5px}#wrapActions{padding-left:5px}}
+@media(max-width:700px){header{gap:5px;padding-inline:6px}header .modeseg #editBtn{width:28px;padding:0}header .modeseg #editBtn span{display:none}#diffGrp{padding-left:5px}#wrapActions{padding-left:5px}}
 @media(max-width:460px){header{gap:3px;padding-inline:4px}#diffGrp{padding-left:3px}#wrapActions{padding-left:3px}#diffGrp #diffTag{padding:0 6px!important;gap:5px}#diffGrp #diffTag>svg{display:none}#diffGrp #dvNav .dvNavA,#diffGrp #diffPrev,#diffGrp #diffNext{width:22px}#diffGrp #dvNav>.dv-count{min-width:36px}#diffGrp #diffPrev{margin-left:0}#compileActions{gap:0}#compileActions>#popPdf{padding:0 4px}header .modeseg button,header .modeseg #editBtn{width:25px}}
 @media(prefers-reduced-motion:reduce){header button,.diff-switch,.diff-switch>span{transition:none}}
 
@@ -786,11 +786,27 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 #tlResize{position:absolute;top:-4px;left:0;right:0;height:7px;cursor:ns-resize;touch-action:none;z-index:10}
 #tlResize:hover{background:var(--accent);opacity:.6}
 #tlResize:focus-visible{background:var(--accent);opacity:.6;outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:calc(-1 * var(--focus-ring-offset,1px))}
-#build[data-compile=run]{color:var(--accent);opacity:1;background:color-mix(in srgb,var(--accent) 12%,var(--card))}
+/* Compiler = l'action principale de la barre : bouton plein, couleur fixe.
+   L'issue de la dernière compilation se lit dans une pastille de 6 px posée
+   sur l'icône, jamais en recolorant le libellé ; « PDF » est une icône comme
+   les autres outils. Le libellé reste visible au-dessus de 640 px. */
+#build{--build-bg:color-mix(in srgb,var(--txt) 7%,var(--card));position:relative;width:auto;height:28px;padding:0 10px 0 8px;gap:6px;
+  font-weight:500;color:var(--txt);background:var(--build-bg);transition:background-color .14s ease,color .14s ease}
+#build:hover:not(:disabled){--build-bg:color-mix(in srgb,var(--txt) 11%,var(--card));color:var(--txt);background:var(--build-bg)}
+#build:disabled{color:var(--muted);background:var(--build-bg)}
+#build span{display:inline}
+#build::after{content:'';position:absolute;left:18px;top:5px;width:6px;height:6px;border-radius:999px;
+  box-shadow:0 0 0 2px var(--build-bg);opacity:0;transition:opacity .14s ease}
+#build[data-compile=ok]::after{opacity:1;background:var(--status-success,#98c379)}
+#build[data-compile=err]::after{opacity:1;background:var(--status-error,#e06c75)}
 #build[data-compile=run] svg{animation:latex-compiling 1s linear infinite}
-#build[data-compile=err]{color:color-mix(in srgb,var(--status-error,#e06c75) 72%,var(--txt))}#build[data-compile=ok]{color:color-mix(in srgb,var(--status-success,#98c379) 72%,var(--txt))}
+#compileActions{gap:4px}
+#compileActions>#popPdf{width:28px;padding:0}
+#compileActions>#popPdf svg{width:16px;height:16px}
+@media(max-width:640px){#build span{display:none}#build{width:28px;padding:0}#build::after{left:15px}}
+@media(max-width:460px){#compileActions{gap:2px}#compileActions>#popPdf{width:24px}}
 @keyframes latex-compiling{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){#build[data-compile=run] svg{animation:none}}
+@media(prefers-reduced-motion:reduce){#build[data-compile=run] svg{animation:none}#build,#build::after{transition:none}}
 @media(max-width:460px){#tlStatus{max-width:65px}#texlog .tl-head{padding:0 4px;gap:1px}#texlog button{padding:0 4px}}
 #diffGrp #diffAcceptAll{order:2;width:auto;height:28px;padding:0 7px!important;gap:6px;border:1px solid var(--border-strong)!important;margin-left:5px;font:11px var(--ui-font)}
 #diffGrp #diffAcceptAll:hover:not(:disabled){color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--card))}

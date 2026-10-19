@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build && bash scripts/stage-gallery.sh && bash scripts/stage-rust-server.sh && bash scripts/stage-appsnap.sh",
+    "beforeBuildCommand": "npm run build && bash scripts/stage-gallery.sh && bash scripts/stage-rust-server.sh && bash scripts/stage-appsnap.sh && bash scripts/sign-staged-resources.sh",
     "frontendDist": "../dist"
   },
   "app": {

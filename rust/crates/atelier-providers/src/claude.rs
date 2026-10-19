@@ -625,6 +625,8 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
             args.push(model.clone());
         }
     }
+    // Un seul `--settings` par lancement : ultracode et skills du spécialiste.
+    let mut settings = serde_json::Map::new();
     if let Some(effort) = &req.effort {
         if !effort.is_empty() {
             // « ultracode » n'existe PAS pour --effort : le drapeau ne connaît
@@ -636,13 +638,37 @@ fn build_args(req: &SendRequest, mcp_config_path: Option<&std::path::Path>) -> V
             if effort == ULTRACODE {
                 args.push("--effort".into());
                 args.push("xhigh".into());
-                args.push("--settings".into());
-                args.push(r#"{"ultracode":true}"#.into());
+                settings.insert("ultracode".into(), json!(true));
             } else {
                 args.push("--effort".into());
                 args.push(effort.clone());
             }
         }
+    }
+    // Spécialiste avec une liste de skills (comme Claude Science) : les autres
+    // skills disparaissent du fil (`skillOverrides` à « off »). Les skills du
+    // compte claude.ai sont ceux d'un plugin, que `skillOverrides` ne touche
+    // pas : une règle `Skill(…)` refuse en plus leur appel.
+    if let Some(skills) = req.atelier_mcp.as_ref().and_then(|l| l.skills.as_ref()) {
+        let mut overrides = serde_json::Map::new();
+        for nom in skills.coupes.iter().chain(&skills.comptes_coupes) {
+            overrides.insert(nom.clone(), json!("off"));
+        }
+        if !overrides.is_empty() {
+            settings.insert("skillOverrides".into(), Value::Object(overrides));
+        }
+        let refus: Vec<String> = skills
+            .comptes_coupes
+            .iter()
+            .flat_map(|nom| [format!("Skill(anthropic-skills:{nom})"), format!("Skill({nom})")])
+            .collect();
+        if !refus.is_empty() {
+            settings.insert("permissions".into(), json!({ "deny": refus }));
+        }
+    }
+    if !settings.is_empty() {
+        args.push("--settings".into());
+        args.push(Value::Object(settings).to_string());
     }
     // Consigne du fil : prompt système ajouté, pas substitué — le préréglage
     // `claude_code` du CLI reste en place.
@@ -1810,6 +1836,7 @@ mod drapeaux_tests {
             env: std::collections::HashMap::new(),
             linked,
             restriction: None,
+            skills: None,
         });
         r
     }
@@ -1925,6 +1952,26 @@ mod drapeaux_tests {
         assert_eq!(noms, ["atelier-sessions", "scholar"], "{doc}");
         assert_eq!(doc["mcpServers"]["scholar"]["command"], "scholar-mcp");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Spécialiste avec une liste de skills : un seul `--settings`, qui coupe
+    /// les autres skills et refuse l'appel des skills du compte claude.ai.
+    #[test]
+    fn un_specialiste_ne_garde_que_ses_skills() {
+        let mut r = req_mcp(false);
+        r.effort = Some(ULTRACODE.into());
+        r.atelier_mcp.as_mut().unwrap().skills = Some(crate::traits::RestrictionSkills {
+            coupes: vec!["concis".into()],
+            comptes_coupes: vec!["pdf".into()],
+        });
+        let args = build_args(&r, None);
+        let reglages: Vec<_> = args.windows(2).filter(|w| w[0] == "--settings").map(|w| w[1].clone()).collect();
+        assert_eq!(reglages.len(), 1, "{args:?}");
+        let doc: serde_json::Value = serde_json::from_str(&reglages[0]).unwrap();
+        assert_eq!(doc["ultracode"], true);
+        assert_eq!(doc["skillOverrides"], serde_json::json!({"concis": "off", "pdf": "off"}));
+        assert_eq!(doc["permissions"]["deny"], serde_json::json!(["Skill(anthropic-skills:pdf)", "Skill(pdf)"]));
+        assert!(!args.iter().any(|a| a == "--strict-mcp-config"), "les skills seuls ne coupent pas les MCP");
     }
 
     /// L'isolation stricte des sous-agents liés est délibérée (plan 057 :

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CONSIGNES_LIVREES, basculerConsigne } from "./consignes";
 import {
   appliquerVersion, basculerForme, connecteursAbsents, choisirSpecialiste, composerFil, empreinteSpecialiste, formesDuFil,
-  fusionnerImport, garderProposition, nomCourtPropose, normaliserNomCourt, specialisteAJour,
+  fusionnerImport, garderProposition, mentionSpecialiste, nomCourtPropose, normaliserNomCourt, skillsAbsents, specialisteAJour,
   type Specialiste, type SpecialisteClaudeScience,
 } from "./specialistes";
 
@@ -32,7 +32,8 @@ describe("le fil porte le spécialiste par le chemin des consignes", () => {
     const fil = choisirSpecialiste(concis, glacio)!;
     expect(fil.specialiste).toMatchObject({ id: "sp1", nom: "Glaciologue albédo", nomCourt: "Glaciologue" });
     expect(fil.texte.indexOf("Tu es glaciologue.")).toBeLessThan(fil.texte.indexOf(CONSIGNES_LIVREES[0].texte));
-    expect(fil.texte).toContain("Prefer these skills when they apply: bilan-energie-fonte.");
+    expect(fil.texte).toContain("Skills of this specialist: bilan-energie-fonte. Other skills are not loaded in this conversation.");
+    expect(fil.specialiste?.skills).toEqual(["bilan-energie-fonte"]);
     expect(fil.texte).toContain("Connectors (MCP servers) of this specialist: scholar. Other MCP servers are not connected in this conversation.");
     expect(fil.specialiste?.connecteurs).toEqual(["scholar"]);
     expect(fil.selection).toEqual([{ id: "concis", texte: CONSIGNES_LIVREES[0].texte }]);
@@ -40,7 +41,8 @@ describe("le fil porte le spécialiste par le chemin des consignes", () => {
 
   it("un spécialiste « tous les skills » n'annonce pas de préférence", () => {
     const fil = choisirSpecialiste(null, { ...glacio, tousSkills: true, connecteurs: [] })!;
-    expect(fil.texte).not.toContain("Prefer these");
+    expect(fil.texte).not.toContain("Skills of this specialist");
+    expect(fil.specialiste?.skills).toBeNull();
   });
 
   it("basculer une forme garde le spécialiste ; retirer le spécialiste garde les formes", () => {
@@ -131,5 +133,30 @@ describe("proposition de l'agent", () => {
 describe("connecteurs du Mac", () => {
   it("compare les noms à la casse et la ponctuation près", () => {
     expect(connecteursAbsents(["Scholar Sidekick", "zotero"], [{ nom: "scholar-sidekick" }, { nom: "gbrain" }])).toEqual(["zotero"]);
+  });
+});
+
+describe("délégation par @mention", () => {
+  const stats: Specialiste = { ...glacio, id: "sp2", nom: "Analyste stats", nomCourt: "Stats" };
+  it("reconnaît le nom court, sans la casse, et garde le reste comme tâche", () => {
+    expect(mentionSpecialiste("@stats vérifie la convergence de M3", [glacio, stats])).toEqual({ specialiste: stats, task: "vérifie la convergence de M3" });
+    expect(mentionSpecialiste("Peux-tu, @Glaciologue, relire ça ?", [glacio])?.task).toBe("Peux-tu, relire ça ?");
+  });
+  it("ignore une fiche masquée et un mot qui n'est pas un nom court", () => {
+    expect(mentionSpecialiste("@Stats fais ceci", [{ ...stats, visible: false }])).toBeNull();
+    expect(mentionSpecialiste("écris à @Thierry", [glacio, stats])).toBeNull();
+  });
+});
+
+describe("skills du Mac", () => {
+  it("sépare ce qui manque à Claude et à Codex", () => {
+    const duMac = [
+      { nom: "bilan-energie-fonte", claude: true, codex: false },
+      { nom: "Write", claude: true, codex: true },
+    ];
+    expect(skillsAbsents(["bilan-energie-fonte", "write", "literature-review"], duMac)).toEqual({
+      claude: ["literature-review"],
+      codex: ["bilan-energie-fonte", "literature-review"],
+    });
   });
 });

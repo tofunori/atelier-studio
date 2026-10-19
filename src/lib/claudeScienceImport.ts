@@ -1,6 +1,7 @@
 /** Requêtes ws de Réglages › Spécialistes : les spécialistes de Claude
  *  Science (`importClaudeScience`, lecture seule de sa base côté Rust) et
- *  les serveurs MCP du Mac (`listMcpServers`). Les réponses reviennent par
+ *  les serveurs MCP et les skills du Mac (`listMcpServers`, `listSkillsDuMac`,
+ *  `copySpecialistSkills`). Les réponses reviennent par
  *  un événement fenêtre (sidecarRelays). */
 import { t } from "./i18n";
 import type { SpecialisteClaudeScience } from "./specialistes";
@@ -14,6 +15,7 @@ type CleEchec = "specialistes.import-offline" | "specialistes.import-timeout";
 
 function demander<R extends { requestId?: string }>(
   ws: WebSocket | null, type: string, evenement: string, echec: (cle: CleEchec) => R, delai: number,
+  extra: Record<string, unknown> = {},
 ): Promise<R> {
   if (!ws || ws.readyState !== SOCKET_OPEN) return Promise.resolve(echec("specialistes.import-offline"));
   return new Promise((resolve) => {
@@ -29,7 +31,7 @@ function demander<R extends { requestId?: string }>(
     };
     const timer = window.setTimeout(() => finish(echec("specialistes.import-timeout")), delai);
     window.addEventListener(evenement, onEvent);
-    try { ws.send(JSON.stringify({ type, requestId })); }
+    try { ws.send(JSON.stringify({ ...extra, type, requestId })); }
     catch { finish(echec("specialistes.import-offline")); }
   });
 }
@@ -47,4 +49,24 @@ type ReponseMcp = { requestId?: string; serveurs?: McpDuMac[] };
 export async function listerMcpDuMac(ws: WebSocket | null): Promise<McpDuMac[] | null> {
   const r = await demander<ReponseMcp & { echec?: boolean }>(ws, "listMcpServers", "mcp-servers", () => ({ echec: true }), 10_000);
   return r.echec ? null : (r.serveurs ?? []);
+}
+
+/** Skill vu sur le Mac, avec les CLI qui le chargent. */
+export type SkillDuMac = { nom: string; claude: boolean; codex: boolean };
+type ReponseSkills = { requestId?: string; skills?: SkillDuMac[] };
+
+/** Skills du Mac ; `null` si le backend ne répond pas. */
+export async function listerSkillsDuMac(ws: WebSocket | null): Promise<SkillDuMac[] | null> {
+  const r = await demander<ReponseSkills & { echec?: boolean }>(ws, "listSkillsDuMac", "skills-du-mac", () => ({ echec: true }), 10_000);
+  return r.echec ? null : (r.skills ?? []);
+}
+
+export type BilanCopieSkills = { copies: { nom: string; pour: "claude" | "codex"; depuis: string }[]; introuvables: string[] };
+export type ReponseCopieSkills = { requestId?: string; ok?: boolean; bilan?: BilanCopieSkills; skills?: SkillDuMac[]; error?: string };
+
+/** Copie sur le Mac les skills de la fiche qui manquent à Claude Code ou à
+ *  Codex (sans rien écraser, côté Rust). */
+export function copierSkillsSpecialiste(ws: WebSocket | null, skills: string[]): Promise<ReponseCopieSkills> {
+  return demander<ReponseCopieSkills>(ws, "copySpecialistSkills", "skills-copies",
+    (cle) => ({ ok: false, error: t(cle) }), 60_000, { skills });
 }

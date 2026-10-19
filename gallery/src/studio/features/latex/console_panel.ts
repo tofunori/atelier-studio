@@ -16,7 +16,8 @@ export function createLatexConsolePanel(doc: Document, win: Window, compile: () 
   let rawLog = '', running = false;
   const originalIcon = build.querySelector('svg')!.outerHTML;
   const glyph = (path: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
-  const icons = {run:glyph('<path d="M12 3a9 9 0 1 1-9 9"/>'),ok:glyph('<path d="m5 12 4 4L19 6"/>'),err:glyph('<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>')};
+  // The icon only changes while running; the outcome is a CSS dot on #build[data-compile].
+  const runIcon = glyph('<path d="M12 3a9 9 0 1 1-9 9"/>');
   function tab(log: boolean) {
     journal.hidden = !log; issues.hidden = log;
     problemsTab.setAttribute('aria-pressed', String(!log)); logTab.setAttribute('aria-pressed', String(log));
@@ -71,7 +72,7 @@ export function createLatexConsolePanel(doc: Document, win: Window, compile: () 
     open, render,
     state(kind: CompileChipKind, message: string) {
       running = kind === 'run'; build.dataset.compile = kind;
-      build.querySelector('svg')!.outerHTML = icons[kind] || originalIcon;
+      build.querySelector('svg')!.outerHTML = kind === 'run' ? runIcon : originalIcon;
       build.setAttribute('aria-busy', String(running)); build.disabled = retry.disabled = running;
       build.title = running ? message : kind === 'err' ? 'Échec — ouvrir la console via ⋯' : 'Compiler (⌘B)';
       status.textContent = running ? message : kind === 'err' ? 'Échec' : 'Réussie'; status.title = message;

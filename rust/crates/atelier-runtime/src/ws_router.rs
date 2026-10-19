@@ -75,6 +75,8 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "memoryClaudeSciencePreview",
     "memoryClaudeScienceImport",
     "listMcpServers",
+    "listSkillsDuMac",
+    "copySpecialistSkills",
     "getLedger",
     "upsertThread",
     "listFiles",
@@ -609,6 +611,42 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             .await
             .unwrap_or_default();
             vec![json_msg(json!({"type":"mcpServers","requestId":request_id,"serveurs":serveurs}))]
+        }
+        "listSkillsDuMac" => {
+            // Fiche d'un spécialiste : quels skills Claude Code et Codex voient.
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let skills = tokio::task::spawn_blocking(|| {
+                dossiers_des_cli().map(|(home, codex_home)| atelier_workspace::skills_du_mac(&home, &codex_home)).unwrap_or_default()
+            })
+            .await
+            .unwrap_or_default();
+            vec![json_msg(json!({"type":"skillsDuMac","requestId":request_id,"skills":skills}))]
+        }
+        "copySpecialistSkills" => {
+            // Bouton « Copier les skills manquants » de la fiche : copie depuis
+            // les skills du compte (Claude Code) ou Claude Science, sans rien
+            // écraser.
+            let request_id = msg.get("requestId").cloned().unwrap_or(Value::Null);
+            let voulus: Vec<String> = msg
+                .get("skills")
+                .and_then(Value::as_array)
+                .map(|v| v.iter().filter_map(Value::as_str).map(str::to_string).take(200).collect())
+                .unwrap_or_default();
+            let resultat = tokio::task::spawn_blocking(move || {
+                dossiers_des_cli().map(|(home, codex_home)| {
+                    let bilan = atelier_workspace::copier_skills_manquants(&home, &codex_home, &voulus);
+                    (bilan, atelier_workspace::skills_du_mac(&home, &codex_home))
+                })
+            })
+            .await
+            .ok()
+            .flatten();
+            match resultat {
+                Some((bilan, skills)) => vec![json_msg(json!({
+                    "type":"specialistSkillsCopied","requestId":request_id,"ok":true,"bilan":bilan,"skills":skills
+                }))],
+                None => vec![json_msg(json!({"type":"specialistSkillsCopied","requestId":request_id,"ok":false}))],
+            }
         }
         "saveSettings" => {
             let mut settings = msg.get("settings").cloned().unwrap_or(Value::Null);
@@ -2169,6 +2207,15 @@ async fn atelier_mcp_param(state: &AppState, thread: &atelier_store::Thread) -> 
         })),
         Err(_) => None,
     }
+}
+
+/// Dossier personnel et `CODEX_HOME` (défaut `~/.codex`).
+fn dossiers_des_cli() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME")?);
+    let codex_home = std::env::var_os("CODEX_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".codex"));
+    Some((home, codex_home))
 }
 
 pub(crate) async fn broadcast_threads(state: &AppState) -> Vec<String> {

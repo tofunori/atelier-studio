@@ -322,6 +322,17 @@ fn thread_opts(req: &SendRequest) -> Value {
         }
         serveurs.insert(launch.server_name.clone(), server);
         config.insert("mcp_servers".into(), Value::Object(serveurs));
+        // Skills du spécialiste : les autres skills de Codex sont retirés du
+        // catalogue du modèle pour ce fil (`[[skills.config]]` en couche de
+        // session, ajoutée après celle de config.toml).
+        if let Some(skills) = launch.skills.as_ref().filter(|s| !s.coupes.is_empty()) {
+            let entrees: Vec<Value> = skills
+                .coupes
+                .iter()
+                .map(|nom| json!({ "name": nom, "enabled": false }))
+                .collect();
+            config.insert("skills.config".into(), Value::Array(entrees));
+        }
     }
     if !config.is_empty() {
         opts.as_object_mut()
@@ -2236,6 +2247,7 @@ mod steer_mcp_repli_tests {
             env: env.into_iter().collect(),
             linked: false,
             restriction: None,
+            skills: None,
         }
     }
 
@@ -2269,6 +2281,18 @@ mod steer_mcp_repli_tests {
         assert_eq!(serveurs["gbrain"], json!({"enabled": false}));
         assert_eq!(serveurs["scholar"]["command"], json!("scholar-mcp"));
         assert_eq!(serveurs["atelier-sessions"]["command"], json!("/tmp/atelier-agent-mcp"));
+    }
+
+    #[test]
+    fn un_specialiste_coupe_les_autres_skills_codex() {
+        let mut l = launch();
+        l.skills = Some(crate::traits::RestrictionSkills { coupes: vec!["kami".into(), "write".into()], comptes_coupes: vec![] });
+        let opts = thread_opts(&request(Some(l)));
+        assert_eq!(
+            opts["config"]["skills.config"],
+            json!([{"name": "kami", "enabled": false}, {"name": "write", "enabled": false}])
+        );
+        assert!(thread_opts(&request(Some(launch())))["config"].get("skills.config").is_none());
     }
 
     /// Le témoin : sans capacité, aucun serveur — c'était l'état du chemin

@@ -367,9 +367,35 @@ MAIN_ROOT="$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." &&
 npm run tauri:build:dmg
 ```
 
-Le DMG laisse dans `target/` un bundle signé ad hoc, sans toucher à la copie
-installée ; le prochain protocole le reconstruit. En cas d'échec, le script
+Le DMG laisse dans `target/` un bundle signé (ad hoc, « Atelier Dev Signing »
+ou Developer ID), sans toucher à la copie installée ; le prochain protocole le reconstruit. En cas d'échec, le script
 efface seulement les images temporaires
 `src-tauri/target/release/bundle/macos/rw.*.dmg`. La release publique est
 construite par `.github/workflows/release.yml` à partir d'un tag, avec ses
 notes dans `docs/releases/<tag>.md`.
+
+### Signature Developer ID et notarisation
+
+Avec un certificat « Developer ID Application » dans le trousseau (compte
+Apple Developer Program), `npm run tauri:build:dmg` le prend à la place
+d'« Atelier Dev Signing », signe aussi les binaires de `Resources/`
+(`scripts/sign-staged-resources.sh` : serveurs Rust, PDFium, AppSnap, runtime
+renforcé et horodatage), puis notarise et agrafe le DMG
+(`scripts/notarize-macos.sh`). Une app ainsi livrée s'ouvre sans
+avertissement de Gatekeeper ni `xattr`.
+
+Préparation, une fois, par Thierry seulement (aucun secret dans le dépôt) :
+
+1. Xcode → Settings → Accounts : l'équipe payante doit apparaître ; puis
+   Manage Certificates → + → Developer ID Application.
+2. Créer un mot de passe d'app sur appleid.apple.com, puis l'enregistrer
+   dans le trousseau (la commande le demande, il ne s'affiche pas) :
+   `xcrun notarytool store-credentials atelier-notary --apple-id <identifiant Apple> --team-id <équipe>`.
+
+Sans profil `atelier-notary`, le build du DMG s'arrête après la signature avec
+le code 3 et la commande à lancer. La relance ordinaire
+(`npm run tauri:build:app`) garde « Atelier Dev Signing » ; pour la signer
+aussi en Developer ID, exporter
+`ATELIER_SIGNING_IDENTITY="Developer ID Application: …"`. Changer de
+signataire fait redemander une fois à macOS les autorisations d'Atelier
+(dossiers, micro, enregistrement de l'écran).
