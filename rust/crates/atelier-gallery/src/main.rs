@@ -200,19 +200,72 @@ fn default_gallery_state() -> Value {
     // intégrés. Les poser vides ferait apparaître un projet sans aucun type.
 }
 
+/// État du projet tel que le disque le porte, complété des clés de base
+/// absentes. Fichier absent : état par défaut. Présent mais illisible : 500
+/// avec l'erreur (copie `.fig_state.json.corrupt-…` mise de côté), jamais un
+/// état vide en 200 que l'onglet réécrirait ensuite par-dessus.
 async fn gallery_state(State(state): State<AppState>) -> impl IntoResponse {
-    let path = state.root.join(".fig_state.json");
-    match tokio::fs::read_to_string(path).await {
-        Ok(raw) => match serde_json::from_str::<Value>(&raw) {
-            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-            Err(_) => (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error":"invalid gallery state"})),
-            )
-                .into_response(),
-        },
-        Err(_) => (StatusCode::OK, Json(default_gallery_state())).into_response(),
+    let root = state.root.clone();
+    match tokio::task::spawn_blocking(move || atelier_core::gallery_favorites::read(&root)).await {
+        Ok(Ok(value)) => (StatusCode::OK, Json(with_state_defaults(value))).into_response(),
+        Ok(Err(error)) => state_unreadable(error),
+        Err(error) => state_unreadable(std::io::Error::other(error.to_string())),
     }
+}
+
+fn with_state_defaults(value: Value) -> Value {
+    let mut out = default_gallery_state();
+    if let (Some(out), Value::Object(disk)) = (out.as_object_mut(), value) {
+        out.extend(disk);
+    }
+    out
+}
+
+fn state_unreadable(error: std::io::Error) -> axum::response::Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({"error": format!("état de la galerie illisible, rien n'est écrit : {error}")})),
+    )
+        .into_response()
+}
+
+/// Clés d'ensemble et de table que `stateBase` fusionne à trois voies.
+const STATE_SET_KEYS: [&str; 2] = ["hidden", "hideRules"];
+const STATE_MAP_KEYS: [&str; 4] = ["ratings", "tags", "collections", "workflow"];
+
+/// Applique à `disk` les seuls changements de `requested` par rapport à
+/// `base` (ce que l'onglet avait lu) : un ajout fait ailleurs depuis (autre
+/// onglet, iPhone) n'est pas effacé par un onglet resté sur une vue ancienne.
+fn merge_since_base(key: &str, disk: Option<&Value>, base: &Value, requested: &Value) -> Value {
+    if STATE_SET_KEYS.contains(&key) {
+        let set = |v: Option<&Value>| -> std::collections::BTreeSet<String> {
+            v.and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect()
+        };
+        let (mut out, base, requested) = (set(disk), set(Some(base)), set(Some(requested)));
+        for removed in base.difference(&requested) {
+            out.remove(removed);
+        }
+        out.extend(requested.difference(&base).cloned());
+        return json!(out);
+    }
+    let empty = serde_json::Map::new();
+    let mut out = disk.and_then(Value::as_object).cloned().unwrap_or_default();
+    let base = base.as_object().unwrap_or(&empty);
+    let requested = requested.as_object().unwrap_or(&empty);
+    for name in base.keys().chain(requested.keys()) {
+        if base.get(name) == requested.get(name) {
+            continue;
+        }
+        match requested.get(name) {
+            Some(value) => out.insert(name.clone(), value.clone()),
+            None => out.remove(name),
+        };
+    }
+    Value::Object(out)
 }
 
 async fn save_gallery_state(
@@ -249,48 +302,55 @@ async fn save_gallery_state(
         Ok(lock) => lock,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"state lock failed"}))).into_response(),
     };
-    let mut sanitized = sanitize_gallery_state(&value);
-    if let Some(base) = value.get("favsBase").filter(|v| v.is_array()) {
-        let previous = match atelier_core::gallery_favorites::read(&state.root) {
-            Ok(value) => value,
-            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"state read failed"}))).into_response(),
+    // Le disque d'abord, sous le verrou : illisible → refus (copie mise de
+    // côté), jamais un état reconstruit du seul corps reçu.
+    let previous = match atelier_core::gallery_favorites::read(&state.root) {
+        Ok(value) => value,
+        Err(error) => return state_unreadable(error),
+    };
+    // Fusion par clé : une clé absente du corps garde la valeur du disque
+    // (un onglet LaTeX qui ne POSTe que `texReadTheme` n'efface plus favoris,
+    // notes et collections) ; `null` l'efface ; une clé présente la remplace.
+    let sanitized = sanitize_gallery_state(&value);
+    let mut merged = previous.as_object().cloned().unwrap_or_default();
+    let base = value.get("stateBase").filter(|v| v.is_object()).map(sanitize_gallery_state);
+    for (key, clean) in sanitized.as_object().into_iter().flatten() {
+        match value.get(key) {
+            // absente du corps : sanitize l'a mise par défaut, le disque gagne
+            None => continue,
+            Some(Value::Null) => {
+                merged.remove(key);
+                continue;
+            }
+            Some(_) => {}
+        }
+        let next = match (&base, key.as_str()) {
+            (Some(base), "favs") if value.get("favsBase").is_none() => {
+                atelier_core::gallery_favorites::merge(&previous, &base["favs"], clean)
+            }
+            (Some(base), k) if STATE_SET_KEYS.contains(&k) || STATE_MAP_KEYS.contains(&k) => {
+                merge_since_base(k, previous.get(k), &base[k], clean)
+            }
+            _ => clean.clone(),
         };
-        sanitized["favs"] = atelier_core::gallery_favorites::merge(&previous, base, &value["favs"]);
+        merged.insert(key.clone(), next);
     }
-    // Requête sans texAutoRewrap (la galerie POste /state avec ses seules
-    // clés) : reporter la valeur du fichier existant, sinon chaque ajout de
-    // favori effacerait le réglage d'éditeur. Symétrique du serveur Node.
-    // Un POST partiel (ajout de favori) ne doit pas effacer le filtre du projet.
-    for kept_key in ["fileTypes", "pinnedTypes", "filePresets", "presentation"] {
-        if sanitized.get(kept_key).is_none()
-            && let Ok(raw) = std::fs::read_to_string(state.root.join(".fig_state.json"))
-            && let Ok(previous) = serde_json::from_str::<Value>(&raw)
-            && let Some(kept) = previous.get(kept_key)
-        {
-            sanitized[kept_key] = kept.clone();
-        }
+    if let Some(base) = value.get("favsBase").filter(|v| v.is_array())
+        && value.get("favs").is_some()
+    {
+        merged.insert(
+            "favs".into(),
+            atelier_core::gallery_favorites::merge(&previous, base, &sanitized["favs"]),
+        );
     }
-    for editor_pref in ["texAutoRewrap", "texAutoCompile"] {
-        if sanitized.get(editor_pref).is_none()
-            && let Ok(raw) = std::fs::read_to_string(state.root.join(".fig_state.json"))
-            && let Ok(previous) = serde_json::from_str::<Value>(&raw)
-            && let Some(kept) = previous.get(editor_pref).and_then(Value::as_bool)
-        {
-            sanitized[editor_pref] = json!(kept);
-        }
-    }
-    // Effacements explicites : la clé disparaît du fichier au lieu d'y rester
-    // à null (un état « choisi vide » n'existe pas).
-    if let Some(object) = sanitized.as_object_mut() {
-        object.retain(|_, value| !value.is_null());
-    }
+    let merged = Value::Object(merged);
     let counts = json!({
         "ok": true,
-        "favs": sanitized["favs"].as_array().map(Vec::len).unwrap_or(0),
-        "ratings": sanitized["ratings"].as_object().map(serde_json::Map::len).unwrap_or(0),
-        "hidden": sanitized["hidden"].as_array().map(Vec::len).unwrap_or(0),
+        "favs": merged["favs"].as_array().map(Vec::len).unwrap_or(0),
+        "ratings": merged["ratings"].as_object().map(serde_json::Map::len).unwrap_or(0),
+        "hidden": merged["hidden"].as_array().map(Vec::len).unwrap_or(0),
     });
-    match atelier_core::atomic_write_json(&state.root.join(".fig_state.json"), &sanitized) {
+    match atelier_core::atomic_write_json(&state.root.join(".fig_state.json"), &merged) {
         Ok(()) => (StatusCode::OK, Json(counts)).into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -331,11 +391,10 @@ async fn toggle_favorite(
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"state lock failed"}))).into_response(),
     };
     let path = state.root.join(".fig_state.json");
-    let mut current = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .filter(Value::is_object)
-        .unwrap_or_else(default_gallery_state);
+    let mut current = match atelier_core::gallery_favorites::read(&state.root) {
+        Ok(value) => value,
+        Err(error) => return state_unreadable(error),
+    };
 
     let mut favs: std::collections::BTreeSet<String> = current
         .get("favs")
@@ -572,6 +631,22 @@ fn sanitize_gallery_state(request: &Value) -> Value {
     }
     if let Some(auto_compile) = request.get("texAutoCompile").and_then(Value::as_bool) {
         state["texAutoCompile"] = json!(auto_compile);
+    }
+    // Réglages de la Lecture et de l'éditeur visuel LaTeX (reading.ts,
+    // status_bar.ts) : jetés jusqu'ici par la liste blanche, ils retombaient
+    // au défaut à chaque relance.
+    if let Some(size) = request.get("texReadFontSize").and_then(Value::as_f64).filter(|v| v.is_finite()) {
+        state["texReadFontSize"] = json!(size.round().clamp(13.0, 24.0) as i64);
+    }
+    if let Some(theme) = request
+        .get("texReadTheme")
+        .and_then(Value::as_str)
+        .filter(|t| ["chat", "dark", "sepia"].contains(t))
+    {
+        state["texReadTheme"] = json!(theme);
+    }
+    if let Some(visual) = request.get("texVisualEditor").and_then(Value::as_bool) {
+        state["texVisualEditor"] = json!(visual);
     }
     state
 }

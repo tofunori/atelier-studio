@@ -15,18 +15,14 @@ fn reject_symlink(path: &Path) -> io::Result<()> {
     }
     Ok(())
 }
+/// État du projet. Absent : `{}`. Présent mais illisible (vide, tronqué, pas
+/// un objet) : erreur, et ses octets sont mis de côté en
+/// `.fig_state.json.corrupt-<horodatage>` — jamais lu comme vide puis réécrit.
 pub fn read(root: &Path) -> io::Result<Value> {
     let path = root.join(".fig_state.json");
     reject_symlink(&path)?;
-    match std::fs::read(path) {
-        Ok(bytes) => {
-            let value: Value = serde_json::from_slice(&bytes)?;
-            if !value.is_object() { return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid gallery state")); }
-            Ok(value)
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(json!({})),
-        Err(e) => Err(e),
-    }
+    let loaded = crate::durable::load_json(&path, crate::durable::Shape::Object).map_err(io::Error::from)?;
+    Ok(loaded.unwrap_or_else(|| json!({})))
 }
 pub fn favorites(value: &Value) -> BTreeSet<String> {
     value.get("favs").and_then(Value::as_array).into_iter().flatten()
@@ -63,9 +59,13 @@ mod tests {
     fn malformed_or_symlink_state_is_never_overwritten() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join(".fig_state.json");
-        std::fs::write(&path, "broken").unwrap();
-        assert!(set(root.path(), "a.py", true).is_err());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "broken");
+        for (label, raw) in crate::durable::UNREADABLE_SAMPLES {
+            std::fs::write(&path, raw).unwrap();
+            assert!(read(root.path()).is_err(), "{label}");
+            assert!(set(root.path(), "a.py", true).is_err(), "{label}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), raw, "{label} : intact");
+            assert_eq!(crate::durable::corrupt_copies_of(&path, raw.as_bytes()), 1, "{label} : copie");
+        }
         #[cfg(unix)] {
             std::fs::remove_file(&path).unwrap();
             let outside = root.path().join("outside");
