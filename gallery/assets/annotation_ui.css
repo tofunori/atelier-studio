@@ -35,10 +35,8 @@
    champ, sans pilule interne. Pied : corbeille à gauche, rappel « Entrée »,
    envoi en anneau fin qui ne se remplit que lorsqu'il y a du texte. */
 .atelier-note .atelier-note-field{display:flex;flex-direction:column;gap:4px}
-.atelier-note .atelier-note-field textarea{height:24px;min-height:24px;max-height:124px;padding:2px 0}
-/* Texte long : bulle « composer » plus large (Thierry 2026-09-30). */
-.atelier-note.atelier-note-wide{width:min(520px,calc(100vw - 16px))}
-.atelier-note .atelier-note-field.is-multiline textarea{max-height:244px}
+/* Largeur fixe : un texte long passe à la ligne et la bulle grandit en hauteur. */
+.atelier-note .atelier-note-field textarea{height:24px;min-height:24px;max-height:244px;padding:2px 0;white-space:pre-wrap;overflow-wrap:break-word;overflow-x:hidden}
 /* Sous un titre, une note perso ou des codes (lecteur PDF), un filet sépare le champ du chat. */
 .atelier-note>.atelier-note-row:not(:first-child){margin:8px -12px 0;padding:8px 12px 0;border-top:1px solid var(--border,color-mix(in srgb,var(--text-primary,#dadee3) 10%,transparent))}
 .atelier-note .atelier-note-actions{display:flex;align-items:center;gap:4px;margin:0 -6px -4px}

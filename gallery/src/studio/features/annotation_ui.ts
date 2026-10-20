@@ -75,21 +75,20 @@ export function createNoteEditor(host: HTMLElement, options: {
   const status = host.querySelector<HTMLElement>(".annotation-status")!;
   input.value = options.value || "";
   if(memoInput) memoInput.value = options.memo?.value || "";
-  const field = host.querySelector<HTMLElement>(".atelier-note-field")!;
-  // Au-delà d'une ligne, la bulle s'élargit en « composer ». On mesure
-  // toujours à la largeur étroite, sinon un texte qui tient sur une ligne
-  // élargie basculerait d'une forme à l'autre à chaque frappe.
-  const fit = () => {
-    const wasWide = field.classList.contains("is-multiline");
-    if(wasWide){field.classList.remove("is-multiline");host.classList.remove("atelier-note-wide");}
+  // Largeur fixe (Thierry 2026-10-19) : un texte long passe à la ligne et
+  // la bulle grandit en hauteur, jamais en largeur.
+  const sizeHeight = () => {
     input.style.height="24px";
-    const wide = input.scrollHeight>28;
-    field.classList.toggle("is-multiline",wide);host.classList.toggle("atelier-note-wide",wide);
-    input.style.height="24px";
-    const maxHeight = parseFloat(host.ownerDocument.defaultView?.getComputedStyle(input).maxHeight || "") || 124;
+    const maxHeight = parseFloat(host.ownerDocument.defaultView?.getComputedStyle(input).maxHeight || "") || 244;
     input.style.height=Math.min(maxHeight,input.scrollHeight)+"px";
-    keepInView();
   };
+  const fit = () => {sizeHeight();keepInView();};
+  // Fenêtre ou panneau redimensionné : la hauteur suit la nouvelle largeur.
+  let lastWidth = 0;
+  const view = host.ownerDocument.defaultView;
+  if(view?.ResizeObserver) new view.ResizeObserver(() => {
+    if(input.clientWidth && input.clientWidth!==lastWidth){lastWidth=input.clientWidth;sizeHeight();}
+  }).observe(input);
   // La bulle grandit vers la droite et vers le bas depuis la position choisie
   // par l'hôte : un décalage la ramène dans la fenêtre sans toucher left/top.
   const keepInView = () => {
