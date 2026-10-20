@@ -53,14 +53,27 @@ test("clicks and whitespace-only drags do not create annotations", () => {
 test("uses PDF font metrics to align selection boxes around rendered glyphs", () => {
   assert.ok(Math.abs(selection.scaledFontAscent({ascent: 0.72, descent: -0.21}, 40) - 28.8) < 1e-9);
   assert.ok(Math.abs(selection.scaledFontAscent({descent: -0.22}, 40) - 31.2) < 1e-9);
-  assert.equal(selection.scaledFontAscent({}, 40), 40);
-  assert.equal(selection.scaledFontAscent(null, 40), 40);
+  assert.equal(selection.scaledFontAscent({}, 40), 32);
+  assert.equal(selection.scaledFontAscent(null, 40), 32);
   assert.ok(Math.abs(selection.scaledFontHeight({ascent: 0.72, descent: -0.21}, 40) - 37.2) < 1e-9);
   assert.equal(selection.scaledFontHeight({ascent: 0.72}, 40), 40);
   assert.deepEqual(
     selection.fitRectToFontMetrics({left: 10, right: 90, top: 20, width: 80, height: 40}, 40, 36),
     {left: 10, right: 90, top: 20, bottom: 56, width: 80, height: 36},
   );
+});
+
+// Police qui annonce ascent = 0 (sous-ensemble sans hhea, Ascent nul) : le
+// haut du span tombait sur la ligne de base et la sélection couvrait
+// l'interligne SOUS la ligne (vécu 2026-10-19). Nul ou absurde = absent.
+test("ignores zero or absurd font metrics instead of dropping the text box to the baseline", () => {
+  assert.equal(selection.scaledFontAscent({ascent: 0, descent: 0}, 40), 32);
+  assert.ok(Math.abs(selection.scaledFontAscent({ascent: 0, descent: -0.25}, 40) - 30) < 1e-9);
+  assert.equal(selection.scaledFontAscent({ascent: -0.3, descent: 0.2}, 40), 32);
+  assert.equal(selection.scaledFontAscent({ascent: 12, descent: -3}, 40), 32);
+  assert.equal(selection.scaledFontAscent({ascent: NaN, descent: NaN}, 40), 32);
+  assert.equal(selection.scaledFontHeight({ascent: 0, descent: 0}, 40), 40);
+  assert.equal(selection.scaledFontHeight({ascent: 0, descent: -0.25}, 40), 40);
 });
 
 test("the PDF viewer stores character-range rectangles instead of whole text spans", () => {

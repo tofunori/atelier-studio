@@ -19,22 +19,35 @@ function createAtelierPdfSelectionApi(){
     return a.index - b.index || a.offset - b.offset;
   }
 
+  // Métriques de police fournies par pdf.js (fractions de la taille). Une
+  // police peut annoncer ascent = 0 (Ascent absent ou nul dans le PDF, table
+  // hhea vide d'un sous-ensemble) : prise au mot, la couche texte posait
+  // alors le haut des spans sur la ligne de base et la sélection couvrait
+  // l'interligne sous la ligne (vécu 2026-10-19). Comme pdf.js, une valeur
+  // nulle ou absurde compte pour absente.
+  var DEFAULT_FONT_ASCENT = 0.8;
+  function usableAscent(style){
+    var ascent = style ? Number(style.ascent) : NaN;
+    return Number.isFinite(ascent) && ascent > 0.2 && ascent <= 1.5 ? ascent : null;
+  }
+  function usableDescent(style){
+    var descent = style ? Number(style.descent) : NaN;
+    return Number.isFinite(descent) && descent < 0 && descent > -1 ? descent : null;
+  }
+
   function scaledFontAscent(style, fontSize){
     var size = Number(fontSize) || 0;
-    if (!style) return size;
-    var ascent = Number(style.ascent);
-    if (Number.isFinite(ascent)) return ascent * size;
-    var descent = Number(style.descent);
-    if (Number.isFinite(descent)) return (1 + descent) * size;
-    return size;
+    var ascent = usableAscent(style);
+    if (ascent !== null) return ascent * size;
+    var descent = usableDescent(style);
+    if (descent !== null) return (1 + descent) * size;
+    return DEFAULT_FONT_ASCENT * size;
   }
 
   function scaledFontHeight(style, fontSize){
     var size = Number(fontSize) || 0;
-    if (!style) return size;
-    var ascent = Number(style.ascent), descent = Number(style.descent);
-    if (Number.isFinite(ascent) && Number.isFinite(descent) && ascent > descent)
-      return (ascent - descent) * size;
+    var ascent = usableAscent(style), descent = usableDescent(style);
+    if (ascent !== null && descent !== null) return (ascent - descent) * size;
     return size;
   }
 
