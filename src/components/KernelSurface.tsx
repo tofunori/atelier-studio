@@ -290,7 +290,7 @@ function CellEditor({ cell, threadId, nextId, onDone }: { cell: KernelCell; thre
           else if (e.key === "Escape") { e.preventDefault(); onDone(); }
         }} />
       <div className="kernel-editor-bar">
-        <Button variant="primary" size="xs" loading={busy} disabled={code === cell.code} onClick={submit}>
+        <Button variant="secondary" size="xs" loading={busy} disabled={code === cell.code} onClick={submit}>
           {Icon.play}{t("kernel.rerun-as", { n: nextId })}
         </Button>
         <Button variant="ghost" size="xs" onClick={onDone}>{t("action.cancel")}</Button>
@@ -330,7 +330,7 @@ function FreeCell({ threadId, nextId, disabled, onResume }: {
         onChange={(e) => { setCode(e.target.value); fit(e.target); }}
         onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); submit(); } }} />
       <div className="kernel-editor-bar">
-        <Button variant="primary" size="xs" loading={busy} disabled={disabled || !code.trim()} onClick={submit}>
+        <Button variant="secondary" size="xs" loading={busy} disabled={disabled || !code.trim()} onClick={submit}>
           {Icon.play}{t("kernel.run-as", { n: nextId })}
         </Button>
         <span className="kernel-editor-note">{error ?? t("kernel.new-note")}</span>
@@ -635,7 +635,7 @@ function ResumeRow({ threadId, source, open, onToggle, disabled, onStarted }: {
             ))}
           </ol>
           <div className="kernel-editor-bar">
-            <Button variant="primary" size="xs" loading={busy} disabled={disabled || !source.ok} onClick={start}>
+            <Button variant="secondary" size="xs" loading={busy} disabled={disabled || !source.ok} onClick={start}>
               {Icon.replay}{t("kernel.resume-run", { n: source.ok })}
             </Button>
             <span className="kernel-editor-note">{t("kernel.resume-note")}</span>
