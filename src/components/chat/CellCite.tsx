@@ -6,11 +6,12 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { t } from "../../lib/i18n";
 import { kernelCommand, openKernelCell } from "../../lib/kernel";
 import { Button, Popover, PopoverContent, PopoverTrigger, RowButton } from "../ui";
+import { citedValue, textBefore } from "./cellCiteText";
 import { MdThreadContext } from "./mdThread";
 
 /** Verdict d'un chiffre cité : `found` dans la sortie, `code` seulement dans
  *  le code, `missing`, `unknown` (sortie coupée), `nocell`. */
-export type ClaimCheck = { status: "found" | "code" | "missing" | "unknown" | "nocell"; closest?: string };
+type ClaimCheck = { status: "found" | "code" | "missing" | "unknown" | "nocell"; closest?: string };
 
 const claimCache = new Map<string, Promise<ClaimCheck>>();
 type PendingClaim = { cell: number; value: string; resolve: (c: ClaimCheck) => void };
@@ -18,7 +19,7 @@ const pendingClaims = new Map<string, PendingClaim[]>();
 
 /** Vérifie un chiffre cité (`value`, tel qu'écrit) dans la sortie de la
  *  cellule ; les demandes d'un même rendu partent en un seul message. */
-export function verifyClaim(threadId: string, cell: number, value: string): Promise<ClaimCheck> {
+function verifyClaim(threadId: string, cell: number, value: string): Promise<ClaimCheck> {
   const key = `${threadId}:${cell}:${value}`;
   const known = claimCache.get(key);
   if (known) return known;
@@ -40,37 +41,6 @@ export function verifyClaim(threadId: string, cell: number, value: string): Prom
   });
   claimCache.set(key, promise);
   return promise;
-}
-
-/** Un nombre tel que l'agent l'écrit : signe, virgule décimale, pourcentage. */
-const CITED_NUMBER = /[-\u2212\u2013]?\d+(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d+)?(?:[eE][-+]?\d+)?(?:[ \u00a0\u202f]?%)?/gu;
-
-/** Dernier nombre avant une citation de cellule, dans la même phrase ; un
- *  nombre collé à une lettre (1er, x2) n'en est pas un. */
-export function citedValue(before: string): string | null {
-  const sentence = before.slice(-160).split(/(?<=[.!?;])\s|\n/u).pop() ?? "";
-  let last: string | null = null;
-  for (const m of sentence.matchAll(CITED_NUMBER)) {
-    const start = m.index ?? 0;
-    const end = start + m[0].length;
-    if (/[\p{L}_]/u.test(sentence[start - 1] ?? "") || /[\p{L}_]/u.test(sentence[end] ?? "")) continue;
-    last = m[0].trim();
-  }
-  return last;
-}
-
-/** Texte du bloc avant la pastille, depuis la pastille précédente : le
- *  chiffre que l'agent a écrit juste avant la citation. */
-export function textBefore(el: HTMLElement): string {
-  const block = el.closest("p, li, td, th") ?? el.parentElement;
-  if (!block) return "";
-  const range = document.createRange();
-  range.selectNodeContents(block);
-  const pills = [...block.querySelectorAll(".cell-cite")];
-  const previous = pills[pills.indexOf(el) - 1];
-  if (previous) range.setStartAfter(previous);
-  range.setEndBefore(el);
-  return range.toString();
 }
 
 const CHECK = <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>;

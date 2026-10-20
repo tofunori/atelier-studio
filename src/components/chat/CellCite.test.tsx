@@ -10,7 +10,8 @@ vi.mock("../../lib/wsBus", () => ({
   wsReady: () => true,
 }));
 
-import CellCite, { citedValue } from "./CellCite";
+import CellCite from "./CellCite";
+import { citedValue } from "./cellCiteText";
 
 function answer(checks: unknown[]) {
   const ask = sent.find((m) => m.op === "verify");

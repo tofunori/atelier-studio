@@ -231,8 +231,8 @@ function DiffRow({ cell }: { cell: KernelCell }) {
   const lines = Math.max(diff.removed.length, diff.added.length);
   return (
     <div className="kernel-diff">
-      {diff.removed.slice(0, 3).map((l, i) => <code key={`r${i}`} data-kind="del">− {l.trim()}</code>)}
-      {diff.added.slice(0, 3).map((l, i) => <code key={`a${i}`} data-kind="add">+ {l.trim()}</code>)}
+      {[...new Set([...diff.removed.slice(0, 3).map((l) => `− ${l.trim()}`), ...diff.added.slice(0, 3).map((l) => `+ ${l.trim()}`)])]
+        .map((line) => <code key={line} data-kind={line.startsWith("+") ? "add" : "del"}>{line}</code>)}
       <span>{t("kernel.lines-changed", { n: lines })}</span>
     </div>
   );
@@ -240,6 +240,7 @@ function DiffRow({ cell }: { cell: KernelCell }) {
 
 /** Code d'une cellule rendu éditable : ⇧↵ relance comme nouvelle cellule. */
 function CellEditor({ cell, threadId, nextId, onDone }: { cell: KernelCell; threadId: string; nextId: number; onDone: () => void }) {
+  // Brouillon : part du code de la cellule, l'éditeur est remonté à chaque « Modifier ».
   const [code, setCode] = useState(cell.code);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -625,7 +626,7 @@ type CellGroup = { key: string; turnId?: string | null; prompt?: string | null; 
 
 /** Cellules regroupées par tour de l'agent (cellules voisines du même tour) ;
  *  celles relancées à la main forment leur propre groupe. */
-export function groupCells(cells: KernelCell[]): CellGroup[] {
+function groupCells(cells: KernelCell[]): CellGroup[] {
   const groups: CellGroup[] = [];
   for (const cell of cells) {
     const user = cell.author === "user";
