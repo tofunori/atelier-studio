@@ -605,14 +605,15 @@ function useProjectThreads(threadId: string, enabled: boolean): ProjectThread[] 
 }
 
 /** Un fil précédent : ses cellules à l'ouverture, et « Reprendre ici ». */
-function ResumeRow({ threadId, source, open, onToggle, disabled }: {
-  threadId: string; source: ProjectThread; open: boolean; onToggle: () => void; disabled: boolean;
+function ResumeRow({ threadId, source, open, onToggle, disabled, onStarted }: {
+  threadId: string; source: ProjectThread; open: boolean; onToggle: () => void; disabled: boolean; onStarted?: () => void;
 }) {
   const { cells } = useKernelCells(open ? source.threadId : null, open);
   const [busy, setBusy] = useState(false);
   const start = () => {
     setBusy(true);
     kernelCommand(threadId, "resume", { fromThread: source.threadId })
+      .then(() => onStarted?.())
       .catch((e: Error) => void showError(plain(e.message)))
       .finally(() => setBusy(false));
   };
@@ -645,7 +646,9 @@ function ResumeRow({ threadId, source, open, onToggle, disabled }: {
   );
 }
 
-function ResumeList({ threadId, threads, disabled }: { threadId: string; threads: ProjectThread[]; disabled: boolean }) {
+function ResumeList({ threadId, threads, disabled, onStarted }: {
+  threadId: string; threads: ProjectThread[]; disabled: boolean; onStarted?: () => void;
+}) {
   const [open, setOpen] = useState<string | null>(null);
   if (!threads.length) return null;
   return (
@@ -653,7 +656,7 @@ function ResumeList({ threadId, threads, disabled }: { threadId: string; threads
       <h3>{t("kernel.resume-title")}</h3>
       <ul>
         {threads.map((source) => (
-          <ResumeRow key={source.threadId} threadId={threadId} source={source} disabled={disabled}
+          <ResumeRow key={source.threadId} threadId={threadId} source={source} disabled={disabled} onStarted={onStarted}
             open={open === source.threadId} onToggle={() => setOpen((o) => (o === source.threadId ? null : source.threadId))} />
         ))}
       </ul>
@@ -820,7 +823,6 @@ function KernelThread({ threadId, threadTitle, enabled, projectRoot, visible }: 
   const threads = useProjectThreads(threadId, enabled && visible);
   const [showResume, setShowResume] = useState(false);
   const busy = status?.busyCell != null || replay?.state === "running" || resume?.state === "running";
-  useEffect(() => { if (resume?.state === "running") setShowResume(false); }, [resume?.state]);
   const scroller = useRef<HTMLDivElement | null>(null);
   const { picked, setPicked } = useKernelSelection(scroller);
   const clearPicked = useCallback(() => setPicked(null), [setPicked]);
@@ -889,7 +891,8 @@ function KernelThread({ threadId, threadTitle, enabled, projectRoot, visible }: 
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
           if (picked) setPicked(null);
         }}>
-        {enabled && cells.length > 0 && showResume ? <ResumeList threadId={threadId} threads={threads} disabled={busy} /> : null}
+        {enabled && cells.length > 0 && showResume ? <ResumeList threadId={threadId} threads={threads} disabled={busy}
+          onStarted={() => setShowResume(false)} /> : null}
         {cells.length ? (
           <div className="kernel-cells">
             {groups.map((group, gi) => {
