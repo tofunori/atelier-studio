@@ -12,17 +12,24 @@
 //! cellules » du fil, et la recette des fichiers qu'une cellule écrit.
 
 pub mod envs;
+pub mod diff;
+pub mod export;
 pub mod journal;
 mod kernel;
 pub mod manager;
+pub mod packages;
+pub mod prints;
+pub mod recipe;
+pub mod replay;
+pub mod verify;
 mod scan;
 
 pub use envs::{discover_envs, resolve_env, PyEnv};
-pub use journal::{CellJournal, CellRecord};
+pub use journal::{CellJournal, CellRecord, ChainCheck, Lineage, ReplayMark, VarUse};
 pub use kernel::KernelInfo;
 pub use manager::{
-    panel_view, CellEvent, CellListener, KernelError, KernelManager, KernelStatus, RunOutcome,
-    RunRequest,
+    panel_view, CellEvent, CellListener, KernelError, KernelManager, KernelStatus, Origin,
+    RunOutcome, RunRequest,
 };
 
 /// Source du pilote, écrite sur disque au premier lancement.

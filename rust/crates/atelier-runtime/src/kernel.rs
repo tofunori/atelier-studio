@@ -125,6 +125,9 @@ L'utilisateur peut changer de mode dans le compositeur."
                     code,
                     wait,
                     turn_id: turn_id.as_deref(),
+                    purpose: req.get("purpose").and_then(Value::as_str),
+                    author: None,
+                    from_cell: None,
                 })
                 .await
                 .map_err(|e| e.message())?;
@@ -229,19 +232,15 @@ pub async fn handle_cells(state: &AppState, msg: &Value) -> Vec<String> {
         .and_then(Value::as_u64)
         .unwrap_or(200)
         .min(1000) as usize;
-    let cells: Vec<Value> = state
-        .kernels()
-        .journal()
-        .list(thread_id, limit)
-        .iter()
-        .map(atelier_kernel::panel_view)
-        .collect();
+    let kernels = state.kernels();
+    let cells = kernels.panel_cells(thread_id, limit);
     vec![json!({
         "type": "kernelCells",
         "requestId": msg.get("requestId"),
         "threadId": thread_id,
         "cells": cells,
-        "status": state.kernels().status(thread_id),
+        "status": kernels.status(thread_id),
+        "chain": kernels.journal().verify_chain(thread_id),
     })
     .to_string()]
 }
@@ -273,6 +272,11 @@ pub async fn handle_command(state: &AppState, msg: &Value) -> Vec<String> {
             action(state, thread_id, &format!("kernel_{op}"), msg).await
         }
         "link" => link_file(state, thread_id, msg).await,
+        "verify" => Ok(verify_claims(state, thread_id, msg)),
+        "rerun" => rerun(state, thread_id, msg).await,
+        "replay" => start_replay(state, thread_id).await,
+        "cancelReplay" => Ok(json!({"cancelled": state.kernels().cancel_replay(thread_id)})),
+        "export" => export(state, thread_id, msg).await,
         _ => Err("unknown_op".into()),
     };
     let mut reply = json!({
@@ -286,6 +290,230 @@ pub async fn handle_command(state: &AppState, msg: &Value) -> Vec<String> {
         Err(error) => reply["error"] = json!(error),
     }
     vec![reply.to_string()]
+}
+
+/// Chiffres cités par l'agent, vérifiés dans la sortie de leur cellule.
+/// `claims` : `[{cell, value}]`, `value` tel qu'écrit dans la réponse.
+fn verify_claims(state: &AppState, thread_id: &str, msg: &Value) -> Value {
+    let journal = state.kernels().journal();
+    let checks: Vec<Value> = msg
+        .get("claims")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(200)
+        .map(|claim| {
+            let cell = claim.get("cell").and_then(Value::as_u64);
+            let value = claim.get("value").and_then(Value::as_str).unwrap_or("");
+            let check = match cell.and_then(|id| journal.get(thread_id, id)) {
+                Some(record) => json!(atelier_kernel::verify::check_claim(&record, value)),
+                None => json!({"status": "nocell"}),
+            };
+            json!({"cell": cell, "value": value, "check": check})
+        })
+        .collect();
+    json!({"checks": checks})
+}
+
+/// Cellule modifiée et relancée par l'utilisateur depuis le panneau : une
+/// NOUVELLE cellule, signée et liée à l'originale, qui garde son but.
+async fn rerun(state: &AppState, thread_id: &str, msg: &Value) -> Result<Value, String> {
+    let thread = state.threads().lock().await.get(thread_id).cloned();
+    let Some(thread) = thread else {
+        return Err("thread_not_found".into());
+    };
+    if !enabled(Some(&thread)) {
+        return Err(OFF_MESSAGE.into());
+    }
+    let cwd = PathBuf::from(&thread.project_root);
+    if thread.project_root.is_empty() || !cwd.is_dir() {
+        return Err("kernel_no_folder — ce fil n'a pas de dossier de projet où lancer le noyau.".into());
+    }
+    let code = msg
+        .get("code")
+        .and_then(Value::as_str)
+        .filter(|c| !c.trim().is_empty())
+        .ok_or("kernel_missing_code")?;
+    let from = msg.get("fromCell").and_then(Value::as_u64);
+    let purpose = from
+        .and_then(|id| state.kernels().journal().get(thread_id, id))
+        .and_then(|c| c.purpose);
+    let default_env = thread.extra.get(ENV_KEY).and_then(Value::as_str);
+    let outcome = state
+        .kernels()
+        .run(RunRequest {
+            thread_id,
+            cwd: &cwd,
+            env: None,
+            default_env,
+            code,
+            // Le panneau suit la cellule par les événements : rien à attendre.
+            wait: Duration::ZERO,
+            turn_id: None,
+            purpose: purpose.as_deref(),
+            author: Some("user"),
+            from_cell: from,
+        })
+        .await
+        .map_err(|e| e.message())?;
+    if outcome.note.is_some() {
+        remember_env(state, thread_id).await;
+        publish_status(state, thread_id);
+    }
+    Ok(json!({"cell": outcome.cell["cell"]}))
+}
+
+/// Rejouer à neuf, en tâche de fond : l'avancement part sur le bus
+/// (`kernelReplay`), chaque cellule rejouée aussi (`kernelCell`).
+async fn start_replay(state: &AppState, thread_id: &str) -> Result<Value, String> {
+    let thread = state.threads().lock().await.get(thread_id).cloned();
+    let Some(thread) = thread else {
+        return Err("thread_not_found".into());
+    };
+    if !enabled(Some(&thread)) {
+        return Err(OFF_MESSAGE.into());
+    }
+    let cwd = PathBuf::from(&thread.project_root);
+    if thread.project_root.is_empty() || !cwd.is_dir() {
+        return Err("kernel_no_folder — ce fil n'a pas de dossier de projet où lancer le noyau.".into());
+    }
+    if state.kernels().replaying(thread_id) {
+        return Err("kernel_replay_running — un rejeu tourne déjà dans ce fil.".into());
+    }
+    let (state, thread_id) = (state.clone(), thread_id.to_string());
+    tokio::spawn(async move {
+        let publisher = state.clone();
+        let id = thread_id.clone();
+        let progress = move |done: usize, total: usize, cell: Option<&atelier_kernel::CellRecord>| {
+            publisher.publish(
+                json!({
+                    "type": "kernelReplay",
+                    "threadId": id,
+                    "state": "running",
+                    "done": done,
+                    "total": total,
+                    "cell": cell.map(|c| c.id),
+                })
+                .to_string(),
+            );
+        };
+        let result = state.kernels().replay(&thread_id, &cwd, progress).await;
+        let mut message = json!({"type": "kernelReplay", "threadId": thread_id, "state": "done"});
+        match result {
+            Ok(summary) => message["summary"] = json!(summary),
+            Err(e) => message["error"] = json!(e.message()),
+        }
+        state.publish(message.to_string());
+        publish_status(&state, &thread_id);
+    });
+    Ok(json!({"started": true}))
+}
+
+/// Export `.py` ou `.ipynb` dans `exports/noyau/` du projet ; rend le chemin
+/// relatif pour l'ouvrir.
+async fn export(state: &AppState, thread_id: &str, msg: &Value) -> Result<Value, String> {
+    let thread = state.threads().lock().await.get(thread_id).cloned();
+    let Some(thread) = thread else {
+        return Err("thread_not_found".into());
+    };
+    let root = PathBuf::from(&thread.project_root);
+    if thread.project_root.is_empty() || !root.is_dir() {
+        return Err("kernel_no_folder — ce fil n'a pas de dossier de projet.".into());
+    }
+    let ipynb = msg.get("format").and_then(Value::as_str) == Some("ipynb");
+    let title = if thread.title.trim().is_empty() { "Noyau Python" } else { thread.title.trim() };
+    let text = state
+        .kernels()
+        .export(thread_id, title, ipynb)
+        .map_err(|e| e.message())?;
+    let slug: String = title
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|p| !p.is_empty())
+        .take(8)
+        .collect::<Vec<_>>()
+        .join("-");
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M");
+    let rel = format!(
+        "exports/noyau/{}-{stamp}.{}",
+        if slug.is_empty() { "noyau".to_string() } else { slug },
+        if ipynb { "ipynb" } else { "py" }
+    );
+    let path = root.join(&rel);
+    tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
+        std::fs::write(&path, text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(json!({"rel": rel}))
+}
+
+/// Clé du fil : dernière cellule relancée à la main que l'agent connaît.
+pub const USER_CELLS_KEY: &str = "kernelUserCellsTold";
+
+/// Bloc de message qui dit à l'agent quelles cellules l'utilisateur a
+/// modifiées et relancées lui-même depuis son dernier tour, avec les lignes
+/// changées. Rend aussi le numéro de la dernière, à retenir sur le fil.
+pub fn user_cells_block(
+    state: &AppState,
+    thread_id: &str,
+    previous: Option<&atelier_store::Thread>,
+    provider: &str,
+) -> Option<(String, u64)> {
+    if !crate::agent_mcp::is_mcp_compatible_provider(provider) || !enabled(previous) {
+        return None;
+    }
+    let told = previous
+        .and_then(|t| t.extra.get(USER_CELLS_KEY))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let journal = state.kernels().journal();
+    let cells: Vec<atelier_kernel::CellRecord> = journal
+        .list(thread_id, 200)
+        .into_iter()
+        .filter(|c| c.author.as_deref() == Some("user") && c.id > told)
+        .collect();
+    let last = cells.iter().map(|c| c.id).max()?;
+    let mut block = String::from(
+        "
+
+<atelier-kernel-user-cells>
+The user edited and re-ran kernel cells themselves since your last turn. Their versions now shape the kernel state: build on them, do not silently redo your earlier version. Cite them like your own cells ([cellule N](atelier-cell:N)).
+",
+    );
+    for cell in cells.iter().take(10) {
+        let status = if cell.status == "ok" { "ok".to_string() } else { format!("error {}", cell.error.as_ref().and_then(|e| e["ename"].as_str()).unwrap_or("")) };
+        let original = cell.from_cell.and_then(|from| journal.get(thread_id, from));
+        match (cell.from_cell, original.and_then(|o| atelier_kernel::diff::line_diff(&o.code, &cell.code))) {
+            (Some(from), Some(diff)) => {
+                block.push_str(&format!("- Cell {} (edited from cell {from}, {status}), changed lines:
+", cell.id));
+                for line in &diff.removed {
+                    block.push_str(&format!("  - {line}
+"));
+                }
+                for line in &diff.added {
+                    block.push_str(&format!("  + {line}
+"));
+                }
+            }
+            _ => {
+                block.push_str(&format!("- Cell {} ({status}):
+", cell.id));
+                for line in atelier_kernel::journal::clip(&cell.code, 2000).lines() {
+                    block.push_str(&format!("  {line}
+"));
+                }
+            }
+        }
+    }
+    block.push_str("</atelier-kernel-user-cells>");
+    Some((block, last))
 }
 
 /// Une figure du noyau copiée dans le projet entre dans les écritures de sa
@@ -376,7 +604,11 @@ then work on it in later cells; keep each cell focused. The kernel starts on the
 project folder. Pick the env once with `env` on that first run (action \"envs\" lists them, conda and \
 Claude Science envs included); use \"restart\" with another env to switch.{env} A cell that runs longer \
 than ~45 s returns status \"running\": call action \"wait\" with its cell number, or \"interrupt\". Save \
-figures with savefig (the backend is Agg). Keep using the shell for git, file management and non-Python tools.\n</atelier-kernel>"
+figures with savefig (the backend is Agg). Keep using the shell for git, file management and non-Python tools.\n\
+Give each run a `purpose`: one short sentence, in the user's language, saying what the cell does (it titles \
+the cell in the user's notebook). When your answer states a number that a cell printed, cite that cell right \
+after it as a link `[cellule N](atelier-cell:N)` (N = the cell number), with the number written as the cell \
+printed it or rounded: the app checks every cited number against the cell's output.\n</atelier-kernel>"
         )
     } else {
         "\n\n<atelier-kernel>\nThe user turned off the persistent Python kernel for this conversation: \
@@ -537,6 +769,48 @@ mod tests {
         let cells: Value = serde_json::from_str(&cells[0]).unwrap();
         assert_eq!(cells["cells"][0]["code"], "y = 6 * 7\ny");
         assert_eq!(cells["status"]["running"], true);
+        assert_eq!(cells["chain"]["brokenAt"], Value::Null);
+
+        // Chiffres cités par l'agent, vérifiés dans la sortie de la cellule.
+        let checks = verify_claims(
+            &state,
+            "fil",
+            &json!({"claims": [{"cell": 1, "value": "42"}, {"cell": 1, "value": "41"}, {"cell": 9, "value": "1"}]}),
+        );
+        assert_eq!(checks["checks"][0]["check"]["status"], "found", "{checks}");
+        assert_eq!(checks["checks"][1]["check"]["status"], "missing");
+        assert_eq!(checks["checks"][2]["check"]["status"], "nocell");
+
+        // Cellule modifiée à la main : nouvelle cellule liée à l'originale,
+        // annoncée une fois à l'agent avec les lignes changées.
+        let out = rerun(&state, "fil", &json!({"code": "y = 6 * 8\ny", "fromCell": 1}))
+            .await
+            .unwrap();
+        assert_eq!(out["cell"], 2);
+        let done = action(&state, "fil", "kernel_wait", &json!({"cell": 2})).await.unwrap();
+        assert_eq!(done["cell"]["result"], "48", "{done}");
+        let record = state.kernels().journal().get("fil", 2).unwrap();
+        assert_eq!(record.author.as_deref(), Some("user"));
+        assert_eq!(record.from_cell, Some(1));
+        let fil = state.threads().lock().await.get("fil").cloned().unwrap();
+        let (block, last) = user_cells_block(&state, "fil", Some(&fil), "codex").unwrap();
+        assert_eq!(last, 2);
+        assert!(block.contains("- y = 6 * 7") && block.contains("+ y = 6 * 8"), "{block}");
+        state
+            .threads()
+            .lock()
+            .await
+            .upsert(json!({"id": "fil", USER_CELLS_KEY: 2}), false)
+            .unwrap();
+        let fil = state.threads().lock().await.get("fil").cloned().unwrap();
+        assert!(user_cells_block(&state, "fil", Some(&fil), "codex").is_none());
+
+        // Export dans exports/noyau/ du projet.
+        let out = export(&state, "fil", &json!({"format": "py"})).await.unwrap();
+        let rel = out["rel"].as_str().unwrap();
+        assert!(rel.starts_with("exports/noyau/") && rel.ends_with(".py"), "{rel}");
+        let script = std::fs::read_to_string(projet.path().join(rel)).unwrap();
+        assert!(script.contains("y = 6 * 8"), "{script}");
 
         // Couper l'interrupteur arrête le noyau au prochain appel.
         state

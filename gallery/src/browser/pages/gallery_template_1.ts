@@ -1376,6 +1376,7 @@ function recipeDraft(abs: string,sidecar: string,e){
   const inputs=Array.isArray(e.inputs)?e.inputs:[];
   const lines=['Reproduis ce résultat : '+abs,'Recette : '+sidecar];
   if(cmd) lines.push('Commande enregistrée : '+cmd);
+  if(e.cell&&e.cell.id) lines.push('Cellule '+e.cell.id+' du noyau Python'+(e.cell.env?' ('+e.cell.env+')':'')+(e.cell.codeSha256?', code sha256 '+String(e.cell.codeSha256).slice(0,7)+'…':'')+' : son code est dans la recette');
   if(script) lines.push('Script : '+script+(recipeHash(e,script)?' (sha256 '+recipeHash(e,script)+'…)':''));
   if(inputs.length) lines.push('Entrées : '+inputs.length+' fichier'+(inputs.length>1?'s':'')+', empreintes dans la recette');
   if(recipeEnvLine(env)) lines.push('Environnement : '+recipeEnvLine(env));
@@ -1394,6 +1395,15 @@ function provRenderRich(){
   if(e.ts) meta.push(provFmtDate(e.ts));
   let h=provHead(e.reconstructed?'reconstruite':'tracée');
   if(cmd) h+='<div class="pvRow"><span class="pvL">Commande</span><div class="pvCmd">'+esc(cmd)+'</div></div>';
+  // Fichier écrit par une cellule du noyau Python : la cellule tient lieu
+  // de commande, avec son but et son code exact.
+  if(e.cell&&e.cell.id){
+    const who=e.cell.author==='user'?' · modifiée à la main'+(e.cell.fromCell?' d’après la cellule '+e.cell.fromCell:''):'';
+    h+='<div class="pvRow"><span class="pvL">Cellule '+esc(String(e.cell.id))+'</span>'
+      +(e.cell.purpose?'<span class="pvV">'+esc(e.cell.purpose)+'</span>':'')
+      +'<span class="pvSub">'+esc('noyau Python'+(e.cell.env?' · '+e.cell.env:'')+who)+'</span>'
+      +(e.code?'<div class="pvCmd">'+esc(e.code)+'</div>':'')+'</div>';
+  }
   if(script){
     const hash=recipeHash(e,script);
     h+='<div class="pvRow"><span class="pvL">Script</span><span class="pvLine">'

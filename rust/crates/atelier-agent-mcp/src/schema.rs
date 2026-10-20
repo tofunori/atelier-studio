@@ -154,8 +154,8 @@ pub fn python_tool_definition() -> Value {
         "name": PYTHON_TOOL_NAME,
         "description": "Persistent Python kernel of this conversation (like a notebook: variables and \
     loaded data stay in memory between calls; every cell is logged). Only works when the user turned it on \
-    for this conversation; otherwise use your shell. Actions: run (code, optional env on first run), \
-    wait (cell), variables, interrupt, restart (optional env), envs, status.",
+    for this conversation; otherwise use your shell. Actions: run (code and purpose, optional env on first \
+    run), wait, variables, interrupt, restart, envs, status. Cite a number a cell printed with its citeAs link.",
         "inputSchema": {
             "type": "object",
             "required": ["action"],
@@ -165,6 +165,7 @@ pub fn python_tool_definition() -> Value {
                     "enum": ["run", "wait", "variables", "interrupt", "restart", "envs", "status"]
                 },
                 "code": { "type": "string", "description": "Python code of the cell (run). The value of a last bare expression is returned." },
+                "purpose": { "type": "string", "description": "What this cell does, one short sentence in the user's language (run). It titles the cell in the user's notebook." },
                 "cell": { "type": "integer", "description": "Cell number (wait)" },
                 "env": { "type": "string", "description": "Env name from action envs, or an absolute path (run, restart)" },
                 "waitSeconds": { "type": "integer", "description": "Max seconds to wait before returning status running (default 45, max 50)" }

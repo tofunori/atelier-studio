@@ -573,6 +573,8 @@ function actionTarget(action: ToolAction): string {
   if (shellTool(action.name) && typeof input.command === "string" && input.command.trim()) {
     return shellCommand(input.command);
   }
+  // Noyau Python : le but de la cellule dit mieux que son code ce qui tourne.
+  if (/atelier_python$/.test(action.name) && input.purpose) return String(input.purpose);
   if (action.detail?.trim()) return action.detail.trim();
   for (const key of ["file_path", "path", "query", "pattern", "command", "url"]) {
     const value = input[key];

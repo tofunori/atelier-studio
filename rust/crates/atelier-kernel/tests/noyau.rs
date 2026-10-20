@@ -22,6 +22,9 @@ fn req<'a>(thread: &'a str, cwd: &'a Path, env: Option<&'a str>, code: &'a str) 
         code,
         wait: Duration::from_secs(20),
         turn_id: Some("tour-1"),
+        purpose: None,
+        author: None,
+        from_cell: None,
     }
 }
 
@@ -248,5 +251,112 @@ sys.modules["matplotlib.pyplot"] = plt
     assert_eq!(cellules.len(), 2, "la cellule réécrite remplace l'ancienne");
     assert_eq!(cellules[0].files_written, vec![copie.clone()]);
     assert_eq!(m.journal().writers_of("fil", &copie)[0].id, 1);
+    m.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn lignee_des_variables_et_empreintes_des_donnees() {
+    let Some(py) = python() else {
+        return;
+    };
+    let py = py.display().to_string();
+    let data = tempfile::tempdir().unwrap();
+    // Hors de /tmp, que le pilote ignore comme dossier temporaire.
+    let projet = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let panel = projet.path().join("panel.csv");
+    std::fs::write(&panel, "a\n1\n2\n").unwrap();
+    // Assez ancien pour ne pas passer pour une écriture de la cellule.
+    let avant = std::time::SystemTime::now() - Duration::from_secs(3600);
+    std::fs::File::options().write(true).open(&panel).unwrap().set_modified(avant).unwrap();
+    let m = KernelManager::new(data.path(), data.path());
+    let mut r = req("fil", projet.path(), Some(&py), "lignes = open('panel.csv').read().split()\nn = len(lignes)");
+    r.purpose = Some("Charger le panel");
+    m.run(r).await.unwrap();
+    m.run(req("fil", projet.path(), None, "lignes.append('3')\ntotal = n + 1"))
+        .await
+        .unwrap();
+    let cells = m.journal().list("fil", 10);
+    assert_eq!(cells[0].purpose.as_deref(), Some("Charger le panel"));
+    let lin = cells[0].lineage.as_ref().unwrap();
+    assert_eq!(lin.created, vec!["lignes", "n"]);
+    let lin = cells[1].lineage.as_ref().unwrap();
+    assert_eq!(lin.created, vec!["total"]);
+    assert_eq!(lin.modified, vec!["lignes"]);
+    let uses: Vec<(String, Option<u64>)> = lin.uses.iter().map(|u| (u.name.clone(), u.cell)).collect();
+    assert_eq!(uses, vec![("lignes".into(), Some(1)), ("n".into(), Some(1))]);
+    assert_eq!(cells[0].session, cells[1].session);
+
+    // Empreinte du fichier lu, puis « Données modifiées depuis ».
+    let print = &cells[0].prints[0];
+    assert!(print.path.ends_with("panel.csv") && print.sha256.is_some(), "{print:?}");
+    assert!(m.panel_cells("fil", 10)[0].get("stale").is_none());
+    std::fs::write(projet.path().join("panel.csv"), "a\n1\n2\n9\n").unwrap();
+    assert_eq!(m.panel_cells("fil", 10)[0]["stale"][0]["state"], "modified");
+
+    // Les variables portent leur origine.
+    let vars = m.variables("fil").await.unwrap();
+    let lignes = vars.as_array().unwrap().iter().find(|v| v["name"] == "lignes").unwrap();
+    assert_eq!(lignes["origin"]["created"], 1);
+    assert_eq!(lignes["origin"]["modified"], 2);
+    assert_eq!(m.journal().verify_chain("fil").broken_at, None);
+    m.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn rejouer_a_neuf_compare_et_reconstruit_l_etat() {
+    let Some(py) = python() else {
+        return;
+    };
+    let py = py.display().to_string();
+    let data = tempfile::tempdir().unwrap();
+    let projet = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let m = KernelManager::new(data.path(), data.path());
+    m.run(req("fil", projet.path(), Some(&py), "x = 20\nprint(x + 1)"))
+        .await
+        .unwrap();
+    m.run(req("fil", projet.path(), None, "open('sortie.txt', 'w').write(str(x))\nx * 2"))
+        .await
+        .unwrap();
+    m.run(req("fil", projet.path(), None, "import random\nprint(random.random())"))
+        .await
+        .unwrap();
+    m.run(req("fil", projet.path(), None, "1/0")).await.unwrap();
+    // L'utilisateur a retouché le fichier produit : le rejeu ne doit pas
+    // l'écraser.
+    std::fs::write(projet.path().join("sortie.txt"), "retouche").unwrap();
+    m.shutdown("fil").await;
+
+    let summary = m.replay("fil", projet.path(), |_, _, _| {}).await.unwrap();
+    assert_eq!(summary.total, 4);
+    assert_eq!(summary.differs, 1, "le tirage aléatoire diffère : {summary:?}");
+    assert_eq!(summary.skipped, 1, "la cellule en erreur n'est pas rejouée");
+    assert_eq!(summary.same + summary.files, 2, "{summary:?}");
+    assert!(summary.adopted, "aucun noyau ne tournait : le rejeu le remplace");
+    assert_eq!(std::fs::read_to_string(projet.path().join("sortie.txt")).unwrap(), "retouche");
+
+    let cells = m.journal().list("fil", 10);
+    assert_eq!(cells.len(), 4, "les marques remplacent les cellules, sans doublon");
+    assert_eq!(cells[0].replay.as_ref().unwrap().status, "same");
+    assert_eq!(cells[2].replay.as_ref().unwrap().status, "differs");
+    assert_eq!(cells[3].replay.as_ref().unwrap().status, "skipped");
+
+    // L'état est revenu : x existe dans le noyau adopté.
+    let r = m.run(req("fil", projet.path(), None, "x")).await.unwrap();
+    assert_eq!(r.cell["result"], "20");
+    assert!(r.note.is_none(), "pas de redémarrage : le noyau rejoué sert");
+
+    // Cellule relancée à la main d'après la 2.
+    let mut user = req("fil", projet.path(), None, "x * 3");
+    user.author = Some("user");
+    user.from_cell = Some(2);
+    m.run(user).await.unwrap();
+    let last = m.journal().list("fil", 1).pop().unwrap();
+    assert_eq!(last.author.as_deref(), Some("user"));
+    let panel = m.panel_cells("fil", 1);
+    assert_eq!(panel[0]["fromDiff"]["added"][0], "x * 3");
+
+    let py_export = m.export("fil", "Essai", false).unwrap();
+    assert!(py_export.contains("# %% [6]"), "{py_export}");
+    assert!(py_export.contains("(modifiée à la main d'après [2])"), "{py_export}");
     m.shutdown_all().await;
 }

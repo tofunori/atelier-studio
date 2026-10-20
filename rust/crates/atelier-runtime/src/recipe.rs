@@ -8,6 +8,7 @@
 //! littérales du script, les versions des dossiers `*.dist-info` de l'env.
 //! Rien n'est copié : on garde des chemins, des tailles et des empreintes.
 
+use atelier_kernel::packages::{distribution_for, installed_python_packages, normalize_dist};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
@@ -334,71 +335,6 @@ pub fn r_libraries(text: &str) -> Vec<String> {
     out
 }
 
-/// Nom de distribution d'un module quand il diffère (`sklearn` →
-/// `scikit-learn`). Le reste se retrouve par son propre nom.
-fn distribution_for(module: &str) -> &str {
-    match module {
-        "sklearn" => "scikit_learn",
-        "skimage" => "scikit_image",
-        "PIL" => "pillow",
-        "cv2" => "opencv_python",
-        "yaml" => "pyyaml",
-        "bs4" => "beautifulsoup4",
-        "osgeo" => "gdal",
-        "mpl_toolkits" => "matplotlib",
-        "dateutil" => "python_dateutil",
-        "netCDF4" => "netcdf4",
-        "Bio" => "biopython",
-        "attr" => "attrs",
-        "jose" => "python_jose",
-        other => other,
-    }
-}
-
-fn normalize_dist(name: &str) -> String {
-    name.to_ascii_lowercase().replace(['-', '.'], "_")
-}
-
-/// Versions installées dans un env, lues des dossiers `*.dist-info`.
-fn installed_python_packages(prefix: &Path) -> (Option<String>, HashMap<String, String>) {
-    let mut packages = HashMap::new();
-    let mut python = None;
-    if let Ok(meta) = std::fs::read_dir(prefix.join("conda-meta")) {
-        for entry in meta.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if let Some(rest) = name.strip_prefix("python-") {
-                if rest.starts_with(|c: char| c.is_ascii_digit()) {
-                    python = rest.split('-').next().map(str::to_string);
-                }
-            }
-        }
-    }
-    let Ok(lib) = std::fs::read_dir(prefix.join("lib")) else {
-        return (python, packages);
-    };
-    for dir in lib.flatten() {
-        let dir_name = dir.file_name().to_string_lossy().to_string();
-        let Some(version) = dir_name.strip_prefix("python") else { continue };
-        if python.is_none() && version.starts_with(|c: char| c.is_ascii_digit()) {
-            python = Some(version.to_string());
-        }
-        let Ok(site) = std::fs::read_dir(dir.path().join("site-packages")) else { continue };
-        for entry in site.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let Some(stem) = name
-                .strip_suffix(".dist-info")
-                .or_else(|| name.strip_suffix(".egg-info"))
-            else {
-                continue;
-            };
-            if let Some((dist, version)) = stem.split_once('-') {
-                let version = version.split('-').next().unwrap_or(version);
-                packages.insert(normalize_dist(dist), version.to_string());
-            }
-        }
-    }
-    (python, packages)
-}
 
 fn r_package_version(prefix: Option<&Path>, package: &str) -> Option<String> {
     let mut libraries = Vec::new();

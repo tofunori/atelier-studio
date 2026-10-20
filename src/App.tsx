@@ -2251,6 +2251,8 @@ export default function App() {
       "autoreview-toggle": onAutoReviewToggle,
       "kernel-toggle": onKernelToggle,
       "kernel-panel-toggle": onKernelPanel,
+      // Citation « cellule N » du chat : la surface s'ouvre sur la cellule.
+      "kernel-panel-open": onKernelPanel,
       "kernel-add-to-chat": onKernelAddToChat,
       "permission-answer": onPermAnswer,
       "interaction-answer": onInteractionAnswer,

@@ -40,6 +40,10 @@ pub struct CellProgress {
     pub files_written: Vec<String>,
     /// PNG des figures matplotlib laissées ouvertes par la cellule.
     pub figures: Vec<String>,
+    /// Modules tiers chargés dans le noyau à la fin de la cellule.
+    pub imports: Vec<String>,
+    /// Variables créées, modifiées, supprimées et lues, vues par le pilote.
+    pub lineage: Option<Value>,
     pub duration_ms: Option<u64>,
     pub truncated: u64,
     pub finished: bool,
@@ -284,6 +288,8 @@ import atelier_noyau as _m; _m.main()",
                                 p.files_read = strings(&msg["files"]["read"]);
                                 p.files_written = strings(&msg["files"]["written"]);
                                 p.figures = strings(&msg["figures"]);
+                                p.imports = strings(&msg["imports"]);
+                                p.lineage = msg.get("lineage").filter(|l| l.is_object()).cloned();
                             });
                         }
                     }

@@ -1,8 +1,12 @@
 //! Un noyau par fil : démarrage à la demande, cellules, arrêt à l'inactivité.
 
 use crate::envs::{discover_envs, resolve_env, PyEnv};
-use crate::journal::{clip, code_sha256, CellJournal, CellRecord};
+use crate::journal::{clip, code_sha256, CellJournal, CellRecord, Lineage, VarUse};
 use crate::kernel::{Cell, Kernel, KernelInfo};
+use crate::packages::EnvSnapshot;
+use crate::prints::{PrintCache, HASH_CELL_BUDGET_BYTES};
+use crate::replay::{Backup, ReplaySummary};
+use crate::journal::ReplayMark;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -17,6 +21,12 @@ use tokio::sync::watch;
 const REPLY_STDOUT_MAX: usize = 40 * 1024;
 const REPLY_STDERR_MAX: usize = 16 * 1024;
 const VARS_TIMEOUT: Duration = Duration::from_secs(20);
+/// Rythme des sorties envoyées au panneau pendant une cellule longue.
+const PROGRESS_EVERY: Duration = Duration::from_millis(700);
+/// Paquets importés montrés dans l'état du noyau.
+const STATUS_PACKAGES_MAX: usize = 60;
+/// Extrait de la demande du tour gardé sur chaque cellule.
+const TURN_PROMPT_MAX: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KernelError {
@@ -83,10 +93,39 @@ pub struct KernelStatus {
     pub busy_cell: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idle_seconds: Option<u64>,
+    /// Paquets importés dans le noyau, avec leur version.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub packages: Vec<Value>,
+    /// Nombre de paquets de l'env, et empreinte de son instantané.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packages_total: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_sha256: Option<String>,
+}
+
+/// Cellule qui a créé, puis modifié en dernier, une variable du noyau.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Origin {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified: Option<u64>,
+}
+
+impl Origin {
+    fn last(&self) -> Option<u64> {
+        self.modified.or(self.created)
+    }
 }
 
 struct Slot {
     kernel: Kernel,
+    env: Arc<EnvSnapshot>,
+    /// Variable → cellules qui l'ont créée et modifiée (lignée).
+    origins: Mutex<HashMap<String, Origin>>,
+    /// Modules tiers chargés, relevés à la fin de la dernière cellule.
+    imports: Mutex<Vec<String>>,
     last_used: Mutex<Instant>,
     /// Cellule en cours et son enregistrement final, posé par le finisseur.
     pending: Mutex<Option<(u64, watch::Receiver<Option<CellRecord>>)>>,
@@ -114,6 +153,12 @@ pub struct RunRequest<'a> {
     pub code: &'a str,
     pub wait: Duration,
     pub turn_id: Option<&'a str>,
+    /// Phrase de but écrite par l'agent.
+    pub purpose: Option<&'a str>,
+    /// `Some("user")` pour une cellule relancée à la main depuis le panneau.
+    pub author: Option<&'a str>,
+    /// Cellule d'origine d'une cellule modifiée à la main.
+    pub from_cell: Option<u64>,
 }
 
 pub struct KernelManager {
@@ -124,6 +169,12 @@ pub struct KernelManager {
     home: PathBuf,
     journal: CellJournal,
     listener: Mutex<Option<CellListener>>,
+    prints: Arc<PrintCache>,
+    /// Dernier tour de chaque fil et sa demande : les cellules se rangent
+    /// sous la question qui les a fait naître.
+    turns: Mutex<HashMap<String, (String, String)>>,
+    /// Fils dont un rejeu tourne, avec son drapeau d'arrêt.
+    replays: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
 }
 
 impl KernelManager {
@@ -145,7 +196,50 @@ impl KernelManager {
             home: home.to_path_buf(),
             journal: CellJournal::new(data_dir.join("kernel").join("cells")),
             listener: Mutex::new(None),
+            prints: Arc::default(),
+            turns: Mutex::new(HashMap::new()),
+            replays: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Note la demande du tour qui commence dans ce fil.
+    pub fn note_turn(&self, thread_id: &str, turn_id: &str, prompt: &str) {
+        let excerpt: String = prompt.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(TURN_PROMPT_MAX).collect();
+        self.turns
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(thread_id.to_string(), (turn_id.to_string(), excerpt));
+    }
+
+    fn turn_prompt(&self, thread_id: &str, turn_id: Option<&str>) -> Option<String> {
+        let turns = self.turns.lock().unwrap_or_else(|e| e.into_inner());
+        turns
+            .get(thread_id)
+            .filter(|(id, _)| Some(id.as_str()) == turn_id)
+            .map(|(_, prompt)| prompt.clone())
+            .filter(|p| !p.is_empty())
+    }
+
+    fn envs_dir(&self) -> PathBuf {
+        self.driver_dir.join("envs")
+    }
+
+    /// Instantané d'env enregistré sous son empreinte.
+    pub fn env_snapshot(&self, sha256: &str) -> Option<EnvSnapshot> {
+        if !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        let text = std::fs::read_to_string(self.envs_dir().join(format!("{sha256}.json"))).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    pub fn print_cache(&self) -> &PrintCache {
+        &self.prints
+    }
+
+    /// Dossier du noyau : pilote, journal des cellules, instantanés d'env.
+    pub fn kernel_dir(&self) -> &Path {
+        &self.driver_dir
     }
 
     pub fn journal(&self) -> &CellJournal {
@@ -219,8 +313,12 @@ impl KernelManager {
         let kernel = Kernel::start(&env, cwd, &self.driver_dir)
             .await
             .map_err(KernelError::Start)?;
+        let snapshot = self.snapshot_env(&kernel.info).await;
         let slot = Arc::new(Slot {
             kernel,
+            env: Arc::new(snapshot),
+            origins: Mutex::new(HashMap::new()),
+            imports: Mutex::new(Vec::new()),
             last_used: Mutex::new(Instant::now()),
             pending: Mutex::new(None),
         });
@@ -229,6 +327,30 @@ impl KernelManager {
             .unwrap_or_else(|e| e.into_inner())
             .insert(thread_id.to_string(), slot.clone());
         Ok(slot)
+    }
+
+    /// Versions des paquets de l'env au démarrage, gardées une fois par
+    /// empreinte dans `kernel/envs/`.
+    async fn snapshot_env(&self, info: &KernelInfo) -> EnvSnapshot {
+        let (name, prefix, python) = (
+            info.env.name.clone(),
+            info.env.prefix.clone(),
+            info.python_version.clone(),
+        );
+        let dir = self.envs_dir();
+        tokio::task::spawn_blocking(move || {
+            let snap = EnvSnapshot::read(&name, &prefix, &python);
+            let path = dir.join(format!("{}.json", snap.sha256));
+            if !path.is_file() {
+                let _ = std::fs::create_dir_all(&dir);
+                if let Ok(text) = serde_json::to_vec_pretty(&snap) {
+                    let _ = std::fs::write(path, text);
+                }
+            }
+            snap
+        })
+        .await
+        .unwrap_or_else(|_| EnvSnapshot::read("", Path::new(""), ""))
     }
 
     /// Noyau vivant du fil, démarré au besoin. Rend aussi la phrase à dire à
@@ -308,8 +430,14 @@ impl KernelManager {
                 "status": "running",
                 "code": clip(req.code, 16 * 1024),
                 "env": slot.kernel.info.env.name,
+                "purpose": req.purpose,
+                "author": req.author,
+                "fromCell": req.from_cell,
+                "turnPrompt": self.turn_prompt(req.thread_id, req.turn_id),
+                "session": slot.kernel.info.started_at,
             }),
         });
+        self.spawn_progress(req.thread_id, &cell);
         let (tx, rx) = watch::channel(None);
         *slot.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some((id, rx.clone()));
         let finisher = Finisher {
@@ -323,6 +451,14 @@ impl KernelManager {
             cell: cell.clone(),
             thread_id: req.thread_id.to_string(),
             turn_id: req.turn_id.map(str::to_string),
+            purpose: req
+                .purpose
+                .map(|p| p.trim().chars().take(200).collect::<String>())
+                .filter(|p| !p.is_empty()),
+            author: req.author.map(str::to_string),
+            from_cell: req.from_cell,
+            turn_prompt: self.turn_prompt(req.thread_id, req.turn_id),
+            prints: self.prints.clone(),
             started_wall,
         };
         tokio::spawn(async move {
@@ -331,6 +467,71 @@ impl KernelManager {
         });
         let outcome = wait_record(rx, &cell, req.wait).await;
         Ok(RunOutcome { note, ..outcome })
+    }
+
+    /// Sorties d'une cellule longue envoyées au panneau au fil de l'eau.
+    fn spawn_progress(&self, thread_id: &str, cell: &Arc<Cell>) {
+        let Some(listener) = self
+            .listener
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        else {
+            return;
+        };
+        let (thread_id, cell) = (thread_id.to_string(), cell.clone());
+        tokio::spawn(async move {
+            let mut sent = (0usize, 0usize);
+            while !cell.wait(PROGRESS_EVERY).await {
+                let p = cell.snapshot();
+                if (p.stdout.len(), p.stderr.len()) == sent {
+                    continue;
+                }
+                sent = (p.stdout.len(), p.stderr.len());
+                listener(CellEvent {
+                    thread_id: thread_id.clone(),
+                    phase: "progress",
+                    cell: json!({
+                        "id": cell.id,
+                        "stdout": clip(&p.stdout, 8 * 1024),
+                        "stderr": clip(&p.stderr, 4 * 1024),
+                    }),
+                });
+            }
+        });
+    }
+
+    /// Cellules du fil pour le panneau, avec l'état actuel des fichiers
+    /// qu'elles ont lus (« Données modifiées depuis »).
+    pub fn panel_cells(&self, thread_id: &str, limit: usize) -> Vec<Value> {
+        self.journal
+            .list(thread_id, limit)
+            .iter()
+            .map(|r| {
+                let mut v = panel_view(r);
+                let stale: Vec<Value> = r
+                    .prints
+                    .iter()
+                    .filter(|p| r.files_read.contains(&p.path))
+                    .map(|p| self.prints.staleness(p))
+                    .filter(|s| s.state != "same")
+                    .map(|s| json!(s))
+                    .collect();
+                if !stale.is_empty() {
+                    v["stale"] = json!(stale);
+                }
+                // Cellule modifiée à la main : les lignes changées par
+                // rapport à l'originale.
+                let diff = r.from_cell.and_then(|from| {
+                    let original = self.journal.get(thread_id, from)?;
+                    crate::diff::line_diff(&original.code, &r.code)
+                });
+                if let Some(diff) = diff {
+                    v["fromDiff"] = json!(diff);
+                }
+                v
+            })
+            .collect()
     }
 
     /// Attend une cellule encore en cours, ou relit une cellule finie.
@@ -370,12 +571,22 @@ impl KernelManager {
             .filter(|s| s.kernel.is_alive())
             .ok_or(KernelError::NoKernel)?;
         slot.touch();
-        slot.kernel.variables(VARS_TIMEOUT).await.map_err(|e| {
+        let mut vars = slot.kernel.variables(VARS_TIMEOUT).await.map_err(|e| {
             match e.strip_prefix("busy:").and_then(|n| n.parse().ok()) {
                 Some(busy) => KernelError::Busy(busy),
                 None => KernelError::Other(e),
             }
-        })
+        })?;
+        let origins = slot.origins.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(list) = vars.as_array_mut() {
+            for v in list {
+                let origin = v["name"].as_str().and_then(|n| origins.get(n));
+                if let (Some(origin), Some(o)) = (origin, v.as_object_mut()) {
+                    o.insert("origin".into(), json!(origin));
+                }
+            }
+        }
+        Ok(vars)
     }
 
     /// Ctrl-C : rend la cellule interrompue, si elle s'arrête dans le délai.
@@ -425,6 +636,226 @@ impl KernelManager {
         }
     }
 
+    /// Script `.py` ou cahier `.ipynb` des cellules réussies de la dernière
+    /// session du fil, avec l'en-tête de preuves.
+    pub fn export(&self, thread_id: &str, title: &str, ipynb: bool) -> Result<String, KernelError> {
+        let all = self.journal.list(thread_id, usize::MAX);
+        let session = all
+            .iter()
+            .rev()
+            .find_map(|c| c.session.clone())
+            .ok_or_else(|| KernelError::Other("aucune cellule à exporter dans ce fil".into()))?;
+        let session_cells: Vec<CellRecord> = all
+            .into_iter()
+            .filter(|c| c.session.as_deref() == Some(session.as_str()))
+            .collect();
+        let skipped = session_cells.iter().filter(|c| c.status != "ok").count();
+        let cells: Vec<CellRecord> = session_cells.into_iter().filter(|c| c.status == "ok").collect();
+        let env = cells
+            .last()
+            .and_then(|c| c.env_sha256.as_deref())
+            .and_then(|sha| self.env_snapshot(sha));
+        let chain = self.journal.verify_chain(thread_id);
+        let at = chrono::Utc::now().format("%Y-%m-%d %H:%M UTC").to_string();
+        let input = crate::export::ExportInput {
+            thread_title: title,
+            cells: &cells,
+            skipped,
+            env: env.as_ref(),
+            chain: &chain,
+            exported_at: &at,
+        };
+        Ok(if ipynb {
+            crate::export::to_ipynb(&input)
+        } else {
+            crate::export::to_py(&input)
+        })
+    }
+
+    /// Un rejeu tourne-t-il dans ce fil ?
+    pub fn replaying(&self, thread_id: &str) -> bool {
+        self.replays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(thread_id)
+    }
+
+    /// Arrête le rejeu en cours après la cellule qui tourne.
+    pub fn cancel_replay(&self, thread_id: &str) -> bool {
+        match self.replays.lock().unwrap_or_else(|e| e.into_inner()).get(thread_id) {
+            Some(flag) => {
+                flag.store(true, Ordering::SeqCst);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Rejoue à neuf les cellules réussies de la dernière session du fil,
+    /// dans un noyau vierge du même env, et compare. Chaque cellule reçoit
+    /// sa marque de rejeu dans le journal. `progress(fait, total, cellule)`
+    /// suit l'avancement. Si aucun noyau ne tourne à la fin, le noyau
+    /// rejoué devient celui du fil : l'état est reconstruit.
+    pub async fn replay(
+        &self,
+        thread_id: &str,
+        cwd: &Path,
+        progress: impl Fn(usize, usize, Option<&CellRecord>) + Send + Sync,
+    ) -> Result<ReplaySummary, KernelError> {
+        let cancel = {
+            let mut replays = self.replays.lock().unwrap_or_else(|e| e.into_inner());
+            if replays.contains_key(thread_id) {
+                return Err(KernelError::Other("un rejeu tourne déjà dans ce fil".into()));
+            }
+            let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            replays.insert(thread_id.to_string(), flag.clone());
+            flag
+        };
+        let result = self.replay_inner(thread_id, cwd, &cancel, &progress).await;
+        self.replays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(thread_id);
+        result
+    }
+
+    async fn replay_inner(
+        &self,
+        thread_id: &str,
+        cwd: &Path,
+        cancel: &std::sync::atomic::AtomicBool,
+        progress: &(impl Fn(usize, usize, Option<&CellRecord>) + Send + Sync),
+    ) -> Result<ReplaySummary, KernelError> {
+        let all = self.journal.list(thread_id, usize::MAX);
+        let session = all
+            .iter()
+            .rev()
+            .find_map(|c| c.session.clone())
+            .ok_or_else(|| KernelError::Other("aucune cellule à rejouer dans ce fil".into()))?;
+        let cells: Vec<CellRecord> = all
+            .into_iter()
+            .filter(|c| c.session.as_deref() == Some(session.as_str()))
+            .collect();
+        let first = &cells[0];
+        let envs = self.envs(Some(cwd));
+        let env = resolve_env(&envs, Some(&first.env))
+            .or_else(|_| resolve_env(&envs, Some(&first.python)))
+            .map_err(KernelError::Start)?;
+        let key = crate::journal::thread_key(thread_id);
+        let ok: Vec<CellRecord> = cells.iter().filter(|c| c.status == "ok").cloned().collect();
+        let backup_dir = self.driver_dir.join("replay").join(&key);
+        let backup = {
+            let (dir, ok) = (backup_dir.clone(), ok.clone());
+            tokio::task::spawn_blocking(move || Backup::take(&dir, &ok))
+                .await
+                .map_err(|e| KernelError::Other(e.to_string()))?
+                .map_err(KernelError::Other)?
+        };
+        self.write_driver().map_err(KernelError::Start)?;
+        let kernel = match Kernel::start(&env, cwd, &self.driver_dir).await {
+            Ok(k) => k,
+            Err(e) => {
+                backup.restore();
+                return Err(KernelError::Start(e));
+            }
+        };
+        let figures = self.driver_dir.join("replay-figures").join(&key);
+        let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let mut summary = ReplaySummary { total: cells.len(), ..Default::default() };
+        let mut origins: HashMap<String, Origin> = HashMap::new();
+        let session = session.clone();
+        let mut imports = Vec::new();
+        let mut broken = false;
+        for (done, original) in cells.iter().enumerate() {
+            progress(done, cells.len(), Some(original));
+            let (status, detail, progress_seen) = if original.status != "ok" {
+                ("skipped", Some("en erreur à l'origine : pas rejouée".to_string()), None)
+            } else if broken || cancel.load(Ordering::SeqCst) || !kernel.is_alive() {
+                ("skipped", Some(if cancel.load(Ordering::SeqCst) { "rejeu arrêté" } else { "le noyau rejoué s'est arrêté" }.to_string()), None)
+            } else {
+                match kernel.submit(original.id, &original.code, Some(&figures)).await {
+                    Err(e) => {
+                        broken = true;
+                        ("error", Some(e), None)
+                    }
+                    Ok(cell) => {
+                        while !cell.wait(Duration::from_millis(500)).await {
+                            if cancel.load(Ordering::SeqCst) {
+                                kernel.interrupt();
+                            }
+                        }
+                        let p = cell.snapshot();
+                        let (status, detail) = crate::replay::compare(original, &p);
+                        (status, detail, Some(p))
+                    }
+                }
+            };
+            if let Some(p) = &progress_seen {
+                imports = p.imports.clone();
+                if let Some(lineage) = &p.lineage {
+                    for name in lineage["created"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                        origins.insert(name.to_string(), Origin { created: Some(original.id), modified: None });
+                    }
+                    for name in lineage["modified"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                        origins.entry(name.to_string()).or_default().modified = Some(original.id);
+                    }
+                    for name in lineage["deleted"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                        origins.remove(name);
+                    }
+                }
+            }
+            match status {
+                "same" => summary.same += 1,
+                "files" => summary.files += 1,
+                "differs" => summary.differs += 1,
+                "error" => summary.error += 1,
+                _ => summary.skipped += 1,
+            }
+            let mut marked = original.clone();
+            marked.replay = Some(ReplayMark { at: at.clone(), status: status.to_string(), detail });
+            let journal = self.journal.clone();
+            let stored = marked.clone();
+            let _ = tokio::task::spawn_blocking(move || journal.rewrite(&stored)).await;
+            self.emit(CellEvent {
+                thread_id: thread_id.to_string(),
+                phase: "finished",
+                cell: panel_view(&marked),
+            });
+        }
+        summary.cancelled = cancel.load(Ordering::SeqCst);
+        progress(cells.len(), cells.len(), None);
+        let _ = tokio::task::spawn_blocking(move || backup.restore()).await;
+        let _ = std::fs::remove_dir_all(&figures);
+        // Aucun noyau vivant : le rejeu devient le noyau du fil, son état
+        // reconstruit cellule par cellule.
+        let lock = self.thread_lock(thread_id);
+        let _guard = lock.lock().await;
+        let live = self.slot(thread_id).is_some_and(|s| s.kernel.is_alive());
+        if !live && kernel.is_alive() && !summary.cancelled && summary.error == 0 {
+            let mut kernel = kernel;
+            // Même session que les cellules rejouées : un prochain rejeu
+            // repart de toutes, pas seulement des cellules d'après.
+            kernel.info.started_at = session;
+            let snapshot = self.snapshot_env(&kernel.info).await;
+            let slot = Arc::new(Slot {
+                kernel,
+                env: Arc::new(snapshot),
+                origins: Mutex::new(origins),
+                imports: Mutex::new(imports),
+                last_used: Mutex::new(Instant::now()),
+                pending: Mutex::new(None),
+            });
+            self.slots
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(thread_id.to_string(), slot);
+            summary.adopted = true;
+        } else {
+            kernel.shutdown().await;
+        }
+        Ok(summary)
+    }
+
     pub async fn shutdown_all(&self) {
         let slots: Vec<Arc<Slot>> = self
             .slots
@@ -459,17 +890,32 @@ impl KernelManager {
 
     pub fn status(&self, thread_id: &str) -> KernelStatus {
         match self.slot(thread_id).filter(|s| s.kernel.is_alive()) {
-            Some(slot) => KernelStatus {
-                running: true,
-                kernel: Some(slot.kernel.info.clone()),
-                busy_cell: slot.kernel.running().map(|c| c.id),
-                idle_seconds: Some(slot.idle().as_secs()),
-            },
+            Some(slot) => {
+                let imports = slot.imports.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                KernelStatus {
+                    running: true,
+                    kernel: Some(slot.kernel.info.clone()),
+                    busy_cell: slot.kernel.running().map(|c| c.id),
+                    idle_seconds: Some(slot.idle().as_secs()),
+                    packages: slot
+                        .env
+                        .versions(&imports)
+                        .into_iter()
+                        .take(STATUS_PACKAGES_MAX)
+                        .map(|(name, version)| json!({"name": name, "version": version}))
+                        .collect(),
+                    packages_total: Some(slot.env.packages.len()),
+                    env_sha256: Some(slot.env.sha256.clone()),
+                }
+            }
             None => KernelStatus {
                 running: false,
                 kernel: None,
                 busy_cell: None,
                 idle_seconds: None,
+                packages: Vec::new(),
+                packages_total: None,
+                env_sha256: None,
             },
         }
     }
@@ -489,6 +935,11 @@ struct Finisher {
     cell: Arc<Cell>,
     thread_id: String,
     turn_id: Option<String>,
+    purpose: Option<String>,
+    author: Option<String>,
+    from_cell: Option<u64>,
+    turn_prompt: Option<String>,
+    prints: Arc<PrintCache>,
     started_wall: SystemTime,
 }
 
@@ -517,6 +968,19 @@ impl Finisher {
             .filter(|r| !written.contains(r))
             .cloned()
             .collect();
+        let cache = self.prints.clone();
+        let to_print: Vec<String> = read.iter().chain(written.iter()).cloned().collect();
+        let prints = tokio::task::spawn_blocking(move || {
+            let mut budget = HASH_CELL_BUDGET_BYTES;
+            to_print
+                .iter()
+                .filter_map(|f| cache.print(Path::new(f), &mut budget))
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        let lineage = p.lineage.as_ref().map(|l| self.lineage(l));
+        *self.slot.imports.lock().unwrap_or_else(|e| e.into_inner()) = p.imports.clone();
         let record = CellRecord {
             id: self.cell.id,
             thread_id: self.thread_id.clone(),
@@ -538,6 +1002,17 @@ impl Finisher {
             python: info.executable.clone(),
             python_version: info.python_version.clone(),
             cwd: info.cwd.display().to_string(),
+            purpose: self.purpose.clone(),
+            author: self.author.clone(),
+            from_cell: self.from_cell,
+            turn_prompt: self.turn_prompt.clone(),
+            session: Some(info.started_at.clone()),
+            prints,
+            imports: p.imports,
+            env_sha256: Some(self.slot.env.sha256.clone()).filter(|s| !s.is_empty()),
+            lineage,
+            replay: None,
+            prev_sha256: None,
         };
         let journal = self.journal.clone();
         let stored = record.clone();
@@ -551,6 +1026,44 @@ impl Finisher {
             });
         }
         record
+    }
+}
+
+impl Finisher {
+    /// Lignée de la cellule d'après le pilote, avec la cellule d'origine de
+    /// chaque variable lue ; met à jour les origines du noyau.
+    fn lineage(&self, raw: &Value) -> Lineage {
+        let names = |key: &str| -> Vec<String> {
+            raw[key]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                .unwrap_or_default()
+        };
+        let mut origins = self.slot.origins.lock().unwrap_or_else(|e| e.into_inner());
+        let uses = names("used")
+            .into_iter()
+            .map(|name| {
+                let cell = origins.get(&name).and_then(Origin::last);
+                VarUse { name, cell }
+            })
+            .collect();
+        let lineage = Lineage {
+            created: names("created"),
+            modified: names("modified"),
+            deleted: names("deleted"),
+            uses,
+        };
+        let id = self.cell.id;
+        for name in &lineage.created {
+            origins.insert(name.clone(), Origin { created: Some(id), modified: None });
+        }
+        for name in &lineage.modified {
+            origins.entry(name.clone()).or_default().modified = Some(id);
+        }
+        for name in &lineage.deleted {
+            origins.remove(name);
+        }
+        lineage
     }
 }
 
@@ -598,6 +1111,12 @@ fn finished(r: &CellRecord) -> RunOutcome {
     }
     if r.truncated > 0 {
         o.insert("truncatedBytes".into(), json!(r.truncated));
+    }
+    if r.status == "ok" {
+        o.insert(
+            "citeAs".into(),
+            json!(format!("[cellule {}](atelier-cell:{})", r.id, r.id)),
+        );
     }
     RunOutcome {
         cell,

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage } from "../lib/i18n";
-import { figureCell, mergeCell, selectionContext, type KernelCell } from "../lib/kernel";
+import { figureCell, mergeCell, mergeProgress, selectionContext, type KernelCell } from "../lib/kernel";
 
 const sent: any[] = [];
 vi.mock("../lib/wsBus", () => ({
@@ -122,12 +122,119 @@ describe("KernelSurface", () => {
   });
 });
 
+describe("KernelSurface : preuves et suivi", () => {
+  beforeEach(() => { resetTestState(); setLanguage("fr"); sent.length = 0; });
+  afterEach(() => cleanup());
+
+  const turn = (id: number, turnId: string, over: Partial<KernelCell> = {}) =>
+    cell({ id, turnId, turnPrompt: turnId === "t1" ? "Charge le panel" : "Compare 2012 et 2022", purpose: `But ${id}`, ...over });
+
+  it("range les cellules par tour et replie les anciens tours, sauf erreur ou données modifiées", () => {
+    const req = open();
+    emit("kernel-cells", { requestId: req.requestId, threadId: "fil", status: RUNNING, cells: [
+      turn(1, "t1"),
+      turn(2, "t1", {
+        prints: [{ path: "/p/albedo.csv", size: 10, mtimeMs: 0, sha256: "4e1a09c2aaaabbbb" }],
+        stale: [{ path: "/p/albedo.csv", state: "modified", mtimeMs: Date.parse("2026-10-18T10:40:00Z") }],
+      }),
+      turn(3, "t2", { lineage: { created: ["cols"], modified: ["d"], uses: [{ name: "d", cell: 1 }] } }),
+    ] });
+    expect(screen.getByText("« Charge le panel »")).toBeTruthy();
+    const cells = screen.getAllByTestId("kernel-cell");
+    expect(cells.map((c) => c.getAttribute("data-folded"))).toEqual(["true", null, null]);
+    expect(screen.getByText("Données modifiées depuis")).toBeTruthy();
+    expect(screen.getByText(/modifié à/u)).toBeTruthy();
+    expect(screen.getByText("sha 4e1a09c2")).toBeTruthy();
+    // Lignée de la dernière cellule.
+    const lineage = cells[2].querySelector(".kernel-lineage")!;
+    expect(lineage.textContent).toBe("utilised [1]créecolsmodified");
+    // Tout déplier le premier tour.
+    fireEvent.click(screen.getByText("Tout déplier"));
+    expect(screen.getAllByTestId("kernel-cell").map((c) => c.getAttribute("data-folded"))).toEqual([null, null, null]);
+    // Replier une cellule d'un clic sur son titre.
+    fireEvent.click(screen.getByText("But 3"));
+    expect(screen.getAllByTestId("kernel-cell")[2].getAttribute("data-folded")).toBe("true");
+  });
+
+  it("modifier une cellule la relance comme nouvelle cellule liée à l'originale", () => {
+    const req = open();
+    emit("kernel-cells", { requestId: req.requestId, threadId: "fil", status: RUNNING, cells: [cell({ id: 31, code: "scatter(s=9)", purpose: "Tracer la figure" })] });
+    fireEvent.click(screen.getByText("Modifier"));
+    const area = screen.getByLabelText("Code de la cellule 31") as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: "scatter(s=14)" } });
+    expect(screen.getByText("Relancer comme cellule 32")).toBeTruthy();
+    fireEvent.keyDown(area, { key: "Enter", shiftKey: true });
+    expect(sent[sent.length - 1]).toMatchObject({ type: "kernelCommand", op: "rerun", code: "scatter(s=14)", fromCell: 31 });
+    // La nouvelle cellule arrive, signée, avec ses lignes changées.
+    emit("kernel-cell", { threadId: "fil", phase: "finished", cell: cell({
+      id: 32, code: "scatter(s=14)", author: "user", fromCell: 31, purpose: "Tracer la figure",
+      fromDiff: { removed: ["scatter(s=9)"], added: ["scatter(s=14)"], changed: 2 },
+    }) });
+    expect(screen.getByText("modifiée par toi, d'après [31]")).toBeTruthy();
+    expect(screen.getByText("+ scatter(s=14)")).toBeTruthy();
+    expect(screen.getByText("Modifiées par toi")).toBeTruthy();
+  });
+
+  it("Échap annule la modification", () => {
+    const req = open();
+    emit("kernel-cells", { requestId: req.requestId, threadId: "fil", status: RUNNING, cells: [cell()] });
+    fireEvent.click(screen.getByText("Modifier"));
+    fireEvent.keyDown(screen.getByLabelText("Code de la cellule 1"), { key: "Escape" });
+    expect(screen.queryByLabelText("Code de la cellule 1")).toBeNull();
+    expect(sent.some((m) => m.op === "rerun")).toBe(false);
+  });
+
+  it("rejoue à neuf, suit l'avancement et résume", () => {
+    const req = open();
+    emit("kernel-cells", { requestId: req.requestId, threadId: "fil", status: RUNNING, chain: { checked: 2 }, cells: [cell(), cell({ id: 2 })] });
+    fireEvent.click(screen.getByText("Rejouer à neuf"));
+    expect(sent[sent.length - 1]).toMatchObject({ type: "kernelCommand", op: "replay" });
+    emit("kernel-replay", { threadId: "fil", state: "running", done: 1, total: 2, cell: 2 });
+    expect(screen.getByText("Rejeu 1/2")).toBeTruthy();
+    fireEvent.click(screen.getByText("Arrêter le rejeu"));
+    expect(sent[sent.length - 1]).toMatchObject({ op: "cancelReplay" });
+    emit("kernel-cell", { threadId: "fil", phase: "finished", cell: cell({ id: 2, replay: { at: "2026-10-18T10:05:00Z", status: "differs", detail: "ligne 1" } }) });
+    emit("kernel-replay", { threadId: "fil", state: "done", summary: { total: 2, same: 1, files: 0, differs: 1, error: 0, skipped: 0, adopted: false, cancelled: false } });
+    expect(screen.getByText("Rejeu à neuf : 1 sur 2 reproduites · 1 différente(s)")).toBeTruthy();
+    expect(screen.getByText("Sortie différente")).toBeTruthy();
+  });
+
+  it("signale un journal retouché et montre les versions des paquets", () => {
+    const req = open();
+    emit("kernel-cells", { requestId: req.requestId, threadId: "fil", chain: { checked: 3, brokenAt: 2 }, cells: [cell()],
+      status: { ...RUNNING, packages: [{ name: "numpy", version: "2.1.3" }], packagesTotal: 40 } });
+    expect(screen.getByText(/modifié hors d'Atelier à partir de la cellule 2/u)).toBeTruthy();
+    expect(screen.getByText("· numpy 2.1.3")).toBeTruthy();
+    expect(screen.getByText("+39 paquets")).toBeTruthy();
+  });
+
+  it("exporte en .py et ouvre le fichier", async () => {
+    const req = open();
+    emit("kernel-cells", { requestId: req.requestId, threadId: "fil", status: RUNNING, cells: [cell()] });
+    fireEvent.click(screen.getByText("Exporter"));
+    await act(async () => {});
+    fireEvent.click(await screen.findByText("Script Python (.py)"));
+    const ask = sent.find((m) => m.op === "export");
+    expect(ask).toMatchObject({ format: "py" });
+    const opened = vi.fn();
+    window.addEventListener("chat-open-file", (e) => opened((e as CustomEvent).detail));
+    emit("kernel-command", { requestId: ask.requestId, result: { rel: "exports/noyau/fil-20261020-0200.py" } });
+    await act(async () => {});
+    expect(opened).toHaveBeenCalledWith({ rel: "exports/noyau/fil-20261020-0200.py", line: null });
+  });
+});
+
 describe("noyau : utilitaires", () => {
   beforeEach(() => setLanguage("fr"));
 
   it("mergeCell remplace une cellule par sa version finie et garde l'ordre", () => {
     const merged = mergeCell([cell({ id: 2 }), cell({ id: 1, status: "running" })], cell({ id: 1, status: "ok" }));
     expect(merged.map((c) => [c.id, c.status])).toEqual([[1, "ok"], [2, "ok"]]);
+  });
+
+  it("mergeProgress ajoute la sortie en direct sans toucher au reste", () => {
+    const merged = mergeProgress([cell({ id: 1, status: "running", purpose: "But" })], { id: 1, stdout: "époque 3\n", stderr: "" });
+    expect(merged[0]).toMatchObject({ stdout: "époque 3\n", purpose: "But", status: "running" });
   });
 
   it("figureCell retrouve la cellule d'une figure captée, rien ailleurs", () => {
