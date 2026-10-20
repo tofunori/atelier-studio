@@ -106,6 +106,9 @@ pub struct TurnProvenance {
     prompt: String,
     started_at: String,
     recipes: bool,
+    /// Dossier du noyau Python d'Atelier : un fichier écrit par une cellule
+    /// reçoit la recette de sa cellule.
+    kernel_dir: Option<PathBuf>,
     log: Arc<Mutex<TurnLog>>,
 }
 
@@ -147,6 +150,7 @@ impl TurnProvenance {
             prompt,
             started_at: now_iso(),
             recipes: true,
+            kernel_dir: None,
             log: Arc::new(Mutex::new(TurnLog::default())),
         }
     }
@@ -164,6 +168,13 @@ impl TurnProvenance {
     /// vit hors du projet).
     pub fn with_recipes(mut self, enabled: bool) -> Self {
         self.recipes = enabled;
+        self
+    }
+
+    /// Dossier du noyau (`<app>/kernel`), où vivent le journal des cellules
+    /// et les instantanés d'env.
+    pub fn with_kernel_dir(mut self, dir: PathBuf) -> Self {
+        self.kernel_dir = Some(dir);
         self
     }
 
@@ -328,15 +339,30 @@ impl TurnProvenance {
         let mut fingerprints = crate::recipe::Fingerprints::default();
         let mut written = Vec::new();
         for rel in targets {
-            let recipe = crate::recipe::build(root, rel, &commands, &changed_scripts, &mut fingerprints);
             let mut entry = base.clone();
             let obj = entry.as_object_mut().expect("entrée objet");
             obj.insert("kind".into(), json!(recipe_kind(rel)));
-            obj.insert("scripts".into(), json!(recipe.scripts));
-            obj.insert("scriptVersions".into(), json!(recipe.script_versions));
-            obj.insert("command".into(), json!(recipe.command));
-            obj.insert("inputs".into(), json!(recipe.inputs));
-            obj.insert("env".into(), merge_env(env_snapshot(), recipe.env));
+            // Écrit par une cellule du noyau : la cellule EST la recette ;
+            // les commandes shell du tour n'y sont pour rien.
+            let cell = self.kernel_dir.as_deref().and_then(|dir| {
+                atelier_kernel::recipe::writer_of(dir, &self.thread_id, &root.join(rel))
+                    .map(|cell| atelier_kernel::recipe::cell_recipe(dir, &cell, |p| crate::recipe::display_path(root, p)))
+            });
+            if let Some(cell) = cell {
+                obj.insert("scripts".into(), json!([]));
+                obj.insert("scriptVersions".into(), json!([]));
+                obj.insert("command".into(), Value::Null);
+                for key in ["cell", "code", "inputs", "env"] {
+                    obj.insert(key.into(), cell[key].clone());
+                }
+            } else {
+                let recipe = crate::recipe::build(root, rel, &commands, &changed_scripts, &mut fingerprints);
+                obj.insert("scripts".into(), json!(recipe.scripts));
+                obj.insert("scriptVersions".into(), json!(recipe.script_versions));
+                obj.insert("command".into(), json!(recipe.command));
+                obj.insert("inputs".into(), json!(recipe.inputs));
+                obj.insert("env".into(), merge_env(env_snapshot(), recipe.env));
+            }
             let sidecar = sidecar_path(root, rel);
             let _guard = SIDECAR_LOCK.lock().unwrap_or_else(|p| p.into_inner());
             match append_history(&sidecar, rel, &entry) {
@@ -952,6 +978,31 @@ mod tests {
             head_sha(root).as_deref(),
             Some("89abcdef0123456789abcdef0123456789abcdef")
         );
+    }
+
+    #[test]
+    fn un_fichier_ecrit_par_une_cellule_recoit_la_recette_de_sa_cellule() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("projet");
+        touch(&root, "figures/fig.png");
+        let kernel = dir.path().join("kernel");
+        let cell = atelier_kernel::CellRecord {
+            id: 4,
+            thread_id: "th".into(),
+            code: "plt.savefig('figures/fig.png')".into(),
+            files_written: vec![root.join("figures/fig.png").display().to_string()],
+            purpose: Some("Tracer la figure".into()),
+            ..Default::default()
+        };
+        atelier_kernel::CellJournal::new(kernel.join("cells")).append(&cell).unwrap();
+        TurnProvenance::new("th".into(), None, "claude".into(), None, "trace".into())
+            .with_kernel_dir(kernel)
+            .write_recipes(root.to_str().unwrap(), None, &["figures/fig.png".into()]);
+        let entry = &read_prov(&root, "figures/fig.png")["history"][0];
+        assert_eq!(entry["cell"]["id"], 4);
+        assert_eq!(entry["cell"]["purpose"], "Tracer la figure");
+        assert_eq!(entry["code"], "plt.savefig('figures/fig.png')");
+        assert!(entry["command"].is_null());
     }
 
     #[test]

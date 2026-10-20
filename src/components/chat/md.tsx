@@ -2,7 +2,7 @@
 // fichier:ligne, coloration hljs, blocs code (streaming ou non), Mermaid,
 // KaTeX, découpage en blocs mémoïsés + réparation du bloc de queue pendant
 // le streaming (MdBody/MdBlock).
-import { memo, useContext, useEffect, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useContext, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { localImagePreviewUrl } from "../../lib/localImage";
 import { FigureGalleryBar } from "../FigureGalleryBar";
@@ -603,6 +603,13 @@ export function MarkdownImage({ src, alt, title }: { src?: string; alt?: string;
   return <span className="md-figure">{img}<FigureGalleryBar path={src} threadId={threadId} /></span>;
 }
 
+// Pastille « cellule N » : vérification et popover chargés à la première citation.
+const CellCite = lazy(() => import("./CellCite"));
+// `[cellule N](atelier-cell:N)` de l'agent : le markdown écarte les schémas
+// inconnus, le lien devient donc interne (#atelier-cell:N).
+const CELL_HREF = "#atelier-cell:";
+const linkKernelCells = (text: string) => (text.includes("](atelier-cell:") ? text.split("](atelier-cell:").join("](#atelier-cell:") : text);
+
 // composants markdown : liens externes stylés + réfs fichier:ligne cliquables
 export const MD_COMPONENTS = {
   img: MarkdownImage,
@@ -636,6 +643,12 @@ export const MD_COMPONENTS = {
         </RowButton>
       );
     }
+    // Chiffre cité depuis une cellule du noyau Python : vérifié dans sa sortie.
+    if (href.startsWith(CELL_HREF)) return (
+      <Suspense fallback={label}>
+        <CellCite cell={Number(href.slice(CELL_HREF.length))} label={label} />
+      </Suspense>
+    );
     const passage = parseZoteroPassageRef(href);
     if (passage)
       return (
@@ -855,7 +868,7 @@ function MarkdownBlocks({ text, streaming, components, remarkPlugins, rehypePlug
 }
 
 export function MdBody(props: MdBodyProps) {
-  const segments = useMemo(() => splitInsightBlocks(dropEchoedPassageQuotes(props.text, props.streaming), props.streaming),
+  const segments = useMemo(() => splitInsightBlocks(linkKernelCells(dropEchoedPassageQuotes(props.text, props.streaming)), props.streaming),
     [props.text, props.streaming]);
   return <>{segments.map((segment, index) => {
     const streaming = props.streaming && index === segments.length - 1

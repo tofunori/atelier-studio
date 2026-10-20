@@ -5,13 +5,17 @@
 //! du fil, et la recette d'un fichier qu'une cellule a écrit (la cellule qui
 //! l'a produit, avec son code exact et son env).
 
+use crate::prints::FilePrint;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-/// Au-delà, le fichier est réécrit avec ses dernières cellules seulement.
+/// Au-delà, le fichier est archivé (renommé, jamais effacé) et le journal
+/// repart de ses dernières cellules.
 const FILE_MAX: u64 = 32 * 1024 * 1024;
 const KEEP_AFTER_ROTATION: usize = 2000;
 /// Ce qu'on garde des sorties dans le journal (la réponse à l'agent peut en
@@ -19,7 +23,45 @@ const KEEP_AFTER_ROTATION: usize = 2000;
 pub const STORED_STREAM_MAX: usize = 64 * 1024;
 const STORED_CODE_MAX: usize = 256 * 1024;
 
+/// Variables touchées par une cellule, vues par le pilote (espace de noms
+/// avant et après, plus l'arbre du code).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Lineage {
+    /// Noms (ré)assignés : un nouvel objet derrière le nom.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub created: Vec<String>,
+    /// Même objet, modifié en place (`d["x"] = …`, `l.append`, forme changée).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deleted: Vec<String>,
+    /// Variables existantes lues par la cellule, avec la cellule qui les a
+    /// créées ou modifiées en dernier.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub uses: Vec<VarUse>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VarUse {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell: Option<u64>,
+}
+
+/// Résultat du dernier « Rejouer à neuf » qui a repassé la cellule.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayMark {
+    pub at: String,
+    /// `same`, `differs`, `error` ou `skipped`.
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CellRecord {
     /// Numéro de la cellule dans le fil, croissant, jamais réutilisé.
@@ -57,6 +99,53 @@ pub struct CellRecord {
     pub python: String,
     pub python_version: String,
     pub cwd: String,
+    /// Phrase de but écrite par l'agent (reprise de l'originale pour une
+    /// cellule modifiée à la main).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    /// `user` pour une cellule relancée à la main depuis le panneau ; absent
+    /// pour l'agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Cellule d'origine d'une cellule modifiée à la main.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_cell: Option<u64>,
+    /// Début de la demande du tour qui a lancé la cellule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_prompt: Option<String>,
+    /// Démarrage du noyau qui a exécuté la cellule : les cellules d'une même
+    /// session partagent leurs variables.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// Empreintes des fichiers lus et écrits, prises à la fin de la cellule.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prints: Vec<FilePrint>,
+    /// Modules tiers chargés dans le noyau à la fin de la cellule.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub imports: Vec<String>,
+    /// Instantané de l'env (`kernel/envs/<sha>.json`) : versions de tous
+    /// les paquets au démarrage du noyau.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<Lineage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<ReplayMark>,
+    /// sha256 de la ligne précédente du journal : une ligne retouchée ou
+    /// retirée après coup casse la chaîne.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_sha256: Option<String>,
+}
+
+/// État de la chaîne d'empreintes d'un journal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChainCheck {
+    /// Lignes chaînées vérifiées.
+    pub checked: usize,
+    /// Première cellule dont la ligne ne suit pas la précédente.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub broken_at: Option<u64>,
 }
 
 pub fn code_sha256(code: &str) -> String {
@@ -86,11 +175,21 @@ pub fn clip(text: &str, max: usize) -> String {
 #[derive(Debug, Clone)]
 pub struct CellJournal {
     dir: PathBuf,
+    /// sha256 de la dernière ligne de chaque fil ; le verrou sérialise aussi
+    /// les ajouts d'un même journal.
+    last: Arc<Mutex<HashMap<String, Option<String>>>>,
 }
 
 impl CellJournal {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            last: Arc::default(),
+        }
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
     }
 
     pub fn path_for(&self, thread_id: &str) -> PathBuf {
@@ -116,17 +215,24 @@ impl CellJournal {
     pub fn append(&self, record: &CellRecord) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path_for(&record.thread_id);
+        let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = last
+            .entry(record.thread_id.clone())
+            .or_insert_with(|| last_line_sha(&path))
+            .clone();
         let mut stored = record.clone();
         stored.code = clip(&stored.code, STORED_CODE_MAX);
         stored.stdout = clip(&stored.stdout, STORED_STREAM_MAX);
         stored.stderr = clip(&stored.stderr, STORED_STREAM_MAX);
+        stored.prev_sha256 = prev;
+        let body = serde_json::to_vec(&stored)?;
         let mut line = Vec::new();
         // Une ligne laissée à moitié par un arrêt brutal ne doit pas avaler
         // la suivante : on repart sur une ligne neuve.
         if ends_mid_line(&path) {
             line.push(b'\n');
         }
-        line.extend(serde_json::to_vec(&stored)?);
+        line.extend(&body);
         line.push(b'\n');
         let mut f = std::fs::OpenOptions::new()
             .create(true)
@@ -135,23 +241,73 @@ impl CellJournal {
         f.write_all(&line)?;
         f.sync_data()?;
         drop(f);
+        last.insert(record.thread_id.clone(), Some(hex::encode(Sha256::digest(&body))));
         if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > FILE_MAX {
             self.rotate(&path)?;
         }
         Ok(())
     }
 
+    /// Le journal plein est renommé à côté (`<clé>.<date>.jsonl`), jamais
+    /// effacé ; le journal courant repart de ses dernières lignes, recopiées
+    /// telles quelles pour que leur chaîne reste vérifiable.
     fn rotate(&self, path: &Path) -> std::io::Result<()> {
-        let all = read_records(path);
-        let keep = &all[all.len().saturating_sub(KEEP_AFTER_ROTATION)..];
-        let mut buf = Vec::new();
-        for r in keep {
-            buf.extend(serde_json::to_vec(r)?);
-            buf.push(b'\n');
-        }
+        let text = std::fs::read_to_string(path)?;
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        let keep = &lines[lines.len().saturating_sub(KEEP_AFTER_ROTATION)..];
+        let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%S%3fZ");
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("journal");
+        std::fs::rename(path, self.dir.join(format!("{stem}.{stamp}.jsonl")))?;
+        let mut buf = keep.join("\n");
+        buf.push('\n');
         let tmp = path.with_extension("jsonl.tmp");
         std::fs::write(&tmp, buf)?;
         std::fs::rename(tmp, path)
+    }
+
+    /// Journaux archivés d'un fil, du plus ancien au plus récent.
+    fn archives(&self, thread_id: &str) -> Vec<PathBuf> {
+        let prefix = format!("{}.", thread_key(thread_id));
+        let mut found: Vec<PathBuf> = std::fs::read_dir(&self.dir)
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.starts_with(&prefix) && n.ends_with(".jsonl") && n.len() > prefix.len() + 6)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        found.sort();
+        found
+    }
+
+    /// Vérifie la chaîne d'empreintes du journal courant. Les lignes
+    /// écrites avant la chaîne (sans `prevSha256`) ne comptent pas.
+    pub fn verify_chain(&self, thread_id: &str) -> ChainCheck {
+        let text = std::fs::read_to_string(self.path_for(thread_id)).unwrap_or_default();
+        let mut previous: Option<String> = None;
+        let mut checked = 0;
+        for (i, raw) in text.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+            let Ok(record) = serde_json::from_str::<CellRecord>(raw) else {
+                previous = Some(hex::encode(Sha256::digest(raw.as_bytes())));
+                continue;
+            };
+            // La première ligne gardée après une rotation pointe vers une
+            // ligne archivée : on ne peut pas la juger ici.
+            if i > 0 {
+                if let Some(prev) = &record.prev_sha256 {
+                    if previous.as_ref() != Some(prev) {
+                        return ChainCheck { checked, broken_at: Some(record.id) };
+                    }
+                    checked += 1;
+                }
+            }
+            previous = Some(hex::encode(Sha256::digest(raw.as_bytes())));
+        }
+        ChainCheck { checked, broken_at: None }
     }
 
     /// Les `limit` dernières cellules du fil, de la plus ancienne à la plus récente.
@@ -161,10 +317,24 @@ impl CellJournal {
     }
 
     pub fn get(&self, thread_id: &str, id: u64) -> Option<CellRecord> {
-        read_records(&self.path_for(thread_id))
+        let find = |path: &Path| read_records(path).into_iter().rev().find(|r| r.id == id);
+        find(&self.path_for(thread_id)).or_else(|| {
+            self.archives(thread_id).iter().rev().find_map(|p| find(p))
+        })
+    }
+
+    /// Cellules d'une session de noyau, dans l'ordre d'exécution.
+    pub fn session_cells(&self, thread_id: &str, session: &str) -> Vec<CellRecord> {
+        latest(read_records(&self.path_for(thread_id)))
             .into_iter()
-            .rev()
-            .find(|r| r.id == id)
+            .filter(|r| r.session.as_deref() == Some(session))
+            .collect()
+    }
+
+    /// Remplace une cellule par une version complétée (marque de rejeu) :
+    /// la nouvelle ligne s'ajoute, `list` et `get` ne gardent qu'elle.
+    pub fn rewrite(&self, record: &CellRecord) -> std::io::Result<()> {
+        self.append(record)
     }
 
     pub fn last_id(&self, thread_id: &str) -> u64 {
@@ -186,7 +356,22 @@ impl CellJournal {
 
     pub fn delete_thread(&self, thread_id: &str) {
         let _ = std::fs::remove_file(self.path_for(thread_id));
+        for archive in self.archives(thread_id) {
+            let _ = std::fs::remove_file(archive);
+        }
+        self.last
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(thread_id);
     }
+}
+
+/// sha256 de la dernière ligne complète du fichier (la tête de la chaîne).
+fn last_line_sha(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let last = text.lines().rev().find(|l| !l.trim().is_empty())?;
+    serde_json::from_str::<CellRecord>(last).ok()?;
+    Some(hex::encode(Sha256::digest(last.as_bytes())))
 }
 
 fn ends_mid_line(path: &Path) -> bool {
@@ -259,7 +444,41 @@ mod tests {
             python: "/usr/bin/python3".into(),
             python_version: "3.12.0".into(),
             cwd: "/tmp".into(),
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn la_chaine_d_empreintes_repere_une_ligne_retouchee() {
+        let dir = tempfile::tempdir().unwrap();
+        let j = CellJournal::new(dir.path());
+        for id in 1..=3 {
+            j.append(&record("t", id, &[])).unwrap();
+        }
+        assert_eq!(j.verify_chain("t"), ChainCheck { checked: 2, broken_at: None });
+        // Un journal rouvert (nouvel objet) reprend la chaîne où elle était.
+        let j2 = CellJournal::new(dir.path());
+        j2.append(&record("t", 4, &[])).unwrap();
+        assert_eq!(j2.verify_chain("t").checked, 3);
+        let path = j.path_for("t");
+        let text = std::fs::read_to_string(&path).unwrap().replace("x = 2", "x = 9");
+        std::fs::write(&path, text).unwrap();
+        assert_eq!(j.verify_chain("t").broken_at, Some(3));
+    }
+
+    #[test]
+    fn la_rotation_archive_au_lieu_d_effacer() {
+        let dir = tempfile::tempdir().unwrap();
+        let j = CellJournal::new(dir.path());
+        j.append(&record("t", 1, &["/p/a.png"])).unwrap();
+        j.append(&record("t", 2, &[])).unwrap();
+        j.rotate(&j.path_for("t")).unwrap();
+        assert_eq!(j.archives("t").len(), 1);
+        assert!(j.get("t", 1).is_some(), "une cellule archivée se relit");
+        j.append(&record("t", 3, &[])).unwrap();
+        assert_eq!(j.verify_chain("t").broken_at, None);
+        j.delete_thread("t");
+        assert!(j.archives("t").is_empty());
     }
 
     #[test]

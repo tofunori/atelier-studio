@@ -1458,6 +1458,16 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         None => provider_prompt,
     };
     let kernel_announced = kernel_announced.map(|(_, on)| on);
+    // Cellules modifiées et relancées à la main depuis le panneau : l'agent
+    // les apprend au tour suivant, une fois chacune.
+    let kernel_user_cells = (!state.harness().is_running(&thread_id).await)
+        .then(|| crate::kernel::user_cells_block(state, &thread_id, previous.as_ref(), &provider))
+        .flatten();
+    let provider_prompt = match &kernel_user_cells {
+        Some((bloc, _)) => format!("{provider_prompt}{bloc}"),
+        None => provider_prompt,
+    };
+    let kernel_user_cells = kernel_user_cells.map(|(_, last)| last);
     let discussion_document = msg
         .get("discussionDocument")
         .and_then(Value::as_str)
@@ -2001,7 +2011,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     )
     .with_turn(&turn_id, effort.clone())
     // Interrupteur « Recette des fichiers produits » (éteint par défaut).
-    .with_recipes(crate::prov::recipes_enabled(&folder_settings));
+    .with_recipes(crate::prov::recipes_enabled(&folder_settings))
+    .with_kernel_dir(state.kernels().kernel_dir().to_path_buf());
+    state.kernels().note_turn(&thread_id, &turn_id, &prompt);
     let prov_pump = prov_turn.clone();
     // Finalisation (journal des tours + recettes), après le terminal.
     let prov_finish = prov_turn.clone();
@@ -2303,6 +2315,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 if let (true, Some(on)) = (succeeded, kernel_announced.as_ref()) {
                     patch[crate::kernel::ANNOUNCED_KEY] =
                         json!({"session": sid.clone(), "on": on});
+                }
+                if let (true, Some(last)) = (succeeded, kernel_user_cells) {
+                    patch[crate::kernel::USER_CELLS_KEY] = json!(last);
                 }
                 if compacte.load(Ordering::SeqCst) {
                     // Le résumé ne garantit pas la consigne du noyau.

@@ -262,6 +262,14 @@ describe("Codex-style activity presentation", () => {
     expect(activeToolLabel(completed)).toBe('Ran find . -name "panel_bayes_JJA.csv" | head -1');
   });
 
+  it("une cellule du noyau Python se lit par son but, pas par son code", () => {
+    const cell = tool("k1", "mcp__atelier__atelier_python", "", {
+      status: "inProgress", source: "mcp",
+      input: { action: "run", code: "d = pd.read_csv('panel.csv')", purpose: "Charger le panel des bilans d'hiver" },
+    });
+    expect(activeToolLabel(cell)).toContain("Charger le panel des bilans d'hiver");
+  });
+
   it("la réduction ne touche pas une commande simple et retombe sur l'entière si vide", () => {
     const simple = tool("c-simple", "Bash", "cargo build --release", { status: "inProgress", input: { command: "cargo build --release" } });
     expect(activeToolLabel(simple)).toBe("Running cargo build --release");
