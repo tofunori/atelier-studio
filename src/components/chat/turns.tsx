@@ -27,6 +27,8 @@ import { Message, MessageContent, MessageFooter } from "../shadcn/message";
 import { Textarea } from "../shadcn/textarea";
 import { annotationCards, isAnnotationLabel } from "../../lib/annotationCards";
 import { AnnotationCard } from "./AnnotationCard";
+import { FigureAnnotationCard } from "./FigureAnnotationCard";
+import { figureName, splitFigureAnnotations } from "../../lib/figureAnnotation";
 import { RevertConfirmDialog } from "./RevertConfirmDialog";
 
 type TimeFormat = "system" | "24h" | "12h" | undefined;
@@ -148,9 +150,16 @@ export const UserTurn = memo(function UserTurn(p: {
 }) {
   const e = p.event;
   const i = p.index;
-  const annotationView = !e.imageUrl && !e.notes?.length ? annotationCards(e.text) : { prompt: e.text, cards: [] };
-  const attachmentLabels = e.label?.split(" · ").filter(label => p.editingText != null || !isAnnotationLabel(label, annotationView.cards)) ?? [];
-  const fileAttachments = e.label && !e.imageUrl && !e.notes?.length ? (
+  // Figure annotée : l'enveloppe destinée à l'agent devient une carte ; la
+  // bulle ne garde que le texte tapé (2026-10-20).
+  const figureView = splitFigureAnnotations(e.text);
+  const figures = figureView.figures;
+  const bubbleText = figureView.prompt;
+  const annotationView = !e.imageUrl && !e.notes?.length && !figures.length ? annotationCards(e.text) : { prompt: bubbleText, cards: [] };
+  const figureNames = new Set(figures.flatMap((figure) => [figureName(figure), figure.preview.split("/").pop() ?? ""]));
+  const attachmentLabels = e.label?.split(" · ").filter(label => p.editingText != null ||
+    (!isAnnotationLabel(label, annotationView.cards) && !figureNames.has(label))) ?? [];
+  const fileAttachments = e.label && !e.imageUrl && !e.notes?.length && (p.editingText != null || attachmentLabels.length) ? (
     <div className="user-file-attachments">
       {attachmentLabels.map((label,index) => (
         <span className="user-file-attachment" title={label} key={`${index}:${label}`}>
@@ -180,7 +189,12 @@ export const UserTurn = memo(function UserTurn(p: {
   return (
     <Message id={`msg-${i}`} align="end" className="chat-message user-message">
     <MessageContent className="user-wrap">
-      {e.notes && e.notes.length > 0 ? (
+      {figures.length > 0 ? figures.map((figure, index) => (
+        <FigureAnnotationCard key={`${index}:${figure.preview}`} figure={figure}
+          imageUrl={index === 0 ? e.imageUrl : undefined}
+          imagePath={e.imagePaths?.find((path) => path.endsWith(`/${figure.preview}`))
+            ?? (figures.length === 1 && e.imagePaths?.length === 1 ? e.imagePaths[0] : undefined)} />
+      )) : e.notes && e.notes.length > 0 ? (
         // Figure annotée : vignette DISCRÈTE (Thierry a déjà la figure sous les
         // yeux dans la galerie), nom de la figure source, et les badges dessinés
         // sur l'image en clair. Largeur explicite : dans une bulle en
@@ -286,14 +300,14 @@ export const UserTurn = memo(function UserTurn(p: {
             </div>
           </form>
         </div>
-      ) : e.text.trim() || (e.label && !e.imageUrl && !e.notes?.length) ? (
+      ) : bubbleText.trim() || (attachmentLabels.length > 0 && !e.imageUrl && !e.notes?.length) ? (
         <Bubble variant="secondary" align="end" className="user-bubble-shell">
           <BubbleContent className="user-bubble tw:rounded-2xl">
             {attachmentLabels.length > 0 && fileAttachments}
             {annotationView.cards.length ? <>
               {annotationView.prompt && <div className="chat-annotation-prompt">{p.renderBubbleText(annotationView.prompt)}</div>}
               {annotationView.cards.map((annotation, index) => <AnnotationCard key={index} annotation={annotation} />)}
-            </> : p.renderBubbleText(e.text)}
+            </> : p.renderBubbleText(bubbleText)}
           </BubbleContent>
         </Bubble>
       ) : null /* pièce jointe seule (figure annotée) : pas de bulle vide */}
@@ -313,7 +327,7 @@ export const UserTurn = memo(function UserTurn(p: {
             <path d="M5 8h5a3 3 0 0 1 0 6H8.5" />
           </svg>
         </MessageAction>
-        <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, e.text.slice(0, 44))} />
+        <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, (figures.length && !bubbleText ? figureName(figures[0]) : bubbleText || e.text).slice(0, 44))} />
       </MessageFooter>}
       <RevertConfirmDialog
         open={revertAsked}

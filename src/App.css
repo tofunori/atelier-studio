@@ -1648,6 +1648,22 @@ button.kernel-file:hover { color: var(--text-primary); }
   align-items: start; width: 320px; max-width: 100%; text-align: left; }
 .user-annot-thumb { width: 56px; height: 56px; object-fit: cover; border-radius: var(--r-s);
   background: var(--bg-ctl); }
+/* Source et version d'une figure annotée : repliées sous la carte, alignées
+   sur le texte (vignette 56 + écart 8), jamais dans la bulle (2026-10-20). */
+.user-annot-block { display: flex; flex-direction: column; gap: 4px; width: 320px; max-width: 100%; }
+.user-annot-toggle { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start;
+  margin-left: 64px; padding: 0; border: 0; background: transparent; cursor: pointer;
+  font-size: var(--fs-s); color: var(--text-muted); border-radius: var(--r-s);
+  transition: color var(--motion-fast) var(--ease-out); }
+.user-annot-toggle:hover, .user-annot-toggle[aria-expanded="true"] { color: var(--text-secondary); }
+.user-annot-toggle svg { transition: transform var(--motion-fast) var(--ease-out); }
+.user-annot-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.user-annot-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px;
+  margin: 0 0 0 80px; font-size: var(--fs-s); line-height: 1.5; text-align: left; }
+.user-annot-meta dt { color: var(--text-muted); }
+.user-annot-meta dd { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.user-annot-hash { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .user-annot-toggle, .user-annot-toggle svg { transition: none; } }
 .user-annot-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .user-annot-title { font-size: var(--fs-m); font-weight: 500; color: var(--text-secondary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

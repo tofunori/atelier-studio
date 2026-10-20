@@ -668,12 +668,29 @@ const EDITS: AgentEvent[] = [
   { kind: "tool_update", id: "e5", name: "Bash", detail: "python comparer.py a.npz b.npz", output: "", status: "running", input: {}, source: null, ts: ts(40) } as AgentEvent,
 ];
 
+// Figure annotée envoyée depuis la galerie (2026-10-20) : l'enveloppe reste
+// dans le texte (agent, réédition) mais seule la carte s'affiche.
+const FIGURE_THUMB = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#f6f6f2"/><path d="M10 40 30 28 50 36 70 18 110 30M10 70 30 62 50 74 70 54 110 66" fill="none" stroke="#4a4a48" stroke-width="2"/><rect x="10" y="88" width="100" height="22" fill="#94d2bd"/><circle cx="78" cy="40" r="9" fill="#141413"/><text x="78" y="44" text-anchor="middle" font-size="11" font-family="sans-serif" fill="#fff">1</text></svg>');
+const FIGURE_ENVELOPE = `.fig_thumbs/annotation-previews/figS_snowpack_jun1_ts_provisoire_alaska_zones_RGI_annot_1792458432712055000.png
+Annotations (badges numerotes sur l'image) :
+1. est-ce que 2012 est reconnu pour une année neigeuse?
+Figure source : /Users/tofunori/Documents/UTQR/Doctorat/Chapitre1-Albedo/figures/supp/figS_snowpack_jun1_ts_provisoire_alaska_zones_RGI.png
+Version affichée : v1 (SHA-256 db6186444a4a25b0c4f18d1b789e564aca1ee38cc8f2adc8fd904a0f29981c1e). La pièce jointe correspond à cette version ; le fichier source peut avoir changé.`;
+const FIGURE: AgentEvent[] = [
+  { kind: "user", text: FIGURE_ENVELOPE, ts: ts(120), label: "figS_snowpack_jun1_ts_provisoire_alaska_zones_RGI.png",
+    imageUrl: FIGURE_THUMB, notes: [{ n: 1, text: "est-ce que 2012 est reconnu pour une année neigeuse?" }] } as AgentEvent,
+  { kind: "text", text: "Oui : en Alaska, l'hiver 2011-2012 a laissé un manteau nettement supérieur à la normale au 1er juin.", ts: ts(110) } as AgentEvent,
+  { kind: "user", text: `Compare avec les relevés SNOTEL avant de répondre.\n\n${FIGURE_ENVELOPE}`, ts: ts(60),
+    label: "figS_snowpack_jun1_ts_provisoire_alaska_zones_RGI.png", imagePaths: [FIGURE_THUMB] } as AgentEvent,
+];
+
 const STATES: Record<string, BenchState> = {
   annotations: {events: [
     {kind:"user",text:"Relis les résultats et les méthodes.",label:"results_en.tex · methods_en.tex",ts:ts(10)},
     {kind:"text",text:Array.from({length:10},(_,i)=>`### Passage ${i+1}\n\n${i===4||i===5 ? `In the other seven regions, forcing remains below 0.65~W~m $^{-2}$, although individual summers reach much higher values (${i+1}).` : `Observation ${i+1} : une phrase avec du **gras** et de l’*italique* à annoter.`}`).join("\n\n")},
   ] as AgentEvent[],workingSince:null,attachments:[],usage:null},
   firstmessage: { events: [], workingSince: null, attachments: [], usage: null },
+  figure: { events: FIGURE, workingSince: null, attachments: [], usage: null },
   livestream: { events: [], workingSince: NOW, attachments: [], usage: { context: 21000, output: 300, cost: null, turns: 1 } },
   long: { events: LONG_TRANSCRIPT, workingSince: null, attachments: [], usage: null, pins: LONG_PINS },
   edits: { events: EDITS, workingSince: ts(80), attachments: [], usage: { context: 30000, output: 900, cost: null, turns: 1 } },
