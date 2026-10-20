@@ -190,7 +190,8 @@ test('docx: barre de mise en forme, vues et page blanche', async ({page, project
   expect(m.changes.some(c => c.author === 'Thierry' && c.kind === 'format')).toBe(true);
 
   await caretAfter(page, 2, 'pureté');
-  await page.locator('[data-align="both"]').click();
+  await page.locator('#btnAlign').click();
+  await page.locator('.menu.show .mi', {hasText: 'Justifier'}).click();
   await expect.poll(async () => (await disk(page, project)).paragraphs[2].align).toBe('both');
   await expect(page.locator('.d-p[data-idx="2"]')).toHaveClass(/a-both/);
 
@@ -200,14 +201,15 @@ test('docx: barre de mise en forme, vues et page blanche', async ({page, project
   await expect.poll(async () => (await disk(page, project)).paragraphs[2].heading).toBe(2);
 
   // Vue Final : les suppressions disparaissent ; Original : lecture seule.
-  await page.locator('[data-view="final"]').click();
+  const view = async (label: string) => { await page.locator('#ddView').click(); await page.locator('.menu.show .mi', {hasText: label}).click(); };
+  await view('Final');
   await expect(page.locator('.d-p[data-idx="1"] .del').first()).toBeHidden();
-  await page.locator('[data-view="original"]').click();
+  await view('Original');
   await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'false');
-  await page.locator('[data-view="revue"]').click();
+  await view('Revue');
 
   // Page Thème, gardée côté serveur.
-  await page.locator('[data-page="theme"]').click();
+  await view("Thème de l'app");
   await expect(page.locator('body')).not.toHaveClass(/blanche/);
   await expect.poll(async () => (await (await page.request.get(`${project.url}/docx/prefs`)).json()).page).toBe('theme');
 
@@ -249,7 +251,8 @@ test('docx: notes, en-tête, pied de page et figures se retouchent dans la page'
 
   // Insérer une note après « MODIS » : le curseur passe dans la note.
   await caretAfter(page, 1, 'pixel MODIS');
-  await page.locator('#btnNote').click();
+  await page.locator('#btnInsert').click();
+  await page.locator('.menu.show .mi', {hasText: 'Note de bas de page'}).click();
   await expect.poll(async () => (await disk(page, project)).notes.length).toBe(2);
   await page.keyboard.type('MOD10A1 v6.1.');
   await expect.poll(async () => (await disk(page, project)).notes[0].paragraphs[0].text).toBe(' MOD10A1 v6.1.');
@@ -269,8 +272,9 @@ test('docx: notes, en-tête, pied de page et figures se retouchent dans la page'
 
   // Insérer une figure du projet, puis l'effacer d'un retour arrière.
   await caretAfter(page, 2, 'glaciaire.');
-  await page.locator('#btnFigure').click();
-  await page.locator('.menu .mi', {hasText: 'albedo.png'}).click();
+  await page.locator('#btnInsert').click();
+  await page.locator('.menu.show .mi', {hasText: 'Figure du projet'}).click();
+  await page.locator('.menu.show .mi', {hasText: 'albedo.png'}).click();
   await expect.poll(async () => (await disk(page, project)).paragraphs[2].segments.filter(s => s.media).length).toBe(1);
   await expect(page.locator('.d-p[data-idx="2"] .chip.fig img')).toBeVisible();
   await page.keyboard.press('Backspace');
@@ -282,7 +286,7 @@ test('docx: lignes et colonnes de tableau depuis la barre', async ({page, projec
   await open(page, project);
   const cells = async () => (await disk(page, project)).paragraphs.filter(p => (p as {cell?: number[]}).cell).length;
   await caretAfter(page, 6, 'Zone');
-  await page.locator('#btnTable').click();
+  await page.locator('#btnInsert').click();
   await page.locator('.menu.show .mi', {hasText: 'Insérer une ligne en dessous'}).click();
   await expect.poll(cells).toBe(6);
   // Le curseur est dans la nouvelle ligne : on y écrit, en suivi.
@@ -293,11 +297,11 @@ test('docx: lignes et colonnes de tableau depuis la barre', async ({page, projec
   await expect(page.locator('.card', {hasText: 'Ligne ajoutée'}).filter({hasText: 'Thierry'})).toHaveCount(1);
 
   await caretAfter(page, 8, 'Z4');
-  await page.locator('#btnTable').click();
+  await page.locator('#btnInsert').click();
   await page.locator('.menu.show .mi', {hasText: 'Insérer une colonne à droite'}).click();
   await expect.poll(cells).toBe(9);
   await expect(page.locator('#foot')).toContainText('Word ne suit pas les colonnes');
-  await page.locator('#btnTable').click();
+  await page.locator('#btnInsert').click();
   await page.locator('.menu.show .mi', {hasText: 'Supprimer la colonne'}).click();
   await expect.poll(cells).toBe(6);
 });
@@ -410,4 +414,21 @@ test('docx: une bibliographie Zotero passe à la ligne et se coupe en feuilles p
   expect(r.sheets).toBeLessThanOrEqual(10);
   // Le pied de page porte le numéro de chaque feuille.
   await expect(page.locator('#sheets .sheet').nth(1).locator('.d-ftr')).toHaveText('2');
+});
+
+test('docx: zoom au curseur et aux touches, retour à la largeur du panneau', async ({page, project}) => {
+  await open(page, project);
+  const pt = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pt')));
+  const label = page.locator('#foot .z-pct');
+  await expect(label).toHaveText(/\d+ %/);
+  await page.locator('#foot [data-z="in"]').click();
+  const before = Number((await label.textContent())!.replace(/\D/g, ''));
+  await page.locator('#foot [data-z="in"]').click();
+  await expect(label).toHaveText(`${before + 10} %`);
+  expect(await pt()).toBeCloseTo((4 / 3) * (before + 10) / 100, 3);
+  await page.keyboard.press('ControlOrMeta+Minus');
+  await expect(label).toHaveText(`${before} %`);
+  // Le pourcentage remet la page à la largeur du panneau.
+  await label.click();
+  await expect(label).toHaveClass(/on/);
 });

@@ -25,7 +25,10 @@
 .docs-pill { flex: none; padding: 0 8px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.6; }
 
 .docs-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.docs-tabs { display: flex; align-items: center; gap: 4px; flex: none; height: 36px; padding: 0 8px; overflow-x: auto; scrollbar-width: none; background: var(--surface-header); border-bottom: 1px solid var(--border-subtle); }
+.docs-surface[data-list="hidden"] { grid-template-columns: minmax(0, 1fr); }
+.docs-tabs { display: flex; align-items: center; gap: 4px; flex: none; height: 36px; padding: 0 8px; background: var(--surface-header); border-bottom: 1px solid var(--border-subtle); }
+.docs-list-toggle { flex: none; color: var(--text-muted); }
+.docs-tablist { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .docs-tab { display: flex; align-items: center; flex: 0 0 auto; overflow: hidden; }
 .docs-tab-label { display: flex; align-items: center; height: 100%; min-width: 0; padding: 0 8px; background: transparent; color: inherit; font: inherit; }
 .docs-tab-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

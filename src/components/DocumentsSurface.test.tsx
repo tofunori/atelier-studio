@@ -55,6 +55,20 @@ describe("DocumentsSurface", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: "Chapitre 3.docx" })).toBeTruthy());
   });
 
+  it("masque la liste au bouton et au raccourci ⌘\\, et s'en souvient", async () => {
+    renderUi(<DocumentsSurface galleryUrl={GALLERY} projectRoot="/p" visible />);
+    await screen.findByText("Plan de thèse.docx");
+    const side = document.querySelector(".docs-side") as HTMLElement;
+    fireEvent.click(screen.getByRole("button", { name: /Masquer la liste/ }));
+    expect(side.hidden).toBe(true);
+    cleanup();
+    renderUi(<DocumentsSurface galleryUrl={GALLERY} projectRoot="/p" visible />);
+    expect((document.querySelector(".docs-side") as HTMLElement).hidden).toBe(true);
+    fireEvent.keyDown(window, { key: "\\", metaKey: true });
+    expect((document.querySelector(".docs-side") as HTMLElement).hidden).toBe(false);
+    expect(screen.getByRole("button", { name: /Masquer la liste/ }).getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("dates courtes : heure aujourd'hui, hier, sinon jour et mois", () => {
     const now = new Date(2026, 9, 19, 20, 0);
     expect(shortDate(new Date(2026, 9, 19, 18, 39).getTime(), now)).toMatch(/^modifié 18/);

@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "../lib/i18n";
 import { shortDate } from "./documentsDate";
-import { CloseIcon, PlusIcon, SearchIcon } from "./icons";
+import { CloseIcon, PlusIcon, SearchIcon, SidebarIcon } from "./icons";
 import { Input } from "./shadcn/input";
 import { Button, EmptyState, IconButton, Popover, PopoverContent, PopoverTitle, PopoverTrigger, RowButton, Select, showError } from "./ui";
 import "./DocumentsSurface.css";
@@ -15,6 +15,7 @@ type DocEntry = { path: string; mtime: number; changes: number };
 type Template = "blank" | "article" | "copy";
 
 const MAX_RECENT = 6;
+const LIST_HIDDEN_KEY = "atelier-studio.documents.list-hidden";
 
 function storageKey(kind: "recent" | "tabs", projectRoot: string) {
   return `atelier-studio.documents.${kind}:${projectRoot}`;
@@ -82,6 +83,32 @@ export default function DocumentsSurface({
   const [recent, setRecent] = useState<string[]>(() => readList(storageKey("recent", projectRoot)));
   const [tabs, setTabs] = useState<string[]>(() => readList(storageKey("tabs", projectRoot)));
   const [active, setActive] = useState<string | null>(() => readList(storageKey("tabs", projectRoot))[0] ?? null);
+
+  // Liste masquable (bouton à gauche des onglets, ⌘\ ici comme dans le panneau).
+  const [listHidden, setListHidden] = useState(() => {
+    try { return localStorage.getItem(LIST_HIDDEN_KEY) === "1"; } catch { return false; }
+  });
+  const toggleList = useCallback(() => {
+    const next = !listHidden;
+    setListHidden(next);
+    try { localStorage.setItem(LIST_HIDDEN_KEY, next ? "1" : "0"); } catch { /* vaut pour cette session */ }
+  }, [listHidden]);
+  const framesRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key === "\\") { e.preventDefault(); toggleList(); }
+    };
+    // Le raccourci tapé dans un document arrive de son iframe.
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== origin || e.data?.type !== "atelier-docs-toggle-list") return;
+      const frames = Array.from(framesRef.current?.querySelectorAll("iframe") ?? []);
+      if (frames.some((f) => f.contentWindow === e.source)) toggleList();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("message", onMessage);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("message", onMessage); };
+  }, [visible, origin, toggleList]);
 
   // Changement de projet : ses propres récents et onglets.
   const lastRoot = useRef(projectRoot);
@@ -152,8 +179,8 @@ export default function DocumentsSurface({
   );
 
   return (
-    <div className="docs-surface">
-      <aside className="docs-side">
+    <div className="docs-surface" data-list={listHidden ? "hidden" : undefined}>
+      <aside className="docs-side" hidden={listHidden}>
         <div className="docs-side-head">
           <span className="docs-side-title">{t("atelier.documents")}</span>
           <NewDocument origin={origin} docs={docs} onCreated={(path) => { open(path); void refresh(); }} />
@@ -175,8 +202,10 @@ export default function DocumentsSurface({
         </div>
       </aside>
       <section className="docs-main">
-        {tabs.length > 0 && (
-          <div className="docs-tabs" role="tablist" aria-label={t("atelier.documents")}>
+        <div className="docs-tabs">
+          <IconButton size="s" className="docs-list-toggle" label={t(listHidden ? "docs.show-list" : "docs.hide-list")} title={t(listHidden ? "docs.show-list" : "docs.hide-list")}
+            aria-expanded={!listHidden} onClick={toggleList}><SidebarIcon size={14} /></IconButton>
+          <div className="docs-tablist" role="tablist" aria-label={t("atelier.documents")}>
             {tabs.map((path) => (
               <div key={path} className="docs-tab document-tab-shell" data-active={active === path}>
                 <RowButton role="tab" aria-selected={active === path} className="docs-tab-label" title={path} onClick={() => setActive(path)}>
@@ -186,8 +215,8 @@ export default function DocumentsSurface({
               </div>
             ))}
           </div>
-        )}
-        <div className="docs-frames">
+        </div>
+        <div className="docs-frames" ref={framesRef}>
           {tabs.length === 0 && <EmptyState title={t("atelier.documents")} description={t("docs.empty")} />}
           {galleryUrl && tabs.map((path) => {
             const src = frameUrl(galleryUrl, path);

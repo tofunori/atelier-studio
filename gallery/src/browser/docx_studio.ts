@@ -109,6 +109,8 @@
   };
   const ICON = {
     chev: svg('<path d="M8 10l4 4 4-4"/>'),
+    more: svg('<circle cx="6" cy="12" r=".9"/><circle cx="12" cy="12" r=".9"/><circle cx="18" cy="12" r=".9"/>'),
+    plus: svg('<path d="M12 6v12M6 12h12"/>'),
     left: svg('<path d="M14 7l-5 5 5 5"/>'),
     right: svg('<path d="M10 7l5 5-5 5"/>'),
     check: svg('<path d="M6 12.5l4 4 8-9"/>'),
@@ -430,17 +432,64 @@
     document.documentElement.style.setProperty("--mr", u(pg.right));
     fitPage(true);
   }
+  // Zoom : `null` suit la largeur du panneau ; sinon un pourcentage de la
+  // taille réelle (100 % = un point du document vaut un point à l'écran).
+  const ZOOM_MIN = 30, ZOOM_MAX = 200, ZOOM_STEP = 10;
+  let zoom: number | null = (() => {
+    try {
+      const v = Number(localStorage.getItem("docxZoom"));
+      return v >= ZOOM_MIN && v <= ZOOM_MAX ? v : null;
+    } catch { return null; }
+  })();
   function fitPage(force = false) {
     const pg = model?.page;
     if (!pg) return;
     const cs = getComputedStyle(scroller);
     const room = scroller.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const next = PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT)));
+    const next = zoom ? PT * zoom / 100 : PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT)));
+    showZoom(next);
     if (!force && Math.abs(next - ptPx) < 1e-3) return;
     ptPx = next;
     document.documentElement.style.setProperty("--pt", `${next.toFixed(4)}px`);
     scheduleLines();
   }
+  function setZoom(next: number | null) {
+    zoom = next === null ? null : Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(next)));
+    try {
+      if (zoom === null) localStorage.removeItem("docxZoom");
+      else localStorage.setItem("docxZoom", String(zoom));
+    } catch { /* stockage indisponible : le zoom vaut pour cette session */ }
+    fitPage();
+  }
+  const zoomPct = () => Math.round(ptPx / PT * 100);
+  const zoomEl = document.createElement("span");
+  zoomEl.className = "zoom";
+  zoomEl.setAttribute("role", "group");
+  zoomEl.setAttribute("aria-label", "Zoom");
+  zoomEl.innerHTML = `<button class="z-step" data-z="out" aria-label="Zoom arrière" data-tooltip="Zoom arrière (⌘−)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button>
+    <input type="range" min="${ZOOM_MIN}" max="${ZOOM_MAX}" step="5" aria-label="Zoom">
+    <button class="z-step" data-z="in" aria-label="Zoom avant" data-tooltip="Zoom avant (⌘+)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 8h9M8 3.5v9"/></svg></button>
+    <button class="z-pct" data-tooltip="Ajuster à la largeur (⌘0)"></button>`;
+  const zoomRange = zoomEl.querySelector("input") as HTMLInputElement;
+  const zoomLabel = zoomEl.querySelector(".z-pct") as HTMLElement;
+  function showZoom(px: number) {
+    const pct = Math.round(px / PT * 100);
+    zoomRange.value = String(pct);
+    zoomLabel.textContent = `${pct} %`;
+    zoomLabel.classList.toggle("on", zoom === null);
+  }
+  zoomRange.addEventListener("input", () => setZoom(Number(zoomRange.value)));
+  zoomEl.querySelector('[data-z="out"]')!.addEventListener("click", () => setZoom(zoomPct() - ZOOM_STEP));
+  zoomEl.querySelector('[data-z="in"]')!.addEventListener("click", () => setZoom(zoomPct() + ZOOM_STEP));
+  zoomLabel.addEventListener("click", () => setZoom(null));
+  document.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    if (e.key === "=" || e.key === "+") { e.preventDefault(); setZoom(zoomPct() + ZOOM_STEP); }
+    else if (e.key === "-") { e.preventDefault(); setZoom(zoomPct() - ZOOM_STEP); }
+    else if (e.key === "0") { e.preventDefault(); setZoom(null); }
+    // La surface Documents masque sa liste : le raccourci part du panneau aussi.
+    else if (e.key === "\\" && parent !== window) { e.preventDefault(); parent.postMessage({ type: "atelier-docs-toggle-list" }, "*"); }
+  });
   function applyLook(el: HTMLElement, l: Look) {
     const u = (v: number) => `calc(var(--pt) * ${v})`;
     el.classList.add("lk");
@@ -1315,7 +1364,7 @@
     openMenu = null;
     openTrigger = null;
   }
-  type Item = { label: string; html?: string; on?: boolean; danger?: boolean; sep?: boolean; run?: () => void };
+  type Item = { label: string; html?: string; on?: boolean; danger?: boolean; sep?: boolean; head?: boolean; disabled?: boolean; run?: () => void };
   function showMenu(trigger: HTMLElement, items: Item[], alignRight = false) {
     if (openTrigger === trigger) { closeMenu(); return; }
     closeMenu();
@@ -1324,9 +1373,11 @@
     m.setAttribute("role", "menu");
     for (const it of items) {
       if (it.sep) { const s = document.createElement("div"); s.className = "mi-sep"; m.appendChild(s); continue; }
+      if (it.head) { const h = document.createElement("div"); h.className = "mi-head"; h.textContent = it.label; m.appendChild(h); continue; }
       const b = document.createElement("button");
       b.className = "mi" + (it.danger ? " danger" : "");
       b.setAttribute("role", "menuitem");
+      b.disabled = !!it.disabled;
       b.innerHTML = `${it.html || `<span>${esc(it.label)}</span>`}${it.on ? ICON.check : ""}`;
       b.addEventListener("mousedown", (e) => e.preventDefault());
       b.addEventListener("click", () => { closeMenu(); it.run?.(); });
@@ -1349,47 +1400,37 @@
 
   // ---------------------------------------------------------- barres
   const fmtbar = $("fmtbar");
-  const revbar = $("revbar");
   const FONTS = ["Times New Roman", "Calibri", "Cambria", "Arial", "Helvetica", "Georgia", "Garamond", "Palatino"];
   const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 36];
+  // Une seule barre (piste A choisie par Thierry le 2026-10-20) : mise en
+  // forme à gauche, revue et suivi à droite ; le reste vit dans des menus.
   fmtbar.innerHTML = `
     <button class="dd w-style" id="ddStyle" data-tooltip="Style du paragraphe"><span>Normal</span>${ICON.chev}</button>
     <button class="dd w-font" id="ddFont" data-tooltip="Police"><span>Police</span>${ICON.chev}</button>
     <button class="dd w-size" id="ddSize" data-tooltip="Taille"><span>12</span>${ICON.chev}</button>
-    <span class="vsep"></span>
+    <span class="gp"></span>
     <button class="tb" data-run="b" data-tooltip="Gras (⌘B)"><span class="glyph b">G</span></button>
     <button class="tb" data-run="i" data-tooltip="Italique (⌘I)"><span class="glyph i">I</span></button>
     <button class="tb" data-run="u" data-tooltip="Souligné (⌘U)"><span class="glyph u">S</span></button>
-    <button class="tb" data-run="strike" data-tooltip="Barré"><span class="glyph s">ab</span></button>
-    <button class="tb" data-run="sup" data-tooltip="Exposant"><span class="glyph">x<sup>2</sup></span></button>
-    <button class="tb" data-run="sub" data-tooltip="Indice"><span class="glyph">x<sub>2</sub></span></button>
-    <span class="vsep"></span>
-    <button class="tb" data-align="left" data-tooltip="Aligner à gauche">${ICON.alLeft}</button>
-    <button class="tb" data-align="center" data-tooltip="Centrer">${ICON.alCenter}</button>
-    <button class="tb" data-align="right" data-tooltip="Aligner à droite">${ICON.alRight}</button>
-    <button class="tb" data-align="both" data-tooltip="Justifier">${ICON.alBoth}</button>
-    <span class="vsep"></span>
-    <button class="tb" id="btnBullets" data-tooltip="Liste à puces">${ICON.bullets}</button>
-    <button class="tb" id="btnNumbers" data-tooltip="Liste numérotée">${ICON.numbers}</button>
-    <span class="vsep"></span>
-    <button class="tb" id="btnComment" data-tooltip="Commenter la sélection">${ICON.comment}</button>
-    <button class="tb" id="btnNote" data-tooltip="Insérer une note de bas de page">${ICON.note}</button>
-    <button class="tb" id="btnFigure" data-tooltip="Insérer une figure du projet">${ICON.figure}</button>
-    <button class="tb" id="btnTable" data-tooltip="Lignes et colonnes du tableau">${ICON.table}</button>
-    <button class="tb" id="btnUndo" data-tooltip="Annuler (⌘Z)">${ICON.undo}</button>
-    <button class="tb" id="btnRedo" data-tooltip="Rétablir (⌘⇧Z)">${ICON.redo}</button>
+    <button class="tb" id="btnMore" aria-label="Autres mises en forme" data-tooltip="Barré, exposant, indice">${ICON.more}</button>
+    <span class="gp"></span>
+    <button class="tb wide" id="btnAlign" aria-label="Alignement" data-tooltip="Alignement"><span class="ic">${ICON.alLeft}</span>${ICON.chev}</button>
+    <button class="tb wide" id="btnList" aria-label="Listes" data-tooltip="Listes">${ICON.bullets}${ICON.chev}</button>
+    <span class="gp"></span>
+    <button class="tb" id="btnComment" aria-label="Commenter" data-tooltip="Commenter la sélection">${ICON.comment}</button>
+    <button class="tb wide" id="btnInsert" aria-label="Insérer" data-tooltip="Insérer une note, une figure ou une ligne de tableau">${ICON.plus}${ICON.chev}</button>
+    <span class="gp"></span>
+    <button class="tb" id="btnUndo" aria-label="Annuler" data-tooltip="Annuler (⌘Z)">${ICON.undo}</button>
+    <button class="tb" id="btnRedo" aria-label="Rétablir" data-tooltip="Rétablir (⌘⇧Z)">${ICON.redo}</button>
     <span class="sp"></span>
+    <button class="dd" id="ddView" data-tooltip="Affichage et page"><span>Revue</span>${ICON.chev}</button>
+    <span class="nav"><button class="tb" id="navPrev" aria-label="Précédent" data-tooltip="Précédent">${ICON.left}</button><span class="num" id="navNum">0 / 0</span><button class="tb" id="navNext" aria-label="Suivant" data-tooltip="Suivant">${ICON.right}</button></span>
+    <button class="dd" id="btnAll"><span>Tout accepter</span>${ICON.chev}</button>
+    <span class="gp"></span>
     <button class="track on" id="btnTrack" data-tooltip="Suivi des modifications : Christophe verra chaque retouche dans Word"><span class="sw"><i></i></span>Suivi</button>`;
-  revbar.innerHTML = `
-    <div class="seg" id="segView"><button data-view="revue" class="on">Revue</button><button data-view="final">Final</button><button data-view="original">Original</button></div>
-    <span class="sp"></span>
-    <span class="pagesw">Page<span class="seg" id="segPage"><button data-page="blanche">Blanche</button><button data-page="theme">Thème</button></span></span>
-    <span class="vsep"></span>
-    <span class="nav"><button class="tb" id="navPrev" data-tooltip="Précédent">${ICON.left}</button><span class="num" id="navNum">0 / 0</span><button class="tb" id="navNext" data-tooltip="Suivant">${ICON.right}</button></span>
-    <button class="btn" id="btnAll">Tout accepter${ICON.chev}</button>`;
 
   // Les boutons ne prennent pas le focus : la sélection reste dans la page.
-  for (const b of Array.from(document.querySelectorAll("#fmtbar button, #revbar button"))) {
+  for (const b of Array.from(document.querySelectorAll("#fmtbar button"))) {
     b.addEventListener("mousedown", (e) => e.preventDefault());
   }
   fmtbar.querySelectorAll<HTMLElement>("[data-run]").forEach((b) => b.addEventListener("click", () => toggleRun(b.dataset.run!)));
@@ -1445,10 +1486,27 @@
     showMenu(e.currentTarget as HTMLElement, SIZES.map((n) => ({ label: String(n).replace(".", ","), on: n === cur, run: () => applyRun({ size: n }) })));
   });
   const listStyle = (re: RegExp) => (model?.styles || []).find((s) => re.test(s.name) || re.test(s.id));
-  $("btnBullets").addEventListener("click", () => { const s = listStyle(/puce|bullet/i); if (s) applyPara({ style: s.id }); });
-  $("btnNumbers").addEventListener("click", () => { const s = listStyle(/num[ée]ro|number/i); if (s) applyPara({ style: s.id }); });
+  $("btnList").addEventListener("click", (e) => {
+    const bullets = listStyle(/puce|bullet/i), numbers = listStyle(/num[ée]ro|number/i);
+    const style = currentPara()?.style;
+    showMenu(e.currentTarget as HTMLElement, [
+      { label: "Liste à puces", disabled: !bullets, on: !!bullets && style === bullets.id, run: () => bullets && applyPara({ style: bullets.id }) },
+      { label: "Liste numérotée", disabled: !numbers, on: !!numbers && style === numbers.id, run: () => numbers && applyPara({ style: numbers.id }) },
+    ]);
+  });
+  const ALIGN: [string, string, string][] = [["left", "Aligner à gauche", ICON.alLeft], ["center", "Centrer", ICON.alCenter], ["right", "Aligner à droite", ICON.alRight], ["both", "Justifier", ICON.alBoth]];
+  $("btnAlign").addEventListener("click", (e) => {
+    const cur = currentPara()?.align || "left";
+    showMenu(e.currentTarget as HTMLElement, ALIGN.map(([a, label]) => ({ label, on: cur === a, run: () => applyPara({ align: a }) })));
+  });
+  $("btnMore").addEventListener("click", (e) => {
+    const seg = currentSeg() as Record<string, unknown> | null;
+    showMenu(e.currentTarget as HTMLElement, [["strike", "Barré"], ["sup", "Exposant"], ["sub", "Indice"]].map(([k, label]) => ({
+      label, on: !!(seg && seg[k]), run: () => toggleRun(k),
+    })));
+  });
   $("btnComment").addEventListener("click", () => askComment());
-  $("btnNote").addEventListener("click", () => {
+  function insertNote() {
     const sel = readSel();
     if (!sel || !model || view === "original") return;
     if (storyAt(sel.a.idx)) { status("Une note s'appelle depuis le corps du texte.", true); return; }
@@ -1460,11 +1518,12 @@
         return k >= 0 ? { a: { idx: k, off: cp(m.paragraphs[k].text) }, b: { idx: k, off: cp(m.paragraphs[k].text) } } : null;
       });
     });
-  });
-  $("btnTable").addEventListener("click", (e) => {
+  }
+  /** Lignes et colonnes du tableau sous le curseur (vide hors tableau). */
+  function tableItems(): Item[] {
     const sel = readSel();
     const p = sel && model ? model.paragraphs[sel.a.idx] : null;
-    if (!sel || !p || !p.cell || view === "original") return;
+    if (!sel || !p || !p.cell || view === "original") return [];
     const [t, r, c] = p.cell;
     const story = p.story || "";
     // Curseur dans la première cellule de la ligne voulue, après le geste.
@@ -1477,7 +1536,7 @@
       if (ok && note) status(note);
     });
     const direct = tracked ? "sans suivi : Word ne suit pas les colonnes" : "";
-    showMenu(e.currentTarget as HTMLElement, [
+    return [
       { label: "Insérer une ligne au-dessus", run: () => run({ op: "insert_row", paragraph: ref(sel.a.idx), above: true }, toCell(r, 0)) },
       { label: "Insérer une ligne en dessous", run: () => run({ op: "insert_row", paragraph: ref(sel.a.idx) }, toCell(r + 1, 0)) },
       { label: "Insérer une colonne à gauche", run: () => run({ op: "insert_column", paragraph: ref(sel.a.idx), left: true }, toCell(r, c), direct && `Colonne ajoutée ${direct}`) },
@@ -1485,10 +1544,9 @@
       { label: "", sep: true },
       { label: "Supprimer la ligne", danger: true, run: () => run({ op: "delete_row", paragraph: ref(sel.a.idx) }, () => null) },
       { label: "Supprimer la colonne", danger: true, run: () => run({ op: "delete_column", paragraph: ref(sel.a.idx) }, () => null, direct && `Colonne supprimée ${direct}`) },
-    ]);
-  });
-  $("btnFigure").addEventListener("click", async (e) => {
-    const trigger = e.currentTarget as HTMLElement;
+    ];
+  }
+  async function figureMenu(trigger: HTMLElement) {
     const sel = readSel();
     if (!sel || !model || view === "original") return;
     let list: { path: string }[] = [];
@@ -1502,24 +1560,46 @@
       }))
       : [{ label: "Aucune image PNG, JPEG ou GIF dans le projet" }];
     showMenu(trigger, items);
+  }
+  $("btnInsert").addEventListener("click", (e) => {
+    const trigger = e.currentTarget as HTMLElement;
+    const sel = readSel();
+    const p = currentPara();
+    const off = !sel || view === "original";
+    const rows = tableItems();
+    showMenu(trigger, [
+      { label: "Note de bas de page", disabled: off || !!(p && p.story), run: insertNote },
+      { label: "Figure du projet…", disabled: off, run: () => void figureMenu(trigger) },
+      ...(rows.length ? [{ label: "Tableau", head: true }, ...rows] : []),
+    ]);
   });
 
-  revbar.querySelectorAll<HTMLElement>("[data-view]").forEach((b) => b.addEventListener("click", () => {
-    view = b.dataset.view as typeof view;
+  type View = "revue" | "final" | "original";
+  const VIEWS: [View, string][] = [["revue", "Revue"], ["final", "Final"], ["original", "Original"]];
+  function setView(next: View) {
+    view = next;
     document.body.classList.remove("v-revue", "v-final", "v-original");
     document.body.classList.add(`v-${view}`);
-    revbar.querySelectorAll("[data-view]").forEach((x) => x.classList.toggle("on", x === b));
+    ($("ddView").firstElementChild as HTMLElement).textContent = VIEWS.find(([v]) => v === view)![1];
     paper.contentEditable = view === "original" ? "false" : "true";
     layoutCards();
     scheduleLines();
-  }));
+  }
   function setPage(next: string, save: boolean) {
     page = next;
     document.body.classList.toggle("blanche", page === "blanche");
-    revbar.querySelectorAll("[data-page]").forEach((x) => x.classList.toggle("on", (x as HTMLElement).dataset.page === page));
     if (save) api("/docx/prefs", { page }).catch(() => undefined);
   }
-  revbar.querySelectorAll<HTMLElement>("[data-page]").forEach((b) => b.addEventListener("click", () => setPage(b.dataset.page!, true)));
+  $("ddView").addEventListener("click", (e) => {
+    showMenu(e.currentTarget as HTMLElement, [
+      { label: "Affichage", head: true },
+      ...VIEWS.map(([v, label]) => ({ label, on: view === v, run: () => setView(v) })),
+      { label: "", sep: true },
+      { label: "Page", head: true },
+      { label: "Blanche", on: page === "blanche", run: () => setPage("blanche", true) },
+      { label: "Thème de l'app", on: page !== "blanche", run: () => setPage("theme", true) },
+    ]);
+  });
   $("btnAll").addEventListener("click", (e) => {
     if (!model) return;
     const items: Item[] = [
@@ -1543,23 +1623,26 @@
     const sel = readSel();
     return sel && model ? model.paragraphs[sel.a.idx] || null : null;
   }
+  /** Mise en forme sous le curseur, ou du premier caractère sélectionné. */
+  function currentSeg() {
+    const sel = readSel();
+    return sel ? segAt(sel.a.off === sel.b.off || sel.a.idx !== sel.b.idx ? sel.a : { idx: sel.a.idx, off: sel.a.off + 1 }) : null;
+  }
 
   function syncToolbar() {
     if (!model) return;
     const sel = readSel();
     const p = sel ? model.paragraphs[sel.a.idx] : null;
-    const seg = sel ? segAt(sel.a.off === sel.b.off || sel.a.idx !== sel.b.idx ? sel.a : { idx: sel.a.idx, off: sel.a.off + 1 }) : null;
+    const seg = currentSeg();
     const style = model.styles.find((s) => s.id === (p?.style || "Normal"));
     ($("ddStyle").firstElementChild as HTMLElement).textContent = styleLabel(style ? style.name : (p?.style || "Normal"));
     ($("ddFont").firstElementChild as HTMLElement).textContent = seg?.font || "Police du style";
     ($("ddSize").firstElementChild as HTMLElement).textContent = seg?.size ? String(seg.size).replace(".", ",") : "–";
     fmtbar.querySelectorAll<HTMLElement>("[data-run]").forEach((b) => b.classList.toggle("on", !!(seg && (seg as Record<string, unknown>)[b.dataset.run!])));
-    fmtbar.querySelectorAll<HTMLElement>("[data-align]").forEach((b) => b.classList.toggle("on", (p?.align || "left") === b.dataset.align));
-    ($("btnBullets") as HTMLButtonElement).disabled = !listStyle(/puce|bullet/i);
-    ($("btnNumbers") as HTMLButtonElement).disabled = !listStyle(/num[ée]ro|number/i);
+    const al = ALIGN.find(([a]) => a === (p?.align || "left")) || ALIGN[0];
+    const alIcon = $("btnAlign").firstElementChild as HTMLElement;
+    if (alIcon.dataset.al !== al[0]) { alIcon.dataset.al = al[0]; alIcon.innerHTML = al[2]; }
     ($("btnComment") as HTMLButtonElement).disabled = !sel || collapsed(sel);
-    ($("btnNote") as HTMLButtonElement).disabled = !sel || !!(p && p.story);
-    ($("btnTable") as HTMLButtonElement).disabled = !p || !p.cell;
   }
 
   async function decideAll(op: string, who?: string) {
@@ -1930,6 +2013,7 @@
       <span class="sp"></span>
       <span class="st"></span>
       <span>·</span><button id="who" data-tooltip="Nom inscrit sur tes retouches et commentaires">Signé ${esc(author)}</button>`;
+    if (model.page) foot.appendChild(zoomEl);
     status(lastStatus || "Enregistré dans le .docx", false);
     $("who").addEventListener("click", (e) => {
       showPopAt((e.currentTarget as HTMLElement).getBoundingClientRect(), `<label>Nom sur tes retouches (celui que Christophe voit dans Word)<input value="${esc(author)}"></label><div class="c-foot"><button class="btn" data-x="cancel">Annuler</button><button class="btn primary" data-x="send">Enregistrer</button></div>`);
