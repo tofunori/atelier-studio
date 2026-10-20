@@ -1,0 +1,17 @@
+[package]
+name = "atelier-docx"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Lecture et retouche chirurgicale des .docx (suivis de modifications, commentaires) pour Atelier Studio"
+
+[dependencies]
+zip = { version = "2", features = ["deflate"] }
+roxmltree = "0.20"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

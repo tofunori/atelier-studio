@@ -5,7 +5,7 @@ import {createNoteEditor,createSelectionActions} from "../../../gallery/src/stud
 // indicateur Working, chapitres épinglés, bouton « aller au dernier message ».
 // JSX déplacé VERBATIM depuis Chat.tsx ; les bundles sont déstructurés vers les
 // noms locaux d'origine pour garantir l'équivalence pixel.
-import React, { useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
+import React, { Suspense, lazy, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { stabilizeVirtualRows, virtualRowType } from "./virtualRows";
 import { isWebSearchName, isSummarizableTool, Tick } from "./toolPresentation";
@@ -36,7 +36,6 @@ import { SpecialistProposalCard } from "./SpecialistProposalCard";
 import { MemoryProposalCard } from "./MemoryProposalCard";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { WidgetFrame } from "./WidgetFrame";
-import { ComputeJobCard } from "./ComputeJobCard";
 import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
 import { activeMargeIndex, createMarkIndexCache, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
@@ -55,6 +54,8 @@ import { Deferred, RenderBoundary } from "../RenderBoundary";
 import { TimelineStamp } from "./TimelineStamp";
 import { ActivityStep } from './ActivityBatch';
 import { activeTurnStatus } from './activeTurnStatus';
+// Carte de calcul (rare) : chargée à la première tâche proposée, hors de l'entrée.
+const ComputeJobCard = lazy(() => import("./ComputeJobCard").then((m) => ({ default: m.ComputeJobCard })));
 
 // Identité STABLE (voir le prop maintainScrollAtEnd) : un objet recréé à
 // chaque render relance l'animation de suivi en boucle et elle n'atteint
@@ -1154,7 +1155,7 @@ export function ChatTimeline(p: {
           if (e.kind === "widget") return <WidgetFrame key={e.id} event={e} threadId={threadId} />;
           if (e.kind === "specialist_proposal") return <SpecialistProposalCard key={e.id} event={e} />;
           if (e.kind === "memory_proposal") return <MemoryProposalCard key={e.id} event={e} threadId={threadId ?? undefined} />;
-          if (e.kind === "compute_job") return <ComputeJobCard key={e.jobId} event={e} />;
+          if (e.kind === "compute_job") return <Suspense key={e.jobId} fallback={null}><ComputeJobCard event={e} /></Suspense>;
           if (e.kind === "edit") {
             // La carte « fichiers modifiés » du dernier tour terminé liste
             // déjà ces fichiers avec leurs +/− et leur diff par fichier : la

@@ -30,6 +30,8 @@ const CHROME_FILES = [
   "assets/scrollbars.css",
   "assets/gallery_viewer_toolbar.css",
   "assets/pdf_reading.css",
+  "assets/docx_studio.css",
+  "assets/docx_studio.html",
 ];
 
 // Sources TS qui injectent du CSS de chrome (les pages HTML ci-dessus en

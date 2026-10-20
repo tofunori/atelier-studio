@@ -146,6 +146,24 @@ describe("ChatHeader", () => {
     expect(onOpen).toHaveBeenCalledWith(subagents[1].agent);
   });
 
+  // Barre du haut épurée (2026-10-19, piste A) : sans sous-agent en cours, le
+  // bouton n'affiche aucun chiffre (le total « 171 » encombrait la barre) ;
+  // le spécialiste ne s'y répète pas, le compositeur le montre déjà.
+  it("barre du haut : pas de total de sous-agents ni de spécialiste", () => {
+    const done = (threadId: string) => ({ agent: {
+      threadId, displayName: "Explore", description: "Lire", status: "done" as const, statusMessage: null,
+      prompt: null, model: null, reasoningEffort: null, agentPath: null,
+    }, latestTurn: false });
+    const consigneDuFil = { id: "x", texte: "", specialiste: { id: "r", nom: "Rédacteur corpus", nomCourt: "Rédacteur", texte: "" } };
+    const { rerender } = render(<ChatHeader {...base} compact consigneDuFil={consigneDuFil}
+      subagents={[done("a"), done("b"), done("c")]} onOpenSubagent={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: t("chat.subagents-menu-label", { count: 3 }) });
+    expect(trigger.textContent).toBe("");
+    expect(screen.queryByText("Rédacteur corpus")).toBeNull();
+    rerender(<ChatHeader {...base} consigneDuFil={consigneDuFil} />);
+    expect(screen.getByText("Rédacteur corpus")).toBeInTheDocument();
+  });
+
   // Vue de la transcription (2026-08-21) : bouton icône seule (pas de texte),
   // menu des 4 modes avec coche sur l'actif ; absent sans onTranscriptViewChange.
   it("sélecteur de vue : icône seule, 4 modes, remonte le choix", async () => {

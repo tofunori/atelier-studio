@@ -78,5 +78,9 @@ describe("SubagentView", () => {
     cleanup();
     view({ agent: { ...agent, status: "done", statusMessage: null } });
     expect(screen.getByTestId("agent-transcript-empty")).toBeInTheDocument();
+    cleanup();
+    // Claude remet la mission comme message d'état : ce n'est pas un rapport.
+    view({ agent: { ...agent, status: "done", statusMessage: agent.description! } });
+    expect(screen.getByTestId("agent-transcript-empty")).toBeInTheDocument();
   });
 });

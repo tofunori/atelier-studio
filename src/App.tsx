@@ -2655,6 +2655,16 @@ export default function App() {
         void showError(t("chat.open-file-binary-outside", { name }));
         return;
       }
+      // .docx hors projet : le panneau n'écrit que dans le projet, Word s'en charge.
+      if (ext === "docx") {
+        void (async () => {
+          const path = outside.startsWith("~/")
+            ? `${(await import("@tauri-apps/api/path").then((m) => m.homeDir())).replace(/\/$/, "")}/${outside.slice(2)}`
+            : outside;
+          await openPath(path);
+        })().catch((error) => void showError(String(error)));
+        return;
+      }
       url = ext === "md" && !options.diff
         ? `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(outside)}`
         : `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(outside)}${lineQ}${diffQ}${baseQ}`;
@@ -2662,6 +2672,8 @@ export default function App() {
       url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}${pageQ}`;
     } else if (ext === "svg") {
       url = `${origin}/.fig_thumbs/svg_viewer.html?file=${encodeURIComponent(rel)}`;
+    } else if (ext === "docx") {
+      url = `${origin}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}`;
     } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       url = `${origin}/${rel}`;
     } else if (renderHtml) {
@@ -2730,8 +2742,9 @@ export default function App() {
         target += `&page=${Number(options.page)}`;
       }
     }
+    else if (ext === "docx") target = `${origin}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path)}`;
     else if (!["png", "jpg", "jpeg", "webp", "gif", "html", "htm"].includes(ext)) target = `${origin}/.fig_thumbs/${ext === "md" ? "md_studio" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
-    if (line || options.diff) {
+    if ((line || options.diff) && ext !== "docx") {
       target = `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
       if (line) target += `&line=${encodeURIComponent(line)}`;
       if (options.diff) target += "&diff=1";
@@ -3263,6 +3276,11 @@ export default function App() {
           text: promptWithAttachments(specialisteMention.task, attachments),
           displayText: displayPrompt,
           requestId,
+          // Le spécialiste travaille avec les réglages de ce message, comme
+          // un tour ordinaire du fil.
+          model,
+          effort,
+          permissionMode,
         }));
         clearSubmittedAttachments();
       } catch {

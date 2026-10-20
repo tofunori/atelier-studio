@@ -53,8 +53,11 @@ function viewParts(agent: AgentDisplay, events: AgentEvent[], blocks: Block[]) {
   const prompt = agent.prompt && !opaqueAgentText(agent.prompt) ? agent.prompt : null;
   // Sous-agent sans transcript lisible (Claude d'avant la relecture du disque,
   // ou fichier absent) : son dernier message d'état tient lieu de rapport.
-  const fallback = !blocks.length && !working && agent.statusMessage && !opaqueAgentText(agent.statusMessage)
-    ? agent.statusMessage : null;
+  // Un message d'état qui ne fait que répéter la mission (titre) n'est pas un
+  // rapport : la vue dit alors qu'aucun compte rendu n'a été enregistré.
+  const message = agent.statusMessage?.trim();
+  const fallback = !blocks.length && !working && message && !opaqueAgentText(message)
+    && message !== agent.description?.trim() ? message : null;
   // Avec un transcript, l'outil en cours s'y lit déjà : la ligne vivante dit
   // seulement que l'agent travaille. Sans transcript, sa dernière activité.
   const live = !working ? null : blocks.length ? t("chat.subagent-working") : currentAgentActivity(agent, events, true);

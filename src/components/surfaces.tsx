@@ -5,11 +5,11 @@
 // plus grandes pour s'aligner sur les icônes Chats/Surlignés du rail (19px).
 import { BookIcon, BranchIcon } from "./icons";
 
-export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves" | "noyau";
+export type Surface = "atelier" | "browser" | "terminal" | "git" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves" | "noyau" | "documents";
 
 export const SURFACES: {
   id: Surface;
-  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.calculs" | "atelier.preuves" | "atelier.noyau";
+  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.calculs" | "atelier.preuves" | "atelier.noyau" | "atelier.documents";
   icon: React.ReactNode;
 }[] = [
   {
@@ -21,6 +21,17 @@ export const SURFACES: {
         <rect x="9.3" y="1.5" width="5.2" height="5.2" rx="1" />
         <rect x="1.5" y="9.3" width="5.2" height="5.2" rx="1" />
         <rect x="9.3" y="9.3" width="5.2" height="5.2" rx="1" />
+      </svg>
+    ),
+  },
+  {
+    // Documents : traitement de texte .docx (créer, relire, suivis signés).
+    id: "documents",
+    labelKey: "atelier.documents",
+    icon: (
+      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 1.8h5.2L12.5 5v8.2c0 .6-.4 1-1 1h-7.5c-.6 0-1-.4-1-1V2.8c0-.6.4-1 1-1z" />
+        <path d="M9 1.8V5h3.5M5.5 8.2h5M5.5 10.6h3.5" />
       </svg>
     ),
   },

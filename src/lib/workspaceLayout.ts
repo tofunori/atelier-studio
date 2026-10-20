@@ -52,6 +52,7 @@ const SURFACES = new Set<Surface>([
   "calculs",
   "preuves",
   "noyau",
+  "documents",
 ]);
 
 /** Surfaces renommées : une référence persistée sous l'ancien id est

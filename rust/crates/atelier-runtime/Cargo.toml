@@ -14,6 +14,7 @@ atelier-harness = { workspace = true }
 atelier-providers = { workspace = true }
 atelier-kb = { workspace = true }
 atelier-kernel = { workspace = true }
+atelier-docx = { workspace = true }
 axum = { workspace = true }
 futures-util = { workspace = true }
 serde = { workspace = true }
@@ -38,6 +39,7 @@ hex = "0.4"
 notify = "8"
 
 [dev-dependencies]
+zip = { version = "2", default-features = false, features = ["deflate"] }
 tokio-tungstenite = "0.28"
 tempfile = { workspace = true }
 http-body-util = { workspace = true }

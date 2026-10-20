@@ -150,28 +150,63 @@ pub fn claude_subagent_events(jsonl: &str) -> Vec<Value> {
 /// Cherche le transcript sous `<base>/projects/*/<session>/subagents/`. Le
 /// dossier du projet dépend du répertoire de lancement ; on le parcourt plutôt
 /// que de recalculer l'encodage du CLI.
+///
+/// La session enregistrée sur le fil peut ne pas être celle du tour en cours
+/// (elle n'est mise à jour qu'à la fin du tour, et une reprise peut en ouvrir
+/// une autre) : faute de fichier sous cette session, on cherche l'agent dans
+/// toutes les sessions. Son id est unique et le chemin trouvé est retenu, si
+/// bien que le sondage suivant ne refait pas la recherche.
 pub fn load_claude_subagent_history_from_base(
     base: &Path,
-    session_id: &str,
+    session_id: Option<&str>,
     agent_id: &str,
 ) -> Vec<Value> {
-    if !safe_id(session_id) || !safe_id(agent_id) {
+    if !safe_id(agent_id) || session_id.is_some_and(|s| !safe_id(s)) {
         return Vec::new();
     }
-    let Ok(projects) = std::fs::read_dir(base.join("projects")) else {
-        return Vec::new();
-    };
-    for project in projects.flatten() {
-        let path = project
-            .path()
-            .join(session_id)
-            .join("subagents")
-            .join(format!("agent-{agent_id}.jsonl"));
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            return claude_subagent_events(&text);
+    let file = format!("agent-{agent_id}.jsonl");
+    let cache_key = base.join(&file);
+    let cached = found_paths()
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&cache_key).cloned());
+    let path = cached.or_else(|| {
+        let projects: Vec<PathBuf> = std::fs::read_dir(base.join("projects"))
+            .ok()?
+            .flatten()
+            .map(|entry| entry.path())
+            .collect();
+        let in_session = session_id.and_then(|session| {
+            projects
+                .iter()
+                .map(|project| project.join(session).join("subagents").join(&file))
+                .find(|path| path.is_file())
+        });
+        let found = in_session.or_else(|| {
+            projects.iter().find_map(|project| {
+                std::fs::read_dir(project)
+                    .ok()?
+                    .flatten()
+                    .find_map(|session| {
+                        let path = session.path().join("subagents").join(&file);
+                        path.is_file().then_some(path)
+                    })
+            })
+        })?;
+        if let Ok(mut map) = found_paths().lock() {
+            map.insert(cache_key.clone(), found.clone());
         }
-    }
-    Vec::new()
+        Some(found)
+    });
+    path.and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|text| claude_subagent_events(&text))
+        .unwrap_or_default()
+}
+
+fn found_paths() -> &'static std::sync::Mutex<HashMap<PathBuf, PathBuf>> {
+    static PATHS: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, PathBuf>>> =
+        std::sync::OnceLock::new();
+    PATHS.get_or_init(Default::default)
 }
 
 fn claude_config_dir() -> Option<PathBuf> {
@@ -181,7 +216,7 @@ fn claude_config_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".claude"))
 }
 
-pub fn load_claude_subagent_history(session_id: &str, agent_id: &str) -> Vec<Value> {
+pub fn load_claude_subagent_history(session_id: Option<&str>, agent_id: &str) -> Vec<Value> {
     claude_config_dir()
         .map(|base| load_claude_subagent_history_from_base(&base, session_id, agent_id))
         .unwrap_or_default()
@@ -229,19 +264,45 @@ pas du json
     }
 
     #[test]
+    fn un_agent_sous_une_autre_session_que_celle_du_fil_est_retrouve() {
+        let base = tempfile::tempdir().unwrap();
+        let ancienne = base
+            .path()
+            .join("projects/-Users-t-these/sess-ancienne/subagents");
+        let courante = base
+            .path()
+            .join("projects/-Users-t-these/sess-du-tour/subagents");
+        std::fs::create_dir_all(&ancienne).unwrap();
+        std::fs::create_dir_all(&courante).unwrap();
+        std::fs::write(courante.join("agent-b7c.jsonl"), SAMPLE).unwrap();
+        assert_eq!(
+            load_claude_subagent_history_from_base(base.path(), Some("sess-ancienne"), "b7c").len(),
+            4
+        );
+        assert_eq!(
+            load_claude_subagent_history_from_base(base.path(), None, "b7c").len(),
+            4
+        );
+    }
+
+    #[test]
     fn le_fichier_se_trouve_par_session_et_agent_sans_sortir_du_dossier() {
         let base = tempfile::tempdir().unwrap();
         let dir = base.path().join("projects/-Users-t-these/sess-1/subagents");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("agent-a9f.jsonl"), SAMPLE).unwrap();
         assert_eq!(
-            load_claude_subagent_history_from_base(base.path(), "sess-1", "a9f").len(),
+            load_claude_subagent_history_from_base(base.path(), Some("sess-1"), "a9f").len(),
             4
         );
         assert!(
-            load_claude_subagent_history_from_base(base.path(), "sess-1", "inconnu").is_empty()
+            load_claude_subagent_history_from_base(base.path(), Some("sess-1"), "inconnu")
+                .is_empty()
         );
-        assert!(load_claude_subagent_history_from_base(base.path(), "..", "a9f").is_empty());
-        assert!(load_claude_subagent_history_from_base(base.path(), "sess-1", "../a9f").is_empty());
+        assert!(load_claude_subagent_history_from_base(base.path(), Some(".."), "a9f").is_empty());
+        assert!(
+            load_claude_subagent_history_from_base(base.path(), Some("sess-1"), "../a9f")
+                .is_empty()
+        );
     }
 }

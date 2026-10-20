@@ -91,7 +91,7 @@ describe("App — premier lancement", () => {
     await settle();
     expect(setupEnvironmentSnapshot().welcomeOpen).toBe(false);
     expect(document.querySelector(".setup-welcome-dialog")).toBeNull();
-    expect(document.querySelector(".chat-notice-trigger")).toBeNull();
+    expect(document.querySelector(".chat-notice-line")).toBeNull();
   });
 
   it("Mac neuf : la fenêtre s'ouvre au premier setupStatus", async () => {
@@ -143,6 +143,6 @@ describe("App — premier lancement", () => {
     // une seule fois : la demande est consommée
     expect(commands).toEqual([{ command: "curl -fsSL https://claude.ai/install.sh | bash" }]);
     // le bandeau « termine l'installation, puis revérifie » est posé
-    expect(document.querySelector(".chat-notice-trigger")).not.toBeNull();
+    expect(document.querySelector(".chat-notice-line")).not.toBeNull();
   });
 });

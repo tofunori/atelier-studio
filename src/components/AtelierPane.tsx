@@ -14,6 +14,7 @@ const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
 const GeneratorSurface = lazyWithRetry(() => import("./GeneratorSurface"));
 const CalculsSurface = lazyWithRetry(() => import("./CalculsSurface"));
 const KernelSurface = lazyWithRetry(() => import("./KernelSurface"));
+const DocumentsSurface = lazyWithRetry(() => import("./DocumentsSurface"));
 const EvidenceSurface = lazyWithRetry(() => import("./EvidenceSurface"));
 import { t } from "../lib/i18n";
 import { loadGalleryFavorites, setGalleryFavorite } from "../lib/galleryFavorites";
@@ -1152,6 +1153,15 @@ export default function AtelierPane({
         <div key="surface:preuves" className="workspace-tab-content surface-body" style={{ display }}>
           <LazyBoundary fallback={<div className="pane-slot" />}>
             <EvidenceSurface projectRoot={projectRoot} />
+          </LazyBoundary>
+        </div>
+      );
+    }
+    if (ref.surface === "documents") {
+      return (
+        <div key="surface:documents" className="workspace-tab-content surface-body" style={{ display }}>
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <DocumentsSurface galleryUrl={url} projectRoot={projectRoot} visible={active && layout !== "chat" && !overlayOpen} />
           </LazyBoundary>
         </div>
       );

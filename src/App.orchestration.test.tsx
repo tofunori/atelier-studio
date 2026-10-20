@@ -158,17 +158,11 @@ function stopButton() {
   return screen.queryByRole("button", { name: t("action.interrupt") });
 }
 
-/** Alerte du chat (163c11f9) : une icône dans l'en-tête ; le message n'apparaît
- * qu'en ouvrant son popover. Ouvre-le au besoin et renvoie le texte affiché —
- * null quand aucune alerte n'est portée. */
+/** Alerte du chat : une ligne lisible au-dessus du compositeur (2026-10-19) ;
+ * renvoie le texte affiché — null quand aucune alerte n'est portée. */
 async function noticeText(): Promise<string | null> {
-  const trigger = screen.queryByRole("button", { name: "Afficher l’alerte du chat" });
-  if (!trigger) return null;
-  if (!document.querySelector(".chat-notice-detail")) {
-    fireEvent.click(trigger);
-    await act(async () => { await flushMicrotasks(4); });
-  }
-  return document.querySelector(".chat-notice-detail p")?.textContent ?? null;
+  await act(async () => { await flushMicrotasks(4); });
+  return document.querySelector(".chat-notice-line .chat-notice-body")?.textContent ?? null;
 }
 
 beforeEach(() => {
@@ -984,19 +978,17 @@ describe("orchestration App — caractérisation", () => {
     expect(screen.getAllByTitle(t("action.interrupt")).length).toBeGreaterThan(0);
   });
 
-  it("affiche l'alerte en icône et la retire après confirmation du serveur", async () => {
+  it("affiche l'alerte en ligne et la retire après confirmation du serveur", async () => {
     const {sock}=await mountApp();
     await pushThreads(sock);
     await selectThread(sock,"Fil A — albédo");
     await push(sock,{type:'sendReceipt',clientMessageId:'notice-test',threadId:'thread-A',status:'uncertain'});
-    expect(screen.getByRole('button',{name:'Afficher l’alerte du chat'})).toBeTruthy();
-    fireEvent.click(screen.getByRole('button',{name:'Afficher l’alerte du chat'}));
-    await act(async()=>{await flushMicrotasks(4);});
+    expect(document.querySelector('.chat-notice-line')).not.toBeNull();
     fireEvent.click(screen.getByRole('button',{name:'Vérifier l’état'}));
     expect(sock.sent.map(value=>JSON.parse(value)).filter(message=>message.type==='receiptStatus').slice(-1)[0]?.clientMessageId).toBe('notice-test');
     expect(sock.sent.map(value=>JSON.parse(value)).some(message=>message.type==='send')).toBe(false);
     await push(sock,{type:'sendReceipt',clientMessageId:'notice-test',threadId:'thread-A',status:'received'});
-    expect(screen.queryByRole('button',{name:'Afficher l’alerte du chat'})).toBeNull();
+    expect(document.querySelector('.chat-notice-line')).toBeNull();
   });
 
   it("retire l’alerte quand sa croix est utilisée sans renvoyer le message", async () => {
@@ -1004,10 +996,8 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock);
     await selectThread(sock,"Fil A — albédo");
     await push(sock,{type:'sendReceipt',clientMessageId:'dismiss-test',threadId:'thread-A',status:'uncertain'});
-    fireEvent.click(screen.getByRole('button',{name:'Afficher l’alerte du chat'}));
-    await act(async()=>{await flushMicrotasks(4);});
     fireEvent.click(screen.getByRole('button',{name:'Retirer l’alerte du chat'}));
-    expect(screen.queryByRole('button',{name:'Afficher l’alerte du chat'})).toBeNull();
+    expect(document.querySelector('.chat-notice-line')).toBeNull();
     expect(sock.sent.map(value=>JSON.parse(value)).some(message=>message.type==='send')).toBe(false);
   });
 
@@ -1016,11 +1006,11 @@ describe("orchestration App — caractérisation", () => {
     await pushThreads(sock);
     await selectThread(sock,"Fil A — albédo");
     await push(sock,{type:'error',requestType:'send',threadId:'thread-A',message:'Envoi refusé',code:'REQUEST_BUSY'});
-    expect(screen.getByRole('button',{name:'Afficher l’alerte du chat'})).toBeTruthy();
+    expect(document.querySelector('.chat-notice-line')).not.toBeNull();
     await push(sock,{type:'event',threadId:'thread-B',event:events.user('autre chat')});
-    expect(screen.getByRole('button',{name:'Afficher l’alerte du chat'})).toBeTruthy();
+    expect(document.querySelector('.chat-notice-line')).not.toBeNull();
     await push(sock,{type:'event',threadId:'thread-A',event:events.user('envoi confirmé')});
-    expect(screen.queryByRole('button',{name:'Afficher l’alerte du chat'})).toBeNull();
+    expect(document.querySelector('.chat-notice-line')).toBeNull();
   });
 
   it("retire l’alerte de reçu seulement pour le message confirmé", async () => {
@@ -1029,9 +1019,9 @@ describe("orchestration App — caractérisation", () => {
     await selectThread(sock,"Fil A — albédo");
     await push(sock,{type:'sendReceipt',clientMessageId:'receipt-a',threadId:'thread-A',status:'uncertain'});
     await push(sock,{type:'event',threadId:'thread-A',event:{...events.user('autre message'),meta:{messageId:'receipt-b'}}});
-    expect(screen.getByRole('button',{name:'Afficher l’alerte du chat'})).toBeTruthy();
+    expect(document.querySelector('.chat-notice-line')).not.toBeNull();
     await push(sock,{type:'event',threadId:'thread-A',event:{...events.user('confirmé'),meta:{messageId:'receipt-a'}}});
-    expect(screen.queryByRole('button',{name:'Afficher l’alerte du chat'})).toBeNull();
+    expect(document.querySelector('.chat-notice-line')).toBeNull();
   });
 
   it("attache l'artefact reçu par atelier-add-to-chat (nonce + origine vérifiés)", async () => {

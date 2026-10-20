@@ -7,6 +7,7 @@ extension PDFReadingExtractor {
     struct VisualRegion {
         let bounds: CGRect
         let label: String
+        var figure: String? = nil
     }
 
     static func canReplaceLine(_ bounds: CGRect, withImage imageBounds: CGRect) -> Bool {
@@ -17,7 +18,7 @@ extension PDFReadingExtractor {
     /// Captions stay selectable; labels enclosed by a figure become part of its image.
     static func visualRegions(_ lines: [Line], pageBounds: CGRect) -> [VisualRegion] {
         var regions: [VisualRegion] = []
-        let caption = #"^(?:Figure|Fig\.)\s*\d+\s*[.:]"#
+        let caption = #"^(?:Figure|Fig\.)\s*(\d+)\s*[.:]"#
         for line in lines where line.text.range(of: caption, options: [.regularExpression, .caseInsensitive]) != nil {
             // A caption's first line can be just "Figure 1." and cannot define image width.
             // Preserve the full horizontal band rather than clipping a plot or its axes.
@@ -32,7 +33,8 @@ extension PDFReadingExtractor {
             guard top - bottom > 45 else { continue }
             let rect = CGRect(x: left, y: bottom, width: right - left, height: top - bottom)
             guard !regions.contains(where: { $0.bounds.intersects(rect) }) else { continue }
-            regions.append(VisualRegion(bounds: rect, label: "Figure · originale"))
+            let number = line.text.range(of: #"\d+"#, options: .regularExpression).map { String(line.text[$0]) }
+            regions.append(VisualRegion(bounds: rect, label: number.map { "Figure \($0) · originale" } ?? "Figure · originale", figure: number))
         }
         for line in lines {
             let math = line.text.range(of: #"[=∫∑√≤≥≈∂]"#, options: .regularExpression) != nil
@@ -64,7 +66,7 @@ extension PDFReadingExtractor {
             guard let image = Self.visualImage(page, region: candidate.bounds) else { continue }
             let index = lines.firstIndex { candidate.bounds.contains(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY)) }
                 ?? lines.firstIndex { $0.bounds.maxY < candidate.bounds.minY } ?? lines.count
-            visuals.append((index, PDFReadingVisual(bounds: candidate.bounds, image: image, label: candidate.label)))
+            visuals.append((index, PDFReadingVisual(bounds: candidate.bounds, image: image, label: candidate.label, figure: candidate.figure)))
         }
         var result: [PDFReadingBlock] = [], pending: [Line] = []
         func flush() {
@@ -84,7 +86,8 @@ extension PDFReadingExtractor {
         }
         flush()
         return result.enumerated().map { index, block in
-            PDFReadingBlock(id: index, text: block.text, heading: block.heading, anchors: block.anchors, visual: block.visual, joins: block.joins)
+            PDFReadingBlock(id: index, text: block.text, heading: block.heading, anchors: block.anchors, visual: block.visual, joins: block.joins,
+                            levels: block.levels)
         }
     }
 

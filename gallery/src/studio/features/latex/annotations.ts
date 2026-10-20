@@ -286,6 +286,7 @@ export function createLatexAnnotationsController(
     colorButtons.forEach((button) => button.classList.toggle("on", button.dataset.color === (annotation.color || "amber")));
     const coordinates = anchor || activeEditor.charCoords(annotation.to, "window");
     options.popover.style.display = "block";
+    noteUI.fit(); // hauteur finale avant de placer la bulle
     const margin = 8;
     const width = options.popover.getBoundingClientRect().width;
     const maxLeft = Math.max(margin, win.innerWidth - width - margin);
