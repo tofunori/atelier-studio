@@ -1,12 +1,10 @@
 // Repérage léger des figures annotées dans le texte d'un tour (entrée de
-// l'app) ; la lecture complète (notes, version) est dans `figureAnnotation.ts`,
+// l'app) ; la lecture des notes est dans `figureAnnotation.ts`,
 // chargé avec la carte. Format : voir ce fichier.
 
 export type FigureEnvelope = { preview: string; name: string; text: string };
 
 const PREVIEW = /^(?:\.fig_thumbs\/annotation-previews|annotations)\/\S+_annot_[\w-]+\.(?:png|jpe?g|webp)$/;
-
-export const isFigurePreview = (line: string) => PREVIEW.test(line);
 
 /**
  * Sépare les enveloppes de figures annotées du texte tapé. Les pièces jointes

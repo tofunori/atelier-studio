@@ -24,7 +24,7 @@ function renderTurn(event: Record<string, unknown>) {
   return { onEditingChange, onTogglePin };
 }
 
-it('shows the card without the agent envelope, and the source on demand', async () => {
+it('shows only the card, never the agent envelope', async () => {
   const { onEditingChange, onTogglePin } = renderTurn({ text: envelope, label: 'figS_snowpack.png',
     imageUrl: 'http://127.0.0.1:1/x.png', notes: [{ n: 1, text: 'est-ce que 2012 est reconnu pour une année neigeuse?' }] });
   // La carte est chargée à part (budget de l'entrée).
@@ -34,10 +34,7 @@ it('shows the card without the agent envelope, and the source on demand', async 
   expect(document.body.textContent).not.toContain('SHA-256');
   expect(document.querySelector('.user-annot-title')?.textContent).toBe('figS_snowpack.png');
   expect(screen.getByText('est-ce que 2012 est reconnu pour une année neigeuse?')).toBeTruthy();
-  expect(document.querySelector('.user-annot-meta')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: t('chat.figure-details') }));
-  expect(document.querySelector('.user-annot-meta')?.textContent).toContain('~/Doctorat/figures/supp/figS_snowpack.png');
-  expect(document.querySelector('.user-annot-meta')?.textContent).toContain('v1 · db618644');
+  expect(document.body.textContent).not.toContain('Figure source');
   // L'agent et la réédition gardent le texte complet.
   fireEvent.click(screen.getByRole('button', { name: t('action.edit-resend') }));
   expect(onEditingChange).toHaveBeenCalledWith(envelope);
