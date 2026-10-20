@@ -50,9 +50,16 @@ test('built whiteboard applies a command and restores the saved shape', async ({
     const response = await request.get(`${project.url}/board/load`);
     return JSON.stringify((await response.json()).snapshot);
   }).toContain('Forme TypeScript');
+  // WebKit signale comme erreur de page la requête /board/poll en cours que
+  // le rechargement annule (« … due to access control checks »).
+  const beforeReload = errors.length;
   await page.reload();
   await expect(page.locator('.tl-shape')).toContainText('Forme TypeScript');
-  expect(errors).toEqual([]);
+  const cancelledPoll = /\/board\/poll due to access control checks/;
+  expect([
+    ...errors.slice(0, beforeReload),
+    ...errors.slice(beforeReload).filter(message => !cancelledPoll.test(message)),
+  ]).toEqual([]);
 });
 
 // Audit du 2026-10-18, problème 6 : Notes et tableau blanc n'écrasent plus
