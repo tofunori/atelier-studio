@@ -17,7 +17,8 @@
 #   pilote -> Rust (stdout d'origine, dupliqué avant toute exécution) :
 #     {"t": "ready", ...}
 #     {"t": "stream", "id": N, "name": "stdout"|"stderr", "text": "..."}
-#     {"t": "done", "id": N, "status": "ok"|"error", "figures": [...], ...}
+#     {"t": "done", "id": N, "status": "ok"|"error", "figures": [...],
+#      "imports": [...], "lineage": {"created", "modified", "deleted", "used"}, ...}
 #     {"t": "vars", "id": N, "vars": [...]}
 #
 # Le descripteur 1 est redirigé vers 2 : ce qu'une bibliothèque C écrit
@@ -43,6 +44,8 @@ VAR_REPR_MAX = 160
 VARS_MAX = 300
 FILES_MAX = 200
 FIGURES_MAX = 12
+MODULES_MAX = 120
+LINEAGE_MAX = 200
 
 _ICI = os.path.abspath(__file__)
 
@@ -231,6 +234,73 @@ def _capturer_figures(dossier, ident):
     return chemins
 
 
+# Méthodes qui modifient leur objet en place : `l.append(x)` modifie `l`.
+# Les méthodes pandas qui rendent une copie ne comptent qu'avec inplace=True.
+_MUTANTES = frozenset((
+    "append", "extend", "insert", "remove", "pop", "popitem", "clear", "sort",
+    "reverse", "update", "setdefault", "add", "discard", "difference_update",
+    "intersection_update", "symmetric_difference_update", "fill", "resize",
+    "put", "itemset", "setflags",
+))
+
+
+def _racine(noeud):
+    """Nom à la base de `d["x"].y[0]` : d."""
+    while isinstance(noeud, (ast.Attribute, ast.Subscript, ast.Starred)):
+        noeud = noeud.value
+    return noeud.id if isinstance(noeud, ast.Name) else None
+
+
+def _lire_arbre(arbre):
+    """Noms lus et noms modifiés en place, d'après le code seul."""
+    lus, mutes = set(), set()
+    for noeud in ast.walk(arbre):
+        if isinstance(noeud, ast.Name) and isinstance(noeud.ctx, ast.Load):
+            lus.add(noeud.id)
+        elif isinstance(noeud, (ast.Attribute, ast.Subscript)) and isinstance(noeud.ctx, (ast.Store, ast.Del)):
+            nom = _racine(noeud)
+            if nom:
+                mutes.add(nom)
+        elif isinstance(noeud, ast.AugAssign):
+            nom = _racine(noeud.target)
+            if nom:
+                mutes.add(nom)
+                lus.add(nom)
+        elif isinstance(noeud, ast.Call) and isinstance(noeud.func, ast.Attribute):
+            nom = _racine(noeud.func.value)
+            inplace = any(k.arg == "inplace" and isinstance(k.value, ast.Constant) and k.value.value is True
+                          for k in noeud.keywords)
+            if nom and (noeud.func.attr in _MUTANTES or inplace):
+                mutes.add(nom)
+    return lus, mutes
+
+
+def _forme(valeur):
+    """Empreinte bon marché d'un objet : sa forme ou sa longueur."""
+    try:
+        forme = getattr(valeur, "shape", None)
+        if isinstance(forme, tuple):
+            return ("shape",) + tuple(forme)
+        if isinstance(valeur, (list, dict, set, bytearray)):
+            return ("len", len(valeur))
+    except Exception:
+        pass
+    return None
+
+
+def _modules_tiers():
+    """Modules de premier niveau chargés hors de la bibliothèque standard."""
+    noms = []
+    for nom, module in list(sys.modules.items()):
+        if "." in nom or nom.startswith("_") or nom == "atelier_noyau" or module is None:
+            continue
+        fichier = getattr(module, "__file__", None) or ""
+        if "site-packages" in fichier or "dist-packages" in fichier:
+            noms.append(nom)
+    noms.sort()
+    return noms[:MODULES_MAX]
+
+
 def _nom_type(valeur):
     t = type(valeur)
     module = getattr(t, "__module__", "")
@@ -245,6 +315,15 @@ class Pilote(object):
         self.etat = etat
         self.espace = espace
         self.de_base = set(espace.keys())
+
+    def _visibles(self):
+        """Variables de l'utilisateur : nom → (id, forme)."""
+        vues = {}
+        for nom, valeur in list(self.espace.items()):
+            if nom.startswith("_") or nom in self.de_base or isinstance(valeur, types.ModuleType):
+                continue
+            vues[nom] = (id(valeur), _forme(valeur))
+        return vues
 
     def executer(self, ident, code, dossier_figures=None):
         etat = self.etat
@@ -261,8 +340,11 @@ class Pilote(object):
         debut = time.time()
         resultat = None
         erreur = None
+        avant = self._visibles()
+        lus, mutes = set(), set()
         try:
             arbre = ast.parse(code, nom, "exec")
+            lus, mutes = _lire_arbre(arbre)
             dernier = None
             if arbre.body and isinstance(arbre.body[-1], ast.Expr):
                 dernier = ast.Expression(arbre.body.pop().value)
@@ -290,6 +372,18 @@ class Pilote(object):
             etat.cellule = None
         # Hors cellule : les PNG des figures ne comptent pas comme fichiers écrits.
         figures = _capturer_figures(dossier_figures, ident)
+        apres = self._visibles()
+        crees = sorted(n for n, (ident_obj, _) in apres.items() if n not in avant or avant[n][0] != ident_obj)
+        modifies = sorted(
+            n for n, (ident_obj, forme) in apres.items()
+            if n in avant and avant[n][0] == ident_obj and (n in mutes or forme != avant[n][1])
+        )
+        lignee = {
+            "created": crees[:LINEAGE_MAX],
+            "modified": modifies[:LINEAGE_MAX],
+            "deleted": sorted(n for n in avant if n not in apres)[:LINEAGE_MAX],
+            "used": sorted(n for n in lus if n in avant)[:LINEAGE_MAX],
+        }
         message = {
             "t": "done",
             "id": ident,
@@ -299,6 +393,8 @@ class Pilote(object):
             "truncated": etat.coupe,
             "files": {"read": sorted(etat.lus), "written": sorted(etat.ecrits)},
             "figures": figures,
+            "imports": _modules_tiers(),
+            "lineage": lignee,
             "duration_ms": int((time.time() - debut) * 1000),
         }
         etat.envoyer(message)
