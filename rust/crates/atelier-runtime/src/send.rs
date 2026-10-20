@@ -1044,6 +1044,10 @@ fn make_interaction_relay(
                 obj.insert("requestId".into(), json!(request_id));
                 obj.insert("state".into(), json!("pending"));
             }
+            let parent = crate::delegation::parent_a_prevenir(&state, &thread_id).await;
+            if let Some(cible) = &parent {
+                crate::delegation::relayer_carte_au_parent(&state, cible, &pending);
+            }
             let _ = tx.send(pending);
             // Question restée sans réponse (délai, tour fini, relais annulé
             // par le provider) : la carte passe « expirée », jamais en
@@ -1053,6 +1057,7 @@ fn make_interaction_relay(
                 request_id: request_id.clone(),
                 spec: Some(spec.clone()),
                 tx: tx.clone(),
+                parent: parent.clone(),
             };
             // Claude attend comme le terminal : sans limite pratique (la
             // demande est close avec le tour). Les autres gardent 120 s.
@@ -1067,6 +1072,9 @@ fn make_interaction_relay(
                         obj.insert("requestId".into(), json!(request_id));
                         obj.insert("state".into(), json!("answered"));
                         obj.insert("answerSummary".into(), json!(answer_summary));
+                    }
+                    if let Some(cible) = &parent {
+                        crate::delegation::relayer_carte_au_parent(&state, cible, &answered);
                     }
                     let _ = tx.send(answered);
                     Some(response)
@@ -1085,6 +1093,7 @@ struct CarteOuverte {
     request_id: String,
     spec: Option<Value>,
     tx: EventSender,
+    parent: Option<crate::delegation::ParentAPrevenir>,
 }
 
 impl Drop for CarteOuverte {
@@ -1094,6 +1103,9 @@ impl Drop for CarteOuverte {
             obj.insert("kind".into(), json!("interaction"));
             obj.insert("requestId".into(), json!(self.request_id));
             obj.insert("state".into(), json!("expired"));
+        }
+        if let Some(cible) = &self.parent {
+            crate::delegation::relayer_carte_au_parent(&self.state, cible, &expired);
         }
         let _ = self.tx.send(expired);
         let state = self.state.clone();
@@ -3231,6 +3243,58 @@ mod tests {
     /// d'events — au journal, `done` précédait le `text` final du provider,
     /// et le front dupliquait la bulle. L'ordre text < done doit être
     /// déterministe : la pompe est drainée AVANT le check de fin de tour.
+    #[tokio::test]
+    async fn la_demande_d_un_fil_lie_s_affiche_aussi_dans_son_parent() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "test".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        {
+            let mut store = state.threads().lock().await;
+            store.upsert(json!({"id": "p", "provider": "claude", "title": "Intro"}), false).unwrap();
+            store
+                .upsert(
+                    json!({"id": "c", "provider": "claude", "title": "Références · Vérifier", "agentLink": {
+                        "parentThreadId": "p", "createdAt": "2026-10-19T00:00:00Z", "autoDeliveryLimit": 2}}),
+                    false,
+                )
+                .unwrap();
+        }
+        let (tx, _rx) = provider_event_queue(1 << 20);
+        let relay = make_interaction_relay(state.clone(), "c".into(), tx);
+        let demande = tokio::spawn(relay(
+            "item/commandExecution/requestApproval".into(),
+            json!({"command": "rg -l Marshall ~/Zotero/storage", "itemId": "i1"}),
+        ));
+        let request_id = loop {
+            if let Some((id, waiter)) = state.interaction_waiters().lock().await.iter().next() {
+                assert_eq!(waiter.thread_id, "c");
+                break id.clone();
+            }
+            tokio::task::yield_now().await;
+        };
+        let carte = |etat: &str| {
+            state
+                .journal()
+                .read_history("p")
+                .into_snapshot()
+                .0
+                .into_iter()
+                .filter(|ev| ev["kind"] == "interaction" && ev["requestId"] == request_id.as_str())
+                .any(|ev| ev["state"] == etat && ev["forThreadId"] == "c" && ev["forTitle"] == "Références · Vérifier")
+        };
+        assert!(carte("pending"), "la carte en attente doit être visible dans le parent");
+        let waiter = state.interaction_waiters().lock().await.remove(&request_id).unwrap();
+        waiter.tx.send(json!({"allow": true, "scope": "once"})).unwrap();
+        assert_eq!(demande.await.unwrap(), Some(json!({"allow": true, "scope": "once"})));
+        assert!(carte("answered"), "la carte du parent passe répondue");
+    }
+
     #[test]
     fn event_queue_only_merges_adjacent_compatible_deltas() {
         let (sender,receiver) = provider_event_queue(4096);

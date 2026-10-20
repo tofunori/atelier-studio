@@ -4295,6 +4295,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* ===== carte interaction harnais (plan 025, step 5) — étend .perm-card ===== */
 .int-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .int-type { margin-left: auto; flex: none; font-size: var(--fs-xs); color: var(--text-disabled); }
+.int-for { margin-top: 4px; font-size: var(--fs-s); color: var(--text-muted); }
 .int-detail { margin-top: 4px; font-size: var(--fs-m); color: var(--text-muted); white-space: pre-wrap; }
 .int-domain { margin-top: 8px; font-family: var(--code-font); font-size: var(--fs-m); color: var(--text-secondary); }
 .int-field { margin-top: 12px; }

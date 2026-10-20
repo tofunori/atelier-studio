@@ -83,6 +83,9 @@ type AgentEventBody =
       preview?: { path: string; oldText: string; newText: string };
       state: "pending" | "answered" | "declined" | "expired";
       answerSummary?: string;
+      /** Copie d'une demande d'un fil lié, montrée dans son parent : la réponse part au nom de ce fil. */
+      forThreadId?: string;
+      forTitle?: string;
       ts?: number;
     }
   | { kind: "stream_set"; text: string; ts?: number }

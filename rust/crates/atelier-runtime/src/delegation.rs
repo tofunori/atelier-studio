@@ -72,6 +72,34 @@ fn au_travail(state_mailbox: &atelier_store::AgentMailboxStore, parent_id: &str,
             .any(|m| m.to_thread_id == child.id && matches!(m.status.as_str(), "queued" | "delivering"))
 }
 
+/// Modèle, effort et mode de permission du fil délégué. Ordre : le choix
+/// explicite du compositeur (`@Nom` tapé par l'utilisateur), puis ceux du
+/// fil parent. Un fil ordinaire garde son mode dans `lastTurn`, jamais à la
+/// racine : sans ce repli, le spécialiste tournait sans mode, donc avec le
+/// repli prudent du provider, et chacune de ses commandes attendait une
+/// autorisation que personne ne voyait.
+fn reglages_herites(parent: &Thread, explicites: Option<&Value>) -> serde_json::Map<String, Value> {
+    let dernier_tour = parent
+        .extra
+        .get("lastTurn")
+        .filter(|tour| tour.get("provider").and_then(Value::as_str) == Some(parent.provider.as_str()));
+    let mut reglages = serde_json::Map::new();
+    for cle in ["model", "effort", "permissionMode"] {
+        let valeur = [
+            explicites.and_then(|m| m.get(cle)),
+            parent.extra.get(cle),
+            dernier_tour.and_then(|tour| tour.get(cle)),
+        ]
+        .into_iter()
+        .flatten()
+        .find(|v| v.as_str().is_some_and(|s| !s.is_empty()));
+        if let Some(v) = valeur {
+            reglages.insert(cle.into(), v.clone());
+        }
+    }
+    reglages
+}
+
 /// Confie `tache` au spécialiste `fiche` depuis le fil `parent_id`.
 pub async fn deleguer(
     state: &AppState,
@@ -80,6 +108,7 @@ pub async fn deleguer(
     tache: &str,
     par: Par,
     request_id: &str,
+    explicites: Option<&Value>,
 ) -> Result<Value, String> {
     let tache = tache.trim();
     if tache.is_empty() {
@@ -103,6 +132,7 @@ pub async fn deleguer(
             .ok_or_else(|| atelier_protocol::agent_mcp_errors::CALLER_UNKNOWN.to_string())?;
         (parent, store.children_of(parent_id))
     };
+    let reglages = reglages_herites(&parent, explicites);
     if parent.agent_link.is_some() {
         return Err("delegation_depth_exceeded: a delegated specialist cannot delegate in turn".into());
     }
@@ -150,7 +180,9 @@ pub async fn deleguer(
                     .saturating_add(2)
                     .min(lim::MAX_AUTO_DELIVERY);
                 link.paused = false;
-                store.upsert(json!({"id": enfant.id, "agentLink": link, "consigne": consigne}), true)?;
+                let mut patch = json!({"id": enfant.id, "agentLink": link, "consigne": consigne});
+                patch.as_object_mut().unwrap().extend(reglages);
+                store.upsert(patch, true)?;
                 (enfant.id, true)
             }
             None => {
@@ -181,11 +213,7 @@ pub async fn deleguer(
                     "consigne": consigne,
                     "delegue": {"specialisteId": fiche_id, "par": par.cle()},
                 });
-                for cle in ["model", "effort", "permissionMode"] {
-                    if let Some(v) = parent.extra.get(cle).filter(|v| !v.is_null()) {
-                        patch[cle] = v.clone();
-                    }
-                }
+                patch.as_object_mut().unwrap().extend(reglages);
                 store.upsert(patch, false)?;
                 (id, false)
             }
@@ -215,6 +243,49 @@ pub async fn deleguer(
     }
 }
 
+/// Fil à prévenir quand un fil lié (spécialiste délégué ou agent `@codex`)
+/// attend une autorisation : son parent, avec le titre de l'enfant.
+/// L'utilisateur regarde le parent, pas l'enfant : sans copie, la carte
+/// restait invisible et le tour de l'enfant figé jusqu'à son délai.
+#[derive(Debug, Clone)]
+pub struct ParentAPrevenir {
+    pub parent_id: String,
+    pub enfant_id: String,
+    pub titre: String,
+}
+
+pub async fn parent_a_prevenir(state: &AppState, thread_id: &str) -> Option<ParentAPrevenir> {
+    let store = state.threads().lock().await;
+    let enfant = store.get(thread_id)?;
+    let parent_id = enfant.agent_link.as_ref()?.parent_thread_id.clone();
+    store.get(&parent_id)?;
+    Some(ParentAPrevenir { parent_id, enfant_id: enfant.id.clone(), titre: enfant.title.clone() })
+}
+
+/// Recopie une carte d'interaction de l'enfant (même `requestId`, donc
+/// mise à jour en place quand elle passe répondue ou expirée) dans le fil
+/// parent. `forThreadId` dit au client d'y répondre au nom de l'enfant.
+pub fn relayer_carte_au_parent(state: &AppState, cible: &ParentAPrevenir, carte: &Value) {
+    let mut ev = carte.clone();
+    let Some(obj) = ev.as_object_mut() else { return };
+    obj.insert("forThreadId".into(), json!(cible.enfant_id));
+    obj.insert("forTitle".into(), json!(cible.titre));
+    obj.insert(
+        "meta".into(),
+        json!({
+            "threadId": cible.parent_id,
+            "sequence": state.journal().next_sequence(&cible.parent_id),
+            "eventId": Uuid::new_v4().to_string(),
+            "ts": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0),
+        }),
+    );
+    let _ = state.journal().append(&ev);
+    state.publish(json_msg(json!({"type": "event", "threadId": cible.parent_id, "event": ev})));
+}
+
 /// Action `delegate` d'`atelier_sessions` (`specialist`, `task`).
 pub async fn action_delegate(state: &AppState, caller_id: &str, req: &Value) -> Result<Value, String> {
     let designation = req.get("specialist").and_then(Value::as_str).unwrap_or("").trim();
@@ -231,7 +302,7 @@ pub async fn action_delegate(state: &AppState, caller_id: &str, req: &Value) -> 
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| Uuid::new_v4().to_string());
-    deleguer(state, caller_id, &fiche, tache, Par::Agent, &request_id).await
+    deleguer(state, caller_id, &fiche, tache, Par::Agent, &request_id, None).await
 }
 
 fn echec_mention(thread_id: &str, request_id: &str, message: impl Into<String>) -> String {
@@ -276,7 +347,7 @@ pub async fn handle_mention_specialiste(state: &AppState, msg: &Value) -> Vec<St
     let _ = state.journal().append(&user_event);
     state.publish(json_msg(json!({"type":"event", "threadId":source_id, "event":user_event})));
 
-    match deleguer(state, source_id, &fiche, text, Par::Utilisateur, request_id).await {
+    match deleguer(state, source_id, &fiche, text, Par::Utilisateur, request_id, Some(msg)).await {
         Ok(reponse) => {
             let mut out = vec![json_msg(json!({
                 "type": "agentMentionAccepted",
@@ -396,6 +467,36 @@ mod tests {
         assert_eq!(encore["targetThreadId"], id.as_str());
         assert_eq!(encore["reused"], true);
         assert_eq!(s.threads().lock().await.children_of("p").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn le_specialiste_herite_du_mode_de_permission_du_dernier_tour() {
+        let s = etat();
+        s.threads()
+            .lock()
+            .await
+            .upsert(
+                json!({"id": "p", "projectRoot": "/tmp/proj", "provider": "codex", "title": "P", "status": "idle",
+                       "lastTurn": {"provider": "codex", "model": "gpt-y", "effort": "high", "permissionMode": "bypassPermissions"}}),
+                false,
+            )
+            .unwrap();
+        let r = action_delegate(&s, "p", &json!({"specialist": "Stats", "task": "t"})).await.unwrap();
+        let id = r["targetThreadId"].as_str().unwrap().to_string();
+        {
+            let store = s.threads().lock().await;
+            let enfant = store.get(&id).unwrap();
+            assert_eq!(enfant.extra["permissionMode"], "bypassPermissions");
+            assert_eq!(enfant.extra["model"], "gpt-y");
+            assert_eq!(enfant.extra["effort"], "high");
+        }
+        // Le choix du compositeur l'emporte, aussi sur un fil réutilisé.
+        let mention = json!({"sourceThreadId": "p", "specialistId": "s1", "text": "suite", "requestId": "r2", "permissionMode": "acceptEdits", "model": ""});
+        handle_mention_specialiste(&s, &mention).await;
+        let store = s.threads().lock().await;
+        let enfant = store.get(&id).unwrap();
+        assert_eq!(enfant.extra["permissionMode"], "acceptEdits");
+        assert_eq!(enfant.extra["model"], "gpt-y");
     }
 
     #[tokio::test]

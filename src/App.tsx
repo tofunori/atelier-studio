@@ -3276,6 +3276,11 @@ export default function App() {
           text: promptWithAttachments(specialisteMention.task, attachments),
           displayText: displayPrompt,
           requestId,
+          // Le spécialiste travaille avec les réglages de ce message, comme
+          // un tour ordinaire du fil.
+          model,
+          effort,
+          permissionMode,
         }));
         clearSubmittedAttachments();
       } catch {
