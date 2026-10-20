@@ -190,7 +190,7 @@ export const UserTurn = memo(function UserTurn(p: {
     <Message id={`msg-${i}`} align="end" className="chat-message user-message">
     <MessageContent className="user-wrap">
       {figures.length > 0 ? figures.map((figure, index) => (
-        <FigureAnnotationCard key={`${index}:${figure.preview}`} figure={figure}
+        <FigureAnnotationCard key={figure.preview} figure={figure}
           imageUrl={index === 0 ? e.imageUrl : undefined}
           imagePath={e.imagePaths?.find((path) => path.endsWith(`/${figure.preview}`))
             ?? (figures.length === 1 && e.imagePaths?.length === 1 ? e.imagePaths[0] : undefined)} />
