@@ -2,8 +2,9 @@
 // badges numérotés. Le texte envoyé à l'agent (chemins, version, consignes)
 // n'apparaît plus dans la bulle ; la source et la version restent consultables
 // sous une ligne repliée (piste B, 2026-10-20).
-import { useEffect, useId, useState } from "react";
-import { figureName, figureSourceLabel, type FigureAnnotation } from "../../lib/figureAnnotation";
+import { useEffect, useId, useMemo, useState } from "react";
+import { figureSourceLabel, parseFigureEnvelope } from "../../lib/figureAnnotation";
+import type { FigureEnvelope } from "../../lib/figureEnvelope";
 import { localImagePreviewUrl } from "../../lib/localImage";
 import { t } from "../../lib/i18n";
 import { RowButton } from "../ui";
@@ -31,8 +32,9 @@ function useThumb(imageUrl: string | undefined, path: string | undefined): strin
   return url;
 }
 
-export function FigureAnnotationCard(p: { figure: FigureAnnotation; imageUrl?: string; imagePath?: string }) {
-  const { figure } = p;
+export function FigureAnnotationCard(p: { envelope: FigureEnvelope; imageUrl?: string; imagePath?: string }) {
+  const figure = useMemo(() => parseFigureEnvelope(p.envelope.text) ?? { preview: p.envelope.preview, notes: [] },
+    [p.envelope.text, p.envelope.preview]);
   const thumb = useThumb(p.imageUrl, p.imagePath);
   const [open, setOpen] = useState(false);
   const detailsId = useId();
@@ -42,7 +44,7 @@ export function FigureAnnotationCard(p: { figure: FigureAnnotation; imageUrl?: s
       <div className="user-annot">
         {thumb ? <img className="user-annot-thumb" src={thumb} alt="" /> : <span className="user-annot-thumb" aria-hidden="true" />}
         <div className="user-annot-body">
-          <div className="user-annot-title" title={figure.source ?? figure.preview}>{figureName(figure)}</div>
+          <div className="user-annot-title" title={figure.source ?? figure.preview}>{p.envelope.name}</div>
           {figure.notes.length > 0 && (
             <ul className="user-annots">
               {figure.notes.map((note) => (

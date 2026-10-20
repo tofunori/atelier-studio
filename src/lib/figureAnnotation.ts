@@ -12,11 +12,15 @@
 //   Recette de la figure : … / Script qui l'a produite : … / Commande : …
 //   Applique directement ces annotations : …
 //
+// Chargé avec la carte (chunk à part) ; le découpage du texte, lui, est dans
+// `figureEnvelope.ts` (entrée).
+//
 // La galerie l'envoie comme une note (accusé de réception), donc le fil
 // l'affichait en clair dans la bulle (2026-10-20). L'agent reçoit toujours le
 // texte complet ; seul l'affichage en tire une carte.
 
 import type { AnnotationNote } from "./annotationNotes";
+import { isFigurePreview } from "./figureEnvelope";
 
 export type FigureAnnotation = {
   /** Image annotée générée, relative au projet (vignette). */
@@ -30,7 +34,6 @@ export type FigureAnnotation = {
 };
 
 const NOTE_MAX = 240;
-const PREVIEW = /^(?:\.fig_thumbs\/annotation-previews|annotations)\/\S+_annot_[\w-]+\.(?:png|jpe?g|webp)$/;
 const HEADER = /^annotations?\b.*:\s*$/i;
 const NOTE = /^(\d{1,3})\.\s+(.+)$/;
 const SOURCE = /^Figure source : (.+)$/;
@@ -38,10 +41,11 @@ const VERSION = /^Version affichée : (v\d+)(?: \(SHA-256 ([0-9a-f]+)\))?/;
 // Lignes de contexte connues : elles ferment la liste des notes.
 const CONTEXT = /^(?:Figure source|Version affichée|Recette de la figure|Script qui l'a produite|Commande|Env conda|Applique directement ces annotations) :/;
 
-function parseBlock(block: string): FigureAnnotation | null {
+/** Lit une enveloppe repérée par `splitFigureEnvelopes`. */
+export function parseFigureEnvelope(block: string): FigureAnnotation | null {
   const lines = block.split("\n");
   const preview = lines[0].trim();
-  if (!PREVIEW.test(preview)) return null;
+  if (!isFigurePreview(preview)) return null;
   const figure: FigureAnnotation = { preview, notes: [] };
   let inNotes = false;
   for (const raw of lines.slice(1)) {
@@ -67,29 +71,6 @@ function parseBlock(block: string): FigureAnnotation | null {
     }
   }
   return figure;
-}
-
-/**
- * Sépare les enveloppes de figures annotées du texte tapé. Les pièces jointes
- * et le message sont joints par une ligne vide (`promptWithAttachments`,
- * `annotationDisplayText`) et une enveloppe n'en contient aucune.
- */
-export function splitFigureAnnotations(text: string): { prompt: string; figures: FigureAnnotation[] } {
-  if (!text || !text.includes("_annot_")) return { prompt: text, figures: [] };
-  const figures: FigureAnnotation[] = [];
-  const rest: string[] = [];
-  for (const block of text.split(/\n{2,}/)) {
-    const figure = parseBlock(block);
-    if (figure) figures.push(figure);
-    else rest.push(block);
-  }
-  return figures.length ? { prompt: rest.join("\n\n").trim(), figures } : { prompt: text, figures };
-}
-
-/** Nom de la figure d'origine, sinon celui de l'image annotée. */
-export function figureName(figure: FigureAnnotation): string {
-  const path = figure.source ?? figure.preview;
-  return path.split("/").pop() || path;
 }
 
 /** Chemin lisible : le dossier personnel devient « ~ ». */

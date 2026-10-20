@@ -1,7 +1,13 @@
 // Figure annotée (galerie → chat) : l'enveloppe envoyée à l'agent devient une
 // carte, la bulle ne garde que le texte tapé (2026-10-20).
 import { describe, expect, it } from "vitest";
-import { figureName, figureSourceLabel, splitFigureAnnotations } from "./figureAnnotation";
+import { figureSourceLabel, parseFigureEnvelope } from "./figureAnnotation";
+import { splitFigureEnvelopes } from "./figureEnvelope";
+
+const splitFigureAnnotations = (text: string) => {
+  const { prompt, figures } = splitFigureEnvelopes(text);
+  return { prompt, figures: figures.map((f) => parseFigureEnvelope(f.text)!), names: figures.map((f) => f.name) };
+};
 
 const ENVELOPPE = `.fig_thumbs/annotation-previews/figS_snowpack_alaska_annot_1792458432712055000.png
 Annotations (badges numerotes sur l'image) :
@@ -27,7 +33,7 @@ describe("splitFigureAnnotations", () => {
       version: "v1",
       hash: "db6186444a4a25b0c4f18d1b789e564aca1ee38cc8f2adc8fd904a0f29981c1e",
     }]);
-    expect(figureName(figures[0])).toBe("figS_snowpack_alaska.png");
+    expect(splitFigureAnnotations(ENVELOPPE).names).toEqual(["figS_snowpack_alaska.png"]);
   });
 
   it("garde le texte tapé, avant ou après l'enveloppe", () => {
@@ -37,14 +43,14 @@ describe("splitFigureAnnotations", () => {
 
   it("lit l'ancien format annotations/ et plusieurs figures", () => {
     const ancienne = "annotations/demo_annot_20260711-180813.png\nAnnotations (badges numérotés sur l'image) :\n1. recadrer";
-    const { figures } = splitFigureAnnotations(`${ancienne}\n\n${ENVELOPPE}`);
-    expect(figures.map(figureName)).toEqual(["demo_annot_20260711-180813.png", "figS_snowpack_alaska.png"]);
+    const { figures, names } = splitFigureAnnotations(`${ancienne}\n\n${ENVELOPPE}`);
+    expect(names).toEqual(["demo_annot_20260711-180813.png", "figS_snowpack_alaska.png"]);
     expect(figures[0].notes).toEqual([{ n: 1, text: "recadrer" }]);
   });
 
   it("laisse intact un texte ordinaire qui cite un chemin", () => {
     const texte = "Regarde annotations/x_annot_1.png\net dis-moi.";
-    expect(splitFigureAnnotations(texte)).toEqual({ prompt: texte, figures: [] });
+    expect(splitFigureEnvelopes(texte)).toEqual({ prompt: texte, figures: [] });
   });
 
   it("rattache la suite d'une note sur plusieurs lignes", () => {

@@ -24,9 +24,11 @@ function renderTurn(event: Record<string, unknown>) {
   return { onEditingChange, onTogglePin };
 }
 
-it('shows the card without the agent envelope, and the source on demand', () => {
+it('shows the card without the agent envelope, and the source on demand', async () => {
   const { onEditingChange, onTogglePin } = renderTurn({ text: envelope, label: 'figS_snowpack.png',
     imageUrl: 'http://127.0.0.1:1/x.png', notes: [{ n: 1, text: 'est-ce que 2012 est reconnu pour une année neigeuse?' }] });
+  // La carte est chargée à part (budget de l'entrée).
+  await screen.findByText('est-ce que 2012 est reconnu pour une année neigeuse?');
   expect(document.querySelector('.user-bubble')).toBeNull();
   expect(document.body.textContent).not.toContain('.fig_thumbs');
   expect(document.body.textContent).not.toContain('SHA-256');
@@ -43,9 +45,10 @@ it('shows the card without the agent envelope, and the source on demand', () => 
   expect(onTogglePin).toHaveBeenCalledWith(0, 'figS_snowpack.png');
 });
 
-it('rebuilds the card from a reloaded turn and keeps the typed prompt in the bubble', () => {
+it('rebuilds the card from a reloaded turn and keeps the typed prompt in the bubble', async () => {
   renderTurn({ text: `Compare avec SNOTEL.\n\n${envelope}`, label: 'figS_snowpack.png',
     imagePaths: [`/Users/tofunori/Doctorat/${preview}`] });
+  await screen.findByText('est-ce que 2012 est reconnu pour une année neigeuse?');
   expect(document.querySelector('.user-bubble')?.textContent).toBe('Compare avec SNOTEL.');
   expect(document.querySelector('.user-file-attachment')).toBeNull();
   expect(document.querySelector('.user-annot-title')?.textContent).toBe('figS_snowpack.png');
