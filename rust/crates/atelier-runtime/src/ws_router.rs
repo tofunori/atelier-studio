@@ -520,11 +520,16 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let parent = state.threads().lock().await.get(parent_thread_id).cloned();
+            // Fil Claude : le transcript du sous-agent est sur le disque du CLI,
+            // retrouvé même si la session du fil n'est pas celle du tour.
             let claude_session = parent
                 .filter(|t| t.provider == "claude")
-                .and_then(|t| t.session_id);
+                .map(|t| t.session_id);
             let events = crate::ws_dispatch::blocking(move || match claude_session {
-                Some(session_id) => atelier_providers::load_claude_subagent_history(&session_id, &agent_thread_id),
+                Some(session_id) => atelier_providers::load_claude_subagent_history(
+                    session_id.as_deref(),
+                    &agent_thread_id,
+                ),
                 None => load_codex_history(&agent_thread_id),
             })
                 .await

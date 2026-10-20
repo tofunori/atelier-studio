@@ -65,7 +65,6 @@
 .topbar-chat-actions { flex: none; display: flex; align-items: center; }
 .chat-surface-header.chat-header-in-topbar { display: contents; }
 .chat-surface-header.chat-header-in-topbar > .titles, .chat-surface-header.chat-header-in-topbar > .spacer { display: none; }
-.chat-header-in-topbar .chat-header-consigne { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-right { overflow: hidden; }
 .topbar-right > :not(.topbar-tabs):not(.flex) { flex-shrink: 0; }
 .topbar-right { container-type: inline-size; container-name: topbar-documents; }
@@ -100,3 +99,7 @@
 .topbar-window-overflow { display: flex; }
 
 .topbar-layout-controls { display: flex; align-items: center; flex: none; }
+/* Disposition sans rail de fond (piste A, 2026-10-19) : trois icônes au même
+   rang que les autres contrôles de la barre ; seule la sélection a un fond. */
+.topbar-layout-controls .ui-seg { background: transparent; padding: 0; }
+.topbar-layout-controls .ui-seg button:is(.on, [data-pressed="true"], [aria-checked="true"]) { background: var(--bg-ctl); }

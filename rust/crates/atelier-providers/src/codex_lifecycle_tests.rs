@@ -168,17 +168,19 @@ async fn silent_in_progress_turn_is_not_interrupted_until_explicit_cancel() {
     let p = provider.clone();
     let req = request(events.clone(), Arc::default(), cancelled.clone());
     let send = tokio::spawn(async move { p.send(req).await });
+    // L'événement de supervision part après la réponse à thread/read : attendre
+    // l'événement lui-même, pas seulement la requête (course vue en CI macOS).
+    let in_progress = || events.lock().unwrap().iter().any(|event| {
+        event["name"] == "codex_supervision" && event["supervisionState"] == "inProgress"
+    });
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             let requests = fake.requests();
-            if requests.iter().any(|request| request["method"] == "thread/read") { break; }
+            if requests.iter().any(|request| request["method"] == "thread/read") && in_progress() { break; }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }).await.unwrap();
     assert_eq!(interrupts(&fake), 0);
-    assert!(events.lock().unwrap().iter().any(|event| {
-        event["name"] == "codex_supervision" && event["supervisionState"] == "inProgress"
-    }));
     cancelled.store(true, Ordering::SeqCst);
     let result = tokio::time::timeout(Duration::from_secs(1), send).await.unwrap().unwrap();
     assert!(!result.ok);

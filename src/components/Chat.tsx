@@ -1111,7 +1111,6 @@ export default function Chat(p: {
         <ChatHeader
           compact={p.headerInTopBar}
           title={p.threadTitle || t("app.new-chat-title")}
-          notice={p.notice}
           provider={p.threadProvider ?? ""}
           projectName={p.projectName ?? (p.projectRoot ? p.projectRoot.split("/").filter(Boolean).pop() ?? null : null)}
           projectPath={p.projectRoot}
@@ -1132,7 +1131,6 @@ export default function Chat(p: {
     <MdThreadContext.Provider value={p.threadId ?? null}>
     <div className="chat">
       <div className="chat-primary">
-      {!p.threadId && p.notice && <div className="chat-notice-home"><ChatNotice notice={p.notice}/></div>}
       {p.headerInTopBar ? (headerHost && createPortal(chatHeader, headerHost)) : chatHeader}
       <ChatTimeline
         thread={{
@@ -1169,6 +1167,9 @@ export default function Chat(p: {
         followUpMode={p.followUpMode ?? "queue"}
         onFollowUpModeChange={p.onFollowUpModeChange}
       />
+      {/* L'alerte se lit en une ligne au-dessus du compositeur, avec son
+          action et sa croix — jamais en icône dans la barre du haut. */}
+      {p.notice && <ChatNotice key={p.notice.clientMessageId || p.notice.requestType || p.notice.kind || 'notice'} notice={p.notice} />}
       <ChatComposer
         scopeKey={`${p.projectRoot ?? ""}:${p.threadId ?? "home"}`}
         input={{

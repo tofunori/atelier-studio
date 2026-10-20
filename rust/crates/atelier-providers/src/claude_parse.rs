@@ -463,11 +463,38 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         .insert(tool_use_id.to_string(), task_id.clone());
                 }
                 let description = msg.get("description").and_then(|v| v.as_str());
+                // Le CLI ne répète pas toujours la consigne ni le type dans
+                // `task_started` : l'appel Agent du parent, déjà en attente,
+                // les porte.
+                let call_input = msg
+                    .get("tool_use_id")
+                    .and_then(|v| v.as_str())
+                    .and_then(|id| state.pending_tools.get(id))
+                    .map(|pt| pt.input.clone())
+                    .unwrap_or(Value::Null);
+                let from_msg_or_call = |key: &str| {
+                    msg.get(key)
+                        .filter(|v| v.as_str().is_some_and(|s| !s.trim().is_empty()))
+                        .or_else(|| {
+                            call_input
+                                .get(key)
+                                .filter(|v| v.as_str().is_some_and(|s| !s.trim().is_empty()))
+                        })
+                        .cloned()
+                        .unwrap_or(Value::Null)
+                };
+                // Sans type demandé, le CLI lance son agent par défaut
+                // (`.meta.json` : `launchedWithDefaults`, `general-purpose`).
+                let agent_path = match from_msg_or_call("subagent_type") {
+                    Value::Null => json!("general-purpose"),
+                    path => path,
+                };
+                let prompt = from_msg_or_call("prompt");
                 state.subagents.insert(
                     task_id.clone(),
                     SubagentMeta {
-                        agent_path: msg.get("subagent_type").cloned().unwrap_or(Value::Null),
-                        prompt: msg.get("prompt").cloned().unwrap_or(Value::Null),
+                        agent_path: agent_path.clone(),
+                        prompt: prompt.clone(),
                         description: description
                             .map(str::trim)
                             .filter(|d| !d.is_empty())
@@ -489,15 +516,9 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                 activity.insert("receiverThreadIds".into(), json!([task_id.clone()]));
                 activity.insert("agentsStates".into(), Value::Object(agents_states));
                 activity.insert("agentThreadId".into(), json!(task_id.clone()));
-                activity.insert(
-                    "agentPath".into(),
-                    msg.get("subagent_type").cloned().unwrap_or(Value::Null),
-                );
+                activity.insert("agentPath".into(), agent_path);
                 activity.insert("activityKind".into(), json!("started"));
-                activity.insert(
-                    "prompt".into(),
-                    msg.get("prompt").cloned().unwrap_or(Value::Null),
-                );
+                activity.insert("prompt".into(), prompt);
                 with_subagent_identity(state, &task_id, &mut activity);
                 out.push(subagent_event(
                     &task_id,
@@ -2864,6 +2885,37 @@ mod tests {
         );
         assert_eq!(e[0]["detail"], "Mémoire enregistrée (2 fichiers).");
         assert_eq!(e[0]["tone"], "info");
+    }
+
+    /// `task_started` sans consigne ni type (CLI 2.1.x) : l'appel Agent du
+    /// parent les fournit, la vue du sous-agent garde sa mission.
+    #[test]
+    fn la_mission_et_le_type_viennent_de_lappel_agent() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[
+                {"type":"tool_use","id":"toolu_M","name":"Agent","input":{"description":"Teste une formulation","prompt":"Reformule sans le mot causal.","subagent_type":"general-purpose"}}
+            ]}}"#,
+        );
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_started","task_id":"a1b2","tool_use_id":"toolu_M","description":"Teste une formulation"}"#,
+        );
+        let act = &e[0]["agentActivity"];
+        assert_eq!(act["prompt"], "Reformule sans le mot causal.");
+        assert_eq!(act["agentPath"], "general-purpose");
+        // Ni le CLI ni l'appel ne nomment le type : agent par défaut du CLI.
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_started","task_id":"c3d4","description":"Sans type"}"#,
+        );
+        assert_eq!(e[0]["agentActivity"]["agentPath"], "general-purpose");
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_notification","task_id":"a1b2","status":"completed","summary":"Fini","usage":{}}"#,
+        );
+        assert_eq!(e[0]["agentActivity"]["prompt"], "Reformule sans le mot causal.");
     }
 
     /// Avancement d'un sous-agent : ce qu'il fait et ses compteurs, sur sa

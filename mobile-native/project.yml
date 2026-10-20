@@ -22,6 +22,11 @@ targets:
         NSLocalNetworkUsageDescription: Accéder aux artefacts de vos projets sur votre Mac.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # TestFlight : numéro de build fourni par scripts/upload-testflight.sh,
+        # et seulement le chiffrement standard d'iOS (HTTPS, trousseau), ce qui
+        # dispense de la question d'export à chaque envoi.
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        ITSAppUsesNonExemptEncryption: false
     dependencies:
       - package: AtelierUI
     # Signature (identifiant, équipe, identité) : Config/Signing.xcconfig, qui
@@ -33,6 +38,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: AtelierNative
+        CURRENT_PROJECT_VERSION: '1'
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Atelier
