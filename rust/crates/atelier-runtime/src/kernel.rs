@@ -73,9 +73,13 @@ pub async fn action(
     req: &Value,
 ) -> Result<Value, String> {
     let thread = state.threads().lock().await.get(caller_id).cloned();
-    let Some(thread) = thread else {
+    let Some(appelant) = thread else {
         return Err("thread_not_found".into());
     };
+    // Un fil lié (spécialiste délégué) travaille dans le noyau de son parent :
+    // mêmes variables, cellules au journal du parent.
+    let thread = crate::delegation::fil_du_noyau(state, &appelant).await;
+    let caller_id = thread.id.as_str();
     let kernels = state.kernels();
     // Lire ce qui existe reste permis noyau coupé : le journal et la liste
     // des envs ne lancent rien.
@@ -99,7 +103,7 @@ pub async fn action(
     );
     let out = match action {
         "kernel_run" => {
-            if read_only(&thread) {
+            if read_only(&appelant) {
                 return Err("kernel_read_only — le fil est en mode lecture seule : le noyau n'exécute rien. \
 L'utilisateur peut changer de mode dans le compositeur."
                     .into());
@@ -115,7 +119,7 @@ L'utilisateur peut changer de mode dans le compositeur."
                 .and_then(Value::as_str)
                 .filter(|c| !c.trim().is_empty())
                 .ok_or("kernel_missing_code — passe le code Python dans code.")?;
-            let turn_id = state.capabilities().lock().await.turn_id_of(caller_id);
+            let turn_id = state.capabilities().lock().await.turn_id_of(&appelant.id);
             let outcome = kernels
                 .run(RunRequest {
                     thread_id: caller_id,
