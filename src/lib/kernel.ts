@@ -29,6 +29,8 @@ export type KernelCell = {
   /** `user` : modifiée et relancée depuis le panneau. */
   author?: string | null;
   fromCell?: number | null;
+  /** Cellule reprise d'un autre fil du même projet. */
+  resumedFrom?: { threadId: string; title: string; cell: number } | null;
   /** Début du message qui a fait naître le tour. */
   turnPrompt?: string | null;
   /** Démarrage du noyau qui a exécuté la cellule. */
@@ -55,6 +57,15 @@ export type ReplaySummary = {
 export type ReplayState =
   | { state: "running"; done: number; total: number; cell?: number | null }
   | { state: "done"; summary?: ReplaySummary; error?: string };
+
+/** Reprise des cellules d'un autre fil : avancement, puis bilan. */
+export type ResumeState = {
+  state: "running" | "done"; fromThread: string; done: number; total: number; cell?: number | null; error?: string | null;
+};
+/** Autre fil du même projet qui a des cellules. */
+export type ProjectThread = {
+  threadId: string; title: string; cells: number; ok: number; lastAt: string; lastPurpose?: string | null;
+};
 
 export type KernelStatus = {
   running: boolean;
@@ -86,11 +97,13 @@ export function useKernelCells(threadId: string | null, open: boolean) {
   const [status, setStatus] = useState<KernelStatus | null>(null);
   const [chain, setChain] = useState<ChainCheck | null>(null);
   const [replay, setReplay] = useState<ReplayState | null>(null);
+  const [resume, setResume] = useState<ResumeState | null>(null);
   useEffect(() => {
     setCells([]);
     setStatus(null);
     setChain(null);
     setReplay(null);
+    setResume(null);
     if (!threadId || !open) return;
     const requestId = `kc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const onCells = (event: Event) => {
@@ -125,19 +138,27 @@ export function useKernelCells(threadId: string | null, open: boolean) {
         ? { state: "running", done: d.done ?? 0, total: d.total ?? 0, cell: d.cell }
         : { state: "done", summary: d.summary, error: d.error });
     };
+    const onResume = (event: Event) => {
+      const d = (event as CustomEvent).detail;
+      if (d?.threadId !== threadId) return;
+      setResume({ state: d.state === "done" ? "done" : "running", fromThread: d.fromThread, done: d.done ?? 0,
+        total: d.total ?? 0, cell: d.cell, error: d.error });
+    };
     window.addEventListener("kernel-cells", onCells);
     window.addEventListener("kernel-cell", onCell);
     window.addEventListener("kernel-status", onStatus);
     window.addEventListener("kernel-replay", onReplay);
+    window.addEventListener("kernel-resume", onResume);
     wsSend({ type: "kernelCells", threadId, requestId });
     return () => {
       window.removeEventListener("kernel-cells", onCells);
       window.removeEventListener("kernel-cell", onCell);
       window.removeEventListener("kernel-status", onStatus);
       window.removeEventListener("kernel-replay", onReplay);
+      window.removeEventListener("kernel-resume", onResume);
     };
   }, [threadId, open]);
-  return { cells, status, chain, replay, setReplay };
+  return { cells, status, chain, replay, setReplay, resume };
 }
 
 export function stopKernel(threadId: string) {
@@ -154,7 +175,8 @@ export type KernelEnv = { name: string; source: string; prefix: string };
 /** Commande de la surface Noyau (`kernelCommand`), résolue par sa réponse. */
 export function kernelCommand<T = unknown>(
   threadId: string,
-  op: "variables" | "interrupt" | "restart" | "envs" | "link" | "verify" | "rerun" | "replay" | "cancelReplay" | "export",
+  op: "variables" | "interrupt" | "restart" | "envs" | "link" | "verify" | "rerun" | "replay" | "cancelReplay" | "export"
+    | "projectThreads" | "resume",
   args: Record<string, unknown> = {},
   timeoutMs = 60_000,
 ): Promise<T> {

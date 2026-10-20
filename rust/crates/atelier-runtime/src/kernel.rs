@@ -132,6 +132,7 @@ L'utilisateur peut changer de mode dans le compositeur."
                     purpose: req.get("purpose").and_then(Value::as_str),
                     author: None,
                     from_cell: None,
+                    resumed_from: None,
                 })
                 .await
                 .map_err(|e| e.message())?;
@@ -281,6 +282,8 @@ pub async fn handle_command(state: &AppState, msg: &Value) -> Vec<String> {
         "replay" => start_replay(state, thread_id).await,
         "cancelReplay" => Ok(json!({"cancelled": state.kernels().cancel_replay(thread_id)})),
         "export" => export(state, thread_id, msg).await,
+        "projectThreads" => Ok(project_threads(state, thread_id).await),
+        "resume" => resume(state, thread_id, msg).await,
         _ => Err("unknown_op".into()),
     };
     let mut reply = json!({
@@ -357,6 +360,7 @@ async fn rerun(state: &AppState, thread_id: &str, msg: &Value) -> Result<Value, 
             purpose: purpose.as_deref(),
             author: Some("user"),
             from_cell: from,
+            resumed_from: None,
         })
         .await
         .map_err(|e| e.message())?;
@@ -365,6 +369,188 @@ async fn rerun(state: &AppState, thread_id: &str, msg: &Value) -> Result<Value, 
         publish_status(state, thread_id);
     }
     Ok(json!({"cell": outcome.cell["cell"]}))
+}
+
+/// Autres fils du même projet qui ont des cellules, le plus récent d'abord :
+/// de quoi reprendre là où on en était depuis un nouveau fil.
+async fn project_threads(state: &AppState, thread_id: &str) -> Value {
+    let others: Vec<(String, String)> = {
+        let store = state.threads().lock().await;
+        let Some(root) = store
+            .get(thread_id)
+            .map(|t| t.project_root.clone())
+            .filter(|r| !r.is_empty())
+        else {
+            return json!({"threads": []});
+        };
+        store
+            .list()
+            .into_iter()
+            .filter(|t| t.id != thread_id && t.project_root == root)
+            .map(|t| (t.id, t.title))
+            .collect()
+    };
+    let journal = state.kernels().journal();
+    let mut rows: Vec<Value> = others
+        .into_iter()
+        .filter_map(|(id, title)| {
+            let cells = journal.list(&id, RESUME_MAX_CELLS);
+            let last = cells.last()?;
+            Some(json!({
+                "threadId": id,
+                "title": title,
+                "cells": cells.len(),
+                "ok": cells.iter().filter(|c| c.status == "ok").count(),
+                "lastAt": last.started_at,
+                "lastPurpose": last.purpose,
+            }))
+        })
+        .collect();
+    rows.sort_by(|a, b| b["lastAt"].as_str().cmp(&a["lastAt"].as_str()));
+    rows.truncate(20);
+    json!({"threads": rows})
+}
+
+/// Cellules relues au plus dans un autre fil.
+const RESUME_MAX_CELLS: usize = 500;
+/// Attente d'une cellule reprise avant de relire où elle en est.
+const RESUME_WAIT: Duration = Duration::from_secs(600);
+
+/// Fils dont une reprise tourne : une seule à la fois par fil.
+fn resuming() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(Default::default)
+}
+
+/// Reprend ici des cellules d'un autre fil du même projet (`fromThread`) :
+/// toutes ses cellules réussies, ou celles de `cells`, relancées une à une
+/// dans l'ordre dans le noyau de ce fil, chacune liée à son origine. Arrêt à
+/// la première erreur. L'avancement part sur le bus (`kernelResume`).
+async fn resume(state: &AppState, thread_id: &str, msg: &Value) -> Result<Value, String> {
+    let (thread, source) = {
+        let store = state.threads().lock().await;
+        let source = msg
+            .get("fromThread")
+            .and_then(Value::as_str)
+            .and_then(|id| store.get(id).cloned());
+        (store.get(thread_id).cloned(), source)
+    };
+    let Some(thread) = thread else {
+        return Err("thread_not_found".into());
+    };
+    if !enabled(Some(&thread)) {
+        return Err(OFF_MESSAGE.into());
+    }
+    let cwd = PathBuf::from(&thread.project_root);
+    if thread.project_root.is_empty() || !cwd.is_dir() {
+        return Err("kernel_no_folder — ce fil n'a pas de dossier de projet où lancer le noyau.".into());
+    }
+    let Some(source) = source.filter(|s| s.id != thread.id && s.project_root == thread.project_root) else {
+        return Err("kernel_resume_source — ce fil n'est pas du même projet.".into());
+    };
+    let wanted: Option<Vec<u64>> = msg
+        .get("cells")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_u64).collect());
+    let cells: Vec<atelier_kernel::CellRecord> = state
+        .kernels()
+        .journal()
+        .list(&source.id, RESUME_MAX_CELLS)
+        .into_iter()
+        .filter(|c| match &wanted {
+            Some(ids) => ids.contains(&c.id),
+            None => c.status == "ok",
+        })
+        .collect();
+    if cells.is_empty() {
+        return Err("kernel_resume_empty — aucune cellule à reprendre dans ce fil.".into());
+    }
+    if let Some(busy) = state.kernels().status(thread_id).busy_cell {
+        return Err(format!("kernel_busy — la cellule {busy} tourne encore."));
+    }
+    if state.kernels().replaying(thread_id)
+        || !resuming().lock().unwrap_or_else(|e| e.into_inner()).insert(thread_id.to_string())
+    {
+        return Err("kernel_resume_running — une reprise ou un rejeu tourne déjà dans ce fil.".into());
+    }
+    let total = cells.len();
+    let default_env = thread.extra.get(ENV_KEY).and_then(Value::as_str).map(str::to_string);
+    let (state, thread_id) = (state.clone(), thread_id.to_string());
+    tokio::spawn(async move {
+        let publish = |done: usize, extra: Value| {
+            let mut message = json!({
+                "type": "kernelResume",
+                "threadId": thread_id,
+                "fromThread": source.id,
+                "state": "running",
+                "done": done,
+                "total": total,
+            });
+            if let (Some(o), Some(e)) = (message.as_object_mut(), extra.as_object()) {
+                o.extend(e.clone());
+            }
+            state.publish(message.to_string());
+        };
+        let mut done = 0;
+        let mut error: Option<String> = None;
+        for cell in &cells {
+            publish(done, json!({"cell": cell.id}));
+            let outcome = state
+                .kernels()
+                .run(RunRequest {
+                    thread_id: &thread_id,
+                    cwd: &cwd,
+                    env: None,
+                    default_env: default_env.as_deref(),
+                    code: &cell.code,
+                    wait: RESUME_WAIT,
+                    turn_id: None,
+                    purpose: cell.purpose.as_deref(),
+                    author: Some("user"),
+                    from_cell: None,
+                    resumed_from: Some(atelier_kernel::ResumedFrom {
+                        thread_id: source.id.clone(),
+                        title: source.title.clone(),
+                        cell: cell.id,
+                    }),
+                })
+                .await;
+            let mut outcome = match outcome {
+                Ok(outcome) => outcome,
+                Err(e) => {
+                    error = Some(e.message());
+                    break;
+                }
+            };
+            if outcome.note.is_some() {
+                remember_env(&state, &thread_id).await;
+                publish_status(&state, &thread_id);
+            }
+            let id = outcome.cell["cell"].as_u64().unwrap_or(0);
+            while !outcome.finished {
+                outcome = match state.kernels().wait(&thread_id, id, RESUME_WAIT).await {
+                    Ok(next) => next,
+                    Err(e) => {
+                        error = Some(e.message());
+                        break;
+                    }
+                };
+            }
+            if error.is_some() {
+                break;
+            }
+            if outcome.cell["status"] == "error" {
+                error = Some(format!("kernel_resume_error — la cellule {id} (reprise de [{}]) a échoué.", cell.id));
+                break;
+            }
+            done += 1;
+        }
+        resuming().lock().unwrap_or_else(|e| e.into_inner()).remove(&thread_id);
+        publish(done, json!({"state": "done", "error": error}));
+        publish_status(&state, &thread_id);
+    });
+    Ok(json!({"started": true, "total": total}))
 }
 
 /// Rejouer à neuf, en tâche de fond : l'avancement part sur le bus
@@ -487,9 +673,20 @@ pub fn user_cells_block(
         "
 
 <atelier-kernel-user-cells>
-The user edited and re-ran kernel cells themselves since your last turn. Their versions now shape the kernel state: build on them, do not silently redo your earlier version. Cite them like your own cells ([cellule N](atelier-cell:N)).
+The user wrote or edited kernel cells and ran them themselves since your last turn. Their versions now shape the kernel state: build on them, do not silently redo your earlier version. Cite them like your own cells ([cellule N](atelier-cell:N)).
 ",
     );
+    let (resumed, cells): (Vec<_>, Vec<_>) = cells.into_iter().partition(|c| c.resumed_from.is_some());
+    if let (Some(first), Some(end)) = (resumed.first(), resumed.last()) {
+        let from = first.resumed_from.as_ref().map(|r| r.title.as_str()).unwrap_or("");
+        let failed = resumed.iter().filter(|c| c.status != "ok").count();
+        block.push_str(&format!(
+            "- Cells {}–{} re-run here from the earlier thread « {from} » to restore its kernel state ({} cells, {failed} failed). Their variables are now loaded.\n",
+            first.id,
+            end.id,
+            resumed.len()
+        ));
+    }
     for cell in cells.iter().take(10) {
         let status = if cell.status == "ok" { "ok".to_string() } else { format!("error {}", cell.error.as_ref().and_then(|e| e["ename"].as_str()).unwrap_or("")) };
         let original = cell.from_cell.and_then(|from| journal.get(thread_id, from));
@@ -830,5 +1027,86 @@ mod tests {
 
         on_delete_thread(&state, "fil").await;
         assert!(state.kernels().journal().list("fil", 10).is_empty());
+    }
+
+    #[tokio::test]
+    async fn un_nouveau_fil_reprend_les_cellules_d_un_fil_precedent() {
+        let Some(py) = python() else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let projet = tempfile::tempdir().unwrap();
+        let state = AppState::new(
+            crate::paths::AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "hash".into(),
+            "/tmp".into(),
+        );
+        let root = projet.path().display().to_string();
+        for (id, title) in [("ancien", "Albédo 2024"), ("neuf", "Rédacteur"), ("ailleurs", "Autre")] {
+            let project = if id == "ailleurs" { "/autre".to_string() } else { root.clone() };
+            state
+                .threads()
+                .lock()
+                .await
+                .upsert(
+                    json!({"id": id, "projectRoot": project, "provider": "codex", "title": title,
+                           ENABLED_KEY: true, ENV_KEY: py}),
+                    false,
+                )
+                .unwrap();
+        }
+        for code in ["a = 6 * 7", "b = a + 1\nb", "1 / 0"] {
+            let out = action(&state, "ancien", "kernel_run", &json!({"code": code})).await.unwrap();
+            assert!(out["finished"] == true, "{out}");
+        }
+        state.kernels().shutdown("ancien").await;
+
+        // Le nouveau fil voit l'ancien (même projet), pas l'autre projet.
+        let list = project_threads(&state, "neuf").await;
+        assert_eq!(list["threads"].as_array().unwrap().len(), 1, "{list}");
+        assert_eq!(list["threads"][0]["threadId"], "ancien");
+        assert_eq!(list["threads"][0]["cells"], 3);
+        assert_eq!(list["threads"][0]["ok"], 2);
+        assert!(resume(&state, "neuf", &json!({"fromThread": "ailleurs"})).await.is_err());
+
+        // Reprendre : les cellules réussies, dans l'ordre, liées à l'origine.
+        let mut bus = state.subscribe_bus();
+        let out = resume(&state, "neuf", &json!({"fromThread": "ancien"})).await.unwrap();
+        assert_eq!(out["total"], 2);
+        let end = tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                let v: Value = serde_json::from_str(&bus.recv().await.unwrap()).unwrap();
+                if v["type"] == "kernelResume" && v["state"] == "done" {
+                    return v;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(end["done"], 2, "{end}");
+        assert_eq!(end["error"], Value::Null);
+        let vars = action(&state, "neuf", "kernel_variables", &json!({})).await.unwrap();
+        let names: Vec<&str> = vars["variables"].as_array().unwrap().iter().filter_map(|v| v["name"].as_str()).collect();
+        assert!(names.contains(&"a") && names.contains(&"b"), "{vars}");
+        let record = state.kernels().journal().get("neuf", 2).unwrap();
+        assert_eq!(record.author.as_deref(), Some("user"));
+        let from = record.resumed_from.unwrap();
+        assert_eq!((from.thread_id.as_str(), from.title.as_str(), from.cell), ("ancien", "Albédo 2024", 2));
+
+        // Cellule libre écrite à la main, sans cellule d'origine.
+        let out = rerun(&state, "neuf", &json!({"code": "b * 2"})).await.unwrap();
+        let done = action(&state, "neuf", "kernel_wait", &json!({"cell": out["cell"]})).await.unwrap();
+        assert_eq!(done["cell"]["result"], "86", "{done}");
+
+        // L'agent apprend la reprise en une ligne, puis la cellule libre.
+        let fil = state.threads().lock().await.get("neuf").cloned().unwrap();
+        let (block, last) = user_cells_block(&state, "neuf", Some(&fil), "codex").unwrap();
+        assert_eq!(last, 3);
+        assert!(block.contains("Cells 1–2 re-run here from the earlier thread « Albédo 2024 »"), "{block}");
+        assert!(block.contains("b * 2"), "{block}");
+        state.kernels().shutdown("neuf").await;
     }
 }

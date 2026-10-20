@@ -1,7 +1,7 @@
 //! Un noyau par fil : démarrage à la demande, cellules, arrêt à l'inactivité.
 
 use crate::envs::{discover_envs, resolve_env, PyEnv};
-use crate::journal::{clip, code_sha256, CellJournal, CellRecord, Lineage, VarUse};
+use crate::journal::{clip, code_sha256, CellJournal, CellRecord, Lineage, ResumedFrom, VarUse};
 use crate::kernel::{Cell, Kernel, KernelInfo};
 use crate::packages::EnvSnapshot;
 use crate::prints::{PrintCache, HASH_CELL_BUDGET_BYTES};
@@ -159,6 +159,8 @@ pub struct RunRequest<'a> {
     pub author: Option<&'a str>,
     /// Cellule d'origine d'une cellule modifiée à la main.
     pub from_cell: Option<u64>,
+    /// Cellule d'un autre fil reprise ici.
+    pub resumed_from: Option<ResumedFrom>,
 }
 
 pub struct KernelManager {
@@ -433,6 +435,7 @@ impl KernelManager {
                 "purpose": req.purpose,
                 "author": req.author,
                 "fromCell": req.from_cell,
+                "resumedFrom": req.resumed_from,
                 "turnPrompt": self.turn_prompt(req.thread_id, req.turn_id),
                 "session": slot.kernel.info.started_at,
             }),
@@ -457,6 +460,7 @@ impl KernelManager {
                 .filter(|p| !p.is_empty()),
             author: req.author.map(str::to_string),
             from_cell: req.from_cell,
+            resumed_from: req.resumed_from.clone(),
             turn_prompt: self.turn_prompt(req.thread_id, req.turn_id),
             prints: self.prints.clone(),
             started_wall,
@@ -938,6 +942,7 @@ struct Finisher {
     purpose: Option<String>,
     author: Option<String>,
     from_cell: Option<u64>,
+    resumed_from: Option<ResumedFrom>,
     turn_prompt: Option<String>,
     prints: Arc<PrintCache>,
     started_wall: SystemTime,
@@ -1005,6 +1010,7 @@ impl Finisher {
             purpose: self.purpose.clone(),
             author: self.author.clone(),
             from_cell: self.from_cell,
+            resumed_from: self.resumed_from.clone(),
             turn_prompt: self.turn_prompt.clone(),
             session: Some(info.started_at.clone()),
             prints,
