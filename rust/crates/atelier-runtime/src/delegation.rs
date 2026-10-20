@@ -100,6 +100,15 @@ fn reglages_herites(parent: &Thread, explicites: Option<&Value>) -> serde_json::
     reglages
 }
 
+/// Fil dont le noyau Python sert à `thread` : celui du parent pour un fil
+/// lié. Le spécialiste reprend ainsi les données déjà chargées au lieu de
+/// repartir d'un noyau vide (ou coupé, son propre interrupteur l'étant).
+pub async fn fil_du_noyau(state: &AppState, thread: &Thread) -> Thread {
+    let Some(link) = &thread.agent_link else { return thread.clone() };
+    let parent = state.threads().lock().await.get(&link.parent_thread_id).cloned();
+    parent.unwrap_or_else(|| thread.clone())
+}
+
 /// Confie `tache` au spécialiste `fiche` depuis le fil `parent_id`.
 pub async fn deleguer(
     state: &AppState,
@@ -132,7 +141,13 @@ pub async fn deleguer(
             .ok_or_else(|| atelier_protocol::agent_mcp_errors::CALLER_UNKNOWN.to_string())?;
         (parent, store.children_of(parent_id))
     };
-    let reglages = reglages_herites(&parent, explicites);
+    let mut reglages = reglages_herites(&parent, explicites);
+    // L'interrupteur du noyau suit le parent : l'agent du spécialiste
+    // apprend ainsi qu'il peut utiliser `atelier_python` (noyau partagé).
+    reglages.insert(
+        crate::kernel::ENABLED_KEY.into(),
+        json!(crate::kernel::enabled(Some(&parent))),
+    );
     if parent.agent_link.is_some() {
         return Err("delegation_depth_exceeded: a delegated specialist cannot delegate in turn".into());
     }
@@ -220,7 +235,10 @@ pub async fn deleguer(
         }
     };
 
-    let texte = message_de_tache(&nom, tache);
+    let mut texte = message_de_tache(&nom, tache);
+    if crate::kernel::enabled(Some(&parent)) {
+        texte.push_str("\n\nThe persistent Python kernel of the parent conversation is shared with you: run Python with the MCP tool `atelier_python`, where its variables and loaded data are already in memory.");
+    }
     match crate::agent_mailbox::enqueue_user_mention(state, parent_id, &enfant_id, &texte, request_id).await {
         Ok(delivery) => {
             for m in broadcast_threads(state).await {
@@ -497,6 +515,29 @@ mod tests {
         let enfant = store.get(&id).unwrap();
         assert_eq!(enfant.extra["permissionMode"], "acceptEdits");
         assert_eq!(enfant.extra["model"], "gpt-y");
+    }
+
+    #[tokio::test]
+    async fn le_specialiste_travaille_dans_le_noyau_du_parent() {
+        let s = etat();
+        s.threads()
+            .lock()
+            .await
+            .upsert(json!({"id": "p", "projectRoot": "/tmp/proj", "provider": "codex", "title": "P", "status": "idle", "kernelEnabled": true}), false)
+            .unwrap();
+        let r = action_delegate(&s, "p", &json!({"specialist": "Stats", "task": "t"})).await.unwrap();
+        let id = r["targetThreadId"].as_str().unwrap().to_string();
+        let enfant = s.threads().lock().await.get(&id).cloned().unwrap();
+        assert_eq!(enfant.extra["kernelEnabled"], true);
+        assert_eq!(fil_du_noyau(&s, &enfant).await.id, "p");
+        let messages = s.mailbox().lock().await.list_for_link("p", &id);
+        assert!(messages.iter().any(|m| m.text.contains("atelier_python")));
+        // Le noyau consulté est celui du parent, interrupteur compris.
+        let statut = crate::kernel::action(&s, &id, "kernel_status", &json!({})).await.unwrap();
+        assert_eq!(statut["enabled"], true);
+        s.threads().lock().await.upsert(json!({"id": "p", "kernelEnabled": false}), true).unwrap();
+        let coupe = crate::kernel::action(&s, &id, "kernel_run", &json!({"code": "1"})).await.unwrap_err();
+        assert!(coupe.starts_with("kernel_disabled"), "{coupe}");
     }
 
     #[tokio::test]
