@@ -1581,7 +1581,7 @@
     view = next;
     document.body.classList.remove("v-revue", "v-final", "v-original");
     document.body.classList.add(`v-${view}`);
-    ($("ddView").firstElementChild               ).textContent = VIEWS.find(([v]) => v === view) [1];
+    ($("ddView").firstElementChild               ).textContent = (VIEWS.find(([v]) => v === view) ?? VIEWS[0])[1];
     paper.contentEditable = view === "original" ? "false" : "true";
     layoutCards();
     scheduleLines();
