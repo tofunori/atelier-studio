@@ -95,7 +95,7 @@ function RailProjects(p: RailProjectsProps) {
         const tip = [name, ...(notes.length ? notes : signal ? [SIGNAL_LABEL[signal]] : [])];
         return (
           <Tooltip key={root} placement="right"
-            label={<span className="rail-tip">{tip.map((line, i) => <span key={i}>{line}</span>)}</span>}>
+            label={<span className="rail-tip">{tip.map((line) => <span key={line}>{line}</span>)}</span>}>
           <RowButton
             className={`rail-proj ${m?.color ? "tinted" : ""} ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
             style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}

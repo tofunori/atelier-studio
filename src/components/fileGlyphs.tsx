@@ -5,26 +5,9 @@
 // parent (--text-muted au repos). Le trait est rendu par primitives.css.
 import type { ReactElement } from "react";
 
-export type FileKind =
-  | "folder" | "code" | "note" | "tex" | "image" | "pdf" | "data" | "terminal" | "local" | "file";
+import { fileKind, type FileKind } from "../lib/fileKind";
 
-const CODE = ["py", "r", "jl", "js", "mjs", "cjs", "ts", "tsx", "jsx", "rs", "c", "h", "cpp", "go", "java", "css", "html", "lua", "m", "f90"];
-const DATA = ["json", "yml", "yaml", "toml", "csv", "tsv", "nc", "parquet", "xlsx", "lock"];
-const IMAGE = ["png", "jpg", "jpeg", "gif", "webp", "svg", "tif", "tiff"];
-
-export function fileKind(nameOrExt: string): FileKind {
-  if (nameOrExt === "dir" || nameOrExt === "folder") return "folder";
-  if (nameOrExt === "local") return "local";
-  const ext = (nameOrExt.includes(".") ? nameOrExt.split(".").pop() : nameOrExt)?.toLowerCase() ?? "";
-  if (ext === "tex" || ext === "bib" || ext === "sty" || ext === "cls") return "tex";
-  if (ext === "pdf") return "pdf";
-  if (ext === "md" || ext === "markdown" || ext === "txt" || ext === "org" || ext === "log" || ext === "docx") return "note";
-  if (ext === "sh" || ext === "zsh" || ext === "bash") return "terminal";
-  if (IMAGE.includes(ext)) return "image";
-  if (DATA.includes(ext)) return "data";
-  if (CODE.includes(ext)) return "code";
-  return "file";
-}
+export type { FileKind };
 
 const PATHS: Record<FileKind, ReactElement> = {
   folder: <path d="M2 4.5c0-.6.4-1 1-1h3l1.5 1.5H13c.6 0 1 .4 1 1v5.5c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1z" />,

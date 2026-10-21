@@ -173,14 +173,19 @@ export function AgentRowGlyph() {
 /** Colonne de durée : chrono pendant le travail, mot court sur un échec ou
  * une interruption (comme « exit N » des commandes), durée posée sinon. */
 export function AgentDuration({ agent }: { agent: AgentDisplay }) {
+  const start = agent.startTs ?? 0;
   if (agent.status === "working") {
-    return (agent.startTs ?? 0) > 0 ? <LiveClock since={agent.startTs!} className="tool-duration" /> : <span className="tool-duration" />;
+    return start > 0 ? <LiveClock since={start} className="tool-duration" /> : <span className="tool-duration" />;
   }
-  const label = agent.status === "failed" ? t("chat.subagent-short-failed")
-    : agent.status === "interrupted" ? t("chat.subagent-short-interrupted")
-    : agent.durationMs != null && agent.durationMs > 0 ? fmtToolDur(agent.durationMs)
-    : (agent.startTs ?? 0) > 0 && agent.endTs != null && agent.endTs > agent.startTs! ? fmtToolDur(agent.endTs - agent.startTs!) : null;
-  return <span className="tool-duration">{label}</span>;
+  return <span className="tool-duration">{agentDurationLabel(agent, start)}</span>;
+}
+
+function agentDurationLabel(agent: AgentDisplay, start: number): string | null {
+  if (agent.status === "failed") return t("chat.subagent-short-failed");
+  if (agent.status === "interrupted") return t("chat.subagent-short-interrupted");
+  if (agent.durationMs != null && agent.durationMs > 0) return fmtToolDur(agent.durationMs);
+  if (start > 0 && agent.endTs != null && agent.endTs > start) return fmtToolDur(agent.endTs - start);
+  return null;
 }
 
 /** Les sous-agents d'un tour, comme une grappe d'actions : UNE rangée de

@@ -23,7 +23,7 @@ import {
   turnProgressSignature,
   truncateToolOutput,
 } from "./toolPresentation";
-import { fileKind } from "../fileGlyphs";
+import { fileKind } from "../../lib/fileKind";
 
 type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 

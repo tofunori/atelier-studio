@@ -94,14 +94,23 @@ export function completedTurnActions(turn: ChatTurnViewModel): ToolAction[] {
   return turnToolActivity(turn).completed;
 }
 
+const KILO_FORMATS = new Map<string, Intl.NumberFormat>();
+function kiloFormat(lang: string): Intl.NumberFormat {
+  let format = KILO_FORMATS.get(lang);
+  if (!format) {
+    format = new Intl.NumberFormat(lang === "en" ? "en" : "fr-CA", { maximumFractionDigits: 1 });
+    KILO_FORMATS.set(lang, format);
+  }
+  return format;
+}
+
 export function toolOutputSummary(output: string) {
   const clean = output.trim();
   if (!clean) return "";
   const lines = clean.split(/\r?\n/).length;
   const chars = clean.length;
   // libellés traduits, virgule décimale en français (CHAT-30)
-  const kilo = new Intl.NumberFormat(getResolvedLanguage() === "en" ? "en" : "fr-CA", { maximumFractionDigits: 1 })
-    .format(Math.round(chars / 100) / 10);
+  const kilo = kiloFormat(getResolvedLanguage()).format(Math.round(chars / 100) / 10);
   const size = chars >= 1000 ? t("tools.size-kchars", { n: kilo }) : t("tools.size-chars", { n: chars });
   return lines > 1 ? t("tools.size-lines", { n: lines, size }) : size;
 }
