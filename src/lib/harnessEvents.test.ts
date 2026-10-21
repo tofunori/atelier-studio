@@ -739,3 +739,21 @@ describe("reconcileWorkingSince", () => {
     expect(reconcileWorkingSince([], 1000)).toBe(1000);
   });
 });
+
+describe("commande de fond de Claude (journaux d'avant le 2026-10-21)", () => {
+  const activity = (prompt: string | null, agentPath = "general-purpose") => ({
+    kind: "tool_update", id: "subagent:b1", name: "agent:activity", output: "", status: "completed", source: "claude",
+    agentActivity: { tool: "activity", receiverThreadIds: ["b1"], agentThreadId: "b1", agentPath, prompt,
+      description: "Compile le tableau seul", agentsStates: { b1: { status: "completed", message: null } } },
+  }) as AgentEvent;
+
+  it("n'entre pas dans le fil, live comme rejoué", () => {
+    expect(reduceHarnessEvent([], activity(null))).toEqual([]);
+    expect(materializeHarnessHistory([activity(null)])).toEqual([]);
+  });
+
+  it("un vrai sous-agent, avec sa consigne, reste", () => {
+    expect(reduceHarnessEvent([], activity("Relis la section 2"))).toHaveLength(1);
+    expect(reduceHarnessEvent([], activity(null, "Explore"))).toHaveLength(1);
+  });
+});

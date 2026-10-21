@@ -111,6 +111,10 @@ pub struct ClaudeStreamState {
     /// l'item `subagent:<id>` à chaque mise à jour, qui doit donc la reporter
     /// sans quoi l'agent perdait son nom et sa mission en fin de course.
     pub subagents: std::collections::HashMap<String, SubagentMeta>,
+    /// Tâches du CLI qui ne sont pas des agents (`task_type` `local_bash`,
+    /// `monitor`…) : leur cycle `task_*` ne doit pas ouvrir de sous-agent.
+    /// Seul `task_started` porte le type, les suites se reconnaissent ici.
+    pub non_agent_tasks: std::collections::HashSet<String>,
     /// Tâches de fond vivantes (`system.background_tasks_changed`, liste
     /// complète à chaque changement) : Bash `run_in_background`, sous-agents,
     /// Monitor. Tant qu'il en reste, un `result` ne clôt pas la session — le
@@ -446,6 +450,25 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
             out.push(
                 json!({"kind":"heartbeat","note": format!("Permission refusée — {tool_name}")}),
             );
+        }
+        // Le CLI suit aussi les commandes de fond (Bash `run_in_background`,
+        // Monitor) par `task_*` : elles s'affichaient en sous-agents « Usage
+        // général », chacune en double quand la fin tombait au tour suivant.
+        // La rangée Bash les montre déjà ; on n'en garde aucune trace d'agent.
+        if subtype.starts_with("task_") {
+            if let Some(task_id) = msg.get("task_id").and_then(|v| v.as_str()) {
+                if subtype == "task_started"
+                    && msg
+                        .get("task_type")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|ty| !is_agent_task_type(ty))
+                {
+                    state.non_agent_tasks.insert(task_id.to_string());
+                }
+                if state.non_agent_tasks.contains(task_id) {
+                    return out;
+                }
+            }
         }
         // Cycle de vie natif des sous-agents (plan phase C). Les messages du
         // sous-agent lui-même (parent_tool_use_id non nul, cf. plus bas) ne
@@ -1410,6 +1433,14 @@ fn subagent_event(
         obj.insert("__ephemeral".into(), json!(true));
     }
     ev
+}
+
+/// Types de tâche du CLI qui sont des agents (`local_agent`,
+/// `remote_agent`, coéquipiers) ; `local_bash`, `monitor`, `dream`… n'en
+/// sont pas.
+fn is_agent_task_type(task_type: &str) -> bool {
+    let ty = task_type.to_ascii_lowercase();
+    ty.contains("agent") || ty.contains("teammate")
 }
 
 /// `running/pending/queued/started` = pas terminal ; tout le reste
@@ -2557,6 +2588,33 @@ mod tests {
     }
 
     // ---- Phase C : cycle de vie natif des sous-agents ----------------------
+
+    /// Commande Bash de fond (flux réel du CLI 2.1.306) : le CLI la suit par
+    /// `task_started` (`task_type: local_bash`) → `task_updated` →
+    /// `task_notification`. Aucun de ces messages ne doit ouvrir un
+    /// sous-agent : la rangée Bash montre déjà la commande.
+    #[test]
+    fn commande_de_fond_n_est_pas_un_sous_agent() {
+        let mut st = ClaudeStreamState::default();
+        for line in [
+            r#"{"type":"system","subtype":"task_started","task_id":"bdvgdka03","tool_use_id":"toolu_01L","description":"Attend trois secondes","is_backgrounded":true,"task_type":"local_bash","session_id":"s"}"#,
+            r#"{"type":"system","subtype":"task_updated","task_id":"bdvgdka03","patch":{"status":"completed","end_time":1792606390591},"session_id":"s"}"#,
+            r#"{"type":"system","subtype":"task_notification","task_id":"bdvgdka03","tool_use_id":"toolu_01L","status":"completed","summary":"Background command \"Attend trois secondes\" completed (exit code 0)","session_id":"s"}"#,
+        ] {
+            let events = parse_line(&mut st, line);
+            assert!(
+                events.iter().all(|e| e.get("agentActivity").is_none()),
+                "{line} → {events:?}"
+            );
+        }
+        assert!(st.subagents.is_empty());
+        // Un vrai agent du même flux reste un sous-agent.
+        let agent = parse_line(
+            &mut st,
+            r#"{"type":"system","subtype":"task_started","task_id":"a1","tool_use_id":"toolu_A","description":"Relit","task_type":"local_agent","subagent_type":"Explore","prompt":"Relis"}"#,
+        );
+        assert_eq!(agent[0]["agentActivity"]["agentThreadId"], "a1");
+    }
 
     /// Scénario complet : `task_started` → tool_use enfant (message avec
     /// `parent_tool_use_id`) → `task_updated` → `task_notification`. Vérifie
