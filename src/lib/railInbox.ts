@@ -1,7 +1,7 @@
 // Contenu de la boîte « À traiter » (piste B, 2026-10-21) : chargé avec le
 // panneau, à l'ouverture seulement — le budget d'entrée JS est plein.
 import type { Thread } from "./ws";
-import { threadSignal, type AttentionMap } from "./railSignals";
+import { pendingTitle, threadSignal, type AttentionMap } from "./railSignals";
 
 export type InboxGroup = "wait" | "done" | "fail";
 export type InboxItem = {
@@ -13,7 +13,7 @@ export type InboxItem = {
   title: string;
   detail: string;
   at: number | null;
-  icon: "permission" | "question" | "done" | "fail";
+  icon: "permission" | "question" | "paused" | "done" | "fail";
 };
 
 const GROUP_ORDER: Record<InboxGroup, number> = { wait: 0, fail: 1, done: 2 };
@@ -44,7 +44,7 @@ export function buildInbox(
       const pending = attention[thread.id]!.pending!;
       items.push({
         ...base, id: `wait:${thread.id}`, group: "wait", icon: pending.reason,
-        title: pending.reason === "permission" ? `Autorisation : ${pending.label}` : pending.label || "Question de l’agent",
+        title: pendingTitle(pending),
         detail: `${title} · ${project}`,
         at: pending.at ?? base.at,
       });

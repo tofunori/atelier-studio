@@ -1,6 +1,7 @@
 // Signaux du rail (2026-10-21, piste B « Signaux + À traiter »). Le coin
 // d'une puce ne porte plus que l'état de ses fils, avec quatre mots :
-//   wait   — un fil attend ta réponse (autorisation, question) ;
+//   wait   — un fil attend ta réponse (autorisation, question, spécialiste
+//            en pause faute d'échanges) ;
 //   fail   — un tour s'est terminé en échec et tu ne l'as pas vu ;
 //   run    — un agent travaille ;
 //   unread — une réponse est arrivée et tu ne l'as pas lue.
@@ -11,14 +12,9 @@ import { useSyncExternalStore } from "react";
 import type { AgentEvent, Thread } from "./ws";
 import type { ThreadEvents } from "./threadEventStore";
 
-export type RailSignal = "wait" | "fail" | "run" | "unread";
+import { SIGNAL_LABEL, type RailSignal } from "./railSignalLabel";
 
-export const SIGNAL_LABEL: Record<RailSignal, string> = {
-  wait: "Attend ta réponse",
-  fail: "Échec",
-  run: "Un agent travaille",
-  unread: "Réponse terminée, non lue",
-};
+export { SIGNAL_LABEL, type RailSignal };
 
 /** Priorité d'une puce qui agrège plusieurs fils : ce qui t'attend d'abord. */
 const RANK: Record<RailSignal, number> = { wait: 4, fail: 3, run: 2, unread: 1 };
@@ -29,33 +25,50 @@ export function strongest(signals: Iterable<RailSignal | null | undefined>): Rai
   return best;
 }
 
-export type PendingRequest = { reason: "permission" | "question"; label: string; at: number | null };
+export type PendingRequest = { reason: "permission" | "question" | "paused"; label: string; at: number | null };
 export type ThreadAttention = { pending: PendingRequest | null; failed: boolean };
 
 const QUIET: ThreadAttention = { pending: null, failed: false };
+const FAILED: ThreadAttention = { pending: null, failed: true };
 /** Au-delà, une demande restée en suspens a forcément été suivie d'un tour. */
 const SCAN_LIMIT = 400;
 
 /** Lit la queue d'un fil : une demande sans réponse depuis le dernier tour,
- * ou un dernier tour en échec. On s'arrête au premier `done`/`error`/`user`
- * rencontré en remontant : une autorisation restée `null` AVANT la fin d'un
- * tour est périmée (le tour a continué ou s'est arrêté sans elle). */
+ * ou un dernier tour en échec. Une autorisation restée `null` AVANT la fin
+ * d'un tour est périmée (le tour a continué ou s'est arrêté sans elle).
+ * Un message retenu (budget d'échanges d'un spécialiste épuisé, #94) part
+ * pendant le tour et reste « paused » après sa fin : on le cherche jusqu'au
+ * dernier message de l'utilisateur, qui recharge le budget et le relance.
+ * Seul le côté expéditeur compte, pour ne pas le signaler deux fois. */
 export function scanThreadEvents(events: readonly AgentEvent[] | undefined): ThreadAttention {
   if (!events?.length) return QUIET;
   const stop = Math.max(0, events.length - SCAN_LIMIT);
+  let ended: ThreadAttention | null = null;
   for (let i = events.length - 1; i >= stop; i -= 1) {
     const event = events[i] as AgentEvent & { ts?: number };
+    if (event.kind === "agent_message" && event.direction === "sent" && event.status === "paused") {
+      const name = event.peerTitle?.split(" · ")[0] || event.peerProvider || "Spécialiste";
+      return { pending: { reason: "paused", label: name, at: event.ts ?? null }, failed: false };
+    }
+    if (event.kind === "user") break;
+    if (ended) continue;
     if (event.kind === "permission" && event.answered == null) {
       return { pending: { reason: "permission", label: event.toolName, at: event.ts ?? null }, failed: false };
     }
     if (event.kind === "interaction" && event.state === "pending") {
       return { pending: { reason: "question", label: event.title, at: event.ts ?? null }, failed: false };
     }
-    if (event.kind === "done") return event.ok === false ? { pending: null, failed: true } : QUIET;
-    if (event.kind === "error") return { pending: null, failed: true };
-    if (event.kind === "user") return QUIET;
+    if (event.kind === "done") ended = event.ok === false ? FAILED : QUIET;
+    if (event.kind === "error") ended = FAILED;
   }
-  return QUIET;
+  return ended ?? QUIET;
+}
+
+/** Libellé d'une demande, pour l'infobulle d'un projet et la boîte. */
+export function pendingTitle(pending: PendingRequest): string {
+  if (pending.reason === "permission") return `Autorisation : ${pending.label}`;
+  if (pending.reason === "paused") return `${pending.label} en pause`;
+  return pending.label || "Question de l’agent";
 }
 
 export type AttentionMap = Record<string, ThreadAttention>;
@@ -121,3 +134,40 @@ export function threadSignal(
   return null;
 }
 
+
+/** Ce que montre le rail, agrégé depuis les fils (cf. Rail, RailSignals). */
+export type RailSignalSummary = {
+  projects: Record<string, RailSignal>;
+  threads: Record<string, RailSignal>;
+  notes: Record<string, string[]>;
+  discussions: number;
+};
+
+export function summarizeRail(
+  allThreads: readonly Thread[],
+  attention: AttentionMap,
+  unread: ReadonlySet<string>,
+  activeId: string | null,
+  isDiscussion: (root: string | null | undefined) => boolean,
+): RailSignalSummary {
+  const byProject: Record<string, RailSignal[]> = {};
+  const threads: Record<string, RailSignal> = {};
+  const notes: Record<string, string[]> = {};
+  let discussions = 0;
+  for (const th of allThreads) {
+    const signal = threadSignal(th, attention[th.id], unread, activeId);
+    if (!signal) continue;
+    threads[th.id] = signal;
+    if (isDiscussion(th.projectRoot)) {
+      if (signal !== "run") discussions += 1;
+      continue;
+    }
+    (byProject[th.projectRoot] ??= []).push(signal);
+    const pending = attention[th.id]?.pending;
+    const what = pending ? pendingTitle(pending) : SIGNAL_LABEL[signal];
+    (notes[th.projectRoot] ??= []).push(`${what} — « ${th.title?.trim() || "Sans titre"} »`);
+  }
+  const projects: Record<string, RailSignal> = {};
+  for (const [root, list] of Object.entries(byProject)) projects[root] = strongest(list)!;
+  return { projects, threads, notes, discussions };
+}

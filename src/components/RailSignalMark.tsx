@@ -1,7 +1,7 @@
 // Coin d'une puce du rail (piste B, 2026-10-21) : l'anneau tourne pour un
 // agent, un point pour le reste (lib/railSignals). Classes préfixées sig- :
 // `.dot.unread` existe déjà ailleurs (vert) et repeignait le point.
-import { SIGNAL_LABEL, type RailSignal } from "../lib/railSignals";
+import { SIGNAL_LABEL, type RailSignal } from "../lib/railSignalLabel";
 
 export { SIGNAL_LABEL };
 

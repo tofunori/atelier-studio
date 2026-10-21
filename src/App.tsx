@@ -114,7 +114,7 @@ import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedAgentSummaries, linkedConversationForProvider } from "./lib/threadLinks";
 import { catalogSkillForPrompt } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
-import { SIGNAL_LABEL, strongest, threadSignal, useThreadAttention, type RailSignal } from "./lib/railSignals";
+import type { RailView } from "./components/RailSignalsSource";
 import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, withBootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
@@ -201,6 +201,8 @@ import "./App.css";
 // re-rende plus tant que leurs props restent référentiellement stables.
 const TopBarMemo = memo(TopBar);
 const RailMemo = memo(Rail);
+const RailSignalsSource = lazyWithRetry(() => import("./components/RailSignalsSource"));
+const NO_SIGNALS = {};
 
 // Le localStorage WKWebView peut perdre ses toutes dernières écritures si le
 // process est tué (kill -9, protocole de relance) — c'est pour ça que
@@ -1643,6 +1645,14 @@ export default function App() {
           notifiedRequestsRef.current.add(msg.event.requestId);
           const asked = allThreadsRef.current?.find?.((x: any) => x.id === msg.threadId);
           notifyThread(msg.threadId, "Question de l’agent", `${msg.event.title}${asked?.title ? ` — « ${asked.title} »` : ""}`);
+        }
+        // Un spécialiste au budget d'échanges épuisé retient son message
+        // (#94) : il attend un « Continuer », comme une question.
+        if (msg.event.kind === "agent_message" && msg.event.direction === "sent" && msg.event.status === "paused"
+          && !notifiedRequestsRef.current.has(`paused:${msg.event.messageId}`)) {
+          notifiedRequestsRef.current.add(`paused:${msg.event.messageId}`);
+          const name = msg.event.peerTitle?.split(" · ")[0] || msg.event.peerProvider || "Le spécialiste";
+          notifyThread(msg.threadId, `${name} en pause`, "Budget d’échanges atteint : Continuer pour relancer.");
         }
         if (msg.event.kind === "heartbeat") {
           // signal de vie : maintient l'indicateur "Working" ; tokens = sortie
@@ -4026,8 +4036,10 @@ export default function App() {
 
   // Task 25 : memo — sinon `new Set(...)` change d'identité à chaque render
   // de App et casse RailMemo même quand aucun thread ne (dé)marre.
-  // demandes en attente et derniers tours en échec, fil par fil (rail)
-  const threadAttention = useThreadAttention(eventStore);
+  // signaux du rail (demandes, échecs, non lus), calculés par le chunk de
+  // RailSignalsSource ; null tant qu'il charge (le rail montre alors les
+  // agents en cours)
+  const [railView, setRailView] = useState<RailView | null>(null);
   const runningProjects = useMemo(
     () => new Set(allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot)),
     [allThreads],
@@ -4325,45 +4337,26 @@ export default function App() {
       setLayout(current => current === "atelier" ? "split" : current);
     };
   });
-  const railSignals = useMemo(() => {
-    const byProject: Record<string, RailSignal[]> = {};
-    const threads: Record<string, RailSignal> = {};
-    const notes: Record<string, string[]> = {};
-    let discussions = 0;
-    for (const th of allThreads) {
-      const signal = threadSignal(th, threadAttention[th.id], unread, activeId);
-      if (!signal) continue;
-      threads[th.id] = signal;
-      if (isDiscussionContext(th.projectRoot)) {
-        if (signal !== "run") discussions += 1;
-        continue;
-      }
-      (byProject[th.projectRoot] ??= []).push(signal);
-      const pending = threadAttention[th.id]?.pending;
-      const what = pending?.reason === "permission" ? `Autorisation : ${pending.label}`
-        : pending ? pending.label || SIGNAL_LABEL.wait : SIGNAL_LABEL[signal];
-      (notes[th.projectRoot] ??= []).push(`${what} — « ${th.title?.trim() || "Sans titre"} »`);
-    }
-    const projects: Record<string, RailSignal> = {};
-    for (const [root, list] of Object.entries(byProject)) projects[root] = strongest(list)!;
-    return { projects, threads, notes, discussions };
-  }, [allThreads, threadAttention, unread, activeId]);
   const railInbox = useMemo(() => ({
-    signals: railSignals.threads,
+    signals: railView?.signals.threads ?? NO_SIGNALS,
     threads: allThreads,
-    attention: threadAttention,
+    attention: railView?.attention ?? NO_SIGNALS,
     unread,
     activeId,
     onOpen: (threadId: string) => openThreadFromSignalRef.current(threadId),
     onMarkAllRead: () => setUnread((u) => (u.size ? new Set() : u)),
-  }), [railSignals, allThreads, threadAttention, unread, activeId]);
+  }), [railView, allThreads, unread, activeId]);
   const railNode = (
+      <>
+        <LazyBoundary fallback={null}>
+          <RailSignalsSource store={eventStore} threads={allThreads} unread={unread} activeId={activeId} onChange={setRailView} />
+        </LazyBoundary>
         <RailMemo
-          signals={railSignals}
+          signals={railView?.signals}
           inbox={railInbox}
           favorites={{
             unread,
-            signals: railSignals.threads,
+            signals: railView?.signals.threads,
             seals: settings.chatSeals,
             onSetSeal: (id, seal) => setSettings(current => ({ ...current, chatSeals: { ...current.chatSeals, [id]: seal } })),
             threads: favorites.flatMap(id => { const th = allThreads.find(th => th.id === id); return th ? [th] : []; }),
@@ -4394,6 +4387,7 @@ export default function App() {
           onRemoveProject={handleRemoveProject}
           onReorder={handleReorderProjects}
         />
+      </>
   );
   const viewPanelNode = compact ? null : activeView === "highlights" ? (
           <HighlightsPanel

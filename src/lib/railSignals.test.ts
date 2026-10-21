@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionFromEvents, scanThreadEvents, strongest, threadSignal } from "./railSignals";
+import { attentionFromEvents, pendingTitle, scanThreadEvents, strongest, summarizeRail, threadSignal } from "./railSignals";
 import { buildInbox, shortAge } from "./railInbox";
 import type { AgentEvent, Thread } from "./ws";
 
@@ -30,6 +30,18 @@ describe("scanThreadEvents", () => {
     expect(scanThreadEvents([ev({ kind: "done", ok: false, result: "x" })]).failed).toBe(true);
     expect(scanThreadEvents([ev({ kind: "error", message: "x" })]).failed).toBe(true);
     expect(scanThreadEvents([ev({ kind: "error", message: "x" }), ev({ kind: "user", text: "encore" })]).failed).toBe(false);
+  });
+  it("un message retenu par le budget d'un spécialiste attend, même après la fin du tour", () => {
+    const held = ev({ kind: "agent_message", messageId: "m", direction: "sent", peerThreadId: "c",
+      peerTitle: "Figures · Refais le panneau b", text: "suite", status: "paused", ts: 7 });
+    const a = scanThreadEvents([ev({ kind: "user", text: "go" }), held, ev({ kind: "done", ok: true, result: "" })]);
+    expect(a.pending).toEqual({ reason: "paused", label: "Figures", at: 7 });
+    expect(pendingTitle(a.pending!)).toBe("Figures en pause");
+    // côté destinataire : déjà signalé chez l'expéditeur
+    expect(scanThreadEvents([ev({ ...(held as object), direction: "received" })]).pending).toBeNull();
+    // relancé (Continuer, message de l'utilisateur) : plus rien
+    expect(scanThreadEvents([ev({ ...(held as object), status: "queued" })]).pending).toBeNull();
+    expect(scanThreadEvents([held, ev({ kind: "user", text: "vas-y" })]).pending).toBeNull();
   });
   it("seuls les fils qui demandent quelque chose figurent dans la carte", () => {
     const map = attentionFromEvents({ a: [ev({ kind: "done", ok: true, result: "" })], b: [ev({ kind: "error", message: "x" })] });
@@ -80,4 +92,17 @@ it("shortAge reste court", () => {
   expect(shortAge(now - 6 * 60_000, now)).toBe("6 min");
   expect(shortAge(now - 3 * 3_600_000, now)).toBe("3 h");
   expect(shortAge(null, now)).toBe("");
+});
+
+it("summarizeRail : signal le plus fort par projet, une ligne par fil, Discussions à part", () => {
+  const threads = [
+    thread({ id: "a", status: "running" }),
+    thread({ id: "b", title: "Figures" }),
+    thread({ id: "c", projectRoot: "__discussions__" }),
+  ];
+  const attention = { b: { pending: { reason: "paused" as const, label: "Figures", at: null }, failed: false } };
+  const out = summarizeRail(threads, attention, new Set(["c"]), null, (root) => root === "__discussions__");
+  expect(out.projects).toEqual({ "/Users/t/albedo": "wait" });
+  expect(out.notes["/Users/t/albedo"]).toEqual(["Un agent travaille — « Calibration »", "Figures en pause — « Figures »"]);
+  expect(out.discussions).toBe(1);
 });
