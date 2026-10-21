@@ -243,7 +243,7 @@
 .ui-tab.is-compact { width: 30px; min-width: 30px; padding: 0; justify-content: center; }
 .ui-tab-icon, .ui-tab-close { display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .ui-tab-label { min-width: 0; display: inline-flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ui-tab-close { color: var(--text-disabled); opacity: .42; border-radius: var(--radius-control); }
+.ui-tab-close { color: var(--text-muted); opacity: .42; border-radius: var(--radius-control); }
 .ui-tab:hover .ui-tab-close, .ui-tab:focus-within .ui-tab-close, .ui-tab.is-active .ui-tab-close { opacity: .86; }
 .ui-tab[data-active] .ui-tab-close { opacity: .86; }
 .ui-tab-close:hover { color: var(--status-error); }
@@ -277,7 +277,7 @@
    méta 56 px calée à droite, état 12 px, chevron 12 px — vides, elles restent
    posées pour que les chevrons s'alignent d'une rangée à l'autre. */
 .ui-activity-meta { flex: none; margin-left: auto; min-width: 56px; text-align: right;
-  color: var(--text-disabled); font-size: var(--fs-s, 11px);
+  color: var(--text-muted); font-size: var(--fs-s, 11px);
   font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ui-activity.is-summary .ui-activity-meta { color: var(--text-muted); font-size: var(--fs-m, 12px); }
 .ui-activity.is-running .ui-activity-meta { color: var(--text-muted); }

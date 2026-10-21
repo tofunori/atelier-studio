@@ -2216,7 +2216,7 @@ function render(){
     // deux états distincts : projet vide vs zéro résultat avec filtres actifs
     const hasQ=!!(document.getElementById('q') as HTMLInputElement).value.trim();
     grid.innerHTML = FILES.length===0
-      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--faint)">Add figures, data or scripts, then Rescan.</span></div>'
+      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--text-muted)">Add figures, data or scripts, then Rescan.</span></div>'
       : '<div class="empty">No matching files.'
         +' <button id="emptyReset" style="margin-left:8px;height:26px;font-size:11px">Clear search &amp; filters</button></div>';
     const er=(document.getElementById('emptyReset') as HTMLButtonElement);

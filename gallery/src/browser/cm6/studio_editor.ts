@@ -109,16 +109,18 @@ export const STUDIO_THEMES = [
   {id: "solarized-dark", label: "Solarized Dark", swatches: ["#268bd2", "#b58900", "#2aa198"]},
 ];
 
+// EDIT-19 : commentaires >= 4,5:1 (texte) et gouttiere >= 3:1 sur le fond de
+// l'editeur, pour les profils Atelier et Claude Code (clair et sombre).
 const THEME_PALETTES = {
   atelier: {
-    bg: "var(--surface-app, #1e2126)", fg: "#d8d3c8", gutter: "#565e6b", gutterActive: "#d8d3c8", accent: "#5b9dff",
+    bg: "var(--surface-app, #1e2126)", fg: "#d8d3c8", gutter: "#6c7480", gutterActive: "#d8d3c8", accent: "#5b9dff",
     selection: "rgba(91,157,255,.38)", active: "rgba(255,255,255,.035)", panel: "var(--surface-panel, #181b20)", surface: "var(--surface-inset, #24282d)", border: "var(--border-subtle, #383c41)",
-    comment: "#707985", keyword: "#e07a5f", fn: "#61afef", type: "#c678dd", variable: "#d8d3c8", prop: "#e6c07b", string: "#86c991", constant: "#d19a66", punct: "#abb2bf", meta: "#61afef", regexp: "#86c991", escape: "#e6c07b",
+    comment: "#8a929d", keyword: "#e07a5f", fn: "#61afef", type: "#c678dd", variable: "#d8d3c8", prop: "#e6c07b", string: "#86c991", constant: "#d19a66", punct: "#abb2bf", meta: "#61afef", regexp: "#86c991", escape: "#e6c07b",
   },
   "claude-code": {
-    bg: "var(--surface-app, #1a1a19)", fg: "#e6e4dd", gutter: "#5a5955", gutterActive: "#c3c2b8", accent: "#d97757",
+    bg: "var(--surface-app, #1a1a19)", fg: "#e6e4dd", gutter: "#6f6d68", gutterActive: "#c3c2b8", accent: "#d97757",
     selection: "rgba(122,166,231,.30)", active: "rgba(255,255,255,.035)", panel: "var(--surface-panel, #1a1a19)", surface: "var(--surface-inset, #2a2a28)", border: "var(--border-subtle, #2b2b29)",
-    comment: "#75736d", keyword: "#d97757", fn: "#7aa6e7", type: "#d4a86a", variable: "#e6e4dd", prop: "#e3b872", string: "#a8c47f", constant: "#c79bd6", punct: "#9a988f", meta: "#7aa6e7", regexp: "#a8c47f", escape: "#e3b872",
+    comment: "#95938d", keyword: "#d97757", fn: "#7aa6e7", type: "#d4a86a", variable: "#e6e4dd", prop: "#e3b872", string: "#a8c47f", constant: "#c79bd6", punct: "#9a988f", meta: "#7aa6e7", regexp: "#a8c47f", escape: "#e3b872",
   },
   "vscode-dark": {bg: "#1e1e1e", fg: "#d4d4d4", gutter: "#838383", gutterActive: "#ffffff", accent: "#c6c6c6", selection: "#6199ff2f", active: "#ffffff0f", panel: "#181818", surface: "#252526", border: "#3c3c3c"},
   dracula: {bg: "#282a36", fg: "#f8f8f2", gutter: "#6d8a88", gutterActive: "#f8f8f2", accent: "#f8f8f0", selection: "rgba(255,255,255,.1)", active: "rgba(255,255,255,.1)", panel: "#21222c", surface: "#343746", border: "#44475a"},
@@ -160,9 +162,9 @@ const MAINTAINED_THEME_EXTENSIONS = {
 // Variante claire du profil Claude Code, prise quand l'hôte est en clair.
 const CLAUDE_CODE_LIGHT = {
   dark: false,
-  bg: "var(--surface-app, #faf9f5)", fg: "#1f1e1c", gutter: "#a3a19a", gutterActive: "#3d3d3a", accent: "#c6613f",
+  bg: "var(--surface-app, #faf9f5)", fg: "#1f1e1c", gutter: "#8f8d85", gutterActive: "#3d3d3a", accent: "#c6613f",
   selection: "rgba(47,98,194,.20)", active: "rgba(0,0,0,.035)", panel: "var(--surface-panel, #faf9f5)", surface: "var(--surface-inset, #e8e6dc)", border: "var(--border-subtle, #e6e3d9)",
-  comment: "#8b897f", keyword: "#b5532f", fn: "#2f62c2", type: "#8a5d1a", variable: "#1f1e1c", prop: "#8a5d00", string: "#4e7a2c", constant: "#7b3fa0", punct: "#6b6a65", meta: "#2f62c2", regexp: "#4e7a2c", escape: "#8a5d00",
+  comment: "#64635e", keyword: "#b5532f", fn: "#2f62c2", type: "#8a5d1a", variable: "#1f1e1c", prop: "#8a5d00", string: "#4e7a2c", constant: "#7b3fa0", punct: "#6b6a65", meta: "#2f62c2", regexp: "#4e7a2c", escape: "#8a5d00",
 };
 
 // atelier_theme.js pose color-scheme sur la racine (cache compris) avant le

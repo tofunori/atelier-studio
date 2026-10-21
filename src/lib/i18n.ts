@@ -488,6 +488,7 @@ const fr = {
   "usage.turns": "tours",
   "usage.no-quota": "quota non exposé par le CLI",
   "usage.updated-ago": "MàJ il y a {d}",
+  "usage.reset": "réinit. {t}",
   "usage.empty": "Pas encore de données — aucune limite détectée pour les CLIs installés.",
 
   "qa.hint": "Question rapide — rien n'est conservé, sauf si tu injectes ou promeus.",
@@ -2810,6 +2811,7 @@ const en: Record<keyof typeof fr, string> = {
   "usage.turns": "turns",
   "usage.no-quota": "no quota exposed by the CLI",
   "usage.updated-ago": "updated {d} ago",
+  "usage.reset": "reset {t}",
   "usage.empty": "No data yet — no limits detected for the installed CLIs.",
 
   "qa.hint": "Quick question — nothing is kept unless you inject or promote.",

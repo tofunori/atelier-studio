@@ -1,4 +1,5 @@
 // Thèmes complets de l'app (tokens CSS) — appliqués via data-theme + variables.
+import { ensureContrast, hueDistance } from "./contrast";
 export type ThemePreset = {
   id: string;
   name: string;
@@ -51,6 +52,23 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
   const status = dark
     ? { ok: "#98c379", warn: "#e0b74a", hot: "#e06c75", info: "#7aa2f7", hl: "#cda44b" }
     : { ok: "#2f6b41", warn: "#7a5a09", hot: "#a8322a", info: "#3f6fd1", hl: "#a3771e" };
+  // Erreur ≠ accent (PRIM-13) : quand le rouge par défaut tombe à moins de 30°
+  // de l'accent (oranges de claude-code, d'Atelier…), on prend un rouge plus
+  // froid, tiré vers le rose, qui garde 4,5:1 sur les fonds du thème.
+  const coolHot = dark ? "#ec6a8c" : "#b1234f";
+  if (hueDistance(status.hot, accent) < 30 && hueDistance(coolHot, accent) > hueDistance(status.hot, accent)) {
+    status.hot = coolHot;
+  }
+  // Lisibilité (A4, 2026-10-21) : tout texte secondaire et tout texte en
+  // accent atteint 4,5:1 sur les quatre fonds du thème. Une palette qui passe
+  // déjà est rendue telle quelle ; sinon la couleur est rapprochée de --fg.
+  const fonds = [bg, ctl, pop, card];
+  const mutedText = ensureContrast(muted, fg, fonds);
+  const accentText = ensureContrast(accent, fg, fonds);
+  // les statuts s'écrivent aussi (badges, messages d'erreur) : même seuil
+  status.ok = ensureContrast(status.ok, fg, fonds);
+  status.warn = ensureContrast(status.warn, fg, fonds);
+  status.hot = ensureContrast(status.hot, fg, fonds);
 
   return {
     ...raw,
@@ -70,8 +88,9 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
 
     "--text-primary": fg,
     "--text-secondary": fg2,
-    "--text-muted": muted,
-    "--text-tertiary": muted,
+    "--muted": mutedText,
+    "--text-muted": mutedText,
+    "--text-tertiary": mutedText,
     "--text-disabled": muted2,
     "--text-inverse": "#1a1408",
     "--text-on-accent": "#1a1408",
@@ -86,6 +105,9 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
     "--accent-hover": `color-mix(in srgb, ${accent} 88%, ${fg} 12%)`,
     "--accent-active": `color-mix(in srgb, ${accent} 80%, #000 20%)`,
     "--accent-subtle": `color-mix(in srgb, ${accent} 16%, transparent)`,
+    // l'accent ÉCRIT (texte, icône porteuse de sens) : --accent reste le
+    // remplissage et le repère ; --accent-text est sa version lisible.
+    "--accent-text": accentText,
     "--selection-surface": `color-mix(in srgb, ${accent} 14%, ${ctl})`,
     "--selection-border": `color-mix(in srgb, ${accent} 48%, ${border2})`,
     "--selection-line": accent,
@@ -93,9 +115,9 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
     "--u-ok": status.ok,
     "--u-warn": status.warn,
     "--u-hot": status.hot,
-    "--u-run": accent,
+    "--u-run": accentText,
     "--status-info": status.info,
-    "--status-running": accent,
+    "--status-running": accentText,
     "--status-success": status.ok,
     "--status-warning": status.warn,
     "--status-error": status.hot,
@@ -161,7 +183,7 @@ export const THEME_PRESETS: ThemePreset[] = [
   // orange de Claude Code, liens bleus. Suit Clair / Sombre / Système.
   withRoles(T("claude-code", "Claude Code", true,
     "#1a1a19", "#121211", "#262625", "#20201f", "#2a2a28",
-    "#2b2b29", "#3b3b39", "#f0efec", "#c3c2b8", "#898782", "#5a5955", "#d97757",
+    "#2b2b29", "#3b3b39", "#f0efec", "#c3c2b8", "#95938d", "#5a5955", "#d97757",
     ["#121211", "#e0736b", "#98c379", "#efb444", "#7aa6e7", "#c79bd6", "#6fbfb3", "#c3c2b8", "#5a5955", "#f08a82", "#aed48f", "#f5c867", "#95bbf0", "#d8b1e3", "#8bd3c7", "#f0efec"]),
     { "--link": "#7aa6e7", "--code-inline": "#de8481" }),
   T("graphite", "Graphite", true,
@@ -255,7 +277,7 @@ const LIGHT_VARIANTS: Record<string, () => Pick<ThemePreset, "vars" | "ansi">> =
     vars: {
       "--bg": "#faf9f5", "--bg-side": "#f0eee6", "--bg-pop": "#ffffff", "--bg-card": "#ffffff",
       "--bg-ctl": "#e8e6dc", "--border": "#e6e3d9", "--border2": "#cfcbbf", "--fg": "#141413",
-      "--fg2": "#3d3d3a", "--muted": "#6b6a65", "--muted2": "#9c9a92", "--accent": "#c6613f",
+      "--fg2": "#3d3d3a", "--muted": "#64635e", "--muted2": "#9c9a92", "--accent": "#c6613f",
       "--link": "#2f62c2", "--code-inline": "#b0413e",
     },
   }),

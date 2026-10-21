@@ -171,7 +171,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // commandes sur l'accent du thème actif (pas l'orange figé de la galerie),
     // accolades or et environnements turquoise via les classes posées par
     // decorateLatex (chat/md.tsx)
-    expect(appCss).toMatch(/\.language-latex \.hljs-keyword\s*\{[^}]*color:\s*var\(--accent\)/);
+    expect(appCss).toMatch(/\.language-latex \.hljs-keyword\s*\{[^}]*color:\s*var\(--accent-text\)/);
     for (const cls of ["hljs-built_in", "hljs-tex-brace", "hljs-tex-env"]) {
       expect(appCss, cls).toMatch(new RegExp(`\\.language-latex \\.${cls}\\s*\\{[^}]*color:`));
     }
@@ -1170,5 +1170,29 @@ describe("contrat lot 2 (socle)", () => {
     const scrollArea = shadcnSources.find(([name]) => name === "scroll-area.tsx")?.[1] ?? "";
     expect(scrollArea).toContain("w-[var(--scrollbar-size)]");
     expect(scrollArea).not.toMatch(/tw:data-vertical:w-2\.5/);
+  });
+
+  it("A4 : la méta lisible est en --text-muted ; --text-disabled reste aux marques et au désactivé", () => {
+    const all = sourceSheets().map(([, css]) => css).join("\n");
+    // budget gelé : chevrons, séparateurs, puces, coches, poignées,
+    // placeholders, :disabled, étoiles non posées (ne peut que rétrécir)
+    const disabledText = [...all.matchAll(/(^|[^-\w])color:\s*var\(--text-disabled\)/g)].length;
+    expect(disabledText).toBeLessThanOrEqual(46);
+    for (const sel of [
+      ".row-time", ".sidebar li.thread-recency-label", ".sidebar button.pnav-more", ".pnav-row .prov-ico",
+      ".cmdk-footer", ".resume-date", ".tool-duration", ".timeline-stamp", ".msg-actions", ".msg-actions button",
+      ".agent-row-type", ".changed-files-dir", ".git-path-dir", ".hl-foot", ".kb-meta", ".ur-l", ".ur-sub",
+      ".ur-mrow em", ".pasted-thumb figcaption", ".appsnap-local-note", ".calculs-run-hint", ".evidence-group-loc",
+    ]) {
+      const escaped = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rule = appCss.match(new RegExp(`(^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`, "m"))?.[2] ?? "";
+      expect(rule, `${sel} introuvable`).not.toBe("");
+      expect(rule, `${sel} écrit en gris éteint`).not.toContain("--text-disabled");
+    }
+    expect(primitives).toMatch(/\.ui-activity-meta\s*\{[^}]*color:\s*var\(--text-muted\)/);
+    expect(appCss).not.toMatch(/\.appsnap-local-note\s*\{[^}]*margin:\s*-/);
+    // l'accent écrit passe par --accent-text (lisible) ; --accent reste le remplissage
+    expect([...all.matchAll(/(^|[^-\w])color:\s*var\(--accent\)/g)].length).toBeLessThanOrEqual(2);
+    expect(tokens).toContain("--accent-text: var(--accent)");
   });
 });

@@ -31,7 +31,7 @@
 .set-consignes-wrap.consignes-studio .ui-btn-label { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .set-consignes-wrap.consignes-studio .consignes-toolbar .custom-select-trigger { min-height: var(--control-height); font-size: var(--fs-body-s); }
 .consignes-action-picker { display: flex; align-items: stretch; min-width: 0; }
-.set-consignes-wrap.consignes-studio .set-consignes-reformuler { color: var(--accent); border-color: var(--border-interactive); border-radius: var(--radius-control) 0 0 var(--radius-control); min-height: 32px; }
+.set-consignes-wrap.consignes-studio .set-consignes-reformuler { color: var(--accent-text); border-color: var(--border-interactive); border-radius: var(--radius-control) 0 0 var(--radius-control); min-height: 32px; }
 .consignes-action-picker > .custom-select .custom-select-trigger { height: 100%; border-left: 0; border-radius: 0 var(--radius-control) var(--radius-control) 0; }
 .consignes-action-hint { margin: 0; color: var(--text-muted); font-size: var(--fs-body-s); line-height: 1.5; }
 .consignes-recording { width: 100%; display: flex; align-items: center; gap: 8px; min-width: 0; }

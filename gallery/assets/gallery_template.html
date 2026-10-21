@@ -121,7 +121,7 @@
   .brand .logo{color:var(--txt);align-self:center;display:block}
   .brand .wm{font-size:var(--fs-title, 15px);font-weight:600;letter-spacing:-.01em}
   .brand .proj{font-size:var(--fs-body-s, 12px);color:var(--muted);font-family:var(--code-font)}
-  .brand .stat{margin-left:4px;font-size:var(--fs-body-s, 12px);color:var(--faint);font-variant-numeric:tabular-nums}
+  .brand .stat{margin-left:4px;font-size:var(--fs-body-s, 12px);color:var(--text-muted);font-variant-numeric:tabular-nums}
   .controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
   #gallery-react-toolbar{display:none}
   html.gallery-react-mounted #gallery-react-toolbar{display:block}
@@ -425,7 +425,7 @@
   #annotPill button{height:28px;width:auto;padding:0 10px;border-radius:6px;border:none;background:transparent;
       color:var(--txt);font-size:var(--fs-body, 13px);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
   #annotPill button:hover{background:var(--card2);color:var(--txt)}
-  #annotPill button.x{width:auto;height:28px;background:transparent;border:none;color:var(--faint);font-size:var(--fs-body-s, 12px)}
+  #annotPill button.x{width:auto;height:28px;background:transparent;border:none;color:var(--text-muted);font-size:var(--fs-body-s, 12px)}
   #annotPill button.x:hover{background:var(--card2);border:none;color:var(--txt)}
   #annotPill button#annotPillTarget{width:auto;height:28px;background:transparent;border:none;
       color:var(--faint);font-size:var(--fs-body-s, 12px)}
@@ -730,7 +730,9 @@
   #inspPrev img{padding:6px}
   #inspNotice{background:color-mix(in srgb,var(--hot) 10%,transparent)}
   .empty{padding:72px 24px;line-height:1.55}
-  footer{padding:18px;color:var(--faint);border-top:1px solid var(--hairline)}
+  footer{padding:18px;color:var(--text-muted);border-top:1px solid var(--hairline)}
+  /* GAL-22 : le pied de la page autonome n'a pas de sens dans Atelier */
+  html.emb body>footer{display:none}
   @media (max-width:520px){main{padding:12px;gap:11px}.card:hover,.card:focus-within{transform:none}}
   @media (prefers-reduced-motion:reduce){
     input[type=search],.csel-btn,select,button,.chip,.fchip,.menu .mi,.csel-menu div,.card,.thumb img,.hov,.selbox,.star{transition:none!important}
@@ -3241,7 +3243,7 @@ function render(){
     // deux états distincts : projet vide vs zéro résultat avec filtres actifs
     const hasQ=!!(document.getElementById('q')                    ).value.trim();
     grid.innerHTML = FILES.length===0
-      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--faint)">Add figures, data or scripts, then Rescan.</span></div>'
+      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--text-muted)">Add figures, data or scripts, then Rescan.</span></div>'
       : '<div class="empty">No matching files.'
         +' <button id="emptyReset" style="margin-left:8px;height:26px;font-size:11px">Clear search &amp; filters</button></div>';
     const er=(document.getElementById('emptyReset')                     );

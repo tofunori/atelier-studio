@@ -22,7 +22,7 @@
 .settings-refined .set-nav nav { display: grid; gap: 4px; margin-top: 20px; }
 .settings-refined .set-nav-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 38px; padding: var(--pad-y, 6px) 12px; border-radius: var(--radius-control); font-size: var(--settings-label); font-weight: 400; }
 .settings-refined .set-nav-item svg { width: 16px; height: 16px; stroke-width: 1.5; flex: none; color: var(--text-muted); }
-.settings-refined .set-nav-item.on svg { color: var(--accent); }
+.settings-refined .set-nav-item.on svg { color: var(--accent-text); }
 .settings-refined .set-nav-item.on::before { display: none; }
 .set-nav-footer { margin-top: auto; padding: 36px 8px 0; }
 .set-nav-footer > span { display: block; max-width: 150px; color: var(--text-muted); font-size: var(--settings-meta); line-height: 1.55; }

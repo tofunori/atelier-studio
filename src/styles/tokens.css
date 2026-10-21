@@ -65,6 +65,10 @@
   --accent-hover: color-mix(in srgb, var(--accent) 88%, var(--fg) 12%);
   --accent-active: color-mix(in srgb, var(--accent) 80%, #000 20%);
   --accent-subtle: color-mix(in srgb, var(--accent) 16%, transparent);
+  /* accent ÉCRIT (texte, icône porteuse de sens) : la palette le dérive à
+   * ≥ 4,5:1 sur --bg/--bg-ctl/--bg-pop/--bg-card (themes.ts). --accent reste
+   * le remplissage, le repère et l'anneau. */
+  --accent-text: var(--accent);
   --text-on-accent: var(--text-inverse);
 
   /* -- remplissage des actions (2026-10-21) ---------------------------------
@@ -192,6 +196,16 @@
   --z-toast: 260;
   --z-quick-ask: 300;
   --z-quick-ask-popover: 320;
+}
+
+/* contraste renforcé (réglage système « Augmenter le contraste ») : le gris
+ * éteint rejoint le gris secondaire. !important car la palette du thème est
+ * posée en style en ligne sur la racine (appTheme.ts). */
+@media (prefers-contrast: more) {
+  :root {
+    --text-disabled: var(--text-muted) !important;
+    --mark-neutral: var(--mark-neutral-strong) !important;
+  }
 }
 
 /* reduced motion — contrat centralisé (014 §9) : plus aucun translate/scale/
