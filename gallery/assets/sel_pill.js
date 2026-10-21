@@ -15,7 +15,9 @@
      onSent(j)   après un envoi réussi (nettoyer marques/surlignage hôte)
      onCancel()  après annulation (nettoyer sélection hôte + /selinfo)
      embedExtras(go)  mode embarqué : boutons supplémentaires à côté de .go
-   → {send, cancel, hide, placeAt(rect), renewSelection(), ta, go, embedded}
+     onState(état, message?)  envoi en cours / réussi / échoué / repos, pour
+                 l'hôte qui masque .go et montre son propre bouton
+   → {send, cancel, hide, placeAt(rect), move(rect), renewSelection(), ta, go, embedded}
    renewSelection() signale une nouvelle sélection quand l'hôte place la pilule. */
 function installSelPillApi() {
   if (window.SelPill) return;
@@ -55,7 +57,8 @@ function installSelPillApi() {
       });
       pill.style.cssText += ";background:transparent;border:none;box-shadow:none;padding:0;min-width:0;width:auto";
       go.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>';
-      go.style.cssText = "width:34px;min-width:34px;height:34px;border-radius:6px;padding:0;font-size:var(--fs-body, 13px);white-space:nowrap;background:var(--card2,#2c313a);color:var(--txt,#dbdfe5);border:1px solid var(--border-strong,#3a414d);box-shadow:0 6px 18px rgba(0,0,0,0.5);cursor:pointer";
+      // surface élevée : fond et ombre douce, sans bordure (PDF-14)
+      go.style.cssText = "width:32px;min-width:32px;height:32px;border-radius:6px;padding:0;font-size:var(--fs-body, 13px);white-space:nowrap;background:var(--surface-overlay,var(--card,#24282d));color:var(--text-primary,var(--txt,#dbdfe5));border:0;box-shadow:var(--elevation-overlay,0 4px 16px rgba(0,0,0,.25));cursor:pointer";
       go.setAttribute("aria-label", "Ajouter au chat");
       go.title = "Ajouter au chat";
       goHTML = go.innerHTML;
@@ -63,15 +66,22 @@ function installSelPillApi() {
     }
 
     function hide(){ pill.style.display = "none"; }
+    // L'hôte qui masque .go (lecteur PDF) reflète l'envoi sur son propre
+    // bouton : busy, done, error (avec la raison), puis idle (PDF-05).
+    const state = (next                                    , message         ) => { if (opts.onState) opts.onState(next, message); };
     function renewSelection(){
       selectionVersion += 1; clearTimeout(confirmationTimer);
-      if(!sending){ goReset(); go.title = "Ajouter au chat"; }
+      if(!sending){ goReset(); go.title = "Ajouter au chat"; state("idle"); }
     }
     // positionnement générique près d'un rectangle viewport (pdf_viewer,
     // rapports) — latex_studio garde son placement borné à l'éditeur
     function placeAt(rect                                                               ){
       renewSelection();
       pill.style.display = "flex";
+      move(rect);
+    }
+    // déplacement seul (défilement) : la sélection et l'envoi en cours restent valides
+    function move(rect                                                               ){
       const w = pill.offsetWidth, h = pill.offsetHeight;
       const x = Math.min(Math.max(8, rect.left + rect.width / 2 - w / 2), innerWidth - w - 8);
       let y = rect.bottom + 10;
@@ -90,7 +100,7 @@ function installSelPillApi() {
       const version = selectionVersion;
       const comment = ta.value.trim();
       sending = true; go.disabled = true; go.setAttribute("aria-busy", "true");
-      go.textContent = "…"; go.title = "Ajout au chat en cours…";
+      go.textContent = "…"; go.title = "Ajout au chat en cours…"; state("busy");
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(),20000);
       try {
@@ -104,15 +114,16 @@ function installSelPillApi() {
           const core = await chatCore();
           await core.requestChatAttachment({window, postToHost:window.__atelierPost, payload:{type:"atelier-add-to-chat",text:j.message}});
         }
-        if(version !== selectionVersion){ goReset(); go.title = "Ajouter au chat"; return; }
+        if(version !== selectionVersion){ goReset(); go.title = "Ajouter au chat"; state("idle"); return; }
         if(opts.onSent) opts.onSent(j);
-        go.textContent = "✓"; go.title = "Ajouté au chat";
+        go.textContent = "✓"; go.title = "Ajouté au chat"; state("done");
         confirmationTimer = setTimeout(() => {
-          goReset(); go.title = "Ajouter au chat";
+          goReset(); go.title = "Ajouter au chat"; state("idle");
           if(version === selectionVersion){ ta.value = ""; hide(); }
         },1200);
       } catch(error) {
         go.textContent = "!"; go.title = error.message || "Ajout non confirmé — réessayer";
+        state("error", error.message || "Ajout non confirmé, réessaie");
       } finally {
         clearTimeout(timeout);
         sending = false; go.disabled = false; go.removeAttribute("aria-busy");
@@ -171,7 +182,7 @@ function installSelPillApi() {
       };
     })();
 
-    return {send, cancel, hide, placeAt, renewSelection, ta, go, embedded: EMBEDDED};
+    return {send, cancel, hide, placeAt, move, renewSelection, ta, go, embedded: EMBEDDED};
   }
 
   const publicApi = {attach, embedded: EMBEDDED, target: ct};

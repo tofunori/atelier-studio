@@ -362,7 +362,10 @@ function markTools(){
  const dom=new JSDOM('<header><span id="selinfo"></span><span id="status"></span></header>',{runScripts:'outside-only'}),win=dom.window,calls: any[]=[];
  win.HL_COLORS=['rgba(255,213,74,.40)','rgba(120,220,140,.40)','rgba(120,170,255,.40)','rgba(255,140,160,.40)','rgba(255,160,80,.40)','rgba(185,150,255,.40)'];
  win.addHighlightFromSel=(kind,color)=>calls.push([kind,color]);
+ // notify() (PDF-03) vit hors de la tranche chargée : même effet visible sur #status
+ win.notify=(text)=>{win.document.getElementById('status').textContent=text;};
  vm.runInContext(pdfTools,dom.getInternalVMContext());
+ vm.runInContext(sharedUI,dom.getInternalVMContext());  // icônes partagées (PDF-07)
  vm.runInContext(html.slice(html.indexOf('// PDF marks live'),html.indexOf('// Référence courte')),dom.getInternalVMContext());
  const bar=win.document.querySelector('.pdf-mark-tools');
  const key=(init)=>win.document.body.dispatchEvent(new win.KeyboardEvent('keydown',{bubbles:true,cancelable:true,...init}));

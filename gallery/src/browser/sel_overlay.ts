@@ -20,47 +20,48 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   var REL = decodeURIComponent(location.pathname.replace(/^\//,''));
   var NAME = REL.split('/').pop();
 
-  var css = '#csel-pill{position:fixed;z-index:2147483000;display:none;align-items:center;gap:10px;min-width:320px;max-width:460px;'
-    +'background:#1d2026;border:1px solid #343842;border-radius:999px;padding:8px 8px 8px 16px;'
-    +'box-shadow:0 12px 36px rgba(0,0,0,.45);color:#dbdfe5;'
+  /* PDF-23 : jetons d'Atelier avec repli, plus de palette sombre en dur. Le
+     rapport n'a pas le pont de thème (il peindrait SES variables) : le thème
+     en cache de la galerie est posé sur nos seuls éléments (themeScope). */
+  var css = '#csel-pill{position:fixed;z-index:2147483000;display:none;align-items:center;gap:8px;min-width:320px;max-width:460px;'
+    +'background:var(--surface-overlay,#24282d);border:0;border-radius:999px;padding:8px 8px 8px 16px;'
+    +'box-shadow:var(--elevation-overlay,0 4px 16px rgba(0,0,0,.25));color:var(--text-primary,#dadee3);'
     +'font:var(--fs-body, 13px) var(--ui-font,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);user-select:none;-webkit-user-select:none}'
-    +'#csel-pill .nb{font-size:var(--fs-body, 13px);flex:none;line-height:1}'
-    +'#csel-pill textarea{flex:1;background:transparent;border:none;outline:none;color:#dbdfe5;'
+    +'#csel-pill .nb{flex:none;line-height:1;display:flex;align-items:center;color:var(--text-muted,#90969d)}'
+    +'#csel-pill svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}'
+    +'#csel-pill textarea{flex:1;background:transparent;border:none;outline:none;color:var(--text-primary,#dadee3);'
     +'font-size:var(--fs-body, 13px);line-height:1.45;padding:0;resize:none;font-family:inherit;min-height:1lh;height:max(20px,1lh);max-height:120px}'
-    +'#csel-pill textarea::placeholder{color:#6d7480}'
-    +'#csel-pill button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center}'
-    +'#csel-pill .go{width:32px;height:32px;border-radius:50%;background:#c96442;color:#fff;font-size:var(--fs-title, 15px);flex:none}'
-    +'#csel-pill .go:hover{background:#e0714a}'
-    +'#csel-pill .del{width:26px;height:26px;border-radius:50%;background:none;color:#6d7480;flex:none;padding:0}'
-    +'#csel-pill .del:hover{color:#ff7a76}'
-    +'#csel-pill .del svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.4;'
-    +'stroke-linecap:round;stroke-linejoin:round}'
-    +'#csel-pill .tgt{width:28px;height:28px;border-radius:50%;background:transparent;'
-    +'border:1px solid #3a4150;color:#9aa3b2;font-size:var(--fs-body, 13px);flex:none}'
-    +'#csel-pill .tgt:hover,#csel-pill .tgt.set{border-color:#5b9dff;color:#5b9dff}'
+    +'#csel-pill textarea::placeholder{color:var(--text-muted,#90969d)}'
+    +'#csel-pill button{border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}'
+    +'#csel-pill .go{width:32px;height:32px;border-radius:999px;background:var(--fill-primary,#43474c);color:var(--on-fill-primary,#dadee3);flex:none}'
+    +'#csel-pill .go:hover{background:var(--fill-primary-hover,var(--fill-primary,#4d5156))}'
+    +'#csel-pill .del{width:24px;height:24px;border-radius:999px;background:none;color:var(--text-muted,#90969d);flex:none}'
+    +'#csel-pill .del:hover{color:var(--status-error,#e06c75)}'
+    +'#csel-pill .tgt{width:28px;height:28px;border-radius:999px;background:transparent;color:var(--text-muted,#90969d);flex:none}'
+    +'#csel-pill .tgt:hover,#csel-pill .tgt.set{background:color-mix(in srgb,var(--text-primary,#dadee3) 12%,transparent);color:var(--text-primary,#dadee3)}'
     +'#csel-tgmenu{position:fixed;z-index:2147483002;display:none;flex-direction:column;min-width:240px;max-width:400px;'
-    +'background:rgba(24,27,34,.98);border:none;border-radius:10px;padding:4px;'
-    +'box-shadow:0 4px 16px rgba(0,0,0,.25);color:#dbdfe5;'
+    +'background:var(--surface-overlay,#24282d);border:none;border-radius:10px;padding:4px;'
+    +'box-shadow:var(--elevation-overlay,0 4px 16px rgba(0,0,0,.25));color:var(--text-primary,#dadee3);'
     +'font:400 12px var(--ui-font,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}'
-    +'#csel-tgmenu .hd{font-size:var(--fs-caption, 10px);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#9aa3b2;padding:4px 8px}'
+    +'#csel-tgmenu .hd{font-size:var(--fs-caption, 10px);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted,#90969d);padding:4px 8px}'
     +'#csel-tgmenu .it{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:6px;cursor:pointer}'
-    +'#csel-tgmenu .it:hover{background:rgba(255,255,255,.06)}'
+    +'#csel-tgmenu .it:hover{background:var(--surface-hover,#2c2f34)}'
     +'#csel-tgmenu .it .app{flex:none;font-size:var(--fs-caption, 10px);font-weight:500;letter-spacing:.06em;text-transform:uppercase;'
-    +'color:#8ab4ff;border:1px solid #33415e;border-radius:6px;padding:1px 5px}'
+    +'color:var(--text-secondary,#b9bec4);background:color-mix(in srgb,var(--text-primary,#dadee3) 8%,transparent);border-radius:6px;padding:0 4px}'
     +'#csel-tgmenu .it .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
-    +'#csel-tgmenu .it.on .t{color:#8ab4ff}';
+    +'#csel-tgmenu .it.on .t{color:var(--accent,#e77f3e)}';
   var st = document.createElement('style'); st.textContent = css;
   document.head.appendChild(st);
 
   // one combined bar: 💬 · comment textarea · 🗑 cancel · ◎ session picker · ↑ send
   var pill = document.createElement('div'); pill.id = 'csel-pill';
-  pill.innerHTML = '<span class="nb">\u{1F4AC}</span>'
+  pill.innerHTML = '<span class="nb"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg></span>'
     + '<textarea rows="1" placeholder="Ajouter une annotation…"></textarea>'
     + '<button class="del" title="Annuler la sélection (Échap)">'
     + '<svg viewBox="0 0 14 14"><path d="M2 3.5h10M5.5 3.5V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3'
     + 'M3.5 3.5l.6 8.1c0 .5.4.9.9.9h4c.5 0 .9-.4.9-.9l.6-8.1M5.8 6v4M8.2 6v4"/></svg></button>'
-    + '<button class="tgt" title="Choisir la session Claude cible">◎</button>'
-    + '<button class="go" title="Envoyer la sélection à la session Claude (Entrée)">↑</button>';
+    + '<button class="tgt" title="Choisir la session Claude cible" aria-label="Choisir la session Claude cible"><svg viewBox="0 0 16 16" aria-hidden="true" style="stroke-width:1.5"><circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/></svg></button>'
+    + '<button class="go" title="Envoyer la sélection à la session Claude (Entrée)" aria-label="Envoyer la sélection à la session Claude"><svg viewBox="0 0 16 16" aria-hidden="true" style="stroke-width:1.5"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button>';
   document.body.appendChild(pill);
   var pillTa = pill.querySelector<HTMLTextAreaElement>('textarea');
 
@@ -71,6 +72,21 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   var api: { placeAt: (arg0: DOMRect) => void; cancel: () => void; } = null;
 
   function hideAll(){ pill.style.display = 'none'; }
+
+  // Thème d'Atelier en cache (même origine que la galerie) posé sur nos seuls
+  // éléments : setProperty, jamais une feuille construite à partir du cache.
+  function themeScope(els: HTMLElement[]){
+    var cached = null;
+    try { cached = JSON.parse(localStorage.getItem('atelier-theme-cache') || 'null'); } catch(e){}
+    var vars = cached && cached.vars;
+    if (!vars || typeof vars !== 'object') return;
+    els.forEach(function(el){
+      Object.keys(vars).forEach(function(name){
+        if (/^--[a-z0-9-]+$/i.test(name) && typeof vars[name] === 'string') el.style.setProperty(name, vars[name]);
+      });
+      el.style.colorScheme = cached.colorScheme === 'light' ? 'light' : 'dark';
+    });
+  }
 
   // comportement partagé de la pilule (restyle Studio « Add to chat », picker
   // de cible, /quote direct, Entrée/Échap) : SelPill, chargé depuis la galerie
@@ -128,12 +144,16 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && api) api.cancel(); });
 
   /* ---- drawn-annotation mode (shared AnnotKit over the whole document) ---- */
-  var akBtnCss = '#csel-annot-btn{position:fixed;right:16px;bottom:16px;z-index:901;width:40px;height:40px;'
-    +'border-radius:50%;border:1px solid #3a4150;background:rgba(24,27,34,.97);color:#dbdfe5;'
-    +'font-size:18px;line-height:1;cursor:pointer;box-shadow:0 8px 28px rgba(0,0,0,.45);'
-    +'display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none}'
-    +'#csel-annot-btn:hover{border-color:#5b6575}'
-    +'#csel-annot-btn.on{background:#5b9dff;color:#fff;border-color:#5b9dff}'
+  // bouton de dessin : 32 px, sans bordure, surface élevée ; actif en graphite
+  var akBtnCss = '#csel-annot-btn{position:fixed;right:16px;bottom:16px;z-index:901;width:32px;height:32px;padding:0;'
+    +'border-radius:999px;border:0;background:var(--surface-overlay,#24282d);color:var(--text-secondary,#b9bec4);'
+    +'line-height:1;cursor:pointer;box-shadow:var(--elevation-overlay,0 4px 16px rgba(0,0,0,.25));'
+    +'display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;'
+    +'transition:background 120ms ease-out,color 120ms ease-out}'
+    +'#csel-annot-btn:hover{color:var(--text-primary,#dadee3)}'
+    +'#csel-annot-btn.on{background:var(--surface-hover,#2c2f34);color:var(--text-primary,#dadee3)}'
+    +'#csel-annot-btn:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}'
+    +'@media (prefers-reduced-motion:reduce){#csel-annot-btn{transition:none}}'
     +'#csel-annot-overlay{position:absolute;left:0;top:0;z-index:900;pointer-events:none;background:transparent}';
   var akSt = document.createElement('style'); akSt.textContent = akBtnCss;
   document.head.appendChild(akSt);
@@ -141,8 +161,10 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
   var akBtn = document.createElement('button');
   akBtn.id = 'csel-annot-btn';
   akBtn.title = 'Dessiner des annotations sur ce document';
-  akBtn.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.5l2.2 2.2L5.8 12.4l-3 .8.8-3zM10 3.8l2.2 2.2"/></svg>';
+  var PEN = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.3 2.5l2.2 2.2L5.8 12.4l-3 .8.8-3zM10 3.8l2.2 2.2"/></svg>';
+  akBtn.innerHTML = PEN;
   document.body.appendChild(akBtn);
+  themeScope([pill, tgMenu, akBtn]);
 
   var akOverlay = document.createElement('canvas');
   akOverlay.id = 'csel-annot-overlay';
@@ -201,7 +223,7 @@ function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'n
       var on = annot.toggle();
       akBtn.classList.toggle('on', on);
       if (on){ hideAll(); sizeOverlay(); }         // don't fight the text-selection pill
-    }).catch(function(){ akBtn.textContent = '!'; setTimeout(function(){ akBtn.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.5l2.2 2.2L5.8 12.4l-3 .8.8-3zM10 3.8l2.2 2.2"/></svg>'; }, 1600); });
+    }).catch(function(){ akBtn.textContent = '!'; setTimeout(function(){ akBtn.innerHTML = PEN; }, 1600); });
   });
 
   window.addEventListener('resize', function(){ if (annot && annot.enabled) sizeOverlay(); });

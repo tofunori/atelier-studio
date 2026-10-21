@@ -98,7 +98,7 @@ test('Notes: a paragraph written by an agent is kept when the tab saves on a sta
   expect(await readFile(notes, 'utf8')).toContain('Paragraphe de l’agent.');
   await expect(page.locator('#source')).toHaveValue(/Ligne tapée/);
   // choix explicite : garder la version de l'onglet ; l'autre va dans .bak
-  await indicator.click();
+  await indicator.getByRole('button', {name: 'Garder cette version'}).click();
   await expect.poll(() => readFile(notes, 'utf8')).toContain('Ligne tapée.');
   expect(await readFile(notes + '.bak', 'utf8')).toContain('Paragraphe de l’agent.');
   await expect(indicator).toBeHidden();
@@ -185,7 +185,7 @@ test('whiteboard: a conflict offers to keep this board instead of a reload', asy
   await expect(notice).toBeVisible({timeout: 5_000});
   const disk = async () => JSON.stringify((await (await request.get(`${project.url}/board/load`)).json()).snapshot);
   expect(await disk()).toContain('fenêtre');
-  await notice.click();
+  await page.getByRole('button', {name: 'Garder ce tableau'}).click();
   await expect.poll(disk).toContain('Mien');
   await expect(notice).toHaveCount(0);
   expect(await readFile(path.join(project.root, '.fig_thumbs', 'board.tldr.json.bak'), 'utf8')).toContain('fenêtre');

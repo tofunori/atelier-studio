@@ -25,6 +25,18 @@ const trash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const arrowUp = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
 const enterKey = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 5v7a3 3 0 0 1-3 3H6M10 11l-4 4 4 4"/></svg>';
 const chatBubble = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg>';
+/** Dessins partagés par la capsule et la barre du lecteur PDF (PDF-07) : la
+ *  bulle ronde veut toujours dire « chat », le post-it plié « note ». Grille
+ *  24, trait 1,5 ; la barre PDF les rend à 14 px avec un trait de 2,4. */
+export const annotationIcons = {
+  hl: markIcons.hl,
+  ul: markIcons.ul,
+  st: markIcons.st,
+  note: '<path d="M5 4h14v10l-5 5H5zM14 19v-5h5"/>',
+  chatAdd: '<path d="M21 12c0 4.5-4 7.8-9 7.8-1.2 0-2.4-.15-3.45-.6L3.75 21l1.5-3.9C3.9 15.75 3 13.95 3 12c0-4.5 4-7.8 9-7.8S21 7.5 21 12zM12 8.7v6.6M8.7 12h6.6"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+} as const;
+const icon24 = (body: string) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+body+'</svg>';
 const escapeText = (text: string) => text.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c]!);
 /** `memo` ajoute, au-dessus du champ du chat, une note personnelle gardée avec
  *  le passage et jamais envoyée au chat (lecteur PDF). Sans `memo`, la bulle
@@ -142,13 +154,16 @@ export function createSelectionActions(host: HTMLElement, options: {
 }) {
   host.classList.add("atelier-selection");host.replaceChildren();
   const doc=host.ownerDocument;
-  const add=(label:string,html:string,action:()=>void,className="atelier-capsule")=>{
+  const add=(label:string,html:string,action:()=>void,className="atelier-capsule",act="")=>{
     const button=doc.createElement("button");button.type="button";button.className=className;
+    if(act)button.dataset.act=act;
     button.setAttribute("aria-label",label);button.title=label;button.innerHTML=html;
     button.onmousedown=e=>e.preventDefault();button.onclick=e=>{e.stopPropagation();action();};host.appendChild(button);return button;
   };
-  if(options.onAdd) add("Ajouter au chat",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4zM8 10h8M12 6v8"/></svg>',options.onAdd);
-  add("Annoter",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg>',options.onAnnotate);
+  // « Ajouter au chat » porte son état (data-state busy / done / error), que
+  // l'hôte pose pendant l'envoi : la capsule ne reste plus muette (PDF-05).
+  if(options.onAdd) add("Ajouter au chat",icon24(annotationIcons.chatAdd)+'<svg class="atelier-capsule-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+annotationIcons.check+'</svg>',options.onAdd,"atelier-capsule","add");
+  add("Annoter",icon24(annotationIcons.note),options.onAnnotate,"atelier-capsule","annotate");
   // Codage qualitatif (lecteur PDF) : étiquette, ouvre le menu des codes.
   if(options.onCode) add("Coder",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>',options.onCode);
   if(options.onAsk) add("Question rapide",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-7z"/></svg>',options.onAsk);
