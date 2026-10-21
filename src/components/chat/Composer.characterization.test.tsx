@@ -699,21 +699,21 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     fireEvent.click(document.querySelector(".effort-pick .mp-effort") as HTMLButtonElement);
     const track = document.querySelector(".ef-track") as HTMLElement;
     expect(track.classList.contains("ef-has-ultra")).toBe(true);
-    expect(document.querySelector(".ef-ultra")).toBeTruthy();
-    expect(document.querySelector(".ef-ultra.on")).toBeNull();
-    // le dernier palier est seul au bout ; l'avant-dernier reste dans la piste
-    const dots = [...document.querySelectorAll(".ef-dot")] as HTMLElement[];
-    expect(dots).toHaveLength(7); // Auto + les six paliers annoncés
-    expect(dots[dots.length - 1].style.left).toBe("100%");
-    expect(dots[dots.length - 2].style.left).toBe("82%");
+    // jauge segmentée : un segment par palier, ultracode détaché et éteint
+    const segs = [...document.querySelectorAll(".ef-seg")] as HTMLElement[];
+    expect(segs).toHaveLength(7); // Auto + les six paliers annoncés
+    expect(segs[segs.length - 1].classList.contains("ef-seg-ultra")).toBe(true);
+    expect(document.querySelectorAll(".ef-seg-ultra")).toHaveLength(1);
+    expect(document.querySelector(".ef-seg-ultra.on")).toBeNull();
 
     // Fin (End n'est pas géré) : on remonte au bout à la flèche, cran par cran
     for (let i = 0; i < 6; i += 1) {
       fireEvent.keyDown(document.querySelector(".ef-track") as HTMLElement, { key: "ArrowRight" });
     }
     expect(document.querySelector(".ef-title b")?.textContent).toBe("Ultracode");
-    expect(document.querySelector(".ef-ultra.on")).toBeTruthy();
-    expect(document.querySelector(".ef-thumb.ultra")).toBeTruthy();
+    expect(document.querySelector(".ef-seg-ultra.on.cur")).toBeTruthy();
+    // ultracode ne rallume pas Max : l'échelle reste pleine, le cran courant est seul au bout
+    expect(document.querySelectorAll(".ef-seg.cur")).toHaveLength(1);
   });
 
   it("annonce le catalogue ouvert et le referme depuis le bouton partagé", async () => {

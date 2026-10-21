@@ -237,29 +237,54 @@ export function ComposerControls(p: {
   };
   const effortIndex = Math.max(0, effortLevels.indexOf(effort));
   const effortSummary = effortLabels[effort] ?? effort;
+  // Palier rétabli par ↺ : préférence du modèle, sinon défaut annoncé par le
+  // catalogue, sinon medium. Sert aussi à éteindre ↺ et à marquer « par défaut ».
+  const effortDefault = (() => {
+    const preferred = effortFor(provider, resolvedModelId());
+    const fallback = activeProviderInfo?.modelReasoning?.[resolvedModelId()]?.default_effort ?? "";
+    if (!effortLevels.length) return "";
+    return effortLevels.includes(preferred) ? preferred
+      : effortLevels.includes(fallback) ? fallback
+      : effortLevels.includes("medium") ? "medium" : effortLevels[0];
+  })();
+  const effortIsDefault = effort === effortDefault;
   // Cran terminal séparé : « ultracode » n'est pas la suite du même continuum
-  // (xhigh + orchestration multi-agents, session seulement). Il vit après une
-  // coupure, dans la couleur informationnelle — l'ambre reste l'effort. Sous
-  // trois paliers, la coupure mangerait l'échelle : rail uniforme.
+  // (xhigh + orchestration multi-agents, session seulement). Il vit dans un
+  // segment détaché, en contour tant qu'il n'est pas choisi. Sous trois
+  // paliers, la coupure mangerait l'échelle : jauge uniforme.
   const effortHasUltra = effortLevels.length >= 3
     && effortLevels[effortLevels.length - 1] === "ultracode";
   const effortIsUltra = effortHasUltra && effort === "ultracode";
-  const effortSpanEnd = effortHasUltra ? 82 : 100;
-  /** Position en % d'un palier sur la piste. */
-  const effortPos = (index: number) => {
-    if (!effortHasUltra) return (index / (effortLevels.length - 1)) * 100;
-    if (index === effortLevels.length - 1) return 100;
-    return (index / (effortLevels.length - 2)) * effortSpanEnd;
+  // Jauge segmentée (piste B, 2026-10-21) : un segment par palier. Les
+  // segments s'allument en cascade, 15 ms d'écart, dans le sens du geste —
+  // d'où le palier précédent, lu au rendu et mis à jour après.
+  const effortPrevIndex = useRef(effortIndex);
+  useEffect(() => { effortPrevIndex.current = effortIndex; }, [effortIndex]);
+  const [effortHover, setEffortHover] = useState<number | null>(null);
+  useEffect(() => { if (!effortOpen) setEffortHover(null); }, [effortOpen]);
+  const effortLitUpTo = effortIsUltra ? effortLevels.length - 2 : effortIndex;
+  const effortSegDelay = (index: number) => {
+    const prev = effortPrevIndex.current;
+    if (prev === effortIndex) return 0;
+    const step = effortIndex > prev ? index - prev - 1 : prev - index;
+    return Math.max(0, Math.min(6, step)) * 15;
   };
-  /** Palier visé par un pointeur, en fraction de la largeur de la piste. Le
-   *  cran terminal ne s'attrape que dans son propre segment : c'est ce qui
+  /** Palier sous le pointeur : le segment qui contient x (demi-écart compris).
+   *  Le cran terminal ne s'attrape que dans son propre segment : c'est ce qui
    *  empêche un glissé distrait de basculer la session en ultracode. */
-  const effortIndexAt = (ratio: number) => {
+  const effortIndexAt = (track: HTMLElement, clientX: number) => {
+    const segs = [...track.querySelectorAll<HTMLElement>("[data-ef-index]")];
     const last = effortLevels.length - 1;
-    const pct = ratio * 100;
-    if (!effortHasUltra) return Math.min(last, Math.max(0, Math.round(ratio * last)));
-    if (pct > (effortSpanEnd + 100) / 2) return last;
-    return Math.min(last - 1, Math.max(0, Math.round((pct / effortSpanEnd) * (last - 1))));
+    for (const seg of segs) {
+      const rect = seg.getBoundingClientRect();
+      if (clientX >= rect.left - 2 && clientX <= rect.right + 2) return Number(seg.dataset.efIndex);
+    }
+    const first = segs[0]?.getBoundingClientRect();
+    if (first && clientX < first.left) return 0;
+    const end = segs[segs.length - 1]?.getBoundingClientRect();
+    if (end && clientX > end.right) return last;
+    // dans la coupure avant ultracode : on reste sur l'échelle
+    return effortHasUltra ? last - 1 : Math.min(last, effortIndex);
   };
   // Niveau de service Codex (Fast = service_tier `priority`). Ni un modèle ni
   // un effort : orthogonal aux deux, d'où un contrôle distinct entre eux. Les
@@ -740,20 +765,19 @@ export function ComposerControls(p: {
                         </Tooltip>
                       ) : null}
                       <div className="ef-heading">
-                        <div className="ef-title"><b>{effortSummary}</b></div>
+                        <div className="ef-title">
+                          <b key={effort} className="ef-label">{effortSummary}</b>
+                          {effortIsDefault && effort !== "" && <span className="ef-default">{t("chat.effort-default")}</span>}
+                        </div>
                         <RowButton className="ef-model-link" title={t("chat.model-title")}
                           onClick={() => { setEffortOpen(false); setMenuOpen(true); }}>
                           <span>{modelButtonLabel}</span>
                           <ChevronRightIcon aria-hidden="true" />
                         </RowButton>
                       </div>
-                      <IconButton className="ef-reset" size="s" label={t("chat.effort-reset")}
+                      <IconButton className={`ef-reset ${effortIsDefault && !fastMode ? "ef-reset-idle" : ""}`} size="s" label={t("chat.effort-reset")}
                         title={t("chat.effort-reset")} onClick={() => {
-                          const preferred = effortFor(provider, resolvedModelId());
-                          const fallback = activeProviderInfo?.modelReasoning?.[resolvedModelId()]?.default_effort ?? "";
-                          if (effortLevels.length) setEffort(effortLevels.includes(preferred) ? preferred
-                            : effortLevels.includes(fallback) ? fallback
-                            : effortLevels.includes("medium") ? "medium" : effortLevels[0]);
+                          if (effortLevels.length) setEffort(effortDefault);
                           setFastMode(false);
                         }}>
                         <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
@@ -782,32 +806,40 @@ export function ComposerControls(p: {
                       }}
                       onPointerDown={(e) => {
                         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const index = effortIndexAt((e.clientX - rect.left) / rect.width);
+                        const index = effortIndexAt(e.currentTarget, e.clientX);
+                        setEffortHover(null);
                         if (effortLevels[index] !== effort) setEffort(effortLevels[index]);
                       }}
                       onPointerMove={(e) => {
-                        if (!e.buttons) return;
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const index = effortIndexAt((e.clientX - rect.left) / rect.width);
+                        const index = effortIndexAt(e.currentTarget, e.clientX);
+                        if (!e.buttons) {
+                          setEffortHover(index === effortIndex ? null : index);
+                          return;
+                        }
                         if (effortLevels[index] !== effort) setEffort(effortLevels[index]);
                       }}
+                      onPointerLeave={() => setEffortHover(null)}
                     >
-                      <div className="ef-fill" style={{ width: `calc(${Math.min(effortPos(effortIndex), effortSpanEnd)}% + 9px)` }} />
-                      {effortHasUltra && (
-                        <div className={`ef-ultra ${effortIsUltra ? "on" : ""}`} style={{ left: `${effortSpanEnd + 4}%` }} />
-                      )}
-                      {effortLevels.map((level, index) => (
-                        <span
-                          key={level}
-                          className={`ef-dot ${index < effortIndex ? "on" : ""}`}
-                          style={{ left: `${effortPos(index)}%` }}
-                        />
-                      ))}
-                      <div
-                        className={`ef-thumb ${effortIsUltra ? "ultra" : ""}`}
-                        style={{ left: `${effortPos(effortIndex)}%` }}
-                      />
+                      {effortLevels.map((level, index) => {
+                        const ultra = effortHasUltra && index === effortLevels.length - 1;
+                        const on = ultra ? effortIsUltra : index <= effortLitUpTo;
+                        // survol : aperçu à 38 % des segments que le clic allumerait
+                        const preview = effortHover !== null && !on && (ultra
+                          ? effortHover === index
+                          : index <= effortHover && !(effortHasUltra && effortHover === effortLevels.length - 1));
+                        return (
+                          <span
+                            key={level}
+                            data-ef-index={index}
+                            className={`ef-seg ${ultra ? "ef-seg-ultra" : ""} ${on ? "on" : ""} ${preview ? "preview" : ""} ${index === effortIndex ? "cur" : ""} ${index === effortHover ? "hov" : ""}`}
+                            style={{
+                              transitionDelay: `${effortSegDelay(index)}ms`,
+                              // rampe de transparence : pâle au départ, plein au palier choisi
+                              ["--ef-alpha" as string]: `${ultra ? 100 : Math.round(35 + 65 * (index + 1) / (effortLitUpTo + 1))}%`,
+                            }}
+                          />
+                        );
+                      })}
                     </div>}
                   </div>
                 </PopoverContent>

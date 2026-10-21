@@ -840,7 +840,6 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   // ou de retour visuel ponctuel — allowlist gelée, ne peut que rétrécir.
   //   - .slider::-webkit-slider-thumb (App.css) : galet de curseur, ombre de
   //     relief sur un knob de 14px, pas une surface élevée.
-  //   - .ef-thumb (App.css) : même rôle sur le slider d'effort.
   //   - .workspace-drop-preview (App.css) : halo de retour visuel pendant un
   //     drag, combiné à un anneau interne teinté --info — sémantique de
   //     drop-target, pas un rôle d'élévation statique.
@@ -848,7 +847,6 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     const stripRoot = (css: string) => css.replace(/^:root[^{]*\{[^}]*\}/gm, "");
     const rgbaShadowAllow = [
       { file: "App.css", needle: ".slider::-webkit-slider-thumb", pattern: /\.slider::-webkit-slider-thumb\s*\{[^}]*box-shadow:[^;]*rgba\(/ },
-      { file: "App.css", needle: ".ef-thumb", pattern: /\.ef-thumb\s*\{[^}]*box-shadow:[^;]*rgba\(/ },
       { file: "App.css", needle: ".workspace-drop-preview", pattern: /^\.workspace-drop-preview \{[^}]*box-shadow:[^;]*rgba\(/m },
     ];
     const appBody = stripRoot(appCss);

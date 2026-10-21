@@ -4857,34 +4857,45 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .ef-scale { display: flex; justify-content: space-between; margin-top: 8px;
   font-size: var(--eyebrow-size); letter-spacing: var(--eyebrow-tracking); text-transform: uppercase;
   color: var(--text-disabled); }
-.ef-track { position: relative; height: 20px; cursor: pointer; touch-action: none;
-  margin: 0 8px; }
-.ef-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%;
-  height: 3px; margin-top: -1.5px; border-radius: var(--r-pill); background: var(--bg-ctl); }
-.ef-fill { position: absolute; left: 0; top: 50%; height: 3px; margin-top: -1.5px;
-  border-radius: var(--r-pill); background: var(--accent); transition: width var(--ease); }
-.ef-dot { position: absolute; top: 50%; width: 3px; height: 3px; border-radius: 50%;
-  background: var(--border2); transform: translate(-50%, -50%); pointer-events: none; }
-.ef-dot.on { background: color-mix(in srgb, var(--accent) 55%, var(--bg-pop)); }
-.ef-thumb { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
-  background: var(--bg-pop); border: 1.5px solid var(--accent); box-sizing: border-box;
-  transform: translate(-50%, -50%); pointer-events: none;
-  box-shadow: 0 1px 3px rgba(0,0,0,.30); transition: left var(--ease), box-shadow var(--ease); }
-.ef-track:focus-visible { outline: none; }
-.ef-track:focus-visible .ef-thumb {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Jauge segmentée (piste B + animation et transparence, 2026-10-21) : un
+   segment par palier, allumé en --accent jusqu'au palier choisi avec une
+   rampe de transparence (pâle au départ, plein au palier, --ef-alpha posé
+   par segment), qui s'épaissit (6 → 10 px) sous un halo doux. Les segments
+   éteints sont un voile du texte, translucide sur le panneau givré. Les
+   transitions s'enchaînent en cascade (transition-delay par segment). */
+.ef-track { --ef-rail: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  display: flex; align-items: center; gap: 4px; height: 24px; cursor: pointer; touch-action: none;
+  border-radius: var(--r-s); outline: none; }
+.ef-seg { flex: 1; min-width: 0; height: 6px; border-radius: var(--r-pill); background: var(--ef-rail);
+  pointer-events: none;
+  transition: background-color 120ms var(--ease-out), height 140ms var(--ease-out), box-shadow 140ms var(--ease-out); }
+.ef-seg.on { background: color-mix(in srgb, var(--accent) var(--ef-alpha, 100%), transparent); }
+.ef-seg.preview { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.ef-seg.cur, .ef-seg.hov { height: 10px; }
+.ef-seg.cur { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 /* Cran terminal (Claude « ultracode ») : xhigh + orchestration multi-agents,
-   session seulement. Ce n'est pas la suite du même continuum, donc la piste
-   s'arrête avant et le dernier segment vit après une coupure, en --info — le
-   bleu informationnel du système. L'ambre reste l'effort. */
-.ef-track.ef-has-ultra::before { right: 18%; }
-.ef-ultra { position: absolute; right: 0; top: 50%; height: 3px; margin-top: -1.5px;
-  border-radius: var(--r-pill); background: var(--bg-ctl); transition: background var(--ease); }
-.ef-ultra.on { background: var(--info); }
-.ef-thumb.ultra { border-color: var(--info); }
-.ef-track:focus-visible .ef-thumb.ultra {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 24%, transparent); }
-.ef-title b.ef-ultra-on { color: var(--info); }
+   session seulement. Ce n'est pas la suite du continuum : segment détaché,
+   en contour tant qu'il n'est pas choisi. */
+.ef-seg-ultra { flex: 1.25; margin-left: 4px; background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 22%, transparent); }
+.ef-seg-ultra.preview { background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
+.ef-seg-ultra.on { background: var(--accent); }
+.ef-seg-ultra.on.cur { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.ef-track:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: 4px; }
+.ef-label { display: inline-block; animation: ef-label-in 120ms var(--ease-out); }
+@keyframes ef-label-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+.ef-default { margin-left: 8px; font-size: var(--fs-s); font-weight: 400; color: var(--text-disabled); }
+.ef-reset { transition: opacity 120ms var(--ease-out), background 120ms var(--ease-out), color 120ms var(--ease-out); }
+.ef-reset.ef-reset-idle { opacity: .35; }
+/* Panneau givré : fond --bg-pop à 78 % + flou de ce qui passe derrière ;
+   ouverture qui glisse (4 px, échelle .98 → 1) en 150 ms. */
+.composer-menu.effort-menu {
+  background: color-mix(in srgb, var(--bg-pop) 78%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+  transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out); }
+.composer-menu.effort-menu[data-starting-style],
+.composer-menu.effort-menu[data-ending-style] { opacity: 0; transform: translateY(4px) scale(.98); }
 /* Panneau superposé du compositeur : le portal reste ancré à la barre. */
 .composer-bar .mp-btn.mp-model.mp-effort { max-width: 330px; gap: 8px; padding: 0 8px; }
 .composer-bar .mp-model .mp-effort-sum { flex: none; color: var(--text-muted); }
@@ -4912,24 +4923,15 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .ef-header .ef-fast[aria-pressed="true"] { color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .ef-header .ef-fast[aria-pressed="true"] svg { fill: currentColor; }
-.effort-menu .ef-track { height: 18px; margin: 8px 8px 0; }
-.effort-menu .ef-track::before { left: -9px; right: -9px; height: 14px; margin-top: -7px; }
-.effort-menu .ef-track.ef-has-ultra::before { right: 18%; }
-.effort-menu .ef-fill { height: 14px; margin-top: -7px; left: -9px;
-  background: var(--accent); }
-.effort-menu .ef-ultra { height: 14px; margin-top: -7px; right: -9px; }
-.effort-menu .ef-dot { width: 3px; height: 3px; background: var(--text-muted); }
-.effort-menu .ef-dot.on { background: color-mix(in srgb, var(--text-primary) 55%, var(--accent)); }
-.effort-menu .ef-thumb { width: 18px; height: 18px; background: var(--text-primary); border: 0; box-shadow: none; }
-.effort-menu .ef-track:focus-visible .ef-thumb { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
-.effort-menu .ef-ultra.on { background: var(--accent); }
-.effort-menu .ef-track:focus-visible .ef-thumb.ultra { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
+.effort-menu .ef-track { margin-top: 16px; }
+.effort-menu .ef-title { justify-content: flex-start; align-items: baseline; gap: 0; }
 @container (max-width: 420px) {
   .composer-bar .mp-model .mp-effort-sum { display: none; }
   .composer-tool-group { gap: 4px; margin-right: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ef-fill, .ef-thumb { transition: none; }
+  .ef-seg, .ef-reset, .composer-menu.effort-menu { transition: none; }
+  .ef-label { animation: none; }
 }
 
 /* frontières lazy (plan 022) : détail technique du chunk en échec */
@@ -6148,7 +6150,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 }
 .composer-menu .mp-item.model-row { padding: 0; }
 .composer-menu .model-list-head { padding: 8px 12px; }
-.composer-menu.effort-menu { padding: 12px; border: 0; }
+.composer-menu.effort-menu { padding: 16px; border: 0; }
 .composer-menu .ef-header { display: flex; align-items: center; gap: 8px; }
 .composer-menu .ef-heading { order: -1; flex: 1; text-align: left; }
 .composer-menu.effort-menu .ef-title, .composer-menu .ef-model-link { justify-content: flex-start; }
