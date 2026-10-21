@@ -67,6 +67,19 @@ describe("Visionneuse des figures du noyau", () => {
     expect(document.activeElement).toBe(thumb);
   });
 
+  it("Tab reste dans la visionneuse", async () => {
+    await openWithFigures();
+    fireEvent.click(screen.getByLabelText("Agrandir cellule-38-1.png"));
+    const viewer = screen.getByTestId("figure-viewer");
+    const close = within(viewer).getByLabelText("Fermer", { selector: "button:not(.figure-viewer-scrim)" });
+    close.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(viewer.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(close);
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(close);
+  });
+
   it("le bouton « Agrandir » de la barre de survol ouvre aussi la visionneuse", async () => {
     await openWithFigures();
     fireEvent.click(screen.getAllByLabelText("Agrandir")[0]);

@@ -36,6 +36,19 @@ function pointIn(stage: HTMLElement | null, event: { clientX: number; clientY: n
   return s ? { x: event.clientX - (s.left + s.width / 2), y: event.clientY - (s.top + s.height / 2) } : { x: 0, y: 0 };
 }
 
+/** Tab et ⇧Tab tournent dans la visionneuse au lieu d'en sortir. */
+function keepFocusIn(host: HTMLElement | null, event: KeyboardEvent) {
+  if (!host) return;
+  const focusable = [...host.querySelectorAll<HTMLElement>("button:not([disabled]):not([tabindex='-1'])")];
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  const inside = active instanceof HTMLElement && host.contains(active) && active !== host;
+  if (event.shiftKey && (!inside || active === first)) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && (!inside || active === last)) { event.preventDefault(); first.focus(); }
+}
+
 function reducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 }
@@ -155,6 +168,7 @@ export function FigureViewer({ threadId, figures, start, onClose }: {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Tab") { keepFocusIn(root.current, event); return; }
       const { close, zoomTo, go, current } = latest.current;
       const keys: Record<string, () => void> = {
         Escape: close,
