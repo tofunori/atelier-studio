@@ -182,18 +182,43 @@ export type LinkedAgentSummary = {
   title: string;
   paused: boolean;
   direction: "parent" | "child";
+  /** Fil délégué à un spécialiste (`@NomCourt`) : son nom pour le panneau
+   * des agents de l'en-tête. */
+  specialiste?: { nom: string; nomCourt: string };
+  /** Tour en cours dans ce fil, et depuis quand (horloge du chat). */
+  running?: boolean;
+  since?: number | null;
+  updatedAt?: string;
 };
 
 /** Conversations liées au fil actif, telles que l'en-tête du chat les liste. */
-export function linkedAgentSummaries(threads: Thread[], threadId: string | null): LinkedAgentSummary[] {
+export function linkedAgentSummaries(
+  threads: Thread[],
+  threadId: string | null,
+  workingSince?: Record<string, number | null>,
+): LinkedAgentSummary[] {
   if (!threadId) return [];
-  return linkedConversations(threads, threadId).map((relation) => ({
-    id: relation.thread.id,
-    provider: relation.thread.provider === "opencode"
-      ? "OpenCode"
-      : relation.thread.provider.charAt(0).toUpperCase() + relation.thread.provider.slice(1),
-    title: relation.thread.title,
-    paused: relation.paused,
-    direction: relation.direction,
-  }));
+  return linkedConversations(threads, threadId).map((relation) => {
+    const thread = relation.thread;
+    const summary: LinkedAgentSummary = {
+      id: thread.id,
+      provider: thread.provider === "opencode"
+        ? "OpenCode"
+        : thread.provider.charAt(0).toUpperCase() + thread.provider.slice(1),
+      title: thread.title,
+      paused: relation.paused,
+      direction: relation.direction,
+    };
+    const specialiste = relation.direction === "child" ? thread.consigne?.specialiste : undefined;
+    if (specialiste) {
+      const since = workingSince?.[thread.id] ?? null;
+      Object.assign(summary, {
+        specialiste: { nom: specialiste.nom, nomCourt: specialiste.nomCourt },
+        running: since != null || thread.status === "running",
+        since,
+        updatedAt: thread.updatedAt,
+      });
+    }
+    return summary;
+  });
 }

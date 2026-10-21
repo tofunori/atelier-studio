@@ -2,6 +2,7 @@ import { createPortal } from "react-dom";
 import { useChatHeaderHost } from "./ChatHeaderSlot";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {groupAgentRows} from './chat/groupAgentRows';
+import type { LinkedAgentSummary } from "../lib/threadLinks";
 import { groupActivityRows } from './chat/groupActivityRows';
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
@@ -184,13 +185,7 @@ export default function Chat(p: {
   providers?: ProviderInfo[];
   /** Agents réellement disponibles pour la mention Atelier (capability Rust confirmée). */
   agentProviders?: { id: string; label: string }[];
-  linkedAgents?: {
-    id: string;
-    provider: string;
-    title: string;
-    paused: boolean;
-    direction: "parent" | "child";
-  }[];
+  linkedAgents?: LinkedAgentSummary[];
   onOpenLinkedAgent?: (threadId: string) => void;
   /** Vue de la transcription (sélecteur du header) — remonte le choix vers App. */
   onTranscriptViewChange?: (view: "normal" | "reflexion" | "detaille" | "resume") => void;
