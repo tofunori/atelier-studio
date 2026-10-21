@@ -16,6 +16,8 @@ import { FigureGalleryBar } from "./FigureGalleryBar";
 import { highlightCode } from "./chat/md";
 import { Button, IconButton, RowButton, showError, showSuccess } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
+import { FigureViewer } from "./FigureViewer";
+import { FIGURE_SAVED_EVENT, figuresIn, rememberSavedFigure, savedFigure, type ShownFigure } from "../lib/kernelFigures";
 
 const Icon = {
   chevron: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6.5 8 10l3.5-3.5" /></svg>,
@@ -31,6 +33,7 @@ const Icon = {
   play: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z" /></svg>,
   user: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5" /><path d="M3.5 13.5c.6-2.3 2.3-3.5 4.5-3.5s3.9 1.2 4.5 3.5" /></svg>,
   warn: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" /><path d="M8 5v3.4M8 10.8v.1" /></svg>,
+  expand: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" /></svg>,
 };
 
 function duration(ms?: number): string {
@@ -88,11 +91,28 @@ function useElapsed(startedAt: string | undefined, running: boolean): number {
   return Number.isNaN(start) ? 0 : Math.max(0, Math.round((now - start) / 1000));
 }
 
-/** Figure captée : aperçu, et au survol « ouvrir » ou « enregistrer » dans la galerie. */
+/** Figure captée : aperçu qui s'agrandit au clic, et au survol « agrandir »,
+ *  « ouvrir » ou « enregistrer » dans la galerie. */
 export function KernelFigure({ path, threadId, cell }: { path: string; threadId: string; cell?: number | null }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [saved, setSaved] = useState<string | null>(null);
+  const [saved, setSaved] = useState(() => savedFigure(path));
+  const [viewer, setViewer] = useState<{ figures: ShownFigure[]; start: number } | null>(null);
+  const thumb = useRef<HTMLButtonElement | null>(null);
+  // La visionneuse peut enregistrer cette figure pendant qu'on en regarde une autre.
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      const detail = (event as CustomEvent<{ path: string; rel: string }>).detail;
+      if (detail?.path === path) setSaved(detail.rel);
+    };
+    window.addEventListener(FIGURE_SAVED_EVENT, onSaved);
+    return () => window.removeEventListener(FIGURE_SAVED_EVENT, onSaved);
+  }, [path]);
+  const openViewer = () => {
+    const figures = figuresIn(thumb.current?.closest(".kernel-scroll") ?? document);
+    const start = figures.findIndex((f) => f.path === path);
+    setViewer(start < 0 ? { figures: [{ path, cell: cell ?? null, thumb: thumb.current?.querySelector("img") ?? null }], start: 0 } : { figures, start });
+  };
   useEffect(() => {
     let disposed = false;
     let owned: string | undefined;
@@ -107,12 +127,23 @@ export function KernelFigure({ path, threadId, cell }: { path: string; threadId:
 
   if (failed) return <p className="kernel-figure-missing">{t("kernel.figure-missing", { name: baseName(path) })}</p>;
   return (
-    <figure className="kernel-figure" data-testid="kernel-figure">
+    <figure className="kernel-figure" data-testid="kernel-figure" data-path={path} data-cell={cell ?? undefined}>
       <div className="kernel-figure-frame">
-        {url ? <img src={url} alt={baseName(path)} draggable={false} /> : <span className="kernel-figure-loading" aria-hidden="true" />}
-        <FigureGalleryBar path={path} threadId={threadId} cell={cell} onSaved={setSaved} />
+        {url ? (
+          <RowButton ref={thumb} className="kernel-figure-zoom" aria-label={t("kernel.figure-expand-name", { name: baseName(path) })} onClick={openViewer}>
+            <img src={url} alt={baseName(path)} draggable={false} />
+          </RowButton>
+        ) : <span className="kernel-figure-loading" aria-hidden="true" />}
+        {/* Remontée quand la figure entre au projet : la barre relit la copie faite. */}
+        <FigureGalleryBar key={saved ?? ""} path={path} threadId={threadId} cell={cell} saved={saved}
+          onSaved={(rel) => { rememberSavedFigure(path, rel); setSaved(rel); }}>
+          {url ? <IconButton size="s" className="ghost" label={t("kernel.figure-expand")} title={t("kernel.figure-expand")}
+            onClick={openViewer}>{Icon.expand}</IconButton> : null}
+        </FigureGalleryBar>
       </div>
       <figcaption>{saved ? t("kernel.figure-in-project", { path: saved }) : t("kernel.figure-temp")}</figcaption>
+      {viewer ? <FigureViewer threadId={threadId} figures={viewer.figures} start={viewer.start}
+        onClose={() => { setViewer(null); thumb.current?.focus(); }} /> : null}
     </figure>
   );
 }
