@@ -4313,14 +4313,18 @@ export default function App() {
       return list;
     });
   }, []);
-  openThreadFromSignalRef.current = (threadId: string) => {
-    const th = allThreadsRef.current.find((thread) => thread.id === threadId);
-    if (!th) return;
-    setActiveView("chats");
-    if (!th.projectRoot) setActiveProject(null);
-    selectThread(th.id, th.projectRoot);
-    setLayout(current => current === "atelier" ? "split" : current);
-  };
+  // tenue à jour après chaque rendu (jamais pendant) : selectThread lit
+  // l'état courant
+  useEffect(() => {
+    openThreadFromSignalRef.current = (threadId: string) => {
+      const th = allThreadsRef.current.find((thread) => thread.id === threadId);
+      if (!th) return;
+      setActiveView("chats");
+      if (!th.projectRoot) setActiveProject(null);
+      selectThread(th.id, th.projectRoot);
+      setLayout(current => current === "atelier" ? "split" : current);
+    };
+  });
   const railSignals = useMemo(() => {
     const byProject: Record<string, RailSignal[]> = {};
     const threads: Record<string, RailSignal> = {};
