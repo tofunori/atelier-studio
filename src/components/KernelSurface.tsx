@@ -16,7 +16,7 @@ import { highlightCode } from "./chat/md";
 import { Button, IconButton, RowButton, showError, showSuccess } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { FigureViewer } from "./FigureViewer";
-import { FIGURE_SAVED_EVENT, figuresIn, savedFigure, type ShownFigure } from "../lib/kernelFigures";
+import { FIGURE_SAVED_EVENT, figuresIn, rememberSavedFigure, savedFigure, type ShownFigure } from "../lib/kernelFigures";
 
 const Icon = {
   chevron: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6.5 8 10l3.5-3.5" /></svg>,
@@ -120,7 +120,8 @@ export function KernelFigure({ path, threadId, cell }: { path: string; threadId:
           </RowButton>
         ) : <span className="kernel-figure-loading" aria-hidden="true" />}
         {/* Remontée quand la figure entre au projet : la barre relit la copie faite. */}
-        <FigureGalleryBar key={saved ?? ""} path={path} threadId={threadId} cell={cell} onSaved={setSaved}>
+        <FigureGalleryBar key={saved ?? ""} path={path} threadId={threadId} cell={cell} saved={saved}
+          onSaved={(rel) => { rememberSavedFigure(path, rel); setSaved(rel); }}>
           {url ? <IconButton size="s" className="ghost" label={t("kernel.figure-expand")} title={t("kernel.figure-expand")}
             onClick={openViewer}>{Icon.expand}</IconButton> : null}
         </FigureGalleryBar>

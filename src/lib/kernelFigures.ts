@@ -1,5 +1,6 @@
 // Figures captées par le noyau, partagées entre l'aperçu d'une cellule
-// (KernelFigure), la barre galerie (FigureGalleryBar) et la visionneuse.
+// (KernelFigure) et la visionneuse. Ce module reste hors de l'entrée :
+// FigureGalleryBar, chargée avec le chat, n'en importe rien.
 
 /** Une figure affichée dans la surface du noyau, avec son aperçu. */
 export type ShownFigure = { path: string; cell: number | null; thumb: HTMLImageElement | null };

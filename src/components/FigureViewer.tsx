@@ -9,7 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { t } from "../lib/i18n";
 import { baseName } from "../lib/kernel";
-import { FIGURE_SAVED_EVENT, type ShownFigure } from "../lib/kernelFigures";
+import { FIGURE_SAVED_EVENT, rememberSavedFigure, savedFigure, type ShownFigure } from "../lib/kernelFigures";
 import { localImagePreviewUrl } from "../lib/localImage";
 import { FigureGalleryBar } from "./FigureGalleryBar";
 import { IconButton, RowButton } from "./ui";
@@ -286,7 +286,10 @@ export function FigureViewer({ threadId, figures, start, onClose }: {
         <span className="figure-viewer-sep" aria-hidden="true" />
         <IconButton label={t("kernel.viewer-chat")} title={t("kernel.viewer-chat")} onClick={cite}>{Icon.chat}</IconButton>
         {figure ? <FigureGalleryBar key={figure.path} path={figure.path} threadId={threadId} cell={figure.cell}
-          onSaved={(rel) => window.dispatchEvent(new CustomEvent(FIGURE_SAVED_EVENT, { detail: { path: figure.path, rel } }))} /> : null}
+          saved={savedFigure(figure.path)} onSaved={(rel) => {
+            rememberSavedFigure(figure.path, rel);
+            window.dispatchEvent(new CustomEvent(FIGURE_SAVED_EVENT, { detail: { path: figure.path, rel } }));
+          }} /> : null}
         <IconButton label={t("kernel.viewer-close")} title={t("kernel.viewer-close")} onClick={close}>{Icon.close}</IconButton>
       </div>
       <p className="figure-viewer-hint">{t("kernel.viewer-hint")}</p>
