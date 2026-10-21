@@ -128,3 +128,16 @@
   .settings-refined .set-consignes-item { max-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .settings-refined [data-search-match] { animation: none; } }
+
+/* Suppression (SET-16) : discrète au repos, rouge d'erreur au survol et au focus. */
+.settings-refined .set-destructive:hover:not(:disabled),
+.settings-refined .set-destructive:focus-visible { color: var(--status-error); }
+
+/* Chargement d'une section (SET-18) : géométrie réservée, statique, apparition
+   retardée comme l'accueil (aucun scintillement si la section arrive vite). */
+.set-skeleton { display: flex; flex-direction: column; gap: 12px; padding-top: 4px;
+  animation: set-skeleton-in var(--motion-fast) var(--ease-out) 350ms both; }
+.set-skeleton > span { display: block; height: 48px; border-radius: var(--radius-control); background: var(--surface-inset); }
+.set-skeleton > .set-skeleton-title { width: 40%; height: 20px; margin-bottom: 12px; }
+@keyframes set-skeleton-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .set-skeleton { animation: none; } }

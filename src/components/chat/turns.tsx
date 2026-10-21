@@ -132,7 +132,14 @@ export function ChatEmptyState(p: {
       />
     );
   }
-  if (!p.hasEvents) return <div className="empty">{t("chat.empty")}</div>;
+  // Fil neuf (CHAT-24) : un accueil qui se lit — titre 15/600 sans point
+  // d'exclamation, puis une ligne d'aide éteinte — au lieu d'une phrase grise.
+  if (!p.hasEvents) return (
+    <div className="empty chat-empty-new">
+      <p className="chat-empty-title">{t("chat.empty")}</p>
+      <p className="chat-empty-hint">{t("chat.empty-hint")}</p>
+    </div>
+  );
   return null;
 }
 

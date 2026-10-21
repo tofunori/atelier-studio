@@ -161,13 +161,18 @@
  * SURF-01). Contenu aligné à gauche, comme l'empty-card d'origine. ------- */
 .ui-empty {
   flex: none; text-align: left;
-  width: min(360px, 100%); margin: auto; border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-surface); background: var(--surface-raised);
+  /* Un seul état vide, sans cadre (SURF-03 / SET-17) : la surface autour
+     le porte ; titre 13/500 secondaire, phrase 12 éteinte. */
+  width: min(360px, 100%); margin: auto; border: 0;
+  border-radius: var(--radius-surface); background: transparent;
   padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3);
   align-items: stretch; user-select: none; -webkit-user-select: none;
 }
 .ui-empty [data-slot="empty-header"] { align-items: stretch; max-width: none; }
-.ui-empty .title { color: var(--text-primary); font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.01em; }
+/* Variante compacte des listes de réglages et des dialogues (SET-17) :
+   alignée à gauche dans le flux, sans marge automatique. */
+.ui-empty.ui-empty--inline { width: auto; margin: 0; padding: var(--sp-3) 0; }
+.ui-empty .title { color: var(--text-secondary); font-size: var(--fs-body); font-weight: 500; letter-spacing: -0.01em; }
 .ui-empty .desc { color: var(--text-muted); font-size: var(--fs-body-s); }
 .ui-empty .actions { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-2); }
 /* actions empilées : look « ligne de menu » de l'empty-card d'origine
@@ -179,14 +184,18 @@
 
 /* ---- InlineNotice --------------------------------------------------------------------- */
 .ui-notice {
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-control);
-  border: 1px solid var(--border-subtle); font-size: var(--fs-body-s); color: var(--text-secondary);
+  --notice-tone: var(--text-muted);
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-control); border: 0;
+  background: color-mix(in srgb, var(--notice-tone) 8%, transparent);
+  font-size: var(--fs-body-s); line-height: 1.5; color: var(--text-secondary);
 }
-.ui-notice--info { border-color: var(--border-subtle); }
-.ui-notice--success { border-color: color-mix(in srgb, var(--status-success) 45%, transparent); }
-.ui-notice--warning { border-color: color-mix(in srgb, var(--status-warning) 45%, transparent); }
-.ui-notice--error { border-color: color-mix(in srgb, var(--status-error) 45%, transparent); }
+.ui-notice-icon { flex: none; width: 14px; height: 14px; margin-top: 2px; translate: none; color: var(--notice-tone); }
+.ui-notice-body { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); overflow-wrap: anywhere; }
+.ui-notice--info { --notice-tone: var(--text-muted); }
+.ui-notice--success { --notice-tone: var(--status-success); }
+.ui-notice--warning { --notice-tone: var(--status-warning); }
+.ui-notice--error { --notice-tone: var(--status-error); }
 
 /* ---- StatusBadge ------------------------------------------------------------------------ */
 .ui-badge {
@@ -275,7 +284,7 @@
   transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .ui-tab:hover .ui-tab-close, .ui-tab:focus-visible .ui-tab-close, .ui-tab:is([data-active], .is-active) .ui-tab-close { opacity: 1; }
 .ui-tab-close:hover { color: var(--text-primary); background: var(--surface-hover); }
-.ui-tab.drop-target { box-shadow: inset 2px 0 0 var(--border-strong); }
+.ui-tab.drop-target { box-shadow: inset 2px 0 0 var(--drop-line); }
 
 /* ---- ActivityDisclosure — journal sans carte --------------------------- */
 /* Activity typography follows the user's chat scale. Details remain ordinary
@@ -414,3 +423,6 @@ svg:is(.lucide, [stroke="currentColor"]):not([data-slot="spinner"], [data-icon-s
 }
 .ui-details[open] > summary::before { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .ui-details > summary::before { transition: none; } }
+
+/* Sélection de texte : la teinte de l'app, pas le bleu système (TRANS-16). */
+::selection { background: var(--selection-text); }

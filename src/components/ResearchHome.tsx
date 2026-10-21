@@ -146,7 +146,7 @@ function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeAc
         )}
         {p.items.map((it) => {
           if (it.kind === "sidecar") {
-            return <InlineNotice key={it.key} tone="error">{t("home.sidecar-offline")}</InlineNotice>;
+            return <InlineNotice key={it.key} tone="warning">{t("home.sidecar-offline")}</InlineNotice>;
           }
           if (it.kind === "atelier") {
             return (
@@ -212,12 +212,14 @@ export function ResearchHome(p: ResearchHomeBundle) {
     <section className="rh-section rh-sec-start" aria-label={t("home.start")}>
       <h2>{t("home.start")}</h2>
       <div className="rh-rows">
-        <RowButton className="rh-row" onClick={actions.onNewChat}>
+        {/* Sans conversation, « Nouveau chat » vit déjà dans l'emplacement
+            Continuer (SHELL-17) : pas de doublon ici. */}
+        {(model.loading || model.continueItem) && <RowButton className="rh-row" onClick={actions.onNewChat}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
             <path d="M8 3.5v9M3.5 8h9" />
           </svg>
           <span className="name">{t("action.new-chat")}</span>
-        </RowButton>
+        </RowButton>}
         <RowButton className="rh-row" onClick={actions.onOpenPalette}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
             <circle cx="7" cy="7" r="4" />
@@ -279,7 +281,18 @@ export function ResearchHome(p: ResearchHomeBundle) {
             ) : model.continueItem ? (
               <ContinueCard item={model.continueItem} onResume={actions.onResume} />
             ) : (
-              <p className="rh-hint rh-sec-continue">{t("home.no-threads")}</p>
+              // Projet sans conversation (SHELL-17) : l'emplacement « Continuer »
+              // garde sa géométrie et porte l'action, au lieu d'une phrase grise.
+              <section className="rh-section rh-sec-continue" aria-label={t("home.continue")}>
+                <h2>{t("home.continue")}</h2>
+                <div className="rh-continue is-empty">
+                  <div className="t">{t("home.no-threads")}</div>
+                  <p className="rh-hint">{t("home.no-threads-hint")}</p>
+                  <div className="rh-continue-actions">
+                    <Button variant="primary" onClick={actions.onNewChat}>{t("action.new-chat")}</Button>
+                  </div>
+                </div>
+              </section>
             )}
             {artefacts}
           </div>

@@ -8,7 +8,7 @@ import { startSelectionPoll } from "../lib/browserSelectionPoll";
 import { chatButtonState } from "../lib/browserSelectionAffordance";
 import { CloseIcon, RefreshIcon, StarFilledIcon, StarIcon } from "./icons";
 import { Input } from "./shadcn/input";
-import { Button, IconButton, RowButton } from "./ui";
+import { Button, IconButton, RowButton, showError, showSuccess } from "./ui";
 
 type LocalServer = { port: number; title: string | null };
 type BrowserAddMode = "selection" | "page";
@@ -144,6 +144,7 @@ export default function BrowserTab(p: {
   const [servers, setServers] = useState<LocalServer[] | null>(null);
   // épinglage base de connaissances (plan 049 T2) : retour visuel bref
   const [kbFlash, setKbFlash] = useState<"ok" | "err" | null>(null);
+  const kbPendingRef = useRef(false);
   // Sélection dans la webview NATIVE : invisible du DOM hôte — sondée à
   // intervalle court (browserSelectionPoll) tant que la surface est visible.
   // La pilule « Ajouter la sélection » n'existe que pendant une sélection :
@@ -158,6 +159,12 @@ export default function BrowserTab(p: {
     const onKbAdded = (e: Event) => {
       const detail = (e as CustomEvent).detail as { ok?: boolean } | undefined;
       setKbFlash(detail?.ok ? "ok" : "err");
+      // Le résultat se lit aussi dans un toast, pas seulement dans l'infobulle
+      // et une teinte de 2,4 s (GAP-11) — seulement pour l'ajout lancé ici.
+      if (!kbPendingRef.current) return;
+      kbPendingRef.current = false;
+      if (detail?.ok) void showSuccess(t("browser.added-kb"));
+      else void showError(t("browser.add-kb-error"));
     };
     window.addEventListener("kb-source-added", onKbAdded);
     return () => window.removeEventListener("kb-source-added", onKbAdded);
@@ -389,7 +396,8 @@ export default function BrowserTab(p: {
       via: "browser",
       ...(text ? { text } : {}),
     });
-    if (!sent) setKbFlash("err");
+    if (!sent) { setKbFlash("err"); void showError(t("browser.add-kb-error")); }
+    else kbPendingRef.current = true;
   }
 
   function newTab() {

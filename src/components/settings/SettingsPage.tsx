@@ -204,7 +204,13 @@ export default function SettingsPage(p: {
             <span>{result.label}<small>{result.category}</small></span><ChevronRight aria-hidden="true" />
           </RowButton>) : <p className="set-empty">{t("settings.search-empty")}</p>}
         </div> : <SettingsSearchTarget.Provider value={target}>
-          <Suspense fallback={<p className="set-empty">{t("settings.checking")}</p>}>
+          <Suspense fallback={
+            // Squelette qui réserve le titre et trois rangées (SET-18) : la
+            // section arrive sans faire sauter la page.
+            <div className="set-skeleton" role="status" aria-label={t("settings.checking")}>
+              <span className="set-skeleton-title" /><span /><span /><span />
+            </div>
+          }>
             <Panel s={p.settings} set={set} ws={p.ws} onSaved={flash} projects={p.projects}
               projectRoot={p.projectRoot} narrow={narrow} />
           </Suspense>

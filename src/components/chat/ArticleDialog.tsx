@@ -298,11 +298,6 @@ export default function ArticleDialog() {
         {!job && (
           <>
             <div className="kb-article-drop">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
-                strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 15V4" /><path d="M8 8l4-4 4 4" />
-                <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
-              </svg>
               <Button type="button" variant="ghost" className="ghost" onClick={() => { void pick(); }}>
                 {t("article.pick")}
               </Button>
@@ -328,8 +323,8 @@ export default function ArticleDialog() {
 
         {job && ["queued","duplicate","rejected"].includes(job.phase) && <>
           <div className="kb-page-source">{fileName(job.path)}</div>
-          <p className="kb-article-hint">{job.phase === "queued" ? "En attente. Lancez les conversions depuis le volet Ragdoc." : job.phase === "duplicate" ? "Ce PDF est déjà indexé dans Ragdoc." : "Document écarté de ce lot."}</p>
-          <Button variant="ghost" onClick={backgroundArticleDialog}>Fermer</Button>
+          <p className="kb-article-hint">{job.phase === "queued" ? t("article.queued") : job.phase === "duplicate" ? t("article.duplicate") : t("article.rejected")}</p>
+          <Button variant="ghost" onClick={backgroundArticleDialog}>{t("action.close")}</Button>
         </>}
         {job?.phase === "writing" && (
           <>

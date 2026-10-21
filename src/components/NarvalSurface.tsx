@@ -115,7 +115,8 @@ function statusTone(state: string): "neutral" | "running" | "success" | "warning
   if (["RUNNING", "COMPLETING", "CONFIGURING"].includes(normalized)) return "running";
   if (["COMPLETED"].includes(normalized)) return "success";
   if (["PENDING", "SUSPENDED", "REQUEUED"].includes(normalized)) return "warning";
-  if (["FAILED", "TIMEOUT", "CANCELLED", "OUT_OF_MEMORY", "NODE_FAIL"].includes(normalized)) return "error";
+  // Annulé ou préempté n'est pas un échec (SURF-06) : ton neutre.
+  if (["FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL"].includes(normalized)) return "error";
   return "neutral";
 }
 
@@ -126,8 +127,19 @@ function meaningfulReason(reason: string) {
   return !value || value.toLowerCase() === "none" ? "" : value;
 }
 
+// États Slurm traduits, sur la table de Calculs quand elle existe (SURF-06) ;
+// un état inconnu garde son nom brut, lisible.
+const SLURM_STATE_KEYS: Record<string, Parameters<typeof t>[0]> = {
+  RUNNING: "calculs.state-running", COMPLETING: "calculs.state-running", CONFIGURING: "calculs.state-running",
+  PENDING: "calculs.state-queued", REQUEUED: "calculs.state-queued",
+  COMPLETED: "calculs.state-completed",
+  FAILED: "calculs.state-failed", NODE_FAIL: "calculs.state-failed",
+  TIMEOUT: "narval.state-timeout", OUT_OF_MEMORY: "narval.state-oom",
+  CANCELLED: "narval.state-cancelled", PREEMPTED: "narval.state-preempted", SUSPENDED: "narval.state-suspended",
+};
 function displayState(state: string) {
-  return state.replace(/_/g, " ");
+  const key = SLURM_STATE_KEYS[state.toUpperCase()];
+  return key ? t(key) : state.replace(/_/g, " ").toLowerCase();
 }
 
 function logReadError(job: SlurmJob | null, error: NarvalError) {

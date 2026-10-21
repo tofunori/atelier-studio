@@ -17,7 +17,7 @@ describe("presentStatus — libellé et ton par kind", () => {
     { kind: "warning", label: "avertissement", tone: "warning" },
     { kind: "error", label: "erreur", tone: "error" },
     { kind: "interrupted", label: "interrompu", tone: "warning" },
-    { kind: "disconnected", label: "Sidecar déconnecté", tone: "error" },
+    { kind: "disconnected", label: "Connexion à Atelier perdue", tone: "warning" },
   ];
 
   for (const c of cases) {

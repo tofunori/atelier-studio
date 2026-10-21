@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../test/render";
-import { setLanguage } from "../../lib/i18n";
+import { setLanguage, t } from "../../lib/i18n";
 import type { KbSource } from "../../lib/kbSources";
 import { consumePendingPassageOpen, resetPendingPassageOpenForTests, setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 import { resetKbTrashForTests } from "../../lib/kbTrash";
@@ -513,7 +513,7 @@ describe("KbSurface", () => {
     // la liste a laissé place au lecteur, ouvert sur ce slug précis
     expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
     expect(screen.getByTitle("articles/aoki-2011-snow-albedo")).toBeTruthy();
-    expect(screen.getByText("Connexion indisponible. Réessaie après la reconnexion.")).toBeTruthy();
+    expect(screen.getByText(t("biblio.offline"))).toBeTruthy();
   });
 
   // Revue finale de branche, finding 1 : kb-open-gbrain-passage part de façon

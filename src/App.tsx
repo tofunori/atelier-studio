@@ -1947,7 +1947,7 @@ export default function App() {
         const dot = document.getElementById("usage-dot");
         if (dot) {
           dot.style.background = worst == null ? "transparent"
-            : worst >= 85 ? "#e06c75" : worst >= 60 ? "#e0b74a" : "#98c379";
+            : worst >= 85 ? "var(--status-error)" : worst >= 60 ? "var(--status-warning)" : "var(--status-success)";
         }
       }
       if (msg.type === "providerStatus") {

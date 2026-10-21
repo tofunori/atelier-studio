@@ -188,6 +188,22 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     );
   });
 
+  // SURF-29 / CHAT-05 : les CSS de composants et de styles échappaient au gel
+  // des hex d'App.css. Toute couleur y passe par un jeton ; seuls tokens.css
+  // (palette source) et les blocs :root portent des hex.
+  it("CSS de composants et de styles : aucun hex brut hors palette", () => {
+    const files = [...componentCssFiles, ...collectFiles(join(root, "styles"), [".css"])]
+      .filter((file) => !/[\\/]tokens\.css$/.test(file));
+    const offenders: string[] = [];
+    for (const file of files) {
+      const body = stripComments(readFileSync(file, "utf8"))
+        .replace(/:root[^{]*\{[^}]*\}/g, "")
+        .replace(/var\(--[\w-]+,\s*#[0-9a-fA-F]{3,8}\)/g, "");
+      for (const m of body.matchAll(/#[0-9a-fA-F]{3,8}\b/g)) offenders.push(`${file.split(/[\\/]/).slice(-2).join("/")} → ${m[0]}`);
+    }
+    expect(offenders, offenders.slice(0, 20).join(" · ")).toEqual([]);
+  });
+
   it("App.css : hex et z-index bruts gelés (sous-multisets — ne peuvent que rétrécir)", () => {
     // hors blocs :root (palette source de vérité), .hljs-* (palette syntaxique)
     // et fallbacks var(--x, #hex)

@@ -68,7 +68,7 @@ describe("ResearchHome", () => {
     // demande Thierry (2026-07-10) : l'identité projet ne vit qu'au crumb —
     // le Home ne répète plus le chemin (nom conservé en sr-only pour le h1)
     expect(screen.queryByText("~/thesis")).toBeNull();
-    expect(screen.getByText("Aucune conversation dans ce projet pour l'instant.")).toBeInTheDocument();
+    expect(screen.getByText("Aucune conversation dans ce projet")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Démarrer" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "À traiter" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Artefacts récents" })).toBeNull();
@@ -122,7 +122,8 @@ describe("ResearchHome", () => {
   it("sidecar hors ligne sans bannière hôte : une seule notice, sans badge répété", () => {
     render(<ResearchHome model={model({ sidecar: "disconnected" })} actions={actions()} />);
     expect(screen.queryByText("connexion dégradée")).toBeNull();
-    expect(screen.getByRole("alert")).toHaveTextContent("Sidecar déconnecté");
+    // Coupure = ton « avertissement » partout (GAP-20), plus une erreur.
+    expect(screen.getByRole("status")).toHaveTextContent("Connexion à Atelier perdue");
   });
 
   it("la bannière du shell annonce seule la coupure ; les autres erreurs restent visibles", () => {
@@ -134,7 +135,7 @@ describe("ResearchHome", () => {
         connectionNoticeHandled
       />
     </>);
-    expect(screen.getAllByText(/Sidecar déconnecté/)).toHaveLength(1);
+    expect(screen.getAllByText(/Connexion à Atelier perdue/)).toHaveLength(1);
     expect(screen.getByRole("status")).toHaveTextContent(t("app.sidecar-disconnected"));
     expect(screen.queryByText("connexion dégradée")).toBeNull();
     expect(screen.getByRole("alert")).toHaveTextContent("Galerie indisponible");
@@ -146,7 +147,7 @@ describe("ResearchHome", () => {
     expect(screen.queryByRole("region", { name: "À traiter" })).toBeNull();
     // Si la bannière est fermée, l'accueil reprend l'annonce de la coupure.
     rerender(<ResearchHome model={offline} actions={actions()} />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Sidecar déconnecté");
+    expect(screen.getByRole("status")).toHaveTextContent("Connexion à Atelier perdue");
   });
 
   it("démarrage à froid : squelette sobre, ni alerte, ni faux « aucune conversation »", () => {
@@ -154,7 +155,7 @@ describe("ResearchHome", () => {
     expect(container.querySelector(".rh-skeleton")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText("connexion dégradée")).toBeNull();
-    expect(screen.queryByText("Aucune conversation dans ce projet pour l'instant.")).toBeNull();
+    expect(screen.queryByText("Aucune conversation dans ce projet")).toBeNull();
     // la géométrie générale reste : Démarrer visible
     expect(screen.getByRole("region", { name: "Démarrer" })).toBeInTheDocument();
   });
@@ -217,8 +218,11 @@ describe("ResearchHome", () => {
   it("Démarrer : les quatre vrais workflows sont câblés", () => {
     const a = actions();
     render(<ResearchHome model={model()} actions={a} />);
+    // Sans conversation, « Nouveau chat » est porté par l'emplacement Continuer
+    // (SHELL-17) et n'est pas répété dans Démarrer.
     const start = within(screen.getByRole("region", { name: "Démarrer" }));
-    fireEvent.click(start.getByRole("button", { name: "Nouveau chat" }));
+    expect(start.queryByRole("button", { name: "Nouveau chat" })).toBeNull();
+    fireEvent.click(within(screen.getByRole("region", { name: "Continuer" })).getByRole("button", { name: "Nouveau chat" }));
     expect(a.onNewChat).toHaveBeenCalledTimes(1);
     fireEvent.click(start.getByRole("button", { name: "Rechercher un fichier…" }));
     expect(a.onOpenPalette).toHaveBeenCalledTimes(1);

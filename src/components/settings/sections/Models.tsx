@@ -44,7 +44,7 @@ import { ModelsGrid } from "../models/ModelsGrid";
 import { groupRoutes, type Route } from "../models/groupRoutes";
 import { OpenCodeRouter } from "../models/OpenCodeRouter";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from "../../icons";
-import { Button, IconButton, InlineNotice, Select, SegmentedControl } from "../../ui";
+import { Button, IconButton, InlineNotice, Select, SegmentedControl, StatusBadge } from "../../ui";
 import { Checkbox, CheckboxIndicator } from "../../shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "../../shadcn/field";
 import { Input } from "../../shadcn/input";
@@ -179,16 +179,16 @@ export default function Models(p: SectionProps) {
     return labels[auth] ?? auth;
   }
 
-  function authClass(auth: string) {
-    if (auth === "ready") return "ok";
+  function authClass(auth: string): "success" | "warning" | "error" {
+    if (auth === "ready") return "success";
     if (
       auth === "check_provider_config" ||
       auth === "unknown" ||
       auth === "model_config_needed" ||
       auth === "version_unsupported"
     )
-      return "warn";
-    return "ko";
+      return "warning";
+    return "error";
   }
 
   // Abonnement WebSocket (inchangé) : cette section n'écoute que ses propres
@@ -514,11 +514,11 @@ export default function Models(p: SectionProps) {
                       : (su.binPath || t("settings.path-missing")))
                     : (row.kind === "api" ? t("settings.key-missing") : t("settings.path-missing"))}
                 >
-                  <span className={`set-badge ${row.ok ? "ok" : "ko"}`}>
+                  <StatusBadge status={row.ok ? "success" : "error"}>
                     {row.ok ? t("settings.detected") : t("settings.absent")}
-                  </span>
+                  </StatusBadge>
                   {su && (
-                    <span className={`set-badge ${authClass(su.auth)}`}>{authLabel(su.auth)}</span>
+                    <StatusBadge status={authClass(su.auth)}>{authLabel(su.auth)}</StatusBadge>
                   )}
                   {su?.auth === "login_needed" && su.loginCommand ? (
                     // ouvre le terminal Atelier avec la commande exacte
@@ -578,9 +578,9 @@ export default function Models(p: SectionProps) {
                   desc={pr.ok
                     ? (pr.kind === "api" ? t("settings.provider-api") : pr.version ?? "")
                     : (pr.kind === "api" ? t("settings.key-missing") : t("settings.path-missing"))}>
-                  <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>
+                  <StatusBadge status={pr.ok ? "success" : "error"}>
                     {pr.ok ? t("settings.detected") : t("settings.absent")}
-                  </span>
+                  </StatusBadge>
                   <IconButton size="s" className="set-btn quiet" disabled={i === 0}
                     label={t("settings.provider-up")} onClick={() => move(pr.id, -1)}><ArrowUpIcon size={12} /></IconButton>
                   <IconButton size="s" className="set-btn quiet" disabled={i === sorted.length - 1}
@@ -606,7 +606,7 @@ export default function Models(p: SectionProps) {
                 modelMetadata: Object.fromEntries(Object.entries(ap.modelReasoning ?? {})
                   .map(([modelId, reasoning]) => [modelId, { reasoning }])),
               })}>{t("action.edit")}</Button>
-              <Button variant="ghost" className="set-btn quiet" onClick={() =>
+              <Button variant="ghost" className="set-btn quiet set-destructive" onClick={() =>
                 void (async () => {
                   const ok = await tauriConfirm(t("settings.api-delete-confirm", { id: ap.label || ap.id }), { kind: "warning" }).catch(() => false);
                   if (ok && p.ws?.readyState === 1) p.ws.send(JSON.stringify({ type: "deleteApiProvider", id: ap.id }));
@@ -660,14 +660,14 @@ export default function Models(p: SectionProps) {
                     <Input className="set-text" style={{ flex: 1 }} placeholder={t("settings.api-models-ph")} value={apiForm.models}
                       onChange={(e) => setApiForm({ ...apiForm, models: e.target.value })} />
                   </Field>
-                  <Button variant="ghost" className="set-btn quiet" disabled={apiModelsBusy} onClick={() => {
+                  <Button variant="ghost" className="set-btn quiet" loading={apiModelsBusy} onClick={() => {
                     if (p.ws?.readyState !== 1) return;
                     setApiModelsBusy(true); setApiModels(null); setApiModelsError(""); setApiModelsQuery("");
                     p.ws.send(JSON.stringify({ type: "listApiModels", provider: {
                       id: apiForm.id, baseURL: apiForm.baseURL, protocol: apiForm.protocol,
                       ...(apiForm.apiKey ? { apiKey: apiForm.apiKey } : {}),
                     } }));
-                  }}>{apiModelsBusy ? "…" : t("settings.api-detect")}</Button>
+                  }}>{t("settings.api-detect")}</Button>
                 </div>
                 {apiModelsError && <InlineNotice tone="error" className="set-notice">{apiModelsError}</InlineNotice>}
                 {apiModels && (() => {
@@ -700,7 +700,7 @@ export default function Models(p: SectionProps) {
                               <CheckboxIndicator />
                             </Checkbox>
                             <span style={{ fontSize: "var(--fs-m)" }}>{m.id}</span>
-                            {m.reasoning && <span className="set-badge ok">reasoning</span>}
+                            {m.reasoning && <StatusBadge>reasoning</StatusBadge>}
                           </label>
                         ))}
                         {shown.length === 0 && <p className="set-empty">{t("settings.api-no-match")}</p>}
@@ -752,7 +752,7 @@ export default function Models(p: SectionProps) {
           {customModels.length > 0 ? (
             customModels.map((m, i) => (
               <Row key={m.provider + ":" + m.id + ":" + i} title={m.id} desc={m.provider === "claude" ? "Claude" : "Codex"}>
-                <Button variant="ghost" className="set-btn quiet" onClick={() =>
+                <Button variant="ghost" className="set-btn quiet set-destructive" onClick={() =>
                   save({ customModels: customModels.filter((_, j) => j !== i) })
                 }>{t("action.remove")}</Button>
               </Row>

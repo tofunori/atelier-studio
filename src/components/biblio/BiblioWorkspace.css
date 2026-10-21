@@ -44,8 +44,7 @@
 .biblio-workspace .biblio-star { opacity: 1; }
 .biblio-workspace .biblio-read { color: var(--text-muted); opacity: .45; }
 .biblio-workspace .biblio-read:hover, .biblio-workspace .biblio-read:focus-visible { opacity: 1; }
-.biblio-workspace .biblio-read[aria-pressed="true"] { color: #86b99a; opacity: 1; }
-:root[data-theme="light"] .biblio-workspace .biblio-read[aria-pressed="true"] { color: #397454; }
+.biblio-workspace .biblio-read[aria-pressed="true"] { color: var(--status-success); opacity: 1; }
 .biblio-workspace .biblio-read svg { width: 15px; height: 15px; }
 .biblio-information { min-width: 0; overflow: auto; border-left: 1px solid var(--border-subtle); padding: 8px 16px; background: var(--surface-panel); font-size: var(--fs-s); }
 .biblio-information-heading { display: flex; align-items: center; justify-content: space-between; color: var(--text-muted); }
@@ -71,7 +70,7 @@
  .biblio-table-head { grid-template-columns: minmax(0, 1fr) 40px 90px; }
  .biblio-workspace .biblio-main-button { grid-template-columns: minmax(0, 1fr) 40px; }
  .biblio-workspace-body.has-info { grid-template-columns: minmax(0, 1fr); }
- .biblio-information { position: absolute; right: 0; top: 0; bottom: 0; width: min(290px, 90%); z-index: 3; box-shadow: -8px 0 24px #0002; }
+ .biblio-information { position: absolute; right: 0; top: 0; bottom: 0; width: min(290px, 90%); z-index: 3; box-shadow: var(--elevation-overlay); }
  .biblio-workspace .biblio-scope { align-items: start; flex-direction: column; gap: 2px; padding-bottom: 6px; }
 }
 @container (max-width: 420px) {

@@ -82,7 +82,8 @@
 :root[data-density="compact"] { --pad-y: 3px; }
 .lazy-error-top-layer { position: fixed; inset: auto 16px 20px; margin: 0 auto;
   box-sizing: border-box; max-width: 620px; padding: 0; border: 0;
-  background: var(--surface-overlay); color: var(--text-primary); border-radius: var(--radius-control); }
+  background: var(--surface-overlay); color: var(--text-primary); border-radius: var(--radius-surface);
+  box-shadow: var(--elevation-overlay); }
 :root, :root[data-density="comfortable"] { --pad-y: 6px; }
 :root[data-density="spacious"] { --pad-y: 10px; }
 html.no-smoothing, html.no-smoothing body { -webkit-font-smoothing: auto !important; }
@@ -552,16 +553,9 @@ button.kernel-file:hover { color: var(--text-primary); }
   .kernel-dot, .kernel-reveal, .kernel-code, .kernel-vars-head svg, .kernel-cell-body, .kernel-resume-head > svg { transition: none; animation: none; }
 }
 .empty { color: var(--text-muted); padding-top: 24px; }
-.empty-card { width: min(360px, 100%); margin: auto; border: 1px solid var(--border);
-  border-radius: var(--r-m); background: var(--bg-card); padding: 20px; display: flex;
-  flex-direction: column; gap: 12px; align-items: stretch; }
-.empty-title { color: var(--text-secondary); font-size: var(--fs-l); font-weight: 500; }
-.empty-card { user-select: none; -webkit-user-select: none; }
-.empty-actions { display: flex; flex-direction: column; gap: 8px; }
-.empty-action { background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
-  border-radius: var(--r-s); padding: 8px 12px; text-align: left; cursor: pointer; font-size: var(--fs-l);
-  display: inline-flex; align-items: center; gap: 8px; }
-.empty-action:hover { background: var(--bg-ctl); color: var(--text-primary); }
+.chat-empty-new { display: flex; flex-direction: column; gap: 4px; padding-top: 32px; user-select: none; -webkit-user-select: none; }
+.chat-empty-title { margin: 0; color: var(--text-primary); font-size: var(--fs-title); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
+.chat-empty-hint { margin: 0; color: var(--text-muted); font-size: var(--fs-body); line-height: 1.5; }
 .msg { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
 /* KaTeX : couleur héritée (currentColor), rien forcé ; erreur discrète (pas de rouge criard) */
 .msg .katex { font-size: 1.06em; }
@@ -824,12 +818,12 @@ button.kernel-file:hover { color: var(--text-primary); }
   font-variant-numeric: tabular-nums; font-size: var(--fs-s); }
 .timeline-stamp { color: var(--text-muted); font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tool-exit { color: var(--u-hot, #e06c75); white-space: nowrap;
+.tool-exit { color: var(--status-error); white-space: nowrap;
   font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
 .tool-output-target { margin-left: 6px; color: var(--text-muted); }
 .tool-source { margin-left: 6px; color: var(--text-muted); font: var(--eyebrow-size)/1 var(--code-font);
   text-transform: uppercase; letter-spacing: var(--eyebrow-tracking); }
-.tool-output.failed .tool-status { color: var(--u-hot, #e06c75); }
+.tool-output.failed .tool-status { color: var(--status-error); }
 /* La couleur est réservée à l'ÉCHEC : une réussite garde une coche neutre,
    l'icône de tête et le nom de l'outil restent neutres. Classe `is-done` et
    non `done` — `.done` est déjà pris plus haut par les lignes de fin de tour. */
@@ -841,7 +835,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .tool-output-body { display: grid; gap: 6px; margin: 4px 0 6px 18px; min-width: 0; }
 .tool-output-preview { min-width: 0; }
 .tool-output-preview .image-view-thumbnails { margin: 0; }
-.activity-batch-error { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; color: var(--u-hot, #e06c75); font-size: var(--chat-activity-font-size, 13px); line-height: 1.45; }
+.activity-batch-error { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; color: var(--status-error); font-size: var(--chat-activity-font-size, 13px); line-height: 1.45; }
 .activity-batch-error svg { flex: 0 0 auto; margin-top: 2px; }
 .tool-payload { min-width: 0; }
 .tool-payload-label { color: var(--text-muted); font-size: var(--eyebrow-size); text-transform: uppercase;
@@ -869,7 +863,17 @@ button.kernel-file:hover { color: var(--text-primary); }
 .todo-box { width: 13px; height: 13px; margin-top: 2px; border: 1px solid var(--border2);
   border-radius: var(--r-s); display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0; font-size: var(--fs-xs); color: var(--accent-text); }
-.error { color: var(--u-hot, #e06c75); font-size: var(--fs-l); }
+.error { color: var(--status-error); font-size: var(--fs-l); }
+/* Erreur d'un tour (CHAT-16) : seule l'icône porte le rouge ; la phrase reste
+   lisible en --text-primary, le détail technique se replie. */
+.chat-error { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; color: var(--text-primary); line-height: 1.5; }
+.chat-error-icon { flex: none; margin-top: 4px; color: var(--status-error); }
+.chat-error-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.chat-error-title { overflow-wrap: anywhere; }
+.chat-error-detail { color: var(--text-muted); font-size: var(--fs-s); }
+.chat-error-detail pre { margin: 4px 0 0; padding: 8px 12px; border-radius: var(--radius-control); background: var(--surface-inset);
+  font: var(--fs-s)/1.5 var(--code-font); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-error-copy { flex: none; }
 /* Interruption volontaire (stop, steer) : constat neutre, pas une alerte. */
 .turn-interrupted { color: var(--text-muted); font-size: var(--fs-m); }
 .atelier-wrap { position: relative; width: 100%; height: 100%; min-height: 0; }
@@ -1315,19 +1319,22 @@ button.kernel-file:hover { color: var(--text-primary); }
 .annot-banner button { background: var(--accent); color: var(--bg); border: none;
   border-radius: var(--r-s); padding: 4px 12px; cursor: pointer; font-size: var(--fs-m); }
 .annot-banner .ghost { background: transparent; color: var(--text-muted); }
+/* Bannière (SHELL-28) : le modèle de la bannière de connexion pour toutes —
+   fond --surface-inset sans bordure, pastille d'état 6 px, texte sur deux
+   lignes au plus, entrée 140 ms ; les boutons gardent leur dessin commun. */
 .top-banner { display: flex; align-items: center; gap: 8px; margin: 8px 16px 0;
-  padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--accent);
-  border-radius: var(--r-m); font-size: var(--fs-l); color: var(--text-secondary); }
-.top-banner-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  padding: 8px 12px; background: var(--surface-inset); border: 0;
+  border-radius: var(--radius-control); font-size: var(--fs-body-s); line-height: 1.5; color: var(--text-secondary);
+  animation: top-banner-in var(--motion-fast) var(--ease-out); }
+.top-banner::before { content: ""; width: 6px; height: 6px; flex: none;
+  border-radius: var(--r-pill); background: var(--accent); }
+.top-banner-text { flex: 1; min-width: 0; overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 /* La reconnexion est un état persistant, pas un encadré d'erreur répété. */
-.top-banner.connection-banner { gap: 8px; margin: 4px 16px 0; padding: 8px 12px;
-  border-color: transparent; background: var(--surface-inset); font-size: var(--fs-body-s); }
-.connection-banner::before { content: ""; width: 6px; height: 6px; flex: none;
-  border-radius: var(--r-pill); background: var(--status-warning); }
-.connection-banner .top-banner-text { white-space: normal; overflow-wrap: anywhere; }
-.top-banner button { background: var(--bg-ctl); color: var(--text-primary); border: 1px solid var(--border2);
-  border-radius: var(--r-s); padding: 4px 12px; cursor: pointer; font-size: var(--fs-m); }
-.top-banner .ghost { background: transparent; color: var(--text-muted); padding: 4px 8px; }
+.top-banner.connection-banner { margin: 4px 16px 0; }
+.connection-banner::before { background: var(--status-warning); }
+@keyframes top-banner-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .top-banner { animation: none; } }
 .atelier-wrap { display: flex; flex-direction: column; height: 100%; }
 .atelier-bar { display: flex; flex-direction: row; align-items: center; gap: var(--sp-1); padding: 0 var(--sp-4);
   height: var(--surface-header-height); min-height: var(--surface-header-height);
@@ -1520,7 +1527,7 @@ button.kernel-file:hover { color: var(--text-primary); }
   display: flex; align-items: center; justify-content: center; color: var(--text-secondary);
   background: transparent; transition: color var(--ease); }
 .rail-act:hover { color: var(--text-primary); }
-.rail-act.failed { color: var(--u-hot, #e06c75); }
+.rail-act.failed { color: var(--status-error); }
 .rail-act-ring { position: absolute; inset: 0; width: 34px; height: 34px; transform: rotate(-90deg); }
 .rail-act.running .rail-act-ring { animation: rail-act-turn var(--motion-spin) linear infinite; }
 @keyframes rail-act-turn { to { transform: rotate(270deg); } }
@@ -1636,8 +1643,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* actif = repère commun (fond + pilule, fin de fichier) ; le survol reste plus
    léger que la sélection (A13) */
 .rail-proj:hover:not(.on) { color: var(--text-primary); background: var(--surface-hover) !important; }
-.rail-proj.drag-over { outline: 1px solid var(--accent); outline-offset: -1px; transform: translateY(2px);
-  transition: transform var(--motion-standard) var(--ease-out); }
+.rail-proj.drag-over { background: var(--drop-fill); box-shadow: var(--drop-ring); }
 /* Signaux du rail (piste B, 2026-10-21) : quatre mots, toujours au même
    coin, à l'intérieur de la puce (à cheval sur le coin, le point se perdait
    dans le cadre du projet actif). Anneau qui tourne = un agent travaille ;
@@ -1741,7 +1747,7 @@ button.kernel-file:hover { color: var(--text-primary); }
   opacity var(--motion-standard) var(--ease-out), transform var(--motion-standard) var(--ease-out); animation: queued-turn-in var(--motion-standard) var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .queued-turn { animation: none; transition: none; } }
 .queued-turn:hover, .queued-turn:focus-within { background: color-mix(in srgb, var(--bg-ctl) 72%, transparent); }
-.queued-turn.is-drag-over { background: var(--bg-ctl); box-shadow: inset 0 1px var(--accent); }
+.queued-turn.is-drag-over { box-shadow: inset 0 2px var(--drop-line); }
 @keyframes queued-turn-in { from { opacity: 0; transform: translateY(4px); } }
 .queued-turn-drag { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 26px;
   padding: 0; flex: none; border: 0; border-radius: var(--r-s); background: transparent; color: var(--text-muted);
@@ -2237,10 +2243,6 @@ button.kernel-file:hover { color: var(--text-primary); }
   border-radius: var(--r-m); color: inherit; padding: 6px 12px; font-size: var(--fs-l); outline: none; }
 .set-text { width: 320px; }
 .set-val { color: var(--text-muted); font-size: var(--fs-m); width: 52px; text-align: right; }
-.set-badge { font-size: var(--fs-m); padding: 4px 12px; border-radius: var(--r-pill); }
-.set-badge.ok { background: color-mix(in srgb, var(--status-success) 15%, transparent); color: var(--status-success); }
-.set-badge.ko { background: color-mix(in srgb, var(--status-error) 15%, transparent); color: var(--status-error); }
-.set-badge.warn { background: color-mix(in srgb, var(--status-warning) 16%, transparent); color: var(--status-warning); }
 
 /* ---- Section Consignes (tâche 9) : deux volets, liste + formulaire -----
    Aucun accent ici (décision produit du fil : la pilule/le rappel d'en-tête
@@ -2630,7 +2632,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
    la même couleur (--accent) que les autres marqueurs d'état de sélection. */
 .model-provider-row.selected { color: var(--text-primary); }
 .model-provider-row.selected::before { content: ""; width: 6px; height: 6px; border-radius: var(--r-pill);
-  background: var(--accent, #e8894a); position: absolute; margin-left: -4px; }
+  background: var(--accent); position: absolute; margin-left: -4px; }
 .model-list { min-width: 0; overflow-y: auto; padding-right: 2px; }
 .model-list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
   color: var(--text-disabled); font-size: var(--fs-s); padding: 4px 8px 4px; }
@@ -3204,6 +3206,7 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
 .biblio-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 8px;
   display: flex; flex-direction: column; gap: 2px; }
 .biblio-empty { color: var(--text-muted); font-size: var(--fs-l); padding: 16px 12px; }
+.biblio-notice { margin: 0 12px 8px; }
 
 /* geste 2 : surtitres d'année (tris par date/année seulement) */
 .biblio-year { display: flex; align-items: baseline; gap: 8px; padding: 8px 8px 4px;
@@ -3326,7 +3329,7 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
    principale) : l'ancien fond accent + texte crème plafonnait à 3,85:1 en
    clair (audit SURF-08). Seule la marge reste locale. */
 .generateur-generate { margin-top: 8px; }
-.generateur-error { color: var(--u-hot); font-size: var(--fs-m); line-height: 1.4; }
+.generateur-error { margin-top: 8px; }
 .generateur-result { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg);
   padding: 16px; gap: 12px; }
 .generateur-empty { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center;
@@ -3423,9 +3426,9 @@ body.dragging .pane-divider::after { opacity: 1; }
   justify-content: center; cursor: pointer; }
 .pane-close:hover { color: var(--text-primary); border-color: var(--border2); }
 .drop-overlay { position: absolute; inset: 0; z-index: 90; display: flex; }
-.drop-zone { flex: 1; border: 2px solid transparent; border-radius: var(--r-m); margin: 6px;
-  transition: background 0.1s, border-color 0.1s; }
-.drop-zone.hot { background: color-mix(in srgb, var(--info) 14%, transparent); border-color: color-mix(in srgb, var(--info) 55%, transparent); }
+.drop-zone { flex: 1; border: 0; border-radius: var(--r-m); margin: 8px;
+  transition: background var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); }
+.drop-zone.hot { background: var(--drop-fill); box-shadow: var(--drop-ring); }
 body.dragging iframe { pointer-events: none; }
 .rail-surface-drag, .topbar-surface-drag { display: inline-flex; min-width: 0; min-height: 0; }
 .rail-surface-drag, .topbar-surface-drag { cursor: grab; touch-action: none; }
@@ -3478,9 +3481,9 @@ body.dragging iframe { pointer-events: none; }
 .workspace-drag-layer { position: absolute; inset: 0; z-index: var(--z-popover); pointer-events: none; }
 .workspace-drag-shield { position: absolute; inset: 0; pointer-events: auto; cursor: grabbing; }
 .workspace-drop-preview { position: absolute; display: flex; align-items: center; justify-content: center;
-  box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--info) 66%, transparent);
-  border-radius: var(--r-m); background: color-mix(in srgb, var(--info) 15%, var(--bg) 85%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info) 12%, transparent), 0 8px 28px rgba(0,0,0,0.18);
+  box-sizing: border-box; border: 0;
+  border-radius: var(--r-m); background: color-mix(in srgb, var(--accent) 12%, var(--bg) 88%);
+  box-shadow: var(--drop-ring), var(--elevation-overlay);
   transform-origin: top left; will-change: transform, opacity; }
 .workspace-drop-preview span { padding: 4px 8px; border-radius: var(--r-s); background: var(--bg-pop);
   color: var(--text-secondary); font-size: var(--fs-s); line-height: 1; white-space: nowrap;
@@ -4407,7 +4410,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .approval-decision small { margin-top: 2px; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.25; }
 .approval-decision.primary { border-color: var(--border-strong); }
 .approval-decision.primary b { color: var(--text-primary); }
-.approval-decision.danger:hover b { color: var(--u-hot, #e06c75); }
+.approval-decision.danger:hover b { color: var(--status-error); }
 @media (max-width: 620px) { .approval-decisions { grid-template-columns: 1fr; } }
 /* ===== carte interaction harnais (plan 025, step 5) — étend .perm-card ===== */
 .int-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -4761,7 +4764,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .git-historic-diff { height: 100%; min-height: 0; background: var(--bg); }
 .git-historic-diff-content.git-diff { width: 100%; max-height: none; min-height: 100%; margin: 0;
   padding: 8px 0 16px; border: 0; border-radius: 0; background: var(--bg);
-  font: var(--fs-xs)/1.55 var(--font-mono); white-space: pre; }
+  font: var(--fs-s)/1.5 var(--font-mono); white-space: pre; }
 .git-historic-diff-content.git-diff span { min-width: max-content; padding-inline: 16px; }
 .git-historic-diff-empty { flex: 1; display: grid; place-items: center; min-height: 120px;
   color: var(--text-muted); font-size: var(--fs-m); }
@@ -4971,8 +4974,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 
 /* frontières lazy (plan 022) : détail technique du chunk en échec */
 .lazy-error { flex-wrap: wrap; }
-.lazy-error-detail { flex-basis: 100%; font-size: var(--fs-xs, 10px);
-  color: var(--text-muted); font-variant-numeric: tabular-nums; word-break: break-all; }
+.lazy-error-detail { flex-basis: 100%; font-size: var(--fs-s); color: var(--text-muted); }
+.lazy-error-detail pre { margin: 4px 0 0; font: var(--fs-s)/1.5 var(--code-font); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
 /* Création : le provider est choisi une fois, avant que le chat existe.
  * Le portail, le scrim et le focus sont gérés par shadcn Dialog; cette règle
@@ -5081,7 +5084,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .narval-section-title { min-height: 24px; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .narval-section-title h2 { margin: 0; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
   letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
-.narval-empty { min-height: 96px; padding: 16px; border: 1px dashed var(--border-subtle); }
+.narval-empty { min-height: 96px; padding: 16px; }
 .narval-empty [data-slot="empty-description"] { font-size: var(--fs-label); }
 .narval-empty-icon { color: var(--text-muted); }
 .narval-empty-icon > svg { width: 20px; height: 20px; stroke-width: 1.4; }
@@ -5399,7 +5402,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   font-size: var(--fs-m); line-height: 1.5; color: var(--text-primary); background: var(--bg-ctl);
   border: 1px solid var(--border2); border-radius: var(--r-s); padding: 6px 8px; }
 .kb-note-actions { display: flex; justify-content: flex-end; gap: 6px; }
-.kb-error { font-size: var(--fs-s); color: var(--u-hot, #e06c75);
+.kb-error { font-size: var(--fs-s); color: var(--status-error);
   display: flex; align-items: flex-start; gap: 6px; }
 .kb-error .kb-error-text { flex: 1; min-width: 0; }
 /* plan 051 : chips-collections, tri, groupes repliables, menu collections */
@@ -5550,7 +5553,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .browser-bar .kb-flash-ok, .browser-bar .kb-flash-ok:hover,
 .biblio-reader-head .kb-flash-ok, .biblio-reader-head .kb-flash-ok:hover { color: var(--accent-text); }
 .browser-bar .kb-flash-err, .browser-bar .kb-flash-err:hover,
-.biblio-reader-head .kb-flash-err, .biblio-reader-head .kb-flash-err:hover { color: var(--u-hot, #e06c75); }
+.biblio-reader-head .kb-flash-err, .biblio-reader-head .kb-flash-err:hover { color: var(--status-error); }
 /* méta sous la bulle : « envoyé avec N sources · … » (fidèle au moment de l'envoi) */
 .user-kb-meta { display: inline-flex; align-items: center; gap: 6px;
   font-size: var(--fs-xs); color: var(--text-muted); margin-top: 2px;
@@ -5593,9 +5596,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   color: var(--accent-text); }
 .kb-action-article:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .kb-article-dialog { display: flex; flex-direction: column; gap: 8px; max-width: 560px; }
+/* Pas de fausse zone de dépôt (GAP-17) : un bloc plein, sans pointillés,
+   qui porte le bouton « Choisir un PDF… ». */
 .kb-article-drop { display: flex; flex-direction: column; align-items: center; gap: 8px;
-  padding: 24px 16px; border: 1px dashed var(--border2); border-radius: var(--r-m);
-  background: var(--bg-card); color: var(--text-muted); }
+  padding: 24px 16px; border: 0; border-radius: var(--r-m);
+  background: var(--surface-inset); color: var(--text-muted); }
 .kb-article-hint { font-size: var(--fs-s); color: var(--text-muted); }
 .kb-article-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .kb-article-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -5603,9 +5608,9 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kb-article-label { font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
   letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
 .kb-article-slug { font-family: var(--code-font); }
-.kb-article-warn { font-size: var(--fs-s); color: var(--accent-text);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border-radius: var(--r-s); padding: 8px 8px; }
+.kb-article-warn { font-size: var(--fs-s); color: var(--text-secondary);
+  background: color-mix(in srgb, var(--status-warning) 8%, transparent);
+  border-radius: var(--r-s); padding: 8px 12px; }
 .kb-article-progress { height: 2px; border-radius: var(--r-pill);
   background: var(--bg-ctl); overflow: hidden; }
 /* barre indéterminée : la même barre grise que Calculs, jamais l'accent
@@ -5680,8 +5685,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kbs-rail-item:hover { background: var(--surface-hover); color: var(--text-primary); }
 /* Cible de dépôt : le dossier se signale par l'accent plein, pas par une
    bordure de plus — on doit voir où la source va tomber en un coup d'œil. */
-.kbs-rail-item.drop { background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent-text); }
+.kbs-rail-item.drop { background: var(--drop-fill); box-shadow: var(--drop-ring); }
 .kbs-rail-icon { display: inline-flex; flex: none; color: currentColor; opacity: .85; }
 .kbs-rail-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kbs-rail-n { flex: none; font-size: var(--fs-xs); color: var(--text-muted);
@@ -5804,7 +5808,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kb-article-job.on { color: var(--text-primary); background: var(--bg-pop); }
 .kb-article-job.converting svg { color: var(--accent-text); }
 .kb-article-job.ready svg { color: var(--status-success); }
-.kb-article-job.error svg { color: var(--u-hot, #e06c75); }
+.kb-article-job.error svg { color: var(--status-error); }
 @media (prefers-reduced-motion: reduce) {
   .calculs-refresh.is-loading svg { animation: none; }
 }
@@ -5976,7 +5980,7 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
 /* Annotations : contraste ambre conservant la lecture du passage. */
 ::highlight(chat-an){background:rgba(112,151,255,.18)}
 .user-file-attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom: 8px;white-space:normal}
-.user-file-attachment{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding: 6px 12px;border:1px solid color-mix(in srgb,var(--text-muted) 25%,transparent);border-radius:var(--radius-control);background:rgba(0,0,0,.1);font-size:var(--fs-s);color:var(--text-secondary);line-height:1.5}
+.user-file-attachment{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding: 6px 12px;border:0;border-radius:var(--radius-control);background:var(--surface-inset);font-size:var(--fs-s);color:var(--text-secondary);line-height:1.5}
 .user-file-attachment svg{flex:none;color:var(--text-muted)}
 .user-file-attachment>span{overflow-wrap:anywhere;min-width:0}
 ::highlight(chat-highlight-amber){background:rgba(255,213,74,.40)}
@@ -6335,3 +6339,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   width: var(--selection-marker-w); height: var(--selection-marker-h);
   border-radius: var(--radius-pill); background: var(--selection-line); pointer-events: none;
 }
+
+/* Automatisations (GAP-13) : rangées sans cadre, survol --bg-ctl. */
+.automation-row { padding: 4px 8px; border-radius: var(--radius-control);
+  transition: background var(--motion-fast) var(--ease-out); }
+.automation-row:hover { background: var(--bg-ctl); }
+@media (prefers-reduced-motion: reduce) { .automation-row { transition: none; } }
+.plugin-notice { margin: 8px 16px; }

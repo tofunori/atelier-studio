@@ -11,7 +11,7 @@ import {
   cibleParDefaut, demanderMemoire, libelleOrigine, messageErreur, nomDeProjet,
   type ProjetClaudeScience, type ReponseMemoire, type Souvenir,
 } from "../../../lib/memoire";
-import { Button, IconButton, InlineNotice, Select } from "../../ui";
+import { Button, EmptyState, IconButton, InlineNotice, Select } from "../../ui";
 import { Group, Row, Toggle } from "../primitives";
 import { Input } from "../../shadcn/input";
 import { Textarea } from "../../shadcn/textarea";
@@ -137,7 +137,7 @@ export function Memoire(p: {
               onEnregistrer={enregistrer} onAnnuler={() => setEdition(null)} />
           )}
           <p className="memoire-total">{t("memoire.count", { n: total })}</p>
-          {items.length === 0 && !edition && <p className="set-empty">{t("memoire.empty")}</p>}
+          {items.length === 0 && !edition && <EmptyState className="ui-empty--inline" title={t("memoire.empty")} />}
           <ul className="memoire-items">
             {items.map((m) => (
               <li key={m.id} className="memoire-item">

@@ -121,7 +121,7 @@ export default function SourceReader(p: SourceReaderProps) {
       : cible.kind === "gbrain"
       ? { type: "kbGbrainPage", slug: cible.slug }
       : { type: "kbSourceText", id: cible.id });
-    if (!sent) setEtat({phase: "erreur", message: "Connexion indisponible. Réessaie après la reconnexion."});
+    if (!sent) setEtat({phase: "erreur", message: t("biblio.offline")});
     else timeout = setTimeout(() => setEtat({phase: "erreur", message: "Le document ne répond pas. Réessaie."}), 135000);
     return () => { clearTimeout(timeout); window.removeEventListener(attendu, onReponse); };
   }, [cible.kind, clef, reload, desactive]);
