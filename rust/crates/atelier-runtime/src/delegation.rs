@@ -188,12 +188,23 @@ pub async fn deleguer(
         match existant {
             Some(enfant) => {
                 let mut link = enfant.agent_link.clone().ok_or("relation_required")?;
-                // La tâche et son rapport : deux remises de plus.
-                link.auto_delivery_limit = link
-                    .auto_delivery_used
-                    .saturating_add(en_attente)
-                    .saturating_add(2)
-                    .min(lim::MAX_AUTO_DELIVERY);
+                if par == Par::Utilisateur {
+                    // `@Nom` : l'utilisateur reprend la main, le budget repart.
+                    link.auto_delivery_used = 0;
+                    link.auto_delivery_limit = crate::agent_mailbox::ECHANGES_PAR_TACHE
+                        .max(en_attente.saturating_add(2))
+                        .min(lim::MAX_AUTO_DELIVERY);
+                } else {
+                    // La tâche et son rapport : au moins deux remises de plus.
+                    link.auto_delivery_limit = link
+                        .auto_delivery_limit
+                        .max(
+                            link.auto_delivery_used
+                                .saturating_add(en_attente)
+                                .saturating_add(2),
+                        )
+                        .min(lim::MAX_AUTO_DELIVERY);
+                }
                 link.paused = false;
                 let mut patch = json!({"id": enfant.id, "agentLink": link, "consigne": consigne});
                 patch.as_object_mut().unwrap().extend(reglages);
@@ -212,7 +223,7 @@ pub async fn deleguer(
                     access: "read_write".into(),
                     created_at: now.clone(),
                     created_by: par.cle().into(),
-                    auto_delivery_limit: 2,
+                    auto_delivery_limit: crate::agent_mailbox::ECHANGES_PAR_TACHE,
                     auto_delivery_used: 0,
                     paused: false,
                 };
@@ -234,6 +245,11 @@ pub async fn deleguer(
             }
         }
     };
+
+    if reutilise {
+        // Ce que le budget retenait part avant la nouvelle tâche.
+        crate::agent_mailbox::relancer_retenus(state, parent_id, &enfant_id).await;
+    }
 
     let mut texte = message_de_tache(&nom, tache);
     if crate::kernel::enabled(Some(&parent)) {
@@ -592,6 +608,98 @@ mod tests {
         assert!(events.iter().any(|e| e["kind"] == "user" && e["text"] == "@Revue Relis la section 3"));
         let raté = handle_mention_specialiste(&s, &json!({"sourceThreadId": "p", "specialistId": "zz", "text": "x", "requestId": "r2"})).await;
         assert!(raté[0].contains("agentMentionFailed"));
+    }
+
+    async fn epuiser(s: &AppState, id: &str) {
+        let mut store = s.threads().lock().await;
+        let mut link = store.get(id).unwrap().agent_link.clone().unwrap();
+        link.auto_delivery_used = link.auto_delivery_limit;
+        store.upsert(json!({"id": id, "agentLink": link}), true).unwrap();
+    }
+
+    async fn lien(s: &AppState, id: &str) -> AgentLink {
+        s.threads().lock().await.get(id).unwrap().agent_link.clone().unwrap()
+    }
+
+    async fn remis_en_file(s: &AppState, message_id: &str) -> bool {
+        s.mailbox().lock().await.queued().iter().any(|m| m.id == message_id)
+    }
+
+    #[tokio::test]
+    async fn une_delegation_laisse_de_la_marge_pour_une_suite_du_parent() {
+        let s = etat();
+        parent(&s).await;
+        let r = action_delegate(&s, "p", &json!({"specialist": "Figures", "task": "Refais le panneau b"})).await.unwrap();
+        let id = r["targetThreadId"].as_str().unwrap().to_string();
+        assert_eq!(lien(&s, &id).await.auto_delivery_limit, crate::agent_mailbox::ECHANGES_PAR_TACHE);
+        // La tâche et le rapport sont passés : la consigne corrigée doit
+        // encore partir (c'est elle que le budget de 2 retenait).
+        {
+            let mut store = s.threads().lock().await;
+            let mut link = store.get(&id).unwrap().agent_link.clone().unwrap();
+            link.auto_delivery_used = 2;
+            store.upsert(json!({"id": id, "agentLink": link}), true).unwrap();
+        }
+        let suite = crate::agent_mailbox::action_send_message(&s, "p", &json!({"targetThreadId": id, "text": "Panneau b en barres", "requestId": "suite"}))
+            .await
+            .unwrap();
+        assert_eq!(suite["status"], "queued", "{suite}");
+    }
+
+    #[tokio::test]
+    async fn un_message_retenu_repart_quand_l_utilisateur_reprend_la_main() {
+        let s = etat();
+        parent(&s).await;
+        let r = action_delegate(&s, "p", &json!({"specialist": "Figures", "task": "t"})).await.unwrap();
+        let id = r["targetThreadId"].as_str().unwrap().to_string();
+        epuiser(&s, &id).await;
+        let retenu = crate::agent_mailbox::action_send_message(&s, "p", &json!({"targetThreadId": id, "text": "suite", "requestId": "retenu"}))
+            .await
+            .unwrap();
+        assert_eq!(retenu["status"], "paused");
+        assert_eq!(retenu["errorCode"], "budget_exhausted");
+        assert!(retenu["note"].as_str().unwrap().contains("Do not resend"));
+        let message_id = retenu["messageId"].as_str().unwrap().to_string();
+
+        // Un message de l'utilisateur dans le fil parent recharge et relance.
+        crate::agent_mailbox::recharger_apres_message_humain(&s, "p").await;
+        assert!(remis_en_file(&s, &message_id).await);
+        let link = lien(&s, &id).await;
+        assert_eq!(link.auto_delivery_used, 0);
+        assert!(link.auto_delivery_limit >= crate::agent_mailbox::ECHANGES_PAR_TACHE);
+    }
+
+    #[tokio::test]
+    async fn arobase_nom_recharge_un_specialiste_epuise() {
+        let s = etat();
+        parent(&s).await;
+        let r = action_delegate(&s, "p", &json!({"specialist": "Figures", "task": "t"})).await.unwrap();
+        let id = r["targetThreadId"].as_str().unwrap().to_string();
+        epuiser(&s, &id).await;
+        let retenu = crate::agent_mailbox::action_send_message(&s, "p", &json!({"targetThreadId": id, "text": "suite", "requestId": "retenu"}))
+            .await
+            .unwrap();
+        let message_id = retenu["messageId"].as_str().unwrap().to_string();
+        handle_mention_specialiste(&s, &json!({"sourceThreadId": "p", "specialistId": "s4", "text": "vas-y", "requestId": "r9"})).await;
+        assert_eq!(lien(&s, &id).await.auto_delivery_used, 0);
+        assert!(remis_en_file(&s, &message_id).await);
+    }
+
+    #[tokio::test]
+    async fn reprendre_un_lien_relance_aussi_ce_que_le_budget_retenait() {
+        let s = etat();
+        parent(&s).await;
+        let r = action_delegate(&s, "p", &json!({"specialist": "Figures", "task": "t"})).await.unwrap();
+        let id = r["targetThreadId"].as_str().unwrap().to_string();
+        epuiser(&s, &id).await;
+        let retenu = crate::agent_mailbox::action_send_message(&s, "p", &json!({"targetThreadId": id, "text": "suite", "requestId": "retenu"}))
+            .await
+            .unwrap();
+        let message_id = retenu["messageId"].as_str().unwrap().to_string();
+        // Continuer depuis le fil parent : le chat donne son fil et celui d'en face.
+        crate::agent_links::handle_set_link_paused(&s, &json!({"threadId": "p", "peerThreadId": id, "paused": false})).await;
+        assert!(remis_en_file(&s, &message_id).await);
+        assert_eq!(lien(&s, &id).await.auto_delivery_used, 0);
     }
 
     #[test]

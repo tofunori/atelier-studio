@@ -1346,6 +1346,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         return vec![err_json(error)];
     }
 
+    if msg.get("origin").and_then(Value::as_str) != Some("agent_link") {
+        crate::agent_mailbox::recharger_apres_message_humain(state, &thread_id).await;
+    }
     let previous = state.threads().lock().await.get(&thread_id).cloned();
     if msg.get("origin").and_then(Value::as_str) == Some("agent_link") {
         let from = msg
