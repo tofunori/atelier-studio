@@ -145,6 +145,45 @@ function RailProjects(p: RailProjectsProps) {
   );
 }
 
+/** Discussions libres, avec le nombre de fils qui demandent un geste. */
+function RailDiscussions({ active, count, onOpen }: { active: boolean; count: number; onOpen: () => void }) {
+  const label = count > 0 ? `${t("discussions.title")} — ${count} à traiter` : t("discussions.title");
+  return (
+    <div className="rail-views" role="group" aria-label={t("discussions.title")}>
+      <IconButton className={`rail-view ${active ? "on" : ""}`}
+        aria-current={active ? "page" : undefined}
+        label={label} title={label}
+        onClick={onOpen}>
+        <ChatsIcon size={19} />
+        {count > 0 && <span className="rail-count" aria-hidden="true">{count > 9 ? "9+" : count}</span>}
+      </IconButton>
+    </div>
+  );
+}
+
+/** Zone épinglée : tâches de fond (conversions) puis Réglages, toujours
+ * visibles en bas, jamais scrollés. */
+function RailPinned(p: { meta: Record<string, ProjMeta>; onSelectProject: (root: string) => void; onSettings: () => void }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const articleJobs = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot).jobs.length;
+  const ragdocOn = useIntegrations().effective.ragdoc;
+  return (
+    <div className="rail-pinned">
+      {ragdocOn && articleJobs > 0 && (
+        <LazyBoundary fallback={null}>
+          <RailActivity running={NO_AGENTS} meta={p.meta} onSelectProject={p.onSelectProject} />
+        </LazyBoundary>
+      )}
+      <LazyDropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen} side="right"
+        trigger={<IconButton className="rail-btn" label={t("action.settings")} title={t("action.settings")}><SettingsIcon size={19} /></IconButton>}
+        items={[
+          { key: "settings", label: t("action.settings"), onSelect: p.onSettings },
+          { key: "usage", label: t("usage.title"), onSelect: () => window.dispatchEvent(new CustomEvent("usage-toggle")) },
+        ]} />
+    </div>
+  );
+}
+
 export default function Rail(p: {
   favorites?: RailFavoritesProps;
   signals?: RailSignals;
@@ -168,19 +207,11 @@ export default function Rail(p: {
   onReorder: (from: string, to: string) => void;
 }) {
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
 
-  const articleJobs = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot).jobs.length;
-  const ragdocOn = useIntegrations().effective.ragdoc;
   const favoriteActive = p.activeView === "chats" && Boolean(
     p.favorites?.threads.some(th => th.id === p.favorites?.activeId),
   );
-  const discussionsActive = p.activeView === "chats" && !favoriteActive && isDiscussionContext(p.activeProject);
-  const discussionCount = p.signals?.discussions ?? 0;
-  const discussionsLabel = discussionCount > 0
-    ? `${t("discussions.title")} — ${discussionCount} à traiter`
-    : t("discussions.title");
 
   return (
     <nav className="rail rail-clean" aria-label="Navigation principale">
@@ -205,15 +236,11 @@ export default function Rail(p: {
               { key: "highlights", label: t("view.highlights"), onSelect: () => p.onSelectView("highlights") },
             ]} />
         </div>
-        <div className="rail-views" role="group" aria-label={t("discussions.title")}>
-          <IconButton className={`rail-view ${discussionsActive ? "on" : ""}`}
-            aria-current={discussionsActive ? "page" : undefined}
-            label={discussionsLabel} title={discussionsLabel}
-            onClick={() => p.onDiscussions ? p.onDiscussions() : p.onSelectView("chats")}>
-            <ChatsIcon size={19} />
-            {discussionCount > 0 && <span className="rail-count" aria-hidden="true">{discussionCount > 9 ? "9+" : discussionCount}</span>}
-          </IconButton>
-        </div>
+        <RailDiscussions
+          active={p.activeView === "chats" && !favoriteActive && isDiscussionContext(p.activeProject)}
+          count={p.signals?.discussions ?? 0}
+          onOpen={() => p.onDiscussions ? p.onDiscussions() : p.onSelectView("chats")}
+        />
         {p.favorites && p.favorites.threads.length > 0 && (
           <LazyBoundary fallback={<div className="rail-favorites" />}>
             <RailFavorites {...p.favorites} activeId={p.activeView === "chats" ? p.favorites.activeId : null} />
@@ -235,21 +262,7 @@ export default function Rail(p: {
           onMenu={(root, y) => setMenu({ root, y })}
         />
       </div>{/* fin rail-scroll */}
-      {/* zone épinglée : tâches de fond (conversions) puis Réglages, toujours
-          visibles en bas, jamais scrollés */}
-      <div className="rail-pinned">
-        {ragdocOn && articleJobs > 0 && (
-          <LazyBoundary fallback={null}>
-            <RailActivity running={NO_AGENTS} meta={p.meta} onSelectProject={p.onSelectProject} />
-          </LazyBoundary>
-        )}
-        <LazyDropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen} side="right"
-          trigger={<IconButton className="rail-btn" label={t("action.settings")} title={t("action.settings")}><SettingsIcon size={19} /></IconButton>}
-          items={[
-            { key: "settings", label: t("action.settings"), onSelect: p.onSettings },
-            { key: "usage", label: t("usage.title"), onSelect: () => window.dispatchEvent(new CustomEvent("usage-toggle")) },
-          ]} />
-      </div>
+      <RailPinned meta={p.meta} onSelectProject={p.onSelectProject} onSettings={p.onSettings} />
       {menu && (
         <ProjectStyleMenu
           key={menu.root}
