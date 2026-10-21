@@ -6,7 +6,7 @@ import { t } from "../lib/i18n";
 import { composeBrowserBounds } from "../lib/browserBounds";
 import { startSelectionPoll } from "../lib/browserSelectionPoll";
 import { chatButtonState } from "../lib/browserSelectionAffordance";
-import { CloseIcon, RefreshIcon } from "./icons";
+import { CloseIcon, RefreshIcon, StarFilledIcon, StarIcon } from "./icons";
 import { Input } from "./shadcn/input";
 import { Button, IconButton, RowButton } from "./ui";
 
@@ -634,7 +634,7 @@ export default function BrowserTab(p: {
             title={activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? t("browser.bookmarked") : t("browser.bookmark")}
             onClick={toggleBookmark}
           >
-            {activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? "★" : "☆"}
+            {activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? <StarFilledIcon size={14} /> : <StarIcon size={14} />}
           </IconButton>
           <Input
             className="browser-url"

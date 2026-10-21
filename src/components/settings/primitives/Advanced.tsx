@@ -4,6 +4,7 @@
 // son bénéfice au démarrage suivant.
 import React, { useContext, useEffect, useState } from "react";
 import { RowButton } from "../../ui";
+import { ChevronIcon } from "../../icons";
 import { t } from "../../../lib/i18n";
 import { SettingsSearchTarget } from "../searchTarget";
 
@@ -21,10 +22,7 @@ export function Advanced(p: { children: React.ReactNode; count?: number; label?:
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M9 6l6 6-6 6" />
-        </svg>
+        <ChevronIcon size={12} open={open} />
         {label}
       </RowButton>
       {open && <div className="set-advanced-body">{p.children}</div>}

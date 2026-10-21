@@ -11,7 +11,6 @@ import {
   activitySegments,
   activityIconForAction,
   distinctToolActions,
-  ficon,
   fmtToolDur,
   imagePathsForActions,
   isSummarizableTool,
@@ -24,6 +23,7 @@ import {
   turnProgressSignature,
   truncateToolOutput,
 } from "./toolPresentation";
+import { fileKind } from "../fileGlyphs";
 
 type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 
@@ -121,14 +121,14 @@ describe("Codex-style activity presentation", () => {
     setLanguage("en");
   });
 
-  // Régression 2026-08-21 : les clés d'import.meta.glob reprennent le motif
-  // (« ../../assets/… ») et la lecture cherchait « ../assets/… » — aucune
-  // icône de fichier ne se résolvait, la carte affichait un vide indenté.
-  it("résout les icônes de type de fichier", () => {
-    expect(ficon("tex")).toBeTruthy();
-    expect(ficon("json")).toBeTruthy();
-    expect(ficon("pdf")).toBeTruthy();
-    expect(ficon("inconnu-xyz")).toBeNull();
+  // Lot 3 (TRANS-04) : un seul jeu de glyphes monochromes, plus de logos en
+  // couleur — le type se lit à la forme.
+  it("dessine les types de fichier en glyphes monochromes", () => {
+    expect(fileKind("tex")).toBe("tex");
+    expect(fileKind("json")).toBe("data");
+    expect(fileKind("pdf")).toBe("pdf");
+    expect(fileKind("analyse.py")).toBe("code");
+    expect(fileKind("inconnu-xyz")).toBe("file");
   });
 
   it("formate les durées d'outil du ms à la minute", () => {

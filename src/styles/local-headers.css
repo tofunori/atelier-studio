@@ -28,13 +28,9 @@
   font: 400 var(--fs-caption)/1.3 var(--font-chrome); color: var(--text-muted);
 }
 
-/* Vue de la transcription (2026-08-21) : items du menu du sélecteur — coche
- * réservée en largeur fixe (l'item actif la remplit), icône du mode, libellé. */
+/* Vue de la transcription : icône du mode, libellé, ✓ SVG à droite (rangée à
+ * coche du modèle commun des menus — CHAT-28). */
 .transcript-view-item { display: flex; align-items: center; gap: var(--sp-2); }
-.transcript-view-item .tv-check {
-  width: 14px; flex: none; color: var(--primary);
-  font-variant-numeric: tabular-nums;
-}
 .transcript-view-item svg { flex: none; color: var(--text-muted); }
 
 /* Chat navigation occupies the existing title slot, never a second row. */
@@ -98,7 +94,6 @@
 
 .project-chat-tab.ui-btn .project-chat-pin { width: 10px; height: 10px; stroke-width: 1.4; color: var(--text-muted); opacity: .7; }
 .topbar-surfaces { min-width: 16px; min-height: 28px; }
-.topbar-window-overflow { display: flex; }
 
 .topbar-layout-controls { display: flex; align-items: center; flex: none; }
 /* Disposition sans rail de fond (piste A, 2026-10-19) : trois icônes au même

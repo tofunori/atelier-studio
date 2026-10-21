@@ -201,11 +201,11 @@ describe("ChatHeader", () => {
     expect(trigger.textContent).toBe("");
     fireEvent.click(trigger);
     const itemDetaille = await screen.findByText(t("chat.transcript-view.detaille"));
-    // coche sur le mode actif seulement
+    // coche SVG à droite (rangée à coche) sur le mode actif seulement
     const items = document.querySelectorAll(".transcript-view-item");
     expect(items).toHaveLength(4);
-    expect(items[0].querySelector(".tv-check")?.textContent).toBe("✓");
-    expect(items[2].querySelector(".tv-check")?.textContent).toBe("");
+    expect(items[0].getAttribute("aria-checked")).toBe("true");
+    expect(items[2].getAttribute("aria-checked")).toBe("false");
     fireEvent.click(itemDetaille);
     expect(onChange).toHaveBeenCalledWith("detaille");
   });

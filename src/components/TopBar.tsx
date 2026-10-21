@@ -10,6 +10,7 @@ import TopBarSurfaces, { buildTargets } from "./TopBarSurfaces";
 import TopBarTabs, { type PaneTab } from "./TopBarTabs";
 import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
 import type { Surface } from "./surfaces";
+import { MoreIcon } from "./icons";
 
 
 function LayoutChatIcon() {
@@ -143,7 +144,7 @@ export default function TopBar({
         <div className="topbar-window-overflow">
           <LazyDropdownMenu open={windowMenu} onOpenChange={setWindowMenu} align="end"
             label={t("action.more")}
-            trigger={<IconButton label={t("action.more")} aria-haspopup="menu" aria-expanded={windowMenu}>…</IconButton>}
+            trigger={<IconButton label={t("action.more")} aria-haspopup="menu" aria-expanded={windowMenu}><MoreIcon /></IconButton>}
             items={[
               {key:"surfaces", label:t("topbar.surfaces"), children:buildTargets({activeSurface, showAtelier, ideActive, showExplorer, onSelectSurface, onSelectIde, onToggleExplorer, onToggleAnnots}).map(target => ({key:target.id,label:target.label,onSelect:target.onSelect}))},
               {key:"search", label:t("topbar.search"), onSelect:onOpenPalette},

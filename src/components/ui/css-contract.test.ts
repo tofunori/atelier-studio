@@ -324,7 +324,9 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     const popover = shadcnSources.find(([name]) => name === "popover.tsx")![1];
     const title = popover.match(/data-slot="popover-title"[\s\S]*?className\)/)![0];
     expect(title).toContain("tw:m-0");
-    expect(title).toContain("tw:text-[length:var(--fs-body-s)]");
+    // Titre 13 semi-gras au-dessus d'un corps à 12 (lot 3, PRIM-16).
+    expect(title).toContain("tw:text-[length:var(--fs-body)]");
+    expect(title).toContain("tw:font-semibold");
     const desc = popover.match(/data-slot="popover-description"[\s\S]*?className\)/)![0];
     expect(desc).toContain("tw:m-0");
   });
@@ -728,12 +730,12 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*line-height:\s*var\(--chat-lh, 1\.7\)/s);
   });
 
-  it("le bouton de fermeture Mermaid reste transparent dans tous ses états", () => {
+  // GAP-18 : la croix du plein écran suit le bouton-icône standard — transparente
+  // au repos, --bg-ctl au survol, anneau de focus visible au clavier.
+  it("le bouton de fermeture Mermaid suit le bouton-icône standard", () => {
     expect(appCss).toMatch(/\.mermaid-fullscreen-close\s*\{[^}]*background:\s*transparent/s);
-    expect(appCss).toMatch(
-      /\.mermaid-fullscreen-close:hover,\s*\.mermaid-fullscreen-close:focus-visible\s*\{[^}]*background:\s*transparent/s,
-    );
-    expect(appCss).toMatch(/\.mermaid-fullscreen-close:focus-visible\s*\{[^}]*outline:\s*none/s);
+    expect(appCss).toMatch(/\.mermaid-fullscreen-close:hover\s*\{[^}]*background:\s*var\(--bg-ctl\)/s);
+    expect(appCss).toMatch(/\.mermaid-fullscreen-close:focus-visible\s*\{[^}]*outline:\s*var\(--focus-ring-width\)/s);
   });
 
   it("les tabs Atelier restent compacts et neutres, sans accent de marque", () => {

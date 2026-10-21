@@ -15,7 +15,11 @@
 .set-identity strong { display: block; font-size: calc(var(--fs-title) * 17 / 15); font-weight: 500; letter-spacing: -.012em; }
 .set-identity span { display: block; margin-top: 4px; color: var(--text-muted); font-size: var(--settings-small); }
 .settings-refined .set-close { width: 32px; min-width: 32px; height: 32px; padding: 0; color: var(--text-muted); border-radius: var(--radius-control); }
-.set-close svg { width: 15px; height: 15px; }
+.set-close svg { width: var(--icon-m); height: var(--icon-m); }
+/* Croix de la feuille modale : coin haut droit, comme les autres dialogues (SET-24). */
+.settings-page.embedded { position: relative; }
+.set-close-corner { position: absolute; top: 12px; right: 12px; z-index: 2; }
+.settings-refined .set-close-corner .set-close { width: 28px; min-width: 28px; height: 28px; }
 /* la recherche des Réglages est le SearchField commun (A5, SET-13) */
 .set-search { flex: none; min-width: 0; }
 .settings-refined .set-nav nav { display: grid; gap: 4px; margin-top: 20px; }
@@ -43,8 +47,7 @@
 .settings-refined .set-row-desc { max-width: 360px; font-size: var(--settings-small); line-height: 1.5; margin-top: 4px; overflow-wrap: anywhere; }
 .settings-refined .set-row-ctl { flex-wrap: wrap; justify-content: flex-end; min-width: 0; max-width: 58%; gap: 8px; }
 .settings-refined .set-row-ctl > .custom-select { max-width: 100%; }
-.settings-refined .set-row .custom-select-trigger { min-height: var(--control-height); width: auto; background: color-mix(in srgb, var(--text-primary) 3%, transparent); border-color: transparent; box-shadow: none; font-size: var(--settings-small); }
-.settings-refined .set-row .custom-select-trigger:hover { background: var(--surface-inset); }
+.settings-refined .set-row .custom-select-trigger { min-height: var(--control-height); width: auto; border-color: transparent; box-shadow: none; font-size: var(--settings-small); }
 .settings-refined .custom-select-menu { max-width: min(300px, var(--available-width)); font-size: var(--settings-small); }
 .settings-refined .set-text { width: 250px; max-width: 100%; border-color: transparent; border-radius: var(--radius-control); background: var(--surface-raised); box-shadow: none; font-size: var(--settings-label); }
 .settings-refined .set-val { min-width: 42px; width: auto; font-size: var(--settings-small); font-variant-numeric: tabular-nums; }

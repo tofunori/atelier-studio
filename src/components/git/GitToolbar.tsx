@@ -10,7 +10,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { t } from "../../lib/i18n";
-import { BranchIcon, LedgerIcon, RefreshIcon } from "../icons";
+import { BranchIcon, LedgerIcon, RefreshIcon, MoreIcon } from "../icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -207,7 +207,7 @@ export function GitToolbar({
           label={t("project.actions")}
           trigger={
             <IconButton size="s" className="ghost git-icon-btn" title={t("project.actions")} label={t("project.actions")} aria-haspopup="menu">
-              ⋯
+              <MoreIcon />
             </IconButton>
           }
           items={[

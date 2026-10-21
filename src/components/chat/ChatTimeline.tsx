@@ -1283,7 +1283,7 @@ export function ChatTimeline(p: {
                   Un trait fin de 1 px, comme les encoches au-dessus — trois
                   barres pleines étaient le seul objet lourd du rail. */}
               <svg
-                className="tl-marge-all-sign"
+                className="tl-marge-all-sign" data-icon-stroke="keep"
                 width="12" height="8" viewBox="0 0 12 8" fill="none"
                 stroke="currentColor" strokeWidth="1"
                 strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"

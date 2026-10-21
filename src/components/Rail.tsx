@@ -1,12 +1,13 @@
 import { isDiscussionContext } from "../lib/discussions";
 import { useState, useSyncExternalStore } from "react";
 import { t } from "../lib/i18n";
-import { ChatsIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
+import { ChatsIcon, PlusIcon, SettingsIcon, SidebarIcon, MoreIcon } from "./icons";
 import { ProjIcon } from "./sidebar/projectIcons";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui";
+import { Tooltip } from "./ui/Tooltip";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import type { RailFavoritesProps } from "./sidebar/RailFavorites";
 import { RailSignalMark, SIGNAL_LABEL } from "./RailSignalMark";
@@ -91,16 +92,16 @@ function RailProjects(p: RailProjectsProps) {
         const signal = p.signals ? p.signals.projects[root] ?? null : (p.running.has(root) ? "run" : null);
         const name = root.split("/").pop() ?? root;
         const notes = p.signals?.notes[root] ?? [];
-        const tip = [name, ...(notes.length ? notes : signal ? [SIGNAL_LABEL[signal]] : [])].join("\n");
+        const tip = [name, ...(notes.length ? notes : signal ? [SIGNAL_LABEL[signal]] : [])];
         return (
+          <Tooltip key={root} placement="right"
+            label={<span className="rail-tip">{tip.map((line, i) => <span key={i}>{line}</span>)}</span>}>
           <RowButton
-            key={root}
             className={`rail-proj ${m?.color ? "tinted" : ""} ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
             style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}
             aria-current={active ? "page" : undefined}
             aria-label={signal ? `${name} — ${SIGNAL_LABEL[signal]}` : name}
             data-signal={signal ?? undefined}
-            title={tip}
             draggable
             onDragStart={(e) => {
               setDragRoot(root);
@@ -136,11 +137,14 @@ function RailProjects(p: RailProjectsProps) {
             {m?.label?.startsWith("icon:") ? <ProjIcon name={m.label.slice(5)} size={18} /> : projInitial(root, m)}
             <RailSignalMark signal={signal} />
           </RowButton>
+          </Tooltip>
         );
       })}
-      <IconButton className="rail-btn rail-add-project" label={t("action.add-project")} title={t("action.add-project")} onClick={p.onAddProject}>
-        <PlusIcon size={19} />
-      </IconButton>
+      <Tooltip label={t("action.add-project")} placement="right">
+        <IconButton className="rail-btn rail-add-project" label={t("action.add-project")} onClick={p.onAddProject}>
+          <PlusIcon size={19} />
+        </IconButton>
+      </Tooltip>
     </div>
   );
 }
@@ -150,13 +154,15 @@ function RailDiscussions({ active, count, onOpen }: { active: boolean; count: nu
   const label = count > 0 ? `${t("discussions.title")} — ${count} à traiter` : t("discussions.title");
   return (
     <div className="rail-views" role="group" aria-label={t("discussions.title")}>
-      <IconButton className={`rail-view ${active ? "on" : ""}`}
-        aria-current={active ? "page" : undefined}
-        label={label} title={label}
-        onClick={onOpen}>
-        <ChatsIcon size={19} />
-        {count > 0 && <span className="rail-count" aria-hidden="true">{count > 9 ? "9+" : count}</span>}
-      </IconButton>
+      <Tooltip label={label} placement="right">
+        <IconButton className={`rail-view ${active ? "on" : ""}`}
+          aria-current={active ? "page" : undefined}
+          label={label}
+          onClick={onOpen}>
+          <ChatsIcon size={19} />
+          {count > 0 && <span className="rail-count" aria-hidden="true">{count > 9 ? "9+" : count}</span>}
+        </IconButton>
+      </Tooltip>
     </div>
   );
 }
@@ -175,7 +181,7 @@ function RailPinned(p: { meta: Record<string, ProjMeta>; onSelectProject: (root:
         </LazyBoundary>
       )}
       <LazyDropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen} side="right"
-        trigger={<IconButton className="rail-btn" label={t("action.settings")} title={t("action.settings")}><SettingsIcon size={19} /></IconButton>}
+        trigger={<IconButton className="rail-btn" label={t("action.settings")}><SettingsIcon size={19} /></IconButton>}
         items={[
           { key: "settings", label: t("action.settings"), onSelect: p.onSettings },
           { key: "usage", label: t("usage.title"), onSelect: () => window.dispatchEvent(new CustomEvent("usage-toggle")) },
@@ -217,19 +223,20 @@ export default function Rail(p: {
     <nav className="rail rail-clean" aria-label="Navigation principale">
       <div className="rail-scroll">
         <div className="rail-top" role="group" aria-label="Commandes">
-          <IconButton className="rail-btn"
-            aria-expanded={!p.compact}
-            label={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")}
-            title={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
-            <SidebarIcon size={19} />
-          </IconButton>
+          <Tooltip label={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} placement="right">
+            <IconButton className="rail-btn"
+              aria-expanded={!p.compact}
+              label={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
+              <SidebarIcon size={19} />
+            </IconButton>
+          </Tooltip>
           {p.inbox && (
             <LazyBoundary fallback={<span className="rail-btn" aria-hidden="true" />}>
               <RailInbox {...p.inbox} />
             </LazyBoundary>
           )}
           <LazyDropdownMenu open={actionsOpen} onOpenChange={setActionsOpen} side="right"
-            trigger={<IconButton className="rail-btn" label="Autres actions" title="Autres actions">…</IconButton>}
+            trigger={<IconButton className="rail-btn" label="Autres actions" aria-haspopup="menu"><MoreIcon /></IconButton>}
             items={[
               { key: "new", label: t("action.new-chat"), onSelect: p.onNewChat },
               { key: "automations", label: t("automations.title"), onSelect: () => p.onSelectView("automations") },

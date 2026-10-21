@@ -460,7 +460,7 @@ describe("KbSurface", () => {
     fireEvent.click(screen.getByText("Toutes les sources", { selector: ".kbs-rail-name" }));
     fireEvent.click(container.querySelectorAll(".kb-pick")[1]);
     fireEvent.click(screen.getByText("Classer"));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Chapitre 1" }));
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Chapitre 1" }));
     expect(onTag).toHaveBeenCalledWith(["bbbb2222"], "ch1", false);
   });
 

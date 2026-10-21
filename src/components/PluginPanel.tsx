@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PuzzleIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCodexApps } from "../lib/useCodexApps";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
@@ -53,7 +54,7 @@ export default function PluginPanel({
         {browse && <section aria-label={t("plugins.browse")}>
           <p>{t("plugins.connect-hint")}</p>
           {catalog.apps.filter(matches).map(app => <article className="plugin-row" key={app.id}>
-            <span className="plugin-icon plugin-icon-fallback">@</span>
+            <span className="plugin-icon plugin-icon-fallback" aria-hidden="true"><PuzzleIcon size={16} /></span>
             <div className="plugin-copy"><strong>{app.name}</strong><p>{app.description}</p>
               <small>{t(app.isAccessible ? "plugins.connected" : "plugins.not-connected")}</small>
             </div>
@@ -72,7 +73,7 @@ export default function PluginPanel({
           <article className="plugin-row" key={plugin.id}>
             {plugin.icon && /^https?:\/\//.test(plugin.icon)
               ? <img src={plugin.icon} alt="" className="plugin-icon" />
-              : <span className="plugin-icon plugin-icon-fallback">@</span>}
+              : <span className="plugin-icon plugin-icon-fallback" aria-hidden="true"><PuzzleIcon size={16} /></span>}
             <div className="plugin-copy">
               <div className="plugin-title">
                 <strong>{plugin.displayName}</strong>

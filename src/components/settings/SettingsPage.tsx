@@ -5,7 +5,8 @@ import React, { Suspense, useEffect, useRef, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Settings as S, DEFAULT_SETTINGS } from "../../lib/settings";
 import { t } from "../../lib/i18n";
-import { Button, RowButton, SearchField, Select } from "../ui";
+import { Button, IconButton, RowButton, SearchField, Select } from "../ui";
+import { CloseIcon } from "../icons";
 import { lazyWithRetry } from "../LazyBoundary";
 import { SavedIndicator, useSavedFlash } from "./primitives";
 import { SECTIONS, resolveSection, type SectionId } from "./sections";
@@ -149,13 +150,19 @@ export default function SettingsPage(p: {
           }
         }} />
   );
-  const close = <Button variant="ghost" className="set-close" aria-label={t("settings.back")} title={t("settings.back")} onClick={p.onClose}><ArrowLeft aria-hidden="true" /></Button>;
+  // Dans la feuille modale, on ferme par la croix en haut à droite, à la même
+  // place que les autres dialogues (SET-24) ; la page plein écran garde le
+  // retour vers l'app.
+  const close = p.embedded
+    ? <IconButton className="set-close" label={t("action.close")} onClick={p.onClose}><CloseIcon size={14} /></IconButton>
+    : <Button variant="ghost" className="set-close" aria-label={t("settings.back")} onClick={p.onClose}><ArrowLeft aria-hidden="true" /></Button>;
+  const closeInNav = !p.embedded || narrow;
 
   return (
     <div ref={rootRef} className={`settings-page settings-refined ${narrow ? "narrow" : ""} ${p.embedded ? "embedded" : ""}`}>
       {narrow ? (
         <div className="set-nav-compact">
-          <div className="set-compact-heading">{close}<span>{t("settings.title")}</span>
+          <div className="set-compact-heading">{closeInNav && close}<span>{t("settings.title")}</span>
             <Select compact title={t("settings.section")} value={section}
               onChange={value => chooseSection(value as SectionId)}
               options={SECTIONS.map(sec => ({ value: sec.id, label: t(sec.labelKey) }))} />
@@ -164,7 +171,7 @@ export default function SettingsPage(p: {
         </div>
       ) : (
         <div className="set-nav">
-          <div className="set-identity"><div><strong>Atelier</strong><span>{t("settings.title")}</span></div>{close}</div>
+          <div className="set-identity"><div><strong>Atelier</strong><span>{t("settings.title")}</span></div>{closeInNav && close}</div>
           {searchField}
           <nav aria-label={t("settings.section")}>
             {SECTIONS.map(sec => {
@@ -181,6 +188,7 @@ export default function SettingsPage(p: {
           </div>
         </div>
       )}
+      {!closeInNav && <div className="set-close-corner">{close}</div>}
       <div ref={bodyRef} className="set-body" tabIndex={-1}>
         <div className="set-body-status"><SavedIndicator visible={saved} /></div>
         {searching ? <div className="set-search-results">

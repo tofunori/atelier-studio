@@ -7,7 +7,6 @@
 // Le clic n'envoie que l'identifiant de la tâche : le script lancé est celui
 // que le serveur a enregistré et que la carte affiche.
 import { useEffect, useMemo, useState } from "react";
-import { Check } from "lucide-react";
 import { t } from "../../lib/i18n";
 import type { AgentEvent, ComputeJobStatus } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
@@ -194,7 +193,7 @@ function JobActions({ status, host, sent, onDecide }: {
         <label className="compute-job-always">
           <Checkbox checked={always} aria-label={t("compute.always")} disabled={sent !== null}
             onCheckedChange={(value) => setAlways(Boolean(value))}>
-            <CheckboxIndicator><Check size={12} strokeWidth={1.5} /></CheckboxIndicator>
+            <CheckboxIndicator />
           </Checkbox>
           <span>{t("compute.always")}</span>
         </label>

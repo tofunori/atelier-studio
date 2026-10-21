@@ -17,7 +17,6 @@ import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownM
 import { presentStatus } from "../../lib/statusPresentation";
 import { Clock3Icon, PinIcon } from "lucide-react";
 import { ConversationFamilyMarker } from "./ConversationFamilyMarker";
-import { ChatSeal, chatSealFor } from "./ChatSeal";
 
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
@@ -121,6 +120,7 @@ export function ThreadRow(p: {
         p.active && "active",
         p.selected && "multi-sel",
         p.familyPreviewed && "family-preview",
+        p.kind === "pinned" && "pinned",
       )}
       data-family-id={p.family?.id}
     >
@@ -151,7 +151,8 @@ export function ThreadRow(p: {
           onContextMenu={p.onRowContextMenu}
         >
           <span className="prov-ico" aria-hidden="true">
-            {p.favorite ? <ChatSeal seal={chatSealFor(p.thread.id, p.chatSeals)} /> : <ProviderIcon provider={p.thread.provider} />}
+            {/* Le sceau reste au rail ; la rangée garde l'icône du fournisseur (SHELL-10). */}
+            <ProviderIcon provider={p.thread.provider} />
           </span>
           {p.fork ? (
             <span className="pnav-fork" title={forkLabel ?? undefined} aria-hidden="true">

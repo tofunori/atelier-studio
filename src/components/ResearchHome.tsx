@@ -15,6 +15,7 @@ import {
 import { Button, EmptyState, InlineNotice, RowButton, StatusBadge } from "./ui";
 import { openSetupWelcome, useSetupNeeded } from "../lib/setupEnvironment";
 import "../styles/research-home.css";
+import { FileGlyph } from "./fileGlyphs";
 
 /** Paquet passé d'App à la timeline (via Chat) — modèle dérivé + vrais workflows. */
 export type ResearchHomeBundle = {
@@ -56,35 +57,13 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
+// Le jeu de glyphes partagé (lot 3) : un seul dessin par type dans l'app.
 const KIND_GLYPHS: Record<HomeArtefactKind, ReactElement> = {
-  figure: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <rect x="2" y="3" width="12" height="10" rx="1.5" />
-      <path d="M4.5 10.5l2.5-3 2 2.2L11 7.5l2 3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  document: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <path d="M4 2h5.5L13 5.5V14H4z" strokeLinejoin="round" />
-      <path d="M9.5 2v3.5H13M6 8.5h4M6 11h4" strokeLinecap="round" />
-    </svg>
-  ),
-  code: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 4.5L2.5 8 6 11.5M10 4.5L13.5 8 10 11.5" />
-    </svg>
-  ),
-  data: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <ellipse cx="8" cy="4" rx="5" ry="2" />
-      <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" />
-    </svg>
-  ),
-  other: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <path d="M4 2h5.5L13 5.5V14H4z" strokeLinejoin="round" />
-    </svg>
-  ),
+  figure: <FileGlyph kind="image" />,
+  document: <FileGlyph kind="note" />,
+  code: <FileGlyph kind="code" />,
+  data: <FileGlyph kind="data" />,
+  other: <FileGlyph kind="file" />,
 };
 
 // maps EXHAUSTIVES (le compilateur exige chaque variante — pas de clé i18n

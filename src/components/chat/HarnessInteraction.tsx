@@ -12,7 +12,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check } from "lucide-react";
 import type { AgentEvent, InteractionChoice, InteractionResponse } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { Input } from "../shadcn/input";
@@ -173,7 +172,7 @@ export function HarnessInteraction({ event: e, threadId }: {
                           aria-label={o.label}
                           onCheckedChange={() => toggle(f.id, o.value)}
                         >
-                          <CheckboxIndicator><Check size={12} strokeWidth={1.5} /></CheckboxIndicator>
+                          <CheckboxIndicator />
                         </Checkbox>
                         <span>{o.label}</span>
                         {o.description ? <span className="int-opt-desc">{o.description}</span> : null}

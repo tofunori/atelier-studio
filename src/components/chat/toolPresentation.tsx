@@ -10,6 +10,7 @@ import type { PluginCatalogEntry } from "../../lib/plugins";
 import { highlightCode } from "./md";
 import { RowButton } from "../ui";
 import { fmtClock } from "./clock";
+import { FileGlyph } from "../fileGlyphs";
 
 export type ToolCat =
   | "search" | "read" | "list" | "edit" | "command" | "web" | "todo"
@@ -178,6 +179,8 @@ function isJsonText(text: string): boolean {
 /** Durée d'un appel d'outil : lisible du ms à l'heure, virgule française
  * sous 10 s (le seul régime où la décimale change la lecture). */
 export function fmtToolDur(ms: number): string {
+  // Une heure de départ absente (0) donnait « 497943 h 22 min » (CHAT-29).
+  if (ms > 24 * 3600_000) return "> 24 h";
   if (ms < 1000) return `${Math.max(1, Math.round(ms))} ms`;
   const s = ms / 1000;
   if (s < 10) {
@@ -364,41 +367,13 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   );
 });
 
-// Indexé par NOM DE BASE : les clés d'import.meta.glob reprennent le motif tel
-// qu'écrit (« ../../assets/… »), et la lecture cherchait « ../assets/… » — un
-// cran de trop, donc AUCUNE icône de fichier ne s'affichait (vécu 2026-08-21 :
-// carte « fichiers modifiés » avec une indentation vide à la place des icônes).
-const FICONS: Record<string, string> = Object.fromEntries(
-  Object.entries(
-    import.meta.glob("../../assets/ficons/*.svg", { eager: true, query: "?url", import: "default" }) as Record<string, string>,
-  ).map(([path, url]) => [path.split("/").pop()?.replace(/\.svg$/, "") ?? path, url]),
-);
-export function ficon(name: string): string | null {
-  return FICONS[name] ?? null;
-}
-export const EXT_ICON: Record<string, string> = {
-  py: "python", md: "markdown", markdown: "markdown", json: "json",
-  js: "javascript", mjs: "javascript", cjs: "javascript",
-  ts: "typescript", tsx: "react", jsx: "react",
-  pdf: "pdf", png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image",
-  tex: "tex", bib: "tex", r: "r", jl: "julia", css: "css", html: "html",
-  sh: "console", zsh: "console", bash: "console", csv: "table", tsv: "table",
-  yml: "yaml", yaml: "yaml", toml: "toml", txt: "document", log: "document",
-  gitignore: "git",
-};
+// Glyphe monochrome partagé (lot 3) : plus de logos Material en couleur.
 export function FileTypeIcon({ ext }: { ext: string }) {
-  if (ext === "local")
-    return (
-      <span className="fglyph">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--text-muted)" strokeWidth="1.3">
-          <rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5" />
-        </svg>
-      </span>
-    );
-  const name = ext === "dir" ? "folder" : EXT_ICON[ext] ?? "file";
-  const url = ficon(name);
-  if (!url) return <span className="fglyph" />;
-  return <img className="fglyph" src={url} alt="" width={16} height={16} />;
+  return (
+    <span className="fglyph">
+      <FileGlyph name={ext} size={14} />
+    </span>
+  );
 }
 
 export function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { kind: "tool" | "tool_update" }> {

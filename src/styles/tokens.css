@@ -98,6 +98,12 @@
   --fill-secondary: transparent;
   --fill-secondary-hover: var(--surface-inset);
   --fill-secondary-ring: var(--border-default);
+  /* Interrupteur (choix ouvert, lot 3) — option A par défaut : piste accent,
+   * pastille de la couleur du fond (jamais d'encre blanche). B : piste
+   * --fill-primary, pastille --accent. C : piste accent à 22 %, pastille --accent. */
+  --switch-on-track: var(--accent);
+  --switch-on-thumb: var(--bg);
+  --switch-off-thumb: var(--muted);
 
   /* sélection : même signal visuel dans le shell, les listes et la galerie */
   --selection-surface: color-mix(in srgb, var(--accent) 14%, var(--surface-inset));
@@ -134,6 +140,12 @@
   --eyebrow-weight: 500;
   --eyebrow-tracking: .06em;
   --eyebrow-color: var(--text-muted);
+  /* icônes (lot 3) : TROIS tailles, un trait rendu constant quelle que soit
+   * la taille ou la grille d'origine (Lucide 24, maison 16) — primitives.css */
+  --icon-s: 12px;
+  --icon-m: 14px;
+  --icon-l: 16px;
+  --icon-stroke: 1.25px;
   --fs-display-s: 18px;
   --fs-display: 20px;
 

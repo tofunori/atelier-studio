@@ -43,12 +43,11 @@ import { buildModelRows, type ModelRow } from "../models/buildModelRows";
 import { ModelsGrid } from "../models/ModelsGrid";
 import { groupRoutes, type Route } from "../models/groupRoutes";
 import { OpenCodeRouter } from "../models/OpenCodeRouter";
-import { PlusIcon } from "../../icons";
-import { Button, InlineNotice, Select, SegmentedControl } from "../../ui";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from "../../icons";
+import { Button, IconButton, InlineNotice, Select, SegmentedControl } from "../../ui";
 import { Checkbox, CheckboxIndicator } from "../../shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "../../shadcn/field";
 import { Input } from "../../shadcn/input";
-import { CheckIcon } from "lucide-react";
 import { runSetupCommand, withResolvedBinary } from "../../../lib/setupEnvironment";
 import { SetupCommandFallback } from "../../setup/SetupRows";
 
@@ -582,10 +581,10 @@ export default function Models(p: SectionProps) {
                   <span className={`set-badge ${pr.ok ? "ok" : "ko"}`}>
                     {pr.ok ? t("settings.detected") : t("settings.absent")}
                   </span>
-                  <Button variant="ghost" className="set-btn quiet" disabled={i === 0}
-                    title={t("settings.provider-up")} onClick={() => move(pr.id, -1)}>↑</Button>
-                  <Button variant="ghost" className="set-btn quiet" disabled={i === sorted.length - 1}
-                    title={t("settings.provider-down")} onClick={() => move(pr.id, 1)}>↓</Button>
+                  <IconButton size="s" className="set-btn quiet" disabled={i === 0}
+                    label={t("settings.provider-up")} onClick={() => move(pr.id, -1)}><ArrowUpIcon size={12} /></IconButton>
+                  <IconButton size="s" className="set-btn quiet" disabled={i === sorted.length - 1}
+                    label={t("settings.provider-down")} onClick={() => move(pr.id, 1)}><ArrowDownIcon size={12} /></IconButton>
                   <Toggle label={pr.label} checked={!hiddenSet.has(pr.id)} onChange={(v) => {
                     const next = new Set(s.hiddenProviders ?? []);
                     if (v) next.delete(pr.id); else next.add(pr.id);
@@ -698,7 +697,7 @@ export default function Models(p: SectionProps) {
                               aria-label={m.label || m.id}
                               onCheckedChange={() => toggle(m.id)}
                             >
-                              <CheckboxIndicator><CheckIcon className="tw:size-3" /></CheckboxIndicator>
+                              <CheckboxIndicator />
                             </Checkbox>
                             <span style={{ fontSize: "var(--fs-m)" }}>{m.id}</span>
                             {m.reasoning && <span className="set-badge ok">reasoning</span>}
@@ -748,7 +747,7 @@ export default function Models(p: SectionProps) {
               if (!slugText.trim()) return;
               save({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
               setSlugText("");
-            }}><PlusIcon /> {t("action.add")}</Button>
+            }}><PlusIcon />{t("action.add")}</Button>
           </Row>
           {customModels.length > 0 ? (
             customModels.map((m, i) => (
