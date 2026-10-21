@@ -24,7 +24,7 @@ pub use mcp_du_mac::{
 };
 mod git;
 mod generated_images;
-pub use generated_images::save_generated_image;
+pub use generated_images::{gallery_rel_for_image, save_generated_image};
 mod narval;
 mod pasted;
 mod quit_guard;

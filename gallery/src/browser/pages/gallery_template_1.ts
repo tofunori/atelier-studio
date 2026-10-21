@@ -279,6 +279,8 @@ const HOV_ICONS={
   ko:'<path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/>',
   wait:'<circle cx="8" cy="8" r="5.4"/><path d="M8 5.2V8l1.9 1.4"/>'
 };
+// pile de fichiers d'une même figure (carte et visionneuse)
+const STACK_ICON='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="9" height="9" rx="1.5"/><path d="M5 2.5h7a1.5 1.5 0 0 1 1.5 1.5v7"/></svg>';
 const hovIco=(n)=>'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+HOV_ICONS[n]+'</svg>';
 // Les retours d'action (✓ / ✗ / …) sont eux aussi des icônes : on remplace le
 // contenu, jamais le textContent — sinon le SVG du bouton disparaît.
@@ -798,6 +800,7 @@ function buildViewMenu(){
     '<div class="mhd sep">View</div>'+
     `<div class="mi"><label class="lbl"><input type="checkbox" id="vArch" ${showArch?'checked':''}> Include archives</label></div>`+
     `<div class="mi"><label class="lbl"><input type="checkbox" id="vHidden" ${showHidden?'checked':''}> Show hidden${hidden.size?(' ('+hidden.size+')'):''}</label></div>`+
+    `<div class="mi"><label class="lbl"><input type="checkbox" id="vGroup" ${groupVersions?'checked':''}> Une carte par figure</label></div>`+
     '<div class="mhd sep">Auto-hide rules (glob)</div>'+
     (hideRules.length?hideRules.map((g)=>`<div class="mi"><span class="lbl mono">${esc(g)}</span><span class="x" data-rm="${escA(g)}" title="Remove rule">×</span></div>`).join(''):'<div class="mi muted">No rules.</div>')+
     '<div class="madd"><input type="text" id="ruleInput" placeholder="e.g. **/_qa/** or *_preview.png"><button id="ruleAdd">Add</button></div>'+
@@ -806,6 +809,7 @@ function buildViewMenu(){
   menu.querySelectorAll<HTMLElement>('[data-theme]').forEach(el=>el.onclick=()=>{ applyTheme(el.dataset.theme); buildViewMenu(); });
   menu.querySelector<HTMLInputElement>('#vArch').onchange=function(){ showArch=(this as HTMLInputElement).checked; updateViewChip(); render(); galleryFileTypesChanged(); };
   menu.querySelector<HTMLInputElement>('#vHidden').onchange=function(){ showHidden=(this as HTMLInputElement).checked; updateViewChip(); render(); };
+  menu.querySelector<HTMLInputElement>('#vGroup').onchange=function(){ groupVersions=(this as HTMLInputElement).checked; try{ localStorage.setItem('figGroupVersions',groupVersions?'1':'0'); }catch(e){} render(); };
   menu.querySelectorAll<HTMLElement>('[data-rm]').forEach(el=>el.onclick=()=>{ hideRules=hideRules.filter((x)=>x!==el.dataset.rm); saveRules(); buildViewMenu(); render(); });
   const inp=menu.querySelector<HTMLInputElement>('#ruleInput'), add=menu.querySelector<HTMLButtonElement>('#ruleAdd');
   const doAdd=()=>{ const v=(inp.value||'').trim(); if(v && !hideRules.includes(v)){ hideRules.push(v); saveRules(); buildViewMenu(); render(); const ni=menu.querySelector<HTMLInputElement>('#ruleInput'); if(ni) ni.focus(); } };
@@ -1310,6 +1314,7 @@ async function lbShow(i: number){
   const infoRows=[['Dossier',f.folder||'—'],['Modifié',f.mdate||'—'],['Taille',f.size?fmtSize(f.size):'—']];
   (document.getElementById('lbInfo') as HTMLDivElement).innerHTML=infoRows.map(([k,v])=>`<div class="lb-row"><b>${esc(k)}</b><span>${esc(String(v))}</span></div>`).join('')+'<div class="lb-row" id="lbDims"></div>';
   lbSheetToggle(false);
+  lbFilesPaint(f);lbFilesToggle(false);
   lbNameToast(f.name);
   (document.getElementById('lbOriginal') as HTMLAnchorElement).href=f.rel;
   (document.getElementById('lbMore') as HTMLDetailsElement).open=false;
@@ -1865,6 +1870,62 @@ const saveExts = ()=>{
 // doublaient chaque .tex d'un badge ARCHIVE (2026-09-30). Interrupteur « Archives »
 // dans le panneau Filtres, ou Settings → Include archives.
 let showArch = false;
+// Une figure = une carte (2026-10-21). Le script écrit le PDF et le PNG, le
+// manuscrit en garde une copie (manuscrit/figures/…), le chat une autre
+// (images-generees/) : autant de vrais fichiers du même nom, qui faisaient
+// quatre ou cinq cartes identiques. Ils forment une pile, la carte montre le
+// plus récent et la visionneuse liste les autres (bouton « fichiers »).
+let groupVersions = true;
+try{ groupVersions = localStorage.getItem('figGroupVersions')!=='0'; }catch(e){}
+const FIGURE_EXTS = new Set(['pdf','png','jpg','jpeg','svg','webp','gif','tif','tiff','eps']);
+const SAME_VERSION_SECONDS = 120;
+let figureGroups = new Map<string, GalleryRow[]>();
+function figureKey(f: GalleryRow){
+  // une archive montrée l'est à la demande (interrupteur « Archives ») : elle garde sa carte
+  if(f.archive || !FIGURE_EXTS.has(f.ext)) return '';
+  let stem=f.name.slice(0, f.name.length-f.ext.length-1).toLowerCase();
+  // copie du chat : <nom de la source>-<8 hex> (atelier_workspace::gallery_rel_for_image)
+  if(/^images-generees(\/|$)/.test(f.folder||'')) stem=stem.replace(/-[0-9a-f]{8}$/,'');
+  // ancien nommage par hachage seul : rien ne le relie à une figure
+  if(!stem || /^image-[0-9a-f]{32}$/.test(stem)) return '';
+  return stem;
+}
+const rasterExt = (e: string) => e==='png'||e==='jpg'||e==='jpeg'||e==='webp'||e==='gif';
+function groupFigureVersions(list: GalleryRow[]){
+  figureGroups=new Map();
+  if(!groupVersions || chatFocusRels.size) return list;
+  const byKey=new Map<string, GalleryRow[]>();
+  for(const f of list){ const k=figureKey(f); if(!k) continue; if(!byKey.has(k)) byKey.set(k,[]); byKey.get(k).push(f); }
+  const leads=new Map<string, GalleryRow>();
+  for(const [k,members] of byKey){
+    if(members.length<2) continue;
+    members.sort((a,b)=>b.mtime-a.mtime||a.rel.localeCompare(b.rel));
+    // la plus récente ; à égalité de version, une image (vignette et
+    // historique des versions dans la visionneuse) plutôt que le PDF
+    const top=members[0].mtime;
+    const lead=members.find(m=>top-m.mtime<=SAME_VERSION_SECONDS&&rasterExt(m.ext))||members[0];
+    members.splice(members.indexOf(lead),1); members.unshift(lead);
+    leads.set(k,lead);
+    for(const m of members) figureGroups.set(m.rel,members);
+  }
+  const seen=new Set<string>();
+  return list.filter(f=>{
+    const k=figureKey(f), lead=k&&leads.get(k);
+    if(!lead) return true;
+    if(seen.has(k)) return false;
+    seen.add(k); return true;
+  }).map(f=>{ const k=figureKey(f); return (k&&leads.get(k))||f; });
+}
+/** État d'un fichier dans sa pile, relativement à la version la plus récente. */
+function figureMemberState(f: GalleryRow, members: GalleryRow[]){
+  const top=Math.max(...members.map(m=>m.mtime));
+  if(f===members[0]) return {label:'la plus récente',tone:''};
+  if(top-f.mtime<=SAME_VERSION_SECONDS) return {label:'même version',tone:''};
+  const chat=/^images-generees(\/|$)/.test(f.folder||'');
+  // un fichier du même format existe en plus récent : cette copie a manqué une correction
+  if(!chat && members.some(m=>m.ext===f.ext&&m.mtime-f.mtime>SAME_VERSION_SECONDS)) return {label:'en retard',tone:'warn'};
+  return {label:chat?'copie du chat':'plus ancienne',tone:''};
+}
 const fmtSize = (b) => b>1048576?(b/1048576).toFixed(1)+' MB':b>1024?(b/1024).toFixed(0)+' KB':b+' B';
 const imgExt = (e) => e==='png'||e==='jpg'||e==='jpeg'||e==='svg';
 const videoExt = (e) => e==='mp4'||e==='m4v'||e==='mov'||e==='webm';
@@ -2142,6 +2203,7 @@ function render(){
     if(sort==='btime_asc') return a.btime-b.btime;
     return b.mtime-a.mtime;
   });
+  list = groupFigureVersions(list);
   lbList = list.filter(f=>imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext));
   lbListSaved=null; // la vue vient d'être rebâtie : plus rien à restaurer
   const grid=(document.getElementById('grid') as HTMLElement);
@@ -2167,7 +2229,7 @@ function render(){
     if(galleryPresentation.mode==='list'){
       const selected=selSet.has(f.rel), wf=({'draft':'Brouillon','candidate':'Candidat','final':'Final','rejected':'Rejeté'})[workflow[f.rel]]||'';
       return `<div class="card gallery-detail-row ${selectedRel===f.rel?'sel2':''} ${selected?'bulk-selected':''}" data-card="${escA(f.rel)}" role="row" aria-selected="${selected}">
-        <div class="gallery-detail-name" role="gridcell"><button class="selbox ${selected?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" aria-label="Sélectionner ${escA(f.name)}">${selected?'■':'▢'}</button><button class="gallery-detail-open" data-act="${imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)?'lb':'open'}" data-rel="${escA(f.rel)}" title="${escA(f.rel)}">${esc(f.name)}</button>${favs.has(f.rel)?'<span class="fv">★</span>':''}</div>
+        <div class="gallery-detail-name" role="gridcell"><button class="selbox ${selected?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" aria-label="Sélectionner ${escA(f.name)}">${selected?'■':'▢'}</button><button class="gallery-detail-open" data-act="${imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)?'lb':'open'}" data-rel="${escA(f.rel)}" title="${escA(f.rel)}">${esc(f.name)}</button>${figureGroups.has(f.rel)?`<span class="stackn" title="${figureGroups.get(f.rel).length} fichiers pour cette figure">${figureGroups.get(f.rel).length}</span>`:''}${favs.has(f.rel)?'<span class="fv">★</span>':''}</div>
         <div role="gridcell">${esc(f.ext.toUpperCase())}</div><div role="gridcell">${fmtSize(f.size)}</div><div role="gridcell">${esc(f.mdate)}</div><div role="gridcell" class="gallery-detail-status"><span>${esc(wf)}</span><button data-act="more" data-rel="${escA(f.rel)}" aria-label="Actions pour ${escA(f.name)}">${hovIco('more')}</button></div>
       </div>`;
     }
@@ -2193,9 +2255,14 @@ function render(){
     const wf = workflow[f.rel];
     const wfTag = wf?`<span class="tag wf${wf==='final'?' final':''}">${esc(wf)}</span>`:'';
     const rt = ratings[f.rel]||0;
-    return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''} ${selectedRel===f.rel?'sel2':''}" data-card="${escA(f.rel)}" role="option" aria-selected="${selectedRel===f.rel}">
+    const pile = figureGroups.get(f.rel);
+    const pileExts = pile ? [...new Set(pile.map(m=>m.ext.toUpperCase()))] : [];
+    const cardName = pile && pileExts.length>1 ? f.name.slice(0, f.name.length-f.ext.length-1) : f.name;
+    const pileLate = !!pile && pile.some(m=>figureMemberState(m,pile).tone==='warn');
+    const pileTag = pile ? `<span class="stackn${pileLate?' late':''}" title="${escA(pile.length+' fichiers pour cette figure'+(pileLate?' · une copie plus ancienne diffère':''))}">${STACK_ICON}${pile.length}</span>` : '';
+    return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''} ${selectedRel===f.rel?'sel2':''} ${pile?'stack':''}" data-card="${escA(f.rel)}" role="option" aria-selected="${selectedRel===f.rel}">
       <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selSet.has(f.rel)?'■':'▢'}</span>
-      ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Open with default app">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
+      ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}${pileTag}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Open with default app">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
       <div class="hov">
         <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}">${hovIco('open')}</button>
         <button data-act="copy" data-rel="${escA(f.rel)}" aria-label="Copy path" title="Copy path">${hovIco('copy')}</button>
@@ -2206,8 +2273,8 @@ function render(){
         <button data-act="more" data-rel="${escA(f.rel)}" aria-label="Rating, hide, delete" title="Rating, hide, delete">${hovIco('more')}</button>
       </div>
       <div class="meta">
-        <div class="nm" title="${escA(f.name)}" aria-label="${escA(f.name)}">${fileNameLabel(f.name)}</div>
-        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}${wfTag}<span class="mf" title="${escA(f.rel)} · ${fmtSize(f.size)}">${esc(f.ext.toUpperCase())}</span><span class="md" title="${escA(f.rel)} · ${fmtSize(f.size)} · created ${escA(f.bdate)} · modified ${escA(f.mdate)}">${esc((sort.startsWith('btime')?f.bdate:f.mdate).slice(0,10))}</span></div>
+        <div class="nm" title="${escA(cardName)}" aria-label="${escA(cardName)}">${fileNameLabel(cardName)}</div>
+        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}${wfTag}<span class="mf" title="${escA(f.rel)} · ${fmtSize(f.size)}">${esc(pile?pileExts.join(' · '):f.ext.toUpperCase())}</span><span class="md" title="${escA(f.rel)} · ${fmtSize(f.size)} · created ${escA(f.bdate)} · modified ${escA(f.mdate)}">${esc((sort.startsWith('btime')?f.bdate:f.mdate).slice(0,10))}</span></div>
       </div>
     </div>`;
   }).join('') + (list.length>MAX?`<div class="empty">… and ${list.length-MAX} more. Refine your search to see them.</div>`:'');
@@ -2319,6 +2386,8 @@ const lbHead=document.createElement('div');lbHead.id='lbHead';
 lbHead.innerHTML='<button id="lbInfoBtn" aria-label="Informations sur le fichier" aria-expanded="false" aria-controls="lbSheet"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.2"/></svg></button>'
  +'<div id="lbSheet" role="dialog" aria-label="Informations sur le fichier" hidden><div id="lbInfo"></div><div id="lbSheetActs"><a id="lbOriginal" target="_blank" rel="noopener">Ouvrir l’original ↗</a><button id="lbCopyPath" type="button">Copier le chemin</button></div></div>'
  +'<span class="lb-space"></span>'
+ +'<button id="lbFilesBtn" type="button" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="lbFiles"></button>'
+ +'<div id="lbFiles" role="dialog" aria-label="Fichiers de cette figure" hidden></div>'
  +'<button id="lbAdd" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button>'
  +'<details id="lbMore"><summary aria-label="Autres actions">⋯</summary><div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
  +'<div id="lbNameToast" aria-hidden="true"></div>';
@@ -2448,6 +2517,49 @@ function lbSheetToggle(open?: boolean){
 }
 lbInfoBtn.onclick=(e)=>{e.stopPropagation();lbSheetToggle();};
 lbSheet.addEventListener('click',e=>e.stopPropagation());
+// Fichiers de la même figure (pile de la grille) : chaque rangée affiche ce
+// fichier à la place de la carte, et une copie plus ancienne d'un format qui
+// existe en plus récent est marquée « en retard ».
+const lbFilesBtn=(document.getElementById('lbFilesBtn') as HTMLButtonElement);
+const lbFiles=(document.getElementById('lbFiles') as HTMLDivElement);
+function lbFilesToggle(open?: boolean){
+  const next=open===undefined?lbFiles.hidden:open;
+  lbFiles.hidden=!next||lbFilesBtn.hidden;lbFilesBtn.setAttribute('aria-expanded',String(!lbFiles.hidden));lbFilesBtn.classList.toggle('on',!lbFiles.hidden);
+}
+function lbFilesPaint(f: GalleryRow){
+  const members=f?figureGroups.get(f.rel):null;
+  lbFilesBtn.hidden=!members;
+  if(!members){ lbFiles.hidden=true; lbFiles.replaceChildren(); return; }
+  const states=members.map(m=>figureMemberState(m,members));
+  const late=states.some(st=>st.tone==='warn');
+  const label=members.length+' fichiers pour cette figure'+(late?' · une copie plus ancienne diffère':'');
+  lbFilesBtn.innerHTML=STACK_ICON+'<span>'+members.length+'</span>';
+  lbFilesBtn.title=label;lbFilesBtn.setAttribute('aria-label',label);lbFilesBtn.classList.toggle('late',late);
+  const day=members[0].mdate.slice(0,10);
+  const when=(m: GalleryRow)=>m.mdate.slice(0,10)===day?m.mdate.slice(11):m.mdate.slice(0,10);
+  const preview=(m: GalleryRow)=>rasterExt(m.ext)||m.ext==='svg'
+    ?'<img loading="lazy" src="'+escA('/thumb?path='+encodeURIComponent('__ROOT__/'+m.rel)+'&w=120&v='+m.mtime)+'" alt="">'
+    :m.thumb?'<img loading="lazy" src="'+escA(m.thumb)+'" alt="">':'<span>'+esc(m.ext.toUpperCase())+'</span>';
+  lbFiles.innerHTML='<div class="lbf-head"><span>Fichiers de cette figure</span><span class="lbf-n">'+members.length+'</span></div>'
+    +members.map((m,i)=>'<button type="button" class="lbf-row'+(m.rel===f.rel?' sel':'')+'" data-rel="'+escA(m.rel)+'" title="'+escA(m.rel)+'"'+(m.rel===f.rel?' aria-current="true"':'')+'>'
+      +'<span class="lbf-prev">'+preview(m)+'</span>'
+      +'<span class="lbf-main"><span class="lbf-fold">'+esc(m.folder==='.'?'racine du projet':m.folder)+'</span><span class="lbf-sub">'+esc(m.ext.toUpperCase())+'<span>'+esc(when(m))+'</span></span></span>'
+      +'<span class="lbf-state'+(states[i].tone?' '+states[i].tone:'')+'">'+esc(states[i].label)+'</span>'
+      +'<span class="lbf-tick">'+(m.rel===f.rel?hovIco('ok'):'')+'</span></button>').join('')
+    +(late?'<div class="lbf-note">Une copie marquée « en retard » est plus ancienne que la dernière version du même format : elle n’a pas reçu la dernière correction.</div>':'');
+  lbFiles.querySelectorAll<HTMLButtonElement>('.lbf-row').forEach(b=>b.onclick=()=>{ void lbShowMember(b.dataset.rel); });
+}
+/** Affiche un autre fichier de la pile à la place de la carte, sans quitter la position. */
+async function lbShowMember(rel: string){
+  const f=FILES.find(x=>x.rel===rel); if(!f||lbIdx<0||lbList[lbIdx]?.rel===rel) return;
+  if(!(await annotGuard())) return;
+  lbList=lbList.slice(); lbList[lbIdx]=f;
+  await lbShow(lbIdx);
+}
+lbFilesBtn.addEventListener('click',e=>{e.stopPropagation();lbSheetToggle(false);lbFilesToggle();});
+lbFiles.addEventListener('click',e=>e.stopPropagation());
+document.addEventListener('click',()=>{if(!lbFiles.hidden)lbFilesToggle(false);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!lbFiles.hidden){e.stopPropagation();lbFilesToggle(false);}},true);
 document.addEventListener('click',()=>{if(!lbSheet.hidden)lbSheetToggle(false);});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!lbSheet.hidden){e.stopPropagation();lbSheetToggle(false);}},true);
 (document.getElementById('lbCopyPath') as HTMLButtonElement).onclick=async()=>{const f=lbList[lbIdx];if(!f)return;try{await navigator.clipboard.writeText('__ROOT__/'+f.rel);lbNameToast('Chemin copié');}catch{lbNameToast('Copie impossible');}};
