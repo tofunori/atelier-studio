@@ -329,9 +329,9 @@ test("Markdown preview modes, rendered selection, and annotations are typed feat
 
 test("Edited review uses the shared CodeMirror merge view for code, Markdown, and LaTeX", () => {
   assert.match(diffViewer, /atelier_diff\.bundle\.js/);
-  assert.match(diffViewer, /Review changes/);
-  assert.match(diffViewer, /Unified/);
-  assert.match(diffViewer, /Split/);
+  assert.match(diffViewer, /Revue des modifications/);
+  assert.match(diffViewer, /Unifié/);
+  assert.match(diffViewer, /Côte à côte/);
   assert.match(diffViewer, /githead\?path=/);
   assert.match(diffViewer, /\/code\?path=/);
   assert.match(codeMirrorDiffSource, /from ["']@codemirror\/merge["']/);

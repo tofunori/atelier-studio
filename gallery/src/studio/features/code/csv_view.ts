@@ -167,7 +167,8 @@ export function createCsvViewController(options: CsvViewOptions): CsvViewControl
           const mark = doc.createElement("span");
           mark.className = "csvSort";
           mark.setAttribute("aria-hidden", "true");
-          mark.textContent = sortDirection > 0 ? "▲" : "▼";
+          // flèche SVG fine (EDIT-18) : plus de ▲ ▼ de police
+          mark.innerHTML = `<svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="${sortDirection > 0 ? "M6 9.5v-7M3 5.5l3-3 3 3" : "M6 2.5v7M3 6.5l3 3 3-3"}"/></svg>`;
           button.appendChild(mark);
         }
         button.onclick = () => {
@@ -202,6 +203,26 @@ export function createCsvViewController(options: CsvViewOptions): CsvViewControl
       fragment.appendChild(row);
     });
     body.appendChild(fragment);
+    // GAL-18 : une recherche sans résultat le dit, avec de quoi l'effacer
+    let noMatch = doc.getElementById("csvNoMatch");
+    const query = search.value.trim();
+    if (headers.length && !allRows.length && query) {
+      if (!noMatch) {
+        noMatch = doc.createElement("div");
+        noMatch.id = "csvNoMatch";
+        noMatch.className = "csvState";
+        table.after(noMatch);
+      }
+      noMatch.replaceChildren();
+      const title = doc.createElement("b");
+      title.textContent = `Aucune ligne ne contient « ${query} »`;
+      const clear = doc.createElement("button");
+      clear.type = "button";
+      clear.textContent = "Effacer la recherche";
+      clear.onclick = () => { search.value = ""; search.dispatchEvent(new Event("input")); search.focus(); };
+      noMatch.append(title, clear);
+      noMatch.hidden = false;
+    } else if (noMatch) noMatch.hidden = true;
     const delimiter = parsed.delimiter === "\t" ? "tab" : parsed.delimiter;
     metadata.textContent = `${allRows.length.toLocaleString()} lignes × ${parsed.width} colonnes · séparateur ${delimiter}`;
     more.style.display = allRows.length > shown.length ? "block" : "none";

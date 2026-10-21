@@ -36,9 +36,12 @@ export interface GalleryFileTypeAdapter {
   resetFilters(): void;
 }
 export type GallerySelectionState = {rels: string[]; imageCount: number};
+export interface GalleryExportMode {mode: string; label: string}
+export type GalleryExportResult = {ok: true; count: number; path: string} | {ok: false; error: string};
 export interface GallerySelectionAdapter {
   getState(): GallerySelectionState;
   open(): void; compare(): void; collect(anchor: HTMLElement): void; export(anchor: HTMLElement): void;
+  exportModes(): GalleryExportMode[]; exportTo(mode: string): Promise<GalleryExportResult>;
   hide(): void; delete(): void; clear(): void;
 }
 export interface GalleryPresentation {mode: 'grid' | 'list'; size: number; rows: 'compact' | 'comfortable'}

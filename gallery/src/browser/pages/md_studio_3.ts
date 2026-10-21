@@ -6,7 +6,10 @@ let diskMtime = 0, dirty = false, editor = null, loading = true, selectionAction
 /* Version disque sur laquelle le tampon est tapé (base du brouillon de secours). */
 let baseText: string = null;
 
+// EDIT-20 : gris pour la routine (point de 6 px pour « Modifié »), couleur
+// d'erreur pour les échecs et les conflits, heure en fr-CA.
 function setState(cls: string, txt: string){ stateEl.className = cls; stateEl.textContent = txt; }
+const savedAt = () => new Date().toLocaleTimeString("fr-CA", {hour: "2-digit", minute: "2-digit"});
 
 /* Brouillon de secours (audit 2026-10-18, problème 1) : le tampon modifié
    survit au démontage de l'iframe et revient, modifié, à la réouverture ;
@@ -88,7 +91,7 @@ async function loadDocument(){
     watchEditorScheme();
     editor.on("change", () => {
       if(loading) return;
-      localRevision += 1; setDirty(true); drafts.noteChange(); setState("dirty", "modifié");
+      localRevision += 1; setDirty(true); drafts.noteChange(); setState("dirty", "Modifié");
       if(selectionActions) selectionActions.refresh();
     });
     if(window.self !== window.top){
@@ -131,7 +134,7 @@ async function save(){
   const text = editor.getMarkdown();
   const button = (document.getElementById("save") as HTMLButtonElement);
   saving = true; button.disabled = true; button.setAttribute("aria-busy", "true");
-  setState("", "sauvegarde…");
+  setState("", "Enregistrement…");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   try {
@@ -140,16 +143,16 @@ async function save(){
     const j = await r.json();
     if(j.error === "conflit"){
       if(Number.isFinite(j.mtime)) diskMtime = j.mtime;
-      setDirty(true); setState("dirty", "conflit disque — re-⌘S pour écraser"); return;
+      setDirty(true); setState("dirty err", "Conflit avec le disque — ⌘S pour écraser"); return;
     }
     if(!r.ok || j.error || !Number.isFinite(j.mtime)) throw new Error(j.error || ("Réponse invalide (HTTP " + r.status + ")"));
     diskMtime = j.mtime; localRevision += 1; baseText = text;
     // Une retouche faite pendant l'écriture n'appartient pas au texte confirmé.
     setDirty(editor.getMarkdown() !== text);
-    setState(dirty ? "dirty" : "", dirty ? "modifié" : "sauvegardé " + new Date().toLocaleTimeString());
+    setState(dirty ? "dirty" : "", dirty ? "Modifié" : "Enregistré à " + savedAt());
   } catch(error) {
     setDirty(true);
-    setState("dirty", "Échec de la sauvegarde : " + (error.name === "AbortError" ? "délai dépassé — réessayer" : error.message));
+    setState("dirty err", "Échec de l'enregistrement : " + (error.name === "AbortError" ? "délai dépassé — réessayer" : error.message));
   } finally {
     clearTimeout(timeout); saving = false; button.disabled = false; button.removeAttribute("aria-busy");
   }
@@ -167,7 +170,7 @@ setInterval(async () => {
   try{
     const j = await (await fetch("/code?path=" + encodeURIComponent(path) + "&statonly=1")).json();
     if(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001){
-      if(dirty || saving){ setState("dirty", "le fichier a changé sur disque"); return; }
+      if(dirty || saving){ setState("dirty err", "Le fichier a changé sur le disque"); return; }
       const full = await (await fetch("/code?path=" + encodeURIComponent(path))).json();
       if(revision !== localRevision || dirty || saving || typeof full.text !== "string" || !Number.isFinite(full.mtime)) return;
       loading = true;
@@ -175,7 +178,7 @@ setInterval(async () => {
       editor.setMarkdown(full.text, false);
       if(selectionActions) selectionActions.refresh();
       loading = false;
-      setState("", "rechargé (modifié sur disque)");
+      setState("", "Rechargé depuis le disque à " + savedAt());
     }
   }catch(e){} finally { polling = false; loading = false; }
 }, 2000);

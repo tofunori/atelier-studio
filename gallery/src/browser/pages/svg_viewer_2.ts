@@ -184,9 +184,11 @@ function fillPropsPanel(){                                  // prefill from the 
 }
 function updatePropsPanel(){                                // bar slides in for a live selection, out of lasso/add/fullscreen modes
   const show = !!(moveSet.length && !lassoMode && !addMode && !document.body.classList.contains("fs-mode"));
+  // barre en surimpression sous l'en-tête (GAL-19) : la figure ne bouge plus
+  if(show) propsPanel.style.setProperty("--ctx-top", ((document.querySelector("header") as HTMLElement).offsetHeight + 8) + "px");
   propsPanel.classList.toggle("show", show);
   if(show) fillPropsPanel();
-  if(annotOn) setTimeout(sizeAnnot, 160);                   // the bar reflows the stage → re-anchor the annot canvas after the 140ms slide
+  if(annotOn) setTimeout(sizeAnnot, 160);                   // re-anchor the annot canvas once the overlay has settled
 }
 propFill.addEventListener("change", () => commitStyle("fill", propFill.value));
 propStroke.addEventListener("change", () => commitStyle("stroke", propStroke.value));
@@ -721,7 +723,23 @@ function currentSVGText(){                                // serialize current v
   });
   return '<?xml version="1.0" encoding="utf-8" standalone="no"?>\n' + new XMLSerializer().serializeToString(clone);
 }
-function flash(btn: HTMLElement, msg: string, ms?: number){ btn._html = btn._html || btn.innerHTML; btn.textContent = msg; setTimeout(() => { btn.innerHTML = btn._html; }, ms || 1700); }
+// GAL-20 : l'état d'une action garde la largeur du bouton — icône d'état
+// (arc, coche, alerte) à la place de l'icône, message complet dans l'infobulle.
+const STATE_ICONS = {
+  busy: '<svg class="state-spin" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5"/></svg>',
+  ok: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>',
+  err: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5l6 11H2z"/><path d="M8 7v3M8 12h.01"/></svg>',
+};
+function flash(btn: HTMLElement, state: "busy" | "ok" | "err", msg: string, ms?: number){
+  btn._html = btn._html || btn.innerHTML;
+  btn._title = btn._title ?? btn.title;
+  clearTimeout(btn._flashTimer);
+  btn.innerHTML = STATE_ICONS[state];
+  btn.dataset.state = state;
+  btn.title = msg;
+  if(state === "busy") return;
+  btn._flashTimer = setTimeout(() => { btn.innerHTML = btn._html; btn.title = btn._title; delete btn.dataset.state; }, ms || 1700);
+}
 function elemText(el){                                    // the label string: literal <text>, else matplotlib's preceding <!-- comment -->
   let t = (el.textContent || "").trim();
   if(t) return t;
@@ -766,21 +784,21 @@ function collectEdits(){                                  // v2 sidecar: transfo
 function saveSVG(){
   if(!svg) return;
   const b = (document.getElementById("savesvg") as HTMLButtonElement);
+  flash(b, "busy", "Enregistrement…");
   fetch("/save-svg", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rel: file, name: file.split("/").pop(), svg: currentSVGText(), edits: collectEdits() }) })
-    .then(r => r.json()).then(j => { if(j && j.ok) setDirty(false); flash(b, (j && j.ok) ? "Enregistré ✓" : "Erreur"); })
-    .catch(() => flash(b, "Erreur"));
+    .then(r => r.json()).then(j => { if(j && j.ok) setDirty(false); flash(b, (j && j.ok) ? "ok" : "err", (j && j.ok) ? "Enregistré" : "Échec de l’enregistrement" + (j && j.error ? " : " + j.error : "")); })
+    .catch(() => flash(b, "err", "Échec de l’enregistrement : serveur injoignable"));
 }
 function exportPNG(){
   if(!svg) return;
   const b = (document.getElementById("exportpng") as HTMLButtonElement);
   const dpi = parseInt((document.getElementById("dpi") as HTMLSelectElement).value, 10) || 300;
-  b._html = b._html || b.innerHTML;
-  b.textContent = "rendu…";
+  flash(b, "busy", "Rendu du PNG…");
   fetch("/export-png", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rel: file, name: file.split("/").pop(), svg: currentSVGText(), dpi: dpi }) })
-    .then(r => r.json()).then(j => flash(b, (j && j.ok) ? ("PNG ✓ " + j.dpi + "dpi") : ("Erreur: " + ((j && j.error) || "")).slice(0, 22), 2200))
-    .catch(() => flash(b, "Erreur"));
+    .then(r => r.json()).then(j => flash(b, (j && j.ok) ? "ok" : "err", (j && j.ok) ? ("PNG exporté à " + j.dpi + " dpi" + (j.path ? " → " + j.path : "")) : ("Échec de l’export : " + ((j && j.error) || "erreur inconnue")), 2200))
+    .catch(() => flash(b, "err", "Échec de l’export : serveur injoignable"));
 }
 (document.getElementById("savesvg") as HTMLButtonElement).onclick = saveSVG;
 (document.getElementById("exportpng") as HTMLButtonElement).onclick = exportPNG;
@@ -849,7 +867,7 @@ async function load(){
     svg.addEventListener("pointercancel", onUp);
     svg.addEventListener("mouseleave", () => { if(!drag && !lasso) showHover(null); });
     try{ new ResizeObserver(() => hiliteMoveSet()).observe(svg); }catch(e){}
-  }catch(e){ plot.innerHTML = '<div id="err">Unable to load ' + esc(file) + ' (' + esc(e.message) + ')</div>'; }
+  }catch(e){ plot.innerHTML = '<div id="err" class="state"><b>Impossible de charger ' + esc(file) + '</b><span>' + esc(e.message) + '</span></div>'; }
 }
 window.addEventListener("resize", () => hiliteMoveSet());
 

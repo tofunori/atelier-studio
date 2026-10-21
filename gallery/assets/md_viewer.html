@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
 <script src="/.fig_thumbs/atelier_theme.js"></script>
 <link rel="stylesheet" href="/.fig_thumbs/scrollbars.css">
@@ -25,19 +25,19 @@
 <body>
 <header>
   <b id="fname"></b>
-  <div class="seg">
-    <button id="mPrev" class="on">Preview</button>
-    <button id="mSplit">Side by side</button>
-    <button id="mEdit">Edit</button>
+  <div class="seg" role="group" aria-label="Mode d’affichage">
+    <button id="mPrev" class="on">Aperçu</button>
+    <button id="mSplit">Côte à côte</button>
+    <button id="mEdit">Édition</button>
   </div>
-  <button id="annotBtn" title="Dessiner des annotations sur le document rendu">✎ Annoter</button>
+  <button id="annotBtn" title="Dessiner des annotations sur le document rendu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5l3 3M11.5 3.5L4 11l-1.5 3.5L6 13l7.5-7.5z"/></svg>Annoter</button>
   <span id="state"></span>
-  <span id="hint">Cmd+S: save · selection visible to Claude</span>
-  <button id="clearSel" title="Clear the selection (Esc)">✕ clear</button>
+  <span id="hint">⌘S : enregistrer · la sélection est visible par Claude</span>
+  <button id="clearSel" title="Effacer la sélection (Échap)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>Effacer</button>
 </header>
 <div id="body">
   <div id="edPane"></div>
-  <div id="prevPane" class="show"><div id="wrap">Loading…</div></div>
+  <div id="prevPane" class="show"><div id="wrap"><div class="state"><span>Chargement…</span></div></div></div>
 </div>
 <script data-atelier-source="gallery/src/browser/pages/md_viewer_2.ts">AtelierStudioSurfaces.bootstrapMarkdownSurface({editorFactory:AtelierEditorFactory,parser:marked,sanitizer:DOMPurify});
 </script>

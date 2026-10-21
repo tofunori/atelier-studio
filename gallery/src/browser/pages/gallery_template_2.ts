@@ -26,6 +26,11 @@
     var root = document.documentElement.style;
     for(var k in MAP){ if(typeof v[k] === 'string' && v[k]) root.setProperty(MAP[k], v[k]); }
     ROLES.forEach(function(name){ if(typeof v[name] === 'string' && v[name]) root.setProperty(name, v[name]); });
+    // GAL-07 : les rouges destructifs suivent le rouge d'état du thème (lisible
+    // en clair) ; la valeur Default de :root ne reste qu'en repli autonome.
+    if(typeof v['--status-error'] === 'string' && v['--status-error']){
+      root.setProperty('--hot', v['--status-error']); root.setProperty('--destructive', v['--status-error']);
+    }
     // WKWebView dessine la piste native de scrollbar selon color-scheme,
     // indépendamment du fond CSS de l'iframe. Les presets Atelier sont hex.
     if(/^#[0-9a-f]{6}$/i.test(v['--bg'] || '')){
