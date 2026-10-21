@@ -50,6 +50,7 @@ import {
   type AgentToolAction,
 } from "./AgentActivity";
 import { AgentMessageCard } from "./AgentMessageCard";
+import { wsSend } from "../../lib/wsBus";
 import { Deferred, RenderBoundary } from "../RenderBoundary";
 import { TimelineStamp } from "./TimelineStamp";
 import { ActivityStep } from './ActivityBatch';
@@ -1046,6 +1047,7 @@ export function ChatTimeline(p: {
                 messageKind={e.messageKind}
                 text={e.text}
                 status={e.status}
+                onContinue={threadId ? () => wsSend({ type: "setLinkedThreadPaused", threadId, peerThreadId: e.peerThreadId, paused: false }) : undefined}
               />
             );
           if (e.kind === "user")

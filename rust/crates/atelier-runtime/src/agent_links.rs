@@ -356,6 +356,20 @@ fn mention_error(thread_id: &str, request_id: &str, message: impl Into<String>) 
 
 pub async fn handle_set_link_paused(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg.get("threadId").and_then(Value::as_str).unwrap_or("");
+    // Continuer sur une carte en pause : le chat connaît son fil et le fil
+    // d'en face, pas lequel des deux est l'enfant du lien.
+    let enfant_en_face = match msg.get("peerThreadId").and_then(Value::as_str) {
+        Some(peer) => state
+            .threads()
+            .lock()
+            .await
+            .get(peer)
+            .and_then(|t| t.agent_link.as_ref())
+            .is_some_and(|l| l.parent_thread_id == thread_id)
+            .then(|| peer.to_string()),
+        None => None,
+    };
+    let thread_id = enfant_en_face.as_deref().unwrap_or(thread_id);
     let Some(paused) = msg.get("paused").and_then(Value::as_bool) else {
         return vec![err_thread(
             thread_id,

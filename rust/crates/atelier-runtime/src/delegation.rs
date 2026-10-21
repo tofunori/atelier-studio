@@ -696,8 +696,10 @@ mod tests {
             .await
             .unwrap();
         let message_id = retenu["messageId"].as_str().unwrap().to_string();
-        crate::agent_links::handle_set_link_paused(&s, &json!({"threadId": id, "paused": false})).await;
+        // Continuer depuis le fil parent : le chat donne son fil et celui d'en face.
+        crate::agent_links::handle_set_link_paused(&s, &json!({"threadId": "p", "peerThreadId": id, "paused": false})).await;
         assert!(remis_en_file(&s, &message_id).await);
+        assert_eq!(lien(&s, &id).await.auto_delivery_used, 0);
     }
 
     #[test]
