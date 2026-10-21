@@ -737,11 +737,10 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   });
 
   it("les tabs Atelier restent compacts et neutres, sans accent de marque", () => {
-    expect(appCss).toMatch(/\.sidebar li\.active::before\s*\{[^}]*background:\s*var\(--selection-line\)/);
-    // le repère des rangées du navigateur ne règle que la géométrie de cette
-    // barre (pilule centrée) — jamais une seconde marque (audit SHELL-02)
+    // la rangée active porte le repère COMMUN des listes (A13) — jamais une
+    // seconde marque propre au navigateur (audit SHELL-02)
     expect(appCss).not.toMatch(/(^|\n)\.pnav-row\.active::before/);
-    expect(appCss).toMatch(/\.sidebar li\.pnav-row\.active::before\s*\{[^}]*top:\s*50%[^}]*bottom:\s*auto/);
+    expect(appCss).not.toMatch(/\.sidebar li(\.pnav-row)?\.active::before/);
     expect(primitives).toMatch(/\.ui-tab\s*\{[^}]*height:\s*var\(--control-height-m\)/);
     // sélection = fond seul (A5/A13) : plus de soulignement en second signal,
     // et le survol d'un onglet inactif reste plus léger que l'actif
@@ -1281,5 +1280,47 @@ describe("contrat lot 2 (socle)", () => {
     expect(shadcn).toMatch(/\[data-side="top"\]/);
     expect(shadcn).toMatch(/\[data-starting-style\], \[data-ending-style\]/);
     expect(tokens).toMatch(/--enter-offset:\s*4px/);
+  });
+
+  it("A13 : un repère de sélection par liste, fond seul dans les barres, survol plus léger", () => {
+    const sheets = sourceSheets();
+    expect(tokens).toMatch(/--selection-marker-w:\s*2px/);
+    expect(tokens).toMatch(/--selection-marker-h:\s*16px/);
+    // UNE règle de repère : pilule 2×16 en --selection-line + fond --bg-ctl
+    const marker = [...appCss.matchAll(/:is\(([^{]*)\)::before\s*\{([^}]*)\}/g)]
+      .find((m) => /--selection-marker-h/.test(m[2]));
+    expect(marker, "règle de repère commune").toBeTruthy();
+    for (const sel of [".sidebar li.active", ".rail-view.on", ".rail-proj.on", '.cmdk-item[data-selected="true"]', ".set-nav-item.on",
+      '.biblio-row[aria-selected="true"]', ".git-file.selected", '.narval-run[data-state="selected"]', '.exp-row[data-open="true"]']) {
+      expect(marker![1], sel).toContain(sel);
+    }
+    expect(marker![2]).toMatch(/background:\s*var\(--selection-line\)/);
+    // aucune autre marque de sélection : ni pseudo-élément accent sur un état
+    // actif, ni liseré inset 2 px (hors la sélection de modèle, réécrite ailleurs)
+    const strays: string[] = [];
+    for (const [name, css] of sheets) {
+      for (const m of css.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
+        const sel = m[1].trim();
+        if (/model-provider-row|--selection-marker/.test(sel + m[2])) continue;
+        if (/(\.on|\.active|\.selected|\.is-active|-selected="true"\]|aria-current="true"\])[^,]*::(before|after)/.test(sel)
+          && /var\(--(accent|selection-line)\)/.test(m[2])) strays.push(`${name} ${sel}`);
+        if (/(\.on|\.active|\.selected|\.is-active|="selected"\])/.test(sel)
+          && /inset 2px 0( 0)? var\(--(accent|selection-line)\)/.test(m[2])) strays.push(`${name} ${sel}`);
+      }
+    }
+    expect(strays).toEqual([]);
+    // barres horizontales : fond seul, sans soulignement
+    expect(appCss).not.toMatch(/\.topbar-surface\.on::after/);
+    expect(appCss).not.toMatch(/tabs-trigger"\]\[data-active\]\s*\{[^}]*box-shadow:\s*inset 0 -1px/);
+    const docTabs = stripComments(readFileSync(join(root, "styles", "document-tabs.css"), "utf8"));
+    expect(docTabs).not.toMatch(/\[data-active="true"\][^{]*\{[^}]*border-color/);
+    // le survol des listes reste plus léger que la sélection
+    const all = sheets.map(([, css]) => css).join("\n");
+    for (const row of ["docs-row", "biblio-folder", "kbs-rail-item", "git-commit-row", "set-nav-item", "narval-job-row"]) {
+      expect(all, `${row}:hover`).toMatch(new RegExp(`\\.${row}:hover\\s*\\{[^}]*var\\(--surface-hover\\)`));
+    }
+    // terminal actif et volet actif signalés en vue partagée
+    expect(appCss).toMatch(/\.term-grid:not\(\.single\) \.term-cell\.focus::after\s*\{[^}]*var\(--selection-line\)/);
+    expect(appCss).toMatch(/\.workspace-split \.workspace-pane\.is-focused > \.workspace-pane-tabs\s*\{[^}]*var\(--selection-line\)/);
   });
 });

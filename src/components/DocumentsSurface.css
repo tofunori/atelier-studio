@@ -16,7 +16,7 @@
 .docs-none { padding: 16px 8px; font-size: var(--fs-m); color: var(--text-muted); }
 
 .docs-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; min-width: 0; padding: 8px; border-radius: var(--r-s); background: transparent; color: var(--text-primary); text-align: left; transition: background-color var(--motion-fast) var(--ease-out); }
-.docs-row:hover, .docs-row[aria-current="true"] { background: var(--bg-ctl); }
+.docs-row:hover { background: var(--surface-hover); }
 .docs-row-icon { display: flex; flex: none; padding-top: 1px; color: var(--text-muted); }
 .docs-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .docs-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-m); line-height: 1.5; }

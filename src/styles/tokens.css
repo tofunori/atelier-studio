@@ -103,6 +103,10 @@
   --selection-surface: color-mix(in srgb, var(--accent) 14%, var(--surface-inset));
   --selection-border: color-mix(in srgb, var(--accent) 48%, var(--border-default));
   --selection-line: var(--accent);
+  /* repère des listes verticales (A13) : UNE pilule 2×16 à gauche, plus le
+     fond --bg-ctl ; les barres horizontales n'ont que le fond */
+  --selection-marker-w: 2px;
+  --selection-marker-h: 16px;
 
   /* -- statuts (sémantique App.css : --u-ok/--u-warn/--u-hot) -------------- */
   --status-info: var(--muted);

@@ -4487,8 +4487,9 @@ if (window.self !== window.top) {
     .pdf-toolbar-menu button[aria-pressed="true"] .pdf-menu-check, .pdf-toolbar-menu button.ton .pdf-menu-check { visibility:visible; }
     @media (prefers-reduced-motion: reduce) { .pdf-toolbar-more[open] .pdf-toolbar-menu { animation:none; } }
     header.pdf-compact-toolbar button { color:var(--muted)!important; }
-    header.pdf-compact-toolbar button:hover { background:var(--card2)!important; color:var(--txt)!important; }
-    header.pdf-compact-toolbar button.ton, header.pdf-compact-toolbar button[aria-pressed="true"] { background:var(--card2)!important; color:var(--txt)!important; }
+    /* PDF-04 : survol 6 %, outil actif 12 % — --card2 se confondait avec le fond en sombre (1,05:1) */
+    header.pdf-compact-toolbar button:hover { background:color-mix(in srgb,var(--txt) 6%,transparent)!important; color:var(--txt)!important; }
+    header.pdf-compact-toolbar button.ton, header.pdf-compact-toolbar button[aria-pressed="true"] { background:color-mix(in srgb,var(--txt) 12%,transparent)!important; color:var(--txt)!important; }
     header.pdf-compact-toolbar button:focus-visible, .pdf-toolbar-more summary:focus-visible { outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent)); outline-offset:var(--focus-ring-offset,1px); }
     header.pdf-compact-toolbar .pdf-tool-pop button:hover { background:var(--card2)!important; }
     header.pdf-compact-toolbar .pdf-tool-pop button[aria-pressed="true"], header.pdf-compact-toolbar .pdf-tool-pop button[aria-checked="true"] { background:transparent!important; }

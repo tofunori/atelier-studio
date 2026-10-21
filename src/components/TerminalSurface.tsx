@@ -126,18 +126,18 @@ export default function TerminalSurface(p: {
             );
           })}
         </TabList>
-        <IconButton size="s" className="ghost" label={t("action.new-terminal")} title={t("action.new-terminal")} onClick={() => addTerm()}>
+        <IconButton size="s" label={t("action.new-terminal")} title={t("action.new-terminal")} onClick={() => addTerm()}>
           <PlusIcon />
         </IconButton>
         <span className="flex" />
-        <IconButton size="s" className={`ghost ${layout === "cols" ? "on" : ""}`} label={t("terminal.split-vertical")} title={t("terminal.split-vertical")} onClick={() => split("cols")}>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M8 3v10"/></svg>
+        <IconButton size="s" aria-pressed={layout === "cols"} label={t("terminal.split-vertical")} title={t("terminal.split-vertical")} onClick={() => split("cols")}>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M8 3v10"/></svg>
         </IconButton>
-        <IconButton size="s" className={`ghost ${layout === "rows" ? "on" : ""}`} label={t("terminal.split-horizontal")} title={t("terminal.split-horizontal")} onClick={() => split("rows")}>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M2 8h12"/></svg>
+        <IconButton size="s" aria-pressed={layout === "rows"} label={t("terminal.split-horizontal")} title={t("terminal.split-horizontal")} onClick={() => split("rows")}>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2"/><path d="M2 8h12"/></svg>
         </IconButton>
-        <IconButton size="s" className="ghost" label={t("action.close-active-terminal")} title={t("action.close-active-terminal")} onClick={closeActive}>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M2.5 4h11M6 4V2.8c0-.4.3-.8.8-.8h2.4c.5 0 .8.4.8.8V4M4 4l.7 9c0 .6.5 1 1 1h4.6c.5 0 1-.4 1-1L12 4M6.5 7v4M9.5 7v4"/></svg>
+        <IconButton size="s" label={t("action.close-active-terminal")} title={t("action.close-active-terminal")} onClick={closeActive}>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M2.5 4h11M6 4V2.8c0-.4.3-.8.8-.8h2.4c.5 0 .8.4.8.8V4M4 4l.7 9c0 .6.5 1 1 1h4.6c.5 0 1-.4 1-1L12 4M6.5 7v4M9.5 7v4"/></svg>
         </IconButton>
         {p.paneControls && <div className="workspace-pane-controls-slot">{p.paneControls}</div>}
       </div>

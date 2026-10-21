@@ -25,7 +25,8 @@ for (const theme of ["dark", "light"]) {
       expect(style.width).toBeLessThanOrEqual(168);
       // A5 : hauteur de contrôle m de l'échelle 24/28/32
       expect(style.height).toBe('28px');
-      expect(style.radius).toBe('10px');
+      // A13 : rayon de contrôle, actif au fond seul (bordure inchangée)
+      expect(style.radius).toBe('6px');
       expect(style.background).toBe(styles[0].background);
       expect(style.border).toBe(styles[0].border);
     }

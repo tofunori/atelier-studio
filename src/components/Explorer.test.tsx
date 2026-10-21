@@ -171,6 +171,24 @@ describe("Explorer", () => {
     fireEvent.keyDown(document.activeElement!, { key: "Enter" });
     expect(onOpen).toHaveBeenCalledWith("src/lib/i18n.ts");
   });
+
+  it("désigne le fichier ouvert dans le volet actif (SHELL-27)", () => {
+    render(<Explorer files={FILES} onOpen={vi.fn()} openPath="README.md" />);
+    expect(item("README.md")).toHaveAttribute("aria-current", "page");
+    expect(item("README.md")).toHaveAttribute("data-open", "true");
+    expect(item("src")).not.toHaveAttribute("data-open");
+  });
+
+  it("en recherche : le nom d'abord, le dossier en méta, et un message si rien ne correspond", () => {
+    mount();
+    const search = screen.getByRole("searchbox", { name: t("home.search-file") });
+    fireEvent.change(search, { target: { value: "i18n" } });
+    const row = item("src/lib/i18n.ts");
+    expect(row.querySelector(".exp-name")?.textContent).toBe("i18n.ts");
+    expect(row.querySelector(".exp-dir")?.textContent).toBe("src/lib");
+    fireEvent.change(search, { target: { value: "introuvable" } });
+    expect(screen.getByRole("status").textContent).toBe(t("atelier.explorer-no-match"));
+  });
 });
 
 describe("catalogue tronqué", () => {

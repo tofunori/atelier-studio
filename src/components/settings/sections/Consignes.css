@@ -11,8 +11,6 @@
 .consignes-library-heading > span { color: var(--text-muted); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
 .consignes-library-items { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .set-consignes-wrap.consignes-studio .set-consignes-item { position: relative; max-width: none; width: 100%; min-height: 36px; padding: 8px 12px; font-size: var(--fs-body-s); }
-.set-consignes-wrap.consignes-studio .set-consignes-item.on { background: var(--surface-raised); }
-.set-consignes-wrap.consignes-studio .set-consignes-item.on::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px; background: var(--accent); border-radius: var(--radius-control); }
 .set-consignes-wrap.consignes-studio .set-consignes-new { display: flex; gap: 8px; align-items: center; font-size: var(--fs-body-s); padding: 8px 12px; border-top: 1px solid var(--border-subtle); border-radius: 0; white-space: normal; text-align: left; }
 .set-consignes-wrap.consignes-studio .set-consignes-form { min-width: 0; width: 100%; gap: 20px; }
 .set-consignes-wrap.consignes-studio .consignes-metadata { gap: 16px; padding-bottom: 20px; border-bottom: 1px solid var(--border-subtle); }

@@ -426,11 +426,12 @@ describe("BiblioSurface — liste, course de requêtes et clavier", () => {
     act(() => fireEvent.keyDown(list, { key: "ArrowDown" }));
     expect(document.querySelectorAll('.biblio-row[aria-selected="true"]')).toHaveLength(1);
     expect(document.querySelectorAll(".biblio-row.on")).toHaveLength(0);
-    // le rail est un pseudo-élément accroché au SEUL sélecteur aria-selected
+    // le repère est celui, commun, des listes (A13), accroché au SEUL
+    // sélecteur aria-selected
     const css = readFileSync(join(__dirname, "..", "App.css"), "utf8");
-    expect(css).toMatch(
-      /\.biblio-row\[aria-selected="true"\]::before \{[^}]*background:\s*var\(--selection-line\)/,
-    );
+    const marker = css.slice(css.indexOf("Repère de sélection (A13)"));
+    expect(marker).toContain('.biblio-row[aria-selected="true"]');
+    expect(marker).toMatch(/::before\s*\{[^}]*background:\s*var\(--selection-line\)/);
     expect(css).not.toMatch(/\.biblio-row\.on\b/);
   });
 

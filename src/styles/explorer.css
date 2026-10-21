@@ -8,7 +8,7 @@
 /* un bouton est shrink-to-fit : sans largeur explicite, le survol, la
  * sélection et l'anneau de focus ne couvriraient que le texte au lieu de la
  * rangée entière. */
-.exp-tree .exp-row { width: 100%; min-width: 0; }
+.exp-tree .exp-row { width: calc(100% - 8px); min-width: 0; }
 
 /* anneau tracé À L'INTÉRIEUR de la rangée : .exp-tree défile
  * (overflow-y: auto → overflow-x calculé), un offset positif serait rogné sur
