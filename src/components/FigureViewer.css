@@ -55,6 +55,8 @@
   padding: 0; gap: 2px; background: none; box-shadow: none; }
 .figure-viewer-bar .figure-gallery-bar svg { width: 16px; height: 16px; stroke-width: 1.3; }
 
+/* Zoomée, la figure passe sous l'aide : on l'efface. */
+.figure-viewer[data-zoomed] .figure-viewer-hint { opacity: 0; }
 .figure-viewer-hint { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); margin: 0;
   max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   pointer-events: none; color: var(--text-secondary); font-size: var(--fs-s); }

@@ -238,7 +238,7 @@ export function FigureViewer({ threadId, figures, start, onClose }: {
   const name = figure ? baseName(figure.path) : "";
 
   return createPortal(
-    <div ref={root} className="figure-viewer" data-state={phase} role="dialog" aria-modal="true"
+    <div ref={root} className="figure-viewer" data-state={phase} data-zoomed={!fitted || undefined} role="dialog" aria-modal="true"
       aria-label={t("kernel.viewer", { name })} tabIndex={-1} data-testid="figure-viewer">
       <RowButton className="figure-viewer-scrim" aria-label={t("kernel.viewer-close")} tabIndex={-1} onClick={close} />
       <div ref={stage} className="figure-viewer-stage">
