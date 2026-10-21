@@ -114,7 +114,7 @@ import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedAgentSummaries, linkedConversationForProvider } from "./lib/threadLinks";
 import { catalogSkillForPrompt } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
-import type { RailView } from "./components/RailSignalsSource";
+import { railViewStore } from "./lib/railViewStore";
 import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, withBootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
@@ -4039,7 +4039,7 @@ export default function App() {
   // signaux du rail (demandes, échecs, non lus), calculés par le chunk de
   // RailSignalsSource ; null tant qu'il charge (le rail montre alors les
   // agents en cours)
-  const [railView, setRailView] = useState<RailView | null>(null);
+  const railView = useSyncExternalStore(railViewStore.subscribe, railViewStore.get);
   const runningProjects = useMemo(
     () => new Set(allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot)),
     [allThreads],
@@ -4349,7 +4349,7 @@ export default function App() {
   const railNode = (
       <>
         <LazyBoundary fallback={null}>
-          <RailSignalsSource store={eventStore} threads={allThreads} unread={unread} activeId={activeId} onChange={setRailView} />
+          <RailSignalsSource store={eventStore} threads={allThreads} unread={unread} activeId={activeId} />
         </LazyBoundary>
         <RailMemo
           signals={railView?.signals}
