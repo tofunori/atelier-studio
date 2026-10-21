@@ -35,6 +35,13 @@ const ARCHIVE_HINTS: &[&str] = &[
     "raqdps_tests",
 ];
 
+/// Copie de sauvegarde (`_archives/…`, `menage_…`, `tmp/…`) : la galerie du
+/// Mac la masque par défaut, la passerelle iPhone la signale pour faire de même.
+pub fn is_archive_rel(rel: &str) -> bool {
+    let lower = rel.to_ascii_lowercase();
+    ARCHIVE_HINTS.iter().any(|hint| lower.contains(hint))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GalleryRow {
     pub thumb: Option<String>,
@@ -168,7 +175,7 @@ pub fn scan(options: &GalleryBuildOptions) -> Result<Vec<GalleryRow>, CoreError>
         let mtime = epoch(&metadata, false);
         let created = epoch(&metadata, true);
         let btime = if created == 0 { mtime } else { created };
-        let lower = rel.to_ascii_lowercase();
+        let archive = is_archive_rel(&rel);
         rows.push(GalleryRow {
             thumb: None,
             code: CODE_EXTS.contains(&ext.as_str()),
@@ -181,7 +188,7 @@ pub fn scan(options: &GalleryBuildOptions) -> Result<Vec<GalleryRow>, CoreError>
             mdate: local_date(mtime),
             bdate: local_date(btime),
             size: metadata.len(),
-            archive: ARCHIVE_HINTS.iter().any(|hint| lower.contains(hint)),
+            archive,
             provenance: None,
         });
     }

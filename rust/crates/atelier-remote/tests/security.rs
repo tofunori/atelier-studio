@@ -1054,6 +1054,33 @@ async fn gallery_paginates_beyond_one_thousand_files() {
 }
 
 #[tokio::test]
+async fn gallery_items_name_their_folder_and_flag_archived_copies() {
+    let (h, admin, host) = boot().await;
+    let base = h.base_url();
+    let (_, token) = pair_device(&base, &admin, &host, "gallery-folders").await;
+    let root = tempfile::tempdir().unwrap();
+    for dir in ["manuscrit/journal", "_archives/2026-10-19_chiffres_TS", ""] {
+        std::fs::create_dir_all(root.path().join(dir)).unwrap();
+        std::fs::write(root.path().join(dir).join("results_en.tex"), b"results").unwrap();
+    }
+    let pid = h.state.inner.lock().await.projects.register_project(root.path(), None).project_id;
+    let body: Value = client().get(format!("{base}/remote/v1/gallery/{pid}"))
+        .header("host", &host).header("x-atelier-device-token", &token)
+        .send().await.unwrap().json().await.unwrap();
+    let mut seen: Vec<(String, bool)> = body["items"].as_array().unwrap().iter().map(|item| {
+        assert_eq!(item["name"], "results_en.tex");
+        assert!(item.get("_relative").is_none());
+        (item["folder"].as_str().unwrap().to_string(), item["archive"].as_bool().unwrap())
+    }).collect();
+    seen.sort();
+    assert_eq!(seen, vec![
+        (String::new(), false),
+        ("_archives/2026-10-19_chiffres_TS".to_string(), true),
+        ("manuscrit/journal".to_string(), false),
+    ]);
+}
+
+#[tokio::test]
 async fn document_save_checks_version_scope_and_path() {
     let (h, admin, host) = boot().await;
     let base = h.base_url();

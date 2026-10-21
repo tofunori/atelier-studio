@@ -16,9 +16,17 @@ struct NativeGalleryView: View {
     @State private var showConnection = false
     @State private var opening: UUID?
     @State private var error: String?
-    private var items: [GalleryArtifact] {
-        (workspace.gallery.localItems.filter { $0.projectID == nil || $0.projectID == workspace.gallery.selectedProject } + workspace.gallery.remoteItems.filter { $0.projectID == workspace.gallery.selectedProject }).filter { filterState.matches($0) }
+    private var projectItems: [GalleryArtifact] {
+        workspace.gallery.localItems.filter { $0.projectID == nil || $0.projectID == workspace.gallery.selectedProject } + workspace.gallery.remoteItems.filter { $0.projectID == workspace.gallery.selectedProject }
     }
+    private var items: [GalleryArtifact] { projectItems.filter { filterState.matches($0) } }
+    /// Backup copies the other filters would show: they explain why a name appears once.
+    private var hiddenArchives: Int {
+        guard !filterState.showArchives else { return 0 }
+        var shown = filterState; shown.showArchives = true
+        return projectItems.filter { $0.archive == true && shown.matches($0) }.count
+    }
+    private var hasArchives: Bool { projectItems.contains { $0.archive == true } }
     private func open(_ item: GalleryArtifact) {
         opening = item.id
         Task {
@@ -65,12 +73,25 @@ struct NativeGalleryView: View {
                 ForEach(GalleryFilterState.types, id: \.self) { type in
                     chip(type == "Tous" ? "Tout" : type, selected: filter == type) { updateFilter { $0.type = type } }
                 }
+                if hasArchives || filterState.showArchives {
+                    chip("Archives", symbol: "archivebox", selected: filterState.showArchives) {
+                        updateFilter { $0.showArchives.toggle() }
+                    }.accessibilityLabel("Afficher les copies archivées")
+                }
             }.padding(.horizontal, 16)
         }.scrollIndicators(.hidden).padding(.horizontal, -16)
     }
+    private var countLabel: String {
+        let format = { (value: Int) in value.formatted(.number.locale(Locale(identifier: "fr_CA"))) }
+        var label = "\(format(items.count)) fichier\(items.count == 1 ? "" : "s")"
+        let archives = hiddenArchives
+        if archives > 0 { label += " · \(format(archives)) archive\(archives == 1 ? "" : "s") masquée\(archives == 1 ? "" : "s")" }
+        return label
+    }
     private func meta(_ item: GalleryArtifact) -> String {
         let bytes = item.size > 0 ? item.size : item.data?.count ?? 0
-        let origin = item.fileID == nil ? "Importé" : "Mac"
+        // The folder tells apart files that share a name; "Mac" for the project root.
+        let origin = item.fileID == nil ? "Importé" : (item.folder.flatMap { $0.isEmpty ? nil : $0 } ?? "Mac")
         return bytes > 0 ? Int64(bytes).formatted(.byteCount(style: .file)) + " · " + origin : item.kind + " · " + origin
     }
     private func favoriteButton(_ item: GalleryArtifact) -> some View {
@@ -92,7 +113,7 @@ struct NativeGalleryView: View {
                         .buttonStyle(.bordered).frame(minHeight: 44)
                 }
                 filterChips
-                Text("\(items.count.formatted(.number.locale(Locale(identifier: "fr_CA")))) fichier\(items.count == 1 ? "" : "s")")
+                Text(countLabel)
                     .font(.caption.monospacedDigit()).foregroundStyle(AtelierTheme.tertiaryText)
                 if let problem = gallery.error { Text(problem).font(.footnote).foregroundStyle(.red) }
                 if gallery.busy { ProgressView("Chargement des artefacts…").frame(maxWidth: .infinity) }
@@ -147,6 +168,7 @@ struct NativeGalleryView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(item.name).font(.footnote.weight(.medium)).lineLimit(1).truncationMode(.middle)
                                     Text(meta(item)).font(.caption2.monospacedDigit()).foregroundStyle(AtelierTheme.secondaryText)
+                                        .lineLimit(1).truncationMode(.middle)
                                 }.frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
                             }.buttonStyle(.plain).disabled(opening != nil || !item.supported)
                             if item.fileID != nil {

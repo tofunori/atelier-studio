@@ -40,6 +40,18 @@ final class GalleryTests: XCTestCase {
         let legacy = try JSONDecoder().decode(GalleryArtifact.self, from: JSONEncoder().encode(GalleryArtifact(name: "old.py")))
         XCTAssertNil(legacy.favorite)
     }
+    func testArchivedCopiesStayHiddenUntilAskedAndFoldersAreSearchable() {
+        let current = GalleryArtifact(name: "results_en.tex", fileID: "a", projectID: "p", folder: "manuscrit/journal", archive: false)
+        let backup = GalleryArtifact(name: "results_en.tex", fileID: "b", projectID: "p", folder: "_archives/2026-10-19_chiffres_TS", archive: true)
+        // A Mac older than the flag sends neither field: the file stays visible.
+        let older = GalleryArtifact(name: "results_en.tex", fileID: "c", projectID: "p")
+        var filter = GalleryFilterState()
+        XCTAssertEqual([current, backup, older].filter(filter.matches).map(\.fileID), ["a", "c"])
+        filter.showArchives = true
+        XCTAssertEqual([current, backup, older].filter(filter.matches).map(\.fileID), ["a", "b", "c"])
+        filter.query = "journal"
+        XCTAssertEqual([current, backup, older].filter(filter.matches).map(\.fileID), ["a"])
+    }
 
     func testRemoteCacheEvictsLeastRecentlyUsedBytesAndRejectsOversizedEntry() {
         var cache = ArtifactDataCache(limit: 10)
@@ -615,6 +627,9 @@ final class MacServicesTests: XCTestCase {
         let files = try await gallery.composerFiles(project: "p")
         // The Mac's tag, else its modification time, else none.
         XCTAssertEqual(files.map(\.version), ["3-1727000000", "1727000100", nil])
+        // The folder and the archive flag, absent from an older Mac's listing.
+        XCTAssertEqual(files.map(\.folder), ["_archives/old", nil, nil])
+        XCTAssertEqual(files.map(\.archive), [true, nil, nil])
         // Artifacts saved before the field existed still decode.
         let saved = try JSONDecoder().decode(GalleryArtifact.self, from: Data(#"{"id":"7C1E7D0A-51D0-4C22-9A43-3E1B1F4B6F10","name":"a.png","size":3}"#.utf8))
         XCTAssertNil(saved.version)
@@ -740,7 +755,7 @@ private final class ThumbnailProtocol: URLProtocol, @unchecked Sendable {
                 }
             }
         } else if path == "/remote/v1/gallery/p" {
-            let listing = #"{"items":[{"fileId":"f_1","name":"a.png","size":3,"ext":"png","kind":"figure","modifiedAt":1727000000,"etag":"3-1727000000"},{"fileId":"f_2","name":"b.png","size":4,"modifiedAt":1727000100},{"fileId":"f_3","name":"c.png","size":5,"modifiedAt":null}]}"#
+            let listing = #"{"items":[{"fileId":"f_1","name":"a.png","size":3,"ext":"png","kind":"figure","modifiedAt":1727000000,"etag":"3-1727000000","folder":"_archives/old","archive":true},{"fileId":"f_2","name":"b.png","size":4,"modifiedAt":1727000100},{"fileId":"f_3","name":"c.png","size":5,"modifiedAt":null}]}"#
             stubReply(self, status: 200, body: Data(listing.utf8), headers: ["Content-Type": "application/json"])
         } else if path.hasPrefix("/remote/v1/file/") {
             stubReply(self, status: 200, body: Data("full file".utf8))
