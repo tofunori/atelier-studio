@@ -77,6 +77,12 @@ test("le confort sombre n'inverse que le canvas et se souvient du choix", () => 
   assert.match(html, /body\.pdf-invert \.pg canvas\{filter:invert\(1\) hue-rotate\(180deg\)\}/);
   assert.doesNotMatch(html, /body\.pdf-invert \.textLayer/);
   assert.doesNotMatch(html, /body\.pdf-invert \.pdfhl/);
+  // Surlignages : jamais inversés, mais fusionnés en screen sur la page
+  // inversée (un multiply sur du quasi-noir les rendait invisibles).
+  assert.match(html, /body\.pdf-invert \.pg \.pdfhl\{mix-blend-mode:screen\}/);
+  assert.doesNotMatch(html, /body\.pdf-invert \.pg \.pdfhl\{[^}]*filter/);
+  // Le voile des tampons suit --pin-bg (noir en inversion), pas un blanc figé.
+  assert.match(html, /\.pdfstamp-ink\{[^}]*background:color-mix\(in srgb,var\(--pin-bg\) 60%,transparent\)/);
   assert.match(html, /id="invBtn"[^>]*aria-pressed="false"/);
   assert.match(html, /#invBtn\{[^}]*border-radius:6px/);
   assert.doesNotMatch(html.slice(html.indexOf('<button id="invBtn"'), html.indexOf('<span id="selinfo"')), /[\u{1F300}-\u{1FAFF}]/u);

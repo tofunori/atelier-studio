@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderInfo } from "../lib/providers";
 import { t } from "../lib/i18n";
@@ -11,9 +11,11 @@ const info = (id: string, ok: boolean): ProviderInfo => ({
 });
 
 describe("NewChatProviderDialog", () => {
-  it("liste les cinq agents, désactive ceux qui ne sont pas détectés", () => {
+  it("liste les cinq agents, désactive ceux qui ne sont pas détectés", async () => {
     const onCreate = vi.fn();
     render(<NewChatProviderDialog providers={[info("codex", true), info("kimi", false)]} onCreate={onCreate} onClose={() => {}} />);
+    // la vraie modale (portail Base UI), jamais un substitut en ligne
+    await waitFor(() => expect(screen.getByRole("dialog").getAttribute("data-slot")).toBe("dialog-content"));
     const cards = document.querySelectorAll<HTMLButtonElement>(".provider-new-card");
     expect([...cards].map((card) => card.querySelector("span")?.textContent))
       .toEqual(["Claude", "Codex", "Grok", "kimi", "Opencode"]);
@@ -24,11 +26,13 @@ describe("NewChatProviderDialog", () => {
     expect(onCreate).toHaveBeenCalledWith("codex");
   });
 
-  it("se ferme avec Échap", () => {
+  it("se ferme avec Échap", async () => {
     const onClose = vi.fn();
     render(<NewChatProviderDialog providers={[]} onCreate={() => {}} onClose={onClose} />);
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    expect(onClose).toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.getAttribute("data-slot")).toBe("dialog-content");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 });
 

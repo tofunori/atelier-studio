@@ -87,14 +87,14 @@ const alertDialogFooterVariants = cva(
       },
     },
     defaultVariants: {
-      variant: "default",
+      variant: "plain",
     },
   }
 )
 
 function AlertDialogFooter({
   className,
-  variant = "default",
+  variant = "plain",
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof alertDialogFooterVariants>) {
   return (
@@ -182,7 +182,7 @@ function AlertDialogAction({
 
 function AlertDialogCancel({
   className,
-  variant = "outline",
+  variant = "secondary",
   size = "default",
   ...props
 }: AlertDialogPrimitive.Close.Props &

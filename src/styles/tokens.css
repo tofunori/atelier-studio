@@ -67,6 +67,34 @@
   --accent-subtle: color-mix(in srgb, var(--accent) 16%, transparent);
   --text-on-accent: var(--text-inverse);
 
+  /* -- remplissage des actions (2026-10-21) ---------------------------------
+   * Thierry : « j'aime pas le blanc dans les boutons nulle part dans
+   * Atelier ». Le bouton principal n'est plus peint à l'encre (--text-primary
+   * en fond = blanc en sombre, noir en clair). TOUT bouton plein, case cochée,
+   * interrupteur actif ou bouton radio choisi passe par ces jetons ; changer
+   * d'option = changer ces valeurs, rien d'autre. La galerie les reçoit par
+   * atelier_theme.js (liste ROLES).
+   * Option A « relief » (retenue) : aplat du ton des bordures, texte encre ;
+   *   le secondaire devient un contour pour rester distinct du principal.
+   * Option B « accent plein » :
+   *   --fill-primary: var(--accent);
+   *   --fill-primary-hover: var(--accent-hover);
+   *   --on-fill-primary: var(--text-inverse);
+   *   --fill-secondary: var(--surface-inset);
+   *   --fill-secondary-hover: color-mix(in oklch, var(--surface-inset), var(--text-primary) 5%);
+   *   --fill-secondary-ring: transparent;
+   * Option C « accent doux » :
+   *   --fill-primary: color-mix(in srgb, var(--accent) 18%, transparent);
+   *   --fill-primary-hover: color-mix(in srgb, var(--accent) 26%, transparent);
+   *   --on-fill-primary: var(--accent);
+   *   (secondaire : comme B) */
+  --fill-primary: var(--border-default);
+  --fill-primary-hover: color-mix(in srgb, var(--border-default) 84%, var(--text-primary) 16%);
+  --on-fill-primary: var(--text-primary);
+  --fill-secondary: transparent;
+  --fill-secondary-hover: var(--surface-inset);
+  --fill-secondary-ring: var(--border-default);
+
   /* sélection : même signal visuel dans le shell, les listes et la galerie */
   --selection-surface: color-mix(in srgb, var(--accent) 14%, var(--surface-inset));
   --selection-border: color-mix(in srgb, var(--accent) 48%, var(--border-default));

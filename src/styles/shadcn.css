@@ -12,6 +12,15 @@
 @import "tailwindcss/theme.css" layer(theme) prefix(tw);
 @import "tailwindcss/utilities.css" layer(utilities) prefix(tw);
 
+/* Sans Preflight, une bordure sans couleur (tw:border-t, tw:border-l…) vaut
+ * currentColor : le pied des dialogues tirait un trait blanc en sombre, noir
+ * en clair (audit PRIM-02). Seul fragment de Preflight repris : la couleur
+ * par défaut des bordures. Couche base = la plus faible ; toute règle d'App.css
+ * (non stratifiée) garde la main. */
+@layer base {
+  *, ::before, ::after, ::backdrop { border-color: var(--sh-border); }
+}
+
 :root {
   /* PIÈGE VÉRIFIÉ (2026-07-16) : --accent, --muted et --border existent AUSSI
    * dans la palette App.css (chargée après) et écraseraient le mapping
@@ -59,6 +68,15 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
+  /* Remplissage des actions (tokens.css, 2026-10-21) : boutons pleins, cases
+   * cochées, interrupteurs, radios. --primary reste l'ENCRE (texte, icônes,
+   * liens) et ne sert plus jamais de fond de bouton. */
+  --color-fill-primary: var(--fill-primary);
+  --color-fill-primary-hover: var(--fill-primary-hover);
+  --color-on-fill-primary: var(--on-fill-primary);
+  --color-fill-secondary: var(--fill-secondary);
+  --color-fill-secondary-hover: var(--fill-secondary-hover);
+  --color-fill-secondary-ring: var(--fill-secondary-ring);
   --color-muted: var(--sh-muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--sh-accent);

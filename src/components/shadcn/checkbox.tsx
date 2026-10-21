@@ -10,7 +10,7 @@ function Checkbox({ className, ...props }: React.ComponentProps<typeof CheckboxP
       render={<button type="button" />}
       data-slot="checkbox"
       className={cn(
-        "tw:inline-flex tw:size-4 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-[var(--radius-control)] tw:border tw:border-input tw:bg-background tw:p-0 tw:text-primary-foreground tw:transition-[background-color,border-color,color] tw:duration-[var(--motion-fast)] tw:ease-[var(--ease-out)] tw:data-checked:border-primary tw:data-checked:bg-primary tw:focus-visible:outline tw:focus-visible:outline-2 tw:focus-visible:outline-offset-2 tw:focus-visible:outline-ring tw:disabled:pointer-events-none tw:disabled:opacity-50",
+        "tw:inline-flex tw:size-4 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-[var(--radius-control)] tw:border tw:border-input tw:bg-background tw:p-0 tw:text-on-fill-primary tw:transition-[background-color,border-color,color] tw:duration-[var(--motion-fast)] tw:ease-[var(--ease-out)] tw:data-checked:border-fill-primary tw:data-checked:bg-fill-primary tw:focus-visible:outline tw:focus-visible:outline-2 tw:focus-visible:outline-offset-2 tw:focus-visible:outline-ring tw:disabled:pointer-events-none tw:disabled:opacity-50",
         className,
       )}
       {...props}

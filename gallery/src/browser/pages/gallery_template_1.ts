@@ -352,6 +352,10 @@ function applyTheme(name: string){
   for(const k in t) r.setProperty('--'+k, t[k]);
 }
 applyTheme(theme);
+// Embarquée : Default n'est que le repli. Le dernier thème de l'hôte (cache,
+// déjà posé par le script du <head>) repasse par-dessus dans la même tâche,
+// donc sans peinture intermédiaire de la palette sombre.
+if(EMB && window.__atelierGalleryTheme) window.__atelierGalleryTheme.applyCached();
 let hidden = new Set(JSON.parse(localStorage.getItem('figHidden')||'[]'));
 let showHidden = false;
 const saveHidden = ()=>{localStorage.setItem('figHidden', JSON.stringify([...hidden]));pushState();};
@@ -2850,26 +2854,10 @@ function annotInit(){
     // thème dynamique poussé par Studio (variables mappées sur celles de la galerie)
     window.addEventListener('message', function(e){
       if(!e.data || e.data.type !== 'atelier-theme') return;
-      var v = e.data.vars || {};
-      var map = {'--bg':'--bg','--bg-card':'--card','--bg-ctl':'--card2','--fg':'--txt',
-        '--muted':'--muted','--muted2':'--faint','--border':'--border',
-        '--border2':'--border-strong','--accent':'--primary'};
-      for(var k in map){ if(v[k]) document.documentElement.style.setProperty(map[k], v[k]); }
-      // Rôles canoniques du shell (4 gris, surcouche, focus, statuts) : repris
-      // tels quels, pour que l'infobulle et les anneaux de focus de la galerie
-      // soient ceux de l'app. Liste fermée : --accent a un autre sens ici.
-      ['--text-primary','--text-secondary','--text-muted','--text-disabled','--surface-overlay',
-        '--elevation-overlay','--focus-ring-color','--focus-ring-width','--focus-ring-offset',
-        '--status-success','--status-warning','--status-error','--font-chrome']
-        .forEach(function(name){ if(v[name]) document.documentElement.style.setProperty(name, v[name]); });
-      // WKWebView dessine la piste native de scrollbar selon color-scheme,
-      // indépendamment du fond CSS de l'iframe. Les presets Atelier sont hex.
-      if(/^#[0-9a-f]{6}$/i.test(v['--bg']||'')){
-        var c=v['--bg'].slice(1), r=parseInt(c.slice(0,2),16), g=parseInt(c.slice(2,4),16), b=parseInt(c.slice(4,6),16);
-        document.documentElement.style.colorScheme=((r*299+g*587+b*114)/1000>150)?'light':'dark';
-      }
-      if(v['--ui-font']) document.documentElement.style.setProperty('--ui-font', v['--ui-font']);
-      if(v['--code-font']) document.documentElement.style.setProperty('--code-font', v['--code-font']);
+      // correspondance app → galerie et cache partagés avec le script du
+      // <head> (gallery_template_2.ts), qui l'applique avant la 1re peinture
+      window.__atelierGalleryTheme.apply(e.data);
+      window.__atelierGalleryTheme.remember(e.data);
     });
     __atelierPost({type:'atelier-theme-request'});
   }

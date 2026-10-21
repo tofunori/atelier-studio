@@ -220,3 +220,41 @@ test("l'infobulle commune est chargée partout où le pont de thème l'est, et d
   assert.ok(JSON.stringify(sources).includes("atelier_tooltip.ts"), "atelier_tooltip.ts absent de scripts/typescript-sources.json");
   assert.ok(fs.existsSync(path.join(GALLERY, "assets/atelier_tooltip.js")), "assets/atelier_tooltip.js non généré");
 });
+
+// Thierry, 2026-10-21 : « j'aime pas le blanc dans les boutons nulle part dans
+// Atelier ». Les boutons pleins des éditeurs (Envoyer de la pastille de
+// sélection, Valider le commit, Répondre/Enregistrer du .docx, envoi de note)
+// et les interrupteurs actifs se peignent aux jetons --fill-* reçus de l'app,
+// jamais à l'encre (--text-primary / --txt = blanc en sombre).
+test("aucun bouton des éditeurs ne prend l'encre comme fond : jetons --fill-*", () => {
+  const inkFill = /background(?:-color)?:\s*var\(--(?:text-primary|txt|fg)\b/;
+  // marques non cliquables : caret du .docx, trait de lecture LaTeX
+  const allowed = new Set(["#caret", ".tr-mark[data-here] .tr-mark-sign"]);
+  const files = ["assets/latex_studio.css", "assets/pdf_viewer.html", "assets/docx_studio.css",
+    "assets/annotation_ui.css", "src/browser/annot_kit.ts", "src/browser/diff_versions.ts", "react-ui/styles.css"];
+  const offenders: string[] = [];
+  for (const rel of files) {
+    const css = read(rel).replace(/\/\*[\s\S]*?\*\//g, "").replace(/'\s*\+\s*'|"\s*\+\s*"/g, "");
+    for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!inkFill.test(body)) continue;
+      const sel = selector.trim().replace(/^.*['"+]\s*/, "");
+      if (!allowed.has(sel)) offenders.push(`${rel}: ${sel}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+  for (const [rel, sel] of [["assets/latex_studio.css", "#selPill .go"], ["assets/pdf_viewer.html", "#selPill .go"],
+    ["src/browser/annot_kit.ts", ".akPill .go"], ["src/browser/diff_versions.ts", ".dvCommitDo"],
+    ["assets/docx_studio.css", ".btn.primary"]]) {
+    const escaped = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(read(rel), new RegExp(`${escaped}\\{[^}]*background:var\\(--fill-primary,`), `${rel} ${sel}`);
+  }
+  // le pont de thème transporte les jetons jusqu'aux éditeurs et à la galerie
+  const roles = ["--fill-primary", "--fill-primary-hover", "--on-fill-primary",
+    "--fill-secondary", "--fill-secondary-hover", "--fill-secondary-ring"];
+  const theme = read("src/browser/atelier_theme.ts");
+  const template = read("src/browser/pages/gallery_template_2.ts");
+  for (const role of roles) {
+    assert.match(theme, new RegExp(`"${role}":`), `atelier_theme ${role}`);
+    assert.match(template, new RegExp(`'${role}'`), `ROLES ${role}`);
+  }
+});

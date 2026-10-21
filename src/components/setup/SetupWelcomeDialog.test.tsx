@@ -1,7 +1,7 @@
 // Fenêtre de bienvenue du premier lancement : règle de visibilité (ouverte
 // sans agent prêt, JAMAIS pour qui en a un — le cas de l'auteur —, jamais
 // après « Terminer »), contenu (agents, outils facultatifs), pied de fenêtre
-// (Plus tard / Revérifier / Terminer) et commandes.
+// (Plus tard / Revérifier, puis Terminer dès qu'un agent est prêt) et commandes.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 
@@ -99,7 +99,11 @@ describe("accueil — contenu et pied de fenêtre", () => {
       expect(within(dialog).queryByRole("group", { name: title })).toBeNull();
     }
     expect(within(dialog).getByText(t("setup.welcome-optional"))).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: t("setup.finish") })).toBeDisabled();
+    // aucune action grisée à l'ouverture : tant qu'aucun agent n'est prêt,
+    // « Terminer » n'existe pas et « Revérifier » est l'action principale
+    expect(within(dialog).queryByRole("button", { name: t("setup.finish") })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: t("settings.providers-recheck") }))
+      .toHaveClass("ui-btn--primary");
   });
 
   it("« Plus tard » ferme sans retenir l'accueil comme terminé", async () => {
@@ -128,6 +132,9 @@ describe("accueil — contenu et pied de fenêtre", () => {
 
     const finish = within(dialog).getByRole("button", { name: t("setup.finish") });
     expect(finish).not.toBeDisabled();
+    expect(finish).toHaveClass("ui-btn--primary");
+    expect(within(dialog).getByRole("button", { name: t("settings.providers-recheck") }))
+      .toHaveClass("ui-btn--secondary");
     fireEvent.click(finish);
     expect(localStorage.getItem(WELCOME_DONE_KEY)).toBe("1");
     expect(setupEnvironmentSnapshot().welcomeOpen).toBe(false);

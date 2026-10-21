@@ -1,9 +1,15 @@
-import { lazy, Suspense, useEffect, useId, useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 
-const dialogModule = import("./DialogSurface")
-const DialogSurface = lazy(async () => {
-  const module = await dialogModule
-  return { default: module.DialogSurface }
+// Même modèle que LazyDropdownMenu : le composant résolu est stocké au niveau
+// module. Une fois le chunk arrivé, tout rendu suivant est synchrone — plus de
+// faux dialogue en ligne (sans portail ni voile) peint pendant une frame avant
+// la vraie modale (audit PRIM-27). Avant l'arrivée du chunk : rien, jamais un
+// substitut au mauvais endroit. Vite code-splitte toujours grâce à l'import
+// dynamique.
+let LoadedSurface: typeof import("./DialogSurface").DialogSurface | null = null
+const dialogModule = import("./DialogSurface").then((module) => {
+  LoadedSurface = module.DialogSurface
+  return module
 })
 
 export function LazyDialog(props: {
@@ -15,41 +21,20 @@ export function LazyDialog(props: {
   className?: string
   children: ReactNode
 }) {
-  const [ready, setReady] = useState(false)
-  const titleId = useId()
+  const [ready, setReady] = useState(LoadedSurface != null)
 
   useEffect(() => {
-    void dialogModule.then(() => setReady(true))
-  }, [])
+    if (ready) return
+    let alive = true
+    void dialogModule.then(() => {
+      if (alive) setReady(true)
+    })
+    return () => {
+      alive = false
+    }
+  }, [ready])
 
-  if (!ready) {
-    return (
-      <div
-        className={props.className}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") props.onOpenChange(false)
-        }}
-      >
-        <div className="provider-new-head">
-          <div>
-            <h2 id={titleId}>{props.title}</h2>
-            {props.description != null && <p>{props.description}</p>}
-          </div>
-          <button type="button" className="ghost" onClick={() => props.onOpenChange(false)}>
-            {props.closeLabel ?? "Close"}
-          </button>
-        </div>
-        {props.children}
-      </div>
-    )
-  }
-
-  return (
-    <Suspense fallback={null}>
-      <DialogSurface {...props} />
-    </Suspense>
-  )
+  if (!ready || LoadedSurface == null) return null
+  const Surface = LoadedSurface
+  return <Surface {...props} />
 }

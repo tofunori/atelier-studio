@@ -127,7 +127,7 @@ export function Memoire(p: {
             <Select title={t("memoire.filter")} value={filtre} onChange={setFiltre} options={optionsFiltre} />
             <Input className="memoire-recherche" value={recherche} placeholder={t("memoire.search")}
               aria-label={t("memoire.search")} onChange={(e) => setRecherche(e.target.value)} />
-            <Button variant="outline" disabled={!p.requete} onClick={() => setEdition({ id: null, text: "" })}>
+            <Button variant="secondary" disabled={!p.requete} onClick={() => setEdition({ id: null, text: "" })}>
               <Plus size={14} aria-hidden="true" />{t("memoire.add")}
             </Button>
           </div>
@@ -252,7 +252,7 @@ function ImportClaudeScience(p: { projets: string[]; requete: Requete | null; on
     <Group label={t("memoire.group-import")}>
       <div className="memoire-import">
         <div className="memoire-import-tete">
-          <Button variant="outline" loading={enCours && !sources} disabled={!p.requete} onClick={lire}>
+          <Button variant="secondary" loading={enCours && !sources} disabled={!p.requete} onClick={lire}>
             <Download size={14} aria-hidden="true" />{sources ? t("memoire.import-reread") : t("memoire.import-read")}
           </Button>
           <span className="memoire-import-hint">{t("memoire.import-hint")}</span>

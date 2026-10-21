@@ -47,7 +47,7 @@
 .atelier-note .atelier-note-actions .send-direct{border-radius:var(--radius-control,6px)}
 .atelier-note .atelier-note-actions .send-direct:hover{background:var(--surface-hover,var(--card2,#ffffff0a));color:var(--text-primary,var(--txt,#dadee3))}
 .atelier-note .atelier-note-actions .send2{border-radius:999px;color:var(--text-disabled,var(--muted2,#62666c));box-shadow:inset 0 0 0 1px var(--border-strong,#43474c)}
-.atelier-note .atelier-note-field:has(textarea:not(:placeholder-shown)) .send2,.atelier-note .atelier-note-actions .send2:hover{background:var(--text-primary,#dadee3);color:var(--surface-overlay,#24282d);box-shadow:none}
+.atelier-note .atelier-note-field:has(textarea:not(:placeholder-shown)) .send2,.atelier-note .atelier-note-actions .send2:hover{background:var(--fill-primary,var(--border-default,var(--border-strong,var(--border))));color:var(--on-fill-primary,var(--text-primary,var(--txt)));box-shadow:none}
 .atelier-note .atelier-mark-style{display:flex;align-items:center;gap:8px}
 .atelier-note .atelier-mark-style button{box-sizing:border-box;outline:2px solid transparent;outline-offset:2px;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms),outline-color var(--motion-fast,120ms)}
 .atelier-note .atelier-mark-kind{width:28px;height:28px;margin-right:-4px;border-radius:var(--radius-control,6px)}

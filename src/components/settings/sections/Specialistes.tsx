@@ -97,7 +97,7 @@ export function Specialistes(p: {
   return (
     <div className="set-consignes-wrap consignes-studio specialistes-studio">
       <div className="specialistes-import">
-        <Button variant="outline" loading={importEnCours} disabled={!p.importer} onClick={importer}>
+        <Button variant="secondary" loading={importEnCours} disabled={!p.importer} onClick={importer}>
           <Download size={14} aria-hidden="true" />{t("specialistes.import")}
         </Button>
         <span className="specialistes-import-hint">{t("specialistes.import-hint")}</span>
@@ -236,7 +236,7 @@ function SkillsAbsents(p: {
       {absents.claude.length > 0 && <p className="specialistes-mcp-absents" role="status">{t("specialistes.skills-absents-claude", { liste: absents.claude.join(", ") })}</p>}
       {manquants.length > 0 && p.copier && (
         <div className="specialistes-skills-copie">
-          <Button variant="outline" loading={enCours} onClick={copier}>{t("specialistes.skills-copy")}</Button>
+          <Button variant="secondary" loading={enCours} onClick={copier}>{t("specialistes.skills-copy")}</Button>
           <span className="specialistes-mcp-du-mac">{t("specialistes.skills-copy-hint")}</span>
         </div>
       )}

@@ -45,7 +45,7 @@ export function Tooltip(props: {
         onMouseLeave={() => setOpen(false)}
         render={children}
       />
-      <TooltipContent id={id} role="tooltip" {...placementProps(placement)} className={cx("ui-tooltip open", contentClassName)}>
+      <TooltipContent id={id} role="tooltip" {...placementProps(placement)} className={cx("ui-tooltip", contentClassName)}>
         {label}
       </TooltipContent>
     </ShadcnTooltip>

@@ -217,7 +217,7 @@ export default function DocumentsSurface({
           </div>
         </div>
         <div className="docs-frames" ref={framesRef}>
-          {tabs.length === 0 && <EmptyState title={t("atelier.documents")} description={t("docs.empty")} />}
+          {tabs.length === 0 && <EmptyState title={t("docs.empty-title")} description={t("docs.empty")} />}
           {galleryUrl && tabs.map((path) => {
             const src = frameUrl(galleryUrl, path);
             return src && (

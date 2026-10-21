@@ -12,6 +12,7 @@ import { createRuntimeErrorGuard, isBenignResizeObserverError } from "./lib/runt
 import { showError } from "./components/ui/toast";
 import { BoundaryNotice } from "./components/LazyBoundary";
 import { t } from "./lib/i18n";
+import { trackWindowFullscreen } from "./lib/windowFullscreen";
 
 void startBootMetrics().catch(() => {});
 
@@ -108,6 +109,7 @@ window.addEventListener("error", (event) => {
   runtimeErrors.handle(event.error ?? event.message);
 });
 window.addEventListener("unhandledrejection", (event) => runtimeErrors.handle(event.reason));
+trackWindowFullscreen();
 
 async function boot() {
   // Les fixtures visuelles ne font pas partie du bundle release. Le script

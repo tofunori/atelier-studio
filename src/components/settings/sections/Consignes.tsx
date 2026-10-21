@@ -183,7 +183,7 @@ export function Consignes(p: {
                     <div className="consignes-rewrite-tools">
                       {modelSelect}
                       <div className="consignes-action-picker">
-                        <Button variant="outline" className="set-consignes-reformuler" loading={a.busy}
+                        <Button variant="secondary" className="set-consignes-reformuler" loading={a.busy}
                           disabled={!p.reformuler || (a.mode === "custom" && !a.custom.trim())}
                           onClick={a.run}><WandSparkles size={15} aria-hidden="true" />{!selected.texte.trim() && a.mode === "clarify" ? t("settings.consignes-write") : action.label}</Button>
                         <Select title={copy("Action de reformulation", "Rewrite action")} value={a.mode} disabled={a.busy}

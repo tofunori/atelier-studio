@@ -8,11 +8,13 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "tw:bg-primary tw:text-primary-foreground tw:hover:bg-primary/80",
+        // Jamais d'encre en fond (« pas de blanc dans les boutons ») : le plein
+        // et le secondaire passent par les jetons --fill-* de tokens.css.
+        default: "tw:bg-fill-primary tw:text-on-fill-primary tw:hover:bg-fill-primary-hover tw:aria-expanded:bg-fill-primary-hover",
         outline:
           "tw:border-border tw:bg-background tw:hover:bg-muted tw:hover:text-foreground tw:aria-expanded:bg-muted tw:aria-expanded:text-foreground",
         secondary:
-          "tw:bg-secondary tw:text-secondary-foreground tw:hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] tw:aria-expanded:bg-secondary tw:aria-expanded:text-secondary-foreground",
+          "tw:border-fill-secondary-ring tw:bg-fill-secondary tw:text-secondary-foreground tw:hover:bg-fill-secondary-hover tw:aria-expanded:bg-fill-secondary-hover tw:aria-expanded:text-secondary-foreground",
         ghost:
           "tw:bg-transparent tw:hover:bg-muted tw:hover:text-foreground tw:aria-expanded:bg-muted tw:aria-expanded:text-foreground",
         destructive:

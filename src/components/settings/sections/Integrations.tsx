@@ -299,7 +299,6 @@ export default function Integrations(p: SectionProps) {
         <span className="set-headline-actions">
           <Button
             variant="primary"
-            className="set-btn"
             disabled={!dirty || invalid || !connected}
             loading={saving}
             onClick={save}
