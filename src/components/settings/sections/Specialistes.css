@@ -5,13 +5,14 @@
 .specialistes-bilan { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; color: var(--text-secondary); font-size: var(--fs-body-s); }
 .specialistes-conflit { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .specialistes-noms { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 16px; align-items: end; }
-.specialistes-item-masque { margin-left: auto; color: var(--text-disabled); font-size: var(--fs-label); }
+.specialistes-item-masque { margin-left: auto; color: var(--text-muted); font-size: var(--fs-label); }
 .set-consignes-wrap.specialistes-studio .specialistes-item { display: flex; align-items: center; gap: 8px; }
 .specialistes-outils { gap: 16px; }
 .specialistes-origine { margin: 0; color: var(--text-muted); font-size: var(--fs-body-s); }
 .specialistes-mcp-absents { margin: 0; color: var(--status-warning); font-size: var(--fs-body-s); line-height: 1.5; }
 .specialistes-mcp-du-mac { margin: 0; color: var(--text-muted); font-size: var(--fs-body-s); line-height: 1.5; }
-.specialistes-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: var(--fs-body-s); color: var(--text-secondary); }
+/* libellé d'interrupteur comme une rangée de Réglages : 13 px, encre */
+.specialistes-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: var(--fs-body); color: var(--text-primary); }
 @container (max-width: 660px) {
   .specialistes-noms { grid-template-columns: minmax(0, 1fr); }
 }

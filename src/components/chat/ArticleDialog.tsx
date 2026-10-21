@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogTitle } from "../shadcn/dialog";
 import { Input } from "../shadcn/input";
 import { Button } from "../ui/Button";
 import { RowButton } from "../ui/RowButton";
+import { Spinner } from "../ui/Spinner";
 
 export type ArticleMeta = {
   title: string;
@@ -52,10 +53,7 @@ export function duplicateReason(why?: string) {
 function JobIcon({ phase }: { phase: ArticleJob["phase"] }) {
   if (phase === "converting") {
     return (
-      <svg className="kb-article-spin" viewBox="0 0 24 24" width="12" height="12" fill="none"
-        stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-        <path d="M12 3a9 9 0 1 0 9 9" />
-      </svg>
+      <Spinner className="kb-article-spin" size={12} aria-hidden="true" />
     );
   }
   if (phase === "error") {

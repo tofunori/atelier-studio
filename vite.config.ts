@@ -65,6 +65,8 @@ export default defineConfig(async () => ({
         manualChunks(id: string, { getModuleInfo }: { getModuleInfo: ModuleInfoGetter }) {
           // Shared palette data is cacheable independently from application code.
           if (id.endsWith("/src/lib/themes.ts")) return "themes";
+          // garde-fou de contraste des palettes : n'est appelé que par themes.ts
+          if (id.endsWith("/src/lib/contrast.ts")) return "themes";
           // Dictionnaires fr/en (~190 KB de source) : données, comme les
           // thèmes — leur croissance ne doit pas se lire comme du code d'entrée.
           if (id.endsWith("/src/lib/i18n.ts")) return "i18n";

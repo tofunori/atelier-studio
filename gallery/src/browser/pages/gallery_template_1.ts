@@ -574,7 +574,14 @@ function updateDelBtn(){
   b.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:5px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg>Delete (' + selSet.size + ')';
   window.dispatchEvent(new CustomEvent('atelier-gallery-selection-change'));
 }
-function toggleSel(rel: string, el: { classList: { remove: (arg0: string) => void; add: (arg0: string) => void; }; textContent: string; }, e: PointerEvent){
+// case de sélection multiple (GAL-04) : SVG 16 px au trait 1,5, cochée =
+// carré plein accent + coche — plus de glyphes ■/▢ ni de rouge destructif
+function selGlyph(on: boolean){
+  return on
+    ? '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M5.4 8.2 7.2 10l3.4-3.8"/></svg>'
+    : '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/></svg>';
+}
+function toggleSel(rel: string, el: { classList: { remove: (arg0: string) => void; add: (arg0: string) => void; }; innerHTML: string; }, e: PointerEvent){
   // Shift-click selects every card between the last-clicked one and this one (display order).
   if(e && e.shiftKey && lastSelRel && lastSelRel!==rel){
     const a = renderedRels.indexOf(lastSelRel), b = renderedRels.indexOf(rel);
@@ -586,8 +593,8 @@ function toggleSel(rel: string, el: { classList: { remove: (arg0: string) => voi
       updateDelBtn(); render(); return;   // anchor stays at the last plain click, so you can re-adjust the endpoint
     }
   }
-  if(selSet.has(rel)){ selSet.delete(rel); el.classList.remove('on'); el.textContent='▢'; }
-  else{ selSet.add(rel); el.classList.add('on'); el.textContent='■'; }
+  if(selSet.has(rel)){ selSet.delete(rel); el.classList.remove('on'); el.innerHTML=selGlyph(false); }
+  else{ selSet.add(rel); el.classList.add('on'); el.innerHTML=selGlyph(true); }
   lastSelRel = rel;
   paintSelection();
   updateDelBtn();
@@ -2216,7 +2223,7 @@ function render(){
     // deux états distincts : projet vide vs zéro résultat avec filtres actifs
     const hasQ=!!(document.getElementById('q') as HTMLInputElement).value.trim();
     grid.innerHTML = FILES.length===0
-      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--faint)">Add figures, data or scripts, then Rescan.</span></div>'
+      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--text-muted)">Add figures, data or scripts, then Rescan.</span></div>'
       : '<div class="empty">No matching files.'
         +' <button id="emptyReset" style="margin-left:8px;height:26px;font-size:11px">Clear search &amp; filters</button></div>';
     const er=(document.getElementById('emptyReset') as HTMLButtonElement);
@@ -2233,7 +2240,7 @@ function render(){
     if(galleryPresentation.mode==='list'){
       const selected=selSet.has(f.rel), wf=({'draft':'Brouillon','candidate':'Candidat','final':'Final','rejected':'Rejeté'})[workflow[f.rel]]||'';
       return `<div class="card gallery-detail-row ${selectedRel===f.rel?'sel2':''} ${selected?'bulk-selected':''}" data-card="${escA(f.rel)}" role="row" aria-selected="${selected}">
-        <div class="gallery-detail-name" role="gridcell"><button class="selbox ${selected?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" aria-label="Sélectionner ${escA(f.name)}">${selected?'■':'▢'}</button><button class="gallery-detail-open" data-act="${imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)?'lb':'open'}" data-rel="${escA(f.rel)}" title="${escA(f.rel)}">${esc(f.name)}</button>${figureGroups.has(f.rel)?`<span class="stackn" title="${figureGroups.get(f.rel).length} fichiers pour cette figure">${figureGroups.get(f.rel).length}</span>`:''}${favs.has(f.rel)?'<span class="fv">★</span>':''}</div>
+        <div class="gallery-detail-name" role="gridcell"><button class="selbox ${selected?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" aria-label="Sélectionner ${escA(f.name)}" aria-pressed="${selected}">${selGlyph(selected)}</button><button class="gallery-detail-open" data-act="${imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)?'lb':'open'}" data-rel="${escA(f.rel)}" title="${escA(f.rel)}">${esc(f.name)}</button>${figureGroups.has(f.rel)?`<span class="stackn" title="${figureGroups.get(f.rel).length} fichiers pour cette figure">${figureGroups.get(f.rel).length}</span>`:''}${favs.has(f.rel)?'<span class="fv">★</span>':''}</div>
         <div role="gridcell">${esc(f.ext.toUpperCase())}</div><div role="gridcell">${fmtSize(f.size)}</div><div role="gridcell">${esc(f.mdate)}</div><div role="gridcell" class="gallery-detail-status"><span>${esc(wf)}</span><button data-act="more" data-rel="${escA(f.rel)}" aria-label="Actions pour ${escA(f.name)}">${hovIco('more')}</button></div>
       </div>`;
     }
@@ -2265,7 +2272,7 @@ function render(){
     const pileLate = !!pile && pile.some(m=>figureMemberState(m,pile).tone==='warn');
     const pileTag = pile ? `<span class="stackn${pileLate?' late':''}" title="${escA(pile.length+' fichiers pour cette figure'+(pileLate?' · une copie plus ancienne diffère':''))}">${STACK_ICON}${pile.length}</span>` : '';
     return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''} ${selectedRel===f.rel?'sel2':''} ${pile?'stack':''}" data-card="${escA(f.rel)}" role="option" aria-selected="${selectedRel===f.rel}">
-      <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selSet.has(f.rel)?'■':'▢'}</span>
+      <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selGlyph(selSet.has(f.rel))}</span>
       ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}${pileTag}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Open with default app">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
       <div class="hov">
         <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}">${hovIco('open')}</button>
@@ -2711,7 +2718,7 @@ function annotBindCanvas(){
   c.addEventListener('pointercancel',()=>{if(annotDrag?.original)Object.assign(annotDrag.stroke,annotDrag.original);annotDrag=null;annotCur=null;annotRedraw();});
   // Les outils sont toujours dans la barre (Thierry 2026-09-11) : un clic sur
   // l'un d'eux entre en mode annotation s'il ne l'est pas déjà.
-  document.querySelectorAll<HTMLElement>('#annotBar [data-tool]').forEach(b=>b.onclick=async()=>{if(annotBusy)return;if(!lb().classList.contains('annot')){await annotToggle();if(!lb().classList.contains('annot'))return;}annotTool=b.dataset.tool;const shapes=(document.getElementById('annotShapes') as HTMLDetailsElement);if(b.closest<HTMLElement>('#annotShapes')){shapes.querySelector<SVGSVGElement>('summary svg').replaceWith(b.querySelector<SVGSVGElement>('svg').cloneNode(true));shapes.querySelector<HTMLElement>('summary').title='Forme : '+b.title;shapes.open=false;}document.querySelectorAll<HTMLElement>('#annotBar [data-tool]').forEach(o=>{o.classList.toggle('sel',o===b);o.setAttribute('aria-pressed',String(o===b));});stage.style.cursor=annotTool==='pan'?'grab':'';c.style.cursor=annotTool==='pan'?'grab':'crosshair';});
+  document.querySelectorAll<HTMLElement>('#annotBar [data-tool]').forEach(b=>b.onclick=async()=>{if(annotBusy)return;if(!lb().classList.contains('annot')){await annotToggle();if(!lb().classList.contains('annot'))return;}annotTool=b.dataset.tool;const shapes=(document.getElementById('annotShapes') as HTMLDetailsElement);if(b.closest<HTMLElement>('#annotShapes')){shapes.querySelector<SVGSVGElement>('summary svg').replaceWith(b.querySelector<SVGSVGElement>('svg').cloneNode(true));shapes.querySelector<HTMLElement>('summary').title='Forme : '+b.title;shapes.open=false;}document.querySelectorAll<HTMLElement>('#annotBar [data-tool]').forEach(o=>{o.classList.toggle('sel',o===b);o.setAttribute('aria-pressed',String(o===b));});shapes.querySelector<HTMLElement>('summary').classList.toggle('sel',!!b.closest('#annotShapes'));stage.style.cursor=annotTool==='pan'?'grab':'';c.style.cursor=annotTool==='pan'?'grab':'crosshair';});
   (document.getElementById('annotUndo') as HTMLButtonElement).onclick=()=>annotHistory();(document.getElementById('annotRedo') as HTMLButtonElement).onclick=()=>annotHistory(true);
   (document.getElementById('annotZoomOut') as HTMLButtonElement).onclick=()=>lbSetZoom(lbZoomLevel/1.5);(document.getElementById('annotZoomIn') as HTMLButtonElement).onclick=()=>lbSetZoom(lbZoomLevel*1.5);(document.getElementById('annotFit') as HTMLButtonElement).onclick=()=>lbSetZoom(1);
   (document.getElementById('annotPillN') as HTMLButtonElement).onclick=function(){(document.getElementById('annotNote') as HTMLDivElement).querySelector<HTMLButtonElement>('.annot-close').click();const list=(document.getElementById('annotList') as HTMLDivElement);list.hidden=!list.hidden;(this as HTMLButtonElement).setAttribute('aria-expanded',String(!list.hidden));};
@@ -2862,7 +2869,7 @@ function annotInit(){
     __atelierPost({type:'atelier-theme-request'});
   }
   if(ANNOT_EMBEDDED){const st=document.createElement('style');st.textContent='.embOnly{display:inline-flex !important} .embHide{display:none !important}'
-      +':root{--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--faint:#62666c;--border:#2a2d31;--border-strong:#43474c;--primary:#e77f3e;--primary-soft:color-mix(in srgb,var(--primary) 16%,transparent);--elev:0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18);--hot:#e06c75}'
+      +':root{--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--faint:#62666c;--border:#2a2d31;--border-strong:#43474c;--primary:#e77f3e;--primary-soft:color-mix(in srgb,var(--primary) 13%,transparent);--elev:0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18);--hot:#e06c75}'
       +'body{font-family:var(--ui-font)}';document.head.appendChild(st);}
   function annotRender(maxW: number){
     const img=(document.getElementById('lbImg') as HTMLImageElement);

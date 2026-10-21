@@ -18,7 +18,7 @@ function RadioGroupItem({ className, ...props }: RadioPrimitive.Root.Props) {
     <RadioPrimitive.Root
       data-slot="radio-group-item"
       className={cn(
-        "tw:group/radio-group-item tw:peer tw:relative tw:flex tw:size-4 tw:shrink-0 tw:rounded-full tw:border tw:border-input tw:bg-background tw:outline-none tw:after:absolute tw:after:-inset-x-3 tw:after:-inset-y-2 tw:focus-visible:outline tw:focus-visible:outline-2 tw:focus-visible:outline-offset-2 tw:focus-visible:outline-ring tw:disabled:cursor-not-allowed tw:disabled:opacity-50 tw:aria-invalid:border-destructive tw:data-checked:border-fill-primary tw:data-checked:bg-fill-primary tw:data-checked:text-on-fill-primary",
+        "tw:group/radio-group-item tw:peer tw:relative tw:flex tw:size-4 tw:shrink-0 tw:rounded-full tw:border tw:border-input tw:bg-background tw:outline-none tw:after:absolute tw:after:-inset-x-3 tw:after:-inset-y-2 tw:focus-visible:outline tw:focus-visible:outline-[length:var(--focus-ring-width)] tw:focus-visible:outline-[var(--focus-ring-color)] tw:focus-visible:outline-offset-[var(--focus-ring-offset)] tw:disabled:cursor-default tw:disabled:opacity-[var(--disabled-opacity)] tw:aria-invalid:border-destructive tw:data-checked:border-fill-primary tw:data-checked:bg-fill-primary tw:data-checked:text-on-fill-primary",
         className,
       )}
       {...props}

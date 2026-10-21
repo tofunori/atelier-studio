@@ -5,7 +5,7 @@
 .biblio-surface.biblio-workspace { display: flex; flex-direction: column; min-width: 0; overflow: hidden; container-type: inline-size; }
 .biblio-workspace [hidden] { display: none !important; }
 .biblio-tabs-bar { display: flex; align-items: center; gap: 4px; min-height: 36px; height: 36px; flex: none; padding: 0 6px; background: var(--surface-header); border-bottom: 1px solid var(--border-subtle); }
-.biblio-tabs { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.biblio-tabs { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: var(--atelier-scrollbar-width, thin); }
 .biblio-tab { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 8px; font-size: var(--fs-s); white-space: nowrap; }
 .biblio-document-tab > .biblio-tab { background: transparent; border: 0; border-radius: inherit; color: inherit; }
 .biblio-tab span { overflow: hidden; text-overflow: ellipsis; }
@@ -27,7 +27,7 @@
 .biblio-folder { display: flex; align-items: center; gap: 8px; padding: 8px 8px; width: 100%; min-width: 0; border: 0; border-radius: var(--r-s); background: transparent; color: var(--text-secondary); font-size: var(--fs-s); text-align: left; }
 .biblio-folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .biblio-folder svg { width: 14px; height: 14px; flex: none; color: var(--text-muted); }
-.biblio-folder:hover, .biblio-folder[aria-current="true"] { background: var(--bg-ctl); color: var(--text-primary); }
+.biblio-folder:hover { background: var(--surface-hover); color: var(--text-primary); }
 .biblio-workspace .biblio-left, .biblio-workspace .biblio-reader { border-radius: 0; }
 .biblio-workspace .biblio-bar { height: 40px; min-height: 40px; gap: 4px; }
 .biblio-workspace .biblio-scope { justify-content: space-between; gap: 8px; min-height: 28px; padding: 0 12px; }

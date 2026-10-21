@@ -171,7 +171,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // commandes sur l'accent du thème actif (pas l'orange figé de la galerie),
     // accolades or et environnements turquoise via les classes posées par
     // decorateLatex (chat/md.tsx)
-    expect(appCss).toMatch(/\.language-latex \.hljs-keyword\s*\{[^}]*color:\s*var\(--accent\)/);
+    expect(appCss).toMatch(/\.language-latex \.hljs-keyword\s*\{[^}]*color:\s*var\(--accent-text\)/);
     for (const cls of ["hljs-built_in", "hljs-tex-brace", "hljs-tex-env"]) {
       expect(appCss, cls).toMatch(new RegExp(`\\.language-latex \\.${cls}\\s*\\{[^}]*color:`));
     }
@@ -458,19 +458,19 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       .filter((r) => /animation[^;]*infinite/.test(r.body))
       .map((r) => r.selector)
       .filter((selector) => chatScope.test(selector));
+    // A11 (CHAT-04 / TRANS-07) : une boucle visible par tour. L'étoile de la
+    // ligne vivante, le carré du chrono et le glyphe d'un sous-agent sont
+    // FIXES ; restent le reflet de la ligne vivante (figé dès qu'un anneau
+    // d'action tourne), le reflet d'une rangée et l'anneau d'action.
     expect(loops.sort()).toEqual([
-      // glyphe d'un sous-agent au travail (rangée AgentActivity) — spin 1.4 s,
-      // coupé sous prefers-reduced-motion comme les autres
-      '.agent-state-icon[data-agent-status="working"]',
-      ".turn-activity-glyph",
       ".turn-working-shimmer",
       ".ui-activity-label.is-shimmering .tool-ticker-row, .ui-activity-label.is-shimmering:not(:has(.tool-ticker))",
       // anneau d'une action en cours (colonne d'état de la rangée, refonte du
       // 2026-10-18) — il REMPLACE le balayage de la ligne vivante, qui ne
       // tourne plus : une seule boucle par rangée, coupée sous reduced-motion
       ".ui-activity-state .tool-run-ring, .tool-status .tool-run-ring",
-      ".working-label::before",
     ]);
+    expect(appCss).toMatch(/\.messages:has\(\.ui-activity-state \.tool-run-ring, \.tool-status \.tool-run-ring\) \.turn-working-shimmer/);
   });
 
   // Deux régressions VÉCUES au banc le 2026-08-26, invisibles en jsdom (rien
@@ -591,10 +591,11 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // toute durée doit passer par var(--motion-*) / var(--tooltip-delay)
     const rawMs = primitives.match(/\b\d+(\.\d+)?ms\b/g) ?? [];
     expect(rawMs, `durées ms en dur dans primitives.css : ${rawMs.join(", ")}`).toEqual([]);
-    // seule durée en secondes tolérée : la rotation du spinner (continue, pas
-    // une transition d'état)
+    // aucune durée en secondes non plus : la rotation du spinner passe par
+    // le jeton unique --motion-spin (A11)
     const rawS = primitives.match(/\b\d+(\.\d+)?s\b/g) ?? [];
-    expect(rawS).toEqual(["0.9s"]);
+    expect(rawS).toEqual([]);
+    expect(primitives).toMatch(/\.ui-spin\s*\{[^}]*animation:\s*ui-spin var\(--motion-spin\) linear infinite/);
   });
 
   it("tokens : les durées déclarées respectent le plafond 120/140/150 et le délai tooltip 400–450", () => {
@@ -628,8 +629,14 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   });
 
   it("les contrôles partagent une géométrie et une bordure interactive communes", () => {
-    expect(tokens).toContain("--control-height: calc(var(--ui-base-size, 15px) * 2)");
-    expect(tokens).toMatch(/--control-height-compact: calc\(var\(--ui-base-size, 15px\) \* 1\.7333/);
+    // A5 (PRIM-06) : une échelle de trois hauteurs 24 / 28 / 32, arrondies à la
+    // grille de 4 quelle que soit la taille d'interface ; les anciens noms
+    // (--control-height, -compact, -mini) n'en sont que des alias
+    for (const [k, f] of [["s", "1\\.6"], ["m", "1\\.8666"], ["l", "2\\.1333"]]) {
+      expect(tokens).toMatch(new RegExp(`--control-height-${k}: round\\(nearest, calc\\(var\\(--ui-base-size, 15px\\) \\* ${f}\\d*\\), 4px\\)`));
+    }
+    expect(tokens).toContain("--control-height: var(--control-height-m)");
+    expect(tokens).toContain("--control-height-compact: var(--control-height-s)");
     expect(tokens).toContain("--border-interactive:");
     expect(shadcn).toContain("--color-background: var(--background)");
     expect(shadcn).toContain("--color-ring: var(--ring)");
@@ -730,13 +737,16 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   });
 
   it("les tabs Atelier restent compacts et neutres, sans accent de marque", () => {
-    expect(appCss).toMatch(/\.sidebar li\.active::before\s*\{[^}]*background:\s*var\(--selection-line\)/);
-    // le repère des rangées du navigateur ne règle que la géométrie de cette
-    // barre (pilule centrée) — jamais une seconde marque (audit SHELL-02)
+    // la rangée active porte le repère COMMUN des listes (A13) — jamais une
+    // seconde marque propre au navigateur (audit SHELL-02)
     expect(appCss).not.toMatch(/(^|\n)\.pnav-row\.active::before/);
-    expect(appCss).toMatch(/\.sidebar li\.pnav-row\.active::before\s*\{[^}]*top:\s*50%[^}]*bottom:\s*auto/);
-    expect(primitives).toMatch(/\.ui-tab\s*\{[^}]*height:\s*28px/);
-    expect(primitives).toMatch(/\.ui-tab\.is-active::after\s*\{[^}]*background:\s*var\(--border-strong\)/);
+    expect(appCss).not.toMatch(/\.sidebar li(\.pnav-row)?\.active::before/);
+    expect(primitives).toMatch(/\.ui-tab\s*\{[^}]*height:\s*var\(--control-height-m\)/);
+    // sélection = fond seul (A5/A13) : plus de soulignement en second signal,
+    // et le survol d'un onglet inactif reste plus léger que l'actif
+    expect(primitives).not.toMatch(/\.ui-tab[^{]*::after/);
+    expect(primitives).toMatch(/\.ui-tab:is\(\[data-active\], \.is-active\)\s*\{[^}]*background:\s*var\(--surface-inset\)/);
+    expect(primitives).toMatch(/\.ui-tab:hover:not\(\[data-active\]\):not\(\.is-active\)\s*\{[^}]*background:\s*var\(--surface-hover\)/);
     expect(primitives).not.toMatch(/\.ui-tab\.is-active[^}]*var\(--selection-line\)/);
   });
 
@@ -759,8 +769,11 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   it("les surfaces interactives partagent les durées Quiet Instrument", () => {
     expect(appCss).toMatch(/\.exp-row, \.pnav-row, \.set-nav-item,[\s\S]*?background-color var\(--motion-fast\) var\(--ease-out\)/);
     expect(appCss).toMatch(/box-shadow var\(--motion-standard\) var\(--ease-out\)/);
-    expect(primitives).toMatch(/\.ui-tab-close\s*\{[^}]*opacity:\s*\.42/);
-    expect(primitives).toMatch(/\.ui-tab:hover \.ui-tab-close,[\s\S]*?opacity:\s*\.86/);
+    // la croix d'onglet : cachée au repos, révélée au survol / focus / actif,
+    // dans les durées communes ; fermer n'est pas détruire (jamais rouge)
+    expect(primitives).toMatch(/\.ui-tab-close\s*\{[^}]*opacity:\s*0;[^}]*transition:\s*opacity var\(--motion-fast\)/);
+    expect(primitives).toMatch(/\.ui-tab:hover \.ui-tab-close,[^{]*\{\s*opacity:\s*1/);
+    expect(primitives).not.toMatch(/\.ui-tab-close:hover\s*\{[^}]*--status-error/);
   });
 
   it("les iframes Atelier ne révèlent jamais un fond blanc dans leur gouttière", () => {
@@ -1141,5 +1154,173 @@ describe("contrat finitions (icônes, étiquettes, grille de 4)", () => {
     }
     // Les rangées de remplissage voyagent jusqu'aux éditeurs de la galerie
     expect(galleryStyles).not.toMatch(/\[data-checked\][^{]*\{[^}]*background:var\(--primary(?:-foreground)?\)/);
+  });
+});
+
+describe("contrat lot 2 (socle)", () => {
+  const sourceSheets = (): [string, string][] => [
+    ["App.css", appCss],
+    ...collectFiles(join(root, "styles"), [".css"])
+      .map((file) => [file, stripComments(readFileSync(file, "utf8"))] as [string, string]),
+    ...componentCssFiles.map((file) => [file, stripComments(readFileSync(file, "utf8"))] as [string, string]),
+  ];
+
+  it("THIERRY-01 : une seule barre de défilement, réglée par --scrollbar-size", () => {
+    const shared = stripComments(readFileSync(join(root, "..", "gallery", "assets", "scrollbars.css"), "utf8"));
+    expect(shared).toMatch(/:root\s*\{[^}]*--scrollbar-size:\s*6px/);
+    expect(shared).toMatch(/(^|\})\s*::-webkit-scrollbar\s*\{\s*width:\s*var\(--scrollbar-size\);\s*height:\s*var\(--scrollbar-size\)/);
+    expect(shared).toMatch(/::-webkit-scrollbar-thumb\s*\{[^}]*var\(--scroll-thumb\)/);
+    expect(shared.match(/--scrollbar-size:/g)).toHaveLength(1);
+    // le reste de l'app ne peut que MASQUER une barre, jamais la redimensionner
+    for (const [name, css] of sourceSheets()) {
+      for (const m of css.matchAll(/([^{}]*::-webkit-scrollbar[^{]*)\{([^}]*)\}/g)) {
+        const body = m[2];
+        const hides = /display:\s*none/.test(body);
+        expect(hides, `${name} : barre locale « ${m[1].trim()} »`).toBe(true);
+      }
+    }
+    expect(readFileSync(join(root, "App.css"), "utf8")).toMatch(/^@import "\.\.\/gallery\/assets\/scrollbars\.css";/);
+    const scrollArea = shadcnSources.find(([name]) => name === "scroll-area.tsx")?.[1] ?? "";
+    expect(scrollArea).toContain("w-[var(--scrollbar-size)]");
+    expect(scrollArea).not.toMatch(/tw:data-vertical:w-2\.5/);
+  });
+
+  it("A4 : la méta lisible est en --text-muted ; --text-disabled reste aux marques et au désactivé", () => {
+    const all = sourceSheets().map(([, css]) => css).join("\n");
+    // budget gelé : chevrons, séparateurs, puces, coches, poignées,
+    // placeholders, :disabled, étoiles non posées (ne peut que rétrécir)
+    const disabledText = [...all.matchAll(/(^|[^-\w])color:\s*var\(--text-disabled\)/g)].length;
+    expect(disabledText).toBeLessThanOrEqual(46);
+    for (const sel of [
+      ".row-time", ".sidebar li.thread-recency-label", ".sidebar button.pnav-more", ".pnav-row .prov-ico",
+      ".cmdk-footer", ".resume-date", ".tool-duration", ".timeline-stamp", ".msg-actions", ".msg-actions button",
+      ".agent-row-type", ".changed-files-dir", ".git-path-dir", ".hl-foot", ".kb-meta", ".ur-l", ".ur-sub",
+      ".ur-mrow em", ".pasted-thumb figcaption", ".appsnap-local-note", ".calculs-run-hint", ".evidence-group-loc",
+    ]) {
+      const escaped = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rule = appCss.match(new RegExp(`(^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`, "m"))?.[2] ?? "";
+      expect(rule, `${sel} introuvable`).not.toBe("");
+      expect(rule, `${sel} écrit en gris éteint`).not.toContain("--text-disabled");
+    }
+    expect(primitives).toMatch(/\.ui-activity-meta\s*\{[^}]*color:\s*var\(--text-muted\)/);
+    expect(appCss).not.toMatch(/\.appsnap-local-note\s*\{[^}]*margin:\s*-/);
+    // l'accent écrit passe par --accent-text (lisible) ; --accent reste le remplissage
+    expect([...all.matchAll(/(^|[^-\w])color:\s*var\(--accent\)/g)].length).toBeLessThanOrEqual(2);
+    expect(tokens).toContain("--accent-text: var(--accent)");
+  });
+
+  it("A5 : hauteurs sur l'échelle 24/28/32, un seul anneau de focus, un seul désactivé", () => {
+    // hauteurs : aucun contrôle shadcn ne garde une hauteur Tailwind numérique
+    for (const name of ["button.tsx", "select.tsx", "input.tsx", "input-group.tsx", "toggle.tsx", "toggle-group.tsx"]) {
+      const src = shadcnSources.find(([n]) => n === name)?.[1] ?? "";
+      expect(src, name).not.toMatch(/tw:(h|size)-(5|6|7|8|9|10)\b/);
+    }
+    expect(primitives).toMatch(/\.ui-iconbtn--s\s*\{[^}]*var\(--control-height-s\)/);
+    expect(primitives).toMatch(/\.ui-iconbtn--l\s*\{[^}]*var\(--control-height-l\)/);
+    // focus : la recette unique (jetons) dans shadcn, plus de ring-N ni outline-2
+    for (const [name, src] of shadcnSources) {
+      expect(src, name).not.toMatch(/focus-visible:ring-[1-9]|focus-visible:outline-2|outline-ring\b/);
+      expect(src, name).not.toMatch(/disabled:opacity-50|opacity-50/);
+    }
+    // et dans les feuilles : tout outline posé au focus est l'anneau commun (ou none)
+    const offenders: string[] = [];
+    for (const [name, css] of sourceSheets()) {
+      for (const m of css.matchAll(/([^{}]*:focus(?:-visible)?[^{]*)\{([^}]*)\}/g)) {
+        for (const o of m[2].matchAll(/(?:^|;)\s*outline\s*:\s*([^;]+)/g)) {
+          const v = o[1].trim();
+          if (v === "none" || /^var\(--focus-ring-width\) solid var\(--focus-ring-color\)$/.test(v) || /transparent/.test(v)) continue;
+          offenders.push(`${name} ${m[1].trim()} → ${v}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+    // désactivé : l'opacité unique --disabled-opacity (hors envoi du composeur,
+    // section effort/modèle, et les « restes pleins » à opacity: 1 explicites)
+    expect(tokens).toMatch(/--disabled-opacity:\s*\.5/);
+    const literal = [...appCss.matchAll(/([^{}]*:disabled[^{]*)\{([^}]*)\}/g)]
+      .filter((m) => /opacity:\s*0?\.\d/.test(m[2]))
+      .map((m) => m[1].trim());
+    expect(literal.every((sel) => /\.send|tier-toggle/.test(sel)), literal.join(" | ")).toBe(true);
+    // survol < ouvert/pressé sur les boutons-icônes ; une seule croix ; une seule recherche
+    expect(primitives).toMatch(/\.ui-iconbtn:hover:not\(:disabled\)\s*\{[^}]*var\(--surface-hover\)/);
+    expect(primitives).toMatch(/\.ui-iconbtn:is\(\[aria-pressed="true"\], \[aria-expanded="true"\], \[data-popup-open\]\)/);
+    expect(primitives).toMatch(/\.ui-search \.ui-search-input\s*\{[^}]*var\(--border-interactive\)/);
+    expect(appCss).not.toMatch(/\.(exp|pnav|resume)-search\s*\{[^}]*border:/);
+  });
+
+  it("A11 : un tempo de rotation, un squelette, aucune géométrie animée", () => {
+    const sheets = sourceSheets();
+    const all = sheets.map(([, css]) => css).join("\n");
+    // plus de keyframes de rotation doublons : tout tourne sur ui-spin
+    for (const dup of ["spin", "arcSpin", "narval-spin", "kb-article-spin", "tool-run-spin", "agent-working-spin", "chat-notice-spin", "turn-star-rotate", "working-pulse", "turn-working-sweep"]) {
+      expect(all, `@keyframes ${dup}`).not.toMatch(new RegExp(`@keyframes\\s+${dup}\\s*\\{`));
+    }
+    // toute rotation continue suit --motion-spin
+    for (const m of all.matchAll(/animation:\s*(ui-spin|rail-act-turn)\s+([^\s;]+)/g)) {
+      expect(m[2], m[0]).toBe("var(--motion-spin)");
+    }
+    // le squelette est statique (pas de animate-pulse) et n'apparaît qu'après 350 ms
+    const skeleton = shadcnSources.find(([n]) => n === "skeleton.tsx")?.[1] ?? "";
+    expect(skeleton).not.toMatch(/animate-pulse/);
+    expect(appCss).toMatch(/@keyframes skeleton-appear/);
+    // la barre de progression ne prend jamais l'accent
+    expect(appCss).not.toMatch(/\.kb-article-progress i\s*\{[^}]*var\(--accent\)/);
+    // aucune transition de géométrie (largeur, hauteur, rangées de grille),
+    // hors section effort/modèle (réécrite ailleurs)
+    const geometry: string[] = [];
+    for (const [name, css] of sheets) {
+      for (const m of css.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
+        if (/\.ef-/.test(m[1])) continue;
+        const tr = m[2].match(/transition:\s*([^;]+)/)?.[1] ?? "";
+        if (/(^|,\s*)(width|height|min-height|max-height|grid-template-rows)\b/.test(tr)) geometry.push(`${name} ${m[1].trim()}`);
+      }
+    }
+    expect(geometry).toEqual([]);
+    // les surfaces ancrées entrent depuis leur déclencheur (data-side)
+    expect(shadcn).toMatch(/\[data-side="top"\]/);
+    expect(shadcn).toMatch(/\[data-starting-style\], \[data-ending-style\]/);
+    expect(tokens).toMatch(/--enter-offset:\s*4px/);
+  });
+
+  it("A13 : un repère de sélection par liste, fond seul dans les barres, survol plus léger", () => {
+    const sheets = sourceSheets();
+    expect(tokens).toMatch(/--selection-marker-w:\s*2px/);
+    expect(tokens).toMatch(/--selection-marker-h:\s*16px/);
+    // UNE règle de repère : pilule 2×16 en --selection-line + fond --bg-ctl
+    const marker = [...appCss.matchAll(/:is\(([^{]*)\)::before\s*\{([^}]*)\}/g)]
+      .find((m) => /--selection-marker-h/.test(m[2]));
+    expect(marker, "règle de repère commune").toBeTruthy();
+    for (const sel of [".sidebar li.active", ".rail-view.on", ".rail-proj.on", '.cmdk-item[data-selected="true"]', ".set-nav-item.on",
+      '.biblio-row[aria-selected="true"]', ".git-file.selected", '.narval-run[data-state="selected"]', '.exp-row[data-open="true"]']) {
+      expect(marker![1], sel).toContain(sel);
+    }
+    expect(marker![2]).toMatch(/background:\s*var\(--selection-line\)/);
+    // aucune autre marque de sélection : ni pseudo-élément accent sur un état
+    // actif, ni liseré inset 2 px (hors la sélection de modèle, réécrite ailleurs)
+    const strays: string[] = [];
+    for (const [name, css] of sheets) {
+      for (const m of css.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
+        const sel = m[1].trim();
+        if (/model-provider-row|--selection-marker/.test(sel + m[2])) continue;
+        if (/(\.on|\.active|\.selected|\.is-active|-selected="true"\]|aria-current="true"\])[^,]*::(before|after)/.test(sel)
+          && /var\(--(accent|selection-line)\)/.test(m[2])) strays.push(`${name} ${sel}`);
+        if (/(\.on|\.active|\.selected|\.is-active|="selected"\])/.test(sel)
+          && /inset 2px 0( 0)? var\(--(accent|selection-line)\)/.test(m[2])) strays.push(`${name} ${sel}`);
+      }
+    }
+    expect(strays).toEqual([]);
+    // barres horizontales : fond seul, sans soulignement
+    expect(appCss).not.toMatch(/\.topbar-surface\.on::after/);
+    expect(appCss).not.toMatch(/tabs-trigger"\]\[data-active\]\s*\{[^}]*box-shadow:\s*inset 0 -1px/);
+    const docTabs = stripComments(readFileSync(join(root, "styles", "document-tabs.css"), "utf8"));
+    expect(docTabs).not.toMatch(/\[data-active="true"\][^{]*\{[^}]*border-color/);
+    // le survol des listes reste plus léger que la sélection
+    const all = sheets.map(([, css]) => css).join("\n");
+    for (const row of ["docs-row", "biblio-folder", "kbs-rail-item", "git-commit-row", "set-nav-item", "narval-job-row"]) {
+      expect(all, `${row}:hover`).toMatch(new RegExp(`\\.${row}:hover\\s*\\{[^}]*var\\(--surface-hover\\)`));
+    }
+    // terminal actif et volet actif signalés en vue partagée
+    expect(appCss).toMatch(/\.term-grid:not\(\.single\) \.term-cell\.focus::after\s*\{[^}]*var\(--selection-line\)/);
+    expect(appCss).toMatch(/\.workspace-split \.workspace-pane\.is-focused > \.workspace-pane-tabs\s*\{[^}]*var\(--selection-line\)/);
   });
 });

@@ -5,5 +5,5 @@
 .chat-notice-title{color:var(--text-primary);font-weight:500;margin-right:8px}
 .chat-notice-hint{color:var(--text-muted);margin-left:8px}
 .chat-notice-close{flex:none}.chat-notice-close svg{width:12px;height:12px;stroke-width:1.5}
-.chat-notice-spinner{animation:chat-notice-spin 1s linear infinite}@keyframes chat-notice-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.chat-notice-spinner{animation:none}}
+
 .chat-surface-header .title{display:flex;align-items:center}.chat-surface-header .title>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chat-primary{position:relative}

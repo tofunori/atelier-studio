@@ -258,3 +258,29 @@ test("aucun bouton des éditeurs ne prend l'encre comme fond : jetons --fill-*",
     assert.match(template, new RegExp(`'${role}'`), `ROLES ${role}`);
   }
 });
+
+// THIERRY-01 : une seule barre de défilement (6 px, --scrollbar-size), celle
+// de scrollbars.css. Chaque page la charge (lien direct ou @import de sa
+// feuille), et aucune feuille ne redimensionne localement une barre : on ne
+// peut que la masquer.
+test("une seule barre de défilement : chargée partout, jamais redimensionnée", () => {
+  const importsShared = (cssRel: string) => /@import\s+url\(["']?\.\/scrollbars\.css/.test(read(cssRel));
+  const missing: string[] = [];
+  for (const page of fs.readdirSync(path.join(GALLERY, "assets")).filter(f => f.endsWith(".html"))) {
+    const html = read("assets/" + page);
+    const direct = /<link\b[^>]*href="[^"]*scrollbars\.css"/.test(html);
+    const viaSheet = [...html.matchAll(/<link\b[^>]*href="(?:\/\.fig_thumbs\/)?([\w-]+\.css)"/g)]
+      .some(m => fs.existsSync(path.join(GALLERY, "assets", m[1])) && importsShared("assets/" + m[1]));
+    if (!direct && !viaSheet) missing.push(page);
+  }
+  assert.deepEqual(missing, []);
+  const bad: string[] = [];
+  for (const r of ALL_RULES) {
+    if (r.file === "assets/scrollbars.css" || !/::-webkit-scrollbar(?![-\w])/.test(r.selector)) continue;
+    const sizes = [...decls(r.body, /width/), ...decls(r.body, /height/)];
+    const hides = /display\s*:\s*none/.test(r.body);
+    if (!hides && sizes.some(v => !/^0(px)?$/.test(v))) bad.push(`${where(r)} ${sizes.join(",")}`);
+  }
+  assert.deepEqual(bad, []);
+  assert.match(read("assets/scrollbars.css"), /--scrollbar-size:6px/);
+});

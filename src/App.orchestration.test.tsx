@@ -2080,12 +2080,12 @@ describe("orchestration App — caractérisation", () => {
     const cancelButton = document.querySelector(".edit-cancel") as HTMLButtonElement;
     expect(cancelButton.dataset.slot).toBe("button");
     expect(cancelButton.className).toContain("tw:border-border");
-    expect(cancelButton.className).toContain("tw:rounded-full");
+    expect(cancelButton.className).toContain("tw:rounded-[var(--radius-control)]");
     const sendButton = document.querySelector(".edit-send") as HTMLButtonElement;
     expect(sendButton.dataset.slot).toBe("button");
     expect(sendButton.className).toContain("tw:bg-fill-primary");
     expect(sendButton.className).not.toMatch(/\btw:bg-primary\b/);
-    expect(sendButton.className).toContain("tw:rounded-full");
+    expect(sendButton.className).toContain("tw:rounded-[var(--radius-control)]");
     fireEvent.change(textarea, { target: { value: "   " } });
     expect(sendButton.disabled).toBe(true);
     fireEvent.change(textarea, { target: { value: "Question corrigée" } });

@@ -6,13 +6,15 @@ for (const theme of ['dark', 'light']) {
     const button = page.getByRole('button', { name: 'Annuler', exact: true }).first();
     const icon = page.getByRole('button', { name: 'Réglages (moyen)', exact: true });
     await expect(button).toBeVisible();
-    for (const size of [12, 15, 18]) {
+    // A5 (PRIM-08) : la hauteur m (28 px à 15 px) suit la taille d'interface
+    // mais reste sur la grille de 4 : 24 / 28 / 32 à 12 / 15 / 18 px
+    for (const [size, height] of [[12, 24], [15, 28], [18, 32]]) {
       await page.evaluate(size => {
         document.documentElement.style.fontSize = `${size}px`;
         document.documentElement.style.setProperty('--ui-base-size', `${size}px`);
       }, size);
-      expect((await button.boundingBox())!.height).toBeCloseTo(size * 2, 1);
-      expect((await icon.boundingBox())!.height).toBeCloseTo(size * 2, 1);
+      expect((await button.boundingBox())!.height).toBeCloseTo(height, 1);
+      expect((await icon.boundingBox())!.height).toBeCloseTo(height, 1);
     }
   });
 }

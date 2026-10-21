@@ -6,7 +6,7 @@
 // récursif et cette liste partagent `sortNodes`, donc ordre visuel = ordre de
 // tabulation/flèches.
 import { Fragment, useMemo, useRef, useState } from "react";
-import { Input } from "./shadcn/input";
+import { SearchField } from "./ui/SearchField";
 import { RowButton } from "./ui";
 import { t } from "../lib/i18n";
 import "../styles/explorer.css";
@@ -133,6 +133,9 @@ export default function Explorer(p: {
   onOpen: (rel: string) => void;
   /** Le dépôt dépasse le plafond du catalogue : l'arbre est incomplet. */
   truncated?: boolean;
+  /** Fichier affiché dans le volet actif : sa rangée porte le repère de
+   *  sélection (SHELL-27). */
+  openPath?: string | null;
 }) {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -271,8 +274,10 @@ export default function Explorer(p: {
       "aria-setsize": row.size,
       "aria-selected": row.path === current,
       "aria-expanded": row.isDir ? row.open : undefined,
+      "aria-current": !row.isDir && row.path === p.openPath ? ("page" as const) : undefined,
+      "data-open": !row.isDir && row.path === p.openPath ? "true" : undefined,
       tabIndex: row.path === current ? 0 : -1,
-      style: { paddingLeft: row.depth * 14 + 8 },
+      style: { paddingLeft: row.depth * 12 + 8 },
       onFocus: () => setActive(row.path),
       onClick: () => activate(row),
     } as const;
@@ -314,7 +319,7 @@ export default function Explorer(p: {
 
   return (
     <div className="explorer">
-      <Input
+      <SearchField
         className="exp-search"
         placeholder={t("home.search-file")}
         aria-label={t("home.search-file")}
@@ -329,13 +334,24 @@ export default function Explorer(p: {
       )}
       <div className="exp-tree" role="tree" aria-label={t("atelier.file-explorer")} onKeyDown={onKeyDown}>
         {matches
-          ? rows.map((row) => (
-              <RowButton key={row.path} className="exp-row exp-file" title={row.path} {...rowProps(row)}>
-                <FileIcon name={row.name} />
-                <span className="exp-name">{row.name}</span>
-              </RowButton>
-            ))
+          ? rows.map((row) => {
+              // en recherche : le NOM d'abord (jamais rogné par un long
+              // chemin), le dossier en méta ; le nom accessible reste le chemin
+              const cut = row.path.lastIndexOf("/");
+              const name = cut >= 0 ? row.path.slice(cut + 1) : row.path;
+              const dir = cut >= 0 ? row.path.slice(0, cut) : "";
+              return (
+                <RowButton key={row.path} className="exp-row exp-file" title={row.path} aria-label={row.path} {...rowProps(row)}>
+                  <FileIcon name={name} />
+                  <span className="exp-name">{name}</span>
+                  {dir && <span className="exp-dir">{dir}</span>}
+                </RowButton>
+              );
+            })
           : roots.map((c, i) => renderNode(c, 0, null, i + 1, roots.length))}
+        {matches && matches.length === 0 && (
+          <p className="exp-empty" role="status">{t("atelier.explorer-no-match")}</p>
+        )}
       </div>
     </div>
   );

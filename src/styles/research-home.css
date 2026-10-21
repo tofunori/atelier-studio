@@ -101,12 +101,11 @@
   background: var(--surface-raised); border: 1px solid var(--border-subtle);
   border-radius: var(--radius-surface); padding: var(--sp-4);
   display: flex; flex-direction: column; gap: var(--sp-3);
-  opacity: 0; animation: rh-appear 1ms linear 350ms forwards;
+  /* apparition différée : skeleton-appear (App.css), recette commune */
 }
 .rh-skeleton .bar { height: 12px; border-radius: var(--radius-control); background: var(--surface-inset); }
 .rh-skeleton .bar.w60 { width: 60%; }
 .rh-skeleton .bar.w40 { width: 40%; }
-@keyframes rh-appear { to { opacity: 1; } }
 
 /* ---- état zéro projet : centre calme ---------------------------------------- */
 .rh-noproject { display: flex; min-height: 100%; align-items: center; justify-content: center;

@@ -54,7 +54,7 @@
   color: inherit; font: inherit; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.project-chat-tab:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -2px; }
+.project-chat-tab:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); }
 
 .project-chat-tab .ui-btn-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

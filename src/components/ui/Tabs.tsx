@@ -7,6 +7,7 @@ import {
   TabsTrigger as ShadcnTabsTrigger,
 } from "../shadcn/tabs";
 import { cx } from "./internal";
+import { CloseIcon } from "./CloseButton";
 
 type TabChildProps = {
   active?: boolean;
@@ -136,20 +137,31 @@ export function Tab({
       value={stableValue}
       aria-label={compact ? label : buttonProps["aria-label"]}
       className={cx("ui-tab", compact && "is-compact", className)}
+      onKeyDown={(event) => {
+        buttonProps.onKeyDown?.(event);
+        // la croix n'est pas un arrêt de tabulation (bouton dans un onglet) :
+        // Suppr sur l'onglet ferme, comme son aria-keyshortcuts l'annonce
+        if (!event.defaultPrevented && onClose && event.key === "Delete") {
+          event.preventDefault();
+          onClose();
+        }
+      }}
     >
       {icon && <span className="ui-tab-icon" aria-hidden="true">{icon}</span>}
       {!compact && <span className="ui-tab-label">{children ?? label}</span>}
       {onClose && !compact && (
         <span
           role="button"
+          tabIndex={-1}
           aria-label={closeLabel}
+          aria-keyshortcuts="Delete"
           className="ui-tab-close"
           onClick={(event) => {
             event.stopPropagation();
             onClose();
           }}
         >
-          {closeIcon ?? "×"}
+          {closeIcon ?? <CloseIcon size={12} />}
         </span>
       )}
     </TabsTrigger>
