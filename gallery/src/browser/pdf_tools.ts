@@ -28,7 +28,7 @@ function createAtelierPdfToolsApi(){
   }
   function stampIcon(id: unknown, size = 14){
     const s = stampById(id);
-    return '<svg viewBox="0 0 16 16" width="' + size + '" height="' + size + '" fill="none" stroke="currentColor" stroke-width="1.8"'
+    return '<svg viewBox="0 0 16 16" width="' + size + '" height="' + size + '" fill="none" stroke="currentColor" stroke-width="1.5"'
       + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + s.path + '"/></svg>';
   }
 
