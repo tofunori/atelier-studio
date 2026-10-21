@@ -23,7 +23,7 @@
 .atelier-note>*+*{margin-top:8px}
 .atelier-note button{flex:none;display:flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--text-muted,var(--muted,#969ca5));cursor:pointer;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
 .atelier-note button svg{width:16px;height:16px}
-.atelier-note textarea{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb,color-mix(in srgb,currentColor 24%,transparent)) transparent;display:block;width:100%;box-sizing:border-box;resize:none;background:transparent;border:0;outline:0;box-shadow:none;color:inherit;font:inherit;line-height:20px}
+.atelier-note textarea{display:block;width:100%;box-sizing:border-box;resize:none;background:transparent;border:0;outline:0;box-shadow:none;color:inherit;font:inherit;line-height:20px}
 .atelier-note textarea::placeholder{color:var(--text-muted,var(--muted,#969ca5))}
 .atelier-note .atelier-note-head{display:flex;align-items:center;gap:8px;margin:-4px -4px 0 0}
 .atelier-note .atelier-note-title{font-size:var(--fs-body-s,12px);font-weight:600;line-height:1.3;letter-spacing:-.01em}

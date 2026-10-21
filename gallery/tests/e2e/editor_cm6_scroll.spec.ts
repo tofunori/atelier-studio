@@ -50,7 +50,7 @@ async function firstPointerSelection(page: Page, line = 450) {
   return {before, after};
 }
 
-test('editor scrollbar keeps a stable native lane while shared surfaces keep their narrow lane', async ({page}) => {
+test('editor scrollbar keeps a stable lane and uses the single 6 px Atelier bar', async ({page}) => {
   await withLongLatex(async ({url}) => {
     await page.goto(url);
     await waitForEditor(page);
@@ -88,8 +88,10 @@ test('editor scrollbar keeps a stable native lane while shared surfaces keep the
     const metrics = {
       shortGeometry,
       longGeometry,
-      editorScrollbar: rules.find((rule) => rule.includes('.cm-editor') && rule.includes('::-webkit-scrollbar') && /width:\s*10px/.test(rule)) || '',
-      sharedScrollbar: rules.find((rule) => rule.includes('.messages') && rule.includes('::-webkit-scrollbar') && /width:\s*6px/.test(rule)) || '',
+      // THIERRY-01 : une seule barre, aucune largeur propre à l'éditeur.
+      editorScrollbar: rules.find((rule) => rule.includes('.cm-') && rule.includes('::-webkit-scrollbar') && /width:/.test(rule)) || '',
+      sharedScrollbar: rules.find((rule) => /^::-webkit-scrollbar\s*\{/.test(rule) && /width:\s*var\(--scrollbar-size\)/.test(rule)) || '',
+      scrollbarSize: await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-size').trim()),
     };
     expect(metrics.shortGeometry.gutter).toContain('stable');
     expect(metrics.longGeometry.gutter).toContain('stable');
@@ -100,11 +102,9 @@ test('editor scrollbar keeps a stable native lane while shared surfaces keep the
     expect(metrics.longGeometry.clientWidth).toBe(metrics.shortGeometry.clientWidth);
     // WebKit exposes the pseudo width through CSSOM on some releases and
     // reports `auto` on others; the loaded rule is the portable assertion.
-    expect(metrics.editorScrollbar).toMatch(/width:\s*10px/);
-    expect(metrics.editorScrollbar).toMatch(/height:\s*10px/);
-    expect(metrics.sharedScrollbar).toMatch(/width:\s*6px/);
-    expect(metrics.sharedScrollbar).toMatch(/height:\s*6px/);
-    expect(metrics.sharedScrollbar).not.toContain('.cm-scroller');
+    expect(metrics.editorScrollbar).toBe('');
+    expect(metrics.sharedScrollbar).toMatch(/height:\s*var\(--scrollbar-size\)/);
+    expect(metrics.scrollbarSize).toBe('6px');
   });
 });
 

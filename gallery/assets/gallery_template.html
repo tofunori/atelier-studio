@@ -59,6 +59,7 @@
   applyCached();
 })();
 </script>
+<link rel="stylesheet" href="/.fig_thumbs/scrollbars.css">
 <link id="galleryUiCss" rel="stylesheet">
 <style>
   button,input,select,textarea{font-family:var(--ui-font)}
@@ -74,13 +75,8 @@
          --focus-ring-width:1px;--focus-ring-offset:1px;
          --figure-paper:#fff;--figure-paper-soft:#f6f7f9;--media-bg:#000;--on-media:#fff; }
   *{box-sizing:border-box}
-  html{background:var(--bg);color-scheme:dark;scrollbar-color:var(--faint) var(--bg);scrollbar-width:thin}
-  @supports selector(::-webkit-scrollbar){html{scrollbar-width:auto;scrollbar-color:auto}}
-  ::-webkit-scrollbar{width:10px;height:10px}
-  ::-webkit-scrollbar-track{background:var(--bg)}
-  ::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--faint) 72%,transparent);
-    border:3px solid var(--bg);border-radius:999px}
-  ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+  /* barre de défilement : la règle unique de scrollbars.css (THIERRY-01) */
+  html{background:var(--bg);color-scheme:dark}
   body{margin:0;font-family:var(--ui-font);
        background:var(--bg);color:var(--txt);font-size:var(--fs-body, 13px)}
   header{position:sticky;top:0;z-index:10;background:var(--card);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);

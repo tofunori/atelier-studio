@@ -89,10 +89,9 @@ test("gallery controls and cards follow the quiet instrument geometry", () => {
   has(gallery, "box-shadow:0 3px 10px rgba(0,0,0,.14)");
 });
 
-test("gallery scrollbar track uses the theme canvas", () => {
-  has(gallery, "html{background:var(--bg);color-scheme:dark;scrollbar-color:var(--faint) var(--bg)");
-  has(gallery, "::-webkit-scrollbar-track{background:var(--bg)}");
-  has(gallery, "border:3px solid var(--bg);border-radius:999px");
+test("gallery uses the single Atelier scrollbar and a themed canvas", () => {
+  has(gallery, "html{background:var(--bg);color-scheme:dark}");
+  has(gallery, '<link rel="stylesheet" href="/.fig_thumbs/scrollbars.css">');
   has(gallery, "document.documentElement.style.colorScheme=");
   has(gallery, "(r*299+g*587+b*114)/1000>150");
   has(gallery, "html.emb{scrollbar-width:none}");

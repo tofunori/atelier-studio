@@ -36,14 +36,15 @@ function ScrollBar({
       data-orientation={orientation}
       orientation={orientation}
       className={cn(
-        "tw:flex tw:touch-none tw:p-px tw:transition-colors tw:select-none tw:data-horizontal:h-2.5 tw:data-horizontal:flex-col tw:data-horizontal:border-t tw:data-horizontal:border-t-transparent tw:data-vertical:h-full tw:data-vertical:w-2.5 tw:data-vertical:border-l tw:data-vertical:border-l-transparent",
+        // THIERRY-01 : même barre que partout (gallery/assets/scrollbars.css).
+        "tw:flex tw:touch-none tw:select-none tw:data-horizontal:h-[var(--scrollbar-size)] tw:data-horizontal:flex-col tw:data-vertical:h-full tw:data-vertical:w-[var(--scrollbar-size)]",
         className
       )}
       {...props}
     >
       <ScrollAreaPrimitive.Thumb
         data-slot="scroll-area-thumb"
-        className="tw:relative tw:flex-1 tw:rounded-full tw:bg-border"
+        className="tw:relative tw:flex-1 tw:rounded-full tw:bg-[var(--scroll-thumb)] tw:hover:bg-[var(--scroll-thumb-hover)]"
       />
     </ScrollAreaPrimitive.Scrollbar>
   )

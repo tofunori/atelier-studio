@@ -1,49 +1,50 @@
-/* Shared by host surfaces. Editors have their own hit area below so changing
-   the code viewport never changes chat, PDF, or side-panel scrolling. */
-:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport){
-  --scroll-thumb:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 38%,transparent);
-  --scroll-thumb-hover:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 65%,transparent);
+/* Barre de défilement UNIQUE d'Atelier (THIERRY-01, 2026-10-21).
+   Modèle : la barre fine du panneau du chat. Une seule règle globale pour
+   l'app React, la galerie, les éditeurs, le lecteur PDF et le terminal :
+   pouce de --scrollbar-size (6 px) en pilule, --mark-neutral au repos,
+   --mark-neutral-strong au survol, piste transparente. Aucune autre largeur
+   n'est permise ailleurs (css-contract.test.ts, design_contract.test.mts) ;
+   une zone peut seulement MASQUER sa barre (display:none / scrollbar-width:none).
+   Les replis couvrent les pages de la galerie, qui reçoivent --text-disabled
+   et --text-muted de l'app mais pas les jetons de marque. */
+:root{
+  --scrollbar-size:6px;
+  --scroll-thumb:var(--mark-neutral,var(--text-disabled,var(--faint,#62666c)));
+  --scroll-thumb-hover:var(--mark-neutral-strong,var(--text-muted,var(--muted,#90969d)));
   scrollbar-width:var(--atelier-scrollbar-width,thin);
   scrollbar-color:var(--atelier-scrollbar-color,var(--scroll-thumb) transparent);
 }
-:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar{width:6px;height:6px}
-:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-track{background:transparent}
-:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:999px}
-:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover)}
-:where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-corner{background:transparent}
+::-webkit-scrollbar{width:var(--scrollbar-size);height:var(--scrollbar-size)}
+::-webkit-scrollbar-track{background:var(--scroll-track,transparent)}
+::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:999px}
+::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover)}
+::-webkit-scrollbar-corner{background:transparent}
 
-/* WKWebView: choose the pseudo-element path exclusively, with a painted track
-   so a previous thumb cannot remain on a transparent scrolling surface. */
+/* WKWebView (et Chromium) : la voie des pseudo-éléments seule, sinon
+   scrollbar-color, hérité, l'emporterait sur ::-webkit-scrollbar. Les zones
+   historiques du chat et des panneaux gardent une piste peinte du fond, pour
+   qu'un pouce précédent ne reste pas imprimé sur une surface transparente. */
 @supports selector(::-webkit-scrollbar){
   :root{--atelier-scrollbar-width:auto;--atelier-scrollbar-color:auto}
-  :where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body,.edit-message-textarea,.xterm-viewport)::-webkit-scrollbar-track{
-    background:var(--scroll-track,var(--bg,#1e2124));
+  :where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body)::-webkit-scrollbar-track{
+    background:var(--bg,#1e2124);
   }
 }
 
-/* CodeMirror editor: keep a roughly 10 px native hit target while the painted
-   thumb stays quiet. The transparent border is part of the clickable area,
-   and `scrollbar-gutter` keeps line-wrap width stable as the bar appears. */
+/* CodeMirror : même barre, mais une voie stable (scrollbar-gutter) pour que
+   la largeur de retour à la ligne ne bouge pas quand la barre apparaît. */
 :where(.cm-editor) .cm-scroller{
-  --scroll-thumb:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 38%,transparent);
-  --scroll-thumb-hover:color-mix(in srgb,var(--text-muted,var(--muted,#90969d)) 65%,transparent);
   overflow-y:scroll;
-  scrollbar-width:thin;
-  scrollbar-color:var(--scroll-thumb) transparent;
   scrollbar-gutter:stable;
 }
-:where(.cm-editor) .cm-scroller::-webkit-scrollbar{width:10px;height:10px}
-:where(.cm-editor) .cm-scroller::-webkit-scrollbar-track{
-  background:var(--scroll-track,var(--surface-app,var(--bg,#1e2124)));
-}
-:where(.cm-editor) .cm-scroller::-webkit-scrollbar-thumb{
-  background:var(--scroll-thumb);
-  border:2px solid transparent;
-  border-radius:999px;
-  background-clip:padding-box;
-}
-:where(.cm-editor) .cm-scroller::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover);background-clip:padding-box}
-:where(.cm-editor) .cm-scroller::-webkit-scrollbar-corner{background:transparent}
-@supports selector(::-webkit-scrollbar){
-  :where(.cm-editor) .cm-scroller{scrollbar-width:auto;scrollbar-color:auto}
-}
+
+/* Terminal (xterm 6) : la barre est un élément dessiné par xterm, pas une
+   barre native ; sa largeur (14 px) et sa couleur sont posées en ligne. On
+   ramène le pouce à la même pilule, collée au bord droit. */
+.xterm .xterm-scrollable-element > .scrollbar.vertical{width:var(--scrollbar-size)!important;left:auto!important;right:0}
+.xterm .xterm-scrollable-element > .scrollbar.horizontal{height:var(--scrollbar-size)!important}
+.xterm .xterm-scrollable-element > .scrollbar.vertical > .slider{width:var(--scrollbar-size)!important;left:0!important}
+.xterm .xterm-scrollable-element > .scrollbar.horizontal > .slider{height:var(--scrollbar-size)!important}
+.xterm .xterm-scrollable-element > .scrollbar > .slider{background:var(--scroll-thumb)!important;border-radius:999px}
+.xterm .xterm-scrollable-element > .scrollbar > .slider:hover,
+.xterm .xterm-scrollable-element > .scrollbar > .slider.active{background:var(--scroll-thumb-hover)!important}

@@ -1143,3 +1143,32 @@ describe("contrat finitions (icônes, étiquettes, grille de 4)", () => {
     expect(galleryStyles).not.toMatch(/\[data-checked\][^{]*\{[^}]*background:var\(--primary(?:-foreground)?\)/);
   });
 });
+
+describe("contrat lot 2 (socle)", () => {
+  const sourceSheets = (): [string, string][] => [
+    ["App.css", appCss],
+    ...collectFiles(join(root, "styles"), [".css"])
+      .map((file) => [file, stripComments(readFileSync(file, "utf8"))] as [string, string]),
+    ...componentCssFiles.map((file) => [file, stripComments(readFileSync(file, "utf8"))] as [string, string]),
+  ];
+
+  it("THIERRY-01 : une seule barre de défilement, réglée par --scrollbar-size", () => {
+    const shared = stripComments(readFileSync(join(root, "..", "gallery", "assets", "scrollbars.css"), "utf8"));
+    expect(shared).toMatch(/:root\s*\{[^}]*--scrollbar-size:\s*6px/);
+    expect(shared).toMatch(/(^|\})\s*::-webkit-scrollbar\s*\{\s*width:\s*var\(--scrollbar-size\);\s*height:\s*var\(--scrollbar-size\)/);
+    expect(shared).toMatch(/::-webkit-scrollbar-thumb\s*\{[^}]*var\(--scroll-thumb\)/);
+    expect(shared.match(/--scrollbar-size:/g)).toHaveLength(1);
+    // le reste de l'app ne peut que MASQUER une barre, jamais la redimensionner
+    for (const [name, css] of sourceSheets()) {
+      for (const m of css.matchAll(/([^{}]*::-webkit-scrollbar[^{]*)\{([^}]*)\}/g)) {
+        const body = m[2];
+        const hides = /display:\s*none/.test(body);
+        expect(hides, `${name} : barre locale « ${m[1].trim()} »`).toBe(true);
+      }
+    }
+    expect(readFileSync(join(root, "App.css"), "utf8")).toMatch(/^@import "\.\.\/gallery\/assets\/scrollbars\.css";/);
+    const scrollArea = shadcnSources.find(([name]) => name === "scroll-area.tsx")?.[1] ?? "";
+    expect(scrollArea).toContain("w-[var(--scrollbar-size)]");
+    expect(scrollArea).not.toMatch(/tw:data-vertical:w-2\.5/);
+  });
+});

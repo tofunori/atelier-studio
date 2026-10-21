@@ -1798,11 +1798,6 @@ button.kernel-file:hover { color: var(--text-primary); }
 .edit-message-textarea { overflow-y: auto; font-family: var(--ui-font);
   font-size: var(--chat-fs, var(--fs-xl)); font-weight: inherit;
   letter-spacing: inherit; line-height: var(--chat-lh, 1.7); }
-.edit-message-textarea::-webkit-scrollbar { width: 8px; }
-.edit-message-textarea::-webkit-scrollbar-track { background: transparent; }
-.edit-message-textarea::-webkit-scrollbar-thumb { background: var(--mark-neutral);
-  border-radius: var(--r-pill); border: 2px solid transparent; background-clip: padding-box; }
-.edit-message-textarea::-webkit-scrollbar-thumb:hover { background: var(--mark-neutral-strong); }
 .edit-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 8px 8px; }
 
 .quote-pill { display: inline-flex; align-items: center; }
@@ -2717,12 +2712,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.15);
 .term-host { position: absolute; inset: 0; padding: 12px 12px 8px 16px; background: var(--bg-side); }
 .term-host .xterm { height: 100%; }
 .term-host .xterm-viewport { background: transparent !important; }
-/* scrollbar discrète, façon pilule, alignée sur le fond du terminal */
-.term-host .xterm-viewport::-webkit-scrollbar { width: 11px; }
-.term-host .xterm-viewport::-webkit-scrollbar-track { background: var(--bg); }
-.term-host .xterm-viewport::-webkit-scrollbar-thumb { background: var(--mark-neutral); border-radius: var(--r-pill);
-  border: 3px solid var(--bg-side); background-clip: padding-box; }
-.term-host .xterm-viewport::-webkit-scrollbar-thumb:hover { background: var(--mark-neutral-strong); }
+/* barre de défilement : la règle unique de gallery/assets/scrollbars.css */
 /* barre d'outils de la surface (la bascule entre surfaces vit dans le rail) */
 .surface-bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px;
   background: var(--surface-header); }
