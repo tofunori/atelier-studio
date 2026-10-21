@@ -1,6 +1,6 @@
 import { LoaderCircleIcon, PauseIcon, PlayIcon, SparklesIcon } from "lucide-react";
 import { useState } from "react";
-import { Button } from "../ui";
+import { Button } from "../ui/Button";
 import { Badge } from "../shadcn/badge";
 import { Bubble, BubbleContent } from "../shadcn/bubble";
 import {
@@ -52,6 +52,34 @@ function PausedRow({ name, onContinue }: { name: string; onContinue?: () => void
   );
 }
 
+function labelOf(peerProvider?: string, peerTitle?: string): string {
+  if (peerProvider === "opencode") return "OpenCode";
+  if (peerProvider) return peerProvider.charAt(0).toUpperCase() + peerProvider.slice(1);
+  return peerTitle || t("linkedAgent.agentFallback");
+}
+
+/** Côté envoi : rien une fois livré, sinon « réfléchit », échec ou pause. */
+function SentStatus({ status, peerLabel, pausedName, onContinue }: {
+  status: string; peerLabel: string; pausedName: string; onContinue?: () => void;
+}) {
+  if (status === "delivered") return null;
+  const failed = status === "failed";
+  return (
+    <Message align="end" className="tw:my-1" role="status" aria-live="polite">
+      {status === "paused" ? (
+        <PausedRow name={pausedName} onContinue={onContinue} />
+      ) : (
+        <MessageHeader className="tw:justify-end">
+          <Badge variant={failed ? "destructive" : "outline"}>
+            {failed ? null : <LoaderCircleIcon className="tw:animate-spin" aria-hidden="true" />}
+            {failed ? t("linkedAgent.mentionFailed") : t("linkedAgent.consulting", { provider: peerLabel })}
+          </Badge>
+        </MessageHeader>
+      )}
+    </Message>
+  );
+}
+
 export function AgentMessageCard({
   direction,
   peerProvider,
@@ -61,36 +89,12 @@ export function AgentMessageCard({
   onOpenPeer,
   onContinue,
 }: Props) {
-  const sent = direction === "sent";
-  const peerLabel = peerProvider === "opencode"
-    ? "OpenCode"
-    : peerProvider
-      ? peerProvider.charAt(0).toUpperCase() + peerProvider.slice(1)
-      : peerTitle || t("linkedAgent.agentFallback");
+  const peerLabel = labelOf(peerProvider, peerTitle);
   // Un fil délégué s'appelle « NomCourt · tâche » : la pastille garde le nom.
   const pausedName = peerTitle?.split(" · ")[0] || peerLabel;
 
-  if (sent) {
-    if (status === "delivered") return null;
-    if (status === "paused") {
-      return (
-        <Message align="end" className="tw:my-1" role="status" aria-live="polite">
-          <PausedRow name={pausedName} onContinue={onContinue} />
-        </Message>
-      );
-    }
-    return (
-      <Message align="end" className="tw:my-1" role="status" aria-live="polite">
-        <MessageHeader className="tw:justify-end">
-          <Badge variant={status === "failed" ? "destructive" : "outline"}>
-            {status !== "failed" ? <LoaderCircleIcon className="tw:animate-spin" aria-hidden="true" /> : null}
-            {status === "failed"
-              ? t("linkedAgent.mentionFailed")
-              : t("linkedAgent.consulting", { provider: peerLabel })}
-          </Badge>
-        </MessageHeader>
-      </Message>
-    );
+  if (direction === "sent") {
+    return <SentStatus status={status} peerLabel={peerLabel} pausedName={pausedName} onContinue={onContinue} />;
   }
 
   return (
