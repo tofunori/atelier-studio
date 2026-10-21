@@ -4,6 +4,7 @@ import * as React from "react"
 import { createRoot } from "react-dom/client"
 import {
   ArrowDownUp,
+  Check,
   CheckSquare2,
   ChevronDown,
   Ellipsis,
@@ -215,29 +216,29 @@ function GalleryFileTypePanel({ state, folder, collectionItems }: {
 }
 
 function presentConfirmation(request: ConfirmRequest): ConfirmPresentation {
-  const singleTrash = request.message.match(/^Move to Trash\?\s+(.+)$/)
+  const singleTrash = request.message.match(/^Déplacer dans la corbeille \?\s+(.+)$/)
   if (singleTrash) {
     const path = singleTrash[1]
     const parts = path.split("/")
     const fileName = parts.pop() || path
     const folder = parts.join("/")
     return {
-      title: `Move “${fileName}” to Trash?`,
+      title: `Déplacer « ${fileName} » dans la corbeille ?`,
       description: folder
-        ? `This removes it from ${folder}. You can recover it from Trash.`
-        : "This removes it from the project. You can recover it from Trash.",
-      acceptLabel: "Move to Trash",
+        ? `Il quitte ${folder}. Vous pourrez le récupérer dans la corbeille.`
+        : "Il quitte le projet. Vous pourrez le récupérer dans la corbeille.",
+      acceptLabel: "Déplacer dans la corbeille",
       destructive: true,
     }
   }
 
-  const bulkTrash = request.message.match(/^(\d+) file\(s\) → trash\?$/)
+  const bulkTrash = request.message.match(/^(\d+) fichier\(s\) → corbeille \?$/)
   if (bulkTrash) {
     const count = Number(bulkTrash[1])
     return {
-      title: `Move ${count} ${count === 1 ? "file" : "files"} to Trash?`,
-      description: `${count === 1 ? "This file" : "These files"} will be removed from the project. You can recover ${count === 1 ? "it" : "them"} from Trash.`,
-      acceptLabel: "Move to Trash",
+      title: `Déplacer ${count} ${count === 1 ? "fichier" : "fichiers"} dans la corbeille ?`,
+      description: `${count === 1 ? "Ce fichier quitte" : "Ces fichiers quittent"} le projet. Vous pourrez ${count === 1 ? "le" : "les"} récupérer dans la corbeille.`,
+      acceptLabel: "Déplacer dans la corbeille",
       destructive: true,
     }
   }
@@ -245,7 +246,7 @@ function presentConfirmation(request: ConfirmRequest): ConfirmPresentation {
   return {
     title: request.message,
     acceptLabel: request.acceptLabel,
-    destructive: ["Delete", "Discard", "Supprimer"].includes(request.acceptLabel),
+    destructive: ["Delete", "Discard", "Supprimer", "Abandonner"].includes(request.acceptLabel),
   }
 }
 
@@ -256,6 +257,20 @@ function GalleryToolbar() {
   const selectionMoreRef = React.useRef<HTMLButtonElement>(null)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
+  // État de l'export, rendu dans la barre (le bouton hérité #exportSel est masqué)
+  const [exportState, setExportState] = React.useState<{ kind: "idle" | "running" } | { kind: "done"; count: number; path: string } | { kind: "error"; error: string }>({ kind: "idle" })
+  const exportTimer = React.useRef(0)
+  React.useEffect(() => () => window.clearTimeout(exportTimer.current), [])
+  const runExport = (mode: string) => {
+    const adapter = window.__gallerySelection
+    if (!adapter) return
+    window.clearTimeout(exportTimer.current)
+    setExportState({ kind: "running" })
+    void adapter.exportTo(mode).then((result) => {
+      setExportState(result.ok ? { kind: "done", count: result.count, path: result.path } : { kind: "error", error: result.error })
+      exportTimer.current = window.setTimeout(() => setExportState({ kind: "idle" }), 6000)
+    })
+  }
   const search = get<HTMLInputElement>("q")?.value ?? ""
   const sort = get<HTMLSelectElement>("sort")
   const folder = get<HTMLSelectElement>("folder")
@@ -264,11 +279,11 @@ function GalleryToolbar() {
   const collectionItems = legacyItems("collMenu", "[data-pick]")
   const recentItems = legacyItems("recMenu", "[data-rec]")
   const fileTypeState = window.__galleryFileTypes?.getState() ?? {
-    projectName: "this project",
+    projectName: "ce projet",
     types: legacyItems("fmtMenu", "input[data-fmt]").map((item) => ({
       key: item.key, label: stripLegacyCount(item.label), active: item.active, pinned: false,
     })),
-    pinned: [], presets: [], summary: "File types",
+    pinned: [], presets: [], summary: "Types de fichiers",
   }
   const selection = window.__gallerySelection?.getState() ?? { rels: [], imageCount: 0 }
   const activeFilterCount = document.querySelectorAll("#activeChips [data-fx]").length
@@ -383,9 +398,30 @@ function GalleryToolbar() {
           <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="compare" onClick={() => selectionAdapter?.compare()}>Comparer</Button>
         )}
         <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="collect" title="Ajouter à une collection" onClick={(event) => { event.stopPropagation(); selectionAdapter?.collect(event.currentTarget) }}>Collecter</Button>
-        <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="export" onClick={(event) => { event.stopPropagation(); selectionAdapter?.export(event.currentTarget) }}>
-          Exporter <ChevronDown data-icon="inline-end" />
-        </Button>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger render={
+            <Button className="gallery-selection-inline" variant="outline" size="sm" data-gallery-selection-action="export" disabled={exportState.kind === "running"} onClick={(event) => event.stopPropagation()}>
+              {exportState.kind === "running" && <Spinner data-icon="inline-start" />}
+              Exporter <ChevronDown data-icon="inline-end" />
+            </Button>
+          } />
+          <DropdownMenuContent align="end" className="tw:w-52">
+            {(selectionAdapter?.exportModes() ?? []).map(({ mode, label }) => (
+              <DropdownMenuItem key={mode} data-exp={mode} onClick={(event) => { event.stopPropagation(); runExport(mode) }}>{label}</DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {exportState.kind === "done" && (
+          <Tooltip label={exportState.path}>
+            <span className="gallery-export-status" role="status" tabIndex={0}>
+              <Check aria-hidden="true" />
+              {exportState.count} {exportState.count > 1 ? "fichiers exportés" : "fichier exporté"}
+            </span>
+          </Tooltip>
+        )}
+        {exportState.kind === "error" && (
+          <span className="gallery-export-status" data-state="error" role="status">Échec de l’export : {exportState.error}</span>
+        )}
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger render={<Button ref={selectionMoreRef} variant="ghost" size="icon-sm" aria-label="Autres actions de sélection"><Ellipsis /></Button>} />
           <DropdownMenuContent align="end" className="tw:w-48">
@@ -404,7 +440,14 @@ function GalleryToolbar() {
                   remonte sinon jusqu'au listener global de la galerie, qui
                   referme aussitôt le menu hérité qu'on vient d'ouvrir. */}
               <DropdownMenuItem onClick={(event) => { event.stopPropagation(); selectionMoreRef.current && selectionAdapter?.collect(selectionMoreRef.current) }}>Ajouter à une collection</DropdownMenuItem>
-              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); selectionMoreRef.current && selectionAdapter?.export(selectionMoreRef.current) }}>Exporter</DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Exporter</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {(selectionAdapter?.exportModes() ?? []).map(({ mode, label }) => (
+                    <DropdownMenuItem key={mode} onClick={(event) => { event.stopPropagation(); runExport(mode) }}>{label}</DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </DropdownMenuGroup>
             <DropdownMenuSeparator className="gallery-selection-overflow" />
             <DropdownMenuGroup>
@@ -430,7 +473,7 @@ function GalleryToolbar() {
   return (
     <div className="gallery-command-bar" role="toolbar" aria-label="Commandes de la galerie" data-gallery-toolbar-state="normal">
       <EmbeddedProjectFolderMenu />
-      <div className="gallery-command-group" data-gallery-group="filter" role="group" aria-label="Search and filter gallery">
+      <div className="gallery-command-group" data-gallery-group="filter" role="group" aria-label="Rechercher et filtrer la galerie">
       <Popover open={searchOpen} onOpenChange={(open) => {
         setSearchOpen(open)
         if (open) setFiltersOpen(false)
@@ -453,7 +496,7 @@ function GalleryToolbar() {
         </Tooltip>
         <PopoverContent align="start" sideOffset={6} className="gallery-search-popover tw:gap-0 tw:p-2">
           <PopoverTitle className="tw:sr-only">Rechercher des fichiers</PopoverTitle>
-          <PopoverDescription className="tw:sr-only">Search by file name or folder</PopoverDescription>
+          <PopoverDescription className="tw:sr-only">Rechercher par nom de fichier ou dossier</PopoverDescription>
           <InputGroup data-gallery-command-group="search">
             <InputGroupInput
               aria-label="Rechercher des fichiers"
@@ -573,7 +616,7 @@ function GalleryConfirmDialog() {
   }, [])
 
   React.useEffect(() => {
-    window.__galleryConfirm = (message, acceptLabel = "Delete") =>
+    window.__galleryConfirm = (message, acceptLabel = "Supprimer") =>
       new Promise<boolean>((resolve) => {
         if (requestRef.current) requestRef.current.resolve(false)
         const next = { message, acceptLabel, resolve }
@@ -604,13 +647,13 @@ function GalleryConfirmDialog() {
           )}
         </AlertDialogHeader>
         <AlertDialogFooter variant="plain">
-          <AlertDialogCancel variant="ghost" onClick={() => settle(false)}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel variant="ghost" onClick={() => settle(false)}>Annuler</AlertDialogCancel>
           <AlertDialogAction
             variant={presentation?.destructive ? "destructive" : "default"}
             data-gallery-confirm="accept"
             onClick={() => settle(true)}
           >
-            {presentation?.acceptLabel || "Delete"}
+            {presentation?.acceptLabel || "Supprimer"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -621,7 +664,7 @@ function GalleryConfirmDialog() {
 function GalleryInspector() {
   const [open, setOpen] = React.useState(document.body.classList.contains("has-insp"))
   const [modal, setModal] = React.useState(() => window.matchMedia("(max-width: 800px)").matches)
-  const [title, setTitle] = React.useState(get<HTMLElement>("inspTitle")?.textContent || "Inspector")
+  const [title, setTitle] = React.useState(get<HTMLElement>("inspTitle")?.textContent || "Informations")
   const legacyInspectorRef = React.useRef(get<HTMLElement>("inspector"))
 
   const attachLegacyBody = React.useCallback((host: HTMLDivElement | null) => {
@@ -640,7 +683,7 @@ function GalleryInspector() {
     const sync = () => {
       const embedded = document.documentElement.classList.contains("emb")
       setOpen(!embedded && document.body.classList.contains("has-insp"))
-      setTitle(get<HTMLElement>("inspTitle")?.textContent || "Inspector")
+      setTitle(get<HTMLElement>("inspTitle")?.textContent || "Informations")
     }
     const observer = new MutationObserver(sync)
     observer.observe(document.body, { attributes: true, attributeFilter: ["class"] })
@@ -680,7 +723,7 @@ function GalleryInspector() {
       >
         <SheetHeader className="tw:border-b tw:border-border tw:pr-12">
           <SheetTitle>{title}</SheetTitle>
-          <SheetDescription className="tw:sr-only">File metadata and gallery actions</SheetDescription>
+          <SheetDescription className="tw:sr-only">Métadonnées du fichier et actions de la galerie</SheetDescription>
         </SheetHeader>
         <div ref={attachLegacyBody} className="tw:flex tw:min-h-0 tw:flex-1 tw:flex-col" />
       </SheetContent>

@@ -31,7 +31,7 @@
       (document.getElementById("unifiedButton") as HTMLButtonElement).setAttribute("aria-pressed", String(layout === "unified"));
       (document.getElementById("splitButton") as HTMLButtonElement).setAttribute("aria-pressed", String(layout === "split"));
       (document.getElementById("wrapButton") as HTMLButtonElement).setAttribute("aria-pressed", String(overflow === "wrap"));
-      (document.getElementById("wrapButton") as HTMLButtonElement).title = overflow === "wrap" ? "Disable line wrapping" : "Wrap long lines";
+      (document.getElementById("wrapButton") as HTMLButtonElement).title = overflow === "wrap" ? "Désactiver le retour à la ligne" : "Activer le retour à la ligne";
       if (renderer) renderer.setOptions({diffStyle: layout, overflow: overflow, themeType: themeType});
     }
     (document.getElementById("unifiedButton") as HTMLButtonElement).onclick = function () { layout = "unified"; updateOptions(); };
@@ -46,13 +46,13 @@
     function jsonFetch(url: string|URL|Request) {
       return fetch(url).then(async function (response) {
         var data = await response.json().catch(function () { return {}; });
-        if (!response.ok || data.error) throw new Error(data.error || "Unable to load file");
+        if (!response.ok || data.error) throw new Error(data.error || "Impossible de charger le fichier");
         return data;
       });
     }
     try {
-      if (!path) throw new Error("Missing file path");
-      if (!base) throw new Error("Missing turn snapshot");
+      if (!path) throw new Error("Chemin du fichier manquant");
+      if (!base) throw new Error("Instantané du tour manquant");
       var results = await Promise.allSettled([
         jsonFetch("/githead?path=" + encodeURIComponent(path) + "&base=" + encodeURIComponent(base)),
         jsonFetch("/code?path=" + encodeURIComponent(path))
@@ -66,7 +66,7 @@
         {diffStyle: layout, overflow: overflow, themeType: themeType});
       (document.getElementById("additions") as HTMLSpanElement).textContent = "+" + renderer.stats.additions;
       (document.getElementById("deletions") as HTMLSpanElement).textContent = "−" + renderer.stats.deletions;
-      (document.getElementById("summary") as HTMLDivElement).textContent = "1 file changed · +" + renderer.stats.additions + " −" + renderer.stats.deletions;
+      (document.getElementById("summary") as HTMLDivElement).textContent = "1 fichier modifié · +" + renderer.stats.additions + " −" + renderer.stats.deletions;
       document.documentElement.dataset.diffReady = "true";
       updateOptions();
     } catch (error) {
@@ -74,7 +74,7 @@
       errorState.className = "status error";
       errorState.textContent = String(error && error.message || error);
       host.replaceChildren(errorState);
-      (document.getElementById("summary") as HTMLDivElement).textContent = "Diff unavailable";
+      (document.getElementById("summary") as HTMLDivElement).textContent = "Comparaison indisponible";
       document.documentElement.dataset.diffReady = "error";
     }
   });

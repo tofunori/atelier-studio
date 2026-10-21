@@ -78,16 +78,21 @@ export function createStudioFilePicker(options: StudioFilePickerOptions): Studio
   const open = (target: string): void => {
     win.location.href = `/.fig_thumbs/${studioPageForPath(target)}?path=${encodeURIComponent(target)}`;
   };
+  // EDIT-08 : icônes SVG monochromes (16 px de colonne) au lieu des emojis.
+  const svg = (d: string): string => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+  const ICONS = {
+    clock: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+    folder: svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+    up: svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v6"/>'),
+    file: svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>'),
+  };
+  const row = (icon: string, name: string, sub = ""): string =>
+    `<span class="pk-ic">${icon}</span><span class="pk-name">${escapeHtml(name)}</span>${sub ? `<span class="pk-sub">${escapeHtml(sub)}</span>` : ""}`;
   const append = (label: string, className: string, activate: () => void): HTMLButtonElement => {
     const item = doc.createElement("button");
     item.type = "button";
     item.innerHTML = label;
-    item.className = className;
-    // Les deux coquilles historiques stylent leurs rangées div : ce bouton
-    // conserve leur métrique tout en apportant Entrée/Espace nativement.
-    item.style.cssText = "display:flex;gap:8px;width:100%;padding:7px 14px;border:0;background:transparent;color:inherit;text-align:left;font:var(--fs-body,13px) var(--ui-font);cursor:pointer";
-    item.onfocus = () => { item.style.background = "var(--surface-hover,var(--border))"; };
-    item.onblur = () => { item.style.background = "transparent"; };
+    item.className = className ? `pk-row ${className}` : "pk-row";
     item.onclick = activate;
     options.list.appendChild(item);
     return item;
@@ -110,19 +115,18 @@ export function createStudioFilePicker(options: StudioFilePickerOptions): Studio
       options.pathLabel.textContent = payload.path.replace(/^\/Users\/[^/]+/, "~");
       const recent = recentStudioFiles(storage).filter((path) => path !== options.currentPath);
       if (recent.length) {
-        recent.forEach((path) => append(`&#128337; ${escapeHtml(path.split("/").pop() || path)}`
-          + ` <span style="color:var(--muted);font-size:var(--fs-label,11px)">${escapeHtml(path.replace(/^\/Users\/[^/]+\/Documents\//, "").replace(/\/[^/]*$/, ""))}</span>`,
-        "", () => open(path)));
+        recent.forEach((path) => append(row(ICONS.clock, path.split("/").pop() || path,
+          path.replace(/^\/Users\/[^/]+\/Documents\//, "").replace(/\/[^/]*$/, "")), "", () => open(path)));
         const separator = doc.createElement("div");
         separator.setAttribute("role", "separator");
-        separator.style.cssText = "border-bottom:1px solid var(--border);margin:4px 0;padding:0;height:1px";
+        separator.className = "pk-sep";
         options.list.appendChild(separator);
       }
-      if (payload.parent) append("&#8617; ..", "d", () => { void show(payload.parent); });
+      if (payload.parent) append(row(ICONS.up, "Dossier parent"), "d", () => { void show(payload.parent); });
       payload.items.filter((item) => item.dir).forEach((item) =>
-        append(`&#128193; ${escapeHtml(item.name)}`, "d", () => { void show(`${payload.path}/${item.name}`); }));
+        append(row(ICONS.folder, item.name), "d", () => { void show(`${payload.path}/${item.name}`); }));
       payload.items.filter((item) => !item.dir && editable.test(item.name)).forEach((item) =>
-        append(escapeHtml(item.name), "", () => open(`${payload.path}/${item.name}`)));
+        append(row(ICONS.file, item.name), "", () => open(`${payload.path}/${item.name}`)));
       if (!options.list.children.length) options.pathLabel.textContent += " — Aucun fichier compatible";
     } catch (error) {
       if (current !== request) return;

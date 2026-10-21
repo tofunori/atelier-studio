@@ -88,7 +88,7 @@ function reviewTheme(themeType: string) {
     ".cm-collapsedLines": {color: colors.gutter, borderColor: colors.border},
     ".cm-chunkButtons button": {
       color: colors.gutter, backgroundColor: "transparent", border: `1px solid ${colors.border}`,
-      borderRadius: "5px", fontFamily: "var(--ui-font, -apple-system, sans-serif)",
+      borderRadius: "6px", fontFamily: "var(--ui-font, -apple-system, sans-serif)",
     },
   }, {dark: !light});
 }

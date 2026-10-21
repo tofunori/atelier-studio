@@ -65,7 +65,7 @@ test("Markdown only saves once while pending and keeps edits made during the req
   assert.equal(f.text(), "version 2");
   f.setWriter(() => response({mtime:14})); await f.save();
   assert.equal(f.state().dirty, false);
-  assert.match(f.win.document.getElementById("state").textContent, /sauvegardé/);
+  assert.match(f.win.document.getElementById("state").textContent, /Enregistré/);
 });
 
 test("Markdown conflict keeps the buffer and allows an explicit retry with the disk mtime", async t => {
@@ -73,7 +73,7 @@ test("Markdown conflict keeps the buffer and allows an explicit retry with the d
   f.edit("mine"); f.setWriter(() => response({error:"conflit",mtime:15}, false)); await f.save();
   assert.equal(f.state().dirty, true);
   assert.equal(f.state().diskMtime, 15);
-  assert.match(f.win.document.getElementById("state").textContent, /conflit/);
+  assert.match(f.win.document.getElementById("state").textContent, /Conflit/);
   f.setWriter((_url, init: { body: string; }) => {assert.equal(JSON.parse(init.body).mtime,15);return response({mtime:16});});
   await f.save(); assert.equal(f.state().dirty, false);
 });

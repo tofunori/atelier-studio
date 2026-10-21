@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -37,28 +37,28 @@
     body { font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif; }
     button { font: inherit; }
     .topbar {
-      position: sticky; top: 0; z-index: 20; min-height: 52px; padding: 8px 14px;
+      position: sticky; top: 0; z-index: 20; min-height: 52px; padding: 8px 16px;
       display: flex; align-items: center; gap: 12px;
       background: color-mix(in srgb, var(--surface-panel, var(--panel)) 94%, transparent);
       border-bottom: 1px solid var(--border-subtle, var(--border)); backdrop-filter: blur(16px);
     }
     .title { font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
-    .summary { color: var(--text-tertiary, var(--muted)); white-space: nowrap; }
+    .summary { color: var(--text-tertiary, var(--muted)); white-space: nowrap; font-variant-numeric: tabular-nums; }
     .spacer { flex: 1; }
     .segmented { display: inline-flex; padding: 2px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 6px; background: var(--surface-inset, var(--diff-surface)); }
     .segmented button, .icon-button {
       border: 0; color: var(--text-tertiary, var(--muted)); background: transparent; cursor: pointer;
     }
     .segmented button { padding: 4px 8px; border-radius: 6px; font-size: 12px; }
-    .segmented button[aria-pressed="true"] { color: var(--text-primary, var(--text)); background: var(--surface-raised, var(--raised)); box-shadow: 0 1px 2px rgb(0 0 0 / 20%); }
-    .icon-button { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; }
+    .segmented button[aria-pressed="true"] { color: var(--primary, var(--accent)); background: color-mix(in srgb, var(--primary, var(--accent)) 13%, transparent); }
+    .icon-button { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; }
     .icon-button:hover { color: var(--text-primary, var(--text)); background: var(--surface-raised, var(--raised)); }
     .segmented button:focus-visible, .icon-button:focus-visible { outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent)); outline-offset:var(--focus-ring-offset,1px); }
-    .review { padding: 12px 14px 28px; }
+    .review { padding: 12px 16px 32px; }
     .file-card { overflow: clip; border: 1px solid var(--border-subtle, var(--border)); border-radius: 10px; background: var(--surface-panel, var(--panel)); }
     .file-header {
-      position: sticky; top: 52px; z-index: 10; min-height: 42px; padding: 7px 11px;
-      display: flex; align-items: center; gap: 9px; border-bottom: 1px solid var(--border-subtle, var(--border));
+      position: sticky; top: 52px; z-index: 10; min-height: 40px; padding: 8px 12px;
+      display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border-subtle, var(--border));
       background: var(--surface-raised, var(--raised));
     }
     .file-icon { color: var(--text-tertiary, var(--muted)); display: grid; place-items: center; }
@@ -72,10 +72,13 @@
     #diffHost .cm-mergeViewEditor { min-width: 0; }
     .status { display: grid; place-items: center; min-height: 180px; padding: 24px; color: var(--text-tertiary, var(--muted)); text-align: center; }
     .status.error { color: var(--status-error, var(--red)); }
-    .spinner { width: 16px; height: 16px; margin-bottom: 10px; border: 2px solid var(--border-subtle, var(--border)); border-top-color: var(--accent-base, var(--accent)); border-radius: 50%; animation: spin .8s linear infinite; }
+    /* Spinner unique (TRANS-08) : arc de 270° au trait 1,4, vitesse --motion-spin. */
+    .spinner { display: block; width: 16px; height: 16px; margin: 0 auto 8px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; animation: spin var(--motion-spin, .9s) linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+    .icon-button svg, .file-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
     @media (max-width: 720px) {
-      .topbar { gap: 7px; padding-inline: 8px; }
+      .topbar { gap: 8px; padding-inline: 8px; }
       .summary { display: none; }
       .review { padding: 8px 0 20px; }
       .file-card { border-left: 0; border-right: 0; border-radius: 0; }
@@ -86,26 +89,26 @@
 </head>
 <body>
   <header class="topbar">
-    <button class="icon-button" id="openFile" title="Open file" aria-label="Open file">←</button>
-    <div class="title">Review changes</div>
-    <div class="summary" id="summary">Loading snapshot…</div>
+    <button class="icon-button" id="openFile" title="Ouvrir le fichier" aria-label="Ouvrir le fichier"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7M19 12H5"/></svg></button>
+    <div class="title">Revue des modifications</div>
+    <div class="summary" id="summary">Chargement de l’instantané…</div>
     <div class="spacer"></div>
-    <div class="segmented" aria-label="Diff layout">
-      <button id="unifiedButton" aria-pressed="true">Unified</button>
-      <button id="splitButton" aria-pressed="false">Split</button>
+    <div class="segmented" role="group" aria-label="Disposition de la comparaison">
+      <button id="unifiedButton" aria-pressed="true">Unifié</button>
+      <button id="splitButton" aria-pressed="false">Côte à côte</button>
     </div>
-    <button class="icon-button" id="wrapButton" title="Disable line wrapping" aria-label="Toggle line wrapping" aria-pressed="true">↵</button>
+    <button class="icon-button" id="wrapButton" title="Désactiver le retour à la ligne" aria-label="Retour à la ligne" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h15a3 3 0 1 1 0 6h-4M3 18h7"/><path d="m16 16-2 2 2 2"/></svg></button>
   </header>
   <main class="review">
     <section class="file-card">
       <div class="file-header">
-        <span class="file-icon" aria-hidden="true">◇</span>
+        <span class="file-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></span>
         <span class="path" id="filePath"></span>
         <span class="spacer"></span>
         <span class="additions" id="additions"></span>
         <span class="deletions" id="deletions"></span>
       </div>
-      <div id="diffHost"><div class="status"><div><div class="spinner"></div>Preparing diff…</div></div></div>
+      <div id="diffHost"><div class="status"><div><svg class="spinner" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>Préparation de la comparaison…</div></div></div>
     </section>
   </main>
   <script data-atelier-source="gallery/src/browser/pages/diff_viewer_2.ts">
@@ -141,7 +144,7 @@
       (document.getElementById("unifiedButton")                     ).setAttribute("aria-pressed", String(layout === "unified"));
       (document.getElementById("splitButton")                     ).setAttribute("aria-pressed", String(layout === "split"));
       (document.getElementById("wrapButton")                     ).setAttribute("aria-pressed", String(overflow === "wrap"));
-      (document.getElementById("wrapButton")                     ).title = overflow === "wrap" ? "Disable line wrapping" : "Wrap long lines";
+      (document.getElementById("wrapButton")                     ).title = overflow === "wrap" ? "Désactiver le retour à la ligne" : "Activer le retour à la ligne";
       if (renderer) renderer.setOptions({diffStyle: layout, overflow: overflow, themeType: themeType});
     }
     (document.getElementById("unifiedButton")                     ).onclick = function () { layout = "unified"; updateOptions(); };
@@ -156,13 +159,13 @@
     function jsonFetch(url                    ) {
       return fetch(url).then(async function (response) {
         var data = await response.json().catch(function () { return {}; });
-        if (!response.ok || data.error) throw new Error(data.error || "Unable to load file");
+        if (!response.ok || data.error) throw new Error(data.error || "Impossible de charger le fichier");
         return data;
       });
     }
     try {
-      if (!path) throw new Error("Missing file path");
-      if (!base) throw new Error("Missing turn snapshot");
+      if (!path) throw new Error("Chemin du fichier manquant");
+      if (!base) throw new Error("Instantané du tour manquant");
       var results = await Promise.allSettled([
         jsonFetch("/githead?path=" + encodeURIComponent(path) + "&base=" + encodeURIComponent(base)),
         jsonFetch("/code?path=" + encodeURIComponent(path))
@@ -176,7 +179,7 @@
         {diffStyle: layout, overflow: overflow, themeType: themeType});
       (document.getElementById("additions")                   ).textContent = "+" + renderer.stats.additions;
       (document.getElementById("deletions")                   ).textContent = "−" + renderer.stats.deletions;
-      (document.getElementById("summary")                  ).textContent = "1 file changed · +" + renderer.stats.additions + " −" + renderer.stats.deletions;
+      (document.getElementById("summary")                  ).textContent = "1 fichier modifié · +" + renderer.stats.additions + " −" + renderer.stats.deletions;
       document.documentElement.dataset.diffReady = "true";
       updateOptions();
     } catch (error) {
@@ -184,7 +187,7 @@
       errorState.className = "status error";
       errorState.textContent = String(error && error.message || error);
       host.replaceChildren(errorState);
-      (document.getElementById("summary")                  ).textContent = "Diff unavailable";
+      (document.getElementById("summary")                  ).textContent = "Comparaison indisponible";
       document.documentElement.dataset.diffReady = "error";
     }
   });

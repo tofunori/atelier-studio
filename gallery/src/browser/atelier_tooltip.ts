@@ -48,6 +48,8 @@ function installAtelierTooltip(): AtelierTooltipApi {
   let addedDescribedBy = false;
   let timer = 0;
   let warmUntil = 0;
+  let hideTimer = 0;
+  const HIDE_FADE_MS = 120;
   let bubble: HTMLDivElement | null = null;
   let observer: MutationObserver | null = null;
 
@@ -60,17 +62,18 @@ function installAtelierTooltip(): AtelierTooltipApi {
       style.id = "atelier-tooltip-style";
       style.textContent = ".atelier-tooltip{position:fixed;left:0;top:0;z-index:2147483647;pointer-events:none;"
         + "box-sizing:border-box;max-width:280px;padding:4px 8px;border:0;border-radius:6px;"
-        + "background:var(--surface-overlay,var(--card,#24282d));color:var(--text-primary,var(--txt,#dadee3));"
+        // GAL-26 : même bulle que .ui-tooltip du shell (texte secondaire,
+        // interligne 1.4, fondu d'opacité seul, à l'entrée comme à la sortie)
+        + "background:var(--surface-overlay,var(--card,#24282d));color:var(--text-secondary,var(--text-primary,var(--txt,#dadee3)));"
         + "box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px rgba(0,0,0,.25)));"
-        + "font:400 11px/1.3 var(--font-chrome,var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif));"
+        + "font:400 11px/1.4 var(--font-chrome,var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif));"
         + "letter-spacing:0;text-align:left;white-space:normal;overflow-wrap:break-word;"
-        + "opacity:0;transform:translateY(-2px);"
-        + "transition:opacity 120ms var(--ease-out,ease-out),transform 120ms var(--ease-out,ease-out)}"
-        + ".atelier-tooltip[data-open]{opacity:1;transform:none}"
+        + "opacity:0;transition:opacity 120ms var(--ease-out,ease-out)}"
+        + ".atelier-tooltip[data-open]{opacity:1}"
         + ".atelier-tooltip[hidden]{display:none}"
         + ".atelier-tooltip-key{margin-left:8px;color:var(--text-muted,var(--muted,#90969d));font-variant-numeric:tabular-nums;white-space:nowrap}"
         + ".atelier-tooltip-key:empty{display:none}"
-        + "@media (prefers-reduced-motion:reduce){.atelier-tooltip{transition:none;transform:none}}";
+        + "@media (prefers-reduced-motion:reduce){.atelier-tooltip{transition:none}}";
       (document.head || document.documentElement).appendChild(style);
     }
     bubble = document.createElement("div");
@@ -135,6 +138,7 @@ function installAtelierTooltip(): AtelierTooltipApi {
     timer = 0;
     if (!current || !current.isConnected) { release(); return; }
     const el = ensureBubble();
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0; }
     el.hidden = false;
     render();
     if (!current) return;
@@ -152,7 +156,10 @@ function installAtelierTooltip(): AtelierTooltipApi {
     if (!bubble || bubble.hidden) return;
     if (warm) warmUntil = now() + WARM_WINDOW_MS;
     bubble.removeAttribute("data-open");
-    bubble.hidden = true;
+    // la sortie fond en 120 ms avant de retirer la bulle (hidden la couperait net)
+    const leaving = bubble;
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = window.setTimeout(() => { hideTimer = 0; if (!leaving.hasAttribute("data-open")) leaving.hidden = true; }, HIDE_FADE_MS);
   }
 
   /** Prend le title de l'élément : la bulle native ne s'ouvre plus, element.title reste lisible. */

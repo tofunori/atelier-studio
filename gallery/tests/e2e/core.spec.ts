@@ -148,7 +148,7 @@ test('browse: search filters the generated gallery cards', async ({ page }) => {
     // Un type désactivé explicitement se combine avec la requête texte.
     await page.getByRole('button', { name: /Rechercher/ }).click();
     await page.locator('[data-gallery-command="search"]').fill('plot-alpha.svg');
-    await expect(page.locator('#grid .empty')).toContainText('No matching files');
+    await expect(page.locator('#grid .empty')).toContainText('Aucun fichier ne correspond');
   });
 });
 
@@ -223,7 +223,7 @@ test('chat bridge: show focuses known figures and reports missing paths', async 
     });
     await expect(page.locator('#grid .card')).toHaveCount(2);
     await expect(page.locator('#grid .selbox.on')).toHaveCount(2);
-    await expect(page.locator('#activeChips')).toContainText('Chat focus: 2');
+    await expect(page.locator('#activeChips')).toContainText('Fichiers du chat : 2');
     // Arrêter les chargements de miniatures avant que withGallery supprime le
     // projet temporaire; sinon macOS peut recréer .fig_thumbs pendant rmSync.
     await page.goto(url);
@@ -277,14 +277,14 @@ test('chat bridge: open, compare and reset drive the existing gallery surfaces',
     });
     await expect(page.locator('#cmp')).toHaveClass(/show/);
     await expect(page.locator('#cmpInner .cmpCell')).toHaveCount(2);
-    await expect(page.locator('#activeChips')).toContainText('Chat focus: 2');
+    await expect(page.locator('#activeChips')).toContainText('Fichiers du chat : 2');
 
     await expect(send('reset', 'all', [], 'e2e-reset')).resolves.toMatchObject({
       ok: true, action: 'reset', applied: true, matched: [], missing: [],
     });
     await expect(page.locator('#cmp')).not.toHaveClass(/show/);
     await expect(page.locator('#grid .card')).toHaveCount(3);
-    await expect(page.locator('#activeChips')).not.toContainText('Chat focus');
+    await expect(page.locator('#activeChips')).not.toContainText('Fichiers du chat');
     await page.goto(url);
   });
 });
@@ -330,8 +330,8 @@ test('export and delete use selected files without mutating disk when endpoints 
     await page.getByRole('button', { name: 'Autres actions de sélection' }).click();
     await page.getByRole('menuitem', { name: 'Déplacer dans la corbeille' }).click();
     await expect(page.getByRole('alertdialog')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Move 1 file to Trash?' })).toBeVisible();
-    await expect(page.getByRole('alertdialog')).toContainText('You can recover it from Trash.');
+    await expect(page.getByRole('heading', { name: 'Déplacer 1 fichier dans la corbeille ?' })).toBeVisible();
+    await expect(page.getByRole('alertdialog')).toContainText('Vous pourrez le récupérer dans la corbeille.');
     await expect(page.locator('[data-slot="alert-dialog-media"]')).toBeVisible();
     await page.locator('[data-gallery-confirm="accept"]').click();
     await expect.poll(() => calls.delete).toEqual({ rels: ['plot-beta.svg'] });
@@ -521,9 +521,9 @@ test('filters: workflow filter via popover shows an active chip, reset restores 
     await page.getByRole('combobox', {name:'Filtrer par statut'}).click();
     await page.getByRole('option', {name:'Brouillon',exact:true}).click();
 
-    await expect(page.locator('#activeChips .fchip').first()).toContainText('Status: Draft');
+    await expect(page.locator('#activeChips .fchip').first()).toContainText('Statut : Brouillon');
     await expect(page.locator('[data-gallery-command="filters"]')).toHaveAttribute('aria-label','Filtres, 1 actifs');
-    await expect(page.locator('#grid .empty')).toContainText('No matching files');
+    await expect(page.locator('#grid .empty')).toContainText('Aucun fichier ne correspond');
 
     // suppression via la chip → grille restaurée, compteur remis à zéro
     await page.getByRole('button',{name:'Réinitialiser',exact:true}).click();
@@ -788,12 +788,12 @@ test('workflow: status set from the card menu survives a reload (server-backed)'
     await page.locator('.card[data-card="plot-alpha.svg"]').hover();
     await page.locator('[data-act="more"][data-rel="plot-alpha.svg"]').click();
     await page.locator('[data-wfset="candidate"]').click();
-    await expect(page.locator('.card[data-card="plot-alpha.svg"] .tag.wf')).toContainText('candidate');
+    await expect(page.locator('.card[data-card="plot-alpha.svg"] .tag.wf')).toContainText('Candidat');
     // le POST /state est débouncé (400 ms) — attendre qu'il parte
     await page.waitForTimeout(700);
 
     await page.reload();
-    await expect(page.locator('.card[data-card="plot-alpha.svg"] .tag.wf')).toContainText('candidate');
+    await expect(page.locator('.card[data-card="plot-alpha.svg"] .tag.wf')).toContainText('Candidat');
     await page.locator('.card[data-card="plot-alpha.svg"]').hover();
     await page.locator('[data-act="more"][data-rel="plot-alpha.svg"]').click();
     await expect(page.locator('[data-wfset="candidate"]').locator('..')).toHaveClass(/on/);

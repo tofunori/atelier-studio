@@ -3,18 +3,24 @@
   button,input,select,textarea{font-family:var(--ui-font)}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column}
-  header{background:var(--card);border-bottom:1px solid var(--border);padding:6px 8px;height:var(--surface-header-height,44px);box-sizing:border-box;
-         display:flex;gap:6px;align-items:center;font-size:var(--fs-body, 13px);flex-shrink:0}
+  header{background:var(--surface-header,var(--card));border-bottom:1px solid var(--border-subtle,var(--border));padding:0 12px;height:var(--surface-header-height,44px);box-sizing:border-box;
+         display:flex;gap:8px;align-items:center;font-size:var(--fs-body, 13px);flex-shrink:0}
+  /* EDIT-10 : un seul bouton de barre, fantôme 28 px, comme .tb de docx_studio. */
+  .tb,.dvBtn,#codeMore summary{height:28px;min-width:28px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;
+    padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-muted,var(--muted));font:400 var(--fs-body-s,12px)/1 var(--ui-font);cursor:pointer;
+    transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+  .tb-text,.dvBtn{padding:0 8px}
+  .tb:hover,.dvBtn:hover:not(:disabled),#codeMore summary:hover,#codeMore[open] summary{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+  @media (prefers-reduced-motion: reduce){.tb,.dvBtn,#codeMore summary{transition:none}}
   #fname{font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #state{color:var(--muted);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #state.dirty{color:var(--status-warning,#e0b74a)}
-  #state.saved{color:var(--status-success,#98c379)}
+  #state{color:var(--text-muted,var(--muted));font-size:var(--fs-body-s,12px);font-variant-numeric:tabular-nums;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #state{transition:opacity var(--motion-panel,150ms) ease-out}
+  #state.dirty::before{content:"";display:inline-block;width:6px;height:6px;margin-right:8px;border-radius:999px;background:currentColor;vertical-align:1px}
+  #state.fade{opacity:0}
   #state.conflict{color:var(--status-error,#e06c75)}
-  .dvBtn{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;
-         padding:3px 8px;font-size:var(--fs-body-s, 12px);cursor:pointer}
-  .dvBtn:hover{color:var(--txt)}
+  @media (prefers-reduced-motion: reduce){#state{transition:none}}
   .dvBtn:disabled{cursor:default}
-  #diffTag.on{background:var(--border);color:var(--txt)}
+  #diffTag.on{background:color-mix(in srgb,var(--primary,var(--accent)) 13%,transparent);color:var(--primary,var(--accent))}
   /* état visible (le masquage initial est inline ; le module l'efface pour armer) */
   #diffGrp{display:inline-flex;align-items:center;gap:4px}
   .CodeMirror,.cm-editor{flex:1;height:auto;font-size:13px;
@@ -32,18 +38,25 @@
   .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;box-shadow:none !important;border-radius:2px}
   /* last selection sent to Claude: persistent marker */
   .cm-clsel{background:rgba(91,157,255,.28);border-radius:2px}
-  #picker{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:200;
+  #picker{position:fixed;inset:0;background:var(--scrim,rgba(0,0,0,.55));display:none;z-index:200;
           align-items:flex-start;justify-content:center;padding-top:8vh}
   #picker.show{display:flex}
   #pickerBox{background:var(--surface-overlay,var(--card));border:none;border-radius:10px;width:520px;
              max-height:70vh;display:flex;flex-direction:column;overflow:hidden;
-             box-shadow:var(--elevation-overlay,var(--elev,0 4px 18px rgba(0,0,0,.28)))}
-  #pickerPath{padding:10px 14px;font-size:var(--fs-body-s, 12px);color:var(--muted);border-bottom:1px solid var(--border);
+             box-shadow:var(--elevation-overlay,var(--elev,0 4px 18px rgba(0,0,0,.28)));animation:pop-fade var(--motion-fast,120ms) ease-out}
+  @keyframes pop-fade{from{opacity:0}to{opacity:1}}
+  @media (prefers-reduced-motion: reduce){#pickerBox,#codeMenu,.code-menu{animation:none!important}}
+  #pickerPath{padding:12px 16px;font-size:var(--fs-body-s, 12px);color:var(--text-muted,var(--muted));border-bottom:1px solid var(--border-subtle,var(--border));
               white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #pickerList{overflow-y:auto;flex:1}
-  #pickerList div{padding:7px 14px;font-size:var(--fs-body, 13px);cursor:pointer;display:flex;gap:8px}
-  #pickerList div:hover{background:var(--border)}
-  #pickerList .d{color:var(--accent)}
+  #pickerList{overflow-y:auto;flex:1;padding:4px}
+  #pickerList .pk-row{display:flex;align-items:center;gap:8px;width:100%;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;
+    color:var(--text-primary,var(--txt));text-align:left;font:var(--fs-body-s, 12px)/1.5 var(--ui-font);cursor:pointer}
+  #pickerList .pk-row:hover,#pickerList .pk-row:focus-visible{background:var(--surface-hover,var(--card2));outline:none}
+  #pickerList .pk-sep{height:1px;margin:4px 8px;background:var(--border-subtle,var(--border))}
+  #pickerList .pk-ic{flex:none;width:16px;display:grid;place-items:center;color:var(--text-muted,var(--muted))}
+  #pickerList .pk-ic svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+  #pickerList .pk-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #pickerList .pk-sub{margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted,var(--muted));font-size:var(--fs-label, 11px)}
 
   /* ===== thème code « atelier » (surcharge material-darker) ===== */
   .cm-s-material-darker.CodeMirror{background:var(--code-surface);color:var(--code-ink)}
@@ -67,13 +80,16 @@
 
 /* Les commandes secondaires gardent leurs éléments et leurs écouteurs. */
 #codeMore{position:relative;flex:none}
-#codeMore summary{list-style:none;display:flex;align-items:center;justify-content:center;width:var(--control-height,30px);height:var(--control-height,30px);border-radius:var(--radius-control,6px);cursor:pointer;font-size:var(--fs-body,13px)}
+#codeMore summary{list-style:none}
 #codeMore summary::-webkit-details-marker{display:none}
-#codeMore summary:hover{background:var(--card2)}
+#codeMore[open] .code-menu{animation:pop-fade var(--motion-fast,120ms) ease-out}
+.code-menu select,.code-menu input{height:28px;box-sizing:border-box;padding:0 8px;border:0;border-radius:6px;background:var(--surface-inset,var(--card2));color:var(--text-primary,var(--txt));font:var(--fs-body-s,12px) var(--ui-font)}
+.code-menu select{cursor:pointer}
+.code-menu #wrapCustom{width:64px;font-variant-numeric:tabular-nums}
 .code-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:150;display:flex;flex-direction:column;align-items:stretch;gap:8px;width:min(280px,calc(100vw - 24px));box-sizing:border-box;padding:8px;background:var(--surface-overlay,var(--card));border:none;border-radius:10px;box-shadow:var(--elevation-overlay,var(--elev,0 4px 18px rgba(0,0,0,.28)))}
 .code-menu #diffGrp{flex-wrap:wrap}
 .code-menu #wrapSel{max-width:100%}
-.code-save-hint{color:var(--muted);font-size:var(--fs-body-s,12px)}
+.code-save-hint{color:var(--text-muted,var(--muted));font-size:var(--fs-label,11px)}
 header button{flex:none}
 header button:disabled{opacity:.5;cursor:default}
 header button:focus-visible,header summary:focus-visible,header select:focus-visible,#pickerList button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
@@ -81,7 +97,6 @@ body>#csvTools{box-sizing:border-box;flex:none;flex-wrap:wrap;min-width:0;paddin
 body>#csvTools #csvSearch{flex:1;min-width:80px;width:auto}
 body>#csvTools #csvMeta{flex-basis:100%;min-width:0;overflow:hidden;text-overflow:ellipsis}
 #pickerBox{width:min(520px,calc(100vw - 24px))}
-#pickerList button:hover{background:var(--surface-hover,var(--border))!important}
 
 #codeMore:not([open]) .code-menu{display:none}
 

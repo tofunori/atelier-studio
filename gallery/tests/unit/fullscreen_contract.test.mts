@@ -125,7 +125,7 @@ test("gallery has workflow, shortlist, health, recent and compare tools", () => 
   has(gallery, "let workflow = JSON.parse(localStorage.getItem('figWorkflow')");
   has(gallery, "const WORKFLOW_STATUSES");
   has(gallery, "function buildWorkflowChip()");
-  has(gallery, "Status &#9662;");
+  has(gallery, "Statut &#9662;");
   // Statut par carte dans le menu « … » au survol (redesign sobre 2026-07).
   has(gallery, "function cardMenu(");
   has(gallery, "data-wfset=");
@@ -145,8 +145,8 @@ test("gallery has workflow, shortlist, health, recent and compare tools", () => 
   has(gallery, "function buildRecentChip()");
   has(gallery, "function checkHealth()");
   has(gallery, "function healthRows(data)");
-  has(gallery, "Server health");
-  has(gallery, "Settings &#9662;");
+  has(gallery, "Santé du serveur");
+  has(gallery, "Réglages &#9662;");
   hasNot(gallery, 'id="healthChip"');
   hasNot(gallery, 'id="healthMenu"');
   has(gallery, "fetch('/ping')");

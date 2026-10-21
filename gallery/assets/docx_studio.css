@@ -19,7 +19,7 @@ svg{display:block}
 button:focus-visible,[contenteditable]:focus-visible,textarea:not(.atelier-note-input):not(.c-input):focus-visible,input:focus-visible{outline:var(--focus-ring-width, 1px) solid var(--focus-ring-color, var(--accent));outline-offset:var(--focus-ring-offset, 1px)}
 
 /* ---- barres ---- */
-.bar{display:flex;align-items:center;gap:2px;min-height:40px;padding:4px 12px;border-bottom:1px solid var(--border-subtle,var(--border));flex-shrink:0;flex-wrap:wrap}
+.bar{display:flex;align-items:center;gap:4px;min-height:var(--surface-header-height,44px);box-sizing:border-box;padding:4px 12px;background:var(--surface-header,transparent);border-bottom:1px solid var(--border-subtle,var(--border));flex-shrink:0;flex-wrap:wrap}
 .bar .sp{flex:1 1 auto}
 .gp{width:12px;flex:none}
 .vsep{width:1px;height:18px;margin:0 8px;background:var(--border-subtle,var(--border));flex-shrink:0}
@@ -34,7 +34,7 @@ button:focus-visible,[contenteditable]:focus-visible,textarea:not(.atelier-note-
 .tb .ic{display:flex}
 .tb svg{width:16px;height:16px}
 .tb.on{background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary)}
-.tb:disabled{opacity:.4;cursor:default;background:transparent}
+.tb:disabled{opacity:.45;cursor:default;background:transparent}
 .glyph{font:500 13px/1 Georgia,'Iowan Old Style',serif}
 .glyph.b{font-weight:600}.glyph.i{font-style:italic}.glyph.u{text-decoration:underline;text-underline-offset:2px}.glyph.s{text-decoration:line-through;font-size:12px}
 .glyph sup,.glyph sub{font-size:10px}

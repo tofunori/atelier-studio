@@ -118,10 +118,12 @@ export function bootstrapMarkdownSurface(dependencies: MarkdownSurfaceDependenci
       externalReload: "when-clean",
       onDirtyChange: (dirty) => drafts.setDirty(dirty),
       onEvent: (event) => {
-        if (event.kind === "loaded") setState("saved", "saved");
-        else if (event.kind === "saved") setState("saved", `saved ${new Date().toLocaleTimeString()}`);
-        else if (event.kind === "external-reload") setState("saved", `reloaded (modified on disk) ${new Date().toLocaleTimeString()}`);
-        else if (event.kind === "conflict") setState("conflict", "conflict: the file changed on disk — reload or re-save to overwrite");
+        // GAL-27 : au repos rien ne s'affiche ; l'heure d'enregistrement reste discrète
+        const at = () => new Date().toLocaleTimeString("fr-CA", {hour: "2-digit", minute: "2-digit"});
+        if (event.kind === "loaded") setState("saved", "");
+        else if (event.kind === "saved") setState("saved", `Enregistré à ${at()}`);
+        else if (event.kind === "external-reload") setState("saved", `Rechargé depuis le disque à ${at()}`);
+        else if (event.kind === "conflict") setState("conflict", "Conflit : le fichier a changé sur le disque — recharger, ou réenregistrer pour l’écraser");
         else if (event.kind === "error") setState("conflict", event.message);
       },
     });
@@ -144,7 +146,7 @@ export function bootstrapMarkdownSurface(dependencies: MarkdownSurfaceDependenci
       if (change?.origin !== "setValue") {
         ensureSession().markDirty();
         drafts.noteChange();
-        setState("dirty", "modified");
+        setState("dirty", "Modifié");
       }
     });
     const selectionBridge = attachEditorSelection({
@@ -184,14 +186,14 @@ export function bootstrapMarkdownSurface(dependencies: MarkdownSurfaceDependenci
         if (!response.ok) throw new Error(String(response.status));
         preview.render(await response.text());
       } catch (error) {
-        preview.showError(`Unable to load ${file} (${error instanceof Error ? error.message : String(error)})`);
+        preview.showError(`Impossible de charger ${file} (${error instanceof Error ? error.message : String(error)})`);
       }
       return;
     }
     try {
       await ensureSession().load();
     } catch (error) {
-      preview.showError(`Server off — ${error instanceof Error ? error.message : String(error)}`);
+      preview.showError(`Serveur injoignable — ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
     const restored = await drafts.restore((draft) => ensureSession().adoptDraft(draft));
