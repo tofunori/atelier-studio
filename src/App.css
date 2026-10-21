@@ -457,6 +457,27 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-edit:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
 .kernel-editor-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .kernel-editor-note { color: var(--text-muted); font-size: var(--fs-s); }
+.kernel-new { padding: 0 20px 20px; }
+.kernel-new-resume { margin-left: auto; }
+.kernel-resume { display: flex; flex-direction: column; gap: 8px; padding: 0 20px 20px; }
+.kernel-resume:first-child { padding-top: 16px; }
+.kernel-resume h3 { margin: 0; color: var(--text-muted); font-size: var(--fs-s); font-weight: 500; }
+.kernel-resume ul, .kernel-resume-cells { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.kernel-resume-head { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 8px 12px;
+  border-radius: var(--r-s); background: var(--bg-ctl); text-align: left; }
+.kernel-resume-head:hover { background: var(--surface-hover); }
+.kernel-resume-head > svg { width: 12px; height: 12px; flex: none; color: var(--text-muted); transform: rotate(-90deg);
+  transition: transform 120ms ease; }
+.kernel-resume-head[aria-expanded="true"] > svg { transform: none; }
+.kernel-resume-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-primary); font-size: var(--fs-m); font-weight: 500; }
+.kernel-resume-meta { flex: none; color: var(--text-muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.kernel-resume-body { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 4px 32px; }
+.kernel-resume-cells { max-height: 240px; overflow: auto; }
+.kernel-resume-cells li { display: flex; gap: 8px; min-width: 0; color: var(--text-secondary); font-size: var(--fs-s); line-height: 1.5; }
+.kernel-resume-n { flex: none; color: var(--text-muted); font-family: var(--font-code); font-variant-numeric: tabular-nums; }
+.kernel-resume-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kernel-edit::placeholder { color: var(--text-disabled); }
 .kernel-notice { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 20px;
   border-bottom: 1px solid var(--border); font-size: var(--fs-m); color: var(--text-secondary); }
 .kernel-notice svg { width: 12px; height: 12px; }
@@ -510,7 +531,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* La capsule de sélection partagée ; pas d'annotation durable sur une cellule. */
 .kernel-selection button[aria-label="Annoter"] { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .kernel-dot, .kernel-reveal, .kernel-code, .kernel-vars-head svg, .kernel-cell-body { transition: none; animation: none; }
+  .kernel-dot, .kernel-reveal, .kernel-code, .kernel-vars-head svg, .kernel-cell-body, .kernel-resume-head > svg { transition: none; animation: none; }
 }
 .empty { color: var(--text-muted); padding-top: 24px; }
 .empty-card { width: min(360px, 100%); margin: auto; border: 1px solid var(--border);

@@ -99,9 +99,10 @@ fn cell_title(cell: &CellRecord) -> String {
         title.push_str(p);
     }
     if cell.author.as_deref() == Some("user") {
-        title.push_str(&match cell.from_cell {
-            Some(n) => format!(" (modifiée à la main d'après [{n}])"),
-            None => " (écrite à la main)".into(),
+        title.push_str(&match (&cell.resumed_from, cell.from_cell) {
+            (Some(r), _) => format!(" (reprise du fil « {} », [{}])", r.title, r.cell),
+            (None, Some(n)) => format!(" (modifiée à la main d'après [{n}])"),
+            (None, None) => " (écrite à la main)".into(),
         });
     }
     title.push_str(&format!(" · {} · code sha256 {}", cell.started_at, short(&cell.code_sha256)));

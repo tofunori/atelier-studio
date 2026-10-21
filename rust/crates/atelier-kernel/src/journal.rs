@@ -61,6 +61,17 @@ pub struct ReplayMark {
     pub detail: Option<String>,
 }
 
+/// Origine d'une cellule reprise d'un autre fil du même projet : le fil (et
+/// son titre au moment de la reprise) et le numéro de la cellule là-bas.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumedFrom {
+    pub thread_id: String,
+    #[serde(default)]
+    pub title: String,
+    pub cell: u64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CellRecord {
@@ -110,6 +121,9 @@ pub struct CellRecord {
     /// Cellule d'origine d'une cellule modifiée à la main.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_cell: Option<u64>,
+    /// Cellule reprise d'un autre fil du même projet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resumed_from: Option<ResumedFrom>,
     /// Début de la demande du tour qui a lancé la cellule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_prompt: Option<String>,

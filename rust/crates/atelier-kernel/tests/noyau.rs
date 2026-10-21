@@ -25,6 +25,7 @@ fn req<'a>(thread: &'a str, cwd: &'a Path, env: Option<&'a str>, code: &'a str) 
         purpose: None,
         author: None,
         from_cell: None,
+        resumed_from: None,
     }
 }
 

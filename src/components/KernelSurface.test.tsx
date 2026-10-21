@@ -172,7 +172,68 @@ describe("KernelSurface : preuves et suivi", () => {
     }) });
     expect(screen.getByText("modifiée par toi, d'après [31]")).toBeTruthy();
     expect(screen.getByText("+ scatter(s=14)")).toBeTruthy();
-    expect(screen.getByText("Modifiées par toi")).toBeTruthy();
+    expect(screen.getByText("Tes cellules")).toBeTruthy();
+  });
+
+  it("sans agent : Démarrer, puis écrire et lancer sa propre cellule", async () => {
+    const req = open();
+    emit("kernel-cells", { requestId: req.requestId, threadId: "fil", status: { running: false }, cells: [] });
+    expect(screen.getByText(/Écris du Python ci-dessous/u)).toBeTruthy();
+    fireEvent.click(screen.getByText("Démarrer"));
+    expect(sent[sent.length - 1]).toMatchObject({ type: "kernelCommand", op: "restart" });
+    const area = screen.getByLabelText("Nouvelle cellule") as HTMLTextAreaElement;
+    const run = screen.getByText("Lancer comme cellule 1").closest("button")!;
+    expect(run.disabled).toBe(true);
+    fireEvent.change(area, { target: { value: "x = 2 + 2\nprint(x)" } });
+    fireEvent.keyDown(area, { key: "Enter", shiftKey: true });
+    const ask = sent[sent.length - 1];
+    expect(ask).toMatchObject({ type: "kernelCommand", op: "rerun", code: "x = 2 + 2\nprint(x)" });
+    expect(ask.fromCell).toBeUndefined();
+    emit("kernel-command", { requestId: ask.requestId, result: { cell: 1 } });
+    await act(async () => {});
+    expect(area.value).toBe("");
+    emit("kernel-cell", { threadId: "fil", phase: "finished", cell: cell({ id: 1, code: "x = 2 + 2", author: "user", stdout: "4\n" }) });
+    expect(screen.getByText("écrite par toi")).toBeTruthy();
+    expect(screen.getByText("Lancer comme cellule 2")).toBeTruthy();
+  });
+
+  it("nouveau fil : reprend les cellules d'un fil précédent du projet", async () => {
+    const req = open();
+    emit("kernel-cells", { requestId: req.requestId, threadId: "fil", status: { running: false }, cells: [] });
+    const ask = sent.find((m) => m.op === "projectThreads");
+    emit("kernel-command", { requestId: ask.requestId, result: { threads: [
+      { threadId: "ancien", title: "Albédo 2024", cells: 3, ok: 2, lastAt: "2026-10-18T10:00:00Z", lastPurpose: "Tracer" },
+    ] } });
+    await act(async () => {});
+    expect(screen.getByText("Reprendre là où tu en étais")).toBeTruthy();
+    fireEvent.click(screen.getByText("Albédo 2024"));
+    // Les cellules du fil précédent s'affichent à l'ouverture.
+    const peek = sent.find((m) => m.type === "kernelCells" && m.threadId === "ancien");
+    emit("kernel-cells", { requestId: peek.requestId, threadId: "ancien", cells: [
+      cell({ id: 1, threadId: "ancien", purpose: "Charger les données" }),
+      cell({ id: 2, threadId: "ancien", status: "error", code: "1 / 0" }),
+    ] });
+    expect(screen.getByText("Charger les données")).toBeTruthy();
+    fireEvent.click(screen.getByText("Reprendre ici (2 cellules)"));
+    expect(sent[sent.length - 1]).toMatchObject({ type: "kernelCommand", op: "resume", threadId: "fil", fromThread: "ancien" });
+    emit("kernel-resume", { threadId: "fil", fromThread: "ancien", state: "running", done: 0, total: 2, cell: 1 });
+    expect(screen.getByText("Reprise 0/2")).toBeTruthy();
+    emit("kernel-cell", { threadId: "fil", phase: "finished", cell: cell({
+      id: 1, author: "user", purpose: "Charger les données", resumedFrom: { threadId: "ancien", title: "Albédo 2024", cell: 1 },
+    }) });
+    emit("kernel-resume", { threadId: "fil", fromThread: "ancien", state: "done", done: 2, total: 2 });
+    expect(screen.getByText("Repris de « Albédo 2024 » : 2 cellules relancées")).toBeTruthy();
+    expect(screen.getByText("Repris de « Albédo 2024 »")).toBeTruthy();
+    expect(screen.getByText("reprise de [1]").getAttribute("title")).toBe("reprise de « Albédo 2024 », [1]");
+    // Une fois des cellules là, la liste se rouvre depuis la cellule libre.
+    fireEvent.click(screen.getByText("Reprendre un fil"));
+    expect(screen.getByText("Reprendre là où tu en étais")).toBeTruthy();
+  });
+
+  it("coupé : ni Démarrer ni cellule libre", () => {
+    open(false);
+    expect(screen.queryByText("Démarrer")).toBeNull();
+    expect(screen.queryByLabelText("Nouvelle cellule")).toBeNull();
   });
 
   it("Échap annule la modification", () => {
