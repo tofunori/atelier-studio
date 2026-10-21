@@ -368,7 +368,7 @@ describe("KbSurface", () => {
     fireEvent.click(picks[0]);
     fireEvent.click(picks[2]);
     expect(onToggle).not.toHaveBeenCalled();
-    expect(screen.getByText("2 sélectionnée(s)")).toBeTruthy();
+    expect(screen.getByText("2 sélectionnées")).toBeTruthy();
     fireEvent.click(screen.getByText("Attacher"));
     expect(onBatchAttach).toHaveBeenCalledWith(["aaaa1111", "cccc3333"]);
     // la barre se referme après l'action
@@ -380,7 +380,7 @@ describe("KbSurface", () => {
     const picks = container.querySelectorAll(".kb-pick");
     fireEvent.click(picks[0]);
     fireEvent.click(picks[2], { shiftKey: true });
-    expect(screen.getByText("3 sélectionnée(s)")).toBeTruthy();
+    expect(screen.getByText("3 sélectionnées")).toBeTruthy();
   });
 
   it("tout sélectionner porte sur ce qui est affiché, pas sur toute la base", () => {
@@ -389,7 +389,7 @@ describe("KbSurface", () => {
       target: { value: "albedo" },
     });
     fireEvent.click(screen.getByText("Tout sélectionner"));
-    expect(screen.getByText("1 sélectionnée(s)")).toBeTruthy();
+    expect(screen.getByText("1 sélectionnée")).toBeTruthy();
   });
 
   // Supprimer existait déjà (menu de rangée), mais sans retour ni retour en

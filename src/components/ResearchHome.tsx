@@ -99,7 +99,7 @@ function ContinueCard(p: { item: HomeContinueItem; onResume: ResearchHomeActions
       <div className="rh-continue">
         <div className="t">{item.title}</div>
         <div className="meta">
-          <span>{item.provider}</span>
+          <span>{providerName(item.provider)}</span>
           <span className="sep">·</span>
           {item.status === "running" ? (
             <StatusBadge status="running">{t("home.status.running")}</StatusBadge>
@@ -107,11 +107,17 @@ function ContinueCard(p: { item: HomeContinueItem; onResume: ResearchHomeActions
             <span>{t(STATUS_KEYS[item.status])}</span>
           )}
           {item.status === "running" && item.runningForMs != null && (
-            <span>{t("home.running-for", { t: fmtDuration(item.runningForMs) })}</span>
+            <>
+              <span className="sep">·</span>
+              <span>{t("home.running-for", { t: fmtDuration(item.runningForMs) })}</span>
+            </>
           )}
           {rel && item.status !== "running" && (
             // date relative jamais seule : l'ISO du record reste accessible
-            <span title={item.updatedAtIso ?? undefined}>{rel}</span>
+            <>
+              <span className="sep">·</span>
+              <span title={item.updatedAtIso ?? undefined}>{rel}</span>
+            </>
           )}
           {item.hasUsage && (
             <>
@@ -165,7 +171,7 @@ function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeAc
                 {it.detail && <span className="d">{it.detail}</span>}
               </span>
               {it.threadId && it.projectRoot && (
-                <Button variant="ghost" onClick={() => p.onResume(it.threadId!, it.projectRoot!)}>
+                <Button onClick={() => p.onResume(it.threadId!, it.projectRoot!)}>
                   {t("home.resume")}
                 </Button>
               )}
@@ -175,6 +181,14 @@ function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeAc
       </div>
     </section>
   );
+}
+
+/** Nom affiché du fournisseur (« Claude », pas l'identifiant brut). */
+const PROVIDER_NAMES: Record<string, string> = {
+  claude: "Claude", codex: "Codex", grok: "Grok", opencode: "OpenCode", kimi: "Kimi",
+};
+function providerName(id: string): string {
+  return PROVIDER_NAMES[id] ?? (id ? id.charAt(0).toUpperCase() + id.slice(1) : id);
 }
 
 export function ResearchHome(p: ResearchHomeBundle) {

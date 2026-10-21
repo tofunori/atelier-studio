@@ -1,6 +1,6 @@
 /* Réglages › Mémoire : listes sobres dans les cartes de réglages. */
 .memoire-studio { container-type: inline-size; }
-.memoire-liste, .memoire-import { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.memoire-liste, .memoire-import { display: flex; flex-direction: column; gap: 12px; padding: 16px 0; }
 .memoire-outils { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .memoire-outils .memoire-recherche { flex: 1; min-width: 160px; }
 .memoire-studio .ui-btn-label { display: inline-flex; align-items: center; gap: 8px; }
@@ -9,9 +9,10 @@
 .memoire-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border-subtle); }
 .memoire-item-corps { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .memoire-item-texte { margin: 0; color: var(--text-primary); font-size: var(--fs-body-s); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
-.memoire-item-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-muted); font-size: var(--fs-label); }
+.memoire-item-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 4px; color: var(--text-muted); font-size: var(--fs-label); }
+.memoire-item-meta > span + span::before { content: "·"; margin-right: 4px; }
 .memoire-item-date { font-variant-numeric: tabular-nums; }
-.memoire-item-actions { flex: none; display: flex; align-items: center; gap: 4px; opacity: 0.6; transition: opacity var(--motion-fast) var(--ease-out); }
+.memoire-item-actions { flex: none; display: flex; align-items: center; gap: 4px; opacity: 0; transition: opacity var(--motion-fast) var(--ease-out); }
 .memoire-item:hover .memoire-item-actions, .memoire-item:focus-within .memoire-item-actions { opacity: 1; }
 .memoire-editeur { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .memoire-editeur textarea { font-size: var(--fs-body-s); line-height: 1.5; }

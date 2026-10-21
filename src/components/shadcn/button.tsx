@@ -26,10 +26,10 @@ const buttonVariants = cva(
       },
       size: {
         default:
-          "tw:h-[var(--control-height)] tw:gap-1.5 tw:px-2.5 tw:has-data-[icon=inline-end]:pr-2 tw:has-data-[icon=inline-start]:pl-2",
+          "tw:h-[var(--control-height)] tw:gap-2 tw:px-3 tw:has-data-[icon=inline-end]:pr-2 tw:has-data-[icon=inline-start]:pl-2",
         xs: "tw:h-[var(--control-height-s)] tw:gap-1 tw:px-2 tw:text-xs tw:in-data-[slot=button-group]:rounded-lg tw:has-data-[icon=inline-end]:pr-1.5 tw:has-data-[icon=inline-start]:pl-1.5 tw:[&_svg:not([class*=size-])]:size-[var(--icon-s)]",
-        sm: "tw:h-[var(--control-height-m)] tw:gap-1 tw:px-2.5 tw:text-xs tw:in-data-[slot=button-group]:rounded-lg tw:has-data-[icon=inline-end]:pr-1.5 tw:has-data-[icon=inline-start]:pl-1.5 tw:[&_svg:not([class*=size-])]:size-[var(--icon-m)]",
-        lg: "tw:h-[var(--control-height-l)] tw:gap-1.5 tw:px-2.5 tw:has-data-[icon=inline-end]:pr-2 tw:has-data-[icon=inline-start]:pl-2",
+        sm: "tw:h-[var(--control-height-m)] tw:gap-1 tw:px-2 tw:text-xs tw:in-data-[slot=button-group]:rounded-lg tw:has-data-[icon=inline-end]:pr-2 tw:has-data-[icon=inline-start]:pl-2 tw:[&_svg:not([class*=size-])]:size-[var(--icon-m)]",
+        lg: "tw:h-[var(--control-height-l)] tw:gap-2 tw:px-3 tw:has-data-[icon=inline-end]:pr-2 tw:has-data-[icon=inline-start]:pl-2",
         icon: "tw:size-[var(--control-height)]",
         "icon-xs":
           "tw:size-[var(--control-height-s)] tw:in-data-[slot=button-group]:rounded-lg tw:[&_svg:not([class*=size-])]:size-[var(--icon-s)]",

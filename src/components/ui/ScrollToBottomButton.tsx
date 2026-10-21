@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ArrowDownIcon } from "../icons";
+import { Spinner } from "./Spinner";
 
 export function ScrollToBottomButton({
   label,
@@ -28,11 +29,8 @@ export function ScrollToBottomButton({
       onClick={show ? onClick : undefined}
     >
       {working ? (
-        <span className="ui-scroll-working-dots" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </span>
+        // le Spinner commun (GAP-19), pas trois points qui tournent en hélice
+        <Spinner size={12} className="ui-scroll-working" aria-hidden="true" />
       ) : (
         <ArrowDownIcon />
       )}

@@ -10,3 +10,5 @@
 .project-folders-help summary{cursor:pointer;width:fit-content;border-radius:var(--radius-control);padding:4px 0}
 .project-folders-help summary:hover,.project-folders-help summary:focus-visible{color:var(--fg)}
 .project-folders-help .project-folders-note{margin-top: 8px}
+/* pas de gras navigateur (700) : titres et noms au poids 500 du système (SET-07) */
+.project-folders-heading h3, .project-folder-content strong { font-weight: 500; }

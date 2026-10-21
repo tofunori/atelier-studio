@@ -9,7 +9,7 @@
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-muted);
-  font: 400 var(--fs-s)/1.3 var(--font-chrome);
+  font: 400 var(--fs-m)/1.3 var(--font-chrome);
   transition: background-color var(--motion-fast) var(--ease-out),
               border-color var(--motion-fast) var(--ease-out);
 }
@@ -23,6 +23,7 @@
 .document-tab-shell[aria-selected="true"] {
   background: var(--surface-inset);
   color: var(--text-primary);
+  font-weight: 500;
 }
 .document-tab-shell .document-tab-close {
   width: var(--control-height-s);

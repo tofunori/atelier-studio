@@ -33,8 +33,8 @@ import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 // Intégrations : seules les grappes configurées sont proposées, et aucune
 // requête ne part tant qu'aucune ne l'est.
 const CLUSTERS = [
-  { id: "narval", label: "NARVAL" },
-  { id: "rorqual", label: "RORQUAL" },
+  { id: "narval", label: "Narval" },
+  { id: "rorqual", label: "Rorqual" },
 ] as const;
 type ClusterId = (typeof CLUSTERS)[number]["id"];
 const DEFAULT_CLUSTER: ClusterId = "narval";

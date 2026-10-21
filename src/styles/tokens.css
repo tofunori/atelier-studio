@@ -155,6 +155,11 @@
   --icon-stroke: 1.25px;
   --fs-display-s: 18px;
   --fs-display: 20px;
+  --lh-prose: 1.6;          /* interligne des zones d'écriture longue (consignes, notes) */
+  /* plafonds de hauteur des longs contenus (GAP-28) */
+  --scroll-cap-s: 160px;
+  --scroll-cap-m: 320px;
+  --scroll-cap-l: 480px;
 
   /* chrome de surface : Chat, Gallery et IDE partagent la même ligne */
   --surface-header-height: 44px;
@@ -196,7 +201,7 @@
   --radius-control: var(--r-s);   /* 6  */
   --radius-surface: var(--r-m);   /* 10 */
   --radius-pill: var(--r-pill);
-  --radius-composer: 18px;
+  --radius-composer: var(--radius-surface); /* 10 — décision 2026-10-21 : bulle, édition et composer au même rayon */
 
   /* -- mouvement : contrat Quiet Instrument (014/016, approuvé) ------------- */
   --enter-offset: 4px;       /* entrée orientée des surfaces (data-side) */

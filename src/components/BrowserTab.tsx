@@ -78,7 +78,7 @@ function makeBrowserTab(seed: Partial<BrowserPaneTab> = {}): BrowserPaneTab {
     label: seed.label && /^embedded-browser-[a-zA-Z0-9_-]{8,96}$/.test(seed.label)
       ? seed.label
       : makeBrowserLabel(id),
-    title: seed.title || "New tab",
+    title: seed.title || t("browser.new-tab"),
     url: seed.url || null,
     input: seed.input || seed.url || "",
   };
@@ -559,7 +559,7 @@ export default function BrowserTab(p: {
   return (
     <div className="browser-tab" style={{ display: p.visible ? "flex" : "none" }}>
       <div className="browser-chrome" ref={barRef}>
-        <div className="browser-tabs" role="tablist" aria-label="Browser tabs">
+        <div className="browser-tabs" role="tablist" aria-label={t("browser.tabs")}>
           {tabs.map((tab) => (
             <RowButton
               key={tab.id}
@@ -658,7 +658,7 @@ export default function BrowserTab(p: {
             <IconButton size="s" className="ghost" label={t("browser.close-home")} title={t("browser.close-home")}
               onClick={() => {
                 invoke("browser_hide", { label: activeTab.label }).catch(() => {});
-                updateTab(activeTab.id, { url: null, input: "", title: "New tab" });
+                updateTab(activeTab.id, { url: null, input: "", title: t("browser.new-tab") });
                 scan();
               }}><CloseIcon /></IconButton>
           )}

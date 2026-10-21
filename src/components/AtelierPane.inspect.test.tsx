@@ -200,7 +200,7 @@ describe("AtelierPane — menu du pane (actions rescapées de la bande)", () => 
   it("épingle, colore et inspecte le document actif", async () => {
     const { props } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
     await openPaneMenu();
-    fireEvent.click(screen.getByText("Épingler l'onglet"));
+    fireEvent.click(screen.getByText("Épingler l’onglet"));
     expect(props.onPinTab).toHaveBeenCalledWith("t1");
 
     await openPaneMenu();

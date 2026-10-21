@@ -311,7 +311,7 @@ export const UserTurn = memo(function UserTurn(p: {
         </div>
       ) : bubbleText.trim() || (attachmentLabels.length > 0 && !e.imageUrl && !e.notes?.length) ? (
         <Bubble variant="secondary" align="end" className="user-bubble-shell">
-          <BubbleContent className="user-bubble tw:rounded-2xl">
+          <BubbleContent className="user-bubble tw:rounded-[var(--radius-surface)]">
             {attachmentLabels.length > 0 && fileAttachments}
             {annotationView.cards.length ? <>
               {annotationView.prompt && <div className="chat-annotation-prompt">{p.renderBubbleText(annotationView.prompt)}</div>}

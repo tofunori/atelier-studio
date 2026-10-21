@@ -33,6 +33,11 @@ import { NotificationsGroup } from "./NotificationsGroup";
 // déplacés ici.
 const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = ["", "low", "medium", "high", "xhigh"];
+/** Mêmes libellés que le sélecteur d'effort du composer (SET-28). */
+const EFFORT_LABELS: Record<string, string> = {
+  low: "Low", medium: "Medium", high: "High", xhigh: "Extra High", max: "Max",
+};
+const effortOption = (l: string) => ({ value: l, label: l === "" ? t("common.auto-default") : EFFORT_LABELS[l] ?? l });
 
 export default function General(p: SectionProps) {
   // Un seul point de sortie : toute écriture confirme (pastille « Enregistré »).
@@ -149,7 +154,7 @@ export default function General(p: SectionProps) {
             title={t("settings.default-claude-effort")}
             value={s.defaultEffort.claude}
             onChange={(value) => save({ defaultEffort: { ...s.defaultEffort, claude: value } })}
-            options={CLAUDE_EFFORTS.map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
+            options={CLAUDE_EFFORTS.map(effortOption)}
           />
         </Row>
         <Row title={t("settings.default-codex-effort")}>
@@ -157,7 +162,7 @@ export default function General(p: SectionProps) {
             title={t("settings.default-codex-effort")}
             value={s.defaultEffort.codex}
             onChange={(value) => save({ defaultEffort: { ...s.defaultEffort, codex: value } })}
-            options={CODEX_EFFORTS.map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
+            options={CODEX_EFFORTS.map(effortOption)}
           />
         </Row>
       </Group>
@@ -256,9 +261,7 @@ export default function General(p: SectionProps) {
           )}
         </Group>
         <Group label={t("settings.remote-devices")}>
-          <div style={{ padding: 12 }}>
-            <RemoteDevicesPanel />
-          </div>
+          <RemoteDevicesPanel />
         </Group>
       </Advanced>
     </>

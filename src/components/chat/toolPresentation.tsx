@@ -5,7 +5,7 @@ import { memo, useMemo, useState, type ReactNode } from "react";
 import { CheckIcon } from "lucide-react";
 import type { ChatTurnViewModel } from "../../lib/chat/turnViewModel";
 import { AgentEvent } from "../../lib/ws";
-import { eventLabel, t } from "../../lib/i18n";
+import { eventLabel, getResolvedLanguage, t } from "../../lib/i18n";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { highlightCode } from "./md";
 import { RowButton } from "../ui";
@@ -99,8 +99,11 @@ export function toolOutputSummary(output: string) {
   if (!clean) return "";
   const lines = clean.split(/\r?\n/).length;
   const chars = clean.length;
-  const size = chars >= 1000 ? `${Math.round(chars / 100) / 10}k chars` : `${chars} chars`;
-  return lines > 1 ? `${lines} lines · ${size}` : size;
+  // libellés traduits, virgule décimale en français (CHAT-30)
+  const kilo = new Intl.NumberFormat(getResolvedLanguage() === "en" ? "en" : "fr-CA", { maximumFractionDigits: 1 })
+    .format(Math.round(chars / 100) / 10);
+  const size = chars >= 1000 ? t("tools.size-kchars", { n: kilo }) : t("tools.size-chars", { n: chars });
+  return lines > 1 ? t("tools.size-lines", { n: lines, size }) : size;
 }
 
 export function toolPayloadText(value: unknown): string {
@@ -258,7 +261,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   const [localOpen, setLocalOpen] = useState(failed && !compact);
   const open = expanded ?? localOpen;
   const setOpen = (next: boolean) => { setLocalOpen(next); onExpandedChange?.(next); };
-  const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
+  const summary = event.detail || toolOutputSummary(output) || (inputView ? t("tools.payload-input") : "");
   // Rangée compacte : le libellé sémantique d'abord, complété par le NOM que
   // porte l'input quand ce libellé reste générique (« Commande exécutée »).
   // La phrase rédigée par l'agent, quand il y en a une, remplace les deux.
@@ -321,7 +324,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
         {!compact && event.status && (
           <span className="tool-status">
             {outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
-            {event.status}
+            {failed && t("chat.action-failed")}
           </span>
         )}
       </RowButton>
@@ -337,7 +340,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
           {preview ? <div className="tool-output-preview">{preview}</div> : null}
           {inputView && (
             <div className="tool-payload">
-              <div className="tool-payload-label">input</div>
+              <div className="tool-payload-label">{t("tools.payload-input")}</div>
               {inputView.lang ? (
                 <pre><code
                   className="hljs"
@@ -350,7 +353,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
           )}
           {output.trim() && (
             <div className="tool-payload">
-              <div className="tool-payload-label">output</div>
+              <div className="tool-payload-label">{t("tools.payload-output")}</div>
               {isJsonOutput ? (
                 <pre><code
                   className="hljs"
@@ -798,8 +801,12 @@ export function summarizeActivity(actions: ToolAction[], plugins: PluginCatalogE
   const clauses = ordered.map(({ kind, items: partItems }) => summaryClause(kind, partItems));
   const phrase = clauses.join(", ");
   const firstItem = ordered[0]?.items[0];
+  // un nom de fichier ou une commande en tête de phrase garde sa casse
+  // (« fig3_spatial.svg modifié », jamais « Fig3_spatial.svg ») — CHAT-07
+  const firstTarget = ordered[0] ? clauseTarget(ordered[0].kind, ordered[0].items[0].target) : "";
+  const startsWithTarget = !!firstTarget && phrase.startsWith(firstTarget);
   return {
-    label: phrase ? phrase.charAt(0).toUpperCase() + phrase.slice(1) : t("chat.activity"),
+    label: phrase ? (startsWithTarget ? phrase : phrase.charAt(0).toUpperCase() + phrase.slice(1)) : t("chat.activity"),
     icon: firstItem ? iconForActivity(firstItem, plugins) : undefined,
     actionCount: items.length,
     parts: ordered.map(({ kind, items: partItems }) => ({ kind, count: partItems.length })),

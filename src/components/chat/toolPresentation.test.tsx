@@ -112,7 +112,7 @@ describe("Codex-style activity presentation", () => {
     const single = summarizeActivity([
       tool("edit", "apply_patch", "src/config.rs", { input: { path: "src/config.rs" } }),
     ]);
-    expect(single.label).toBe("Config.rs modifié");
+    expect(single.label).toBe("config.rs modifié");
     const counted = summarizeActivity([
       tool("r1", "Read", "src/a.ts", { input: { path: "src/a.ts" } }),
       tool("r2", "Read", "src/b.ts", { input: { path: "src/b.ts" } }),

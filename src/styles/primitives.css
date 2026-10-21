@@ -140,6 +140,8 @@
 .ui-surface-header .titles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ui-surface-header .eyebrow { font: var(--eyebrow-weight) var(--eyebrow-size)/1.3 var(--font-chrome);
   letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
+/* un chemin n'est pas une étiquette : casse d'origine, police code */
+.ui-surface-header .eyebrow .eyebrow-path { font-family: var(--code-font); text-transform: none; letter-spacing: 0; }
 .ui-surface-header .title { font: 600 var(--fs-title)/1.3 var(--font-chrome);
   letter-spacing: -0.01em; color: var(--text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -355,7 +357,7 @@
 
 /* ---- ScrollToBottom — bouton contextuel compact, façon Codex ---------- */
 .ui-scroll-to-bottom { position: absolute; bottom: var(--sp-3); left: 50%; transform: translateX(-50%); width: 32px; height: 32px;
-  display: flex; align-items: center; justify-content: center; z-index: var(--z-sticky); padding: 0; border: 1px solid var(--border-default);
+  display: flex; align-items: center; justify-content: center; z-index: var(--z-sticky); padding: 0; border: 0;
   border-radius: var(--radius-pill); background: var(--surface-raised); color: var(--text-secondary); box-shadow: var(--elevation-overlay);
   cursor: pointer; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .ui-scroll-to-bottom.is-visible { opacity: 1; pointer-events: auto; }
@@ -363,16 +365,11 @@
    endroit qui dit « ça travaille » quand on est remonté lire (le dock qui le
    portait a disparu — spec « grappes d'activité », 2026-09-10). */
 .ui-scroll-to-bottom.has-elapsed { width: auto; gap: var(--sp-2); padding: 0 12px; }
-.ui-scroll-elapsed { font-size: var(--fs-body-s); font-variant-numeric: tabular-nums; }
+.ui-scroll-elapsed { min-width: 3ch; font-size: var(--fs-body-s); font-variant-numeric: tabular-nums; }
 .ui-scroll-to-bottom:hover { color: var(--text-primary); }
 .ui-scroll-to-bottom svg { width: 16px; height: 16px; }
-.ui-scroll-working-dots { display: flex; align-items: center; justify-content: center; gap: 4px;
-  animation: ui-spin var(--motion-spin) linear infinite; }
-.ui-scroll-working-dots > span { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .72; }
+.ui-scroll-to-bottom svg.ui-scroll-working { width: 12px; height: 12px; }
 
-@media (prefers-reduced-motion: reduce) {
-  .ui-scroll-working-dots { animation: none; }
-}
 
 /* UNE touche de raccourci (PRIM-29) : pastille plate --bg-ctl, sans bordure,
  * 11 px / 500, --text-muted, chiffres tabulaires — dans une infobulle, un

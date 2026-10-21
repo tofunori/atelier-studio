@@ -101,6 +101,7 @@
   --radius-md: var(--radius-control);
   --radius-lg: var(--radius-surface);
   --radius-xl: var(--radius-surface);
+  --radius-2xl: var(--radius-surface);
   /* Idem pour les tailles de texte (échelle 10/11/12/13/15) : text-xs/sm
    * retombent sur les tokens au lieu des 12px/14px Tailwind. */
   --text-xs: var(--fs-body-s);
@@ -249,7 +250,7 @@
   --menu-detail: var(--fs-s, var(--fs-caption, 11px));
   --menu-heading: var(--fs-l, var(--fs-body, 13px));
   --menu-row-height: 32px;
-  --menu-row-padding: 6px 10px;
+  --menu-row-padding: 6px 12px;
   --menu-icon-size: 14px;
 }
 :is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"],

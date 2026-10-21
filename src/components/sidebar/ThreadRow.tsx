@@ -26,14 +26,15 @@ function shortTime(value?: string): string {
   const ts = value ? new Date(value).getTime() : NaN;
   if (!Number.isFinite(ts)) return "";
   const min = Math.floor((Date.now() - ts) / 60_000);
-  if (min < 1) return "now";
-  if (min < 60) return `${min}m`;
+  // unités courtes traduites, espace fine insécable (audit SHELL-22)
+  if (min < 1) return t("time.short.now");
+  if (min < 60) return t("time.short.min", { n: min });
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h}h`;
+  if (h < 24) return t("time.short.h", { n: h });
   const d = Math.floor(h / 24);
-  if (d < 7) return `${d}j`;
-  if (d < 30) return `${Math.floor(d / 7)}sem`;
-  return `${Math.floor(d / 30)}mo`;
+  if (d < 7) return t("time.short.d", { n: d });
+  if (d < 30) return t("time.short.w", { n: Math.floor(d / 7) });
+  return t("time.short.mo", { n: Math.floor(d / 30) });
 }
 
 function relativeDate(value?: string): string {

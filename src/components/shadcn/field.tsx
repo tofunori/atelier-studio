@@ -25,7 +25,7 @@ function FieldLegend({
       data-slot="field-legend"
       data-variant={variant}
       className={cn(
-        "tw:mb-1.5 tw:p-0 tw:font-medium tw:data-[variant=label]:text-[length:var(--fs-caption)] tw:data-[variant=legend]:text-[length:var(--fs-body-s)]",
+        "tw:mb-1.5 tw:p-0 tw:font-medium tw:data-[variant=label]:text-[length:var(--fs-body-s)] tw:data-[variant=legend]:text-[length:var(--fs-body-s)]",
         className,
       )}
       {...props}
@@ -86,7 +86,7 @@ function FieldLabel({ className, ...props }: React.ComponentProps<typeof FieldPr
   return (
     <FieldPrimitive.Label
       data-slot="field-label"
-      className={cn("tw:text-[length:var(--fs-caption)] tw:text-muted-foreground", className)}
+      className={cn("tw:text-[length:var(--fs-body-s)] tw:font-medium tw:leading-[1.3] tw:text-[color:var(--text-secondary)]", className)}
       {...props}
     />
   )
@@ -96,7 +96,7 @@ function FieldDescription({ className, ...props }: React.ComponentProps<typeof F
   return (
     <FieldPrimitive.Description
       data-slot="field-description"
-      className={cn("tw:text-[length:var(--fs-caption)] tw:text-muted-foreground", className)}
+      className={cn("tw:text-[length:var(--fs-label)] tw:leading-normal tw:text-muted-foreground", className)}
       {...props}
     />
   )
@@ -106,7 +106,7 @@ function FieldError({ className, ...props }: React.ComponentProps<typeof FieldPr
   return (
     <FieldPrimitive.Error
       data-slot="field-error"
-      className={cn("tw:text-[length:var(--fs-caption)] tw:text-destructive", className)}
+      className={cn("tw:text-[length:var(--fs-label)] tw:leading-normal tw:text-[color:var(--status-error)]", className)}
       {...props}
     />
   )

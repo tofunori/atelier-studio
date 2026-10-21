@@ -130,7 +130,7 @@ function htmlTabIsRendered(url: string): boolean {
 }
 
 function surfaceLabel(surface: Surface): string {
-  if (surface === "atelier") return t("atelier.gallery");
+  if (surface === "atelier") return t("atelier.gallery-title");
   const entry = SURFACES.find((candidate) => candidate.id === surface);
   return entry ? t(entry.labelKey) : surface;
 }
