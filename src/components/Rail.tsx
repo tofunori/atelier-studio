@@ -60,6 +60,91 @@ export function projInitial(root: string, meta?: ProjMeta) {
   return name.charAt(0).toUpperCase();
 }
 
+type RailProjectsProps = {
+  projects: string[];
+  meta: Record<string, ProjMeta>;
+  /** projet affiché dans le chat (null : une autre vue, un favori) */
+  activeRoot: string | null;
+  signals?: RailSignals;
+  running: Set<string>;
+  compact: boolean;
+  onSelectProject: (root: string) => void;
+  onSelectView: (view: ViewId) => void;
+  onExpand: () => void;
+  onAddProject: () => void;
+  onReorder: (from: string, to: string) => void;
+  onMenu: (root: string, y: number) => void;
+};
+
+/** Puces de projets : signal au coin, glisser pour réordonner, clic droit
+ * pour le style. */
+function RailProjects(p: RailProjectsProps) {
+  const [dragRoot, setDragRoot] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  return (
+    <div className="rail-projects" role="group" aria-label="Projets">
+      {p.projects.map((root) => {
+        const m = p.meta[root];
+        const active = root === p.activeRoot;
+        // l'ancien point « agent au travail » reste la source quand App ne
+        // fournit pas encore de signaux (tests, bancs)
+        const signal = p.signals ? p.signals.projects[root] ?? null : (p.running.has(root) ? "run" : null);
+        const name = root.split("/").pop() ?? root;
+        const notes = p.signals?.notes[root] ?? [];
+        const tip = [name, ...(notes.length ? notes : signal ? [SIGNAL_LABEL[signal]] : [])].join("\n");
+        return (
+          <RowButton
+            key={root}
+            className={`rail-proj ${m?.color ? "tinted" : ""} ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
+            style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}
+            aria-current={active ? "page" : undefined}
+            aria-label={signal ? `${name} — ${SIGNAL_LABEL[signal]}` : name}
+            data-signal={signal ?? undefined}
+            title={tip}
+            draggable
+            onDragStart={(e) => {
+              setDragRoot(root);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragOver={(e) => {
+              if (!dragRoot || dragRoot === root) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDragOver(root);
+            }}
+            onDragLeave={() => setDragOver((v) => (v === root ? null : v))}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (dragRoot && dragRoot !== root) p.onReorder(dragRoot, root);
+              setDragRoot(null);
+              setDragOver(null);
+            }}
+            onDragEnd={() => { setDragRoot(null); setDragOver(null); }}
+            onClick={() => p.onSelectProject(root)}
+            /* double-clic : bascule le panneau fixe — en compact, l'ouvre sur
+               les chats du projet (remplace l'ancien flyout) ; sinon le replie */
+            onDoubleClick={() => {
+              if (p.compact) p.onSelectView("chats");
+              p.onExpand();
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              p.onMenu(root, e.clientY);
+            }}
+          >
+            {m?.label?.startsWith("icon:") ? <ProjIcon name={m.label.slice(5)} size={18} /> : projInitial(root, m)}
+            <RailSignalMark signal={signal} />
+          </RowButton>
+        );
+      })}
+      <IconButton className="rail-btn rail-add-project" label={t("action.add-project")} title={t("action.add-project")} onClick={p.onAddProject}>
+        <PlusIcon size={19} />
+      </IconButton>
+    </div>
+  );
+}
+
 export default function Rail(p: {
   favorites?: RailFavoritesProps;
   signals?: RailSignals;
@@ -85,8 +170,6 @@ export default function Rail(p: {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
-  const [dragRoot, setDragRoot] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
 
   const articleJobs = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot).jobs.length;
   const ragdocOn = useIntegrations().effective.ragdoc;
@@ -137,66 +220,20 @@ export default function Rail(p: {
           </LazyBoundary>
         )}
         <div className="rail-sep" aria-hidden="true" />
-        <div className="rail-projects" role="group" aria-label="Projets">
-      {p.projects.map((root) => {
-        const m = p.meta[root];
-        const active = root === p.activeProject && p.activeView === "chats" && !favoriteActive;
-        // l'ancien point « agent au travail » reste la source quand App ne
-        // fournit pas encore de signaux (tests, bancs)
-        const signal = p.signals ? p.signals.projects[root] ?? null : (p.running.has(root) ? "run" : null);
-        const name = root.split("/").pop() ?? root;
-        const notes = p.signals?.notes[root] ?? [];
-        const tip = [name, ...(notes.length ? notes : signal ? [SIGNAL_LABEL[signal]] : [])].join("\n");
-        return (
-          <RowButton
-            key={root}
-            className={`rail-proj ${m?.color ? "tinted" : ""} ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
-            style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}
-            aria-current={active ? "page" : undefined}
-            aria-label={signal ? `${name} — ${SIGNAL_LABEL[signal]}` : name}
-            data-signal={signal ?? undefined}
-            title={tip}
-            draggable
-            onDragStart={(e) => {
-              setDragRoot(root);
-              e.dataTransfer.effectAllowed = "move";
-            }}
-            onDragOver={(e) => {
-              if (!dragRoot || dragRoot === root) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              setDragOver(root);
-            }}
-            onDragLeave={() => setDragOver((v) => (v === root ? null : v))}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (dragRoot && dragRoot !== root) p.onReorder(dragRoot, root);
-              setDragRoot(null);
-              setDragOver(null);
-            }}
-            onDragEnd={() => { setDragRoot(null); setDragOver(null); }}
-            onClick={() => p.onSelectProject(root)}
-            /* double-clic : bascule le panneau fixe — en compact, l'ouvre sur
-               les chats du projet (remplace l'ancien flyout) ; sinon le replie */
-            onDoubleClick={() => {
-              if (p.compact) p.onSelectView("chats");
-              p.onExpand();
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setMenu({ root, y: e.clientY });
-            }}
-          >
-            {m?.label?.startsWith("icon:") ? <ProjIcon name={m.label.slice(5)} size={18} /> : projInitial(root, m)}
-            <RailSignalMark signal={signal} />
-          </RowButton>
-        );
-      })}
-      <IconButton className="rail-btn rail-add-project" label={t("action.add-project")} title={t("action.add-project")} onClick={p.onAddProject}>
-        <PlusIcon size={19} />
-      </IconButton>
-      </div>{/* fin rail-projects */}
+        <RailProjects
+          projects={p.projects}
+          meta={p.meta}
+          activeRoot={p.activeView === "chats" && !favoriteActive ? p.activeProject : null}
+          signals={p.signals}
+          running={p.running}
+          compact={p.compact}
+          onSelectProject={p.onSelectProject}
+          onSelectView={p.onSelectView}
+          onExpand={p.onExpand}
+          onAddProject={p.onAddProject}
+          onReorder={p.onReorder}
+          onMenu={(root, y) => setMenu({ root, y })}
+        />
       </div>{/* fin rail-scroll */}
       {/* zone épinglée : tâches de fond (conversions) puis Réglages, toujours
           visibles en bas, jamais scrollés */}
