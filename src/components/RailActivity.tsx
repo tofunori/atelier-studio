@@ -34,20 +34,20 @@ function ring(ratio: number | null, state: ActivityItem["state"]) {
   const stroke = state === "failed"
     ? "color-mix(in srgb, var(--u-hot, #e06c75) 60%, transparent)"
     : state === "done"
-      ? "color-mix(in srgb, var(--ok, #79b892) 60%, transparent)"
+      ? "color-mix(in srgb, var(--status-success) 60%, transparent)"
       : "var(--accent)";
   const dash = ratio === null
     ? `${circumference * 0.22} ${circumference}`
     : `${circumference * Math.min(1, Math.max(0, ratio))} ${circumference}`;
   return (
     <svg className="rail-act-ring" viewBox="0 0 34 34" aria-hidden="true">
-      <circle cx="17" cy="17" r="15" fill="none" stroke="var(--bg-ctl)" strokeWidth="2" />
+      <circle cx="17" cy="17" r="15" fill="none" stroke="var(--bg-ctl)" strokeWidth="1.5" />
       {state !== "done" && state !== "failed" && (
-        <circle cx="17" cy="17" r="15" fill="none" stroke={stroke} strokeWidth="2"
+        <circle cx="17" cy="17" r="15" fill="none" stroke={stroke} strokeWidth="1.5"
           strokeLinecap="round" strokeDasharray={dash} />
       )}
       {(state === "done" || state === "failed") && (
-        <circle cx="17" cy="17" r="15" fill="none" stroke={stroke} strokeWidth="2" />
+        <circle cx="17" cy="17" r="15" fill="none" stroke={stroke} strokeWidth="1.5" />
       )}
     </svg>
   );

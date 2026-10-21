@@ -74,7 +74,7 @@ describe("ContextInspector", () => {
     const onAddToChat = vi.fn();
     render(<ContextInspector {...props({ addState: "pending", onAddToChat })} />);
     const btn = screen.getByRole("button", { name: "Ajouter au chat" });
-    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute("aria-disabled", "true");
     expect(btn).toHaveAttribute("aria-busy", "true");
     fireEvent.click(btn);
     expect(onAddToChat).not.toHaveBeenCalled();

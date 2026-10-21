@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { CircleAlert, LoaderCircle, X } from 'lucide-react';
+import { CircleAlert, X } from 'lucide-react';
+import { Spinner } from '../ui/Spinner';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 import './ChatNotice.css';
@@ -31,7 +32,7 @@ export function ChatNotice({notice}:{notice:ChatNoticeData}) {
   // affiché tant qu'on ne l'ouvrait pas pour cliquer sur la croix.
   const titled=receipt || checking || timedOut;
   return <div role="status" className="chat-notice-line" data-kind={notice.kind}>
-    {checking ? <LoaderCircle className="chat-notice-spinner" aria-hidden="true"/> : <CircleAlert className="chat-notice-icon" aria-hidden="true"/>}
+    {checking ? <Spinner size={14} className="chat-notice-spinner" aria-hidden="true"/> : <CircleAlert className="chat-notice-icon" aria-hidden="true"/>}
     <p className="chat-notice-text" title={notice.text}>
       {titled && <span className="chat-notice-title">{title}</span>}<span className="chat-notice-body">{text}</span>
       {receipt && <span className="chat-notice-hint">Ton message n’a pas été renvoyé.</span>}

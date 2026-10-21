@@ -631,7 +631,7 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
   const pct = Math.max(0, Math.min(100, (current / total) * 100));
   return (
     <span className="calculs-progress" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={current}>
-      <i style={{ width: `${pct}%` }} />
+      <i style={{ transform: `scaleX(${pct / 100})` }} />
     </span>
   );
 }

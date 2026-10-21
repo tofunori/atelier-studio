@@ -458,19 +458,19 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       .filter((r) => /animation[^;]*infinite/.test(r.body))
       .map((r) => r.selector)
       .filter((selector) => chatScope.test(selector));
+    // A11 (CHAT-04 / TRANS-07) : une boucle visible par tour. L'étoile de la
+    // ligne vivante, le carré du chrono et le glyphe d'un sous-agent sont
+    // FIXES ; restent le reflet de la ligne vivante (figé dès qu'un anneau
+    // d'action tourne), le reflet d'une rangée et l'anneau d'action.
     expect(loops.sort()).toEqual([
-      // glyphe d'un sous-agent au travail (rangée AgentActivity) — spin 1.4 s,
-      // coupé sous prefers-reduced-motion comme les autres
-      '.agent-state-icon[data-agent-status="working"]',
-      ".turn-activity-glyph",
       ".turn-working-shimmer",
       ".ui-activity-label.is-shimmering .tool-ticker-row, .ui-activity-label.is-shimmering:not(:has(.tool-ticker))",
       // anneau d'une action en cours (colonne d'état de la rangée, refonte du
       // 2026-10-18) — il REMPLACE le balayage de la ligne vivante, qui ne
       // tourne plus : une seule boucle par rangée, coupée sous reduced-motion
       ".ui-activity-state .tool-run-ring, .tool-status .tool-run-ring",
-      ".working-label::before",
     ]);
+    expect(appCss).toMatch(/\.messages:has\(\.ui-activity-state \.tool-run-ring, \.tool-status \.tool-run-ring\) \.turn-working-shimmer/);
   });
 
   // Deux régressions VÉCUES au banc le 2026-08-26, invisibles en jsdom (rien
@@ -591,10 +591,11 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // toute durée doit passer par var(--motion-*) / var(--tooltip-delay)
     const rawMs = primitives.match(/\b\d+(\.\d+)?ms\b/g) ?? [];
     expect(rawMs, `durées ms en dur dans primitives.css : ${rawMs.join(", ")}`).toEqual([]);
-    // seule durée en secondes tolérée : la rotation du spinner (continue, pas
-    // une transition d'état)
+    // aucune durée en secondes non plus : la rotation du spinner passe par
+    // le jeton unique --motion-spin (A11)
     const rawS = primitives.match(/\b\d+(\.\d+)?s\b/g) ?? [];
-    expect(rawS).toEqual(["0.9s"]);
+    expect(rawS).toEqual([]);
+    expect(primitives).toMatch(/\.ui-spin\s*\{[^}]*animation:\s*ui-spin var\(--motion-spin\) linear infinite/);
   });
 
   it("tokens : les durées déclarées respectent le plafond 120/140/150 et le délai tooltip 400–450", () => {
@@ -1246,5 +1247,39 @@ describe("contrat lot 2 (socle)", () => {
     expect(primitives).toMatch(/\.ui-iconbtn:is\(\[aria-pressed="true"\], \[aria-expanded="true"\], \[data-popup-open\]\)/);
     expect(primitives).toMatch(/\.ui-search \.ui-search-input\s*\{[^}]*var\(--border-interactive\)/);
     expect(appCss).not.toMatch(/\.(exp|pnav|resume)-search\s*\{[^}]*border:/);
+  });
+
+  it("A11 : un tempo de rotation, un squelette, aucune géométrie animée", () => {
+    const sheets = sourceSheets();
+    const all = sheets.map(([, css]) => css).join("\n");
+    // plus de keyframes de rotation doublons : tout tourne sur ui-spin
+    for (const dup of ["spin", "arcSpin", "narval-spin", "kb-article-spin", "tool-run-spin", "agent-working-spin", "chat-notice-spin", "turn-star-rotate", "working-pulse", "turn-working-sweep"]) {
+      expect(all, `@keyframes ${dup}`).not.toMatch(new RegExp(`@keyframes\\s+${dup}\\s*\\{`));
+    }
+    // toute rotation continue suit --motion-spin
+    for (const m of all.matchAll(/animation:\s*(ui-spin|rail-act-turn)\s+([^\s;]+)/g)) {
+      expect(m[2], m[0]).toBe("var(--motion-spin)");
+    }
+    // le squelette est statique (pas de animate-pulse) et n'apparaît qu'après 350 ms
+    const skeleton = shadcnSources.find(([n]) => n === "skeleton.tsx")?.[1] ?? "";
+    expect(skeleton).not.toMatch(/animate-pulse/);
+    expect(appCss).toMatch(/@keyframes skeleton-appear/);
+    // la barre de progression ne prend jamais l'accent
+    expect(appCss).not.toMatch(/\.kb-article-progress i\s*\{[^}]*var\(--accent\)/);
+    // aucune transition de géométrie (largeur, hauteur, rangées de grille),
+    // hors section effort/modèle (réécrite ailleurs)
+    const geometry: string[] = [];
+    for (const [name, css] of sheets) {
+      for (const m of css.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
+        if (/\.ef-/.test(m[1])) continue;
+        const tr = m[2].match(/transition:\s*([^;]+)/)?.[1] ?? "";
+        if (/(^|,\s*)(width|height|min-height|max-height|grid-template-rows)\b/.test(tr)) geometry.push(`${name} ${m[1].trim()}`);
+      }
+    }
+    expect(geometry).toEqual([]);
+    // les surfaces ancrées entrent depuis leur déclencheur (data-side)
+    expect(shadcn).toMatch(/\[data-side="top"\]/);
+    expect(shadcn).toMatch(/\[data-starting-style\], \[data-ending-style\]/);
+    expect(tokens).toMatch(/--enter-offset:\s*4px/);
   });
 });

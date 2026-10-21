@@ -36,7 +36,7 @@ import { SpecialistProposalCard } from "./SpecialistProposalCard";
 import { MemoryProposalCard } from "./MemoryProposalCard";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { WidgetFrame } from "./WidgetFrame";
-import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
+import { Button, IconButton, RowButton, ScrollToBottomButton, Spinner } from "../ui";
 import { activeMargeIndex, createMarkIndexCache, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
 import type { QaContext } from "../../lib/quickAskContext";
@@ -793,9 +793,9 @@ export function ChatTimeline(p: {
               <span className="rb-name">Reviewer</span>
               <span className="rb-dot">·</span>
               {fixing ? (
-                <span className="rb-verdict running"><span className="rb-spin" /> {t("review.fixing")}</span>
+                <span className="rb-verdict running"><Spinner className="rb-spin" size={10} aria-hidden="true" /> {t("review.fixing")}</span>
               ) : review.status === "running" ? (
-                <span className="rb-verdict running"><span className="rb-spin" /> {t("review.running")}</span>
+                <span className="rb-verdict running"><Spinner className="rb-spin" size={10} aria-hidden="true" /> {t("review.running")}</span>
               ) : review.verdict === "ok" ? (
                 <span className="rb-verdict ok">{t("review.ok-bar")}</span>
               ) : review.verdict === "issues" ? (

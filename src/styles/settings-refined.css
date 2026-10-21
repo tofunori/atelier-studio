@@ -82,7 +82,8 @@
 .set-search-result > .ui-btn-label { display: contents; }
 .set-search-result small { display: block; margin-top: 4px; color: var(--text-muted); font-size: var(--settings-small); }
 .set-search-result svg { width: 14px; height: 14px; color: var(--text-muted); flex: none; }
-.settings-refined [data-search-match] { animation: settings-found 1.6s var(--ease-out); }
+/* rangée trouvée : la teinte TIENT 1,2 s, puis s'éteint en 150 ms (SET-19) */
+.settings-refined [data-search-match] { animation: settings-found var(--motion-panel) var(--ease-out) 1.2s both; }
 @keyframes settings-found { from { background: var(--accent-subtle); } to { background: transparent; } }
 .set-preview-wrap { margin-bottom: 28px; }
 .set-preview { display: grid; grid-template-columns: 126px minmax(0,1fr); min-height: 182px; border-radius: var(--radius-control); overflow: hidden; background: var(--bg); outline: 1px solid var(--border-interactive); outline-offset: -1px; }

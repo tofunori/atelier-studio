@@ -28,16 +28,17 @@
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
 }
 
-/* spinner standard (SEULE animation continue autorisée par surface) */
+/* spinner standard (SEULE animation continue autorisée par surface) : l'arc
+ * de ui/Spinner.tsx, un seul tracé (plus d'anneau CSS autour), au tempo
+ * unique --motion-spin. Toutes les roues de l'app réutilisent ui-spin. */
+.ui-btn--loading { pointer-events: none; }
 .ui-spin {
-  width: 12px; height: 12px; border-radius: var(--radius-pill);
-  border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent);
-  border-top-color: currentColor;
-  animation: ui-spin 0.9s linear infinite;
+  flex: none; transform-origin: center; transform-box: fill-box;
+  animation: ui-spin var(--motion-spin) linear infinite;
 }
 @keyframes ui-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .ui-spin { animation: none; border-top-color: currentColor; opacity: .7; }
+  .ui-spin { animation: none; }
   .ui-btn:active:not(:disabled) { transform: none; }
 }
 

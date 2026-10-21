@@ -12,7 +12,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "../shadcn/sidebar";
-import { IconButton } from "../ui";
+import { IconButton, Spinner } from "../ui";
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 import { presentStatus } from "../../lib/statusPresentation";
 import { Clock3Icon, PinIcon } from "lucide-react";
@@ -196,10 +196,7 @@ export function ThreadRow(p: {
           </IconButton>
         <span className="row-status">
           {running ? (
-            <svg className="arc" role="img" aria-label={status.label} width="13" height="13" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="6" stroke="var(--border2)" strokeWidth="2" />
-              <path d="M14 8a6 6 0 0 0-6-6" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
-            </svg>
+            <Spinner className="arc" size={13} label={status.label} />
           ) : (
             <span className="row-time" aria-label={relativeDate(p.thread.updatedAt)}>
               {shortTime(p.thread.updatedAt)}

@@ -113,14 +113,6 @@
  * attributes. Keep motion in the Atelier token system instead of importing
  * a second animation preset or hard-coded durations. */
 @layer components {
-  [data-slot="spinner"] {
-    animation-duration: var(--motion-standard);
-  }
-
-  [data-slot="skeleton"] {
-    animation-duration: var(--motion-panel);
-  }
-
   [data-slot="dialog-overlay"],
   [data-slot="alert-dialog-overlay"],
   [data-slot="sheet-overlay"] {
@@ -162,26 +154,41 @@
     transform: translate(-50%, -50%) scale(1);
   }
 
+  /* A11 (TRANS-12 / PRIM-20) : UNE entrée pour toutes les surfaces ancrées —
+   * fondu + 4 px depuis le déclencheur, orienté par data-side (un menu ouvert
+   * vers le haut monte, vers le bas descend), 140 ms, courbe --ease-out.
+   * Base UI pose data-starting-style / data-ending-style le temps de l'entrée
+   * et de la sortie ; sous reduced-motion les jetons valent 0 ms. */
   [data-slot="popover-content"],
   [data-slot="dropdown-menu-content"],
   [data-slot="dropdown-menu-sub-content"],
   [data-slot="context-menu-content"],
   [data-slot="context-menu-sub-content"],
-  [data-slot="tooltip-content"] {
-    opacity: 0;
-    transform: scale(0.98);
-    transition: opacity var(--motion-fast) var(--ease-out),
-      transform var(--motion-fast) var(--ease-out);
+  [data-slot="tooltip-content"],
+  [data-slot="select-content"] {
+    --enter-x: 0px;
+    --enter-y: calc(-1 * var(--enter-offset));
+    transition: opacity var(--motion-standard) var(--ease-out),
+      transform var(--motion-standard) var(--ease-out);
   }
 
-  [data-slot="popover-content"][data-open],
-  [data-slot="dropdown-menu-content"][data-open],
-  [data-slot="dropdown-menu-sub-content"][data-open],
-  [data-slot="context-menu-content"][data-open],
-  [data-slot="context-menu-sub-content"][data-open],
-  [data-slot="tooltip-content"][data-open] {
-    opacity: 1;
-    transform: scale(1);
+  :is([data-slot="popover-content"], [data-slot$="menu-content"], [data-slot$="menu-sub-content"], [data-slot="tooltip-content"], [data-slot="select-content"]):is([data-side="top"]) {
+    --enter-y: var(--enter-offset);
+  }
+
+  :is([data-slot="popover-content"], [data-slot$="menu-content"], [data-slot$="menu-sub-content"], [data-slot="tooltip-content"], [data-slot="select-content"]):is([data-side="left"], [data-side="inline-start"]) {
+    --enter-x: var(--enter-offset);
+    --enter-y: 0px;
+  }
+
+  :is([data-slot="popover-content"], [data-slot$="menu-content"], [data-slot$="menu-sub-content"], [data-slot="tooltip-content"], [data-slot="select-content"]):is([data-side="right"], [data-side="inline-end"]) {
+    --enter-x: calc(-1 * var(--enter-offset));
+    --enter-y: 0px;
+  }
+
+  :is([data-slot="popover-content"], [data-slot$="menu-content"], [data-slot$="menu-sub-content"], [data-slot="tooltip-content"], [data-slot="select-content"]):is([data-starting-style], [data-ending-style]) {
+    opacity: 0;
+    transform: translate(var(--enter-x), var(--enter-y));
   }
 
   [data-slot="dialog-content"][data-closed],
@@ -197,11 +204,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    [data-slot="spinner"],
-    [data-slot="skeleton"] {
-      animation: none;
-    }
-
     [data-slot="dialog-content"] {
       transform: none;
     }

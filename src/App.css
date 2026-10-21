@@ -202,8 +202,6 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    token et ces lignes disparaissent. */
 .dot.claude { background: color-mix(in srgb, var(--accent) 72%, var(--fg2)); }
 .dot.codex { background: color-mix(in srgb, var(--fg2) 72%, var(--bg)); }
-.spinner { margin-left: auto; animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 .chat { display: flex; flex-direction: row; height: 100%; min-width: 0; }
 /* --chat-col : colonne de lecture du chat. Le réglage --chat-w est un VRAI
    plafond (contrat §7 : largeur de lecture 640–720 px cible) — en panneau
@@ -287,9 +285,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .agent-state-icon[data-agent-status="working"] { color: var(--accent-text); }
 .agent-state-icon[data-agent-status="failed"] { color: var(--status-error); }
 .agent-state-icon, .agent-glyph { flex-shrink: 0; color: var(--text-muted); }
-.agent-state-icon[data-agent-status="working"] { animation: agent-working-spin 1.4s linear infinite; }
-@keyframes agent-working-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .agent-state-icon[data-agent-status="working"] { animation: none; } .agent-row { transition: none; } }
+/* agent au travail : anneau STATIQUE à l'accent — la seule boucle d'un tour
+   est celle de la ligne vivante (CHAT-04 / TRANS-07) */
+@media (prefers-reduced-motion: reduce) { .agent-row { transition: none; } }
 /* Sous-agent lu à la place du chat (2026-10-19) : couvre le fil et le
    compositeur, restés montés dessous pour garder la position de lecture. */
 .subagent-view { position: absolute; inset: 0; z-index: 70; display: flex; flex-direction: column;
@@ -1043,9 +1041,9 @@ button.kernel-file:hover { color: var(--text-primary); }
 .custom-select-chevron { flex: none; color: var(--text-muted); }
 .custom-select-menu { background: var(--bg-pop);
   border-radius: var(--r-m); box-shadow: var(--elev); padding: 4px; overflow-y: auto;
-  min-width: max(120px, var(--anchor-width, 0px)); max-width: min(280px, var(--available-width, 100vw));
-  animation: pop-in 130ms ease; transform-origin: top; }
-.custom-select-menu.top { transform-origin: bottom; }
+  min-width: max(120px, var(--anchor-width, 0px)); max-width: min(280px, var(--available-width, 100vw)); }
+/* entrée : celle de [data-slot=select-content] (shadcn.css), orientée par
+   data-side — plus de pop-in qui descendait même ouvert vers le haut */
 /* La rangée décrit le balisage RÉEL du SelectItem, pas celui du select maison
  * d'avant shadcn : deux enfants, dont la coche en position absolue — donc hors
  * flux. La grille à colonnes fixes n'avait plus qu'un enfant à placer, le bloc
@@ -1228,12 +1226,10 @@ button.kernel-file:hover { color: var(--text-primary); }
      à chaque apparition/disparition des spans tokens/note pendant le stream,
      et le séparateur en dessous « respirait » de 1-2 px. */
   min-height: 20px; line-height: 20px; }
-/* Pulse carré façon Hermes (StatusPulse) : une seule boucle par surface,
-   remplace l'anneau. Reduced-motion : opacité fixe. */
+/* Carré façon Hermes (StatusPulse), désormais FIXE : la seule boucle d'un
+   tour est le reflet de la ligne vivante (CHAT-04 / TRANS-07). */
 .working-label::before { content: ""; width: 9px; height: 9px; flex: 0 0 9px;
-  background: var(--accent); animation: working-pulse 1.2s ease-in-out infinite; }
-@keyframes working-pulse { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
-@media (prefers-reduced-motion: reduce) { .working-label::before { animation: none; opacity: .6; } }
+  background: var(--accent); opacity: .6; }
 .working-tokens { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* Bilan cumulatif du tour actif : périphérie (gris éteint), la catégorie qui
    vient de bouger un cran plus claire. Indenté sous le libellé du chrono
@@ -1250,37 +1246,35 @@ button.kernel-file:hover { color: var(--text-primary); }
 .turn-cumulative-sep { color: var(--text-disabled); }
 /* Persistent turn status: animation does not depend on incoming events. */
 .turn-quiet { color: var(--text-muted); font-size: max(12px, calc(var(--chat-fs, 13.5px) - .5px)); font-weight: 400; line-height: 24px; }
+/* Étoile FIXE, sans halo : sur la ligne vivante, le reflet du libellé est la
+   seule boucle (une boucle visible par tour — CHAT-04 / TRANS-07). */
 .turn-activity-glyph { width: 15px; height: 15px; flex: 0 0 auto; overflow: visible;
-  color: color-mix(in srgb, var(--accent) 65%, var(--text-primary));
-  transform-origin: center; transform-box: fill-box;
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 50%, transparent));
-  animation: turn-star-rotate 3s linear infinite; }
-@keyframes turn-star-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  color: var(--accent-text); }
 .turn-activity-elapsed { flex: 0 0 auto; margin-left: auto; padding-left: 16px;
   color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Reflet de la ligne vivante : LA recette du balayage (celle des rangées,
+   label-sweep plus bas : tuile 90ch, pic --text-primary, 2,4 s). Il se fige
+   dès qu'un anneau d'action tourne dans le fil — jamais deux boucles. */
 .turn-working-shimmer {
-  --activity-base: var(--text-muted);
-  --activity-spread: calc(3ch + 40px);
-  --activity-peak: var(--activity-highlight);
-  --activity-soft: color-mix(in srgb, var(--activity-peak) 65%, var(--activity-base));
-  background-image: linear-gradient(110deg, var(--activity-base) calc(50% - var(--activity-spread)), var(--activity-soft) calc(50% - var(--activity-spread) * .5), var(--activity-peak) 50%, var(--activity-soft) calc(50% + var(--activity-spread) * .5), var(--activity-base) calc(50% + var(--activity-spread)));
-  background-size: calc(200% + var(--activity-spread) * 2) 100%;
-  background-repeat: no-repeat;
-  background-clip: text;
-  -webkit-background-clip: text;
   color: transparent;
-  animation: turn-working-sweep 1.6s linear infinite;
+  -webkit-text-fill-color: transparent;
+  background-color: var(--text-muted);
+  background-image: linear-gradient(100deg,
+    var(--text-muted) 0%, var(--text-muted) 43.33%,
+    var(--text-primary) 46.67%, var(--text-primary) 53.33%,
+    var(--text-muted) 56.67%, var(--text-muted) 100%);
+  background-size: 90ch 100%;
+  background-repeat: repeat-x;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: label-sweep 2.4s linear infinite;
 }
-.turn-tail-row.is-settled .turn-activity-glyph { animation: none; filter: none; color: var(--text-muted); }
-.turn-tail-row.is-settled .turn-working-shimmer { animation: none; background: none; color: var(--text-secondary); }
-[data-theme="light"] .turn-working-shimmer { --activity-peak: var(--text-primary); text-shadow: none; }
-@keyframes turn-working-sweep {
-  from { background-position: 100% 0; }
-  to { background-position: 0 0; }
-}
+.turn-tail-row.is-settled .turn-activity-glyph { color: var(--text-muted); }
+.turn-tail-row.is-settled .turn-working-shimmer,
+.messages:has(.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring) .turn-working-shimmer {
+  animation: none; background: none; color: var(--text-secondary); -webkit-text-fill-color: currentColor; }
 @media (prefers-reduced-motion: reduce) {
-  .turn-activity-glyph { animation: none; filter: none; }
-  .turn-working-shimmer { animation: none; background: none; color: var(--text-primary); text-shadow: none; }
+  .turn-working-shimmer { animation: none; background: none; color: var(--text-primary); -webkit-text-fill-color: currentColor; }
 }
 /* avancement du provider pendant l'attente (démarrage MCP) — même discrétion
    que le compteur de jetons, jamais concurrent du contenu */
@@ -1373,8 +1367,8 @@ button.kernel-file:hover { color: var(--text-primary); }
    Surface élevée : fond + ombre, pas de bordure ; un séparateur sous l'en-tête. */
 .paste-modal { display: flex; flex-direction: column; width: min(640px, 94%);
   max-height: 72vh; background: var(--bg-pop); border-radius: var(--r-m);
-  box-shadow: var(--elev); overflow: hidden; animation: paste-in 140ms ease-out; }
-@keyframes paste-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  box-shadow: var(--elev); overflow: hidden; animation: paste-in var(--motion-standard) var(--ease-out); }
+@keyframes paste-in { from { opacity: 0; transform: translateY(var(--enter-offset)); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .paste-modal { animation: none; } }
 .paste-modal-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px;
   border-bottom: 1px solid var(--border); }
@@ -1521,7 +1515,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .rail-act:hover { color: var(--text-primary); }
 .rail-act.failed { color: var(--u-hot, #e06c75); }
 .rail-act-ring { position: absolute; inset: 0; width: 34px; height: 34px; transform: rotate(-90deg); }
-.rail-act.running .rail-act-ring { animation: rail-act-turn 1.6s linear infinite; }
+.rail-act.running .rail-act-ring { animation: rail-act-turn var(--motion-spin) linear infinite; }
 @keyframes rail-act-turn { to { transform: rotate(270deg); } }
 @media (prefers-reduced-motion: reduce) { .rail-act.running .rail-act-ring { animation: none; } }
 .rail-act-glyph { width: 15px; height: 15px; }
@@ -1619,8 +1613,12 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* tiroir « Autres surfaces » : les surfaces secondaires se déplient en place */
 .rail-more svg { transition: transform var(--motion-fast) var(--ease-out); }
 .rail-more.open svg { transform: rotate(90deg); }
-.rail-fold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--motion-standard) var(--ease-out); width: 100%; }
+/* plus d'animation de hauteur (A11) : le tiroir bascule, son contenu entre
+   en opacité + 4 px comme tous les dépliages */
+.rail-fold { display: grid; grid-template-rows: 0fr; width: 100%; }
 .rail-fold.open { grid-template-rows: 1fr; }
+.rail-fold.open > div { animation: disclose-in var(--motion-standard) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .rail-fold.open > div { animation: none; } }
 .rail-fold > div { overflow: hidden; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .rail-proj { position: relative; width: 38px; height: 38px; border-radius: var(--r-m);
   border: none; background: transparent !important; color: var(--text-secondary);
@@ -1701,13 +1699,14 @@ button.kernel-file:hover { color: var(--text-primary); }
   margin: 4px auto 0; padding: 4px 2px; overflow-y: auto; scrollbar-width: var(--atelier-scrollbar-width, thin); }
 .queued-turn { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 4px;
   border-radius: var(--r-s); transition: background var(--motion-fast) var(--ease-out),
-  opacity 180ms var(--ease-out), transform 180ms var(--ease-out); animation: queued-turn-in 180ms var(--ease-out); }
+  opacity var(--motion-standard) var(--ease-out), transform var(--motion-standard) var(--ease-out); animation: queued-turn-in var(--motion-standard) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .queued-turn { animation: none; transition: none; } }
 .queued-turn:hover, .queued-turn:focus-within { background: color-mix(in srgb, var(--bg-ctl) 72%, transparent); }
 .queued-turn.is-drag-over { background: var(--bg-ctl); box-shadow: inset 0 1px var(--accent); }
-@keyframes queued-turn-in { from { opacity: 0; transform: translateY(3px); } }
+@keyframes queued-turn-in { from { opacity: 0; transform: translateY(4px); } }
 .queued-turn-drag { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 26px;
-  padding: 0; flex: none; border: 0; border-radius: var(--r-s); background: transparent; color: var(--text-disabled);
-  opacity: .45; cursor: grab; }
+  padding: 0; flex: none; border: 0; border-radius: var(--r-s); background: transparent; color: var(--text-muted);
+  cursor: grab; }
 .queued-turn-drag:hover, .queued-turn-drag:focus-visible { color: var(--text-secondary); opacity: 1; background: var(--bg-ctl); }
 .queued-turn-drag:active { cursor: grabbing; }
 .queued-turn-drag svg { width: 13px; height: 13px; }
@@ -1715,9 +1714,8 @@ button.kernel-file:hover { color: var(--text-primary); }
 .queued-turn-prompt { overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   color: var(--text-muted); font-size: var(--fs-m); }
 .queued-turn-context { flex: none; color: var(--text-muted); font-size: var(--fs-xs); }
-.queued-turn-actions { display: flex; align-items: center; gap: 1px; flex: none; opacity: .58;
-  transition: opacity var(--motion-fast) var(--ease-out); }
-.queued-turn:hover .queued-turn-actions, .queued-turn:focus-within .queued-turn-actions { opacity: 1; }
+/* poignée et actions en --text-muted pleines : pas de demi-gris d'opacité */
+.queued-turn-actions { display: flex; align-items: center; gap: 4px; flex: none; }
 .queued-turn-actions button { display: inline-flex; align-items: center; justify-content: center; min-width: var(--control-height-s);
   height: var(--control-height-s); padding: 0 6px; border: 0; border-radius: var(--r-s); background: transparent;
   color: var(--text-muted); font: inherit; font-size: var(--fs-xs); cursor: pointer; }
@@ -1814,7 +1812,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .activity-title { color: var(--text-secondary); font-weight: 500; white-space: nowrap; }
 .activity-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 .activity-steps { display: grid; gap: 4px; margin: 4px 0 4px 4px; padding: 2px 0 2px 16px;
-  border-left: 1px solid var(--border-interactive); animation: toolGroupIn 0.12s ease-out; }
+  border-left: 1px solid var(--border-interactive); animation: toolGroupIn var(--motion-standard) var(--ease-out); }
 .activity-step { display: grid; grid-template-columns: 12px auto minmax(0, 1fr);
   align-items: baseline; gap: 8px; min-height: 18px; }
 .activity-step-dot { width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--mark-neutral);
@@ -1827,7 +1825,8 @@ button.kernel-file:hover { color: var(--text-primary); }
 .activity-step-title { color: var(--text-secondary); font-weight: 500; white-space: nowrap; }
 .activity-step-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text-secondary); opacity: 0.72; }
-@keyframes toolGroupIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toolGroupIn { from { opacity: 0; transform: translateY(calc(-1 * var(--enter-offset))); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .activity-steps { animation: none; } }
 /* Ligne « fichier édité » (refonte 2026-10-18, maquette
    captures/fichiers-modifies-2026-10-18) : même grille et même hauteur que
    .tool-output-head, alignée à gauche comme toutes les lignes d'outil. Le
@@ -1848,7 +1847,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .edit-line-add { color: var(--status-success); }
 .edit-line-del { color: var(--status-error); }
 .edit-line-card { min-width: 0; margin: 0 0 8px 23px; overflow: hidden; border-radius: var(--r-m);
-  background: var(--bg-side); animation: toolGroupIn 0.12s ease-out; }
+  background: var(--bg-side); animation: toolGroupIn var(--motion-standard) var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .edit-line-card { animation: none; } }
 .edit-line-card-head { display: flex; align-items: center; gap: 12px; min-height: 32px;
   padding: 0 4px 0 12px; border-bottom: 1px solid var(--border-subtle); font-size: var(--fs-s); }
@@ -2065,8 +2064,10 @@ button.kernel-file:hover { color: var(--text-primary); }
   display: flex; flex-direction: column; align-items: flex-end; gap: 0;
   overflow-x: hidden; overflow-y: auto; scrollbar-width: none;
   border-radius: var(--r-m); padding: 4px 0;
-  transition: width var(--motion-fast) var(--ease-out),
-              background var(--motion-fast) var(--ease-out),
+  /* A11 : la géométrie bascule d'un coup (jamais de width animée, qui
+     recomposait la marge à chaque image) ; seuls fond, ombre et libellés
+     fondent */
+  transition: background var(--motion-fast) var(--ease-out),
               box-shadow var(--motion-fast) var(--ease-out);
 }
 .tl-marge::-webkit-scrollbar { display: none; }
@@ -2083,9 +2084,7 @@ button.kernel-file:hover { color: var(--text-primary); }
   width: 100%; height: 8px; min-height: 8px; padding: 0 4px 0 0;
   border: none; background: transparent; border-radius: var(--r-s);
   cursor: pointer; text-align: left;
-  transition: height var(--motion-fast) var(--ease-out),
-              min-height var(--motion-fast) var(--ease-out),
-              background var(--motion-fast) var(--ease-out);
+  transition: background var(--motion-fast) var(--ease-out);
 }
 .tl-marge:hover .tl-mark, .tl-marge:focus-within .tl-mark {
   height: auto; min-height: 20px; justify-content: flex-start; gap: 8px;
@@ -2145,8 +2144,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .dot.unread { background: var(--status-success) !important; }
 /* indicateur "agent au travail" : pastille qui respire + arc orbital */
 .dot.busy { opacity: 0.9; }
-.arc { margin-left: auto; animation: arcSpin 0.9s linear infinite; flex-shrink: 0; }
-@keyframes arcSpin { to { transform: rotate(360deg); } }
+.arc { margin-left: auto; color: var(--accent-text); }
 /* page Réglages */
 .settings-page { display: flex; height: 100vh; background: var(--bg); }
 .set-nav { width: 220px; background: var(--surface-panel); padding: 40px 12px 16px; display: flex;
@@ -2419,7 +2417,7 @@ button.kernel-file:hover { color: var(--text-primary); }
    terminal intégré (aucun projet ouvert), la commande s'affiche sous sa
    rangée, à coller dans Terminal de macOS. */
 .setup-fallback { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 16px;
-  animation: disclose-in 140ms ease-out; }
+  animation: disclose-in var(--motion-standard) var(--ease-out); }
 .settings-refined .setup-fallback { padding-inline: 0; }
 .setup-fallback-hint { margin: 0; color: var(--text-muted); font-size: var(--fs-body-s); line-height: 1.5; }
 .setup-fallback-line { display: flex; align-items: flex-start; gap: 8px; }
@@ -2443,9 +2441,11 @@ button.kernel-file:hover { color: var(--text-primary); }
 .set-advanced-trigger:hover { color: var(--text-primary); }
 .set-advanced-trigger svg { transition: transform var(--ease); }
 .set-advanced-trigger.on svg { transform: rotate(90deg); }
-.set-advanced-body { margin-top: 8px; }
+/* contenu d'« Avancé » : l'entrée commune des dépliages (opacité + 4 px) */
+.set-advanced-body { margin-top: 8px; animation: disclose-in var(--motion-standard) var(--ease-out); }
 @media (prefers-reduced-motion: reduce) {
   .set-advanced-trigger svg { transition: none; }
+  .set-advanced-body { animation: none; }
 }
 /* Pastille « Enregistré » : confirme l'écriture immédiate. 140ms d'opacité,
    jamais de déplacement — la rangée ne doit pas sauter. */
@@ -2933,12 +2933,6 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   min-height: calc(var(--chat-fs, var(--fs-xl)) * var(--chat-lh, 1.7));
   height: calc(var(--chat-fs, var(--fs-xl)) * var(--chat-lh, 1.7)); overflow-y: hidden; }
 .plus-up { min-width: 240px; }
-.toggle { margin-left: auto; width: 32px; height: 18px; border-radius: var(--r-pill);
-  background: var(--bg-ctl); position: relative; transition: background var(--motion-standard) var(--ease-out); flex-shrink: 0; }
-.toggle .knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
-  border-radius: var(--r-pill); background: var(--mark-neutral-strong); transition: left var(--motion-standard) var(--ease-out), background-color var(--motion-standard) var(--ease-out); }
-.toggle.on { background: var(--accent); }
-.toggle.on .knob { left: 16px; background: #fff; }
 /* position: static neutralise le position:fixed/left:56px/z-index:120 hérité
    de .rail-menu (toujours nécessaire à Rail.tsx, non migré) — le Popup Base UI
    n'a plus besoin de se positionner lui-même, le Positioner Base UI s'en charge. */
@@ -3211,15 +3205,16 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
 .biblio-skeletons { display: flex; flex-direction: column; gap: 2px; }
 .biblio-skeleton { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; }
 .biblio-skeleton-title, .biblio-skeleton-meta { display: block; height: 9px;
-  border-radius: var(--r-s); background: var(--bg-ctl);
-  animation: pulse 1.6s var(--ease-out, ease-out) infinite; }
+  border-radius: var(--r-s); background: var(--surface-inset); }
 .biblio-skeleton-title { width: 72%; }
 .biblio-skeleton-meta { width: 44%; height: 8px; }
 .biblio-skeleton:nth-child(2n) .biblio-skeleton-title { width: 58%; }
 .biblio-skeleton:nth-child(3n) .biblio-skeleton-title { width: 84%; }
-@media (prefers-reduced-motion: reduce) {
-  .biblio-skeleton-title, .biblio-skeleton-meta { animation: none; }
-}
+/* TRANS-29 : UN squelette — barres statiques (aucune pulsation, aucun
+   reflet), qui n'apparaissent qu'après 350 ms pour ne pas clignoter sur les
+   chargements rapides (recette de Research Home). */
+[data-slot="skeleton"], .biblio-skeletons, .rh-skeleton { animation: skeleton-appear 1ms linear 350ms both; }
+@keyframes skeleton-appear { from { opacity: 0; } to { opacity: 1; } }
 .biblio-list:focus-visible { outline: none; }
 .biblio-list:focus-visible .biblio-row[aria-selected="true"] { box-shadow: inset 0 0 0 1px var(--border-strong); }
 .biblio-row-menu { min-width: 200px; }
@@ -3729,7 +3724,7 @@ body.dragging iframe { pointer-events: none; }
    « une seule boucle par surface » — seule subsiste l'entrée d'un libellé
    d'activité (transform, à neutraliser ici). */
 @media (prefers-reduced-motion: reduce) {
-  .atelier-skeleton-grid [data-slot="skeleton"], .qa-minidot,
+  .qa-minidot,
   .active-activity-transition,
   .ui-activity-detail, .tool-output-body, .thinking-body, .turn-diff-body,
   .turn-diff-files, .reasoning-trace-body, .review-detail, .passage-card.open,
@@ -4018,7 +4013,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   gap: 8px; width: 100%; padding: 0 8px 0 0; margin: 0; background: var(--surface-header);
   border: none; border-bottom: 1px solid var(--border); border-left: 2.5px solid var(--border2);
   font-size: var(--fs-m); color: var(--text-primary); box-sizing: border-box;
-  transition: background 120ms ease, border-left-color 120ms ease; }
+  transition: background var(--motion-fast) var(--ease-out), border-left-color var(--motion-fast) var(--ease-out); }
 /* bouton interne (la barre est un div : min/close sont des frères, plan 021 B) */
 .rb-main { appearance: none; -webkit-appearance: none; display: flex; align-items: center;
   gap: 8px; flex: 1; min-width: 0; padding: 8px 0 8px 12px; margin: 0; background: transparent;
@@ -4046,10 +4041,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .rb-checks { color: var(--text-muted); font-size: var(--fs-s); padding: 1.5px 8px; border-radius: var(--r-pill);
   border: 1px solid var(--border2); background: color-mix(in srgb, var(--bg-card) 60%, transparent);
   font-variant-numeric: tabular-nums; }
-.rb-spin { width: 10px; height: 10px; border: 1.6px solid var(--border2);
-  border-top-color: var(--mark-neutral-strong); border-radius: var(--r-pill); display: inline-block;
-  animation: spin 0.8s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .rb-spin { animation: none; } }
+.rb-spin { color: var(--mark-neutral-strong); vertical-align: -1px; }
 
 /* menu déroulant de la barre reviewer + correction */
 /* au-dessus des marques de chapitre (z-index 40) : le menu déroulant doit les couvrir */
@@ -4099,7 +4091,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* état réduit : fin liseré coloré cliquable, garde l'indicateur d'état */
 .reviewer-strip { appearance: none; -webkit-appearance: none; display: block; width: 100%;
   height: 4px; margin: 0; padding: 0; border: none; cursor: pointer; flex-shrink: 0;
-  background: var(--border2); transition: height .12s, filter .12s; }
+  background: var(--border2); transition: opacity var(--motion-fast) var(--ease-out); }
 .reviewer-strip:hover { opacity: 0.85; }
 .reviewer-strip.v-ok { background: var(--status-success); }
 .reviewer-strip.v-issues { background: var(--status-warning); }
@@ -4112,8 +4104,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* pop-in : réservé aux panneaux EN FLUX (disclosure, listbox inline) — les
  * popups Base UI ont déjà leurs transitions data-slot dans shadcn.css */
 .reviewer-menu, .suggest {
-  animation: pop-in 130ms ease; transform-origin: top; }
-@keyframes pop-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+  animation: pop-in var(--motion-standard) var(--ease-out); transform-origin: top; }
+@keyframes pop-in { from { opacity: 0; transform: translateY(calc(-1 * var(--enter-offset))); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .reviewer-menu, .suggest { animation: none; } }
 
@@ -4269,7 +4261,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   background-repeat: repeat-x;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: label-sweep 2.6s linear infinite;
+  animation: label-sweep 2.4s linear infinite;
 }
 /* Une tuile exactement : la boucle est sans couture et la distance parcourue
    ne dépend plus de la largeur de l'élément, donc la vitesse non plus. */
@@ -4293,11 +4285,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 
 .active-activity-transition {
   display: inline;
-  animation: active-activity-enter 160ms ease-out both;
+  animation: active-activity-enter var(--motion-standard) var(--ease-out) both;
 }
 
 @keyframes active-activity-enter {
-  from { opacity: 0; transform: translateY(2px); }
+  from { opacity: 0; transform: translateY(var(--enter-offset)); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -4318,10 +4310,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    l'ouverture qui porte la sensation de réponse. */
 .ui-activity-detail, .tool-output-body, .thinking-body, .turn-diff-body,
 .turn-diff-files, .reasoning-trace-body, .review-detail, .passage-card.open {
-  animation: disclose-in 140ms ease-out;
+  animation: disclose-in var(--motion-standard) var(--ease-out);
 }
 @keyframes disclose-in {
-  from { opacity: 0; transform: translateY(-2px); }
+  from { opacity: 0; transform: translateY(calc(-1 * var(--enter-offset))); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -5039,8 +5031,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* Les contrôles du pane vivent DANS la barre (slot), jamais en flottant :
    le calque se posait sur les boutons Actualiser/Terminal. */
 .narval-toolbar > .workspace-pane-controls-slot { flex: none; margin-left: 4px; }
-.narval-refresh.is-loading svg { animation: narval-spin 900ms linear infinite; }
-@keyframes narval-spin { to { transform: rotate(360deg); } }
+.narval-refresh.is-loading svg { animation: ui-spin var(--motion-spin) linear infinite; }
 @media (prefers-reduced-motion: reduce) { .narval-refresh.is-loading svg { animation: none; } }
 .narval-alert { margin: 8px 12px 0; width: auto; padding: 8px 12px; }
 .narval-alert [data-slot="alert-title"] { font-size: var(--fs-body-s); }
@@ -5237,7 +5228,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .calculs-toolbar .ui-iconbtn { color: var(--text-muted); }
 .calculs-toolbar .ui-iconbtn svg { width: 16px; height: 16px; }
 .calculs-toolbar > .workspace-pane-controls-slot { flex: none; margin-left: 4px; }
-.calculs-refresh.is-loading svg { animation: narval-spin 900ms linear infinite; }
+.calculs-refresh.is-loading svg { animation: ui-spin var(--motion-spin) linear infinite; }
 .calculs-alert { margin: 8px 12px 0; width: auto; padding: 8px 12px; }
 .calculs-alert [data-slot="alert-title"] { font-size: var(--fs-body-s); }
 .calculs-alert [data-slot="alert-description"] { font-size: var(--fs-label); }
@@ -5284,8 +5275,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .calculs-progress { display: block; width: 100%; max-width: 240px; height: 2px; margin-top: 8px;
   border-radius: var(--radius-pill); background: var(--surface-inset); overflow: hidden; }
 /* Barre sobre : gris secondaire, jamais l'accent (décision Thierry 2026-09-06). */
-.calculs-progress > i { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--text-muted);
-  transition: width var(--motion-fast) var(--ease-out); }
+.calculs-progress > i { display: block; width: 100%; height: 100%; border-radius: var(--radius-pill); background: var(--text-muted);
+  transform-origin: left center; transition: transform var(--motion-fast) var(--ease-out); }
 .calculs-mono { font-family: var(--font-code); font-variant-numeric: tabular-nums; }
 /* Calculs › Hôtes (chantier 4) */
 .compute-hosts-scroll { flex: 1; min-height: 0; }
@@ -5306,11 +5297,13 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .compute-host-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .calculs-muted { margin: 16px 0; color: var(--text-muted); font-size: var(--fs-body-s); }
 
-/* Repli : 0fr → 1fr sur la hauteur de grille (durée neutralisée par les tokens
-   sous prefers-reduced-motion). Le corps n'est dans le DOM qu'ouvert. */
-.calculs-run-fold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--motion-panel) var(--ease-out); }
-.calculs-run[data-open] .calculs-run-fold { grid-template-rows: 1fr; }
-.calculs-run-fold > div { min-height: 0; overflow: hidden; }
+/* Repli : plus d'animation de hauteur (A11, SURF-26). Comme tous les
+   dépliages de l'app, le corps entre en opacité + 4 px (disclose-in) et la
+   fermeture est immédiate et franche — plus de glissement à l'ouverture
+   suivi d'une coupe sèche à la fermeture. */
+.calculs-run-fold > div { min-width: 0; }
+.calculs-run-body { animation: disclose-in var(--motion-standard) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .calculs-run-body { animation: none; } }
 /* Aligné sur la colonne identité : 12 (padding) + 96 (badge) + 12 (gap). */
 .calculs-run-body { padding: 4px 12px 16px 120px; }
 .calculs-run-tabs { display: flex; flex-direction: column; gap: 16px; }
@@ -5577,8 +5570,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border-radius: var(--r-s); padding: 8px 8px; }
 .kb-article-progress { height: 2px; border-radius: var(--r-pill);
   background: var(--bg-ctl); overflow: hidden; }
+/* barre indéterminée : la même barre grise que Calculs, jamais l'accent
+   (décision Thierry 2026-09-06, TRANS-29) */
 .kb-article-progress i { display: block; height: 100%; width: 34%; border-radius: var(--r-pill);
-  background: var(--accent); animation: kb-article-slide 1400ms ease-in-out infinite; }
+  background: var(--text-muted); animation: kb-article-slide 1400ms ease-in-out infinite; }
 @keyframes kb-article-slide {
   0% { transform: translateX(-100%); } 100% { transform: translateX(320%); }
 }
@@ -5740,7 +5735,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    d'ouvrir une modale — cliquer dessus rouvre la fiche. */
 .kbs-job .kb-name { color: var(--text-secondary); }
 .kbs-job .kb-kind { color: var(--accent-text); }
-.kbs-spin { animation: kb-article-spin 1.1s linear infinite; transform-origin: 50% 50%; }
 .kbs-flag { font-size: var(--fs-xs); color: var(--accent-text); padding: 1px 8px;
   border-radius: var(--r-pill); background: color-mix(in srgb, var(--accent) 12%, transparent);
   white-space: nowrap; flex: none; }
@@ -5774,10 +5768,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .kb-article-job.converting svg { color: var(--accent-text); }
 .kb-article-job.ready svg { color: var(--status-success); }
 .kb-article-job.error svg { color: var(--u-hot, #e06c75); }
-.kb-article-spin { animation: kb-article-spin 1.1s linear infinite; transform-origin: 50% 50%; }
-@keyframes kb-article-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .kb-article-spin, .kbs-spin, .calculs-refresh.is-loading svg { animation: none; }
+  .calculs-refresh.is-loading svg { animation: none; }
 }
 .kb-article-more { margin-right: auto; }
 /* Doublons du corpus : l'avertissement porte la liste, chaque rangée offre le
@@ -6200,8 +6192,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .tool-output.is-compact:not(.is-done):not(.failed) .tool-status { color: var(--text-muted); }
 /* Anneau d'une action en cours : la seule boucle d'une rangée vivante (le
    libellé ne balaie plus). 1 s par tour, coupé sous reduced-motion. */
-.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: tool-run-spin 1s linear infinite; }
-@keyframes tool-run-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: ui-spin var(--motion-spin) linear infinite; }
 @media (prefers-reduced-motion: reduce) {
   .ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: none; }
   .tool-output.is-compact .tool-output-head, .activity-thought-head { transition: none; } }
