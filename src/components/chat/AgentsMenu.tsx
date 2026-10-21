@@ -12,13 +12,13 @@ import { LiveClock } from "./LiveClock";
 import { ToolStateGlyph } from "./toolPresentation";
 
 /** Délai après lequel un sous-agent terminé quitte la liste principale. */
-export const AGENT_DONE_GRACE_MS = 2 * 60 * 1000;
+const AGENT_DONE_GRACE_MS = 2 * 60 * 1000;
 
-export type HeaderSubagent = { agent: AgentDisplay; latestTurn: boolean };
+type HeaderSubagent = { agent: AgentDisplay; latestTurn: boolean };
 
 /** Sous-agents montrés d'emblée (en cours, ou finis depuis moins de deux
  * minutes) et ceux rangés sous le pied. */
-export function splitSubagents(all: HeaderSubagent[], now: number) {
+function splitSubagents(all: HeaderSubagent[], now: number) {
   const visible: AgentDisplay[] = [];
   const done: AgentDisplay[] = [];
   for (const { agent } of all) {
