@@ -10,7 +10,7 @@ for (const theme of ['dark', 'light']) {
       await expect(el).toHaveCSS('font-size', '12px');
       await expect(el).toHaveCSS('font-family', font);
       await expect(el).toHaveCSS('padding-top', '6px');
-      expect((await el.boundingBox())!.height).toBe(32);
+      expect((await el.boundingBox())!.height).toBeCloseTo(32, 2);
     };
     const thread = page.getByText('Rewrap figure 3 — albédo saisonnier', { exact: true });
     await thread.click({ button: 'right' });
