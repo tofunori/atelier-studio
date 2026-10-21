@@ -381,6 +381,8 @@ pub async fn handle_set_link_paused(state: &AppState, msg: &Value) -> Vec<String
         parent_id
     };
     if !paused {
+        // Reprendre vaut aussi pour un lien arrêté par son budget.
+        crate::agent_mailbox::recharger_lien(state, thread_id).await;
         let now = atelier_store::iso_now();
         let _ = state.mailbox().lock().await.resume_link_paused(
             &parent_id,

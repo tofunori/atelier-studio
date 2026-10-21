@@ -248,12 +248,104 @@ async fn enqueue_and_schedule(
         });
     }
 
-    Ok(json!({
+    let mut reponse = json!({
         "messageId": stored.id,
         "status": stored.status,
         "requestId": stored.request_id,
         "errorCode": stored.error_code,
-    }))
+    });
+    if stored.error_code.as_deref() == Some(err::BUDGET_EXHAUSTED) {
+        // Sans cette note, l'agent inventait un réglage « renouveler le
+        // budget » qui n'existe pas (Thierry, 2026-10-21).
+        reponse["note"] = json!(
+            "The automatic exchange budget of this link is used up for now. The message is kept, not lost: it is delivered as soon as the user writes in the parent or the specialist conversation, or presses Continue on the paused card. Do not resend it; tell the user in one short sentence that it waits for their go-ahead."
+        );
+    }
+    Ok(reponse)
+}
+
+/// Échanges automatiques accordés à un spécialiste délégué chaque fois que
+/// l'utilisateur reprend la main : la tâche, ses questions ou nouvelles, les
+/// suites du parent et le rapport. Le plafond borne seulement une boucle
+/// entre agents qui tournerait sans lui.
+pub const ECHANGES_PAR_TACHE: u32 = lim::DEFAULT_AUTO_DELIVERY;
+
+/// Recharge le budget d'un lien et relance les messages qu'il retenait.
+///
+/// Chaque remise automatique relance un tour facturé, d'où le budget. Il
+/// repart à zéro quand l'utilisateur reprend la main : message écrit dans le
+/// fil parent ou dans celui du spécialiste, `@Nom`, ou Continuer sur la carte
+/// en pause. Avant le 2026-10-21, une délégation n'accordait que 2 remises
+/// (la tâche et le rapport) jamais rechargées par l'utilisateur, et un
+/// message retenu restait en pause pour toujours.
+pub async fn recharger_lien(state: &AppState, child_id: &str) -> usize {
+    let parent_id = {
+        let mut store = state.threads().lock().await;
+        let Some(mut link) = store.get(child_id).and_then(|t| t.agent_link.clone()) else {
+            return 0;
+        };
+        let parent_id = link.parent_thread_id.clone();
+        let en_attente = state
+            .mailbox()
+            .lock()
+            .await
+            .list_for_link(&parent_id, child_id)
+            .iter()
+            .filter(|m| matches!(m.status.as_str(), "queued" | "delivering" | "paused"))
+            .count() as u32;
+        let limite = ECHANGES_PAR_TACHE
+            .max(en_attente.saturating_add(2))
+            .min(lim::MAX_AUTO_DELIVERY);
+        if link.auto_delivery_used != 0 || link.auto_delivery_limit != limite {
+            link.auto_delivery_used = 0;
+            link.auto_delivery_limit = limite;
+            let _ = store.upsert(json!({"id": child_id, "agentLink": link}), true);
+        }
+        parent_id
+    };
+    relancer_retenus(state, &parent_id, child_id).await
+}
+
+/// Remet en file les messages du lien retenus par le budget.
+pub(crate) async fn relancer_retenus(state: &AppState, parent_id: &str, child_id: &str) -> usize {
+    let relances = state
+        .mailbox()
+        .lock()
+        .await
+        .resume_link_paused(parent_id, child_id, err::BUDGET_EXHAUSTED, &iso_now())
+        .unwrap_or(0);
+    if relances > 0 {
+        let st = state.clone();
+        tokio::spawn(async move {
+            drain_mailbox(&st).await;
+        });
+    }
+    relances
+}
+
+/// Un message de l'utilisateur dans un fil recharge les spécialistes délégués
+/// qui lui sont liés : ceux du fil parent, ou le fil lui-même s'il est celui
+/// d'un spécialiste.
+pub async fn recharger_apres_message_humain(state: &AppState, thread_id: &str) {
+    let delegues: Vec<String> = {
+        let store = state.threads().lock().await;
+        let mut ids: Vec<String> = store
+            .children_of(thread_id)
+            .iter()
+            .filter(|t| crate::delegation::specialiste_delegue(t).is_some())
+            .map(|t| t.id.clone())
+            .collect();
+        if store
+            .get(thread_id)
+            .is_some_and(|t| t.agent_link.is_some() && crate::delegation::specialiste_delegue(t).is_some())
+        {
+            ids.push(thread_id.to_string());
+        }
+        ids
+    };
+    for id in delegues {
+        recharger_lien(state, &id).await;
+    }
 }
 
 async fn emit_agent_message_events(state: &AppState, msg: &MailboxMessage) {
