@@ -60,7 +60,9 @@ describe("Button", () => {
         Envoyer
       </Button>,
     );
-    expect(btn).toBeDisabled();
+    // PRIM-19 : en chargement le bouton n'est pas « désactivé » (pleine
+    // opacité) mais inerte : aria-disabled + clic neutralisé
+    expect(btn).toHaveAttribute("aria-disabled", "true");
     expect(btn).toHaveAttribute("aria-busy", "true");
     // même nœud label, même texte : la largeur du bouton ne bouge pas,
     // le spinner se superpose (cross-fade à géométrie constante)

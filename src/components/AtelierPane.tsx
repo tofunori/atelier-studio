@@ -274,6 +274,12 @@ export default function AtelierPane({
   const frameSources = framePlan.next;
   const [workspace, setWorkspace] = useState<WorkspaceLayout>(() =>
     loadWorkspaceLayout(localStorage, projectRoot, documentIds, activeTab));
+  // fichier du volet actif, pour que l'explorateur le désigne (SHELL-27)
+  const explorerOpenPath = useMemo(() => {
+    const pane = findWorkspacePane(workspace.root, workspace.focusedPaneId) ?? listWorkspacePanes(workspace.root)[0];
+    const ref = pane?.tabs.find((tab) => workspaceTabId(tab) === pane.activeTabId);
+    return ref?.kind === "document" ? relFromTabUrl(documentById.get(ref.tabId)?.url ?? "", projectRoot, url) : null;
+  }, [workspace, documentById, projectRoot, url]);
   const paneMenuHost = useWorkspacePaneMenuHost();
   const [paneMenuOpen, setPaneMenuOpen] = useState<string | null>(null);
   const [terminalBootstrap, setTerminalBootstrap] = useState<string | null>(null);
@@ -1334,7 +1340,7 @@ export default function AtelierPane({
             </div>
           )}
         </div>
-        {showExplorer && <Explorer files={files} truncated={filesTruncated} onOpen={onOpenFile} />}
+        {showExplorer && <Explorer files={files} truncated={filesTruncated} onOpen={onOpenFile} openPath={explorerOpenPath} />}
       </div>
     </div>
   );

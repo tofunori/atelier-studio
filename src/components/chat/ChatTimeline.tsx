@@ -35,8 +35,7 @@ import { HarnessInteraction } from "./HarnessInteraction";
 import { SpecialistProposalCard } from "./SpecialistProposalCard";
 import { MemoryProposalCard } from "./MemoryProposalCard";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { WidgetFrame } from "./WidgetFrame";
-import { Button, IconButton, RowButton, ScrollToBottomButton } from "../ui";
+import { Button, IconButton, RowButton, ScrollToBottomButton, Spinner } from "../ui";
 import { activeMargeIndex, createMarkIndexCache, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
 import type { QaContext } from "../../lib/quickAskContext";
@@ -57,6 +56,8 @@ import { ActivityStep } from './ActivityBatch';
 import { activeTurnStatus } from './activeTurnStatus';
 // Carte de calcul (rare) : chargée à la première tâche proposée, hors de l'entrée.
 const ComputeJobCard = lazy(() => import("./ComputeJobCard").then((m) => ({ default: m.ComputeJobCard })));
+// widgets d'agent : rares, chargés à la demande (budget d'entrée, 2026-10-21)
+const WidgetFrame = lazy(() => import("./WidgetFrame").then((m) => ({ default: m.WidgetFrame })));
 
 // Identité STABLE (voir le prop maintainScrollAtEnd) : un objet recréé à
 // chaque render relance l'animation de suivi en boucle et elle n'atteint
@@ -793,9 +794,9 @@ export function ChatTimeline(p: {
               <span className="rb-name">Reviewer</span>
               <span className="rb-dot">·</span>
               {fixing ? (
-                <span className="rb-verdict running"><span className="rb-spin" /> {t("review.fixing")}</span>
+                <span className="rb-verdict running"><Spinner className="rb-spin" size={10} aria-hidden="true" /> {t("review.fixing")}</span>
               ) : review.status === "running" ? (
-                <span className="rb-verdict running"><span className="rb-spin" /> {t("review.running")}</span>
+                <span className="rb-verdict running"><Spinner className="rb-spin" size={10} aria-hidden="true" /> {t("review.running")}</span>
               ) : review.verdict === "ok" ? (
                 <span className="rb-verdict ok">{t("review.ok-bar")}</span>
               ) : review.verdict === "issues" ? (
@@ -1154,7 +1155,7 @@ export function ChatTimeline(p: {
           if (e.kind === "proposed_plan")
             return <ProposedPlanCard key={e.planId} event={e} threadId={threadId} />;
           if (e.kind === "tool" || e.kind === "tool_update") return renderToolLine(e, i);
-          if (e.kind === "widget") return <WidgetFrame key={e.id} event={e} threadId={threadId} />;
+          if (e.kind === "widget") return <Suspense key={e.id} fallback={null}><WidgetFrame event={e} threadId={threadId} /></Suspense>;
           if (e.kind === "specialist_proposal") return <SpecialistProposalCard key={e.id} event={e} />;
           if (e.kind === "memory_proposal") return <MemoryProposalCard key={e.id} event={e} threadId={threadId ?? undefined} />;
           if (e.kind === "compute_job") return <Suspense key={e.jobId} fallback={null}><ComputeJobCard event={e} /></Suspense>;

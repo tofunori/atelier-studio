@@ -1,10 +1,10 @@
 import { cn } from "@/lib/utils"
-import { Loader2Icon } from "lucide-react"
+import { Spinner as AtelierSpinner, type SpinnerProps } from "@/components/ui/Spinner"
 
-function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
-  return (
-    <Loader2Icon data-slot="spinner" role="status" aria-label="Loading" className={cn("tw:size-4 tw:animate-spin", className)} {...props} />
-  )
+// Le Spinner du registre rend l'arc unique d'Atelier (ui/Spinner, A11) : même
+// tracé, même tempo --motion-spin, même neutralisation reduced-motion.
+function Spinner({ className, ...props }: SpinnerProps) {
+  return <AtelierSpinner className={cn("tw:size-4", className)} {...props} />
 }
 
 export { Spinner }

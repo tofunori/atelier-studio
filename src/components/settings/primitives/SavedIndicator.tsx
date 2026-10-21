@@ -23,6 +23,14 @@ export function useSavedFlash() {
 }
 
 export function SavedIndicator(p: { visible: boolean; failed?: boolean }) {
+  // Le texte reste en place le temps du fondu de sortie (SET-19) : retiré en
+  // même temps que .on, il disparaissait d'un coup.
+  const [kept, setKept] = useState(p.visible);
+  useEffect(() => {
+    if (p.visible) { setKept(true); return; }
+    const id = setTimeout(() => setKept(false), 150);
+    return () => clearTimeout(id);
+  }, [p.visible]);
   // Toujours monté : un nœud aria-live inséré au moment de l'annonce n'est
   // pas lu par les lecteurs d'écran.
   return (
@@ -31,7 +39,7 @@ export function SavedIndicator(p: { visible: boolean; failed?: boolean }) {
       role="status"
       aria-live="polite"
     >
-      {p.visible && (
+      {(p.visible || kept) && (
         <>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

@@ -64,7 +64,7 @@ function CommandInput({ className, ...props }: React.ComponentProps<typeof Comma
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          "tw:w-full tw:bg-transparent tw:text-[length:var(--fs-body-s)] tw:text-foreground tw:outline-none tw:placeholder:text-muted-foreground tw:disabled:cursor-not-allowed tw:disabled:opacity-50",
+          "tw:w-full tw:bg-transparent tw:text-[length:var(--fs-body-s)] tw:text-foreground tw:outline-none tw:placeholder:text-muted-foreground tw:disabled:cursor-default tw:disabled:opacity-[var(--disabled-opacity)]",
           className,
         )}
         {...props}
@@ -121,7 +121,7 @@ function CommandItem({ className, ...props }: React.ComponentProps<typeof Comman
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "tw:relative tw:flex tw:cursor-default tw:items-center tw:gap-2 tw:rounded-[var(--radius-control)] tw:px-2 tw:py-1.5 tw:text-[length:var(--fs-body-s)] tw:outline-none tw:select-none tw:data-[disabled=true]:pointer-events-none tw:data-[disabled=true]:opacity-50 tw:data-[selected=true]:bg-muted tw:data-[selected=true]:text-foreground tw:[&_svg]:pointer-events-none tw:[&_svg]:shrink-0 tw:[&_svg:not([class*=size-])]:size-4",
+        "tw:relative tw:flex tw:cursor-default tw:items-center tw:gap-2 tw:rounded-[var(--radius-control)] tw:px-2 tw:py-1.5 tw:text-[length:var(--fs-body-s)] tw:outline-none tw:select-none tw:data-[disabled=true]:pointer-events-none tw:data-[disabled=true]:opacity-[var(--disabled-opacity)] tw:data-[selected=true]:bg-muted tw:data-[selected=true]:text-foreground tw:[&_svg]:pointer-events-none tw:[&_svg]:shrink-0 tw:[&_svg:not([class*=size-])]:size-4",
         className,
       )}
       {...props}

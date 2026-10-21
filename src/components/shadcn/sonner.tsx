@@ -1,5 +1,6 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
+import { CloseIcon } from "@/components/ui/CloseButton"
 
 const Toaster = ({ theme = "system", ...props }: ToasterProps) => {
   return (
@@ -22,6 +23,8 @@ const Toaster = ({ theme = "system", ...props }: ToasterProps) => {
         loading: (
           <Loader2Icon className="tw:size-4 tw:animate-spin" />
         ),
+        // la même croix que partout (CloseButton, PRIM-11)
+        close: <CloseIcon size={12} />,
       }}
       style={
         {

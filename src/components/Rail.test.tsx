@@ -10,6 +10,7 @@ import { setLanguage, t } from "../lib/i18n";
 import type { Surface } from "./surfaces";
 import type { ViewId } from "../lib/settings";
 import { resetIntegrationsForTests, setIntegrationsForTests } from "../lib/integrations";
+import { dismissArticleImport } from "../lib/articleImports";
 
 const articleState: { jobs: unknown[]; focused: string | null; open: boolean } = {
   jobs: [], focused: null, open: false,
@@ -18,6 +19,7 @@ vi.mock("../lib/articleImports", () => ({
   articleImportSnapshot: () => articleState,
   subscribeArticleImport: () => () => {},
   openArticleDialog: vi.fn(),
+  dismissArticleImport: vi.fn(),
   fileName: (path: string) => String(path).split("/").pop() ?? path,
   stageLabel: (job: { stage?: string | null; stageSeconds?: number | null }) =>
     (job.stage === "converting"
@@ -70,11 +72,11 @@ afterEach(() => {
   resetIntegrationsForTests();
 });
 
-it("signale une réponse non lue, puis retire le point à l'ouverture", () => {
+it("signale une réponse non lue, puis retire le point à l'ouverture", async () => {
   const thread = { id: "finished", title: "Résultats", projectRoot: "/albedo", status: "done" } as any;
   const favorites = { threads: [thread], activeId: null as string | null, unread: new Set([thread.id]), seals: { finished: "disk" }, onOpen: vi.fn(), onToggle: vi.fn(), onReorder: vi.fn() };
   const { container, rerender } = renderUi(<Rail {...makeProps({ favorites })} />);
-  expect(screen.getByRole("button", { name: /Réponse terminée · non lue/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /Réponse terminée · non lue/ })).toBeTruthy();
   expect(container.querySelector(".rail-favorite-unread")).toBeTruthy();
   expect(container.querySelector('.rail-favorite [data-seal="disk"]')).toBeTruthy();
   rerender(<Rail {...makeProps({ favorites: { ...favorites, activeId: thread.id } })} />);
@@ -114,7 +116,7 @@ describe("Rail — identité et vues", () => {
     );
     expect(container.querySelectorAll(".rail-proj").length).toBe(2);
     expect(container.querySelector(".rail-proj.on")).toBeTruthy();
-    expect(container.querySelector(".rail-dot")).toBeTruthy();
+    expect(container.querySelector(".rail-proj.on .rail-signal.sig-run")).toBeTruthy();
   });
 });
 
@@ -132,25 +134,20 @@ describe("Rail — zone d'activité", () => {
     const { container } = renderUi(
       <Rail {...makeProps({ running: new Set(["/Users/t/thèse"]) })} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Activité en cours" }));
-    expect(container.querySelectorAll(".rail-act").length).toBe(1);
+    expect(container.querySelector(".rail-activity")).toBeNull();
     expect(screen.queryByTitle(/rounce-2023.pdf/)).toBeNull();
   });
 
-  it("montre un agent au travail et une conversion en cours", async () => {
+  it("montre une conversion en cours sans menu ; l'agent se lit sur son projet", async () => {
     articleState.jobs = [
       { requestId: "r1", path: "/tmp/rounce-2023.pdf", phase: "converting", message: null },
     ];
     const { container } = renderUi(
       <Rail {...makeProps({ running: new Set(["/Users/t/thèse"]) })} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Activité en cours" }));
-    const pastilles = container.querySelectorAll(".rail-act");
-    expect(pastilles.length).toBe(2);
-    expect(screen.getByTitle(/thèse — agent au travail/)).toBeTruthy();
-    expect(screen.getByTitle(/rounce-2023.pdf — conversion d'article/)).toBeTruthy();
+    expect(await screen.findByTitle(/rounce-2023.pdf — conversion d'article/)).toBeTruthy();
+    expect(container.querySelectorAll(".rail-pinned .rail-act").length).toBe(1);
+    expect(screen.getByRole("button", { name: "thèse — Un agent travaille" })).toBeTruthy();
   });
 
   it("l'infobulle dit l'étape en cours, pas seulement « conversion »", async () => {
@@ -161,9 +158,7 @@ describe("Rail — zone d'activité", () => {
       },
     ];
     renderUi(<Rail {...makeProps()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Activité en cours" }));
-    expect(screen.getByTitle("aoki-2011.pdf — conversion chez MinerU — 42 s")).toBeTruthy();
+    expect(await screen.findByTitle("aoki-2011.pdf — conversion chez MinerU — 42 s")).toBeTruthy();
   });
 
   it("un échec se distingue et reste cliquable", async () => {
@@ -171,10 +166,8 @@ describe("Rail — zone d'activité", () => {
       { requestId: "r2", path: "/tmp/muff.pdf", phase: "error", message: "quota" },
     ];
     const { container } = renderUi(<Rail {...makeProps()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Activité en cours" }));
+    expect(await screen.findByTitle(/muff.pdf — échec/)).toBeTruthy();
     expect(container.querySelector(".rail-act.failed")).toBeTruthy();
-    expect(screen.getByTitle(/muff.pdf — échec/)).toBeTruthy();
   });
 });
 
@@ -261,4 +254,66 @@ it("orders commands, Discussions, pinned chats and projects with one active dest
   rerender(<Rail {...makeProps({ activeProject: null, favorites: { ...favorites, activeId: null } })} />);
   expect(container.querySelectorAll(".rail .on")).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Discussions libres" }).getAttribute("aria-current")).toBe("page");
+});
+
+describe("Rail — signaux et boîte « À traiter »", () => {
+  const threads = [
+    { id: "a", projectRoot: "/Users/t/albedo", title: "Calibration", status: "running", updatedAt: "" },
+    { id: "b", projectRoot: "/Users/t/thèse", title: "Chapitre 2", status: "done", updatedAt: "" },
+  ] as any[];
+  const attention = { a: { pending: { reason: "permission" as const, label: "Bash", at: null }, failed: false } };
+  const inbox = (over: Record<string, unknown> = {}) => ({
+    signals: { a: "wait" as const, b: "unread" as const }, threads, attention, unread: new Set(["b"]), activeId: null,
+    onOpen: vi.fn(), onMarkAllRead: vi.fn(), ...over,
+  });
+
+  it("le coin d'un projet dit ce qui t'attend ; la couleur passe dans l'icône", () => {
+    const { container } = renderUi(<Rail {...makeProps({
+      signals: { projects: { "/Users/t/albedo": "wait" }, notes: { "/Users/t/albedo": ["Autorisation : Bash — « Calibration »"] }, discussions: 2 },
+    })} />);
+    const albedo = screen.getByRole("button", { name: "albedo — Attend ta réponse" });
+    expect(albedo.querySelector(".rail-signal.sig-wait")).toBeTruthy();
+    expect(albedo.getAttribute("title")).toBe("albedo\nAutorisation : Bash — « Calibration »");
+    expect(container.querySelector(".rail-proj.tinted.on")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Discussions libres — 2 à traiter" }).querySelector(".rail-count")?.textContent).toBe("2");
+  });
+
+  it("la boîte groupe les demandes et ouvre le fil visé", async () => {
+    const onOpen = vi.fn();
+    renderUi(<Rail {...makeProps({ inbox: inbox({ onOpen }) })} />);
+    const trigger = await screen.findByRole("button", { name: "À traiter — 2 éléments" });
+    expect(trigger.querySelector(".rail-count.wait")?.textContent).toBe("2");
+    fireEvent.click(trigger);
+    expect(await screen.findByRole("group", { name: "Attend ta réponse" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Terminé" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Autorisation : Bash/ }));
+    expect(onOpen).toHaveBeenCalledWith("a");
+  });
+
+  it("« Tout marquer comme lu » vide le non-lu et oublie les conversions échouées", async () => {
+    const onMarkAllRead = vi.fn();
+    articleState.jobs = [{ requestId: "r9", path: "/tmp/smith.pdf", phase: "error", message: "quota" }];
+    renderUi(<Rail {...makeProps({ inbox: inbox({ signals: { b: "unread" }, attention: {}, onMarkAllRead }) })} />);
+    fireEvent.click(await screen.findByRole("button", { name: "À traiter — 2 éléments" }));
+    expect(await screen.findByRole("group", { name: "Échecs" })).toBeTruthy();
+    expect(screen.getByText("smith.pdf")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Tout marquer comme lu" }));
+    expect(onMarkAllRead).toHaveBeenCalledTimes(1);
+    expect(dismissArticleImport).toHaveBeenCalledWith("r9");
+  });
+
+  it("vide, la boîte le dit sans compteur", async () => {
+    renderUi(<Rail {...makeProps({ inbox: inbox({ signals: {}, attention: {}, unread: new Set() }) })} />);
+    const trigger = await screen.findByRole("button", { name: "À traiter — rien en attente" });
+    expect(trigger.querySelector(".rail-count")).toBeNull();
+    fireEvent.click(trigger);
+    expect(await screen.findByText("Rien ne t’attend.")).toBeTruthy();
+  });
+
+  it("un favori montre son propre signal", () => {
+    const thread = { id: "pin", title: "Mon chat", projectRoot: "/Users/t/albedo", status: "idle" } as any;
+    const { container } = renderUi(<Rail {...makeProps({ favorites: { threads: [thread], activeId: null, signals: { pin: "fail" }, onOpen: vi.fn(), onToggle: vi.fn(), onReorder: vi.fn() } })} />);
+    expect(container.querySelector(".rail-favorite .rail-signal.sig-fail")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mon chat — albedo — Échec" })).toBeTruthy();
+  });
 });

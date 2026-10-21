@@ -65,6 +65,10 @@
   --accent-hover: color-mix(in srgb, var(--accent) 88%, var(--fg) 12%);
   --accent-active: color-mix(in srgb, var(--accent) 80%, #000 20%);
   --accent-subtle: color-mix(in srgb, var(--accent) 16%, transparent);
+  /* accent ÉCRIT (texte, icône porteuse de sens) : la palette le dérive à
+   * ≥ 4,5:1 sur --bg/--bg-ctl/--bg-pop/--bg-card (themes.ts). --accent reste
+   * le remplissage, le repère et l'anneau. */
+  --accent-text: var(--accent);
   --text-on-accent: var(--text-inverse);
 
   /* -- remplissage des actions (2026-10-21) ---------------------------------
@@ -99,6 +103,10 @@
   --selection-surface: color-mix(in srgb, var(--accent) 14%, var(--surface-inset));
   --selection-border: color-mix(in srgb, var(--accent) 48%, var(--border-default));
   --selection-line: var(--accent);
+  /* repère des listes verticales (A13) : UNE pilule 2×16 à gauche, plus le
+     fond --bg-ctl ; les barres horizontales n'ont que le fond */
+  --selection-marker-w: 2px;
+  --selection-marker-h: 16px;
 
   /* -- statuts (sémantique App.css : --u-ok/--u-warn/--u-hot) -------------- */
   --status-info: var(--muted);
@@ -132,11 +140,24 @@
   /* chrome de surface : Chat, Gallery et IDE partagent la même ligne */
   --surface-header-height: 44px;
 
-  /* géométrie interactive commune : recherches, boutons et sélecteurs */
-  --control-height: calc(var(--ui-base-size, 15px) * 2);
-  --control-height-compact: calc(var(--ui-base-size, 15px) * 1.7333333333);
+  /* géométrie interactive commune : recherches, boutons et sélecteurs.
+   * ÉCHELLE UNIQUE 24 / 28 / 32 (A5, 2026-10-21), sur la grille de 4 : elle
+   * suit la taille de base de l'interface (--ui-base-size, 15 px par défaut)
+   * mais retombe toujours sur un multiple de 4 (round()). Aucune autre
+   * hauteur de contrôle n'est permise (css-contract.test.ts).
+   *   s 24 : segment, onglet de champ, action de rangée, IconButton s
+   *   m 28 : bouton, champ, Select, recherche, IconButton m (défaut)
+   *   l 32 : IconButton l, champ de premier niveau */
+  --control-height-s: round(nearest, calc(var(--ui-base-size, 15px) * 1.6), 4px);
+  --control-height-m: round(nearest, calc(var(--ui-base-size, 15px) * 1.8666666667), 4px);
+  --control-height-l: round(nearest, calc(var(--ui-base-size, 15px) * 2.1333333333), 4px);
+  --control-height: var(--control-height-m);
+  --control-height-compact: var(--control-height-s);
   /* action minuscule dans une rangée (fermer, épingler, réinitialiser) */
-  --control-height-mini: 24px;
+  --control-height-mini: var(--control-height-s);
+  /* UN état désactivé : opacité seule, curseur par défaut, jamais de couleur
+   * en plus (le double effacement rendait l'icône invisible, PRIM-06) */
+  --disabled-opacity: .5;
   /* Dérivé de --border-default (et non --border-subtle) depuis l'adoucissement
    * des séparateurs : les contrôles interactifs gardent leur netteté d'avant. */
   --border-interactive: color-mix(in srgb, var(--border-default) 72%, transparent);
@@ -159,7 +180,7 @@
   --radius-composer: 18px;
 
   /* -- mouvement : contrat Quiet Instrument (014/016, approuvé) ------------- */
-  --activity-highlight: #fff;
+  --enter-offset: 4px;       /* entrée orientée des surfaces (data-side) */
   --motion-fast: 120ms;      /* hover, sortie de menu, échange d'icône */
   --motion-standard: 140ms;  /* sélection, menu entrant, ContextChip   */
   --motion-panel: 150ms;     /* inspecteur — PLAFOND absolu            */
@@ -192,6 +213,16 @@
   --z-toast: 260;
   --z-quick-ask: 300;
   --z-quick-ask-popover: 320;
+}
+
+/* contraste renforcé (réglage système « Augmenter le contraste ») : le gris
+ * éteint rejoint le gris secondaire. !important car la palette du thème est
+ * posée en style en ligne sur la racine (appTheme.ts). */
+@media (prefers-contrast: more) {
+  :root {
+    --text-disabled: var(--text-muted) !important;
+    --mark-neutral: var(--mark-neutral-strong) !important;
+  }
 }
 
 /* reduced motion — contrat centralisé (014 §9) : plus aucun translate/scale/

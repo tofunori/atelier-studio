@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../lib/i18n";
 import { Button, IconButton } from "../ui";
-import { Input } from "../shadcn/input";
+import { SearchField } from "../ui/SearchField";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { PlusIcon, SearchIcon, ChatsIcon } from "../icons";
 import { ProjIcon } from "./projectIcons";
@@ -170,10 +170,9 @@ export function ProjectHeader(p: {
         />
       </div>
       {p.searchOpen && (
-        <Input
+        <SearchField
           ref={inputRef}
-          type="search"
-          className="pnav-search tw:h-auto"
+          className="pnav-search"
           aria-label={t("sidebar.search-local")}
           placeholder={t("sidebar.search-local")}
           value={p.query}

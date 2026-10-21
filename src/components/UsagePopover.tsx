@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Popover, PopoverContent } from "./shadcn/popover";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
-import { Button } from "./ui";
+import { CloseButton } from "./ui";
 
 import type { ProviderUsage, Usage } from "../lib/usageSummary";
 import { readUsageSnapshot } from "../lib/usageSummary";
@@ -17,10 +17,12 @@ const PROVIDERS: { id: string; name: string }[] = [
   { id: "opencode", name: "OpenCode" },
 ];
 
+// PRIM-24 : l'anneau reste neutre tant que rien ne presse ; la couleur
+// n'arrive qu'à l'alerte (60 %) puis au seuil critique (85 %).
 function ringColor(p: number): string {
-  if (p >= 85) return "var(--u-hot, #e06c75)";
-  if (p >= 60) return "var(--u-warn, #e0b74a)";
-  return "var(--u-ok, #98c379)";
+  if (p >= 85) return "var(--status-error)";
+  if (p >= 60) return "var(--status-warning)";
+  return "var(--text-muted)";
 }
 
 function fmtReset(ts?: number | null): string {
@@ -51,9 +53,9 @@ function Gauge({ pct, label }: { pct: number | null; label: string }) {
   return (
     <div className="ur-gauge">
       <svg width="30" height="30" viewBox="0 0 30 30">
-        <circle cx="15" cy="15" r="12" fill="none" stroke="var(--bg-ctl)" strokeWidth="4" />
+        <circle cx="15" cy="15" r="12" fill="none" stroke="var(--bg-ctl)" strokeWidth="3" />
         <circle cx="15" cy="15" r="12" fill="none" stroke={pct == null ? "var(--bg-ctl)" : ringColor(p)}
-          strokeWidth="4" strokeLinecap="round" strokeDasharray={C}
+          strokeWidth="3" strokeLinecap="round" strokeDasharray={C}
           strokeDashoffset={C * (1 - Math.min(100, p) / 100)} transform="rotate(-90 15 15)" />
       </svg>
       <div>
@@ -93,7 +95,7 @@ function ProviderRow({ name, p }: { name: string; p: ProviderUsage }) {
         </div>
         {(resets.length > 0 || p.stale_s != null || p.label) && (
           <div className="ur-sub">
-            {resets.length > 0 && <span>reset {resets.join(" · ")}</span>}
+            {resets.length > 0 && <span>{t("usage.reset", { t: resets.join(" · ") })}</span>}
             {p.label && <span>{p.label}</span>}
             {p.stale_s != null && p.stale_s > 900 && (
               <span>{t("usage.updated-ago", { d: fmtAgo(p.stale_s) })}</span>
@@ -196,7 +198,7 @@ export default function UsagePopover({ open, onClose }: { open: boolean; onClose
           ))}
         </div>
       )}
-      <Button variant="ghost" className="ur-close" onClick={onClose}>esc</Button>
+      <CloseButton className="ur-close" aria-keyshortcuts="Escape" onClick={onClose} />
       </PopoverContent>
     </Popover>
   );

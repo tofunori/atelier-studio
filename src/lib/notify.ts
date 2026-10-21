@@ -3,14 +3,17 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
-
-const STORAGE_KEY = "atelier-studio.notifications";
+import { isInAppEnabled, isSystemEnabled, setSystemEnabled } from "./notifyPrefs";
 
 type NotifyRunDoneArgs = {
   threadId: string;
   title: string;
   ok: boolean;
   summary: string;
+  /** false = Atelier peut être devant sans montrer ce fil : bandeau dans l'app */
+  visible?: boolean;
+  /** action « Ouvrir » du bandeau */
+  onOpen?: () => void;
 };
 
 type NotifyReviewArgs = {
@@ -23,35 +26,16 @@ type EmitNotificationArgs = {
   title: string;
   body?: string;
   respectAttention: boolean;
+  visible?: boolean;
+  onOpen?: () => void;
 };
 
 export const pendingNotificationThread = new Map<number, string>();
 
-let cachedEnabled: boolean | null = null;
 let cachedPermissionGranted: boolean | null = null;
 let permissionRequest: Promise<boolean> | null = null;
 
-function readEnabled(): boolean {
-  if (cachedEnabled !== null) return cachedEnabled;
-
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    cachedEnabled = stored === null ? true : stored === "1";
-  } catch {
-    cachedEnabled = true;
-  }
-
-  return cachedEnabled;
-}
-
-function writeEnabled(enabled: boolean): void {
-  cachedEnabled = enabled;
-  try {
-    localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
-  } catch {
-    // Ignore storage failures: callers still get the in-memory value.
-  }
-}
+const readEnabled = isSystemEnabled;
 
 function shouldNotifyAwayFromApp(): boolean {
   return document.hidden || !document.hasFocus();
@@ -83,8 +67,15 @@ async function resolvePermission(): Promise<boolean> {
 }
 
 async function emitNotification(args: EmitNotificationArgs): Promise<boolean> {
+  if (args.respectAttention && !shouldNotifyAwayFromApp()) {
+    if (args.visible !== false || !isInAppEnabled()) return false;
+    // Atelier est devant mais montre un autre fil : macOS n'afficherait pas
+    // la bannière d'une app au premier plan, et rien d'autre ne le dirait
+    // (vécu 2026-10-21, « les notifications ne fonctionnent pas »). Un
+    // bandeau dans l'app, avec « Ouvrir », prend le relais.
+    return import("./notifyBanner").then((m) => m.showInAppBanner(args.title, args.body, args.onOpen), () => false);
+  }
   if (!readEnabled()) return false;
-  if (args.respectAttention && !shouldNotifyAwayFromApp()) return false;
   if (!(await init())) return false;
 
   const id = nextNotificationId();
@@ -119,7 +110,9 @@ export async function init(): Promise<boolean> {
 }
 
 export function setEnabled(enabled: boolean): void {
-  writeEnabled(enabled);
+  setSystemEnabled(enabled);
+  // une réactivation redemande la permission au prochain envoi
+  if (enabled) cachedPermissionGranted = null;
 }
 
 export function isEnabled(): boolean {
@@ -136,6 +129,8 @@ export async function notifyRunDone(args: NotifyRunDoneArgs): Promise<boolean> {
     title,
     body,
     respectAttention: true,
+    visible: args.visible,
+    onOpen: args.onOpen,
   });
 }
 

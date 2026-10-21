@@ -40,7 +40,7 @@ function diffTheme(compact: boolean) {
     ".cm-line": { padding: "0 12px 0 8px" },
     "&.cm-focused": { outline: "none" },
     ".cm-gutters": {
-      color: "var(--text-disabled, #747b86)",
+      color: "var(--text-muted, #90969d)",
       backgroundColor: "var(--bg, #1f2023)",
       borderRight: "1px solid var(--border, #383c43)",
     },
@@ -49,7 +49,7 @@ function diffTheme(compact: boolean) {
     "&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine": { backgroundColor: "rgba(46, 160, 67, .15)" },
     "&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText": { backgroundColor: "rgba(248, 81, 73, .28)" },
     "&.cm-merge-b .cm-changedText": { backgroundColor: "rgba(46, 160, 67, .3)" },
-    ".cm-collapsedLines": { color: "var(--text-disabled)", borderColor: "var(--border)" },
+    ".cm-collapsedLines": { color: "var(--text-muted)", borderColor: "var(--border)" },
   }, { dark: true });
 }
 

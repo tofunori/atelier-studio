@@ -51,9 +51,9 @@ export function FigureGalleryBar({ path, threadId, cell, saved: known = null, on
   return (
     <span className="figure-gallery-bar">
       {children}
-      <IconButton size="s" className="ghost" label={t("kernel.figure-open")} title={t("kernel.figure-open")}
+      <IconButton size="s" label={t("kernel.figure-open")} title={t("kernel.figure-open")}
         disabled={saving} onClick={() => void open()}>{GALLERY}</IconButton>
-      <IconButton size="s" className="ghost" label={saveLabel} title={saveLabel}
+      <IconButton size="s" label={saveLabel} title={saveLabel}
         disabled={saving || saved != null} onClick={() => void save()}>{saved ? CHECK : SAVE}</IconButton>
     </span>
   );

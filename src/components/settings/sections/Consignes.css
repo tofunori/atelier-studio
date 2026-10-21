@@ -7,31 +7,34 @@
   width: auto; display: flex; flex-direction: column; flex-wrap: nowrap; gap: 16px;
   padding-right: 20px; border-right: 1px solid var(--border-subtle); min-width: 0;
 }
-.consignes-library-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: var(--fs-body-s); padding: 6px 8px; }
+.consignes-library-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: var(--fs-body-s); padding: 8px 12px; }
 .consignes-library-heading > span { color: var(--text-muted); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
 .consignes-library-items { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .set-consignes-wrap.consignes-studio .set-consignes-item { position: relative; max-width: none; width: 100%; min-height: 36px; padding: 8px 12px; font-size: var(--fs-body-s); }
-.set-consignes-wrap.consignes-studio .set-consignes-item.on { background: var(--surface-raised); }
-.set-consignes-wrap.consignes-studio .set-consignes-item.on::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px; background: var(--accent); border-radius: var(--radius-control); }
-.set-consignes-wrap.consignes-studio .set-consignes-new { display: flex; gap: 8px; align-items: center; font-size: var(--fs-body-s); padding: 8px 6px; border-top: 1px solid var(--border-subtle); border-radius: 0; white-space: normal; text-align: left; }
+.set-consignes-wrap.consignes-studio .set-consignes-new { display: flex; gap: 8px; align-items: center; font-size: var(--fs-body-s); padding: 8px 12px; border-top: 1px solid var(--border-subtle); border-radius: 0; white-space: normal; text-align: left; }
 .set-consignes-wrap.consignes-studio .set-consignes-form { min-width: 0; width: 100%; gap: 20px; }
 .set-consignes-wrap.consignes-studio .consignes-metadata { gap: 16px; padding-bottom: 20px; border-bottom: 1px solid var(--border-subtle); }
-.set-consignes-wrap.consignes-studio .consignes-title { width: 100%; font-size: var(--fs-title); font-weight: 500; }
+/* SET-25 : toutes les saisies de la fiche en 13 px ; le nom se distingue au
+   poids, pas à la taille */
+.set-consignes-wrap.consignes-studio .consignes-title { width: 100%; font-size: var(--fs-body); font-weight: 500; }
 .set-consignes-wrap.consignes-studio .consignes-description { width: 100%; }
 .set-consignes-wrap.consignes-studio .consignes-writing-field { gap: 8px; }
-.set-consignes-wrap.consignes-studio .consignes-editor { border: 1px solid var(--border-interactive); border-radius: var(--radius-control); overflow: hidden; background: var(--surface-raised); }
-.set-consignes-wrap.consignes-studio .consignes-editor:focus-within { border-color: var(--border-strong); }
+/* même champ plein, sans bordure, que Nom et Rôle ; un seul contour de focus,
+   l'anneau commun, porté par le cadre (jamais par le textarea en plus) */
+.set-consignes-wrap.consignes-studio .consignes-editor { border: 0; border-radius: var(--radius-control); overflow: hidden; background: var(--surface-raised); }
+.set-consignes-wrap.consignes-studio .consignes-editor:has(.set-consignes-textarea:focus-visible) { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); }
 .set-consignes-wrap.consignes-studio .set-consignes-textarea {
   display: block; width: 100%; min-height: 240px; padding: 16px; margin: 0; border: 0; border-radius: 0;
   font-family: var(--font-chrome); font-size: var(--fs-body); line-height: 1.7; background: transparent; box-shadow: none;
+  resize: none;
 }
-.set-consignes-wrap.consignes-studio .set-consignes-textarea:focus-visible { outline: 1px solid var(--border-strong); outline-offset: -2px; box-shadow: none; }
+.set-consignes-wrap.consignes-studio .set-consignes-textarea:focus-visible { outline: none; box-shadow: none; }
 .consignes-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px; border-top: 1px solid var(--border-subtle); min-width: 0; }
 .consignes-rewrite-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
 .set-consignes-wrap.consignes-studio .ui-btn-label { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .set-consignes-wrap.consignes-studio .consignes-toolbar .custom-select-trigger { min-height: var(--control-height); font-size: var(--fs-body-s); }
 .consignes-action-picker { display: flex; align-items: stretch; min-width: 0; }
-.set-consignes-wrap.consignes-studio .set-consignes-reformuler { color: var(--accent); border-color: var(--border-interactive); border-radius: var(--radius-control) 0 0 var(--radius-control); min-height: 32px; }
+.set-consignes-wrap.consignes-studio .set-consignes-reformuler { color: var(--accent-text); border-color: var(--border-interactive); border-radius: var(--radius-control) 0 0 var(--radius-control); min-height: 32px; }
 .consignes-action-picker > .custom-select .custom-select-trigger { height: 100%; border-left: 0; border-radius: 0 var(--radius-control) var(--radius-control) 0; }
 .consignes-action-hint { margin: 0; color: var(--text-muted); font-size: var(--fs-body-s); line-height: 1.5; }
 .consignes-recording { width: 100%; display: flex; align-items: center; gap: 8px; min-width: 0; }

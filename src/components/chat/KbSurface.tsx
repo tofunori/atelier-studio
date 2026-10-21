@@ -42,6 +42,7 @@ import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { Input } from "../shadcn/input";
 import { RowButton } from "../ui/RowButton";
+import { Spinner } from "../ui/Spinner";
 
 export type KbFilter = "all" | "attached" | "pdf" | "note" | "web" | "file" | "corpus";
 
@@ -369,10 +370,7 @@ export default function KbSurface(p: {
         >
           <span className="kb-kind">
             {job.phase === "converting" || job.phase === "writing" ? (
-              <svg className="kbs-spin" width="13" height="13" viewBox="0 0 16 16" fill="none"
-                stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-                <path d="M8 2a6 6 0 1 0 6 6" />
-              </svg>
+              <Spinner className="kbs-spin" size={13} aria-hidden="true" />
             ) : done ? (
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
                 strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

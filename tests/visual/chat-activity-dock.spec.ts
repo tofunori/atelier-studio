@@ -24,11 +24,13 @@ test('live activity stays in the transcript tail and shows above the composer at
   const elapsed = page.locator('.composer .composer-turn-clock');
   await expect(elapsed).toBeVisible();
   const initialTime = await elapsed.innerText();
-  await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-duration', '3s');
-  await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-timing-function', 'linear');
+  // A11 (CHAT-04 / TRANS-07) : une boucle visible par tour — l'étoile est
+  // fixe, le reflet du libellé (recette unique label-sweep, 2,4 s) bouge seul.
+  await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-name', 'none');
   await expect(status).toHaveCSS('font-size', '13px');
   await expect(status).toHaveCSS('font-weight', '400');
-  await expect(status).toHaveCSS('animation-duration', '1.6s');
+  await expect(status).toHaveCSS('animation-name', 'label-sweep');
+  await expect(status).toHaveCSS('animation-duration', '2.4s');
 
   const messages = page.locator('.messages');
   const distanceToEnd = () => messages.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop);
@@ -45,7 +47,9 @@ test('live activity stays in the transcript tail and shows above the composer at
   // colonne d'état porte seul le mouvement.
   const ring = page.locator('.activity-cluster.is-active .ui-activity-state .tool-run-ring');
   await expect(ring).toBeVisible();
-  await expect(ring).toHaveCSS('animation-name', 'tool-run-spin');
+  // le tempo et le tracé uniques du Spinner (ui-spin, --motion-spin)
+  await expect(ring).toHaveCSS('animation-name', 'ui-spin');
+  await expect(ring).toHaveCSS('animation-duration', '0.9s');
   await expect(status).toHaveCSS('animation-name', 'none');
   await expect(status).toContainText('Rédaction', { timeout: 10000 });
   await checkAboveComposer();
@@ -68,7 +72,7 @@ test('live activity stays in the transcript tail and shows above the composer at
   await expect.poll(distanceToEnd).toBeLessThanOrEqual(2);
   await checkAboveComposer();
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(page.locator('.turn-activity-glyph, .tool-run-ring').first()).toHaveCSS('animation-name', 'none');
+  await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-name', 'none');
   await expect(status).toHaveCSS('animation-name', 'none');
   await expect(status).not.toHaveCSS('color', 'rgba(0, 0, 0, 0)');
 });

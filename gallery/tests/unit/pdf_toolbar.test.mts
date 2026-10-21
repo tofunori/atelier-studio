@@ -14,7 +14,9 @@ test("barre unique : les outils de marquage ont le gabarit des autres boutons (2
 test("outil actif en graphite : fond --card2 et icône --txt, jamais l'accent", () => {
   assert.match(html, /\.pdf-mark-tools button\[aria-pressed="true"\]\{background:var\(--card2,#2c313a\);color:var\(--txt,#dadee3\)\}/);
   assert.match(html, /header button\[aria-pressed="true"\]\{background:#2c313a !important;color:var\(--txt\) !important\}/);
-  assert.match(html, /header\.pdf-compact-toolbar button\[aria-pressed="true"\] \{ background:var\(--card2\)!important; color:var\(--txt\)!important; \}/);
+  // PDF-04 : l'outil actif (12 %) se distingue du survol (6 %) dans la barre compacte
+  assert.match(html, /header\.pdf-compact-toolbar button\[aria-pressed="true"\] \{ background:color-mix\(in srgb,var\(--txt\) 12%,transparent\)!important; color:var\(--txt\)!important; \}/);
+  assert.match(html, /header\.pdf-compact-toolbar button:hover \{ background:color-mix\(in srgb,var\(--txt\) 6%,transparent\)!important;/);
   assert.doesNotMatch(html, /pdf-mark-tools button\[aria-pressed="true"\]\{[^}]*--accent/);
 });
 

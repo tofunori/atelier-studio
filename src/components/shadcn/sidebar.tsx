@@ -201,7 +201,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "tw:group/menu-button tw:flex tw:w-full tw:min-w-0 tw:items-center tw:gap-2 tw:overflow-hidden tw:rounded-[var(--radius-control)] tw:p-2 tw:text-left tw:text-[length:var(--fs-body-s)] tw:text-sidebar-foreground tw:outline-none tw:focus-visible:ring-2 tw:focus-visible:ring-sidebar-ring tw:hover:bg-sidebar-accent tw:hover:text-sidebar-accent-foreground tw:data-active:bg-sidebar-accent tw:data-active:text-sidebar-accent-foreground tw:disabled:pointer-events-none tw:disabled:opacity-50 tw:[&>svg]:shrink-0 tw:[&>span:last-child]:truncate",
+  "tw:group/menu-button tw:flex tw:w-full tw:min-w-0 tw:items-center tw:gap-2 tw:overflow-hidden tw:rounded-[var(--radius-control)] tw:p-2 tw:text-left tw:text-[length:var(--fs-body-s)] tw:text-sidebar-foreground tw:outline-none tw:focus-visible:outline tw:focus-visible:outline-[length:var(--focus-ring-width)] tw:focus-visible:outline-[var(--focus-ring-color)] tw:focus-visible:outline-offset-[var(--focus-ring-offset)] tw:hover:bg-sidebar-accent tw:hover:text-sidebar-accent-foreground tw:data-active:bg-sidebar-accent tw:data-active:text-sidebar-accent-foreground tw:disabled:pointer-events-none tw:disabled:opacity-[var(--disabled-opacity)] tw:[&>svg]:shrink-0 tw:[&>span:last-child]:truncate",
   {
     variants: {
       variant: {
@@ -241,7 +241,7 @@ function SidebarMenuAction({ className, ...props }: React.ComponentProps<"button
       data-slot="sidebar-menu-action"
       data-sidebar="menu-action"
       className={cn(
-        "tw:absolute tw:right-1 tw:top-1/2 tw:flex tw:size-6 tw:-translate-y-1/2 tw:items-center tw:justify-center tw:rounded-[var(--radius-control)] tw:p-0 tw:text-sidebar-foreground tw:outline-none tw:hover:bg-sidebar-accent tw:hover:text-sidebar-accent-foreground tw:focus-visible:ring-2 tw:focus-visible:ring-sidebar-ring",
+        "tw:absolute tw:right-1 tw:top-1/2 tw:flex tw:size-6 tw:-translate-y-1/2 tw:items-center tw:justify-center tw:rounded-[var(--radius-control)] tw:p-0 tw:text-sidebar-foreground tw:outline-none tw:hover:bg-sidebar-accent tw:hover:text-sidebar-accent-foreground tw:focus-visible:outline tw:focus-visible:outline-[length:var(--focus-ring-width)] tw:focus-visible:outline-[var(--focus-ring-color)] tw:focus-visible:outline-offset-[var(--focus-ring-offset)]",
         className,
       )}
       {...props}

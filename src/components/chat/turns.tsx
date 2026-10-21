@@ -285,7 +285,7 @@ export const UserTurn = memo(function UserTurn(p: {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="edit-cancel tw:rounded-full tw:px-3"
+                className="edit-cancel tw:rounded-[var(--radius-control)] tw:px-3"
                 onClick={() => p.onEditingChange(null)}
               >
                 {t("action.cancel")}
@@ -294,7 +294,7 @@ export const UserTurn = memo(function UserTurn(p: {
                 type="submit"
                 variant="primary"
                 size="sm"
-                className="edit-send tw:rounded-full tw:px-3"
+                className="edit-send tw:rounded-[var(--radius-control)] tw:px-3"
                 disabled={!p.editingText.trim()}
               >
                 {t("action.send")}

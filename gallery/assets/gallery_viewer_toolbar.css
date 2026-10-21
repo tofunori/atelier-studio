@@ -7,7 +7,7 @@
 #lb.responsive-viewer #lbVersions{background:color-mix(in srgb,var(--txt) 4%,transparent);border:0;border-radius:6px;margin:0;gap:1px}
 #lb.responsive-viewer #lbVersions .lbBtn{height:32px;min-width:32px;width:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent}
 #lb.responsive-viewer #lbVersions #lbVersionCurrent{font-size:12px;width:auto;padding:0 5px}
-#lb.responsive-viewer #lbAnnot[aria-pressed=true]{color:var(--primary);background:color-mix(in srgb,var(--primary) 13%,transparent)}
+#lb.responsive-viewer #lbAnnot[aria-pressed=true]{color:var(--primary);background:var(--primary-soft)}
 #lb.responsive-viewer #lbZoomMenu{position:relative;flex:none}
 #lb.responsive-viewer #lbZoomMenu summary{display:flex;align-items:center;justify-content:center;cursor:pointer;list-style:none;color:var(--txt)}
 #lb.responsive-viewer summary::-webkit-details-marker{display:none}
@@ -23,7 +23,7 @@
 #lb.responsive-viewer #annotShapes summary{width:42px;gap:0}
 #lb.responsive-viewer #annotBar i{display:none}
 #lb.responsive-viewer #annotBar #annotZoomOut,#lb.responsive-viewer #annotBar #annotFit,#lb.responsive-viewer #annotBar #annotZoomIn{display:none}
-#lb.responsive-viewer #annotBar .sel{background:color-mix(in srgb,var(--primary) 13%,transparent);color:var(--primary)}
+#lb.responsive-viewer #annotBar .sel{background:var(--primary-soft);color:var(--primary)}
 #lb.responsive-viewer #annotDone{color:var(--txt)}
 #lb.responsive-viewer #annotPill{position:static!important;display:flex!important;transform:none!important;opacity:1;margin:4px 0;padding:0;width:100%;flex-wrap:wrap}
 #lb.responsive-viewer #annotPillN{font-size:12px;text-align:left}
