@@ -260,8 +260,8 @@ export function ComposerControls(p: {
   // d'où le palier précédent, lu au rendu et mis à jour après.
   const effortPrevIndex = useRef(effortIndex);
   useEffect(() => { effortPrevIndex.current = effortIndex; }, [effortIndex]);
+  // Remis à zéro dans les gestes qui ferment le panneau ou quittent la jauge.
   const [effortHover, setEffortHover] = useState<number | null>(null);
-  useEffect(() => { if (!effortOpen) setEffortHover(null); }, [effortOpen]);
   const effortLitUpTo = effortIsUltra ? effortLevels.length - 2 : effortIndex;
   const effortSegDelay = (index: number) => {
     const prev = effortPrevIndex.current;
@@ -508,6 +508,7 @@ export function ComposerControls(p: {
                 if (!next) {
                   setMenuOpen(false);
                   setEffortOpen(false);
+                  setEffortHover(null);
                 } else if (effortLevels.length >= 2 || provider === "codex") {
                   setEffortOpen(true);
                 } else {
@@ -770,7 +771,7 @@ export function ComposerControls(p: {
                           {effortIsDefault && effort !== "" && <span className="ef-default">{t("chat.effort-default")}</span>}
                         </div>
                         <RowButton className="ef-model-link" title={t("chat.model-title")}
-                          onClick={() => { setEffortOpen(false); setMenuOpen(true); }}>
+                          onClick={() => { setEffortOpen(false); setEffortHover(null); setMenuOpen(true); }}>
                           <span>{modelButtonLabel}</span>
                           <ChevronRightIcon aria-hidden="true" />
                         </RowButton>
