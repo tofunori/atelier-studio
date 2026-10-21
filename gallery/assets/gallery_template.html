@@ -32,6 +32,11 @@
     var root = document.documentElement.style;
     for(var k in MAP){ if(typeof v[k] === 'string' && v[k]) root.setProperty(MAP[k], v[k]); }
     ROLES.forEach(function(name){ if(typeof v[name] === 'string' && v[name]) root.setProperty(name, v[name]); });
+    // GAL-07 : les rouges destructifs suivent le rouge d'état du thème (lisible
+    // en clair) ; la valeur Default de :root ne reste qu'en repli autonome.
+    if(typeof v['--status-error'] === 'string' && v['--status-error']){
+      root.setProperty('--hot', v['--status-error']); root.setProperty('--destructive', v['--status-error']);
+    }
     // WKWebView dessine la piste native de scrollbar selon color-scheme,
     // indépendamment du fond CSS de l'iframe. Les presets Atelier sont hex.
     if(/^#[0-9a-f]{6}$/i.test(v['--bg'] || '')){
@@ -64,11 +69,11 @@
 <style>
   button,input,select,textarea{font-family:var(--ui-font)}
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace; --bg:#1e2124; --card:#24282d; --card2:#2c2f34; --txt:#dadee3; --muted:#90969d; --faint:#62666c;
-         --primary:#e77f3e; --primary-soft:color-mix(in srgb,var(--primary) 16%,transparent); --arch:#3a2f1a; --border:#2a2d31; --border-strong:#43474c;
+         --primary:#e77f3e; --primary-soft:color-mix(in srgb,var(--primary) 16%,transparent); --arch:color-mix(in srgb,var(--status-warning,#e0b74a) 14%,transparent); --border:#2a2d31; --border-strong:#43474c;
          --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
          --elev:0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18); --hot:#e06c75;
          --radius-control:6px;--radius-surface:10px;--fs-body-s:12px;--fs-caption:10px;--fs-label:11px;
-         --focus-ring-color:var(--ring);--ease-out:ease-out;--motion-fast:120ms;--motion-panel:150ms;--motion-standard:140ms;
+         --focus-ring-color:var(--ring);--ease-out:cubic-bezier(0.16, 1, 0.3, 1);--motion-fast:120ms;--motion-panel:150ms;--motion-standard:140ms;
          --z-sticky:30;--z-popover:120;--z-modal:200;--z-toast:260;
          --text-primary:var(--txt);--text-secondary:color-mix(in srgb,var(--txt) 55%,var(--muted));--text-muted:var(--muted);--text-disabled:var(--faint);
          --surface-overlay:var(--card);--elevation-overlay:var(--elev);--font-chrome:var(--ui-font);
@@ -115,9 +120,11 @@
   .seg button{border:none;background:transparent;color:var(--muted);font-size:var(--fs-label, 11px);padding:4px 9px;cursor:pointer}
   .seg button.on{background:var(--card2);color:var(--txt)}
   .skel{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;height:214px;position:relative}
-  .skel::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,color-mix(in srgb,var(--txt) 5%,transparent) 50%,transparent 70%);background-size:200% 100%;animation:skshine 1.4s linear infinite}
-  @keyframes skshine{from{background-position:200% 0}to{background-position:-200% 0}}
-  @media (prefers-reduced-motion:reduce){.skel::after{animation:none}}
+  /* TRANS-29 : squelette statique (comme l'accueil Recherche), qui n'apparaît
+     qu'après 350 ms — un chargement rapide ne clignote pas. */
+  .skel{animation:skel-in var(--motion-fast) ease-out 350ms both}
+  @keyframes skel-in{from{opacity:0}to{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.skel{animation:none}}
   .brand .logo{color:var(--txt);align-self:center;display:block}
   .brand .wm{font-size:var(--fs-title, 15px);font-weight:600;letter-spacing:-.01em}
   .brand .proj{font-size:var(--fs-body-s, 12px);color:var(--muted);font-family:var(--code-font)}
@@ -210,13 +217,17 @@
      barre d'outils de la galerie passe dessous et les deux se chevauchent
      (visible dès que la sélection remplit la barre). On leur laisse la bande. */
   html.emb header{padding-right:120px}
-  /* Les contrôles de la barre React font 30 px : dans une barre de 44 px il ne
-     reste que 7 px de respiration, et l'ensemble paraît serré (les boutons
-     sont pourtant centrés au pixel). On les ramène à 26 px, la taille des
-     contrôles d'Atelier, ce qui donne 9 px de marge. */
+  /* Contrôles de la barre React à 28 px (échelle 24/28/32 d'Atelier) : 8 px
+     de marge dans l'en-tête de 44. Les boutons-icônes sont carrés, à pas de
+     4 ; seul le sélecteur de dossier (icône + chevron) est plus large (GAL-15). */
   html.emb .gallery-command-bar :is(button,[role=button],[data-slot=select-trigger]){
-    height:26px;min-height:26px;padding:0 9px;font-size:var(--fs-body-s, 12px)}
-  html.emb .gallery-command-bar :is(button,[role=button]) svg{width:13px;height:13px}
+    height:28px;min-height:28px;padding:0 8px;font-size:var(--fs-body-s, 12px)}
+  html.emb .gallery-command-bar :is(button,[role=button]) svg{width:14px;height:14px}
+  html.emb .gallery-command-bar[data-gallery-toolbar-state="normal"],
+  html.emb .gallery-command-bar[data-gallery-toolbar-state="normal"] .gallery-command-group{gap:4px}
+  html.emb .gallery-command-bar[data-gallery-toolbar-state="normal"] button{width:28px;padding:0}
+  html.emb .gallery-command-bar[data-gallery-toolbar-state="normal"] [data-project-folder-menu]{width:40px!important;max-width:40px!important}
+  html.emb .gallery-command-bar .gallery-view-switch button{width:24px;height:24px;min-height:24px}
   html.emb .controls .ctrl-sp{flex:1}
   /* Dans Atelier, la Gallery est un lanceur vers les onglets et viewers.
      L'inspecteur latéral appartient uniquement au mode navigateur autonome. */
@@ -258,28 +269,37 @@
         background:var(--card);border-radius:10px;padding:4px;min-width:min(200px,calc(100vw - 16px));max-width:min(360px,calc(100vw - 16px));
         max-height:62vh;overflow:auto;box-shadow:var(--elev)}
   .menu .trow{cursor:pointer}
-  .menu .tck{color:var(--primary)}
+  .menu .tck,.menu .mck{flex:none;color:var(--text-primary,var(--txt))}
   .menu .mhd{font-size:var(--fs-caption, 10px);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted,var(--muted));padding:4px 8px}
-  .menu .mi{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border-radius:6px;font-size:var(--fs-body-s, 12px);font-weight:400}
+  .menu .mi{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:28px;box-sizing:border-box;padding:4px 8px;border-radius:6px;font-size:var(--fs-body-s, 12px);font-weight:400;line-height:1.5}
   .menu .mi:hover{background:var(--card2)}
-  .menu .mi.on{color:var(--primary)}
+  .menu .mi.on{color:var(--text-primary,var(--txt))}
+  /* GAL-01 : une action de menu en <button> garde le gabarit de rangée */
+  .menu .mi>button.lbl{all:unset;flex:1;min-width:0;cursor:pointer;text-align:left;font:inherit;color:inherit;border-radius:6px}
+  .menu .mi>button.lbl:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+  .menu .mi:has(>button.lbl:disabled){color:var(--text-disabled,var(--faint))}
+  /* GAL-13 : ouverture en fondu court (le menu passe de display:none à flex) */
+  .menu[data-open]{animation:menu-in var(--motion-standard,140ms) var(--ease-out,ease-out)}
+  @keyframes menu-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.menu[data-open]{animation:menu-fade var(--motion-fast,120ms) ease-out}}
+  @keyframes menu-fade{from{opacity:0}to{opacity:1}}
   .menu .mi.muted,.menu .mi.muted:hover{color:var(--muted);background:none}
   .menu .mi.clr{color:var(--hot)}
   .menu .lbl{cursor:pointer;flex:1;word-break:break-all}
   .menu .lbl.mono{font-family:var(--code-font);font-size:var(--fs-body-s, 12px)}
   .menu .ct{color:var(--muted);font-size:var(--fs-label, 11px)}
-  .menu .x{cursor:pointer;color:var(--hot);padding:0 3px;flex-shrink:0}
-  .menu .madd{display:flex;gap:5px;margin-top:5px;padding-top:6px;border-top:1px solid var(--border)}
-  .menu .madd input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:5px 7px;font-size:var(--fs-body-s, 12px)}
-  .menu .madd button{padding:5px 10px}
-  .menu input[type=checkbox]{accent-color:var(--primary);margin-right:6px;vertical-align:-1px}
-  .menu .mhd.sep{border-top:1px solid var(--border);margin-top:4px;padding-top:7px}
+  .menu .x{cursor:pointer;color:var(--hot);padding:0 4px;flex-shrink:0}
+  .menu .madd{display:flex;gap:4px;margin-top:4px;padding:8px 4px 4px;border-top:1px solid var(--border)}
+  .menu .madd input{flex:1;min-width:0;height:28px;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:4px 8px;font-size:var(--fs-body-s, 12px)}
+  .menu .madd button{height:28px;padding:0 8px;font-weight:400}
+  .menu input[type=checkbox]{accent-color:var(--primary);margin-right:8px;vertical-align:-1px}
+  .menu .mhd.sep{border-top:1px solid var(--border);margin-top:4px;padding-top:8px}
   .menu label.lbl{display:flex;align-items:center}
   .playbtn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:3;
         width:48px;height:48px;border-radius:50%;background:rgba(0,0,0,.5);color:var(--on-media);
         display:flex;align-items:center;justify-content:center;font-size:18px;padding-left:3px;
         pointer-events:none;border:2px solid rgba(255,255,255,.9)}
-  .menu .only{cursor:pointer;color:var(--muted);font-size:var(--fs-label, 11px);flex-shrink:0;padding:0 3px}
+  .menu .only{cursor:pointer;color:var(--muted);font-size:var(--fs-label, 11px);flex-shrink:0;padding:0 4px}
   .menu .only:hover{color:var(--primary)}
   .menu .mlink{cursor:pointer;color:var(--muted);font-size:var(--fs-body-s, 12px)}
   .menu .mlink:hover{color:var(--primary)}
@@ -336,23 +356,31 @@
   @media (max-width:340px){ .hov button[data-act="src"]{display:none} }
   .hov button.on{color:var(--primary)}
   .hov button.on .fill{fill:currentColor}
-  .selbox{position:absolute;top:6px;left:6px;z-index:4;font-size:var(--fs-title, 15px);cursor:pointer;line-height:1;
-        background:rgba(15,17,21,.85);border:1px solid var(--border);border-radius:6px;padding:4px 7px;user-select:none;color:var(--txt);
-        opacity:0}
+  /* Case de sélection (GAL-04) : pastille 24 px sur la vignette, fond de
+     carte translucide + ombre douce, carré SVG 16 px au trait 1,5 ; cochée =
+     carré plein accent, coche à la couleur de la carte (jamais de blanc). */
+  .selbox{position:absolute;top:8px;left:8px;z-index:4;display:inline-flex;align-items:center;justify-content:center;
+        width:24px;height:24px;box-sizing:border-box;padding:0;cursor:pointer;line-height:1;
+        background:color-mix(in srgb,var(--card) 88%,transparent);border:0;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.18);
+        user-select:none;color:var(--text-secondary,var(--txt));opacity:0}
+  .selbox svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
   .card:hover .selbox,.selbox.on{opacity:1}
-  .selbox.on{color:var(--hot);border-color:var(--hot)}
-  .star{position:absolute;top:6px;right:6px;font-size:18px;cursor:pointer;line-height:1;
-        background:rgba(15,17,21,.85);border:1px solid var(--border);border-radius:50%;padding:5px 6px;user-select:none;color:var(--txt)}
-  .star.on{color:var(--primary);border-color:var(--primary)}
+  .selbox.on{color:var(--primary)}
+  .selbox.on rect{fill:currentColor}
+  .selbox.on path{stroke:var(--card)}
+  .star{position:absolute;top:8px;right:8px;font-size:var(--fs-title, 15px);cursor:pointer;line-height:1;
+        background:color-mix(in srgb,var(--card) 88%,transparent);border:0;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.18);padding:4px 6px;user-select:none;color:var(--txt)}
+  .star.on{color:var(--primary)}
   .rate{display:flex;gap:2px;font-size:var(--fs-body, 13px);line-height:1;user-select:none}
-  .rate span{cursor:pointer;color:var(--border)}
+  .rate span{cursor:pointer;color:var(--text-disabled,var(--faint))}
   .rate span.on{color:var(--primary)}
   .rate span:hover{color:color-mix(in srgb,var(--primary) 65%,var(--txt))}
   .card{position:relative}
   .empty{grid-column:1/-1;text-align:center;color:var(--muted);padding:60px}
   #lb{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.88);display:none;
       flex-direction:column;align-items:center;justify-content:center;cursor:zoom-out}
-  #lb.show{display:flex}
+  #lb.show{display:flex;animation:surface-in var(--motion-panel,150ms) var(--ease-out,ease-out)}
+  @keyframes surface-in{from{opacity:0}to{opacity:1}}
   #lb img{max-width:94vw;max-height:86vh;object-fit:contain;background:var(--figure-paper);border-radius:6px;cursor:zoom-in}
   #lb.fs{background:var(--media-bg);cursor:none;padding:0}
   #lb.fs #lbWrap{flex:1;display:flex;align-items:center;justify-content:center;width:100%;height:100%;min-height:0}
@@ -574,19 +602,22 @@
     #lbProv,#provPanel .pvBtn,#provPanel .pvLink,#provPanel .pvHistTog,#provPanel .pvHistTog svg{transition:none}
   }
   #cmp{position:fixed;inset:0;z-index:120;background:var(--bg);display:none;flex-direction:column}
-  #cmp.show{display:flex}
-  #cmpBar{display:flex;gap:8px;align-items:center;padding:7px 14px;background:var(--bg);border-bottom:1px solid var(--border);font-size:var(--fs-body, 13px);color:var(--muted);flex-shrink:0}
-  #cmpBar button{background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:4px 10px;font-size:var(--fs-body-s, 12px);cursor:pointer}
-  #cmpBar button:hover{border-color:var(--border-strong);color:var(--txt)}
-  #cmpClose{margin-left:auto;font-size:20px;cursor:pointer;color:var(--muted);line-height:1}
-  #cmpClose:hover{color:var(--txt)}
-  #cmpInner{flex:1;display:flex;flex-direction:column;gap:3px;min-height:0;padding:3px}
+  #cmp.show{display:flex;animation:surface-in var(--motion-panel,150ms) var(--ease-out,ease-out)}
+  @media (prefers-reduced-motion:reduce){#lb.show,#cmp.show{animation:none}}
+  #cmpBar{display:flex;gap:8px;align-items:center;height:48px;box-sizing:border-box;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--border);font-size:var(--fs-body-s, 12px);color:var(--muted);flex-shrink:0}
+  #cmpBar button{height:28px;background:transparent;border:0;border-radius:6px;color:var(--txt);padding:0 8px;font-size:var(--fs-body-s, 12px);font-weight:400;cursor:pointer}
+  #cmpBar button:hover{background:var(--card2);color:var(--txt)}
+  #cmpInfo{font-variant-numeric:tabular-nums}
+  #cmpBar #cmpClose{display:inline-flex;align-items:center;justify-content:center;width:28px;padding:0;margin-left:auto;color:var(--muted)}
+  #cmpBar #cmpClose:hover{color:var(--txt)}
+  #cmpClose svg{width:14px;height:14px}
+  #cmpInner{flex:1;display:flex;flex-direction:column;gap:4px;min-height:0;padding:4px}
   #cmpInner.h{flex-direction:row}
   .cmpCell{flex:1;min-height:0;min-width:0;position:relative;background:var(--media-bg);border-radius:6px;overflow:hidden;touch-action:none}
   .cmpStage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:grab}
   .cmpStage.drag{cursor:grabbing}
   .cmpCell img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center center;will-change:transform;user-select:none;pointer-events:none}
-  .cmpCell .clbl{position:absolute;top:6px;left:8px;font-size:var(--fs-label, 11px);color:var(--txt);background:rgba(0,0,0,.6);padding:2px 7px;border-radius:6px;max-width:88%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cmpCell .clbl{position:absolute;top:8px;left:8px;font-size:var(--fs-label, 11px);color:var(--txt);background:color-mix(in srgb,var(--bg) 80%,transparent);padding:2px 8px;border-radius:6px;max-width:88%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #confirmModal{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center}
   #confirmModal.show{display:flex}
   #confirmBox{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:20px 22px;max-width:440px;box-shadow:0 12px 50px rgba(0,0,0,.6)}
@@ -645,7 +676,7 @@
      zéro et les boutons tombaient 4 px trop bas (13 en haut, 5 en bas). Le
      padding appartient à la règle du haut ; ici, seul le fond. */
   html.emb header{background:var(--bg)}
-  .controls{gap:7px}
+  .controls{gap:8px}
   input[type=search],.csel-btn,select,button,.chip{
     transition:background-color var(--motion-fast) ease-out,border-color var(--motion-fast) ease-out,
       color var(--motion-fast) ease-out,box-shadow var(--motion-fast) ease-out,opacity var(--motion-fast) ease-out}
@@ -660,7 +691,7 @@
   select:focus-visible,button:focus-visible,.chip:focus-visible,.csel-btn:focus-visible,.fchip:focus-visible{
     outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
   #filtersChip.on,.iwf button.on{background:var(--primary-soft);border-color:color-mix(in srgb,var(--primary) 62%,var(--border));color:var(--txt)}
-  #activeChips{margin-top:7px;padding-top:7px;border-top:1px solid var(--hairline)}
+  #activeChips{margin-top:8px;padding-top:8px;border-top:1px solid var(--hairline)}
   .fchip{background:color-mix(in srgb,var(--primary-soft) 52%,var(--card));border-color:color-mix(in srgb,var(--primary) 28%,var(--border));
     transition:background-color var(--motion-fast) ease-out,border-color var(--motion-fast) ease-out,color var(--motion-fast) ease-out}
   .menu,.csel-menu{background:var(--card);border-color:var(--border-strong);
@@ -672,17 +703,18 @@
   .menu .mi:hover,.csel-menu div:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}
   .menu .mi:hover{background:var(--card2)}
 
-  main{padding:18px;gap:14px}
+  main{padding:20px;gap:16px}
   .card{border-color:color-mix(in srgb,var(--hairline) 78%,transparent);border-radius:var(--radius-surface,10px);background:color-mix(in srgb,var(--card) 97%,var(--txt) 3%);
     box-shadow:0 1px 1px rgba(0,0,0,.08);isolation:isolate;
     transition:border-color var(--motion-fast) ease-out,box-shadow var(--motion-ui) ease-out,transform var(--motion-ui) ease-out}
   .card:hover,.card:focus-within{border-color:var(--border-strong);box-shadow:0 3px 10px rgba(0,0,0,.14);transform:none}
-  .thumb{background:var(--figure-paper-soft);padding:7px;border-bottom-color:var(--hairline)}
-  .thumb img{transition:transform var(--motion-ui) ease-out,filter var(--motion-ui) ease-out;filter:saturate(.98) contrast(1.01)}
-  .card:hover .thumb img,.card:focus-within .thumb img{transform:scale(1.006);filter:saturate(1) contrast(1.02)}
+  .thumb{background:var(--figure-paper-soft);padding:12px;border-bottom-color:var(--hairline)}
+  /* GAL-29 : une figure scientifique s'affiche telle quelle, jamais filtrée */
+  .thumb img{transition:transform var(--motion-ui) ease-out}
+  .card:hover .thumb img,.card:focus-within .thumb img{transform:scale(1.006)}
   .ph,.snip{background:var(--surface-sunken)}
   .ph .ext{font-family:var(--code-font);font-size:25px;font-weight:500;letter-spacing:.04em;color:var(--faint)}
-  .meta{padding:10px 11px 11px;gap:4px}
+  .meta{padding:12px;gap:4px}
   .nm{display:flex;min-width:0;font-size:var(--fs-body,13px);font-weight:500;letter-spacing:-.005em}
   .nm-prefix{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
   .nm-tail{display:flex;justify-content:flex-end;min-width:0;max-width:70%;overflow:hidden;white-space:nowrap;flex:0 0 auto}
@@ -719,21 +751,21 @@
   .gallery-detail-name .stackn{position:static;height:18px;padding:0 8px;margin-left:4px;box-shadow:none;background:var(--card2)}
 
   #inspector{background:var(--card);box-shadow:none}
-  #inspHead{min-height:48px;padding:11px 13px;border-bottom-color:var(--hairline)}
+  #inspHead{min-height:48px;padding:12px 16px;border-bottom-color:var(--hairline)}
   #inspHead .ttl{font-size:var(--fs-body, 13px);letter-spacing:-.01em}
-  #inspBody{padding:13px;gap:16px;min-height:0}
-  .isec{gap:7px;padding-bottom:14px;border-bottom:1px solid var(--hairline)}
-  .isec:last-child{position:sticky;bottom:-13px;z-index:2;margin-top:auto;padding:10px 0 13px;border-bottom:0;
+  #inspBody{padding:16px;gap:16px;min-height:0}
+  .isec{gap:8px;padding-bottom:16px;border-bottom:1px solid var(--hairline)}
+  .isec:last-child{position:sticky;bottom:-16px;z-index:2;margin-top:auto;padding:12px 0 16px;border-bottom:0;
     background:linear-gradient(180deg,color-mix(in srgb,var(--card) 0%,transparent),var(--card) 18%)}
   .isec>h3{font-weight:500;letter-spacing:.06em}
   #inspPrev{height:158px;border-color:var(--hairline);border-radius:10px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
-  #inspPrev img{padding:6px}
+  #inspPrev img{padding:8px}
   #inspNotice{background:color-mix(in srgb,var(--hot) 10%,transparent)}
   .empty{padding:72px 24px;line-height:1.55}
   footer{padding:18px;color:var(--text-muted);border-top:1px solid var(--hairline)}
   /* GAL-22 : le pied de la page autonome n'a pas de sens dans Atelier */
   html.emb body>footer{display:none}
-  @media (max-width:520px){main{padding:12px;gap:11px}.card:hover,.card:focus-within{transform:none}}
+  @media (max-width:520px){main{padding:12px;gap:12px}.card:hover,.card:focus-within{transform:none}}
   @media (prefers-reduced-motion:reduce){
     input[type=search],.csel-btn,select,button,.chip,.fchip,.menu .mi,.csel-menu div,.card,.thumb img,.hov,.selbox,.star{transition:none!important}
     .card:hover,.card:focus-within,.card:hover .thumb img,.card:focus-within .thumb img,.hov{transform:none!important}
@@ -742,20 +774,20 @@
 
   /* The detailed view shares .card identity and event delegation with tiles. */
   #grid:not(.gallery-detail-list){grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--card-min,185px)),1fr))}
-  #grid.gallery-detail-list{display:block;padding:12px 18px;overflow-x:auto}
+  #grid.gallery-detail-list{display:block;padding:12px 20px;overflow-x:auto}
   .gallery-detail-header,.gallery-detail-row{display:grid;grid-template-columns:var(--detail-columns);width:max-content;min-width:100%}
   .gallery-detail-header{position:sticky;top:0;background:var(--bg);z-index:2;color:var(--muted);font-size:var(--fs-label, 11px);border-bottom:1px solid var(--border)}
-  .gallery-detail-header>[role=columnheader]{position:relative;padding:0 10px}
-  .gallery-detail-header button{border:0;background:transparent;text-align:left;font-size:var(--fs-label, 11px);color:inherit;width:100%;height:34px}
-  .gallery-column-resize{position:absolute;right:0;top:7px;bottom:7px;width:7px;cursor:col-resize;touch-action:none;border-right:1px solid var(--border)}
+  .gallery-detail-header>[role=columnheader]{position:relative;padding:0 12px}
+  .gallery-detail-header button{border:0;background:transparent;text-align:left;font-size:var(--fs-label, 11px);color:inherit;width:100%;height:32px}
+  .gallery-column-resize{position:absolute;right:0;top:8px;bottom:8px;width:8px;cursor:col-resize;touch-action:none;border-right:1px solid var(--border)}
   .gallery-column-resize:hover{border-color:var(--primary)}
   .gallery-column-resize:focus-visible{border-color:var(--primary);outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
   #grid .card.gallery-detail-row{border:0;border-radius:0;box-shadow:none;background:transparent;transform:none;overflow:visible;min-height:var(--detail-row-height,46px)}
-  .gallery-detail-row>[role=gridcell]{min-width:0;display:flex;align-items:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 10px;font-size:var(--fs-body-s, 12px);border-bottom:1px solid color-mix(in srgb,var(--border) 40%,transparent);color:var(--muted);font-variant-numeric:tabular-nums}
+  .gallery-detail-row>[role=gridcell]{min-width:0;display:flex;align-items:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 12px;font-size:var(--fs-body-s, 12px);border-bottom:1px solid color-mix(in srgb,var(--border) 40%,transparent);color:var(--muted);font-variant-numeric:tabular-nums}
   #grid .gallery-detail-row:hover{background:color-mix(in srgb,var(--txt) 4%,transparent)}
   #grid .gallery-detail-row:is(.sel2,.bulk-selected){background:color-mix(in srgb,var(--accent) 12%,transparent);outline:none}
   .gallery-detail-name{gap:8px;color:var(--txt)!important}
-  .gallery-detail-row .selbox{position:static;opacity:1;width:20px;height:24px;flex:none;padding:0;border:0;background:transparent;color:var(--muted)}
+  .gallery-detail-row .selbox{position:static;opacity:1;width:24px;height:24px;flex:none;padding:0;border:0;background:transparent;box-shadow:none;color:var(--muted)}
   .gallery-detail-row .selbox.on{color:var(--accent)}
   .gallery-detail-open{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;min-width:0;border:0;background:transparent;color:var(--txt);font-size:var(--fs-body-s, 12px);padding:6px 0}
   .gallery-detail-status{justify-content:space-between;gap:6px}
@@ -778,17 +810,17 @@
   #lbClose{position:fixed;top:10px;right:14px;width:34px;height:34px;font-size:20px;color:var(--muted);z-index:103}
   #lb .lbBtn{width:34px;height:44px;padding:0;font-size:28px;background:rgba(255,255,255,.045)}
   #lb button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
-  #lbClose:hover,#lbFs:hover,#lbZoom button:hover{background:rgba(255,255,255,.09);color:var(--txt)}
+  #lbClose:hover,#lbFs:hover,#lbZoom button:hover{background:color-mix(in srgb,var(--txt) 7%,transparent);color:var(--txt)}
   #lbZoom{position:fixed;top:12px;left:16px;display:flex;align-items:center;gap:2px;z-index:103;background:var(--card);border-radius:10px;padding:2px}
   #lbZoom button{border:0;background:transparent;color:var(--muted);height:28px;min-width:28px;padding:0 8px;border-radius:6px;font-size:13px}
-  #lbZoom #lbFit{min-width:65px;font-size:12px}
+  #lbZoom #lbFit{min-width:64px;font-size:12px;font-variant-numeric:tabular-nums}
   #lb.fs #lbZoom{opacity:0;pointer-events:none}
   #lb.fs.fs-ui #lbZoom{opacity:1;pointer-events:auto}
   #lb.vw #lbZoom,#lb.annot #lbZoom{display:none}
   #lb:not(.fs){left:var(--lb-left,0px);top:var(--lb-top,0px);right:auto;bottom:auto;width:var(--lb-width,100vw);height:var(--lb-height,100vh)}
   #lb #lbClose,#lb #lbFs,#lb #lbAnnot,#lb #lbProv,#lb #lbZoom,#lb .lbBtn{position:absolute}
   #lb.fs{padding:0;inset:0;width:100vw;height:100vh}
-  @media(max-width:540px){#lb{padding:52px 30px 10px}#lbCap span{display:none}#lbCap b{max-width:65vw}#lbZoom{left:8px}#lbZoom button{padding:0 5px}}
+  @media(max-width:540px){#lb{padding:52px 30px 10px}#lbCap span{display:none}#lbCap b{max-width:65vw}#lbZoom{left:8px}#lbZoom button{padding:0 4px}}
 
 
   #lb.annot #annotBar{display:flex!important;position:absolute;top:48px;max-width:calc(100% - 16px);padding:3px;gap:2px;background:color-mix(in srgb,var(--card2) 94%,transparent);border:1px solid var(--border-strong);box-shadow:var(--elev)}
@@ -799,7 +831,7 @@
   #annotPillCancel[hidden]{display:none}#annotPill #annotPillN{font-size:10px;color:var(--muted)}#annotPill #annotPillSend{font-size:11px;color:var(--primary)}
   #annotNote{width:264px;max-width:calc(100vw - 16px);border:1px solid var(--border-strong);border-radius:10px;background:var(--card2);box-shadow:var(--elev);overflow:hidden;color:var(--txt)}
   #annotNote header{display:flex;align-items:center;gap:7px;padding:7px 10px 3px;font-size:10px;color:var(--muted)}#annotNote .annot-number{background:var(--primary);color:var(--primary-foreground);width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:var(--fs-caption, 10px)}
-  #annotNote button{border:0;background:transparent;color:var(--muted);border-radius:6px;padding:4px 7px;font-size:11px;min-height:25px}#annotNote button:hover{background:var(--border-strong)}#annotNote .annot-close{margin-left:auto;font-size:var(--fs-title, 15px);padding:0 4px}
+  #annotNote button{border:0;background:transparent;color:var(--muted);border-radius:6px;padding:4px 8px;font-size:11px;min-height:24px}#annotNote button:hover{background:var(--card2)}#annotNote .annot-close{margin-left:auto;font-size:var(--fs-title, 15px);padding:0 4px}
   #annotNote textarea{display:block;box-sizing:border-box;width:100%;height:44px;min-height:44px;max-height:132px;resize:none;padding:3px 12px;margin:0;border:0;outline:none;background:transparent;color:var(--txt);font:12px/1.6 var(--ui-font)}
   #annotNote footer{display:flex;align-items:center;gap:3px;padding:4px 8px 8px}#annotNote .annot-status{flex:1;font-size:var(--fs-caption, 10px);color:var(--hot)}#annotNote .annot-send{background:var(--primary-soft);color:var(--primary);white-space:nowrap}#annotNote button:disabled{opacity:.35}
   #annotList{position:absolute;right:14px;bottom:55px;z-index:105;width:290px;max-width:calc(100% - 24px);border:1px solid var(--border-strong);border-radius:10px;background:var(--card2);box-shadow:var(--elev)}#annotList[hidden]{display:none}#annotList header{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;font-size:11px;color:var(--muted)}#annotList button{border:0;background:transparent;color:var(--txt)}#annotItems{max-height:240px;overflow:auto;padding:0 5px 5px}#annotItems .annot-row{display:block;width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;padding:9px 8px;font-size:11px;line-height:1.5;border-radius:6px}#annotItems .annot-row:hover{background:var(--border-strong)}
@@ -831,10 +863,17 @@
   #annotPill #annotPillSend{display:none}#annotPill #annotPillN{font-size:11px;padding:6px;color:var(--muted)}
   #lb:not(.annot) #annotPill{display:flex;opacity:.55}
   #lb #annotList{top:92px;bottom:auto;background:var(--card)}
-  #annotNote{width:280px;background:var(--card);border-color:var(--border2);box-shadow:var(--elev)}
-  #annotNote header{padding:10px 12px 6px;font-size:11px}#annotNote textarea{padding:6px 12px;font-size:12px}
-  #annotNote footer{padding:6px 10px 10px}#annotNote .annot-draft,#annotNote .annot-send{width:30px;height:30px;padding:6px}
-  #annotNote footer svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.4}
+  /* GAL-05 : surface élevée = fond + ombre, sans filet ; les règles globales
+     header/footer de la page (bande de 44 px, traits) ne fuient plus dedans. */
+  #annotNote,#annotList{border:0}
+  #annotNote{width:280px;background:var(--card);box-shadow:var(--elev)}
+  #annotNote header,#annotList header{position:static;height:auto;min-height:0;border:0;background:transparent;box-shadow:none;backdrop-filter:none}
+  #annotNote header{padding:12px 12px 4px;font-size:11px}#annotNote textarea{padding:4px 12px;font-size:12px}
+  #annotNote .annot-number{width:16px;height:16px;font-variant-numeric:tabular-nums}
+  #annotNote footer{padding:4px 8px 8px;border:0;text-align:left;color:inherit}#annotNote .annot-draft,#annotNote .annot-send{width:28px;height:28px;min-height:28px;padding:6px}
+  #annotNote footer svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5}
+  #annotNote .annot-close,#annotListClose{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;min-height:24px;padding:0}
+  #annotNote .annot-close svg,#annotListClose svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
   /* Fiche ⓘ : nom, dossier, dimensions, poids, date, puis les actions fichier. */
   #lbSheet{position:absolute;left:12px;top:42px;z-index:106;width:320px;max-width:calc(100% - 24px);padding:12px 14px;background:var(--card);border-radius:10px;box-shadow:var(--elev);font-size:12px;display:grid;gap:8px;text-align:left}
   #lbSheet[hidden]{display:none}
@@ -893,8 +932,8 @@
   #lbHead #lbAdd svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5}
 
   #lbBackground{display:flex;align-items:center;gap:8px;margin:8px 0 12px;font-size:11px;color:var(--muted)}
-  #lbHead #lbBackground button{width:23px;height:23px;padding:0;border-radius:50%;background:var(--swatch);border:1px solid var(--border-strong)}
-  #lbHead #lbBackground button[aria-pressed=true]{outline:1px solid var(--primary);outline-offset:4px}
+  #lbHead #lbBackground button{width:24px;height:24px;padding:0;border-radius:50%;background:var(--swatch);border:1px solid var(--border-strong)}
+  #lbHead #lbBackground button[aria-pressed=true]{box-shadow:0 0 0 2px var(--card),0 0 0 3px var(--text-primary,var(--txt))}
 
   #lb #lbPrev,#lb #lbNext{width:28px;height:28px;padding:5px;background:transparent;border-radius:6px;font-size:0}
   #lb #lbPrev:hover,#lb #lbNext:hover{background:var(--surface-hover,#ffffff08)}
@@ -907,73 +946,73 @@
 <body>
 <header data-slot="gallery-toolbar">
   <div class="brand">
-    <svg class="logo" width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-label="Gallery"><rect x="2" y="2" width="9.5" height="13.5" rx="1.6"/><rect x="2" y="17" width="9.5" height="5" rx="1.6"/><rect x="13.5" y="2" width="8.5" height="5" rx="1.6"/><rect x="13.5" y="9" width="8.5" height="13" rx="1.6"/></svg>
+    <svg class="logo" width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-label="Galerie"><rect x="2" y="2" width="9.5" height="13.5" rx="1.6"/><rect x="2" y="17" width="9.5" height="5" rx="1.6"/><rect x="13.5" y="2" width="8.5" height="5" rx="1.6"/><rect x="13.5" y="9" width="8.5" height="13" rx="1.6"/></svg>
     <span class="wm">__WORDMARK__</span>
     <span class="proj">__PROJECT__</span>
     <span id="galleryStat" class="stat">__COUNT__ files · __GEN__</span>
     <span class="brand-sp"></span>
-    <span class="chip dest" id="boardChip" data-slot="button" role="button" tabindex="0" title="Open the project whiteboard (tldraw)">Board</span>
-    <span class="chip dest" id="notesChip" data-slot="button" role="button" tabindex="0" title="Open the project notes (markdown)">Notes</span>
-    <span class="chip dest" id="viewChip" data-slot="dropdown-menu-trigger" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" title="Settings — server health, theme, archives, hidden, auto-hide rules">Settings &#9662;</span>
+    <span class="chip dest" id="boardChip" data-slot="button" role="button" tabindex="0" title="Ouvrir le tableau blanc du projet (tldraw)">Tableau blanc</span>
+    <span class="chip dest" id="notesChip" data-slot="button" role="button" tabindex="0" title="Ouvrir les notes du projet (Markdown)">Notes</span>
+    <span class="chip dest" id="viewChip" data-slot="dropdown-menu-trigger" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" title="Réglages — santé du serveur, thème, archives, fichiers masqués, règles de masquage">Réglages &#9662;</span>
   </div>
   <div id="gallery-react-toolbar" data-slot="gallery-react-toolbar"></div>
   <div class="controls">
-    <span class="chip" id="searchChip" title="Search by name or folder (press /)" tabindex="0"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M11 11l3.2 3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> Search</span>
-    <input type="search" id="q" data-slot="input" class="collapsed" aria-label="Search project files" placeholder="Search by name or folder… (Esc to close)">
-    <span class="chip" id="filtersChip" data-slot="dropdown-menu-trigger" role="button" aria-haspopup="menu" aria-expanded="false" title="Filters — folder, formats, favorites, collections, status, recent" tabindex="0">Filters &#9662;</span>
+    <span class="chip" id="searchChip" title="Rechercher par nom ou dossier (/)" tabindex="0"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M11 11l3.2 3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> Rechercher</span>
+    <input type="search" id="q" data-slot="input" class="collapsed" aria-label="Rechercher dans les fichiers du projet" placeholder="Rechercher par nom ou dossier… (Échap pour fermer)">
+    <span class="chip" id="filtersChip" data-slot="dropdown-menu-trigger" role="button" aria-haspopup="menu" aria-expanded="false" title="Filtres — dossier, formats, favoris, collections, statut, récents" tabindex="0">Filtres &#9662;</span>
     <div id="filtersMenu" class="menu" data-slot="dropdown-menu-content" role="menu">
-      <div class="mhd">Folder</div><div class="fgrp" id="fgFolder"></div>
+      <div class="mhd">Dossier</div><div class="fgrp" id="fgFolder"></div>
       <div class="mhd sep">Formats</div><div class="fgrp" id="fgFmt"></div>
-      <div class="mhd sep">Favorites</div><div class="fgrp" id="fgFav"></div>
+      <div class="mhd sep">Favoris</div><div class="fgrp" id="fgFav"></div>
       <div class="mhd sep">Collections</div><div class="fgrp" id="fgColl"></div>
-      <div class="mhd sep">Status</div><div class="fgrp" id="fgWf"></div>
-      <div class="mhd sep">Recent</div><div class="fgrp" id="fgRec"></div>
-      <div class="madd"><button id="filtersClear" title="Reset every active filter">Clear all filters</button></div>
+      <div class="mhd sep">Statut</div><div class="fgrp" id="fgWf"></div>
+      <div class="mhd sep">Récents</div><div class="fgrp" id="fgRec"></div>
+      <div class="madd"><button id="filtersClear" title="Réinitialiser tous les filtres actifs">Effacer tous les filtres</button></div>
     </div>
-    <select id="sort" data-slot="native-select" aria-label="Sort project files">
-      <option value="mtime">Sort: modified (newest)</option>
-      <option value="mtime_asc">Sort: modified (oldest)</option>
-      <option value="btime">Sort: created (newest)</option>
-      <option value="btime_asc">Sort: created (oldest)</option>
-      <option value="name">Sort: name (A→Z)</option>
-      <option value="name_desc">Nom Z–A</option><option value="type">Type A–Z</option><option value="type_desc">Type Z–A</option><option value="status">Statut A–Z</option><option value="status_desc">Statut Z–A</option><option value="size_asc">Taille croissante</option><option value="size">Sort: size</option>
-      <option value="rating_asc">Note croissante</option><option value="rating">Sort: rating (1–5)</option>
+    <select id="sort" data-slot="native-select" aria-label="Trier les fichiers du projet">
+      <option value="mtime">Modifié (récent d’abord)</option>
+      <option value="mtime_asc">Modifié (ancien d’abord)</option>
+      <option value="btime">Créé (récent d’abord)</option>
+      <option value="btime_asc">Créé (ancien d’abord)</option>
+      <option value="name">Nom A–Z</option>
+      <option value="name_desc">Nom Z–A</option><option value="type">Type A–Z</option><option value="type_desc">Type Z–A</option><option value="status">Statut A–Z</option><option value="status_desc">Statut Z–A</option><option value="size_asc">Taille croissante</option><option value="size">Taille décroissante</option>
+      <option value="rating_asc">Note croissante</option><option value="rating">Note décroissante</option>
     </select>
-    <select id="folder" data-slot="native-select" aria-label="Filter by folder"><option value="">All folders</option></select>
+    <select id="folder" data-slot="native-select" aria-label="Filtrer par dossier"><option value="">Tous les dossiers</option></select>
     <span class="chip" id="fmtChip">Formats &#9662;</span>
     <div id="fmtMenu" class="menu"></div>
-    <span class="chip off" id="favChip">&#9733; Favorites</span>
-    <span class="chip" id="collChip" title="Collections and shortlists">Collections &#9662;</span>
+    <span class="chip off" id="favChip">&#9733; Favoris</span>
+    <span class="chip" id="collChip" title="Collections et présélections">Collections &#9662;</span>
     <div id="collMenu" class="menu"></div>
-    <span class="chip" id="wfChip" title="Figure status (draft / candidate / final / rejected)">Status &#9662;</span>
+    <span class="chip" id="wfChip" title="Statut des figures (brouillon / candidat / final / rejeté)">Statut &#9662;</span>
     <div id="wfMenu" class="menu"></div>
-    <span class="chip" id="recChip" title="Recently opened figures">Recent &#9662;</span>
+    <span class="chip" id="recChip" title="Figures ouvertes récemment">Récents &#9662;</span>
     <div id="recMenu" class="menu"></div>
-    <span class="seg" id="densitySeg" data-slot="toggle-group" role="group" aria-label="Card density" title="Card density"><button data-slot="toggle-group-item" data-d="s" aria-label="Compact cards">S</button><button data-slot="toggle-group-item" data-d="m" class="on" aria-label="Medium cards">M</button><button data-slot="toggle-group-item" data-d="l" aria-label="Large cards">L</button></span>
+    <span class="seg" id="densitySeg" data-slot="toggle-group" role="group" aria-label="Taille des vignettes" title="Taille des vignettes"><button data-slot="toggle-group-item" data-d="s" aria-label="Petites vignettes">S</button><button data-slot="toggle-group-item" data-d="m" class="on" aria-label="Vignettes moyennes">M</button><button data-slot="toggle-group-item" data-d="l" aria-label="Grandes vignettes">L</button></span>
     <div id="viewMenu" class="menu"></div>
-    <button id="surfMore" title="Gallery tools — rescan, settings, board, notes" aria-label="Gallery tools" aria-haspopup="menu"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg></button>
+    <button id="surfMore" title="Outils de la galerie — rescan, réglages, tableau blanc, notes" aria-label="Outils de la galerie" aria-haspopup="menu"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg></button>
     <div id="surfMenu" class="menu"></div>
-    <button id="quoteClear" style="display:none" title="Clear the annotation pending in the Claude statusline">Clear annotation</button>
-    <button id="rescan" title="Rescan — rebuild the gallery index and reload" aria-label="Rescan"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.6 6.2A5.6 5.6 0 0 1 12.9 4.6M13.4 9.8A5.6 5.6 0 0 1 3.1 11.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12.9 1.8v2.8h-2.8M3.1 14.2v-2.8h2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button id="quoteClear" style="display:none" title="Effacer l’annotation en attente dans la ligne d’état de Claude">Effacer l’annotation</button>
+    <button id="rescan" title="Rescanner — reconstruire l’index de la galerie et recharger" aria-label="Rescanner"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.6 6.2A5.6 5.6 0 0 1 12.9 4.6M13.4 9.8A5.6 5.6 0 0 1 3.1 11.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M12.9 1.8v2.8h-2.8M3.1 14.2v-2.8h2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <span id="rateFilter" style="display:none"></span>
   </div>
   <div id="activeChips"></div>
   <div id="selBar">
-    <button id="cmpSel" style="display:none" title="Show the selected images stacked, to compare">Compare (0)</button>
-    <button id="hideSel" style="display:none" title="Hide the selected files from the gallery (reversible)">Hide (0)</button>
-    <button id="delSel" style="display:none;background:color-mix(in srgb,var(--hot) 24%,var(--card2));border-color:color-mix(in srgb,var(--hot) 45%,transparent)">Delete (0)</button>
-    <button id="clrSel" style="display:none" title="Clear the selection">Clear</button>
-    <button id="collectSel" style="display:none" title="Add selected files to a collection">Collect (0)</button>
-    <button id="exportSel" style="display:none" title="Export selected: folder / zip / contact sheet">Export (0) &#9662;</button>
+    <button id="cmpSel" style="display:none" title="Afficher les images sélectionnées superposées, pour comparer">Comparer (0)</button>
+    <button id="hideSel" style="display:none" title="Masquer les fichiers sélectionnés de la galerie (réversible)">Masquer (0)</button>
+    <button id="delSel" style="display:none;background:color-mix(in srgb,var(--hot) 24%,var(--card2));border-color:color-mix(in srgb,var(--hot) 45%,transparent)">Supprimer (0)</button>
+    <button id="clrSel" style="display:none" title="Effacer la sélection">Effacer</button>
+    <button id="collectSel" style="display:none" title="Ajouter les fichiers sélectionnés à une collection">Collecter (0)</button>
+    <button id="exportSel" style="display:none" title="Exporter la sélection : dossier / zip / planche contact">Exporter (0) &#9662;</button>
     <div id="exportMenu" class="menu"></div>
   </div>
 </header>
-<main id="grid" data-slot="gallery-grid" role="listbox" aria-label="Project files" tabindex="0"></main>
+<main id="grid" data-slot="gallery-grid" role="listbox" aria-label="Fichiers du projet" tabindex="0"></main>
 <div id="inspScrim"></div>
-<aside id="inspector" data-slot="sheet-content" aria-label="Inspector">
+<aside id="inspector" data-slot="sheet-content" aria-label="Informations">
   <div id="inspHead">
     <span class="ttl" id="inspTitle"></span>
-    <button class="x" id="inspClose" title="Close inspector (Esc)" aria-label="Close inspector">&#10005;</button>
+    <button class="x" id="inspClose" title="Fermer les informations (Échap)" aria-label="Fermer les informations">&#10005;</button>
   </div>
   <div id="inspBody"></div>
 </aside>
@@ -999,12 +1038,12 @@
   </div>
   <div id="lbViewport"><div id="lbWrap"><img id="lbImg" src="" alt=""><canvas id="annotCv"></canvas></div></div>
   <div id="annotNote" role="dialog" aria-label="Commentaire sélectionné">
-    <header><span class="annot-number"></span><span>Commentaire</span><button class="annot-close" aria-label="Fermer le commentaire">×</button></header>
+    <header><span class="annot-number"></span><span>Commentaire</span><button class="annot-close" aria-label="Fermer le commentaire"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></header>
     <textarea rows="2" aria-label="Commentaire" placeholder="Ajouter une annotation…"></textarea>
     <footer><button class="annot-delete" title="Supprimer" aria-label="Supprimer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7"/></svg></button><span class="annot-status" role="status"></span><button class="annot-draft" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat" disabled><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button><button class="annot-send" title="Envoyer directement au chat" aria-label="Envoyer directement au chat" disabled><svg viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></svg></button></footer>
   </div>
   <div id="annotPill"><button id="annotPillN" aria-expanded="false" aria-controls="annotList">0 annotation</button><button id="annotPillTarget" title="Choisir la session cible" aria-label="Choisir la session cible"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/></svg></button><button id="annotPillCancel" title="Supprimer tous les commentaires" aria-label="Supprimer tous les commentaires" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button><button id="annotPillSend"><span class="lbl">Ajouter au chat</span><svg class="ic-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg><svg class="ic-ok" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><svg class="ic-err" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v6M12 17h.01"/></svg></button></div>
-  <div id="annotList" hidden><header>Annotations<button id="annotListClose" aria-label="Fermer la liste">×</button></header><div id="annotItems"></div></div>
+  <div id="annotList" hidden><header>Annotations<button id="annotListClose" aria-label="Fermer la liste"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></header><div id="annotItems"></div></div>
   <div id="tgMenu" style="position:fixed;z-index:104;display:none;flex-direction:column;min-width:260px;max-width:420px;background:var(--card);border-radius:10px;padding:4px;box-shadow:var(--elev);font-size:12px"></div>
   <iframe id="lbPdf" style="display:none;width:94vw;height:86vh;border:none;border-radius:6px;background:var(--figure-paper)"></iframe>
   <video id="lbVid" controls playsinline style="display:none;max-width:94vw;max-height:86vh;border-radius:6px;background:var(--media-bg)"></video>
@@ -1013,18 +1052,18 @@
 </div>
 <div id="cmp">
   <div id="cmpBar">
-    <button id="cmpOrient">Layout: stacked</button>
-    <button id="cmpReset">Reset zoom</button>
-    <span id="cmpInfo">Esc to close</span>
-    <span id="cmpClose">&#10005;</span>
+    <button id="cmpOrient">Disposition : empilée</button>
+    <button id="cmpReset">Réinitialiser le zoom</button>
+    <span id="cmpInfo">Échap : fermer</span>
+    <button id="cmpClose" aria-label="Fermer la comparaison" title="Fermer (Échap)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </div>
   <div id="cmpInner"></div>
 </div>
-<div id="confirmModal" data-slot="dialog-overlay"><div id="confirmBox" data-slot="dialog-content" role="dialog" aria-modal="true" aria-label="Confirm action">
+<div id="confirmModal" data-slot="dialog-overlay"><div id="confirmBox" data-slot="dialog-content" role="dialog" aria-modal="true" aria-label="Confirmer l’action">
   <div id="confirmMsg"></div>
-  <div id="confirmBtns"><button id="confirmCancel">Cancel</button><button id="confirmOk">Delete</button></div>
+  <div id="confirmBtns"><button id="confirmCancel">Annuler</button><button id="confirmOk">Supprimer</button></div>
 </div></div>
-<footer>Double-click a thumbnail or "Open" to view the file. This file must stay at the project root for the links to work. Click Rescan to refresh.</footer>
+<footer>Double-cliquer sur une vignette ou « Ouvrir » pour afficher le fichier. Cette page doit rester à la racine du projet pour que les liens fonctionnent. Rescanner pour actualiser.</footer>
 <script data-atelier-source="gallery/src/browser/pages/gallery_template_1.ts">
 
 (function(){
@@ -1140,7 +1179,7 @@ function applyGalleryData(data){
   if(typeof favs!=='undefined'){
     SEED_FAVS.forEach((f)=>favs.add(f));
     saveFavs();
-    (document.getElementById('favChip')                   ).textContent='★ Favorites ('+favs.size+')';
+    (document.getElementById('favChip')                   ).textContent='★ Favoris ('+favs.size+')';
   }
   if(typeof populateFolders==='function') populateFolders();
   if(typeof render==='function') render();
@@ -1161,7 +1200,7 @@ if(!galleryDataLoaded){
     btn.type='button'; btn.className='csel-btn'; btn.dataset.slot='select-trigger';
     btn.setAttribute('aria-haspopup','listbox'); btn.setAttribute('aria-expanded','false');
     btn.setAttribute('aria-controls',menuId);
-    btn.setAttribute('aria-label',sel.getAttribute('aria-label')||'Choose an option');
+    btn.setAttribute('aria-label',sel.getAttribute('aria-label')||'Choisir une option');
     const sync=()=>{ btn.textContent=sel.options[sel.selectedIndex]?.text ?? ''; };
     sel.insertAdjacentElement('afterend',btn); sync();
     sel.addEventListener('change',sync);
@@ -1347,7 +1386,7 @@ document.addEventListener('click',e=>{
       setTimeout(()=>{ delete el.dataset.addState; },1200);
     }).catch(()=>{
       hovFlash(el,'ko',1200); delete el.dataset.addState;
-      el.title='Add to chat was not received — click to retry';
+      el.title='L’ajout au chat n’a pas été reçu — cliquer pour réessayer';
     });
   }
 });
@@ -1431,7 +1470,7 @@ setInterval(async()=>{
     favsBase=next;
     if(JSON.stringify([...favs].sort())===JSON.stringify([...next].sort())) return;
     favs=new Set(next);saveFavs();
-    (document.getElementById('favChip')                   ).textContent='★ Favorites ('+favs.size+')';
+    (document.getElementById('favChip')                   ).textContent='★ Favoris ('+favs.size+')';
     render();
   } catch {}
 },5000);
@@ -1443,7 +1482,10 @@ let activeCollection = '';
 // --- workflow scientifique : draft → candidate → final / rejected ------------
 // source durable = .fig_state.json (serveur) ; localStorage n'est qu'un cache
 let workflow                        = JSON.parse(localStorage.getItem('figWorkflow')||'{}');    // {rel: status}
-const WORKFLOW_STATUSES = [['draft','Draft'],['candidate','Candidate'],['final','Final'],['rejected','Rejected']];
+const WORKFLOW_STATUSES = [['draft','Brouillon'],['candidate','Candidat'],['final','Final'],['rejected','Rejeté']];
+const workflowLabel = (v) => (WORKFLOW_STATUSES.find(([s])=>s===v)||['',''])[1];
+// Sélection dans un menu : coche SVG fine, à droite, couleur du texte (modèle des menus de l'app)
+const MENU_CHECK = '<svg class="mck" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 let activeWorkflow = '';
 const validWorkflow = (v) => WORKFLOW_STATUSES.some(([s])=>s===v);
 function saveWorkflow(){ localStorage.setItem('figWorkflow', JSON.stringify(workflow)); pushState(); }
@@ -1545,7 +1587,7 @@ fetch('/state').then(r=>{
   localStorage.setItem('figHideRules', JSON.stringify(hideRules));
   localStorage.setItem('figCollections', JSON.stringify(collections));
   localStorage.setItem('figWorkflow', JSON.stringify(workflow));
-  (document.getElementById('favChip')                   ).textContent='★ Favorites ('+favs.size+')';
+  (document.getElementById('favChip')                   ).textContent='★ Favoris ('+favs.size+')';
   updateHideChip(); buildCollectionChip(); buildWorkflowChip(); buildViewMenu();
   render();
   stateBase=st;                                     // base = ce que le disque portait à la lecture
@@ -1570,7 +1612,7 @@ function setRate(rel               , n        , ev              ){
 }
 const rateRow = (rel) => {
   const r = ratings[rel]||0;
-  return '<div class="rate" title="Rate 1–5 (click again to clear)">'+
+  return '<div class="rate" title="Noter de 1 à 5 (cliquer à nouveau pour effacer)">'+
     [1,2,3,4,5].map(i=>`<span class="${i<=r?'on':''}" data-act="rate" data-rel="${escA(rel)}" data-n="${i}">${i<=r?'★':'☆'}</span>`).join('')+'</div>';
 };
 let onlyFavs = false;
@@ -1587,18 +1629,18 @@ function updateDelBtn(){
   const imgs = [...selSet].filter(r => imgExt(r.split('.').pop().toLowerCase()));
   const c = (document.getElementById('cmpSel')                     );
   c.style.display = imgs.length >= 2 ? '' : 'none';
-  c.textContent = '▤ Compare (' + imgs.length + ')';
+  c.textContent = 'Comparer (' + imgs.length + ')';
   (document.getElementById('clrSel')                     ).style.display = selSet.size ? '' : 'none';
   const h = (document.getElementById('hideSel')                     );
   h.style.display = selSet.size ? '' : 'none';
-  h.textContent = 'Hide (' + selSet.size + ')';
+  h.textContent = 'Masquer (' + selSet.size + ')';
   const co = (document.getElementById('collectSel')                     );
   co.style.display = selSet.size ? '' : 'none';
-  co.textContent = 'Collect (' + selSet.size + ')';
+  co.textContent = 'Collecter (' + selSet.size + ')';
   const ex = (document.getElementById('exportSel')                     );
   ex.style.display = selSet.size ? '' : 'none';
-  ex.textContent = '⤓ Export (' + selSet.size + ') ▾';
-  b.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:5px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg>Delete (' + selSet.size + ')';
+  ex.textContent = 'Exporter (' + selSet.size + ') ▾';
+  b.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg>Supprimer (' + selSet.size + ')';
   window.dispatchEvent(new CustomEvent('atelier-gallery-selection-change'));
 }
 // case de sélection multiple (GAL-04) : SVG 16 px au trait 1,5, cochée =
@@ -1632,7 +1674,7 @@ function cmpApply(){
   document.querySelectorAll                  ('#cmpInner img').forEach(img=>{
     img.style.transform = `translate(${cmpPanX}px,${cmpPanY}px) scale(${cmpZoom})`;
   });
-  (document.getElementById('cmpInfo')                   ).textContent = Math.round(cmpZoom*100)+'% · wheel zoom · drag pan · Esc close';
+  (document.getElementById('cmpInfo')                   ).textContent = Math.round(cmpZoom*100)+' % · molette : zoom · glisser : déplacer · Échap : fermer';
 }
 function cmpReset(){
   cmpZoom = 1; cmpPanX = 0; cmpPanY = 0; cmpApply();
@@ -1653,12 +1695,12 @@ function openCompare(){
 }
 function cmpClose(){ (document.getElementById('cmp')                  ).classList.remove('show'); (document.getElementById('cmpInner')                  ).innerHTML=''; }
 (document.getElementById('cmpSel')                     ).onclick = openCompare;
-(document.getElementById('cmpClose')                   ).onclick = cmpClose;
+(document.getElementById('cmpClose')                     ).onclick = cmpClose;
 (document.getElementById('cmpReset')                     ).onclick = cmpReset;
 (document.getElementById('cmpOrient')                     ).onclick = function(){
   cmpVert = !cmpVert;
   (document.getElementById('cmpInner')                  ).className = cmpVert ? '' : 'h';
-  (this                     ).textContent = cmpVert ? 'Layout: stacked' : 'Layout: side-by-side';
+  (this                     ).textContent = cmpVert ? 'Disposition : empilée' : 'Disposition : côte à côte';
 };
 const cmpInnerEl = (document.getElementById('cmpInner')                  );
 cmpInnerEl.addEventListener('wheel', e=>{
@@ -1699,7 +1741,7 @@ function confirmDialog(msg        , okLabel         ){
     const m = (document.getElementById('confirmModal')                  );
     (document.getElementById('confirmMsg')                  ).textContent = msg;
     const ok = (document.getElementById('confirmOk')                     ), cancel = (document.getElementById('confirmCancel')                     );
-    ok.textContent = okLabel || 'Delete';
+    ok.textContent = okLabel || 'Supprimer';
     m.classList.add('show'); m.dataset.open=''; delete m.dataset.closed;
     function onKey(ev                                               ){ if(ev.key==='Escape'){ev.stopPropagation();done(false);} else if(ev.key==='Enter'){ev.stopPropagation();done(true);} }
     function done(v         ){ m.classList.remove('show'); m.dataset.closed=''; delete m.dataset.open; ok.onclick = cancel.onclick = m.onclick = null; document.removeEventListener('keydown', onKey, true); resolve(v); }
@@ -1748,13 +1790,13 @@ function buildCollectionChip(){
   if(!chip||!menu) return;
   const names=allCollections();
   chip.classList.toggle('on', !!activeCollection);
-  chip.innerHTML=(activeCollection?('Collection: '+esc(activeCollection)):'Collections')+' ▾';
-  let h = activeCollection ? '<div class="mi clr" data-clear="1">Clear filter</div>' : '';
+  chip.innerHTML=(activeCollection?('Collection : '+esc(activeCollection)):'Collections')+' ▾';
+  let h = activeCollection ? '<div class="mi clr" data-clear="1">Retirer le filtre</div>' : '';
   h += names.length ? names.map(name=>{
     const n=(collections[name]||[]).length;
-    return `<div class="mi${name===activeCollection?' on':''}"><span class="lbl" data-pick="${escA(name)}">${esc(name)} <span class="ct">${n}</span></span><span class="x" data-del="${escA(name)}" title="Delete collection">×</span></div>`;
-  }).join('') : '<div class="mi muted">No collections yet — select files, then Collect.</div>';
-  h += '<div class="madd"><input type="text" id="collQuick" placeholder="new collection"><button id="collQuickAdd">Add selected</button></div>';
+    return `<div class="mi${name===activeCollection?' on':''}"><span class="lbl" data-pick="${escA(name)}">${esc(name)} <span class="ct">${n}</span></span><span class="x" data-del="${escA(name)}" title="Supprimer la collection">×</span></div>`;
+  }).join('') : '<div class="mi muted">Aucune collection — sélectionner des fichiers, puis Collecter.</div>';
+  h += '<div class="madd"><input type="text" id="collQuick" placeholder="Nouvelle collection"><button id="collQuickAdd">Ajouter la sélection</button></div>';
   menu.innerHTML=h;
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll             ('[data-pick]').forEach(el=>el.onclick=()=>{ setActiveCollection(el.dataset.pick); menu.style.display='none'; });
@@ -1778,8 +1820,8 @@ function buildRecentChip(){
   let h = list.length ? list.map((rel)=>{
     const f=FILES.find(x=>x.rel===rel);
     return `<div class="mi"><span class="lbl" data-rec="${escA(rel)}">${esc(truncMid(f.name,38))}</span></div>`;
-  }).join('') : '<div class="mi muted">No recently opened figures.</div>';
-  if(list.length) h += '<div class="mi clr" data-recclear="1">Clear recents</div>';
+  }).join('') : '<div class="mi muted">Aucune figure ouverte récemment.</div>';
+  if(list.length) h += '<div class="mi clr" data-recclear="1">Effacer les récents</div>';
   menu.innerHTML=h;
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll             ('[data-rec]').forEach(el=>el.onclick=()=>{ menu.style.display='none'; lbOpenAny(el.dataset.rec); });
@@ -1793,8 +1835,8 @@ function buildWorkflowChip(){
   for(const v of Object.values(workflow)) counts[v]=(counts[v]||0)+1;
   const cur = WORKFLOW_STATUSES.find(([v])=>v===activeWorkflow);
   chip.classList.toggle('on', !!activeWorkflow);
-  chip.innerHTML=(cur?('Status: '+esc(cur[1])):'Status')+' ▾';
-  let h=`<div class="mi${!activeWorkflow?' on':''}" data-wfpick="">All <span class="ct">${FILES.length}</span></div>`;
+  chip.innerHTML=(cur?('Statut : '+esc(cur[1])):'Statut')+' ▾';
+  let h=`<div class="mi${!activeWorkflow?' on':''}" data-wfpick="">Tous <span class="ct">${FILES.length}</span></div>`;
   h+=WORKFLOW_STATUSES.map(([v,l])=>
     `<div class="mi${v===activeWorkflow?' on':''}" data-wfpick="${escA(v)}">${esc(l)} <span class="ct">${counts[v]||0}</span></div>`).join('');
   menu.innerHTML=h;
@@ -1808,12 +1850,12 @@ function buildWorkflowChip(){
 let healthStatus                                    = null;
 function healthRows(data){
   const ok=data&&data.ok;
-  const project=data&&data.project?data.project:'checking...';
-  return '<div class="mhd sep">Server health</div>'+
-    `<div class="mi"><span class="lbl">Status</span><span class="ct">${ok?'OK':(data?'Offline':'Checking')}</span></div>`+
-    `<div class="mi"><span class="lbl">Project</span><span class="ct">${esc(project)}</span></div>`+
-    `<div class="mi"><span class="lbl">Mode</span><span class="ct">${lbOrcaFsExitAllowed()?'Orca native viewer':'Browser fullscreen'}</span></div>`+
-    '<div class="madd"><button id="healthRefresh">Refresh</button></div>';
+  const project=data&&data.project?data.project:'vérification…';
+  return '<div class="mhd sep">Santé du serveur</div>'+
+    `<div class="mi"><span class="lbl">État</span><span class="ct">${ok?'OK':(data?'Hors ligne':'Vérification…')}</span></div>`+
+    `<div class="mi"><span class="lbl">Projet</span><span class="ct">${esc(project)}</span></div>`+
+    `<div class="mi"><span class="lbl">Mode</span><span class="ct">${lbOrcaFsExitAllowed()?'Visionneuse native Orca':'Plein écran du navigateur'}</span></div>`+
+    '<div class="madd"><button id="healthRefresh">Actualiser</button></div>';
 }
 function checkHealth(){
   healthStatus = null;
@@ -1832,16 +1874,16 @@ function buildViewMenu(){
     // Embarquée : le thème vient de l'app (postMessage atelier-theme) — proposer
     // le catalogue local désynchroniserait la galerie au premier clic.
     (EMB?'':(
-    '<div class="mhd">Theme</div>'+
-    Object.keys(THEMES).map(n=>`<div class="mi trow" data-theme="${n}"><span class="lbl">${n}</span>${n===theme?'<span class="tck">✓</span>':''}</div>`).join('')
+    '<div class="mhd">Thème</div>'+
+    Object.keys(THEMES).map(n=>`<div class="mi trow" data-theme="${n}"><span class="lbl">${n}</span>${n===theme?MENU_CHECK:''}</div>`).join('')
     ))+
-    '<div class="mhd sep">View</div>'+
-    `<div class="mi"><label class="lbl"><input type="checkbox" id="vArch" ${showArch?'checked':''}> Include archives</label></div>`+
-    `<div class="mi"><label class="lbl"><input type="checkbox" id="vHidden" ${showHidden?'checked':''}> Show hidden${hidden.size?(' ('+hidden.size+')'):''}</label></div>`+
+    '<div class="mhd sep">Affichage</div>'+
+    `<div class="mi"><label class="lbl"><input type="checkbox" id="vArch" ${showArch?'checked':''}> Inclure les archives</label></div>`+
+    `<div class="mi"><label class="lbl"><input type="checkbox" id="vHidden" ${showHidden?'checked':''}> Afficher les fichiers masqués${hidden.size?(' ('+hidden.size+')'):''}</label></div>`+
     `<div class="mi"><label class="lbl"><input type="checkbox" id="vGroup" ${groupVersions?'checked':''}> Une carte par figure</label></div>`+
-    '<div class="mhd sep">Auto-hide rules (glob)</div>'+
-    (hideRules.length?hideRules.map((g)=>`<div class="mi"><span class="lbl mono">${esc(g)}</span><span class="x" data-rm="${escA(g)}" title="Remove rule">×</span></div>`).join(''):'<div class="mi muted">No rules.</div>')+
-    '<div class="madd"><input type="text" id="ruleInput" placeholder="e.g. **/_qa/** or *_preview.png"><button id="ruleAdd">Add</button></div>'+
+    '<div class="mhd sep">Règles de masquage (glob)</div>'+
+    (hideRules.length?hideRules.map((g)=>`<div class="mi"><span class="lbl mono">${esc(g)}</span><span class="x" data-rm="${escA(g)}" title="Retirer la règle">×</span></div>`).join(''):'<div class="mi muted">Aucune règle.</div>')+
+    '<div class="madd"><input type="text" id="ruleInput" placeholder="ex. **/_qa/** ou *_preview.png"><button id="ruleAdd">Ajouter</button></div>'+
     healthRows(healthStatus);
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll             ('[data-theme]').forEach(el=>el.onclick=()=>{ applyTheme(el.dataset.theme); buildViewMenu(); });
@@ -1856,26 +1898,37 @@ function buildViewMenu(){
 }
 function buildExportMenu(){
   const menu=(document.getElementById('exportMenu')                  );
-  menu.innerHTML=[['folder','📁 Folder (copy)'],['zip','📦 Zip'],['contact','📄 Contact sheet (print → PDF)']]
-    .map(([m,l])=>`<div class="mi"><span class="lbl" data-exp="${m}">${l}</span></div>`).join('');
+  menu.innerHTML=EXPORT_MODES
+    .map(({mode,label})=>`<div class="mi"><span class="lbl" data-exp="${mode}">${esc(label)}</span></div>`).join('');
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll             ('[data-exp]').forEach(el=>el.onclick=()=>{ menu.style.display='none'; doExport(el.dataset.exp); });
 }
+// Modes d'export, partagés par le menu hérité et la barre React (contrat GalleryExportMode).
+const EXPORT_MODES                     =[
+  {mode:'folder',label:'Copier dans un dossier'},
+  {mode:'zip',label:'Archive .zip'},
+  {mode:'contact',label:'Planche contact (PDF)'},
+];
+// L'état revient à l'appelant (barre React) : jamais écrit dans un bouton masqué.
+function exportSelection(mode        )                              {
+  if(!selSet.size) return Promise.resolve({ok:false,error:'Aucun fichier sélectionné'});
+  return fetch('/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,rels:[...selSet]})})
+    .then(r=>r.json()).then(j=>j&&j.ok ? {ok:true,count:j.count,path:j.path} : {ok:false,error:(j&&j.error)||'erreur du serveur'})
+    .catch(()=>({ok:false,error:'serveur injoignable'}));
+}
 function doExport(mode){
   if(!selSet.size) return;
-  const ex=(document.getElementById('exportSel')                     ); ex.textContent='Exporting…';
-  fetch('/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,rels:[...selSet]})})
-    .then(r=>r.json()).then(j=>{ ex.textContent = j&&j.ok ? ('✓ '+j.count+' → '+j.path) : ('✗ '+((j&&j.error)||'error')); setTimeout(updateDelBtn,3000); })
-    .catch(()=>{ ex.textContent='✗ server off'; setTimeout(updateDelBtn,3000); });
+  const ex=(document.getElementById('exportSel')                     ); ex.textContent='Export…';
+  exportSelection(mode).then(r=>{ ex.textContent = r.ok ? (r.count+' → '+r.path) : ('Échec : '+r.error); setTimeout(updateDelBtn,3000); });
 }
 function closeFloat(){ const f=document.getElementById('floatMenu'); if(f){if(f.__trigger)f.__trigger.setAttribute('aria-expanded','false');f.remove();} }
 function collectSelMenu(anchor             ){
   closeFloat();
   const m=document.createElement('div'); m.className='menu'; m.id='floatMenu';
   const names=allCollections();
-  m.innerHTML='<div class="mhd">Collect '+selSet.size+' file(s)</div>'+
+  m.innerHTML='<div class="mhd">Collecter '+selSet.size+(selSet.size>1?' fichiers':' fichier')+'</div>'+
     names.map(n=>`<div class="mi"><span class="lbl" data-collect="${escA(n)}">${esc(n)} <span class="ct">${(collections[n]||[]).length}</span></span></div>`).join('')+
-    '<div class="madd"><input type="text" id="collInput" placeholder="new collection"><button id="collApply">Add</button></div>';
+    '<div class="madd"><input type="text" id="collInput" placeholder="Nouvelle collection"><button id="collApply">Ajouter</button></div>';
   m.onclick=e=>e.stopPropagation();
   placeMenu(m, anchor);
   m.querySelectorAll             ('[data-collect]').forEach(el=>el.onclick=()=>{ applyCollectionToSel(el.dataset.collect); closeFloat(); });
@@ -1896,15 +1949,15 @@ function cardMenu(anchor, rel        ){
     +'<div class="mi"><button class="lbl" data-cact="copy">Copier le chemin</button></div>'
     +(EMB?'<div class="mi"><button class="lbl" data-cact="chat">Joindre au chat</button></div>':'')
     +'<div class="mi" style="cursor:default">'+rateRow(rel)+'</div>'
-    +'<div class="mhd sep">Status</div>'
-    +[['','None']].concat(WORKFLOW_STATUSES).map(([v,l])=>
-      `<div class="mi${curWf===v?' on':''}"><span class="lbl" data-wfset="${escA(v)}">${curWf===v?'✓ ':''}${esc(l)}</span></div>`).join('')
+    +'<div class="mhd sep">Statut</div>'
+    +[['','Aucun']].concat(WORKFLOW_STATUSES).map(([v,l])=>
+      `<div class="mi${curWf===v?' on':''}" role="menuitemradio" aria-checked="${curWf===v}"><span class="lbl" data-wfset="${escA(v)}">${esc(l)}</span>${curWf===v?MENU_CHECK:''}</div>`).join('')
     +'<div class="mhd sep"></div>'
-    +'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
+    +'<div class="mi"><span class="lbl" data-cact="src">Ouvrir le script</span></div>'
     +'<div class="mi"><span class="lbl" data-cact="recipe">Recette</span></div>'
-    +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>'
-    +'<div class="mi"><span class="lbl" data-cact="hide">'+(isHid?'Unhide':'Hide')+'</span></div>'
-    +'<div class="mi clr"><span class="lbl" data-cact="del">Move to Trash</span></div>';
+    +'<div class="mi"><span class="lbl" data-cact="board">Envoyer au tableau blanc</span></div>'
+    +'<div class="mi"><span class="lbl" data-cact="hide">'+(isHid?'Réafficher':'Masquer')+'</span></div>'
+    +'<div class="mi clr"><span class="lbl" data-cact="del">Déplacer dans la corbeille</span></div>';
   m.addEventListener('click',e=>e.stopPropagation());
   placeMenu(m, anchor);
   m.querySelector             ('[data-cact="open"]').onclick=()=>{closeFloat();openInContext(rel);};
@@ -1972,8 +2025,8 @@ function findScript(rel        ){
   if(hit){ lbOpenAny(hit.rel); return; }
   fetch('/findscript?stem='+encodeURIComponent(stem)).then(r=>r.json()).then(j=>{
     if(j && j.script){ if(!lbOpenAny(j.script)) window.open('/'+j.script.split('/').map(encodeURIComponent).join('/'),'_blank'); }
-    else alert('No generating script found for "'+stem+'".');
-  }).catch(()=>alert('Script search failed (server off?).'));
+    else alert('Aucun script générateur trouvé pour « '+stem+' ».');
+  }).catch(()=>alert('La recherche du script a échoué (serveur arrêté ?).'));
 }
 function sendToBoard(rel        , el){
   fetch('/board/command',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -2062,16 +2115,16 @@ function renderActiveChips(){
     const on=FMT_CATS.filter(([,ks])=>ks.some((x)=>exts[x])).map(([lab])=>lab);
     chips.push({k:'fmt',l:'Formats: '+(on.length?on.join(', '):'none')});
   }
-  if(onlyFavs) chips.push({k:'fav',l:'★ Favorites'+(rateMin?(' · '+rateMin+'★'):'')});
-  if(activeCollection) chips.push({k:'coll',l:'Collection: '+activeCollection});
+  if(onlyFavs) chips.push({k:'fav',l:'★ Favoris'+(rateMin?(' · '+rateMin+'★'):'')});
+  if(activeCollection) chips.push({k:'coll',l:'Collection : '+activeCollection});
   if(activeWorkflow){
     const cur=WORKFLOW_STATUSES.find(([v])=>v===activeWorkflow);
-    chips.push({k:'wf',l:'Status: '+(cur?cur[1]:activeWorkflow)});
+    chips.push({k:'wf',l:'Statut : '+(cur?cur[1]:activeWorkflow)});
   }
-  if(chatFocusRels.size) chips.push({k:'chat',l:'Chat focus: '+chatFocusRels.size});
+  if(chatFocusRels.size) chips.push({k:'chat',l:'Fichiers du chat : '+chatFocusRels.size});
   box.innerHTML = chips.length
-    ? chips.map(c=>`<span class="fchip">${esc(c.l)}<span class="x" role="button" tabindex="0" data-fx="${c.k}" title="Remove this filter" aria-label="Remove filter ${escA(c.l)}">×</span></span>`).join('')
-      + '<span class="fchip fclear" id="fclearAll" role="button" tabindex="0">Clear all</span>'
+    ? chips.map(c=>`<span class="fchip">${esc(c.l)}<span class="x" role="button" tabindex="0" data-fx="${c.k}" title="Retirer ce filtre" aria-label="Retirer le filtre ${escA(c.l)}">×</span></span>`).join('')
+      + '<span class="fchip fclear" id="fclearAll" role="button" tabindex="0">Tout effacer</span>'
     : '';
   box.querySelectorAll             ('[data-fx]').forEach(x=>{
     const go=()=>clearFilter(x.dataset.fx);
@@ -2090,10 +2143,10 @@ function buildSurfMenu(){
   const m=(document.getElementById('surfMenu')                  ); if(!m) return;
   const scanning=(document.getElementById('rescan')                     ).classList.contains('spinning');
   m.innerHTML=
-    `<div class="mi" data-sm="rescan"><span class="lbl">Rescan</span><span class="ct">${scanning?'scanning…':''}</span></div>`+
-    '<div class="mi" data-sm="settings"><span class="lbl">Gallery settings…</span></div>'+
-    (quotePending?'<div class="mi" data-sm="quote"><span class="lbl">Clear annotation</span></div>':'')+
-    '<div class="mi narrow-only" data-sm="board"><span class="lbl">Board</span></div>'+
+    `<div class="mi" data-sm="rescan"><span class="lbl">Rescanner</span><span class="ct">${scanning?'analyse…':''}</span></div>`+
+    '<div class="mi" data-sm="settings"><span class="lbl">Réglages de la galerie…</span></div>'+
+    (quotePending?'<div class="mi" data-sm="quote"><span class="lbl">Effacer l’annotation</span></div>':'')+
+    '<div class="mi narrow-only" data-sm="board"><span class="lbl">Tableau blanc</span></div>'+
     '<div class="mi narrow-only" data-sm="notes"><span class="lbl">Notes</span></div>';
   m.onclick=e=>e.stopPropagation();
   m.querySelector             ('[data-sm="rescan"]').onclick=()=>{ (document.getElementById('rescan')                     ).onclick.call((document.getElementById('rescan')                     )); buildSurfMenu(); };
@@ -2150,7 +2203,7 @@ function updateInspector(){
   const body=(document.getElementById('inspBody')                  ), ttl=(document.getElementById('inspTitle')                   );
   if(!f){
     ttl.textContent=rel.split('/').pop();
-    body.innerHTML='<div id="inspNotice" class="show">File no longer in the index (deleted or removed by a rescan).</div>';
+    body.innerHTML='<div id="inspNotice" class="show">Fichier absent de l’index (supprimé ou retiré par un rescan).</div>';
     return;
   }
   ttl.textContent=f.name; ttl.title=f.rel;
@@ -2177,20 +2230,20 @@ function updateInspector(){
         '<button data-iwf="'+escA(v)+'" class="'+(wf===v?'on':'')+'" aria-pressed="'+(wf===v)+'">'+esc(l)+'</button>').join('')
     +'</div></div>'
     +'<div class="isec"><h3>Provenance</h3>'
-      +inspRow('Project','<span style="font-family:var(--code-font);font-size:11px" title="__ROOT__">'+esc('__ROOT__'.split('/').pop()||'__ROOT__')+'</span>')
-      +inspRow('Generating script','<span id="inspScript">'+((isImg||f.ext==='pdf')?'Searching…':'Not recorded')+'</span>')
+      +inspRow('Projet','<span style="font-family:var(--code-font);font-size:11px" title="__ROOT__">'+esc('__ROOT__'.split('/').pop()||'__ROOT__')+'</span>')
+      +inspRow('Script générateur','<span id="inspScript">'+((isImg||f.ext==='pdf')?'Recherche…':'Non enregistré')+'</span>')
     +'</div>'
-    +'<div class="isec"><h3>Organization</h3>'
-      +'<div class="irow"><span class="il">Favorite</span><span class="iv"><button id="inspFav" style="height:24px;font-size:11px">'+(favs.has(rel)?'★ Remove favorite':'☆ Add favorite')+'</button></span></div>'
-      +inspRow('Rating', rateRow(rel))
+    +'<div class="isec"><h3>Organisation</h3>'
+      +'<div class="irow"><span class="il">Favori</span><span class="iv"><button id="inspFav" style="height:24px;font-size:11px">'+(favs.has(rel)?'Retirer des favoris':'Ajouter aux favoris')+'</button></span></div>'
+      +inspRow('Note', rateRow(rel))
       +(colls.length?('<div class="irow"><span class="il">Collections</span><span class="iv icoll">'
         +colls.map(n=>'<label><input type="checkbox" data-icoll="'+escA(n)+'"'+((collections[n]||[]).includes(rel)?' checked':'')+'> '+esc(n)+'</label>').join('')+'</span></div>'):'')
     +'</div>'
     +'<div class="isec"><h3>Actions</h3><div class="iact">'
-      +'<button id="inspView" title="Open in the viewer">View</button>'
-      +'<button id="inspOpen" title="'+(EMB?'Open in Atelier IDE':'Open with the default app')+'">'+(EMB?'Open in IDE':'Open (app)')+'</button>'
-      +(EMB?('<button id="inspChat">'+(inspAddState==='added'?'Added to chat ✓':inspAddState==='pending'?'Adding…':'Add to chat')+'</button>'):'')
-      +'<button id="inspMore" title="More — hide, trash…" aria-label="More actions">⋯</button>'
+      +'<button id="inspView" title="Ouvrir dans la visionneuse">Voir</button>'
+      +'<button id="inspOpen" title="'+(EMB?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut')+'">'+(EMB?'Ouvrir dans Atelier':'Ouvrir (app)')+'</button>'
+      +(EMB?('<button id="inspChat">'+(inspAddState==='added'?'Ajouté au chat':inspAddState==='pending'?'Ajout…':'Joindre au chat')+'</button>'):'')
+      +'<button id="inspMore" title="Autres actions — masquer, corbeille…" aria-label="Autres actions">⋯</button>'
     +'</div><div id="inspNotice"></div></div>';
   // preview : chargé À la sélection (jamais au hover) ; échec → fallback type
   const pimg=body.querySelector                  ('#inspPrev img');
@@ -2199,7 +2252,7 @@ function updateInspector(){
       const pv=(document.getElementById('inspPrev')                  ); if(!pv) return;
       pv.classList.add('ph2'); pv.textContent=f.ext.toUpperCase();
       const n=(document.getElementById('inspNotice')                  );
-      if(n){ n.textContent='Preview unavailable (file missing or unreadable).'; n.classList.add('show'); }
+      if(n){ n.textContent='Aperçu indisponible (fichier manquant ou illisible).'; n.classList.add('show'); }
     };
     pimg.onerror=previewFailed;
     // innerHTML démarre la requête avant que `onerror` puisse être assigné.
@@ -2220,14 +2273,14 @@ function updateInspector(){
     const local=FILES.find(x=>codeExt(x.ext)&&x.rel.split('/').pop().replace(/\.[^.]+$/,'')===stem);
     if(local) put('',local.rel);
     else fetch('/findscript?stem='+encodeURIComponent(stem)).then(r=>r.json())
-      .then(j=>put(j&&j.script?'':'Not recorded', j&&j.script?j.script:null))
-      .catch(()=>put('Not recorded',null));
+      .then(j=>put(j&&j.script?'':'Non enregistré', j&&j.script?j.script:null))
+      .catch(()=>put('Non enregistré',null));
   }
   body.querySelectorAll             ('[data-iwf]').forEach(b=>b.onclick=()=>setWorkflow(rel,b.dataset.iwf));
   body.querySelector                   ('#inspFav').onclick=()=>{
     if(favs.has(rel)) favs.delete(rel); else favs.add(rel);
     saveFavs(); pushState();
-    (document.getElementById('favChip')                   ).textContent='★ Favorites ('+favs.size+')';
+    (document.getElementById('favChip')                   ).textContent='★ Favoris ('+favs.size+')';
     render();
   };
   body.querySelectorAll             ('[data-icoll]').forEach(cb=>cb.onchange=()=>{
@@ -2243,18 +2296,18 @@ function updateInspector(){
     // pending bloque le double ajout ; le composer déduplique aussi les
     // éventuelles relances par texte (idempotent)
     if(inspAddState!=='idle') return;
-    inspAddState='pending'; ic.textContent='Adding…';
+    inspAddState='pending'; ic.textContent='Ajout…';
     postChatAttachment(rel).then(()=>{
-      inspAddState='added'; ic.textContent='Added to chat ✓';
+      inspAddState='added'; ic.textContent='Ajouté au chat';
       clearTimeout(inspAddTimer);
       inspAddTimer=setTimeout(()=>{
         inspAddState='idle';
-        const b=(document.getElementById('inspChat')                     ); if(b) b.textContent='Add to chat';
+        const b=(document.getElementById('inspChat')                     ); if(b) b.textContent='Joindre au chat';
       },1800);
     }).catch(()=>{
-      inspAddState='idle'; ic.textContent='Add to chat';
+      inspAddState='idle'; ic.textContent='Joindre au chat';
       const n=(document.getElementById('inspNotice')                  );
-      if(n){ n.textContent='Add to chat was not received — try again.'; n.classList.add('show'); }
+      if(n){ n.textContent='L’ajout au chat n’a pas été reçu — réessayer.'; n.classList.add('show'); }
     });
   };
   body.querySelector                   ('#inspMore').onclick=(e)=>{ e.stopPropagation(); cardMenu(e.currentTarget, rel); };
@@ -2295,14 +2348,14 @@ function openInContext(rel){
   openDefault(rel);
 }
 async function delOne(rel        ){
-  if(!await confirmDialog('Move to Trash? '+rel)) return;
+  if(!await confirmDialog('Déplacer dans la corbeille ? '+rel)) return;
   try{
     const r=await fetch('/delete',{method:'POST',headers:{'Content-Type':'application/json'},
       body: JSON.stringify({rels:[rel]})});
     const j=await r.json();
     (j.deleted||[]).forEach((d)=>{ const i=FILES.findIndex(f=>f.rel===d); if(i>=0) FILES.splice(i,1); selSet.delete(d); });
     updateDelBtn(); render();
-  }catch(e){ alert('Delete failed — is the server running?'); }
+  }catch(e){ alert('La suppression a échoué — le serveur est-il lancé ?'); }
 }
 let lbList               = [], lbIdx = -1;
 // Liste de la galerie mise de côté pendant une ouverture hors vue (lbOpenAny).
@@ -2859,7 +2912,7 @@ function toggleFav(rel        , el                                              
   else{favs.add(rel);el.classList.add('on');}
   saveFavs();
   pushState();
-  (document.getElementById('favChip')                   ).textContent='★ Favorites ('+favs.size+')';
+  (document.getElementById('favChip')                   ).textContent='★ Favoris ('+favs.size+')';
   render();
 }
 // The app can star an open document from its tab bar (no gallery visit). The
@@ -2874,7 +2927,7 @@ window.addEventListener('message', function(e){
   favsBase=favsBase.filter(f=>f!==rel);
   if(e.data.fav) favsBase.push(rel);
   saveFavs();
-  (document.getElementById('favChip')                   ).textContent='★ Favorites ('+favs.size+')';
+  (document.getElementById('favChip')                   ).textContent='★ Favoris ('+favs.size+')';
   render();
 });
 const DEFAULT_EXTS = {png:true,jpg:true,jpeg:true,svg:true,mp4:true,m4v:true,mov:true,webm:true,pdf:false,html:false,docx:false,xlsx:false,xls:false,csv:false,md:false,py:false,r:false,jl:false,tex:false,sh:false};
@@ -3077,7 +3130,7 @@ window.__galleryFileTypes={
       types:TYPE_LIST.map(([key,label])=>({key,label,active:active.includes(key),pinned:pinnedFileTypes.includes(key)})),
       pinned:[...pinnedFileTypes],
       presets,
-      summary:match?match.label:(activeLabels.length<=2?activeLabels.join(' + '):'Custom file types'),
+      summary:match?match.label:(activeLabels.length<=2?activeLabels.join(' + '):'Types personnalisés'),
       archives:showArch,
       archiveCount:FILES.filter(f=>f.archive).length,
     };
@@ -3117,7 +3170,7 @@ function populateFolders(){
   fsel.innerHTML='';
   // l option « tous » (valeur vide) doit SURVIVRE au repeuplement — sinon le
   // premier dossier devient le filtre actif et la galerie paraît vide
-  const all=document.createElement('option'); all.value=''; all.textContent='All folders'; fsel.appendChild(all);
+  const all=document.createElement('option'); all.value=''; all.textContent='Tous les dossiers'; fsel.appendChild(all);
   FOLDERS.forEach((f)=>{const o=document.createElement('option');o.value=f;o.textContent=f;fsel.appendChild(o);});
   fsel.value = FOLDERS.includes(keep) ? keep : '';
 }
@@ -3250,9 +3303,9 @@ function render(){
     // deux états distincts : projet vide vs zéro résultat avec filtres actifs
     const hasQ=!!(document.getElementById('q')                    ).value.trim();
     grid.innerHTML = FILES.length===0
-      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--text-muted)">Add figures, data or scripts, then Rescan.</span></div>'
-      : '<div class="empty">No matching files.'
-        +' <button id="emptyReset" style="margin-left:8px;height:26px;font-size:11px">Clear search &amp; filters</button></div>';
+      ? '<div class="empty">Aucun fichier dans ce projet pour l’instant.<br><span style="font-size:11px;color:var(--text-muted)">Ajouter des figures, des données ou des scripts, puis rescanner.</span></div>'
+      : '<div class="empty">Aucun fichier ne correspond.'
+        +' <button id="emptyReset" style="margin-left:8px;height:26px;font-size:11px">Effacer la recherche et les filtres</button></div>';
     const er=(document.getElementById('emptyReset')                     );
     if(er) er.onclick=()=>{ const q=(document.getElementById('q')                    ); if(q.value){q.value='';} clearAllFilters(); render(); };
     renderedRels=[];
@@ -3265,7 +3318,7 @@ function render(){
   renderedRels = slice.map(f=>f.rel);   // display order for Shift-click range selection
   grid.innerHTML = (galleryPresentation.mode==='list'?detailHeader(sort):'') + slice.map(f=>{
     if(galleryPresentation.mode==='list'){
-      const selected=selSet.has(f.rel), wf=({'draft':'Brouillon','candidate':'Candidat','final':'Final','rejected':'Rejeté'})[workflow[f.rel]]||'';
+      const selected=selSet.has(f.rel), wf=workflowLabel(workflow[f.rel]);
       return `<div class="card gallery-detail-row ${selectedRel===f.rel?'sel2':''} ${selected?'bulk-selected':''}" data-card="${escA(f.rel)}" role="row" aria-selected="${selected}">
         <div class="gallery-detail-name" role="gridcell"><button class="selbox ${selected?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" aria-label="Sélectionner ${escA(f.name)}" aria-pressed="${selected}">${selGlyph(selected)}</button><button class="gallery-detail-open" data-act="${imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)?'lb':'open'}" data-rel="${escA(f.rel)}" title="${escA(f.rel)}">${esc(f.name)}</button>${figureGroups.has(f.rel)?`<span class="stackn" title="${figureGroups.get(f.rel).length} fichiers pour cette figure">${figureGroups.get(f.rel).length}</span>`:''}${favs.has(f.rel)?'<span class="fv">★</span>':''}</div>
         <div role="gridcell">${esc(f.ext.toUpperCase())}</div><div role="gridcell">${fmtSize(f.size)}</div><div role="gridcell">${esc(f.mdate)}</div><div role="gridcell" class="gallery-detail-status"><span>${esc(wf)}</span><button data-act="more" data-rel="${escA(f.rel)}" aria-label="Actions pour ${escA(f.name)}">${hovIco('more')}</button></div>
@@ -3285,13 +3338,13 @@ function render(){
       ? `<div class="snip" data-snip="${escA(f.rel)}"></div>`
       : tsrc
       ? `<div class="thumb">${imgTag}</div>`
-      : `<div class="ph"><span class="ext">${esc(f.ext.toUpperCase())}</span><span style="font-size:11px">no preview</span></div>`;
+      : `<div class="ph"><span class="ext">${esc(f.ext.toUpperCase())}</span><span style="font-size:11px">pas d’aperçu</span></div>`;
     const arch = f.archive?`<span class="tag archive">archive</span>`:'';
     const isFav = favs.has(f.rel);
     const isHid = hidden.has(f.rel);
-    const hidTag = isHid?`<span class="tag hid">hidden</span>`:'';
+    const hidTag = isHid?`<span class="tag hid">masqué</span>`:'';
     const wf = workflow[f.rel];
-    const wfTag = wf?`<span class="tag wf${wf==='final'?' final':''}">${esc(wf)}</span>`:'';
+    const wfTag = wf?`<span class="tag wf${wf==='final'?' final':''}">${esc(workflowLabel(wf)||wf)}</span>`:'';
     const rt = ratings[f.rel]||0;
     const pile = figureGroups.get(f.rel);
     const pileExts = pile ? [...new Set(pile.map(m=>m.ext.toUpperCase()))] : [];
@@ -3299,20 +3352,20 @@ function render(){
     const pileLate = !!pile && pile.some(m=>figureMemberState(m,pile).tone==='warn');
     const pileTag = pile ? `<span class="stackn${pileLate?' late':''}" title="${escA(pile.length+' fichiers pour cette figure'+(pileLate?' · une copie plus ancienne diffère':''))}">${STACK_ICON}${pile.length}</span>` : '';
     return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''} ${selectedRel===f.rel?'sel2':''} ${pile?'stack':''}" data-card="${escA(f.rel)}" role="option" aria-selected="${selectedRel===f.rel}">
-      <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selGlyph(selSet.has(f.rel))}</span>
-      ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}${pileTag}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Open with default app">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
+      <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Sélectionner — Maj-clic pour une plage">${selGlyph(selSet.has(f.rel))}</span>
+      ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}${pileTag}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Ouvrir avec l’application par défaut">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
       <div class="hov">
-        <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}">${hovIco('open')}</button>
-        <button data-act="copy" data-rel="${escA(f.rel)}" aria-label="Copy path" title="Copy path">${hovIco('copy')}</button>
+        <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut'}">${hovIco('open')}</button>
+        <button data-act="copy" data-rel="${escA(f.rel)}" aria-label="Copier le chemin" title="Copier le chemin">${hovIco('copy')}</button>
         <button data-act="chat" data-rel="${escA(f.rel)}" class="embOnly" aria-label="Joindre au chat de Studio" title="Joindre au chat de Studio">${hovIco('chat')}</button>
-        ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" class="embHide" aria-label="Open the script that generated this figure" title="Open the script that generated this figure">${hovIco('src')}</button>`:''}
-        ${imgExt(f.ext)?`<button data-act="board" data-rel="${escA(f.rel)}" class="embHide" aria-label="Send this figure to the whiteboard" title="Send this figure to the whiteboard">${hovIco('board')}</button>`:''}
-        <button data-act="fav" data-rel="${escA(f.rel)}" class="${isFav?'on':''}" aria-pressed="${isFav}" aria-label="${isFav?'Remove favorite':'Add favorite'}" title="${isFav?'Remove favorite':'Add favorite'}">${hovIco('fav')}</button>
-        <button data-act="more" data-rel="${escA(f.rel)}" aria-label="Rating, hide, delete" title="Rating, hide, delete">${hovIco('more')}</button>
+        ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" class="embHide" aria-label="Ouvrir le script qui a produit cette figure" title="Ouvrir le script qui a produit cette figure">${hovIco('src')}</button>`:''}
+        ${imgExt(f.ext)?`<button data-act="board" data-rel="${escA(f.rel)}" class="embHide" aria-label="Envoyer cette figure au tableau blanc" title="Envoyer cette figure au tableau blanc">${hovIco('board')}</button>`:''}
+        <button data-act="fav" data-rel="${escA(f.rel)}" class="${isFav?'on':''}" aria-pressed="${isFav}" aria-label="${isFav?'Retirer des favoris':'Ajouter aux favoris'}" title="${isFav?'Retirer des favoris':'Ajouter aux favoris'}">${hovIco('fav')}</button>
+        <button data-act="more" data-rel="${escA(f.rel)}" aria-label="Note, masquer, supprimer" title="Note, masquer, supprimer">${hovIco('more')}</button>
       </div>
       <div class="meta">
         <div class="nm" title="${escA(cardName)}" aria-label="${escA(cardName)}">${fileNameLabel(cardName)}</div>
-        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}${wfTag}<span class="mf" title="${escA(f.rel)} · ${fmtSize(f.size)}">${esc(pile?pileExts.join(' · '):f.ext.toUpperCase())}</span><span class="md" title="${escA(f.rel)} · ${fmtSize(f.size)} · created ${escA(f.bdate)} · modified ${escA(f.mdate)}">${esc((sort.startsWith('btime')?f.bdate:f.mdate).slice(0,10))}</span></div>
+        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}${wfTag}<span class="mf" title="${escA(f.rel)} · ${fmtSize(f.size)}">${esc(pile?pileExts.join(' · '):f.ext.toUpperCase())}</span><span class="md" title="${escA(f.rel)} · ${fmtSize(f.size)} · créé le ${escA(f.bdate)} · modifié le ${escA(f.mdate)}">${esc((sort.startsWith('btime')?f.bdate:f.mdate).slice(0,10))}</span></div>
       </div>
     </div>`;
   }).join('') + (list.length>MAX?`<div class="empty">… and ${list.length-MAX} more. Refine your search to see them.</div>`:'');
@@ -3328,7 +3381,7 @@ function render(){
 // (format quick-chips + their video-solo handler removed — all types now live in the Formats menu)
 updateViewChip();
 const favChip=(document.getElementById('favChip')                   );
-favChip.textContent='★ Favorites ('+favs.size+')';
+favChip.textContent='★ Favoris ('+favs.size+')';
 const rateFilter=(document.getElementById('rateFilter')                   );
 rateFilter.innerHTML=[1,2,3,4,5].map(n=>`<span class="chip off rf" data-n="${n}" title="Show only ${n}-star items">${n}★</span>`).join('');
 rateFilter.querySelectorAll                 ('.rf').forEach(c=>{
@@ -3363,7 +3416,7 @@ quoteBtn.onclick=async()=>{await fetch('/clear-quote',{method:'POST'}).catch(()=
 };
 (document.getElementById('delSel')                     ).onclick=async function(){
   if(!selSet.size) return;
-  if(!await confirmDialog(selSet.size+' file(s) → trash?')) return;
+  if(!await confirmDialog(selSet.size+' fichier(s) → corbeille ?')) return;
   const r=await fetch('/delete',{method:'POST',headers:{'Content-Type':'application/json'},
     body: JSON.stringify({rels:[...selSet]})});
   const j=await r.json();
@@ -3383,6 +3436,8 @@ window.__gallerySelection={
   compare(){ if([...selSet].filter(rel=>imgExt(rel.split('.').pop().toLowerCase())).length>=2)openCompare(); },
   collect(anchor){ if(selSet.size)collectSelMenu(anchor); },
   export(anchor){ if(selSet.size){buildExportMenu();menuToggle((document.getElementById('exportMenu')                  ),anchor);} },
+  exportModes(){ return EXPORT_MODES; },
+  exportTo(mode){ return exportSelection(mode); },
   hide(){ (document.getElementById('hideSel')                     ).click(); },
   delete(){ (document.getElementById('delSel')                     ).click(); },
   clear(){ clearSel(); },
@@ -3427,13 +3482,15 @@ lbHead.innerHTML='<button id="lbInfoBtn" aria-label="Informations sur le fichier
  +'<button id="lbFilesBtn" type="button" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="lbFiles"></button>'
  +'<div id="lbFiles" role="dialog" aria-label="Fichiers de cette figure" hidden></div>'
  +'<button id="lbAdd" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button>'
- +'<details id="lbMore"><summary aria-label="Autres actions">⋯</summary><div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
+ +'<details id="lbMore"><summary aria-label="Autres actions"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></summary><div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
  +'<div id="lbNameToast" aria-hidden="true"></div>';
 lb().prepend(lbHead);
 function setFigureBackdrop(color        ){
   const options=[...document.querySelectorAll             ('[data-backdrop]')];
   if(!options.some(b=>b.dataset.backdrop===color))color='atelier';
   if(color==='atelier')lb().style.removeProperty('--figure-backdrop');else lb().style.setProperty('--figure-backdrop',color);
+  // fonds Graphite/Ardoise toujours sombres : la légende passe à l'encre des médias (GAL-07)
+  lb().classList.toggle('dark-backdrop',color!=='atelier');
   options.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.backdrop===color)));
   try{localStorage.setItem('atelier.figureBackdrop',color);}catch{}
 }
@@ -4012,7 +4069,7 @@ function annotInit(){
       (document.getElementById('annotNote')                  ).style.display='none';
       if(!ANNOT_EMBEDDED)lb().classList.remove('annot');annotRedraw();
       (this               ).classList.remove('is-busy'); (this               ).classList.add('is-ok');
-      lbl.textContent=ANNOT_EMBEDDED?'Added to chat ✓':(j.submitted?'Sent to session ✓':'Pasted into Claude ✓');
+      lbl.textContent=ANNOT_EMBEDDED?'Ajouté au chat':(j.submitted?'Envoyé à la session':'Collé dans Claude');
     }catch(e){
       // Les marques restent en place : un nouveau clic sur la flèche rejoue l'envoi.
       (this               ).classList.remove('is-busy'); (this               ).classList.add('is-err');

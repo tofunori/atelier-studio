@@ -32,6 +32,8 @@ const CHROME_FILES = [
   "assets/pdf_reading.css",
   "assets/docx_studio.css",
   "assets/docx_studio.html",
+  // barre et panneaux React de la galerie (GAL-14)
+  "react-ui/styles.css",
 ];
 
 // Sources TS qui injectent du CSS de chrome (les pages HTML ci-dessus en
@@ -83,6 +85,8 @@ const RADIUS_2PX: Record<string, string[]> = {
   "assets/md_viewer.css": [".CodeMirror-selectedtext", ".cm-clsel"],
   "assets/svg_viewer.html": [".hbox", ".movehi", ".selbox", ".selhandle"],
   "src/browser/diff_versions.ts": [".dAddM", ".dDelW", "#dvNav canvas.dvRib"],
+  // vignettes miniatures des choix de présentation (barres de 8 px)
+  "react-ui/styles.css": [".gallery-mini-grid b", ".gallery-mini-list b"],
 };
 
 interface Rule { file: string; selector: string; body: string }

@@ -2,25 +2,28 @@
 #lb.responsive-viewer{container-type:inline-size;container-name:figure-viewer}
 #lb.responsive-viewer #lbHead{height:48px;min-height:48px;padding:8px;gap:4px;box-sizing:border-box}
 #lb.responsive-viewer #lbHead .lb-space{min-width:0}
-#lb.responsive-viewer #lbHead>button,#lb.responsive-viewer summary{width:auto;min-width:32px;height:32px;padding:0 8px;flex:none;border-radius:6px;font-size:13px;box-sizing:border-box;gap:7px}
-#lb.responsive-viewer svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+#lb.responsive-viewer #lbHead>button,#lb.responsive-viewer summary{width:auto;min-width:32px;height:32px;padding:0 8px;flex:none;border-radius:6px;font-size:13px;box-sizing:border-box;gap:8px}
+#lb.responsive-viewer svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
 #lb.responsive-viewer #lbVersions{background:color-mix(in srgb,var(--txt) 4%,transparent);border:0;border-radius:6px;margin:0;gap:1px}
 #lb.responsive-viewer #lbVersions .lbBtn{height:32px;min-width:32px;width:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:transparent}
-#lb.responsive-viewer #lbVersions #lbVersionCurrent{font-size:12px;width:auto;padding:0 5px}
+#lb.responsive-viewer #lbVersions #lbVersionCurrent{font-size:12px;width:auto;padding:0 4px;font-variant-numeric:tabular-nums}
 #lb.responsive-viewer #lbAnnot[aria-pressed=true]{color:var(--primary);background:var(--primary-soft)}
 #lb.responsive-viewer #lbZoomMenu{position:relative;flex:none}
 #lb.responsive-viewer #lbZoomMenu summary{display:flex;align-items:center;justify-content:center;cursor:pointer;list-style:none;color:var(--txt)}
 #lb.responsive-viewer summary::-webkit-details-marker{display:none}
-#lb.responsive-viewer .viewer-menu,#lb.responsive-viewer #lbMore>div{position:absolute;top:40px;right:0;width:224px;max-width:calc(100cqw - 16px);padding:6px;background:var(--card);border-radius:10px;box-shadow:var(--elev);z-index:110;box-sizing:border-box}
+#lb.responsive-viewer .viewer-menu,#lb.responsive-viewer #lbMore>div{position:absolute;top:40px;right:0;width:224px;max-width:calc(100cqw - 16px);padding:4px;background:var(--card);border-radius:10px;box-shadow:var(--elev);z-index:110;box-sizing:border-box}
+/* GAL-13 : les menus du visionneur s'ouvrent en fondu court, comme .menu */
+#lb.responsive-viewer details[open]>.viewer-menu,#lb.responsive-viewer #lbMore[open]>div{animation:menu-in var(--motion-standard,140ms) var(--ease-out,ease-out)}
+@media (prefers-reduced-motion:reduce){#lb.responsive-viewer details[open]>.viewer-menu,#lb.responsive-viewer #lbMore[open]>div{animation:none}}
 #lb.responsive-viewer #lbZoomMenu .viewer-menu{left:0;right:auto}
 #lb.responsive-viewer #lbZoom{display:flex;position:static!important;opacity:1;pointer-events:auto;transform:none;width:100%;gap:2px}
 #lb.responsive-viewer #lbZoom #lbFit{flex:1}
-#lb.responsive-viewer .viewer-menu>button,#lb.responsive-viewer #lbOverflow button,#lb.responsive-viewer #lbOverflowVersions button{display:flex;align-items:center;justify-content:flex-start;width:100%;height:34px;border:0;background:transparent;color:var(--txt);font:inherit;font-size:12px;gap:8px;padding:0 8px;box-sizing:border-box;white-space:nowrap}
+#lb.responsive-viewer .viewer-menu>button,#lb.responsive-viewer #lbOverflow button,#lb.responsive-viewer #lbOverflowVersions button{display:flex;align-items:center;justify-content:flex-start;width:100%;height:28px;border:0;background:transparent;color:var(--txt);font:inherit;font-size:12px;gap:8px;padding:0 8px;box-sizing:border-box;white-space:nowrap}
 #lb.responsive-viewer #lbOverflow,#lb.responsive-viewer #lbOverflowVersions{display:none}
-#lb.responsive-viewer #annotBar{position:absolute!important;top:58px;left:50%;right:auto;transform:translateX(-50%)!important;display:none!important;width:max-content;max-width:calc(100% - 16px);padding:6px;gap:2px;background:var(--card);border:0;border-radius:10px;box-shadow:var(--elev);z-index:108;box-sizing:border-box}
+#lb.responsive-viewer #annotBar{position:absolute!important;top:58px;left:50%;right:auto;transform:translateX(-50%)!important;display:none!important;width:max-content;max-width:calc(100% - 16px);padding:4px;gap:4px;background:var(--card);border:0;border-radius:10px;box-shadow:var(--elev);z-index:108;box-sizing:border-box}
 #lb.responsive-viewer.annot #annotBar{display:flex!important}
 #lb.responsive-viewer #annotBar>button,#lb.responsive-viewer #annotShapes summary{display:inline-flex;align-items:center;justify-content:center;width:32px;min-width:32px;height:32px;padding:0;box-sizing:border-box}
-#lb.responsive-viewer #annotShapes summary{width:42px;gap:0}
+#lb.responsive-viewer #annotShapes summary{width:40px;gap:0}
 #lb.responsive-viewer #annotBar i{display:none}
 #lb.responsive-viewer #annotBar #annotZoomOut,#lb.responsive-viewer #annotBar #annotFit,#lb.responsive-viewer #annotBar #annotZoomIn{display:none}
 #lb.responsive-viewer #annotBar .sel{background:var(--primary-soft);color:var(--primary)}
@@ -28,9 +31,10 @@
 #lb.responsive-viewer #annotPill{position:static!important;display:flex!important;transform:none!important;opacity:1;margin:4px 0;padding:0;width:100%;flex-wrap:wrap}
 #lb.responsive-viewer #annotPillN{font-size:12px;text-align:left}
 #lb.responsive-viewer #lbSheet{max-width:calc(100% - 16px);box-sizing:border-box}
-#lb.responsive-viewer #lbFigureCaption{position:absolute;bottom:17px;left:16px;right:16px;text-align:center;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+#lb.responsive-viewer #lbFigureCaption{position:absolute;bottom:16px;left:16px;right:16px;text-align:center;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 #lb.responsive-viewer.vw #lbFigureCaption{display:none}
-#lb.responsive-viewer #lbViewport,#lb.responsive-viewer.annot #lbViewport{padding:28px 24px 46px}
+#lb.responsive-viewer.dark-backdrop #lbFigureCaption{color:color-mix(in srgb,var(--on-media,#fff) 72%,transparent)}
+#lb.responsive-viewer #lbViewport,#lb.responsive-viewer.annot #lbViewport{padding:24px 24px 48px}
 #lb.responsive-viewer #lbHead:has(~ #annotBar) {border-bottom:1px solid color-mix(in srgb,var(--txt) 4%,transparent)}
 #lb.responsive-viewer button:focus-visible,#lb.responsive-viewer summary:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 @media(hover:hover){#lb.responsive-viewer button:hover,#lb.responsive-viewer summary:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}}
@@ -57,3 +61,5 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
   html.emb #lb.responsive-viewer.fs #lbHead{margin-top:40px;padding-left:6px}
   html.emb #lb.responsive-viewer.fs #annotBar{top:98px}
 }
+/* GAL-27 : le libellé de zoom garde sa largeur quand les chiffres changent */
+#lb.responsive-viewer #lbZoomLabel{display:inline-block;min-width:40px;text-align:center;font-variant-numeric:tabular-nums}
