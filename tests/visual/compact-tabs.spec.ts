@@ -13,9 +13,12 @@ for (const theme of ["dark", "light"]) {
     await page.locator('.biblio-main-button').dblclick();
     const active = page.locator('.document-tab-shell[data-active="true"]');
     await expect(active).toHaveCount(3);
-    // Theme transitions can briefly serialize the same border in oklab vs sRGB.
-    await expect.poll(() => active.evaluateAll(tabs =>
-      new Set(tabs.map(tab => getComputedStyle(tab).borderColor)).size)).toBe(1);
+    // Theme transitions can briefly serialize the same border in oklab vs sRGB,
+    // and leave one tab's background a unit off until the light theme settles.
+    await expect.poll(() => active.evaluateAll(tabs => [
+      new Set(tabs.map(tab => getComputedStyle(tab).borderColor)).size,
+      new Set(tabs.map(tab => getComputedStyle(tab).backgroundColor)).size,
+    ])).toEqual([1, 1]);
     const styles = await active.evaluateAll(tabs => tabs.map(tab => {
       const s = getComputedStyle(tab);
       return { width: tab.getBoundingClientRect().width, height: s.height,
