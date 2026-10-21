@@ -4,6 +4,7 @@
 // Si onRemove est fourni, removeLabel l'est aussi (nom accessible imposé).
 import { useEffect, useState } from "react";
 import { cx } from "./internal";
+import { CloseIcon } from "./CloseButton";
 
 type RemovableProps =
   | { onRemove: () => void; removeLabel: string }
@@ -39,9 +40,7 @@ export function ContextChip(
       )}
       {onRemove && (
         <button type="button" aria-label={removeLabel} onClick={onRemove}>
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-            <path d="M2 2l6 6M8 2l-6 6" />
-          </svg>
+          <CloseIcon size={12} />
         </button>
       )}
     </span>

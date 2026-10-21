@@ -136,11 +136,24 @@
   /* chrome de surface : Chat, Gallery et IDE partagent la même ligne */
   --surface-header-height: 44px;
 
-  /* géométrie interactive commune : recherches, boutons et sélecteurs */
-  --control-height: calc(var(--ui-base-size, 15px) * 2);
-  --control-height-compact: calc(var(--ui-base-size, 15px) * 1.7333333333);
+  /* géométrie interactive commune : recherches, boutons et sélecteurs.
+   * ÉCHELLE UNIQUE 24 / 28 / 32 (A5, 2026-10-21), sur la grille de 4 : elle
+   * suit la taille de base de l'interface (--ui-base-size, 15 px par défaut)
+   * mais retombe toujours sur un multiple de 4 (round()). Aucune autre
+   * hauteur de contrôle n'est permise (css-contract.test.ts).
+   *   s 24 : segment, onglet de champ, action de rangée, IconButton s
+   *   m 28 : bouton, champ, Select, recherche, IconButton m (défaut)
+   *   l 32 : IconButton l, champ de premier niveau */
+  --control-height-s: round(nearest, calc(var(--ui-base-size, 15px) * 1.6), 4px);
+  --control-height-m: round(nearest, calc(var(--ui-base-size, 15px) * 1.8666666667), 4px);
+  --control-height-l: round(nearest, calc(var(--ui-base-size, 15px) * 2.1333333333), 4px);
+  --control-height: var(--control-height-m);
+  --control-height-compact: var(--control-height-s);
   /* action minuscule dans une rangée (fermer, épingler, réinitialiser) */
-  --control-height-mini: 24px;
+  --control-height-mini: var(--control-height-s);
+  /* UN état désactivé : opacité seule, curseur par défaut, jamais de couleur
+   * en plus (le double effacement rendait l'icône invisible, PRIM-06) */
+  --disabled-opacity: .5;
   /* Dérivé de --border-default (et non --border-subtle) depuis l'adoucissement
    * des séparateurs : les contrôles interactifs gardent leur netteté d'avant. */
   --border-interactive: color-mix(in srgb, var(--border-default) 72%, transparent);

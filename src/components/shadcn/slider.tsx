@@ -37,7 +37,7 @@ function Slider({
           <SliderPrimitive.Indicator className="tw:absolute tw:h-full tw:rounded-full tw:bg-muted-foreground" />
           <SliderPrimitive.Thumb
             aria-label={ariaLabel}
-            className="tw:block tw:size-3.5 tw:rounded-full tw:border tw:border-border tw:bg-foreground tw:outline-none tw:focus-visible:outline tw:focus-visible:outline-2 tw:focus-visible:outline-offset-2 tw:focus-visible:outline-ring"
+            className="tw:block tw:size-3.5 tw:rounded-full tw:border tw:border-border tw:bg-foreground tw:outline-none tw:focus-visible:outline tw:focus-visible:outline-[length:var(--focus-ring-width)] tw:focus-visible:outline-[var(--focus-ring-color)] tw:focus-visible:outline-offset-[var(--focus-ring-offset)]"
           />
         </SliderPrimitive.Track>
       </SliderPrimitive.Control>

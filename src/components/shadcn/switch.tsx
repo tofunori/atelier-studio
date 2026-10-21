@@ -10,7 +10,7 @@ function Switch({ className, ...props }: React.ComponentProps<typeof SwitchPrimi
       render={<button type="button" />}
       data-slot="switch"
       className={cn(
-        "tw:relative tw:inline-flex tw:h-[22px] tw:w-[38px] tw:shrink-0 tw:items-center tw:rounded-full tw:border tw:border-input tw:bg-background tw:p-0 tw:align-middle tw:transition-[background-color,border-color] tw:duration-[var(--motion-standard)] tw:ease-[var(--ease-out)] tw:data-checked:border-fill-primary tw:data-checked:bg-fill-primary tw:focus-visible:outline tw:focus-visible:outline-2 tw:focus-visible:outline-offset-2 tw:focus-visible:outline-ring tw:disabled:pointer-events-none tw:disabled:opacity-50",
+        "tw:relative tw:inline-flex tw:h-[22px] tw:w-[38px] tw:shrink-0 tw:items-center tw:rounded-full tw:border tw:border-input tw:bg-background tw:p-0 tw:align-middle tw:transition-[background-color,border-color] tw:duration-[var(--motion-standard)] tw:ease-[var(--ease-out)] tw:data-checked:border-fill-primary tw:data-checked:bg-fill-primary tw:focus-visible:outline tw:focus-visible:outline-[length:var(--focus-ring-width)] tw:focus-visible:outline-[var(--focus-ring-color)] tw:focus-visible:outline-offset-[var(--focus-ring-offset)] tw:disabled:pointer-events-none tw:disabled:opacity-[var(--disabled-opacity)]",
         className,
       )}
       {...props}

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Popover, PopoverContent } from "./shadcn/popover";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
-import { Button } from "./ui";
+import { CloseButton } from "./ui";
 
 import type { ProviderUsage, Usage } from "../lib/usageSummary";
 import { readUsageSnapshot } from "../lib/usageSummary";
@@ -198,7 +198,7 @@ export default function UsagePopover({ open, onClose }: { open: boolean; onClose
           ))}
         </div>
       )}
-      <Button variant="ghost" className="ur-close" onClick={onClose}>esc</Button>
+      <CloseButton className="ur-close" aria-keyshortcuts="Escape" onClick={onClose} />
       </PopoverContent>
     </Popover>
   );

@@ -16,9 +16,8 @@
 .set-identity span { display: block; margin-top: 4px; color: var(--text-muted); font-size: var(--settings-small); }
 .settings-refined .set-close { width: 32px; min-width: 32px; height: 32px; padding: 0; color: var(--text-muted); border-radius: var(--radius-control); }
 .set-close svg { width: 15px; height: 15px; }
-.set-search { position: relative; flex: none; min-width: 0; }
-.set-search > svg { position: absolute; left: 10px; top: 11px; width: 14px; height: 14px; color: var(--text-muted); pointer-events: none; }
-.settings-refined .set-search input { width: 100%; height: 36px; min-width: 0; padding: 0 8px 0 32px; border: 0; border-radius: var(--radius-control); box-shadow: none; background: var(--surface-raised); font-size: var(--settings-small); }
+/* la recherche des Réglages est le SearchField commun (A5, SET-13) */
+.set-search { flex: none; min-width: 0; }
 .settings-refined .set-nav nav { display: grid; gap: 4px; margin-top: 20px; }
 .settings-refined .set-nav-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 38px; padding: var(--pad-y, 6px) 12px; border-radius: var(--radius-control); font-size: var(--settings-label); font-weight: 400; }
 .settings-refined .set-nav-item svg { width: 16px; height: 16px; stroke-width: 1.5; flex: none; color: var(--text-muted); }
@@ -45,7 +44,7 @@
 .settings-refined .set-row-desc { max-width: 360px; font-size: var(--settings-small); line-height: 1.5; margin-top: 4px; overflow-wrap: anywhere; }
 .settings-refined .set-row-ctl { flex-wrap: wrap; justify-content: flex-end; min-width: 0; max-width: 58%; gap: 8px; }
 .settings-refined .set-row-ctl > .custom-select { max-width: 100%; }
-.settings-refined .set-row .custom-select-trigger { min-height: 26px; width: auto; background: color-mix(in srgb, var(--text-primary) 3%, transparent); border-color: transparent; box-shadow: none; font-size: var(--settings-small); }
+.settings-refined .set-row .custom-select-trigger { min-height: var(--control-height); width: auto; background: color-mix(in srgb, var(--text-primary) 3%, transparent); border-color: transparent; box-shadow: none; font-size: var(--settings-small); }
 .settings-refined .set-row .custom-select-trigger:hover { background: var(--surface-inset); }
 .settings-refined .custom-select-menu { max-width: min(300px, var(--available-width)); font-size: var(--settings-small); }
 .settings-refined .set-text { width: 250px; max-width: 100%; border-color: transparent; border-radius: var(--radius-control); background: var(--surface-raised); box-shadow: none; font-size: var(--settings-label); }
@@ -54,8 +53,8 @@
 .settings-refined [data-slot="slider"] > div { min-height: 32px; }
 .settings-refined [data-slot="slider"] > div > div { height: 2px; }
 .settings-refined [data-slot="slider"] [role="slider"] { width: 10px; height: 10px; border: 0; background: var(--text-secondary); }
-.settings-refined .ui-seg { background: var(--settings-rail); border-radius: var(--radius-control); padding: 4px; }
-.settings-refined .ui-seg > button { min-height: 30px; padding-inline: 12px; font-size: var(--settings-small); font-weight: 400; }
+/* géométrie (rayon 10 = 6 + 4, segments 24 px, marge 8) : celle de la primitive */
+.settings-refined .ui-seg { background: var(--settings-rail); }
 .settings-refined .set-advanced { border-top: 1px solid var(--border-subtle); margin: 0; }
 .settings-refined .set-advanced-trigger { width: 100%; min-height: 48px; justify-content: space-between; padding: 8px 0; font-size: var(--settings-label); font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-secondary); }
 .settings-refined .set-advanced-trigger > .ui-btn-label { display: contents; }
@@ -69,7 +68,7 @@
 .settings-refined .set-consignes-item { max-width: 240px; min-height: 36px; font-size: var(--settings-small); border-radius: var(--radius-control); font-weight: 400; }
 .settings-refined .set-consignes-form { width: 100%; }
 .settings-refined .set-consignes-textarea { font-family: var(--font-chrome); font-size: var(--settings-label); line-height: 1.7; background: var(--surface-raised); border-color: transparent; }
-.settings-refined .set-consignes-form [data-slot="input"] { background: var(--surface-raised); border-color: transparent; box-shadow: none; }
+.settings-refined .set-consignes-form [data-slot="input"] { background: var(--surface-raised); border-color: transparent; box-shadow: none; font-size: var(--fs-body); }
 .settings-refined .set-consignes-field-header { flex-wrap: wrap; }
 .settings-refined .set-empty { color: var(--text-muted); font-size: var(--settings-small); }
 .settings-refined .set-body h2 { font-size: var(--settings-label); font-weight: 500; }

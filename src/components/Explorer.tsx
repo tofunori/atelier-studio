@@ -6,7 +6,7 @@
 // récursif et cette liste partagent `sortNodes`, donc ordre visuel = ordre de
 // tabulation/flèches.
 import { Fragment, useMemo, useRef, useState } from "react";
-import { Input } from "./shadcn/input";
+import { SearchField } from "./ui/SearchField";
 import { RowButton } from "./ui";
 import { t } from "../lib/i18n";
 import "../styles/explorer.css";
@@ -314,7 +314,7 @@ export default function Explorer(p: {
 
   return (
     <div className="explorer">
-      <Input
+      <SearchField
         className="exp-search"
         placeholder={t("home.search-file")}
         aria-label={t("home.search-file")}

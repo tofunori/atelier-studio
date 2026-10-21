@@ -131,8 +131,8 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
     "--link-underline": `color-mix(in srgb, ${link ?? accent} ${link ? 45 : 50}%, transparent)`,
     "--code-inline": raw["--code-inline"] ?? "currentColor",
 
-    "--control-height": "30px",
-    "--control-height-compact": "26px",
+    "--control-height": "28px",
+    "--control-height-compact": "24px",
     "--surface-header-height": "44px",
     "--radius-control": "6px",
     "--radius-surface": "10px",

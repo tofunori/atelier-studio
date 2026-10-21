@@ -24,9 +24,9 @@
   color: var(--text-primary);
 }
 .document-tab-shell .document-tab-close {
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
+  width: var(--control-height-s);
+  min-width: var(--control-height-s);
+  height: var(--control-height-s);
   color: var(--text-muted);
   opacity: 0;
 }
@@ -38,8 +38,8 @@
 /* Inset focus stays visible inside scrolling/clipped strips. */
 .document-tab-shell:focus-visible,
 .document-tab-shell :focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: -2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-width));
 }
 @media (prefers-reduced-motion: reduce) {
   .document-tab-shell { transition: none; }

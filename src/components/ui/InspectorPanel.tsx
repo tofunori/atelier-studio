@@ -5,7 +5,7 @@
 import React from "react";
 import { cx } from "./internal";
 import { SurfaceHeader } from "./SurfaceHeader";
-import { IconButton } from "./IconButton";
+import { CloseButton } from "./CloseButton";
 
 type ClosableProps =
   | { onClose: () => void; closeLabel: string }
@@ -31,11 +31,7 @@ export function InspectorPanel(
           <>
             {actions}
             {onClose && (
-              <IconButton label={closeLabel} size="s" onClick={onClose}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-                  <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
-                </svg>
-              </IconButton>
+              <CloseButton label={closeLabel} onClick={onClose} />
             )}
           </>
         }

@@ -12,7 +12,7 @@ import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 const tr = t; // alias historique (t masqué par des variables locales dans les .map)
 import { LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
-import { Button, RowButton } from "./ui";
+import { Button, RowButton, SearchField } from "./ui";
 import {
   Sidebar as ShadcnSidebar,
   SidebarContent,
@@ -609,9 +609,8 @@ export default function Sidebar(p: {
                 </RowButton>
               ))}
             </div>
-            <input
+            <SearchField
               className="resume-search"
-              type="search"
               value={resumeQuery}
               onChange={(event) => setResumeQuery(event.target.value)}
               placeholder={`${t("sidebar.search")}…`}

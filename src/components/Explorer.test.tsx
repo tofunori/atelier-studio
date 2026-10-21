@@ -157,7 +157,7 @@ describe("Explorer", () => {
 
   it("garde le contrat clavier sur la liste plate de la recherche", () => {
     const onOpen = mount();
-    fireEvent.change(screen.getByRole("textbox", { name: t("home.search-file") }), {
+    fireEvent.change(screen.getByRole("searchbox", { name: t("home.search-file") }), {
       target: { value: "src" },
     });
     const match = item("src/lib/i18n.ts");

@@ -78,7 +78,9 @@ export function HighlightsPanel(p: {
             return (
               <div key={h.id} className={`hl-card ${h.kind} ${open ? "open" : ""}`}
                 onClick={() => setOpenId(open ? null : h.id)}>
-                <div className="hl-text">{h.text}</div>
+                {/* SURF-18 : l'en-tête est le bouton qui déplie la carte (Entrée /
+                    Espace au clavier) ; son clic remonte au onClick de la carte */}
+                <RowButton className="hl-text" aria-expanded={open}>{h.text}</RowButton>
                 {open && h.context && <div className="hl-context">{h.context}</div>}
                 {open && threadAlive && (
                   <Button variant="ghost" className="hl-open-chat"

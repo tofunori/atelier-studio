@@ -628,8 +628,14 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   });
 
   it("les contrôles partagent une géométrie et une bordure interactive communes", () => {
-    expect(tokens).toContain("--control-height: calc(var(--ui-base-size, 15px) * 2)");
-    expect(tokens).toMatch(/--control-height-compact: calc\(var\(--ui-base-size, 15px\) \* 1\.7333/);
+    // A5 (PRIM-06) : une échelle de trois hauteurs 24 / 28 / 32, arrondies à la
+    // grille de 4 quelle que soit la taille d'interface ; les anciens noms
+    // (--control-height, -compact, -mini) n'en sont que des alias
+    for (const [k, f] of [["s", "1\\.6"], ["m", "1\\.8666"], ["l", "2\\.1333"]]) {
+      expect(tokens).toMatch(new RegExp(`--control-height-${k}: round\\(nearest, calc\\(var\\(--ui-base-size, 15px\\) \\* ${f}\\d*\\), 4px\\)`));
+    }
+    expect(tokens).toContain("--control-height: var(--control-height-m)");
+    expect(tokens).toContain("--control-height-compact: var(--control-height-s)");
     expect(tokens).toContain("--border-interactive:");
     expect(shadcn).toContain("--color-background: var(--background)");
     expect(shadcn).toContain("--color-ring: var(--ring)");
@@ -735,8 +741,12 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // barre (pilule centrée) — jamais une seconde marque (audit SHELL-02)
     expect(appCss).not.toMatch(/(^|\n)\.pnav-row\.active::before/);
     expect(appCss).toMatch(/\.sidebar li\.pnav-row\.active::before\s*\{[^}]*top:\s*50%[^}]*bottom:\s*auto/);
-    expect(primitives).toMatch(/\.ui-tab\s*\{[^}]*height:\s*28px/);
-    expect(primitives).toMatch(/\.ui-tab\.is-active::after\s*\{[^}]*background:\s*var\(--border-strong\)/);
+    expect(primitives).toMatch(/\.ui-tab\s*\{[^}]*height:\s*var\(--control-height-m\)/);
+    // sélection = fond seul (A5/A13) : plus de soulignement en second signal,
+    // et le survol d'un onglet inactif reste plus léger que l'actif
+    expect(primitives).not.toMatch(/\.ui-tab[^{]*::after/);
+    expect(primitives).toMatch(/\.ui-tab:is\(\[data-active\], \.is-active\)\s*\{[^}]*background:\s*var\(--surface-inset\)/);
+    expect(primitives).toMatch(/\.ui-tab:hover:not\(\[data-active\]\):not\(\.is-active\)\s*\{[^}]*background:\s*var\(--surface-hover\)/);
     expect(primitives).not.toMatch(/\.ui-tab\.is-active[^}]*var\(--selection-line\)/);
   });
 
@@ -759,8 +769,11 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   it("les surfaces interactives partagent les durées Quiet Instrument", () => {
     expect(appCss).toMatch(/\.exp-row, \.pnav-row, \.set-nav-item,[\s\S]*?background-color var\(--motion-fast\) var\(--ease-out\)/);
     expect(appCss).toMatch(/box-shadow var\(--motion-standard\) var\(--ease-out\)/);
-    expect(primitives).toMatch(/\.ui-tab-close\s*\{[^}]*opacity:\s*\.42/);
-    expect(primitives).toMatch(/\.ui-tab:hover \.ui-tab-close,[\s\S]*?opacity:\s*\.86/);
+    // la croix d'onglet : cachée au repos, révélée au survol / focus / actif,
+    // dans les durées communes ; fermer n'est pas détruire (jamais rouge)
+    expect(primitives).toMatch(/\.ui-tab-close\s*\{[^}]*opacity:\s*0;[^}]*transition:\s*opacity var\(--motion-fast\)/);
+    expect(primitives).toMatch(/\.ui-tab:hover \.ui-tab-close,[^{]*\{\s*opacity:\s*1/);
+    expect(primitives).not.toMatch(/\.ui-tab-close:hover\s*\{[^}]*--status-error/);
   });
 
   it("les iframes Atelier ne révèlent jamais un fond blanc dans leur gouttière", () => {
@@ -1194,5 +1207,44 @@ describe("contrat lot 2 (socle)", () => {
     // l'accent écrit passe par --accent-text (lisible) ; --accent reste le remplissage
     expect([...all.matchAll(/(^|[^-\w])color:\s*var\(--accent\)/g)].length).toBeLessThanOrEqual(2);
     expect(tokens).toContain("--accent-text: var(--accent)");
+  });
+
+  it("A5 : hauteurs sur l'échelle 24/28/32, un seul anneau de focus, un seul désactivé", () => {
+    // hauteurs : aucun contrôle shadcn ne garde une hauteur Tailwind numérique
+    for (const name of ["button.tsx", "select.tsx", "input.tsx", "input-group.tsx", "toggle.tsx", "toggle-group.tsx"]) {
+      const src = shadcnSources.find(([n]) => n === name)?.[1] ?? "";
+      expect(src, name).not.toMatch(/tw:(h|size)-(5|6|7|8|9|10)\b/);
+    }
+    expect(primitives).toMatch(/\.ui-iconbtn--s\s*\{[^}]*var\(--control-height-s\)/);
+    expect(primitives).toMatch(/\.ui-iconbtn--l\s*\{[^}]*var\(--control-height-l\)/);
+    // focus : la recette unique (jetons) dans shadcn, plus de ring-N ni outline-2
+    for (const [name, src] of shadcnSources) {
+      expect(src, name).not.toMatch(/focus-visible:ring-[1-9]|focus-visible:outline-2|outline-ring\b/);
+      expect(src, name).not.toMatch(/disabled:opacity-50|opacity-50/);
+    }
+    // et dans les feuilles : tout outline posé au focus est l'anneau commun (ou none)
+    const offenders: string[] = [];
+    for (const [name, css] of sourceSheets()) {
+      for (const m of css.matchAll(/([^{}]*:focus(?:-visible)?[^{]*)\{([^}]*)\}/g)) {
+        for (const o of m[2].matchAll(/(?:^|;)\s*outline\s*:\s*([^;]+)/g)) {
+          const v = o[1].trim();
+          if (v === "none" || /^var\(--focus-ring-width\) solid var\(--focus-ring-color\)$/.test(v) || /transparent/.test(v)) continue;
+          offenders.push(`${name} ${m[1].trim()} → ${v}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+    // désactivé : l'opacité unique --disabled-opacity (hors envoi du composeur,
+    // section effort/modèle, et les « restes pleins » à opacity: 1 explicites)
+    expect(tokens).toMatch(/--disabled-opacity:\s*\.5/);
+    const literal = [...appCss.matchAll(/([^{}]*:disabled[^{]*)\{([^}]*)\}/g)]
+      .filter((m) => /opacity:\s*0?\.\d/.test(m[2]))
+      .map((m) => m[1].trim());
+    expect(literal.every((sel) => /\.send|tier-toggle/.test(sel)), literal.join(" | ")).toBe(true);
+    // survol < ouvert/pressé sur les boutons-icônes ; une seule croix ; une seule recherche
+    expect(primitives).toMatch(/\.ui-iconbtn:hover:not\(:disabled\)\s*\{[^}]*var\(--surface-hover\)/);
+    expect(primitives).toMatch(/\.ui-iconbtn:is\(\[aria-pressed="true"\], \[aria-expanded="true"\], \[data-popup-open\]\)/);
+    expect(primitives).toMatch(/\.ui-search \.ui-search-input\s*\{[^}]*var\(--border-interactive\)/);
+    expect(appCss).not.toMatch(/\.(exp|pnav|resume)-search\s*\{[^}]*border:/);
   });
 });

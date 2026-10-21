@@ -3,6 +3,8 @@
 // src/styles/primitives.css ; valeurs : src/styles/tokens.css.
 export { Button, type ButtonProps, type ButtonVariant } from "./Button";
 export { IconButton } from "./IconButton";
+export { CloseButton, CloseIcon } from "./CloseButton";
+export { SearchField } from "./SearchField";
 export { RowButton } from "./RowButton";
 export { Tooltip, TooltipProvider, TOOLTIP_DELAY_MS } from "./Tooltip";
 // Menu ancré : LazyDropdownMenu (import par chemin) → DropdownMenuSurface.

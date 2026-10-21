@@ -5,13 +5,12 @@ import React, { Suspense, useEffect, useRef, useState } from "react";
 import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 import { Settings as S, DEFAULT_SETTINGS } from "../../lib/settings";
 import { t } from "../../lib/i18n";
-import { Button, RowButton, Select } from "../ui";
+import { Button, RowButton, SearchField, Select } from "../ui";
 import { lazyWithRetry } from "../LazyBoundary";
 import { SavedIndicator, useSavedFlash } from "./primitives";
 import { SECTIONS, resolveSection, type SectionId } from "./sections";
 import type { SectionProps } from "./shared";
-import { Input } from "../shadcn/input";
-import { ArrowLeft, Search, SlidersHorizontal, Contrast, Cpu, Images, FileText, Plug, RotateCcw, ChevronRight, Wrench, UserRound, Brain } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Contrast, Cpu, Images, FileText, Plug, RotateCcw, ChevronRight, Wrench, UserRound, Brain } from "lucide-react";
 import { searchSettings } from "./search";
 import { SettingsSearchTarget, type SearchTarget } from "./searchTarget";
 import "../../styles/settings-refined.css";
@@ -141,9 +140,7 @@ export default function SettingsPage(p: {
     if (ok) { p.onChange({ ...DEFAULT_SETTINGS }); flash(); }
   };
   const searchField = (
-    <div className="set-search">
-      <Search aria-hidden="true" />
-      <Input ref={searchRef} type="search" aria-label={t("settings.search")}
+    <SearchField className="set-search" ref={searchRef} aria-label={t("settings.search")}
         placeholder={t("settings.search")} value={query}
         onChange={event => setQuery(event.target.value)}
         onKeyDown={event => {
@@ -151,7 +148,6 @@ export default function SettingsPage(p: {
             event.preventDefault(); event.stopPropagation(); setQuery("");
           }
         }} />
-    </div>
   );
   const close = <Button variant="ghost" className="set-close" aria-label={t("settings.back")} title={t("settings.back")} onClick={p.onClose}><ArrowLeft aria-hidden="true" /></Button>;
 

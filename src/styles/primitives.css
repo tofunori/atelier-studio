@@ -49,11 +49,16 @@
   transition: background-color var(--motion-fast) var(--ease-out),
               color var(--motion-fast) var(--ease-out);
 }
-.ui-iconbtn:hover:not(:disabled) { background: var(--surface-inset); color: var(--text-primary); }
-.ui-iconbtn:disabled { color: var(--text-disabled); cursor: default; }
-.ui-iconbtn--s { width: calc(var(--ui-base-size, 15px) * 1.4666666667); height: calc(var(--ui-base-size, 15px) * 1.4666666667); }
-.ui-iconbtn--m { width: var(--control-height); height: var(--control-height); }
-.ui-iconbtn--l { width: calc(var(--ui-base-size, 15px) * 2.1333333333); height: calc(var(--ui-base-size, 15px) * 2.1333333333); }
+/* survol plus léger que l'état ouvert / activé (A5, PRIM-15) ; désactivé =
+ * l'opacité unique du Button, sans second effacement par la couleur */
+.ui-iconbtn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-primary); }
+.ui-iconbtn:is([aria-pressed="true"], [aria-expanded="true"], [data-popup-open]):not(:disabled) {
+  background: var(--surface-inset); color: var(--text-primary);
+}
+.ui-iconbtn:disabled { cursor: default; }
+.ui-iconbtn--s { width: var(--control-height-s); height: var(--control-height-s); }
+.ui-iconbtn--m { width: var(--control-height-m); height: var(--control-height-m); }
+.ui-iconbtn--l { width: var(--control-height-l); height: var(--control-height-l); }
 /* cible interactive effective 40×40 quand le chrome est dense (014 §7) :
  * zone invisible étendue, sans chevauchement géré par l'espacement appelant */
 .ui-iconbtn--hit40::after { content: ""; position: absolute; inset: 50% auto auto 50%;
@@ -89,13 +94,29 @@
 }
 :where(.ui-rowbtn:disabled) { cursor: default; }
 
-/* ---- SegmentedControl — parité pixel avec .tb-seg historique ------------------- */
+/* ---- SearchField ------------------------------------------------------------------
+ * Un seul champ de recherche (SHELL-25 / SET-13) : loupe 13 px à gauche, fond
+ * --surface-inset, contour --border-interactive, rayon 6, hauteur de contrôle,
+ * focus = l'anneau commun du Input. */
+.ui-search { position: relative; display: flex; align-items: center; min-width: 0; }
+.ui-search-icon { position: absolute; left: var(--sp-2); display: inline-flex; color: var(--text-muted); pointer-events: none; }
+.ui-search .ui-search-input {
+  width: 100%; height: var(--control-height); padding: 0 var(--sp-2) 0 28px;
+  background: var(--surface-inset); border: 1px solid var(--border-interactive); border-radius: var(--radius-control);
+  color: var(--text-primary); font-size: var(--fs-body-s); box-shadow: none;
+}
+.ui-search .ui-search-input::placeholder { color: var(--text-muted); }
+
+/* ---- SegmentedControl ------------------------------------------------------------
+ * Rayon externe 10 = rayon interne 6 + marge 4. Les segments texte ont leur
+ * marge interne (8 px) et leur taille (12 px) ici, une fois pour toutes ; un
+ * segment icône seule reste carré (A5, PRIM-05 / TRANS-26). */
 .ui-seg { display: inline-flex; background: var(--surface-inset); border-radius: var(--radius-surface); padding: 4px; gap: 2px; }
 .ui-seg button {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: var(--control-height-compact); height: var(--control-height-compact); padding: 0; background: transparent; border: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1);
+  min-width: var(--control-height-compact); height: var(--control-height-compact); padding: 0 var(--sp-2); background: transparent; border: none;
   color: var(--text-muted); border-radius: var(--radius-control); cursor: pointer;
-  white-space: nowrap;
+  font: 400 var(--fs-body-s)/1 var(--font-chrome); white-space: nowrap;
   transition: background-color var(--motion-standard) var(--ease-out),
               color var(--motion-standard) var(--ease-out);
 }
@@ -103,7 +124,8 @@
 .ui-seg button:is(.on, [data-pressed="true"], [aria-checked="true"]) {
   background: var(--surface-app); color: var(--text-primary);
 }
-.ui-seg button:disabled { cursor: default; opacity: .6; }
+.ui-seg button:has(> svg:only-child) { padding: 0; }
+.ui-seg button:disabled { cursor: default; opacity: var(--disabled-opacity); }
 
 /* ---- SurfaceHeader --------------------------------------------------------------- */
 .ui-surface-header {
@@ -146,7 +168,7 @@
 .ui-empty [data-slot="empty-header"] { align-items: stretch; max-width: none; }
 .ui-empty .title { color: var(--text-secondary); font-size: var(--fs-body); font-weight: 600; }
 .ui-empty .desc { color: var(--text-muted); font-size: var(--fs-body-s); }
-.ui-empty .actions { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ui-empty .actions { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-2); }
 /* actions empilées : look « ligne de menu » de l'empty-card d'origine
  * (aligné à gauche, corps 13px/400) plutôt que bouton centré compact */
 .ui-empty .actions > .ui-btn {
@@ -168,12 +190,15 @@
 /* ---- StatusBadge ------------------------------------------------------------------------ */
 .ui-badge {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 8px; border-radius: var(--radius-pill);
+  height: 20px; padding: 0 8px; border-radius: var(--radius-pill);
   font: 500 var(--fs-caption)/1.3 var(--font-chrome); text-transform: uppercase; letter-spacing: var(--eyebrow-tracking);
   background: var(--surface-inset); color: var(--text-muted);
 }
 .ui-badge .dot { width: 5px; height: 5px; border-radius: var(--radius-pill); background: currentColor; }
-.ui-badge--running { color: var(--status-running); }
+/* « actif » : texte neutre, seul le point porte l'accent — sinon « actif » et
+ * « erreur » sont deux saumons voisins (PRIM-13) */
+.ui-badge--running { color: var(--text-secondary); }
+.ui-badge--running .dot { background: var(--status-running); }
 .ui-badge--success { color: var(--status-success); }
 .ui-badge--warning { color: var(--status-warning); }
 .ui-badge--error { color: var(--status-error); }
@@ -223,30 +248,32 @@
   transition: background-color var(--motion-fast) var(--ease-out),
               color var(--motion-fast) var(--ease-out);
 }
-.ui-tabs-trigger:hover { color: var(--text-secondary); background: color-mix(in srgb, var(--surface-inset) 42%, transparent); }
-.ui-tabs-trigger[data-active] { color: var(--text-primary); background: color-mix(in srgb, var(--surface-inset) 34%, transparent); }
+/* un seul signal de sélection : le fond (A13) ; le survol reste plus léger */
+.ui-tabs-trigger:hover:not([data-active]) { color: var(--text-secondary); background: var(--surface-hover); }
+.ui-tabs-trigger[data-active] { color: var(--text-primary); background: var(--surface-inset); }
 .ui-tabs-trigger:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); }
-.ui-tabs-trigger:disabled { cursor: default; opacity: .5; }
+.ui-tabs-trigger:disabled { cursor: default; opacity: var(--disabled-opacity); }
 .ui-tabs-content { min-width: 0; min-height: 0; }
 
 /* ---- Tabs — navigation dockée compacte, neutre ------------------------- */
 .ui-tabs { display: flex; align-items: center; gap: var(--sp-1); }
-.ui-tab { position: relative; display: inline-flex; align-items: center; height: 28px; max-width: 168px;
+.ui-tab { position: relative; display: inline-flex; align-items: center; height: var(--control-height-m); max-width: 168px;
   gap: 4px; padding: 0 var(--sp-2); border: 0; border-radius: var(--radius-control); background: transparent;
   color: var(--text-muted); font: 400 var(--fs-body-s)/1 var(--font-chrome); cursor: pointer;
   transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out); }
-.ui-tab:hover { color: var(--text-secondary); background: color-mix(in srgb, var(--surface-inset) 42%, transparent); }
-.ui-tab[data-active] { color: var(--text-primary); background: color-mix(in srgb, var(--surface-inset) 34%, transparent); }
-.ui-tab.is-active { color: var(--text-primary); background: color-mix(in srgb, var(--surface-inset) 34%, transparent); }
-.ui-tab[data-active]::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 1px; background: var(--border-strong); opacity: .72; }
-.ui-tab.is-active::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 1px; background: var(--border-strong); opacity: .72; }
-.ui-tab.is-compact { width: 30px; min-width: 30px; padding: 0; justify-content: center; }
+/* sélection = fond seul (plus de soulignement en second signal) ; le survol
+ * d'un onglet inactif reste plus léger que l'onglet actif (PRIM-18) */
+.ui-tab:hover:not([data-active]):not(.is-active) { color: var(--text-secondary); background: var(--surface-hover); }
+.ui-tab:is([data-active], .is-active) { color: var(--text-primary); background: var(--surface-inset); }
+.ui-tab.is-compact { width: var(--control-height-m); min-width: var(--control-height-m); padding: 0; justify-content: center; }
 .ui-tab-icon, .ui-tab-close { display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .ui-tab-label { min-width: 0; display: inline-flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ui-tab-close { color: var(--text-muted); opacity: .42; border-radius: var(--radius-control); }
-.ui-tab:hover .ui-tab-close, .ui-tab:focus-within .ui-tab-close, .ui-tab.is-active .ui-tab-close { opacity: .86; }
-.ui-tab[data-active] .ui-tab-close { opacity: .86; }
-.ui-tab-close:hover { color: var(--status-error); }
+/* croix : la même que CloseButton, --text-muted, jamais rouge (fermer n'est
+ * pas détruire) ; visible sur l'onglet actif, au survol et au focus */
+.ui-tab-close { width: 16px; height: 16px; color: var(--text-muted); opacity: 0; border-radius: var(--radius-control);
+  transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.ui-tab:hover .ui-tab-close, .ui-tab:focus-visible .ui-tab-close, .ui-tab:is([data-active], .is-active) .ui-tab-close { opacity: 1; }
+.ui-tab-close:hover { color: var(--text-primary); background: var(--surface-hover); }
 .ui-tab.drop-target { box-shadow: inset 2px 0 0 var(--border-strong); }
 
 /* ---- ActivityDisclosure — journal sans carte --------------------------- */
@@ -261,7 +288,7 @@
   border: 0; border-radius: var(--radius-control); background: transparent; color: inherit;
   font: inherit; text-align: left; cursor: pointer; transition: background-color var(--motion-fast) ease; }
 .ui-activity-trigger:hover, .ui-activity-trigger[aria-expanded="true"] { background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
-.ui-activity-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ui-activity-trigger:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); }
 .ui-activity.is-summary .ui-activity-label { -webkit-mask-image: none; mask-image: none; }
 /* Keep the edge fade in reserved space when the complete label fits.
    The negative margin preserves the nearby chevron and normal text gap. */
