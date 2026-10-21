@@ -113,6 +113,11 @@
       "slot": 1
     },
     {
+      "source": "gallery/src/browser/pages/gallery_template_2.ts",
+      "output": "gallery/assets/gallery_template.html",
+      "slot": 2
+    },
+    {
       "source": "gallery/src/browser/pages/latex_studio_1.ts",
       "output": "gallery/assets/latex_studio.html",
       "slot": 1

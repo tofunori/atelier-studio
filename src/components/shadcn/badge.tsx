@@ -9,7 +9,7 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "tw:bg-primary tw:text-primary-foreground tw:[a]:hover:bg-primary/80",
+        default: "tw:bg-fill-primary tw:text-on-fill-primary tw:[a]:hover:bg-fill-primary-hover",
         secondary:
           "tw:bg-secondary tw:text-secondary-foreground tw:[a]:hover:bg-secondary/80",
         destructive:

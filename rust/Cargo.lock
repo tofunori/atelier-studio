@@ -448,6 +448,7 @@ dependencies = [
 name = "atelier-workspace"
 version = "0.1.0"
 dependencies = [
+ "atelier-core",
  "atelier-integrations",
  "base64",
  "chrono",

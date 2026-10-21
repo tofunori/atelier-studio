@@ -54,9 +54,17 @@
   --r-s: 6px; --r-m: 10px; --r-pill: 999px;
   --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
   --elev-soft: 0 2px 10px rgba(0,0,0,.14), 0 1px 3px rgba(0,0,0,.10);
-  --ease: 140ms ease;
+  /* raccourci historique « durée + courbe » : adossé au jeton de durée pour
+     que prefers-reduced-motion (tokens.css, --motion-* à 0ms) l'annule aussi
+     (audit SURF-14). S'emploie SEUL après la propriété, jamais derrière une
+     autre durée (« 140ms var(--ease) » = 140 ms de délai). */
+  --ease: var(--motion-standard) ease;
+  color-scheme: dark;
 }
 :root[data-theme="light"] {
+  /* contrôles natifs (cases, listes, barres de défilement) suivent le thème
+     de l'app, pas celui du système (audit TRANS-17) */
+  color-scheme: light;
   /* gris papier froid (plan 023) — accent assombri : 3.5:1 sur canvas */
   --bg: #f1f4f7; --bg-side: #e3e7ec; --bg-pop: #fafcfe; --bg-card: #fafcfe;
   --bg-ctl: #dadee4; --border: #dde0e5; --border2: #b8bcc2;
@@ -321,21 +329,36 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .chat-subagents-trigger { gap: 6px; color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 .chat-subagents-trigger[data-running] { color: var(--text-secondary); }
 .chat-subagents-trigger svg { width: 15px; height: 15px; }
-.subagents-menu { width: min(440px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
-.subagents-menu-head { display: inline-flex; align-items: center; gap: 8px; }
-.subagents-menu-count { color: var(--text-disabled); font-variant-numeric: tabular-nums; }
-.subagents-mi { display: grid; grid-template-columns: 15px minmax(0, 1fr) 64px 12px; align-items: center; column-gap: 8px;
+/* Panneau « Agents » (2026-10-21, piste A) : spécialistes délégués puis
+   sous-agents en cours ; rangées sur deux lignes (nom, puis ce qu'il fait). */
+.agents-menu { width: min(400px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
+.agents-menu-head { display: inline-flex; align-items: baseline; gap: 8px; font-size: var(--fs-l); font-weight: 600;
+  letter-spacing: -0.01em; color: var(--text-primary); }
+.agents-menu-group { font-size: var(--fs-s); font-weight: 500; color: var(--text-muted); }
+.agents-menu-count { color: var(--text-disabled); font-weight: 400; font-variant-numeric: tabular-nums; }
+.agents-mi { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto 12px; align-items: center; column-gap: 8px;
   width: 100%; min-width: 0; white-space: nowrap; color: var(--text-secondary); }
-.subagents-mi-icon { display: inline-flex; color: var(--text-disabled); }
-.subagents-mi-icon svg { width: 15px; height: 15px; }
-.subagents-mi-text { display: flex; min-width: 0; }
-.subagents-mi-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.subagents-mi-type { flex: none; margin-left: 8px; color: var(--text-disabled); }
-.subagents-mi .tool-duration { justify-self: end; color: var(--text-disabled); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
-.subagents-mi .tool-status { display: inline-flex; width: 12px; height: 12px; color: var(--text-disabled); }
-.subagents-mi[data-agent-status="working"] .subagents-mi-title { color: var(--text-primary); }
-.subagents-mi[data-agent-status="working"] :is(.tool-duration, .tool-status) { color: var(--text-muted); }
-.subagents-mi[data-agent-status="failed"] :is(.tool-duration, .tool-status) { color: var(--status-error); }
+.agents-mi-lead { display: inline-flex; justify-content: center; color: var(--text-disabled); }
+.agents-mi-lead svg { width: 15px; height: 15px; }
+.agents-mi-monogram { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+  border-radius: var(--radius-pill); background: var(--bg-ctl); color: var(--text-secondary); font-size: var(--fs-s); font-weight: 500; }
+.agents-mi-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.agents-mi-l1 { display: flex; gap: 8px; min-width: 0; }
+.agents-mi-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.agents-mi-title { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
+.agents-mi-l2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-s); color: var(--text-disabled); }
+.agents-mi .tool-duration { justify-self: end; color: var(--text-disabled); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.agents-mi .tool-status { display: inline-flex; width: 12px; height: 12px; color: var(--text-disabled); }
+.agents-mi[data-agent-status="working"] .agents-mi-name { color: var(--text-primary); }
+.agents-mi[data-agent-status="working"] :is(.agents-mi-l2, .tool-duration, .tool-status) { color: var(--text-muted); }
+.agents-mi[data-agent-status="failed"] :is(.tool-duration, .tool-status) { color: var(--status-error); }
+.agents-menu-empty { color: var(--text-disabled); }
+.agents-menu-foot-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; color: var(--text-muted); }
+.agents-menu-chev { width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4;
+  stroke-linecap: round; stroke-linejoin: round; transform: rotate(-90deg); transition: transform 120ms ease; }
+.agents-menu-foot-row[data-open] .agents-menu-chev { transform: none; }
+.agents-menu-foot-hint { margin-left: auto; font-size: var(--fs-s); color: var(--text-disabled); }
+@media (prefers-reduced-motion: reduce) { .agents-menu-chev { transition: none; } }
 .agent-detail-panel { flex: 0 0 clamp(320px, 31vw, 470px); min-width: 0; height: 100%;
   display: flex; flex-direction: column; border-left: var(--gutter) solid var(--surface-canvas);
   background: var(--bg); color: var(--text-secondary); }
@@ -457,6 +480,27 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-edit:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
 .kernel-editor-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .kernel-editor-note { color: var(--text-muted); font-size: var(--fs-s); }
+.kernel-new { padding: 0 20px 20px; }
+.kernel-new-resume { margin-left: auto; }
+.kernel-resume { display: flex; flex-direction: column; gap: 8px; padding: 0 20px 20px; }
+.kernel-resume:first-child { padding-top: 16px; }
+.kernel-resume h3 { margin: 0; color: var(--text-muted); font-size: var(--fs-s); font-weight: 500; }
+.kernel-resume ul, .kernel-resume-cells { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.kernel-resume-head { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 8px 12px;
+  border-radius: var(--r-s); background: var(--bg-ctl); text-align: left; }
+.kernel-resume-head:hover { background: var(--surface-hover); }
+.kernel-resume-head > svg { width: 12px; height: 12px; flex: none; color: var(--text-muted); transform: rotate(-90deg);
+  transition: transform 120ms ease; }
+.kernel-resume-head[aria-expanded="true"] > svg { transform: none; }
+.kernel-resume-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-primary); font-size: var(--fs-m); font-weight: 500; }
+.kernel-resume-meta { flex: none; color: var(--text-muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.kernel-resume-body { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 4px 32px; }
+.kernel-resume-cells { max-height: 240px; overflow: auto; }
+.kernel-resume-cells li { display: flex; gap: 8px; min-width: 0; color: var(--text-secondary); font-size: var(--fs-s); line-height: 1.5; }
+.kernel-resume-n { flex: none; color: var(--text-muted); font-family: var(--font-code); font-variant-numeric: tabular-nums; }
+.kernel-resume-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kernel-edit::placeholder { color: var(--text-disabled); }
 .kernel-notice { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 20px;
   border-bottom: 1px solid var(--border); font-size: var(--fs-m); color: var(--text-secondary); }
 .kernel-notice svg { width: 12px; height: 12px; }
@@ -510,7 +554,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* La capsule de sélection partagée ; pas d'annotation durable sur une cellule. */
 .kernel-selection button[aria-label="Annoter"] { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .kernel-dot, .kernel-reveal, .kernel-code, .kernel-vars-head svg, .kernel-cell-body { transition: none; animation: none; }
+  .kernel-dot, .kernel-reveal, .kernel-code, .kernel-vars-head svg, .kernel-cell-body, .kernel-resume-head > svg { transition: none; animation: none; }
 }
 .empty { color: var(--text-muted); padding-top: 24px; }
 .empty-card { width: min(360px, 100%); margin: auto; border: 1px solid var(--border);
@@ -945,10 +989,10 @@ button.kernel-file:hover { color: var(--text-primary); }
   background: var(--bg-ctl); color: var(--text-primary); }
 .composer-recording-bar .dictation-circle:hover { background: var(--border2); }
 .composer-recording-bar .dictation-circle svg { width: 17px; height: 17px; }
-.composer-recording-bar .dictation-send { background: var(--text-primary); color: var(--bg-card); }
+.composer-recording-bar .dictation-send { background: var(--fill-primary); color: var(--on-fill-primary); }
 .composer-recording-bar .dictation-send svg { width: 20px; height: 20px; }
 .composer-recording-bar .dictation-send:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text-primary) 85%, var(--bg-card)); color: var(--bg-card); }
+  background: var(--fill-primary-hover); color: var(--on-fill-primary); }
 .dictation-waveform { display: grid; grid-template-columns: repeat(48, minmax(0, 1fr)); align-items: center;
   height: 18px; min-width: 0; flex: 1; gap: 1px; overflow: hidden; color: var(--text-secondary);
   mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent); }
@@ -958,12 +1002,14 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* l'anneau de contexte partage l'assise du groupe d'état ; seul l'envoi
  * (l'action) se détache du reste. */
 .composer-bar .ctx-ring-wrap { height: var(--composer-ctl-h); padding: 0 4px; }
+/* Envoyer et Arrêter : disque plein aux jetons --fill-* (tokens.css), jamais
+   à l'encre — Thierry ne veut aucun bouton à fond blanc. */
 .composer-bar .send { width: 34px; height: 34px;
   margin-left: 8px; border-radius: 50%; flex: none;
-  background: var(--text-primary); color: var(--bg-card); }
+  background: var(--fill-primary); color: var(--on-fill-primary); }
 .composer-bar .send:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text-primary) 85%, var(--bg-card));
-  color: var(--bg-card); }
+  background: var(--fill-primary-hover);
+  color: var(--on-fill-primary); }
 .composer-bar .send:disabled { opacity: .4; }
 .access { color: var(--text-muted) !important; font-size: var(--fs-l); }
 .access.accent { color: var(--accent) !important; }
@@ -981,7 +1027,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .bare:hover { color: var(--text-primary); }
 .custom-select { display: inline-flex; min-width: 0; color: var(--text-secondary); font-size: var(--fs-l); }
 .custom-select-trigger { display: inline-flex; align-items: center; justify-content: flex-start; gap: 6px;
-  width: auto; max-width: 100%; min-width: 0; height: auto; min-height: 26px;
+  width: auto; max-width: 100%; min-width: 0; height: auto; min-height: var(--control-height);
   background: color-mix(in srgb, var(--text-primary) 3%, transparent); border: 1px solid transparent;
   border-radius: var(--r-s); color: inherit; padding: 4px 8px; font: inherit;
   font-size: var(--fs-body-s); font-weight: 400; line-height: 1.4;
@@ -1645,7 +1691,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .follow-up-submit { border-radius: var(--r-pill); }
 .follow-up-submit .ui-btn-label { display: inline-flex; align-items: center; justify-content: center; }
 .follow-up-submit svg { width: 15px; height: 15px; }
-.follow-up-tooltip { position: relative; padding: 6px 8px; }
+.follow-up-tooltip { padding: 6px 8px; }
 .follow-up-tooltip-grid { display: grid; grid-template-columns: minmax(56px, 1fr) auto;
   align-items: center; gap: 4px 16px; min-width: 126px; }
 .follow-up-tooltip-grid > span { color: var(--text-primary); }
@@ -1684,9 +1730,12 @@ button.kernel-file:hover { color: var(--text-primary); }
   .queued-turn-actions .queued-turn-steer span { display: none; }
   .queued-turn-actions .queued-turn-steer { width: 26px; padding: 0; }
 }
-.send.stop { display: inline-flex; align-items: center; justify-content: center;
-  background: transparent; color: var(--text-disabled); }
-.send.stop:hover:not(:disabled) { background: var(--bg-ctl); color: var(--text-secondary); }
+/* Arrêter = le MÊME disque plein que Envoyer (.composer-bar .send) : seul le
+   glyphe change, un carré plein ≈10 px. Plus de fond transparent ni de gris
+   éteint — l'unique moyen d'arrêter l'agent ne doit pas être l'élément le
+   moins visible de l'écran (audit CHAT-03). */
+.send.stop { display: inline-flex; align-items: center; justify-content: center; }
+.composer-bar .send.stop > svg { width: 12px; height: 12px; fill: currentColor; }
 /* bulles utilisateur + actions au survol */
 .user-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .user-img { max-width: 220px; max-height: 180px; border-radius: var(--r-m);
@@ -2385,11 +2434,12 @@ button.kernel-file:hover { color: var(--text-primary); }
 .setup-fallback-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .set-card > .setup-fallback + .set-row { border-top: 1px solid var(--border-subtle); }
 @media (prefers-reduced-motion: reduce) { .setup-fallback { animation: none; } }
-.set-btn { background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: var(--r-m);
-  color: inherit; padding: 6px 16px; cursor: pointer; font-size: var(--fs-l);
-  display: inline-flex; align-items: center; gap: 8px; }
-.set-btn.quiet { background: transparent; border-color: transparent; color: var(--text-muted); }
-.set-btn.quiet:hover { color: var(--text-primary); background: var(--bg-ctl); }
+/* Boutons des Réglages = variantes de Button, sans géométrie locale (rayon 6,
+   12 px, poids 500) : l'ancien .set-btn (rayon 10, 13 px, plein bordé)
+   donnait deux dessins pour un même rôle (audit SET-12, GAP-14). Seul reste
+   « quiet » : un ghost à l'encre atténuée. */
+.set-btn.quiet { color: var(--text-muted); }
+.set-btn.quiet:hover:not(:disabled) { color: var(--text-primary); }
 /* Repli « Avancé » d'une section de réglages (lot 1). Le chevron pivote,
    rien d'autre ne bouge : 140ms, sous le plafond de 200ms du système. */
 .set-advanced { margin-bottom: 28px; }
@@ -2932,7 +2982,7 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   background: var(--surface-panel); border-right: none; }
 .side-handle { cursor: col-resize; flex-shrink: 0; }
 /* barre de sélection (Highlight / Underline / Add to chat) façon Synara */
-.sel-toolbar { position: fixed; transform: translateX(-50%); z-index: 120;
+.sel-toolbar { position: fixed; transform: translateX(-50%); z-index: var(--z-popover);
   display: flex; align-items: center; gap: 2px; padding: 4px 6px;
   background: var(--bg-pop); border: 1px solid var(--border);
   border-radius: var(--r-pill); box-shadow: var(--elev); }
@@ -3015,13 +3065,16 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 ::highlight(reader-quote) { background: color-mix(in srgb, var(--accent) 32%, transparent); }
 mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparent); color: inherit;
   border-radius: var(--r-s); }
-/* Palette de commandes */
-.cmdk-dialog-overlay { z-index: 240; background: rgba(0,0,0,0.34); }
-.cmdk-panel { width: min(520px, calc(100vw - 28px)); max-height: min(480px, 76vh);
-  top: 12vh; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-pop);
-  color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--r-m);
-  box-shadow: var(--elev); transform: translateX(-50%); }
-.cmdk-panel[data-open] { transform: translateX(-50%) scale(1); }
+/* Palette de commandes — voile et empilement viennent de DialogContent
+   (z var(--z-modal), fond var(--scrim)) : aucune surcharge locale, sinon le
+   voile passe AU-DESSUS du viewport et avale les clics (audit SHELL-01). Le
+   viewport est un flex centré : la palette s'ancre en haut par align-self +
+   margin-top, jamais par top/translate. */
+.cmdk-panel { align-self: flex-start; margin-top: 12vh; width: min(520px, 100%); max-width: min(520px, 100%);
+  max-height: min(480px, 76vh); display: flex; flex-direction: column; gap: 0; padding: 0;
+  overflow: hidden; background: var(--bg-pop);
+  color: var(--text-primary); border: none; border-radius: var(--r-m);
+  box-shadow: var(--elev); }
 .cmdk-root { padding: 0; border-radius: inherit; }
 .cmdk-search { min-height: 44px; display: flex; align-items: center; gap: 8px;
   padding: 0 12px; border-bottom: 1px solid var(--border); color: var(--text-muted);
@@ -3055,7 +3108,7 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
 .cmdk-footer { border-top: 1px solid var(--border); color: var(--text-disabled); font-size: var(--fs-s);
   padding: 8px 12px; display: flex; align-items: center; gap: 4px; }
 @media (max-width: 620px) {
-  .cmdk-panel { top: 10vh; }
+  .cmdk-panel { margin-top: 10vh; }
   .cmdk-copy { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .cmdk-hint { max-width: 100%; }
 }
@@ -3244,16 +3297,15 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
 .generateur-engines.ui-seg { background: transparent; border-radius: 0; padding: 0; }
 .generateur-engines .generateur-chip { background: var(--bg-card); border: 1px solid var(--border2); border-radius: var(--r-pill);
   color: var(--text-muted); font-family: inherit; font-size: var(--fs-s); padding: 4px 12px; cursor: pointer;
-  transition: background 140ms var(--ease, ease), color 140ms var(--ease, ease), border-color 140ms var(--ease, ease); }
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
 .generateur-engines .generateur-chip.sel { background: var(--bg-ctl); border-color: var(--accent); color: var(--text-primary); }
 .generateur-engines .generateur-chip:disabled { cursor: default; opacity: 0.6; }
 .api-protocol.ui-seg button { min-height: var(--control-height); height: var(--control-height); padding-inline: 12px; }
 .generateur-cost { font-size: var(--fs-s); color: var(--text-disabled); font-variant-numeric: tabular-nums; }
-.generateur-generate { margin-top: 8px; background: var(--accent); color: var(--bg); border: none;
-  border-radius: var(--r-s); font-size: var(--fs-l); font-weight: 500; padding: 8px 12px; cursor: pointer;
-  transition: opacity 140ms var(--ease, ease); }
-.generateur-generate:disabled { opacity: 0.45; cursor: default; }
-.generateur-generate:hover:not(:disabled) { opacity: 0.9; }
+/* Générer = Button primary sans surcharge (encre, comme toute action
+   principale) : l'ancien fond accent + texte crème plafonnait à 3,85:1 en
+   clair (audit SURF-08). Seule la marge reste locale. */
+.generateur-generate { margin-top: 8px; }
 .generateur-error { color: var(--u-hot); font-size: var(--fs-m); line-height: 1.4; }
 .generateur-result { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg);
   padding: 16px; gap: 12px; }
@@ -3269,11 +3321,7 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
   transition: border-color var(--motion-standard) var(--ease-out); }
 .generateur-edit-input:focus { outline: none; border-color: var(--border2); }
 .generateur-edit-input::placeholder { color: var(--text-disabled); }
-.generateur-edit-btn { flex-shrink: 0; background: var(--bg-ctl); border: 1px solid var(--border);
-  color: var(--text-secondary); border-radius: var(--r-s); font-size: var(--fs-l); padding: 8px 16px; cursor: pointer;
-  transition: background 140ms var(--ease, ease); }
-.generateur-edit-btn:hover:not(:disabled) { background: var(--border2); color: var(--text-primary); }
-.generateur-edit-btn:disabled { opacity: 0.45; cursor: default; }
+.generateur-edit-btn { flex-shrink: 0; align-self: center; }
 @media (max-width: 760px) {
   .generateur-surface { grid-template-columns: 1fr; grid-template-rows: minmax(220px, 42%) minmax(0, 1fr); }
   .generateur-form { border-right: none; border-bottom: 1px solid var(--border); }
@@ -3791,9 +3839,12 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    en cross-fade au hover/focus-within — jamais de display:none ni de shift) */
 .pnav-row { gap: 8px; }
 .pnav-row:not(.active):hover { background: color-mix(in srgb, var(--bg-ctl) 55%, transparent); }
-.pnav-row.active::before { content: ""; position: absolute; left: 2px; top: 50%;
-  margin-top: -2px; width: 4px; height: 4px; border-radius: var(--r-pill);
-  background: var(--accent); }
+/* Repère de la rangée active : la barre de .sidebar li.active::before
+   (spécificité 0,2,2) l'emportait sur une ancienne pastille 0,2,1 et le
+   mélange donnait un tiret 2×4 px collé en haut (audit SHELL-02). On garde
+   la barre partagée (couleur --selection-line) et on ne règle que sa
+   hauteur : pilule 2×16 centrée verticalement. */
+.sidebar li.pnav-row.active::before { top: 50%; bottom: auto; height: 16px; margin-top: -8px; }
 .pnav-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
   background: none; border: none; padding: 0; margin: 0; color: inherit; font: inherit;
   height: auto; min-height: 26px; text-align: left; cursor: pointer; }
@@ -4323,12 +4374,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border-radius: var(--r-s); font-family: var(--code-font); font-size: var(--fs-m);
   color: var(--text-secondary); white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; }
 .perm-actions { display: flex; gap: 8px; margin-top: 8px; }
-.perm-allow, .perm-deny { border-radius: var(--r-s); padding: 4px 16px; font-size: var(--fs-l);
-  cursor: pointer; font: inherit; }
-.perm-allow { background: var(--accent); border: 1px solid var(--accent); color: var(--text-on-accent); }
-.perm-allow:hover { background: var(--accent-hover); }
-.perm-deny { background: transparent; border: 1px solid var(--border2); color: var(--text-muted); }
-.perm-deny:hover { color: var(--text-secondary); border-color: var(--border-strong, var(--border2)); }
+/* Autoriser / Refuser = Button primary / secondary SANS surcharge : une seule
+   action principale dans le fil, à l'encre (--primary = --text-primary).
+   L'orange reste un signal (icône, liseré), jamais un fond de bouton
+   (audit CHAT-14). */
 .perm-verdict { margin-top: 8px; font-size: var(--fs-m); color: var(--text-muted); }
 .approval-decisions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
 .approval-decision { min-width: 0; display: grid; grid-template-columns: 22px 1fr; align-items: start; gap: 8px;
@@ -4340,7 +4389,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .approval-decision span { display: flex; flex-direction: column; min-width: 0; }
 .approval-decision b { font-size: var(--fs-m); font-weight: 500; }
 .approval-decision small { margin-top: 2px; color: var(--text-disabled); font-size: var(--fs-xs); line-height: 1.25; }
-.approval-decision.primary b { color: var(--accent); }
+.approval-decision.primary { border-color: var(--border-strong); }
+.approval-decision.primary b { color: var(--text-primary); }
 .approval-decision.danger:hover b { color: var(--u-hot, #e06c75); }
 @media (max-width: 620px) { .approval-decisions { grid-template-columns: 1fr; } }
 /* ===== carte interaction harnais (plan 025, step 5) — étend .perm-card ===== */
@@ -4515,9 +4565,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .git-description-toggle svg.git-chev-open { transform: rotate(90deg); }
 .git-commit-buttons { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .git-commit-buttons .ui-btn { white-space: nowrap; }
-.git-commit-buttons .ui-btn--primary { background: var(--accent); color: var(--text-on-accent); }
-.git-commit-buttons .ui-btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
-.git-commit-buttons .ui-btn--primary:disabled { background: var(--bg-ctl); color: var(--text-disabled); opacity: 1; }
 @container (max-width: 560px) {
   .git-workspace { grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
@@ -4836,34 +4883,45 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .ef-scale { display: flex; justify-content: space-between; margin-top: 8px;
   font-size: var(--eyebrow-size); letter-spacing: var(--eyebrow-tracking); text-transform: uppercase;
   color: var(--text-disabled); }
-.ef-track { position: relative; height: 20px; cursor: pointer; touch-action: none;
-  margin: 0 8px; }
-.ef-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%;
-  height: 3px; margin-top: -1.5px; border-radius: var(--r-pill); background: var(--bg-ctl); }
-.ef-fill { position: absolute; left: 0; top: 50%; height: 3px; margin-top: -1.5px;
-  border-radius: var(--r-pill); background: var(--accent); transition: width var(--ease); }
-.ef-dot { position: absolute; top: 50%; width: 3px; height: 3px; border-radius: 50%;
-  background: var(--border2); transform: translate(-50%, -50%); pointer-events: none; }
-.ef-dot.on { background: color-mix(in srgb, var(--accent) 55%, var(--bg-pop)); }
-.ef-thumb { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
-  background: var(--bg-pop); border: 1.5px solid var(--accent); box-sizing: border-box;
-  transform: translate(-50%, -50%); pointer-events: none;
-  box-shadow: 0 1px 3px rgba(0,0,0,.30); transition: left var(--ease), box-shadow var(--ease); }
-.ef-track:focus-visible { outline: none; }
-.ef-track:focus-visible .ef-thumb {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Jauge segmentée (piste B + animation et transparence, 2026-10-21) : un
+   segment par palier, allumé en --accent jusqu'au palier choisi avec une
+   rampe de transparence (pâle au départ, plein au palier, --ef-alpha posé
+   par segment), qui s'épaissit (6 → 10 px) sous un halo doux. Les segments
+   éteints sont un voile du texte, translucide sur le panneau givré. Les
+   transitions s'enchaînent en cascade (transition-delay par segment). */
+.ef-track { --ef-rail: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  display: flex; align-items: center; gap: 4px; height: 24px; cursor: pointer; touch-action: none;
+  border-radius: var(--r-s); outline: none; }
+.ef-seg { flex: 1; min-width: 0; height: 6px; border-radius: var(--r-pill); background: var(--ef-rail);
+  pointer-events: none;
+  transition: background-color 120ms var(--ease-out), height 140ms var(--ease-out), box-shadow 140ms var(--ease-out); }
+.ef-seg.on { background: color-mix(in srgb, var(--accent) var(--ef-alpha, 100%), transparent); }
+.ef-seg.preview { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.ef-seg.cur, .ef-seg.hov { height: 10px; }
+.ef-seg.cur { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 /* Cran terminal (Claude « ultracode ») : xhigh + orchestration multi-agents,
-   session seulement. Ce n'est pas la suite du même continuum, donc la piste
-   s'arrête avant et le dernier segment vit après une coupure, en --info — le
-   bleu informationnel du système. L'ambre reste l'effort. */
-.ef-track.ef-has-ultra::before { right: 18%; }
-.ef-ultra { position: absolute; right: 0; top: 50%; height: 3px; margin-top: -1.5px;
-  border-radius: var(--r-pill); background: var(--bg-ctl); transition: background var(--ease); }
-.ef-ultra.on { background: var(--info); }
-.ef-thumb.ultra { border-color: var(--info); }
-.ef-track:focus-visible .ef-thumb.ultra {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 24%, transparent); }
-.ef-title b.ef-ultra-on { color: var(--info); }
+   session seulement. Ce n'est pas la suite du continuum : segment détaché,
+   en contour tant qu'il n'est pas choisi. */
+.ef-seg-ultra { flex: 1.25; margin-left: 4px; background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 22%, transparent); }
+.ef-seg-ultra.preview { background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
+.ef-seg-ultra.on { background: var(--accent); }
+.ef-seg-ultra.on.cur { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.ef-track:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: 4px; }
+.ef-label { display: inline-block; animation: ef-label-in 120ms var(--ease-out); }
+@keyframes ef-label-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+.ef-default { margin-left: 8px; font-size: var(--fs-s); font-weight: 400; color: var(--text-disabled); }
+.ef-reset { transition: opacity 120ms var(--ease-out), background 120ms var(--ease-out), color 120ms var(--ease-out); }
+.ef-reset.ef-reset-idle { opacity: .35; }
+/* Panneau givré : fond --bg-pop à 78 % + flou de ce qui passe derrière ;
+   ouverture qui glisse (4 px, échelle .98 → 1) en 150 ms. */
+.composer-menu.effort-menu {
+  background: color-mix(in srgb, var(--bg-pop) 78%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+  transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out); }
+.composer-menu.effort-menu[data-starting-style],
+.composer-menu.effort-menu[data-ending-style] { opacity: 0; transform: translateY(4px) scale(.98); }
 /* Panneau superposé du compositeur : le portal reste ancré à la barre. */
 .composer-bar .mp-btn.mp-model.mp-effort { max-width: 330px; gap: 8px; padding: 0 8px; }
 .composer-bar .mp-model .mp-effort-sum { flex: none; color: var(--text-muted); }
@@ -4891,24 +4949,15 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .ef-header .ef-fast[aria-pressed="true"] { color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .ef-header .ef-fast[aria-pressed="true"] svg { fill: currentColor; }
-.effort-menu .ef-track { height: 18px; margin: 8px 8px 0; }
-.effort-menu .ef-track::before { left: -9px; right: -9px; height: 14px; margin-top: -7px; }
-.effort-menu .ef-track.ef-has-ultra::before { right: 18%; }
-.effort-menu .ef-fill { height: 14px; margin-top: -7px; left: -9px;
-  background: var(--accent); }
-.effort-menu .ef-ultra { height: 14px; margin-top: -7px; right: -9px; }
-.effort-menu .ef-dot { width: 3px; height: 3px; background: var(--text-muted); }
-.effort-menu .ef-dot.on { background: color-mix(in srgb, var(--text-primary) 55%, var(--accent)); }
-.effort-menu .ef-thumb { width: 18px; height: 18px; background: var(--text-primary); border: 0; box-shadow: none; }
-.effort-menu .ef-track:focus-visible .ef-thumb { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
-.effort-menu .ef-ultra.on { background: var(--accent); }
-.effort-menu .ef-track:focus-visible .ef-thumb.ultra { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
+.effort-menu .ef-track { margin-top: 16px; }
+.effort-menu .ef-title { justify-content: flex-start; align-items: baseline; gap: 0; }
 @container (max-width: 420px) {
   .composer-bar .mp-model .mp-effort-sum { display: none; }
   .composer-tool-group { gap: 4px; margin-right: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ef-fill, .ef-thumb { transition: none; }
+  .ef-seg, .ef-reset, .composer-menu.effort-menu { transition: none; }
+  .ef-label { animation: none; }
 }
 
 /* frontières lazy (plan 022) : détail technique du chunk en échec */
@@ -5889,7 +5938,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
  * focus and destructive/primary actions need stronger emphasis. */
 .set-restore { border-color: transparent; font-weight: 400; }
 .set-restore:hover { background: var(--surface-inset); color: var(--text-primary); }
-.set-btn:not(.danger):not(.primary):not(.ui-btn--danger):not(.ui-btn--primary) { border-color: transparent; box-shadow: none; font-weight: 400; }
 .set-group-label { color: var(--text-muted); font-weight: 400; letter-spacing: .05em; }
 .theme-options-trigger { width: 100%; justify-content: space-between; margin-top: 4px; font-weight: 400; }
 .theme-options-trigger svg { transition: transform var(--motion-fast) var(--ease-out); }
@@ -6127,7 +6175,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 }
 .composer-menu .mp-item.model-row { padding: 0; }
 .composer-menu .model-list-head { padding: 8px 12px; }
-.composer-menu.effort-menu { padding: 12px; border: 0; }
+.composer-menu.effort-menu { padding: 16px; border: 0; }
 .composer-menu .ef-header { display: flex; align-items: center; gap: 8px; }
 .composer-menu .ef-heading { order: -1; flex: 1; text-align: left; }
 .composer-menu.effort-menu .ef-title, .composer-menu .ef-model-link { justify-content: flex-start; }

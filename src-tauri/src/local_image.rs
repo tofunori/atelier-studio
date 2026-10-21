@@ -72,7 +72,7 @@ pub async fn local_image_save_to_gallery(path: String, thread_id: String) -> Res
         let project_root = thread.project_root.clone();
         let bytes = read_image_bytes(&path)?;
         let extension = Path::new(&path).extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
-        atelier_workspace::save_generated_image(Path::new(&project_root), &bytes, &extension)
+        atelier_workspace::gallery_rel_for_image(Path::new(&project_root), Path::new(&path), &bytes, &extension)
     }).await.map_err(|e| e.to_string())?
 }
 

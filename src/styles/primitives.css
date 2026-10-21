@@ -59,16 +59,19 @@
 .ui-iconbtn--hit40::after { content: ""; position: absolute; inset: 50% auto auto 50%;
   width: 40px; height: 40px; transform: translate(-50%, -50%); }
 
-/* ---- Tooltip ---------------------------------------------------------------- */
+/* ---- Tooltip ----------------------------------------------------------------
+ * Le Positioner de Base UI place la bulle : ni position ni z-index ici (un
+ * position:fixed sur le Popup écrasait le Positioner — bulle collée sur le
+ * déclencheur, coupée à chaque mot ; audit PRIM-01). Surface élevée = fond +
+ * ombre, sans bordure. Cycle de vie (opacity/scale sur [data-open]) : couche
+ * components de shadcn.css. */
 .ui-tooltip {
-  position: fixed; z-index: var(--z-toast); pointer-events: none;
+  pointer-events: none;
   background: var(--surface-overlay); color: var(--text-secondary);
-  border: 1px solid var(--border-subtle); border-radius: var(--radius-control);
+  border: none; border-radius: var(--radius-control);
   padding: 4px var(--sp-2); font: 400 var(--fs-label)/1.4 var(--font-chrome);
   box-shadow: var(--elevation-overlay);
-  opacity: 0; transition: opacity var(--motion-fast) var(--ease-out);
 }
-.ui-tooltip.open { opacity: 1; }
 
 /* ---- Menu / Popover : primitives Base UI (shadcn/) — plus d'implémentation
  * maison ; le chrome vit dans les classes tw des composants générés. ------- */
@@ -120,14 +123,27 @@
 .ui-surface-header .spacer { flex: 1; }
 .ui-surface-header .actions { display: flex; align-items: center; gap: var(--sp-1); }
 
+/* ---- Empty (shadcn) sans Preflight : tw:border-dashed active la largeur
+ * initiale « medium » (3 px) en currentColor — cadre pointillé épais autour
+ * des états vides Git / Narval / appareils (audit SURF-02). Pas de cadre par
+ * défaut ; :where() = spécificité nulle, toute classe produit (.ui-empty…)
+ * qui pose une bordure garde la main. --------------------------------------- */
+:where([data-slot="empty"]) { border: 0; }
+
 /* ---- EmptyState — reprend .empty-card historique, normalisé grille 4
- * (18→20, 14→12, 7→8 : écarts ≤2px, documentés au plan 016) ------------------------- */
+ * (18→20, 14→12, 7→8 : écarts ≤2px, documentés au plan 016).
+ * flex: none — le tw:flex-1 de <Empty> (base 0, croissance 1) étirait la
+ * carte sur toute la largeur d'un parent flex en ligne (Documents) ou toute
+ * la hauteur d'une colonne (Preuves) malgré width: min(360px,100%) (audit
+ * SURF-01). Contenu aligné à gauche, comme l'empty-card d'origine. ------- */
 .ui-empty {
+  flex: none; text-align: left;
   width: min(360px, 100%); margin: auto; border: 1px solid var(--border-subtle);
   border-radius: var(--radius-surface); background: var(--surface-raised);
   padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3);
   align-items: stretch; user-select: none; -webkit-user-select: none;
 }
+.ui-empty [data-slot="empty-header"] { align-items: stretch; max-width: none; }
 .ui-empty .title { color: var(--text-secondary); font-size: var(--fs-body); font-weight: 600; }
 .ui-empty .desc { color: var(--text-muted); font-size: var(--fs-body-s); }
 .ui-empty .actions { display: flex; flex-direction: column; gap: var(--sp-2); }

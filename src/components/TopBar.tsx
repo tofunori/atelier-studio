@@ -120,14 +120,14 @@ export default function TopBar({
           onToggleExplorer={onToggleExplorer}
         />
       </div>
-      <div className="topbar-right">
+      <div className="topbar-right" data-tauri-drag-region>
         {/* Onglets du pane, juste à DROITE des surfaces (demande Thierry
             2026-08-16) : ils partent du centre et grandissent vers la droite,
             tandis que les contrôles de disposition restent au bord. */}
         <span className="topbar-div" />
         <TopBarTabs allTabsMenu tabs={tabs} activeTab={activeTab} onSelectTab={onSelectTab} onCloseTab={onCloseTab} />
         <WorkspacePaneMenuSlot />
-        <span className="flex" />
+        <span className="flex" data-tauri-drag-region />
         <div className="topbar-layout-controls">
         <SegmentedControl
           label={t("layout.split")}

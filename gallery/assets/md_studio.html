@@ -69,14 +69,40 @@
   #save svg{width:15px;height:15px}
   @media (prefers-reduced-motion:reduce){#save{transition:none}}
   #ed{height:100vh}
-  #ed .toastui-editor-defaultUI{border:0}
-  .toastui-editor-dark .toastui-editor-defaultUI-toolbar{background:var(--bar)}
-  .toastui-editor-dark .ProseMirror, .toastui-editor-dark .toastui-editor-contents{
+  /* Toast UI suit le thème de l'app (classe toastui-editor-dark posée d'après
+     le color-scheme, voir md_studio_3.ts), et ses surfaces comme sa prose
+     passent par les jetons : le rendu ne dépend plus de la palette codée en
+     dur du thème Toast UI (paragraphes #fff sur fond crème en thème clair). */
+  #ed .toastui-editor-defaultUI{border:0;color:var(--text-primary,var(--fg))}
+  #ed .toastui-editor-defaultUI-toolbar{background:var(--bar)}
+  #ed .ProseMirror, #ed .toastui-editor-contents{
     font-size:15px;line-height:1.65}
-  .toastui-editor-dark .toastui-editor-ww-container,
-  .toastui-editor-dark .toastui-editor-main{background:var(--bg)}
+  #ed .toastui-editor-ww-container,#ed .toastui-editor-md-container,
+  #ed .toastui-editor-main{background:var(--bg)}
+  #ed .ProseMirror{color:var(--text-primary,var(--fg));caret-color:var(--text-primary,var(--fg))}
+  #ed .toastui-editor-contents,#ed .toastui-editor-contents p,#ed .toastui-editor-contents div,
+  #ed .toastui-editor-contents td,#ed .toastui-editor-contents td p,
+  #ed .toastui-editor-contents h1,#ed .toastui-editor-contents h2,#ed .toastui-editor-contents h3,
+  #ed .toastui-editor-contents h4,#ed .toastui-editor-contents h5,#ed .toastui-editor-contents h6{
+    color:var(--text-primary,var(--fg))}
+  #ed .toastui-editor-contents h1,#ed .toastui-editor-contents h2{border-color:var(--border-subtle,var(--border))}
+  #ed .toastui-editor-contents ul,#ed .toastui-editor-contents ol{color:var(--text-primary,var(--fg))}
+  #ed .toastui-editor-contents del{color:var(--text-muted,var(--muted))}
+  #ed .toastui-editor-contents ul>li::before{background-color:var(--text-muted,var(--muted))}
+  #ed .toastui-editor-contents blockquote{border-color:var(--border-strong,var(--border))}
+  #ed .toastui-editor-contents blockquote p,#ed .toastui-editor-contents blockquote ul,
+  #ed .toastui-editor-contents blockquote ol{color:var(--text-secondary,var(--muted))}
+  #ed .toastui-editor-contents code{color:var(--text-primary,var(--fg));
+    background-color:var(--surface-inset,var(--bar))}
+  #ed .toastui-editor-contents pre{background-color:var(--surface-inset,var(--bar))}
+  #ed .toastui-editor-contents pre code{background-color:transparent}
+  #ed .toastui-editor-contents table,#ed .toastui-editor-contents table th,
+  #ed .toastui-editor-contents table td{border-color:var(--border-subtle,var(--border))}
+  #ed .toastui-editor-contents table th{background-color:var(--surface-inset,var(--bar));
+    color:var(--text-primary,var(--fg))}
+  #ed .toastui-editor-contents hr{border-color:var(--border-subtle,var(--border))}
   /* toolbar compacte et sobre */
-  .toastui-editor-dark .toastui-editor-defaultUI-toolbar{height:34px;padding:0 8px;
+  #ed .toastui-editor-defaultUI-toolbar{height:34px;padding:0 8px;
     border-bottom:1px solid var(--border)}
   .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons{
     margin:5px 1px;border:none;border-radius:var(--radius-control);opacity:.5;
@@ -85,11 +111,15 @@
     opacity:1;background-color:var(--surface-inset,#2c313a);border:none}
   .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons.active{
     opacity:1;background-color:var(--surface-inset,#2c313a)}
-  .toastui-editor-dark .toastui-editor-toolbar-divider{margin:9px 6px;height:16px;
+  #ed .toastui-editor-toolbar-divider{margin:9px 6px;height:16px;
     background:var(--border)}
   .toastui-editor-defaultUI-toolbar button{border:none}
-  .toastui-editor-dark .toastui-editor-mode-switch{background:var(--bar);
+  #ed .toastui-editor-mode-switch{background:var(--bar);
     border-top:1px solid var(--border);font-size:var(--fs-label, 11px)}
+  #ed .toastui-editor-mode-switch .tab-item{border-color:var(--border);background-color:var(--bar);
+    color:var(--text-muted,var(--muted))}
+  #ed .toastui-editor-mode-switch .tab-item.active{border-top-color:var(--bg);background-color:var(--bg);
+    color:var(--text-primary,var(--fg))}
   .markdown-selection-actions{position:fixed;z-index:9999}
   .markdown-annotation-editor{position:fixed;z-index:10000;width:min(560px,calc(100vw - 16px));
     padding:12px;border:0;border-radius:10px;
@@ -139,6 +169,25 @@ function setDirty(next         ){
   drafts.setDirty(next);
 }
 
+/* Thème Toast UI : suit le color-scheme qu'atelier_theme.js pose sur la racine
+   (cache au chargement, puis message de l'hôte). Sans hôte, la palette
+   autonome de la page est sombre. Toast UI réécrit la classe de son conteneur
+   à chaque rendu Preact (bascule de mode) : un observateur la rétablit. */
+function editorIsDark()          { return document.documentElement.style.colorScheme !== "light"; }
+function syncEditorScheme(){
+  const dark = editorIsDark();
+  const host = document.getElementById("ed");
+  for(const node of [host, host && host.querySelector(".toastui-editor-defaultUI")]){
+    if(node && node.classList.contains("toastui-editor-dark") !== dark) node.classList.toggle("toastui-editor-dark", dark);
+  }
+}
+window.addEventListener("atelier-theme-applied", syncEditorScheme);
+function watchEditorScheme(){
+  const ui = document.querySelector("#ed .toastui-editor-defaultUI");
+  if(ui) new MutationObserver(syncEditorScheme).observe(ui, {attributes: true, attributeFilter: ["class"]});
+  syncEditorScheme();
+}
+
 async function loadDocument(){
   const loadState = (document.getElementById("loadState")                  );
   const message = (document.getElementById("loadMessage")                  );
@@ -163,7 +212,7 @@ async function loadDocument(){
       initialEditType: "wysiwyg",
       previewStyle: "tab",
       height: "100%",
-      theme: "dark",
+      theme: editorIsDark() ? "dark" : "light",
       usageStatistics: false,
       hideModeSwitch: false,
       toolbarItems: [
@@ -175,6 +224,7 @@ async function loadDocument(){
         [{ name: "mdTools", el: (document.getElementById("mdTools")                  ) }],
       ],
     });
+    watchEditorScheme();
     editor.on("change", () => {
       if(loading) return;
       localRevision += 1; setDirty(true); drafts.noteChange(); setState("dirty", "modifié");

@@ -529,19 +529,20 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   fsPlus.onclick = () => setFontSize(fontSize + 1);
   applyFontSize();
 
-  // ---- fond de lecture : noir du chat (défaut), sombre, sépia -------------
+  // ---- fond de lecture : fond de l'app (défaut), sépia ---------------------
+  // Le fond de l'app suit le thème (clair ou sombre) : sa pastille lit la même
+  // variable que la Lecture au lieu d'un noir figé. L'ancien « sombre » (dark)
+  // encore stocké retombe sur le fond de l'app.
   const THEME_KEY = "texReadTheme";
   const THEMES: ReadonlyArray<{name: string; swatch: string; label: string}> = [
-    {name: "chat", swatch: "#1e2124", label: "Fond noir du chat (défaut)"},
-    {name: "dark", swatch: "#1a1d22", label: "Fond sombre"},
+    {name: "chat", swatch: "var(--surface-app, var(--bg))", label: "Fond de l'app (défaut)"},
     {name: "sepia", swatch: "#efe7d4", label: "Fond sépia"},
   ];
   const themeNames = new Set(THEMES.map((theme) => theme.name));
   let readTheme = themeNames.has(storage.getItem(THEME_KEY) || "") ? storage.getItem(THEME_KEY) as string : "chat";
   const themeButtons: HTMLButtonElement[] = [];
   const applyTheme = (): void => {
-    if (readTheme === "dark") delete options.right.dataset.trTheme;
-    else options.right.dataset.trTheme = readTheme;
+    options.right.dataset.trTheme = readTheme;
     themeButtons.forEach((button) => button.classList.toggle("on", button.dataset.theme === readTheme));
   };
   const setTheme = (name: string): void => {

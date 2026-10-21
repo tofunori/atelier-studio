@@ -1,6 +1,6 @@
 import type { Settings } from "./settings";
 import { galleryLegacyThemeVars, resolveAppearanceTheme, themeContractVars } from "./themes";
-import { interfaceGeometry, interfaceTypography } from "./interfaceTheme";
+import { interfaceFills, interfaceGeometry, interfaceTypography } from "./interfaceTheme";
 import { atelierTargetOrigin, type AtelierOutboundMessage } from "./ipc";
 
 // piles de police canoniques (mêmes valeurs que src/App.css et les :root des iframes)
@@ -43,7 +43,8 @@ export function themeVars(
     "--code-font": settings.codeFont ? `'${settings.codeFont}', ${CANON_CODE_FONT}` : CANON_CODE_FONT,
   };
   if (includeRuntimeGeometry) {
-    Object.assign(vars, interfaceGeometry(getComputedStyle(document.documentElement)));
+    const computed = getComputedStyle(document.documentElement);
+    Object.assign(vars, interfaceGeometry(computed), interfaceFills(computed));
   } else {
     THEME_GEOMETRY_VARS.forEach((name) => delete vars[name]);
   }

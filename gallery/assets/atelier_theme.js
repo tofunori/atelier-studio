@@ -108,6 +108,14 @@
     "--border-strong": "var(--border2, var(--border, #43474c))",
     "--border-interactive": "var(--border-strong, var(--border, #43474c))",
     "--accent-base": "var(--accent, #e77f3e)",
+    // Remplissage des actions : l'app envoie la valeur résolue de tokens.css
+    // (interfaceFills) ; hors app, l'option A « relief ». Jamais l'encre.
+    "--fill-primary": "var(--border-default, var(--border-strong, var(--border, #43474c)))",
+    "--fill-primary-hover": "color-mix(in srgb, var(--fill-primary) 84%, var(--text-primary, var(--txt, #dadee3)) 16%)",
+    "--on-fill-primary": "var(--text-primary, var(--txt, #dadee3))",
+    "--fill-secondary": "transparent",
+    "--fill-secondary-hover": "var(--surface-inset, var(--card2, #2c2f34))",
+    "--fill-secondary-ring": "var(--border-default, var(--border-strong, var(--border, #43474c)))",
     "--status-success": "var(--u-ok, #98c379)",
     "--status-warning": "var(--u-warn, #e0b74a)",
     "--status-error": "var(--u-hot, #e06c75)",

@@ -80,6 +80,11 @@ declare global {
     __ENGINE?: string;
     __tokq?: string;
     __atelierTheme?: {mode?: string; tokens?: Record<string, string>; [key: string]: unknown};
+    __atelierGalleryTheme?: {
+      apply(message: {vars?: Record<string, string>; colorScheme?: string}): void;
+      remember(message: {vars?: Record<string, string>; colorScheme?: string; version?: unknown; preset?: unknown}): void;
+      applyCached(): boolean;
+    };
     __claudeSelOverlay?: boolean;
     webkit?: { messageHandlers?: Record<string, {postMessage(message: unknown): void}> };
   }

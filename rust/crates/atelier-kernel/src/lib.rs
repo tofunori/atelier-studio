@@ -25,7 +25,7 @@ pub mod verify;
 mod scan;
 
 pub use envs::{discover_envs, resolve_env, PyEnv};
-pub use journal::{CellJournal, CellRecord, ChainCheck, Lineage, ReplayMark, VarUse};
+pub use journal::{CellJournal, CellRecord, ChainCheck, Lineage, ReplayMark, ResumedFrom, VarUse};
 pub use kernel::KernelInfo;
 pub use manager::{
     panel_view, CellEvent, CellListener, KernelError, KernelManager, KernelStatus, Origin,

@@ -40,8 +40,9 @@ button:focus-visible,[contenteditable]:focus-visible,textarea:not(.atelier-note-
 .glyph sup,.glyph sub{font-size:10px}
 .track{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;font-size:12px;color:var(--text-primary);cursor:pointer}
 .sw{position:relative;width:26px;height:16px;border-radius:999px;background:var(--border-strong);transition:background 120ms ease-out}
-.sw i{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:999px;background:var(--surface-app,var(--bg));transition:transform 120ms ease-out}
-.track.on .sw{background:var(--text-primary)}
+.sw i{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:999px;background:var(--surface-app,var(--bg));transition:transform 120ms ease-out,background-color 120ms ease-out}
+.track.on .sw{background:var(--fill-primary,var(--border-default,var(--border-strong,var(--border))))}
+.track.on .sw i{background:var(--on-fill-primary,var(--text-primary,var(--txt)))}
 .track.on .sw i{transform:translateX(10px)}
 .nav{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
 .nav .num{min-width:48px;text-align:center}
@@ -49,7 +50,8 @@ button:focus-visible,[contenteditable]:focus-visible,textarea:not(.atelier-note-
 .btn svg{width:14px;height:14px;color:var(--text-muted)}
 .btn:hover{background:color-mix(in srgb,var(--text-primary) 8%,var(--bg-ctl,var(--surface-inset)))}
 /* Action principale sobre : encre sur fond, sans orange (Thierry 2026-10-19). */
-.btn.primary{background:var(--text-primary);color:var(--surface-app,var(--bg));font-weight:500}
+.btn.primary{background:var(--fill-primary,var(--border-default,var(--border-strong,var(--border))));color:var(--on-fill-primary,var(--text-primary,var(--txt)));font-weight:500}
+.btn.primary:hover:not(:disabled){background:var(--fill-primary-hover,color-mix(in srgb,var(--fill-primary,var(--border-default,var(--border-strong,var(--border)))) 84%,var(--on-fill-primary,var(--text-primary,var(--txt))) 16%))}
 .btn:disabled{opacity:.45;cursor:default}
 
 /* ---- avis (Word ouvert, conflit, erreur) ---- */
@@ -169,7 +171,8 @@ body.no-margin #cards{display:none}
 .c-foot .sp{flex:1}
 .c-foot .btn{height:24px;padding:0 8px;font-size:11px;background:transparent;color:var(--text-secondary)}
 .c-foot .btn:hover{background:var(--surface-hover);color:var(--text-primary)}
-.c-foot .btn.primary{background:var(--text-primary);color:var(--surface-app,var(--bg))}
+.c-foot .btn.primary{background:var(--fill-primary,var(--border-default,var(--border-strong,var(--border))));color:var(--on-fill-primary,var(--text-primary,var(--txt)))}
+.c-foot .btn.primary:hover:not(:disabled){background:var(--fill-primary-hover,color-mix(in srgb,var(--fill-primary,var(--border-default,var(--border-strong,var(--border)))) 84%,var(--on-fill-primary,var(--text-primary,var(--txt))) 16%))}
 .c-input{width:100%;min-height:56px;margin-top:8px;padding:8px;border:0;border-radius:6px;outline:0;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px/1.5 var(--ui-font);resize:none}
 .c-input::placeholder{color:var(--text-muted)}
 

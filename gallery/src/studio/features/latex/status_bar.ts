@@ -383,7 +383,16 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   }
   moreBtn.onclick = (event) => {
     event.stopPropagation();
-    morePop.style.display = morePop.style.display === "none" ? "block" : "none";
+    const opening = morePop.style.display === "none";
+    if (opening) {
+      // Ancré sous son déclencheur (+4 px), comme l'historique des versions :
+      // un top figé à 40 px mordait sur le bouton d'une barre de 46 px.
+      const rect = moreBtn.getBoundingClientRect();
+      const viewportWidth = doc.documentElement.clientWidth || rect.right;
+      morePop.style.top = Math.round(rect.bottom + 4) + "px";
+      morePop.style.right = Math.max(8, Math.round(viewportWidth - rect.right)) + "px";
+    }
+    morePop.style.display = opening ? "block" : "none";
     refreshWrap();
     refreshAutoRewrap();
     refreshVisualEditor();

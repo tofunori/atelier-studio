@@ -191,6 +191,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-core"
+version = "0.1.0"
+dependencies = [
+ "atelier-store",
+ "chrono",
+ "hex",
+ "libc",
+ "md-5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "walkdir",
+]
+
+[[package]]
 name = "atelier-fdlimit"
 version = "0.1.0"
 dependencies = [
@@ -228,6 +243,7 @@ dependencies = [
 name = "atelier-workspace"
 version = "0.1.0"
 dependencies = [
+ "atelier-core",
  "atelier-integrations",
  "base64 0.22.1",
  "chrono",

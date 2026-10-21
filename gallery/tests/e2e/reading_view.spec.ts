@@ -260,6 +260,20 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     // Hors app, --surface-app est absente : le repli #1e2124 (le noir du chat)
     // s'applique. Dans l'app, atelier_theme.js fournit la variable exacte.
     expect(fondChat.fond).toBe('rgb(30, 33, 36)');
+    // Thème clair de l'app : la prose suit --text-primary, jamais un blanc
+    // figé sur le fond crème (EDIT-01).
+    const clair = await fr().evaluate(() => {
+      const root = document.documentElement.style;
+      const avant = ['--surface-app', '--text-primary'].map(name => root.getPropertyValue(name));
+      root.setProperty('--surface-app', '#faf9f5');
+      root.setProperty('--text-primary', '#1f1e1d');
+      const read = document.getElementById('texread');
+      const out = {fond: getComputedStyle(document.getElementById('right')).backgroundColor,
+        texte: getComputedStyle(read).color};
+      root.setProperty('--surface-app', avant[0]); root.setProperty('--text-primary', avant[1]);
+      return out;
+    });
+    expect(clair).toEqual({fond: 'rgb(250, 249, 245)', texte: 'rgb(31, 30, 29)'});
 
     // La barre d'état historique a été absorbée par la barre d'outils unique.
     // Elle reste retirée; le sélecteur de vue ramène bien l'éditeur lui-même.

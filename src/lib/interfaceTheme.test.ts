@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { interfaceGeometry, interfaceTypography } from "./interfaceTheme";
+import { FILL_ROLES, interfaceFills, interfaceGeometry, interfaceTypography } from "./interfaceTheme";
 
 describe("interface scale", () => {
   it("increases every text role with larger UI settings without setting chat or editor sizes", () => {
@@ -22,5 +22,12 @@ describe("interface scale", () => {
     const values: Record<string, string> = { "--motion-standard": " 0ms ", "--radius-control": " 6px " };
     const result = interfaceGeometry({ getPropertyValue: (key) => values[key] || "" });
     expect(result).toEqual({ "--motion-standard": "0ms", "--radius-control": "6px" });
+  });
+
+  it("passes the resolved action fills to embedded views, never the ink", () => {
+    const values: Record<string, string> = { "--fill-primary": " #3b3b39 ", "--on-fill-primary": "#e8e6e3" };
+    const result = interfaceFills({ getPropertyValue: (key) => values[key] || "" });
+    expect(result).toEqual({ "--fill-primary": "#3b3b39", "--on-fill-primary": "#e8e6e3" });
+    expect(FILL_ROLES).toContain("--fill-secondary-ring");
   });
 });

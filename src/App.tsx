@@ -4573,7 +4573,7 @@ export default function App() {
           defaults={settings as any}
           providers={providerList}
           agentProviders={linkableAgentProviders(providerList)}
-          linkedAgents={linkedAgentSummaries(allThreads, activeId)}
+          linkedAgents={linkedAgentSummaries(allThreads, activeId, workingSince)}
           onOpenLinkedAgent={(threadId) => {
             const thread = allThreads.find((entry) => entry.id === threadId);
             if (thread) selectThread(thread.id, thread.projectRoot);

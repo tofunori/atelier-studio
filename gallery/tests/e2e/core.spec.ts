@@ -1,6 +1,6 @@
 import { test, expect, type Page, type FrameLocator } from '@playwright/test';
 import { spawnGalleryServer, serveHostPage, freePort, waitForServer } from '../gallery_server.mts';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync, rmSync, realpathSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -553,6 +553,59 @@ test('filters: archive copies stay hidden until the « Archives » switch is on'
   }, (root) => {
     mkdirSync(path.join(root, '_archives', '2026-09-30_1012'), { recursive: true });
     writeFileSync(path.join(root, '_archives', '2026-09-30_1012', 'plot-alpha.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+  });
+});
+
+test('figure versions: one card per figure, the viewer lists the other files', async ({ page }) => {
+  // Vécu 2026-10-21 : figS_…pdf/.png dans figures/supp (ici .svg/.png, le PDF
+  // étant masqué par défaut), leur copie pour LaTeX
+  // dans manuscrit/figures/supp (une correction de retard) et la copie du
+  // chat dans images-generees faisaient cinq cartes de la même figure.
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    const pile = page.locator('#grid .card.stack');
+    await expect(pile).toHaveCount(1);
+    await expect(page.locator('#grid .card')).toHaveCount(4);
+    await expect(pile.locator('.nm')).toHaveText('figS_burn');
+    await expect(pile.locator('.stackn')).toHaveText('4');
+    await expect(pile.locator('.stackn')).toHaveClass(/late/);
+    await expect(pile.locator('.mf')).toHaveText('PNG · SVG');
+    await expect(pile).toHaveAttribute('data-card', 'figures/supp/figS_burn.png');
+
+    await pile.locator('[data-act="lb"]').click();
+    await expect(page.locator('#lb')).toHaveClass(/show/);
+    await expect(page.locator('#lbImg')).toHaveAttribute('src', /(^|path=)figures(\/|%2F)supp(\/|%2F)figS_burn\.png/);
+    await page.locator('#lbFilesBtn').click();
+    const rows = page.locator('#lbFiles .lbf-row');
+    await expect(rows).toHaveCount(4);
+    await expect(rows.nth(0)).toContainText('la plus récente');
+    await expect(rows.nth(1)).toContainText('même version');
+    const late = page.locator('#lbFiles .lbf-row', { hasText: 'manuscrit/figures/supp' });
+    await expect(late.locator('.lbf-state')).toHaveText('en retard');
+    await expect(page.locator('#lbFiles .lbf-row', { hasText: 'images-generees' }).locator('.lbf-state')).toHaveText('copie du chat');
+    const position = await page.locator('#lbPosition').textContent();
+    await late.click();
+    await expect(page.locator('#lbImg')).toHaveAttribute('src', /(^|path=)manuscrit(\/|%2F)figures(\/|%2F)supp(\/|%2F)figS_burn\.png/);
+    // même place dans la navigation : on regarde un autre fichier de la même figure
+    await expect(page.locator('#lbPosition')).toHaveText(position);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+
+    await page.locator('#viewChip').click();
+    await page.locator('#vGroup').uncheck();
+    await expect(page.locator('#grid .card.stack')).toHaveCount(0);
+    await expect(page.locator('#grid .card')).toHaveCount(7);
+  }, (root) => {
+    const now = Date.now() / 1000;
+    const put = (rel: string, body: Buffer | string, age: number) => {
+      mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      writeFileSync(path.join(root, rel), body);
+      utimesSync(path.join(root, rel), now - age, now - age);
+    };
+    put('figures/supp/figS_burn.png', pngFixture(80, 40), 10);
+    put('figures/supp/figS_burn.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"/>', 12);
+    put('manuscrit/figures/supp/figS_burn.png', pngFixture(60, 40), 600);
+    put('images-generees/figS_burn-1a2b3c4d.png', pngFixture(40, 40), 900);
   });
 });
 

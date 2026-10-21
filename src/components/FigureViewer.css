@@ -1,0 +1,62 @@
+/* Visionneuse d'une figure du noyau (piste A, 2026-10-21) : voile givré sur
+   la fenêtre, figure posée dessus, barre en verre en haut. Seuls le voile, la
+   barre et l'aide s'estompent ; la figure, elle, grandit depuis son aperçu. */
+
+/* Aperçu dans la cellule : toute la figure se clique (ou Espace au clavier). */
+.kernel-figure-zoom { display: block; width: 100%; padding: 0; cursor: zoom-in; }
+.kernel-figure-zoom img { display: block; max-width: 100%; height: auto; }
+
+.figure-viewer { position: fixed; inset: 0; z-index: var(--z-modal); outline: none; overflow: hidden; }
+
+.figure-viewer-scrim { position: absolute; inset: 0; width: 100%; height: 100%; cursor: zoom-out;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2); }
+
+.figure-viewer-scrim, .figure-viewer-bar, .figure-viewer-hint {
+  opacity: 0; transition: opacity var(--motion-standard) var(--ease-out); }
+.figure-viewer[data-state="open"] :is(.figure-viewer-scrim, .figure-viewer-bar, .figure-viewer-hint) { opacity: 1; }
+.figure-viewer[data-state="closing"] :is(.figure-viewer-scrim, .figure-viewer-bar, .figure-viewer-hint) {
+  transition-duration: var(--motion-fast); transition-timing-function: ease-in; }
+
+/* Zone où la figure s'ajuste : sous la barre, au-dessus de l'aide. */
+.figure-viewer-stage { position: absolute; inset: 72px 48px 48px; pointer-events: none; }
+.figure-viewer-img { position: absolute; left: 50%; top: 50%; max-width: none; pointer-events: auto;
+  transform-origin: center; user-select: none; touch-action: none; cursor: zoom-in;
+  border-radius: calc(var(--r-m) / var(--figure-scale, 1)); box-shadow: var(--elev); }
+.figure-viewer-img[data-zoomed] { cursor: grab; }
+.figure-viewer-img[data-dragging] { cursor: grabbing; }
+.figure-viewer-img[data-animate] { transition: transform var(--motion-standard) var(--ease-out); }
+.figure-viewer[data-state="closing"] .figure-viewer-img[data-animate] {
+  transition-duration: var(--motion-fast); transition-timing-function: ease-in; }
+.figure-viewer-missing { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  margin: 0; color: var(--text-muted); font-size: var(--fs-m); }
+
+.figure-viewer-bar { position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  max-width: calc(100% - 32px); height: 40px; display: flex; align-items: center; gap: 2px;
+  padding: 0 4px 0 12px; border-radius: var(--r-m); white-space: nowrap;
+  background: color-mix(in srgb, var(--bg-pop) 74%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--text-primary) 10%, transparent), var(--elev); }
+.figure-viewer-bar svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3;
+  stroke-linecap: round; stroke-linejoin: round; }
+.figure-viewer-name { min-width: 0; max-width: 280px; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-primary); font-size: var(--fs-m); }
+.figure-viewer-meta { flex: none; margin: 0 8px; color: var(--text-muted); font-size: var(--fs-s); }
+.figure-viewer-sep { flex: none; width: 1px; height: 16px; margin: 0 4px; background: var(--border); }
+.figure-viewer-count { flex: none; min-width: 36px; text-align: center; color: var(--text-muted);
+  font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.figure-viewer-zoom { flex: none; min-width: 56px; height: 28px; padding: 0 4px; border-radius: var(--r-s);
+  color: var(--text-secondary); font-size: var(--fs-s); font-variant-numeric: tabular-nums;
+  transition: background-color var(--motion-fast) var(--ease-out); }
+.figure-viewer-zoom:hover { background: var(--surface-hover); }
+/* Ouvrir dans la galerie et enregistrer : la même barre que sur l'aperçu,
+   posée dans la barre de la visionneuse au lieu de flotter sur l'image. */
+.figure-viewer-bar .figure-gallery-bar { position: static; opacity: 1; transform: none;
+  padding: 0; gap: 2px; background: none; box-shadow: none; }
+.figure-viewer-bar .figure-gallery-bar svg { width: 16px; height: 16px; stroke-width: 1.3; }
+
+/* Zoomée, la figure passe sous l'aide : on l'efface. */
+.figure-viewer[data-zoomed] .figure-viewer-hint { opacity: 0; }
+.figure-viewer-hint { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); margin: 0;
+  max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  pointer-events: none; color: var(--text-secondary); font-size: var(--fs-s); }

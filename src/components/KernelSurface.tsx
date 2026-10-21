@@ -8,13 +8,16 @@ import { createSelectionActions } from "../../gallery/src/studio/features/annota
 import { t } from "../lib/i18n";
 import {
   baseName, kernelCommand, selectionContext, stopKernel, takePendingFocus, useKernelCells, variableSize,
-  type ChainCheck, type KernelCell, type KernelEnv, type KernelStatus, type KernelVariable, type ReplayState,
+  type ChainCheck, type KernelCell, type KernelEnv, type KernelStatus, type KernelVariable, type ProjectThread,
+  type ReplayState, type ResumeState,
 } from "../lib/kernel";
 import { localImagePreviewUrl } from "../lib/localImage";
 import { FigureGalleryBar } from "./FigureGalleryBar";
 import { highlightCode } from "./chat/md";
 import { Button, IconButton, RowButton, showError, showSuccess } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
+import { FigureViewer } from "./FigureViewer";
+import { FIGURE_SAVED_EVENT, figuresIn, rememberSavedFigure, savedFigure, type ShownFigure } from "../lib/kernelFigures";
 
 const Icon = {
   chevron: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6.5 8 10l3.5-3.5" /></svg>,
@@ -30,6 +33,7 @@ const Icon = {
   play: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z" /></svg>,
   user: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5" /><path d="M3.5 13.5c.6-2.3 2.3-3.5 4.5-3.5s3.9 1.2 4.5 3.5" /></svg>,
   warn: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" /><path d="M8 5v3.4M8 10.8v.1" /></svg>,
+  expand: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" /></svg>,
 };
 
 function duration(ms?: number): string {
@@ -41,6 +45,20 @@ function clock(iso?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/** L'heure aujourd'hui, sinon le jour et l'heure. */
+function when(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  if (d.toDateString() === new Date().toDateString()) return clock(iso);
+  return `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${clock(iso)}`;
+}
+
+/** Message d'erreur du runtime sans son code (`kernel_busy — …`). */
+function plain(message: string): string {
+  return message.replace(/^[a-z_]+ — /u, "");
 }
 
 /** Chemin relatif au projet quand il y est, pour ouvrir un fichier écrit. */
@@ -73,11 +91,28 @@ function useElapsed(startedAt: string | undefined, running: boolean): number {
   return Number.isNaN(start) ? 0 : Math.max(0, Math.round((now - start) / 1000));
 }
 
-/** Figure captée : aperçu, et au survol « ouvrir » ou « enregistrer » dans la galerie. */
+/** Figure captée : aperçu qui s'agrandit au clic, et au survol « agrandir »,
+ *  « ouvrir » ou « enregistrer » dans la galerie. */
 export function KernelFigure({ path, threadId, cell }: { path: string; threadId: string; cell?: number | null }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [saved, setSaved] = useState<string | null>(null);
+  const [saved, setSaved] = useState(() => savedFigure(path));
+  const [viewer, setViewer] = useState<{ figures: ShownFigure[]; start: number } | null>(null);
+  const thumb = useRef<HTMLButtonElement | null>(null);
+  // La visionneuse peut enregistrer cette figure pendant qu'on en regarde une autre.
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      const detail = (event as CustomEvent<{ path: string; rel: string }>).detail;
+      if (detail?.path === path) setSaved(detail.rel);
+    };
+    window.addEventListener(FIGURE_SAVED_EVENT, onSaved);
+    return () => window.removeEventListener(FIGURE_SAVED_EVENT, onSaved);
+  }, [path]);
+  const openViewer = () => {
+    const figures = figuresIn(thumb.current?.closest(".kernel-scroll") ?? document);
+    const start = figures.findIndex((f) => f.path === path);
+    setViewer(start < 0 ? { figures: [{ path, cell: cell ?? null, thumb: thumb.current?.querySelector("img") ?? null }], start: 0 } : { figures, start });
+  };
   useEffect(() => {
     let disposed = false;
     let owned: string | undefined;
@@ -92,12 +127,23 @@ export function KernelFigure({ path, threadId, cell }: { path: string; threadId:
 
   if (failed) return <p className="kernel-figure-missing">{t("kernel.figure-missing", { name: baseName(path) })}</p>;
   return (
-    <figure className="kernel-figure" data-testid="kernel-figure">
+    <figure className="kernel-figure" data-testid="kernel-figure" data-path={path} data-cell={cell ?? undefined}>
       <div className="kernel-figure-frame">
-        {url ? <img src={url} alt={baseName(path)} draggable={false} /> : <span className="kernel-figure-loading" aria-hidden="true" />}
-        <FigureGalleryBar path={path} threadId={threadId} cell={cell} onSaved={setSaved} />
+        {url ? (
+          <RowButton ref={thumb} className="kernel-figure-zoom" aria-label={t("kernel.figure-expand-name", { name: baseName(path) })} onClick={openViewer}>
+            <img src={url} alt={baseName(path)} draggable={false} />
+          </RowButton>
+        ) : <span className="kernel-figure-loading" aria-hidden="true" />}
+        {/* Remontée quand la figure entre au projet : la barre relit la copie faite. */}
+        <FigureGalleryBar key={saved ?? ""} path={path} threadId={threadId} cell={cell} saved={saved}
+          onSaved={(rel) => { rememberSavedFigure(path, rel); setSaved(rel); }}>
+          {url ? <IconButton size="s" className="ghost" label={t("kernel.figure-expand")} title={t("kernel.figure-expand")}
+            onClick={openViewer}>{Icon.expand}</IconButton> : null}
+        </FigureGalleryBar>
       </div>
       <figcaption>{saved ? t("kernel.figure-in-project", { path: saved }) : t("kernel.figure-temp")}</figcaption>
+      {viewer ? <FigureViewer threadId={threadId} figures={viewer.figures} start={viewer.start}
+        onClose={() => { setViewer(null); thumb.current?.focus(); }} /> : null}
     </figure>
   );
 }
@@ -179,8 +225,10 @@ function CellHead({ cell, threadId, canEdit, actions }: { cell: KernelCell; thre
         {Icon.chevron}<span>{cell.purpose || t("kernel.cell-n", { n: cell.id })}</span>
       </RowButton>
       {cell.author === "user" ? (
-        <span className="kernel-badge" data-tone="muted">{Icon.user}{cell.fromCell != null
-          ? t("kernel.user-from", { n: cell.fromCell }) : t("kernel.user-own")}</span>
+        <span className="kernel-badge" data-tone="muted" title={cell.resumedFrom
+          ? t("kernel.resumed-from", { title: cell.resumedFrom.title || t("kernel.untitled"), n: cell.resumedFrom.cell }) : undefined}>
+          {Icon.user}{cell.resumedFrom ? t("kernel.resumed-short", { n: cell.resumedFrom.cell })
+            : cell.fromCell != null ? t("kernel.user-from", { n: cell.fromCell }) : t("kernel.user-own")}</span>
       ) : null}
       {stale ? <span className="kernel-badge" data-tone="warn">{Icon.warn}{t("kernel.stale")}</span> : null}
       <ReplayBadge cell={cell} />
@@ -273,11 +321,51 @@ function CellEditor({ cell, threadId, nextId, onDone }: { cell: KernelCell; thre
           else if (e.key === "Escape") { e.preventDefault(); onDone(); }
         }} />
       <div className="kernel-editor-bar">
-        <Button variant="primary" size="xs" loading={busy} disabled={code === cell.code} onClick={submit}>
+        <Button variant="secondary" size="xs" loading={busy} disabled={code === cell.code} onClick={submit}>
           {Icon.play}{t("kernel.rerun-as", { n: nextId })}
         </Button>
         <Button variant="ghost" size="xs" onClick={onDone}>{t("action.cancel")}</Button>
         <span className="kernel-editor-note">{error ?? t("kernel.rerun-note", { n: cell.id })}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Cellule libre en bas du panneau : l'utilisateur écrit et lance son propre
+ *  code sans passer par l'agent (signée « écrite par toi », annoncée à
+ *  l'agent au tour suivant). Le noyau démarre au besoin. */
+function FreeCell({ threadId, nextId, disabled, onResume }: {
+  threadId: string; nextId: number; disabled: boolean; onResume?: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const area = useRef<HTMLTextAreaElement | null>(null);
+  const fit = (el: HTMLTextAreaElement) => { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; };
+  const submit = () => {
+    if (busy || disabled || !code.trim()) return;
+    setBusy(true);
+    setError(null);
+    kernelCommand(threadId, "rerun", { code })
+      .then(() => {
+        setCode("");
+        if (area.current) { area.current.style.height = ""; area.current.focus(); }
+      })
+      .catch((e: Error) => setError(plain(e.message)))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="kernel-editor kernel-new">
+      <textarea ref={area} className="kernel-code kernel-edit" value={code} spellCheck={false}
+        placeholder={t("kernel.new-placeholder")} aria-label={t("kernel.new-label")}
+        onChange={(e) => { setCode(e.target.value); fit(e.target); }}
+        onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); submit(); } }} />
+      <div className="kernel-editor-bar">
+        <Button variant="secondary" size="xs" loading={busy} disabled={disabled || !code.trim()} onClick={submit}>
+          {Icon.play}{t("kernel.run-as", { n: nextId })}
+        </Button>
+        <span className="kernel-editor-note">{error ?? t("kernel.new-note")}</span>
+        {onResume ? <Button variant="ghost" size="xs" className="kernel-new-resume" onClick={onResume}>{Icon.replay}{t("kernel.resume-open")}</Button> : null}
       </div>
     </div>
   );
@@ -533,11 +621,100 @@ function ExportMenu({ threadId }: { threadId: string }) {
   );
 }
 
-function KernelHeader({ threadId, threadTitle, enabled, status, hasCells, replay }: {
-  threadId: string; threadTitle?: string; enabled: boolean; status: KernelStatus | null; hasCells: boolean; replay: ReplayState | null;
+/** Autres fils du même projet qui ont des cellules, pour reprendre. */
+function useProjectThreads(threadId: string, enabled: boolean): ProjectThread[] {
+  const [threads, setThreads] = useState<ProjectThread[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    kernelCommand<{ threads?: ProjectThread[] }>(threadId, "projectThreads")
+      .then((r) => { if (live) setThreads(r.threads ?? []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [threadId, enabled]);
+  return threads;
+}
+
+/** Un fil précédent : ses cellules à l'ouverture, et « Reprendre ici ». */
+function ResumeRow({ threadId, source, open, onToggle, disabled, onStarted }: {
+  threadId: string; source: ProjectThread; open: boolean; onToggle: () => void; disabled: boolean; onStarted?: () => void;
+}) {
+  const { cells } = useKernelCells(open ? source.threadId : null, open);
+  const [busy, setBusy] = useState(false);
+  const start = () => {
+    setBusy(true);
+    kernelCommand(threadId, "resume", { fromThread: source.threadId })
+      .then(() => onStarted?.())
+      .catch((e: Error) => void showError(plain(e.message)))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <li className="kernel-resume-row">
+      <RowButton className="kernel-resume-head" aria-expanded={open} onClick={onToggle}>
+        {Icon.chevron}<span className="kernel-resume-name">{source.title || t("kernel.untitled")}</span>
+        <span className="kernel-resume-meta">{t("kernel.resume-meta", { n: source.cells, when: when(source.lastAt) })}</span>
+      </RowButton>
+      {open ? (
+        <div className="kernel-resume-body">
+          <ol className="kernel-resume-cells">
+            {cells.map((c) => (
+              <li key={c.id} data-status={c.status}>
+                <span className="kernel-resume-n">[{c.id}]</span>
+                <span className="kernel-resume-what">{c.purpose || firstLine(c.code)}</span>
+                {c.status === "error" ? <span className="kernel-cell-error">{t("kernel.error")}</span> : null}
+              </li>
+            ))}
+          </ol>
+          <div className="kernel-editor-bar">
+            <Button variant="secondary" size="xs" loading={busy} disabled={disabled || !source.ok} onClick={start}>
+              {Icon.replay}{t("kernel.resume-run", { n: source.ok })}
+            </Button>
+            <span className="kernel-editor-note">{t("kernel.resume-note")}</span>
+          </div>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function ResumeList({ threadId, threads, disabled, onStarted }: {
+  threadId: string; threads: ProjectThread[]; disabled: boolean; onStarted?: () => void;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  if (!threads.length) return null;
+  return (
+    <section className="kernel-resume" aria-label={t("kernel.resume-title")}>
+      <h3>{t("kernel.resume-title")}</h3>
+      <ul>
+        {threads.map((source) => (
+          <ResumeRow key={source.threadId} threadId={threadId} source={source} disabled={disabled} onStarted={onStarted}
+            open={open === source.threadId} onToggle={() => setOpen((o) => (o === source.threadId ? null : source.threadId))} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Démarre le noyau sans attendre une cellule (env retenu du fil). */
+function StartButton({ threadId }: { threadId: string }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button variant="secondary" size="xs" loading={busy} onClick={() => {
+      setBusy(true);
+      kernelCommand(threadId, "restart")
+        .catch((e: Error) => void showError(plain(e.message)))
+        .finally(() => setBusy(false));
+    }}>{Icon.play}{t("kernel.start")}</Button>
+  );
+}
+
+function KernelHeader({ threadId, threadTitle, enabled, status, hasCells, replay, resume }: {
+  threadId: string; threadTitle?: string; enabled: boolean; status: KernelStatus | null; hasCells: boolean;
+  replay: ReplayState | null; resume: ResumeState | null;
 }) {
   const state = stateOf(enabled, status);
-  const replaying = replay?.state === "running";
+  const resuming = resume?.state === "running";
+  const replaying = replay?.state === "running" || resuming;
   return (
     <header className="kernel-head">
       <div className="kernel-titles">
@@ -545,14 +722,16 @@ function KernelHeader({ threadId, threadTitle, enabled, status, hasCells, replay
         {threadTitle ? <p>{t("kernel.thread", { title: threadTitle })}</p> : null}
       </div>
       <span className="kernel-state" data-state={replaying ? "busy" : state.key} role="status"><span className="kernel-dot" />
-        {replay?.state === "running" ? t("kernel.replaying", { done: replay.done, total: replay.total }) : state.label}</span>
-      {enabled && hasCells ? (replaying
+        {replay?.state === "running" ? t("kernel.replaying", { done: replay.done, total: replay.total })
+          : resuming ? t("kernel.resuming", { done: resume.done, total: resume.total }) : state.label}</span>
+      {enabled && hasCells && !resuming ? (replaying
         ? <Button variant="ghost" size="xs" onClick={() => void kernelCommand(threadId, "cancelReplay").catch(() => {})}>{Icon.stop}{t("kernel.replay-stop")}</Button>
         : <Button variant="ghost" size="xs" disabled={status?.busyCell != null} title={t("kernel.replay-hint")}
             onClick={() => void kernelCommand(threadId, "replay").catch((e: Error) => void showError(e.message.replace(/^[a-z_]+ — /u, "")))}>
             {Icon.replay}{t("kernel.replay")}
           </Button>) : null}
       {hasCells ? <ExportMenu threadId={threadId} /> : null}
+      {enabled && status && !status.running && !replaying ? <StartButton threadId={threadId} /> : null}
       {enabled && status?.running && !replaying ? <>
         <Button variant="ghost" size="xs" onClick={() => void kernelCommand(threadId, "restart").catch(() => {})}>{Icon.restart}{t("kernel.restart")}</Button>
         <Button variant="ghost" size="xs" onClick={() => stopKernel(threadId)}>{Icon.stop}{t("kernel.stop-short")}</Button>
@@ -589,8 +768,14 @@ function KernelMeta({ threadId, status, cellCount }: { threadId: string; status:
 }
 
 /** Résumé du dernier rejeu, et alerte si le journal a été retouché. */
-function KernelNotices({ replay, chain }: { replay: ReplayState | null; chain: ChainCheck | null }) {
+function KernelNotices({ replay, chain, resume, threads }: {
+  replay: ReplayState | null; chain: ChainCheck | null; resume: ResumeState | null; threads: ProjectThread[];
+}) {
   const lines: { tone: "ok" | "warn"; text: string }[] = [];
+  if (resume?.state === "done") {
+    const title = threads.find((s) => s.threadId === resume.fromThread)?.title || t("kernel.untitled");
+    lines.push({ tone: resume.error ? "warn" : "ok", text: [t("kernel.resume-done", { title, n: resume.done }), resume.error ? plain(resume.error) : ""].filter(Boolean).join(" · ") });
+  }
   if (chain?.brokenAt != null) lines.push({ tone: "warn", text: t("kernel.chain-broken", { n: chain.brokenAt }) });
   if (replay?.state === "done") {
     if (replay.error) lines.push({ tone: "warn", text: replay.error.replace(/^[a-z_]+ — /u, "") });
@@ -622,7 +807,7 @@ function KernelEmpty({ enabled }: { enabled: boolean }) {
 
 type SurfaceProps = { threadTitle?: string; enabled: boolean; projectRoot?: string; visible: boolean };
 
-type CellGroup = { key: string; turnId?: string | null; prompt?: string | null; user: boolean; cells: KernelCell[] };
+type CellGroup = { key: string; turnId?: string | null; prompt?: string | null; user: boolean; resumed?: string; cells: KernelCell[] };
 
 /** Cellules regroupées par tour de l'agent (cellules voisines du même tour) ;
  *  celles relancées à la main forment leur propre groupe. */
@@ -630,10 +815,11 @@ function groupCells(cells: KernelCell[]): CellGroup[] {
   const groups: CellGroup[] = [];
   for (const cell of cells) {
     const user = cell.author === "user";
-    const key = user ? "user" : cell.turnId ? `turn:${cell.turnId}` : "none";
+    const from = cell.resumedFrom;
+    const key = from ? `resumed:${from.threadId}` : user ? "user" : cell.turnId ? `turn:${cell.turnId}` : "none";
     const last = groups[groups.length - 1];
     if (last && last.key === key) { last.cells.push(cell); continue; }
-    groups.push({ key, turnId: cell.turnId, prompt: cell.turnPrompt, user, cells: [cell] });
+    groups.push({ key, turnId: cell.turnId, prompt: cell.turnPrompt, user, resumed: from ? from.title || t("kernel.untitled") : undefined, cells: [cell] });
   }
   return groups;
 }
@@ -650,7 +836,8 @@ function GroupHead({ group, folded, onToggleAll }: { group: CellGroup; folded: b
   return (
     <div className="kernel-group-head">
       <span className="kernel-group-title">
-        {group.user ? t("kernel.group-user") : t("kernel.group-turn", { time: clock(first.startedAt) })}
+        {group.resumed != null ? t("kernel.group-resumed", { title: group.resumed })
+          : group.user ? t("kernel.group-user") : t("kernel.group-turn", { time: clock(first.startedAt) })}
         {!group.user && group.prompt ? <span className="kernel-group-prompt"> « {group.prompt} »</span> : null}
       </span>
       {group.cells.length > 1 || folded ? (
@@ -663,7 +850,10 @@ function GroupHead({ group, folded, onToggleAll }: { group: CellGroup; folded: b
 /** Noyau d'un fil ; remonté (clé) quand on change de fil, la sélection et le
  *  défilement repartent donc à neuf. */
 function KernelThread({ threadId, threadTitle, enabled, projectRoot, visible }: SurfaceProps & { threadId: string }) {
-  const { cells, status, chain, replay } = useKernelCells(threadId, visible);
+  const { cells, status, chain, replay, resume } = useKernelCells(threadId, visible);
+  const threads = useProjectThreads(threadId, enabled && visible);
+  const [showResume, setShowResume] = useState(false);
+  const busy = status?.busyCell != null || replay?.state === "running" || resume?.state === "running";
   const scroller = useRef<HTMLDivElement | null>(null);
   const { picked, setPicked } = useKernelSelection(scroller);
   const clearPicked = useCallback(() => setPicked(null), [setPicked]);
@@ -721,9 +911,9 @@ function KernelThread({ threadId, threadTitle, enabled, projectRoot, visible }: 
   return (
     <div className="kernel-surface" aria-label={t("kernel.panel-title")}>
       <KernelHeader threadId={threadId} threadTitle={threadTitle} enabled={enabled} status={status}
-        hasCells={cells.length > 0} replay={replay} />
+        hasCells={cells.length > 0} replay={replay} resume={resume} />
       {enabled ? <KernelMeta threadId={threadId} status={status} cellCount={cells.length} /> : null}
-      <KernelNotices replay={replay} chain={chain} />
+      <KernelNotices replay={replay} chain={chain} resume={resume} threads={threads} />
       {running ? <Variables key={status?.kernel?.startedAt ?? "on"} threadId={threadId}
         live={status?.busyCell == null} refreshKey={refreshKey} /> : null}
       <div className="kernel-scroll" ref={scroller}
@@ -732,6 +922,8 @@ function KernelThread({ threadId, threadTitle, enabled, projectRoot, visible }: 
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
           if (picked) setPicked(null);
         }}>
+        {enabled && cells.length > 0 && showResume ? <ResumeList threadId={threadId} threads={threads} disabled={busy}
+          onStarted={() => setShowResume(false)} /> : null}
         {cells.length ? (
           <div className="kernel-cells">
             {groups.map((group, gi) => {
@@ -748,13 +940,18 @@ function KernelThread({ threadId, threadTitle, enabled, projectRoot, visible }: 
                     <KernelCellView key={cell.id} cell={cell} threadId={threadId} projectRoot={projectRoot}
                       folded={isFolded(cell, lastGroup)} editing={editing === cell.id}
                       nextId={editing === cell.id ? nextId : undefined}
-                      canEdit={enabled && status?.busyCell == null && replay?.state !== "running"} actions={actions} />
+                      canEdit={enabled && !busy} actions={actions} />
                   ))}
                 </section>
               );
             })}
           </div>
-        ) : <KernelEmpty enabled={enabled} />}
+        ) : <>
+          <KernelEmpty enabled={enabled} />
+          {enabled ? <ResumeList threadId={threadId} threads={threads} disabled={busy} /> : null}
+        </>}
+        {enabled ? <FreeCell threadId={threadId} nextId={nextId} disabled={busy}
+          onResume={cells.length > 0 && threads.length ? () => setShowResume((v) => !v) : undefined} /> : null}
         {picked ? <SelectionBar picked={picked} onDone={clearPicked} /> : null}
       </div>
     </div>

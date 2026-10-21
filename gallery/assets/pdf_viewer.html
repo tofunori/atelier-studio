@@ -94,6 +94,11 @@
   @media (prefers-reduced-motion: reduce){ #readBtn{transition:none} }
   body.pdf-invert .pg{background:var(--pdf-paper-invert)}
   body.pdf-invert .pg canvas{filter:invert(1) hue-rotate(180deg)}
+  /* Surlignages en confort sombre : leur teinte reste la même, seul le mode
+     de fusion change. Un multiply sur la page inversée (quasi noire) donne du
+     noir et le fond surligné disparaissait ; screen éclaircit le noir vers la
+     teinte et laisse le texte clair intact. */
+  body.pdf-invert .pg .pdfhl{mix-blend-mode:screen}
   #zPct{min-width:46px;border-left:1px solid var(--border);border-right:1px solid var(--border)}
   header{position:sticky;top:0;left:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);
          width:100vw;box-sizing:border-box;
@@ -128,7 +133,7 @@
   .pg .pdfstamp-dot svg{width:14px;height:14px}
   .pg .pdfstamp-dot:hover{transform:translate(-50%,-50%) scale(1.08)}
   .pg .pdfstamp-ink{display:inline-flex;align-items:center;gap:.35em;white-space:nowrap;
-    padding:.2em .7em;border:2px solid var(--stamp);border-radius:6px;background:rgba(255,255,255,.6);color:var(--stamp);
+    padding:.2em .7em;border:2px solid var(--stamp);border-radius:6px;background:color-mix(in srgb,var(--pin-bg) 60%,transparent);color:var(--stamp);
     font-size:calc(8px * var(--vscale,1.45) * var(--stamp-scale,1));font-weight:600;line-height:1.3;letter-spacing:.06em;
     text-transform:uppercase;transform:translate(-50%,-50%) rotate(-4deg)}
   .pg .pdfstamp-ink svg{width:1.1em;height:1.1em;flex:none}
@@ -229,8 +234,10 @@
     flex:none;padding:0}
   #selPill .ulb:hover{color:var(--txt)}
   @media (prefers-reduced-motion: reduce){ #selPill .sw{transition:none} #selPill .sw:hover{transform:none} }
-  #selPill .go{width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--bg);flex:none}
-  #selPill .go:hover{background:color-mix(in srgb,var(--accent) 88%,white)}
+  /* Action principale à l'encre, comme Word (décision 2026-10-19) : l'accent
+     reste au focus, à la sélection et à l'état actif. */
+  #selPill .go{width:32px;height:32px;border-radius:999px;background:var(--fill-primary,var(--border-default,var(--border-strong,var(--border))));color:var(--on-fill-primary,var(--text-primary,var(--txt)));flex:none;transition:background-color var(--motion-fast,120ms) var(--ease-out,ease-out)}
+  #selPill .go:hover{background:var(--fill-primary-hover,color-mix(in srgb,var(--fill-primary,var(--border-default,var(--border-strong,var(--border)))) 84%,var(--on-fill-primary,var(--text-primary,var(--txt))) 16%))}
   #selPill .go svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #selPill .annotate{min-height:34px;padding:7px 12px;border-radius:999px;background:var(--surface-overlay,var(--card));color:var(--txt);border:1px solid var(--border-strong);white-space:nowrap;font-family:inherit;font-size:var(--fs-body,13px)}
   #selPill{flex-wrap:wrap;max-width:calc(100vw - 16px)}
@@ -330,7 +337,10 @@
   .textLayer span.find-cur{background:rgba(255,170,60,.62);border-radius:2px}
   /* Panneau des annotations (colonne de Zotero) : tout ce qu'on a marqué dans
      l'article, en une liste cliquable — remplace les flèches à l'aveugle. */
-  #annPane{position:fixed;top:0;right:0;bottom:0;width:290px;min-width:190px;max-width:520px;
+  /* Le volet commence SOUS la barre d'outils (--pane-top = hauteur réelle de
+     l'entête, posée par applyNarrow) : collé en haut, il recouvrait le zoom,
+     la recherche, « Joindre au chat » et le menu ⋯ de la barre. */
+  #annPane{position:fixed;top:var(--pane-top,0);right:0;bottom:0;width:290px;min-width:190px;max-width:520px;
     z-index:280;display:none;
     flex-direction:column;background:var(--surface-overlay,var(--card));border-left:1px solid var(--border-strong,var(--border));
     box-shadow:-8px 0 28px rgba(0,0,0,.35);font-size:var(--fs-body, 13px)}
@@ -340,6 +350,8 @@
      quand on rétrécissait la colonne, et recouvrait les pages quand on
      l'élargissait (vécu 2026-08-16). */
   body.pane-on #pages{padding-right:var(--pane-pad,306px)}
+  /* Mode lecture : la colonne se centre dans l'espace laissé libre. */
+  body.pane-on.read-mode{padding-right:var(--pane-pad,306px)}
   #annPane .grip{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:1}
   #annPane .grip:hover{background:linear-gradient(90deg,transparent,rgba(91,157,255,.35))}
   body.pane-resizing{user-select:none;-webkit-user-select:none}
@@ -569,7 +581,7 @@
 header{flex-wrap:wrap}
 </style>
 <script data-atelier-source="gallery/src/browser/pages/pdf_viewer_5.ts">
-function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#1e2124',card:'#24282d',card2:'#2c2f34',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#2a2d31'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();
+function __ct(){try{return JSON.parse(localStorage.getItem('claudeTargetV1')||'null')}catch(e){return null}}(function(){var T={'Encre':{bg:'#1a1917',card:'#232220',card2:'#121110',txt:'#e8e5db',muted:'#948f85',accent:'#cc785c',border:'#332f2a'},'Profond':{bg:'#1e1d1b',card:'#292724',card2:'#161513',txt:'#ece9e1',muted:'#9a968c',accent:'#d97757',border:'#37342e'},'Charbon':{bg:'#211f1c',card:'#2b2926',card2:'#1a1815',txt:'#eae7de',muted:'#9d988d',accent:'#e08a63',border:'#38352f'},'Neutre chaud':{bg:'#1c1c1a',card:'#272623',card2:'#151513',txt:'#e9e7df',muted:'#98958c',accent:'#d97757',border:'#34322d'},'Très foncé':{bg:'#171614',card:'#201f1c',card2:'#100f0d',txt:'#e6e3d9',muted:'#8f8b81',accent:'#d97757',border:'#2e2b26'},'Default':{bg:'#1e2124',card:'#24282d',card2:'#2c2f34',txt:'#dadee3',muted:'#90969d',accent:'#e77f3e',border:'#2a2d31'},'Codex':{bg:'#282c34',card:'#2f343f',card2:'#21252b',txt:'#abb2bf',muted:'#7f848e',accent:'#4d78cc',border:'#3e4451'},'Dracula':{bg:'#282a36',card:'#343746',card2:'#21222c',txt:'#f8f8f2',muted:'#9aa0b3',accent:'#bd93f9',border:'#44475a'},'Nord':{bg:'#2e3440',card:'#3b4252',card2:'#272c36',txt:'#e5e9f0',muted:'#9aa3b2',accent:'#88c0d0',border:'#434c5e'}};/* Catalogue local réservé à la page ouverte seule : embarquée, ou thème de l'hôte déjà posé par atelier_theme.js (cache), il écraserait ce thème d'une palette sombre étrangère jusqu'au message de l'hôte. */if(window.self!==window.top||document.documentElement.dataset.atelierTheme)return;var t;try{t=T[localStorage.getItem('figTheme')];}catch(e){}t=t||T['Default'];var r=document.documentElement.style;for(var k in t)r.setProperty('--'+k,t[k]);})();
 </script>
 </head>
 <body>
@@ -2739,7 +2751,12 @@ const annPane = (function(){
     document.body.classList.toggle("pane-narrow", pane.offsetWidth < 240);
     // le décalage des pages suit la largeur réelle de la colonne
     document.documentElement.style.setProperty("--pane-pad", (pane.offsetWidth + 16) + "px");
+    // le volet démarre sous l'entête collante, dont la hauteur dépend du mode
+    // (autonome ou barre compacte embarquée)
+    const head = document.querySelector("header");
+    document.documentElement.style.setProperty("--pane-top", (head ? head.offsetHeight : 0) + "px");
   }
+  window.addEventListener("resize", () => { if (document.body.classList.contains("pane-on")) applyNarrow(); });
   const grip = pane.querySelector                (".grip");
   if (grip) grip.addEventListener("mousedown", (e) => {
     e.preventDefault();
