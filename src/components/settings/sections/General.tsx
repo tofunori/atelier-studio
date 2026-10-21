@@ -197,7 +197,6 @@ export default function General(p: SectionProps) {
         <Row title={t("settings.chat-titles")} desc={t("settings.chat-titles-desc")}>
           {retitleStatus && <InlineNotice tone="info" className="set-notice">{retitleStatus}</InlineNotice>}
           <Button
-            className="set-btn"
             disabled={p.ws?.readyState !== 1}
             onClick={() => {
               setRetitleStatus(t("settings.running"));

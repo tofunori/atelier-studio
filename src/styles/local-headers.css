@@ -60,6 +60,8 @@
 
 /* Unified titlebar: independent tab strips flank the measured tool axis. */
 .topbar-start { overflow: hidden; padding-left: 92px; box-sizing: border-box; }
+/* plein écran macOS : plus de feux natifs, plus de réserve (audit GAP-22) */
+:root[data-fullscreen] .topbar-start { padding-left: 12px; }
 .topbar-start .project-chat-tabs { overflow: hidden; font-size: var(--fs-s); }
 .topbar-chat-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-s); }
 .topbar-chat-actions { flex: none; display: flex; align-items: center; }

@@ -210,7 +210,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // retirer une entrée quand une surface passe sur l'échelle --z-*
     const zAllow: Record<string, number> = {
       "2": 2, "30": 2, "40": 1, "45": 1, "50": 2, "55": 1, "70": 1, "80": 1,
-      "90": 1, "95": 1, "120": 1, "160": 1, "240": 1, "260": 1, "285": 1,
+      "90": 1, "95": 1, "160": 1, "260": 1, "285": 1,
     };
     const zActual = count(
       [...appCss.matchAll(/z-index:\s*([^;]+);/g)]
@@ -639,8 +639,11 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(shadcnSources.find(([name]) => name === "field.tsx")?.[1]).toContain("tw:border-0 tw:p-0");
     expect(shadcnDialog).toContain("<DialogViewport>");
     expect(shadcnDialog).toContain("tw:flex tw:items-center tw:justify-center");
-    expect(appCss).toMatch(/\.custom-select-trigger\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
-    expect(appCss).toMatch(/\.exp-search\s*\{[\s\S]*?min-height:\s*var\(--control-height\)/);
+    // bornées à UN bloc ([^}]*) et ancrées en début de ligne : l'ancienne
+    // forme [\s\S]*? traversait des centaines de règles et passait à vide
+    // (audit PRIM-26 : la vraie règle disait min-height: 26px)
+    expect(appCss).toMatch(/^\.custom-select-trigger\s*\{[^}]*min-height:\s*var\(--control-height\)/m);
+    expect(appCss).toMatch(/^\.exp-search\s*\{[^}]*min-height:\s*var\(--control-height\)/m);
   });
 
   it("le mode de permission a UN signe, porté par l'option (déclencheur + menu)", () => {
@@ -727,9 +730,13 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   });
 
   it("les tabs Atelier restent compacts et neutres, sans accent de marque", () => {
-    expect(appCss).toMatch(/\.sidebar li\.active::before\s*\{[\s\S]*?background:\s*var\(--selection-line\)/);
-    expect(primitives).toMatch(/\.ui-tab\s*\{[\s\S]*?height:\s*28px/);
-    expect(primitives).toMatch(/\.ui-tab\.is-active::after\s*\{[\s\S]*?background:\s*var\(--border-strong\)/);
+    expect(appCss).toMatch(/\.sidebar li\.active::before\s*\{[^}]*background:\s*var\(--selection-line\)/);
+    // le repère des rangées du navigateur ne règle que la géométrie de cette
+    // barre (pilule centrée) — jamais une seconde marque (audit SHELL-02)
+    expect(appCss).not.toMatch(/(^|\n)\.pnav-row\.active::before/);
+    expect(appCss).toMatch(/\.sidebar li\.pnav-row\.active::before\s*\{[^}]*top:\s*50%[^}]*bottom:\s*auto/);
+    expect(primitives).toMatch(/\.ui-tab\s*\{[^}]*height:\s*28px/);
+    expect(primitives).toMatch(/\.ui-tab\.is-active::after\s*\{[^}]*background:\s*var\(--border-strong\)/);
     expect(primitives).not.toMatch(/\.ui-tab\.is-active[^}]*var\(--selection-line\)/);
   });
 
@@ -1044,5 +1051,51 @@ describe("contrat finitions (icônes, étiquettes, grille de 4)", () => {
       }
     }
     expect(offenders, offenders.slice(0, 20).join(" · ")).toEqual([]);
+  });
+
+  it("pannes visibles du lot 1 : les surcharges qui cassaient les primitives restent mortes", () => {
+    const shadcnTooltip = shadcnSources.find(([name]) => name === "tooltip.tsx")?.[1] ?? "";
+    const shadcnAlert = shadcnSources.find(([name]) => name === "alert-dialog.tsx")?.[1] ?? "";
+    const shadcnEmpty = shadcnSources.find(([name]) => name === "empty.tsx")?.[1] ?? "";
+    // SHELL-01 / TRANS-24 : la palette hérite voile (--scrim) et empilement
+    // (--z-modal) de DialogContent ; elle s'ancre en haut sans top/translate
+    expect(appCss).not.toMatch(/\.cmdk-dialog-overlay\s*\{/);
+    const palette = appCss.match(/^\.cmdk-panel\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(palette).toContain("align-self: flex-start");
+    expect(palette).toMatch(/max-width:\s*min\(520px/);
+    expect(palette).not.toMatch(/[\s;{]top:|translate/);
+    // PRIM-01 : le Positioner de Base UI place la bulle — jamais de position
+    // ni de z-index sur le Popup, ni de flèche couleur texte
+    const tooltip = primitives.match(/^\.ui-tooltip\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(tooltip).not.toMatch(/position:|z-index:/);
+    expect(primitives).not.toMatch(/\.ui-tooltip\.open/);
+    expect(shadcnTooltip).not.toContain("TooltipPrimitive.Arrow");
+    expect(shadcnTooltip).not.toContain("tw:bg-foreground");
+    expect(appCss).not.toMatch(/\.follow-up-tooltip\s*\{[^}]*position:/);
+    // PRIM-02 : sans Preflight, une bordure sans couleur tombe sur --sh-border
+    // (couche base), et le pied de dialogue par défaut est sans bande ni filet
+    expect(shadcn).toMatch(/@layer base\s*\{[^}]*border-color:\s*var\(--sh-border\)/);
+    expect(shadcnDialog).not.toMatch(/data-slot="dialog-footer"[\s\S]{0,80}tw:border-t/);
+    expect(shadcnAlert).toMatch(/AlertDialogFooter\(\{\s*className,\s*variant = "plain"/);
+    expect(shadcnAlert).toMatch(/AlertDialogCancel\(\{\s*className,\s*variant = "secondary"/);
+    // SURF-01 / SURF-02 : pas de cadre pointillé medium, carte non étirée
+    expect(shadcnEmpty).toContain("tw:border-dashed");
+    expect(primitives).toMatch(/:where\(\[data-slot="empty"\]\)\s*\{\s*border:\s*0;/);
+    expect(primitives).toMatch(/^\.ui-empty\s*\{[^}]*flex:\s*none/m);
+    // CHAT-03 : Arrêter garde le disque d'Envoyer — aucune couleur propre
+    const stop = appCss.match(/^\.send\.stop\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(stop).not.toMatch(/background|color/);
+    // CHAT-14 / SURF-08 : l'action principale est à l'encre partout
+    expect(appCss).not.toMatch(/\.perm-allow\s*\{[^}]*background/);
+    expect(appCss).not.toMatch(/\.git-commit-buttons \.ui-btn--primary/);
+    expect(appCss).not.toMatch(/\.generateur-generate\s*\{[^}]*background/);
+    // SET-12 : plus de géométrie de bouton propre aux Réglages
+    expect(appCss).not.toMatch(/^\.set-btn\s*\{/m);
+    expect(appCss).not.toMatch(/\.set-btn[^{]*\{[^}]*(border-radius|padding|font-size)/);
+    // SURF-14 : une durée suivie de var(--ease) devient un délai
+    expect(appCss).not.toMatch(/\d+ms var\(--ease[,)]/);
+    // TRANS-17 : les contrôles natifs suivent le thème de l'app
+    expect(appCss).toMatch(/^:root, :root\[data-theme="dark"\]\s*\{[^}]*color-scheme:\s*dark/m);
+    expect(appCss).toMatch(/^:root\[data-theme="light"\]\s*\{[^}]*color-scheme:\s*light/m);
   });
 });

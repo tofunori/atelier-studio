@@ -63,25 +63,29 @@ export default function SetupWelcomeDialog(p: { open: boolean }) {
           </Group>
         )}
       </div>
+      {/* Une seule action principale, jamais grisée à l'ouverture (audit
+          GAP-14) : tant qu'aucun agent n'est prêt, c'est « Revérifier » ;
+          « Terminer » n'apparaît qu'une fois un agent prêt. */}
       <div className="setup-welcome-foot">
         <Button variant="ghost" onClick={closeSetupWelcome}>{t("setup.later")}</Button>
         <Button
-          variant="secondary"
+          variant={ready ? "secondary" : "primary"}
           disabled={env.rechecking}
           onClick={() => { recheckAll(); }}
         >
           {env.rechecking ? t("settings.checking") : t("settings.providers-recheck")}
         </Button>
-        <Button
-          variant="primary"
-          disabled={!ready}
-          onClick={() => {
-            markWelcomeDone();
-            closeSetupWelcome();
-          }}
-        >
-          {t("setup.finish")}
-        </Button>
+        {ready && (
+          <Button
+            variant="primary"
+            onClick={() => {
+              markWelcomeDone();
+              closeSetupWelcome();
+            }}
+          >
+            {t("setup.finish")}
+          </Button>
+        )}
       </div>
     </DialogSurface>
   );

@@ -76,7 +76,7 @@ export function SetupCommandFallback(p: { command: string; onHide: () => void })
         </IconButton>
       </div>
       <div className="setup-fallback-actions">
-        <Button variant="secondary" className="set-btn" onClick={copy}>
+        <Button variant="secondary" onClick={copy}>
           {copied ? t("setup.copied") : t("action.copy")}
         </Button>
         <Button
@@ -124,14 +124,13 @@ export function AgentSetupRow(p: {
         {login && (
           <Button
             variant="secondary"
-            className="set-btn"
             onClick={() => command.run(withResolvedBinary(login, provider?.binPath), "login")}
           >
             {t("setup.sign-in")}
           </Button>
         )}
         {plan && (
-          <Button variant="secondary" className="set-btn" onClick={() => command.run(plan.command, "install")}>
+          <Button variant="secondary" onClick={() => command.run(plan.command, "install")}>
             {plan.homebrewFirst ? t("setup.install-homebrew-first") : t("setup.install")}
           </Button>
         )}
@@ -184,12 +183,12 @@ export function ToolSetupRow(p: {
       <Row title={toolTitle(tool.id)} desc={toolDesc(tool)}>
         <StatusBadge status={badge.status}>{badge.label}</StatusBadge>
         {plan && (
-          <Button variant="secondary" className="set-btn" onClick={() => command.run(plan.command, "install")}>
+          <Button variant="secondary" onClick={() => command.run(plan.command, "install")}>
             {plan.homebrewFirst ? t("setup.install-homebrew-first") : t("setup.install")}
           </Button>
         )}
         {download && (
-          <Button variant="secondary" className="set-btn" onClick={() => { void openUrl(download).catch(() => {}); }}>
+          <Button variant="secondary" onClick={() => { void openUrl(download).catch(() => {}); }}>
             {t("setup.download")}
           </Button>
         )}

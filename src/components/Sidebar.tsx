@@ -638,7 +638,7 @@ export default function Sidebar(p: {
                 </MenuPanelItem>
               ))}
             </div>
-            <Button variant="secondary" className="set-btn" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</Button>
+            <Button variant="secondary" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</Button>
           </MenuPanelContent>
         </Popover>
 

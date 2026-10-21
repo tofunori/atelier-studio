@@ -54,9 +54,17 @@
   --r-s: 6px; --r-m: 10px; --r-pill: 999px;
   --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
   --elev-soft: 0 2px 10px rgba(0,0,0,.14), 0 1px 3px rgba(0,0,0,.10);
-  --ease: 140ms ease;
+  /* raccourci historique « durée + courbe » : adossé au jeton de durée pour
+     que prefers-reduced-motion (tokens.css, --motion-* à 0ms) l'annule aussi
+     (audit SURF-14). S'emploie SEUL après la propriété, jamais derrière une
+     autre durée (« 140ms var(--ease) » = 140 ms de délai). */
+  --ease: var(--motion-standard) ease;
+  color-scheme: dark;
 }
 :root[data-theme="light"] {
+  /* contrôles natifs (cases, listes, barres de défilement) suivent le thème
+     de l'app, pas celui du système (audit TRANS-17) */
+  color-scheme: light;
   /* gris papier froid (plan 023) — accent assombri : 3.5:1 sur canvas */
   --bg: #f1f4f7; --bg-side: #e3e7ec; --bg-pop: #fafcfe; --bg-card: #fafcfe;
   --bg-ctl: #dadee4; --border: #dde0e5; --border2: #b8bcc2;
@@ -981,7 +989,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .bare:hover { color: var(--text-primary); }
 .custom-select { display: inline-flex; min-width: 0; color: var(--text-secondary); font-size: var(--fs-l); }
 .custom-select-trigger { display: inline-flex; align-items: center; justify-content: flex-start; gap: 6px;
-  width: auto; max-width: 100%; min-width: 0; height: auto; min-height: 26px;
+  width: auto; max-width: 100%; min-width: 0; height: auto; min-height: var(--control-height);
   background: color-mix(in srgb, var(--text-primary) 3%, transparent); border: 1px solid transparent;
   border-radius: var(--r-s); color: inherit; padding: 4px 8px; font: inherit;
   font-size: var(--fs-body-s); font-weight: 400; line-height: 1.4;
@@ -1645,7 +1653,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .follow-up-submit { border-radius: var(--r-pill); }
 .follow-up-submit .ui-btn-label { display: inline-flex; align-items: center; justify-content: center; }
 .follow-up-submit svg { width: 15px; height: 15px; }
-.follow-up-tooltip { position: relative; padding: 6px 8px; }
+.follow-up-tooltip { padding: 6px 8px; }
 .follow-up-tooltip-grid { display: grid; grid-template-columns: minmax(56px, 1fr) auto;
   align-items: center; gap: 4px 16px; min-width: 126px; }
 .follow-up-tooltip-grid > span { color: var(--text-primary); }
@@ -1684,9 +1692,12 @@ button.kernel-file:hover { color: var(--text-primary); }
   .queued-turn-actions .queued-turn-steer span { display: none; }
   .queued-turn-actions .queued-turn-steer { width: 26px; padding: 0; }
 }
-.send.stop { display: inline-flex; align-items: center; justify-content: center;
-  background: transparent; color: var(--text-disabled); }
-.send.stop:hover:not(:disabled) { background: var(--bg-ctl); color: var(--text-secondary); }
+/* Arrêter = le MÊME disque plein que Envoyer (.composer-bar .send) : seul le
+   glyphe change, un carré plein ≈10 px. Plus de fond transparent ni de gris
+   éteint — l'unique moyen d'arrêter l'agent ne doit pas être l'élément le
+   moins visible de l'écran (audit CHAT-03). */
+.send.stop { display: inline-flex; align-items: center; justify-content: center; }
+.composer-bar .send.stop > svg { width: 12px; height: 12px; fill: currentColor; }
 /* bulles utilisateur + actions au survol */
 .user-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .user-img { max-width: 220px; max-height: 180px; border-radius: var(--r-m);
@@ -2385,11 +2396,12 @@ button.kernel-file:hover { color: var(--text-primary); }
 .setup-fallback-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .set-card > .setup-fallback + .set-row { border-top: 1px solid var(--border-subtle); }
 @media (prefers-reduced-motion: reduce) { .setup-fallback { animation: none; } }
-.set-btn { background: var(--bg-ctl); border: 1px solid var(--border2); border-radius: var(--r-m);
-  color: inherit; padding: 6px 16px; cursor: pointer; font-size: var(--fs-l);
-  display: inline-flex; align-items: center; gap: 8px; }
-.set-btn.quiet { background: transparent; border-color: transparent; color: var(--text-muted); }
-.set-btn.quiet:hover { color: var(--text-primary); background: var(--bg-ctl); }
+/* Boutons des Réglages = variantes de Button, sans géométrie locale (rayon 6,
+   12 px, poids 500) : l'ancien .set-btn (rayon 10, 13 px, plein bordé)
+   donnait deux dessins pour un même rôle (audit SET-12, GAP-14). Seul reste
+   « quiet » : un ghost à l'encre atténuée. */
+.set-btn.quiet { color: var(--text-muted); }
+.set-btn.quiet:hover:not(:disabled) { color: var(--text-primary); }
 /* Repli « Avancé » d'une section de réglages (lot 1). Le chevron pivote,
    rien d'autre ne bouge : 140ms, sous le plafond de 200ms du système. */
 .set-advanced { margin-bottom: 28px; }
@@ -2932,7 +2944,7 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   background: var(--surface-panel); border-right: none; }
 .side-handle { cursor: col-resize; flex-shrink: 0; }
 /* barre de sélection (Highlight / Underline / Add to chat) façon Synara */
-.sel-toolbar { position: fixed; transform: translateX(-50%); z-index: 120;
+.sel-toolbar { position: fixed; transform: translateX(-50%); z-index: var(--z-popover);
   display: flex; align-items: center; gap: 2px; padding: 4px 6px;
   background: var(--bg-pop); border: 1px solid var(--border);
   border-radius: var(--r-pill); box-shadow: var(--elev); }
@@ -3015,13 +3027,16 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 ::highlight(reader-quote) { background: color-mix(in srgb, var(--accent) 32%, transparent); }
 mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparent); color: inherit;
   border-radius: var(--r-s); }
-/* Palette de commandes */
-.cmdk-dialog-overlay { z-index: 240; background: rgba(0,0,0,0.34); }
-.cmdk-panel { width: min(520px, calc(100vw - 28px)); max-height: min(480px, 76vh);
-  top: 12vh; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-pop);
-  color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--r-m);
-  box-shadow: var(--elev); transform: translateX(-50%); }
-.cmdk-panel[data-open] { transform: translateX(-50%) scale(1); }
+/* Palette de commandes — voile et empilement viennent de DialogContent
+   (z var(--z-modal), fond var(--scrim)) : aucune surcharge locale, sinon le
+   voile passe AU-DESSUS du viewport et avale les clics (audit SHELL-01). Le
+   viewport est un flex centré : la palette s'ancre en haut par align-self +
+   margin-top, jamais par top/translate. */
+.cmdk-panel { align-self: flex-start; margin-top: 12vh; width: min(520px, 100%); max-width: min(520px, 100%);
+  max-height: min(480px, 76vh); display: flex; flex-direction: column; gap: 0; padding: 0;
+  overflow: hidden; background: var(--bg-pop);
+  color: var(--text-primary); border: none; border-radius: var(--r-m);
+  box-shadow: var(--elev); }
 .cmdk-root { padding: 0; border-radius: inherit; }
 .cmdk-search { min-height: 44px; display: flex; align-items: center; gap: 8px;
   padding: 0 12px; border-bottom: 1px solid var(--border); color: var(--text-muted);
@@ -3055,7 +3070,7 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
 .cmdk-footer { border-top: 1px solid var(--border); color: var(--text-disabled); font-size: var(--fs-s);
   padding: 8px 12px; display: flex; align-items: center; gap: 4px; }
 @media (max-width: 620px) {
-  .cmdk-panel { top: 10vh; }
+  .cmdk-panel { margin-top: 10vh; }
   .cmdk-copy { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .cmdk-hint { max-width: 100%; }
 }
@@ -3244,16 +3259,15 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
 .generateur-engines.ui-seg { background: transparent; border-radius: 0; padding: 0; }
 .generateur-engines .generateur-chip { background: var(--bg-card); border: 1px solid var(--border2); border-radius: var(--r-pill);
   color: var(--text-muted); font-family: inherit; font-size: var(--fs-s); padding: 4px 12px; cursor: pointer;
-  transition: background 140ms var(--ease, ease), color 140ms var(--ease, ease), border-color 140ms var(--ease, ease); }
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
 .generateur-engines .generateur-chip.sel { background: var(--bg-ctl); border-color: var(--accent); color: var(--text-primary); }
 .generateur-engines .generateur-chip:disabled { cursor: default; opacity: 0.6; }
 .api-protocol.ui-seg button { min-height: var(--control-height); height: var(--control-height); padding-inline: 12px; }
 .generateur-cost { font-size: var(--fs-s); color: var(--text-disabled); font-variant-numeric: tabular-nums; }
-.generateur-generate { margin-top: 8px; background: var(--accent); color: var(--bg); border: none;
-  border-radius: var(--r-s); font-size: var(--fs-l); font-weight: 500; padding: 8px 12px; cursor: pointer;
-  transition: opacity 140ms var(--ease, ease); }
-.generateur-generate:disabled { opacity: 0.45; cursor: default; }
-.generateur-generate:hover:not(:disabled) { opacity: 0.9; }
+/* Générer = Button primary sans surcharge (encre, comme toute action
+   principale) : l'ancien fond accent + texte crème plafonnait à 3,85:1 en
+   clair (audit SURF-08). Seule la marge reste locale. */
+.generateur-generate { margin-top: 8px; }
 .generateur-error { color: var(--u-hot); font-size: var(--fs-m); line-height: 1.4; }
 .generateur-result { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg);
   padding: 16px; gap: 12px; }
@@ -3269,11 +3283,7 @@ mark.reader-quote { background: color-mix(in srgb, var(--accent) 32%, transparen
   transition: border-color var(--motion-standard) var(--ease-out); }
 .generateur-edit-input:focus { outline: none; border-color: var(--border2); }
 .generateur-edit-input::placeholder { color: var(--text-disabled); }
-.generateur-edit-btn { flex-shrink: 0; background: var(--bg-ctl); border: 1px solid var(--border);
-  color: var(--text-secondary); border-radius: var(--r-s); font-size: var(--fs-l); padding: 8px 16px; cursor: pointer;
-  transition: background 140ms var(--ease, ease); }
-.generateur-edit-btn:hover:not(:disabled) { background: var(--border2); color: var(--text-primary); }
-.generateur-edit-btn:disabled { opacity: 0.45; cursor: default; }
+.generateur-edit-btn { flex-shrink: 0; align-self: center; }
 @media (max-width: 760px) {
   .generateur-surface { grid-template-columns: 1fr; grid-template-rows: minmax(220px, 42%) minmax(0, 1fr); }
   .generateur-form { border-right: none; border-bottom: 1px solid var(--border); }
@@ -3791,9 +3801,12 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    en cross-fade au hover/focus-within — jamais de display:none ni de shift) */
 .pnav-row { gap: 8px; }
 .pnav-row:not(.active):hover { background: color-mix(in srgb, var(--bg-ctl) 55%, transparent); }
-.pnav-row.active::before { content: ""; position: absolute; left: 2px; top: 50%;
-  margin-top: -2px; width: 4px; height: 4px; border-radius: var(--r-pill);
-  background: var(--accent); }
+/* Repère de la rangée active : la barre de .sidebar li.active::before
+   (spécificité 0,2,2) l'emportait sur une ancienne pastille 0,2,1 et le
+   mélange donnait un tiret 2×4 px collé en haut (audit SHELL-02). On garde
+   la barre partagée (couleur --selection-line) et on ne règle que sa
+   hauteur : pilule 2×16 centrée verticalement. */
+.sidebar li.pnav-row.active::before { top: 50%; bottom: auto; height: 16px; margin-top: -8px; }
 .pnav-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
   background: none; border: none; padding: 0; margin: 0; color: inherit; font: inherit;
   height: auto; min-height: 26px; text-align: left; cursor: pointer; }
@@ -4323,12 +4336,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   border-radius: var(--r-s); font-family: var(--code-font); font-size: var(--fs-m);
   color: var(--text-secondary); white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow-y: auto; }
 .perm-actions { display: flex; gap: 8px; margin-top: 8px; }
-.perm-allow, .perm-deny { border-radius: var(--r-s); padding: 4px 16px; font-size: var(--fs-l);
-  cursor: pointer; font: inherit; }
-.perm-allow { background: var(--accent); border: 1px solid var(--accent); color: var(--text-on-accent); }
-.perm-allow:hover { background: var(--accent-hover); }
-.perm-deny { background: transparent; border: 1px solid var(--border2); color: var(--text-muted); }
-.perm-deny:hover { color: var(--text-secondary); border-color: var(--border-strong, var(--border2)); }
+/* Autoriser / Refuser = Button primary / secondary SANS surcharge : une seule
+   action principale dans le fil, à l'encre (--primary = --text-primary).
+   L'orange reste un signal (icône, liseré), jamais un fond de bouton
+   (audit CHAT-14). */
 .perm-verdict { margin-top: 8px; font-size: var(--fs-m); color: var(--text-muted); }
 .approval-decisions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
 .approval-decision { min-width: 0; display: grid; grid-template-columns: 22px 1fr; align-items: start; gap: 8px;
@@ -4340,7 +4351,8 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .approval-decision span { display: flex; flex-direction: column; min-width: 0; }
 .approval-decision b { font-size: var(--fs-m); font-weight: 500; }
 .approval-decision small { margin-top: 2px; color: var(--text-disabled); font-size: var(--fs-xs); line-height: 1.25; }
-.approval-decision.primary b { color: var(--accent); }
+.approval-decision.primary { border-color: var(--border-strong); }
+.approval-decision.primary b { color: var(--text-primary); }
 .approval-decision.danger:hover b { color: var(--u-hot, #e06c75); }
 @media (max-width: 620px) { .approval-decisions { grid-template-columns: 1fr; } }
 /* ===== carte interaction harnais (plan 025, step 5) — étend .perm-card ===== */
@@ -4515,9 +4527,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .git-description-toggle svg.git-chev-open { transform: rotate(90deg); }
 .git-commit-buttons { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .git-commit-buttons .ui-btn { white-space: nowrap; }
-.git-commit-buttons .ui-btn--primary { background: var(--accent); color: var(--text-on-accent); }
-.git-commit-buttons .ui-btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
-.git-commit-buttons .ui-btn--primary:disabled { background: var(--bg-ctl); color: var(--text-disabled); opacity: 1; }
 @container (max-width: 560px) {
   .git-workspace { grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
@@ -5889,7 +5898,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
  * focus and destructive/primary actions need stronger emphasis. */
 .set-restore { border-color: transparent; font-weight: 400; }
 .set-restore:hover { background: var(--surface-inset); color: var(--text-primary); }
-.set-btn:not(.danger):not(.primary):not(.ui-btn--danger):not(.ui-btn--primary) { border-color: transparent; box-shadow: none; font-weight: 400; }
 .set-group-label { color: var(--text-muted); font-weight: 400; letter-spacing: .05em; }
 .theme-options-trigger { width: 100%; justify-content: space-between; margin-top: 4px; font-weight: 400; }
 .theme-options-trigger svg { transition: transform var(--motion-fast) var(--ease-out); }

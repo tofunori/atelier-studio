@@ -12,6 +12,15 @@
 @import "tailwindcss/theme.css" layer(theme) prefix(tw);
 @import "tailwindcss/utilities.css" layer(utilities) prefix(tw);
 
+/* Sans Preflight, une bordure sans couleur (tw:border-t, tw:border-l…) vaut
+ * currentColor : le pied des dialogues tirait un trait blanc en sombre, noir
+ * en clair (audit PRIM-02). Seul fragment de Preflight repris : la couleur
+ * par défaut des bordures. Couche base = la plus faible ; toute règle d'App.css
+ * (non stratifiée) garde la main. */
+@layer base {
+  *, ::before, ::after, ::backdrop { border-color: var(--sh-border); }
+}
+
 :root {
   /* PIÈGE VÉRIFIÉ (2026-07-16) : --accent, --muted et --border existent AUSSI
    * dans la palette App.css (chargée après) et écraseraient le mapping

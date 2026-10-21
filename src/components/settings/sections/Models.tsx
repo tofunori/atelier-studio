@@ -530,7 +530,6 @@ export default function Models(p: SectionProps) {
                     // se rafraîchit au prochain providerStatus/setupStatus.
                     <Button
                       variant="secondary"
-                      className="set-btn"
                       onClick={() => {
                         const command = withResolvedBinary(su.loginCommand!, su.binPath);
                         const ran = runSetupCommand(command, { kind: "login", origin: "models" });
@@ -618,7 +617,7 @@ export default function Models(p: SectionProps) {
           ))}
           {!apiForm && (
             <Row title={t("settings.api-add")} desc={t("settings.api-add-desc")}>
-              <Button className="set-btn" onClick={() => setApiForm({
+              <Button onClick={() => setApiForm({
                 id: "", label: "", baseURL: "", protocol: "openai", apiKey: "", models: "", modelMetadata: {},
               })}>{t("action.add")}</Button>
             </Row>
@@ -715,7 +714,7 @@ export default function Models(p: SectionProps) {
                 })()}
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                   <Button variant="ghost" className="set-btn quiet" onClick={() => setApiForm(null)}>{t("action.cancel")}</Button>
-                  <Button className="set-btn" onClick={() => {
+                  <Button onClick={() => {
                     if (p.ws?.readyState !== 1) return;
                     p.ws.send(JSON.stringify({ type: "saveApiProvider", provider: apiForm }));
                     setApiForm(null);
@@ -745,7 +744,7 @@ export default function Models(p: SectionProps) {
                   setSlugText("");
                 }
               }} />
-            <Button className="set-btn" onClick={() => {
+            <Button onClick={() => {
               if (!slugText.trim()) return;
               save({ customModels: [...customModels, { provider: slugProv, id: slugText.trim() }] });
               setSlugText("");
