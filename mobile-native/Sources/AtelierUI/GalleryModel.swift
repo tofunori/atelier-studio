@@ -19,6 +19,10 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     var favorite: Bool? = nil
     /// The Mac's listing tag (size and modification time): changes with the file.
     var version: String? = nil
+    /// Folder inside the project ("" at its root): tells apart files that share a name.
+    var folder: String? = nil
+    /// A backup copy (`_archives/…`, `menage_…`), hidden by default as on the Mac.
+    var archive: Bool? = nil
     var ext: String { (name as NSString).pathExtension.lowercased() }
     var kind: String {
         if ext == "pdf" { return "PDF" }
@@ -43,6 +47,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
         struct Item: Decodable {
             let fileId: String; let name: String; let size: Int; let favorite: Bool?
             let etag: String?; let modifiedAt: Double?
+            let folder: String?; let archive: Bool?
             var version: String? { etag ?? modifiedAt.map { String(format: "%.0f", $0) } }
         }
         let items: [Item]
@@ -170,7 +175,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
                 identities[key] = id
                 let update = favoriteUpdates[key]
                 let favorite = (update?.revision ?? 0) > startingFavoriteRevision ? update?.on : $0.favorite
-                return GalleryArtifact(id: id, name: $0.name, fileID: $0.fileId, projectID: project, size: $0.size, favorite: favorite, version: $0.version)
+                return GalleryArtifact(id: id, name: $0.name, fileID: $0.fileId, projectID: project, size: $0.size, favorite: favorite, version: $0.version, folder: $0.folder, archive: $0.archive)
             }
         } catch is CancellationError {} catch {
             if refreshID == requestID && !Task.isCancelled && (error as? URLError)?.code != .cancelled { self.error = error.localizedDescription }
@@ -256,7 +261,7 @@ struct GalleryArtifact: Identifiable, Codable, Sendable {
     }
     func composerFiles(project: String) async throws -> [GalleryArtifact] {
         try await galleryItems(project).map { item in
-            GalleryArtifact(name: item.name, fileID: item.fileId, projectID: project, size: item.size, version: item.version)
+            GalleryArtifact(name: item.name, fileID: item.fileId, projectID: project, size: item.size, version: item.version, folder: item.folder, archive: item.archive)
         }
     }
     private func galleryItems(_ project: String, finding fileID: String? = nil) async throws -> [Index.Item] {

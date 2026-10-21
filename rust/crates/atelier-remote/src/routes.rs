@@ -1226,9 +1226,16 @@ fn scan_gallery(proj: crate::path_policy::ProjectEntry) -> Vec<Value> {
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs());
             let kind = gallery_kind(&ext);
+            // Same name in several folders (copies under `_archives/`, a
+            // submission folder…): the folder tells the cards apart, and the
+            // archive flag lets the iPhone hide backups as the Mac gallery does.
+            let folder = rel.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("").to_string();
+            let archive = atelier_core::gallery_builder::is_archive_rel(&rel);
             items.push(json!({
                 "fileId": fid,
                 "name": path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+                "folder": folder,
+                "archive": archive,
                 "_relative": rel, // Removed before returning the page.
                 "size": size,
                 "ext": ext,
