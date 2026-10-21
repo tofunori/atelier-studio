@@ -139,7 +139,23 @@ function createReadingMode(){
   }
 
   function pref(k: string, d: string){ try { return localStorage.getItem(KEYS[k]) || d; } catch(e){ return d; } }
-  function setPref(k: string, v: string|number){ try { localStorage.setItem(KEYS[k], String(v)); } catch(e){} applyPrefs(); }
+  // PDF-10 : la colonne change de taille sans animer la mise en page ; le
+  // bloc lu en haut d'écran reste à la même hauteur après le changement.
+  function readingAnchor(){
+    if (!on) return null;
+    const top = bar.getBoundingClientRect().bottom;
+    for (const el of host.children) {
+      const r = el.getBoundingClientRect();
+      if (r.bottom > top) return {el, top: r.top};
+    }
+    return null;
+  }
+  function setPref(k: string, v: string|number){
+    try { localStorage.setItem(KEYS[k], String(v)); } catch(e){}
+    const anchor = readingAnchor();
+    applyPrefs();
+    if (anchor && anchor.el.isConnected) window.scrollBy(0, anchor.el.getBoundingClientRect().top - anchor.top);
+  }
   function applyPrefs(){
     const fs = Math.max(FS_MIN, Math.min(FS_MAX, parseInt(pref("fs", "15"), 10) || 15));
     section.style.setProperty("--read-fs", fs + "px");
@@ -351,9 +367,13 @@ async function main(){
     if (hasTargetPage) targetPage = Math.min(targetPage, pdf.numPages);
     __readingPdf = pdf;
   } catch(e) {
+    // PDF-17 : un fichier introuvable est un cas normal, pas une alarme rouge
     const p = (document.getElementById("pages") as HTMLDivElement);
-    p.textContent = "Unable to load PDF: " + (rel || "") + " — " + ((e && e.message) || e);  // textContent = XSS-safe
-    p.style.cssText = "color:var(--status-error,#e06c75);padding:40px;text-align:center;font-family:var(--ui-font)";
+    const box = document.createElement("div"); box.className = "pdf-load-err"; box.setAttribute("role", "alert");
+    const title = document.createElement("p"); title.className = "t"; title.textContent = "Impossible d’ouvrir ce PDF";
+    const detail = document.createElement("p"); detail.className = "d";  // textContent = XSS-safe
+    detail.textContent = (rel ? rel.split("/").pop() + " · " : "") + String((e && e.message) || e);
+    box.append(title, detail); p.replaceChildren(box);
     return;
   }
   const wrap = (document.getElementById("pages") as HTMLDivElement);
@@ -711,9 +731,9 @@ async function revealLinkedSection(){
   status.textContent = "Analyse du document…";
   let doc = null;
   try { doc = await window.__readingMode.loadDoc(); }
-  catch(e){ status.textContent = "Section " + targetSection + " introuvable — analyse indisponible"; return; }
+  catch(e){ notify("Section " + targetSection + " introuvable : analyse indisponible", "error"); return; }
   const hit = window.AtelierPdfReading.sectionHeading(doc, targetSection);
-  if(!hit){ status.textContent = "Section " + targetSection + " introuvable"; return; }
+  if(!hit){ notify("Section " + targetSection + " introuvable", "error"); return; }
   targetPage = hit.page;
   targetQuote = hit.text;
   targetRevealed = false;
@@ -1134,10 +1154,9 @@ btn.onclick = async () => {
       if(!j.message) throw new Error("réponse vide");
       await attachPdfChatPayload({type:'atelier-add-to-chat', text:j.message});
     }
-    (document.getElementById("status") as HTMLSpanElement).textContent =
-      __EMB ? "Added to chat ✓" : (j.sentToClaude ? "Pasted into Claude ✓" : "Copied to clipboard ✓");
+    notify(__EMB ? "Ajouté au chat" : (j.sentToClaude ? "Collé dans Claude" : "Copié dans le presse-papiers"));
   }catch(e){
-    (document.getElementById("status") as HTMLSpanElement).textContent = "Server error";
+    notify("Erreur du serveur", "error");
   }
   btn.textContent = "➜ Claude"; btn.style.display = "none";
   setTimeout(()=>(document.getElementById("status") as HTMLSpanElement).textContent="", 3000);
@@ -1158,7 +1177,7 @@ const selApi = SelPill.attach({
     const legacyColors = selPill.querySelector<HTMLSpanElement>(".hlbar");
     if(legacyColors) legacyColors.style.display = "none";
     AtelierAnnotationUI.createSelectionActions(actions, {
-      onAdd: () => go.click(),
+      onAdd: () => { if(!go.disabled) go.click(); },
       onAnnotate: () => addHighlightFromSel("comment", LAST_COLOR),
       onHighlight: (color) => addHighlightFromSel("hl", color),
       onCode: () => codeSelection(),
@@ -1169,6 +1188,14 @@ const selApi = SelPill.attach({
         selApi.hide();
       }
     });
+  },
+  onState(next, message){
+    const add = selPill.querySelector<HTMLButtonElement>('[data-act="add"]');
+    if(!add) return;
+    if(next === "idle") delete add.dataset.state; else add.dataset.state = next;
+    add.setAttribute("aria-busy", String(next === "busy"));
+    add.title = next === "done" ? "Ajouté au chat" : next === "error" ? "Réessayer l’ajout au chat" : next === "busy" ? "Ajout au chat en cours…" : "Ajouter au chat";
+    if(next === "error") notify("Ajout au chat impossible : " + String(message || "").slice(0, 90), "error");
   },
   onCancel(){
     clearHl();
@@ -1198,6 +1225,19 @@ document.addEventListener("mouseup", (e) => {
   const b = rng.getBoundingClientRect();
   selApi.placeAt({left: b.left, width: b.width, top: b.top, bottom: b.bottom});
 });
+// PDF-18 : la capsule suit le passage sélectionné quand on fait défiler les
+// pages, au lieu de rester plantée au même endroit de l'écran.
+let selFollowFrame = 0;
+window.addEventListener("scroll", () => {
+  if (selFollowFrame || selPill.style.display !== "flex" || window.__readingMode.isOn()) return;
+  selFollowFrame = requestAnimationFrame(() => {
+    selFollowFrame = 0;
+    let l = Infinity, r = -Infinity, top = Infinity, bot = -Infinity;
+    document.querySelectorAll(".pdfsel").forEach(el => { const b = el.getBoundingClientRect();
+      l = Math.min(l, b.left); r = Math.max(r, b.right); top = Math.min(top, b.top); bot = Math.max(bot, b.bottom); });
+    if (l < r) selApi.move({left: l, width: r - l, top, bottom: bot});
+  });
+}, {passive: true});
 function selHide(){ selApi.hide(); }
 function selCancel(){ selApi.cancel(); }
 const __EMB = SelPill.embedded;
@@ -1239,6 +1279,7 @@ const annPane = (function(){
     const y = a.rects?.[0]?.[1] ?? a.pin?.[1] ?? 0;
     const sc = document.scrollingElement || document.documentElement;
     sc.scrollTo({ top: (pg as HTMLElement).offsetTop + y * (pg as HTMLElement).offsetHeight - 90, behavior: pdfScrollBehavior() });
+    flashAnnotation(pg, a.id);
   }
   // portée : "doc" = l'article ouvert ; "lib" = toute la bibliothèque
   let scope = localStorage.getItem("pdfv_pane_scope") === "lib" ? "lib" : "doc";
@@ -1677,7 +1718,7 @@ const annPane = (function(){
     for (const it of tocItems) {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "toc-it";
+      b.className = "toc-it" + (it.depth ? "" : " toc-top");
       b.style.paddingLeft = (8 + Math.min(it.depth, 3) * 12) + "px";
       const t = document.createElement("span");
       t.className = "toc-t"; t.textContent = it.title;
@@ -1991,7 +2032,7 @@ const annPane = (function(){
       try {
         if (window.self === window.top) throw new Error("ouvre le lecteur dans l’app");
         await attachPdfChatPayload({type: "atelier-add-to-chat", text});
-        (document.getElementById("status") as HTMLSpanElement).textContent = "Passages ajoutés au chat";
+        notify("Passages ajoutés au chat");
       } catch(e) { cvError = "Envoi impossible : " + String(e && e.message || e).slice(0, 90); renderCodes(); }
     }, "", "chat");
     const copy = cvTextBtn("Copier avec citations", () => {
@@ -2043,7 +2084,7 @@ const annPane = (function(){
     HL_COLORS.forEach(c => {
       const d = document.createElement("span");
       d.className = "fdot" + (only === c ? " on" : "");
-      d.style.background = c.replace(",.40", ",.85");
+      d.style.backgroundColor = c.replace(",.40", ",.85");  // couleur seule : la cible de 24 px garde son background-clip
       d.title = "N'afficher que cette couleur";
       d.onclick = () => { only = (only === c) ? null : c; onlyStamp = null; onlyCode = null; refresh(); };
       filters.appendChild(d);
@@ -2413,7 +2454,36 @@ const ANNOTS_SAVED_AGAIN_MSG = "Annotations enregistrées.";
 // « Passage retrouvé ») y restent masqués comme avant (relecture du 2026-10-19).
 function annotStatus(text: string){
   const el = document.getElementById("status") as HTMLSpanElement | null;
-  if (el) { el.textContent = text; el.classList.add("annot-state"); }
+  if (el) { clearTimeout(notifyTimer); el.textContent = text; el.dataset.kind = "hint"; el.classList.add("annot-state"); }
+}
+// Messages visibles dans l'app (PDF-03) : la classe annot-state les montre
+// aussi dans l'iframe d'Atelier. « hint » reste tant que l'outil est armé,
+// « ok » s'efface au bout de 2 s, « error » reste jusqu'au prochain clic.
+// Les messages de navigation (« Page N », « Passage retrouvé ») écrivent
+// toujours #status directement et y restent masqués.
+let notifyTimer: ReturnType<typeof setTimeout> | number = 0;
+function notify(text: string, kind: "hint" | "ok" | "error" = "ok"){
+  const el = document.getElementById("status") as HTMLSpanElement | null;
+  if (!el) return;
+  clearTimeout(notifyTimer);
+  el.textContent = text; el.dataset.kind = kind;
+  el.classList.toggle("annot-state", !!text);
+  if (!text) return;
+  const clear = () => { if (el.textContent === text) { el.textContent = ""; el.classList.remove("annot-state"); } };
+  if (kind === "ok") notifyTimer = setTimeout(clear, 2000);
+  if (kind === "error") document.addEventListener("pointerdown", clear, {once: true, capture: true});
+}
+/** Repère d'arrivée commun à toutes les navigations vers une annotation
+ *  (flèches, volet, plan, lien croisé ; PDF-29) : contour graphite qui
+ *  apparaît, tient et s'efface (pdfFlash, 1,2 s). */
+function flashAnnotation(pg: Element | null, id: unknown){
+  if (!pg || id == null) return;
+  // après le défilement (doux) et un éventuel redessin de la page
+  setTimeout(() => {
+    const els = [...pg.querySelectorAll<HTMLElement>("[data-aid]")].filter(el => el.dataset.aid === String(id));
+    els.forEach(el => { el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); });
+    setTimeout(() => els.forEach(el => el.classList.remove("flash")), 1200);
+  }, 250);
 }
 function clearAnnotStatus(text: string){
   const el = document.getElementById("status") as HTMLSpanElement | null;
@@ -2555,9 +2625,7 @@ function revealTargetAnnot(){
   const y = (a.rects && a.rects[0] && a.rects[0][1]) || (a.pin && a.pin[1]) || 0;
   const sc = document.scrollingElement || document.documentElement;
   sc.scrollTo({ top: (pg as HTMLElement).offsetTop + y * (pg as HTMLElement).offsetHeight - 90 });
-  const els = [...pg.querySelectorAll<HTMLElement>(".pdfhl, .pdfarea, .pdfcomment")].filter(el => el.dataset.aid === String(a.id));
-  els.forEach(el => el.classList.add("flash"));
-  setTimeout(() => els.forEach(el => el.classList.remove("flash")), 1600);
+  flashAnnotation(pg, a.id);
 }
 function saveAnnots(){
   annPane.refresh();
@@ -2803,7 +2871,7 @@ function addHighlightFromSel(kind: string, color: string){
   // surlignage (revue de branche, I4).
   kind = kind || "hl"; color = normalizeHighlightColor(color || HL_COLORS[0]);
   if(window.__readingMode && window.__readingMode.isOn()) return addHighlightFromReadingSel(kind, color);
-  if(!ANNOTS_LOADED){ (document.getElementById("status") as HTMLSpanElement).textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
+  if(!ANNOTS_LOADED){ notify("Les annotations chargent encore. Réessaie dans un instant."); return; }
   const model = selectionModel();
   const entries = selectionClientRects(model);
   if(!model || !entries.length) return;
@@ -2850,12 +2918,12 @@ function addHighlightFromSel(kind: string, color: string){
 }
 /** Sélection dans #readBody → annotation `comment` ordinaire (rects reconstitués par ligne). */
 function addHighlightFromReadingSel(kind, color){
-  if(!ANNOTS_LOADED){ (document.getElementById("status") as HTMLSpanElement).textContent = "Les annotations chargent encore. Réessaie dans un instant."; return; }
+  if(!ANNOTS_LOADED){ notify("Les annotations chargent encore. Réessaie dans un instant."); return; }
   const doc = window.__readingMode.doc(); const sel = window.getSelection();
   if(!doc || !sel || sel.isCollapsed) return;
   const rng = sel.getRangeAt(0);
   const el = readingBlockOf(rng.startContainer);
-  if(!el || el !== readingBlockOf(rng.endContainer)) { (document.getElementById("status") as HTMLSpanElement).textContent = "Sélectionne à l'intérieur d'un seul paragraphe."; return; }
+  if(!el || el !== readingBlockOf(rng.endContainer)) { notify("Sélectionne à l'intérieur d'un seul paragraphe.", "error"); return; }
   // rect mesuré AVANT toute mutation du DOM sous la plage (drawReadingAnnots
   // réécrit les nœuds de texte) — sinon annotMenu s'ouvre n'importe où
   // (revue plan 078 T6 fix 1, constat n°3), cf. `lastRect` côté pages.
@@ -2899,7 +2967,8 @@ function toolStatus(text: string){
   const st = document.getElementById("status");
   if(!st) return;
   // n'efface que nos propres consignes, jamais un message d'erreur
-  if(text || [ERASE_HINT, ...Object.values(TOOL_HINTS)].includes(st.textContent)) st.textContent = text;
+  if(text) notify(text, "hint");
+  else if([ERASE_HINT, ...Object.values(TOOL_HINTS)].includes(st.textContent)) notify("");
 }
 function setTool(next: string){
   TOOL = next || null;
@@ -2920,11 +2989,14 @@ const markTools = (function(){
   const bar = document.createElement("div");
   bar.className = "pdf-mark-tools";
   bar.setAttribute("role", "group");bar.setAttribute("aria-label", "Marquage du PDF");
+  // PDF-07 : surligner, souligner, barrer et note ont LE dessin de la capsule
+  // et de la carte (annotation_ui) ; la bulle ronde reste réservée au chat.
+  const shared = AtelierAnnotationUI.annotationIcons;
   const icons = {
-    hl:'<path d="m14 3 7 7-9 9-7-7zM5 12l-2 6 3 3 6-2M2 22h13"/>',
-    ul:'<path d="M6 3v8a6 6 0 0 0 12 0V3M4 21h16"/>',
-    st:'<path d="M3 12h18M16.5 7.5C16 5.5 14.3 4 12 4 9.5 4 7.5 5.5 7.5 7.6c0 1.6 1 2.8 3 3.6M8 16.5c.6 2 2.3 3.5 4.3 3.5 2.6 0 4.3-1.6 4.3-3.6 0-.9-.3-1.7-.9-2.4"/>',
-    note:'<path d="M4.5 3.8h15v12H12l-4.5 4.5v-4.5h-3z"/>',
+    hl:shared.hl,
+    ul:shared.ul,
+    st:shared.st,
+    note:shared.note,
     text:'<path d="M5 7V5h14v2M12 5v14M9 19h6"/>',
     stamp:'<path d="M9.5 3.5h5c.6 0 1 .4 1 1 0 2.2-1.5 3.3-1.5 6h-4c0-2.7-1.5-3.8-1.5-6 0-.6.4-1 1-1zM5 13.5c0-1.7 1.3-3 3-3h8c1.7 0 3 1.3 3 3V16H5zM6 20h12"/>',
     erase:'<path d="m14 3 7 7-11 11H6l-4-4zM8 11l7 7M10 21h12"/>'
@@ -3146,8 +3218,7 @@ document.addEventListener("click", (e) => {
   PDF_ANNOTS.push(a);
   saveAnnots();
   drawAnnots(pg, page);
-  toolStatus("Tampon « " + stamp.label + " » posé.");
-  setTimeout(() => toolStatus(""), 1800);
+  notify("Tampon « " + stamp.label + " » posé.");
 }, true);
 // ---- tampons -----------------------------------------------------------------
 function drawStamp(pg: HTMLElement, a){
@@ -3545,9 +3616,8 @@ function copyAnnotationsMarkdown(){
   const PT = window.AtelierPdfTools;
   if (!PT) return;
   const out = PT.annotationsMarkdown(PDF_ANNOTS, citeRef());
-  const done = () => { toolStatus(""); (document.getElementById("status") as HTMLSpanElement).textContent =
-    PDF_ANNOTS.length + " annotation" + (PDF_ANNOTS.length > 1 ? "s copiées" : " copiée") + " en Markdown";
-    setTimeout(() => { const st = document.getElementById("status"); if (st && /en Markdown$/.test(st.textContent)) st.textContent = ""; }, 2400); };
+  const done = () => { toolStatus("");
+    notify(PDF_ANNOTS.length + " annotation" + (PDF_ANNOTS.length > 1 ? "s copiées" : " copiée") + " en Markdown"); };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(out).then(done).catch(() => fallback());
   } else fallback();
@@ -3635,14 +3705,14 @@ async function sendAnnot(a, onFail, relOverride: string, fromEditor?: boolean, d
     if(!result.message || result.error || window.self === window.top) throw new Error(result.error || "réponse vide");
     await attachPdfChatPayload({type:"atelier-add-to-chat", text:result.message, direct,
       ...(a.kind === "comment" ? {pdfAnnotation: {rel:r, id:String(a.id)}} : {})});
-    (document.getElementById("status") as HTMLSpanElement).textContent = "Annotation ajoutée au chat";
+    notify("Annotation ajoutée au chat");
     return true;
   } catch(error) { fail(String(error && error.message || error)); return false; }
 }
 /** Un envoi au chat qui échoue ne doit JAMAIS être muet : la raison s'affiche
  *  dans le menu (le .catch silencieux d'avant cachait « file not found »). */
 function sendFail(why){
-  (document.getElementById("status") as HTMLSpanElement).textContent = "Ajout au chat impossible : " + String(why || "").slice(0,90);
+  notify("Ajout au chat impossible : " + String(why || "").slice(0,90), "error");
   let box = annotPop.querySelector<HTMLElement>(".serr");
   if (!box) {
     box = document.createElement("div");
@@ -4150,15 +4220,8 @@ if(window.self !== window.top){
     const rel = a.rects[0]?.[1] ?? a.pin?.[1] ?? 0;
     const el = document.scrollingElement || document.documentElement;
     el.scrollTo({ top: (pg as HTMLElement).offsetTop + rel * (pg as HTMLElement).offsetHeight - 90, behavior: pdfScrollBehavior() });
-    // flash discret sur les rectangles de l'annotation
-    setTimeout(() => {
-      pg.querySelectorAll<HTMLElement>(".pdfhl, .pdfnote").forEach((n) => {
-        if (n.title === (a.note || "") || true) return;
-      });
-      drawAnnots(pg, +a.page);
-      const els = [...pg.querySelectorAll<HTMLElement>(".pdfhl, .pdfnote")];
-      els.forEach((n) => { n.style.transition = "outline 0.2s"; });
-    }, 300);
+    drawAnnots(pg, +a.page);
+    flashAnnotation(pg, a.id);
   }
   const prevB = tools.querySelector<HTMLButtonElement>("#annPrev"), nextB = tools.querySelector<HTMLButtonElement>("#annNext");
   if (prevB) prevB.onclick = (e: { stopPropagation: () => void; }) => { e.stopPropagation(); gotoAnn(-1); };
@@ -4235,9 +4298,9 @@ if(window.self !== window.top){
     header button{background:transparent !important;border:none !important;
       color:var(--muted) !important;font-size:var(--fs-body-s,12px) !important;padding:0 !important;
       border-radius:6px !important;cursor:pointer;box-shadow:none !important}
-    header .zoomctl button{padding:3px 8px !important;border-radius:0 !important}
-    header button:hover{background:var(--card2,#2c313a) !important;color:var(--txt) !important}
-    header button[aria-pressed="true"]{background:#2c313a !important;color:var(--txt) !important}
+    header .zoomctl button{height:26px;padding:0 8px !important;border-radius:6px !important}
+    header button:hover:not(:disabled){background:var(--card2,#2c313a) !important;color:var(--txt) !important}
+    header button[aria-pressed="true"]{background:color-mix(in srgb,var(--txt) 12%,transparent) !important;color:var(--txt) !important}
     /* UNE seule rangée : jamais de retour à la ligne, hauteur fixe 44 px */
     header{flex-wrap:nowrap !important;height:44px !important;min-height:44px !important;box-sizing:border-box !important;
       padding-top:0 !important;padding-bottom:0 !important;gap:8px !important;overflow:visible}
@@ -4261,7 +4324,8 @@ if (window.self !== window.top) {
   const marks = document.querySelector<HTMLElement>(".pdf-mark-tools");
   const zoom = (document.getElementById("zoomCtl") as HTMLSpanElement);
   const more = document.createElement("details"); more.className = "pdf-toolbar-more";
-  const summary = document.createElement("summary"); summary.textContent = "⋯";
+  const summary = document.createElement("summary");
+  summary.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="12.5" cy="8" r="1.1"/></svg>';
   summary.setAttribute("aria-label", "Autres outils du PDF"); summary.title = "Autres outils du PDF";
   more.appendChild(summary);
   const menu = document.createElement("div"); menu.className = "pdf-toolbar-menu";
@@ -4410,7 +4474,7 @@ if (window.self !== window.top) {
     e.stopPropagation();
     if(!rel || chatBtn.disabled) return;
     clearTimeout(chatDone);
-    if(chatBtn.classList.contains("error")) (document.getElementById("status") as HTMLSpanElement).textContent = "";
+    if(chatBtn.classList.contains("error")) notify("");
     chatBtn.classList.remove("done", "error");
     chatBtn.disabled = true; chatBtn.setAttribute("aria-busy", "true");
     chatBtn.title = "Ajout au chat en cours…";
@@ -4420,7 +4484,7 @@ if (window.self !== window.top) {
       chatDone = setTimeout(() => { chatBtn.classList.remove("done"); chatBtn.title = "Joindre le PDF au chat"; }, 1200);
     } catch(error) {
       chatBtn.classList.add("error"); chatBtn.title = "Réessayer l’ajout au chat";
-      (document.getElementById("status") as HTMLSpanElement).textContent = "Ajout au chat impossible : " + String(error?.message || error).slice(0, 90);
+      notify("Ajout au chat impossible : " + String(error?.message || error).slice(0, 90), "error");
     } finally { chatBtn.disabled = false; chatBtn.removeAttribute("aria-busy"); }
   };
   document.getElementById("pdftools").remove();
@@ -4430,6 +4494,8 @@ if (window.self !== window.top) {
   const css = document.createElement("style");
   css.textContent = `
     header.pdf-compact-toolbar { height:36px!important; min-height:36px!important; padding:0 8px!important; gap:6px!important; background:var(--card)!important; border-color:var(--border)!important; }
+    /* menus de la barre (⋯, palette, tampons) au-dessus du volet ouvert (z 280) */
+    header.pdf-compact-toolbar { z-index:290; }
     /* WKWebView/macOS (barres de défilement « toujours affichées » ou souris
        branchée) réserve une gouttière native claire que ni le track CSS ni
        color-scheme ne recolorent. Elle recouvrait le bout de la barre (⋯ coupé)
@@ -4456,13 +4522,24 @@ if (window.self !== window.top) {
     header.pdf-compact-toolbar .pdf-tool-pop { top:31px; }
     header.pdf-compact-toolbar .pdf-mark-pen::after { display:none; }
     header.pdf-compact-toolbar .zoomctl { margin-left:auto; border:0; }
+    /* mode lecture : le zoom se masque (PDF-12), les outils restent au centre */
+    body.read-mode header.pdf-compact-toolbar .pdf-mark-tools { margin-right:auto; }
     header.pdf-compact-toolbar #zPct { border:0; }
-    header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:38px; right:8px; max-width:calc(100% - 16px); background:var(--card); border-radius:6px; font-size:var(--fs-label,11px); }
+    /* PDF-26 : message d'état = toast sous la barre (marge, ombre, fondu) ; il
+       se décale du volet ouvert au lieu de passer dessous */
+    header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { position:absolute; top:calc(100% + 8px); right:8px; z-index:330; max-width:min(420px, calc(100% - 16px)); box-sizing:border-box; padding:4px 8px; background:var(--surface-overlay,var(--card)); color:var(--text-secondary,var(--fg,var(--txt)))!important; border-radius:6px; box-shadow:var(--elevation-overlay,0 4px 16px rgba(0,0,0,.25)); font-size:var(--fs-body-s,12px)!important; line-height:1.5; animation:pdfToastIn var(--motion-fast,120ms) var(--ease-out,ease-out); }
+    body.pane-on header.pdf-compact-toolbar #selinfo, body.pane-on header.pdf-compact-toolbar #status { right:calc(var(--pane-pad,306px) - 8px); }
+    header.pdf-compact-toolbar #status[data-kind="error"]::before { content:""; display:inline-block; width:6px; height:6px; margin-right:8px; border-radius:999px; background:var(--status-error,#e06c75); vertical-align:1px; }
     header.pdf-compact-toolbar #selinfo:empty, header.pdf-compact-toolbar #status:empty { display:none; }
+    @keyframes pdfToastIn { from { opacity:0; transform:translateY(-4px); } }
+    @media (prefers-reduced-motion: reduce) { header.pdf-compact-toolbar #selinfo, header.pdf-compact-toolbar #status { animation:none; } }
     .pdf-toolbar-more { position:relative; flex:none; }
-    .pdf-toolbar-more summary { list-style:none; width:26px; height:26px; display:flex; justify-content:center; align-items:center; cursor:pointer; border-radius:6px; font-size:20px; }
+    /* PDF-25 : trois points SVG en --muted comme les autres boutons, état ouvert visible */
+    .pdf-toolbar-more summary { list-style:none; width:26px; height:26px; display:flex; justify-content:center; align-items:center; cursor:pointer; border-radius:6px; color:var(--muted); transition:color 120ms ease-out, background 120ms ease-out; }
     .pdf-toolbar-more summary::-webkit-details-marker { display:none; }
-    .pdf-toolbar-more summary:hover { background:var(--card2); }
+    .pdf-toolbar-more summary:hover { background:color-mix(in srgb,var(--txt) 6%,transparent); color:var(--txt); }
+    .pdf-toolbar-more[open] summary { background:color-mix(in srgb,var(--txt) 12%,transparent); color:var(--txt); }
+    @media (prefers-reduced-motion: reduce) { .pdf-toolbar-more summary { transition:none; } }
     header.pdf-compact-toolbar #chatPdfBtn { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
     #chatPdfBtn svg { width:14px; height:14px; }
     #chatPdfBtn .ci-done, #chatPdfBtn.done .ci-idle { display:none; }
@@ -4484,15 +4561,16 @@ if (window.self !== window.top) {
     .pdf-toolbar-menu svg { width:14px; height:14px; flex:none; }
     .pdf-toolbar-menu .pdf-menu-check { margin-left:auto; visibility:hidden; }
     header.pdf-compact-toolbar .pdf-toolbar-menu button[aria-pressed="true"], header.pdf-compact-toolbar .pdf-toolbar-menu button.ton { background:transparent!important; color:var(--txt)!important; }
-    header.pdf-compact-toolbar .pdf-toolbar-menu button:hover { background:var(--card2)!important; }
+    header.pdf-compact-toolbar .pdf-toolbar-menu button:hover:not(:disabled) { background:var(--card2)!important; }
     .pdf-toolbar-menu button[aria-pressed="true"] .pdf-menu-check, .pdf-toolbar-menu button.ton .pdf-menu-check { visibility:visible; }
     @media (prefers-reduced-motion: reduce) { .pdf-toolbar-more[open] .pdf-toolbar-menu { animation:none; } }
     header.pdf-compact-toolbar button { color:var(--muted)!important; }
     /* PDF-04 : survol 6 %, outil actif 12 % — --card2 se confondait avec le fond en sombre (1,05:1) */
-    header.pdf-compact-toolbar button:hover { background:color-mix(in srgb,var(--txt) 6%,transparent)!important; color:var(--txt)!important; }
+    header.pdf-compact-toolbar button:hover:not(:disabled) { background:color-mix(in srgb,var(--txt) 6%,transparent)!important; color:var(--txt)!important; }
+    header.pdf-compact-toolbar button:disabled { opacity:.4; cursor:default; }
     header.pdf-compact-toolbar button.ton, header.pdf-compact-toolbar button[aria-pressed="true"] { background:color-mix(in srgb,var(--txt) 12%,transparent)!important; color:var(--txt)!important; }
     header.pdf-compact-toolbar button:focus-visible, .pdf-toolbar-more summary:focus-visible { outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent)); outline-offset:var(--focus-ring-offset,1px); }
-    header.pdf-compact-toolbar .pdf-tool-pop button:hover { background:var(--card2)!important; }
+    header.pdf-compact-toolbar .pdf-tool-pop button:hover:not(:disabled) { background:var(--card2)!important; }
     header.pdf-compact-toolbar .pdf-tool-pop button[aria-pressed="true"], header.pdf-compact-toolbar .pdf-tool-pop button[aria-checked="true"] { background:transparent!important; }
     header.pdf-compact-toolbar .pdf-tool-pop button { color:var(--txt)!important; }
     .pdf-menu-hr { height:1px; margin:4px 8px; background:var(--border); flex:none; }

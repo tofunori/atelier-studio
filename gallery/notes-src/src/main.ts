@@ -1,6 +1,7 @@
 import { Crepe } from '@milkdown/crepe'
 import '@milkdown/crepe/theme/common/style.css'
-import '@milkdown/crepe/theme/nord-dark.css'
+// Plus de thème Nord (GAP-01) : les --crepe-color-* sont dérivés des jetons
+// d'Atelier dans index.html, qui charge le pont de thème.
 import { editorViewCtx } from '@milkdown/kit/core'
 import { callCommand } from '@milkdown/kit/utils'
 import {
@@ -26,27 +27,40 @@ const indicator = document.getElementById('save-indicator')
 // monte qu'après un chargement réussi, chaque sauvegarde porte la version
 // chargée (`base`) et le serveur refuse (409) d'écraser un notes.md changé
 // ailleurs depuis — par un agent, par exemple.
-let onIndicatorClick: (() => void) | null = null
-function showIndicator(text: string | null, action: (() => void) | null = null) {
-  indicator.textContent = text ?? ''
+//
+// Statut (GAP-05) : une capsule sobre. « nouvel essai » tourne en silence
+// (busy) ; seul le conflit, qui attend un choix, prend le point d'erreur et
+// un bouton explicite au lieu d'une étiquette rouge cliquable.
+const SPIN = '<svg class="ind-spin" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M8 2a6 6 0 1 0 6 6"/></svg>'
+type IndicatorAction = { label: string; run: () => void }
+function showIndicator(
+  text: string | null,
+  options: { busy?: boolean; error?: boolean; action?: IndicatorAction } = {},
+) {
+  // masquer garde le contenu le temps du fondu : la capsule ne se vide pas en partant
   indicator.classList.toggle('show', text != null)
-  indicator.classList.toggle('action', action != null)
-  if (action) {
-    indicator.setAttribute('role', 'button')
-    indicator.tabIndex = 0
-  } else {
-    indicator.removeAttribute('role')
-    indicator.removeAttribute('tabindex')
+  if (text == null) return
+  indicator.replaceChildren()
+  indicator.classList.toggle('error', !!options.error)
+  if (options.busy) indicator.insertAdjacentHTML('beforeend', SPIN)
+  if (options.error) {
+    const dot = document.createElement('span')
+    dot.className = 'ind-dot'
+    indicator.append(dot)
   }
-  onIndicatorClick = action
+  const label = document.createElement('span')
+  label.className = 'ind-text'
+  label.textContent = text
+  indicator.append(label)
+  if (options.action) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'ind-act'
+    button.textContent = options.action.label
+    button.addEventListener('click', options.action.run)
+    indicator.append(button)
+  }
 }
-indicator.addEventListener('click', () => onIndicatorClick?.())
-indicator.addEventListener('keydown', (event) => {
-  if (onIndicatorClick && (event.key === 'Enter' || event.key === ' ')) {
-    event.preventDefault()
-    onIndicatorClick()
-  }
-})
 
 async function loadNotes(): Promise<{ markdown: string; version: string | null }> {
   for (;;) {
@@ -61,7 +75,7 @@ async function loadNotes(): Promise<{ markdown: string; version: string | null }
     } catch (e) {
       // jamais un document vide à la place du fichier : on attend le serveur
       console.warn('notes/load failed', e)
-      showIndicator('Notes non chargées — nouvel essai…')
+      showIndicator('Notes non chargées, nouvel essai…', { busy: true })
       await new Promise((resolve) => setTimeout(resolve, LOAD_RETRY_MS))
     }
   }
@@ -87,12 +101,99 @@ async function main() {
   // Crepe instance is recreated when switching back from source mode with
   // changed content, so keep it mutable and factor creation into a function.
   let crepe = null
+  let mode = 'rich'
   const createCrepe = async (content) => {
-    crepe = new Crepe({ root: appEl, defaultValue: content })
+    crepe = new Crepe({
+      root: appEl,
+      defaultValue: content,
+      // Interface en français (GAP-06) : texte d'attente et menu « / »
+      featureConfigs: {
+        [Crepe.Feature.Placeholder]: { text: 'Écrire, ou « / » pour insérer un bloc…' },
+        [Crepe.Feature.BlockEdit]: {
+          textGroup: {
+            label: 'Texte',
+            text: { label: 'Paragraphe' },
+            h1: { label: 'Titre 1' },
+            h2: { label: 'Titre 2' },
+            h3: { label: 'Titre 3' },
+            h4: { label: 'Titre 4' },
+            h5: { label: 'Titre 5' },
+            h6: { label: 'Titre 6' },
+            quote: { label: 'Citation' },
+            divider: { label: 'Séparateur' },
+          },
+          listGroup: {
+            label: 'Listes',
+            bulletList: { label: 'Liste à puces' },
+            orderedList: { label: 'Liste numérotée' },
+            taskList: { label: 'Liste de tâches' },
+          },
+          advancedGroup: {
+            label: 'Avancé',
+            image: { label: 'Image' },
+            codeBlock: { label: 'Bloc de code' },
+            table: { label: 'Tableau' },
+            math: { label: 'Formule' },
+          },
+        },
+      },
+    })
     await crepe.create()
     crepe.on((api) => {
       api.markdownUpdated(() => scheduleSave())
+      // la barre suit la sélection (GAP-03) : gras, titre, liste…
+      api.selectionUpdated(() => paintToolbar())
+      api.updated(() => paintToolbar())
     })
+    paintToolbar()
+  }
+
+  // ---- État de la barre : reflète les marques et blocs sous le curseur ----
+  const fmtButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('#toolbar button[data-cmd]'))
+  const markActive = (state, name: string) => {
+    const type = state.schema.marks[name]
+    if (!type) return false
+    const { from, to, empty, $from } = state.selection
+    if (empty) return !!type.isInSet(state.storedMarks || $from.marks())
+    return state.doc.rangeHasMark(from, to, type)
+  }
+  const blockState = (state) => {
+    const { $from } = state.selection
+    const out: Record<string, boolean> = {}
+    const parent = $from.parent
+    if (parent.type.name === 'heading') out['h' + parent.attrs.level] = true
+    if (parent.type.name === 'paragraph') out.paragraph = true
+    if (parent.type.name === 'code_block') out.code = true
+    for (let depth = $from.depth; depth > 0; depth--) {
+      const node = $from.node(depth)
+      const name = node.type.name
+      if (name === 'blockquote') out.quote = true
+      if (name === 'list_item' && node.attrs.checked != null) { out.task = true; break }
+      if (name === 'bullet_list') { out.bullet = true; break }
+      if (name === 'ordered_list') { out.ordered = true; break }
+    }
+    if (out.task) delete out.bullet
+    return out
+  }
+  function paintToolbar() {
+    if (!crepe || mode === 'source') return
+    let state
+    try {
+      crepe.editor.action((ctx) => { state = ctx.get(editorViewCtx).state })
+    } catch { return }
+    if (!state) return
+    const blocks = blockState(state)
+    const marks: Record<string, boolean> = {
+      bold: markActive(state, 'strong'),
+      italic: markActive(state, 'emphasis'),
+      strike: markActive(state, 'strike_through'),
+      link: markActive(state, 'link'),
+    }
+    for (const button of fmtButtons) {
+      const cmd = button.dataset.cmd
+      if (cmd === 'hr') continue
+      button.setAttribute('aria-pressed', String(!!(marks[cmd] ?? blocks[cmd])))
+    }
   }
   await createCrepe(initial)
 
@@ -155,7 +256,6 @@ async function main() {
   })
 
   // ---- 1c. Source ↔ WYSIWYG toggle ----
-  let mode = 'rich'
   const modeBtns = {
     rich: toolbar.querySelector('button[data-mode="rich"]'),
     source: toolbar.querySelector('button[data-mode="source"]'),
@@ -182,9 +282,10 @@ async function main() {
       mode = 'rich'
       document.body.classList.remove('source-mode')
       toolbar.classList.remove('source-mode')
+      paintToolbar()
     }
-    modeBtns.rich.classList.toggle('active', mode === 'rich')
-    modeBtns.source.classList.toggle('active', mode === 'source')
+    modeBtns.rich.setAttribute('aria-pressed', String(mode === 'rich'))
+    modeBtns.source.setAttribute('aria-pressed', String(mode === 'source'))
   }
 
   // Textarea edits participate in the same debounced autosave
@@ -198,7 +299,7 @@ async function main() {
     ? { markdown: currentMarkdown() }
     : { markdown: currentMarkdown(), base: baseVersion, writer })
   // le serveur garde aussi chaque version refusée dans notes.md.conflit
-  const conflictMessage = 'notes.md a changé ailleurs : ta version reste ici (copie dans notes.md.conflit), non enregistrée. Cliquer pour la garder (l’autre ira dans notes.md.bak).'
+  const conflictMessage = 'notes.md a changé ailleurs : ta version reste ici, non enregistrée (copie dans notes.md.conflit). La garder remplace l’autre, qui ira dans notes.md.bak.'
   const keepMine = () => {
     // choix explicite : la version de l'onglet remplace celle du disque,
     // qui reste dans notes.md.bak
@@ -221,7 +322,7 @@ async function main() {
         const data = await r.json().catch(() => null)
         if (r.status === 409 && data && typeof data.version === 'string') {
           conflictVersion = data.version
-          showIndicator(conflictMessage, keepMine)
+          showIndicator(conflictMessage, { error: true, action: { label: 'Garder cette version', run: keepMine } })
           return
         }
         if (!r.ok) throw new Error('bad status ' + r.status)
@@ -230,7 +331,7 @@ async function main() {
       })
       .catch((e) => {
         console.warn('notes/save failed', e)
-        showIndicator('Notes non enregistrées — nouvel essai…')
+        showIndicator('Notes non enregistrées, nouvel essai…', { busy: true })
         if (!saveTimer) saveTimer = setTimeout(doSave, SAVE_RETRY_MS)
       })
   }
