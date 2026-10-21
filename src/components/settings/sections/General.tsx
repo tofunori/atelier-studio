@@ -26,6 +26,7 @@ import { BUILD_IDENTITY, versionWithBuild } from "../../../lib/buildIdentity";
 import { Button, InlineNotice, Select } from "../../ui";
 import { Textarea } from "../../shadcn/textarea";
 import { RemoteDevicesPanel } from "../../RemoteDevicesPanel";
+import { NotificationsGroup } from "./NotificationsGroup";
 
 // Paliers d'effort — non dupliqués côté Models.tsx au sens du bug signalé
 // (seul le catalogue de modèles désalignait les deux sections), donc pas
@@ -207,6 +208,8 @@ export default function General(p: SectionProps) {
           </Button>
         </Row>
       </Group>
+
+      <NotificationsGroup onSaved={p.onSaved} />
 
       {/* Settings.tsx:1255-1289 (ex-« avance ») : Runtime, Sidecar, images
           collées, appareils distants — quatre rangées/groupes sous le repli.

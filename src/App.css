@@ -1627,9 +1627,11 @@ button.kernel-file:hover { color: var(--text-primary); }
   font-size: var(--fs-xl); font-weight: 500; cursor: pointer; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
-/* Identity is a small dot; selection has its own left marker. */
-.rail-proj::after { content: ""; position: absolute; right: 5px; bottom: 5px;
-  width: 4px; height: 4px; border-radius: 50%; background: var(--proj-c, transparent); opacity: .85; }
+/* Identité = la couleur du projet passe dans son icône (2026-10-21) : le
+   point de couleur du coin se lisait comme une alerte. Le coin ne porte plus
+   que les signaux (.rail-signal) ; la sélection garde son repère à gauche. */
+.rail-proj.tinted, .rail-proj.tinted:hover, .rail-proj.tinted.on {
+  color: color-mix(in srgb, var(--proj-c) 72%, var(--text-primary)); }
 .rail-add-project { margin-top: 2px; color: var(--text-muted); }
 /* actif = fond + trace orange courte à gauche — jamais fond + bordure orange
    + liseré empilés (plan 023, étape 6 Rail) */
@@ -1640,10 +1642,52 @@ button.kernel-file:hover { color: var(--text-primary); }
   background: var(--accent); }
 .rail-proj.drag-over { outline: 1px solid var(--accent); outline-offset: -1px; transform: translateY(2px);
   transition: transform var(--motion-standard) var(--ease-out); }
-/* à l'intérieur de la pastille : à cheval sur le coin, il se confondait avec le
-   cadre accent du projet actif (même orange) et devenait invisible */
-.rail-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px;
-  border-radius: var(--r-pill); background: var(--accent); border: 2px solid var(--bg-side); }
+/* Signaux du rail (piste B, 2026-10-21) : quatre mots, toujours au même
+   coin, à l'intérieur de la puce (à cheval sur le coin, le point se perdait
+   dans le cadre du projet actif). Anneau qui tourne = un agent travaille ;
+   ambre = attend ta réponse ; rouge = échec ; bleu = réponse non lue. */
+.rail-signal { position: absolute; top: 2px; right: 2px; pointer-events: none; }
+.rail-signal.sig-dot { width: 9px; height: 9px; border-radius: var(--r-pill);
+  border: 2px solid var(--surface-panel); }
+.on > .rail-signal.sig-dot, .rail-proj:hover > .rail-signal.sig-dot { border-color: var(--bg-ctl); }
+.rail-signal.sig-wait { background: var(--status-warning); }
+.rail-signal.sig-fail { background: var(--status-error); }
+.rail-signal.sig-unread { background: var(--info); }
+.rail-signal.sig-run { width: 12px; height: 12px; top: 1px; right: 1px;
+  animation: rail-signal-turn 1.2s linear infinite; }
+.rail-signal.sig-run .trk { fill: none; stroke: color-mix(in srgb, var(--text-primary) 14%, transparent); stroke-width: 2; }
+.rail-signal.sig-run .arc { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round;
+  stroke-dasharray: 8 30; }
+@keyframes rail-signal-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rail-signal.sig-run { animation: none; } }
+.rail-favorite > .rail-signal { top: 1px; right: 1px; }
+/* compteur (Discussions, À traiter) : pilule grise, jamais un fond blanc */
+.rail-count { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: var(--r-pill); background: var(--bg-ctl); color: var(--text-primary);
+  font-size: var(--fs-xs); font-weight: 600; line-height: 16px; text-align: center;
+  font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--surface-panel); pointer-events: none; }
+.rail-count.wait { background: color-mix(in srgb, var(--status-warning) 24%, var(--surface-panel)); }
+.rail-view, .rail-inbox-btn { position: relative; }
+.rail-inbox-btn.on { background: var(--bg-ctl); color: var(--text-primary); }
+.rail-inbox-btn.on .rail-count { box-shadow: 0 0 0 2px var(--bg-ctl); }
+/* boîte « À traiter » : peau .ui-menu-surface (fond + ombre), rangées de menu */
+.rail-inbox { width: 300px; max-height: min(520px, 70vh); overflow-y: auto; display: flex; flex-direction: column; }
+.rail-inbox-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 4px 4px 8px; }
+.rail-inbox-title { font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.rail-inbox-clear { font-size: var(--fs-s); color: var(--text-muted); padding: 4px 8px; border-radius: var(--r-s); }
+.rail-inbox-clear:hover { color: var(--text-primary); background: var(--bg-ctl); }
+.rail-inbox-empty { margin: 0; padding: 8px 8px 12px; color: var(--text-muted); font-size: var(--fs-m); }
+.rail-inbox-label { padding: 8px 8px 4px; font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
+.rail-inbox-item.ui-menu-item { align-items: flex-start; }
+.rail-inbox-icon { flex: none; margin-top: 2px; }
+.rail-inbox-icon.wait { color: var(--status-warning); }
+.rail-inbox-icon.fail { color: var(--status-error); }
+.rail-inbox-icon.done { color: var(--info); }
+.rail-inbox-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rail-inbox-main, .rail-inbox-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-inbox-main { color: var(--text-primary); }
+.rail-inbox-detail { font-size: var(--fs-s); color: var(--text-muted); }
+.rail-inbox-age { flex: none; font-size: var(--fs-s); color: var(--text-disabled); font-variant-numeric: tabular-nums; }
 /* positionné par le Positioner Base UI (PopoverContent plain) — skin seul */
 .rail-menu { padding: 12px; width: 200px;
   display: flex; flex-direction: column; gap: 8px;
