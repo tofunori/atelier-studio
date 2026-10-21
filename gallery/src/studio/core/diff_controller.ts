@@ -141,8 +141,9 @@ export function createStudioDiffController(options: StudioDiffControllerOptions)
       quotePill = host as unknown as HTMLButtonElement;
     } else {
       quotePill = doc.createElement("button");
-      quotePill.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.5-6 5.5-.8 0-1.5-.1-2.2-.4L2 14l1.1-2.9C2.4 10.2 2 9.1 2 8c0-3 2.7-5.5 6-5.5S14 5 14 8Z"/></svg> Add to chat';
-      quotePill.style.cssText = "position:fixed;z-index:9999;display:none;background:var(--card2,#2c313a);color:var(--txt,#dadee3);border:1px solid var(--border-strong,#3a414d);border-radius:999px;padding:8px 12px;font-size:13px;font-family:inherit;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35)";
+      quotePill.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true" style="vertical-align:-3px"><path d="M14 8c0 3-2.7 5.5-6 5.5-.8 0-1.5-.1-2.2-.4L2 14l1.1-2.9C2.4 10.2 2 9.1 2 8c0-3 2.7-5.5 6-5.5S14 5 14 8Z"/></svg>&nbsp; Ajouter au chat';
+      // EDIT-14 : capsule au système (surface élevée sans bordure, 12 px, en français).
+      quotePill.style.cssText = "position:fixed;z-index:300;display:none;height:32px;box-sizing:border-box;padding:0 12px;border:0;border-radius:999px;background:var(--surface-overlay,var(--card2,#2c313a));color:var(--text-primary,var(--txt,#dadee3));font:400 12px/32px var(--ui-font);white-space:nowrap;cursor:pointer;box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px rgba(0,0,0,.25)))";
       doc.body.appendChild(quotePill);
       quotePill.addEventListener("mousedown", (event) => {
         event.preventDefault();

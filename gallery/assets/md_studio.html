@@ -60,14 +60,16 @@
   #state{font-variant-numeric:tabular-nums}
   #loadState{padding:24px;color:var(--muted);font:var(--fs-body,13px)/1.6 var(--ui-font)}
   #loadRetry{margin-top:12px;font:inherit;color:var(--fg);background:var(--surface-inset,var(--bar));border:1px solid var(--border);border-radius:var(--radius-control);padding:4px 12px}
-  #save:disabled{opacity:.5;cursor:default}
+  #save:disabled{opacity:.45;cursor:default}
   #loadRetry:focus-visible,#save:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
-  #state.dirty{color:var(--status-warning,#e0b74a)}
-  #save{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
-    border:none;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;padding:0;
-    transition:background-color 150ms ease,color 150ms ease}
-  #save:hover{background:var(--surface-inset,#2c313a);color:var(--fg)}
-  #save svg{width:15px;height:15px}
+  #state{color:var(--text-muted,var(--muted))}
+  #state.dirty::before{content:"";display:inline-block;width:6px;height:6px;margin-right:8px;border-radius:999px;background:currentColor;vertical-align:1px}
+  #state.err{color:var(--status-error,#e06c75)}
+  #save{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
+    border:none;border-radius:6px;background:transparent;color:var(--text-secondary,var(--muted));cursor:pointer;padding:0;
+    transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+  #save:hover{background:var(--surface-hover,var(--surface-inset,#2c313a));color:var(--fg)}
+  #save svg{width:16px;height:16px}
   @media (prefers-reduced-motion:reduce){#save{transition:none}}
   #ed{height:100vh}
   /* Toast UI suit le thème de l'app (classe toastui-editor-dark posée d'après
@@ -102,19 +104,59 @@
   #ed .toastui-editor-contents table th{background-color:var(--surface-inset,var(--bar));
     color:var(--text-primary,var(--fg))}
   #ed .toastui-editor-contents hr{border-color:var(--border-subtle,var(--border))}
-  /* toolbar compacte et sobre */
-  #ed .toastui-editor-defaultUI-toolbar{height:34px;padding:0 8px;
-    border-bottom:1px solid var(--border)}
-  .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons{
-    margin:5px 1px;border:none;border-radius:var(--radius-control);opacity:.5;
-    transform:scale(.78);transform-origin:center}
-  .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons:hover{
-    opacity:1;background-color:var(--surface-inset,#2c313a);border:none}
-  .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons.active{
-    opacity:1;background-color:var(--surface-inset,#2c313a)}
-  #ed .toastui-editor-toolbar-divider{margin:9px 6px;height:16px;
-    background:var(--border)}
+  /* EDIT-03 / EDIT-09 : la barre Toast UI au système — 44 px comme les autres
+     éditeurs, boutons fantômes 28 px, icônes SVG (lucide, trait 1,4) peintes
+     par masque à la couleur du texte au lieu de la planche PNG réduite. */
+  #ed .toastui-editor-defaultUI-toolbar{height:var(--surface-header-height,44px);box-sizing:border-box;padding:0 12px;
+    background:var(--surface-header,var(--bar));border-bottom:1px solid var(--border-subtle,var(--border))}
+  #ed .toastui-editor-toolbar-group{display:flex;align-items:center;gap:4px}
+  #ed .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons{position:relative;width:28px;height:28px;margin:0;padding:0;
+    border:0;border-radius:6px;background:transparent!important;opacity:1;transform:none;color:var(--text-secondary,var(--muted));
+    transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+  #ed .toastui-editor-toolbar-icons::before{content:"";position:absolute;inset:6px;background-color:currentColor;
+    -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:16px;mask-size:16px}
+  #ed .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons:hover{background:var(--surface-hover,var(--surface-inset))!important;color:var(--text-primary,var(--fg));border:0}
+  #ed .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons.active{background:color-mix(in srgb,var(--primary,var(--accent)) 13%,transparent)!important;color:var(--primary,var(--accent))}
+  #ed .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons:disabled{opacity:.45}
+  #ed .toastui-editor-defaultUI-toolbar .toastui-editor-toolbar-icons:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+  #ed .toastui-editor-toolbar-icons.heading::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12h12M6 20V4M18 20V4'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12h12M6 20V4M18 20V4'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.bold::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.italic::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 4h-9M14 20H5M15 4 9 20'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 4h-9M14 20H5M15 4 9 20'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.strike::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 4H9a3 3 0 0 0-2.83 4M14 12a4 4 0 0 1 0 8H6M4 12h16'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 4H9a3 3 0 0 0-2.83 4M14 12a4 4 0 0 1 0 8H6M4 12h16'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.hrline::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.quote::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 6H3M21 12H8M21 18H8M3 12v6'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 6H3M21 12H8M21 18H8M3 12v6'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.bullet-list::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.ordered-list::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 12h11M10 18h11M10 6h11M4 10h2M4 6h1v4M6 18H4c0-1 2-2 2-3s-1-1.5-2-1'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 12h11M10 18h11M10 6h11M4 10h2M4 6h1v4M6 18H4c0-1 2-2 2-3s-1-1.5-2-1'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.task-list::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 17 2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 17 2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.table::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v18M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM3 9h18M3 15h18'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v18M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM3 9h18M3 15h18'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.link::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.image::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM21 15l-3.09-3.09a2 2 0 0 0-2.82 0L6 21M7 9a2 2 0 1 0 4 0a2 2 0 1 0-4 0'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM21 15l-3.09-3.09a2 2 0 0 0-2.82 0L6 21M7 9a2 2 0 1 0 4 0a2 2 0 1 0-4 0'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.code::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m16 18 6-6-6-6M8 6l-6 6 6 6'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m16 18 6-6-6-6M8 6l-6 6 6 6'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.codeblock::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m10 9-3 3 3 3M14 15l3-3-3-3M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m10 9-3 3 3 3M14 15l3-3-3-3M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.indent::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8l4 4-4 4M21 12H11M21 6H11M21 18H11'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8l4 4-4 4M21 12H11M21 6H11M21 18H11'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.outdent::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 8l-4 4 4 4M21 12H11M21 6H11M21 18H11'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 8l-4 4 4 4M21 12H11M21 6H11M21 18H11'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-icons.more::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h.01M12 12h.01M19 12h.01'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h.01M12 12h.01M19 12h.01'/%3E%3C/svg%3E")}
+  #ed .toastui-editor-toolbar-divider{margin:0 8px;width:1px;height:16px;background:var(--border-subtle,var(--border))}
   .toastui-editor-defaultUI-toolbar button{border:none}
+  @media (prefers-reduced-motion:reduce){#ed .toastui-editor-toolbar-icons{transition:none}}
+  /* Popups (titre, lien, image, tableau) : surface élevée, sans bordure. */
+  #ed .toastui-editor-popup,.toastui-editor-popup{border:0!important;border-radius:10px;background:var(--surface-overlay,var(--bar))!important;
+    box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px rgba(0,0,0,.25)))!important;color:var(--text-primary,var(--fg));font-family:var(--ui-font)}
+  .toastui-editor-popup .toastui-editor-popup-body{padding:12px}
+  .toastui-editor-popup ul li{border-radius:6px;font-size:12px}
+  .toastui-editor-popup ul li:hover{background:var(--surface-hover,var(--surface-inset))!important}
+  .toastui-editor-popup input[type=text]{height:28px;border:0!important;border-radius:6px;background:var(--surface-inset,var(--bar))!important;color:var(--text-primary,var(--fg))!important;font:12px var(--ui-font)}
+  .toastui-editor-popup label{font-size:12px;color:var(--text-muted,var(--muted))!important}
+  .toastui-editor-popup .toastui-editor-ok-button,.toastui-editor-popup .toastui-editor-close-button{height:28px;border:0!important;border-radius:6px;font:500 12px var(--ui-font);cursor:pointer}
+  .toastui-editor-popup .toastui-editor-ok-button{background:var(--fill-secondary,var(--surface-inset))!important;color:var(--text-primary,var(--fg))!important}
+  .toastui-editor-popup .toastui-editor-ok-button:hover{background:var(--fill-secondary-hover,var(--surface-hover))!important}
+  .toastui-editor-popup .toastui-editor-close-button{background:transparent!important;color:var(--text-muted,var(--muted))!important}
+  .toastui-editor-popup .toastui-editor-close-button:hover{background:var(--surface-hover,var(--surface-inset))!important;color:var(--text-primary,var(--fg))!important}
+  .toastui-editor-tooltip{border-radius:6px;background:var(--surface-overlay,var(--bar))!important;color:var(--text-secondary,var(--muted))!important;
+    box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px rgba(0,0,0,.25)));font:12px/1.4 var(--ui-font)!important;padding:4px 8px}
+  .toastui-editor-tooltip .arrow{display:none}
+  #ed .toastui-editor-contents{font-family:var(--ui-font)}
+  #ed .toastui-editor-ww-container .toastui-editor-contents,#ed .toastui-editor-md-container .toastui-editor-contents{padding:16px 24px}
   #ed .toastui-editor-mode-switch{background:var(--bar);
     border-top:1px solid var(--border);font-size:var(--fs-label, 11px)}
   #ed .toastui-editor-mode-switch .tab-item{border-color:var(--border);background-color:var(--bar);
@@ -146,7 +188,10 @@ let diskMtime = 0, dirty = false, editor = null, loading = true, selectionAction
 /* Version disque sur laquelle le tampon est tapé (base du brouillon de secours). */
 let baseText         = null;
 
+// EDIT-20 : gris pour la routine (point de 6 px pour « Modifié »), couleur
+// d'erreur pour les échecs et les conflits, heure en fr-CA.
 function setState(cls        , txt        ){ stateEl.className = cls; stateEl.textContent = txt; }
+const savedAt = () => new Date().toLocaleTimeString("fr-CA", {hour: "2-digit", minute: "2-digit"});
 
 /* Brouillon de secours (audit 2026-10-18, problème 1) : le tampon modifié
    survit au démontage de l'iframe et revient, modifié, à la réouverture ;
@@ -228,7 +273,7 @@ async function loadDocument(){
     watchEditorScheme();
     editor.on("change", () => {
       if(loading) return;
-      localRevision += 1; setDirty(true); drafts.noteChange(); setState("dirty", "modifié");
+      localRevision += 1; setDirty(true); drafts.noteChange(); setState("dirty", "Modifié");
       if(selectionActions) selectionActions.refresh();
     });
     if(window.self !== window.top){
@@ -271,7 +316,7 @@ async function save(){
   const text = editor.getMarkdown();
   const button = (document.getElementById("save")                     );
   saving = true; button.disabled = true; button.setAttribute("aria-busy", "true");
-  setState("", "sauvegarde…");
+  setState("", "Enregistrement…");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   try {
@@ -280,16 +325,16 @@ async function save(){
     const j = await r.json();
     if(j.error === "conflit"){
       if(Number.isFinite(j.mtime)) diskMtime = j.mtime;
-      setDirty(true); setState("dirty", "conflit disque — re-⌘S pour écraser"); return;
+      setDirty(true); setState("dirty err", "Conflit avec le disque — ⌘S pour écraser"); return;
     }
     if(!r.ok || j.error || !Number.isFinite(j.mtime)) throw new Error(j.error || ("Réponse invalide (HTTP " + r.status + ")"));
     diskMtime = j.mtime; localRevision += 1; baseText = text;
     // Une retouche faite pendant l'écriture n'appartient pas au texte confirmé.
     setDirty(editor.getMarkdown() !== text);
-    setState(dirty ? "dirty" : "", dirty ? "modifié" : "sauvegardé " + new Date().toLocaleTimeString());
+    setState(dirty ? "dirty" : "", dirty ? "Modifié" : "Enregistré à " + savedAt());
   } catch(error) {
     setDirty(true);
-    setState("dirty", "Échec de la sauvegarde : " + (error.name === "AbortError" ? "délai dépassé — réessayer" : error.message));
+    setState("dirty err", "Échec de l'enregistrement : " + (error.name === "AbortError" ? "délai dépassé — réessayer" : error.message));
   } finally {
     clearTimeout(timeout); saving = false; button.disabled = false; button.removeAttribute("aria-busy");
   }
@@ -307,7 +352,7 @@ setInterval(async () => {
   try{
     const j = await (await fetch("/code?path=" + encodeURIComponent(path) + "&statonly=1")).json();
     if(j.mtime && Math.abs(j.mtime - diskMtime) > 0.001){
-      if(dirty || saving){ setState("dirty", "le fichier a changé sur disque"); return; }
+      if(dirty || saving){ setState("dirty err", "Le fichier a changé sur le disque"); return; }
       const full = await (await fetch("/code?path=" + encodeURIComponent(path))).json();
       if(revision !== localRevision || dirty || saving || typeof full.text !== "string" || !Number.isFinite(full.mtime)) return;
       loading = true;
@@ -315,7 +360,7 @@ setInterval(async () => {
       editor.setMarkdown(full.text, false);
       if(selectionActions) selectionActions.refresh();
       loading = false;
-      setState("", "rechargé (modifié sur disque)");
+      setState("", "Rechargé depuis le disque à " + savedAt());
     }
   }catch(e){} finally { polling = false; loading = false; }
 }, 2000);

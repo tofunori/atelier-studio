@@ -1136,8 +1136,9 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     win.setTimeout(initializeMarkdown, 0);
     if (win.self === win.top) return;
     const button = doc.createElement("button");
-    button.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="vertical-align:-2px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Add to chat';
-    button.style.cssText = "position:fixed;z-index:9999;display:none;background:var(--card2,#2c313a);color:var(--txt,#dadee3);border:1px solid var(--border-strong,#3a414d);border-radius:999px;padding:8px 12px;font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5);font-family:var(--ui-font)";
+    button.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true" style="vertical-align:-3px"><path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z"/></svg>&nbsp; Ajouter au chat';
+    // EDIT-14 : capsule au système (surface élevée sans bordure, 12 px, en français).
+    button.style.cssText = "position:fixed;z-index:300;display:none;height:32px;box-sizing:border-box;padding:0 12px;border:0;border-radius:999px;background:var(--surface-overlay,var(--card2,#2c313a));color:var(--text-primary,var(--txt,#dadee3));font:400 12px/32px var(--ui-font);white-space:nowrap;cursor:pointer;box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px rgba(0,0,0,.25)))";
     doc.body.appendChild(button);
     let selectedText = "";
     button.addEventListener("mousedown", (event) => {

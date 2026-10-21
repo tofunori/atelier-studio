@@ -182,10 +182,96 @@ function normalizeThemeId(id: string) {
   return STUDIO_THEMES.some((theme) => theme.id === normalized) ? normalized : "atelier";
 }
 
+// EDIT-06/07 : recherche ⌘F, autocomplétion et diagnostics au système de
+// design (12 px, rangées 28, rayons 6/10, sans bordure ni dégradé). Les règles
+// d'usine de CodeMirror sont plus spécifiques (&light/&dark) : d'où les
+// !important sur fond, bordure et taille.
+const UI_FONT = "var(--ui-font, -apple-system, BlinkMacSystemFont, sans-serif)";
+const CLOSE_ICON = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E\")";
+function chromeTheme(p, overlay: string, muted: string) {
+  const hover = `color-mix(in srgb, ${p.fg} 8%, transparent)`;
+  const ring = {outline: "var(--focus-ring-width, 1px) solid var(--focus-ring-color, var(--accent))", outlineOffset: "var(--focus-ring-offset, 1px)"};
+  const control = {height: "28px", boxSizing: "border-box", fontFamily: UI_FONT, fontSize: "12px !important", fontWeight: "400", lineHeight: "1.5", borderRadius: "6px !important", verticalAlign: "middle"};
+  return {
+    ".cm-panels-top": {borderBottom: `1px solid ${p.border}`},
+    ".cm-panels-bottom": {borderTop: `1px solid ${p.border}`},
+    ".cm-panel.cm-search": {padding: "8px 40px 8px 12px", fontFamily: UI_FONT, fontSize: "12px"},
+    ".cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label": {margin: "2px 4px 2px 0"},
+    ".cm-textfield": {...control, padding: "0 8px", color: `${p.fg} !important`, backgroundColor: `${p.surface} !important`, border: "0 !important", minWidth: "176px"},
+    ".cm-textfield::placeholder": {color: muted},
+    ".cm-textfield:focus": {...ring},
+    ".cm-button": {...control, padding: "0 8px", color: `${p.fg} !important`, backgroundColor: "transparent !important", backgroundImage: "none !important", border: "0 !important", cursor: "pointer", transition: "background-color var(--motion-fast, 120ms) ease-out"},
+    ".cm-button:hover": {backgroundColor: `${hover} !important`},
+    ".cm-button:active": {backgroundImage: "none !important"},
+    ".cm-button:focus-visible": {...ring},
+    ".cm-panel.cm-search label": {display: "inline-flex", alignItems: "center", gap: "4px", height: "28px", fontSize: "12px", color: muted, verticalAlign: "middle", cursor: "pointer"},
+    ".cm-panel.cm-search input[type=checkbox]": {margin: "0", accentColor: p.accent},
+    ".cm-panel.cm-search [name=close]": {top: "8px", right: "8px", width: "24px", height: "24px", borderRadius: "6px", fontSize: "0", color: muted, cursor: "pointer"},
+    ".cm-panel.cm-search [name=close]::before": {content: '""', display: "block", width: "14px", height: "14px", margin: "auto", backgroundColor: "currentColor", WebkitMask: `${CLOSE_ICON} center / contain no-repeat`, mask: `${CLOSE_ICON} center / contain no-repeat`},
+    ".cm-panel.cm-search [name=close]:hover": {color: p.fg, backgroundColor: hover},
+    ".cm-tooltip.cm-tooltip-autocomplete": {padding: "4px", fontFamily: UI_FONT},
+    ".cm-tooltip.cm-tooltip-autocomplete > ul": {fontFamily: UI_FONT, fontSize: "12px", maxHeight: "232px", minWidth: "240px"},
+    ".cm-tooltip.cm-tooltip-autocomplete > ul > li": {display: "flex", alignItems: "center", gap: "8px", minHeight: "28px", padding: "4px 8px", borderRadius: "6px", lineHeight: "1.5", boxSizing: "border-box"},
+    ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {background: `${hover} !important`, color: `${p.fg} !important`},
+    ".cm-tooltip.cm-tooltip-autocomplete > ul > completion-section": {borderBottom: "0", padding: "4px 8px", fontSize: "11px", color: muted, opacity: "1"},
+    ".cm-completionIcon": {display: "none"},
+    ".cm-completionLabel": {fontFamily: "var(--code-font, ui-monospace, 'SF Mono', Menlo, monospace)"},
+    ".cm-completionMatchedText": {textDecoration: "none", fontWeight: "600"},
+    ".cm-completionDetail": {marginLeft: "auto", fontStyle: "normal", color: muted, overflow: "hidden", textOverflow: "ellipsis"},
+    ".cm-tooltip.cm-completionInfo": {padding: "8px 12px", maxWidth: "320px", fontFamily: UI_FONT, fontSize: "12px", lineHeight: "1.5"},
+    ".cm-tooltip-lint": {padding: "4px"},
+    ".cm-diagnostic": {padding: "4px 8px 4px 12px", marginLeft: "0", borderLeft: "0 !important", position: "relative", fontFamily: UI_FONT, fontSize: "12px", lineHeight: "1.5"},
+    ".cm-diagnostic::before": {content: '""', position: "absolute", left: "4px", top: "8px", bottom: "8px", width: "2px", borderRadius: "999px", background: muted},
+    ".cm-diagnostic-error::before": {background: "var(--status-error, #e5534b)"},
+    ".cm-diagnostic-warning::before": {background: "var(--status-warning, #e0b74a)"},
+    ".cm-diagnostic-info::before": {background: "var(--status-info, #5b9dff)"},
+    ".cm-diagnosticSource": {fontSize: "11px", color: muted, opacity: "1"},
+    ".cm-diagnosticAction": {font: `400 12px/1.5 ${UI_FONT}`, padding: "0 8px", height: "24px", borderRadius: "6px", border: "0", background: hover, color: p.fg, marginLeft: "8px"},
+    // EDIT-26 : la colonne de lint ne réserve rien tant qu'elle est vide ; ses
+    // marqueurs sont des points de 6 px aux couleurs d'état.
+    ".cm-gutter-lint:not(:has(.cm-lint-marker))": {width: "0"},
+    ".cm-gutter-lint .cm-gutterElement": {display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px"},
+    ".cm-lint-marker": {width: "6px", height: "6px", borderRadius: "999px", content: "none !important", background: muted},
+    ".cm-lint-marker-error": {background: "var(--status-error, #e5534b)"},
+    ".cm-lint-marker-warning": {background: "var(--status-warning, #e0b74a)"},
+    ".cm-lint-marker-info": {background: "var(--status-info, #5b9dff)"},
+    ".cm-foldGutter .cm-gutterElement": {display: "flex", alignItems: "center", justifyContent: "center", color: muted, opacity: "0", transition: "opacity var(--motion-fast, 120ms) ease-out"},
+    ".cm-gutters:hover .cm-foldGutter .cm-gutterElement, .cm-foldGutter .cm-gutterElement:has(.cm-fold-closed)": {opacity: "1"},
+    ".cm-fold-marker": {display: "block", cursor: "pointer"},
+    ".cm-fold-marker:hover": {color: p.fg},
+    ".cm-foldPlaceholder": {color: muted, backgroundColor: p.surface, border: "0", borderRadius: "6px", padding: "0 4px", margin: "0 2px"},
+    "@media (prefers-reduced-motion: reduce)": {".cm-button, .cm-foldGutter .cm-gutterElement": {transition: "none"}},
+  };
+}
+
+// EDIT-18 : chevron SVG (12 px, trait 1,4) au lieu des glyphes « ⌄ › ».
+function foldMarker(open: boolean) {
+  const span = document.createElement("span");
+  span.className = `cm-fold-marker ${open ? "cm-fold-open" : "cm-fold-closed"}`;
+  span.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${open ? "m6 9 6 6 6-6" : "m9 18 6-6-6-6"}"/></svg>`;
+  return span;
+}
+
+// Libellés du panneau ⌘F, des replis et des diagnostics en français.
+const FRENCH_PHRASES = EditorState.phrases.of({
+  "Find": "Rechercher", "Replace": "Remplacer", "next": "Suivant", "previous": "Précédent", "all": "Tout",
+  "match case": "Casse", "regexp": "Expression régulière", "by word": "Mot entier", "replace": "Remplacer",
+  "replace all": "Tout remplacer", "close": "Fermer", "current match": "occurrence courante", "on line": "à la ligne",
+  "replaced match on line $": "occurrence remplacée à la ligne $", "replaced $ matches": "$ occurrences remplacées",
+  "Go to line": "Aller à la ligne", "go": "Aller", "Folded lines": "Lignes repliées", "Unfolded lines": "Lignes dépliées",
+  "Fold line": "Replier", "Unfold line": "Déplier", "folded code": "code replié", "unfold": "déplier", "to": "à",
+  "Completions": "Suggestions", "Diagnostics": "Diagnostics", "No diagnostics": "Aucun diagnostic",
+});
+
 function themeExtensions(id) {
   const themeId = normalizeThemeId(id);
   const p = paletteFor(themeId);
   const dark = p.dark !== false;
+  // Les profils Atelier et Claude Code suivent l'hôte ; les thèmes tiers,
+  // toujours sombres, gardent leur propre surface.
+  const followsHost = p.bg.startsWith("var(");
+  const overlay = followsHost ? `var(--surface-overlay, ${p.surface})` : p.surface;
+  const muted = followsHost ? `var(--text-muted, ${p.gutter})` : p.gutter;
   const editorTheme = EditorView.theme({
     "&": {height: "100%", color: `${p.fg} !important`, backgroundColor: `${p.bg} !important`, "--cm-selection": p.selection},
     ".cm-scroller": {
@@ -200,12 +286,12 @@ function themeExtensions(id) {
     ".cm-gutters": {color: `${p.gutter} !important`, backgroundColor: `${p.bg} !important`, borderRight: `1px solid ${p.border} !important`},
     ".cm-lineNumbers .cm-gutterElement": {padding: "0 4px"},
     ".cm-activeLineGutter": {color: p.gutterActive, backgroundColor: p.active},
-    ".cm-foldPlaceholder": {color: p.gutterActive, backgroundColor: p.surface, border: `1px solid ${p.border}`},
     ".cm-matchingBracket": {color: `${p.accent} !important`, backgroundColor: `${p.accent}20`, outline: `1px solid ${p.accent}55`},
     ".cm-searchMatch": {backgroundColor: `${p.accent}2e`, outline: `1px solid ${p.accent}4d`},
     ".cm-searchMatch.cm-searchMatch-selected": {backgroundColor: p.selection},
     ".cm-panels": {color: p.fg, backgroundColor: p.panel},
-    ".cm-tooltip": {color: p.fg, backgroundColor: p.surface, border: `1px solid ${p.border}`},
+    ".cm-tooltip": {color: p.fg, backgroundColor: overlay, border: "0", borderRadius: "10px", boxShadow: "var(--elevation-overlay, var(--elev, 0 4px 16px rgba(0,0,0,.25)))"},
+    ...chromeTheme(p, overlay, muted),
   }, {dark});
   if (MAINTAINED_THEME_EXTENSIONS[themeId]) return [
     MAINTAINED_THEME_EXTENSIONS[themeId],
@@ -227,8 +313,8 @@ function themeExtensions(id) {
     {tag: [tags.escape, tags.special(tags.string)], color: p.escape},
     {tag: [tags.operator, tags.punctuation, tags.bracket], color: p.punct},
     {tag: [tags.meta, tags.macroName], color: p.meta},
-    {tag: tags.heading, color: p.fg, fontWeight: "650"},
-    {tag: tags.strong, color: p.fg, fontWeight: "700"},
+    {tag: tags.heading, color: p.fg, fontWeight: "600"},
+    {tag: tags.strong, color: p.fg, fontWeight: "600"},
     {tag: tags.emphasis, color: p.fg, fontStyle: "italic"},
     {tag: [tags.link, tags.url], color: p.fn, textDecoration: "underline"},
     {tag: tags.invalid, color: "#f07178", textDecoration: "underline wavy"},
@@ -236,32 +322,39 @@ function themeExtensions(id) {
   return [editorTheme, syntaxHighlighting(highlightStyle)];
 }
 
+// Sélecteur de thème : même modèle que les menus de la galerie (.menu) —
+// surface élevée sans bordure, rangées de 28 px, ✓ SVG à droite, ouverture
+// en fondu de 120 ms. Toutes les couleurs passent par les variables d'hôte.
 const themePickerBase = EditorView.baseTheme({
-  ".cm-theme-picker": {position: "absolute", zIndex: "20", top: "8px", right: "10px", fontFamily: "var(--ui-font, -apple-system, sans-serif)"},
+  ".cm-theme-picker": {position: "absolute", zIndex: "20", top: "8px", right: "12px", fontFamily: "var(--ui-font, -apple-system, sans-serif)"},
   ".cm-theme-trigger": {
-    width: "28px", height: "28px", display: "grid", placeItems: "center", padding: "0",
-    color: "#8e98a8", background: "rgba(24, 27, 32, .86)", border: "1px solid rgba(142, 152, 168, .2)",
-    borderRadius: "7px", cursor: "pointer", opacity: ".28", transition: "opacity 120ms ease-out, border-color 120ms ease-out",
+    width: "24px", height: "24px", display: "grid", placeItems: "center", padding: "0",
+    color: "var(--text-muted, var(--muted))", background: "transparent", border: "0",
+    borderRadius: "6px", cursor: "pointer", opacity: "0",
+    transition: "opacity var(--motion-fast, 120ms) ease-out, background-color var(--motion-fast, 120ms) ease-out, color var(--motion-fast, 120ms) ease-out",
   },
-  "&:hover .cm-theme-trigger, &.cm-focused .cm-theme-trigger, .cm-theme-trigger[aria-expanded=true]": {opacity: "1"},
-  ".cm-theme-trigger:hover": {color: "#d9dee7", borderColor: "rgba(142, 152, 168, .45)"},
+  "&:hover .cm-theme-trigger, &.cm-focused .cm-theme-trigger, .cm-theme-trigger:focus-visible, .cm-theme-trigger[aria-expanded=true]": {opacity: "1"},
+  ".cm-theme-trigger:hover, .cm-theme-trigger[aria-expanded=true]": {color: "var(--text-primary, var(--txt))", background: "var(--surface-hover, var(--card2))"},
+  ".cm-theme-trigger:focus-visible": {outline: "var(--focus-ring-width, 1px) solid var(--focus-ring-color, var(--accent))", outlineOffset: "var(--focus-ring-offset, 1px)"},
   ".cm-theme-menu": {
-    position: "absolute", top: "34px", right: "0", width: "176px", padding: "5px",
-    background: "#181b20", border: "1px solid #363d48", borderRadius: "10px",
-    boxShadow: "0 12px 36px rgba(0,0,0,.48)", display: "none",
+    position: "absolute", top: "28px", right: "0", width: "184px", padding: "4px",
+    background: "var(--surface-overlay, var(--bg-pop, var(--card)))", border: "0", borderRadius: "10px",
+    boxShadow: "var(--elevation-overlay, var(--elev))",
+    opacity: "0", transform: "translateY(-4px)", visibility: "hidden", pointerEvents: "none",
+    transition: "opacity var(--motion-fast, 120ms) ease-out, transform var(--motion-fast, 120ms) ease-out, visibility 0s linear var(--motion-fast, 120ms)",
   },
-  ".cm-theme-picker.open .cm-theme-menu": {display: "block"},
+  ".cm-theme-picker.open .cm-theme-menu": {opacity: "1", transform: "none", visibility: "visible", pointerEvents: "auto", transition: "opacity var(--motion-fast, 120ms) ease-out, transform var(--motion-fast, 120ms) ease-out"},
   ".cm-theme-option": {
-    width: "100%", minHeight: "34px", display: "flex", alignItems: "center", gap: "9px",
-    padding: "0 9px", color: "#aeb7c4", background: "transparent", border: "0",
-    borderRadius: "7px", cursor: "pointer", font: "12px/1 var(--ui-font, -apple-system, sans-serif)", textAlign: "left",
+    width: "100%", minHeight: "28px", display: "flex", alignItems: "center", gap: "8px",
+    padding: "4px 8px", color: "var(--text-primary, var(--txt))", background: "transparent", border: "0",
+    borderRadius: "6px", cursor: "pointer", font: "400 12px/1.5 var(--ui-font, -apple-system, sans-serif)", textAlign: "left",
   },
-  ".cm-theme-option:hover, .cm-theme-option[aria-checked=true]": {color: "#e2e7ee", background: "#252a31"},
-  ".cm-theme-swatches": {display: "flex", width: "39px", height: "14px", overflow: "hidden", borderRadius: "4px", border: "1px solid rgba(255,255,255,.08)"},
+  ".cm-theme-option:hover, .cm-theme-option:focus-visible": {background: "var(--surface-hover, var(--card2))", outline: "none"},
+  ".cm-theme-swatches": {display: "flex", width: "40px", height: "12px", overflow: "hidden", borderRadius: "999px", boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--text-primary, #888) 12%, transparent)"},
   ".cm-theme-swatch": {flex: "1"},
-  ".cm-theme-check": {marginLeft: "auto", color: "#86aee8", opacity: "0"},
+  ".cm-theme-check": {marginLeft: "auto", display: "grid", placeItems: "center", color: "var(--text-primary, var(--txt))", opacity: "0"},
   ".cm-theme-option[aria-checked=true] .cm-theme-check": {opacity: "1"},
-  "@media (prefers-reduced-motion: reduce)": {".cm-theme-trigger": {transition: "none"}},
+  "@media (prefers-reduced-motion: reduce)": {".cm-theme-trigger, .cm-theme-menu, .cm-theme-picker.open .cm-theme-menu": {transition: "none"}},
 });
 
 function themePickerExtension(getTheme, setTheme) {
@@ -281,7 +374,7 @@ function themePickerExtension(getTheme, setTheme) {
       this.trigger.setAttribute("aria-label", "Thème de l'éditeur");
       this.trigger.setAttribute("aria-haspopup", "menu");
       this.trigger.setAttribute("aria-expanded", "false");
-      this.trigger.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.8"/><circle cx="6" cy="6" r=".8" fill="currentColor"/><circle cx="10" cy="5.7" r=".8" fill="currentColor"/><circle cx="5.7" cy="9.5" r=".8" fill="currentColor"/></svg>';
+      this.trigger.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><circle cx="6" cy="6" r=".8" fill="currentColor"/><circle cx="10" cy="5.7" r=".8" fill="currentColor"/><circle cx="5.7" cy="9.5" r=".8" fill="currentColor"/></svg>';
       this.menu = document.createElement("div");
       this.menu.className = "cm-theme-menu";
       this.menu.setAttribute("role", "menu");
@@ -291,7 +384,7 @@ function themePickerExtension(getTheme, setTheme) {
         option.className = "cm-theme-option";
         option.setAttribute("role", "menuitemradio");
         option.setAttribute("aria-label", theme.label);
-        option.innerHTML = `<span class="cm-theme-swatches">${theme.swatches.map((color) => `<i class="cm-theme-swatch" style="background:${color}"></i>`).join("")}</span><span>${theme.label}</span><span class="cm-theme-check">✓</span>`;
+        option.innerHTML = `<span class="cm-theme-swatches">${theme.swatches.map((color) => `<i class="cm-theme-swatch" style="background:${color}"></i>`).join("")}</span><span>${theme.label}</span><span class="cm-theme-check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>`;
         option.addEventListener("click", () => { setTheme(theme.id); this.close(); });
         this.menu.appendChild(option);
       }
@@ -746,12 +839,13 @@ export function createStudioEditor(parent, opts) {
     state: EditorState.create({
       doc: opts.value || "",
       extensions: [
+        FRENCH_PHRASES,
         ...(opts.ext === "tex" ? [autocompletion({override: [bibliographyCompletion]}), keymap.of([{key:"Ctrl-Space", run:startCompletion}]), latexDiagnosticsExtension()] : []),
         // Pas de fond de ligne active en .tex : une ligne logique y est un
         // paragraphe entier (texte fluide ou non), donc un clic grisait tout
         // le bloc. Le numéro de ligne actif reste marqué dans la gouttière.
         lineNumbers(), history(), ...(opts.ext === "tex" ? [] : [highlightActiveLine()]), highlightActiveLineGutter(),
-        bracketMatching(), closeBrackets(), foldGutter(), restingSelectionMatches,
+        bracketMatching(), closeBrackets(), foldGutter({markerDOM: foldMarker}), restingSelectionMatches,
         // Un clic reste un clic : ni tremblement de souris, ni glisser natif
         // d'une sélection (PIEGES_CONNUS §18).
         clickGesture,

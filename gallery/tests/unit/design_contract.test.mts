@@ -149,6 +149,29 @@ test("poids de police : 400 / 500 / 600 uniquement (hors @font-face)", () => {
   assert.deepEqual(bad, []);
 });
 
+// EDIT-27 : le CSS-en-JS de CodeMirror (EditorView.theme, baseTheme,
+// HighlightStyle) écrit fontWeight, fontSize et borderRadius en camelCase,
+// invisibles pour les analyses kebab-case ci-dessus.
+test("CSS-en-JS : fontWeight, fontSize et borderRadius dans le système", () => {
+  const sizes = (n: number) => [10, 11, 12, 13, 15].includes(n) || (n >= 18 && n <= 34);
+  const bad: string[] = [];
+  for (const file of tsSources()) {
+    const text = stripComments(read(file), true);
+    for (const m of text.matchAll(/fontWeight:\s*["'`](\d+)["'`]/g)) {
+      if (!["400", "500", "600"].includes(m[1])) bad.push(`${file} fontWeight:${m[1]}`);
+    }
+    for (const m of text.matchAll(/fontSize:\s*["'`](\d+(?:\.\d+)?)px/g)) {
+      if (!sizes(Number(m[1]))) bad.push(`${file} fontSize:${m[1]}px`);
+    }
+    for (const m of text.matchAll(/borderRadius:\s*["'`]([^"'`]*)["'`]/g)) {
+      for (const px of m[1].matchAll(/(\d+(?:\.\d+)?)px/g)) {
+        if (![0, 2, 6, 10, 999].includes(Number(px[1]))) bad.push(`${file} borderRadius:${m[1]}`);
+      }
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
 test("tailles de police en px : 10 / 11 / 12 / 13 / 15, ou 18–34 pour l'affichage", () => {
   const ok = (n: number) => [10, 11, 12, 13, 15].includes(n) || (n >= 18 && n <= 34);
   const bad: string[] = [];

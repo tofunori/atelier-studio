@@ -28,7 +28,7 @@ test("shared wrap controller applies fixed, window, and off layouts to an editor
   let mark = calls.length;
   controller.apply("72");
   assert.equal(wrapper.style.maxWidth, "calc(72ch + 70px)");
-  assert.equal(wrapper.style.borderRight, "1px solid #33384a");
+  assert.equal(wrapper.style.borderRight, "1px solid var(--border-subtle, var(--border))");
   assert.deepEqual(optionsSince(mark), {lineWrapping: true, fluidText: false});
   assert.deepEqual(calls.at(-1), ["refresh"]);
   mark = calls.length;
