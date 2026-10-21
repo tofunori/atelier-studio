@@ -235,9 +235,21 @@ test('latex deterministic parity', async ({page}) => {
     await expect.poll(() => page.evaluate(() => cm.getValue())).toContain('Therefore the');
 
     await page.locator('#moreBtn').click();
+    // Le menu Plus… s'ouvre 4 px sous son bouton, jamais par-dessus (EDIT-24).
+    const plus = await page.evaluate(() => ({
+      btn: document.getElementById('moreBtn').getBoundingClientRect().bottom,
+      pop: document.getElementById('morePop').getBoundingClientRect().top,
+    }));
+    expect(Math.abs(plus.pop - plus.btn - 4)).toBeLessThanOrEqual(1);
     await page.locator('#morePop [data-act="outline"]').click();
     await expect(page.locator('#outline')).toHaveClass(/open/);
     await expect(page.locator('#outline')).toContainText('Alpha');
+    // Le Plan s'ouvre dans la zone d'édition, sous la barre d'outils.
+    const plan = await page.evaluate(() => ({
+      header: document.querySelector('header').getBoundingClientRect().bottom,
+      outline: document.getElementById('outline').getBoundingClientRect().top,
+    }));
+    expect(plan.outline).toBeGreaterThanOrEqual(plan.header);
 
     await page.evaluate(() => cm.setSelection({line: 0, ch: 9}, {line: 0, ch: 14}));
     await expect(page.locator('#selPill')).toBeVisible();

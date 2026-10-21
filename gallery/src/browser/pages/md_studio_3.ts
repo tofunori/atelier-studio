@@ -30,6 +30,25 @@ function setDirty(next: boolean){
   drafts.setDirty(next);
 }
 
+/* Thème Toast UI : suit le color-scheme qu'atelier_theme.js pose sur la racine
+   (cache au chargement, puis message de l'hôte). Sans hôte, la palette
+   autonome de la page est sombre. Toast UI réécrit la classe de son conteneur
+   à chaque rendu Preact (bascule de mode) : un observateur la rétablit. */
+function editorIsDark(): boolean { return document.documentElement.style.colorScheme !== "light"; }
+function syncEditorScheme(){
+  const dark = editorIsDark();
+  const host = document.getElementById("ed");
+  for(const node of [host, host && host.querySelector(".toastui-editor-defaultUI")]){
+    if(node && node.classList.contains("toastui-editor-dark") !== dark) node.classList.toggle("toastui-editor-dark", dark);
+  }
+}
+window.addEventListener("atelier-theme-applied", syncEditorScheme);
+function watchEditorScheme(){
+  const ui = document.querySelector("#ed .toastui-editor-defaultUI");
+  if(ui) new MutationObserver(syncEditorScheme).observe(ui, {attributes: true, attributeFilter: ["class"]});
+  syncEditorScheme();
+}
+
 async function loadDocument(){
   const loadState = (document.getElementById("loadState") as HTMLDivElement);
   const message = (document.getElementById("loadMessage") as HTMLDivElement);
@@ -54,7 +73,7 @@ async function loadDocument(){
       initialEditType: "wysiwyg",
       previewStyle: "tab",
       height: "100%",
-      theme: "dark",
+      theme: editorIsDark() ? "dark" : "light",
       usageStatistics: false,
       hideModeSwitch: false,
       toolbarItems: [
@@ -66,6 +85,7 @@ async function loadDocument(){
         [{ name: "mdTools", el: (document.getElementById("mdTools") as HTMLDivElement) }],
       ],
     });
+    watchEditorScheme();
     editor.on("change", () => {
       if(loading) return;
       localRevision += 1; setDirty(true); drafts.noteChange(); setState("dirty", "modifié");

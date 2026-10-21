@@ -2123,7 +2123,12 @@ const annPane = (function(){
     document.body.classList.toggle("pane-narrow", pane.offsetWidth < 240);
     // le décalage des pages suit la largeur réelle de la colonne
     document.documentElement.style.setProperty("--pane-pad", (pane.offsetWidth + 16) + "px");
+    // le volet démarre sous l'entête collante, dont la hauteur dépend du mode
+    // (autonome ou barre compacte embarquée)
+    const head = document.querySelector("header");
+    document.documentElement.style.setProperty("--pane-top", (head ? head.offsetHeight : 0) + "px");
   }
+  window.addEventListener("resize", () => { if (document.body.classList.contains("pane-on")) applyNarrow(); });
   const grip = pane.querySelector<HTMLDivElement>(".grip");
   if (grip) grip.addEventListener("mousedown", (e) => {
     e.preventDefault();

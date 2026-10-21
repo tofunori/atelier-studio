@@ -1,5 +1,7 @@
 @import url("./scrollbars.css");
-:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31;--border-strong:#43474c;--toolbar-active:#2d3540;--toolbar-active-text:#b9c7d8;--pdf-paper:#fff;--radius-control:6px;--control-height:28px;--elev:0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18)}
+:root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31;--border-strong:#43474c;--toolbar-active:#2d3540;--toolbar-active-text:#b9c7d8;--pdf-paper:#fff;--radius-control:6px;--control-height:28px;--elev:0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
+  /* hauteur de la barre d'outils unique : les menus s'ouvrent 4 px dessous */
+  --tex-header-h:46px}
   button,input,select,textarea{font-family:var(--ui-font)}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column;overflow:hidden}
@@ -48,7 +50,7 @@
   #state.ok{color:var(--muted)}
   #state.hint{color:var(--muted)}
   #state.dirty{color:var(--muted)}
-  #helpPop{position:fixed;top:44px;right:10px;z-index:400;display:none;flex-direction:column;gap:7px;
+  #helpPop{position:fixed;top:calc(var(--tex-header-h) + 4px);right:10px;z-index:400;display:none;flex-direction:column;gap:7px;
            background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;
            font-size:var(--fs-body-s, 12px);color:var(--muted);box-shadow:0 8px 30px rgba(0,0,0,.5);line-height:1.5}
   #helpPop b{color:var(--txt);font-weight:600}
@@ -179,8 +181,10 @@
       border:1px solid var(--border, #2a2d31);color:var(--muted);flex:none}
   #selPill .tgt:hover,#selPill .tgt.set{border-color:var(--accent);color:var(--accent)}
   #selPill .tgt svg{width:14px;height:14px;stroke:currentColor;fill:none}
-  #selPill .go{width:32px;height:32px;border-radius:999px;background:var(--accent);color:var(--bg);flex:none}
-  #selPill .go:hover{background:color-mix(in srgb,var(--accent) 88%,white)}
+  /* Action principale à l'encre, comme Word (décision 2026-10-19) : l'accent
+     reste au focus, à la sélection et à l'état actif. */
+  #selPill .go{width:32px;height:32px;border-radius:999px;background:var(--text-primary,var(--txt));color:var(--surface-app,var(--bg));flex:none}
+  #selPill .go:hover{background:color-mix(in srgb,var(--text-primary,var(--txt)) 88%,var(--surface-app,var(--bg)))}
   #selPill .go svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
       background:var(--card, #24282d);border-radius:10px;padding:4px;
@@ -239,7 +243,7 @@
   border-radius:var(--radius-control,6px);padding:2px 5px;font-size:var(--fs-body-s,12px);font-family:inherit}
 #sbLint.err{color:var(--status-error,#e06c75)}
 #sbLint.ok{color:var(--status-success,#98c379)}
-#morePop{position:fixed;top:40px;right:10px;z-index:400;background:var(--surface-overlay,var(--card));
+#morePop{position:fixed;top:calc(var(--tex-header-h) + 4px);right:10px;z-index:400;background:var(--surface-overlay,var(--card));
   border:0;border-radius:10px;padding:4px;min-width:220px;
   box-shadow:var(--elevation-overlay,var(--elev));font-size:var(--fs-body-s, 12px);font-weight:400;color:var(--text-primary,var(--txt))}
 #morePop div{padding:6px 8px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;gap:14px}
@@ -275,7 +279,9 @@
   #texcPop .tc-row .tc-claude:hover{color:var(--accent)}
   #texcPop .tc-row .tc-del:hover{color:var(--status-error,#e06c75)}
   /* ===== plan du document ===== */
-  #outline{display:none;position:absolute;top:6px;left:8px;z-index:70;width:250px;max-height:70%;
+  /* Plan et Commentaires vivent dans #split (position:relative) : ancrés en
+     haut de la zone d'édition, ils ne recouvrent plus la barre d'outils. */
+  #outline{display:none;position:absolute;top:8px;left:8px;z-index:70;width:250px;max-height:70%;
     background:var(--card);border:1px solid var(--border-strong,#3f4652);border-radius:10px;
     box-shadow:0 10px 34px rgba(0,0,0,.4);overflow-y:auto;padding:6px}
   #outline.open{display:block}
@@ -287,7 +293,7 @@
   #outline .oi.on{color:var(--accent)}
   #outline .l2{padding-left:20px}
   #outline .l3{padding-left:32px;font-size:var(--fs-body-s, 12px)}
-  #texcPanel{display:none;position:absolute;top:6px;right:8px;z-index:70;width:300px;max-height:70%;
+  #texcPanel{display:none;position:absolute;top:8px;right:8px;z-index:70;width:300px;max-height:70%;
     background:var(--card);border:1px solid var(--border-strong,#3f4652);border-radius:10px;
     box-shadow:0 10px 34px rgba(0,0,0,.4);overflow-y:auto;padding:6px}
   #texcPanel.open{display:block}
@@ -355,9 +361,15 @@
   #texreadFs .fs-val{min-width:24px;text-align:center;font-size:var(--fs-caption, 10px);color:var(--muted);
     font-variant-numeric:tabular-nums;user-select:none}
 
-  /* Trois fonds de lecture (sombre, sépia, clair) : toutes les couleurs de la
-     prose passent par des variables --tr-*, redéfinies par [data-tr-theme] sur
-     #right. Défauts = le sombre historique. */
+  /* Deux fonds de lecture (fond de l'app, sépia) : toutes les couleurs de la
+     prose passent par des variables --tr-*. Hors sépia, elles dérivent des
+     jetons du thème : la Lecture reste lisible en thème clair comme en sombre
+     (avant, une prose #e6e8ec figée tombait sur le fond crème de l'app). */
+  #right{--tr-fg:var(--text-primary,var(--txt));--tr-strong:var(--text-primary,var(--txt));
+    --tr-head2:var(--text-secondary,var(--muted));--tr-muted:var(--text-muted,var(--muted));
+    --tr-faint:var(--text-disabled,var(--muted));
+    --tr-code:color-mix(in srgb,var(--text-primary,var(--txt)) 6%,transparent);
+    --tr-line:var(--border-subtle,var(--border))}
   #right.reading{background:var(--tr-bg,var(--card2))}
   #texread{display:none;max-width:760px;margin:0 auto;padding:36px 40px 120px;
     font-family:Charter,Georgia,"Times New Roman",serif;line-height:1.7;color:var(--tr-fg,#e6e8ec);
@@ -367,10 +379,9 @@
   #right[data-tr-theme="sepia"]{--tr-bg:#efe7d4;--tr-fg:#3c3428;--tr-head2:#584c39;
     --tr-strong:#221c12;--tr-code:rgba(92,72,40,.12);--tr-muted:#8a7a5f;--tr-faint:#93835f;
     --tr-line:#cfc2a4;--tr-accent:#b45309}
-  /* « Noir du chat » : le fond de l'app (--surface-app, transmis par
-     atelier_theme.js en mode embarqué) — la Lecture s'aligne sur le chat.
-     Les couleurs de prose du sombre par défaut restent valables. */
-  #right[data-tr-theme="chat"]{--tr-bg:var(--surface-app,#1e2124)}
+  /* « Fond de l'app » : --surface-app, transmis par atelier_theme.js en mode
+     embarqué — la Lecture s'aligne sur le chat, clair ou sombre. */
+  #right[data-tr-theme="chat"]{--tr-bg:var(--surface-app,var(--bg))}
 
   #texread h1{font-size:1.53em;font-weight:600;text-align:center;margin:0 0 22px;letter-spacing:-.01em}
   #texread h2{font-size:1.18em;font-weight:600;margin:30px 0 12px;letter-spacing:-.01em}
@@ -599,7 +610,7 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 #revisionMenu summary::-webkit-details-marker{display:none}
 #revisionMenu summary:hover,#revisionMenu[open] summary{background:var(--border);color:var(--txt)}
 #revisionMenu summary:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
-#revisionMenu .revision-pop{position:fixed;top:44px;right:10px;z-index:400;width:320px;max-width:calc(100vw - 20px);
+#revisionMenu .revision-pop{position:fixed;top:calc(var(--tex-header-h) + 4px);right:10px;z-index:400;width:320px;max-width:calc(100vw - 20px);
   max-height:calc(100vh - 60px);overflow:auto;padding:6px;box-sizing:border-box;background:var(--card);
   border:1px solid var(--border-strong);border-radius:var(--radius-control);box-shadow:var(--elev)}
 #revisionMenu #diffGrp{height:auto;padding:0;border:0;background:transparent;display:flex;flex-direction:column;align-items:stretch;overflow:visible}
@@ -617,7 +628,7 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 
 /* Single-row LaTeX toolbar: views, review, wrapping, then output actions. */
 #statusbar{display:none!important}
-header{height:46px;gap:9px;padding:0 10px}
+header{height:var(--tex-header-h);gap:9px;padding:0 10px}
 #fileIdentity{flex:0 1 160px;display:none}
 #documentModes{order:1}
 #diffGrp{order:2;border:0;background:none;overflow:visible;height:28px;margin-left:0;gap:2px!important;padding:0 0 0 9px;border-left:1px solid var(--border-strong);border-radius:0}

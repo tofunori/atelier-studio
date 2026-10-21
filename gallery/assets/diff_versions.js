@@ -256,8 +256,9 @@ const createDiffVersions = function(opts){
       ".dvCommitBtn:disabled{cursor:default;opacity:.46}" +
       ".dvCommitAi{min-width:108px;background:transparent;border-color:var(--border-subtle,var(--border));color:var(--text-secondary,var(--txt))}" +
       ".dvCommitAi:hover:not(:disabled){background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent)}" +
-      ".dvCommitDo{background:var(--primary,var(--accent));color:var(--primary-foreground,var(--surface-app,var(--bg)));border-color:var(--primary,var(--accent))}" +
-      ".dvCommitDo:hover:not(:disabled){filter:brightness(1.08)}" +
+      // Action principale à l'encre, comme Word (décision 2026-10-19).
+      ".dvCommitDo{background:var(--text-primary,var(--txt));color:var(--surface-app,var(--bg));border-color:var(--text-primary,var(--txt))}" +
+      ".dvCommitDo:hover:not(:disabled){background:color-mix(in srgb,var(--text-primary,var(--txt)) 88%,var(--surface-app,var(--bg)))}" +
       "@media(max-width:430px){.dvCommitHint{display:none}.dvCommitActions{margin-left:auto}}" +
       ".CodeMirror .dv-flash{animation:dvflash 700ms ease-out}" +
       "@keyframes dvflash{0%{background:rgba(255,255,255,.14)}100%{background:transparent}}";

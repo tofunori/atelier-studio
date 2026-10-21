@@ -121,6 +121,11 @@ export function applyLegacyStoredTheme(
   variant: "orange" | "blue",
   win: Window = window,
 ): void {
+  // Le catalogue local ne vaut que pour une page ouverte seule. Embarquée,
+  // ou quand atelier_theme.js a déjà posé le thème de l'hôte (cache), la
+  // palette historique écraserait ce thème jusqu'au message de l'hôte : un
+  // fond anthracite et un accent bleu flashaient à chaque ouverture en clair.
+  if (win.self !== win.top || win.document.documentElement.dataset.atelierTheme) return;
   let name = "Default";
   try { name = win.localStorage.getItem("figTheme") || "Default"; } catch { /* use defaults */ }
   const theme = name === "Default"

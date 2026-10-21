@@ -109,6 +109,27 @@ test('md_studio.html: an unsaved buffer comes back as modified after the page is
   });
 });
 
+// EDIT-02 : en thème clair, Toast UI n'impose plus ses paragraphes #fff.
+test('md_studio.html: Toast UI follows the app theme and its prose uses the tokens', async ({page}) => {
+  await withProject({'note.md': '# Titre\n\nTexte.\n'}, async ({url}) => {
+    await page.addInitScript(() => localStorage.setItem('atelier-theme-cache', JSON.stringify({
+      type: 'atelier-theme', version: 3, colorScheme: 'light',
+      vars: {'--surface-app': '#faf9f5', '--surface-header': '#f0eee6', '--text-primary': '#1f1e1d'}})));
+    await page.goto(url('md_studio.html', 'note.md'));
+    await expect.poll(() => page.evaluate(() => typeof editor !== 'undefined' && editor !== null)).toBe(true);
+    const prose = page.locator('#ed .toastui-editor-ww-container .toastui-editor-contents p').first();
+    await expect(prose).toHaveCSS('color', 'rgb(31, 30, 29)');
+    await expect(page.locator('#ed .toastui-editor-defaultUI')).not.toHaveClass(/toastui-editor-dark/);
+    // l'hôte passe en sombre : la classe suit, et survit à la bascule de mode
+    await page.evaluate(() => window.postMessage({type: 'atelier-theme', version: 3, colorScheme: 'dark',
+      vars: {'--surface-app': '#1e2124', '--text-primary': '#dadee3'}}, '*'));
+    await expect(page.locator('#ed .toastui-editor-defaultUI')).toHaveClass(/toastui-editor-dark/);
+    await expect(prose).toHaveCSS('color', 'rgb(218, 222, 227)');
+    await page.locator('#ed .toastui-editor-mode-switch .tab-item').first().click();
+    await expect(page.locator('#ed .toastui-editor-defaultUI')).toHaveClass(/toastui-editor-dark/);
+  });
+});
+
 test('the editor tells its host when it is modified, and goes to a line without reloading', async ({page}) => {
   // Paragraphes séparés : en texte fluide, les lignes d'un même paragraphe
   // partagent une seule ligne visuelle.

@@ -493,6 +493,12 @@ test('outils de la barre : note unique et personnelle, tampon, zone de texte, ra
   await reader.locator('#paneBtn').click();
   await reader.getByRole('tab', { name: 'Plan' }).click();
   await expect(reader.locator('.toc')).toBeVisible();
+  // Le volet commence sous la barre : zoom, recherche et ⋯ restent visibles (PDF-01).
+  const volet = await reader.locator('#annPane').evaluate(pane => ({
+    top: pane.getBoundingClientRect().top,
+    header: document.querySelector('header').getBoundingClientRect().bottom,
+  }));
+  expect(Math.round(volet.top)).toBe(Math.round(volet.header));
 
   expect(errors).toEqual([]);
 });
