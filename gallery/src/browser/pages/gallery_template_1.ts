@@ -847,13 +847,13 @@ const EXPORT_MODES: GalleryExportMode[]=[
 function exportSelection(mode: string): Promise<GalleryExportResult>{
   if(!selSet.size) return Promise.resolve({ok:false,error:'Aucun fichier sélectionné'});
   return fetch('/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,rels:[...selSet]})})
-    .then(r=>r.json()).then(j=>j&&j.ok ? {ok:true,count:j.count,path:j.path} : {ok:false,error:(j&&j.error)||'erreur du serveur'})
-    .catch(()=>({ok:false,error:'serveur injoignable'}));
+    .then(r=>r.json()).then((j): GalleryExportResult=>j&&j.ok ? {ok:true,count:Number(j.count)||0,path:String(j.path||'')} : {ok:false,error:(j&&j.error)||'erreur du serveur'})
+    .catch((): GalleryExportResult=>({ok:false,error:'serveur injoignable'}));
 }
 function doExport(mode){
   if(!selSet.size) return;
   const ex=(document.getElementById('exportSel') as HTMLButtonElement); ex.textContent='Export…';
-  exportSelection(mode).then(r=>{ ex.textContent = r.ok ? (r.count+' → '+r.path) : ('Échec : '+r.error); setTimeout(updateDelBtn,3000); });
+  exportSelection(mode).then(r=>{ ex.textContent = r.ok === true ? (r.count+' → '+r.path) : ('Échec : '+(r as {error: string}).error); setTimeout(updateDelBtn,3000); });
 }
 function closeFloat(){ const f=document.getElementById('floatMenu'); if(f){if(f.__trigger)f.__trigger.setAttribute('aria-expanded','false');f.remove();} }
 function collectSelMenu(anchor: EventTarget){

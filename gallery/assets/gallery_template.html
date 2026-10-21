@@ -320,7 +320,7 @@
         font-family:var(--code-font);font-size:10px;
         line-height:1.4;color:var(--muted);white-space:pre;tab-size:2;
         -webkit-mask-image:linear-gradient(#000 72%,transparent);mask-image:linear-gradient(#000 72%,transparent)}
-  .meta{padding:9px 11px 10px;display:flex;flex-direction:column;gap:3px;flex:1}
+  .meta{padding:12px;display:flex;flex-direction:column;gap:4px;flex:1}
   .nm{font-size:var(--fs-body, 13px);font-weight:600;letter-spacing:-.005em;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .fld{font-size:var(--fs-label, 11px);color:var(--muted);word-break:break-all}
   .row2{display:flex;gap:7px;align-items:center;font-size:var(--fs-label, 11px);color:var(--muted);min-width:0;margin-top:auto}
@@ -336,16 +336,18 @@
   .card.hid{opacity:.5}
   .card.hid:hover{opacity:1}
   /* actions au survol : bandeau sur la zone MÉTA (jamais par-dessus la figure) */
-  .hov{position:absolute;bottom:0;left:0;right:0;z-index:4;display:none;gap:2px;
-       padding:7px 6px;background:var(--card);border-top:1px solid var(--border);
+  /* Actions au survol : elles prennent la place de la ligne de date, le nom
+     du fichier reste lisible au-dessus (32 px = rangée de 24 + marge de 8). */
+  .hov{position:absolute;bottom:0;left:0;right:0;z-index:4;display:none;gap:4px;
+       padding:0 8px 8px;background:var(--card);
        align-items:center;justify-content:flex-start;flex-wrap:nowrap;overflow:hidden}
   .card:hover .hov{display:flex}
-  .hov button{height:26px;min-width:24px;padding:0 4px;font-size:var(--fs-label, 11px);line-height:1;cursor:pointer;
+  .hov button{height:24px;min-width:24px;padding:0 4px;font-size:var(--fs-label, 11px);line-height:1;cursor:pointer;
         display:inline-flex;align-items:center;justify-content:center;
-        background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--muted);box-shadow:var(--shadow)}
-  .hov button:hover{color:var(--txt);border-color:var(--border-strong)}
+        background:transparent;border:0;border-radius:6px;color:var(--muted);transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+  .hov button:hover{color:var(--txt);background:var(--surface-hover,var(--card2))}
   /* icônes SVG monochromes : un seul registre visuel dans la barre */
-  .hov button svg{width:15px;height:15px;display:block;flex:0 0 auto}
+  .hov button svg{width:16px;height:16px;display:block;flex:0 0 auto}
   /* display:inline-flex bat .embOnly en spécificité — le rescoper ici */
   .hov button.embOnly{display:none}
   .hov button .fill{fill:none}
@@ -1913,13 +1915,13 @@ const EXPORT_MODES                     =[
 function exportSelection(mode        )                              {
   if(!selSet.size) return Promise.resolve({ok:false,error:'Aucun fichier sélectionné'});
   return fetch('/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,rels:[...selSet]})})
-    .then(r=>r.json()).then(j=>j&&j.ok ? {ok:true,count:j.count,path:j.path} : {ok:false,error:(j&&j.error)||'erreur du serveur'})
-    .catch(()=>({ok:false,error:'serveur injoignable'}));
+    .then(r=>r.json()).then((j)                     =>j&&j.ok ? {ok:true,count:Number(j.count)||0,path:String(j.path||'')} : {ok:false,error:(j&&j.error)||'erreur du serveur'})
+    .catch(()                     =>({ok:false,error:'serveur injoignable'}));
 }
 function doExport(mode){
   if(!selSet.size) return;
   const ex=(document.getElementById('exportSel')                     ); ex.textContent='Export…';
-  exportSelection(mode).then(r=>{ ex.textContent = r.ok ? (r.count+' → '+r.path) : ('Échec : '+r.error); setTimeout(updateDelBtn,3000); });
+  exportSelection(mode).then(r=>{ ex.textContent = r.ok === true ? (r.count+' → '+r.path) : ('Échec : '+(r                   ).error); setTimeout(updateDelBtn,3000); });
 }
 function closeFloat(){ const f=document.getElementById('floatMenu'); if(f){if(f.__trigger)f.__trigger.setAttribute('aria-expanded','false');f.remove();} }
 function collectSelMenu(anchor             ){
