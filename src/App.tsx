@@ -114,6 +114,7 @@ import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedAgentSummaries, linkedConversationForProvider } from "./lib/threadLinks";
 import { catalogSkillForPrompt } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
+import { SIGNAL_LABEL, strongest, threadSignal, useThreadAttention, type RailSignal } from "./lib/railSignals";
 import { CloseIcon } from "./components/icons";
 import { loadSettings, saveSettings, withBootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
@@ -473,6 +474,20 @@ export default function App() {
     };
   }, [settings]);
   const [unread, setUnread] = useState<Set<string>>(new Set());
+  // demandes interactives déjà signalées (une notification par requestId)
+  const notifiedRequestsRef = useRef<Set<string>>(new Set());
+  // ouvre un fil depuis un signal (boîte « À traiter », bandeau) — lu par
+  // le gestionnaire WebSocket, d'où la ref tenue à jour à chaque rendu
+  const openThreadFromSignalRef = useRef<(threadId: string) => void>(() => {});
+  // notification d'un fil : bandeau dans l'app si Atelier montre un autre fil
+  // (ne lit que des refs : sûr depuis le gestionnaire WebSocket)
+  const notifyThread = (threadId: string, title: string, summary: string, ok = true) => {
+    notifyRunDone({
+      threadId, title, ok, summary,
+      visible: threadId === activeIdRef.current,
+      onOpen: () => openThreadFromSignalRef.current(threadId),
+    }).catch(() => {});
+  };
   const [qaMode, setQaMode] = useState<"closed" | "open" | "min">("closed");
   const qaModeRef = useRef<"closed" | "open" | "min">("closed");
   qaModeRef.current = qaMode;
@@ -1619,6 +1634,16 @@ export default function App() {
           || (msg.event.kind === "permission" && msg.event.answered == null)) {
           setWorkingSince((p) => (p[msg.threadId] != null ? p : { ...p, [msg.threadId]: Date.now() }));
         }
+        // Une question de l'agent (AskUserQuestion, approbation Codex, plan à
+        // valider) bloque le tour comme une autorisation : elle prévient de
+        // la même façon, une seule fois par demande (les mises à jour
+        // ré-émettent le même requestId).
+        if (msg.event.kind === "interaction" && msg.event.state === "pending"
+          && !notifiedRequestsRef.current.has(msg.event.requestId)) {
+          notifiedRequestsRef.current.add(msg.event.requestId);
+          const asked = allThreadsRef.current?.find?.((x: any) => x.id === msg.threadId);
+          notifyThread(msg.threadId, "Question de l’agent", `${msg.event.title}${asked?.title ? ` — « ${asked.title} »` : ""}`);
+        }
         if (msg.event.kind === "heartbeat") {
           // signal de vie : maintient l'indicateur "Working" ; tokens = sortie
           // cumulée du tour quand le provider la fournit (ticker Working)
@@ -1698,12 +1723,8 @@ export default function App() {
         if (msg.event.kind === "done" || msg.event.kind === "error") {
           setWorkingSince((p) => ({ ...p, [msg.threadId]: null }));
           const th = allThreadsRef.current?.find?.((x: any) => x.id === msg.threadId);
-          notifyRunDone({
-            threadId: msg.threadId,
-            title: th?.title ?? "Agent",
-            ok: msg.event.kind === "done" && msg.event.ok !== false,
-            summary: String(msg.event.result ?? "").slice(0, 120),
-          }).catch(() => {});
+          notifyThread(msg.threadId, th?.title ?? "Agent", String(msg.event.result ?? "").slice(0, 120),
+            msg.event.kind === "done" && msg.event.ok !== false);
           if (msg.threadId !== activeIdRef.current || document.hidden || !document.hasFocus()) {
             setUnread((u) => new Set(u).add(msg.threadId));
           }
@@ -1963,7 +1984,10 @@ export default function App() {
             input: msg.input, answered: null, ts: Date.now(),
           } as any],
         }));
-        notifyRunDone({ threadId: msg.threadId, title: "Permission demandée", ok: true, summary: msg.toolName }).catch(() => {});
+        {
+          const asked = allThreadsRef.current?.find?.((x: any) => x.id === msg.threadId);
+          notifyThread(msg.threadId, "Autorisation demandée", `${msg.toolName}${asked?.title ? ` dans « ${asked.title} »` : ""}`);
+        }
       }
       if (msg.type === "reviewResult") {
         window.dispatchEvent(new CustomEvent("review-result", { detail: msg }));
@@ -4002,6 +4026,8 @@ export default function App() {
 
   // Task 25 : memo — sinon `new Set(...)` change d'identité à chaque render
   // de App et casse RailMemo même quand aucun thread ne (dé)marre.
+  // demandes en attente et derniers tours en échec, fil par fil (rail)
+  const threadAttention = useThreadAttention(eventStore);
   const runningProjects = useMemo(
     () => new Set(allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot)),
     [allThreads],
@@ -4287,10 +4313,53 @@ export default function App() {
       return list;
     });
   }, []);
+  openThreadFromSignalRef.current = (threadId: string) => {
+    const th = allThreadsRef.current.find((thread) => thread.id === threadId);
+    if (!th) return;
+    setActiveView("chats");
+    if (!th.projectRoot) setActiveProject(null);
+    selectThread(th.id, th.projectRoot);
+    setLayout(current => current === "atelier" ? "split" : current);
+  };
+  const railSignals = useMemo(() => {
+    const byProject: Record<string, RailSignal[]> = {};
+    const threads: Record<string, RailSignal> = {};
+    const notes: Record<string, string[]> = {};
+    let discussions = 0;
+    for (const th of allThreads) {
+      const signal = threadSignal(th, threadAttention[th.id], unread, activeId);
+      if (!signal) continue;
+      threads[th.id] = signal;
+      if (isDiscussionContext(th.projectRoot)) {
+        if (signal !== "run") discussions += 1;
+        continue;
+      }
+      (byProject[th.projectRoot] ??= []).push(signal);
+      const pending = threadAttention[th.id]?.pending;
+      const what = pending?.reason === "permission" ? `Autorisation : ${pending.label}`
+        : pending ? pending.label || SIGNAL_LABEL.wait : SIGNAL_LABEL[signal];
+      (notes[th.projectRoot] ??= []).push(`${what} — « ${th.title?.trim() || "Sans titre"} »`);
+    }
+    const projects: Record<string, RailSignal> = {};
+    for (const [root, list] of Object.entries(byProject)) projects[root] = strongest(list)!;
+    return { projects, threads, notes, discussions };
+  }, [allThreads, threadAttention, unread, activeId]);
+  const railInbox = useMemo(() => ({
+    signals: railSignals.threads,
+    threads: allThreads,
+    attention: threadAttention,
+    unread,
+    activeId,
+    onOpen: (threadId: string) => openThreadFromSignalRef.current(threadId),
+    onMarkAllRead: () => setUnread((u) => (u.size ? new Set() : u)),
+  }), [railSignals, allThreads, threadAttention, unread, activeId]);
   const railNode = (
         <RailMemo
+          signals={railSignals}
+          inbox={railInbox}
           favorites={{
             unread,
+            signals: railSignals.threads,
             seals: settings.chatSeals,
             onSetSeal: (id, seal) => setSettings(current => ({ ...current, chatSeals: { ...current.chatSeals, [id]: seal } })),
             threads: favorites.flatMap(id => { const th = allThreads.find(th => th.id === id); return th ? [th] : []; }),

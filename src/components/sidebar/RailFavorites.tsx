@@ -4,11 +4,15 @@ import type { Thread } from "../../lib/ws";
 import { CHAT_SEALS, ChatSeal, chatSealFor, type ChatSealId } from "./ChatSeal";
 import { IconButton } from "../ui/IconButton";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
+import { RailSignalMark, SIGNAL_LABEL } from "../RailSignalMark";
+import type { RailSignal } from "../../lib/railSignals";
 
 export type RailFavoritesProps = {
   threads: Thread[];
   activeId: string | null;
   unread?: Set<string>;
+  /** signal de chaque fil (lib/railSignals) ; remplace le seul point « non lu » */
+  signals?: Record<string, RailSignal>;
   seals?: Record<string, string>;
   onSetSeal?: (id: string, seal: ChatSealId) => void;
   onOpen: (thread: Thread) => void;
@@ -22,6 +26,12 @@ export default function RailFavorites(p: RailFavoritesProps) {
   const title = (th: Thread) => th.title?.trim() || "Sans titre";
   const project = (th: Thread) => isDiscussionContext(th.projectRoot) ? "Discussion libre" : th.projectRoot.split("/").filter(Boolean).pop() || "Sans projet";
   const isUnread = (th: Thread) => p.unread?.has(th.id) && th.id !== p.activeId && th.status !== "running";
+  const signalOf = (th: Thread): RailSignal | null => p.signals ? p.signals[th.id] ?? null : null;
+  const stateText = (th: Thread) => {
+    const signal = signalOf(th);
+    if (signal) return SIGNAL_LABEL[signal];
+    return isUnread(th) ? "Réponse terminée · non lue" : "";
+  };
   return <div className="rail-favorites" role="group" aria-label="Chats épinglés">
     {p.threads.map(th => <LazyDropdownMenu key={th.id}
       open={context === th.id} onOpenChange={open => { if (!open) setContext(null); }} side="right"
@@ -39,7 +49,7 @@ export default function RailFavorites(p: RailFavoritesProps) {
       ]}
       trigger={<IconButton
           className={`rail-favorite ${p.activeId === th.id ? "on" : ""}`}
-          label={`${title(th)} — ${project(th)}${isUnread(th) ? " — Réponse terminée · non lue" : ""}`} title={`${title(th)}\n${project(th)}${isUnread(th) ? "\nRéponse terminée · non lue" : ""}`} aria-pressed={p.activeId === th.id}
+          label={`${title(th)} — ${project(th)}${stateText(th) ? ` — ${stateText(th)}` : ""}`} title={`${title(th)}\n${project(th)}${stateText(th) ? `\n${stateText(th)}` : ""}`} aria-pressed={p.activeId === th.id}
           draggable onDragStart={e => { setDrag(th.id); e.dataTransfer.setData("text/plain", th.id); }}
           onDragEnd={() => setDrag(null)}
           onDragOver={e => { if (drag && drag !== th.id) e.preventDefault(); }}
@@ -47,7 +57,9 @@ export default function RailFavorites(p: RailFavoritesProps) {
           onClick={e => { e.preventDefault(); p.onOpen(th); }}
           onContextMenu={e => { e.preventDefault(); setContext(th.id); }}
           onKeyDown={e => { if (["Enter", " "].includes(e.key)) { e.preventDefault(); p.onOpen(th); return; } if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) { e.preventDefault(); setContext(th.id); } }}
-        ><ChatSeal seal={chatSealFor(th.id, p.seals)} />{isUnread(th) && <span className="rail-favorite-unread" aria-hidden="true" />}</IconButton>}
+        ><ChatSeal seal={chatSealFor(th.id, p.seals)} />{p.signals
+          ? <RailSignalMark signal={signalOf(th)} />
+          : isUnread(th) && <span className="rail-favorite-unread" aria-hidden="true" />}</IconButton>}
     />)}
   </div>;
 }

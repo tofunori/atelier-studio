@@ -1,17 +1,43 @@
 import { isDiscussionContext } from "../lib/discussions";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { t } from "../lib/i18n";
 import { ChatsIcon, PlusIcon, SettingsIcon, SidebarIcon } from "./icons";
-import RailActivity from "./RailActivity";
 import { ProjIcon } from "./sidebar/projectIcons";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
-import RailFavorites, { type RailFavoritesProps } from "./sidebar/RailFavorites";
+import type { RailFavoritesProps } from "./sidebar/RailFavorites";
+import { RailSignalMark, SIGNAL_LABEL } from "./RailSignalMark";
+import type { RailInboxProps } from "./RailInbox";
+import type { RailSignal } from "../lib/railSignals";
+import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
+import { articleImportSnapshot, subscribeArticleImport } from "../lib/articleImports";
+import { useIntegrations } from "../lib/integrations";
+
+// Hors de l'entrée (budget JS plein) : la boîte se charge au démarrage, la
+// zone d'activité seulement quand une conversion existe.
+const RailInbox = lazyWithRetry(() => import("./RailInbox"));
+const RailActivity = lazyWithRetry(() => import("./RailActivity"));
+// les favoris attendent de toute façon la liste des fils (WebSocket)
+const RailFavorites = lazyWithRetry(() => import("./sidebar/RailFavorites"));
 
 export type ProjMeta = { color?: string; label?: string };
+
+/** Signaux agrégés par App (lib/railSignals) : le rail ne fait que les montrer. */
+export type RailSignals = {
+  /** signal le plus fort de chaque projet */
+  projects: Record<string, RailSignal>;
+  /** une ligne par fil qui demande quelque chose, pour l'infobulle du projet */
+  notes: Record<string, string[]>;
+  /** fils de Discussions libres qui demandent un geste */
+  discussions: number;
+};
+
+// La conversion d'article reste dans la zone du bas ; les agents se lisent
+// désormais sur le coin de leur projet.
+const NO_AGENTS = new Set<string>();
 
 // fiche « Surlignés » (lot 2) : photographie autonome — cf. sidecar/highlights.mjs
 export type HighlightEntry = {
@@ -36,6 +62,8 @@ export function projInitial(root: string, meta?: ProjMeta) {
 
 export default function Rail(p: {
   favorites?: RailFavoritesProps;
+  signals?: RailSignals;
+  inbox?: RailInboxProps;
   projects: string[];
   activeProject: string | null;
   meta: Record<string, ProjMeta>;
@@ -54,17 +82,22 @@ export default function Rail(p: {
   onRemoveProject: (root: string) => void;
   onReorder: (from: string, to: string) => void;
 }) {
-  const [showActivity, setShowActivity] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
   const [dragRoot, setDragRoot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
 
+  const articleJobs = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot).jobs.length;
+  const ragdocOn = useIntegrations().effective.ragdoc;
   const favoriteActive = p.activeView === "chats" && Boolean(
     p.favorites?.threads.some(th => th.id === p.favorites?.activeId),
   );
   const discussionsActive = p.activeView === "chats" && !favoriteActive && isDiscussionContext(p.activeProject);
+  const discussionCount = p.signals?.discussions ?? 0;
+  const discussionsLabel = discussionCount > 0
+    ? `${t("discussions.title")} — ${discussionCount} à traiter`
+    : t("discussions.title");
 
   return (
     <nav className="rail rail-clean" aria-label="Navigation principale">
@@ -76,10 +109,14 @@ export default function Rail(p: {
             title={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} onClick={p.onExpand}>
             <SidebarIcon size={19} />
           </IconButton>
+          {p.inbox && (
+            <LazyBoundary fallback={<span className="rail-btn" aria-hidden="true" />}>
+              <RailInbox {...p.inbox} />
+            </LazyBoundary>
+          )}
           <LazyDropdownMenu open={actionsOpen} onOpenChange={setActionsOpen} side="right"
             trigger={<IconButton className="rail-btn" label="Autres actions" title="Autres actions">…</IconButton>}
             items={[
-              { key: "activity", label: "Activité en cours", onSelect: () => setShowActivity(v => !v) },
               { key: "new", label: t("action.new-chat"), onSelect: p.onNewChat },
               { key: "automations", label: t("automations.title"), onSelect: () => p.onSelectView("automations") },
               { key: "highlights", label: t("view.highlights"), onSelect: () => p.onSelectView("highlights") },
@@ -88,26 +125,37 @@ export default function Rail(p: {
         <div className="rail-views" role="group" aria-label={t("discussions.title")}>
           <IconButton className={`rail-view ${discussionsActive ? "on" : ""}`}
             aria-current={discussionsActive ? "page" : undefined}
-            label={t("discussions.title")} title={t("discussions.title")}
+            label={discussionsLabel} title={discussionsLabel}
             onClick={() => p.onDiscussions ? p.onDiscussions() : p.onSelectView("chats")}>
             <ChatsIcon size={19} />
+            {discussionCount > 0 && <span className="rail-count" aria-hidden="true">{discussionCount > 9 ? "9+" : discussionCount}</span>}
           </IconButton>
         </div>
         {p.favorites && p.favorites.threads.length > 0 && (
-          <RailFavorites {...p.favorites} activeId={p.activeView === "chats" ? p.favorites.activeId : null} />
+          <LazyBoundary fallback={<div className="rail-favorites" />}>
+            <RailFavorites {...p.favorites} activeId={p.activeView === "chats" ? p.favorites.activeId : null} />
+          </LazyBoundary>
         )}
         <div className="rail-sep" aria-hidden="true" />
         <div className="rail-projects" role="group" aria-label="Projets">
       {p.projects.map((root) => {
         const m = p.meta[root];
         const active = root === p.activeProject && p.activeView === "chats" && !favoriteActive;
+        // l'ancien point « agent au travail » reste la source quand App ne
+        // fournit pas encore de signaux (tests, bancs)
+        const signal = p.signals ? p.signals.projects[root] ?? null : (p.running.has(root) ? "run" : null);
+        const name = root.split("/").pop() ?? root;
+        const notes = p.signals?.notes[root] ?? [];
+        const tip = [name, ...(notes.length ? notes : signal ? [SIGNAL_LABEL[signal]] : [])].join("\n");
         return (
           <RowButton
             key={root}
-            className={`rail-proj ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
+            className={`rail-proj ${m?.color ? "tinted" : ""} ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
             style={{ "--proj-c": m?.color ?? "transparent" } as React.CSSProperties}
             aria-current={active ? "page" : undefined}
-            title={root.split("/").pop()}
+            aria-label={signal ? `${name} — ${SIGNAL_LABEL[signal]}` : name}
+            data-signal={signal ?? undefined}
+            title={tip}
             draggable
             onDragStart={(e) => {
               setDragRoot(root);
@@ -141,7 +189,7 @@ export default function Rail(p: {
             }}
           >
             {m?.label?.startsWith("icon:") ? <ProjIcon name={m.label.slice(5)} size={18} /> : projInitial(root, m)}
-            {p.running.has(root) && <span className="rail-dot" />}
+            <RailSignalMark signal={signal} />
           </RowButton>
         );
       })}
@@ -149,11 +197,15 @@ export default function Rail(p: {
         <PlusIcon size={19} />
       </IconButton>
       </div>{/* fin rail-projects */}
-      {/* ce qui tourne sans toi : agents, conversions (plan 055) */}
-      {showActivity && <RailActivity running={p.running} meta={p.meta} onSelectProject={p.onSelectProject} />}
       </div>{/* fin rail-scroll */}
-      {/* zone épinglée : Réglages toujours visible en bas, jamais scrollé */}
+      {/* zone épinglée : tâches de fond (conversions) puis Réglages, toujours
+          visibles en bas, jamais scrollés */}
       <div className="rail-pinned">
+        {ragdocOn && articleJobs > 0 && (
+          <LazyBoundary fallback={null}>
+            <RailActivity running={NO_AGENTS} meta={p.meta} onSelectProject={p.onSelectProject} />
+          </LazyBoundary>
+        )}
         <LazyDropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen} side="right"
           trigger={<IconButton className="rail-btn" label={t("action.settings")} title={t("action.settings")}><SettingsIcon size={19} /></IconButton>}
           items={[
