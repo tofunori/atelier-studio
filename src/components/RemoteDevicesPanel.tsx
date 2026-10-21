@@ -224,17 +224,17 @@ export function RemoteDevicesPanel(p: Props) {
 
   return (
     <div className="tw:flex tw:min-w-0 tw:flex-col">
-      <div className="tw:flex tw:items-center tw:justify-between tw:gap-4 tw:px-1 tw:pb-3">
-        <div className="tw:flex tw:min-w-0 tw:items-center tw:gap-2.5">
-          <ShieldCheckIcon className="tw:text-muted-foreground" aria-hidden="true" />
+      <div className="tw:flex tw:items-center tw:justify-between tw:gap-4 tw:pb-3">
+        <div className="tw:flex tw:min-w-0 tw:items-center tw:gap-3">
+          <ShieldCheckIcon className="tw:size-4 tw:shrink-0 tw:text-muted-foreground" aria-hidden="true" />
           <div className="tw:min-w-0">
             <div className="tw:text-[length:var(--fs-body-s)] tw:font-medium">Connexion sécurisée</div>
-            <div className="tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">
+            <div className="tw:text-[length:var(--fs-label)] tw:text-muted-foreground">
               Atelier relie ce Mac à tes appareils via Tailscale.
             </div>
           </div>
         </div>
-        <Button variant="primary" size="sm" disabled={busy || (!native && !admin)} onClick={() => void startPairing()}>
+        <Button variant="secondary" size="sm" disabled={busy || (!native && !admin)} onClick={() => void startPairing()}>
           {busy ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
           Ajouter
         </Button>
@@ -273,13 +273,13 @@ export function RemoteDevicesPanel(p: Props) {
         return (
           <div key={device.deviceId}>
             {index > 0 && <Separator />}
-            <div className="tw:flex tw:min-w-0 tw:items-center tw:gap-3 tw:px-3 tw:py-3">
+            <div className="tw:flex tw:min-w-0 tw:items-center tw:gap-3 tw:py-3">
               <div className="tw:flex tw:size-9 tw:shrink-0 tw:items-center tw:justify-center tw:rounded-[var(--radius-control)] tw:bg-muted tw:text-muted-foreground">
-                <SmartphoneIcon aria-hidden="true" />
+                <SmartphoneIcon className="tw:size-4" aria-hidden="true" />
               </div>
               <div className="tw:min-w-0 tw:flex-1">
                 <div className="tw:truncate tw:text-[length:var(--fs-body-s)] tw:font-medium">{device.name}</div>
-                <div className="tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">
+                <div className="tw:text-[length:var(--fs-label)] tw:text-muted-foreground">
                   {connected ? "Actif maintenant" : `Vu ${relativeLastSeen(device.lastSeenAt).toLocaleLowerCase("fr-CA")}`}
                 </div>
               </div>
@@ -363,18 +363,18 @@ export function RemoteDevicesPanel(p: Props) {
           <div className="tw:flex tw:flex-col tw:items-center tw:gap-3 tw:rounded-[var(--radius-control)] tw:bg-muted tw:px-4 tw:py-5">
             {pairingCode ? (
               <>
-                <div className="tw:font-mono tw:text-2xl tw:font-semibold tw:tracking-[0.16em] tw:text-foreground">
+                <div className="tw:font-mono tw:text-[length:var(--fs-display)] tw:font-medium tw:tabular-nums tw:tracking-[0.16em] tw:text-foreground">
                   {pairingCode}
                 </div>
-                <StatusBadge status="warning">Expire dans {secondsLeft} s</StatusBadge>
+                <span className="tw:text-[length:var(--fs-body-s)] tw:tabular-nums tw:text-muted-foreground">Expire dans {secondsLeft}&nbsp;s</span>
                 {pairingUrl && <Button variant="primary" onClick={() => void navigator.clipboard.writeText(pairingUrl)}>Copier le lien de connexion</Button>}
               </>
             ) : (
               <Spinner />
             )}
           </div>
-          <div className="tw:flex tw:items-center tw:gap-2 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">
-            <LinkIcon aria-hidden="true" />
+          <div className="tw:flex tw:items-center tw:gap-2 tw:text-[length:var(--fs-label)] tw:text-muted-foreground">
+            <LinkIcon className="tw:size-4 tw:shrink-0" aria-hidden="true" />
             Le jeton permanent sera enregistré automatiquement sur l’appareil.
           </div>
         </DialogContent>

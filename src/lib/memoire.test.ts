@@ -26,7 +26,7 @@ describe("mémoire", () => {
     expect(nomDeProjet("/Users/t/Chapitre1-Albedo/")).toBe("Chapitre1-Albedo");
     expect(nomDeProjet("")).toBe("Tous les projets");
     expect(libelleOrigine({ kind: "claude-science", sourceProject: "Analyses" })).toBe("Claude Science · Analyses");
-    expect(libelleOrigine({ kind: "extraction" })).toBe("Extrait d'un tour");
+    expect(libelleOrigine({ kind: "extraction" })).toBe("Extrait d’un tour");
     expect(messageErreur("memory_too_long")).toBe("Le souvenir dépasse 2 000 caractères.");
     expect(messageErreur("autre chose")).toBe("autre chose");
   });

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../lib/i18n";
 import type { AgentEvent } from "../../lib/ws";
-import { RowButton } from "../ui";
+import { Button, RowButton } from "../ui";
 
 export type GoalInfo = NonNullable<Extract<AgentEvent, { kind: "goal" }>["goal"]>;
 
@@ -91,8 +91,8 @@ export function GoalBar({ goal, onGoal, onStop }: {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
           }} />
           <div className="goal-bar-detail-actions">
-            <RowButton className="goal-bar-control" title={t("action.cancel")} aria-label={t("action.cancel")} onClick={finishEdit}>×</RowButton>
-            <RowButton className="goal-bar-control" title={t("goal.update")} aria-label={t("goal.update")} disabled={!editText.trim()} onClick={save}>✓</RowButton>
+            <Button variant="ghost" size="sm" onClick={finishEdit}>{t("action.cancel")}</Button>
+            <Button variant="primary" size="sm" disabled={!editText.trim()} onClick={save}>{t("goal.update")}</Button>
           </div>
         </div> : <p className="goal-bar-objective">{goal.objective}</p>}
         <div className="goal-bar-meta">

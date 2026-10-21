@@ -2,12 +2,11 @@
 // Chat.tsx : diff de fin de tour, ré-édition d'un edit, thinking, indicateur
 // Working, carte d'activité, épingle. Aucune logique modifiée.
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { BrainCircuitIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
 import { t } from "../../lib/i18n";
 import { openFileRef } from "./md";
-import { Tick } from "./toolPresentation";
+import { Tick, ToolGlyph } from "./toolPresentation";
 import { fmtClock } from "./clock";
 
 export { LiveClock } from "./LiveClock";
@@ -552,7 +551,7 @@ export function ThinkingBlock(
         aria-expanded={open}
         onClick={() => setManuel(!open)}
       >
-        <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
+        <span className="thinking-icon" aria-hidden="true"><ToolGlyph icon={{ cat: "thinking" }} /></span>
         <span className="thinking-label">{live ? t("chat.thinking-live") : t("chat.thinking")}</span>
         <Tick open={open} />
       </RowButton>
@@ -748,7 +747,7 @@ export function LiveThinking(
         aria-expanded={!replie}
         onClick={() => setReplie(!replie)}
       >
-        <BrainCircuitIcon className="thinking-icon" aria-hidden="true" />
+        <span className="thinking-icon" aria-hidden="true"><ToolGlyph icon={{ cat: "thinking" }} /></span>
         <span className="thinking-label">{t(live ? "chat.thinking-live" : "chat.thinking")}</span>
         <Tick open={!replie} />
         {live && showElapsed && penseeSecs > 0 && <span className="thinking-elapsed">{penseeSecs} s</span>}

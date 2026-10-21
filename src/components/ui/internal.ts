@@ -14,4 +14,5 @@ export type Placement =
   | "bottom"
   | "top-start"
   | "top-end"
-  | "top";
+  | "top"
+  | "right";

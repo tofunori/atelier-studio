@@ -6,6 +6,7 @@ import { RowButton } from "../ui/RowButton";
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 import { isLowSignalFile, shortStatus } from "./gitSurfaceModel";
 import type { GitFile, GitGroup } from "./types";
+import { MoreIcon } from "../icons";
 
 /** Non suivi : « Restaurer » n'a rien à restaurer, le fichier part à la
  * Corbeille — le libellé le dit. */
@@ -79,7 +80,7 @@ export function GitFileRow({
             label={t("project.actions")}
             trigger={
               <IconButton size="s" className="git-file-menu git-icon-btn" label={t("project.actions")} aria-haspopup="menu">
-                ⋯
+                <MoreIcon />
               </IconButton>
             }
             items={[

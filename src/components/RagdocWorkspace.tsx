@@ -6,7 +6,6 @@ import { Button } from "./ui/Button";
 import { Input } from "./shadcn/input";
 import { Checkbox, CheckboxIndicator } from "./shadcn/checkbox";
 import { Select } from "./Select";
-import { CheckIcon } from "./icons";
 import { t } from "../lib/i18n";
 import { MD_COMPONENTS, useMdPlugins } from "./chat/md";
 import { mineruTablesToMarkdown } from "../lib/mineruTables";
@@ -32,7 +31,7 @@ const SECTIONS = [
 /** Case à cocher du système (Checkbox shadcn) avec son libellé : remplace les
  *  <input type="checkbox"> natifs de Ragdoc (SURF-22). */
 function RdCheck(p:{checked:boolean; disabled?:boolean; onChange:(v:boolean)=>void; children:ReactNode; className?:string}) {
-  return <label className={p.className??"rd-check"}><Checkbox checked={p.checked} disabled={p.disabled} onCheckedChange={(v)=>p.onChange(v===true)}><CheckboxIndicator><CheckIcon size={12}/></CheckboxIndicator></Checkbox><span>{p.children}</span></label>;
+  return <label className={p.className??"rd-check"}><Checkbox checked={p.checked} disabled={p.disabled} onCheckedChange={(v)=>p.onChange(v===true)}><CheckboxIndicator /></Checkbox><span>{p.children}</span></label>;
 }
 const phaseLabel = (job:ArticleJob) => ({queued:"En attente",converting:stageLabel(job),ready:"À vérifier",writing:"Transfert, indexation et vérification…",done:"Indexation vérifiée",duplicate:"Déjà dans Ragdoc",error:"À reprendre",rejected:"Écarté"})[job.phase];
 const messageOf = (error:unknown) => error instanceof Error ? error.message : String(error);
@@ -113,7 +112,7 @@ export default function RagdocWorkspace(p:{articles:ArticleRow[]; corpusStatus?:
     {section==="import"&&<>
       <header><h2>Ajouter, vérifier, indexer.</h2><p className="rd-muted">Les originaux restent intacts. Chaque conversion attend votre approbation{isAutoWrite()?" — sauf lorsque le mode automatique est activé":""}.</p></header>
       <div className="rd-intake"><Button variant="primary" onClick={()=>void pick()}>Choisir des PDF</Button><Button variant="outline" disabled={busy} onClick={()=>void loadZotero()}>Depuis Zotero</Button><span className="rd-muted">{prefs.settings.converter==="mistral"?"Mistral OCR":"MinerU"}</span></div>
-      <details><summary>Ajouter une référence par DOI</summary><form className="rd-actions" onSubmit={e=>{e.preventDefault();if(doi.trim()){startDoiImport(doi.trim(),{background:true});setDoi("");}}}><Input aria-label="DOI" value={doi} onChange={e=>setDoi(e.target.value)} placeholder="10.…"/><Button disabled={!doi.trim()}>Ajouter la référence</Button></form><p className="rd-muted">Fiche bibliographique et résumé disponible, sans texte intégral.</p></details>
+      <details className="ui-details"><summary>Ajouter une référence par DOI</summary><form className="rd-actions" onSubmit={e=>{e.preventDefault();if(doi.trim()){startDoiImport(doi.trim(),{background:true});setDoi("");}}}><Input aria-label="DOI" value={doi} onChange={e=>setDoi(e.target.value)} placeholder="10.…"/><Button disabled={!doi.trim()}>Ajouter la référence</Button></form><p className="rd-muted">Fiche bibliographique et résumé disponible, sans texte intégral.</p></details>
       {busy&&<p role="status">Lecture de Zotero et vérification dans Ragdoc…</p>}
       {zotero&&<section className="rd-zotero" aria-label="Sélection Zotero">
         <div className="rd-actions"><h3>PDF locaux dans Zotero</h3><Button variant="ghost" disabled={busy} onClick={()=>void loadZotero()}>Actualiser les statuts</Button><Button variant="ghost" onClick={()=>{zoteroRequest.current++;setBusy(false);setZotero(null);}}>Fermer</Button></div>
@@ -151,7 +150,7 @@ function RagdocReviewPanel({job,galleryUrl,onError}:{job:ArticleJob;galleryUrl?:
   const meta=job.imported?.meta??{};
   const render=(text:string)=><ReactMarkdown remarkPlugins={plugins.remark} rehypePlugins={plugins.rehype} components={MD_COMPONENTS as never}>{text}</ReactMarkdown>;
   return <div className="rd-review">
-    <details><summary>Métadonnées · {meta.title||fileName(job.path)}</summary><div className="rd-meta">{([['title','Titre'],['authors','Auteurs'],['year','Année'],['journal','Revue'],['doi','DOI']] as const).map(([key,label])=><label className="rd-field" key={key}>{label}<Input value={String(meta[key]??"")} onChange={e=>updateArticleMetadata(job.requestId,{...meta,[key]:e.target.value})}/></label>)}</div></details>
+    <details className="ui-details"><summary>Métadonnées · {meta.title||fileName(job.path)}</summary><div className="rd-meta">{([['title','Titre'],['authors','Auteurs'],['year','Année'],['journal','Revue'],['doi','DOI']] as const).map(([key,label])=><label className="rd-field" key={key}>{label}<Input value={String(meta[key]??"")} onChange={e=>updateArticleMetadata(job.requestId,{...meta,[key]:e.target.value})}/></label>)}</div></details>
     {loading&&<p role="status">Chargement du PDF et de l’extraction…</p>}{!loading&&!review&&<Button variant="ghost" onClick={()=>rejectArticleJob(job.requestId)}>Écarter ce brouillon indisponible</Button>}
     {review&&<><div className="rd-actions"><span className="rd-muted">{review.converter||job.imported?.converter||"Convertisseur inconnu"}</span>{review.pages.length>0?<Select ariaLabel={t("ragdoc.review.extraction")} value={String(page)} onChange={v=>setPage(Number(v))} options={[{value:"0",label:t("ragdoc.review.full-text")},...review.pages.map(p=>({value:String(p.page),label:t("ragdoc.review.page",{n:p.page})}))]}/>:<span className="rd-muted">Comparaison manuelle · repères de page non vérifiés</span>}</div>
     <div className="rd-compare"><section aria-label="PDF original"><h3>PDF original</h3>{viewer?<iframe title="PDF original" src={viewer}/>:<p className="rd-muted">{review.referenceOnly?"Cette fiche DOI ne contient pas le texte intégral.":!review.pdfAvailable?"PDF absent ou modifié depuis la conversion. L’approbation est suspendue.":"Le lecteur PDF nécessite la galerie du projet."}</p>}</section>

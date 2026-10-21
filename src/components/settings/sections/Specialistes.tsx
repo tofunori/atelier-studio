@@ -206,7 +206,7 @@ function FicheSpecialiste(p: {
           <Toggle checked={fiche.visible} label={t("specialistes.visible")} onChange={(visible) => p.onPatch({ visible })} />
         </div>
       </FieldGroup>
-      <Button variant="ghost" className="set-consignes-delete" onClick={p.onSupprimer}>{t("action.delete")}</Button>
+      <Button variant="ghost" className="set-consignes-delete set-destructive" onClick={p.onSupprimer}>{t("action.delete")}</Button>
     </>
   );
 }

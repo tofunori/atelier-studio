@@ -76,7 +76,8 @@ export type AtelierTab = {
 };
 
 const TAB_COLORS = ["#e05d5d", "#e8823a", "#8b5cf6", "#3b82f6", "#22b07d", "#e0b74a"];
-const EMPTY_TITLE = "Workspace";
+// Nom lu par VoiceOver à la place du code hex (SURF-30).
+const TAB_COLOR_KEYS = ["color.red", "color.orange", "color.violet", "color.blue", "color.green", "color.amber"] as const;
 const NOOP_SURFACE_CHANGE = (_surface: Surface) => {};
 
 type PaneBounds = { left: number; top: number; width: number; height: number };
@@ -129,7 +130,7 @@ function htmlTabIsRendered(url: string): boolean {
 }
 
 function surfaceLabel(surface: Surface): string {
-  if (surface === "atelier") return t("atelier.gallery");
+  if (surface === "atelier") return t("atelier.gallery-title");
   const entry = SURFACES.find((candidate) => candidate.id === surface);
   return entry ? t(entry.labelKey) : surface;
 }
@@ -902,7 +903,7 @@ export default function AtelierPane({
           key: `move-${pane.id}`,
           label: pane.tabs.length
             ? tabTitle(pane.tabs.find((tab) => workspaceTabId(tab) === pane.activeTabId) ?? pane.tabs[0])
-            : EMPTY_TITLE,
+            : t("workspace.title"),
           onSelect: () => updateWorkspaceWithFlip((current) => placeWorkspaceTab(current, ref, pane.id, "center")),
         })),
       });
@@ -953,7 +954,7 @@ export default function AtelierPane({
           ...TAB_COLORS.map((color) => ({
             key: `color-${color}`,
             checked: currentColor === color,
-            label: <><span className="workspace-pane-swatch tw:inline-block tw:shrink-0" style={{ background: color }} aria-hidden="true" /><span className="tw:sr-only">{color}</span></>,
+            label: <><span className="workspace-pane-swatch tw:inline-block tw:shrink-0" style={{ background: color }} aria-hidden="true" /><span className="tw:sr-only">{t(TAB_COLOR_KEYS[TAB_COLORS.indexOf(color)])}</span></>,
             onSelect: () => onColorTab(ref.tabId, color),
           })),
           {
@@ -1212,7 +1213,7 @@ export default function AtelierPane({
         <div className="workspace-pane-body" data-workspace-pane-body={paneNode.id}>
           {paneNode.tabs.length === 0 && (
             <div className="workspace-empty-pane">
-              <span>{EMPTY_TITLE}</span>
+              <span>{t("workspace.title")}</span>
               <small>{t("workspace.empty")}</small>
             </div>
           )}

@@ -53,6 +53,9 @@
 .rh-continue .t { font-size: var(--fs-title); font-weight: 500; letter-spacing: -0.01em;
   color: var(--text-primary); line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rh-continue.is-empty { background: var(--surface-inset); border-color: transparent; }
+.rh-continue.is-empty .t { font-size: var(--fs-body); font-weight: 500; white-space: normal; }
+.rh-continue-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-1); }
 .rh-continue .meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
   font-size: var(--fs-label); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .rh-continue .meta .sep { opacity: .6; }
@@ -78,11 +81,13 @@
   outline-offset: var(--focus-ring-offset); }
 .rh-row svg { flex-shrink: 0; color: var(--text-muted); }
 .rh-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rh-row .src { margin-left: auto; flex-shrink: 1; min-width: 0;
+/* dossier aligné à droite, type dans une colonne fixe (audit SHELL-18) :
+   les deux bords restent droits d'une ligne à l'autre, une seule casse */
+.rh-row .src { margin-left: auto; flex-shrink: 1; min-width: 0; text-align: right;
   font-size: var(--fs-label); color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rh-row .kind { flex-shrink: 0; font-size: var(--eyebrow-size); color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: var(--eyebrow-tracking); }
+.rh-row .kind { flex: none; width: 72px; font-size: var(--fs-label); color: var(--text-muted);
+  text-align: left; }
 
 /* ---- À traiter ------------------------------------------------------------ */
 .rh-attention { display: flex; flex-direction: column; gap: var(--sp-2); }

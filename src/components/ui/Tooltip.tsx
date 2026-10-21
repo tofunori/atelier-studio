@@ -14,7 +14,7 @@ import { cx, type Placement } from "./internal";
 export const TOOLTIP_DELAY_MS = 420;
 
 function placementProps(placement: Placement) {
-  const [side, align] = placement.split("-") as ["top" | "bottom", "start" | "end" | undefined];
+  const [side, align] = placement.split("-") as ["top" | "bottom" | "right", "start" | "end" | undefined];
   return { side, align: (align ?? "center") as "start" | "center" | "end" };
 }
 

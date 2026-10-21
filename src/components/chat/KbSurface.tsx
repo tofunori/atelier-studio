@@ -40,6 +40,7 @@ import { clearPendingPassageOpen, consumePendingPassageOpen } from "../../lib/pe
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
+import { CloseIcon } from "../icons";
 import { Input } from "../shadcn/input";
 import { RowButton } from "../ui/RowButton";
 import { Spinner } from "../ui/Spinner";
@@ -487,7 +488,8 @@ export default function KbSurface(p: {
       const on = current.includes(coll.slug);
       return {
         key: `coll-${coll.slug}`,
-        label: on ? `✓ ${coll.title}` : coll.title,
+        label: coll.title,
+        checked: on, keepOpen: false,
         onSelect: () => tag(ids, coll.slug, on),
       };
     });
@@ -815,12 +817,14 @@ export default function KbSurface(p: {
             items={[
               {
                 key: "type-all",
-                label: `${type === "all" ? "✓ " : ""}${t("kbs.type-all")} · ${counts.all ?? 0}`,
+                label: `${t("kbs.type-all")} · ${counts.all ?? 0}`,
+                checked: type === "all", keepOpen: false,
                 onSelect: () => setType("all"),
               },
               ...FILTER_ORDER.filter((key) => (counts[key] ?? 0) > 0).map((key) => ({
                 key: `type-${key}`,
-                label: `${type === key ? "✓ " : ""}${t(FILTER_LABELS[key])} · ${counts[key]}`,
+                label: `${t(FILTER_LABELS[key])} · ${counts[key]}`,
+                checked: type === key, keepOpen: false,
                 onSelect: () => setType(key),
               })),
             ]}
@@ -976,7 +980,7 @@ export default function KbSurface(p: {
                   title={t("kb.error-dismiss")}
                   onClick={() => p.onDismissError?.()}
                 >
-                  ×
+                  <CloseIcon size={12} />
                 </IconButton>
               )}
             </div>

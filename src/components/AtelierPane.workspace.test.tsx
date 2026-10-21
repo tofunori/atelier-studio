@@ -91,7 +91,7 @@ describe("AtelierPane — workspace modulaire", () => {
     // Les onglets du pane vivent dans un sous-menu : le menu ne déplie plus
     // toutes les listes (2026-09-10).
     fireEvent.click(screen.getByText(t("workspace.pane-tabs")));
-    fireEvent.click(await screen.findByText(t("atelier.gallery")));
+    fireEvent.click(await screen.findByText(t("atelier.gallery-title")));
     expect(pane).toHaveAttribute("data-pane-chrome", "workspace");
     // Aucun contrôle ne recouvre la galerie.
     expect(pane.querySelector(".workspace-pane-controls")).toBeNull();

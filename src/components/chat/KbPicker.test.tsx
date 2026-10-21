@@ -125,7 +125,7 @@ describe("KbPickerPanel — layout surface (plan 050)", () => {
     renderUi(
       <KbPickerPanel {...panelProps({ layout: "surface", threadTitle: "" })} />,
     );
-    expect(screen.getByText(/Rien d'attaché à cette conversation/)).toBeTruthy();
+    expect(screen.getByText(/Rien d’attaché à cette conversation/)).toBeTruthy();
     expect(screen.getAllByText("Bibliothèque Ragdoc")).toHaveLength(1);
   });
 
@@ -257,7 +257,7 @@ describe("KbPickerPanel — sélection multiple (plan 052)", () => {
     fireEvent.click(screen.getByText("Sélectionner"));
     // en mode sélection, cliquer l'en-tête d'un groupe sélectionne tout le groupe
     fireEvent.click(screen.getByText("PDF"));
-    expect(screen.getByText("1 sélectionnée(s)")).toBeTruthy();
+    expect(screen.getByText("1 sélectionnée")).toBeTruthy();
     fireEvent.click(screen.getByText("Ajouter à…"));
     await act(async () => {
       await vi.dynamicImportSettled();

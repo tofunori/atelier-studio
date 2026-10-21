@@ -21,7 +21,7 @@ import { IconButton } from "./ui/IconButton";
 import { showError, showSuccess } from "./ui/toast";
 import { SidebarIcon } from "./icons";
 import { Select } from "./Select";
-import { Badge } from "./shadcn/badge";
+import { StatusBadge } from "./ui/StatusBadge";
 import { Button } from "./ui/Button";
 import {
   AlertDialog,
@@ -166,7 +166,7 @@ export default function AutomationsPanel(props: {
   }, [props.ws, draft?.id]);
 
   const send = (type: string, payload: Record<string, unknown>, actionName: string) => {
-    if (!props.ws || props.ws.readyState !== WebSocket.OPEN) { void showError("Sidecar déconnecté"); return; }
+    if (!props.ws || props.ws.readyState !== WebSocket.OPEN) { void showError(t("app.sidecar-disconnected")); return; }
     dispatchPending(actionName);
     actionRef.current = actionName;
     props.ws.send(JSON.stringify({ type, ...payload }));
@@ -188,7 +188,7 @@ export default function AutomationsPanel(props: {
 
   const save = () => {
     if (!draft || !schedule) return;
-    if (!draft.name.trim() || !draft.prompt.trim()) { void showError("Nom et prompt requis"); return; }
+    if (!draft.name.trim() || !draft.prompt.trim()) { void showError(t("automations.name-prompt-required")); return; }
     if (draft.kind === "heartbeat" && !draft.targetThreadId) { void showError(t("automations.choose-pinned")); return; }
     const automation = { ...draft, rrule: rruleFromSchedule(schedule, draft.kind) };
     send(draft.id ? "updateAutomation" : "createAutomation", { automation }, draft.id ? "save" : "create");
@@ -233,29 +233,30 @@ export default function AutomationsPanel(props: {
               <EmptyContent><Button size="sm" onClick={createAutomation}><PlusIcon data-icon="inline-start" />{t("automations.create")}</Button></EmptyContent>
             </Empty>
           ) : (
-            <div className="tw:flex tw:flex-col tw:gap-2 tw:py-1">
+            <div className="tw:flex tw:flex-col tw:gap-1 tw:py-1">
               {automations.map((automation) => {
                 const target = automation.targetThreadId ? threadById.get(automation.targetThreadId) : null;
                 const running = automation.runs?.[0]?.status === "IN_PROGRESS";
                 return (
-                  <div key={automation.id} className="tw:rounded-lg tw:border tw:border-border tw:bg-card tw:p-2">
+                  // Rangée sans cadre (GAP-13) : survol --bg-ctl, infos en 11 px éteint.
+                  <div key={automation.id} className="automation-row">
                     <Button variant="ghost" className="tw:h-auto tw:w-full tw:justify-start tw:px-1 tw:py-1 tw:text-left" onClick={() => openAutomation(automation)}>
-                      <span className="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-1.5">
+                      <span className="tw:flex tw:min-w-0 tw:flex-1 tw:flex-col tw:gap-1">
                         <span className="tw:flex tw:min-w-0 tw:items-center tw:gap-2">
                           <span className="tw:truncate tw:font-medium">{automation.name}</span>
-                          <Badge className="tw:ml-auto" variant={running ? "secondary" : automation.status === "PAUSED" ? "outline" : "ghost"}>
+                          <StatusBadge className="tw:ml-auto" status={running ? "running" : automation.status === "PAUSED" ? "neutral" : "success"}>
                             {running ? t("automations.in-progress") : automation.status === "PAUSED" ? t("automations.paused") : t("automations.active")}
-                          </Badge>
+                          </StatusBadge>
                         </span>
-                        <span className="tw:truncate tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">{scheduleLabel(automation)}</span>
-                        <span className="tw:line-clamp-2 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">
+                        <span className="tw:truncate tw:text-[length:var(--fs-s)] tw:text-muted-foreground">{scheduleLabel(automation)}</span>
+                        <span className="tw:line-clamp-2 tw:text-[length:var(--fs-s)] tw:text-muted-foreground">
                           {automation.kind === "heartbeat" ? t("automations.heartbeat-task", { task: target?.title ?? automation.targetThreadId }) : automation.projectRoot.split("/").pop()}
                         </span>
                       </span>
                     </Button>
                     <div className="tw:mt-1 tw:flex tw:items-center tw:gap-1">
                       {automation.status === "ACTIVE" && automation.nextRunAt && !running && (
-                        <span className="tw:min-w-0 tw:flex-1 tw:truncate tw:px-1 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">{t("automations.next-run", { time: relativeTime(automation.nextRunAt) })}</span>
+                        <span className="tw:min-w-0 tw:flex-1 tw:truncate tw:px-1 tw:text-[length:var(--fs-s)] tw:text-muted-foreground tw:tabular-nums">{t("automations.next-run", { time: relativeTime(automation.nextRunAt) })}</span>
                       )}
                       <Button className="tw:ml-auto" variant="ghost" size="icon-sm" aria-label={automation.status === "ACTIVE" ? t("automations.pause") : t("automations.resume")} onClick={() => changeStatus(automation)}>
                         {automation.status === "ACTIVE" ? <PauseIcon /> : <PlayIcon />}
@@ -296,9 +297,9 @@ export default function AutomationsPanel(props: {
               <div className="tw:flex tw:items-center tw:gap-2">
                 <DialogTitle>{draft.name || t("automations.new")}</DialogTitle>
                 {draft.id && (
-                  <Badge variant={draft.status === "ACTIVE" ? "secondary" : "outline"}>
+                  <StatusBadge status={draft.status === "ACTIVE" ? "success" : "neutral"}>
                     {draft.status === "ACTIVE" ? t("automations.active") : t("automations.paused")}
-                  </Badge>
+                  </StatusBadge>
                 )}
                 {pending && <Spinner className="tw:ml-auto" />}
               </div>
@@ -351,8 +352,8 @@ export default function AutomationsPanel(props: {
                         <div className="tw:flex tw:flex-col tw:divide-y tw:divide-border">
                           {selected.runs.map((run) => {
                             const runThread = threadById.get(run.threadId);
-                            const content = <><span className="tw:min-w-0 tw:flex-1 tw:truncate">{runThread?.title ?? run.threadId}</span><Badge variant={run.status === "FAILED" ? "destructive" : run.status === "IN_PROGRESS" ? "secondary" : "outline"}>{run.status === "FAILED" ? t("automations.failed") : run.status === "IN_PROGRESS" ? t("automations.in-progress") : t("automations.completed")}</Badge><span className="tw:shrink-0 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground">{new Date(run.createdAt).toLocaleString()}</span></>;
-                            return runThread ? <Button key={run.id} variant="ghost" className="tw:h-auto tw:w-full tw:justify-start tw:rounded-none tw:px-1 tw:py-2.5 tw:text-left" onClick={() => props.onOpenThread(runThread)}>{content}</Button> : <div key={run.id} className="tw:flex tw:items-center tw:gap-3 tw:px-1 tw:py-2.5">{content}</div>;
+                            const content = <><span className="tw:min-w-0 tw:flex-1 tw:truncate">{runThread?.title ?? run.threadId}</span><StatusBadge status={run.status === "FAILED" ? "error" : run.status === "IN_PROGRESS" ? "running" : "neutral"}>{run.status === "FAILED" ? t("automations.failed") : run.status === "IN_PROGRESS" ? t("automations.in-progress") : t("automations.completed")}</StatusBadge><span className="tw:shrink-0 tw:text-[length:var(--fs-s)] tw:text-muted-foreground tw:tabular-nums" title={new Date(run.createdAt).toLocaleString()}>{relativeTime(run.createdAt)}</span></>;
+                            return runThread ? <Button key={run.id} variant="ghost" className="tw:h-auto tw:w-full tw:justify-start tw:rounded-none tw:px-1 tw:py-2 tw:text-left" onClick={() => props.onOpenThread(runThread)}>{content}</Button> : <div key={run.id} className="tw:flex tw:items-center tw:gap-3 tw:px-1 tw:py-2">{content}</div>;
                           })}
                         </div>
                       )}

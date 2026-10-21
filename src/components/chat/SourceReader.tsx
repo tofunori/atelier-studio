@@ -19,6 +19,7 @@ import { Input } from "../shadcn/input";
 import { findDocumentRanges, highlightDocumentRanges, clearDocumentHighlights } from "../../lib/documentSearch";
 import { wsSend } from "../../lib/wsBus";
 import { useIntegrations } from "../../lib/integrations";
+import { ArrowDownIcon, ArrowUpIcon } from "../icons";
 
 // ---- surlignage d'une citation (tâche 6) -----------------------------------
 // Custom Highlight API si `CSS.highlights` existe (mêmes classes que
@@ -120,7 +121,7 @@ export default function SourceReader(p: SourceReaderProps) {
       : cible.kind === "gbrain"
       ? { type: "kbGbrainPage", slug: cible.slug }
       : { type: "kbSourceText", id: cible.id });
-    if (!sent) setEtat({phase: "erreur", message: "Connexion indisponible. Réessaie après la reconnexion."});
+    if (!sent) setEtat({phase: "erreur", message: t("biblio.offline")});
     else timeout = setTimeout(() => setEtat({phase: "erreur", message: "Le document ne répond pas. Réessaie."}), 135000);
     return () => { clearTimeout(timeout); window.removeEventListener(attendu, onReponse); };
   }, [cible.kind, clef, reload, desactive]);
@@ -245,8 +246,8 @@ export default function SourceReader(p: SourceReaderProps) {
       {searchOpen && <div className="gbr-search" role="search">
         <Input ref={inputRef} aria-label="Rechercher dans l’article" placeholder="Mot ou passage…" value={query} onChange={event => {setQuery(event.target.value); setMatchIndex(0);}} onKeyDown={event => {if (event.key === "Enter") {event.preventDefault(); setMatchIndex(i => matchCount ? (i + (event.shiftKey ? matchCount - 1 : 1)) % matchCount : 0);}}} />
         <span role="status">{matchCount ? `${matchIndex % matchCount + 1}/${matchCount}` : query ? "Aucun résultat" : ""}</span>
-        <RowButton disabled={!matchCount} aria-label="Résultat précédent" onClick={() => setMatchIndex(i => (i + matchCount - 1) % matchCount)}>↑</RowButton>
-        <RowButton disabled={!matchCount} aria-label="Résultat suivant" onClick={() => setMatchIndex(i => (i + 1) % matchCount)}>↓</RowButton>
+        <IconButton size="s" disabled={!matchCount} label="Résultat précédent" onClick={() => setMatchIndex(i => (i + matchCount - 1) % matchCount)}><ArrowUpIcon size={12} /></IconButton>
+        <IconButton size="s" disabled={!matchCount} label="Résultat suivant" onClick={() => setMatchIndex(i => (i + 1) % matchCount)}><ArrowDownIcon size={12} /></IconButton>
       </div>}
       {outlineOpen && vue === "rendu" && <nav className="gbr-outline" aria-label="Plan de l’article">{headings.map(h => <RowButton key={h.id} onClick={() => {docRef.current?.querySelector(`#${h.id}`)?.scrollIntoView?.({block:"start"}); setOutlineOpen(false);}}>{h.title}</RowButton>)}</nav>}
       {etat.phase === "chargement" && <div className="gbr-empty">{t("gbr.loading")}</div>}

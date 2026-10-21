@@ -1,15 +1,25 @@
-.reading-chat-overlay,.reading-annotation-queue{position:fixed;inset:auto;box-sizing:border-box;z-index:1000;color:#eee;background:rgba(38,42,48,.95);border:1px solid #ffffff24;box-shadow:0 6px 24px #0003;backdrop-filter:blur(20px);font:13px/1.4 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif);margin:0;left:50%;transform:translateX(-50%)}
+/* Barre de chat du mode lecture (CHAT-05 / TRANS-19) : surface élevée de
+   l'app — fond --surface-overlay, ombre --elevation-overlay, sans bordure ni
+   flou — et couleurs du thème, plus aucune valeur en dur. */
+.reading-chat-overlay,.reading-annotation-queue{position:fixed;inset:auto;box-sizing:border-box;z-index:var(--z-popover);color:var(--text-primary);background:var(--surface-overlay);border:0;box-shadow:var(--elevation-overlay);font:var(--fs-body)/1.5 var(--ui-font);margin:0;left:50%;transform:translateX(-50%)}
 .reading-chat-overlay{bottom:20px;width:min(620px,calc(100vw - 32px));border-radius:var(--radius-surface);padding:0;overflow:hidden}
-.reading-annotation-queue{top:64px;display:flex;gap: 12px;align-items:center;padding: 8px 12px 8px 18px;border-radius:var(--radius-pill);max-width:calc(100vw - 24px)}
+.reading-annotation-queue{top:64px;display:flex;gap:12px;align-items:center;padding:8px 12px 8px 16px;border-radius:var(--radius-pill);max-width:calc(100vw - 24px);color:var(--text-secondary)}
 .reading-chat-overlay[popover]:not(:popover-open),.reading-annotation-queue[popover]:not(:popover-open){display:none}
-.reading-chat-overlay button,.reading-annotation-queue button{display:flex;align-items:center;justify-content:center;border:0;background:transparent;color:inherit;cursor:pointer;padding:6px;border-radius:50%}
-.reading-chat-overlay svg,.reading-annotation-queue svg{width:18px;height:18px;flex:none;stroke-width:1.6}
-.reading-chat-overlay .reading-latest-toggle{width:100%;border-radius:0;padding: 8px 16px;gap: 8px;border-bottom:1px solid #ffffff0c;text-align:left;font:inherit}
-.reading-latest-toggle span{flex:1}.reading-latest-toggle .expanded{transform:rotate(90deg)}
-.reading-latest-response{max-height:min(40vh,360px);overflow:auto;padding:4px 18px 12px;overflow-wrap:anywhere;user-select:text}.reading-latest-response pre{overflow:auto}.reading-latest-response a{color:#9bb6ff}
-.reading-chat-input{display:flex;align-items:center;gap:12px;padding: 8px 12px}
-.reading-chat-input textarea{flex:1;min-width:0;resize:none;max-height:120px;background:transparent;border:0;color:inherit;font:inherit;line-height:24px;padding:2px 8px;outline:none}.reading-chat-input textarea::placeholder{color:#a0a4ac}
-.reading-chat-overlay .reading-send,.reading-annotation-queue .reading-send{width:32px;height:32px;background:#e4e7eb;color:#242930;flex:none}
-.reading-chat-overlay button:disabled,.reading-annotation-queue button:disabled{opacity:.4;cursor:default}
-.reading-chat-files{padding: 0 18px 8px;color:#b9c8ec;font-size:11px;overflow-wrap:anywhere}
-.reading-annotation-queue{width:max-content;white-space:nowrap}
+.reading-chat-overlay svg,.reading-annotation-queue svg{width:var(--icon-m);height:var(--icon-m);flex:none}
+.reading-chat-overlay .reading-latest-toggle{display:flex;align-items:center;width:100%;border-radius:0;padding:8px 16px;gap:8px;border-bottom:1px solid var(--border-subtle);text-align:left;font:inherit;color:var(--text-muted);transition:color var(--motion-fast) var(--ease-out)}
+.reading-chat-overlay .reading-latest-toggle:hover{color:var(--text-primary)}
+.reading-latest-toggle span{flex:1}
+.reading-latest-toggle .ui-disclosure-chevron{width:var(--icon-s);height:var(--icon-s)}
+.reading-latest-response{max-height:min(40vh,360px);overflow:auto;padding:4px 16px 12px;overflow-wrap:anywhere;user-select:text;color:var(--text-secondary)}
+.reading-latest-response pre{overflow:auto}
+.reading-latest-response a{color:var(--accent-text)}
+.reading-chat-input{display:flex;align-items:center;gap:12px;padding:8px 12px}
+.reading-chat-input textarea{flex:1;min-width:0;resize:none;max-height:120px;background:transparent;border:0;color:inherit;font:inherit;line-height:24px;padding:2px 8px;outline:none}
+.reading-chat-input textarea::placeholder{color:var(--text-muted)}
+/* Envoi : le même disque que le compositeur du fil (.composer-bar .send). */
+.reading-chat-overlay .reading-send,.reading-annotation-queue .reading-send{width:32px;height:32px;border-radius:var(--radius-pill);background:var(--fill-primary);color:var(--on-fill-primary);flex:none}
+.reading-chat-overlay .reading-send:hover:not(:disabled),.reading-annotation-queue .reading-send:hover:not(:disabled){background:var(--fill-primary-hover);color:var(--on-fill-primary)}
+.reading-chat-overlay button:disabled,.reading-annotation-queue button:disabled{opacity:var(--disabled-opacity);cursor:default}
+.reading-chat-files{padding:0 16px 8px;color:var(--text-muted);font-size:var(--fs-s);overflow-wrap:anywhere}
+.reading-annotation-queue{width:max-content;white-space:nowrap;font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: reduce){.reading-chat-overlay .reading-latest-toggle{transition:none}}

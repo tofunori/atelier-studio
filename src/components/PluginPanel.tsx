@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { PuzzleIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCodexApps } from "../lib/useCodexApps";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
 import { t } from "../lib/i18n";
-import { Button } from "./ui";
+import { Button, EmptyState, InlineNotice } from "./ui";
 import { Input } from "./shadcn/input";
 import { Field, FieldLabel } from "./shadcn/field";
 import "./PluginPanel.css";
@@ -49,11 +50,11 @@ export default function PluginPanel({
         <Input id="plugin-catalog-search" value={query} onChange={event => setQuery(event.target.value)} />
       </Field>
       <div className="plugin-list">
-        {linkError && <p role="alert">{linkError}</p>}
+        {linkError && <InlineNotice tone="error" className="plugin-notice">{linkError}</InlineNotice>}
         {browse && <section aria-label={t("plugins.browse")}>
           <p>{t("plugins.connect-hint")}</p>
           {catalog.apps.filter(matches).map(app => <article className="plugin-row" key={app.id}>
-            <span className="plugin-icon plugin-icon-fallback">@</span>
+            <span className="plugin-icon plugin-icon-fallback" aria-hidden="true"><PuzzleIcon size={16} /></span>
             <div className="plugin-copy"><strong>{app.name}</strong><p>{app.description}</p>
               <small>{t(app.isAccessible ? "plugins.connected" : "plugins.not-connected")}</small>
             </div>
@@ -64,15 +65,15 @@ export default function PluginPanel({
           {!catalog.loading && catalog.cursor && <Button variant="ghost" size="sm" onClick={() => catalog.load(catalog.cursor)}>{t("plugins.more")}</Button>}
         </section>}
 
-        {error && <div className="plugin-empty" role="alert">{t("plugins.error")}
-          <p>{error}</p>
+        {error && <InlineNotice tone="error" className="plugin-notice">
+          <span>{t("plugins.error")} {error}</span>
           {onRetry && <Button variant="ghost" size="sm" onClick={onRetry}>{t("plugins.retry")}</Button>}
-        </div>}
+        </InlineNotice>}
         {!browse && plugins.filter(plugin => matches({ name: plugin.displayName, description: plugin.description })).map((plugin) => (
           <article className="plugin-row" key={plugin.id}>
             {plugin.icon && /^https?:\/\//.test(plugin.icon)
               ? <img src={plugin.icon} alt="" className="plugin-icon" />
-              : <span className="plugin-icon plugin-icon-fallback">@</span>}
+              : <span className="plugin-icon plugin-icon-fallback" aria-hidden="true"><PuzzleIcon size={16} /></span>}
             <div className="plugin-copy">
               <div className="plugin-title">
                 <strong>{plugin.displayName}</strong>
@@ -87,7 +88,7 @@ export default function PluginPanel({
               : pluginCanAttach(plugin) ? "plugins.attachable" : "plugins.no-skill")}</span>
           </article>
         ))}
-        {!browse && !loading && !error && !plugins.length && <p className="plugin-empty">{t("plugins.empty")}</p>}
+        {!browse && !loading && !error && !plugins.length && <EmptyState className="ui-empty--inline" title={t("plugins.empty")} />}
       </div>
       <footer className="plugin-panel-foot">{t("plugins.hint")}</footer>
     </DialogSurface>

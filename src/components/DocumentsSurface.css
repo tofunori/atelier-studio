@@ -4,7 +4,7 @@
 .docs-surface { display: grid; grid-template-columns: 264px minmax(0, 1fr); flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .docs-surface [hidden] { display: none !important; }
 
-.docs-side { display: flex; flex-direction: column; min-height: 0; background: var(--surface-panel); border-right: 1px solid var(--border-subtle); }
+.docs-side { display: flex; flex-direction: column; min-height: 0; background: var(--surface-panel); border-right: var(--gutter) solid var(--surface-canvas); }
 .docs-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 16px 16px 12px; }
 .docs-side-title { font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; color: var(--text-primary); }
 .docs-new { gap: 4px; }
@@ -12,7 +12,8 @@
 .docs-search-icon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); display: flex; color: var(--text-muted); pointer-events: none; }
 .docs-search input { padding-left: 28px; }
 .docs-lists { flex: 1; min-height: 0; overflow: auto; padding: 0 8px 16px; }
-.docs-heading { padding: 16px 8px 4px; font-size: var(--fs-s); color: var(--text-muted); }
+.docs-heading { padding: 16px 8px 4px; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
+  letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
 .docs-none { padding: 16px 8px; font-size: var(--fs-m); color: var(--text-muted); }
 
 .docs-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; min-width: 0; padding: 8px; border-radius: var(--r-s); background: transparent; color: var(--text-primary); text-align: left; transition: background-color var(--motion-fast) var(--ease-out); }

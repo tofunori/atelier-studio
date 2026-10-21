@@ -43,7 +43,7 @@ describe("Réglages › Mémoire", () => {
     const requete = faux({ memoryDelete: { removed: 1 } });
     render(<Memoire reglages={reglages} onReglages={() => {}} projets={[]} requete={requete} />);
     await waitFor(() => expect(screen.getByText(souvenir.text)).toBeTruthy());
-    fireEvent.click(screen.getByText("Modifier"));
+    fireEvent.click(screen.getByRole("button", { name: "Modifier" }));
     fireEvent.change(screen.getByLabelText("Souvenir"), { target: { value: "Dépôt : FireWork − noFire." } });
     fireEvent.click(screen.getByText("Enregistrer"));
     await waitFor(() => expect(requete).toHaveBeenCalledWith("memorySave", expect.objectContaining({
@@ -68,7 +68,7 @@ describe("Réglages › Mémoire", () => {
     await waitFor(() => expect(requete).toHaveBeenCalledWith("memoryClaudeScienceImport", {
       targets: [{ projectId: "p1", projectRoot: "/t/Chapitre1-Albedo" }],
     }));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("7671 ajouté(s)"));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("7671 ajoutés"));
     expect(screen.getByRole("status").textContent).not.toContain("effacé");
   });
 
@@ -84,6 +84,6 @@ describe("Réglages › Mémoire", () => {
     await waitFor(() => expect(screen.getByText("Analyses Feux-Albédo")).toBeTruthy());
     fireEvent.click(screen.getByText("Importer"));
     await waitFor(() => expect(screen.getByRole("status").textContent)
-      .toContain("1 effacé(s) à la main, non réimporté(s)"));
+      .toContain("1 effacé à la main, non réimporté"));
   });
 });

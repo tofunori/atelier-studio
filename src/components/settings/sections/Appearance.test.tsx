@@ -60,6 +60,6 @@ describe("Section Apparence", () => {
   it("le format d'heure est disponible dans Affichage des conversations", () => {
     renderUi(<Appearance {...props()} />);
     fireEvent.click(screen.getByRole("button", { name: "Affichage des conversations" }));
-    expect(screen.getByText(/Format d'heure/)).toBeInTheDocument();
+    expect(screen.getByText(/Format d’heure/)).toBeInTheDocument();
   });
 });
