@@ -50,8 +50,9 @@ function installAnnotKitApi() {
     +'.akPill .x{width:28px;height:28px;border-radius:50%;background:transparent;color:var(--muted,#9aa3b2);'
     +'border:1px solid var(--border,#3a4150);font-size:var(--fs-body, 13px)}'
     +'.akPill .x:hover{border-color:var(--border-strong,#5b6575);color:var(--txt,#fff)}'
-    +'.akPill .go{width:32px;height:32px;border-radius:50%;background:var(--text-primary,var(--txt,#dadee3));color:var(--surface-app,var(--bg,#1e2124));font-size:var(--fs-title, 15px)}'
-    +'.akPill .go:hover{background:color-mix(in srgb,var(--text-primary,var(--txt,#dadee3)) 88%,var(--surface-app,var(--bg,#1e2124)))}'
+    // Envoyer : aplat --fill-* (tokens.css), jamais l'encre en fond.
+    +'.akPill .go{width:32px;height:32px;border-radius:50%;background:var(--fill-primary,var(--border-default,var(--border-strong,var(--border))));color:var(--on-fill-primary,var(--text-primary,var(--txt,#dadee3)));font-size:var(--fs-title, 15px);transition:background-color var(--motion-fast,120ms) var(--ease-out,ease-out)}'
+    +'.akPill .go:hover{background:var(--fill-primary-hover,color-mix(in srgb,var(--fill-primary,var(--border-default,var(--border-strong,var(--border)))) 84%,var(--on-fill-primary,var(--text-primary,var(--txt,#dadee3))) 16%))}'
     +'.akPill .tg{width:28px;height:28px;border-radius:50%;background:transparent;color:var(--muted,#9aa3b2);'
     +'border:1px solid var(--border,#3a4150);font-size:var(--fs-body, 13px)}'
     +'.akPill .tg:hover,.akPill .tg.set{border-color:var(--accent,#5b9dff);color:var(--accent,#5b9dff)}'

@@ -255,9 +255,10 @@ const createDiffVersions = function(opts){
       ".dvCommitBtn:disabled{cursor:default;opacity:.46}" +
       ".dvCommitAi{min-width:108px;background:transparent;border-color:var(--border-subtle,var(--border));color:var(--text-secondary,var(--txt))}" +
       ".dvCommitAi:hover:not(:disabled){background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent)}" +
-      // Action principale à l'encre, comme Word (décision 2026-10-19).
-      ".dvCommitDo{background:var(--text-primary,var(--txt));color:var(--surface-app,var(--bg));border-color:var(--text-primary,var(--txt))}" +
-      ".dvCommitDo:hover:not(:disabled){background:color-mix(in srgb,var(--text-primary,var(--txt)) 88%,var(--surface-app,var(--bg)))}" +
+      // Action principale pleine, mais jamais à l'encre (2026-10-21 : « pas de
+      // blanc dans les boutons ») : jetons --fill-* de tokens.css.
+      ".dvCommitDo{background:var(--fill-primary,var(--border-default,var(--border-strong,var(--border))));color:var(--on-fill-primary,var(--text-primary,var(--txt)));border-color:transparent;transition:background-color var(--motion-fast,120ms) var(--ease-out,ease-out)}" +
+      ".dvCommitDo:hover:not(:disabled){background:var(--fill-primary-hover,color-mix(in srgb,var(--fill-primary,var(--border-default,var(--border-strong,var(--border)))) 84%,var(--on-fill-primary,var(--text-primary,var(--txt))) 16%))}" +
       "@media(max-width:430px){.dvCommitHint{display:none}.dvCommitActions{margin-left:auto}}" +
       ".CodeMirror .dv-flash{animation:dvflash 700ms ease-out}" +
       "@keyframes dvflash{0%{background:rgba(255,255,255,.14)}100%{background:transparent}}";

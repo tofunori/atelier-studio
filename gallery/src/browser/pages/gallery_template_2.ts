@@ -17,7 +17,10 @@
   // soient ceux de l'app. Liste fermée.
   var ROLES = ['--text-primary','--text-secondary','--text-muted','--text-disabled','--surface-overlay',
     '--elevation-overlay','--focus-ring-color','--focus-ring-width','--focus-ring-offset',
-    '--status-success','--status-warning','--status-error','--font-chrome','--ui-font','--code-font'];
+    '--status-success','--status-warning','--status-error','--font-chrome','--ui-font','--code-font',
+    // remplissage des actions (tokens.css) : jamais l'encre en fond de bouton
+    '--fill-primary','--fill-primary-hover','--on-fill-primary',
+    '--fill-secondary','--fill-secondary-hover','--fill-secondary-ring'];
   function apply(message: {vars?: Record<string, string>; colorScheme?: string}){
     var v = (message && message.vars) || {};
     var root = document.documentElement.style;

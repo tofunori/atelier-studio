@@ -30,3 +30,16 @@ export function interfaceGeometry(style: Pick<CSSStyleDeclaration, "getPropertyV
     "--focus-ring-width", "--focus-ring-offset",
   ].map((name) => [name, style.getPropertyValue(name).trim()]).filter(([, value]) => value));
 }
+
+/** Remplissage des actions (tokens.css, 2026-10-21) : les éditeurs reçoivent
+ * la valeur RÉSOLUE du shell, pour qu'un changement d'option (relief, accent
+ * plein, accent doux) ne se règle qu'à un seul endroit, tokens.css. */
+export const FILL_ROLES = [
+  "--fill-primary", "--fill-primary-hover", "--on-fill-primary",
+  "--fill-secondary", "--fill-secondary-hover", "--fill-secondary-ring",
+] as const;
+
+export function interfaceFills(style: Pick<CSSStyleDeclaration, "getPropertyValue">): Record<string, string> {
+  return Object.fromEntries(FILL_ROLES
+    .map((name) => [name, style.getPropertyValue(name).trim()]).filter(([, value]) => value));
+}

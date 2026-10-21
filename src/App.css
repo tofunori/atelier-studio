@@ -953,10 +953,10 @@ button.kernel-file:hover { color: var(--text-primary); }
   background: var(--bg-ctl); color: var(--text-primary); }
 .composer-recording-bar .dictation-circle:hover { background: var(--border2); }
 .composer-recording-bar .dictation-circle svg { width: 17px; height: 17px; }
-.composer-recording-bar .dictation-send { background: var(--text-primary); color: var(--bg-card); }
+.composer-recording-bar .dictation-send { background: var(--fill-primary); color: var(--on-fill-primary); }
 .composer-recording-bar .dictation-send svg { width: 20px; height: 20px; }
 .composer-recording-bar .dictation-send:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text-primary) 85%, var(--bg-card)); color: var(--bg-card); }
+  background: var(--fill-primary-hover); color: var(--on-fill-primary); }
 .dictation-waveform { display: grid; grid-template-columns: repeat(48, minmax(0, 1fr)); align-items: center;
   height: 18px; min-width: 0; flex: 1; gap: 1px; overflow: hidden; color: var(--text-secondary);
   mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent); }
@@ -966,12 +966,14 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* l'anneau de contexte partage l'assise du groupe d'état ; seul l'envoi
  * (l'action) se détache du reste. */
 .composer-bar .ctx-ring-wrap { height: var(--composer-ctl-h); padding: 0 4px; }
+/* Envoyer et Arrêter : disque plein aux jetons --fill-* (tokens.css), jamais
+   à l'encre — Thierry ne veut aucun bouton à fond blanc. */
 .composer-bar .send { width: 34px; height: 34px;
   margin-left: 8px; border-radius: 50%; flex: none;
-  background: var(--text-primary); color: var(--bg-card); }
+  background: var(--fill-primary); color: var(--on-fill-primary); }
 .composer-bar .send:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text-primary) 85%, var(--bg-card));
-  color: var(--bg-card); }
+  background: var(--fill-primary-hover);
+  color: var(--on-fill-primary); }
 .composer-bar .send:disabled { opacity: .4; }
 .access { color: var(--text-muted) !important; font-size: var(--fs-l); }
 .access.accent { color: var(--accent) !important; }

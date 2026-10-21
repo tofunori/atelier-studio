@@ -183,8 +183,8 @@
   #selPill .tgt svg{width:14px;height:14px;stroke:currentColor;fill:none}
   /* Action principale à l'encre, comme Word (décision 2026-10-19) : l'accent
      reste au focus, à la sélection et à l'état actif. */
-  #selPill .go{width:32px;height:32px;border-radius:999px;background:var(--text-primary,var(--txt));color:var(--surface-app,var(--bg));flex:none}
-  #selPill .go:hover{background:color-mix(in srgb,var(--text-primary,var(--txt)) 88%,var(--surface-app,var(--bg)))}
+  #selPill .go{width:32px;height:32px;border-radius:999px;background:var(--fill-primary,var(--border-default,var(--border-strong,var(--border))));color:var(--on-fill-primary,var(--text-primary,var(--txt)));flex:none;transition:background-color var(--motion-fast,120ms) var(--ease-out,ease-out)}
+  #selPill .go:hover{background:var(--fill-primary-hover,color-mix(in srgb,var(--fill-primary,var(--border-default,var(--border-strong,var(--border)))) 84%,var(--on-fill-primary,var(--text-primary,var(--txt))) 16%))}
   #selPill .go svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}
   #tgMenu{position:fixed;z-index:302;display:none;flex-direction:column;min-width:240px;max-width:400px;
       background:var(--card, #24282d);border-radius:10px;padding:4px;

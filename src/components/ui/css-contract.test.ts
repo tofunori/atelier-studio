@@ -1085,7 +1085,8 @@ describe("contrat finitions (icônes, étiquettes, grille de 4)", () => {
     // CHAT-03 : Arrêter garde le disque d'Envoyer — aucune couleur propre
     const stop = appCss.match(/^\.send\.stop\s*\{[^}]*\}/m)?.[0] ?? "";
     expect(stop).not.toMatch(/background|color/);
-    // CHAT-14 / SURF-08 : l'action principale est à l'encre partout
+    // CHAT-14 / SURF-08 : l'action principale a UN remplissage partout — les
+    // jetons --fill-* (jamais l'encre depuis 2026-10-21, voir le contrat dédié)
     expect(appCss).not.toMatch(/\.perm-allow\s*\{[^}]*background/);
     expect(appCss).not.toMatch(/\.git-commit-buttons \.ui-btn--primary/);
     expect(appCss).not.toMatch(/\.generateur-generate\s*\{[^}]*background/);
@@ -1097,5 +1098,50 @@ describe("contrat finitions (icônes, étiquettes, grille de 4)", () => {
     // TRANS-17 : les contrôles natifs suivent le thème de l'app
     expect(appCss).toMatch(/^:root, :root\[data-theme="dark"\]\s*\{[^}]*color-scheme:\s*dark/m);
     expect(appCss).toMatch(/^:root\[data-theme="light"\]\s*\{[^}]*color-scheme:\s*light/m);
+  });
+
+  // Thierry, 2026-10-21 : « j'aime pas le blanc dans les boutons nulle part
+  // dans Atelier ». Un bouton plein, une case cochée, un interrupteur actif
+  // ou un radio choisi se peignent aux jetons --fill-* de tokens.css, jamais
+  // à l'encre (--text-primary / --fg = blanc en sombre). Changer d'option
+  // (relief, accent plein, accent doux) = changer les valeurs des jetons.
+  it("aucun bouton ne prend l'encre comme fond : remplissage par les jetons --fill-*", () => {
+    const tokenValue = (name: string) => tokens.match(new RegExp(`${name}:\\s*([^;]+);`))?.[1].trim() ?? "";
+    for (const name of ["--fill-primary", "--fill-primary-hover", "--on-fill-primary",
+      "--fill-secondary", "--fill-secondary-hover", "--fill-secondary-ring"]) {
+      expect(tokenValue(name), `${name} défini dans tokens.css`).not.toBe("");
+    }
+    for (const name of ["--fill-primary", "--fill-primary-hover"]) {
+      expect(tokenValue(name)).not.toMatch(/^var\(--(text-primary|fg|txt|foreground|primary)\)$/);
+    }
+    // --primary reste l'encre (texte, icônes, liens) : jamais redéfini en fond
+    expect(shadcn).toContain("--primary: var(--text-primary)");
+    expect(shadcn).toContain("--color-fill-primary: var(--fill-primary)");
+    // primitives shadcn : ni bg-primary ni bg-foreground en aplat
+    const filled = ["button.tsx", "badge.tsx", "bubble.tsx", "checkbox.tsx", "switch.tsx", "radio-group.tsx"];
+    for (const [file, src] of shadcnSources.filter(([file]) => filled.includes(file))) {
+      expect(src, file).not.toMatch(/\bbg-(?:primary|foreground)\b/);
+    }
+    expect(shadcnButton).toMatch(/default: "tw:bg-fill-primary tw:text-on-fill-primary tw:hover:bg-fill-primary-hover/);
+    expect(shadcnButton).toMatch(/secondary:\s*"tw:border-fill-secondary-ring tw:bg-fill-secondary[^"]*tw:hover:bg-fill-secondary-hover/);
+    // CSS de l'app : l'encre en aplat n'est permise qu'aux marques non
+    // cliquables (pastille numérotée, trait de lecture) et au pouce d'effort.
+    const inkFill = /background(?:-color)?:\s*var\(--(?:text-primary|fg|txt)\)/;
+    const allowed = [".user-annot-badge", ".tl-mark[data-here] .tl-mark-sign", ".effort-menu .ef-thumb"];
+    const offenders: string[] = [];
+    for (const [file, css] of [["App.css", appCss], ...componentCssFiles.map((f) => [f, stripComments(readFileSync(f, "utf8"))])]) {
+      for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        if (!inkFill.test(body)) continue;
+        const sel = selector.trim();
+        if (!allowed.includes(sel)) offenders.push(`${file}: ${sel}`);
+      }
+    }
+    expect(offenders, `aplat à l'encre hors marques autorisées : ${offenders.join(", ")}`).toEqual([]);
+    for (const sel of ["\\.composer-bar \\.send", "\\.composer-recording-bar \\.dictation-send"]) {
+      expect(appCss).toMatch(new RegExp(`${sel}\\s*\\{[^}]*background:\\s*var\\(--fill-primary\\);\\s*color:\\s*var\\(--on-fill-primary\\)`));
+      expect(appCss).toMatch(new RegExp(`${sel}:hover:not\\(:disabled\\)\\s*\\{[^}]*background:\\s*var\\(--fill-primary-hover\\)`));
+    }
+    // Les rangées de remplissage voyagent jusqu'aux éditeurs de la galerie
+    expect(galleryStyles).not.toMatch(/\[data-checked\][^{]*\{[^}]*background:var\(--primary(?:-foreground)?\)/);
   });
 });

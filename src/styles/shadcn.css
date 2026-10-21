@@ -68,6 +68,15 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
+  /* Remplissage des actions (tokens.css, 2026-10-21) : boutons pleins, cases
+   * cochées, interrupteurs, radios. --primary reste l'ENCRE (texte, icônes,
+   * liens) et ne sert plus jamais de fond de bouton. */
+  --color-fill-primary: var(--fill-primary);
+  --color-fill-primary-hover: var(--fill-primary-hover);
+  --color-on-fill-primary: var(--on-fill-primary);
+  --color-fill-secondary: var(--fill-secondary);
+  --color-fill-secondary-hover: var(--fill-secondary-hover);
+  --color-fill-secondary-ring: var(--fill-secondary-ring);
   --color-muted: var(--sh-muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--sh-accent);
