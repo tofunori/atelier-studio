@@ -2,6 +2,7 @@ import { createPortal } from "react-dom";
 import { useChatHeaderHost } from "./ChatHeaderSlot";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {groupAgentRows} from './chat/groupAgentRows';
+import type { LinkedAgentSummary } from "../lib/threadLinks";
 import { groupActivityRows } from './chat/groupActivityRows';
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
@@ -184,13 +185,7 @@ export default function Chat(p: {
   providers?: ProviderInfo[];
   /** Agents réellement disponibles pour la mention Atelier (capability Rust confirmée). */
   agentProviders?: { id: string; label: string }[];
-  linkedAgents?: {
-    id: string;
-    provider: string;
-    title: string;
-    paused: boolean;
-    direction: "parent" | "child";
-  }[];
+  linkedAgents?: LinkedAgentSummary[];
   onOpenLinkedAgent?: (threadId: string) => void;
   /** Vue de la transcription (sélecteur du header) — remonte le choix vers App. */
   onTranscriptViewChange?: (view: "normal" | "reflexion" | "detaille" | "resume") => void;
@@ -885,18 +880,24 @@ export default function Chat(p: {
     [p.events, p.workingSince],
   );
 
-  // Tous les sous-agents du fil, par tour, du plus récent au plus ancien :
-  // le menu de l'en-tête et la vue d'un agent lisent la même liste.
+  // Tous les sous-agents du fil, du plus récent au plus ancien : le menu de
+  // l'en-tête et la vue d'un agent lisent la même liste. Un agent revu à un
+  // tour suivant (fin annoncée plus tard, `wait` de Codex) reste UNE rangée :
+  // la réduction porte sur tout le fil, pas tour par tour.
   const threadSubagents = React.useMemo(() => {
-    const latestTurnKey = turnViewModels[turnViewModels.length - 1]?.key ?? null;
-    return turnViewModels.flatMap((turn) => {
-      const actions = p.events.slice(turn.startIndex, turn.endIndex).filter(isAgentActivityAction);
-      if (!actions.length) return [];
-      return agentsFromActions(actions).map((agent) => ({
-        agent: agentWithTranscriptState(agent, p.eventsByThreadId?.get(agent.threadId) ?? []),
-        latestTurn: turn.key === latestTurnKey,
-      }));
-    }).reverse().sort((a, b) => Number(b.latestTurn) - Number(a.latestTurn)
+    const latest = turnViewModels[turnViewModels.length - 1];
+    const actions = p.events.filter(isAgentActivityAction);
+    if (!actions.length) return [];
+    const inLatestTurn = new Set<string>();
+    if (latest) {
+      for (const action of p.events.slice(latest.startIndex, latest.endIndex).filter(isAgentActivityAction)) {
+        for (const agent of agentsFromActions([action])) inLatestTurn.add(agent.threadId);
+      }
+    }
+    return agentsFromActions(actions).map((agent) => ({
+      agent: agentWithTranscriptState(agent, p.eventsByThreadId?.get(agent.threadId) ?? []),
+      latestTurn: inLatestTurn.has(agent.threadId),
+    })).sort((a, b) => Number(b.latestTurn) - Number(a.latestTurn)
       || (b.agent.startTs ?? 0) - (a.agent.startTs ?? 0));
   }, [p.events, p.eventsByThreadId, turnViewModels]);
   const viewedAgent = viewedAgentId ? threadSubagents.find((entry) => entry.agent.threadId === viewedAgentId)?.agent ?? null : null;

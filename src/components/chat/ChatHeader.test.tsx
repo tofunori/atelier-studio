@@ -1,7 +1,7 @@
 // ChatHeader (plan 018, étape 2) — RTL : eyebrow projet + titre au nom
 // accessible complet, badge piloté par le statut présenté (masqué si null ou
 // idle), menu overflow conditionné à onRename. Aucune assertion de couleur.
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { ChatHeader } from "./ChatHeader";
 import { setLanguage, t } from "../../lib/i18n";
@@ -117,33 +117,56 @@ describe("ChatHeader", () => {
     expect(onUnlink).toHaveBeenCalledWith("codex-1");
   });
 
-  // Sous-agents (2026-10-19) : bouton présent seulement si le fil en a, menu
-  // groupé « Ce tour-ci » / « Plus tôt dans le fil », clic = ouvrir la vue.
-  it("menu des sous-agents : absent sans sous-agent, groupé par tour, ouvre l'agent", async () => {
-    const agent = (threadId: string, description: string, status: "working" | "done") => ({
+  // Panneau « Agents » (2026-10-21, piste A) : spécialistes délégués puis
+  // sous-agents en cours ; un terminé depuis plus de 2 min passe sous le pied
+  // replié, qui le ressort sans fermer le menu.
+  it("panneau des agents : spécialistes, actifs seulement, terminés repliés", async () => {
+    const now = Date.now();
+    const agent = (threadId: string, description: string, status: "working" | "done", endTs?: number) => ({
       threadId, displayName: "Explore", description, status, statusMessage: null, prompt: null,
-      model: null, reasoningEffort: null, agentPath: null,
+      model: null, reasoningEffort: null, agentPath: null, endTs,
     });
     const { rerender } = render(<ChatHeader {...base} />);
     expect(document.querySelector(".chat-subagents-trigger")).toBeNull();
     const onOpen = vi.fn();
+    const onOpenLinked = vi.fn();
     const subagents = [
-      { agent: agent("a2", "Relire la méthode", "working"), latestTurn: true },
-      { agent: agent("a1", "Lister les figures", "done"), latestTurn: false },
+      { agent: agent("a3", "Relire la méthode", "working"), latestTurn: true },
+      { agent: agent("a2", "Vérifier les citations", "done", now - 30_000), latestTurn: true },
+      { agent: agent("a1", "Lister les figures", "done", now - 10 * 60_000), latestTurn: false },
     ];
-    rerender(<ChatHeader {...base} subagents={subagents} onOpenSubagent={onOpen} />);
-    const trigger = screen.getByRole("button", { name: t("chat.subagents-menu-label", { count: 2 }) });
-    // un seul travaille encore : le compteur montre les sous-agents en cours
-    expect(trigger).toHaveTextContent("1");
+    const linkedAgents = [
+      { id: "red", provider: "Codex", title: "Mise à jour du manuscrit", paused: false, direction: "child" as const,
+        specialiste: { nom: "Rédacteur corpus", nomCourt: "Rédacteur" }, running: true, since: now - 60_000 },
+      { id: "nat", provider: "Claude", title: "Figure supplémentaire", paused: false, direction: "child" as const,
+        specialiste: { nom: "Nature Figures", nomCourt: "Nature" }, running: false, updatedAt: new Date(now - 18 * 60_000).toISOString() },
+      { id: "autre", provider: "Kimi", title: "Deuxième avis", paused: false, direction: "child" as const },
+    ];
+    rerender(<ChatHeader {...base} subagents={subagents} onOpenSubagent={onOpen}
+      linkedAgents={linkedAgents} onOpenLinkedAgent={onOpenLinked} />);
+    // le panneau est chargé à la demande : laisser le module arriver
+    await act(async () => { await import("./AgentsMenu"); });
+    // un sous-agent et un spécialiste travaillent
+    const trigger = screen.getByRole("button", { name: t("chat.agents-menu-label", { count: 2 }) });
+    expect(trigger).toHaveTextContent("2");
     fireEvent.click(trigger);
-    expect(await screen.findByText(t("chat.subagents-menu-turn"))).toBeInTheDocument();
-    expect(screen.getByText(t("chat.subagents-menu-earlier"))).toBeInTheDocument();
-    const items = document.querySelectorAll(".subagents-menu-item");
-    expect([...items].map((item) => item.textContent)).toEqual([
-      expect.stringContaining("Relire la méthode"), expect.stringContaining("Lister les figures"),
+    expect(await screen.findByText(t("chat.agents-specialists"))).toBeInTheDocument();
+    expect(screen.getByText(t("chat.agents-subagents-running"))).toBeInTheDocument();
+    const rows = () => [...document.querySelectorAll(".agents-menu-item")].map((item) => item.textContent);
+    expect(rows()).toEqual([
+      expect.stringContaining("Rédacteur corpus"), expect.stringContaining("Nature Figures"),
+      expect.stringContaining("Relire la méthode"), expect.stringContaining("Vérifier les citations"),
     ]);
+    expect(screen.getByText(t("chat.agents-specialist-idle", { nom: "Nature" }))).toBeInTheDocument();
+    // la conversation liée qui n'est pas un spécialiste reste hors du panneau
+    expect(screen.queryByText("Deuxième avis")).toBeNull();
+    fireEvent.click(screen.getByText(t("chat.agents-done-one")));
+    expect(await screen.findByText("Lister les figures")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Lister les figures"));
-    expect(onOpen).toHaveBeenCalledWith(subagents[1].agent);
+    expect(onOpen).toHaveBeenCalledWith(subagents[2].agent);
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByText("Rédacteur corpus"));
+    expect(onOpenLinked).toHaveBeenCalledWith("red");
   });
 
   // Barre du haut épurée (2026-10-19, piste A) : sans sous-agent en cours, le
@@ -157,7 +180,7 @@ describe("ChatHeader", () => {
     const consigneDuFil = { id: "x", texte: "", specialiste: { id: "r", nom: "Rédacteur corpus", nomCourt: "Rédacteur", texte: "" } };
     const { rerender } = render(<ChatHeader {...base} compact consigneDuFil={consigneDuFil}
       subagents={[done("a"), done("b"), done("c")]} onOpenSubagent={vi.fn()} />);
-    const trigger = screen.getByRole("button", { name: t("chat.subagents-menu-label", { count: 3 }) });
+    const trigger = screen.getByRole("button", { name: t("chat.agents-menu-label", { count: 0 }) });
     expect(trigger.textContent).toBe("");
     expect(screen.queryByText("Rédacteur corpus")).toBeNull();
     rerender(<ChatHeader {...base} consigneDuFil={consigneDuFil} />);

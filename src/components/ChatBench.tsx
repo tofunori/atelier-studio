@@ -594,6 +594,13 @@ const AGENTS_CLAUDE_START: AgentEvent[] = [
   claudeAgent("meth", "general-purpose", "Relit la section Méthode", "running", 64),
   claudeAgent("calc", "general-purpose", "Recalcule l'albédo moyen JJA", "running", 64),
 ];
+// Spécialistes délégués depuis le fil (panneau des agents, 2026-10-21).
+const BENCH_LINKED_SPECIALISTS = [
+  { id: "spec-red", provider: "Codex", title: "Mise à jour du manuscrit du ch. 2", paused: false, direction: "child" as const,
+    specialiste: { nom: "Rédacteur corpus", nomCourt: "Rédacteur" }, running: true, since: ts(250) },
+  { id: "spec-nat", provider: "Claude", title: "Figure supplémentaire (Nature Geoscience)", paused: false, direction: "child" as const,
+    specialiste: { nom: "Nature Figures", nomCourt: "Nature" }, running: false, updatedAt: new Date(ts(1080)).toISOString() },
+];
 const AGENTS_CLAUDE: AgentEvent[] = [
   ...AGENTS_CLAUDE_START,
   claudeAgent("fig", "Explore", "Repère les figures du chapitre 2", "completed", 46, "Six figures dans figures/ch2/."),
@@ -834,6 +841,8 @@ export function ChatBench() {
         } : noop}
         onGoal={noop}
         eventsByThreadId={key === "claudeagents" || key === "finagents" ? AGENT_TRANSCRIPTS : undefined}
+        linkedAgents={key === "claudeagents" || key === "finagents" ? BENCH_LINKED_SPECIALISTS : undefined}
+        onOpenLinkedAgent={noop}
       />
     </div>
   );

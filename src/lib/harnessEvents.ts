@@ -32,6 +32,15 @@ function turnOf(ev: AgentEvent): string {
   return m && "turnId" in m ? m.turnId : "";
 }
 
+/** Un sous-agent Claude a toujours une consigne (appel Agent) ; une
+ * commande Bash de fond suivie par le CLI n'en a pas, et le serveur lui
+ * donnait le type par défaut « general-purpose ». */
+export function isClaudeBackgroundCommand(ev: AgentEvent): boolean {
+  if (ev.kind !== "tool_update" || ev.source !== "claude" || !ev.agentActivity) return false;
+  const activity = ev.agentActivity;
+  return activity.agentPath === "general-purpose" && !activity.prompt?.trim();
+}
+
 /** Identité d'un item de lifecycle, avec le champ wire comme repli legacy. */
 function lifecycleItemOf(ev: AgentEvent, fallback: string): string {
   return harnessMeta(ev)?.itemId ?? fallback;
@@ -485,6 +494,9 @@ function reduceHarnessEventInto(list: AgentEvent[], ev: AgentEvent, replay?: His
   // éphémères jamais matérialisés dans le fil (les side-effects — workingSince,
   // usage ring — restent dans App) : no-op strict
   if (ev.kind === "started" || ev.kind === "heartbeat" || ev.kind === "usage") return list;
+  // Commande de fond de Claude prise pour un sous-agent (journaux d'avant le
+  // 2026-10-21, où le serveur ouvrait un agent pour chaque `task_*`).
+  if (isClaudeBackgroundCommand(ev)) return list;
   // Verbe de rédaction : signal d'attente pur — l'affichage passe par le
   // statut du tour actif, jamais par une entrée de la liste (éphémère).
   if (ev.kind === "drafting") return list;
