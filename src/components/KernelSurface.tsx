@@ -11,11 +11,12 @@ import {
   type ChainCheck, type KernelCell, type KernelEnv, type KernelStatus, type KernelVariable, type ReplayState,
 } from "../lib/kernel";
 import { localImagePreviewUrl } from "../lib/localImage";
-import { FigureGalleryBar, savedFigure } from "./FigureGalleryBar";
+import { FigureGalleryBar } from "./FigureGalleryBar";
 import { highlightCode } from "./chat/md";
 import { Button, IconButton, RowButton, showError, showSuccess } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
-import { EXPAND_ICON, FIGURE_SAVED_EVENT, FigureViewer, figuresIn, type ShownFigure } from "./FigureViewer";
+import { FigureViewer } from "./FigureViewer";
+import { FIGURE_SAVED_EVENT, figuresIn, savedFigure, type ShownFigure } from "../lib/kernelFigures";
 
 const Icon = {
   chevron: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6.5 8 10l3.5-3.5" /></svg>,
@@ -31,6 +32,7 @@ const Icon = {
   play: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z" /></svg>,
   user: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5" /><path d="M3.5 13.5c.6-2.3 2.3-3.5 4.5-3.5s3.9 1.2 4.5 3.5" /></svg>,
   warn: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" /><path d="M8 5v3.4M8 10.8v.1" /></svg>,
+  expand: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" /></svg>,
 };
 
 function duration(ms?: number): string {
@@ -120,7 +122,7 @@ export function KernelFigure({ path, threadId, cell }: { path: string; threadId:
         {/* Remontée quand la figure entre au projet : la barre relit la copie faite. */}
         <FigureGalleryBar key={saved ?? ""} path={path} threadId={threadId} cell={cell} onSaved={setSaved}>
           {url ? <IconButton size="s" className="ghost" label={t("kernel.figure-expand")} title={t("kernel.figure-expand")}
-            onClick={openViewer}>{EXPAND_ICON}</IconButton> : null}
+            onClick={openViewer}>{Icon.expand}</IconButton> : null}
         </FigureGalleryBar>
       </div>
       <figcaption>{saved ? t("kernel.figure-in-project", { path: saved }) : t("kernel.figure-temp")}</figcaption>

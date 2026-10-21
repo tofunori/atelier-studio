@@ -5,17 +5,13 @@
 import { useState, type ReactNode } from "react";
 import { t } from "../lib/i18n";
 import { figureCell, kernelCommand } from "../lib/kernel";
+import { rememberSavedFigure, savedFigure } from "../lib/kernelFigures";
 import { saveLocalImageToGallery } from "../lib/localImage";
 import { IconButton } from "./ui";
 
 const GALLERY = <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="5.2" height="5.2" rx="1" /><rect x="9.3" y="1.5" width="5.2" height="5.2" rx="1" /><rect x="1.5" y="9.3" width="5.2" height="5.2" rx="1" /><rect x="9.3" y="9.3" width="5.2" height="5.2" rx="1" /></svg>;
 const SAVE = <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h8l2 2v9H3z" /><path d="M5.5 2.5v3.5h5V2.5M5.5 13.5V9.5h5v4" /></svg>;
 const CHECK = <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>;
-
-// Copie déjà faite, partagée entre l'aperçu et la visionneuse : la même figure
-// n'est jamais copiée deux fois dans le projet.
-const savedFigures = new Map<string, string>();
-export const savedFigure = (path: string) => savedFigures.get(path) ?? null;
 
 export function FigureGalleryBar({ path, threadId, cell, onSaved, children }: {
   path: string;
@@ -34,7 +30,7 @@ export function FigureGalleryBar({ path, threadId, cell, onSaved, children }: {
     setSaving(true);
     try {
       const rel = await saveLocalImageToGallery(path, threadId);
-      savedFigures.set(path, rel);
+      rememberSavedFigure(path, rel);
       setSaved(rel);
       onSaved?.(rel);
       const id = cell ?? figureCell(path);

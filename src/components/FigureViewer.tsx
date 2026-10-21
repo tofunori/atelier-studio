@@ -9,21 +9,15 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { t } from "../lib/i18n";
 import { baseName } from "../lib/kernel";
+import { FIGURE_SAVED_EVENT, type ShownFigure } from "../lib/kernelFigures";
 import { localImagePreviewUrl } from "../lib/localImage";
 import { FigureGalleryBar } from "./FigureGalleryBar";
 import { IconButton, RowButton } from "./ui";
 import "./FigureViewer.css";
 
-/** Une figure affichée dans la surface du noyau, avec son aperçu. */
-export type ShownFigure = { path: string; cell: number | null; thumb: HTMLImageElement | null };
-
 type View = { scale: number; x: number; y: number };
 
-/** Émis quand la visionneuse enregistre une figure, pour que l'aperçu le sache. */
-export const FIGURE_SAVED_EVENT = "kernel-figure-saved";
-
 const Icon = {
-  expand: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" /></svg>,
   prev: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" /></svg>,
   next: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg>,
   minus: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" /></svg>,
@@ -32,20 +26,15 @@ const Icon = {
   close: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>,
 };
 
-export const EXPAND_ICON = Icon.expand;
-
-/** Figures affichées dans la surface, dans l'ordre du fil. */
-export function figuresIn(scope: ParentNode): ShownFigure[] {
-  return [...scope.querySelectorAll<HTMLElement>(".kernel-figure[data-path]")].map((el) => ({
-    path: el.dataset.path ?? "",
-    cell: el.dataset.cell ? Number(el.dataset.cell) : null,
-    thumb: el.querySelector("img"),
-  }));
-}
-
 const STEP = 1.25;
 // Sortie : --motion-fast (120 ms) ; la fermeture attend la fin du fondu.
 const OUT_MS = 120;
+
+/** Point du pointeur, dans le repère du centre de la scène. */
+function pointIn(stage: HTMLElement | null, event: { clientX: number; clientY: number }) {
+  const s = stage?.getBoundingClientRect();
+  return s ? { x: event.clientX - (s.left + s.width / 2), y: event.clientY - (s.top + s.height / 2) } : { x: 0, y: 0 };
+}
 
 function reducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -148,9 +137,10 @@ export function FigureViewer({ threadId, figures, start, onClose }: {
     const next = Math.min(maxScale, Math.max(minScale, scale));
     setAnimate(smooth);
     if (next - minScale < 1e-3) { setView(null); return; }
-    const k = next / current.scale;
-    setView({ scale: next, x: px - (px - current.x) * k, y: py - (py - current.y) * k });
-  }, [current, minScale, maxScale]);
+    const from = view ?? { scale: minScale, x: 0, y: 0 };
+    const k = next / from.scale;
+    setView({ scale: next, x: px - (px - from.x) * k, y: py - (py - from.y) * k });
+  }, [view, minScale, maxScale]);
 
   const go = useCallback((delta: number) => {
     if (figures.length < 2) return;
@@ -158,12 +148,6 @@ export function FigureViewer({ threadId, figures, start, onClose }: {
     setView(null);
     setIndex((i) => (i + delta + figures.length) % figures.length);
   }, [figures.length]);
-
-  /** Point du pointeur, dans le repère du centre de la scène. */
-  const pointOf = (event: { clientX: number; clientY: number }) => {
-    const s = stage.current?.getBoundingClientRect();
-    return s ? { x: event.clientX - (s.left + s.width / 2), y: event.clientY - (s.top + s.height / 2) } : { x: 0, y: 0 };
-  };
 
   // Les écouteurs natifs lisent toujours la dernière version des actions.
   const latest = useRef({ close, zoomTo, go, current, natural });
@@ -198,7 +182,7 @@ export function FigureViewer({ threadId, figures, start, onClose }: {
       event.preventDefault();
       const { zoomTo, current, natural } = latest.current;
       if (!natural) return;
-      const p = pointOf(event);
+      const p = pointIn(stage.current, event);
       // Le pincement du trackpad arrive en molette avec ctrlKey et de petits pas.
       zoomTo(current.scale * Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.002)), p.x, p.y, false);
     };
@@ -208,7 +192,7 @@ export function FigureViewer({ threadId, figures, start, onClose }: {
 
   const onDoubleClick = (event: React.MouseEvent) => {
     if (view) { zoomTo(0); return; }
-    const p = pointOf(event);
+    const p = pointIn(stage.current, event);
     zoomTo(fit < 0.95 ? 1 : fit * 2, p.x, p.y);
   };
 
