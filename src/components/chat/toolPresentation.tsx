@@ -5,11 +5,12 @@ import { memo, useMemo, useState, type ReactNode } from "react";
 import { CheckIcon } from "lucide-react";
 import type { ChatTurnViewModel } from "../../lib/chat/turnViewModel";
 import { AgentEvent } from "../../lib/ws";
-import { eventLabel, t } from "../../lib/i18n";
+import { eventLabel, getResolvedLanguage, t } from "../../lib/i18n";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { highlightCode } from "./md";
 import { RowButton } from "../ui";
 import { fmtClock } from "./clock";
+import { FileGlyph } from "../fileGlyphs";
 
 export type ToolCat =
   | "search" | "read" | "list" | "edit" | "command" | "web" | "todo"
@@ -93,13 +94,25 @@ export function completedTurnActions(turn: ChatTurnViewModel): ToolAction[] {
   return turnToolActivity(turn).completed;
 }
 
+const KILO_FORMATS = new Map<string, Intl.NumberFormat>();
+function kiloFormat(lang: string): Intl.NumberFormat {
+  let format = KILO_FORMATS.get(lang);
+  if (!format) {
+    format = new Intl.NumberFormat(lang === "en" ? "en" : "fr-CA", { maximumFractionDigits: 1 });
+    KILO_FORMATS.set(lang, format);
+  }
+  return format;
+}
+
 export function toolOutputSummary(output: string) {
   const clean = output.trim();
   if (!clean) return "";
   const lines = clean.split(/\r?\n/).length;
   const chars = clean.length;
-  const size = chars >= 1000 ? `${Math.round(chars / 100) / 10}k chars` : `${chars} chars`;
-  return lines > 1 ? `${lines} lines · ${size}` : size;
+  // libellés traduits, virgule décimale en français (CHAT-30)
+  const kilo = kiloFormat(getResolvedLanguage()).format(Math.round(chars / 100) / 10);
+  const size = chars >= 1000 ? t("tools.size-kchars", { n: kilo }) : t("tools.size-chars", { n: chars });
+  return lines > 1 ? t("tools.size-lines", { n: lines, size }) : size;
 }
 
 export function toolPayloadText(value: unknown): string {
@@ -178,6 +191,8 @@ function isJsonText(text: string): boolean {
 /** Durée d'un appel d'outil : lisible du ms à l'heure, virgule française
  * sous 10 s (le seul régime où la décimale change la lecture). */
 export function fmtToolDur(ms: number): string {
+  // Une heure de départ absente (0) donnait « 497943 h 22 min » (CHAT-29).
+  if (ms > 24 * 3600_000) return "> 24 h";
   if (ms < 1000) return `${Math.max(1, Math.round(ms))} ms`;
   const s = ms / 1000;
   if (s < 10) {
@@ -255,7 +270,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   const [localOpen, setLocalOpen] = useState(failed && !compact);
   const open = expanded ?? localOpen;
   const setOpen = (next: boolean) => { setLocalOpen(next); onExpandedChange?.(next); };
-  const summary = event.detail || toolOutputSummary(output) || (inputView ? "input" : "");
+  const summary = event.detail || toolOutputSummary(output) || (inputView ? t("tools.payload-input") : "");
   // Rangée compacte : le libellé sémantique d'abord, complété par le NOM que
   // porte l'input quand ce libellé reste générique (« Commande exécutée »).
   // La phrase rédigée par l'agent, quand il y en a une, remplace les deux.
@@ -318,7 +333,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
         {!compact && event.status && (
           <span className="tool-status">
             {outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
-            {event.status}
+            {failed && t("chat.action-failed")}
           </span>
         )}
       </RowButton>
@@ -334,7 +349,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
           {preview ? <div className="tool-output-preview">{preview}</div> : null}
           {inputView && (
             <div className="tool-payload">
-              <div className="tool-payload-label">input</div>
+              <div className="tool-payload-label">{t("tools.payload-input")}</div>
               {inputView.lang ? (
                 <pre><code
                   className="hljs"
@@ -347,7 +362,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
           )}
           {output.trim() && (
             <div className="tool-payload">
-              <div className="tool-payload-label">output</div>
+              <div className="tool-payload-label">{t("tools.payload-output")}</div>
               {isJsonOutput ? (
                 <pre><code
                   className="hljs"
@@ -364,41 +379,13 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   );
 });
 
-// Indexé par NOM DE BASE : les clés d'import.meta.glob reprennent le motif tel
-// qu'écrit (« ../../assets/… »), et la lecture cherchait « ../assets/… » — un
-// cran de trop, donc AUCUNE icône de fichier ne s'affichait (vécu 2026-08-21 :
-// carte « fichiers modifiés » avec une indentation vide à la place des icônes).
-const FICONS: Record<string, string> = Object.fromEntries(
-  Object.entries(
-    import.meta.glob("../../assets/ficons/*.svg", { eager: true, query: "?url", import: "default" }) as Record<string, string>,
-  ).map(([path, url]) => [path.split("/").pop()?.replace(/\.svg$/, "") ?? path, url]),
-);
-export function ficon(name: string): string | null {
-  return FICONS[name] ?? null;
-}
-export const EXT_ICON: Record<string, string> = {
-  py: "python", md: "markdown", markdown: "markdown", json: "json",
-  js: "javascript", mjs: "javascript", cjs: "javascript",
-  ts: "typescript", tsx: "react", jsx: "react",
-  pdf: "pdf", png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image",
-  tex: "tex", bib: "tex", r: "r", jl: "julia", css: "css", html: "html",
-  sh: "console", zsh: "console", bash: "console", csv: "table", tsv: "table",
-  yml: "yaml", yaml: "yaml", toml: "toml", txt: "document", log: "document",
-  gitignore: "git",
-};
+// Glyphe monochrome partagé (lot 3) : plus de logos Material en couleur.
 export function FileTypeIcon({ ext }: { ext: string }) {
-  if (ext === "local")
-    return (
-      <span className="fglyph">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--text-muted)" strokeWidth="1.3">
-          <rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5" />
-        </svg>
-      </span>
-    );
-  const name = ext === "dir" ? "folder" : EXT_ICON[ext] ?? "file";
-  const url = ficon(name);
-  if (!url) return <span className="fglyph" />;
-  return <img className="fglyph" src={url} alt="" width={16} height={16} />;
+  return (
+    <span className="fglyph">
+      <FileGlyph name={ext} size={14} />
+    </span>
+  );
 }
 
 export function isSummarizableTool(e: AgentEvent): e is Extract<AgentEvent, { kind: "tool" | "tool_update" }> {
@@ -823,8 +810,12 @@ export function summarizeActivity(actions: ToolAction[], plugins: PluginCatalogE
   const clauses = ordered.map(({ kind, items: partItems }) => summaryClause(kind, partItems));
   const phrase = clauses.join(", ");
   const firstItem = ordered[0]?.items[0];
+  // un nom de fichier ou une commande en tête de phrase garde sa casse
+  // (« fig3_spatial.svg modifié », jamais « Fig3_spatial.svg ») — CHAT-07
+  const firstTarget = ordered[0] ? clauseTarget(ordered[0].kind, ordered[0].items[0].target) : "";
+  const startsWithTarget = !!firstTarget && phrase.startsWith(firstTarget);
   return {
-    label: phrase ? phrase.charAt(0).toUpperCase() + phrase.slice(1) : t("chat.activity"),
+    label: phrase ? (startsWithTarget ? phrase : phrase.charAt(0).toUpperCase() + phrase.slice(1)) : t("chat.activity"),
     icon: firstItem ? iconForActivity(firstItem, plugins) : undefined,
     actionCount: items.length,
     parts: ordered.map(({ kind, items: partItems }) => ({ kind, count: partItems.length })),

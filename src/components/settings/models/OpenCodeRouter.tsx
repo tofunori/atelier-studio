@@ -79,7 +79,7 @@ function ChevronIcon({ open }: { open: boolean }) {
       aria-hidden="true"
       className={cx("ocr-chevron", open && "ocr-chevron--open")}
     >
-      <path d="M4 6l4 4 4-4" />
+      <path d="M6 4l4 4-4 4" />
     </svg>
   );
 }

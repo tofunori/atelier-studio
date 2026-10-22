@@ -58,7 +58,7 @@ describe("project chat navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Nouveau chat" }));
     expect(onNew).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Tous les chats du projet" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Discussion" }));
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Discussion" }));
     expect(onSelect).toHaveBeenCalledWith("c");
   });
   it("replaces the heading in the same header and preserves transcript controls", () => {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronRight, MessageCircle, Plus, X } from "lucide-react";
+import { ArrowUp, MessageCircle, Plus, X } from "lucide-react";
+import { ChevronIcon } from "./icons";
 import ReactMarkdown from "react-markdown";
 import { useThreadEvents } from "../hooks/useThreadEvents";
 import type { ThreadEventStore } from "../lib/threadEventStore";
@@ -38,15 +39,15 @@ export function ReadingChatOverlay(props: Props) {
   return <>
     {count > 0 && <div ref={annotations} popover={topLayer ? "manual" : undefined} className="reading-annotation-queue" role="group" aria-label="Annotations en attente">
       <span>{count} annotation{count > 1 ? "s" : ""}</span>
-      <IconButton onClick={props.onClear} title="Retirer du brouillon" label="Retirer les annotations du brouillon"><X /></IconButton>
-      <IconButton className="reading-send" disabled={disabled} onClick={() => props.onSend(true)} title="Envoyer les annotations" label="Envoyer les annotations"><ArrowUp /></IconButton>
+      <IconButton onClick={props.onClear} label="Retirer les annotations du brouillon"><X /></IconButton>
+      <IconButton className="reading-send" disabled={disabled} onClick={() => props.onSend(true)} label="Envoyer les annotations"><ArrowUp /></IconButton>
     </div>}
     <div ref={composer} popover={topLayer ? "manual" : undefined} className="reading-chat-overlay">
       <RowButton className="reading-latest-toggle" aria-expanded={expanded} aria-controls="reading-latest-response" onClick={() => setExpanded(value => !value)}>
-        <MessageCircle /><span>{working ? "Réponse en cours…" : "Dernière réponse"}</span><ChevronRight className={expanded ? "expanded" : ""} />
+        <MessageCircle /><span>{working ? "Réponse en cours…" : "Dernière réponse"}</span><ChevronIcon size={12} open={expanded} />
       </RowButton>
       {expanded && <section id="reading-latest-response" className="reading-latest-response" aria-label="Dernière réponse">
-        {latest && "text" in latest ? <ReactMarkdown>{latest.text}</ReactMarkdown> : <p>Aucune réponse pour le moment.</p>}
+        {latest && "text" in latest ? <ReactMarkdown>{latest.text}</ReactMarkdown> : <p className="reading-chat-empty">Aucune réponse pour le moment.</p>}
       </section>}
       <form className="reading-chat-input" onSubmit={event => {event.preventDefault(); props.onSend(false);}}>
         {props.onAttach && <IconButton label="Joindre un fichier" onClick={props.onAttach}><Plus /></IconButton>}

@@ -65,7 +65,7 @@ describe("patterns officiels du design system", () => {
 
     rerender(<ScrollToBottomButton label="Bas" show working onClick={scroll} />);
     expect(screen.getByTitle("Bas")).toHaveAttribute("data-active", "true");
-    expect(document.querySelectorAll(".ui-scroll-working-dots > span")).toHaveLength(3);
+    expect(document.querySelector(".ui-scroll-to-bottom [data-slot=\"spinner\"]")).toBeTruthy();
     fireEvent.click(screen.getByTitle("Bas"));
     expect(scroll).toHaveBeenCalledTimes(1);
 
@@ -74,6 +74,6 @@ describe("patterns officiels du design system", () => {
     rerender(<ScrollToBottomButton label="Bas" show working elapsed="12s" onClick={scroll} />);
     expect(screen.getByTitle("Bas")).toHaveClass("has-elapsed");
     expect(document.querySelector(".ui-scroll-elapsed")?.textContent).toBe("12s");
-    expect(document.querySelectorAll(".ui-scroll-working-dots > span")).toHaveLength(3);
+    expect(document.querySelector(".ui-scroll-to-bottom [data-slot=\"spinner\"]")).toBeTruthy();
   });
 });

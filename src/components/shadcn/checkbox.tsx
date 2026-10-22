@@ -18,13 +18,23 @@ function Checkbox({ className, ...props }: React.ComponentProps<typeof CheckboxP
   )
 }
 
-function CheckboxIndicator({ className, ...props }: React.ComponentProps<typeof CheckboxPrimitive.Indicator>) {
+// Coche par défaut (PRIM-23) : UNE coche SVG de 10 px au trait 1,5, et un
+// tiret pour l'état partiel (Root indeterminate) — plus de caractères ✓ / −.
+function CheckboxIndicator({ className, children, ...props }: React.ComponentProps<typeof CheckboxPrimitive.Indicator>) {
   return (
     <CheckboxPrimitive.Indicator
       data-slot="checkbox-indicator"
       className={cn("tw:flex tw:items-center tw:justify-center tw:data-unchecked:hidden", className)}
       {...props}
-    />
+    >
+      {children ?? (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"
+          strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path className="ui-check-mark" d="M2 5.2l2 2 4-4.4" />
+          <path className="ui-check-partial" d="M2.5 5h5" />
+        </svg>
+      )}
+    </CheckboxPrimitive.Indicator>
   )
 }
 

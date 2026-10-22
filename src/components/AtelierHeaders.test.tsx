@@ -14,7 +14,7 @@ describe("GalleryHeader", () => {
     const onRefresh = vi.fn();
     render(<GalleryHeader projectName="Thèse albédo" onRefresh={onRefresh} />);
 
-    expect(screen.getByText(t("atelier.gallery"))).toBeInTheDocument();
+    expect(screen.getByText(t("atelier.gallery-title"))).toBeInTheDocument();
     expect(screen.getByText("Thèse albédo")).toBeInTheDocument();
 
     // même nom accessible ET même title que l'ancien bouton TopBar

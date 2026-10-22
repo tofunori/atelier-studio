@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { t } from "../lib/i18n";
 import { Input } from "./shadcn/input";
 import { Textarea } from "./shadcn/textarea";
-import { Button, SegmentedControl } from "./ui";
+import { Button, InlineNotice, SegmentedControl, Spinner } from "./ui";
 
 type ImageGeneratedMsg = {
   projectRoot?: string;
@@ -149,16 +149,19 @@ export default function GeneratorSurface({
         <div className="generateur-cost">
           {engine === "codex" ? t("generateur.cost-codex") : t("generateur.cost-estimate")}
         </div>
-        <Button variant="primary" className="generateur-generate" disabled={busy || !prompt.trim()} onClick={() => generate()}>
-          {busy ? t("generateur.generating") : t("generateur.generate")}
+        <Button variant="primary" className="generateur-generate" loading={busy} disabled={!prompt.trim()} onClick={() => generate()}>
+          {t("generateur.generate")}
         </Button>
-        {error && <div className="generateur-error">{error}</div>}
+        {error && <InlineNotice tone="error" className="generateur-error">{error}</InlineNotice>}
       </div>
 
       <div className="generateur-result">
         {!result && !busy && <div className="generateur-empty">{t("generateur.no-image")}</div>}
         {busy && (
-          <div className="generateur-empty">
+          // Génération en cours (SURF-15) : le spinner unique dans la zone de
+          // résultat, la phrase d'aide en --text-muted.
+          <div className="generateur-empty" role="status">
+            <Spinner aria-hidden="true" />
             {t("generateur.generating")}
             <div className="generateur-hint">{t("generateur.generating-hint")}</div>
           </div>

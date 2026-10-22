@@ -140,7 +140,9 @@
 .ui-surface-header .titles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ui-surface-header .eyebrow { font: var(--eyebrow-weight) var(--eyebrow-size)/1.3 var(--font-chrome);
   letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
-.ui-surface-header .title { font: 500 var(--fs-title)/1.3 var(--font-chrome);
+/* un chemin n'est pas une étiquette : casse d'origine, police code */
+.ui-surface-header .eyebrow .eyebrow-path { font-family: var(--code-font); text-transform: none; letter-spacing: 0; }
+.ui-surface-header .title { font: 600 var(--fs-title)/1.3 var(--font-chrome);
   letter-spacing: -0.01em; color: var(--text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ui-surface-header .spacer { flex: 1; }
@@ -161,13 +163,18 @@
  * SURF-01). Contenu aligné à gauche, comme l'empty-card d'origine. ------- */
 .ui-empty {
   flex: none; text-align: left;
-  width: min(360px, 100%); margin: auto; border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-surface); background: var(--surface-raised);
+  /* Un seul état vide, sans cadre (SURF-03 / SET-17) : la surface autour
+     le porte ; titre 13/500 secondaire, phrase 12 éteinte. */
+  width: min(360px, 100%); margin: auto; border: 0;
+  border-radius: var(--radius-surface); background: transparent;
   padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3);
   align-items: stretch; user-select: none; -webkit-user-select: none;
 }
 .ui-empty [data-slot="empty-header"] { align-items: stretch; max-width: none; }
-.ui-empty .title { color: var(--text-secondary); font-size: var(--fs-body); font-weight: 600; }
+/* Variante compacte des listes de réglages et des dialogues (SET-17) :
+   alignée à gauche dans le flux, sans marge automatique. */
+.ui-empty.ui-empty--inline { width: auto; margin: 0; padding: var(--sp-3) 0; }
+.ui-empty .title { color: var(--text-secondary); font-size: var(--fs-body); font-weight: 500; letter-spacing: -0.01em; }
 .ui-empty .desc { color: var(--text-muted); font-size: var(--fs-body-s); }
 .ui-empty .actions { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-2); }
 /* actions empilées : look « ligne de menu » de l'empty-card d'origine
@@ -179,14 +186,18 @@
 
 /* ---- InlineNotice --------------------------------------------------------------------- */
 .ui-notice {
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-control);
-  border: 1px solid var(--border-subtle); font-size: var(--fs-body-s); color: var(--text-secondary);
+  --notice-tone: var(--text-muted);
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-control); border: 0;
+  background: color-mix(in srgb, var(--notice-tone) 8%, transparent);
+  font-size: var(--fs-body-s); line-height: 1.5; color: var(--text-secondary);
 }
-.ui-notice--info { border-color: var(--border-subtle); }
-.ui-notice--success { border-color: color-mix(in srgb, var(--status-success) 45%, transparent); }
-.ui-notice--warning { border-color: color-mix(in srgb, var(--status-warning) 45%, transparent); }
-.ui-notice--error { border-color: color-mix(in srgb, var(--status-error) 45%, transparent); }
+.ui-notice-icon { flex: none; width: 14px; height: 14px; margin-top: 2px; translate: none; color: var(--notice-tone); }
+.ui-notice-body { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); overflow-wrap: anywhere; }
+.ui-notice--info { --notice-tone: var(--text-muted); }
+.ui-notice--success { --notice-tone: var(--status-success); }
+.ui-notice--warning { --notice-tone: var(--status-warning); }
+.ui-notice--error { --notice-tone: var(--status-error); }
 
 /* ---- StatusBadge ------------------------------------------------------------------------ */
 .ui-badge {
@@ -275,7 +286,7 @@
   transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .ui-tab:hover .ui-tab-close, .ui-tab:focus-visible .ui-tab-close, .ui-tab:is([data-active], .is-active) .ui-tab-close { opacity: 1; }
 .ui-tab-close:hover { color: var(--text-primary); background: var(--surface-hover); }
-.ui-tab.drop-target { box-shadow: inset 2px 0 0 var(--border-strong); }
+.ui-tab.drop-target { box-shadow: inset 2px 0 0 var(--drop-line); }
 
 /* ---- ActivityDisclosure — journal sans carte --------------------------- */
 /* Activity typography follows the user's chat scale. Details remain ordinary
@@ -346,7 +357,7 @@
 
 /* ---- ScrollToBottom — bouton contextuel compact, façon Codex ---------- */
 .ui-scroll-to-bottom { position: absolute; bottom: var(--sp-3); left: 50%; transform: translateX(-50%); width: 32px; height: 32px;
-  display: flex; align-items: center; justify-content: center; z-index: var(--z-sticky); padding: 0; border: 1px solid var(--border-default);
+  display: flex; align-items: center; justify-content: center; z-index: var(--z-sticky); padding: 0; border: 0;
   border-radius: var(--radius-pill); background: var(--surface-raised); color: var(--text-secondary); box-shadow: var(--elevation-overlay);
   cursor: pointer; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .ui-scroll-to-bottom.is-visible { opacity: 1; pointer-events: auto; }
@@ -354,13 +365,61 @@
    endroit qui dit « ça travaille » quand on est remonté lire (le dock qui le
    portait a disparu — spec « grappes d'activité », 2026-09-10). */
 .ui-scroll-to-bottom.has-elapsed { width: auto; gap: var(--sp-2); padding: 0 12px; }
-.ui-scroll-elapsed { font-size: var(--fs-body-s); font-variant-numeric: tabular-nums; }
+.ui-scroll-elapsed { min-width: 3ch; font-size: var(--fs-body-s); font-variant-numeric: tabular-nums; }
 .ui-scroll-to-bottom:hover { color: var(--text-primary); }
 .ui-scroll-to-bottom svg { width: 16px; height: 16px; }
-.ui-scroll-working-dots { display: flex; align-items: center; justify-content: center; gap: 4px;
-  animation: ui-spin var(--motion-spin) linear infinite; }
-.ui-scroll-working-dots > span { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .72; }
+.ui-scroll-to-bottom svg.ui-scroll-working { width: 12px; height: 12px; }
 
-@media (prefers-reduced-motion: reduce) {
-  .ui-scroll-working-dots { animation: none; }
+
+/* UNE touche de raccourci (PRIM-29) : pastille plate --bg-ctl, sans bordure,
+ * 11 px / 500, --text-muted, chiffres tabulaires — dans une infobulle, un
+ * menu, le pied d'un panneau comme dans une approbation. */
+.ui-kbd, .subagent-view-foot kbd, .stop-hint kbd, .follow-up-tooltip-grid kbd,
+.appsnap-key, .appsnap-shortcut kbd, .approval-decision kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 4px; box-sizing: border-box;
+  border: 0; border-radius: var(--radius-control); background: var(--bg-ctl);
+  color: var(--text-muted); font: 500 var(--fs-s)/1 var(--ui-font);
+  font-variant-numeric: tabular-nums; white-space: nowrap; box-shadow: none;
 }
+
+/* UN trait d'icône (lot 3) : Lucide (grille 24) et icônes maison (grille 16)
+ * se dessinaient de 0,6 à 1,5 px selon la taille déclarée. Le trait est rendu
+ * à --icon-stroke à l'écran (non-scaling-stroke) pour toute icône au trait
+ * en currentColor. Exceptions explicites : le Spinner (trait du lot 2) et
+ * data-icon-stroke="keep" (repères dessinés, pas des icônes). */
+svg:is(.lucide, [stroke="currentColor"]):not([data-slot="spinner"], [data-icon-stroke="keep"])
+  :is(path, line, polyline, polygon, circle, ellipse, rect) {
+  vector-effect: non-scaling-stroke;
+  stroke-width: var(--icon-stroke);
+}
+
+/* UNE convention de dépliage (SURF-27, SET-27) : chevron qui pointe à
+ * droite, tourne de 90° vers le bas à l'ouverture, en 140 ms. */
+.ui-disclosure-chevron { flex: none; color: var(--text-muted);
+  transition: transform var(--motion-standard) var(--ease-out); }
+.ui-disclosure-chevron[data-open] { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .ui-disclosure-chevron { transition: none; } }
+.ui-chevron-back { display: inline-flex; transform: rotate(180deg); color: var(--text-muted); }
+
+/* Case à cocher : la coche ou, en état partiel, le tiret (PRIM-23). */
+[data-slot="checkbox-indicator"] .ui-check-partial { display: none; }
+[data-slot="checkbox-indicator"][data-indeterminate] .ui-check-mark { display: none; }
+[data-slot="checkbox-indicator"][data-indeterminate] .ui-check-partial { display: inline; }
+
+/* Repli <details> de l'interface (SET-27 / CHAT-29) : pas de triangle natif,
+   le même chevron de 12 px que .ui-disclosure-chevron, quart de tour à
+   l'ouverture. Le Markdown des messages garde son marqueur (typeset.css). */
+.ui-details > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.ui-details > summary::-webkit-details-marker { display: none; }
+.ui-details > summary::before {
+  content: ""; flex: none; width: var(--icon-s); height: var(--icon-s); background: var(--text-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5L10.5 8 6 12.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5L10.5 8 6 12.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.ui-details[open] > summary::before { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .ui-details > summary::before { transition: none; } }
+
+/* Sélection de texte : la teinte de l'app, pas le bleu système (TRANS-16). */
+::selection { background: var(--selection-text); }

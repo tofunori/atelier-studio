@@ -80,7 +80,7 @@ describe("BiblioSurface — passage zotero pending (finding 1, revue finale de b
 
   it("distingue une déconnexion d’une bibliothèque vide", () => {
     renderUi(<BiblioSurface ws={null} projectRoot="/proj" galleryUrl="" />);
-    expect(screen.getByText("Bibliothèque indisponible — reconnexion en cours.")).toBeTruthy();
+    expect(screen.getByText("Indisponible hors connexion à Atelier.")).toBeTruthy();
     expect(screen.queryByText("Aucune référence.")).toBeNull();
   });
 

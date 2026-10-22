@@ -11,7 +11,7 @@
 .set-nav-compact button, .set-nav-compact .custom-select { -webkit-app-region: no-drag; }
 .settings-page.narrow .set-body { padding: 20px 24px; max-width: none; }
 .set-headline-actions { display: inline-flex; gap: 6px; align-items: center; }
-.set-notice { margin-bottom: 16px; }
+.set-notice { margin-bottom: 24px; }
 .settings-page button:focus-visible, .settings-page input:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset); }

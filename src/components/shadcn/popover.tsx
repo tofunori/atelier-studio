@@ -48,7 +48,7 @@ function PopoverContent({
           className={cn(
             plain
               ? "tw:origin-(--transform-origin) tw:outline-hidden"
-              : "tw:flex tw:w-72 tw:origin-(--transform-origin) tw:flex-col tw:gap-2.5 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-2.5 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10 tw:outline-hidden",
+              : "tw:flex tw:w-72 tw:origin-(--transform-origin) tw:flex-col tw:gap-2 tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-3 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:ring-1 tw:ring-foreground/10 tw:outline-hidden",
             className
           )}
           {...props}
@@ -79,7 +79,7 @@ function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
   return (
     <PopoverPrimitive.Title
       data-slot="popover-title"
-      className={cn("tw:m-0 tw:text-[length:var(--fs-body-s)] tw:font-medium", className)}
+      className={cn("tw:m-0 tw:text-[length:var(--fs-body)] tw:font-semibold tw:leading-[1.3] tw:tracking-[-0.01em]", className)}
       {...props}
     />
   )

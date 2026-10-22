@@ -377,7 +377,7 @@ describe("timeline Chat — caractérisation avant extraction", () => {
     act(() => { messages.dispatchEvent(new Event("scroll", { bubbles: true })); });
 
     expect(document.querySelector(".ui-scroll-to-bottom")).toHaveAttribute("data-active", "true");
-    expect(document.querySelectorAll(".ui-scroll-working-dots > span")).toHaveLength(3);
+    expect(document.querySelector(".ui-scroll-to-bottom [data-slot=\"spinner\"]")).toBeTruthy();
   });
 
   it("markdown, code et liens fichier conservent leur rendu", () => {

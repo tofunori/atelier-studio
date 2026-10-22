@@ -427,12 +427,13 @@ describe("Sidebar — contrats du panneau (chats sans projet)", () => {
 // Research Navigator (plan 024, étapes 3-5) : header, sections, accessibilité
 // ---------------------------------------------------------------------------
 describe("Research Navigator — header du projet actif", () => {
-  it("le panneau ne répète PAS l'identité projet (crumb TopBar = source unique)", () => {
+  it("le panneau porte l'identité projet, une seule fois (la TopBar n'a plus de crumb)", () => {
     renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
-    // demande Thierry (2026-07-10) : le nom du projet ne vit qu'au crumb
-    expect(screen.queryByText("albedo-pipeline")).toBeNull();
+    // demande Thierry (2026-07-10) : le nom du projet une seule fois ; le
+    // crumb de la TopBar a disparu, le repère vit en tête du panneau (SHELL-04)
+    expect(screen.getAllByText("albedo-pipeline")).toHaveLength(1);
     // le chemin complet reste accessible sur le bouton d'actions du projet
-    expect(screen.getByTitle(PROJECT_ROOT)).toBeTruthy();
+    expect(screen.getAllByTitle(PROJECT_ROOT).length).toBeGreaterThan(0);
     // le projet B n'est jamais rendu : le rail/topbar restent les sélecteurs globaux
     expect(screen.queryByText("manuscrit-ch1")).toBeNull();
     expect(screen.queryByText("Chat autre projet")).toBeNull();

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderUi, resetTestState } from "../../test/render";
-import { setLanguage } from "../../lib/i18n";
+import { setLanguage, t } from "../../lib/i18n";
 import type { KbSource } from "../../lib/kbSources";
 import { consumePendingPassageOpen, resetPendingPassageOpenForTests, setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 import { resetKbTrashForTests } from "../../lib/kbTrash";
@@ -368,7 +368,7 @@ describe("KbSurface", () => {
     fireEvent.click(picks[0]);
     fireEvent.click(picks[2]);
     expect(onToggle).not.toHaveBeenCalled();
-    expect(screen.getByText("2 sélectionnée(s)")).toBeTruthy();
+    expect(screen.getByText("2 sélectionnées")).toBeTruthy();
     fireEvent.click(screen.getByText("Attacher"));
     expect(onBatchAttach).toHaveBeenCalledWith(["aaaa1111", "cccc3333"]);
     // la barre se referme après l'action
@@ -380,7 +380,7 @@ describe("KbSurface", () => {
     const picks = container.querySelectorAll(".kb-pick");
     fireEvent.click(picks[0]);
     fireEvent.click(picks[2], { shiftKey: true });
-    expect(screen.getByText("3 sélectionnée(s)")).toBeTruthy();
+    expect(screen.getByText("3 sélectionnées")).toBeTruthy();
   });
 
   it("tout sélectionner porte sur ce qui est affiché, pas sur toute la base", () => {
@@ -389,7 +389,7 @@ describe("KbSurface", () => {
       target: { value: "albedo" },
     });
     fireEvent.click(screen.getByText("Tout sélectionner"));
-    expect(screen.getByText("1 sélectionnée(s)")).toBeTruthy();
+    expect(screen.getByText("1 sélectionnée")).toBeTruthy();
   });
 
   // Supprimer existait déjà (menu de rangée), mais sans retour ni retour en
@@ -460,7 +460,7 @@ describe("KbSurface", () => {
     fireEvent.click(screen.getByText("Toutes les sources", { selector: ".kbs-rail-name" }));
     fireEvent.click(container.querySelectorAll(".kb-pick")[1]);
     fireEvent.click(screen.getByText("Classer"));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Chapitre 1" }));
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Chapitre 1" }));
     expect(onTag).toHaveBeenCalledWith(["bbbb2222"], "ch1", false);
   });
 
@@ -513,7 +513,7 @@ describe("KbSurface", () => {
     // la liste a laissé place au lecteur, ouvert sur ce slug précis
     expect(screen.queryByText("Cuffey & Paterson ch. 5")).toBeNull();
     expect(screen.getByTitle("articles/aoki-2011-snow-albedo")).toBeTruthy();
-    expect(screen.getByText("Connexion indisponible. Réessaie après la reconnexion.")).toBeTruthy();
+    expect(screen.getByText(t("biblio.offline"))).toBeTruthy();
   });
 
   // Revue finale de branche, finding 1 : kb-open-gbrain-passage part de façon

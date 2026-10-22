@@ -1204,15 +1204,7 @@ export function ChatTimeline(p: {
             // elle ne doit laisser ni ligne d'erreur ni libellé d'arrêt dans
             // la timeline (un texte partiel déjà reçu reste affiché).
             if (isStoppedTerminal(e)) return null;
-            return (
-              <div key={i} className="error">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M8 2.2 14.5 13.5H1.5z" />
-                  <path d="M8 6.5v3.2M8 11.9v.1" />
-                </svg>{" "}
-                {e.message}
-              </div>
-            );
+            return <ChatErrorRow key={i} message={e.message} />;
           }
           if (e.kind === "done") {
             const isLastDone = !events.slice(i + 1).some((x) => x.kind === "done");
@@ -1283,7 +1275,7 @@ export function ChatTimeline(p: {
                   Un trait fin de 1 px, comme les encoches au-dessus — trois
                   barres pleines étaient le seul objet lourd du rail. */}
               <svg
-                className="tl-marge-all-sign"
+                className="tl-marge-all-sign" data-icon-stroke="keep"
                 width="12" height="8" viewBox="0 0 12 8" fill="none"
                 stroke="currentColor" strokeWidth="1"
                 strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
@@ -1350,5 +1342,39 @@ export function ChatTimeline(p: {
       )}
       </div>
     </>
+  );
+}
+
+/** Erreur d'un tour (CHAT-16) : icône d'alerte en --status-error, phrase
+ * courte en --text-primary, détail technique replié en --text-muted et une
+ * action « Copier le détail ». */
+function ChatErrorRow({ message }: { message: string }) {
+  const [title, ...rest] = message.split("\n");
+  const detail = rest.join("\n").trim();
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(message).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    }).catch(() => {});
+  };
+  return (
+    <div className="error chat-error" role="alert">
+      <svg className="chat-error-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M8 2.5l5.8 10.2H2.2z" /><path d="M8 6.5v3M8 11.2v.1" />
+      </svg>
+      <div className="chat-error-body">
+        <span className="chat-error-title">{title}</span>
+        {detail && (
+          <details className="ui-details chat-error-detail">
+            <summary>{t("chat.error-details")}</summary>
+            <pre>{detail}</pre>
+          </details>
+        )}
+      </div>
+      <Button variant="ghost" size="sm" className="chat-error-copy" onClick={copy}>
+        {copied ? t("chat.error-copied") : t("chat.error-copy")}
+      </Button>
+    </div>
   );
 }

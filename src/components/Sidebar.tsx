@@ -12,7 +12,7 @@ import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 const tr = t; // alias historique (t masqué par des variables locales dans les .map)
 import { LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
-import { Button, RowButton, SearchField } from "./ui";
+import { Button, SearchField, SegmentedControl } from "./ui";
 import {
   Sidebar as ShadcnSidebar,
   SidebarContent,
@@ -32,6 +32,7 @@ import {
 import { ProjectHeader } from "./sidebar/ProjectHeader";
 import { ThreadRow } from "./sidebar/ThreadRow";
 import { PROJ_ICONS, ProjIcon } from "./sidebar/projectIcons";
+import { ChevronIcon } from "./icons";
 import { ProjectStyleMenu, type ProjectStyleAnchor } from "./sidebar/ProjectStyleMenu";
 import { Popover } from "./shadcn/popover";
 import { MenuPanelContent, MenuPanelItem } from "./ui/MenuPanel";
@@ -313,7 +314,7 @@ export default function Sidebar(p: {
       return [
         {
           key: "back",
-          label: <>‹ {t("thread.move")}</>,
+          label: <><span className="ui-chevron-back"><ChevronIcon size={12} /></span><span>{t("thread.move")}</span></>,
           keepOpen: true,
           onSelect: () => setMenu({ threadId: thread.id, source, mode: "main" }),
         },
@@ -590,7 +591,7 @@ export default function Sidebar(p: {
 
         <Popover open={resumeOpen} onOpenChange={(next) => { if (!next) setResumeOpen(false); }}>
           <MenuPanelContent
-            className="rail-menu resume-pop"
+            className="resume-pop"
             anchor={resumeAnchor ?? resumeFallbackAnchor}
             finalFocus={() => (
               typeof HTMLElement !== "undefined" && resumeAnchor instanceof HTMLElement
@@ -601,14 +602,13 @@ export default function Sidebar(p: {
             align="start"
             sideOffset={0}
           >
-            <div className="rail-menu-title">{t("sidebar.resume-title")}</div>
-            <div className="seg">
-              {(["claude", "codex"] as const).map((pv) => (
-                <RowButton key={pv} className={resumeProv === pv ? "on" : ""} onClick={() => openResume(pv, resumeAnchor)}>
-                  {pv === "claude" ? "Claude" : "Codex"}
-                </RowButton>
-              ))}
-            </div>
+            <div className="resume-pop-title">{t("sidebar.resume-title")}</div>
+            <SegmentedControl
+              label={t("sidebar.resume-title")}
+              value={resumeProv}
+              onChange={(pv) => openResume(pv as "claude" | "codex", resumeAnchor)}
+              options={[{ value: "claude", label: "Claude" }, { value: "codex", label: "Codex" }]}
+            />
             <SearchField
               className="resume-search"
               value={resumeQuery}
@@ -617,8 +617,12 @@ export default function Sidebar(p: {
               aria-label={t("sidebar.search")}
             />
             <div className="resume-list">
-              {sessions === null && <div className="bh-empty">{t("sidebar.loading")}</div>}
-              {sessions?.length === 0 && <div className="bh-empty">{t("sidebar.no-session")}</div>}
+              {sessions === null && (
+                <div className="resume-skeletons" role="status" aria-label={t("sidebar.loading")}>
+                  {[0, 1, 2].map((i) => <span key={i} className="resume-skeleton" />)}
+                </div>
+              )}
+              {sessions?.length === 0 && <div className="resume-empty">{t("sidebar.no-session")}</div>}
               {sessions?.filter((s) => {
                 const needle = resumeQuery.trim().toLocaleLowerCase();
                 return !needle || `${s.title} ${s.projectRoot ?? ""}`.toLocaleLowerCase().includes(needle);
@@ -637,7 +641,6 @@ export default function Sidebar(p: {
                 </MenuPanelItem>
               ))}
             </div>
-            <Button variant="secondary" onClick={() => setResumeOpen(false)}>{t("sidebar.close")}</Button>
           </MenuPanelContent>
         </Popover>
 

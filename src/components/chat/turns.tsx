@@ -132,7 +132,14 @@ export function ChatEmptyState(p: {
       />
     );
   }
-  if (!p.hasEvents) return <div className="empty">{t("chat.empty")}</div>;
+  // Fil neuf (CHAT-24) : un accueil qui se lit — titre 15/600 sans point
+  // d'exclamation, puis une ligne d'aide éteinte — au lieu d'une phrase grise.
+  if (!p.hasEvents) return (
+    <div className="empty chat-empty-new">
+      <p className="chat-empty-title">{t("chat.empty")}</p>
+      <p className="chat-empty-hint">{t("chat.empty-hint")}</p>
+    </div>
+  );
   return null;
 }
 
@@ -304,7 +311,7 @@ export const UserTurn = memo(function UserTurn(p: {
         </div>
       ) : bubbleText.trim() || (attachmentLabels.length > 0 && !e.imageUrl && !e.notes?.length) ? (
         <Bubble variant="secondary" align="end" className="user-bubble-shell">
-          <BubbleContent className="user-bubble tw:rounded-2xl">
+          <BubbleContent className="user-bubble tw:rounded-[var(--radius-surface)]">
             {attachmentLabels.length > 0 && fileAttachments}
             {annotationView.cards.length ? <>
               {annotationView.prompt && <div className="chat-annotation-prompt">{p.renderBubbleText(annotationView.prompt)}</div>}

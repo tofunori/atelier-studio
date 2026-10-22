@@ -5,6 +5,7 @@ import { Button } from "../ui/Button";
 import { RowButton } from "../ui/RowButton";
 import { GitFileRow } from "./GitFileRow";
 import type { GitFile, GitGroup, SelectedFile } from "./types";
+import { ChevronIcon } from "../icons";
 
 export function GitFileSection({
   group,
@@ -36,7 +37,7 @@ export function GitFileSection({
           disabled={!files.length}
           render={<RowButton className="git-group-h" />}
         >
-          <span className="chev" aria-hidden>{open ? "▾" : "▸"}</span>
+          <span className="chev" aria-hidden><ChevronIcon size={12} open={open} /></span>
           <span>{t(`git.group-${group}` as any)}</span>
           <span className="git-group-n">{files.length}</span>
         </CollapsibleTrigger>

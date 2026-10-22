@@ -118,7 +118,7 @@ export function Select(p: SelectProps) {
         portalContainer={p.portalContainer === null ? undefined : p.portalContainer ?? portalContainer}
         positionerClassName={p.positionerClassName}
         alignItemWithTrigger={p.alignItemWithTrigger ?? false}
-        align={p.align}
+        align={p.align ?? "start"}
       >
         {groups.length ? groups.map((group, index) => (
           <SelectGroup key={`group-${index}`}>

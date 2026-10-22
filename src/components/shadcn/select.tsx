@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Check } from "lucide-react"
+import { Check, ChevronDown } from "lucide-react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 
 import { cn } from "@/lib/utils"
@@ -35,6 +35,9 @@ function SelectTrigger({
       {...props}
     >
       {children}
+      <SelectPrimitive.Icon data-icon="select-chevron" className="custom-select-chevron tw:flex tw:items-center" aria-hidden="true">
+        <ChevronDown />
+      </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
 }
@@ -72,7 +75,7 @@ function SelectContent({
         <SelectPrimitive.Popup
           data-slot="select-content"
           className={cn(
-            "tw:min-w-(--anchor-width) tw:max-h-(--available-height) tw:origin-(--transform-origin) tw:overflow-x-hidden tw:overflow-y-auto tw:rounded-[var(--radius-control)] tw:border tw:border-border tw:bg-popover tw:p-1 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:outline-none",
+            "tw:min-w-(--anchor-width) tw:max-h-(--available-height) tw:origin-(--transform-origin) tw:overflow-x-hidden tw:overflow-y-auto tw:rounded-[var(--radius-surface)] tw:bg-popover tw:p-1.5 tw:text-[length:var(--fs-body-s)] tw:text-popover-foreground tw:shadow-[var(--elevation-overlay)] tw:outline-none",
             className,
           )}
           {...props}
@@ -90,7 +93,7 @@ function SelectLabel({ className, ...props }: React.ComponentProps<typeof Select
   return (
     <SelectPrimitive.GroupLabel
       data-slot="select-label"
-      className={cn("tw:px-2 tw:py-1.5 tw:text-[length:var(--fs-caption)] tw:text-muted-foreground", className)}
+      className={cn("tw:px-3 tw:pt-2 tw:pb-1", className)}
       {...props}
     />
   )

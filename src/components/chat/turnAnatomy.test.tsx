@@ -742,9 +742,9 @@ describe("anatomie du tour — header d'activité", () => {
     fireEvent.click(document.querySelector(".activity-cluster .ui-activity-trigger") as HTMLButtonElement);
     const activity = document.querySelector(".ui-activity-detail .activity-action-list") as HTMLElement;
     expect(activity.querySelectorAll(".tool-output")).toHaveLength(3);
-    expect(activity.textContent).toContain("A.ts consulté");
-    expect(activity.textContent).toContain("B.ts consulté");
-    expect(activity.textContent).toContain("C.ts consulté");
+    expect(activity.textContent).toContain("a.ts consulté");
+    expect(activity.textContent).toContain("b.ts consulté");
+    expect(activity.textContent).toContain("c.ts consulté");
   });
 
   it("tour actif sans outil : pas de ligne cumulative", () => {
