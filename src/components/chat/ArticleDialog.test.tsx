@@ -341,7 +341,7 @@ describe("texte complet", () => {
 
     // réduire ne redemande rien
     sent.mockClear();
-    fireEvent.click(screen.getByText("Réduire l'aperçu"));
+    fireEvent.click(screen.getByText("Réduire l’aperçu"));
     expect(screen.getByText(/A physically based snow albedo model/)).toBeTruthy();
     expect(sent).not.toHaveBeenCalled();
   });

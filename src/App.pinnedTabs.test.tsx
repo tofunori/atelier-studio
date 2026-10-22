@@ -37,7 +37,7 @@ it("fermer un onglet épinglé d'un autre projet que le premier l'oublie pour de
   await act(async () => { sock.open(); }); await settle();
 
   const beta = [...document.querySelectorAll<HTMLButtonElement>(".rail-proj")]
-    .find((button) => button.title === "beta");
+    .find((button) => button.getAttribute("aria-label") === "beta");
   expect(beta, "projet beta dans le rail").toBeTruthy();
   fireEvent.click(beta!);
   await settle(); await settle();

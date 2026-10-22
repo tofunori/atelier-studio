@@ -17,8 +17,9 @@
 .biblio-workspace-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); position: relative; }
 .biblio-workspace-body.has-info { grid-template-columns: minmax(0, 1fr) 260px; }
 .biblio-library-panel { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 0; min-width: 0; }
-.biblio-collections { overflow: auto; padding: 8px; border-right: 1px solid var(--border-subtle); background: var(--surface-panel); }
-.biblio-collections-heading { color: var(--text-muted); font-size: var(--fs-xs); padding: 12px 8px 8px; }
+.biblio-collections { overflow: auto; padding: 8px; border-right: var(--gutter) solid var(--surface-canvas); background: var(--surface-panel); }
+.biblio-collections-heading { padding: 12px 8px 8px; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
+  letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
 .biblio-collection-tree, .biblio-collection-tree ul { list-style: none; padding: 0; margin: 0; }
 .biblio-folder-row { display: flex; align-items: center; min-width: 0; }
 .biblio-folder-row > .ui-iconbtn { flex: none; width: 22px; min-width: 22px; }
@@ -36,7 +37,7 @@
 .biblio-table-head { display: grid; grid-template-columns: minmax(0, 1fr) 120px 50px 130px 90px; gap: 8px; padding: 8px 12px; font-size: var(--fs-xs); color: var(--text-muted); border-block: 1px solid var(--border-subtle); }
 .biblio-workspace .biblio-row { grid-template-columns: minmax(0, 1fr) 90px; gap: 8px; padding: 0 12px; border-radius: 0; border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 50%, transparent); }
 .biblio-workspace .biblio-main-button { display: grid; grid-template-columns: minmax(0, 1fr) 120px 50px 130px; align-items: center; gap: 8px; padding: 8px 0; }
-.biblio-workspace .biblio-title { font-weight: 400; font-size: var(--fs-s); line-height: 1.5; -webkit-line-clamp: 2; }
+.biblio-workspace .biblio-title { font-weight: 500; font-size: var(--fs-m); line-height: 1.3; color: var(--text-primary); -webkit-line-clamp: 2; }
 .biblio-table-author, .biblio-table-publication { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: var(--fs-s); }
 .biblio-table-year { color: var(--text-muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
 .biblio-table-actions, .biblio-workspace .biblio-row-side { display: grid; grid-template-columns: repeat(3, 28px); gap: 4px; align-items: center; text-align: center; }
@@ -44,10 +45,9 @@
 .biblio-workspace .biblio-star { opacity: 1; }
 .biblio-workspace .biblio-read { color: var(--text-muted); opacity: .45; }
 .biblio-workspace .biblio-read:hover, .biblio-workspace .biblio-read:focus-visible { opacity: 1; }
-.biblio-workspace .biblio-read[aria-pressed="true"] { color: #86b99a; opacity: 1; }
-:root[data-theme="light"] .biblio-workspace .biblio-read[aria-pressed="true"] { color: #397454; }
+.biblio-workspace .biblio-read[aria-pressed="true"] { color: var(--status-success); opacity: 1; }
 .biblio-workspace .biblio-read svg { width: 15px; height: 15px; }
-.biblio-information { min-width: 0; overflow: auto; border-left: 1px solid var(--border-subtle); padding: 8px 16px; background: var(--surface-panel); font-size: var(--fs-s); }
+.biblio-information { min-width: 0; overflow: auto; border-left: var(--gutter) solid var(--surface-canvas); padding: 8px 16px; background: var(--surface-panel); font-size: var(--fs-s); }
 .biblio-information-heading { display: flex; align-items: center; justify-content: space-between; color: var(--text-muted); }
 .biblio-information h2 { font-size: var(--fs-l); font-weight: 500; line-height: 1.6; margin: 20px 0 8px; color: var(--text-primary); }
 .biblio-information p { line-height: 1.6; color: var(--text-muted); }
@@ -71,7 +71,7 @@
  .biblio-table-head { grid-template-columns: minmax(0, 1fr) 40px 90px; }
  .biblio-workspace .biblio-main-button { grid-template-columns: minmax(0, 1fr) 40px; }
  .biblio-workspace-body.has-info { grid-template-columns: minmax(0, 1fr); }
- .biblio-information { position: absolute; right: 0; top: 0; bottom: 0; width: min(290px, 90%); z-index: 3; box-shadow: -8px 0 24px #0002; }
+ .biblio-information { position: absolute; right: 0; top: 0; bottom: 0; width: min(290px, 90%); z-index: 3; box-shadow: var(--elevation-overlay); }
  .biblio-workspace .biblio-scope { align-items: start; flex-direction: column; gap: 2px; padding-bottom: 6px; }
 }
 @container (max-width: 420px) {

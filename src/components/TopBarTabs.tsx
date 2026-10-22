@@ -18,6 +18,7 @@ import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick }
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { IconButton, RowButton } from "./ui";
 import "../styles/document-tabs.css";
+import { FileGlyph } from "./fileGlyphs";
 
 /** Au-delà, les onglets passent dans le menu de débordement, qui affiche les
  *  noms complets. Huit tiennent sur 1440 px une fois la recherche réduite à
@@ -90,17 +91,10 @@ export function kindOf(tab: PaneTab): "tex" | "code" | "note" | "image" | "doc" 
   return "doc";
 }
 
+const KIND_TO_GLYPH = { code: "code", note: "note", image: "image", tex: "tex", doc: "file" } as const;
+
 function KindGlyph({ kind }: { kind: ReturnType<typeof kindOf> }) {
-  const common = {
-    className: "topbar-tab-kind", viewBox: "0 0 24 24", width: 13, height: 13, fill: "none",
-    stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const, "aria-hidden": true,
-  };
-  if (kind === "code") return <svg {...common}><path d="M9 8l-4 4 4 4M15 8l4 4-4 4" /></svg>;
-  if (kind === "note") return <svg {...common}><path d="M4 7h16M4 12h16M4 17h9" /></svg>;
-  if (kind === "image") return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m5 17 5-6 3 3.5 2-2 4 4.5" /></svg>;
-  if (kind === "tex") return <svg {...common}><path d="M5 6h14M12 6v12" /></svg>;
-  return <svg {...common}><path d="M7 3h7l4 4v14H7z" /></svg>;
+  return <FileGlyph className="topbar-tab-kind" kind={KIND_TO_GLYPH[kind]} size={14} />;
 }
 
 /** Icône de tête : un fil d'agent porte sa bulle, un fichier son type. Les
@@ -108,9 +102,9 @@ function KindGlyph({ kind }: { kind: ReturnType<typeof kindOf> }) {
 export function tabIcon(tab: PaneTab) {
   if (tab.kind === "agent") {
     return (
-      <svg className="topbar-tab-kind" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-        strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M4 5h16v11H8l-4 3z" />
+      <svg className="topbar-tab-kind" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+        strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M2.5 3.5h11v7.5H5.5l-3 2.5z" />
       </svg>
     );
   }

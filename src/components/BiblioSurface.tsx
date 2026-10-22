@@ -9,7 +9,7 @@ import { zoteroDataDir, zoteroStoragePath } from "../lib/integrations";
 import { CloseIcon, PanelIcon, SearchIcon, StarIcon } from "./icons";
 import { Input } from "./shadcn/input";
 import { Spinner } from "./shadcn/spinner";
-import { IconButton, RowButton, Select, showError, showSuccess } from "./ui";
+import { IconButton, InlineNotice, RowButton, Select, showError, showSuccess } from "./ui";
 import { ContextMenuTrigger } from "./shadcn/context-menu";
 import { BiblioRowMenu, type BiblioRowMenuActions } from "./biblio/BiblioRowMenu";
 import { useBiblioList, send, summarizeZoteroAddResults } from "./biblio/useBiblioList";
@@ -428,8 +428,9 @@ export default function BiblioSurface({
           <div className="biblio-scope"><span>{filter === "collection" ? collections.find(c => String(c.id) === collectionId)?.name : favOnly ? t("biblio.favorites") : t("biblio.all-items")}</span>
             <span className="biblio-scope-count">{t("biblio.scope-refs", { count: visibleItems.length })} · {t("biblio.scope-pdf", { count: pdfCount })}</span></div>
           {addNote && <div className="biblio-add-note" role="status">{addNote}</div>}
-          {error && <div className="biblio-empty" role="status">{error}</div>}
-          {reading.error && <div className="biblio-add-note" role="alert">{reading.error}</div>}
+          {/* Erreurs de surface : InlineNotice d'erreur, jamais un état vide (SURF-23). */}
+          {error && <InlineNotice tone="error" className="biblio-notice">{error}</InlineNotice>}
+          {reading.error && <InlineNotice tone="error" className="biblio-notice">{reading.error}</InlineNotice>}
           <div className="biblio-table-head" aria-hidden="true"><span>{t("biblio.column-title")}</span><span>{t("biblio.column-author")}</span><span>{t("biblio.column-year")}</span><span>{t("biblio.column-publication")}</span><span className="biblio-table-actions"><span>PDF</span><span /><span>{t("biblio.column-read")}</span></span></div>
           {!loading && virtualized ? <LegendList
             ref={virtualListRef} refScrollView={node => { const element = node instanceof HTMLElement ? node : node?.getScrollableNode(); listRef.current = element instanceof HTMLDivElement ? element : null; }}

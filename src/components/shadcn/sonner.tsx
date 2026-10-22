@@ -1,11 +1,25 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
+import { useSyncExternalStore } from "react"
 import { CloseIcon } from "@/components/ui/CloseButton"
+import "@/styles/toasts.css"
 
-const Toaster = ({ theme = "system", ...props }: ToasterProps) => {
+// Le thème des toasts suit celui de l'APP (data-theme sur <html>), pas le
+// mode de macOS : sinon un Atelier sombre sur un Mac clair montrait des
+// toasts clairs et une croix presque invisible (PRIM-09).
+function subscribeTheme(onChange: () => void) {
+  const observer = new MutationObserver(onChange)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] })
+  return () => observer.disconnect()
+}
+const appTheme = (): "dark" | "light" =>
+  document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark"
+
+const Toaster = ({ theme, ...props }: ToasterProps) => {
+  const current = useSyncExternalStore(subscribeTheme, appTheme, () => "dark" as const)
   return (
     <Sonner
-      theme={theme}
+      theme={theme ?? current}
       className="tw:toaster tw:group"
       icons={{
         success: (
@@ -30,8 +44,8 @@ const Toaster = ({ theme = "system", ...props }: ToasterProps) => {
         {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--sh-border)",
-          "--border-radius": "var(--radius-control)",
+          "--normal-border": "transparent",
+          "--border-radius": "var(--radius-surface)",
         } as React.CSSProperties
       }
       toastOptions={{

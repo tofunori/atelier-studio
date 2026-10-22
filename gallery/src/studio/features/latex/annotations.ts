@@ -58,10 +58,11 @@ export interface LatexAnnotationsController {
   focus(id: string, anchor?: {left: number; top: number; bottom: number}): void;
 }
 
+// Pastilles : la teinte du surlignage à 85 % (--annot-*, latex_studio.css).
 const SWATCHES: Readonly<Record<string, string>> = {
-  amber: "rgba(224,183,74,.85)", red: "rgba(240,125,115,.85)",
-  blue: "rgba(91,157,255,.85)", green: "rgba(126,192,120,.85)",
-  purple: "rgba(170,140,224,.85)",
+  amber: "rgba(var(--annot-amber),.85)", red: "rgba(var(--annot-red),.85)",
+  blue: "rgba(var(--annot-blue),.85)", green: "rgba(var(--annot-green),.85)",
+  purple: "rgba(var(--annot-purple),.85)",
 };
 
 function required<T extends Element>(root: ParentNode, selector: string): T {

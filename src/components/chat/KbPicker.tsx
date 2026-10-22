@@ -24,6 +24,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "../shadcn/input-gr
 import { Input } from "../shadcn/input";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
+import { CloseIcon } from "../icons";
 import { RowButton } from "../ui/RowButton";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 
@@ -485,7 +486,7 @@ export function KbPickerPanel(p: {
             title={t("kb.remove-source")}
             onClick={() => p.onRemoveSource(source.id)}
           >
-            ×
+            <CloseIcon size={12} />
           </IconButton>
         </span>
       </div>
@@ -550,7 +551,7 @@ export function KbPickerPanel(p: {
                 aria-label={t("kb.collection-include", {name:coll.title})}
                 title={t("kb.collection-selected", {selected:count,total:ids.length})}
                 onCheckedChange={() => p.onCollectionToggle?.(ids, !all)}>
-                <CheckboxIndicator>{partial ? "−" : "✓"}</CheckboxIndicator>
+                <CheckboxIndicator />
               </Checkbox>}
               <RowButton
                 className={`kb-chip-filter ${collFilter === coll.slug ? "on" : ""}`}
@@ -684,7 +685,7 @@ export function KbPickerPanel(p: {
               title={t("kb.error-dismiss")}
               onClick={() => p.onDismissError?.()}
             >
-              ×
+              <CloseIcon size={12} />
             </IconButton>
           )}
         </div>

@@ -178,14 +178,13 @@ export function MermaidBlock({ source, highlight }: MermaidBlockProps) {
           <DialogContent
             showCloseButton={false}
             closeLabel={t("chat.mermaid-close-fullscreen")}
-            overlayClassName="tw:bg-black/70 tw:backdrop-blur-sm"
             className="mermaid-fullscreen-dialog tw:fixed tw:flex tw:max-w-none tw:translate-x-0 tw:translate-y-0 tw:flex-col tw:gap-0 tw:p-0 tw:ring-0"
             style={{
               inset: 12,
-              top: 12,
+              top: 44,
               left: 12,
               width: "calc(100dvw - 24px)",
-              height: "calc(100dvh - 24px)",
+              height: "calc(100dvh - 56px)",
               maxWidth: "none",
               transform: "none",
               translate: "none",

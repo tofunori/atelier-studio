@@ -20,7 +20,7 @@ import {
   type AppSnapPermission,
   type AppSnapState,
 } from "../../../lib/appSnap";
-import { Button, Select, showError } from "../../ui";
+import { Button, Select, StatusBadge, showError } from "../../ui";
 import { Input } from "../../shadcn/input";
 import { ScanLineIcon } from "lucide-react";
 
@@ -82,13 +82,13 @@ export default function Atelier(p: SectionProps) {
   // Copié tel quel de Settings.tsx:378-388.
   function permissionBadge(permission: AppSnapPermission) {
     return (
-      <span className={`set-badge ${permission === "granted" ? "ok" : permission === "denied" ? "ko" : "warn"}`}>
+      <StatusBadge status={permission === "granted" ? "success" : permission === "denied" ? "error" : "warning"}>
         {permission === "granted"
           ? t("appsnap.permission-granted")
           : permission === "denied"
             ? t("appsnap.permission-required")
             : t("appsnap.permission-unknown")}
-      </span>
+      </StatusBadge>
     );
   }
 
@@ -203,7 +203,7 @@ export default function Atelier(p: SectionProps) {
             </span>
           </Row>
           <Row title={t("appsnap.destination")} desc={t("appsnap.destination-desc")}>
-            <span className="set-badge ok">{t("appsnap.destination-auto")}</span>
+            <StatusBadge>{t("appsnap.destination-auto")}</StatusBadge>
           </Row>
           <Row title={t("appsnap.sound")} desc={t("appsnap.sound-desc")}>
             <Toggle

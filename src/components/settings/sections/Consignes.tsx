@@ -221,7 +221,7 @@ export function Consignes(p: {
                 <Button variant="ghost" disabled={locked} onClick={a.retry}>{copy("Réessayer", "Retry")}</Button>
                 <Button disabled={locked} onClick={a.apply}><Check size={14} aria-hidden="true" />{copy("Appliquer", "Apply")}</Button></div>
             </section>}
-            {!selected.livree && <Button variant="ghost" className="set-consignes-delete" onClick={supprimer}>{t("action.delete")}</Button>}
+            {!selected.livree && <Button variant="ghost" className="set-consignes-delete set-destructive" onClick={supprimer}>{t("action.delete")}</Button>}
           </> : <div className="consignes-empty"><p className="set-empty">{t("settings.consignes-empty")}</p>{modelSelect}</div>}
         </div>
       </div>

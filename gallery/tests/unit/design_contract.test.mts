@@ -32,6 +32,8 @@ const CHROME_FILES = [
   "assets/pdf_reading.css",
   "assets/docx_studio.css",
   "assets/docx_studio.html",
+  // barre et panneaux React de la galerie (GAL-14)
+  "react-ui/styles.css",
 ];
 
 // Sources TS qui injectent du CSS de chrome (les pages HTML ci-dessus en
@@ -83,6 +85,8 @@ const RADIUS_2PX: Record<string, string[]> = {
   "assets/md_viewer.css": [".CodeMirror-selectedtext", ".cm-clsel"],
   "assets/svg_viewer.html": [".hbox", ".movehi", ".selbox", ".selhandle"],
   "src/browser/diff_versions.ts": [".dAddM", ".dDelW", "#dvNav canvas.dvRib"],
+  // vignettes miniatures des choix de présentation (barres de 8 px)
+  "react-ui/styles.css": [".gallery-mini-grid b", ".gallery-mini-list b"],
 };
 
 interface Rule { file: string; selector: string; body: string }
@@ -140,6 +144,29 @@ test("poids de police : 400 / 500 / 600 uniquement (hors @font-face)", () => {
     for (const v of decls(r.body, /font/)) {
       const w = v.match(/^(?:italic\s+|normal\s+)?(\d{3})\s/);
       if (w && !["400", "500", "600"].includes(w[1])) bad.push(`${where(r)} font:${v}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
+// EDIT-27 : le CSS-en-JS de CodeMirror (EditorView.theme, baseTheme,
+// HighlightStyle) écrit fontWeight, fontSize et borderRadius en camelCase,
+// invisibles pour les analyses kebab-case ci-dessus.
+test("CSS-en-JS : fontWeight, fontSize et borderRadius dans le système", () => {
+  const sizes = (n: number) => [10, 11, 12, 13, 15].includes(n) || (n >= 18 && n <= 34);
+  const bad: string[] = [];
+  for (const file of tsSources()) {
+    const text = stripComments(read(file), true);
+    for (const m of text.matchAll(/fontWeight:\s*["'`](\d+)["'`]/g)) {
+      if (!["400", "500", "600"].includes(m[1])) bad.push(`${file} fontWeight:${m[1]}`);
+    }
+    for (const m of text.matchAll(/fontSize:\s*["'`](\d+(?:\.\d+)?)px/g)) {
+      if (!sizes(Number(m[1]))) bad.push(`${file} fontSize:${m[1]}px`);
+    }
+    for (const m of text.matchAll(/borderRadius:\s*["'`]([^"'`]*)["'`]/g)) {
+      for (const px of m[1].matchAll(/(\d+(?:\.\d+)?)px/g)) {
+        if (![0, 2, 6, 10, 999].includes(Number(px[1]))) bad.push(`${file} borderRadius:${m[1]}`);
+      }
     }
   }
   assert.deepEqual(bad, []);

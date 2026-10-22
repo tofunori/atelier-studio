@@ -65,7 +65,7 @@ describe("Réglages › Spécialistes", () => {
     });
     render(<Specialistes specialistes={[]} onChange={onChange} importer={importer} />);
     fireEvent.click(screen.getByText("Importer depuis Claude Science"));
-    await waitFor(() => expect(screen.getByText("1 ajouté(s)")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("1 ajouté")).toBeTruthy());
     expect((onChange.mock.calls[0][0] as Specialiste[])[0]).toMatchObject({ nom: "Références", origine: { cle: "REFS" } });
   });
 

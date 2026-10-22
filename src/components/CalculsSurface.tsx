@@ -705,8 +705,8 @@ const RunRow = memo(function RunRow({ run, open, now, forgetError, onToggle, onF
           <small>{activityAgo(run, now)}</small>
         </span>
         <span className="calculs-run-chevron" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 9l6 6 6-6" />
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 3.5L10.5 8 6 12.5" />
           </svg>
         </span>
       </RowButton>

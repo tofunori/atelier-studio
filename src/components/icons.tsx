@@ -1,4 +1,5 @@
-// Icônes providers — approximations sobres (starburst Anthropic, nœud OpenAI)
+// Icônes providers — approximations sobres (starburst Anthropic, nœud OpenAI),
+// monochromes en currentColor : le parent fixe la couleur (TRANS-05, SET-02).
 import type { ReactNode } from "react";
 
 type IconProps = { size?: number };
@@ -11,7 +12,7 @@ function StrokeIcon({ size = 13, children }: IconProps & { children: ReactNode }
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth={(1.1 * 16) / size}
+      strokeWidth={1.25}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -24,7 +25,7 @@ function StrokeIcon({ size = 13, children }: IconProps & { children: ReactNode }
 export function ClaudeIcon({ size = 13 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"
-      stroke="#d97757" strokeWidth="1.6" strokeLinecap="round">
+      stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
       <path d="M8 1.5v13M1.5 8h13M3.4 3.4l9.2 9.2M12.6 3.4L3.4 12.6" />
     </svg>
   );
@@ -33,7 +34,7 @@ export function ClaudeIcon({ size = 13 }: { size?: number }) {
 export function CodexIcon({ size = 13 }: { size?: number }) {
   // marque OpenAI (monochrome)
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="#c8cdd4">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.073zM13.2599 22.4301a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6455zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865a4.504 4.504 0 0 1-1.6464-6.1487zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997z"/>
     </svg>
   );
@@ -43,7 +44,7 @@ export function GrokIcon({ size = 13 }: { size?: number }) {
   // diagonale xAI (monochrome)
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"
-      stroke="#c8cdd4" strokeWidth="1.6" strokeLinecap="round">
+      stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
       <path d="M2.5 2.5l11 11M13.5 2.5L8 8M2.5 13.5L5.5 10.5" />
     </svg>
   );
@@ -379,6 +380,81 @@ export function DownloadIcon({ size = 13 }: IconProps) {
     <StrokeIcon size={size}>
       <path d="M8 2.4v7.2M5.1 6.6L8 9.6l2.9-3" />
       <path d="M2.8 11.6v1.2c0 .8.6 1.4 1.4 1.4h7.6c.8 0 1.4-.6 1.4-1.4v-1.2" />
+    </StrokeIcon>
+  );
+}
+
+// Lot 3 (SHELL-14, SURF-27) : les caractères qui servaient d'icônes (… ▸ ▾ ↑ ↓
+// ★ ↰ ⤴ ∅) ont chacun leur glyphe au trait, grille 16, currentColor.
+export function MoreIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" stroke="none" aria-hidden="true">
+      <circle cx="3.2" cy="8" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="12.8" cy="8" r="1" />
+    </svg>
+  );
+}
+
+/** Chevron de dépliage : pointe à droite ; l'état ouvert le tourne de 90°
+ *  en CSS (.ui-disclosure-chevron[data-open]) — UNE convention partout. */
+export function ChevronIcon({ size = 12, open }: IconProps & { open?: boolean }) {
+  return (
+    <svg className="ui-disclosure-chevron" data-open={open ? "" : undefined} width={size} height={size}
+      viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 3.5L10.5 8 6 12.5" />
+    </svg>
+  );
+}
+
+export function ArrowUpIcon({ size = 14 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M8 13V3M3.6 7.2L8 2.8l4.4 4.4" />
+    </StrokeIcon>
+  );
+}
+
+export function StarFilledIcon({ size = 13 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" stroke="currentColor"
+      strokeWidth="1.25" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8 2.2l1.7 3.5 3.8.6-2.8 2.7.7 3.8L8 11l-3.4 1.8.7-3.8-2.8-2.7 3.8-.6z" />
+    </svg>
+  );
+}
+
+/** Renvoyer dans le fil (Quick Ask « injecter »). */
+export function ReplyIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M6 4.5L2.5 8 6 11.5" /><path d="M2.5 8h7c2.2 0 4 1.8 4 4v.5" />
+    </StrokeIcon>
+  );
+}
+
+/** Ouvrir ailleurs / promouvoir en conversation. */
+export function ArrowUpRightIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M5 11l6-6M6 5h5v5" />
+    </StrokeIcon>
+  );
+}
+
+/** Alerte (erreur d'une réponse, état dégradé) : triangle au trait, pas d'emoji ⚠. */
+export function AlertIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <path d="M8 2.5l5.8 10.2H2.2z" /><path d="M8 6.5v3M8 11.2v.1" />
+    </StrokeIcon>
+  );
+}
+
+/** « Aucun » (pas de couleur, pas d'icône). */
+export function NoneIcon({ size = 13 }: IconProps) {
+  return (
+    <StrokeIcon size={size}>
+      <circle cx="8" cy="8" r="5" /><path d="M4.5 11.5l7-7" />
     </StrokeIcon>
   );
 }

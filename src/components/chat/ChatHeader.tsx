@@ -199,9 +199,9 @@ export function ChatHeader(p: {
                 items={TRANSCRIPT_VIEWS.map((view) => ({
                   key: view.id,
                   className: "transcript-view-item",
+                  checked: view.id === active, keepOpen: false,
                   label: (
                     <>
-                      <span className="tv-check" aria-hidden="true">{view.id === active ? "✓" : ""}</span>
                       {view.icon()}
                       <span>{t(`chat.transcript-view.${view.id}`)}</span>
                     </>

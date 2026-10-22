@@ -137,11 +137,11 @@ describe("NarvalSurface", () => {
     render(<NarvalSurface visible onOpenTerminal={() => {}} />);
     expect(lastRequest("narvalStatus").profile).toBe("narval");
     fireEvent.click(screen.getByRole("button", { name: /^narval$/i }));
-    const item = await screen.findByText("RORQUAL");
+    const item = await screen.findByText("Rorqual");
     fireEvent.click(item);
     expect(lastRequest("narvalStatus").profile).toBe("rorqual");
     expect(lastRequest("narvalSnapshot").profile).toBe("rorqual");
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("RORQUAL");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Rorqual");
   });
 
   it("sorts recent runs newest first, filters them, and reveals more by batches", () => {
@@ -191,13 +191,13 @@ describe("NarvalSurface", () => {
     render(<NarvalSurface visible onOpenTerminal={openTerminal} />);
     // la grappe mémorisée n'est plus configurée : la première configurée la remplace
     expect(lastRequest("narvalStatus").profile).toBe("rorqual");
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("RORQUAL");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Rorqual");
     // avant le statut, le terminal vise la cible configurée — connexion directe
     fireEvent.click(screen.getByRole("button", { name: /^terminal$/i }));
     expect(openTerminal).toHaveBeenCalledWith("ssh rorqual");
     fireEvent.click(screen.getByRole("button", { name: /^rorqual$/i }));
-    expect(await screen.findAllByText("RORQUAL")).not.toHaveLength(0);
-    expect(screen.queryByText("NARVAL")).toBeNull();
+    expect(await screen.findAllByText("Rorqual")).not.toHaveLength(0);
+    expect(screen.queryByText("Narval")).toBeNull();
   });
 
   it("sans grappe configurée : aucune requête, une ligne vers les réglages", () => {

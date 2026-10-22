@@ -23,7 +23,7 @@ import type { SectionProps, SetupStatus } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { setLanguage, t } from "../../../lib/i18n";
 import { BUILD_IDENTITY, versionWithBuild } from "../../../lib/buildIdentity";
-import { Button, InlineNotice, Select } from "../../ui";
+import { Button, InlineNotice, Select, StatusBadge } from "../../ui";
 import { Textarea } from "../../shadcn/textarea";
 import { RemoteDevicesPanel } from "../../RemoteDevicesPanel";
 import { NotificationsGroup } from "./NotificationsGroup";
@@ -33,6 +33,11 @@ import { NotificationsGroup } from "./NotificationsGroup";
 // déplacés ici.
 const CLAUDE_EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = ["", "low", "medium", "high", "xhigh"];
+/** Mêmes libellés que le sélecteur d'effort du composer (SET-28). */
+const EFFORT_LABELS: Record<string, string> = {
+  low: "Low", medium: "Medium", high: "High", xhigh: "Extra High", max: "Max",
+};
+const effortOption = (l: string) => ({ value: l, label: l === "" ? t("common.auto-default") : EFFORT_LABELS[l] ?? l });
 
 export default function General(p: SectionProps) {
   // Un seul point de sortie : toute écriture confirme (pastille « Enregistré »).
@@ -149,7 +154,7 @@ export default function General(p: SectionProps) {
             title={t("settings.default-claude-effort")}
             value={s.defaultEffort.claude}
             onChange={(value) => save({ defaultEffort: { ...s.defaultEffort, claude: value } })}
-            options={CLAUDE_EFFORTS.map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
+            options={CLAUDE_EFFORTS.map(effortOption)}
           />
         </Row>
         <Row title={t("settings.default-codex-effort")}>
@@ -157,7 +162,7 @@ export default function General(p: SectionProps) {
             title={t("settings.default-codex-effort")}
             value={s.defaultEffort.codex}
             onChange={(value) => save({ defaultEffort: { ...s.defaultEffort, codex: value } })}
-            options={CODEX_EFFORTS.map((l) => ({ value: l, label: l === "" ? "auto" : l }))}
+            options={CODEX_EFFORTS.map(effortOption)}
           />
         </Row>
       </Group>
@@ -211,11 +216,9 @@ export default function General(p: SectionProps) {
 
       <NotificationsGroup onSaved={p.onSaved} />
 
-      {/* Settings.tsx:1255-1289 (ex-« avance ») : Runtime, Sidecar, images
-          collées, appareils distants — quatre rangées/groupes sous le repli.
-          Runtime (Node) rejoint Sidecar dans son propre groupe, restauré
-          depuis l'ex-section setup (voir commentaire d'en-tête) : mêmes
-          données de diagnostic, même famille. */}
+      {/* Diagnostic sous le repli : la rangée « Serveur Atelier » (version,
+          pid, port) — l'ancienne rangée « Runtime › Node » d'avant le
+          serveur Rust a disparu (SET-23) —, images collées, appareils distants. */}
       <Advanced>
         <Group>
         <Row title={t("settings.additional-dirs")} desc={t("settings.additional-dirs-desc")}>
@@ -226,17 +229,10 @@ export default function General(p: SectionProps) {
       </Advanced>
       <Advanced label={t("settings.maintenance")}>
         <Group label={t("settings.setup-runtime")}>
-          <Row title={t("settings.setup-node")} desc={setup ? `${setup.runtime.version} — ${setup.runtime.node}` : "…"}>
-            {setup && (
-              <span className={`set-badge ${setup.runtime.bundled ? "ok" : "warn"}`}>
-                {setup.runtime.bundled ? t("settings.setup-bundled") : t("settings.setup-system")}
-              </span>
-            )}
-          </Row>
-          <Row title={t("settings.sidecar")} desc={sidecarDesc}>
-            <span className={`set-badge ${p.ws?.readyState === 1 ? "ok" : "ko"}`}>
+           <Row title={t("settings.sidecar")} desc={sidecarDesc}>
+            <StatusBadge status={p.ws?.readyState === 1 ? "success" : "warning"}>
               {p.ws?.readyState === 1 ? t("settings.connected") : t("settings.disconnected")}
-            </span>
+            </StatusBadge>
           </Row>
         </Group>
         <Group>
@@ -265,9 +261,7 @@ export default function General(p: SectionProps) {
           )}
         </Group>
         <Group label={t("settings.remote-devices")}>
-          <div style={{ padding: 12 }}>
-            <RemoteDevicesPanel />
-          </div>
+          <RemoteDevicesPanel />
         </Group>
       </Advanced>
     </>

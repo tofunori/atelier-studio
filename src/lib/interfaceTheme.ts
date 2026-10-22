@@ -2,20 +2,29 @@
  * Small labels stop shrinking before they become difficult to read. */
 export function interfaceTypography(baseSize: number): Record<string, string> {
   const base = Number.isFinite(baseSize) ? Math.min(18, Math.max(12, baseSize)) : 15;
-  const size = (normal: number, minimum: number) => `${Math.max(minimum, normal * base / 15).toFixed(2)}px`;
+  // pixel entier et au moins 1 px entre deux niveaux (audit TRANS-30) : pas
+  // de 11,2 px indiscernable de 11, ni de niveaux qui fusionnent en petit
+  let previous = 0;
+  const step = (normal: number, minimum: number) => {
+    previous = Math.max(previous + 1, minimum, Math.round(normal * base / 15));
+    return previous;
+  };
+  const [xs, s, m, l, xl] = [step(10, 10), step(11, 11), step(12, 11), step(13, 12), step(15, 13)];
+  const displayS = step(18, 16), display = step(20, 18);
+  const px = (value: number) => `${value}px`;
   return {
-    "--fs-xs": size(10, 10),
-    "--fs-s": size(11, 11),
-    "--fs-m": size(12, 11),
-    "--fs-l": size(13, 12),
-    "--fs-xl": size(15, 13),
-    "--fs-caption": size(10, 10),
-    "--fs-label": size(11, 11),
-    "--fs-body-s": size(12, 11),
-    "--fs-body": size(13, 12),
-    "--fs-title": size(15, 13),
-    "--fs-display-s": size(18, 16),
-    "--fs-display": size(20, 18),
+    "--fs-xs": px(xs),
+    "--fs-s": px(s),
+    "--fs-m": px(m),
+    "--fs-l": px(l),
+    "--fs-xl": px(xl),
+    "--fs-caption": px(xs),
+    "--fs-label": px(s),
+    "--fs-body-s": px(m),
+    "--fs-body": px(l),
+    "--fs-title": px(xl),
+    "--fs-display-s": px(displayS),
+    "--fs-display": px(display),
     "--ui-base-size": `${base}px`,
   };
 }

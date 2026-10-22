@@ -307,7 +307,9 @@ export function xtermThemeFor(selection: string | { themePreset: string; theme: 
     background: p.vars["--bg-side"],
     foreground: p.vars["--fg"],
     cursor: p.vars["--accent"],
-    selectionBackground: "rgba(128,160,255,0.30)",
+    // Même teinte que la sélection de texte du reste de l'app (TRANS-16) :
+    // l'accent du thème à 28 % plutôt qu'un bleu fixe.
+    selectionBackground: /^#[0-9a-f]{6}$/i.test(p.vars["--accent"] ?? "") ? `${p.vars["--accent"]}47` : "rgba(128,160,255,0.30)",
     black: a[0], red: a[1], green: a[2], yellow: a[3],
     blue: a[4], magenta: a[5], cyan: a[6], white: a[7],
     brightBlack: a[8], brightRed: a[9], brightGreen: a[10], brightYellow: a[11],

@@ -175,7 +175,7 @@ describe("Rail — menu contextuel d'un projet", () => {
   it("clic droit sur une puce : « Retirer le projet » remonte la racine visée", async () => {
     const onRemoveProject = vi.fn();
     renderUi(<Rail {...makeProps({ onRemoveProject })} />);
-    fireEvent.contextMenu(screen.getByTitle("albedo"));
+    fireEvent.contextMenu(screen.getByLabelText("albedo"));
     const remove = await screen.findByRole("button", { name: t("project.remove") });
     fireEvent.click(remove);
     expect(onRemoveProject).toHaveBeenCalledWith("/Users/t/albedo");
@@ -273,7 +273,8 @@ describe("Rail — signaux et boîte « À traiter »", () => {
     })} />);
     const albedo = screen.getByRole("button", { name: "albedo — Attend ta réponse" });
     expect(albedo.querySelector(".rail-signal.sig-wait")).toBeTruthy();
-    expect(albedo.getAttribute("title")).toBe("albedo\nAutorisation : Bash — « Calibration »");
+    // Le détail passe par l'infobulle de l'app, plus par la bulle native (SHELL-13).
+    expect(albedo.hasAttribute("title")).toBe(false);
     expect(container.querySelector(".rail-proj.tinted.on")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Discussions libres — 2 à traiter" }).querySelector(".rail-count")?.textContent).toBe("2");
   });

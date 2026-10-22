@@ -53,9 +53,17 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
   doc.title = path ? filename : "Editor";
   let editor: StudioEditor | null = null;
   let session: ReturnType<typeof createDocumentSession> | null = null;
-  const setState = (kind: string, message: string): void => {
-    state.className = kind;
+  // EDIT-20 : un seul langage d'état — gris pour la routine (point de 6 px
+  // pour « Modifié », « Enregistré » qui s'efface), couleur d'erreur pour
+  // les échecs, jamais de vert ni de jaune.
+  const FAILURE = /échec|impossible|refusé|arrêtée|injoignable|indisponible|non enregistré|a échoué|conflit/i;
+  let fadeTimer: number | null = null;
+  const at = (): string => new Date().toLocaleTimeString("fr-CA", {hour: "2-digit", minute: "2-digit"});
+  const setState = (kind: string, message: string, fade = false): void => {
+    if (fadeTimer !== null) { win.clearTimeout(fadeTimer); fadeTimer = null; }
+    state.className = kind === "saved" && FAILURE.test(message) ? "conflict" : kind;
     state.textContent = message;
+    if (fade) fadeTimer = win.setTimeout(() => { state.classList.add("fade"); fadeTimer = null; }, 1500);
   };
   const wrap = createEditorWrapController({
     getEditor: () => editor,
@@ -146,20 +154,20 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
           addRecentStudioFile(path, win.localStorage);
           wrap.refresh();
           csv.activate();
-          setState("saved", "saved");
+          setState("saved", "");
         } else if (event.kind === "saved") {
-          setState("saved", `saved ${new Date().toLocaleTimeString()}`);
+          setState("saved", `Enregistré à ${at()}`, true);
           if (event.previousText !== null && event.previousText !== event.snapshot.text) {
             diff.push(event.previousText, event.snapshot.text, {source: "user-save", status: "applied"});
           }
         } else if (event.kind === "external-reload") {
-          setState("saved", `version de l'agent rechargée ${new Date().toLocaleTimeString()}`);
+          setState("saved", `Version de l'agent rechargée à ${at()}`);
           if (event.previousText !== event.snapshot.text) {
             diff.push(event.previousText, event.snapshot.text, {source: "external-reload", status: "applied"});
           }
           csv.onDocumentChanged();
         } else if (event.kind === "external-merge") {
-          setState("dirty", "version de l'agent fusionnée avec tes retouches");
+          setState("dirty", "Version de l'agent fusionnée avec tes retouches");
           if (event.previousText !== event.text) {
             diff.push(event.previousText, event.text, {source: "external-merge", status: "applied"});
           }
@@ -196,7 +204,7 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
       if (change?.origin !== "setValue") {
         ensureSession().markDirty();
         drafts.noteChange();
-        setState("dirty", "modified");
+        setState("dirty", "Modifié");
       }
     });
     const selectionActions = createCodeSelectionActions(editor, path || "", doc, win);

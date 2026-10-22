@@ -1,0 +1,33 @@
+/* Toasts (Sonner) dans le modèle des surfaces élevées (PRIM-09) : fond
+ * overlay, AUCUNE bordure, ombre --elevation-overlay, rayon 10, mouvement au
+ * tempo de l'app (150 ms, jamais les 400 ms de Sonner), croix DANS la carte,
+ * à droite, visible au survol ou au focus. Chargé avec le chunk des toasts. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  border: 0;
+  box-shadow: var(--elevation-overlay);
+  padding: 12px 36px 12px 16px;
+  font: 400 var(--fs-body-s)/1.5 var(--ui-font);
+  transition-property: transform, opacity, height, box-shadow;
+  transition-duration: var(--motion-panel);
+  transition-timing-function: var(--ease-out);
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-title] { font-weight: 500; }
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-description] { color: var(--text-muted); }
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-icon] { color: var(--text-muted); }
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] {
+  left: auto; right: 8px; top: 8px; transform: none;
+  width: 20px; height: 20px; border: 0; border-radius: var(--radius-control);
+  background: transparent; color: var(--text-muted);
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out);
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"]:is(:hover, :focus-within) [data-close-button] { opacity: 1; }
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover {
+  background: var(--surface-hover); border: 0; color: var(--text-primary);
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button]:focus-visible {
+  opacity: 1; box-shadow: none;
+  outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toaster] [data-sonner-toast][data-styled="true"] { transition-duration: 0ms; }
+}

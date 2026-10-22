@@ -8,6 +8,7 @@ import { Popover, PopoverTitle } from "../shadcn/popover";
 import { Separator } from "../shadcn/separator";
 import { MenuPanelContent, MenuPanelItem } from "../ui/MenuPanel";
 import { IconButton, RowButton } from "../ui";
+import { NoneIcon } from "../icons";
 
 export type ProjMetaLite = { color?: string; label?: string };
 export type ProjectStyleAnchor = { x: number; y: number } | Element;
@@ -117,7 +118,7 @@ export function ProjectStyleMenu(props: {
           aria-pressed={!meta?.color}
           onClick={() => onSetMeta(root, { ...meta, color: undefined })}
         >
-          /
+          <NoneIcon size={14} />
         </RowButton>
       </div>
       <div className="project-context-label">{t("project.menu-icon")}</div>
@@ -147,7 +148,7 @@ export function ProjectStyleMenu(props: {
             onClose();
           }}
         >
-          ∅
+          <NoneIcon size={14} />
         </RowButton>
       </div>
       <label className="project-context-label" htmlFor="project-icon-letters">{t("project.menu-letters")}</label>

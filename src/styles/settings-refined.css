@@ -11,40 +11,49 @@
   background: var(--settings-rail); border: 0; gap: 0; overflow-y: auto;
   -webkit-app-region: no-drag;
 }
-.set-identity { display: flex; align-items: flex-start; justify-content: space-between; padding: 0 6px 24px 12px; }
-.set-identity strong { display: block; font-size: calc(var(--fs-title) * 17 / 15); font-weight: 500; letter-spacing: -.012em; }
+.set-identity { display: flex; align-items: flex-start; justify-content: space-between; padding: 0 12px 24px; }
+.set-identity strong { display: block; font-size: var(--fs-xl); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
 .set-identity span { display: block; margin-top: 4px; color: var(--text-muted); font-size: var(--settings-small); }
 .settings-refined .set-close { width: 32px; min-width: 32px; height: 32px; padding: 0; color: var(--text-muted); border-radius: var(--radius-control); }
-.set-close svg { width: 15px; height: 15px; }
-/* la recherche des Réglages est le SearchField commun (A5, SET-13) */
+.set-close svg { width: var(--icon-m); height: var(--icon-m); }
+/* Croix de la feuille modale : coin haut droit, comme les autres dialogues (SET-24). */
+.settings-page.embedded { position: relative; }
+.set-close-corner { position: absolute; top: 12px; right: 12px; z-index: 2; }
+.settings-refined .set-close-corner .set-close { width: 28px; min-width: 28px; height: 28px; }
+/* la recherche des Réglages est le SearchField commun (A5, SET-13) ;
+   gouttière unique de 12 px dans le rail (SET-08) : icônes à 28, textes à 56 */
 .set-search { flex: none; min-width: 0; }
+.settings-refined .set-search .ui-search-icon { left: 12px; }
+.settings-refined .set-search .ui-search-input { padding-left: 32px; }
 .settings-refined .set-nav nav { display: grid; gap: 4px; margin-top: 20px; }
 .settings-refined .set-nav-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 38px; padding: var(--pad-y, 6px) 12px; border-radius: var(--radius-control); font-size: var(--settings-label); font-weight: 400; }
 .settings-refined .set-nav-item svg { width: 16px; height: 16px; stroke-width: 1.5; flex: none; color: var(--text-muted); }
 .settings-refined .set-nav-item.on svg { color: var(--text-secondary); }
-.set-nav-footer { margin-top: auto; padding: 36px 8px 0; }
-.set-nav-footer > span { display: block; max-width: 150px; color: var(--text-muted); font-size: var(--settings-meta); line-height: 1.55; }
-.settings-refined .set-restore { display: flex; gap: 8px; justify-content: flex-start; min-height: 36px; padding: 6px 0; margin-top: 8px; background: transparent; border: 0; border-radius: var(--radius-control); font-size: var(--settings-meta); font-weight: 400; white-space: normal; text-align: left; }
+.set-nav-footer { margin-top: auto; padding: 36px 12px 0; }
+.set-nav-footer > span { display: block; max-width: 150px; color: var(--text-muted); font-size: var(--settings-meta); line-height: 1.5; }
+.settings-refined .set-restore { display: flex; gap: 12px; justify-content: flex-start; min-height: 36px; padding: 6px 12px; margin: 8px -12px 0; background: transparent; border: 0; border-radius: var(--radius-control); font-size: var(--settings-meta); font-weight: 400; white-space: normal; text-align: left; }
 .set-restore svg { width: 13px; height: 13px; }
-.settings-page.settings-refined:is(.embedded, :not(.embedded)) .set-body {
-  min-width: 0; min-height: 0; flex: 1; max-width: none; padding: 32px 44px 36px;
+.settings-page.settings-refined .set-body {
+  min-width: 0; min-height: 0; flex: 1; max-width: none; padding: 24px 32px;
   overscroll-behavior: contain; scrollbar-gutter: stable;
 }
+.settings-page.settings-refined.narrow .set-body { padding: 20px 24px; }
 .settings-refined .set-body > h1, .settings-refined .set-headline h1, .settings-refined .set-search-results h1 {
-  font-size: max(22px, calc(var(--ui-base-size, 15px) * 1.45)); font-weight: 500; line-height: 1.3; letter-spacing: -.012em; margin-bottom: 6px;
+  font-size: var(--fs-display); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; margin-bottom: 4px;
 }
-.settings-refined .set-sub { font-size: var(--settings-small); line-height: 1.55; margin-bottom: 24px; color: var(--text-muted); }
-.settings-refined .set-group { margin-bottom: 24px; }
-.settings-refined .set-group-label { margin: 0 0 6px; font-size: var(--settings-label); font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-secondary); }
+.settings-refined .set-sub { font-size: var(--settings-small); line-height: 1.5; margin-bottom: 24px; color: var(--text-muted); }
+.settings-refined .set-group { margin-bottom: 32px; }
+/* UN intitulé de groupe (SET-03) : 12/500 --text-muted, 8 px en dessous ;
+   les h2 de section (Modèles) prennent le même traitement */
+.settings-refined .set-group-label, .settings-refined .set-body h2 { margin: 0 0 8px; font-size: var(--settings-small); font-weight: 500; line-height: 1.3; letter-spacing: 0; text-transform: none; color: var(--text-muted); }
 .settings-refined .set-card { border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; }
-.settings-refined .set-row { min-height: 62px; gap: 20px; padding: calc(7px + var(--pad-y, 6px)) 0; }
+.settings-refined .set-row { min-height: 48px; gap: 20px; padding: 12px 0; }
 .settings-refined .set-row-txt { min-width: 0; }
 .settings-refined .set-row-title { font-size: var(--settings-label); font-weight: 400; }
 .settings-refined .set-row-desc { max-width: 360px; font-size: var(--settings-small); line-height: 1.5; margin-top: 4px; overflow-wrap: anywhere; }
 .settings-refined .set-row-ctl { flex-wrap: wrap; justify-content: flex-end; min-width: 0; max-width: 58%; gap: 8px; }
 .settings-refined .set-row-ctl > .custom-select { max-width: 100%; }
-.settings-refined .set-row .custom-select-trigger { min-height: var(--control-height); width: auto; background: color-mix(in srgb, var(--text-primary) 3%, transparent); border-color: transparent; box-shadow: none; font-size: var(--settings-small); }
-.settings-refined .set-row .custom-select-trigger:hover { background: var(--surface-inset); }
+.settings-refined .set-row .custom-select-trigger { min-height: var(--control-height); width: auto; border-color: transparent; box-shadow: none; font-size: var(--settings-small); }
 .settings-refined .custom-select-menu { max-width: min(300px, var(--available-width)); font-size: var(--settings-small); }
 .settings-refined .set-text { width: 250px; max-width: 100%; border-color: transparent; border-radius: var(--radius-control); background: var(--surface-raised); box-shadow: none; font-size: var(--settings-label); }
 .settings-refined .set-val { min-width: 42px; width: auto; font-size: var(--settings-small); font-variant-numeric: tabular-nums; }
@@ -66,13 +75,12 @@
 .settings-refined .set-consignes-list { flex-direction: row; flex-wrap: wrap; gap: 4px; width: 100%; }
 .settings-refined .set-consignes-item { max-width: 240px; min-height: 36px; font-size: var(--settings-small); border-radius: var(--radius-control); font-weight: 400; }
 .settings-refined .set-consignes-form { width: 100%; }
-.settings-refined .set-consignes-textarea { font-family: var(--font-chrome); font-size: var(--settings-label); line-height: 1.7; background: var(--surface-raised); border-color: transparent; }
+.settings-refined .set-consignes-textarea { font-family: var(--font-chrome); font-size: var(--settings-label); line-height: var(--lh-prose); background: var(--surface-raised); border-color: transparent; }
 .settings-refined .set-consignes-form [data-slot="input"] { background: var(--surface-raised); border-color: transparent; box-shadow: none; font-size: var(--fs-body); }
 .settings-refined .set-consignes-field-header { flex-wrap: wrap; }
 .settings-refined .set-empty { color: var(--text-muted); font-size: var(--settings-small); }
-.settings-refined .set-body h2 { font-size: var(--settings-label); font-weight: 500; }
-.settings-refined .set-sub ~ .set-sub { text-transform: none; letter-spacing: 0; font-size: var(--settings-small); }
-.settings-refined .mg-table th { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.settings-refined .set-sub ~ .set-sub { margin: 4px 0 16px; text-transform: none; letter-spacing: 0; font-size: var(--settings-small); }
+.settings-refined .mg-table th { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: var(--settings-meta); }
 .settings-refined .mg-row--default, .settings-refined .mg-card--default { box-shadow: none; }
 .settings-refined .mg-cards { padding: 0; gap: 16px; }
 .settings-refined .mg-card { border: 0; border-bottom: 1px solid var(--border-subtle); border-radius: 0; padding: 12px 0; background: transparent; }
@@ -125,3 +133,16 @@
   .settings-refined .set-consignes-item { max-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .settings-refined [data-search-match] { animation: none; } }
+
+/* Suppression (SET-16) : discrète au repos, rouge d'erreur au survol et au focus. */
+.settings-refined .set-destructive:hover:not(:disabled),
+.settings-refined .set-destructive:focus-visible { color: var(--status-error); }
+
+/* Chargement d'une section (SET-18) : géométrie réservée, statique, apparition
+   retardée comme l'accueil (aucun scintillement si la section arrive vite). */
+.set-skeleton { display: flex; flex-direction: column; gap: 12px; padding-top: 4px;
+  animation: set-skeleton-in var(--motion-fast) var(--ease-out) 350ms both; }
+.set-skeleton > span { display: block; height: 48px; border-radius: var(--radius-control); background: var(--surface-inset); }
+.set-skeleton > .set-skeleton-title { width: 40%; height: 20px; margin-bottom: 12px; }
+@keyframes set-skeleton-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .set-skeleton { animation: none; } }

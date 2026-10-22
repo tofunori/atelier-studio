@@ -341,7 +341,9 @@ export function ComposerControls(p: {
               : 200_000)
     : 200_000;
   const contextPct = p.usage ? Math.min(100, Math.round((p.usage.context / contextWindow) * 100)) : 0;
-  const contextRadius = 6.5;
+  // Jauge de contexte en camembert (CHAT-19 / TRANS-15) : un cercle-piste
+  // visible et un secteur plein, jamais l'arc ouvert d'un spinner.
+  const contextRadius = 2.75;
   const contextCircumference = 2 * Math.PI * contextRadius;
   const contextWindowLabel = contextWindow >= 1_000_000
     ? `${(contextWindow / 1_000_000).toFixed(contextWindow % 1_000_000 === 0 ? 0 : 1)}M`
@@ -481,13 +483,13 @@ export function ComposerControls(p: {
                     aria-expanded={ctxPopOpen}
                     aria-haspopup="dialog"
                   >
-                    <svg className="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-                      <circle cx="9" cy="9" r={contextRadius} fill="none" stroke="var(--bg-ctl)" strokeWidth="2.4" />
-                      <circle cx="9" cy="9" r={contextRadius} fill="none"
+                    <svg className="ctx-ring" data-icon-stroke="keep" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                      <circle cx="7" cy="7" r="6.25" fill="none" stroke="var(--border-default)" strokeWidth="1.5" />
+                      <circle cx="7" cy="7" r={contextRadius} fill="none"
                         stroke={contextRingStroke(contextPct)}
-                        strokeWidth="2.4" strokeLinecap="round"
-                        strokeDasharray={`${(contextPct / 100) * contextCircumference} ${contextCircumference}`}
-                        transform="rotate(-90 9 9)" />
+                        strokeWidth={contextRadius * 2}
+                        strokeDasharray={`${(Math.max(contextPct, 4) / 100) * contextCircumference} ${contextCircumference}`}
+                        transform="rotate(-90 7 7)" />
                     </svg>
                   </RowButton>
                 }

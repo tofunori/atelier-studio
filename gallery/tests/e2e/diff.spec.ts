@@ -231,7 +231,7 @@ for (const kind of ['code', 'latex']) {
       await page.goto(reviewUrl);
       await expect.poll(() => page.locator('html').getAttribute('data-diff-ready'), {timeout: 15000}).toBe('true');
       await expect(page.locator('#diffHost .cm-editor')).toBeVisible();
-      await expect(page.locator('#summary')).toContainText('1 file changed');
+      await expect(page.locator('#summary')).toContainText('1 fichier modifié');
       await expect(page.locator('#additions')).not.toHaveText('+0');
       await expect(page.locator('#deletions')).not.toHaveText('−0');
       await expect(page.locator('#diffHost .cm-content')).toContainText(kind === 'latex' ? 'Observations révisées' : '"agent"');

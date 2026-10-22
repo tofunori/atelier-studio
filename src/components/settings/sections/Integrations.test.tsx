@@ -150,7 +150,7 @@ describe("Intégrations — section", () => {
 
   it("serveur déconnecté : bandeau, et rien ne part", () => {
     renderUi(<Integrations {...props({ ws: null })} />);
-    expect(screen.getByText(/Sidecar déconnecté/)).toBeTruthy();
+    expect(screen.getByText(/Connexion à Atelier perdue/)).toBeTruthy();
     fireEvent.change(field("Hôte du NAS"), { target: { value: "nas" } });
     expect(saveButton().disabled).toBe(true);
   });

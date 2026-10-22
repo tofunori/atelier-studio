@@ -3,7 +3,7 @@
 // projet, et la liste des souvenirs à relire, corriger ou effacer. Le
 // magasin vit côté Rust ; tout passe par `requete` (messages ws memory*).
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Plus, Trash2 } from "lucide-react";
+import { Download, Pencil, Plus, Trash2 } from "lucide-react";
 import type { SectionProps } from "../shared";
 import type { Settings } from "../../../lib/settings";
 import { t } from "../../../lib/i18n";
@@ -11,7 +11,7 @@ import {
   cibleParDefaut, demanderMemoire, libelleOrigine, messageErreur, nomDeProjet,
   type ProjetClaudeScience, type ReponseMemoire, type Souvenir,
 } from "../../../lib/memoire";
-import { Button, IconButton, InlineNotice, Select } from "../../ui";
+import { Button, EmptyState, IconButton, InlineNotice, Select } from "../../ui";
 import { Group, Row, Toggle } from "../primitives";
 import { Input } from "../../shadcn/input";
 import { Textarea } from "../../shadcn/textarea";
@@ -31,8 +31,11 @@ const depuisMenu = (v: string) => (v === GLOBAL ? "" : v);
 
 export type Requete = (type: string, payload?: Record<string, unknown>) => Promise<ReponseMemoire>;
 
+const DATE_COURTE = new Intl.DateTimeFormat("fr-CA", { day: "numeric", month: "short", year: "numeric" });
+/** « 12 oct. 2026 » plutôt que l'ISO brut ; l'ISO reste en infobulle. */
 function dateCourte(iso: string) {
-  return iso.slice(0, 10);
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) ? DATE_COURTE.format(d) : iso.slice(0, 10);
 }
 
 export function Memoire(p: {
@@ -136,8 +139,8 @@ export function Memoire(p: {
             <EditeurSouvenir texte={edition.text} onTexte={(text) => setEdition({ id: null, text })}
               onEnregistrer={enregistrer} onAnnuler={() => setEdition(null)} />
           )}
-          <p className="memoire-total">{t("memoire.count", { n: total })}</p>
-          {items.length === 0 && !edition && <p className="set-empty">{t("memoire.empty")}</p>}
+          <p className="memoire-total">{t(total === 1 ? "memoire.count-one" : "memoire.count", { n: total })}</p>
+          {items.length === 0 && !edition && <EmptyState className="ui-empty--inline" title={t("memoire.empty")} />}
           <ul className="memoire-items">
             {items.map((m) => (
               <li key={m.id} className="memoire-item">
@@ -150,13 +153,15 @@ export function Memoire(p: {
                       <p className="memoire-item-texte">{m.text}</p>
                       <p className="memoire-item-meta">
                         <span>{libelleOrigine(m.origin)}</span>
-                        <span className="memoire-item-date">{dateCourte(m.createdAt)}</span>
+                        <span className="memoire-item-date" title={m.createdAt}>{dateCourte(m.createdAt)}</span>
                         {filtre === TOUS && <span>{nomDeProjet(m.projectRoot)}</span>}
                         {m.edited && <span>{t("memoire.edited")}</span>}
                       </p>
                     </div>
                     <div className="memoire-item-actions">
-                      <Button variant="ghost" onClick={() => setEdition({ id: m.id, text: m.text })}>{t("memoire.edit")}</Button>
+                      <IconButton label={t("memoire.edit")} onClick={() => setEdition({ id: m.id, text: m.text })}>
+                        <Pencil size={14} aria-hidden="true" />
+                      </IconButton>
                       <IconButton label={t("memoire.delete")} onClick={() => void effacer(m.id)}>
                         <Trash2 size={14} aria-hidden="true" />
                       </IconButton>

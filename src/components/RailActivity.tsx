@@ -32,7 +32,7 @@ export type ActivityItem = {
 function ring(ratio: number | null, state: ActivityItem["state"]) {
   const circumference = 2 * Math.PI * 15;
   const stroke = state === "failed"
-    ? "color-mix(in srgb, var(--u-hot, #e06c75) 60%, transparent)"
+    ? "color-mix(in srgb, var(--status-error) 60%, transparent)"
     : state === "done"
       ? "color-mix(in srgb, var(--status-success) 60%, transparent)"
       : "var(--accent)";

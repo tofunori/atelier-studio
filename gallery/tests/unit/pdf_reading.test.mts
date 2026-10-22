@@ -247,7 +247,8 @@ test("contrat css : tailles du système, transitions ≤ 200 ms, aucune couleur 
   // documentée du système de design en portent.
   for (const line of css.split("\n")) {
     if (!line.includes("rgba(")) continue;
-    assert.ok(/^\s*--read-[a-z-]+:rgba\(/.test(line) || line.includes("box-shadow:0 4px 16px rgba(0,0,0,.25)"),
+    assert.ok(/^\s*--read-[a-z-]+:rgba\(/.test(line) || line.includes("box-shadow:0 4px 16px rgba(0,0,0,.25)")
+      || line.includes("box-shadow:var(--elevation-overlay,0 4px 16px rgba(0,0,0,.25))"),
       "rgba en dur hors variable de teinte / ombre du système : " + line.trim());
   }
   // légendes et notes ne passent pas sous 13 px quand le corps est à 13

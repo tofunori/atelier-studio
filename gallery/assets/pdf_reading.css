@@ -12,7 +12,8 @@ body.read-mode #reading{display:block}
   --read-hit-bg:rgba(120,170,255,.14);
   margin:0 auto; padding:24px 20px 80px; max-width:var(--read-width);
   font:400 var(--read-fs)/var(--read-lh) var(--read-font); color:var(--txt);
-  transition:max-width 150ms ease, font-size 150ms ease;
+  /* PDF-10 : aucune animation de mise en page (le reflow sautait) ; la
+     position de lecture est recalée par setPref */
 }
 #reading.serif{--read-font:"Iowan Old Style","Palatino","Georgia",serif}
 #reading h1,#reading h2,#reading h3{font-weight:600;letter-spacing:-0.01em;line-height:1.3;margin:1.6em 0 .6em}
@@ -33,7 +34,8 @@ body.read-mode #reading{display:block}
 body.pdf-invert #reading figure canvas{filter:invert(1) hue-rotate(180deg)}
 #reading .skeleton{height:12px;margin:0 0 12px;border-radius:6px;background:var(--card2);opacity:.6}
 #reading .skeleton.w60{width:60%}
-#reading .err{color:var(--destructive, var(--fg));padding:20px 0}
+/* PDF-17 : une analyse impossible n'est pas une alarme : texte secondaire */
+#reading .err{color:var(--muted);padding:20px 0}
 /* Dans la colonne, une marque est du texte EN FLUX : elle ne doit hériter ni
    du position:absolute ni du mix-blend-mode:multiply de la règle des pages
    (.pg .pdfhl dans pdf_viewer.html) — revue plan 078 T6 fix 1, constat n°1. */
@@ -54,22 +56,26 @@ body.pdf-invert #reading figure canvas{filter:invert(1) hue-rotate(180deg)}
    suffit : elle n'a qu'à dominer la colonne, pas l'en-tête (z-index:10). */
 #readBar{
   display:none;position:sticky;top:var(--read-top, 48px);z-index:3;gap:8px;align-items:center;
-  padding:8px 12px;margin:0 0 16px;border-radius:10px;background:var(--popover,var(--card));box-shadow:0 4px 16px rgba(0,0,0,.25);
+  padding:4px 8px;margin:0 0 16px;border-radius:10px;background:var(--surface-overlay,var(--popover,var(--card)));box-shadow:var(--elevation-overlay,0 4px 16px rgba(0,0,0,.25));
   font:400 12px/1.5 var(--ui-font);color:var(--fg);
 }
 body.read-mode #readBar{display:flex}
+/* PDF-11 : chaque groupe s'annonce par une icône et se sépare du suivant
+   par un filet de 16 px ; chaque valeur porte son libellé en infobulle */
 #readBar .grp{display:flex;align-items:center;gap:4px}
+#readBar .grp + .grp{padding-left:8px;border-left:1px solid var(--border)}
+#readBar .grp .ico{flex:none;margin:0 4px;color:var(--muted)}
 #readBar .grp span{font-variant-numeric:tabular-nums;min-width:24px;text-align:center}
-#readBar button{min-width:24px;height:24px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--fg);font:500 12px/1 var(--ui-font);cursor:pointer;transition:background 120ms ease}
+#readBar button{min-width:24px;height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--fg);font:500 12px/1 var(--ui-font);font-variant-numeric:tabular-nums;cursor:pointer;transition:background 120ms ease}
 /* PDF-04 : le survol (6 %) et la valeur choisie (12 %) ne
    se confondent plus — --card2 sur --popover ne faisait que 1,05:1 en sombre */
-#readBar button:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}
+#readBar button:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 6%,transparent)}
 #readBar button[aria-pressed="true"]{background:color-mix(in srgb,var(--txt) 12%,transparent);color:var(--txt)}
 #readBar button:disabled{opacity:.4;pointer-events:none}
 @media (prefers-reduced-motion:reduce){#reading,#readBar button{transition:none}}
 
 /* Outils liés à la géométrie des pages : sans page à l'écran, ils n'ont pas
    de cible en mode lecture — capture de zone et note libre sont éteintes. */
-body.read-mode #pdftools #areaBtn,
-body.read-mode #pdftools [data-t="note"],
+body.read-mode .pdf-mark-tools #areaBtn,
+body.read-mode .pdf-mark-tools [data-tool="note"],
 body.read-mode .pdf-mark-tools [data-t="erase"]{opacity:.4;pointer-events:none}

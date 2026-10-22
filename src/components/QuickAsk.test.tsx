@@ -148,7 +148,7 @@ describe("rendu des réponses", () => {
         },
       }));
     });
-    expect(container.textContent).toContain("⚠ Provider error 400: invalid reasoning value: 'xhigh'");
+    expect(container.querySelector(".qa-msg-error")?.textContent).toContain("Provider error 400: invalid reasoning value: 'xhigh'");
     // et la fenêtre est prête pour une nouvelle question
     fireEvent.change(input, { target: { value: "encore" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -166,7 +166,7 @@ describe("rendu des réponses", () => {
         detail: { qaId, event: { kind: "done", ok: false, result: "" } },
       }));
     });
-    expect(container.querySelector(".qa-msg.assistant")?.textContent).toContain("⚠");
+    expect(container.querySelector(".qa-msg.assistant .qa-msg-error")).not.toBeNull();
   });
 
   it("rend les maths que le modèle écrit en \\[...\\], comme le chat", async () => {

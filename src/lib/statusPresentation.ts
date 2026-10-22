@@ -42,7 +42,8 @@ const TONES: Record<UiStatusKind, BadgeStatus> = {
   warning: "warning",
   error: "error",
   interrupted: "warning",
-  disconnected: "error",
+  // Une coupure se dit en avertissement partout (GAP-20).
+  disconnected: "warning",
 };
 
 export function presentStatus(input: {
