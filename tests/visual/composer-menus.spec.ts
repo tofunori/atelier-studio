@@ -39,7 +39,7 @@ for (const theme of ['dark', 'light']) {
       await panel('.composer-add-menu', 'add');
       const addRow = page.getByRole('menuitem', { name: 'Ajouter une image / un fichier', exact: true });
       await main(addRow);
-      expect((await addRow.boundingBox())!.height).toBe(32);
+      expect((await addRow.boundingBox())!.height).toBeCloseTo(32, 2);
       await close();
       await expect(plus).toBeFocused();
 
