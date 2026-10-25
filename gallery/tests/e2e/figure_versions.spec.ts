@@ -148,7 +148,7 @@ test('top-bar Gallery icon closes the open figure and returns to the grid',async
   await page.evaluate(async()=>{lbList=([{rel:'grid.png',name:'grid.png',ext:'png'}] as unknown as typeof lbList);await lbShow(0);await lbVersionReady;});
   await expect(page.locator('#lb')).toHaveClass(/\bshow\b/);
   // Seule la fenêtre hôte commande le retour : un message d'ailleurs est ignoré.
-  await page.evaluate(()=>{const f=document.createElement('iframe');document.body.append(f);f.contentWindow.eval("parent.postMessage({type:'atelier-gallery-grid'},'*')");});
+  await page.evaluate(()=>{const f=document.createElement('iframe');document.body.append(f);window.dispatchEvent(new MessageEvent('message',{data:{type:'atelier-gallery-grid'},source:f.contentWindow}));});
   await page.waitForTimeout(100);
   await expect(page.locator('#lb')).toHaveClass(/\bshow\b/);
   await page.evaluate(()=>window.postMessage({type:'atelier-gallery-grid'},'*'));
