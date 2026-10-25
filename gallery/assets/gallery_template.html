@@ -2654,6 +2654,15 @@ window.addEventListener('message',e=>{
   requestAnimationFrame(lbFitImage);
 });
 window.addEventListener('pagehide',()=>{lbHostRequest(false);lbViewportRequest(false);});
+// Icône Galerie de la barre de l'app : revenir à la grille. La galerie est
+// déjà l'onglet actif quand une figure y est ouverte, donc changer d'onglet
+// ne fermait rien (Thierry 2026-10-25). lbClose garde la confirmation des
+// annotations non enregistrées.
+window.addEventListener('message',e=>{
+  if(e.source!==window.top||e.data?.type!=='atelier-gallery-grid')return;
+  cmpClose();
+  if(lb().classList.contains('show'))void lbClose();
+});
 function lbFitImage(){
   const stage=(document.getElementById('lbViewport')                  ),img=(document.getElementById('lbImg')                    ),wrap=(document.getElementById('lbWrap')                  );
   if(!lb().classList.contains('show')||!img.naturalWidth||!stage.clientHeight)return;

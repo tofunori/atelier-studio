@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { galleryViewport, installGalleryFullscreen } from "./galleryFullscreen";
+import { galleryViewport, installGalleryFullscreen, showGalleryGrid } from "./galleryFullscreen";
 
 describe("gallery fullscreen bridge", () => {
   let cleanup: () => void;
@@ -82,5 +82,26 @@ describe("gallery fullscreen bridge", () => {
     send(el);
     expect(el.hasAttribute("popover")).toBe(false);
     expect(el.className).toBe("atelier");
+  });
+});
+
+describe("showGalleryGrid", () => {
+  afterEach(() => { document.body.replaceChildren(); });
+  it("asks every gallery frame, at its own origin, to return to the grid", () => {
+    const frames = [18790, 18791].map((port) => {
+      const el = document.createElement("iframe");
+      el.src = `http://127.0.0.1:${port}/?embedded=atelier`;
+      el.dataset.atelierRole = "gallery";
+      document.body.append(el);
+      return el;
+    });
+    const other = document.createElement("iframe");
+    other.src = "http://127.0.0.1:18792/.fig_thumbs/pdf_viewer.html";
+    document.body.append(other);
+    const posts = [...frames, other].map((el) => vi.spyOn(el.contentWindow!, "postMessage").mockImplementation(() => {}));
+    showGalleryGrid();
+    expect(posts[0]).toHaveBeenCalledWith({ type: "atelier-gallery-grid" }, "http://127.0.0.1:18790");
+    expect(posts[1]).toHaveBeenCalledWith({ type: "atelier-gallery-grid" }, "http://127.0.0.1:18791");
+    expect(posts[2]).not.toHaveBeenCalled();
   });
 });
