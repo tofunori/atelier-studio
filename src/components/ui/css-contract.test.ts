@@ -1171,8 +1171,8 @@ describe("contrat lot 2 (socle)", () => {
     expect(shared).toMatch(/(^|\})\s*::-webkit-scrollbar\s*\{\s*width:\s*var\(--scrollbar-size\);\s*height:\s*var\(--scrollbar-size\)/);
     expect(shared).toMatch(/::-webkit-scrollbar-thumb\s*\{[^}]*var\(--scroll-thumb\)/);
     expect(shared.match(/--scrollbar-size:/g)).toHaveLength(1);
-    // barre de la fenêtre (galerie en iframe) : WKWebView peint du blanc sous
-    // une piste transparente ; elle prend le fond de la page, comme le chat
+    // barre de la fenêtre (galerie en iframe) : sous une piste transparente,
+    // WebKit montre ce qui est derrière le cadre ; elle prend le fond de la page
     expect(shared).toMatch(/:where\(html,\s*body\)::-webkit-scrollbar-track,\s*:where\(html,\s*body\)::-webkit-scrollbar-corner\s*\{\s*background:\s*var\(--bg,\s*Canvas\)/);
     expect(shared).toMatch(/:root\s*\{[^}]*scrollbar-color:[^;}]*var\(--scroll-thumb\)\s+var\(--bg,\s*Canvas\)/);
     expect(shared).toMatch(/(^|\})\s*body\s*\{\s*scrollbar-color:[^;}]*var\(--scroll-thumb\)\s+transparent/);

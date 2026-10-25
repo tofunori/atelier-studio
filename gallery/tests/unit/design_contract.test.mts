@@ -286,8 +286,8 @@ test("une seule barre de défilement : chargée partout, jamais redimensionnée"
 });
 
 // La galerie défile à la racine de son iframe : sous une piste transparente,
-// WKWebView peint le fond de base du cadre (blanc), d'où une bande blanche à
-// droite de la grille en thème sombre. La piste de la fenêtre est peinte du
+// WebKit laisse voir ce qui est derrière le cadre, pas le fond de html ; d'où
+// une bande blanche à droite de la grille en thème sombre. La piste de la fenêtre est peinte du
 // fond de la page, et aucune page ne la remet transparente.
 test("barre de la fenêtre : piste peinte du fond de la page, jamais blanche", () => {
   const shared = read("assets/scrollbars.css");

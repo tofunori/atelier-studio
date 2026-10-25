@@ -34,10 +34,10 @@ body{scrollbar-color:var(--atelier-scrollbar-color,var(--scroll-thumb) transpare
     background:var(--bg,#1e2124);
   }
   /* Barre de la fenêtre (galerie, visionneuses et éditeurs en iframe) :
-     WKWebView peint sous sa piste le fond de base du cadre, blanc, et non le
-     fond de html comme pour une zone intérieure. Une piste transparente
-     laissait donc une bande blanche en thème sombre. Elle prend le fond de
-     la page, comme la barre du chat. */
+     sous sa piste, WebKit ne peint pas le fond de html (contrairement à une
+     zone intérieure) mais laisse voir ce qui est derrière le cadre. Une piste
+     transparente y a montré une bande blanche en thème sombre. Elle prend le
+     fond de la page, comme la barre du chat. */
   :where(html,body)::-webkit-scrollbar-track,
   :where(html,body)::-webkit-scrollbar-corner{background:var(--bg,Canvas)}
 }
