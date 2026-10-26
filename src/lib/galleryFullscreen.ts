@@ -108,3 +108,9 @@ export function installGalleryFullscreen(nonce: string, onChange: (active: boole
     window.removeEventListener("keydown", keydown, true);
   };
 }
+
+/** Top-bar Gallery icon: every gallery frame closes its viewer and shows the grid. */
+export function showGalleryGrid() {
+  for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]'))
+    frame.contentWindow?.postMessage({ type: "atelier-gallery-grid" }, new URL(frame.src, location.href).origin);
+}
