@@ -100,22 +100,30 @@
   </span>
   <span id="state"></span>
   <button id="helpBtn" title="Raccourcis clavier" style="display:none">?</button>
-  <div id="morePop" style="display:none">
-    <button type="button" data-act="console">Console de compilation</button>
-    <button type="button" data-act="autocompile">Compilation automatique</button>
-    <button type="button" data-act="comments">Commentaires</button>
-    <button type="button" data-act="poppdf">Ouvrir le PDF dans un onglet</button>
-    <button type="button" data-act="save">Sauvegarder <em>&#8984;S</em></button>
-    <button type="button" data-act="open">Ouvrir un fichier&hellip;</button>
-    <button type="button" data-act="rewrap">Reformater les lignes du paragraphe <em>&#8997;Q</em></button>
-    <button type="button" data-act="rewrapall">Reformater les lignes du document <em>&#8679;&#8997;Q</em></button>
-    <button type="button" data-act="autorewrap">Reformatage auto (&#8984;S) : <span id="moreAutoRw"></span></button>
-    <button type="button" data-act="outline">Plan du document <em>&#8984;&#8679;O</em></button>
-    <button type="button" data-act="find">Rechercher <em>&#8984;F</em></button>
-    <button type="button" data-act="read">Vue lecture (rendu seul)</button>
-    <button type="button" data-act="visual">Éditeur visuel : <span id="moreVisualVal"></span></button>
-    <button type="button" data-act="wrap">Retour à la ligne : <span id="moreWrapVal"></span></button>
-    <button type="button" data-act="help">Raccourcis clavier</button>
+  <div id="morePop" style="display:none" role="menu" aria-label="Plus d'actions">
+    <div class="mp-head">Fichier</div>
+    <button type="button" role="menuitem" data-act="save">Sauvegarder <em>&#8984;S</em></button>
+    <button type="button" role="menuitem" data-act="open">Ouvrir un fichier&hellip;</button>
+    <button type="button" role="menuitem" data-act="poppdf">Ouvrir le PDF dans un onglet</button>
+    <div class="mp-sep" role="separator"></div>
+    <div class="mp-head">Compilation</div>
+    <button type="button" role="menuitem" data-act="console">Console de compilation</button>
+    <button type="button" role="menuitemcheckbox" aria-checked="false" data-act="autocompile">Compilation automatique <svg class="mck" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+    <div class="mp-sep" role="separator"></div>
+    <div class="mp-head">Mise en forme</div>
+    <button type="button" role="menuitem" data-act="rewrap">Reformater le paragraphe <em>&#8997;Q</em></button>
+    <button type="button" role="menuitem" data-act="rewrapall">Reformater le document <em>&#8679;&#8997;Q</em></button>
+    <button type="button" role="menuitemcheckbox" aria-checked="false" data-act="autorewrap">Reformater à l'enregistrement <span id="moreAutoRw" class="vh"></span><svg class="mck" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+    <button type="button" role="menuitem" data-act="wrap">Retour à la ligne <span id="moreWrapVal" class="mval"></span></button>
+    <div class="mp-sep" role="separator"></div>
+    <div class="mp-head">Affichage</div>
+    <button type="button" role="menuitem" data-act="outline">Plan du document <em>&#8984;&#8679;O</em></button>
+    <button type="button" role="menuitem" data-act="find">Rechercher <em>&#8984;F</em></button>
+    <button type="button" role="menuitem" data-act="comments">Commentaires</button>
+    <button type="button" role="menuitem" data-act="read">Vue lecture</button>
+    <button type="button" role="menuitemcheckbox" aria-checked="false" data-act="visual">Éditeur visuel <span id="moreVisualVal" class="vh"></span><svg class="mck" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+    <div class="mp-sep" role="separator"></div>
+    <button type="button" role="menuitem" data-act="help">Raccourcis clavier</button>
   </div>
 </header>
 <div id="helpPop">
@@ -127,8 +135,8 @@
 </div>
 <div id="texcPop"><div class="tc-quote"></div><textarea placeholder="Ton commentaire…"></textarea>
 <div class="tc-colors">
-<button class="sw-amber" data-color="amber" title="Ambre" aria-label="Ambre"></button>
-<button class="sw-red" data-color="red" title="Rouge" aria-label="Rouge"></button>
+<button class="sw-amber" data-color="amber" title="Jaune" aria-label="Jaune"></button>
+<button class="sw-red" data-color="red" title="Rose" aria-label="Rose"></button>
 <button class="sw-blue" data-color="blue" title="Bleu" aria-label="Bleu"></button>
 <button class="sw-green" data-color="green" title="Vert" aria-label="Vert"></button>
 <button class="sw-purple" data-color="purple" title="Violet" aria-label="Violet"></button>

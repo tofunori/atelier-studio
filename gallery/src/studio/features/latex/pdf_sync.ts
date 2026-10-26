@@ -220,7 +220,10 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       for (const path of candidates) {
         const item = doc.createElement("div"); item.dataset.act = "pdfvariant"; item.dataset.pdfPath = path;
         item.setAttribute("role", "menuitemradio"); item.setAttribute("aria-checked", String(path === pdfPath)); item.tabIndex = 0;
-        item.textContent = `${path === pdfPath ? "✓ " : ""}${path}`; item.title = "Afficher ce PDF compilé";
+        const label = doc.createElement("span"); label.textContent = path; item.appendChild(label);
+        // ✓ SVG à droite, comme dans tous les menus (EDIT-18).
+        item.insertAdjacentHTML("beforeend", '<svg class="mck" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>');
+        item.title = "Afficher ce PDF compilé";
         item.onclick = () => {options.selectPdf?.(path); void loadPdf();};
         item.onkeydown = event => {if (event.key === "Enter" || event.key === " ") {event.preventDefault(); item.click();}};
         pdfVariants.appendChild(item);

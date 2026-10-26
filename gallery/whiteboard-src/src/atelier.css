@@ -1,0 +1,79 @@
+/* Tableau blanc sur les jetons d'Atelier (GAP-02).
+   Le pont atelier_theme.js pose les jetons et data-atelier-theme sur la
+   racine ; tldraw reçoit le color-scheme (App.tsx). Les surcharges ne valent
+   que sous un thème d'Atelier : hors de l'app, tldraw garde ses couleurs. */
+:root[data-atelier-theme] .tl-container.tl-theme__light,
+:root[data-atelier-theme] .tl-container.tl-theme__dark {
+  --color-background: var(--surface-canvas, var(--surface-app, var(--bg)));
+  --color-low: var(--surface-inset, var(--card2));
+  --color-low-border: var(--border-subtle, var(--border));
+  --color-divider: var(--border-subtle, var(--border));
+  --color-panel: var(--surface-overlay, var(--card));
+  --color-panel-contrast: var(--surface-raised, var(--card));
+  --color-panel-overlay: color-mix(in srgb, var(--surface-overlay, var(--card)) 82%, transparent);
+  --color-panel-transparent: color-mix(in srgb, var(--surface-overlay, var(--card)) 0%, transparent);
+  --color-overlay: var(--scrim, rgba(0, 0, 0, .25));
+  --color-text: var(--text-primary, var(--txt));
+  --color-text-0: var(--text-primary, var(--txt));
+  --color-text-1: var(--text-secondary, var(--fg));
+  --color-text-3: var(--text-muted, var(--muted));
+  /* sélection et outil actif : l'accent d'Atelier, pas le bleu tldraw */
+  --color-primary: var(--accent, #e77f3e);
+  --color-selected: var(--accent, #e77f3e);
+  --color-selected-contrast: var(--text-on-accent, var(--surface-app));
+  --color-selection-stroke: var(--accent, #e77f3e);
+  --color-selection-fill: color-mix(in srgb, var(--accent, #e77f3e) 14%, transparent);
+  --color-focus: var(--focus-ring-color, var(--accent, #e77f3e));
+  /* rayons 6 (contrôles) / 10 (panneaux, menus) ; ombre douce, sans liseré */
+  --radius-1: 6px;
+  --radius-2: 6px;
+  --radius-3: 10px;
+  --radius-4: 10px;
+  --shadow-1: var(--elev-soft, 0 2px 10px rgba(0, 0, 0, .14), 0 1px 3px rgba(0, 0, 0, .10));
+  --shadow-2: var(--elevation-overlay, 0 4px 16px rgba(0, 0, 0, .25));
+  --shadow-3: var(--elevation-overlay, 0 4px 16px rgba(0, 0, 0, .25));
+  --shadow-4: var(--elevation-overlay, 0 4px 16px rgba(0, 0, 0, .25));
+  --font-body: var(--ui-font, -apple-system, BlinkMacSystemFont, sans-serif);
+  font-family: var(--ui-font, -apple-system, BlinkMacSystemFont, sans-serif);
+}
+/* Outil actif : fond d'encre à 12 % (repère des barres d'Atelier), jamais un
+   aplat plein ni du blanc dans le bouton */
+:root[data-atelier-theme] .tlui-button__tool::after { border-radius: 6px; }
+:root[data-atelier-theme] .tlui-button__tool[aria-pressed='true'],
+:root[data-atelier-theme] .tlui-button__tool[aria-pressed='true']:not(:disabled, :focus-visible):active {
+  color: var(--text-primary, var(--txt));
+}
+:root[data-atelier-theme] .tlui-button__tool[aria-pressed='true']:not(:disabled)::after {
+  background: color-mix(in srgb, var(--text-primary, var(--txt)) 12%, transparent);
+}
+
+/* Statut (GAP-05) : capsule sobre au lieu d'un bandeau rouge plein */
+.wb-notice {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 1000; display: flex; align-items: center; gap: 8px; box-sizing: border-box;
+  max-width: min(480px, calc(100vw - 32px)); padding: 4px 12px;
+  background: var(--surface-overlay, var(--card, #24282d));
+  color: var(--text-secondary, var(--fg, #b9bec4));
+  border-radius: 999px; box-shadow: var(--elevation-overlay, 0 4px 16px rgba(0, 0, 0, .25));
+  font: 400 12px/1.5 var(--ui-font, -apple-system, BlinkMacSystemFont, sans-serif);
+  animation: wb-in 140ms var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+.wb-notice.error { border-radius: 10px; padding: 8px 8px 8px 12px; align-items: flex-start; }
+.wb-notice .wb-text { flex: 1 1 auto; min-width: 0; }
+.wb-notice .wb-spin { width: 12px; height: 12px; flex: none; color: var(--text-muted, var(--muted, #90969d)); animation: wb-spin var(--motion-spin, .9s) linear infinite; }
+.wb-notice .wb-dot { width: 6px; height: 6px; margin-top: 7px; flex: none; border-radius: 999px; background: var(--status-error, #e06c75); }
+.wb-notice .wb-act {
+  flex: none; height: 24px; padding: 0 8px; border: 0; border-radius: 6px; cursor: pointer;
+  background: var(--fill-primary, var(--border-default, var(--border-strong, #43474c)));
+  color: var(--on-fill-primary, var(--text-primary, var(--txt, #dadee3)));
+  font: 500 12px/1 var(--ui-font, -apple-system, BlinkMacSystemFont, sans-serif);
+  transition: background 120ms var(--ease-out, ease-out);
+}
+.wb-notice .wb-act:hover { background: var(--fill-primary-hover, var(--fill-primary, #43474c)); }
+.wb-notice .wb-act:focus-visible { outline: var(--focus-ring-width, 1px) solid var(--focus-ring-color, var(--accent)); outline-offset: var(--focus-ring-offset, 1px); }
+@keyframes wb-in { from { opacity: 0; transform: translate(-50%, 4px); } }
+@keyframes wb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .wb-notice, .wb-notice .wb-spin { animation: none; }
+  .wb-notice .wb-act { transition: none; }
+}

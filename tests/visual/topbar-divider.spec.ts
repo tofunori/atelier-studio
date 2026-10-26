@@ -29,7 +29,7 @@ test('toolbar follows divider, sidebar and layout changes without an extra chat 
   await page.getByRole('button', { name: 'Sidebar', exact: true }).click();
   await expectAligned(page);
   await page.locator('.project-chat-tabs > button').last().click();
-  await page.getByRole('menuitem', { name: 'Données Copernicus', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Données Copernicus', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Données Copernicus', exact: true })).toHaveAttribute('aria-current', 'page');
   await page.setViewportSize({ width: 1000, height: 850 });
   await expectAligned(page);
@@ -62,7 +62,7 @@ test('chat tabs can be pinned, closed and reopened without native title labels',
   await page.getByRole('menuitem',{name:/^(Pin tab|Épingler l’onglet)$/}).click();
   await expect(page.locator('.project-chat-tab-wrap.is-pinned')).toHaveCount(1);
   await page.locator('.project-chat-tabs > button').last().click();
-  await page.getByRole('menuitem',{name:'Données Copernicus',exact:true}).click();
+  await page.getByRole('menuitemcheckbox',{name:'Données Copernicus',exact:true}).click();
   const second=page.getByRole('button',{name:'Données Copernicus',exact:true});
   await expect(second).toBeVisible();
   await second.hover();
@@ -77,6 +77,6 @@ test('chat tabs can be pinned, closed and reopened without native title labels',
   await page.locator('.project-chat-tab-close').click();
   await expect(page.locator('.project-chat-tab')).toHaveCount(0);
   await page.locator('.project-chat-tabs > button').last().click();
-  await page.getByRole('menuitem',{name:'Données Copernicus',exact:true}).click();
+  await page.getByRole('menuitemcheckbox',{name:'Données Copernicus',exact:true}).click();
   await expect(second).toHaveAttribute('aria-current','page');
 });

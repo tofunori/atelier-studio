@@ -15,6 +15,7 @@ import {
 import { Button, EmptyState, InlineNotice, RowButton, StatusBadge } from "./ui";
 import { openSetupWelcome, useSetupNeeded } from "../lib/setupEnvironment";
 import "../styles/research-home.css";
+import { FileGlyph } from "./fileGlyphs";
 
 /** Paquet passé d'App à la timeline (via Chat) — modèle dérivé + vrais workflows. */
 export type ResearchHomeBundle = {
@@ -56,35 +57,13 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
+// Le jeu de glyphes partagé (lot 3) : un seul dessin par type dans l'app.
 const KIND_GLYPHS: Record<HomeArtefactKind, ReactElement> = {
-  figure: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <rect x="2" y="3" width="12" height="10" rx="1.5" />
-      <path d="M4.5 10.5l2.5-3 2 2.2L11 7.5l2 3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  document: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <path d="M4 2h5.5L13 5.5V14H4z" strokeLinejoin="round" />
-      <path d="M9.5 2v3.5H13M6 8.5h4M6 11h4" strokeLinecap="round" />
-    </svg>
-  ),
-  code: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 4.5L2.5 8 6 11.5M10 4.5L13.5 8 10 11.5" />
-    </svg>
-  ),
-  data: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <ellipse cx="8" cy="4" rx="5" ry="2" />
-      <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" />
-    </svg>
-  ),
-  other: (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-      <path d="M4 2h5.5L13 5.5V14H4z" strokeLinejoin="round" />
-    </svg>
-  ),
+  figure: <FileGlyph kind="image" />,
+  document: <FileGlyph kind="note" />,
+  code: <FileGlyph kind="code" />,
+  data: <FileGlyph kind="data" />,
+  other: <FileGlyph kind="file" />,
 };
 
 // maps EXHAUSTIVES (le compilateur exige chaque variante — pas de clé i18n
@@ -120,7 +99,7 @@ function ContinueCard(p: { item: HomeContinueItem; onResume: ResearchHomeActions
       <div className="rh-continue">
         <div className="t">{item.title}</div>
         <div className="meta">
-          <span>{item.provider}</span>
+          <span>{providerName(item.provider)}</span>
           <span className="sep">·</span>
           {item.status === "running" ? (
             <StatusBadge status="running">{t("home.status.running")}</StatusBadge>
@@ -128,11 +107,17 @@ function ContinueCard(p: { item: HomeContinueItem; onResume: ResearchHomeActions
             <span>{t(STATUS_KEYS[item.status])}</span>
           )}
           {item.status === "running" && item.runningForMs != null && (
-            <span>{t("home.running-for", { t: fmtDuration(item.runningForMs) })}</span>
+            <>
+              <span className="sep">·</span>
+              <span>{t("home.running-for", { t: fmtDuration(item.runningForMs) })}</span>
+            </>
           )}
           {rel && item.status !== "running" && (
             // date relative jamais seule : l'ISO du record reste accessible
-            <span title={item.updatedAtIso ?? undefined}>{rel}</span>
+            <>
+              <span className="sep">·</span>
+              <span title={item.updatedAtIso ?? undefined}>{rel}</span>
+            </>
           )}
           {item.hasUsage && (
             <>
@@ -167,7 +152,7 @@ function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeAc
         )}
         {p.items.map((it) => {
           if (it.kind === "sidecar") {
-            return <InlineNotice key={it.key} tone="error">{t("home.sidecar-offline")}</InlineNotice>;
+            return <InlineNotice key={it.key} tone="warning">{t("home.sidecar-offline")}</InlineNotice>;
           }
           if (it.kind === "atelier") {
             return (
@@ -186,7 +171,7 @@ function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeAc
                 {it.detail && <span className="d">{it.detail}</span>}
               </span>
               {it.threadId && it.projectRoot && (
-                <Button variant="ghost" onClick={() => p.onResume(it.threadId!, it.projectRoot!)}>
+                <Button onClick={() => p.onResume(it.threadId!, it.projectRoot!)}>
                   {t("home.resume")}
                 </Button>
               )}
@@ -196,6 +181,14 @@ function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeAc
       </div>
     </section>
   );
+}
+
+/** Nom affiché du fournisseur (« Claude », pas l'identifiant brut). */
+const PROVIDER_NAMES: Record<string, string> = {
+  claude: "Claude", codex: "Codex", grok: "Grok", opencode: "OpenCode", kimi: "Kimi",
+};
+function providerName(id: string): string {
+  return PROVIDER_NAMES[id] ?? (id ? id.charAt(0).toUpperCase() + id.slice(1) : id);
 }
 
 export function ResearchHome(p: ResearchHomeBundle) {
@@ -233,12 +226,14 @@ export function ResearchHome(p: ResearchHomeBundle) {
     <section className="rh-section rh-sec-start" aria-label={t("home.start")}>
       <h2>{t("home.start")}</h2>
       <div className="rh-rows">
-        <RowButton className="rh-row" onClick={actions.onNewChat}>
+        {/* Sans conversation, « Nouveau chat » vit déjà dans l'emplacement
+            Continuer (SHELL-17) : pas de doublon ici. */}
+        {(model.loading || model.continueItem) && <RowButton className="rh-row" onClick={actions.onNewChat}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
             <path d="M8 3.5v9M3.5 8h9" />
           </svg>
           <span className="name">{t("action.new-chat")}</span>
-        </RowButton>
+        </RowButton>}
         <RowButton className="rh-row" onClick={actions.onOpenPalette}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
             <circle cx="7" cy="7" r="4" />
@@ -300,7 +295,18 @@ export function ResearchHome(p: ResearchHomeBundle) {
             ) : model.continueItem ? (
               <ContinueCard item={model.continueItem} onResume={actions.onResume} />
             ) : (
-              <p className="rh-hint rh-sec-continue">{t("home.no-threads")}</p>
+              // Projet sans conversation (SHELL-17) : l'emplacement « Continuer »
+              // garde sa géométrie et porte l'action, au lieu d'une phrase grise.
+              <section className="rh-section rh-sec-continue" aria-label={t("home.continue")}>
+                <h2>{t("home.continue")}</h2>
+                <div className="rh-continue is-empty">
+                  <div className="t">{t("home.no-threads")}</div>
+                  <p className="rh-hint">{t("home.no-threads-hint")}</p>
+                  <div className="rh-continue-actions">
+                    <Button variant="primary" onClick={actions.onNewChat}>{t("action.new-chat")}</Button>
+                  </div>
+                </div>
+              </section>
             )}
             {artefacts}
           </div>

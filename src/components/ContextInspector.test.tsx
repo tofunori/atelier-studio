@@ -108,7 +108,7 @@ describe("ContextInspector", () => {
   it("« Ouvrir dans l'Atelier » appelle onOpen avec rel", () => {
     const onOpen = vi.fn();
     render(<ContextInspector {...props({ onOpen })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Ouvrir dans l'Atelier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ouvrir dans l’Atelier" }));
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onOpen).toHaveBeenCalledWith("figures/albedo_trend.png");
   });

@@ -3,25 +3,29 @@
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
        font-family:var(--ui-font);
        font-size:15px;line-height:1.6;display:flex;flex-direction:column}
-  header{background:var(--card);border-bottom:1px solid var(--border);padding:7px 14px;
-         display:flex;gap:10px;align-items:center;font-size:var(--fs-body, 13px);flex-shrink:0}
-  #fname{font-weight:600}
-  header .seg{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0}
-  header .seg button{background:transparent;border:none;border-right:1px solid var(--border);
-         color:var(--muted);padding:0 12px;height:24px;line-height:24px;font-size:var(--fs-body-s, 12px);
-         white-space:nowrap;cursor:pointer;transition:background .12s,color .12s}
-  header .seg button:last-child{border-right:none}
+  /* GAL-06 : barre du visionneur commune — 48 px, boutons fantômes, segment
+     actif = teinte primaire 13 % (GAL-17), icônes SVG, pas de changement de graisse. */
+  header{background:var(--bg);border-bottom:1px solid var(--border);min-height:48px;box-sizing:border-box;padding:8px 16px;
+         display:flex;gap:8px;align-items:center;font-size:var(--fs-body, 13px);flex-shrink:0}
+  #fname{font-weight:500;letter-spacing:-.01em}
+  header .seg{display:flex;gap:2px;padding:2px;border-radius:6px;background:color-mix(in srgb,var(--txt) 4%,transparent);flex-shrink:0}
+  header .seg button{background:transparent;border:none;border-radius:6px;
+         color:var(--muted);padding:0 8px;height:24px;line-height:24px;font-size:var(--fs-body-s, 12px);
+         white-space:nowrap;cursor:pointer;transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
   header .seg button:hover{color:var(--txt)}
-  header .seg button.on{background:var(--border);color:var(--txt)}
-  #state{color:var(--muted);margin-left:4px}
+  header .seg button.on{background:color-mix(in srgb,var(--accent) 13%,transparent);color:var(--accent)}
+  #state{color:var(--muted);margin-left:4px;font-size:var(--fs-body-s, 12px);font-variant-numeric:tabular-nums}
   #state.dirty{color:var(--status-warning,#e0b74a)}
-  #state.saved{color:var(--status-success,#98c379)}
+  #state.saved{color:var(--text-muted,var(--muted))}
   #state.conflict{color:var(--status-error,#e06c75)}
   #hint{margin-left:auto;color:var(--muted);font-size:var(--fs-body-s, 12px)}
-  #clearSel{display:none;background:transparent;border:1px solid var(--border);color:var(--muted);
-            border-radius:6px;height:22px;padding:0 9px;font-size:var(--fs-label, 11px);cursor:pointer;flex-shrink:0}
-  #clearSel.show{display:inline-block}
-  #clearSel:hover{color:var(--txt);border-color:var(--accent)}
+  #clearSel{display:none;align-items:center;gap:4px;background:transparent;border:0;color:var(--muted);
+            border-radius:6px;height:28px;padding:0 8px;font-size:var(--fs-body-s, 12px);cursor:pointer;flex-shrink:0}
+  #clearSel.show{display:inline-flex}
+  #clearSel:hover{color:var(--txt);background:color-mix(in srgb,var(--txt) 6%,transparent)}
+  header svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  .state{display:flex;flex-direction:column;align-items:center;gap:8px;padding:40px 24px;text-align:center}
+  .state span{font-size:var(--fs-body-s, 12px);color:var(--text-muted,var(--muted))}
   #body{flex:1;display:flex;min-height:0}
   #edPane{flex:1;min-width:0;display:none;flex-direction:column;border-right:1px solid var(--border)}
   #edPane.show{display:flex}
@@ -31,8 +35,8 @@
   .cm-editor .cm-gutters{background:var(--code-surface);border-right:1px solid var(--border)}
   .CodeMirror .CodeMirror-selected{background:transparent !important}
   .CodeMirror-focused .CodeMirror-selected{background:transparent !important}
-  .CodeMirror-selectedtext{background:rgba(91,157,255,.45) !important;border-radius:2px}
-  .cm-clsel{background:rgba(91,157,255,.28);border-radius:2px}
+  .CodeMirror-selectedtext{background:var(--cm-selection,color-mix(in srgb,var(--accent) 30%,transparent)) !important;border-radius:2px}
+  .cm-clsel{background:var(--selection-surface,color-mix(in srgb,var(--accent) 20%,transparent));border-radius:2px}
   #prevPane{flex:1;min-width:0;overflow-y:auto;display:none;position:relative}
   #prevPane.show{display:block}
   #wrap{max-width:860px;margin:0 auto;padding:24px 36px 60px}
@@ -47,12 +51,13 @@
   blockquote{margin:0;padding:2px 16px;border-left:3px solid var(--accent);color:var(--muted)}
   img{max-width:100%}
   hr{border:none;border-top:1px solid var(--border)}
-  #err{color:var(--status-error,#e06c75);padding:40px;text-align:center}
-  #annotBtn{background:transparent;border:1px solid var(--border);color:var(--muted);
-            border-radius:6px;height:24px;padding:0 10px;font-size:var(--fs-body-s, 12px);cursor:pointer;
-            flex-shrink:0;transition:background .12s,color .12s}
-  #annotBtn:hover{color:var(--txt);border-color:var(--accent)}
-  #annotBtn.on{background:var(--accent);border-color:var(--accent);color:var(--text-on-accent,#fff)}
+  #err{color:var(--status-error,#e06c75);padding:40px;text-align:center;font-size:var(--fs-body, 13px)}
+  #annotBtn{display:inline-flex;align-items:center;gap:8px;background:transparent;border:0;color:var(--muted);
+            border-radius:6px;height:28px;padding:0 8px;font-size:var(--fs-body-s, 12px);cursor:pointer;
+            flex-shrink:0;transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+  #annotBtn:hover{color:var(--txt);background:color-mix(in srgb,var(--txt) 6%,transparent)}
+  #annotBtn.on{background:color-mix(in srgb,var(--accent) 13%,transparent);color:var(--accent)}
+  @media (prefers-reduced-motion:reduce){header .seg button,#annotBtn{transition:none}}
   #annotOverlay{position:absolute;left:0;top:0;z-index:5;pointer-events:none;background:transparent}
 
   /* ===== thème code « atelier » (surcharge material-darker) ===== */
@@ -75,3 +80,4 @@
 /* Sélection de l'éditeur : couleur du thème par --cm-selection, une seule
    règle ::selection universelle (voir SELECTION_RENDERING, studio_editor.ts). */
 ::selection{background:var(--cm-selection,Highlight)}
+  header button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}

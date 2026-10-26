@@ -61,7 +61,7 @@ export function createLatexConsolePanel(doc: Document, win: Window, compile: () 
     for (const item of [...diagnostics, ...unlocated]) {
       const row = doc.createElement('div'); row.className = 'tl-issue ' + item.severity;
       const text = doc.createElement('span'); text.textContent = item.message; row.append(text);
-      if (item.line) { const link = doc.createElement('button'); link.textContent = `L. ${item.line} ↗`; link.onclick = () => reveal(item.line); row.append(link); }
+      if (item.line) { const link = doc.createElement('button'); link.textContent = `l. ${item.line}`; link.title = `Aller à la ligne ${item.line}`; link.onclick = () => reveal(item.line); row.append(link); }
       issues.append(row);
     }
     if (!issues.children.length) { const empty = doc.createElement('span'); empty.className = 'tl-empty'; empty.textContent = log.ok ? (log.warnings ? 'Avertissement — voir le journal.' : 'Aucun problème.') : rawLog.trim() || 'Échec de compilation — voir le journal.'; issues.append(empty); }

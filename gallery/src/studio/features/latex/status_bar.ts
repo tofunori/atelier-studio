@@ -301,6 +301,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     const enabled = isAutoRewrapEnabled(storage);
     const label = doc.getElementById("moreAutoRw");
     if (label) label.textContent = enabled ? "activé" : "désactivé";
+    morePop.querySelector('[data-act="autorewrap"]')?.setAttribute("aria-checked", String(enabled));
     doc.getElementById("rewrapAllBtn")?.classList.toggle("auto", enabled);
     if (sbRewrap) {
       sbRewrap.textContent = enabled ? "Reformatage : auto" : "Reformatage : manuel";
@@ -331,6 +332,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     sbAutoCompile.textContent = enabled ? "Compilation : auto" : "Compilation : manuelle";
     sbAutoCompile.classList.toggle("on", enabled);
     sbAutoCompile.setAttribute("aria-pressed", String(enabled));
+    morePop.querySelector('[data-act="autocompile"]')?.setAttribute("aria-checked", String(enabled));
   };
   if (sbAutoCompile) {
     sbAutoCompile.style.display = options.extension === "tex" ? "" : "none";
@@ -349,6 +351,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     const enabled = isVisualEditorEnabled(storage);
     const label = doc.getElementById("moreVisualVal");
     if (label) label.textContent = enabled ? "activé" : "désactivé";
+    morePop.querySelector('[data-act="visual"]')?.setAttribute("aria-checked", String(enabled));
     toolbarVisual?.setAttribute("aria-pressed", String(enabled));
   };
   const applyVisualEditor = (): void => {
@@ -401,6 +404,8 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
   morePop.onclick = (event) => {
     event.stopPropagation();
     const action = (event.target as Element | null)?.closest<HTMLElement>("[data-act]")?.dataset.act;
+    // Titres et séparateurs de groupe : le menu reste ouvert.
+    if (!action && !(event.target as Element | null)?.closest("[data-pdf-path]")) return;
     if (action === "console") doc.getElementById("sbCompile")?.click();
     if (action === "autocompile") sbAutoCompile?.click();
     if (action === "comments") doc.getElementById("texcBtn")?.click();

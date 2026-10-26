@@ -6,9 +6,9 @@ import { t } from "../lib/i18n";
 import { composeBrowserBounds } from "../lib/browserBounds";
 import { startSelectionPoll } from "../lib/browserSelectionPoll";
 import { chatButtonState } from "../lib/browserSelectionAffordance";
-import { CloseIcon, RefreshIcon } from "./icons";
+import { CloseIcon, RefreshIcon, StarFilledIcon, StarIcon } from "./icons";
 import { Input } from "./shadcn/input";
-import { Button, IconButton, RowButton } from "./ui";
+import { Button, IconButton, RowButton, showError, showSuccess } from "./ui";
 
 type LocalServer = { port: number; title: string | null };
 type BrowserAddMode = "selection" | "page";
@@ -78,7 +78,7 @@ function makeBrowserTab(seed: Partial<BrowserPaneTab> = {}): BrowserPaneTab {
     label: seed.label && /^embedded-browser-[a-zA-Z0-9_-]{8,96}$/.test(seed.label)
       ? seed.label
       : makeBrowserLabel(id),
-    title: seed.title || "New tab",
+    title: seed.title || t("browser.new-tab"),
     url: seed.url || null,
     input: seed.input || seed.url || "",
   };
@@ -144,6 +144,7 @@ export default function BrowserTab(p: {
   const [servers, setServers] = useState<LocalServer[] | null>(null);
   // épinglage base de connaissances (plan 049 T2) : retour visuel bref
   const [kbFlash, setKbFlash] = useState<"ok" | "err" | null>(null);
+  const kbPendingRef = useRef(false);
   // Sélection dans la webview NATIVE : invisible du DOM hôte — sondée à
   // intervalle court (browserSelectionPoll) tant que la surface est visible.
   // La pilule « Ajouter la sélection » n'existe que pendant une sélection :
@@ -158,6 +159,12 @@ export default function BrowserTab(p: {
     const onKbAdded = (e: Event) => {
       const detail = (e as CustomEvent).detail as { ok?: boolean } | undefined;
       setKbFlash(detail?.ok ? "ok" : "err");
+      // Le résultat se lit aussi dans un toast, pas seulement dans l'infobulle
+      // et une teinte de 2,4 s (GAP-11) — seulement pour l'ajout lancé ici.
+      if (!kbPendingRef.current) return;
+      kbPendingRef.current = false;
+      if (detail?.ok) void showSuccess(t("browser.added-kb"));
+      else void showError(t("browser.add-kb-error"));
     };
     window.addEventListener("kb-source-added", onKbAdded);
     return () => window.removeEventListener("kb-source-added", onKbAdded);
@@ -389,7 +396,8 @@ export default function BrowserTab(p: {
       via: "browser",
       ...(text ? { text } : {}),
     });
-    if (!sent) setKbFlash("err");
+    if (!sent) { setKbFlash("err"); void showError(t("browser.add-kb-error")); }
+    else kbPendingRef.current = true;
   }
 
   function newTab() {
@@ -551,7 +559,7 @@ export default function BrowserTab(p: {
   return (
     <div className="browser-tab" style={{ display: p.visible ? "flex" : "none" }}>
       <div className="browser-chrome" ref={barRef}>
-        <div className="browser-tabs" role="tablist" aria-label="Browser tabs">
+        <div className="browser-tabs" role="tablist" aria-label={t("browser.tabs")}>
           {tabs.map((tab) => (
             <RowButton
               key={tab.id}
@@ -634,7 +642,7 @@ export default function BrowserTab(p: {
             title={activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? t("browser.bookmarked") : t("browser.bookmark")}
             onClick={toggleBookmark}
           >
-            {activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? "★" : "☆"}
+            {activeTab?.url && bookmarks.some((item) => item.url === activeTab.url) ? <StarFilledIcon size={14} /> : <StarIcon size={14} />}
           </IconButton>
           <Input
             className="browser-url"
@@ -650,7 +658,7 @@ export default function BrowserTab(p: {
             <IconButton size="s" className="ghost" label={t("browser.close-home")} title={t("browser.close-home")}
               onClick={() => {
                 invoke("browser_hide", { label: activeTab.label }).catch(() => {});
-                updateTab(activeTab.id, { url: null, input: "", title: "New tab" });
+                updateTab(activeTab.id, { url: null, input: "", title: t("browser.new-tab") });
                 scan();
               }}><CloseIcon /></IconButton>
           )}

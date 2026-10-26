@@ -85,16 +85,14 @@ export function ProjectHeader(p: {
 
   return (
     <header className="pnav-header">
-      {/* identité projet UNE seule fois dans l'app : le crumb de la TopBar.
-          Sans projet actif (pas de crumb), le panneau garde son titre. */}
-      {p.mode === "unscoped" && (
-        <div className="pnav-id">
-          <span className="pnav-id-ico" aria-hidden="true">{icon}</span>
-          <div className="pnav-id-col">
-            <span className="pnav-name">{p.name}</span>
-          </div>
+      {/* identité projet UNE seule fois dans l'app, ici (audit SHELL-04 :
+          la barre du haut n'a plus de crumb) ; le chemin complet en infobulle. */}
+      <div className="pnav-id">
+        <span className="pnav-id-ico" aria-hidden="true">{icon}</span>
+        <div className="pnav-id-col">
+          <span className="pnav-name" title={p.root ?? undefined}>{p.name}</span>
         </div>
-      )}
+      </div>
       <div className="pnav-cta">
         <Button variant="secondary" className="pnav-new" onClick={p.onNew}>
           <span className="pnav-new-ico" aria-hidden="true"><PlusIcon size={12} /></span>

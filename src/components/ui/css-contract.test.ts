@@ -188,6 +188,22 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     );
   });
 
+  // SURF-29 / CHAT-05 : les CSS de composants et de styles échappaient au gel
+  // des hex d'App.css. Toute couleur y passe par un jeton ; seuls tokens.css
+  // (palette source) et les blocs :root portent des hex.
+  it("CSS de composants et de styles : aucun hex brut hors palette", () => {
+    const files = [...componentCssFiles, ...collectFiles(join(root, "styles"), [".css"])]
+      .filter((file) => !/[\\/]tokens\.css$/.test(file));
+    const offenders: string[] = [];
+    for (const file of files) {
+      const body = stripComments(readFileSync(file, "utf8"))
+        .replace(/:root[^{]*\{[^}]*\}/g, "")
+        .replace(/var\(--[\w-]+,\s*#[0-9a-fA-F]{3,8}\)/g, "");
+      for (const m of body.matchAll(/#[0-9a-fA-F]{3,8}\b/g)) offenders.push(`${file.split(/[\\/]/).slice(-2).join("/")} → ${m[0]}`);
+    }
+    expect(offenders, offenders.slice(0, 20).join(" · ")).toEqual([]);
+  });
+
   it("App.css : hex et z-index bruts gelés (sous-multisets — ne peuvent que rétrécir)", () => {
     // hors blocs :root (palette source de vérité), .hljs-* (palette syntaxique)
     // et fallbacks var(--x, #hex)
@@ -324,7 +340,9 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     const popover = shadcnSources.find(([name]) => name === "popover.tsx")![1];
     const title = popover.match(/data-slot="popover-title"[\s\S]*?className\)/)![0];
     expect(title).toContain("tw:m-0");
-    expect(title).toContain("tw:text-[length:var(--fs-body-s)]");
+    // Titre 13 semi-gras au-dessus d'un corps à 12 (lot 3, PRIM-16).
+    expect(title).toContain("tw:text-[length:var(--fs-body)]");
+    expect(title).toContain("tw:font-semibold");
     const desc = popover.match(/data-slot="popover-description"[\s\S]*?className\)/)![0];
     expect(desc).toContain("tw:m-0");
   });
@@ -728,12 +746,12 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(appCss).toMatch(/\.edit-message-textarea\s*\{[^}]*line-height:\s*var\(--chat-lh, 1\.7\)/s);
   });
 
-  it("le bouton de fermeture Mermaid reste transparent dans tous ses états", () => {
+  // GAP-18 : la croix du plein écran suit le bouton-icône standard — transparente
+  // au repos, --bg-ctl au survol, anneau de focus visible au clavier.
+  it("le bouton de fermeture Mermaid suit le bouton-icône standard", () => {
     expect(appCss).toMatch(/\.mermaid-fullscreen-close\s*\{[^}]*background:\s*transparent/s);
-    expect(appCss).toMatch(
-      /\.mermaid-fullscreen-close:hover,\s*\.mermaid-fullscreen-close:focus-visible\s*\{[^}]*background:\s*transparent/s,
-    );
-    expect(appCss).toMatch(/\.mermaid-fullscreen-close:focus-visible\s*\{[^}]*outline:\s*none/s);
+    expect(appCss).toMatch(/\.mermaid-fullscreen-close:hover\s*\{[^}]*background:\s*var\(--bg-ctl\)/s);
+    expect(appCss).toMatch(/\.mermaid-fullscreen-close:focus-visible\s*\{[^}]*outline:\s*var\(--focus-ring-width\)/s);
   });
 
   it("les tabs Atelier restent compacts et neutres, sans accent de marque", () => {
@@ -1171,6 +1189,11 @@ describe("contrat lot 2 (socle)", () => {
     expect(shared).toMatch(/(^|\})\s*::-webkit-scrollbar\s*\{\s*width:\s*var\(--scrollbar-size\);\s*height:\s*var\(--scrollbar-size\)/);
     expect(shared).toMatch(/::-webkit-scrollbar-thumb\s*\{[^}]*var\(--scroll-thumb\)/);
     expect(shared.match(/--scrollbar-size:/g)).toHaveLength(1);
+    // barre de la fenêtre (galerie en iframe) : sous une piste transparente,
+    // WebKit montre ce qui est derrière le cadre ; elle prend le fond de la page
+    expect(shared).toMatch(/:where\(html,\s*body\)::-webkit-scrollbar-track,\s*:where\(html,\s*body\)::-webkit-scrollbar-corner\s*\{\s*background:\s*var\(--bg,\s*Canvas\)/);
+    expect(shared).toMatch(/:root\s*\{[^}]*scrollbar-color:[^;}]*var\(--scroll-thumb\)\s+var\(--bg,\s*Canvas\)/);
+    expect(shared).toMatch(/(^|\})\s*body\s*\{\s*scrollbar-color:[^;}]*var\(--scroll-thumb\)\s+transparent/);
     // le reste de l'app ne peut que MASQUER une barre, jamais la redimensionner
     for (const [name, css] of sourceSheets()) {
       for (const m of css.matchAll(/([^{}]*::-webkit-scrollbar[^{]*)\{([^}]*)\}/g)) {

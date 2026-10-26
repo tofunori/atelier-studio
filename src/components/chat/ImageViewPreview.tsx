@@ -96,16 +96,16 @@ export function ImageViewPreview({ paths, projectRoot, threadId }: { paths: stri
       <Dialog open={expandedIndex !== null} onOpenChange={(open) => { if (!open) setExpandedIndex(null); }}>
         {expandedIndex !== null && expandedUrl ? (
           <DialogContent showCloseButton={false} aria-label={t("context.expanded-image-preview")}
-            overlayClassName="tw:bg-black/75 tw:backdrop-blur-none"
+            overlayClassName="tw:bg-[var(--scrim-viewer)] tw:backdrop-blur-none"
             className="tw:inset-0 tw:top-0 tw:left-0 tw:isolate tw:flex tw:h-dvh tw:w-dvw tw:max-w-none tw:translate-x-0 tw:translate-y-0 tw:flex-col tw:items-center tw:justify-center tw:gap-2 tw:rounded-none tw:bg-transparent tw:p-4 tw:ring-0 tw:shadow-none"
             style={{ inset: 0, top: 0, left: 0, width: "100dvw", height: "100dvh", maxWidth: "none", transform: "none", translate: "none" }}>
             <DialogTitle className="tw:sr-only">{t("context.expanded-image-preview")}</DialogTitle>
             <DialogClose className="tw:absolute tw:inset-0 tw:z-0 tw:cursor-default tw:border-0 tw:bg-transparent tw:p-0" aria-hidden="true" tabIndex={-1} />
-            <DialogClose render={<Button type="button" size="icon-sm" variant="ghost" className="tw:absolute tw:top-2 tw:right-2 tw:z-20 tw:bg-black/35 tw:text-white tw:hover:bg-black/55 tw:hover:text-white" />}>
+            <DialogClose render={<Button type="button" size="icon-sm" variant="ghost" className="tw:absolute tw:top-2 tw:right-2 tw:z-20 tw:bg-[var(--surface-overlay)] tw:text-[var(--text-secondary)] tw:shadow-[var(--elevation-overlay)] tw:hover:bg-[var(--bg-ctl)] tw:hover:text-[var(--text-primary)]" />}>
               <XIcon /><span className="tw:sr-only">{t("context.close-image-preview")}</span>
             </DialogClose>
             <div className="tw:pointer-events-none tw:relative tw:z-10 tw:flex tw:max-h-full tw:max-w-full tw:flex-col tw:items-center tw:justify-center tw:gap-2">
-              <img src={expandedUrl} alt={expandedName} className="tw:max-h-[86vh] tw:max-w-[92vw] tw:select-none tw:rounded-lg tw:border tw:border-border tw:bg-popover tw:object-contain tw:shadow-2xl" draggable={false} />
+              <img src={expandedUrl} alt={expandedName} className="tw:max-h-[86vh] tw:max-w-[92vw] tw:select-none tw:rounded-[var(--radius-surface)] tw:bg-popover tw:object-contain tw:shadow-[var(--elevation-overlay)]" draggable={false} />
               <Button type="button" size="sm" variant="secondary"
                 className="tw:pointer-events-auto" disabled={!projectRoot || !threadId || saving || saved}
                 onClick={() => void saveImage(expandedPath)}>
@@ -114,13 +114,13 @@ export function ImageViewPreview({ paths, projectRoot, threadId }: { paths: stri
               </Button>
               {!projectRoot ? <p role="status">Ce chat n’est associé à aucun projet.</p> : null}
               {saveError ? <p role="alert" className="tw:pointer-events-auto tw:text-destructive">{saveError}</p> : null}
-              <p className="tw:m-0 tw:max-w-[92vw] tw:truncate tw:text-center tw:text-xs tw:text-white/75">
+              <p className="tw:m-0 tw:max-w-[92vw] tw:truncate tw:text-center tw:text-xs tw:text-[var(--on-scrim-viewer)]">
                 {expandedName}{stablePaths.length > 1 ? ` (${expandedIndex + 1}/${stablePaths.length})` : ""}
               </p>
             </div>
             {stablePaths.length > 1 ? <>
-              <Button type="button" size="icon" variant="ghost" className="tw:fixed tw:left-2 tw:top-1/2 tw:z-[calc(var(--z-modal)+1)] tw:-translate-y-1/2 tw:text-white/90 tw:hover:bg-white/10 tw:hover:text-white tw:sm:left-6" aria-label={t("context.previous-image")} onClick={() => setExpandedIndex((expandedIndex - 1 + stablePaths.length) % stablePaths.length)}><ChevronLeftIcon /></Button>
-              <Button type="button" size="icon" variant="ghost" className="tw:fixed tw:right-2 tw:top-1/2 tw:z-[calc(var(--z-modal)+1)] tw:-translate-y-1/2 tw:text-white/90 tw:hover:bg-white/10 tw:hover:text-white tw:sm:right-6" aria-label={t("context.next-image")} onClick={() => setExpandedIndex((expandedIndex + 1) % stablePaths.length)}><ChevronRightIcon /></Button>
+              <Button type="button" size="icon" variant="ghost" className="tw:fixed tw:left-2 tw:top-1/2 tw:z-[calc(var(--z-modal)+1)] tw:-translate-y-1/2 tw:text-[var(--on-scrim-viewer)] tw:hover:bg-[var(--on-scrim-viewer-hover)] tw:hover:text-[var(--on-scrim-viewer)] tw:sm:left-6" aria-label={t("context.previous-image")} onClick={() => setExpandedIndex((expandedIndex - 1 + stablePaths.length) % stablePaths.length)}><ChevronLeftIcon /></Button>
+              <Button type="button" size="icon" variant="ghost" className="tw:fixed tw:right-2 tw:top-1/2 tw:z-[calc(var(--z-modal)+1)] tw:-translate-y-1/2 tw:text-[var(--on-scrim-viewer)] tw:hover:bg-[var(--on-scrim-viewer-hover)] tw:hover:text-[var(--on-scrim-viewer)] tw:sm:right-6" aria-label={t("context.next-image")} onClick={() => setExpandedIndex((expandedIndex + 1) % stablePaths.length)}><ChevronRightIcon /></Button>
             </> : null}
           </DialogContent>
         ) : null}

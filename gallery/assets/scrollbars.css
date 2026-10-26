@@ -2,7 +2,8 @@
    Modèle : la barre fine du panneau du chat. Une seule règle globale pour
    l'app React, la galerie, les éditeurs, le lecteur PDF et le terminal :
    pouce de --scrollbar-size (6 px) en pilule, --mark-neutral au repos,
-   --mark-neutral-strong au survol, piste transparente. Aucune autre largeur
+   --mark-neutral-strong au survol, piste transparente (sauf celle de la
+   fenêtre, peinte du fond de la page). Aucune autre largeur
    n'est permise ailleurs (css-contract.test.ts, design_contract.test.mts) ;
    une zone peut seulement MASQUER sa barre (display:none / scrollbar-width:none).
    Les replis couvrent les pages de la galerie, qui reçoivent --text-disabled
@@ -12,8 +13,11 @@
   --scroll-thumb:var(--mark-neutral,var(--text-disabled,var(--faint,#62666c)));
   --scroll-thumb-hover:var(--mark-neutral-strong,var(--text-muted,var(--muted,#90969d)));
   scrollbar-width:var(--atelier-scrollbar-width,thin);
-  scrollbar-color:var(--atelier-scrollbar-color,var(--scroll-thumb) transparent);
+  scrollbar-color:var(--atelier-scrollbar-color,var(--scroll-thumb) var(--bg,Canvas));
 }
+/* La piste de la fenêtre reprend le fond de la page (voir plus bas) ; les
+   zones intérieures, qui héritent de body, gardent la piste transparente. */
+body{scrollbar-color:var(--atelier-scrollbar-color,var(--scroll-thumb) transparent)}
 ::-webkit-scrollbar{width:var(--scrollbar-size);height:var(--scrollbar-size)}
 ::-webkit-scrollbar-track{background:var(--scroll-track,transparent)}
 ::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:999px}
@@ -29,6 +33,13 @@
   :where(.messages,.exp-tree,#right,#pickerList,.side-scroll,.queued-turns,.anno-editor-src,.thinking-body)::-webkit-scrollbar-track{
     background:var(--bg,#1e2124);
   }
+  /* Barre de la fenêtre (galerie, visionneuses et éditeurs en iframe) :
+     sous sa piste, WebKit ne peint pas le fond de html (contrairement à une
+     zone intérieure) mais laisse voir ce qui est derrière le cadre. Une piste
+     transparente y a montré une bande blanche en thème sombre. Elle prend le
+     fond de la page, comme la barre du chat. */
+  :where(html,body)::-webkit-scrollbar-track,
+  :where(html,body)::-webkit-scrollbar-corner{background:var(--bg,Canvas)}
 }
 
 /* CodeMirror : même barre, mais une voie stable (scrollbar-gutter) pour que

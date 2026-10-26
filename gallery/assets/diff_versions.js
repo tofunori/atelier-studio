@@ -168,16 +168,19 @@ const createDiffVersions = function(opts){
   if(!document.getElementById("dvStyles")){
     const st = document.createElement("style");
     st.id = "dvStyles";
+    // EDIT-12 : les couleurs du diff dérivent des états du thème (clair et
+    // sombre) ; le ruban les relit par getComputedStyle.
     st.textContent =
-      ".dAddM{background:rgba(52,201,142,.18);border-bottom:1px solid rgba(52,201,142,.6);border-radius:2px}" +
-      ".dDelW{background:rgba(224,108,117,.14);color:#e09aa0;text-decoration:line-through;border-radius:2px;padding:0 1px}" +
+      ":root{--dv-add:var(--status-success,#34c98e);--dv-del:var(--status-error,#e06c75);--dv-mod:var(--status-warning,#e8b34a)}" +
+      ".dAddM{background:color-mix(in srgb,var(--dv-add) 18%,transparent);border-bottom:1px solid color-mix(in srgb,var(--dv-add) 60%,transparent);border-radius:2px}" +
+      ".dDelW{background:color-mix(in srgb,var(--dv-del) 14%,transparent);color:color-mix(in srgb,var(--dv-del) 70%,var(--txt,#dbdfe5));text-decoration:line-through;border-radius:2px;padding:0 1px}" +
       ".CodeMirror .dv-git{width:6px}" +
       ".dv-cell{position:relative;width:6px;height:1.55em}" +
       ".dv-bar{position:absolute;left:1px;top:0;bottom:-2px;width:3px;cursor:pointer}" +
-      ".dv-bar.a{background:rgba(52,201,142,.85)}" +
-      ".dv-bar.m{background:rgba(232,179,74,.85)}" +
+      ".dv-bar.a{background:color-mix(in srgb,var(--dv-add) 85%,transparent)}" +
+      ".dv-bar.m{background:color-mix(in srgb,var(--dv-mod) 85%,transparent)}" +
       ".dv-del{position:absolute;left:0;top:-5px;width:0;height:0;cursor:pointer;" +
-        "border-left:7px solid rgba(224,108,117,.95);border-top:5px solid transparent;border-bottom:5px solid transparent}" +
+        "border-left:7px solid var(--dv-del);border-top:5px solid transparent;border-bottom:5px solid transparent}" +
       ".dv-del.eof{top:auto;bottom:-4px}" +
       // Instrument de versions stable : commit | ‹ ±N › | restaurer | historique.
       // Les contrôles sont désactivés, jamais retirés, pour supprimer tout
@@ -186,13 +189,13 @@ const createDiffVersions = function(opts){
       // comparaison : la géométrie ne bouge donc que sur une action explicite.
       "#dvNav{display:inline-flex;align-items:center;height:24px;overflow:hidden;vertical-align:middle}" +
       "#dvNav .dvNavA{display:inline-flex;align-items:center;justify-content:center;width:22px;height:24px;background:transparent;border:none;color:var(--muted,#8b93a1);cursor:pointer;padding:0}" +
-      "#dvNav .dvNavA:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
+      "#dvNav .dvNavA:hover:not(:disabled){color:var(--txt,#dbdfe5);background:var(--surface-hover,color-mix(in srgb,var(--txt,#dbdfe5) 6%,transparent))}" +
       "#dvNav .dvNavA:disabled{color:color-mix(in srgb,var(--muted,#8b93a1) 42%,transparent);cursor:default;background:none}" +
       // Fanion et pastille git : icône seule, l'infobulle porte le sens.
       "#dvStone,#dvTrack{position:relative;display:inline-flex;align-items:center;justify-content:center;" +
       "width:22px;height:24px;background:transparent;border:none;border-radius:6px;" +
-      "color:var(--muted,#8b93a1);cursor:pointer;padding:0;transition:color 140ms ease,background 140ms ease}" +
-      "#dvStone:hover:not(:disabled),#dvTrack:hover:not(:disabled){color:var(--txt,#dbdfe5);background:rgba(255,255,255,.06)}" +
+      "color:var(--muted,#8b93a1);cursor:pointer;padding:0;transition:color var(--motion-standard,140ms) var(--ease-out,ease-out),background var(--motion-standard,140ms) var(--ease-out,ease-out)}" +
+      "#dvStone:hover:not(:disabled),#dvTrack:hover:not(:disabled){color:var(--txt,#dbdfe5);background:var(--surface-hover,color-mix(in srgb,var(--txt,#dbdfe5) 6%,transparent))}" +
       "#dvStone.on{color:var(--accent,#e8823a)}" +
       "#dvTrack.dot::after{content:\"\";position:absolute;top:3px;right:2px;width:5px;height:5px;" +
       "border-radius:999px;background:var(--accent,#e8823a)}" +
@@ -253,7 +256,7 @@ const createDiffVersions = function(opts){
       ".dvCommitBtn svg{width:13px;height:13px;flex:none}" +
       ".dvCommitBtn:active:not(:disabled){transform:scale(.97)}" +
       ".dvCommitBtn:focus-visible,.dvCommitClose:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}" +
-      ".dvCommitBtn:disabled{cursor:default;opacity:.46}" +
+      ".dvCommitBtn:disabled{cursor:default;opacity:.45}" +
       ".dvCommitAi{min-width:108px;background:transparent;border-color:var(--border-subtle,var(--border));color:var(--text-secondary,var(--txt))}" +
       ".dvCommitAi:hover:not(:disabled){background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent)}" +
       // Action principale pleine, mais jamais à l'encre (2026-10-21 : « pas de
@@ -261,8 +264,11 @@ const createDiffVersions = function(opts){
       ".dvCommitDo{background:var(--fill-primary,var(--border-default,var(--border-strong,var(--border))));color:var(--on-fill-primary,var(--text-primary,var(--txt)));border-color:transparent;transition:background-color var(--motion-fast,120ms) var(--ease-out,ease-out)}" +
       ".dvCommitDo:hover:not(:disabled){background:var(--fill-primary-hover,color-mix(in srgb,var(--fill-primary,var(--border-default,var(--border-strong,var(--border)))) 84%,var(--on-fill-primary,var(--text-primary,var(--txt))) 16%))}" +
       "@media(max-width:430px){.dvCommitHint{display:none}.dvCommitActions{margin-left:auto}}" +
+      // Repère de saut (TRANS-28) : teinte d'accent visible en clair comme en
+      // sombre — 700 ms, exception documentée au plafond (repère, pas transition).
       ".CodeMirror .dv-flash{animation:dvflash 700ms ease-out}" +
-      "@keyframes dvflash{0%{background:rgba(255,255,255,.14)}100%{background:transparent}}";
+      "@keyframes dvflash{0%{background:color-mix(in srgb,var(--accent,#5b9dff) 18%,transparent)}100%{background:transparent}}" +
+      "@media (prefers-reduced-motion:reduce){.CodeMirror .dv-flash{animation:none}}";
     document.head.appendChild(st);
   }
 
@@ -1156,10 +1162,12 @@ const createDiffVersions = function(opts){
     reviewBarWho.className = "dv-rb-who";
     const nav = document.createElement("span");
     nav.className = "dv-rb-nav";
-    reviewBarPrev = btn("dv-rb-icon", icon("m15 18-6-6 6-6"), "Passage précédent", () => gotoChange(changeAt - 1, true));
+    // Passages = flèches haut/bas, comme #diffPrev/#diffNext (⌥↑ ⌥↓) ; les
+    // chevrons gauche/droite restent aux interventions (EDIT-15).
+    reviewBarPrev = btn("dv-rb-icon", icon("m5 12 7-7 7 7M12 19V5"), "Passage précédent", () => gotoChange(changeAt - 1, true));
     reviewBarCount = document.createElement("span");
     reviewBarCount.className = "dv-rb-count";
-    reviewBarNext = btn("dv-rb-icon", icon("m9 18 6-6-6-6"), "Passage suivant", () => gotoChange(changeAt + 1, true));
+    reviewBarNext = btn("dv-rb-icon", icon("M12 5v14m7-7-7 7-7-7"), "Passage suivant", () => gotoChange(changeAt + 1, true));
     nav.append(reviewBarPrev, reviewBarCount, reviewBarNext);
     const sep = document.createElement("span");
     sep.className = "dv-rb-sep";

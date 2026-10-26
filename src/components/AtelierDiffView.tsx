@@ -27,30 +27,32 @@ function diffTheme(compact: boolean) {
   return EditorView.theme({
     "&": {
       height: "100%",
-      color: "var(--text-primary, #d9dde4)",
-      backgroundColor: "var(--bg, #1f2023)",
+      color: "var(--text-primary)",
+      backgroundColor: "var(--bg)",
     },
     ".cm-scroller": {
       fontFamily: "var(--code-font, ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace)",
-      fontSize: compact ? "11px" : "12px",
-      lineHeight: "1.58",
+      // Une taille et un interligne pour tous les diffs (SURF-17).
+      fontSize: "var(--fs-s)",
+      lineHeight: "1.5",
       overflow: "auto",
     },
     ".cm-content": { padding: compact ? "5px 0 10px" : "8px 0 18px" },
     ".cm-line": { padding: "0 12px 0 8px" },
     "&.cm-focused": { outline: "none" },
     ".cm-gutters": {
-      color: "var(--text-muted, #90969d)",
-      backgroundColor: "var(--bg, #1f2023)",
-      borderRight: "1px solid var(--border, #383c43)",
+      color: "var(--text-muted)",
+      backgroundColor: "var(--bg)",
+      borderRight: "1px solid var(--border)",
     },
     ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--text-primary) 3%, transparent)" },
-    "&.cm-merge-a .cm-changedLine, .cm-deletedChunk": { backgroundColor: "rgba(248, 81, 73, .14)" },
-    "&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine": { backgroundColor: "rgba(46, 160, 67, .15)" },
-    "&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText": { backgroundColor: "rgba(248, 81, 73, .28)" },
-    "&.cm-merge-b .cm-changedText": { backgroundColor: "rgba(46, 160, 67, .3)" },
+    // Rouge et vert du thème, comme le diff maison .gds-cell (SURF-17).
+    "&.cm-merge-a .cm-changedLine, .cm-deletedChunk": { backgroundColor: "color-mix(in srgb, var(--status-error) 14%, transparent)" },
+    "&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine": { backgroundColor: "color-mix(in srgb, var(--status-success) 14%, transparent)" },
+    "&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText": { backgroundColor: "color-mix(in srgb, var(--status-error) 28%, transparent)" },
+    "&.cm-merge-b .cm-changedText": { backgroundColor: "color-mix(in srgb, var(--status-success) 28%, transparent)" },
     ".cm-collapsedLines": { color: "var(--text-muted)", borderColor: "var(--border)" },
-  }, { dark: true });
+  }, { dark: document.documentElement.dataset.theme !== "light" });
 }
 
 function extensions(wrap: boolean, compact: boolean, path?: string, original?: string) {

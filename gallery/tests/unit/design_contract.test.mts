@@ -32,6 +32,8 @@ const CHROME_FILES = [
   "assets/pdf_reading.css",
   "assets/docx_studio.css",
   "assets/docx_studio.html",
+  // barre et panneaux React de la galerie (GAL-14)
+  "react-ui/styles.css",
 ];
 
 // Sources TS qui injectent du CSS de chrome (les pages HTML ci-dessus en
@@ -83,6 +85,8 @@ const RADIUS_2PX: Record<string, string[]> = {
   "assets/md_viewer.css": [".CodeMirror-selectedtext", ".cm-clsel"],
   "assets/svg_viewer.html": [".hbox", ".movehi", ".selbox", ".selhandle"],
   "src/browser/diff_versions.ts": [".dAddM", ".dDelW", "#dvNav canvas.dvRib"],
+  // vignettes miniatures des choix de présentation (barres de 8 px)
+  "react-ui/styles.css": [".gallery-mini-grid b", ".gallery-mini-list b"],
 };
 
 interface Rule { file: string; selector: string; body: string }
@@ -140,6 +144,29 @@ test("poids de police : 400 / 500 / 600 uniquement (hors @font-face)", () => {
     for (const v of decls(r.body, /font/)) {
       const w = v.match(/^(?:italic\s+|normal\s+)?(\d{3})\s/);
       if (w && !["400", "500", "600"].includes(w[1])) bad.push(`${where(r)} font:${v}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
+// EDIT-27 : le CSS-en-JS de CodeMirror (EditorView.theme, baseTheme,
+// HighlightStyle) écrit fontWeight, fontSize et borderRadius en camelCase,
+// invisibles pour les analyses kebab-case ci-dessus.
+test("CSS-en-JS : fontWeight, fontSize et borderRadius dans le système", () => {
+  const sizes = (n: number) => [10, 11, 12, 13, 15].includes(n) || (n >= 18 && n <= 34);
+  const bad: string[] = [];
+  for (const file of tsSources()) {
+    const text = stripComments(read(file), true);
+    for (const m of text.matchAll(/fontWeight:\s*["'`](\d+)["'`]/g)) {
+      if (!["400", "500", "600"].includes(m[1])) bad.push(`${file} fontWeight:${m[1]}`);
+    }
+    for (const m of text.matchAll(/fontSize:\s*["'`](\d+(?:\.\d+)?)px/g)) {
+      if (!sizes(Number(m[1]))) bad.push(`${file} fontSize:${m[1]}px`);
+    }
+    for (const m of text.matchAll(/borderRadius:\s*["'`]([^"'`]*)["'`]/g)) {
+      for (const px of m[1].matchAll(/(\d+(?:\.\d+)?)px/g)) {
+        if (![0, 2, 6, 10, 999].includes(Number(px[1]))) bad.push(`${file} borderRadius:${m[1]}`);
+      }
     }
   }
   assert.deepEqual(bad, []);
@@ -283,4 +310,20 @@ test("une seule barre de défilement : chargée partout, jamais redimensionnée"
   }
   assert.deepEqual(bad, []);
   assert.match(read("assets/scrollbars.css"), /--scrollbar-size:6px/);
+});
+
+// La galerie défile à la racine de son iframe : sous une piste transparente,
+// WebKit laisse voir ce qui est derrière le cadre, pas le fond de html ; d'où
+// une bande blanche à droite de la grille en thème sombre. La piste de la fenêtre est peinte du
+// fond de la page, et aucune page ne la remet transparente.
+test("barre de la fenêtre : piste peinte du fond de la page, jamais blanche", () => {
+  const shared = read("assets/scrollbars.css");
+  assert.match(shared, /:where\(html,body\)::-webkit-scrollbar-track,\s*:where\(html,body\)::-webkit-scrollbar-corner\{background:var\(--bg,Canvas\)\}/);
+  assert.match(shared, /:root\{[^}]*scrollbar-color:var\(--atelier-scrollbar-color,var\(--scroll-thumb\) var\(--bg,Canvas\)\)/);
+  const bad: string[] = [];
+  for (const r of ALL_RULES) {
+    if (r.file === "assets/scrollbars.css" || !/(html|body|:root)[^,]*::-webkit-scrollbar-(track|corner)/.test(r.selector)) continue;
+    if (/background[^;]*transparent/.test(r.body)) bad.push(where(r));
+  }
+  assert.deepEqual(bad, []);
 });

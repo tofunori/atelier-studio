@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { t } from "../lib/i18n";
-import { ProviderIcon, ZapIcon } from "./icons";
+import { AlertIcon, ArrowUpRightIcon, CloseIcon, MinusIcon, ProviderIcon, ReplyIcon, ZapIcon } from "./icons";
 import { wsSend } from "../lib/wsBus";
 import { buildQuickAskPrompt, type QaContext } from "../lib/quickAskContext";
 import { normalizeMathDelimiters } from "../lib/markdown";
@@ -18,7 +18,9 @@ import {
   Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger,
 } from "./shadcn/popover";
 
-type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean; context?: QaContext };
+type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean; context?: QaContext; error?: boolean };
+// Les anciens récents enregistrés marquaient l'erreur par un préfixe ⚠.
+const isQaError = (msg: QaMsg) => msg.error === true || msg.text.startsWith("⚠");
 type QaRecent = { qaId: string; ts: number; msgs: QaMsg[] };
 const RECENTS_KEY = "atelier-studio.qaRecents";
 
@@ -362,12 +364,12 @@ export default function QuickAsk({
         }
         if (event.kind === "done" || event.kind === "error") {
           if (last?.streaming) list[list.length - 1] = { ...last, streaming: false };
-          if (event.kind === "error") list.push({ role: "assistant", text: `⚠ ${event.message}` });
+          if (event.kind === "error") list.push({ role: "assistant", text: event.message, error: true });
           // Un turn qui échoue en amont (effort refusé, clé invalide…) ne
           // produit aucun événement `error` : seulement done ok:false avec le
           // détail dans `result`. Sans ce cas, la fenêtre restait muette.
-          else if (event.ok === false && !list[list.length - 1]?.text.startsWith("⚠")) {
-            list.push({ role: "assistant", text: `⚠ ${qaFailureMessage(event.result)}` });
+          else if (event.ok === false && !(list[list.length - 1] && isQaError(list[list.length - 1]))) {
+            list.push({ role: "assistant", text: qaFailureMessage(event.result), error: true });
           }
         }
         return list;
@@ -445,7 +447,7 @@ export default function QuickAsk({
     });
   }
 
-  const lastAnswer = [...msgs].reverse().find((x) => x.role === "assistant" && !x.text.startsWith("⚠"));
+  const lastAnswer = [...msgs].reverse().find((x) => x.role === "assistant" && !isQaError(x));
 
   return (
     <div className={`qa-overlay ${box ? "free" : ""}`} onClick={box ? undefined : close}>
@@ -484,7 +486,7 @@ export default function QuickAsk({
               <path d="M3 4h10M6.5 4V2.8c0-.4.3-.8.8-.8h1.4c.5 0 .8.4.8.8V4M4.5 4l.7 8.4c0 .5.4.8.9.8h3.8c.5 0 .9-.3.9-.8L11.5 4" />
             </svg>
           </IconButton>
-          <IconButton className="qa-min" label={t("qa.minimize")} title={t("qa.minimize")} onClick={onMinimize}>—</IconButton>
+          <IconButton className="qa-min" label={t("qa.minimize")} title={t("qa.minimize")} onClick={onMinimize}><MinusIcon size={12} /></IconButton>
           <Popover modal={false}>
             <PopoverTrigger
               render={
@@ -594,16 +596,18 @@ export default function QuickAsk({
         <div className="qa-body" ref={bodyRef} onMouseUp={onBodyMouseUp}>
           {msgs.length === 0 && <div className="qa-empty">{t("qa.hint")}</div>}
           {msgs.map((msg, i) => (
-            <div key={i} className={`qa-msg ${msg.role}`} data-qa-msg={i}>
-              {msg.role === "assistant" ? (
+            <div key={i} className={`qa-msg ${msg.role}${isQaError(msg) ? " error" : ""}`} data-qa-msg={i}>
+              {msg.role === "assistant" && isQaError(msg) ? (
+                <p className="qa-msg-error" role="alert"><AlertIcon size={12} /><span>{msg.text.replace(/^⚠\s*/, "")}</span></p>
+              ) : msg.role === "assistant" ? (
                 <>
                   <ReactMarkdown remarkPlugins={mdPlugins.remark} rehypePlugins={mdPlugins.rehype}>
                     {normalizeMathDelimiters(msg.text)}
                   </ReactMarkdown>
-                  {!msg.streaming && !msg.text.startsWith("⚠") && (
+                  {!msg.streaming && !isQaError(msg) && (
                     <IconButton className="qa-inject-one" label={t("qa.inject")} title={t("qa.inject")}
                       onClick={() => { onInject(msg.text); onMinimize(); }}>
-                      ↰
+                      <ReplyIcon size={12} />
                     </IconButton>
                   )}
                 </>
@@ -662,7 +666,7 @@ export default function QuickAsk({
                 {ctx.selection}
                 <span className="qa-ctx-src">{qaContextSource(ctx)}</span>
               </span>
-              <IconButton size="s" label={t("action.close")} onClick={() => setCtx(null)}>✕</IconButton>
+              <IconButton size="s" label={t("action.close")} onClick={() => setCtx(null)}><CloseIcon size={12} /></IconButton>
             </div>
           )}
           {images.length > 0 && (
@@ -675,7 +679,7 @@ export default function QuickAsk({
                     size="s"
                     label={t("action.close")}
                     onClick={() => setImages((prev) => prev.filter((x) => x.dataURL !== img.dataURL))}
-                  >✕</IconButton>
+                  ><CloseIcon size={12} /></IconButton>
                 </span>
               ))}
             </div>
@@ -741,14 +745,14 @@ export default function QuickAsk({
               vient justement de s'en servir — on veut pouvoir y revenir par
               ⚡ / ⌥⌘K (signalé 2026-08-31). */}
           <Button variant="ghost" disabled={!lastAnswer} onClick={() => { if (lastAnswer) { onInject(lastAnswer.text); onMinimize(); } }}>
-            ↰ {t("qa.inject")}
+            <ReplyIcon size={12} />{t("qa.inject")}
           </Button>
           <Button variant="ghost" disabled={msgs.length === 0 || busy} onClick={() => {
             saveRecent(qaId, msgs);
             onPromote(qaId, msgs.find((x) => x.role === "user")?.text.slice(0, 40) ?? "Quick Ask");
             onClose();
           }}>
-            ⤴ {t("qa.promote")}
+            <ArrowUpRightIcon size={12} />{t("qa.promote")}
           </Button>
           {promoteErr && <span className="qa-promote-err">{promoteErr}</span>}
           <span className="qa-esc">esc</span>

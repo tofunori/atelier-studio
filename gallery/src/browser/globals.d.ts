@@ -91,6 +91,8 @@ declare global {
   interface HTMLElement {
     __trigger?: HTMLElement;
     _html?: string;
+    _title?: string;
+    _flashTimer?: ReturnType<typeof setTimeout>;
     _order?: HTMLSpanElement[];
     _passageIndex?: ReturnType<typeof AtelierPdfPassage.createIndex>;
     _spec?: unknown;

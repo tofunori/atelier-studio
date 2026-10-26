@@ -23,7 +23,7 @@ export function GalleryHeader(p: { projectName: string | null; onRefresh: () => 
     <SurfaceHeader
       className="atelier-surface-header"
       eyebrow={p.projectName ?? undefined}
-      title={t("atelier.gallery")}
+      title={t("atelier.gallery-title")}
       actions={
         <IconButton label={refresh} title={refresh} size="s" onClick={p.onRefresh}>
           <RefreshIcon />
@@ -40,7 +40,8 @@ export function DocumentHeader(p: { rel: string; onInspect?: (rel: string) => vo
   return (
     <SurfaceHeader
       className="atelier-surface-header"
-      eyebrow={dir || undefined}
+      // chemin : casse d'origine, police code (audit SHELL-21)
+      eyebrow={dir ? <span className="eyebrow-path">{dir}</span> : undefined}
       // nom accessible complet : le chemin projet entier via title natif
       title={<span title={p.rel}>{name}</span>}
       actions={

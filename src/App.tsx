@@ -10,7 +10,7 @@ import {
   isFreeDiscussionThread,
   isLegacyDiscussionThread,
 } from "./lib/discussions";
-import { installGalleryFullscreen } from "./lib/galleryFullscreen";
+import { installGalleryFullscreen, showGalleryGrid } from "./lib/galleryFullscreen";
 import { annotationDisplayText } from "./lib/annotationDisplayText";
 import { normalizeProjectFolders, projectWritableDirectories, resolveAssociatedFile } from "./lib/projectFolders";
 import { lazy } from "react";
@@ -1056,6 +1056,14 @@ export default function App() {
     setActiveSurface(surface);
     setSurfaceRequest((request) => ({ surface, sequence: (request?.sequence ?? 0) + 1 }));
   }, []);
+  // Barre du haut : l'icône Galerie ramène aussi à la grille. switchToSurface
+  // seul ne change rien quand la galerie est déjà l'onglet actif, figure
+  // ouverte (Thierry 2026-10-25) ; ses autres appelants ouvrent souvent une
+  // figure juste après, donc la fermeture ne vit qu'ici.
+  const selectSurfaceFromBar = useCallback((surface: Surface) => {
+    if (surface === "atelier") showGalleryGrid();
+    switchToSurface(surface);
+  }, [switchToSurface]);
   useEffect(() => {
     if (!showAtelier || !surfaceRequest) return;
     window.dispatchEvent(new CustomEvent("switch-surface", { detail: { surface: surfaceRequest.surface } }));
@@ -1947,7 +1955,7 @@ export default function App() {
         const dot = document.getElementById("usage-dot");
         if (dot) {
           dot.style.background = worst == null ? "transparent"
-            : worst >= 85 ? "#e06c75" : worst >= 60 ? "#e0b74a" : "#98c379";
+            : worst >= 85 ? "var(--status-error)" : worst >= 60 ? "var(--status-warning)" : "var(--status-success)";
         }
       }
       if (msg.type === "providerStatus") {
@@ -4278,7 +4286,7 @@ export default function App() {
       showExplorer={showExplorer}
       onToggleAnnots={handleToggleAnnots}
       onToggleExplorer={handleToggleExplorer}
-      onSelectSurface={switchToSurface}
+      onSelectSurface={selectSurfaceFromBar}
       onSelectIde={goToIde}
       ideActive={ideActive}
       tabs={paneTabs}

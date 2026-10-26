@@ -170,7 +170,7 @@ describe("KernelSurface : preuves et suivi", () => {
       id: 32, code: "scatter(s=14)", author: "user", fromCell: 31, purpose: "Tracer la figure",
       fromDiff: { removed: ["scatter(s=9)"], added: ["scatter(s=14)"], changed: 2 },
     }) });
-    expect(screen.getByText("modifiée par toi, d'après [31]")).toBeTruthy();
+    expect(screen.getByText("modifiée par toi, d’après [31]")).toBeTruthy();
     expect(screen.getByText("+ scatter(s=14)")).toBeTruthy();
     expect(screen.getByText("Tes cellules")).toBeTruthy();
   });
@@ -256,7 +256,7 @@ describe("KernelSurface : preuves et suivi", () => {
     expect(sent[sent.length - 1]).toMatchObject({ op: "cancelReplay" });
     emit("kernel-cell", { threadId: "fil", phase: "finished", cell: cell({ id: 2, replay: { at: "2026-10-18T10:05:00Z", status: "differs", detail: "ligne 1" } }) });
     emit("kernel-replay", { threadId: "fil", state: "done", summary: { total: 2, same: 1, files: 0, differs: 1, error: 0, skipped: 0, adopted: false, cancelled: false } });
-    expect(screen.getByText("Rejeu à neuf : 1 sur 2 reproduites · 1 différente(s)")).toBeTruthy();
+    expect(screen.getByText("Rejeu à neuf : 1 sur 2 reproduites · 1 différente")).toBeTruthy();
     expect(screen.getByText("Sortie différente")).toBeTruthy();
   });
 
@@ -264,7 +264,7 @@ describe("KernelSurface : preuves et suivi", () => {
     const req = open();
     emit("kernel-cells", { requestId: req.requestId, threadId: "fil", chain: { checked: 3, brokenAt: 2 }, cells: [cell()],
       status: { ...RUNNING, packages: [{ name: "numpy", version: "2.1.3" }], packagesTotal: 40 } });
-    expect(screen.getByText(/modifié hors d'Atelier à partir de la cellule 2/u)).toBeTruthy();
+    expect(screen.getByText(/modifié hors d’Atelier à partir de la cellule 2/u)).toBeTruthy();
     expect(screen.getByText("· numpy 2.1.3")).toBeTruthy();
     expect(screen.getByText("+39 paquets")).toBeTruthy();
   });

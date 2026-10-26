@@ -1,4 +1,4 @@
-import type {GalleryRow, GalleryColumn, GalleryPresentation, FigureStroke, AnnotationSession, FigureHistory} from "../../contracts/gallery";
+import type {GalleryRow, GalleryColumn, GalleryPresentation, FigureStroke, AnnotationSession, FigureHistory, GalleryExportMode, GalleryExportResult} from "../../contracts/gallery";
 
 (function(){
   try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
@@ -113,7 +113,7 @@ function applyGalleryData(data){
   if(typeof favs!=='undefined'){
     SEED_FAVS.forEach((f)=>favs.add(f));
     saveFavs();
-    (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favorites ('+favs.size+')';
+    (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favoris ('+favs.size+')';
   }
   if(typeof populateFolders==='function') populateFolders();
   if(typeof render==='function') render();
@@ -134,7 +134,7 @@ if(!galleryDataLoaded){
     btn.type='button'; btn.className='csel-btn'; btn.dataset.slot='select-trigger';
     btn.setAttribute('aria-haspopup','listbox'); btn.setAttribute('aria-expanded','false');
     btn.setAttribute('aria-controls',menuId);
-    btn.setAttribute('aria-label',sel.getAttribute('aria-label')||'Choose an option');
+    btn.setAttribute('aria-label',sel.getAttribute('aria-label')||'Choisir une option');
     const sync=()=>{ btn.textContent=sel.options[sel.selectedIndex]?.text ?? ''; };
     sel.insertAdjacentElement('afterend',btn); sync();
     sel.addEventListener('change',sync);
@@ -320,7 +320,7 @@ document.addEventListener('click',e=>{
       setTimeout(()=>{ delete el.dataset.addState; },1200);
     }).catch(()=>{
       hovFlash(el,'ko',1200); delete el.dataset.addState;
-      el.title='Add to chat was not received — click to retry';
+      el.title='L’ajout au chat n’a pas été reçu — cliquer pour réessayer';
     });
   }
 });
@@ -404,7 +404,7 @@ setInterval(async()=>{
     favsBase=next;
     if(JSON.stringify([...favs].sort())===JSON.stringify([...next].sort())) return;
     favs=new Set(next);saveFavs();
-    (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favorites ('+favs.size+')';
+    (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favoris ('+favs.size+')';
     render();
   } catch {}
 },5000);
@@ -416,7 +416,10 @@ let activeCollection = '';
 // --- workflow scientifique : draft → candidate → final / rejected ------------
 // source durable = .fig_state.json (serveur) ; localStorage n'est qu'un cache
 let workflow: Record<string,string> = JSON.parse(localStorage.getItem('figWorkflow')||'{}');    // {rel: status}
-const WORKFLOW_STATUSES = [['draft','Draft'],['candidate','Candidate'],['final','Final'],['rejected','Rejected']];
+const WORKFLOW_STATUSES = [['draft','Brouillon'],['candidate','Candidat'],['final','Final'],['rejected','Rejeté']];
+const workflowLabel = (v) => (WORKFLOW_STATUSES.find(([s])=>s===v)||['',''])[1];
+// Sélection dans un menu : coche SVG fine, à droite, couleur du texte (modèle des menus de l'app)
+const MENU_CHECK = '<svg class="mck" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 let activeWorkflow = '';
 const validWorkflow = (v) => WORKFLOW_STATUSES.some(([s])=>s===v);
 function saveWorkflow(){ localStorage.setItem('figWorkflow', JSON.stringify(workflow)); pushState(); }
@@ -518,7 +521,7 @@ fetch('/state').then(r=>{
   localStorage.setItem('figHideRules', JSON.stringify(hideRules));
   localStorage.setItem('figCollections', JSON.stringify(collections));
   localStorage.setItem('figWorkflow', JSON.stringify(workflow));
-  (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favorites ('+favs.size+')';
+  (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favoris ('+favs.size+')';
   updateHideChip(); buildCollectionChip(); buildWorkflowChip(); buildViewMenu();
   render();
   stateBase=st;                                     // base = ce que le disque portait à la lecture
@@ -543,7 +546,7 @@ function setRate(rel: string|number, n: number, ev: PointerEvent){
 }
 const rateRow = (rel) => {
   const r = ratings[rel]||0;
-  return '<div class="rate" title="Rate 1–5 (click again to clear)">'+
+  return '<div class="rate" title="Noter de 1 à 5 (cliquer à nouveau pour effacer)">'+
     [1,2,3,4,5].map(i=>`<span class="${i<=r?'on':''}" data-act="rate" data-rel="${escA(rel)}" data-n="${i}">${i<=r?'★':'☆'}</span>`).join('')+'</div>';
 };
 let onlyFavs = false;
@@ -560,18 +563,18 @@ function updateDelBtn(){
   const imgs = [...selSet].filter(r => imgExt(r.split('.').pop().toLowerCase()));
   const c = (document.getElementById('cmpSel') as HTMLButtonElement);
   c.style.display = imgs.length >= 2 ? '' : 'none';
-  c.textContent = '▤ Compare (' + imgs.length + ')';
+  c.textContent = 'Comparer (' + imgs.length + ')';
   (document.getElementById('clrSel') as HTMLButtonElement).style.display = selSet.size ? '' : 'none';
   const h = (document.getElementById('hideSel') as HTMLButtonElement);
   h.style.display = selSet.size ? '' : 'none';
-  h.textContent = 'Hide (' + selSet.size + ')';
+  h.textContent = 'Masquer (' + selSet.size + ')';
   const co = (document.getElementById('collectSel') as HTMLButtonElement);
   co.style.display = selSet.size ? '' : 'none';
-  co.textContent = 'Collect (' + selSet.size + ')';
+  co.textContent = 'Collecter (' + selSet.size + ')';
   const ex = (document.getElementById('exportSel') as HTMLButtonElement);
   ex.style.display = selSet.size ? '' : 'none';
-  ex.textContent = '⤓ Export (' + selSet.size + ') ▾';
-  b.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:5px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg>Delete (' + selSet.size + ')';
+  ex.textContent = 'Exporter (' + selSet.size + ') ▾';
+  b.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.5h6.4L12 4M6.5 7v4M9.5 7v4"/></svg>Supprimer (' + selSet.size + ')';
   window.dispatchEvent(new CustomEvent('atelier-gallery-selection-change'));
 }
 // case de sélection multiple (GAL-04) : SVG 16 px au trait 1,5, cochée =
@@ -605,7 +608,7 @@ function cmpApply(){
   document.querySelectorAll<HTMLImageElement>('#cmpInner img').forEach(img=>{
     img.style.transform = `translate(${cmpPanX}px,${cmpPanY}px) scale(${cmpZoom})`;
   });
-  (document.getElementById('cmpInfo') as HTMLSpanElement).textContent = Math.round(cmpZoom*100)+'% · wheel zoom · drag pan · Esc close';
+  (document.getElementById('cmpInfo') as HTMLSpanElement).textContent = Math.round(cmpZoom*100)+' % · molette : zoom · glisser : déplacer · Échap : fermer';
 }
 function cmpReset(){
   cmpZoom = 1; cmpPanX = 0; cmpPanY = 0; cmpApply();
@@ -626,12 +629,12 @@ function openCompare(){
 }
 function cmpClose(){ (document.getElementById('cmp') as HTMLDivElement).classList.remove('show'); (document.getElementById('cmpInner') as HTMLDivElement).innerHTML=''; }
 (document.getElementById('cmpSel') as HTMLButtonElement).onclick = openCompare;
-(document.getElementById('cmpClose') as HTMLSpanElement).onclick = cmpClose;
+(document.getElementById('cmpClose') as HTMLButtonElement).onclick = cmpClose;
 (document.getElementById('cmpReset') as HTMLButtonElement).onclick = cmpReset;
 (document.getElementById('cmpOrient') as HTMLButtonElement).onclick = function(){
   cmpVert = !cmpVert;
   (document.getElementById('cmpInner') as HTMLDivElement).className = cmpVert ? '' : 'h';
-  (this as HTMLButtonElement).textContent = cmpVert ? 'Layout: stacked' : 'Layout: side-by-side';
+  (this as HTMLButtonElement).textContent = cmpVert ? 'Disposition : empilée' : 'Disposition : côte à côte';
 };
 const cmpInnerEl = (document.getElementById('cmpInner') as HTMLDivElement);
 cmpInnerEl.addEventListener('wheel', e=>{
@@ -672,7 +675,7 @@ function confirmDialog(msg: string, okLabel?: string){
     const m = (document.getElementById('confirmModal') as HTMLDivElement);
     (document.getElementById('confirmMsg') as HTMLDivElement).textContent = msg;
     const ok = (document.getElementById('confirmOk') as HTMLButtonElement), cancel = (document.getElementById('confirmCancel') as HTMLButtonElement);
-    ok.textContent = okLabel || 'Delete';
+    ok.textContent = okLabel || 'Supprimer';
     m.classList.add('show'); m.dataset.open=''; delete m.dataset.closed;
     function onKey(ev: { key: string; stopPropagation: () => void; }){ if(ev.key==='Escape'){ev.stopPropagation();done(false);} else if(ev.key==='Enter'){ev.stopPropagation();done(true);} }
     function done(v: unknown){ m.classList.remove('show'); m.dataset.closed=''; delete m.dataset.open; ok.onclick = cancel.onclick = m.onclick = null; document.removeEventListener('keydown', onKey, true); resolve(v); }
@@ -721,13 +724,13 @@ function buildCollectionChip(){
   if(!chip||!menu) return;
   const names=allCollections();
   chip.classList.toggle('on', !!activeCollection);
-  chip.innerHTML=(activeCollection?('Collection: '+esc(activeCollection)):'Collections')+' ▾';
-  let h = activeCollection ? '<div class="mi clr" data-clear="1">Clear filter</div>' : '';
+  chip.innerHTML=(activeCollection?('Collection : '+esc(activeCollection)):'Collections')+' ▾';
+  let h = activeCollection ? '<div class="mi clr" data-clear="1">Retirer le filtre</div>' : '';
   h += names.length ? names.map(name=>{
     const n=(collections[name]||[]).length;
-    return `<div class="mi${name===activeCollection?' on':''}"><span class="lbl" data-pick="${escA(name)}">${esc(name)} <span class="ct">${n}</span></span><span class="x" data-del="${escA(name)}" title="Delete collection">×</span></div>`;
-  }).join('') : '<div class="mi muted">No collections yet — select files, then Collect.</div>';
-  h += '<div class="madd"><input type="text" id="collQuick" placeholder="new collection"><button id="collQuickAdd">Add selected</button></div>';
+    return `<div class="mi${name===activeCollection?' on':''}"><span class="lbl" data-pick="${escA(name)}">${esc(name)} <span class="ct">${n}</span></span><span class="x" data-del="${escA(name)}" title="Supprimer la collection">×</span></div>`;
+  }).join('') : '<div class="mi muted">Aucune collection — sélectionner des fichiers, puis Collecter.</div>';
+  h += '<div class="madd"><input type="text" id="collQuick" placeholder="Nouvelle collection"><button id="collQuickAdd">Ajouter la sélection</button></div>';
   menu.innerHTML=h;
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll<HTMLElement>('[data-pick]').forEach(el=>el.onclick=()=>{ setActiveCollection(el.dataset.pick); menu.style.display='none'; });
@@ -751,8 +754,8 @@ function buildRecentChip(){
   let h = list.length ? list.map((rel)=>{
     const f=FILES.find(x=>x.rel===rel);
     return `<div class="mi"><span class="lbl" data-rec="${escA(rel)}">${esc(truncMid(f.name,38))}</span></div>`;
-  }).join('') : '<div class="mi muted">No recently opened figures.</div>';
-  if(list.length) h += '<div class="mi clr" data-recclear="1">Clear recents</div>';
+  }).join('') : '<div class="mi muted">Aucune figure ouverte récemment.</div>';
+  if(list.length) h += '<div class="mi clr" data-recclear="1">Effacer les récents</div>';
   menu.innerHTML=h;
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll<HTMLElement>('[data-rec]').forEach(el=>el.onclick=()=>{ menu.style.display='none'; lbOpenAny(el.dataset.rec); });
@@ -766,8 +769,8 @@ function buildWorkflowChip(){
   for(const v of Object.values(workflow)) counts[v]=(counts[v]||0)+1;
   const cur = WORKFLOW_STATUSES.find(([v])=>v===activeWorkflow);
   chip.classList.toggle('on', !!activeWorkflow);
-  chip.innerHTML=(cur?('Status: '+esc(cur[1])):'Status')+' ▾';
-  let h=`<div class="mi${!activeWorkflow?' on':''}" data-wfpick="">All <span class="ct">${FILES.length}</span></div>`;
+  chip.innerHTML=(cur?('Statut : '+esc(cur[1])):'Statut')+' ▾';
+  let h=`<div class="mi${!activeWorkflow?' on':''}" data-wfpick="">Tous <span class="ct">${FILES.length}</span></div>`;
   h+=WORKFLOW_STATUSES.map(([v,l])=>
     `<div class="mi${v===activeWorkflow?' on':''}" data-wfpick="${escA(v)}">${esc(l)} <span class="ct">${counts[v]||0}</span></div>`).join('');
   menu.innerHTML=h;
@@ -781,12 +784,12 @@ function buildWorkflowChip(){
 let healthStatus: { ok: boolean; project: string; } = null;
 function healthRows(data){
   const ok=data&&data.ok;
-  const project=data&&data.project?data.project:'checking...';
-  return '<div class="mhd sep">Server health</div>'+
-    `<div class="mi"><span class="lbl">Status</span><span class="ct">${ok?'OK':(data?'Offline':'Checking')}</span></div>`+
-    `<div class="mi"><span class="lbl">Project</span><span class="ct">${esc(project)}</span></div>`+
-    `<div class="mi"><span class="lbl">Mode</span><span class="ct">${lbOrcaFsExitAllowed()?'Orca native viewer':'Browser fullscreen'}</span></div>`+
-    '<div class="madd"><button id="healthRefresh">Refresh</button></div>';
+  const project=data&&data.project?data.project:'vérification…';
+  return '<div class="mhd sep">Santé du serveur</div>'+
+    `<div class="mi"><span class="lbl">État</span><span class="ct">${ok?'OK':(data?'Hors ligne':'Vérification…')}</span></div>`+
+    `<div class="mi"><span class="lbl">Projet</span><span class="ct">${esc(project)}</span></div>`+
+    `<div class="mi"><span class="lbl">Mode</span><span class="ct">${lbOrcaFsExitAllowed()?'Visionneuse native Orca':'Plein écran du navigateur'}</span></div>`+
+    '<div class="madd"><button id="healthRefresh">Actualiser</button></div>';
 }
 function checkHealth(){
   healthStatus = null;
@@ -805,16 +808,16 @@ function buildViewMenu(){
     // Embarquée : le thème vient de l'app (postMessage atelier-theme) — proposer
     // le catalogue local désynchroniserait la galerie au premier clic.
     (EMB?'':(
-    '<div class="mhd">Theme</div>'+
-    Object.keys(THEMES).map(n=>`<div class="mi trow" data-theme="${n}"><span class="lbl">${n}</span>${n===theme?'<span class="tck">✓</span>':''}</div>`).join('')
+    '<div class="mhd">Thème</div>'+
+    Object.keys(THEMES).map(n=>`<div class="mi trow" data-theme="${n}"><span class="lbl">${n}</span>${n===theme?MENU_CHECK:''}</div>`).join('')
     ))+
-    '<div class="mhd sep">View</div>'+
-    `<div class="mi"><label class="lbl"><input type="checkbox" id="vArch" ${showArch?'checked':''}> Include archives</label></div>`+
-    `<div class="mi"><label class="lbl"><input type="checkbox" id="vHidden" ${showHidden?'checked':''}> Show hidden${hidden.size?(' ('+hidden.size+')'):''}</label></div>`+
+    '<div class="mhd sep">Affichage</div>'+
+    `<div class="mi"><label class="lbl"><input type="checkbox" id="vArch" ${showArch?'checked':''}> Inclure les archives</label></div>`+
+    `<div class="mi"><label class="lbl"><input type="checkbox" id="vHidden" ${showHidden?'checked':''}> Afficher les fichiers masqués${hidden.size?(' ('+hidden.size+')'):''}</label></div>`+
     `<div class="mi"><label class="lbl"><input type="checkbox" id="vGroup" ${groupVersions?'checked':''}> Une carte par figure</label></div>`+
-    '<div class="mhd sep">Auto-hide rules (glob)</div>'+
-    (hideRules.length?hideRules.map((g)=>`<div class="mi"><span class="lbl mono">${esc(g)}</span><span class="x" data-rm="${escA(g)}" title="Remove rule">×</span></div>`).join(''):'<div class="mi muted">No rules.</div>')+
-    '<div class="madd"><input type="text" id="ruleInput" placeholder="e.g. **/_qa/** or *_preview.png"><button id="ruleAdd">Add</button></div>'+
+    '<div class="mhd sep">Règles de masquage (glob)</div>'+
+    (hideRules.length?hideRules.map((g)=>`<div class="mi"><span class="lbl mono">${esc(g)}</span><span class="x" data-rm="${escA(g)}" title="Retirer la règle">×</span></div>`).join(''):'<div class="mi muted">Aucune règle.</div>')+
+    '<div class="madd"><input type="text" id="ruleInput" placeholder="ex. **/_qa/** ou *_preview.png"><button id="ruleAdd">Ajouter</button></div>'+
     healthRows(healthStatus);
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll<HTMLElement>('[data-theme]').forEach(el=>el.onclick=()=>{ applyTheme(el.dataset.theme); buildViewMenu(); });
@@ -829,26 +832,37 @@ function buildViewMenu(){
 }
 function buildExportMenu(){
   const menu=(document.getElementById('exportMenu') as HTMLDivElement);
-  menu.innerHTML=[['folder','📁 Folder (copy)'],['zip','📦 Zip'],['contact','📄 Contact sheet (print → PDF)']]
-    .map(([m,l])=>`<div class="mi"><span class="lbl" data-exp="${m}">${l}</span></div>`).join('');
+  menu.innerHTML=EXPORT_MODES
+    .map(({mode,label})=>`<div class="mi"><span class="lbl" data-exp="${mode}">${esc(label)}</span></div>`).join('');
   menu.onclick=e=>e.stopPropagation();
   menu.querySelectorAll<HTMLElement>('[data-exp]').forEach(el=>el.onclick=()=>{ menu.style.display='none'; doExport(el.dataset.exp); });
 }
+// Modes d'export, partagés par le menu hérité et la barre React (contrat GalleryExportMode).
+const EXPORT_MODES: GalleryExportMode[]=[
+  {mode:'folder',label:'Copier dans un dossier'},
+  {mode:'zip',label:'Archive .zip'},
+  {mode:'contact',label:'Planche contact (PDF)'},
+];
+// L'état revient à l'appelant (barre React) : jamais écrit dans un bouton masqué.
+function exportSelection(mode: string): Promise<GalleryExportResult>{
+  if(!selSet.size) return Promise.resolve({ok:false,error:'Aucun fichier sélectionné'});
+  return fetch('/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,rels:[...selSet]})})
+    .then(r=>r.json()).then((j): GalleryExportResult=>j&&j.ok ? {ok:true,count:Number(j.count)||0,path:String(j.path||'')} : {ok:false,error:(j&&j.error)||'erreur du serveur'})
+    .catch((): GalleryExportResult=>({ok:false,error:'serveur injoignable'}));
+}
 function doExport(mode){
   if(!selSet.size) return;
-  const ex=(document.getElementById('exportSel') as HTMLButtonElement); ex.textContent='Exporting…';
-  fetch('/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,rels:[...selSet]})})
-    .then(r=>r.json()).then(j=>{ ex.textContent = j&&j.ok ? ('✓ '+j.count+' → '+j.path) : ('✗ '+((j&&j.error)||'error')); setTimeout(updateDelBtn,3000); })
-    .catch(()=>{ ex.textContent='✗ server off'; setTimeout(updateDelBtn,3000); });
+  const ex=(document.getElementById('exportSel') as HTMLButtonElement); ex.textContent='Export…';
+  exportSelection(mode).then(r=>{ ex.textContent = r.ok === true ? (r.count+' → '+r.path) : ('Échec : '+(r as {error: string}).error); setTimeout(updateDelBtn,3000); });
 }
 function closeFloat(){ const f=document.getElementById('floatMenu'); if(f){if(f.__trigger)f.__trigger.setAttribute('aria-expanded','false');f.remove();} }
 function collectSelMenu(anchor: EventTarget){
   closeFloat();
   const m=document.createElement('div'); m.className='menu'; m.id='floatMenu';
   const names=allCollections();
-  m.innerHTML='<div class="mhd">Collect '+selSet.size+' file(s)</div>'+
+  m.innerHTML='<div class="mhd">Collecter '+selSet.size+(selSet.size>1?' fichiers':' fichier')+'</div>'+
     names.map(n=>`<div class="mi"><span class="lbl" data-collect="${escA(n)}">${esc(n)} <span class="ct">${(collections[n]||[]).length}</span></span></div>`).join('')+
-    '<div class="madd"><input type="text" id="collInput" placeholder="new collection"><button id="collApply">Add</button></div>';
+    '<div class="madd"><input type="text" id="collInput" placeholder="Nouvelle collection"><button id="collApply">Ajouter</button></div>';
   m.onclick=e=>e.stopPropagation();
   placeMenu(m, anchor);
   m.querySelectorAll<HTMLElement>('[data-collect]').forEach(el=>el.onclick=()=>{ applyCollectionToSel(el.dataset.collect); closeFloat(); });
@@ -869,15 +883,15 @@ function cardMenu(anchor, rel: string){
     +'<div class="mi"><button class="lbl" data-cact="copy">Copier le chemin</button></div>'
     +(EMB?'<div class="mi"><button class="lbl" data-cact="chat">Joindre au chat</button></div>':'')
     +'<div class="mi" style="cursor:default">'+rateRow(rel)+'</div>'
-    +'<div class="mhd sep">Status</div>'
-    +[['','None']].concat(WORKFLOW_STATUSES).map(([v,l])=>
-      `<div class="mi${curWf===v?' on':''}"><span class="lbl" data-wfset="${escA(v)}">${curWf===v?'✓ ':''}${esc(l)}</span></div>`).join('')
+    +'<div class="mhd sep">Statut</div>'
+    +[['','Aucun']].concat(WORKFLOW_STATUSES).map(([v,l])=>
+      `<div class="mi${curWf===v?' on':''}" role="menuitemradio" aria-checked="${curWf===v}"><span class="lbl" data-wfset="${escA(v)}">${esc(l)}</span>${curWf===v?MENU_CHECK:''}</div>`).join('')
     +'<div class="mhd sep"></div>'
-    +'<div class="mi"><span class="lbl" data-cact="src">Open script &lt;/&gt;</span></div>'
+    +'<div class="mi"><span class="lbl" data-cact="src">Ouvrir le script</span></div>'
     +'<div class="mi"><span class="lbl" data-cact="recipe">Recette</span></div>'
-    +'<div class="mi"><span class="lbl" data-cact="board">Send to whiteboard</span></div>'
-    +'<div class="mi"><span class="lbl" data-cact="hide">'+(isHid?'Unhide':'Hide')+'</span></div>'
-    +'<div class="mi clr"><span class="lbl" data-cact="del">Move to Trash</span></div>';
+    +'<div class="mi"><span class="lbl" data-cact="board">Envoyer au tableau blanc</span></div>'
+    +'<div class="mi"><span class="lbl" data-cact="hide">'+(isHid?'Réafficher':'Masquer')+'</span></div>'
+    +'<div class="mi clr"><span class="lbl" data-cact="del">Déplacer dans la corbeille</span></div>';
   m.addEventListener('click',e=>e.stopPropagation());
   placeMenu(m, anchor);
   m.querySelector<HTMLElement>('[data-cact="open"]').onclick=()=>{closeFloat();openInContext(rel);};
@@ -945,8 +959,8 @@ function findScript(rel: string){
   if(hit){ lbOpenAny(hit.rel); return; }
   fetch('/findscript?stem='+encodeURIComponent(stem)).then(r=>r.json()).then(j=>{
     if(j && j.script){ if(!lbOpenAny(j.script)) window.open('/'+j.script.split('/').map(encodeURIComponent).join('/'),'_blank'); }
-    else alert('No generating script found for "'+stem+'".');
-  }).catch(()=>alert('Script search failed (server off?).'));
+    else alert('Aucun script générateur trouvé pour « '+stem+' ».');
+  }).catch(()=>alert('La recherche du script a échoué (serveur arrêté ?).'));
 }
 function sendToBoard(rel: string, el){
   fetch('/board/command',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1035,16 +1049,16 @@ function renderActiveChips(){
     const on=FMT_CATS.filter(([,ks])=>ks.some((x)=>exts[x])).map(([lab])=>lab);
     chips.push({k:'fmt',l:'Formats: '+(on.length?on.join(', '):'none')});
   }
-  if(onlyFavs) chips.push({k:'fav',l:'★ Favorites'+(rateMin?(' · '+rateMin+'★'):'')});
-  if(activeCollection) chips.push({k:'coll',l:'Collection: '+activeCollection});
+  if(onlyFavs) chips.push({k:'fav',l:'★ Favoris'+(rateMin?(' · '+rateMin+'★'):'')});
+  if(activeCollection) chips.push({k:'coll',l:'Collection : '+activeCollection});
   if(activeWorkflow){
     const cur=WORKFLOW_STATUSES.find(([v])=>v===activeWorkflow);
-    chips.push({k:'wf',l:'Status: '+(cur?cur[1]:activeWorkflow)});
+    chips.push({k:'wf',l:'Statut : '+(cur?cur[1]:activeWorkflow)});
   }
-  if(chatFocusRels.size) chips.push({k:'chat',l:'Chat focus: '+chatFocusRels.size});
+  if(chatFocusRels.size) chips.push({k:'chat',l:'Fichiers du chat : '+chatFocusRels.size});
   box.innerHTML = chips.length
-    ? chips.map(c=>`<span class="fchip">${esc(c.l)}<span class="x" role="button" tabindex="0" data-fx="${c.k}" title="Remove this filter" aria-label="Remove filter ${escA(c.l)}">×</span></span>`).join('')
-      + '<span class="fchip fclear" id="fclearAll" role="button" tabindex="0">Clear all</span>'
+    ? chips.map(c=>`<span class="fchip">${esc(c.l)}<span class="x" role="button" tabindex="0" data-fx="${c.k}" title="Retirer ce filtre" aria-label="Retirer le filtre ${escA(c.l)}">×</span></span>`).join('')
+      + '<span class="fchip fclear" id="fclearAll" role="button" tabindex="0">Tout effacer</span>'
     : '';
   box.querySelectorAll<HTMLElement>('[data-fx]').forEach(x=>{
     const go=()=>clearFilter(x.dataset.fx);
@@ -1063,10 +1077,10 @@ function buildSurfMenu(){
   const m=(document.getElementById('surfMenu') as HTMLDivElement); if(!m) return;
   const scanning=(document.getElementById('rescan') as HTMLButtonElement).classList.contains('spinning');
   m.innerHTML=
-    `<div class="mi" data-sm="rescan"><span class="lbl">Rescan</span><span class="ct">${scanning?'scanning…':''}</span></div>`+
-    '<div class="mi" data-sm="settings"><span class="lbl">Gallery settings…</span></div>'+
-    (quotePending?'<div class="mi" data-sm="quote"><span class="lbl">Clear annotation</span></div>':'')+
-    '<div class="mi narrow-only" data-sm="board"><span class="lbl">Board</span></div>'+
+    `<div class="mi" data-sm="rescan"><span class="lbl">Rescanner</span><span class="ct">${scanning?'analyse…':''}</span></div>`+
+    '<div class="mi" data-sm="settings"><span class="lbl">Réglages de la galerie…</span></div>'+
+    (quotePending?'<div class="mi" data-sm="quote"><span class="lbl">Effacer l’annotation</span></div>':'')+
+    '<div class="mi narrow-only" data-sm="board"><span class="lbl">Tableau blanc</span></div>'+
     '<div class="mi narrow-only" data-sm="notes"><span class="lbl">Notes</span></div>';
   m.onclick=e=>e.stopPropagation();
   m.querySelector<HTMLElement>('[data-sm="rescan"]').onclick=()=>{ (document.getElementById('rescan') as HTMLButtonElement).onclick.call((document.getElementById('rescan') as HTMLButtonElement)); buildSurfMenu(); };
@@ -1123,7 +1137,7 @@ function updateInspector(){
   const body=(document.getElementById('inspBody') as HTMLDivElement), ttl=(document.getElementById('inspTitle') as HTMLSpanElement);
   if(!f){
     ttl.textContent=rel.split('/').pop();
-    body.innerHTML='<div id="inspNotice" class="show">File no longer in the index (deleted or removed by a rescan).</div>';
+    body.innerHTML='<div id="inspNotice" class="show">Fichier absent de l’index (supprimé ou retiré par un rescan).</div>';
     return;
   }
   ttl.textContent=f.name; ttl.title=f.rel;
@@ -1150,20 +1164,20 @@ function updateInspector(){
         '<button data-iwf="'+escA(v)+'" class="'+(wf===v?'on':'')+'" aria-pressed="'+(wf===v)+'">'+esc(l)+'</button>').join('')
     +'</div></div>'
     +'<div class="isec"><h3>Provenance</h3>'
-      +inspRow('Project','<span style="font-family:var(--code-font);font-size:11px" title="__ROOT__">'+esc('__ROOT__'.split('/').pop()||'__ROOT__')+'</span>')
-      +inspRow('Generating script','<span id="inspScript">'+((isImg||f.ext==='pdf')?'Searching…':'Not recorded')+'</span>')
+      +inspRow('Projet','<span style="font-family:var(--code-font);font-size:11px" title="__ROOT__">'+esc('__ROOT__'.split('/').pop()||'__ROOT__')+'</span>')
+      +inspRow('Script générateur','<span id="inspScript">'+((isImg||f.ext==='pdf')?'Recherche…':'Non enregistré')+'</span>')
     +'</div>'
-    +'<div class="isec"><h3>Organization</h3>'
-      +'<div class="irow"><span class="il">Favorite</span><span class="iv"><button id="inspFav" style="height:24px;font-size:11px">'+(favs.has(rel)?'★ Remove favorite':'☆ Add favorite')+'</button></span></div>'
-      +inspRow('Rating', rateRow(rel))
+    +'<div class="isec"><h3>Organisation</h3>'
+      +'<div class="irow"><span class="il">Favori</span><span class="iv"><button id="inspFav" style="height:24px;font-size:11px">'+(favs.has(rel)?'Retirer des favoris':'Ajouter aux favoris')+'</button></span></div>'
+      +inspRow('Note', rateRow(rel))
       +(colls.length?('<div class="irow"><span class="il">Collections</span><span class="iv icoll">'
         +colls.map(n=>'<label><input type="checkbox" data-icoll="'+escA(n)+'"'+((collections[n]||[]).includes(rel)?' checked':'')+'> '+esc(n)+'</label>').join('')+'</span></div>'):'')
     +'</div>'
     +'<div class="isec"><h3>Actions</h3><div class="iact">'
-      +'<button id="inspView" title="Open in the viewer">View</button>'
-      +'<button id="inspOpen" title="'+(EMB?'Open in Atelier IDE':'Open with the default app')+'">'+(EMB?'Open in IDE':'Open (app)')+'</button>'
-      +(EMB?('<button id="inspChat">'+(inspAddState==='added'?'Added to chat ✓':inspAddState==='pending'?'Adding…':'Add to chat')+'</button>'):'')
-      +'<button id="inspMore" title="More — hide, trash…" aria-label="More actions">⋯</button>'
+      +'<button id="inspView" title="Ouvrir dans la visionneuse">Voir</button>'
+      +'<button id="inspOpen" title="'+(EMB?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut')+'">'+(EMB?'Ouvrir dans Atelier':'Ouvrir (app)')+'</button>'
+      +(EMB?('<button id="inspChat">'+(inspAddState==='added'?'Ajouté au chat':inspAddState==='pending'?'Ajout…':'Joindre au chat')+'</button>'):'')
+      +'<button id="inspMore" title="Autres actions — masquer, corbeille…" aria-label="Autres actions">⋯</button>'
     +'</div><div id="inspNotice"></div></div>';
   // preview : chargé À la sélection (jamais au hover) ; échec → fallback type
   const pimg=body.querySelector<HTMLImageElement>('#inspPrev img');
@@ -1172,7 +1186,7 @@ function updateInspector(){
       const pv=(document.getElementById('inspPrev') as HTMLDivElement); if(!pv) return;
       pv.classList.add('ph2'); pv.textContent=f.ext.toUpperCase();
       const n=(document.getElementById('inspNotice') as HTMLDivElement);
-      if(n){ n.textContent='Preview unavailable (file missing or unreadable).'; n.classList.add('show'); }
+      if(n){ n.textContent='Aperçu indisponible (fichier manquant ou illisible).'; n.classList.add('show'); }
     };
     pimg.onerror=previewFailed;
     // innerHTML démarre la requête avant que `onerror` puisse être assigné.
@@ -1193,14 +1207,14 @@ function updateInspector(){
     const local=FILES.find(x=>codeExt(x.ext)&&x.rel.split('/').pop().replace(/\.[^.]+$/,'')===stem);
     if(local) put('',local.rel);
     else fetch('/findscript?stem='+encodeURIComponent(stem)).then(r=>r.json())
-      .then(j=>put(j&&j.script?'':'Not recorded', j&&j.script?j.script:null))
-      .catch(()=>put('Not recorded',null));
+      .then(j=>put(j&&j.script?'':'Non enregistré', j&&j.script?j.script:null))
+      .catch(()=>put('Non enregistré',null));
   }
   body.querySelectorAll<HTMLElement>('[data-iwf]').forEach(b=>b.onclick=()=>setWorkflow(rel,b.dataset.iwf));
   body.querySelector<HTMLButtonElement>('#inspFav').onclick=()=>{
     if(favs.has(rel)) favs.delete(rel); else favs.add(rel);
     saveFavs(); pushState();
-    (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favorites ('+favs.size+')';
+    (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favoris ('+favs.size+')';
     render();
   };
   body.querySelectorAll<HTMLElement>('[data-icoll]').forEach(cb=>cb.onchange=()=>{
@@ -1216,18 +1230,18 @@ function updateInspector(){
     // pending bloque le double ajout ; le composer déduplique aussi les
     // éventuelles relances par texte (idempotent)
     if(inspAddState!=='idle') return;
-    inspAddState='pending'; ic.textContent='Adding…';
+    inspAddState='pending'; ic.textContent='Ajout…';
     postChatAttachment(rel).then(()=>{
-      inspAddState='added'; ic.textContent='Added to chat ✓';
+      inspAddState='added'; ic.textContent='Ajouté au chat';
       clearTimeout(inspAddTimer);
       inspAddTimer=setTimeout(()=>{
         inspAddState='idle';
-        const b=(document.getElementById('inspChat') as HTMLButtonElement); if(b) b.textContent='Add to chat';
+        const b=(document.getElementById('inspChat') as HTMLButtonElement); if(b) b.textContent='Joindre au chat';
       },1800);
     }).catch(()=>{
-      inspAddState='idle'; ic.textContent='Add to chat';
+      inspAddState='idle'; ic.textContent='Joindre au chat';
       const n=(document.getElementById('inspNotice') as HTMLDivElement);
-      if(n){ n.textContent='Add to chat was not received — try again.'; n.classList.add('show'); }
+      if(n){ n.textContent='L’ajout au chat n’a pas été reçu — réessayer.'; n.classList.add('show'); }
     });
   };
   body.querySelector<HTMLButtonElement>('#inspMore').onclick=(e)=>{ e.stopPropagation(); cardMenu(e.currentTarget, rel); };
@@ -1268,14 +1282,14 @@ function openInContext(rel){
   openDefault(rel);
 }
 async function delOne(rel: string){
-  if(!await confirmDialog('Move to Trash? '+rel)) return;
+  if(!await confirmDialog('Déplacer dans la corbeille ? '+rel)) return;
   try{
     const r=await fetch('/delete',{method:'POST',headers:{'Content-Type':'application/json'},
       body: JSON.stringify({rels:[rel]})});
     const j=await r.json();
     (j.deleted||[]).forEach((d)=>{ const i=FILES.findIndex(f=>f.rel===d); if(i>=0) FILES.splice(i,1); selSet.delete(d); });
     updateDelBtn(); render();
-  }catch(e){ alert('Delete failed — is the server running?'); }
+  }catch(e){ alert('La suppression a échoué — le serveur est-il lancé ?'); }
 }
 let lbList: GalleryRow[] = [], lbIdx = -1;
 // Liste de la galerie mise de côté pendant une ouverture hors vue (lbOpenAny).
@@ -1627,6 +1641,15 @@ window.addEventListener('message',e=>{
   requestAnimationFrame(lbFitImage);
 });
 window.addEventListener('pagehide',()=>{lbHostRequest(false);lbViewportRequest(false);});
+// Icône Galerie de la barre de l'app : revenir à la grille. La galerie est
+// déjà l'onglet actif quand une figure y est ouverte, donc changer d'onglet
+// ne fermait rien (Thierry 2026-10-25). lbClose garde la confirmation des
+// annotations non enregistrées.
+window.addEventListener('message',e=>{
+  if(e.source!==window.top||e.data?.type!=='atelier-gallery-grid')return;
+  cmpClose();
+  if(lb().classList.contains('show'))void lbClose();
+});
 function lbFitImage(){
   const stage=(document.getElementById('lbViewport') as HTMLDivElement),img=(document.getElementById('lbImg') as HTMLImageElement),wrap=(document.getElementById('lbWrap') as HTMLDivElement);
   if(!lb().classList.contains('show')||!img.naturalWidth||!stage.clientHeight)return;
@@ -1832,7 +1855,7 @@ function toggleFav(rel: string, el: { classList: { remove: (arg0: string) => voi
   else{favs.add(rel);el.classList.add('on');}
   saveFavs();
   pushState();
-  (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favorites ('+favs.size+')';
+  (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favoris ('+favs.size+')';
   render();
 }
 // The app can star an open document from its tab bar (no gallery visit). The
@@ -1847,7 +1870,7 @@ window.addEventListener('message', function(e){
   favsBase=favsBase.filter(f=>f!==rel);
   if(e.data.fav) favsBase.push(rel);
   saveFavs();
-  (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favorites ('+favs.size+')';
+  (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favoris ('+favs.size+')';
   render();
 });
 const DEFAULT_EXTS = {png:true,jpg:true,jpeg:true,svg:true,mp4:true,m4v:true,mov:true,webm:true,pdf:false,html:false,docx:false,xlsx:false,xls:false,csv:false,md:false,py:false,r:false,jl:false,tex:false,sh:false};
@@ -2050,7 +2073,7 @@ window.__galleryFileTypes={
       types:TYPE_LIST.map(([key,label])=>({key,label,active:active.includes(key),pinned:pinnedFileTypes.includes(key)})),
       pinned:[...pinnedFileTypes],
       presets,
-      summary:match?match.label:(activeLabels.length<=2?activeLabels.join(' + '):'Custom file types'),
+      summary:match?match.label:(activeLabels.length<=2?activeLabels.join(' + '):'Types personnalisés'),
       archives:showArch,
       archiveCount:FILES.filter(f=>f.archive).length,
     };
@@ -2090,7 +2113,7 @@ function populateFolders(){
   fsel.innerHTML='';
   // l option « tous » (valeur vide) doit SURVIVRE au repeuplement — sinon le
   // premier dossier devient le filtre actif et la galerie paraît vide
-  const all=document.createElement('option'); all.value=''; all.textContent='All folders'; fsel.appendChild(all);
+  const all=document.createElement('option'); all.value=''; all.textContent='Tous les dossiers'; fsel.appendChild(all);
   FOLDERS.forEach((f)=>{const o=document.createElement('option');o.value=f;o.textContent=f;fsel.appendChild(o);});
   fsel.value = FOLDERS.includes(keep) ? keep : '';
 }
@@ -2223,9 +2246,9 @@ function render(){
     // deux états distincts : projet vide vs zéro résultat avec filtres actifs
     const hasQ=!!(document.getElementById('q') as HTMLInputElement).value.trim();
     grid.innerHTML = FILES.length===0
-      ? '<div class="empty">No files in this project yet.<br><span style="font-size:11px;color:var(--text-muted)">Add figures, data or scripts, then Rescan.</span></div>'
-      : '<div class="empty">No matching files.'
-        +' <button id="emptyReset" style="margin-left:8px;height:26px;font-size:11px">Clear search &amp; filters</button></div>';
+      ? '<div class="empty">Aucun fichier dans ce projet pour l’instant.<br><span style="font-size:11px;color:var(--text-muted)">Ajouter des figures, des données ou des scripts, puis rescanner.</span></div>'
+      : '<div class="empty">Aucun fichier ne correspond.'
+        +' <button id="emptyReset" style="margin-left:8px;height:26px;font-size:11px">Effacer la recherche et les filtres</button></div>';
     const er=(document.getElementById('emptyReset') as HTMLButtonElement);
     if(er) er.onclick=()=>{ const q=(document.getElementById('q') as HTMLInputElement); if(q.value){q.value='';} clearAllFilters(); render(); };
     renderedRels=[];
@@ -2238,7 +2261,7 @@ function render(){
   renderedRels = slice.map(f=>f.rel);   // display order for Shift-click range selection
   grid.innerHTML = (galleryPresentation.mode==='list'?detailHeader(sort):'') + slice.map(f=>{
     if(galleryPresentation.mode==='list'){
-      const selected=selSet.has(f.rel), wf=({'draft':'Brouillon','candidate':'Candidat','final':'Final','rejected':'Rejeté'})[workflow[f.rel]]||'';
+      const selected=selSet.has(f.rel), wf=workflowLabel(workflow[f.rel]);
       return `<div class="card gallery-detail-row ${selectedRel===f.rel?'sel2':''} ${selected?'bulk-selected':''}" data-card="${escA(f.rel)}" role="row" aria-selected="${selected}">
         <div class="gallery-detail-name" role="gridcell"><button class="selbox ${selected?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" aria-label="Sélectionner ${escA(f.name)}" aria-pressed="${selected}">${selGlyph(selected)}</button><button class="gallery-detail-open" data-act="${imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)?'lb':'open'}" data-rel="${escA(f.rel)}" title="${escA(f.rel)}">${esc(f.name)}</button>${figureGroups.has(f.rel)?`<span class="stackn" title="${figureGroups.get(f.rel).length} fichiers pour cette figure">${figureGroups.get(f.rel).length}</span>`:''}${favs.has(f.rel)?'<span class="fv">★</span>':''}</div>
         <div role="gridcell">${esc(f.ext.toUpperCase())}</div><div role="gridcell">${fmtSize(f.size)}</div><div role="gridcell">${esc(f.mdate)}</div><div role="gridcell" class="gallery-detail-status"><span>${esc(wf)}</span><button data-act="more" data-rel="${escA(f.rel)}" aria-label="Actions pour ${escA(f.name)}">${hovIco('more')}</button></div>
@@ -2258,13 +2281,13 @@ function render(){
       ? `<div class="snip" data-snip="${escA(f.rel)}"></div>`
       : tsrc
       ? `<div class="thumb">${imgTag}</div>`
-      : `<div class="ph"><span class="ext">${esc(f.ext.toUpperCase())}</span><span style="font-size:11px">no preview</span></div>`;
+      : `<div class="ph"><span class="ext">${esc(f.ext.toUpperCase())}</span><span style="font-size:11px">pas d’aperçu</span></div>`;
     const arch = f.archive?`<span class="tag archive">archive</span>`:'';
     const isFav = favs.has(f.rel);
     const isHid = hidden.has(f.rel);
-    const hidTag = isHid?`<span class="tag hid">hidden</span>`:'';
+    const hidTag = isHid?`<span class="tag hid">masqué</span>`:'';
     const wf = workflow[f.rel];
-    const wfTag = wf?`<span class="tag wf${wf==='final'?' final':''}">${esc(wf)}</span>`:'';
+    const wfTag = wf?`<span class="tag wf${wf==='final'?' final':''}">${esc(workflowLabel(wf)||wf)}</span>`:'';
     const rt = ratings[f.rel]||0;
     const pile = figureGroups.get(f.rel);
     const pileExts = pile ? [...new Set(pile.map(m=>m.ext.toUpperCase()))] : [];
@@ -2272,20 +2295,20 @@ function render(){
     const pileLate = !!pile && pile.some(m=>figureMemberState(m,pile).tone==='warn');
     const pileTag = pile ? `<span class="stackn${pileLate?' late':''}" title="${escA(pile.length+' fichiers pour cette figure'+(pileLate?' · une copie plus ancienne diffère':''))}">${STACK_ICON}${pile.length}</span>` : '';
     return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''} ${selectedRel===f.rel?'sel2':''} ${pile?'stack':''}" data-card="${escA(f.rel)}" role="option" aria-selected="${selectedRel===f.rel}">
-      <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Select — Shift-click to select a range">${selGlyph(selSet.has(f.rel))}</span>
-      ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}${pileTag}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Open with default app">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
+      <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Sélectionner — Maj-clic pour une plage">${selGlyph(selSet.has(f.rel))}</span>
+      ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}${pileTag}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Ouvrir avec l’application par défaut">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
       <div class="hov">
-        <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Open in Atelier IDE':'Open with default app'}">${hovIco('open')}</button>
-        <button data-act="copy" data-rel="${escA(f.rel)}" aria-label="Copy path" title="Copy path">${hovIco('copy')}</button>
+        <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut'}">${hovIco('open')}</button>
+        <button data-act="copy" data-rel="${escA(f.rel)}" aria-label="Copier le chemin" title="Copier le chemin">${hovIco('copy')}</button>
         <button data-act="chat" data-rel="${escA(f.rel)}" class="embOnly" aria-label="Joindre au chat de Studio" title="Joindre au chat de Studio">${hovIco('chat')}</button>
-        ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" class="embHide" aria-label="Open the script that generated this figure" title="Open the script that generated this figure">${hovIco('src')}</button>`:''}
-        ${imgExt(f.ext)?`<button data-act="board" data-rel="${escA(f.rel)}" class="embHide" aria-label="Send this figure to the whiteboard" title="Send this figure to the whiteboard">${hovIco('board')}</button>`:''}
-        <button data-act="fav" data-rel="${escA(f.rel)}" class="${isFav?'on':''}" aria-pressed="${isFav}" aria-label="${isFav?'Remove favorite':'Add favorite'}" title="${isFav?'Remove favorite':'Add favorite'}">${hovIco('fav')}</button>
-        <button data-act="more" data-rel="${escA(f.rel)}" aria-label="Rating, hide, delete" title="Rating, hide, delete">${hovIco('more')}</button>
+        ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" class="embHide" aria-label="Ouvrir le script qui a produit cette figure" title="Ouvrir le script qui a produit cette figure">${hovIco('src')}</button>`:''}
+        ${imgExt(f.ext)?`<button data-act="board" data-rel="${escA(f.rel)}" class="embHide" aria-label="Envoyer cette figure au tableau blanc" title="Envoyer cette figure au tableau blanc">${hovIco('board')}</button>`:''}
+        <button data-act="fav" data-rel="${escA(f.rel)}" class="${isFav?'on':''}" aria-pressed="${isFav}" aria-label="${isFav?'Retirer des favoris':'Ajouter aux favoris'}" title="${isFav?'Retirer des favoris':'Ajouter aux favoris'}">${hovIco('fav')}</button>
+        <button data-act="more" data-rel="${escA(f.rel)}" aria-label="Note, masquer, supprimer" title="Note, masquer, supprimer">${hovIco('more')}</button>
       </div>
       <div class="meta">
         <div class="nm" title="${escA(cardName)}" aria-label="${escA(cardName)}">${fileNameLabel(cardName)}</div>
-        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}${wfTag}<span class="mf" title="${escA(f.rel)} · ${fmtSize(f.size)}">${esc(pile?pileExts.join(' · '):f.ext.toUpperCase())}</span><span class="md" title="${escA(f.rel)} · ${fmtSize(f.size)} · created ${escA(f.bdate)} · modified ${escA(f.mdate)}">${esc((sort.startsWith('btime')?f.bdate:f.mdate).slice(0,10))}</span></div>
+        <div class="row2">${isFav?'<span class="fv">★</span>':''}${rt?`<span class="rt">★${rt}</span>`:''}${arch}${hidTag}${wfTag}<span class="mf" title="${escA(f.rel)} · ${fmtSize(f.size)}">${esc(pile?pileExts.join(' · '):f.ext.toUpperCase())}</span><span class="md" title="${escA(f.rel)} · ${fmtSize(f.size)} · créé le ${escA(f.bdate)} · modifié le ${escA(f.mdate)}">${esc((sort.startsWith('btime')?f.bdate:f.mdate).slice(0,10))}</span></div>
       </div>
     </div>`;
   }).join('') + (list.length>MAX?`<div class="empty">… and ${list.length-MAX} more. Refine your search to see them.</div>`:'');
@@ -2301,7 +2324,7 @@ function render(){
 // (format quick-chips + their video-solo handler removed — all types now live in the Formats menu)
 updateViewChip();
 const favChip=(document.getElementById('favChip') as HTMLSpanElement);
-favChip.textContent='★ Favorites ('+favs.size+')';
+favChip.textContent='★ Favoris ('+favs.size+')';
 const rateFilter=(document.getElementById('rateFilter') as HTMLSpanElement);
 rateFilter.innerHTML=[1,2,3,4,5].map(n=>`<span class="chip off rf" data-n="${n}" title="Show only ${n}-star items">${n}★</span>`).join('');
 rateFilter.querySelectorAll<HTMLSpanElement>('.rf').forEach(c=>{
@@ -2336,7 +2359,7 @@ quoteBtn.onclick=async()=>{await fetch('/clear-quote',{method:'POST'}).catch(()=
 };
 (document.getElementById('delSel') as HTMLButtonElement).onclick=async function(){
   if(!selSet.size) return;
-  if(!await confirmDialog(selSet.size+' file(s) → trash?')) return;
+  if(!await confirmDialog(selSet.size+' fichier(s) → corbeille ?')) return;
   const r=await fetch('/delete',{method:'POST',headers:{'Content-Type':'application/json'},
     body: JSON.stringify({rels:[...selSet]})});
   const j=await r.json();
@@ -2356,6 +2379,8 @@ window.__gallerySelection={
   compare(){ if([...selSet].filter(rel=>imgExt(rel.split('.').pop().toLowerCase())).length>=2)openCompare(); },
   collect(anchor){ if(selSet.size)collectSelMenu(anchor); },
   export(anchor){ if(selSet.size){buildExportMenu();menuToggle((document.getElementById('exportMenu') as HTMLDivElement),anchor);} },
+  exportModes(){ return EXPORT_MODES; },
+  exportTo(mode){ return exportSelection(mode); },
   hide(){ (document.getElementById('hideSel') as HTMLButtonElement).click(); },
   delete(){ (document.getElementById('delSel') as HTMLButtonElement).click(); },
   clear(){ clearSel(); },
@@ -2400,13 +2425,15 @@ lbHead.innerHTML='<button id="lbInfoBtn" aria-label="Informations sur le fichier
  +'<button id="lbFilesBtn" type="button" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="lbFiles"></button>'
  +'<div id="lbFiles" role="dialog" aria-label="Fichiers de cette figure" hidden></div>'
  +'<button id="lbAdd" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button>'
- +'<details id="lbMore"><summary aria-label="Autres actions">⋯</summary><div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
+ +'<details id="lbMore"><summary aria-label="Autres actions"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></summary><div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
  +'<div id="lbNameToast" aria-hidden="true"></div>';
 lb().prepend(lbHead);
 function setFigureBackdrop(color: string){
   const options=[...document.querySelectorAll<HTMLElement>('[data-backdrop]')];
   if(!options.some(b=>b.dataset.backdrop===color))color='atelier';
   if(color==='atelier')lb().style.removeProperty('--figure-backdrop');else lb().style.setProperty('--figure-backdrop',color);
+  // fonds Graphite/Ardoise toujours sombres : la légende passe à l'encre des médias (GAL-07)
+  lb().classList.toggle('dark-backdrop',color!=='atelier');
   options.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.backdrop===color)));
   try{localStorage.setItem('atelier.figureBackdrop',color);}catch{}
 }
@@ -2985,7 +3012,7 @@ function annotInit(){
       (document.getElementById('annotNote') as HTMLDivElement).style.display='none';
       if(!ANNOT_EMBEDDED)lb().classList.remove('annot');annotRedraw();
       (this as HTMLElement).classList.remove('is-busy'); (this as HTMLElement).classList.add('is-ok');
-      lbl.textContent=ANNOT_EMBEDDED?'Added to chat ✓':(j.submitted?'Sent to session ✓':'Pasted into Claude ✓');
+      lbl.textContent=ANNOT_EMBEDDED?'Ajouté au chat':(j.submitted?'Envoyé à la session':'Collé dans Claude');
     }catch(e){
       // Les marques restent en place : un nouveau clic sur la flèche rejoue l'envoi.
       (this as HTMLElement).classList.remove('is-busy'); (this as HTMLElement).classList.add('is-err');

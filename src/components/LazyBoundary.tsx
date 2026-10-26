@@ -55,8 +55,11 @@ export function BoundaryNotice(props: {
         {props.actionLabel}
       </Button>
       {/* détail technique utile quand le chunk embarqué ne correspond
-          plus au HTML du bundle */}
-      <span className="lazy-error-detail">{String(error?.message ?? error)}</span>
+          plus au HTML du bundle : replié, copiable (GAP-21) */}
+      <details className="ui-details lazy-error-detail">
+        <summary>{t("chat.error-details")}</summary>
+        <pre>{String(error?.message ?? error)}</pre>
+      </details>
     </InlineNotice>
   );
 }

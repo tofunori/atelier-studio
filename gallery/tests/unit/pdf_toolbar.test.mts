@@ -13,10 +13,12 @@ test("barre unique : les outils de marquage ont le gabarit des autres boutons (2
 
 test("outil actif en graphite : fond --card2 et icône --txt, jamais l'accent", () => {
   assert.match(html, /\.pdf-mark-tools button\[aria-pressed="true"\]\{background:var\(--card2,#2c313a\);color:var\(--txt,#dadee3\)\}/);
-  assert.match(html, /header button\[aria-pressed="true"\]\{background:#2c313a !important;color:var\(--txt\) !important\}/);
+  assert.match(html, /header button\[aria-pressed="true"\]\{background:color-mix\(in srgb,var\(--txt\) 12%,transparent\) !important;color:var\(--txt\) !important\}/);
   // PDF-04 : l'outil actif (12 %) se distingue du survol (6 %) dans la barre compacte
   assert.match(html, /header\.pdf-compact-toolbar button\[aria-pressed="true"\] \{ background:color-mix\(in srgb,var\(--txt\) 12%,transparent\)!important; color:var\(--txt\)!important; \}/);
-  assert.match(html, /header\.pdf-compact-toolbar button:hover \{ background:color-mix\(in srgb,var\(--txt\) 6%,transparent\)!important;/);
+  // PDF-27 : un outil désactivé ne s'allume plus au survol
+  assert.match(html, /header\.pdf-compact-toolbar button:hover:not\(:disabled\) \{ background:color-mix\(in srgb,var\(--txt\) 6%,transparent\)!important;/);
+  assert.doesNotMatch(html, /header\.pdf-compact-toolbar button:hover \{/);
   assert.doesNotMatch(html, /pdf-mark-tools button\[aria-pressed="true"\]\{[^}]*--accent/);
 });
 
@@ -27,7 +29,9 @@ test("mode intégré : une seule rangée de 44 px, sans retour à la ligne ni ov
   assert.doesNotMatch(style, /flex-wrap:wrap/);
   assert.doesNotMatch(style, /\.pdf-mark-tools button\{padding:7px/);
   assert.doesNotMatch(style, /border:7px solid/);
-  assert.match(style, /header \.zoomctl button\{padding:3px 8px/);
+  // PDF-13 : zoom en trois boutons de 26 px au rayon 6, plus de coins carrés
+  assert.match(style, /header \.zoomctl button\{height:26px;padding:0 8px !important;border-radius:6px !important\}/);
+  assert.doesNotMatch(html, /border-radius:0 !important/);
 });
 
 test("pastille de couleur sans flèche, palette au modèle de menu commun", () => {

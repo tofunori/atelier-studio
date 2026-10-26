@@ -10,6 +10,17 @@ describe("interface scale", () => {
     expect(large).not.toHaveProperty("--code-font-size");
   });
 
+  it("rounds to whole pixels and keeps every level distinct", () => {
+    for (const base of [12, 13, 14, 15, 16, 17, 18]) {
+      const scale = interfaceTypography(base);
+      const levels = ["--fs-xs", "--fs-s", "--fs-m", "--fs-l", "--fs-xl"].map((name) => scale[name]);
+      for (const value of levels) expect(value).toMatch(/^\d+px$/);
+      const numbers = levels.map((value) => parseInt(value, 10));
+      for (let i = 1; i < numbers.length; i++) expect(numbers[i]).toBeGreaterThan(numbers[i - 1]);
+    }
+    expect(interfaceTypography(15)["--fs-m"]).toBe("12px");
+  });
+
   it("keeps small labels readable and contains malformed persisted settings", () => {
     const small = interfaceTypography(12);
     expect(parseFloat(small["--fs-label"])).toBeGreaterThanOrEqual(11);

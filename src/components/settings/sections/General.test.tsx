@@ -44,11 +44,11 @@ describe("Section Général", () => {
     expect(screen.getByText("Recherche web")).toBeInTheDocument();
   });
 
-  it("garde le statut Sidecar sous le repli « Avancé »", () => {
+  it("garde le statut du serveur Atelier sous le repli « Avancé »", () => {
     renderUi(<General {...props()} />);
-    expect(screen.queryByText("Sidecar")).toBeNull();
+    expect(screen.queryByText("Serveur Atelier")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Diagnostic et maintenance" }));
-    expect(screen.getByText("Sidecar")).toBeInTheDocument();
+    expect(screen.getByText("Serveur Atelier")).toBeInTheDocument();
   });
 
   it("changer un réglage appelle set ET onSaved", () => {
@@ -73,10 +73,11 @@ describe("Section Général", () => {
         providers: [],
       },
     });
-    // Fermé par défaut.
-    expect(screen.queryByText("2.4.1 — 22.4.0")).toBeNull();
+    // Fermé par défaut ; la version vit dans la rangée du serveur (SET-23).
+    expect(screen.queryByText(/pid 4242/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Diagnostic et maintenance" }));
-    expect(screen.getByText("2.4.1 — 22.4.0")).toBeInTheDocument();
+    expect(screen.getByText(/2\.4\.1.*pid 4242/)).toBeInTheDocument();
+    expect(screen.queryByText("Node")).toBeNull();
   });
 
   it("fusionne Runtime et la rangée Sidecar existante au lieu de dupliquer le badge de connexion", () => {
@@ -91,9 +92,8 @@ describe("Section Général", () => {
       },
     });
     fireEvent.click(screen.getByRole("button", { name: "Diagnostic et maintenance" }));
-    // Une seule rangée « Sidecar » (pas une deuxième pour le diagnostic de
-    // l'ex-section setup) et un seul badge « connecté ».
-    expect(screen.getAllByText("Sidecar")).toHaveLength(1);
+    // Une seule rangée « Serveur Atelier » et un seul badge « connecté ».
+    expect(screen.getAllByText("Serveur Atelier")).toHaveLength(1);
     expect(screen.getAllByText("connecté")).toHaveLength(1);
   });
 

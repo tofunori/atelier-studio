@@ -81,7 +81,8 @@ export function ProjectChatTabs(p: {
       items={[
         ...(p.controls ? [{key:"close-unpinned",label:t("chat.close-unpinned-tabs"),onSelect:() => p.controls!.onClose(visible.map(chat => chat.id))}] : []),
         ...p.chats.map((chat) => ({ key: chat.id,
-        label: `${chat.id === p.activeId ? "✓ " : ""}${chat.title || t("app.new-chat-title")}`,
+        label: chat.title || t("app.new-chat-title"),
+        checked: chat.id === p.activeId, keepOpen: false,
         onSelect: () => p.onSelect(chat.id),
       }))]}
     />

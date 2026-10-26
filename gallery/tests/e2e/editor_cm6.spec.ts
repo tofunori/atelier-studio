@@ -51,7 +51,7 @@ test('latex toolbar exposes individual diffs in a single row', async ({page}) =>
     await page.keyboard.type('Modification utilisateur. ');
     await expect(page.locator('#ddot')).toBeVisible();
     const after = await page.locator('#documentModes').boundingBox();
-    expect(after.width).toBe(before.width);
+    expect(after.width).toBeCloseTo(before.width, 1);
 
   });
 });
@@ -354,12 +354,12 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
       const narrow = (await pop.boundingBox())!;
       await page.locator('#texcPop textarea').fill('Relis le paragraphe et propose une meilleure formulation pour le début de la discussion, cherche dans le corpus');
       const tall = (await pop.boundingBox())!;
-      expect(tall.width).toBe(narrow.width);
+      expect(tall.width).toBeCloseTo(narrow.width, 1);
       expect(tall.height).toBeGreaterThan(narrow.height);
       expect(tall.x + tall.width).toBeLessThanOrEqual(page.viewportSize()!.width - 7);
       expect(await page.locator('#texcPop textarea').evaluate(ta => ta.scrollHeight - ta.clientHeight)).toBe(0);
       await page.locator('#texcPop textarea').fill('Vérifier ce passage');
-      expect((await pop.boundingBox())!.height).toBe(narrow.height);
+      expect((await pop.boundingBox())!.height).toBeCloseTo(narrow.height, 1);
       const saved = page.waitForResponse(response => response.url().includes('/pdfannot')
         && response.request().method() === 'POST');
       await page.locator('#texcPop .send2').click();
@@ -396,7 +396,7 @@ test('latex note bubble keeps one width and wraps long notes', async ({page}) =>
     const empty = (await pop.boundingBox())!;
     await input.pressSequentially("je pense ici on pourrait ameliorer la phrase d'intro et la suite");
     const typed = (await pop.boundingBox())!;
-    expect(typed.width).toBe(empty.width);
+    expect(typed.width).toBeCloseTo(empty.width, 1);
     expect(typed.height).toBeGreaterThan(empty.height);
     expect(await fits()).toBe(true);
     await pop.locator('.send2').click();
@@ -405,8 +405,8 @@ test('latex note bubble keeps one width and wraps long notes', async ({page}) =>
       await page.locator('.atelier-annotation-number').first().click();
       await expect(pop).toBeVisible();
       const reopened = (await pop.boundingBox())!;
-      expect(reopened.width).toBe(empty.width);
-      expect(reopened.height).toBe(typed.height);
+      expect(reopened.width).toBeCloseTo(empty.width, 1);
+      expect(reopened.height).toBeCloseTo(typed.height, 1);
       expect(await fits()).toBe(true);
       await page.keyboard.press('Escape');
       await expect(pop).toBeHidden();

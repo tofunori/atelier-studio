@@ -1,6 +1,6 @@
 // Réglages visuels avec aperçu vivant et personnalisation progressive.
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../shadcn/collapsible";
-import { ArrowUp, ChevronDown } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Advanced, Group, Row, Toggle } from "../primitives";
 import type { SectionProps } from "../shared";
@@ -8,6 +8,7 @@ import type { Settings } from "../../../lib/settings";
 import { t } from "../../../lib/i18n";
 import { followsAppearanceMode, resolveAppearanceTheme, THEME_PRESETS } from "../../../lib/themes";
 import { Button, Select, SegmentedControl } from "../../ui";
+import { CheckIcon, ChevronIcon } from "../../icons";
 import { Input } from "../../shadcn/input";
 import { Slider as ShadcnSlider } from "../../shadcn/slider";
 
@@ -92,7 +93,7 @@ export default function Appearance(p: SectionProps) {
             <span key={k} style={{ background: swatch[k] }} />
           ))}
         </span>
-        <span className="theme-check">{on ? "✓" : ""}</span>
+        <span className="theme-check">{on && <CheckIcon size={12} />}</span>
       </Button>
     );
   }
@@ -164,7 +165,7 @@ export default function Appearance(p: SectionProps) {
         <Group label={t("settings.group.theme")}>
           {currentTheme && <div className="theme-current">{themeRow(currentTheme)}</div>}
           <Collapsible className="theme-options">
-            <CollapsibleTrigger render={<Button variant="ghost" className="theme-options-trigger">{t("settings.other-themes")}<ChevronDown aria-hidden="true" /></Button>} />
+            <CollapsibleTrigger render={<Button variant="ghost" className="theme-options-trigger">{t("settings.other-themes")}<ChevronIcon size={12} /></Button>} />
             <CollapsibleContent>
               <Input className="theme-search" aria-label={t("settings.search-theme")} placeholder={t("settings.search-theme")}
                 value={themeQuery} onChange={e => setThemeQuery(e.target.value)} />

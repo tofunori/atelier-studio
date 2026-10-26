@@ -163,26 +163,29 @@ function AgentStateIcon({status}: {status: AgentDisplay["status"]}) {
   return <Icon className="agent-state-icon" data-agent-status={status} size={16} aria-hidden="true" />;
 }
 
-/** Glyphe d'un sous-agent dans sa rangée (étincelle trait fin, même gabarit
- * que les icônes d'outil) ; l'en-tête du groupe garde le glyphe « agent ». */
+/** Glyphe d'un sous-agent dans sa rangée : le MÊME glyphe « agent » que
+ * l'en-tête du groupe, au gabarit des icônes d'outil (CHAT-25) ; l'étincelle
+ * reste réservée à l'état vivant du tour. */
 export function AgentRowGlyph() {
-  return <svg width={15} height={15} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.35}
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M8 2.4c.4 3.2 2.1 5 5.6 5.6-3.5.6-5.2 2.4-5.6 5.6-.4-3.2-2.1-5-5.6-5.6 3.5-.6 5.2-2.4 5.6-5.6z" />
-  </svg>;
+  return <GitBranchIcon className="agent-glyph" size={15} aria-hidden="true" />;
 }
 
 /** Colonne de durée : chrono pendant le travail, mot court sur un échec ou
  * une interruption (comme « exit N » des commandes), durée posée sinon. */
 export function AgentDuration({ agent }: { agent: AgentDisplay }) {
+  const start = agent.startTs ?? 0;
   if (agent.status === "working") {
-    return agent.startTs != null ? <LiveClock since={agent.startTs} className="tool-duration" /> : <span className="tool-duration" />;
+    return start > 0 ? <LiveClock since={start} className="tool-duration" /> : <span className="tool-duration" />;
   }
-  const label = agent.status === "failed" ? t("chat.subagent-short-failed")
-    : agent.status === "interrupted" ? t("chat.subagent-short-interrupted")
-    : agent.durationMs != null && agent.durationMs > 0 ? fmtToolDur(agent.durationMs)
-    : agent.startTs != null && agent.endTs != null && agent.endTs > agent.startTs ? fmtToolDur(agent.endTs - agent.startTs) : null;
-  return <span className="tool-duration">{label}</span>;
+  return <span className="tool-duration">{agentDurationLabel(agent, start)}</span>;
+}
+
+function agentDurationLabel(agent: AgentDisplay, start: number): string | null {
+  if (agent.status === "failed") return t("chat.subagent-short-failed");
+  if (agent.status === "interrupted") return t("chat.subagent-short-interrupted");
+  if (agent.durationMs != null && agent.durationMs > 0) return fmtToolDur(agent.durationMs);
+  if (start > 0 && agent.endTs != null && agent.endTs > start) return fmtToolDur(agent.endTs - start);
+  return null;
 }
 
 /** Les sous-agents d'un tour, comme une grappe d'actions : UNE rangée de
@@ -215,7 +218,7 @@ export function AgentActivityGroup({actions, onOpenAgent, eventsByThreadId}: {
     failed ? t("chat.subagents-count-failed", {count: failed}) : null,
     interrupted ? t(interrupted === 1 ? "chat.subagents-count-interrupted-one" : "chat.subagents-count-interrupted", {count: interrupted}) : null,
   ].filter(Boolean).join(" · ");
-  const starts = agents.map(agent => agent.startTs).filter((ts): ts is number => ts != null);
+  const starts = agents.map(agent => agent.startTs).filter((ts): ts is number => ts != null && ts > 0);
   // Fin d'un agent : sa durée exacte quand le CLI la donne, sinon son dernier état.
   const ends = agents.map(agent => agent.durationMs != null && agent.startTs != null ? agent.startTs + agent.durationMs : agent.endTs)
     .filter((ts): ts is number => ts != null);
@@ -290,7 +293,7 @@ export function AgentDetailPanel({
       <ScrollArea className="agent-detail-scroll">
         <div className="agent-detail-body" data-testid="agent-transcript">
           {(agent.prompt && !opaqueAgentText(agent.prompt) || agent.model || agent.reasoningEffort) ? (
-            <details className="agent-detail-disclosure" key={`mission-${agent.threadId}`}>
+            <details className="ui-details agent-detail-disclosure" key={`mission-${agent.threadId}`}>
               <summary>{t("chat.subagent-mission")}</summary>
               {agent.prompt && !opaqueAgentText(agent.prompt) ? <p className="agent-detail-prompt">{agent.prompt}</p> : null}
               <div className="agent-detail-meta">{[agent.model, agent.reasoningEffort].filter(Boolean).join(" · ")}</div>
@@ -313,7 +316,7 @@ export function AgentDetailPanel({
               remarkPlugins={plugins.remark} rehypePlugins={plugins.rehype} components={MD_COMPONENTS} /></div> : null}
             {!prose.length && !fallback ? <p className="agent-detail-empty" data-testid="agent-transcript-empty">{t(agent.status === "working" ? "chat.subagent-waiting" : "chat.subagent-no-transcript")}</p> : null}
           </div>
-          {activity.length > 0 ? <details className="agent-detail-disclosure agent-detail-activity" key={`activity-${agent.threadId}`}>
+          {activity.length > 0 ? <details className="ui-details agent-detail-disclosure agent-detail-activity" key={`activity-${agent.threadId}`}>
             <summary>{t("chat.subagent-activity")} · {activity.length}</summary>
             <div className="agent-activity-log">{activity.map((event, index) => {
               if (event.kind !== "tool" && event.kind !== "tool_update") {
@@ -325,7 +328,7 @@ export function AgentDetailPanel({
               const line = <><ToolGlyph icon={activityIconForAction(event)} /><span className="agent-tool-line-text">{agentToolLabel(event)}</span>
                 <span className="agent-tool-status">{t(failed ? "agent-tool.failed" : completed ? "agent-tool.done" : "agent-tool.pending")}</span></>;
               const key = `tool-${("id" in event ? event.id : null) ?? "legacy"}-${index}`;
-              return output ? <details key={key} className="agent-tool-result" data-testid="agent-tool-line">
+              return output ? <details key={key} className="ui-details agent-tool-result" data-testid="agent-tool-line">
                 <summary className={cn("agent-tool-line", failed && "is-failed")}>{line}</summary><pre className="agent-tool-output">{output}</pre>
               </details> : <div key={key} className={cn("agent-tool-line", failed && "is-failed")} data-testid="agent-tool-line">{line}</div>;
             })}</div>

@@ -1,6 +1,7 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import {
   Tldraw,
+  DefaultFontStyle,
   type TLGeoShapeProps,
   type TLArrowShapeProps,
   getSnapshot,
@@ -11,6 +12,18 @@ import {
   toRichText,
 } from 'tldraw'
 import 'tldraw/tldraw.css'
+import { getAssetUrlsByImport } from '@tldraw/assets/imports.vite'
+import './atelier.css'
+
+// Icônes, polices et traductions embarquées (GAP-07) : rien ne vient de
+// cdn.tldraw.com, le tableau reste entier hors connexion.
+const assetUrls = getAssetUrlsByImport()
+// Texte des formes en sans-serif sobre plutôt qu'en écriture manuscrite.
+DefaultFontStyle.setDefaultValue('sans')
+
+// Statut du tableau (GAP-05) : capsule sobre ; « nouvel essai » tourne en
+// silence, seul un état qui demande un choix porte le point d'erreur.
+type Notice = { text: string; busy?: boolean; error?: boolean; action?: { label: string; run: () => void } }
 
 const SAVE_DEBOUNCE_MS = 1000
 const POLL_MS = 1000
@@ -22,9 +35,7 @@ const SAVE_RETRY_MS = 5000
 // chaque sauvegarde porte la version chargée (`base`) et le serveur refuse
 // (409) d'écraser un tableau changé ailleurs (autre fenêtre) depuis.
 export default function App() {
-  const [notice, setNotice] = useState<string | null>(null)
-  // action du bandeau (conflit : garder la version de cette fenêtre)
-  const noticeAction = useRef<(() => void) | null>(null)
+  const [notice, setNotice] = useState<Notice | null>(null)
 
   const handleMount = useCallback((editor) => {
     let disposed = false
@@ -46,10 +57,22 @@ export default function App() {
     // écriture (beacon dont la réponse n'est jamais lue) et ne la prend pas
     // pour un conflit (relecture du 2026-10-19)
     const writer = Math.random().toString(36).slice(2) + Date.now().toString(36)
-    const say = (text: string | null, action: (() => void) | null = null) => {
-      noticeAction.current = action
-      setNotice(text)
+    const say = (text: string | null, options: Omit<Notice, 'text'> = {}) => {
+      setNotice(text == null ? null : { text, ...options })
     }
+    // Thème d'Atelier (GAP-02) : le pont atelier_theme.js pose color-scheme
+    // sur la racine ; hors d'Atelier (aucun thème reçu), tldraw suit le système.
+    const syncTheme = () => {
+      const root = document.documentElement
+      const colorScheme = root.dataset.atelierTheme
+        ? (root.style.colorScheme === 'light' ? 'light' : 'dark')
+        : 'system'
+      if (editor.user.getUserPreferences().colorScheme !== colorScheme) {
+        editor.user.updateUserPreferences({ colorScheme })
+      }
+    }
+    syncTheme()
+    window.addEventListener('atelier-theme-applied', syncTheme)
     editor.updateInstanceState({ isReadonly: true })
     const load = () => {
       fetch('/board/load')
@@ -67,7 +90,7 @@ export default function App() {
               // illisible pour tldraw : on n'écrase pas le fichier avec un
               // tableau vide, il reste en lecture seule
               console.warn('load_snapshot failed', e)
-              say('Tableau illisible : rien ne sera enregistré par-dessus.')
+              say('Tableau illisible : rien ne sera enregistré par-dessus.', { error: true })
               return
             }
           }
@@ -79,7 +102,7 @@ export default function App() {
         .catch((e) => {
           if (disposed) return
           console.warn('board/load failed', e)
-          say('Tableau non chargé — nouvel essai…')
+          say('Tableau non chargé, nouvel essai…', { busy: true })
           setTimeout(load, LOAD_RETRY_MS)
         })
     }
@@ -115,8 +138,8 @@ export default function App() {
             conflict = true
             conflictVersion = data && typeof data.version === 'string' ? data.version : null
             say(
-              'Le tableau a changé dans une autre fenêtre : ces modifications ne sont pas enregistrées (copie dans board.tldr.json.conflit). Cliquer pour garder ce tableau (l’autre ira dans board.tldr.json.bak).',
-              conflictVersion != null ? keepMine : null,
+              'Le tableau a changé dans une autre fenêtre : ces modifications ne sont pas enregistrées (copie dans board.tldr.json.conflit). Le garder remplace l’autre, qui ira dans board.tldr.json.bak.',
+              { error: true, action: conflictVersion != null ? { label: 'Garder ce tableau', run: keepMine } : undefined },
             )
             return
           }
@@ -126,7 +149,7 @@ export default function App() {
         })
         .catch((e) => {
           console.warn('board/save failed', e)
-          say('Tableau non enregistré — nouvel essai…')
+          say('Tableau non enregistré, nouvel essai…', { busy: true })
           if (!saveTimer) saveTimer = setTimeout(doSave, SAVE_RETRY_MS)
         })
     }
@@ -349,6 +372,7 @@ export default function App() {
     // ---- cleanup ----
     return () => {
       disposed = true
+      window.removeEventListener('atelier-theme-applied', syncTheme)
       if (saveTimer) clearTimeout(saveTimer)
       if (pollTimer) clearTimeout(pollTimer)
       unlisten()
@@ -357,35 +381,19 @@ export default function App() {
 
   return (
     <div style={{ position: 'fixed', inset: 0 }}>
-      <Tldraw onMount={handleMount} />
+      <Tldraw onMount={handleMount} assetUrls={assetUrls} />
       {notice && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 12,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'rgba(200,40,40,0.92)',
-            color: 'white',
-            padding: '6px 14px',
-            borderRadius: 6,
-            fontSize: 13,
-            fontFamily: 'sans-serif',
-            zIndex: 999999,
-            pointerEvents: noticeAction.current ? 'auto' : 'none',
-            cursor: noticeAction.current ? 'pointer' : 'default',
-          }}
-          role={noticeAction.current ? 'button' : 'status'}
-          tabIndex={noticeAction.current ? 0 : undefined}
-          onClick={() => noticeAction.current?.()}
-          onKeyDown={(event) => {
-            if (noticeAction.current && (event.key === 'Enter' || event.key === ' ')) {
-              event.preventDefault()
-              noticeAction.current()
-            }
-          }}
-        >
-          {notice}
+        <div className={'wb-notice' + (notice.error ? ' error' : '')} role="status" aria-live="polite">
+          {notice.busy && (
+            <svg className="wb-spin" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" aria-hidden="true">
+              <path d="M8 2a6 6 0 1 0 6 6" />
+            </svg>
+          )}
+          {notice.error && <span className="wb-dot" />}
+          <span className="wb-text">{notice.text}</span>
+          {notice.action && (
+            <button type="button" className="wb-act" onClick={notice.action.run}>{notice.action.label}</button>
+          )}
         </div>
       )}
     </div>

@@ -140,3 +140,17 @@ test('open figure updates from disk, keeps immutable versions and version-specif
   expect((await request.post(origin+'/figure-versions?path=figure.png',{headers:{Origin:'https://untrusted.example'}})).status()).toBe(403);
   expect((await request.post(origin+'/figure-versions?path='+encodeURIComponent('/etc/passwd'),{headers:{Origin:origin}})).status()).toBe(409);
 });
+
+test('top-bar Gallery icon closes the open figure and returns to the grid',async({page})=>{
+  await page.goto(origin+'/?embedded=atelier');
+  const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=400;c.height=300;const x=c.getContext('2d');x.fillStyle='#bce5bc';x.fillRect(0,0,400,300);return c.toDataURL().split(',')[1];});
+  fs.writeFileSync(path.join(root,'grid.png'),Buffer.from(png,'base64'));
+  await page.evaluate(async()=>{lbList=([{rel:'grid.png',name:'grid.png',ext:'png'}] as unknown as typeof lbList);await lbShow(0);await lbVersionReady;});
+  await expect(page.locator('#lb')).toHaveClass(/\bshow\b/);
+  // Seule la fenêtre hôte commande le retour : un message d'ailleurs est ignoré.
+  await page.evaluate(()=>{const f=document.createElement('iframe');document.body.append(f);window.dispatchEvent(new MessageEvent('message',{data:{type:'atelier-gallery-grid'},source:f.contentWindow}));});
+  await page.waitForTimeout(100);
+  await expect(page.locator('#lb')).toHaveClass(/\bshow\b/);
+  await page.evaluate(()=>window.postMessage({type:'atelier-gallery-grid'},'*'));
+  await expect(page.locator('#lb')).not.toHaveClass(/\bshow\b/);
+});
