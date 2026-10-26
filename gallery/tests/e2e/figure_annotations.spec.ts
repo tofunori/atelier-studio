@@ -21,6 +21,13 @@ await page.locator('#lbZoomIn').click();
 assert.ok(Math.abs(await page.locator('#lbWrap').evaluate(el=>el.getBoundingClientRect().width)-fitWidth)<2);
 await page.evaluate(()=>lbSetZoom(.01));assert.equal(await page.evaluate(()=>lbZoomLevel),.25);
 await page.locator('#lbFit').click();assert.equal(await page.evaluate(()=>lbZoomLevel),1);
+// Fullscreen keeps the annotate button and the note; the bar stays while annotating.
+await page.locator('#lbAnnot').click();assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),false);
+assert.equal(await page.locator('#lbAnnot').isVisible(),true);
+await page.locator('#lbAnnot').click();assert.equal(await page.locator('#annotBar').isVisible(),true);
+await page.evaluate(()=>lb().classList.remove('fs-ui'));assert.equal(await page.locator('#annotBar').isVisible(),true);
+{const fsBox=await page.locator('#annotCv').boundingBox();await page.mouse.move(fsBox.x+80,fsBox.y+80);await page.mouse.down();await page.mouse.move(fsBox.x+180,fsBox.y+150,{steps:4});await page.mouse.up();}
+assert.equal(await page.locator('#annotNote').isVisible(),true);await page.locator('.annot-close').click();assert.equal(await page.evaluate(()=>annotStrokes.length),0);
 await page.evaluate(()=>{lb().classList.remove('fs');lbSetZoom(1);});
 await page.locator('#lbZoomMenu summary').click();
 const box=await page.locator('#annotCv').boundingBox();const drag=async(x1: number,y1: number,x2: number,y2: number)=>{await page.mouse.move(box.x+x1,box.y+y1);await page.mouse.down();await page.mouse.move(box.x+x2,box.y+y2,{steps:4});await page.mouse.up();};
