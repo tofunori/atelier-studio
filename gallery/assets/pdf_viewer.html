@@ -7,6 +7,10 @@
 <meta charset="utf-8">
 <title>Lecteur PDF</title>
 <script data-atelier-source="gallery/src/browser/pages/pdf_viewer_1.ts">(function(){
+  /* Lecteur imbriqué (bibliothèque, onglets) : classe posée avant la première
+     mise en page. WebKit construit la barre de la fenêtre au premier layout et
+     ne la défait plus ; masquée plus tard, elle restait avec une piste blanche. */
+  if(window.self !== window.top) document.documentElement.classList.add('pdf-embedded');
   try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
   /* nonce IPC : inclus dans chaque message vers l'app hôte ; l'app rejette sans lui */
   window.__atelierPost = function(p){
@@ -49,6 +53,11 @@
   :root{--ui-font:-apple-system,'SF Pro Text','Inter Variable',sans-serif;--code-font:ui-monospace,'SF Mono',Menlo,monospace;--bg:#1e2124;--card:#24282d;--card2:#2c2f34;--txt:#dadee3;--muted:#90969d;--accent:#e77f3e;--border:#2a2d31;--pdf-paper:#fff;--pdf-paper-invert:#141414;--pdf-mark-focus:#7aa2f7;color-scheme:dark}
   /* PDF-14 : la feuille blanche se pose sur le fond de canevas du thème, un
      cran sous --bg (papier contre --bg en clair : 1,05:1) */
+  /* Lecteur imbriqué : pas de chrome de défilement du document (gouttière
+     native claire sous le ⋯ de la barre compacte). html.pdf-embedded (0,1,1)
+     l'emporte sur le :root de scrollbars.css (0,1,0). */
+  html.pdf-embedded{scrollbar-width:none}
+  html.pdf-embedded::-webkit-scrollbar,html.pdf-embedded body::-webkit-scrollbar{width:0;height:0;display:none}
   body{margin:0;background:var(--surface-canvas,var(--bg));color:var(--txt);font-family:var(--ui-font);
     width:max-content;min-width:100%}
   body.read-mode{width:auto}
@@ -5162,9 +5171,8 @@ if (window.self !== window.top) {
        tout le document, barre comprise, au-delà du bord : la barre se
        détachait. Sans rebond, le défilement s'arrête net au bout. */
     html, body { overscroll-behavior:none; }
-    /* :root et non html : scrollbars.css pose sa largeur sur :root (0,1,0) */
-    :root { scrollbar-width:none; }
-    html::-webkit-scrollbar, body::-webkit-scrollbar { width:0; height:0; display:none; }
+    /* Barre masquée par html.pdf-embedded, posée dans le <head> : injectée ici,
+       après la première mise en page, WebKit gardait la barre déjà construite. */
     .pdf-toolbar-nav { display:flex; align-items:center; gap:2px; margin-right:auto; flex:none; }
     .pdf-toolbar-nav button { width:26px; height:26px; }
     .pdf-page-nav { display:inline-flex; align-items:center; gap:2px; }

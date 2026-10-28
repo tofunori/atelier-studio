@@ -7,6 +7,9 @@
 (function(){
   var EMBED = window.self !== window.top;
   try{ EMBED = EMBED || new URLSearchParams(location.search).get('embedded') === 'atelier'; }catch(e){}
+  // html.emb dès le <head> : posée plus tard (fin du corps de page), WebKit gardait la
+  // barre de la fenêtre déjà construite au premier layout, piste blanche comprise.
+  if(EMBED) document.documentElement.classList.add('emb');
   var CACHE_KEY = 'atelier-theme-cache';
   // variables de l'app → variables de la galerie (--accent a un autre sens ici)
   var MAP = {'--bg':'--bg','--bg-card':'--card','--bg-ctl':'--card2','--fg':'--txt',

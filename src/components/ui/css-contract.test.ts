@@ -1208,6 +1208,16 @@ describe("contrat lot 2 (socle)", () => {
     expect(scrollArea).not.toMatch(/tw:data-vertical:w-2\.5/);
   });
 
+  it("cadres de documents : jamais de fond blanc derrière une piste de barre transparente", () => {
+    // WebKit montre le fond de l'élément iframe sous la piste transparente de la
+    // barre de la fenêtre du document : un #fff donnait une barre blanche en
+    // sombre (lecteur PDF de la bibliothèque, Thierry, 2026-10-28).
+    const app = stripComments(readFileSync(join(root, "App.css"), "utf8"));
+    const rule = (sel: string) => app.match(new RegExp(`(^|\\})\\s*${sel.replace(".", "\\.")}\\s*\\{([^}]*)\\}`))?.[2] ?? "";
+    expect(rule(".biblio-frame")).toMatch(/background:\s*transparent/);
+    expect(rule(".biblio-frame-wrap")).toMatch(/background:\s*var\(--surface-canvas\)/);
+  });
+
   it("A4 : la méta lisible est en --text-muted ; --text-disabled reste aux marques et au désactivé", () => {
     const all = sourceSheets().map(([, css]) => css).join("\n");
     // budget gelé : chevrons, séparateurs, puces, coches, poignées,

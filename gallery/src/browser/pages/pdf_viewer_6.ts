@@ -4506,9 +4506,8 @@ if (window.self !== window.top) {
        tout le document, barre comprise, au-delà du bord : la barre se
        détachait. Sans rebond, le défilement s'arrête net au bout. */
     html, body { overscroll-behavior:none; }
-    /* :root et non html : scrollbars.css pose sa largeur sur :root (0,1,0) */
-    :root { scrollbar-width:none; }
-    html::-webkit-scrollbar, body::-webkit-scrollbar { width:0; height:0; display:none; }
+    /* Barre masquée par html.pdf-embedded, posée dans le <head> : injectée ici,
+       après la première mise en page, WebKit gardait la barre déjà construite. */
     .pdf-toolbar-nav { display:flex; align-items:center; gap:2px; margin-right:auto; flex:none; }
     .pdf-toolbar-nav button { width:26px; height:26px; }
     .pdf-page-nav { display:inline-flex; align-items:center; gap:2px; }

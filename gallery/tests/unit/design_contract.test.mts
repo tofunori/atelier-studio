@@ -327,3 +327,17 @@ test("barre de la fenêtre : piste peinte du fond de la page, jamais blanche", (
   }
   assert.deepEqual(bad, []);
 });
+
+test("barre de la fenêtre masquée dès le <head> dans les cadres de l'app, jamais après le premier layout", () => {
+  // WebKit construit la barre de la fenêtre au premier layout et ne la défait
+  // plus : masquée par une classe ou une feuille posée ensuite, elle restait,
+  // piste blanche comprise (Thierry, 2026-10-28, lecteur PDF de la bibliothèque).
+  const headOf = (html: string) => html.slice(0, html.search(/<body[ >]/));
+  const pdf = read("assets/pdf_viewer.html");
+  assert.match(headOf(pdf), /if\(window\.self !== window\.top\) document\.documentElement\.classList\.add\('pdf-embedded'\)/);
+  assert.match(headOf(pdf), /html\.pdf-embedded\{scrollbar-width:none\}/);
+  assert.match(headOf(pdf), /html\.pdf-embedded::-webkit-scrollbar,html\.pdf-embedded body::-webkit-scrollbar\{width:0;height:0;display:none\}/);
+  assert.doesNotMatch(pdf, /:root \{ scrollbar-width:none; \}/, "plus de masquage injecté après chargement");
+  const gallery = read("assets/gallery_template.html");
+  assert.match(headOf(gallery), /if\(EMBED\) document\.documentElement\.classList\.add\('emb'\)/);
+});
