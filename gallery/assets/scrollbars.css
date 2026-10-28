@@ -40,6 +40,12 @@ body{scrollbar-color:var(--atelier-scrollbar-color,var(--scroll-thumb) transpare
      fond de la page, comme la barre du chat. */
   :where(html,body)::-webkit-scrollbar-track,
   :where(html,body)::-webkit-scrollbar-corner{background:var(--bg,Canvas)}
+  /* Cadres d'Atelier (galerie, lecteur PDF, éditeurs) : quand la page du cadre
+     masque la barre de sa fenêtre, WebKit ne la cache pas mais la redessine
+     avec le style de l'ÉLÉMENT iframe de l'hôte, piste transparente, peinte
+     en blanc. Mesuré sur macOS 27 / WebKit 22625 (Thierry, 2026-10-28). Une
+     page qui garde sa barre l'affiche toujours, avec son propre style. */
+  iframe:is(.atelier,[data-atelier-role])::-webkit-scrollbar{display:none}
 }
 
 /* CodeMirror : même barre, mais une voie stable (scrollbar-gutter) pour que
