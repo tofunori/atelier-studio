@@ -36,11 +36,8 @@ test('toolbar follows divider, sidebar and layout changes without an extra chat 
   await page.locator('.topbar-window-overflow button').click();
   const windowMenu = page.getByRole('menu');
   await expect(windowMenu.getByRole('menuitem')).toHaveCount(6);
-  // DIAG-CI (temporaire) : ce que voit la CI macOS au moment du clic.
-  console.log('DIAG menu', JSON.stringify(await page.evaluate(() => [...document.querySelectorAll('[role^=menuitem]')].map(e => `${e.getAttribute('role')}:${e.textContent}:${e.closest('[role=menu]')?.getAttribute('data-open') ?? ''}`))));
   // Same label in both languages (layout.chat), scoped to the open menu.
   await windowMenu.getByRole('menuitem', { name: 'Chat', exact: true }).click();
-  console.log('DIAG radios', JSON.stringify(await page.evaluate(() => [...document.querySelectorAll('.topbar-layout-controls [role=radio]')].map(e => `${e.getAttribute('aria-label')}=${e.getAttribute('aria-checked')}`))));
   await expect(page.locator('.topbar-layout-controls').getByRole('radio', { name: 'Chat', exact: true })).toHaveAttribute('aria-checked', 'true');
   await expectAligned(page, false);
   await expect(divider).toHaveCount(0);
@@ -48,7 +45,7 @@ test('toolbar follows divider, sidebar and layout changes without an extra chat 
   if (await split.isVisible()) await split.click();
   else {
     await page.locator('.topbar-window-overflow button').click();
-    await page.getByRole('menuitem').nth(3).click();
+    await windowMenu.getByRole('menuitem', { name: /^(Partagé|Split)$/ }).click();
   }
   await expectAligned(page);
   await page.setViewportSize({ width: 600, height: 850 });
