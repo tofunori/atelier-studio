@@ -1,6 +1,7 @@
 import type { ProjectFolders } from "./projectFolders";
 import { CONSIGNES_LIVREES, type Consigne } from "./consignes";
 import type { Specialiste } from "./specialistes";
+import { replaceRetiredModel } from "./modelCatalog";
 
 export type ProviderId = string;
 
@@ -279,6 +280,52 @@ function promoteDefaults(stored: Partial<Settings>): Partial<Settings> {
   return promoted;
 }
 
+/** Migre les modèles Claude retirés du catalogue (Fable 5, Opus 5, Opus 4.8,
+ * Sonnet 5, Haiku 4.5) vers leur remplaçant, partout où un choix est
+ * enregistré : défaut, favoris (sans doublon), efforts par modèle, relecture
+ * automatique, reformulation des consignes. Idempotente, et rend le MÊME objet
+ * quand rien ne change : elle passe au chargement ET sur chaque miroir disque
+ * (qui fait foi après le boot et ramènerait sinon les anciens ids). */
+export function migrateRetiredModels<T extends Partial<Settings>>(s: T): T {
+  const swap = (provider: string | undefined, model: string | undefined) =>
+    provider && model ? replaceRetiredModel(provider, model) : model;
+  const patch: Partial<Settings> = {};
+  const claudeDefault = s.defaultModel?.claude;
+  const nextDefault = swap("claude", claudeDefault);
+  if (s.defaultModel && nextDefault !== claudeDefault) {
+    patch.defaultModel = { ...s.defaultModel, claude: nextDefault as string };
+  }
+  const favs = s.favoriteModels?.claude;
+  if (s.favoriteModels && Array.isArray(favs)) {
+    const nextFavs = [...new Set(favs.map((id) => replaceRetiredModel("claude", id)))];
+    if (nextFavs.length !== favs.length || nextFavs.some((id, i) => id !== favs[i])) {
+      patch.favoriteModels = { ...s.favoriteModels, claude: nextFavs };
+    }
+  }
+  if (s.modelEfforts) {
+    let changed = false;
+    const nextEfforts: Record<string, string> = {};
+    for (const [key, effort] of Object.entries(s.modelEfforts)) {
+      const nextKey = key.startsWith("claude:")
+        ? "claude:" + replaceRetiredModel("claude", key.slice("claude:".length))
+        : key;
+      if (nextKey !== key) changed = true;
+      // L'effort déjà choisi pour le remplaçant prime sur celui de l'ancien id.
+      if (nextKey === key || !(nextKey in s.modelEfforts)) nextEfforts[nextKey] = effort;
+    }
+    if (changed) patch.modelEfforts = nextEfforts;
+  }
+  const review = s.autoReview;
+  if (review && swap(review.provider, review.model) !== review.model) {
+    patch.autoReview = { ...review, model: swap(review.provider, review.model) as string };
+  }
+  const assist = s.consignesAssist;
+  if (assist && swap(assist.provider, assist.model) !== assist.model) {
+    patch.consignesAssist = { ...assist, model: swap(assist.provider, assist.model) as string };
+  }
+  return Object.keys(patch).length ? { ...s, ...patch } : s;
+}
+
 export function loadSettings(): Settings {
   try {
     const stored = JSON.parse(localStorage.getItem(KEY) ?? "{}");
@@ -321,7 +368,7 @@ export function loadSettings(): Settings {
     // migration ne se rejoue jamais. Vécu le 2026-08-21 sur
     // `thinkingCollapsed`, qui redevenait `false` à chaque relance.
     const promoted = promoteDefaults(stored);
-    const settings = {
+    const settings = migrateRetiredModels({
       ...DEFAULT_SETTINGS,
       ...(legacyFs ? { chatFontSize: Number(legacyFs) } : {}),
       ...stored,
@@ -345,7 +392,7 @@ export function loadSettings(): Settings {
       // La vue latérale est un état de session : un démarrage à froid revient
       // toujours aux conversations, même si l'app a été quittée sur Highlights.
       activeView: "chats",
-    };
+    });
     // La promotion n'a lieu qu'une fois : sa valeur doit donc être ÉCRITE tout
     // de suite, sinon le prochain démarrage relit l'ancien défaut sans que la
     // migration puisse se rejouer. Un échec d'écriture ne fait pas échouer le
