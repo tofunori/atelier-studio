@@ -135,9 +135,8 @@ describe("HarnessInteraction — formulaire user_input", () => {
     try {
       const { container } = render(<HarnessInteraction event={form()} threadId={THREAD} />);
 
-      // type visible + questions et header rendus
-      expect(screen.getByText(t("interaction.type-user_input"))).toBeInTheDocument();
-      expect(screen.getByText("Contexte")).toBeInTheDocument();
+      // une question à la fois : l'en-tête devient l'onglet de la question
+      expect(screen.getByRole("tab", { name: "Contexte" })).toHaveAttribute("aria-selected", "true");
       expect(screen.getByText("Quel dossier cibler ?")).toBeInTheDocument();
 
       // q1 : choisir « Autre » puis taper la réponse libre
@@ -146,7 +145,8 @@ describe("HarnessInteraction — formulaire user_input", () => {
         target: { value: "docs/media" },
       });
 
-      // q2 : champ secret → input type=password
+      // q2 : deuxième onglet, champ secret → input type=password
+      fireEvent.click(screen.getByRole("button", { name: t("interaction.next") }));
       const secret = screen.getByLabelText("Jeton API ?") as HTMLInputElement;
       expect(secret.type).toBe("password");
       fireEvent.change(secret, { target: { value: "s3cret-tok" } });
@@ -164,7 +164,7 @@ describe("HarnessInteraction — formulaire user_input", () => {
       // le DOM (ni innerHTML ni un input résiduel), et le résumé ne la cite pas
       expect(container.querySelector("input")).toBeNull();
       expect(document.body.innerHTML).not.toContain("s3cret-tok");
-      expect(screen.getByText(t("interaction.answered"))).toBeInTheDocument();
+      expect(screen.getByText(t("interaction.answered-title"))).toBeInTheDocument();
     } finally {
       cap.dispose();
     }
@@ -175,6 +175,7 @@ describe("HarnessInteraction — formulaire user_input", () => {
     try {
       render(<HarnessInteraction event={form()} threadId={THREAD} />);
       fireEvent.click(screen.getByRole("radio", { name: "src" }));
+      fireEvent.click(screen.getByRole("button", { name: t("interaction.next") }));
       fireEvent.click(screen.getByRole("button", { name: t("interaction.submit") }));
       expect((cap.details[0].response as { answers: Record<string, string> }).answers.q1).toBe("src");
 
@@ -192,11 +193,12 @@ describe("HarnessInteraction — formulaire user_input", () => {
 
   it("navigation clavier : radios, champ texte et boutons sont focusables", () => {
     const { container } = render(<HarnessInteraction event={form()} threadId={THREAD} />);
-    expect(container.querySelectorAll('[data-slot="field"]')).toHaveLength(2);
-    expect(container.querySelectorAll('[data-slot="field-label"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-slot="field"]')).toHaveLength(1);
     const radio = screen.getByRole("radio", { name: "src" });
     radio.focus();
     expect(document.activeElement).toBe(radio);
+    fireEvent.click(screen.getByRole("tab", { name: "2" }));
+    expect(container.querySelectorAll('[data-slot="field-label"]')).toHaveLength(1);
 
     const secret = screen.getByLabelText("Jeton API ?");
     secret.focus();
@@ -205,6 +207,77 @@ describe("HarnessInteraction — formulaire user_input", () => {
     const submit = screen.getByRole("button", { name: t("interaction.submit") });
     submit.focus();
     expect(document.activeElement).toBe(submit);
+  });
+});
+
+describe("HarnessInteraction — questions de Claude (carte sobre)", () => {
+  const claudeQuestions = (over: Partial<InteractionEvent> = {}) => makeEvent({
+    requestId: "req-cq",
+    interactionType: "user_input",
+    title: "Claude a des questions",
+    detail: undefined,
+    fields: [
+      { id: "q0", header: "Portée", question: "Quelle période ?", allowOther: true, options: [
+        { label: "Depuis l'envoi (Recommended)", description: "Depuis le brouillon du 19 octobre" },
+        { label: "Tout l'historique" },
+      ] },
+      { id: "q1", header: "Format", question: "Quel format ?", allowOther: true, options: [
+        { label: "Markdown (Recommended)" }, { label: "Word (.docx)" },
+      ] },
+    ],
+    ...over,
+  });
+
+  it("titre traduit, « (Recommended) » rendu en pastille, libellé d'origine renvoyé", () => {
+    const cap = captureAnswers();
+    try {
+      render(<HarnessInteraction event={claudeQuestions()} threadId={THREAD} />);
+      expect(screen.getByText(t("interaction.title-claude-questions"))).toBeInTheDocument();
+      expect(screen.queryByText(/\(Recommended\)/)).toBeNull();
+      expect(screen.getByText(t("interaction.recommended"))).toBeInTheDocument();
+      expect(screen.getByText("Depuis le brouillon du 19 octobre")).toBeInTheDocument();
+      // une seule question affichée ; la seconde attend son onglet
+      expect(screen.queryByText("Quel format ?")).toBeNull();
+      fireEvent.click(screen.getByRole("radio", { name: "Depuis l'envoi" }));
+      expect(screen.getByRole("radio", { name: "Depuis l'envoi" })).toHaveAttribute("aria-checked", "true");
+      fireEvent.click(screen.getByRole("button", { name: t("interaction.next") }));
+      expect(screen.getByText("Quel format ?")).toBeInTheDocument();
+      expect(screen.getByText("2 / 2")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("radio", { name: "Word (.docx)" }));
+      fireEvent.click(screen.getByRole("button", { name: t("interaction.submit") }));
+      expect(cap.details[0].response).toEqual({ answers: { q0: "Depuis l'envoi (Recommended)", q1: "Word (.docx)" } });
+    } finally {
+      cap.dispose();
+    }
+  });
+
+  it("clavier : 1–n choisit dans la question affichée, Entrée avance puis envoie", () => {
+    const cap = captureAnswers();
+    try {
+      render(<HarnessInteraction event={claudeQuestions()} threadId={THREAD} />);
+      fireEvent.keyDown(window, { key: "2" });
+      expect(screen.getByRole("radio", { name: "Tout l'historique" })).toHaveAttribute("aria-checked", "true");
+      fireEvent.keyDown(window, { key: "Enter" });
+      fireEvent.keyDown(window, { key: "1" });
+      fireEvent.keyDown(window, { key: "Enter" });
+      expect(cap.details[0].response).toEqual({ answers: { q0: "Tout l'historique", q1: "Markdown (Recommended)" } });
+    } finally {
+      cap.dispose();
+    }
+  });
+
+  it("répondue : repliée en une ligne avec les réponses, sans « (Recommended) »", () => {
+    const { container } = render(
+      <HarnessInteraction
+        event={claudeQuestions({ state: "answered", answerSummary: "Portée: Depuis l'envoi (Recommended) · Format: Word (.docx)" })}
+        threadId={THREAD}
+      />,
+    );
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText(t("interaction.answered-title"))).toBeInTheDocument();
+    expect(screen.getByText("Portée")).toBeInTheDocument();
+    expect(screen.getByText("Depuis l'envoi")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("Recommended");
   });
 });
 
