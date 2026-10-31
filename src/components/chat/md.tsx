@@ -38,6 +38,7 @@ import { t } from "../../lib/i18n";
 import { LruCache } from "../../lib/lruCache";
 import { hardenPartialMarkdown } from "../../lib/markdown";
 import { splitInsightBlocks } from "../../lib/insightBlocks";
+import rehypeTableLabels from "../../lib/rehypeTableLabels";
 import rehypeWordFade from "../../lib/rehypeWordFade";
 import { MermaidBlock } from "../MermaidBlock";
 import { CopyIcon } from "../icons";
@@ -910,7 +911,7 @@ function loadMath() {
   ]).then(([rm, rk]) => {
     mathPlugins = {
       remark: [GFM_PLUGIN, rm.default, remarkInlineHtml],
-      rehype: [[rk.default, { throwOnError: false }]],
+      rehype: [[rk.default, { throwOnError: false }], rehypeTableLabels],
     };
     mathListeners.forEach((cb) => cb());
     mathListeners.clear();
@@ -924,7 +925,7 @@ else setTimeout(loadMath, 400);
 // tout le texte entre deux tildes se faisait rayer (capture Thierry
 // 2026-08-22). Le barré volontaire reste disponible via `~~texte~~`.
 const GFM_PLUGIN = [remarkGfm, { singleTilde: false }] as const;
-const BASE_PLUGINS: MdPlugins = { remark: [GFM_PLUGIN, remarkInlineHtml], rehype: [] };
+const BASE_PLUGINS: MdPlugins = { remark: [GFM_PLUGIN, remarkInlineHtml], rehype: [rehypeTableLabels] };
 
 /** Plugins markdown courants — se mettent à jour une fois KaTeX chargé. */
 export function useMdPlugins(): MdPlugins {

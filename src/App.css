@@ -749,22 +749,21 @@ button.kernel-file:hover { color: var(--text-primary); }
 .chat-md a { color: var(--link, currentColor); text-decoration-color: var(--link-underline, color-mix(in srgb, var(--accent) 50%, transparent)); }
 .chat-md a:hover { color: var(--link-hover, var(--accent)); }
 .chat-md a:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); border-radius: var(--r-s); }
-/* `auto` plutôt que la répartition par défaut : une colonne d'énoncés courts
-   n'a pas à occuper la moitié de la largeur pendant que l'autre s'entasse. */
-/* Le conteneur `.md-table` n'avait AUCUNE règle : un tableau plus large que la
-   colonne écrasait ses cellules au lieu de défiler chez lui. */
-/* Ombres de défilement (technique des dégradés local/scroll) : le bord fait
-   signe qu'il reste du tableau à droite, et disparaît de lui-même quand tout
-   tient — aucun JS, aucune mesure. */
+/* Tableaux à la largeur du PANNEAU, jamais au-delà (Thierry 2026-10-31 :
+   plus de défilement horizontal). `width: auto` garde un petit tableau à la
+   largeur de son contenu ; un grand se replie dans la colonne, chaque cellule
+   allouée entre son plus long mot et son texte complet (calcul automatique).
+   `break-word` ne coupe un mot que s'il dépasse seul sa cellule : jamais
+   « Cou-che » au milieu d'une colonne étroite (CHAT-12, GAP-29). Le défilement
+   et ses ombres ne restent qu'en filet de sécurité (mot géant, formule). */
 .md-table { max-width: 100%; overflow-x: auto;
   background:
     linear-gradient(to right, var(--bg) 40%, transparent) left / 28px 100% no-repeat local,
     linear-gradient(to left, var(--bg) 40%, transparent) right / 28px 100% no-repeat local,
     radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--text-primary) 18%, transparent), transparent) left / 10px 100% no-repeat scroll,
     radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--text-primary) 18%, transparent), transparent) right / 10px 100% no-repeat scroll; }
-/* largeur de contenu (CHAT-12, GAP-29) : un petit tableau ne s'étire pas sur
-   toute la colonne ; un grand défile dans .md-table au lieu de couper ses mots */
-.chat-md table { width: max-content; min-width: 0; max-width: none; border-collapse: collapse;
+.chat-md .md-table { container-type: inline-size; }
+.chat-md table { width: auto; min-width: 0; max-width: 100%; border-collapse: collapse;
   table-layout: auto; font-variant-numeric: tabular-nums; }
 .chat-md :is(th, td):first-child { padding-left: 0; }
 .chat-md :is(th, td):last-child { padding-right: 0; }
@@ -772,9 +771,42 @@ button.kernel-file:hover { color: var(--text-primary); }
   padding: 4px 8px; vertical-align: bottom; }
 .chat-md td { padding: 4px 8px; vertical-align: top;
   border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
-/* La prose et les chemins se replient à la largeur du panneau. Le calcul
-   automatique garde les colonnes courtes compactes (numéro, année, valeur). */
-.chat-md th, .chat-md td { min-width: 6ch; max-width: 48ch; white-space: normal; overflow-wrap: normal; }
+.chat-md th, .chat-md td { min-width: 4ch; white-space: normal; overflow-wrap: break-word; }
+.chat-md td a, .chat-md th a { overflow-wrap: anywhere; }
+/* Panneau trop étroit pour les colonnes : chaque rangée devient une fiche.
+   La 1re cellule sert de titre, les suivantes portent l'en-tête de leur
+   colonne (data-label, rehypeTableLabels). L'en-tête reste lisible aux
+   lecteurs d'écran. Trois colonnes sous 480 px, cinq sous 640 px. */
+@container (max-width: 480px) {
+  .chat-md .md-table table:has(thead th:nth-child(3)) { display: block; width: 100%; }
+  .chat-md .md-table table:has(thead th:nth-child(3)) :is(tbody, tr, td) { display: block; }
+  .chat-md .md-table table:has(thead th:nth-child(3)) thead { position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .chat-md .md-table table:has(thead th:nth-child(3)) tr { padding: 8px 0;
+    border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+  .chat-md .md-table table:has(thead th:nth-child(3)) td { padding: 0; border: 0; text-align: start !important; }
+  .chat-md .md-table table:has(thead th:nth-child(3)) td:first-child { font-weight: 500; }
+  .chat-md .md-table table:has(thead th:nth-child(3)) td + td { margin-top: 4px; }
+  .chat-md .md-table table:has(thead th:nth-child(3)) td + td[data-label] { display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; align-items: baseline; }
+  .chat-md .md-table table:has(thead th:nth-child(3)) td + td[data-label]::before { content: attr(data-label);
+    font-size: var(--fs-s); font-weight: 500; line-height: 1.5; color: var(--text-muted); }
+}
+@container (min-width: 481px) and (max-width: 640px) {
+  .chat-md .md-table table:has(thead th:nth-child(5)) { display: block; width: 100%; }
+  .chat-md .md-table table:has(thead th:nth-child(5)) :is(tbody, tr, td) { display: block; }
+  .chat-md .md-table table:has(thead th:nth-child(5)) thead { position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .chat-md .md-table table:has(thead th:nth-child(5)) tr { padding: 8px 0;
+    border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+  .chat-md .md-table table:has(thead th:nth-child(5)) td { padding: 0; border: 0; text-align: start !important; }
+  .chat-md .md-table table:has(thead th:nth-child(5)) td:first-child { font-weight: 500; }
+  .chat-md .md-table table:has(thead th:nth-child(5)) td + td { margin-top: 4px; }
+  .chat-md .md-table table:has(thead th:nth-child(5)) td + td[data-label] { display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; align-items: baseline; }
+  .chat-md .md-table table:has(thead th:nth-child(5)) td + td[data-label]::before { content: attr(data-label);
+    font-size: var(--fs-s); font-weight: 500; line-height: 1.5; color: var(--text-muted); }
+}
 .chat-md td code, .chat-md th code { white-space: normal; overflow-wrap: anywhere; }
 .tool, .done { color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); }
 .tool-output, .todos { color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); }
