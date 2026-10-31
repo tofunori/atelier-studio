@@ -62,14 +62,25 @@ test.describe("golden — chat et composer (#chatbench)", () => {
         .map((node) => (node as HTMLElement).className || node.nodeName),
     }));
     expect(result.pageOverflows).toBe(false);
-    // `.md-table` est EXEMPTÉ : depuis le 2026-08-21 (« tableaux markdown
-    // lisibles »), un tableau trop large défile DANS son conteneur au lieu
-    // d'écraser ses cellules — c'est justement ce qui empêche la page de
-    // défiler, l'objet de ce test. L'interdiction totale héritée du 2026-07-10
-    // condamnait le remède avec le mal. Tout AUTRE conteneur défilant reste
-    // une régression.
-    expect(result.scrollContainers.filter((c) => !String(c).includes("md-table"))).toEqual([]);
+    // Depuis le 2026-10-31, `.md-table` n'est plus exempté : un tableau de
+    // prose se replie dans la largeur du panneau (puis s'empile en fiches
+    // quand le panneau est trop étroit) au lieu de défiler horizontalement.
+    expect(result.scrollContainers).toEqual([]);
   });
+  for (const width of [820, 500]) {
+    test(`tableaux de prose sans défilement horizontal ${width}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/#chatbench-tables", { waitUntil: "networkidle" });
+      await page.locator(".md-table").first().waitFor();
+      const tables = await page.locator(".msg .md-table").evaluateAll((nodes) => nodes.map((node) => ({
+        overflows: node.scrollWidth > node.clientWidth + 1,
+        display: getComputedStyle(node.querySelector("table")!).display,
+      })));
+      expect(tables.map((t) => t.overflows)).toEqual([false, false, false]);
+      // Panneau étroit : 3 et 5 colonnes passent en fiches, 2 colonnes restent un tableau.
+      expect(tables.map((t) => t.display)).toEqual(width < 600 ? ["block", "block", "table"] : ["table", "table", "table"]);
+    });
+  }
 });
 
 test.describe("golden — Settings (#setbench)", () => {

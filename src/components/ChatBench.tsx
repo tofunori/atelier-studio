@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses.
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -396,6 +396,38 @@ const NO_HORIZONTAL_SCROLL: AgentEvent[] = [
   { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], ts: ts(290) } as AgentEvent,
 ];
 
+// Tableaux de prose larges (capture Thierry 2026-10-31) : ils doivent tenir
+// dans le panneau sans défilement horizontal, et s'empiler en fiches quand le
+// panneau devient trop étroit.
+const WIDE_TABLES: AgentEvent[] = [
+  { kind: "user", text: "Compare les méthodes de conversion masse → concentration.", ts: ts(300) } as AgentEvent,
+  {
+    kind: "text",
+    text: [
+      "**2. De la masse à la concentration dans la neige : trois méthodes publiées**",
+      "",
+      "| Méthode | Source (lue) | Principe |",
+      "| --- | --- | --- |",
+      "| Couche de surface | Flanner et al. 2007, p. 5 : la couche « never exceeds 2-cm thickness » ; Doherty et al. 2014, *ACP*, p. 11700 : 1 à 3 cm dans CLM4 | On répartit le dépôt D[mg m⁻²] dans les 2 premiers centimètres de neige, de masse volumique ρ |",
+      "| Dilution dans les précipitations | Khan et al. 2023, p. 6 : « 0.43 mg m⁻² mm⁻¹ or 432 µg L⁻¹ » | On divise le dépôt par la lame d’eau des précipitations de la même période |",
+      "| Enrichissement par la fonte | Doherty et al. 2013, p. 5553 et éq. 2-4, p. 5561 | Quand la neige fond, les particules restent en surface : la concentration peut monter jusqu’à 10 à 100 fois la valeur initiale |",
+      "",
+      "| Région | Pente (%/an) | IC 95 % | n | Remarque |",
+      "|:---|---:|:---:|---:|:---|",
+      "| Coast | −0,41 | ±0,06 | 214 | Plus forte baisse depuis 2015 |",
+      "| Rockies | −0,29 | ±0,05 | 187 | Stable |",
+      "| Interior | −0,33 | ±0,08 | 96 | Peu de pixels |",
+      "",
+      "| Saison | Albédo |",
+      "| --- | ---: |",
+      "| Hiver | 0,72 |",
+      "| Été | 0,41 |",
+    ].join("\n"),
+    ts: ts(295),
+  } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], ts: ts(290) } as AgentEvent,
+];
+
 const CONTEXTS_ATTACHMENTS = [
   { name: "albedo_trends.csv", lines: null, text: "ctx-1", kind: "file" as const },
   { name: "fig3_spatial.svg", lines: null, text: "ctx-2", kind: "file" as const },
@@ -547,6 +579,33 @@ const ACTIONS_CLAUDE: AgentEvent[] = [
   tool("ac-edit", "Edit", "analysis/fig2_5.py", "Largeur fixée à 8,4 cm", 900, 30),
   bash("ac-regen", "python analysis/fig2_5.py --width 8.4cm -o figures/ch2/fig2_5_v2.pdf", "Régénère la figure 2.5 à la largeur de colonne",
     "", "running", 12),
+];
+
+// Questions de l'agent (variante C, 2026-10-31) : une question à la fois,
+// rangées numérotées ; puis la même carte repliée après réponse.
+const QUESTIONS_FIELDS = [
+  { id: "q0", header: "Portée", question: "Le fichier des modifications doit couvrir quelle période, et pour qui ?", allowOther: true, options: [
+    { label: "Depuis l'envoi à Christophe (Recommended)", description: "Toutes les modifications du manuscrit depuis le brouillon du 19 octobre (commit 517a1278), résumées par section, en français, pour Christophe." },
+    { label: "Tout l'historique", description: "Un seul fichier qui regroupe les quatre journaux (intro, résultats, discussion, méthodes), de la plus récente à la plus ancienne." },
+    { label: "Cette semaine seulement", description: "Les modifications du 28 au 31 octobre (citations vérifiées, coupes à 3 000 mots, Discussion en trois parties, filtre de fumée)." },
+  ] },
+  { id: "q1", header: "Format", question: "Quel format ?", allowOther: true, options: [
+    { label: "Markdown dans documentation/ (Recommended)", description: "Un fichier .md versionné dans le dépôt, à côté des autres notes du projet." },
+    { label: "Word (.docx)", description: "Pour l'envoyer en pièce jointe à Christophe." },
+  ] },
+];
+const QUESTIONS_BASE: AgentEvent[] = [
+  { kind: "user", text: "Fais un fichier qui résume les modifications du manuscrit.", ts: ts(40) } as AgentEvent,
+  tool("qa-read", "Read", "manuscrit/journal_modifications.md", "212 lignes", 300, 36),
+];
+const QUESTIONS: AgentEvent[] = [...QUESTIONS_BASE,
+  { kind: "interaction", requestId: "bench-q", interactionType: "user_input", title: "Claude a des questions",
+    fields: QUESTIONS_FIELDS, state: "pending", ts: ts(30) } as AgentEvent,
+];
+const QUESTIONS_ANSWERED: AgentEvent[] = [...QUESTIONS_BASE,
+  { kind: "interaction", requestId: "bench-q", interactionType: "user_input", title: "Claude a des questions",
+    fields: QUESTIONS_FIELDS, state: "answered", answerSummary: "Portée: Depuis l'envoi à Christophe (Recommended) · Format: Markdown dans documentation/ (Recommended)", ts: ts(30) } as AgentEvent,
+  { kind: "text", text: "C'est noté : un fichier Markdown dans `documentation/`, depuis l'envoi à Christophe.", ts: ts(20) } as AgentEvent,
 ];
 
 // Sous-agents Claude (maquette 2026-10-18, piste A) : la mission titre chaque
@@ -722,8 +781,11 @@ const STATES: Record<string, BenchState> = {
   actionscodex: { events: ACTIONS_CODEX, workingSince: ts(40), attachments: [], usage: { context: 19000, output: 220, cost: null, turns: 1 } },
   claudeagents: { events: AGENTS_CLAUDE, workingSince: ts(70), attachments: [], usage: { context: 26000, output: 300, cost: null, turns: 1 } },
   finagents: { events: AGENTS_CLAUDE_DONE, workingSince: null, attachments: [], usage: { context: 33000, output: 900, cost: null, turns: 1 } },
+  questions: { events: QUESTIONS, workingSince: ts(40), attachments: [], usage: null },
+  reponses: { events: QUESTIONS_ANSWERED, workingSince: null, attachments: [], usage: null },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
+  tables: { events: WIDE_TABLES, workingSince: null, attachments: [], usage: null },
   queue: {
     events: RUNNING, workingSince: ts(272), attachments: [],
     usage: { context: 21000, output: 300, cost: null, turns: 1 },

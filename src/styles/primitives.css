@@ -375,7 +375,7 @@
  * 11 px / 500, --text-muted, chiffres tabulaires — dans une infobulle, un
  * menu, le pied d'un panneau comme dans une approbation. */
 .ui-kbd, .subagent-view-foot kbd, .stop-hint kbd, .follow-up-tooltip-grid kbd,
-.appsnap-key, .appsnap-shortcut kbd, .approval-decision kbd {
+.appsnap-key, .appsnap-shortcut kbd, .approval-decision kbd, .int-choice kbd {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 20px; height: 20px; padding: 0 4px; box-sizing: border-box;
   border: 0; border-radius: var(--radius-control); background: var(--bg-ctl);

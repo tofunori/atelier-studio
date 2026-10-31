@@ -1218,6 +1218,17 @@ describe("contrat lot 2 (socle)", () => {
     expect(rule(".biblio-frame-wrap")).toMatch(/background:\s*var\(--surface-canvas\)/);
   });
 
+  it("cadres d'Atelier : la barre que la page masque ne retombe pas sur le style de l'iframe hôte", () => {
+    // Mesuré dans WKWebView (macOS 27, WebKit 22625, 2026-10-28) : une page en
+    // cadre qui masque la barre de sa fenêtre la voit redessinée avec le style
+    // ::-webkit-scrollbar de l'élément iframe de l'hôte, piste transparente
+    // peinte en blanc. Seul un masquage côté hôte l'enlève.
+    const shared = stripComments(readFileSync(join(root, "..", "gallery", "assets", "scrollbars.css"), "utf8"));
+    expect(shared).toMatch(/iframe:is\(\.atelier,\s*\[data-atelier-role\]\)::-webkit-scrollbar\s*\{\s*display:\s*none/);
+    const ragdoc = readFileSync(join(root, "components", "RagdocWorkspace.tsx"), "utf8");
+    expect(ragdoc).toMatch(/<iframe data-atelier-role="ragdoc-pdf"/);
+  });
+
   it("A4 : la méta lisible est en --text-muted ; --text-disabled reste aux marques et au désactivé", () => {
     const all = sourceSheets().map(([, css]) => css).join("\n");
     // budget gelé : chevrons, séparateurs, puces, coches, poignées,
