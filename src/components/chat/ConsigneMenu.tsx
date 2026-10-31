@@ -1,10 +1,10 @@
 import { nomConsigne, consignesSelectionnees } from "../../lib/consignes";
 import { useState } from "react";
-import { FileText, GraduationCap, FlaskConical, MessageCircle, SlidersHorizontal, List, Settings, UserRound } from "lucide-react";
+import { SlidersHorizontal, List, UserRound } from "lucide-react";
 import { DropdownMenuSurface } from "../ui/DropdownMenuSurface";
 import { RowButton } from "../ui/RowButton";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
-import { basculerForme, choisirSpecialiste, composerFil, formesDuFil, type Specialiste } from "../../lib/specialistes";
+import { basculerForme, choisirSpecialiste, formesDuFil, type Specialiste } from "../../lib/specialistes";
 import { t } from "../../lib/i18n";
 
 /** CLIs qui savent porter une consigne (plan du 2026-09-01). */
@@ -40,7 +40,13 @@ function CocheConsigne() {
 /** Menu « Spécialiste » du compositeur (plan specialistes-2026-10-18) :
  *  le spécialiste du fil en haut, puis les consignes de forme (section
  *  « Forme de réponse », combinables). Le spécialiste dit quoi savoir, la
- *  forme dit comment répondre ; les deux voyagent dans la même copie. */
+ *  forme dit comment répondre ; les deux voyagent dans la même copie.
+ *
+ *  Épuré le 2026-10-31 (variante C choisie par Thierry) : sans icône ni
+ *  infobulle ; le rôle du spécialiste tient sur UNE ligne sous son nom
+ *  (tronqué : la fiche complète vit dans les réglages). Les formes de
+ *  réponse deviennent des pastilles combinables, et un seul lien mène aux
+ *  réglages. */
 export function ConsigneMenu(p: {
   consignes: Consigne[];
   actif: ConsigneDuFil | null;
@@ -62,10 +68,8 @@ export function ConsigneMenu(p: {
     ? t(PIED_KEYS[p.provider as keyof typeof PIED_KEYS])
     : undefined;
 
-  // Rangée active : « Aucune » quand le fil n'a pas de consigne, sinon celle
-  // du fil. Marquée par un fond plein + une coche (spec 2026-09-01) — sans
-  // ça, ouvrir le menu ne disait pas laquelle est en vigueur.
-  const rangee = (actif: boolean) => (actif ? "consigne-item on" : "consigne-item");
+  // Rangée active : remplie + coche (spec 2026-09-01) — sans ça, ouvrir le
+  // menu ne disait pas quel spécialiste est en vigueur.
   const rangeeSpecialiste = (actif: boolean) => (actif ? "specialiste-item on" : "specialiste-item");
 
   const selection = consignesSelectionnees(formes);
@@ -90,10 +94,9 @@ export function ConsigneMenu(p: {
       className: rangeeSpecialiste(specialiste?.id === s.id),
       label: (
         <>
-          <UserRound aria-hidden="true" />
           <span className="consigne-option">
             <span className="consigne-nom">{s.nom || t("specialistes.untitled")}</span>
-            {s.role && <span className="consigne-desc" title={s.role}>{s.role}</span>}
+            {s.role && <span className="consigne-desc">{s.role}</span>}
           </span>
           {specialiste?.id === s.id && <CocheConsigne />}
         </>
@@ -107,57 +110,30 @@ export function ConsigneMenu(p: {
       className: rangeeSpecialiste(true),
       label: (
         <>
-          <UserRound aria-hidden="true" />
-          <span className="consigne-option"><span className="consigne-nom">{specialiste.nom}</span>
-            <span className="consigne-desc">{t("specialiste.deleted")}</span></span>
+          <span className="consigne-option">
+            <span className="consigne-nom">{specialiste.nom}</span>
+            <span className="consigne-desc">{t("specialiste.deleted")}</span>
+          </span>
           <CocheConsigne />
         </>
       ),
       onSelect: () => p.onChoisir(choisirSpecialiste(p.actif, null)),
     }] : []),
-    ...(p.onGererSpecialistes ? [{
-      key: "specialistes-gerer",
-      label: <><Settings aria-hidden="true" /><span className="consigne-lien">{t("specialiste.manage")}</span></>,
-      onSelect: p.onGererSpecialistes,
-    }] : []),
   ];
-  const formesItems = [
-    {
-      key: "aucune",
-      className: rangee(!formes),
-      label: (
-        <>
-          <span className="consigne-nom">{t("consigne.none")}</span>
-          {!formes && <CocheConsigne />}
-        </>
-      ),
-      onSelect: () => p.onChoisir(composerFil(specialiste, null)),
-    },
-    ...catalogue.map((c) => ({
-      key: c.id,
-      checked: selection.some(rule => rule.id === c.id),
-      className: rangee(selection.some(rule => rule.id === c.id)),
-      label: (
-        <>
-          {(() => { const Icon = c.id === "concis" ? FileText : c.id === "pedagogique" ? GraduationCap : c.id === "rigueur" ? FlaskConical : MessageCircle; return <Icon aria-hidden="true" />; })()}
-          <span className="consigne-option">
-            <span className="consigne-nom">{c.nom}</span>
-            {/* La description se lit sous le nom et peut revenir à la ligne. */}
-            <span className="consigne-desc" title={c.description}>
-              {c.description}
-            </span>
-          </span>
-        </>
-      ),
-      onSelect: () => p.onChoisir(basculerForme(p.actif, c)),
-    })),
-    {
-      key: "reglages",
-      separatorBefore: true,
-      label: <><SlidersHorizontal aria-hidden="true" /><span className="consigne-lien">{t("consigne.edit")}</span></>,
-      onSelect: p.onOuvrirReglages,
-    },
-  ];
+  // Formes de réponse en pastilles (cases à cocher du menu, disposées en
+  // ligne) : le nom suffit, la glose reste dans les réglages des consignes.
+  const formesItems = catalogue.map((c) => ({
+    key: c.id,
+    checked: selection.some(rule => rule.id === c.id),
+    className: "consigne-pastille",
+    label: <span className="consigne-nom">{c.nom}</span>,
+    onSelect: () => p.onChoisir(basculerForme(p.actif, c)),
+  }));
+  const reglagesItems = [{
+    key: "reglages",
+    label: <><SlidersHorizontal aria-hidden="true" /><span className="consigne-lien">{t("specialiste.manage-all")}</span></>,
+    onSelect: p.onGererSpecialistes ?? p.onOuvrirReglages,
+  }];
 
   // Bouton du compositeur : le nom court du spécialiste et le nombre de
   // consignes de forme (« Glaciologue +2 », décision 2026-10-18) ; le nom
@@ -190,13 +166,15 @@ export function ConsigneMenu(p: {
       onOpenChange={setOpen}
       label={t("specialiste.menu-title")}
       className="composer-menu composer-style-menu"
-      footer={<span title={pied}>{t("consigne.active-count", { n: selection.length })}</span>}
       side="top"
       sideOffset={8}
       align="start"
       groups={[
-        { key: "specialistes", label: <span className="consigne-heading"><span>{t("specialiste.heading")}</span></span>, items: specialistesItems },
-        { key: "formes", separatorBefore: true, label: <span className="consigne-heading"><span>{t("specialiste.forms")}</span><span className="consigne-subtitle">{t("consigne.combine")}</span></span>, items: formesItems },
+        { key: "specialistes", label: <span className="consigne-heading">{t("specialiste.heading")}</span>, items: specialistesItems },
+        // Le mode d'application propre au CLI (prompt système ou bloc en
+        // tête) reste consultable au survol du titre, sans ligne de pied.
+        { key: "formes", separatorBefore: true, label: <span className="consigne-heading" title={pied}>{t("specialiste.forms")}</span>, items: formesItems, className: "consigne-pastilles" },
+        { key: "reglages", separatorBefore: true, items: reglagesItems },
       ]}
       trigger={trigger}
     />

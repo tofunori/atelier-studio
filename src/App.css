@@ -1198,11 +1198,6 @@ button.kernel-file:hover { color: var(--text-primary); }
    passer en ellipse, jamais l'icône). */
 .consigne-trigger svg, .consigne-pilule svg { flex: none; }
 .consigne-pilule-nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Rangée active du menu : le REMPLISSAGE dit la sélection (aucun accent,
-   décision produit 2026-09-01), la coche la confirme. */
-.consigne-item.on { background: var(--bg-ctl); }
-.consigne-item .consigne-coche { margin-left: auto; display: flex; color: var(--text-secondary); }
-.consigne-item .consigne-coche svg { width: 12px; height: 12px; }
 /* Rangée sur UNE ligne (décision produit 2026-09-01) : la glose n'est pas
    du contenu qu'on lit, c'est une note de marge qu'on consulte. Elle passe
    donc à droite, en gris éteint, tronquée — présente pour l'œil qui
@@ -6147,16 +6142,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   --accent-foreground: var(--text-primary);
 }
 .composer-style-menu { width: 340px; max-width: calc(100vw - 24px); padding: 6px; }
-.composer-style-menu .consigne-heading { display: flex; flex-direction: column; gap: 4px; padding: 8px 4px 8px; }
-.composer-style-menu .consigne-heading > :first-child { font-size: var(--fs-m); color: var(--text-primary); font-weight: 500; }
-.composer-style-menu .consigne-subtitle { font-size: var(--fs-s); font-weight: 400; color: var(--text-muted); }
-.composer-style-menu .consigne-item { min-height: 32px; padding: 8px 32px 8px 12px; gap: 12px; }
-.composer-style-menu .consigne-item.on { background: var(--bg-ctl); }
-.composer-style-menu .consigne-option { flex-direction: column; align-items: stretch; gap: 4px; }
-.composer-style-menu .consigne-desc {
-  margin: 0; text-align: left; white-space: normal; overflow: visible;
-  overflow-wrap: anywhere; color: var(--text-muted); line-height: 1.45;
-}
+.composer-style-menu .consigne-option { flex-direction: column; align-items: stretch; gap: 0; }
+/* Rôle du spécialiste : UNE ligne sous le nom, tronquée — un repère, pas
+   la fiche (variante C, 2026-10-31 ; la fiche entière vit dans les réglages). */
+.composer-style-menu .consigne-desc { margin: 0; text-align: left; color: var(--text-muted); line-height: 1.45; }
 .composer-style-menu [data-slot="dropdown-menu-checkbox-item-indicator"] {
   width: 14px; height: 14px; border: 1px solid var(--text-muted); border-radius: var(--r-s);
   box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
@@ -6171,7 +6160,6 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .composer-style-menu [aria-checked="true"] [data-slot="dropdown-menu-checkbox-item-indicator"] {
   background: var(--text-secondary); border-color: var(--text-secondary); color: var(--bg);
 }
-.composer-style-menu .dropdown-surface-footer { padding: 12px; color: var(--text-muted); font-size: var(--fs-s); }
 .kb-pop { width: 400px; max-width: calc(100vw - 24px); padding: 12px; }
 .kb-panel-picker { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .kb-panel-picker .kb-head { min-height: 26px; }
@@ -6218,14 +6206,13 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .composer-menu :is(.consigne-nom, .consigne-lien, .ef-model-link, .kb-action, .kb-note-text) {
   font-size: var(--composer-menu-text); line-height: 1.45;
 }
-.composer-menu :is(.consigne-desc, .consigne-subtitle, .kb-meta, .kb-foot, .kb-chip-filter, .kb-group, .mp-hd, .dropdown-surface-footer, [data-slot="kbd"]) {
+.composer-menu :is(.consigne-desc, .kb-meta, .kb-foot, .kb-chip-filter, .kb-group, .mp-hd, .dropdown-surface-footer, [data-slot="kbd"]) {
   font-size: var(--composer-menu-detail); line-height: 1.45;
 }
 .composer-menu :is([data-slot="dropdown-menu-label"], .custom-select-menu-label, .model-list-head, .kb-title, [data-slot="popover-title"]) {
   padding: 8px 12px; color: var(--text-primary);
   font-size: var(--composer-menu-heading); font-weight: 500; line-height: 1.45;
 }
-.composer-menu .consigne-heading > :first-child,
 .composer-menu.effort-menu .ef-title b { font-size: var(--composer-menu-heading); color: var(--text-primary); }
 .composer-menu :is(.consigne-item > svg, .mp-item > svg, .custom-select-option-icon svg, .kb-kind svg, .model-list-head svg, .ef-reset svg, .ef-fast svg, .ef-model-link svg) {
   width: 14px; height: 14px; flex: none; stroke-width: 1.5;
@@ -6234,11 +6221,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 /* Spécialistes (plan specialistes-2026-10-18) : mêmes rangées que les
    consignes — remplissage + coche, aucun accent. Le bouton du compositeur
    garde le nom court lisible (« Glaciologue +2 », décision 2026-10-18). */
-.composer-style-menu .specialiste-item { min-height: 32px; padding: 8px 32px 8px 12px; gap: 12px; }
+.composer-style-menu .specialiste-item { min-height: 32px; padding: 6px 12px; gap: 8px; }
 .composer-style-menu .specialiste-item.on { background: var(--bg-ctl); }
 .specialiste-item .consigne-coche { margin-left: auto; display: flex; color: var(--text-secondary); }
 .specialiste-item .consigne-coche svg { width: 12px; height: 12px; }
-.composer-menu .specialiste-item > svg { width: 14px; height: 14px; flex: none; stroke-width: 1.5; }
 .composer-context-rail .specialiste-pilule,
 .composer-tool-group .specialiste-pilule {
   width: auto; max-width: 160px; padding: 0 8px; gap: 4px; justify-content: flex-start;
@@ -6248,7 +6234,6 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   font-size: var(--fs-body-s); font-weight: 500;
 }
 .specialiste-pilule-formes { flex: none; color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
-.composer-menu .consigne-heading { padding: 8px 12px 8px; }
 .composer-menu .consigne-option { gap: 4px; }
 .composer-menu .dropdown-surface-footer { padding: 12px; }
 .composer-menu :is(button, input, textarea) { font-family: inherit; }
@@ -6258,6 +6243,37 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .composer-menu .kb-title { padding: 0; }
 .composer-menu .kb-row-main { column-gap: 8px; row-gap: 4px; padding: 8px 8px; }
 .composer-menu.composer-style-menu { width: 360px; }
+/* Menu Spécialiste épuré (variante C, 2026-10-31). Titres de section =
+   l'eyebrow commun (tokens.css), pas un titre à 13 px. */
+.composer-style-menu .consigne-heading {
+  display: block; padding: 8px 12px 4px;
+  font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
+  letter-spacing: var(--eyebrow-tracking); color: var(--eyebrow-color);
+}
+.composer-style-menu .consigne-nom { font-weight: 400; }
+.composer-style-menu :is(.consigne-nom, .consigne-desc) {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Formes de réponse en pastilles : cases à cocher du menu posées en ligne.
+   Le remplissage dit la sélection, la coche la confirme ; aucun accent. */
+.composer-style-menu .consigne-pastilles { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 8px; }
+.composer-style-menu .consigne-pastilles > [data-slot="dropdown-menu-label"] { flex-basis: 100%; padding: 0; }
+.composer-style-menu .consigne-pastilles > [data-slot="dropdown-menu-label"] .consigne-heading { padding: 8px 4px 4px; }
+.composer-style-menu .consigne-pastille {
+  min-height: 24px; height: 24px; padding: 0 12px; gap: 4px;
+  border-radius: var(--r-pill); color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  transition: background-color var(--motion-fast, 120ms) ease, color var(--motion-fast, 120ms) ease;
+}
+.composer-style-menu .consigne-pastille[aria-checked="true"] { background: var(--bg-ctl); color: var(--text-primary); padding-left: 8px; }
+.composer-style-menu .consigne-pastille .consigne-nom { color: inherit; }
+.composer-style-menu .consigne-pastille [data-slot="dropdown-menu-checkbox-item-indicator"] { display: none; }
+.composer-style-menu .consigne-pastille[aria-checked="true"] [data-slot="dropdown-menu-checkbox-item-indicator"] {
+  position: static; order: -1; display: inline-flex; width: 14px; height: 14px;
+  border: 0; background: transparent; color: var(--text-secondary);
+}
+.composer-style-menu .consigne-pastille[aria-checked="true"] [data-slot="dropdown-menu-checkbox-item-indicator"] svg { color: currentColor; }
+@media (prefers-reduced-motion: reduce) { .composer-style-menu .consigne-pastille { transition: none; } }
 .composer-menu.model-menu .model-list {
   width: 100%; max-height: none; padding: 0; box-shadow: none; background: transparent;
 }
