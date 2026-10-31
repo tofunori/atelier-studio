@@ -13538,11 +13538,8 @@ Voici à quoi ressemblera une réponse **markdown** de l’agent.`,
   "linkedConversation.createFailed": "Impossible de créer la conversation liée.",
   // Consigne de réponse — menu du composeur (plan 2026-09-01, tâche 7/8).
   "consigne.heading": "Style de réponse",
-  "consigne.active-count": "{n} style(s) actif(s)",
   "kb.add-source": "Ajouter une source",
   "consigne.menu-title": "Consigne du fil",
-  "consigne.none": "Aucune",
-  "consigne.combine": "Tu peux combiner plusieurs consignes.",
   "consigne.english": "Anglais scientifique",
   "consigne.personal": "Consigne personnelle",
   "consigne.edit": "Modifier les consignes…",
@@ -13597,7 +13594,7 @@ Voici à quoi ressemblera une réponse **markdown** de l’agent.`,
   "specialiste.menu-title": "Spécialiste du fil",
   "specialiste.heading": "Spécialiste",
   "specialiste.none": "Aucun",
-  "specialiste.manage": "Gérer les spécialistes…",
+  "specialiste.manage-all": "Gérer les spécialistes et les styles…",
   "specialiste.forms": "Forme de réponse",
   "specialiste.deleted": "Spécialiste supprimé",
   "specialiste.header": "Spécialiste du fil : {nom}",
@@ -15921,11 +15918,8 @@ This is what an agent **markdown** response will look like.`,
   "linkedConversation.unlinkKeepsChats": "Both conversations and their history will be kept.",
   "linkedConversation.createFailed": "Could not create the linked conversation.",
   "consigne.heading": "Response style",
-  "consigne.active-count": "{n} active style(s)",
   "kb.add-source": "Add a source",
   "consigne.menu-title": "Thread instruction",
-  "consigne.none": "None",
-  "consigne.combine": "You can combine several instructions.",
   "consigne.english": "Scientific English",
   "consigne.personal": "Personal instruction",
   "consigne.edit": "Edit instructions…",
@@ -15980,7 +15974,7 @@ This is what an agent **markdown** response will look like.`,
   "specialiste.menu-title": "Thread specialist",
   "specialiste.heading": "Specialist",
   "specialiste.none": "No specialist",
-  "specialiste.manage": "Manage specialists…",
+  "specialiste.manage-all": "Manage specialists and styles…",
   "specialiste.forms": "Response style",
   "specialiste.deleted": "Deleted specialist",
   "specialiste.header": "Thread specialist: {nom}",
@@ -17489,7 +17483,7 @@ function vO(n) {
           n.header && /* @__PURE__ */ v.jsx(qn, { children: /* @__PURE__ */ v.jsx(wp, { children: n.header }) }),
           n.groups?.length ? n.groups.map((r) => /* @__PURE__ */ v.jsxs(h.Fragment, { children: [
             r.separatorBefore && /* @__PURE__ */ v.jsx(ia, {}),
-            /* @__PURE__ */ v.jsxs(qn, { children: [
+            /* @__PURE__ */ v.jsxs(qn, { className: r.className, children: [
               r.label && /* @__PURE__ */ v.jsx(wp, { children: r.label }),
               r.items.map(i)
             ] })
@@ -28387,7 +28381,7 @@ function Rp({
       "data-align": i,
       className: Xe(rM({ align: i }), n),
       onClick: (s) => {
-        s.target.closest("button") || s.currentTarget.parentElement?.querySelector("input, textarea")?.focus();
+        s.target.closest("button") || s.currentTarget.contains(s.target) && s.currentTarget.parentElement?.querySelector("input, textarea")?.focus();
       },
       ...r
     }
