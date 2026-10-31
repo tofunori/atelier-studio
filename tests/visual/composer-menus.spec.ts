@@ -70,10 +70,10 @@ for (const theme of ['dark', 'light']) {
       await panel('.composer-style-menu', 'style');
       await main(page.locator('.consigne-nom').first());
       await expect(page.locator('.consigne-desc').first()).toHaveCSS('font-size', '11px');
-      await page.getByRole('menuitemcheckbox', { name: /^Concis / }).click();
-      await page.getByRole('menuitemcheckbox', { name: /^Rigueur scientifique / }).click();
-      await expect(page.getByRole('menuitemcheckbox', { name: /^Concis / })).toHaveAttribute('aria-checked', 'true');
-      await expect(page.getByRole('menuitemcheckbox', { name: /^Rigueur scientifique / })).toHaveAttribute('aria-checked', 'true');
+      await page.getByRole('menuitemcheckbox', { name: 'Concis', exact: true }).click();
+      await page.getByRole('menuitemcheckbox', { name: 'Rigueur scientifique', exact: true }).click();
+      await expect(page.getByRole('menuitemcheckbox', { name: 'Concis', exact: true })).toHaveAttribute('aria-checked', 'true');
+      await expect(page.getByRole('menuitemcheckbox', { name: 'Rigueur scientifique', exact: true })).toHaveAttribute('aria-checked', 'true');
       const indicators = page.locator('.composer-style-menu [aria-checked="true"] [data-slot="dropdown-menu-checkbox-item-indicator"]');
       for (const indicator of await indicators.all()) {
         const circle = (await indicator.boundingBox())!;
