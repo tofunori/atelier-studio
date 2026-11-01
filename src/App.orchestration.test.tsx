@@ -1775,7 +1775,6 @@ describe("orchestration App — caractérisation", () => {
   });
 
   it("ouvre une surface du rail après être passé par le layout Chat", async () => {
-    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["biblio"]));
     await mountApp();
 
     await chooseLayout("chat");
@@ -1785,7 +1784,14 @@ describe("orchestration App — caractérisation", () => {
     const onSwitch = (event: Event) => switches.push((event as CustomEvent).detail);
     window.addEventListener("switch-surface", onSwitch);
 
-    fireEvent.click(screen.getByRole("button", { name: t("atelier.biblio") }));
+    // le lanceur de la barre du haut (2026-11-01) liste toutes les surfaces
+    fireEvent.click(screen.getByRole("button", { name: t("topbar.surfaces") }));
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await vi.advanceTimersByTimeAsync(0);
+      await flushMicrotasks(6);
+    });
+    fireEvent.click(within(screen.getByRole("menu")).getByText(t("atelier.biblio")));
     await act(async () => {
       await vi.dynamicImportSettled();
       await vi.advanceTimersByTimeAsync(0);
@@ -1795,8 +1801,8 @@ describe("orchestration App — caractérisation", () => {
     expect(document.querySelector('[data-panel-id="atelier"]')).toBeTruthy();
     expect(switches).toContainEqual({ surface: "biblio" });
     expect(document.querySelector(".biblio-surface")).toBeTruthy();
-    // la surface active non épinglée se révèle dans la barre
-    expect(document.querySelector(".topbar-surface.on")).toBeTruthy();
+    // la pastille du lanceur prend le nom de la surface ouverte
+    expect(screen.getByRole("button", { name: `${t("topbar.surfaces")} : ${t("atelier.biblio")}` })).toBeTruthy();
     window.removeEventListener("switch-surface", onSwitch);
   });
 
@@ -2317,7 +2323,11 @@ describe("orchestration App — caractérisation", () => {
       name: t("linkedConversation.markerLabel", { count: 2 }),
     })).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: t("linkedConversation.title") }));
+    // dans la barre du haut, les conversations liées vivent dans le ⋯ du chat
+    fireEvent.click(within(document.querySelector<HTMLElement>(".chat-surface-header")!)
+      .getByRole("button", { name: t("action.more") }));
+    await act(async () => { await vi.dynamicImportSettled(); await flushMicrotasks(4); });
+    fireEvent.click(screen.getByRole("menuitem", { name: t("linkedConversation.title") }));
     await act(async () => { await flushMicrotasks(4); });
     fireEvent.click(screen.getByRole("button", {
       name: t("linkedConversation.unlinkNamed", { provider: "Claude" }),

@@ -145,6 +145,50 @@ describe("AtelierPane — workspace modulaire", () => {
     expect(separator).toHaveAttribute("aria-valuenow", "55");
   });
 
+  it("réordonne les onglets en les glissant dans la bande du haut", async () => {
+    const { container, props } = renderWorkspace();
+    mockWorkspaceGeometry(container);
+    // bande simulée : celle de TopBarTabs vit dans la barre du haut, hors du pane
+    const makeRect = (left: number, top: number, width: number, height: number) => ({
+      x: left, y: top, left, top, width, height, right: left + width, bottom: top + height, toJSON: () => ({}),
+    } as DOMRect);
+    const strip = document.createElement("div");
+    strip.className = "topbar-tabs";
+    vi.spyOn(strip, "getBoundingClientRect").mockReturnValue(makeRect(100, 0, 400, 40));
+    for (const [index, id] of ["document:main", "document:analysis"].entries()) {
+      const tab = document.createElement("span");
+      tab.className = "topbar-tab";
+      tab.dataset.tabId = id;
+      vi.spyOn(tab, "getBoundingClientRect").mockReturnValue(makeRect(100 + index * 150, 4, 140, 32));
+      strip.appendChild(tab);
+    }
+    document.body.appendChild(strip);
+    try {
+      act(() => {
+        window.dispatchEvent(new CustomEvent(WORKSPACE_POINTER_DRAG_START, {
+          detail: { ref: { kind: "document", tabId: "main" }, clientX: 150, clientY: 20, pointerId: 14 },
+        }));
+      });
+      // sur sa propre place : ni trait ni aperçu de scission
+      fireEvent.pointerMove(window, { pointerId: 14, clientX: 200, clientY: 20 });
+      await waitFor(() => expect(container.querySelector(".workspace-drag-ghost")).toBeInTheDocument());
+      expect(document.querySelector(".workspace-tab-insert")).toBeNull();
+      expect(container.querySelector(".workspace-drop-preview")).toBeNull();
+
+      // moitié droite de analysis.py : trait juste après lui
+      fireEvent.pointerMove(window, { pointerId: 14, clientX: 360, clientY: 20 });
+      await waitFor(() => expect(document.querySelector(".workspace-tab-insert")).toBeInTheDocument());
+      expect(container.querySelector(".workspace-drop-preview")).toBeNull();
+      fireEvent.pointerUp(window, { pointerId: 14, clientX: 360, clientY: 20 });
+
+      await waitFor(() => expect(props.onReorderTabs).toHaveBeenCalledWith(["analysis", "main"]));
+      expect(document.querySelector(".workspace-tab-insert")).toBeNull();
+      expect(container.querySelectorAll(".workspace-pane")).toHaveLength(1);
+    } finally {
+      strip.remove();
+    }
+  });
+
   it("dépose Zotero depuis le rail simulé dans un pane distinct sans barre externe", async () => {
     const { container } = renderWorkspace();
     mockWorkspaceGeometry(container);

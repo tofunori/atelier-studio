@@ -68,7 +68,7 @@
 .topbar-right { container-type: inline-size; container-name: topbar-documents; }
 .topbar-window-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .topbar-window-overflow { display: none; }
-.toolbar-tools-compact .topbar-surfaces > .topbar-target { display: none; }
+.toolbar-tools-compact .topbar-surfaces > * { display: none; }
 @container topbar-documents (max-width: 300px) {
   .topbar-window-actions { display: none; }
   .topbar-window-overflow { display: flex; }

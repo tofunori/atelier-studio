@@ -1594,7 +1594,7 @@ button.kernel-file:hover { color: var(--text-primary); }
   font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: var(--r-s); }
 .rail-act-more:hover { color: var(--text-secondary); }
 /* Barre du haut : groupes séparés, surface active soulignée sur la bordure */
-.topbar-surfaces { display: inline-flex; align-items: center; gap: 2px; }
+.topbar-surfaces { display: inline-flex; align-items: center; gap: 4px; }
 .topbar-target { display: inline-flex; flex: none; }
 .topbar-div { width: 1px; height: 16px; background: var(--border); flex: none; margin: 0 2px; }
 /* File-tab layout; shared shape/selection live in document-tabs.css. */
@@ -1633,30 +1633,16 @@ button.kernel-file:hover { color: var(--text-primary); }
 @media (max-width: 1150px) { .topbar-tab { max-width: 144px; } }
 .topbar-surface { position: relative; }
 .topbar-menu-icon { display: inline-flex; width: 15px; justify-content: center; color: var(--text-muted); }
-.topbar-menu-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-menu-pin { color: var(--text-muted); opacity: 0; transition: opacity var(--ease), color var(--ease); }
-.topbar-menu-row:hover .topbar-menu-pin, .topbar-menu-pin.on { opacity: 1; }
-.topbar-menu-pin.on { color: var(--accent-text); }
-/* réorganisation : flèches au survol de la rangée — le glissé d'une icône est
-   déjà pris (dépôt dans un pane), on ne peut pas le réutiliser ici */
-.topbar-menu-move { color: var(--text-muted); opacity: 0; display: inline-flex;
-  transition: opacity var(--ease), color var(--ease); }
-.topbar-menu-row:hover .topbar-menu-move { opacity: 1; }
-.topbar-menu-move:hover { color: var(--text-primary); }
-.topbar-menu-move.off { opacity: 0; pointer-events: none; }
-.topbar-menu-head { padding: 4px 8px 2px; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
-  letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
-/* fenêtre étroite : les surfaces non actives cèdent avant le crumb, les
-   dernières épinglées d'abord — jamais de compression, seulement du repli */
-@media (max-width: 1400px) {
-  .topbar-surfaces > .topbar-target:not([data-active="true"]):nth-child(n+6) { display: none; }
-}
-@media (max-width: 1150px) {
-  .topbar-surfaces > .topbar-target:not([data-active="true"]):nth-child(n+5) { display: none; }
-}
-@media (max-width: 900px) {
-  .topbar-surfaces > .topbar-target:not([data-active="true"]):nth-child(n+3) { display: none; }
-}
+.topbar-menu-icon svg { width: 15px; height: 15px; }
+/* Lanceur des surfaces (2026-11-01, variante B) : pastille discrète
+   « Surfaces » sur la galerie ; elle prend le nom et le fond de la surface
+   ouverte ailleurs. Jamais de fond clair : --bg-ctl comme l'onglet actif. */
+.topbar-launcher.ui-btn { gap: 6px; padding: 0 8px; color: var(--text-muted); font-weight: 400; }
+.topbar-launcher.ui-btn[data-current] { color: var(--text-primary); background: var(--bg-ctl); font-weight: 500; }
+.topbar-launcher .ui-btn-label { display: inline-flex; align-items: center; gap: 6px; }
+.topbar-launcher .ui-btn-label > svg:first-child:not(:last-child) { width: 15px; height: 15px; flex: none; }
+.topbar-launcher .ui-btn-label > svg:last-child { color: var(--text-muted); flex: none; }
+.topbar-launcher-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-btn.usage-ib { position: relative; }
 .rail-pinned { flex: none; width: 100%; display: flex; flex-direction: column; align-items: center;
   gap: 6px; padding: 8px 0 8px; }
@@ -3552,8 +3538,14 @@ body.dragging iframe { pointer-events: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: var(--r-m);
   background: var(--bg-pop); color: var(--text-secondary); box-shadow: var(--elev-soft);
   font-size: var(--fs-s); line-height: 1.1; will-change: transform, opacity; }
+/* Trait d'insertion quand on range un onglet dans la bande du haut : il
+   glisse d'une place à l'autre au lieu de sauter. */
+.workspace-tab-insert { position: fixed; top: 0; left: 0; width: 2px; border-radius: var(--r-pill);
+  background: var(--accent); z-index: var(--z-popover); pointer-events: none;
+  transition: transform 120ms ease-out; will-change: transform; }
 @media (prefers-reduced-motion: reduce) {
   .workspace-drop-preview, .workspace-drag-ghost { will-change: auto; }
+  .workspace-tab-insert { transition: none; will-change: auto; }
 }
 .jump-bottom { display: none; }
 /* ===== Quick Ask (side chat éphémère) — calme et spacieux ===== */

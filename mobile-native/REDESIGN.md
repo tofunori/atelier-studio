@@ -3,7 +3,7 @@
 ## Fonctionnalités implémentées
 
 - Navigation Chats, Galerie, Articles ; espace de travail partagé sur iPad et thèmes système, clair, noir.
-- Composer unique avec citation repliable, pièces jointes, choix de modèle et jauge d’effort ouvrant un panneau flottant à crans ; masquage des onglets pendant la saisie.
+- Composer unique avec citation repliable, pièces jointes, choix de modèle et jauge d’effort ouvrant un panneau flottant à crans ; masquage des onglets pendant la saisie. Dans le chat iPhone, les onglets se replient en un bouton rond à gauche du composer et se déplient au toucher ou quand on remonte la conversation ; la fin de la conversation reste au-dessus du composer quand le panneau du bas change de hauteur (2026-11-01).
 - Annotation de texte, PDF et figures ; choix de conversation, fichier joint et zone rectangulaire normalisée pour les figures.
 - Lecture LaTeX simplifiée, source à édition explicite, sélection reliée au passage original. Une sélection ambiguë renvoie vers la source. Ce lecteur ne remplace pas une compilation LaTeX.
 - Proposition de reformulation rattachée au message concerné, comparaison avant/après et application explicite. Une source modifiée ou un passage ambigu empêche l'application.
