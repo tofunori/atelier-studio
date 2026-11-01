@@ -3552,8 +3552,14 @@ body.dragging iframe { pointer-events: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: var(--r-m);
   background: var(--bg-pop); color: var(--text-secondary); box-shadow: var(--elev-soft);
   font-size: var(--fs-s); line-height: 1.1; will-change: transform, opacity; }
+/* Trait d'insertion quand on range un onglet dans la bande du haut : il
+   glisse d'une place à l'autre au lieu de sauter. */
+.workspace-tab-insert { position: fixed; top: 0; left: 0; width: 2px; border-radius: var(--r-pill);
+  background: var(--accent); z-index: var(--z-popover); pointer-events: none;
+  transition: transform 120ms ease-out; will-change: transform; }
 @media (prefers-reduced-motion: reduce) {
   .workspace-drop-preview, .workspace-drag-ghost { will-change: auto; }
+  .workspace-tab-insert { transition: none; will-change: auto; }
 }
 .jump-bottom { display: none; }
 /* ===== Quick Ask (side chat éphémère) — calme et spacieux ===== */

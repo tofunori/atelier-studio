@@ -177,7 +177,7 @@ export default function TopBarTabs(p: {
         const label = tabLabel(tab.title);
         const on = tab.id === p.activeTab;
         return (
-          <span key={tab.id} className={`topbar-tab document-tab-shell ${on ? "on" : ""}`} data-active={on}>
+          <span key={tab.id} className={`topbar-tab document-tab-shell ${on ? "on" : ""}`} data-active={on} data-tab-id={tab.id}>
             <RowButton
               className="topbar-tab-main"
               // le chemin complet, utile dès que l'ellipse mord. L'ancienne
