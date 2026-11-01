@@ -210,6 +210,27 @@ describe("ChatHeader", () => {
     expect(onChange).toHaveBeenCalledWith("detaille");
   });
 
+  // Barre du haut (2026-11-01) : la vue et les conversations liées passent
+  // dans le ⋯ ; aucune icône propre, même sans renommage.
+  it("barre du haut : vue et conversations liées repliées dans le ⋯", async () => {
+    const onChange = vi.fn();
+    render(
+      <ChatHeader {...base} compact transcriptView="normal" onTranscriptViewChange={onChange}
+        linkedAgents={[{ id: "codex-1", provider: "Codex", title: "Deuxième avis", paused: false, direction: "child" }]} />,
+    );
+    expect(screen.queryByRole("button", { name: new RegExp(t("chat.transcript-view")) })).toBeNull();
+    expect(screen.queryByRole("button", { name: t("linkedConversation.title") })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: MORE_LABEL }));
+    fireEvent.click(await screen.findByText(t("linkedConversation.title")));
+    expect(await screen.findByRole("region", { name: t("linkedConversation.continuesTo") }))
+      .toHaveTextContent("Codex · Deuxième avis");
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: MORE_LABEL }));
+    fireEvent.click(await screen.findByText(t("chat.transcript-view")));
+    fireEvent.click(await screen.findByText(t("chat.transcript-view.resume")));
+    expect(onChange).toHaveBeenCalledWith("resume");
+  });
+
   it("sans onTranscriptViewChange, aucun sélecteur de vue", () => {
     render(<ChatHeader {...base} />);
     expect(screen.queryByRole("button", { name: new RegExp(t("chat.transcript-view")) })).toBeNull();
