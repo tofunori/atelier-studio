@@ -116,7 +116,7 @@ import { catalogSkillForPrompt } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { railViewStore } from "./lib/railViewStore";
 import { CloseIcon } from "./components/icons";
-import { loadSettings, saveSettings, withBootPromotions, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
+import { loadSettings, saveSettings, withBootPromotions, migrateRetiredModels, Settings, ProviderId, DEFAULT_SETTINGS, ViewId } from "./lib/settings";
 import { ProviderInfo, linkableAgentProviders } from "./lib/providers";
 import type { ConsigneDuFil } from "./lib/consignes";
 import { garderProposition, mentionSpecialiste, ouvrirFicheSpecialiste, specialisteAJour, type PropositionSpecialiste } from "./lib/specialistes";
@@ -1468,7 +1468,9 @@ export default function App() {
           // foi pour les réglages aussi, et on force la vue d'accueil — sauf
           // pour une migration locale qui n'existait pas encore dans ce
           // fichier (favoris historiques de l'ancien picker de modèles).
-          setSettings((current) => ({
+          // Modèles Claude retirés : le miroir disque, antérieur à la
+          // migration, ramènerait sinon les anciens ids (défaut, favoris).
+          setSettings((current) => migrateRetiredModels({
             // Les promotions de CE boot gagnent sur un miroir disque qui les
             // précède — sinon elles sont perdues à jamais (marquées appliquées).
             ...withBootPromotions({ ...DEFAULT_SETTINGS, ...diskSettings }),
@@ -1482,7 +1484,7 @@ export default function App() {
           // réglages simples aussi, mais sans piétiner la vue actuellement
           // affichée (activeView reste local) NI les promotions de ce boot —
           // le miroir, antérieur à elles, les écraserait définitivement.
-          setSettings((current) => withBootPromotions({ ...current, ...diskSettings }));
+          setSettings((current) => migrateRetiredModels(withBootPromotions({ ...current, ...diskSettings })));
         }
         // Remplacement (pas fusion) pour chaque clé miroitée présente sur
         // disque : une fusion additive/union ne peut jamais représenter une

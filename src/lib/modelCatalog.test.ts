@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codexSupportsFastMode, modelDisplayLabel } from "./modelCatalog";
+import { codexSupportsFastMode, modelDisplayLabel, replaceRetiredModel } from "./modelCatalog";
 
 describe("modelDisplayLabel", () => {
   it("conserve les libellés intégrés connus", () => {
@@ -64,5 +64,25 @@ describe("routes Kimi K3 concurrentes", () => {
     expect(forCoding).not.toBe(go);
     expect(forCoding).toContain("Kimi K3");
     expect(go).toContain("Kimi K3");
+  });
+});
+
+describe("replaceRetiredModel", () => {
+  it("remplace un modèle Claude retiré par son successeur, [1m] compris", () => {
+    expect(replaceRetiredModel("claude", "claude-opus-4-8[1m]")).toBe("claude-opus-5-5[1m]");
+    expect(replaceRetiredModel("claude", "claude-fable-5")).toBe("claude-fable-5-1");
+    expect(replaceRetiredModel("claude", "claude-sonnet-5")).toBe("claude-sonnet-5-5");
+    expect(replaceRetiredModel("claude", "claude-haiku-4-5-20251001")).toBe("claude-haiku-5-5");
+  });
+
+  it("laisse intacts les modèles actuels et les autres providers", () => {
+    expect(replaceRetiredModel("claude", "claude-opus-5-5[1m]")).toBe("claude-opus-5-5[1m]");
+    expect(replaceRetiredModel("opencode", "claude-opus-5")).toBe("claude-opus-5");
+    expect(replaceRetiredModel("claude", "")).toBe("");
+  });
+
+  it("nomme les quatre modèles actuels", () => {
+    expect(modelDisplayLabel("claude", "claude-sonnet-5-5")).toBe("Sonnet 5.5");
+    expect(modelDisplayLabel("claude", "claude-haiku-5-5")).toBe("Haiku 5.5");
   });
 });

@@ -648,7 +648,7 @@ export function ComposerControls(p: {
                       // bouton 200k plus bas reste disponible comme exception
                       // explicite après la sélection.
                       const baseModelId = resolvedModelId(menuProvider, m.id)
-                        || (menuProvider === "claude" ? "claude-sonnet-5" : "");
+                        || (menuProvider === "claude" ? "claude-sonnet-5-5" : "");
                       const selectedModelId = menuProvider === "claude" && !baseModelId.endsWith("[1m]")
                         ? `${baseModelId}[1m]`
                         : baseModelId;

@@ -36,7 +36,7 @@ import {
 } from "./chat/AgentActivity";
 import { SubagentView } from "./chat/SubagentView";
 import { mentionLabel } from "./chat/mentions";
-import { modelDisplayLabel } from "../lib/modelCatalog";
+import { modelDisplayLabel, replaceRetiredModel } from "../lib/modelCatalog";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
 import { usePromptText, type DraftAttachment, type FollowUpMode, type PromptSource, type QueuedTurn } from "../lib/chatDraftStore";
 import type { Consigne, ConsigneDuFil } from "../lib/consignes";
@@ -386,7 +386,10 @@ export default function Chat(p: {
     const providerSelection = saved?.byProvider[pv];
     // Le choix par défaut est un réglage, pas une pseudo-option du picker.
     // Matérialiser l'id résolu rend le modèle réel visible/coché dans le chat.
-    const m = providerSelection?.model
+    // Un fil resté sur un modèle Claude retiré du catalogue passe à son
+    // remplaçant, enregistré aussitôt pour ce fil : sinon le sélecteur n'a
+    // plus de rangée cochée et l'ancien id repart à chaque tour.
+    const m = replaceRetiredModel(pv, providerSelection?.model ?? "")
       || p.defaults.defaultModel[pv]
       || providerInfo(pv)?.defaultModel
       || "";
