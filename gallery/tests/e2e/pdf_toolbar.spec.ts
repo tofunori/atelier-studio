@@ -392,6 +392,13 @@ test('outils de la barre : note unique et personnelle, tampon, zone de texte, ra
   const pg = reader.locator('.pg').first();
   const box = await pg.boundingBox();
   const saved = async () => (await (await page.request.get(`http://127.0.0.1:${port}/pdfannot?rel=twocol.pdf`)).json()).annots || [];
+  // Une marque peut être redessinée (resynchro du store toutes les 2,5 s)
+  // entre sa résolution et sa mesure : on attend une boîte non nulle.
+  const boxOf = async (loc) => {
+    let b = null;
+    await expect.poll(async () => (b = await loc.boundingBox()) !== null).toBe(true);
+    return b;
+  };
   await page.evaluate(() => {
     (window as any).__chat = [];
     window.addEventListener('message', event => { if (/add-to-chat|annot/.test(String(event.data?.type))) (window as any).__chat.push(event.data.type); });
@@ -409,7 +416,7 @@ test('outils de la barre : note unique et personnelle, tampon, zone de texte, ra
   await editor.press('Enter');
   const pin = reader.locator('.pdfnote');
   await expect(pin).toHaveCount(1);
-  const pinBox = await pin.boundingBox();
+  const pinBox = await boxOf(pin);
   expect(Math.abs(pinBox.x + pinBox.width / 2 - (box.x + box.width * 0.5))).toBeLessThan(2);
   expect(Math.abs(pinBox.y + pinBox.height / 2 - (box.y + 120))).toBeLessThan(2);
   await page.mouse.click(box.x + box.width * 0.5, box.y + 300);
@@ -457,7 +464,7 @@ test('outils de la barre : note unique et personnelle, tampon, zone de texte, ra
   // enregistré suit.
   const dot = reader.locator('.pdfstamp-dot');
   const before = (await saved()).find(a => a.kind === 'stamp' && a.style === 'pastille').pin;
-  const db = await dot.boundingBox();
+  const db = await boxOf(dot);
   await page.mouse.move(db.x + db.width / 2, db.y + db.height / 2);
   await page.mouse.down();
   await page.mouse.move(db.x + db.width / 2 + 40, db.y + db.height / 2 + 60, { steps: 6 });
@@ -470,14 +477,14 @@ test('outils de la barre : note unique et personnelle, tampon, zone de texte, ra
   // La note aussi, même quand une resynchro du store (veille de 2,5 s)
   // redessine la page en plein glissé : le glissé suit la marque redessinée.
   await pin.scrollIntoViewIfNeeded();
-  const pinBefore = await pin.boundingBox();
+  const pinBefore = await boxOf(pin);
   await page.mouse.move(pinBefore.x + 12, pinBefore.y + 12);
   await page.mouse.down();
   await page.mouse.move(pinBefore.x + 12 + 30, pinBefore.y + 12, { steps: 3 });
   await reader.locator('body').evaluate(() => (window as any).redrawAllAnnots());
   await page.mouse.move(pinBefore.x + 12 + 80, pinBefore.y + 12, { steps: 3 });
   await page.mouse.up();
-  await expect.poll(async () => Math.abs((await pin.boundingBox()).x - pinBefore.x - 80)).toBeLessThan(2);
+  await expect.poll(async () => Math.abs(((await pin.boundingBox())?.x ?? -1e6) - pinBefore.x - 80)).toBeLessThan(2);
   await expect(reader.locator('#annotPop')).toBeHidden();
 
   // Gomme : un clic sur le tampon le retire.
