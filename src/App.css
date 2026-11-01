@@ -383,9 +383,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   white-space: nowrap; }
 .agent-detail-empty { margin: 20px 0 0; color: var(--text-muted); font-size: var(--fs-m); }
 /* Surface « Noyau Python » (chantier 5) : onglet du panneau droit. Une
-   gouttière [n] par cellule, code coloré par les règles .hljs-* du chat,
-   sorties sans cadre, figures et fichiers en pied. Rien n'est encadré deux
-   fois : la carte de code porte un filet 1 px, l'état vit dans son liseré. */
+   gouttière discrète (numéro gris, roue grise en cours), code coloré par les
+   règles .hljs-* du chat sur un fond doux sans filet ni liseré, sorties sans
+   cadre, figures et fichiers en pied. Le panneau est le SEUL à défiler : code
+   et sorties longs sont coupés (.kernel-clamp) avec « Tout afficher ». */
 .kernel-surface { display: flex; flex-direction: column; flex: 1; min-height: 0; color: var(--text-primary); }
 .kernel-surface svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor;
   stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
@@ -428,18 +429,19 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-var-size { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .kernel-vars-empty { margin: 4px 0 0 20px; color: var(--text-muted); font-size: var(--fs-m); }
 .kernel-scroll { position: relative; flex: 1; min-height: 0; overflow: auto; }
-.kernel-cells { display: flex; flex-direction: column; gap: 20px; padding: 16px 20px 24px; }
+.kernel-cells { display: flex; flex-direction: column; gap: 20px; padding: 16px 20px 24px 12px; }
 .kernel-group { display: flex; flex-direction: column; gap: 12px; }
-.kernel-group-head { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-muted);
+.kernel-group-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 24px; color: var(--text-muted);
   font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
 .kernel-group-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kernel-group-prompt { color: var(--text-secondary); }
 .kernel-cell[data-flash="true"] .kernel-cell-body { background: color-mix(in srgb, var(--accent) 8%, transparent);
   border-radius: var(--r-s); transition: background-color 150ms ease; }
-.kernel-cell { display: flex; gap: 8px; min-width: 0; }
-.kernel-cell-num { width: 28px; flex: none; padding-top: 2px; color: var(--text-muted);
-  font-family: var(--font-code); font-size: var(--fs-s); font-variant-numeric: tabular-nums; user-select: none; }
-.kernel-cell[data-status="running"] .kernel-cell-num { color: var(--accent-text); }
+.kernel-cell { display: flex; gap: 4px; min-width: 0; }
+.kernel-cell-num { display: flex; justify-content: flex-end; width: 20px; flex: none; padding: 4px 4px 0 0; color: var(--text-muted);
+  font-family: var(--font-code); font-size: var(--fs-s); line-height: 1; font-variant-numeric: tabular-nums; user-select: none; }
+.kernel-cell[data-status="running"] .kernel-cell-num { color: var(--text-muted); }
+.kernel-surface .kernel-cell-num svg, .kernel-surface .kernel-new-run svg { width: 12px; height: 12px; }
 .kernel-cell[data-status="error"] .kernel-cell-num { color: var(--status-error); }
 .kernel-cell-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .kernel-cell-head { display: flex; align-items: center; gap: 8px; min-height: 20px; color: var(--text-muted);
@@ -453,7 +455,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-cell-title svg { width: 12px; height: 12px; color: var(--text-muted); }
 .kernel-cell-fold { flex: 1; gap: 8px; color: var(--text-muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; text-align: left; }
 .kernel-cell-fold > svg { width: 12px; height: 12px; transform: rotate(-90deg); }
-.kernel-cell-fold .kernel-cell-num { width: auto; padding: 0; }
+.kernel-cell-fold .kernel-cell-num { width: auto; padding: 0; line-height: inherit; }
 .kernel-cell-fold-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text-primary); font-size: var(--fs-l); }
 .kernel-ok { display: inline-flex; color: var(--status-success); }
@@ -476,7 +478,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-edit:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); }
 .kernel-editor-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .kernel-editor-note { color: var(--text-muted); font-size: var(--fs-s); }
-.kernel-new { padding: 0 20px 20px; }
+.kernel-new { padding: 0 20px 20px 36px; }
+.kernel-new-field { display: flex; align-items: flex-start; gap: 4px; padding-right: 4px; border-radius: var(--r-s); background: var(--bg-card); }
+.kernel-new-field .kernel-edit { flex: 1; min-height: 36px; padding: 8px 12px; background: transparent; box-shadow: none; resize: none; }
+.kernel-new-field:focus-within { box-shadow: inset 0 0 0 1px var(--border-strong); }
+.kernel-new-field .kernel-edit:focus-visible { outline: none; }
+.kernel-new-key { flex: none; height: 36px; display: inline-flex; align-items: center; color: var(--text-muted);
+  font-family: inherit; font-size: var(--fs-s); }
+.kernel-new-run { margin-top: 6px; }
+.kernel-new-error { color: var(--status-error); }
 .kernel-new-resume { margin-left: auto; }
 .kernel-resume { display: flex; flex-direction: column; gap: 8px; padding: 0 20px 20px; }
 .kernel-resume:first-child { padding-top: 16px; }
@@ -510,22 +520,33 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-file-state { color: var(--text-muted); }
 .kernel-file-state[data-state="same"] { color: var(--status-success); }
 .kernel-file-state[data-state="modified"], .kernel-file-state[data-state="missing"] { color: var(--status-warning); }
-.kernel-cell-live { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-text); }
+.kernel-cell-live { display: inline-flex; align-items: center; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .kernel-cell-error { color: var(--status-error); }
 .kernel-reveal { opacity: 0; transition: opacity 140ms ease; }
 .kernel-cell:hover .kernel-reveal, .kernel-reveal:focus-visible { opacity: 1; }
 .kernel-code, .kernel-out { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
   font-family: var(--font-code); font-size: var(--fs-m); line-height: 1.5; }
-.kernel-code { max-height: 420px; overflow: auto; padding: 8px 12px; border-radius: var(--r-s);
-  background: var(--bg-card); color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--border);
-  transition: box-shadow 140ms ease; }
+.kernel-code { padding: 8px 12px; border-radius: var(--r-s); background: var(--bg-card); color: var(--text-secondary); }
 .kernel-code code { font: inherit; }
-.kernel-cell[data-status="running"] .kernel-code { box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px var(--border); }
-.kernel-cell[data-status="error"] .kernel-code { box-shadow: inset 2px 0 0 var(--status-error), inset 0 0 0 1px var(--border); }
-.kernel-out { max-height: 280px; overflow: auto; padding: 0 12px; color: var(--text-secondary); }
+.kernel-out { padding: 0 12px; color: var(--text-secondary); }
+/* Coupe sans barre : hauteur de N lignes, fondu au bord coupé (en haut pour la
+   sortie en direct, qui garde sa fin à l'écran), « Tout afficher » dessous. */
+.kernel-clamp { display: flex; flex-direction: column; min-width: 0; }
+.kernel-clamp[data-open="false"] > pre { max-height: calc(var(--kernel-clamp) * 1.5em); overflow: hidden; }
+.kernel-clamp[data-open="false"] > pre.kernel-code { max-height: calc(var(--kernel-clamp) * 1.5em + 16px); }
+.kernel-clamp[data-cut="true"] > pre { -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 48px), transparent); }
+.kernel-clamp[data-cut="true"][data-tail="true"] > pre { -webkit-mask-image: linear-gradient(to top, black calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to top, black calc(100% - 48px), transparent); }
+.kernel-more { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; height: 24px; margin: 4px 0 0 4px; padding: 0 8px;
+  border-radius: var(--r-s); color: var(--text-muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.kernel-more:hover { background: var(--surface-hover); color: var(--text-secondary); }
+.kernel-surface .kernel-more svg { width: 12px; height: 12px; transition: transform 140ms ease; }
+.kernel-more[aria-expanded="true"] svg { transform: rotate(180deg); }
 .kernel-out.kernel-stderr { color: var(--text-muted); }
 .kernel-result { display: flex; gap: 8px; padding-left: 12px; }
-.kernel-result .kernel-out { flex: 1; min-width: 0; padding: 0; }
+.kernel-result > .kernel-clamp { flex: 1; min-width: 0; }
+.kernel-result .kernel-out { padding: 0; }
 .kernel-result-label { flex: none; color: var(--text-muted); font-family: var(--font-code); font-size: var(--fs-s); line-height: 1.6; user-select: none; }
 .kernel-ename { color: var(--status-error); font-weight: 600; }
 .kernel-traceback { color: var(--text-muted); }
@@ -550,7 +571,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* La capsule de sélection partagée ; pas d'annotation durable sur une cellule. */
 .kernel-selection button[aria-label="Annoter"] { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .kernel-dot, .kernel-reveal, .kernel-code, .kernel-vars-head svg, .kernel-cell-body, .kernel-resume-head > svg { transition: none; animation: none; }
+  .kernel-dot, .kernel-reveal, .kernel-more svg, .kernel-vars-head svg, .kernel-cell-body, .kernel-resume-head > svg { transition: none; animation: none; }
 }
 .empty { color: var(--text-muted); padding-top: 24px; }
 .chat-empty-new { display: flex; flex-direction: column; gap: 4px; padding-top: 32px; user-select: none; -webkit-user-select: none; }
