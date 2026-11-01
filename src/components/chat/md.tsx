@@ -567,11 +567,17 @@ export function diffLineClass(line: string): string {
   return "";
 }
 
+// Passage révisé ```revision : diff mot à mot, chargé au premier bloc.
+const RevisionBlock = lazy(() => import("./RevisionBlock"));
+
 export function PreBlock(props: any) {
   const child = props.children?.props ?? {};
   const lang = /language-([\w-]+)/.exec(String(child.className ?? ""))?.[1] ?? "";
   if (lang === "mermaid") {
     return <MermaidBlock source={mdText(child.children)} highlight={highlightCode} />;
+  }
+  if (lang === "revision") {
+    return <Suspense fallback={<MarkdownCodeBlock {...props} />}><RevisionBlock source={mdText(child.children)} /></Suspense>;
   }
   return <MarkdownCodeBlock {...props} />;
 }

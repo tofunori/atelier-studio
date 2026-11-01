@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · revision.
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -547,6 +547,29 @@ const BENCH_SPECIALISTES: Specialiste[] = [
     instructions: "Tu vérifies les références.", skills: [], tousSkills: true, connecteurs: ["scholar"], visible: true },
 ];
 
+// Passage révisé (variante E, 2026-11-01) : l'agent envoie les deux versions
+// dans un bloc ```revision, le chat souligne le nouveau et barre le retiré.
+const REVISION: AgentEvent[] = [
+  { kind: "user", text: "Propose-moi d5 au complet, plus précis sur les limites des dépôts.", ts: ts(300) } as AgentEvent,
+  {
+    kind: "text",
+    text: [
+      "**d5 proposé, au complet**",
+      "",
+      "```revision",
+      "--- avant",
+      "Within each region, however, RAQDPS deposition agrees from year to year with two independent records, the MERRA-2 reanalysis and MODIS aerosol optical depth (Methods; Supplementary Figs.~\\SFsmoke{} and~\\SFmerra{}). As in RAQDPS, black carbon deposition from all sources in MERRA-2 doubled after about 2010 near the glaciers of western Canada and the conterminous United States and peaked in 2023 \\citep{Menounos2025}. Our deposition data are not complete; they omit the wet deposition of organic matter (Methods), quantify carbon by mass rather than by its light absorption and exclude mineral dust, which fires may deposit together with carbon \\citep{Kaspari2015}. These omissions likely bias the fire slope low.",
+      "+++ après",
+      "Within each region, however, RAQDPS deposition agrees from year to year with two independent records, the MERRA-2 reanalysis and the share of MODIS observations flagged as high aerosol (Methods; Supplementary Figs.~\\SFsmoke{} and~\\SFmerra{}). As in RAQDPS, black carbon deposition from all sources in MERRA-2 doubled after about 2010 near the glaciers of western Canada and the conterminous United States and peaked in 2023 \\citep{Menounos2025}. Our deposition data are nevertheless not complete; they omit the wet deposition of organic matter (Methods), quantify carbon by mass rather than by its light absorption and exclude mineral dust, which fires may deposit together with carbon \\citep{Kaspari2015}. Where these components follow the carbon in our data, as dust carried in the same smoke may do, the fire slope includes their darkening. Wet deposition, by contrast, occurs only with precipitation and does not always follow the carbon in our data. Such differences make our deposition values less accurate and weaken the fire slope.",
+      "```",
+      "",
+      "Le premier changement nomme le relevé MODIS réellement utilisé ; la fin remplace un sens de biais non démontré par le mécanisme.",
+    ].join("\n"),
+    ts: ts(295),
+  } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 12000, output: 640, cost: 0.02, turns: 1 }, ts: ts(290) } as AgentEvent,
+];
+
 const PROPOSAL: AgentEvent[] = [
   { kind: "user", text: "Je voudrais un spécialiste pour le glacier Peyto, tu peux le partir avec moi ?", ts: ts(40) },
   { kind: "text", text: "Voici une première fiche. Garde-la telle quelle ou ajuste-la dans les réglages.", ts: ts(30) },
@@ -777,6 +800,7 @@ const STATES: Record<string, BenchState> = {
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
   typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },
   proposal: { events: PROPOSAL, workingSince: null, attachments: [], usage: null },
+  revision: { events: REVISION, workingSince: null, attachments: [], usage: null },
   actionsclaude: { events: ACTIONS_CLAUDE, workingSince: ts(58), attachments: [], usage: { context: 31000, output: 640, cost: null, turns: 1 } },
   actionscodex: { events: ACTIONS_CODEX, workingSince: ts(40), attachments: [], usage: { context: 19000, output: 220, cost: null, turns: 1 } },
   claudeagents: { events: AGENTS_CLAUDE, workingSince: ts(70), attachments: [], usage: { context: 26000, output: 300, cost: null, turns: 1 } },

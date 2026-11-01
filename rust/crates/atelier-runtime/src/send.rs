@@ -261,6 +261,23 @@ reads its state when the user asks.\n</atelier-compute>"
     )
 }
 
+/// Passage révisé (2026-11-01) : l'agent qui propose une nouvelle version
+/// d'un passage mettait lui-même les ajouts en gras ; le retiré disparaissait
+/// et le LaTeX restait brut. Il envoie maintenant les deux versions dans un
+/// bloc ```revision et le chat calcule le diff mot à mot (RevisionBlock.tsx).
+/// Consigne de format pure : tous les providers.
+fn with_revision_instruction(prompt: String) -> String {
+    format!(
+        "{prompt}\n\n<atelier-revision>\nWhen you propose a new version of an existing passage of the \
+user's text (a sentence or paragraph of a .tex, .md or .docx, or text they pasted), do not mark the \
+changes yourself: no bold, italics or strike-through for what changed. Put the passage in a fenced \
+block with the language `revision`: a line `--- avant`, the passage exactly as it is now (verbatim, \
+LaTeX included), then a line `+++ après`, your new version. The chat shows the differences word by \
+word and copies the new version for the user. One block per passage; keep explanations outside the \
+block. Text with no previous version is written normally.\n</atelier-revision>"
+    )
+}
+
 /// Documents Word : un agent qui dézippe et réécrit un .docx lui-même casse
 /// les suivis, les commentaires et les citations Zotero. La consigne n'est
 /// ajoutée qu'aux tours qui parlent d'un .docx (le panneau .docx cite son
@@ -1506,6 +1523,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let p = with_zotero_passage_instruction(p, state.server_dir());
         let p = with_figure_qc_instruction(p, state.server_dir());
         let p = with_widget_tool_instruction(p, &provider);
+        let p = with_revision_instruction(p);
         with_compute_instruction(p, &provider)
     };
     let provider_prompt = with_docx_instruction(provider_prompt, &provider);
@@ -3862,6 +3880,15 @@ mod tests {
         assert!(enriched.contains("atelier_compute"));
         assert!(enriched.contains("Never submit"));
         assert_eq!(with_compute_instruction("x".into(), "openrouter"), "x");
+    }
+
+    #[test]
+    fn revision_instruction_asks_for_both_versions_in_a_revision_block() {
+        let enriched = with_revision_instruction("révise ce paragraphe".into());
+        assert!(enriched.starts_with("révise ce paragraphe"));
+        assert!(enriched.contains("language `revision`"));
+        assert!(enriched.contains("`--- avant`") && enriched.contains("`+++ après`"));
+        assert!(enriched.contains("no bold"));
     }
 
     #[test]
