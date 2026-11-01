@@ -467,12 +467,15 @@ test('outils de la barre : note unique et personnelle, tampon, zone de texte, ra
     const pin = (await saved()).find(a => a.kind === 'stamp' && a.style === 'pastille').pin;
     return Math.abs((pin[0] - before[0]) * box.width - 40) < 2 && Math.abs((pin[1] - before[1]) * box.height - 60) < 2;
   }).toBe(true);
-  // La note aussi.
+  // La note aussi, même quand une resynchro du store (veille de 2,5 s)
+  // redessine la page en plein glissé : le glissé suit la marque redessinée.
   await pin.scrollIntoViewIfNeeded();
   const pinBefore = await pin.boundingBox();
   await page.mouse.move(pinBefore.x + 12, pinBefore.y + 12);
   await page.mouse.down();
-  await page.mouse.move(pinBefore.x + 12 + 80, pinBefore.y + 12, { steps: 6 });
+  await page.mouse.move(pinBefore.x + 12 + 30, pinBefore.y + 12, { steps: 3 });
+  await reader.locator('body').evaluate(() => (window as any).redrawAllAnnots());
+  await page.mouse.move(pinBefore.x + 12 + 80, pinBefore.y + 12, { steps: 3 });
   await page.mouse.up();
   await expect.poll(async () => Math.abs((await pin.boundingBox()).x - pinBefore.x - 80)).toBeLessThan(2);
   await expect(reader.locator('#annotPop')).toBeHidden();

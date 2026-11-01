@@ -3265,11 +3265,19 @@ function dragPlaced(e: MouseEvent, a, el: HTMLElement){
   if (!pg) return;
   e.preventDefault();   // pas de sélection de texte pendant le glissé
   const x0 = e.clientX, y0 = e.clientY, from = a.pin.slice();
+  // Une resynchro du store (veille toutes les 2,5 s) peut redessiner la page
+  // pendant le glissé : on suit alors l'élément redessiné, sinon le glissé
+  // continue sur un nœud détaché et la marque reste figée à l'écran.
+  const cls = el.classList[0], aid = CSS.escape(String(a.id));
+  const live = () => {
+    if (!el.isConnected) el = pg.querySelector<HTMLElement>("." + cls + '[data-aid="' + aid + '"]') || el;
+    return el;
+  };
   let moved = false;
   const move = (ev: MouseEvent) => {
     if (!moved && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) < 4) return;
     moved = true;
-    el.classList.add("moving");
+    live().classList.add("moving");
     const pr = pg.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, from[0] + (ev.clientX - x0) / pr.width));
     const y = Math.max(0, Math.min(1, from[1] + (ev.clientY - y0) / pr.height));
@@ -3279,7 +3287,7 @@ function dragPlaced(e: MouseEvent, a, el: HTMLElement){
   const up = () => {
     document.removeEventListener("mousemove", move);
     document.removeEventListener("mouseup", up, true);
-    el.classList.remove("moving");
+    live().classList.remove("moving");
     if (!moved) return;
     swallowClick = true;   // le relâché n'ouvre pas la bulle
     if (a.kind === "stamp") a.text = lineTextNear(pageLines(pg), a.pin[0], a.pin[1], a.style === "pastille");
