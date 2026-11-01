@@ -81,11 +81,13 @@ describe('ActivityStep', () => {
     const live = document.querySelectorAll('.activity-cluster-live [role=status]');
     expect(live).toHaveLength(1);
     expect(live[0].textContent).toContain('Réflexion en cours');
-    // Plus de balayage sur la ligne vivante (refonte 2026-10-18) : l'anneau de
-    // la colonne d'état porte seul le mouvement, et la synthèse reste fixe.
+    // Variante B (2026-11-01) : le libellé de la grappe vivante balaie et
+    // remplace l'anneau — une seule boucle par rangée ; le compte des actions
+    // passe dans la colonne de durée.
     expect(live[0]).not.toHaveClass('turn-working-shimmer');
-    expect(document.querySelector('.ui-activity-label.is-shimmering')).toBeNull();
-    expect(document.querySelector('.ui-activity-state .tool-run-ring')).toBeTruthy();
+    expect(document.querySelector('.ui-activity-label.is-shimmering')).toBeTruthy();
+    expect(document.querySelector('.ui-activity-state .tool-run-ring')).toBeNull();
+    expect(document.querySelector('.ui-activity-meta .activity-cluster-count')?.textContent).toBe('3');
   });
 
   it('étape active de deux outils : une seule ligne fusionnée, rangées au clic', () => {
@@ -174,8 +176,10 @@ describe('ActivityStep — ligne vivante fusionnée', () => {
     const line = document.querySelector('.activity-cluster.is-active .ui-activity') as HTMLElement;
     expect(line.querySelector('.activity-live-target')?.textContent).toBe('python scripts/verifier.py --dpi 300');
     // Le chrono part de l'appel, pas du tour commencé une minute plus tôt.
+    // Une seule action : pas de compte, le chrono seul.
     expect(line.querySelector('.ui-activity-meta')?.textContent).toBe('1 s');
-    expect(line.querySelector('.ui-activity-state .tool-run-ring')).toBeTruthy();
+    expect(line.querySelector('.ui-activity-label.is-shimmering')).toBeTruthy();
+    expect(line.querySelector('.ui-activity-state .tool-run-ring')).toBeNull();
     const tail = [...line.querySelectorAll('.activity-live-tail > div')].map((row) => row.textContent);
     expect(tail).toEqual(['cas b ... ok', 'cas c ... ok', 'cas d ... ok']);
     // Le chevron ferme la rangée, après la méta et l'état.
@@ -193,22 +197,22 @@ describe('ActivityStep — ligne vivante fusionnée', () => {
     expect(document.querySelector('.activity-live-tail')).toBeNull();
   });
 
-  it('fusionne « synthèse · statut » sur une ligne, chrono en méta', () => {
+  it('la phrase vivante d’abord, le compte en méta, puis la synthèse une fois posée', () => {
     const view = renderUi(<ActivityStep {...props} actions={[timed('a', 1200), timed('b', 800), timed('c', 1000)]}
       active liveLabel="Réflexion en cours…" liveSince={Date.now() - 3000} />);
     const line = document.querySelector('.activity-cluster.is-active .ui-activity') as HTMLElement;
     expect(line).toHaveClass('is-running');
     const label = line.querySelector('.ui-activity-label') as HTMLElement;
-    const summary = label.querySelector('.activity-cluster-summary') as HTMLElement;
-    expect(summary.textContent?.trim()).toBeTruthy();
-    expect(summary.textContent).not.toContain('Réflexion en cours');
-    expect(label.querySelector('.activity-cluster-sep')?.textContent).toContain('·');
+    // Variante B : la phrase vivante occupe seule le libellé, et balaie.
+    expect(label).toHaveClass('is-shimmering');
+    expect(label.querySelector('.activity-cluster-summary')).toBeNull();
     const status = label.querySelector('.active-turn-tail.activity-cluster-live [role=status]') as HTMLElement;
     expect(status.textContent).toBe('Réflexion en cours…');
-    // Aucun outil ne tourne : ni durée cumulée ni chrono du tour (celui-ci vit
-    // à côté du bouton Arrêter) ; l'anneau dit que l'étape travaille encore.
-    expect(line.querySelector('.ui-activity-meta')?.textContent).toBe('');
-    expect(line.querySelector('.ui-activity-state .tool-run-ring')).toBeTruthy();
+    expect(label.textContent).toBe('Réflexion en cours…');
+    // Aucun outil ne tourne : le compte seul, sans chrono (le temps du tour vit
+    // à côté du bouton Arrêter) ; pas d'anneau, le balayage le remplace.
+    expect(line.querySelector('.ui-activity-meta')?.textContent).toBe('3');
+    expect(line.querySelector('.ui-activity-state .tool-run-ring')).toBeNull();
 
     // Une fois l'étape posée, la MÊME ligne redevient une synthèse simple.
     view.rerender(<ActivityStep {...props} actions={[timed('a', 1200), timed('b', 800), timed('c', 1000)]} />);
@@ -216,7 +220,9 @@ describe('ActivityStep — ligne vivante fusionnée', () => {
     expect(line).toHaveClass('is-completed');
     expect(document.querySelectorAll('[role=status]')).toHaveLength(0);
     expect(line.querySelector('.ui-activity-meta')?.textContent).toBe('3 s');
-    expect(line.querySelector('.ui-activity-label')?.textContent).toBe(summary.textContent);
+    expect(line.querySelector('.ui-activity-label')).not.toHaveClass('is-shimmering');
+    expect(line.querySelector('.ui-activity-label')?.textContent).toMatch(/3/);
+    expect(line.querySelector('.ui-activity-label')?.textContent).not.toContain('Réflexion');
   });
 
   it('sépare la ligne vivante quand la dernière série n’est pas une grappe', () => {

@@ -172,30 +172,36 @@ export function mergeSettledStep(segments: StepSegment[]): StepSegment[] {
   return [merged, ...flats];
 }
 
-/** Libellé d'une grappe active : synthèse (si elle dit autre chose que le
- * statut) · statut vivant, avec la commande en cours en mono. Pas de
- * balayage : l'anneau de la colonne d'état dit déjà que ça tourne (une seule
- * boucle par rangée). */
-function clusterLiveLabel(summary: string | null, label: string, row: ReturnType<typeof clusterFacts>['liveRow']): ReactNode {
+/** Libellé d'une grappe active (variante B, Thierry 2026-11-01) : la phrase
+ * en cours d'abord, seule, avec la commande en mono s'il y en a une. Le
+ * balayage du libellé dit « ça tourne » et remplace l'anneau ; le compte des
+ * actions passe dans la colonne de durée. La synthèse revient une fois posée. */
+function clusterLiveLabel(label: string, row: ReturnType<typeof clusterFacts>['liveRow']): ReactNode {
   return (
-    <>
-      {summary != null && <span className="activity-cluster-summary">{summary}</span>}
-      {summary != null && <span className="activity-cluster-sep" aria-hidden="true"> · </span>}
-      <span className="active-turn-tail activity-cluster-live">
-        <span className="turn-quiet is-on activity-live-label" role="status" aria-live="polite">
-          {row?.code != null
-            ? <>{row.pre?.trim()}<code className="activity-live-target">{row.code}</code>{row.post}</>
-            : label}
-        </span>
+    <span className="active-turn-tail activity-cluster-live">
+      <span className="turn-quiet is-on activity-live-label" role="status" aria-live="polite">
+        {row?.code != null
+          ? <>{row.pre?.trim()}<code className="activity-live-target">{row.code}</code>{row.post}</>
+          : label}
       </span>
-    </>
+    </span>
   );
 }
 
-/** Colonne de durée d'une grappe : le chrono de l'appel en cours pendant le
- * travail, sinon l'horodatage fourni ou la durée cumulée. */
-function clusterMeta(facts: ReturnType<typeof clusterFacts>, live: boolean, stamp?: ReactNode): ReactNode {
-  if (live) return facts.runningOne ? <LiveClock since={toolStartedAt(facts.runningOne)} /> : undefined;
+/** Colonne de durée d'une grappe : pendant le travail, le compte des actions
+ * (dès deux) puis le chrono de l'appel en cours ; sinon l'horodatage fourni ou
+ * la durée cumulée. */
+function clusterMeta(facts: ReturnType<typeof clusterFacts>, count: number, live: boolean, stamp?: ReactNode): ReactNode {
+  if (live) {
+    const clock = facts.runningOne ? <LiveClock since={toolStartedAt(facts.runningOne)} /> : null;
+    if (count < 2) return clock ?? undefined;
+    return (
+      <>
+        <span className="activity-cluster-count" aria-label={`${count}`}>{count}</span>
+        {clock && <><span className="activity-cluster-sep" aria-hidden="true"> · </span>{clock}</>}
+      </>
+    );
+  }
   return stamp ?? (facts.totalMs > 0 ? fmtToolDur(facts.totalMs) : undefined);
 }
 
@@ -242,15 +248,10 @@ function ClusterLine(p: {
       open={p.open}
       onToggle={p.onToggle}
       status={facts.failed ? 'failed' : p.live ? 'running' : 'completed'}
-      shimmer={false}
+      shimmer={Boolean(p.live)}
       icon={summary.icon}
-      label={p.live
-        // Une seule action encore en cours : la synthèse décrirait la même
-        // chose au passé (« contexte compacté · Compacte le contexte ») — le
-        // statut vivant suffit (Thierry 2026-09-10).
-        ? clusterLiveLabel(facts.soloRunning ? null : shownLabel, p.live.label, facts.liveRow)
-        : shownLabel}
-      meta={clusterMeta(facts, Boolean(p.live), p.stamp)}
+      label={p.live ? clusterLiveLabel(p.live.label, facts.liveRow) : shownLabel}
+      meta={clusterMeta(facts, p.actions.length, Boolean(p.live), p.stamp)}
       aside={liveTail(facts.tail)}
     >
       {p.children}

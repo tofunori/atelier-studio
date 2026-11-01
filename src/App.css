@@ -1312,8 +1312,11 @@ button.kernel-file:hover { color: var(--text-primary); }
 .turn-activity-elapsed { flex: 0 0 auto; margin-left: auto; padding-left: 16px;
   color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Reflet de la ligne vivante : LA recette du balayage (celle des rangées,
-   label-sweep plus bas : tuile 90ch, pic --text-primary, 2,4 s). Il se fige
-   dès qu'un anneau d'action tourne dans le fil — jamais deux boucles. */
+   label-sweep plus bas : tuile 90ch, pic --text-primary, --sweep-period). Il
+   se fige dès qu'un anneau d'action tourne ou qu'une rangée balaie dans le
+   fil — jamais deux boucles. 1,6 s au lieu de 2,4 s : Thierry voulait une
+   lumière plus vive (2026-11-01). */
+:root { --sweep-period: 1.6s; }
 .turn-working-shimmer {
   color: transparent;
   -webkit-text-fill-color: transparent;
@@ -1326,11 +1329,11 @@ button.kernel-file:hover { color: var(--text-primary); }
   background-repeat: repeat-x;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: label-sweep 2.4s linear infinite;
+  animation: label-sweep var(--sweep-period) linear infinite;
 }
 .turn-tail-row.is-settled .turn-activity-glyph { color: var(--text-muted); }
 .turn-tail-row.is-settled .turn-working-shimmer,
-.messages:has(.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring) .turn-working-shimmer {
+.messages:has(.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring, .ui-activity-label.is-shimmering) .turn-working-shimmer {
   animation: none; background: none; color: var(--text-secondary); -webkit-text-fill-color: currentColor; }
 @media (prefers-reduced-motion: reduce) {
   .turn-working-shimmer { animation: none; background: none; color: var(--text-primary); -webkit-text-fill-color: currentColor; }
@@ -4358,7 +4361,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   background-repeat: repeat-x;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: label-sweep 2.4s linear infinite;
+  animation: label-sweep var(--sweep-period) linear infinite;
 }
 /* Une tuile exactement : la boucle est sans couture et la distance parcourue
    ne dépend plus de la largeur de l'élément, donc la vitesse non plus. */
@@ -6341,8 +6344,9 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .tool-output.is-compact .tool-output-head > .tool-tick { width: 12px; height: 12px; color: var(--text-disabled); }
 .tool-output.is-compact.failed .tool-duration, .tool-output.is-compact.failed .tool-status { color: var(--status-error); }
 .tool-output.is-compact:not(.is-done):not(.failed) .tool-status { color: var(--text-muted); }
-/* Anneau d'une action en cours : la seule boucle d'une rangée vivante (le
-   libellé ne balaie plus). 1 s par tour, coupé sous reduced-motion. */
+/* Anneau d'une action en cours : la seule boucle d'une rangée d'outil à plat.
+   La grappe vivante, elle, balaie son libellé et n'a pas d'anneau (variante
+   B, 2026-11-01). 1 s par tour, coupé sous reduced-motion. */
 .ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: ui-spin var(--motion-spin) linear infinite; }
 @media (prefers-reduced-motion: reduce) {
   .ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: none; }
@@ -6351,6 +6355,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
    dernières lignes de sortie (Codex seulement : Claude n'envoie la sortie
    qu'à la fin de la commande), alignées sur le texte, sans cadre. */
 .activity-live-label { color: var(--text-primary); }
+/* Compte des actions devant le chrono de la grappe vivante (variante B) :
+   même corps que le chrono, collé à lui. */
+.activity-cluster-count, .activity-cluster-count + .activity-cluster-sep { font-size: var(--fs-m); }
+.activity-cluster-sep + .turn-activity-elapsed { padding-left: 0; }
 .activity-live-target { margin-left: 8px; padding: 0; background: none; border-radius: 0;
   color: var(--text-muted); font-family: var(--code-font); font-size: var(--fs-m); }
 .activity-live-tail { margin: -4px 0 4px 23px; min-width: 0; color: var(--text-muted);

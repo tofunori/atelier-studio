@@ -314,10 +314,10 @@ describe("anatomie du tour — header d'activité", () => {
     // v2 : la série active porte « synthèse · statut vivant » sur une ligne.
     const ligne = document.querySelector(".timeline-virtual-row .activity-cluster .ui-activity") as HTMLElement;
     expect(ligne).toBeTruthy();
-    expect(ligne.querySelector(".activity-cluster-summary")?.textContent?.toLowerCase()).toContain("bayes_region_c.py");
-    // L'outil terminé n'est pas remis « en cours » : le reflet reste sur le
-    // seul statut vivant, jamais sur la synthèse ni sur la rangée.
-    expect(ligne.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    // Variante B : la phrase vivante seule porte le reflet ; la synthèse revient
+    // une fois l'étape posée, et l'outil terminé n'est pas remis « en cours ».
+    expect(ligne.querySelector(".activity-cluster-summary")).toBeNull();
+    expect(ligne.querySelector(".ui-activity-label.is-shimmering .activity-live-label")).toBeTruthy();
     fireEvent.click(ligne.querySelector(".ui-activity-trigger") as HTMLButtonElement);
     expect(document.querySelector(".activity-action-list .tool-output.failed")).toBeNull();
     expect(document.querySelector(".activity-action-list .is-shimmering")).toBeNull();
@@ -450,7 +450,9 @@ describe("anatomie du tour — header d'activité", () => {
       // à côté du bouton Arrêter) mais l'anneau de la colonne d'état.
       expect(row?.querySelector(".ui-activity-icon")).toBeTruthy();
       expect(row?.querySelector(".ui-activity-meta .turn-activity-elapsed")).toBeNull();
-      expect(row?.querySelector(".ui-activity-state .tool-run-ring")).toBeTruthy();
+      // Variante B : le libellé balaie à la place de l'anneau.
+      expect(row?.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
+      expect(row?.querySelector(".ui-activity-state .tool-run-ring")).toBeNull();
       expect(document.querySelector(".composer-turn-clock")?.textContent).toMatch(/\d+ s|\d+ min/);
     } finally { vi.useRealTimers(); }
   });
@@ -832,7 +834,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(etape.querySelector(".activity-action-list [data-activity-icon='read']")).toBeTruthy();
     const vivante = etape.querySelector(".ui-activity") as HTMLElement;
     expect(vivante.querySelector(".ui-activity-icon[data-activity-icon='command']")).toBeTruthy();
-    expect(vivante.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    expect(vivante.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
     fireEvent.click(vivante.querySelector(".ui-activity-trigger") as HTMLButtonElement);
     const command = vivante.querySelector(".activity-action-list [data-activity-icon='command']")?.closest(".tool-output");
     expect(command?.querySelector(".tool-output-name")?.textContent).toContain("Commande exécutée");
