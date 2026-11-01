@@ -220,18 +220,48 @@ public struct AtelierRootView: View {
                 }
         }
     }
-    /// Composer and tabs float in glass over the content; the tabs step aside while typing.
+    /// Composer and tabs float in glass over the content. In the iPhone chat the
+    /// tabs fold into one round button beside the composer (as iOS 26 tab bars
+    /// do), unfold on a tap or when scrolling back through the conversation,
+    /// and step aside while typing.
     private var bottomCommandPanel: some View {
         GlassEffectContainer(spacing: 10) {
             VStack(spacing: 10) {
-                if sizeClass != .regular, workspace.surface == .chat, workspace.chat.selected != nil {
-                    NativeComposerView(workspace: workspace, composing: $composing, embedded: true)
+                if showsPhoneComposer {
+                    HStack(alignment: .bottom, spacing: 10) {
+                        if !composing && !showsSurfaceTabs { foldedSurfaceButton.transition(.opacity) }
+                        NativeComposerView(workspace: workspace, composing: $composing, embedded: true)
+                    }
                 }
-                if sizeClass == .regular || !composing { workSurfaceSwitcher }
+                if showsSurfaceTabs { workSurfaceSwitcher.transition(.opacity) }
             }
         }
         .padding(.horizontal, 16).padding(.bottom, 4)
         .animation(systemReduceMotion || motion == "off" ? nil : .smooth(duration: 0.15), value: composing)
+        .animation(systemReduceMotion || motion == "off" ? nil : .smooth(duration: 0.15), value: workspace.chatTabsExpanded)
+        .onChange(of: workspace.surface) { _, _ in workspace.chatTabsExpanded = false }
+    }
+    private var showsPhoneComposer: Bool {
+        sizeClass != .regular && workspace.surface == .chat && workspace.chat.selected != nil
+    }
+    private var showsSurfaceTabs: Bool {
+        sizeClass == .regular || (!composing && (!showsPhoneComposer || workspace.chatTabsExpanded))
+    }
+    /// The folded tab bar: the active section, which unfolds the five sections.
+    private var foldedSurfaceButton: some View {
+        Button { workspace.chatTabsExpanded = true } label: {
+            WorkSurfaceGlyph(kind: .chat)
+                .frame(width: 22, height: 22)
+                .foregroundStyle(AtelierTheme.accent)
+                .frame(width: 52, height: 52)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .atelierGlass(in: Circle(), interactive: true)
+        .accessibilityLabel("Sections")
+        .accessibilityValue("Conversation")
+        .accessibilityHint("Affiche Chat, Fichier, Galerie, Articles et Calculs")
+        .accessibilityIdentifier("surface-tabs")
     }
     private var workSurfaceSwitcher: some View {
         HStack(spacing: 0) {
@@ -248,6 +278,7 @@ public struct AtelierRootView: View {
         let selected = workspace.selectedWorkSurface == target
         return Button {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            workspace.chatTabsExpanded = false
             workspace.switchWorkSurface(target)
         } label: {
             VStack(spacing: 3) {

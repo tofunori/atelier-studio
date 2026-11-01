@@ -82,6 +82,9 @@ struct NativeChatView: View {
                            onRest: { id, offset, height, rowOffset, bottom in
                                if bottom { followsResponse = true }
                                chat.rememberPosition(rowID: id, followsTail: followsResponse, offsetY: offset, contentHeight: height, rowOffsetY: rowOffset)
+                           }, onScrollDirection: { up in
+                               // Scrolling back through the conversation unfolds the section tabs; reading down folds them.
+                               if workspace.chatTabsExpanded != up { workspace.chatTabsExpanded = up }
                            })
                 .onChange(of: chat.selected?.id, initial: true) { _, _ in
                     followsResponse = chat.selected.flatMap { chat.bookmarks[$0.id]?.followsTail } ?? true
@@ -108,6 +111,7 @@ struct NativeChatView: View {
         }
     }
     private func returnToBottom() {
+        workspace.chatTabsExpanded = false
         followsResponse = true; returnRequest = UUID()
         workspace.chat.rememberPosition(rowID: nil, followsTail: true)
     }

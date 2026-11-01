@@ -14,6 +14,8 @@ struct NativeChatList: UIViewRepresentable {
     var onUserScroll: () -> Void
     var onBottomChanged: (Bool) -> Void
     var onRest: (String?, Double, Double, Double, Bool) -> Void
+    /// Reports the direction of a finger scroll once it has moved far enough: `true` toward older messages.
+    var onScrollDirection: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     func makeUIView(context: Context) -> UITableView {
@@ -58,6 +60,9 @@ struct NativeChatList: UIViewRepresentable {
         private var userOwnsScroll = false
         private var reportedBottom: Bool?
         private var lastIDs: [String] = []
+        private var userScrolling = false
+        private var directionAnchor: CGFloat = 0
+        private var reportedDirection: Bool?
         private var generation = 0
         private var measurementGeneration = 0
         init(parent: NativeChatList) { self.parent = parent }
@@ -187,7 +192,23 @@ struct NativeChatList: UIViewRepresentable {
                 self.parent.onBottomChanged(value)
             }
         }
-        func scrollViewDidScroll(_ scrollView: UIScrollView) { trace("scroll"); reportBottom() }
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            trace("scroll"); reportBottom()
+            guard userScrolling else { return }
+            let delta = scrollView.contentOffset.y - directionAnchor
+            guard abs(delta) >= 24 else { return }
+            directionAnchor = scrollView.contentOffset.y
+            let up = delta < 0
+            if reportedDirection != up { reportedDirection = up; parent.onScrollDirection(up) }
+        }
+        /// The floating bottom panel changes height (tabs unfolding, keyboard
+        /// closing after a send): a conversation pinned to its end stays there
+        /// instead of sliding under the composer.
+        func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
+            trace("inset")
+            guard restored, !userScrolling, (!userOwnsScroll && parent.followsTail) || reportedBottom == true else { return }
+            scrollToBottom(animated: false)
+        }
         private func trace(_ event: String) {
             #if targetEnvironment(simulator)
             if ProcessInfo.processInfo.arguments.contains("--scroll-trace"), let table {
@@ -196,6 +217,7 @@ struct NativeChatList: UIViewRepresentable {
             #endif
         }
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            userScrolling = true; directionAnchor = scrollView.contentOffset.y; reportedDirection = nil
             userOwnsScroll = true; animating = false; pendingBookmark = nil
             followTask?.cancel(); followTask = nil
             parent.onUserScroll()
@@ -205,6 +227,7 @@ struct NativeChatList: UIViewRepresentable {
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { rest() }
         func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { animating = false; rest(); scheduleFollow() }
         private func rest() {
+            userScrolling = false
             guard let table else { return }
             let bottom = isAtBottom(table)
             trace("rest")
