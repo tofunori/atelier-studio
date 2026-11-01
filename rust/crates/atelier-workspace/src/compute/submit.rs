@@ -587,11 +587,29 @@ pub fn poll(
                 return Err(invalid(host, "identifiant de tâche invalide"));
             }
             let path = cfg.runs_dir.join(&launched.remote_id).join("run.json");
-            let Ok(raw) = std::fs::read_to_string(&path) else {
+            let read = || {
+                let raw = std::fs::read_to_string(&path).ok()?;
+                let alive = parse_manifest(&raw).and_then(|m| m.pid).map(pid_alive);
+                Some((raw, alive))
+            };
+            let Some((mut raw, mut alive)) = read() else {
                 // atelier-run n'a pas encore écrit son manifeste
                 return Ok(JobStatus { state: RunState::Queued, exit_code: None, detail: None });
             };
-            let alive = parse_manifest(&raw).and_then(|m| m.pid).map(pid_alive);
+            // L'enfant qui vient de finir n'est plus visible (macOS ne voit pas
+            // les zombies) avant qu'atelier-run écrive l'état final : on relit
+            // un court instant avant de conclure à un processus disparu.
+            for _ in 0..10 {
+                let live = parse_manifest(&raw).is_some_and(|m| RunState::parse(&m.state).is_live());
+                if !(live && alive == Some(false)) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+                match read() {
+                    Some(next) => (raw, alive) = next,
+                    None => break,
+                }
+            }
             status_from_manifest(&raw, alive)
                 .ok_or_else(|| HostError::new(host.as_str(), "command_failed", "manifeste illisible"))
         }
@@ -898,6 +916,29 @@ mod tests {
         assert!(submit(&cfg(&runs_dir), &spec, "00aa11bb22cd", &exec, &narval).is_err());
         assert!(!runs_dir.join("00aa11bb22cd").exists());
         assert!(submit(&cfg(&runs_dir), &spec, "../evil", &exec, &narval).is_err());
+    }
+
+    #[test]
+    fn la_sonde_attend_l_etat_final_quand_l_enfant_vient_de_finir() {
+        // L'enfant est déjà parti mais atelier-run n'a pas encore écrit l'état
+        // final : la sonde ne doit pas conclure à un processus disparu.
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = cfg(dir.path());
+        let run = dir.path().join("00aa11bb22cc");
+        std::fs::create_dir_all(&run).unwrap();
+        let manifest = run.join("run.json");
+        std::fs::write(&manifest, r#"{"version":1,"id":"00aa11bb22cc","state":"running","pid":999999,"exit_code":null}"#).unwrap();
+        let writer = std::thread::spawn({
+            let manifest = manifest.clone();
+            move || {
+                std::thread::sleep(Duration::from_millis(120));
+                std::fs::write(&manifest, r#"{"version":1,"id":"00aa11bb22cc","state":"failed","pid":999999,"exit_code":4}"#).unwrap();
+            }
+        });
+        let mac = Launched { run_id: "local:00aa11bb22cc".into(), remote_id: "00aa11bb22cc".into(), log_path: None };
+        let status = poll(&cfg, Target::Mac, &mac, &FakeExec::new(), &narval).unwrap();
+        writer.join().unwrap();
+        assert_eq!((status.state, status.exit_code, status.detail), (RunState::Failed, Some(4), None));
     }
 
     #[test]
