@@ -44,6 +44,7 @@ import {
   findWorkspacePane,
   listWorkspacePanes,
   loadWorkspaceLayout,
+  moveWorkspaceTab,
   placeWorkspaceTab,
   reconcileWorkspaceLayout,
   resizeWorkspaceSplit,
@@ -82,7 +83,17 @@ const NOOP_SURFACE_CHANGE = (_surface: Surface) => {};
 
 type PaneBounds = { left: number; top: number; width: number; height: number };
 type DropTarget = { paneId: string; zone: WorkspaceDropZone; preview: PaneBounds };
-type DragState = { ref: WorkspaceTabRef; clientX: number; clientY: number; target: DropTarget | null } | null;
+/** Place d'insertion dans la bande d'onglets de la barre du haut : avant ou
+ *  après l'onglet `anchorTabId`. `x`, `top`, `height` (repère de la fenêtre)
+ *  placent le trait d'insertion. */
+type TabSlot = { anchorTabId: string; position: "before" | "after"; x: number; top: number; height: number };
+type DragState = {
+  ref: WorkspaceTabRef;
+  clientX: number;
+  clientY: number;
+  target: DropTarget | null;
+  slot: TabSlot | null;
+} | null;
 type PointerDragSession = {
   ref: WorkspaceTabRef;
   pointerId: number;
@@ -92,7 +103,43 @@ type PointerDragSession = {
   clientY: number;
   active: boolean;
   target: DropTarget | null;
+  /** au-dessus de la bande d'onglets : le dépôt réordonne au lieu de scinder */
+  inStrip: boolean;
+  slot: TabSlot | null;
 };
+
+/** Onglet survolé dans la bande de la barre du haut (`TopBarTabs`) : la
+ *  moitié gauche d'un onglet insère avant lui, la droite après. `"strip"`
+ *  quand le pointeur est sur la bande sans place utile (sur l'onglet tiré
+ *  lui-même) ; `null` hors de la bande. Seuls les documents et les fils
+ *  d'agent y figurent : une surface tirée ne s'y range pas. */
+function findTabSlot(ref: WorkspaceTabRef, clientX: number, clientY: number): TabSlot | "strip" | null {
+  if (ref.kind !== "document" && ref.kind !== "agent") return null;
+  const strip = document.querySelector<HTMLElement>(".topbar-tabs");
+  if (!strip) return null;
+  const bounds = strip.getBoundingClientRect();
+  if (clientX < bounds.left || clientX > bounds.right || clientY < bounds.top - 4 || clientY > bounds.bottom + 4) return null;
+  const draggedId = workspaceTabId(ref);
+  const tabs = [...strip.querySelectorAll<HTMLElement>(".topbar-tab[data-tab-id]")]
+    .map((element) => ({ id: element.dataset.tabId!, rect: element.getBoundingClientRect() }))
+    .filter(({ rect }) => rect.width > 0 && rect.right <= bounds.right + 1);
+  if (!tabs.length) return "strip";
+  const index = tabs.findIndex(({ rect }) => clientX < rect.left + rect.width / 2);
+  const before = index >= 0;
+  const anchor = before ? tabs[index] : tabs[tabs.length - 1];
+  // déposer contre soi-même, ou juste à côté de sa place actuelle, ne
+  // déplace rien : pas de trait trompeur
+  const neighbour = before ? tabs[index - 1] : null;
+  if (anchor.id === draggedId || neighbour?.id === draggedId) return "strip";
+  const gap = before && neighbour ? (anchor.rect.left - neighbour.rect.right) / 2 : 0;
+  return {
+    anchorTabId: anchor.id,
+    position: before ? "before" : "after",
+    x: before ? anchor.rect.left - gap : anchor.rect.right,
+    top: anchor.rect.top,
+    height: anchor.rect.height,
+  };
+}
 
 /** Retrouve le chemin projet du fichier d'un onglet (inverse d'openFileTab). */
 export function relFromTabUrl(url: string, projectRoot: string, baseUrl?: string): string | null {
@@ -550,15 +597,28 @@ export default function AtelierPane({
         clientY: detail.clientY,
         active: false,
         target: null,
+        inStrip: false,
+        slot: null,
       };
+    };
+    const locate = (session: PointerDragSession, clientX: number, clientY: number) => {
+      const slot = findTabSlot(session.ref, clientX, clientY);
+      session.inStrip = slot !== null;
+      session.slot = slot && slot !== "strip" ? slot : null;
+      session.target = slot ? null : findDropTarget(clientX, clientY);
     };
     const renderPointerFrame = () => {
       pointerFrameRef.current = null;
       const session = pointerDragRef.current;
       if (!session?.active) return;
-      const target = findDropTarget(session.clientX, session.clientY);
-      session.target = target;
-      setDragState({ ref: session.ref, clientX: session.clientX, clientY: session.clientY, target });
+      locate(session, session.clientX, session.clientY);
+      setDragState({
+        ref: session.ref,
+        clientX: session.clientX,
+        clientY: session.clientY,
+        target: session.target,
+        slot: session.slot,
+      });
     };
     const onMove = (event: PointerEvent) => {
       const session = pointerDragRef.current;
@@ -580,9 +640,12 @@ export default function AtelierPane({
       if (pointerFrameRef.current !== null) {
         cancelAnimationFrame(pointerFrameRef.current);
         pointerFrameRef.current = null;
-        session.target = findDropTarget(event.clientX, event.clientY);
+        locate(session, event.clientX, event.clientY);
       }
-      if (session.active && session.target) {
+      if (session.active && session.slot) {
+        const { ref, slot } = session;
+        updateWorkspaceWithFlip((current) => moveWorkspaceTab(current, ref, slot.anchorTabId, slot.position));
+      } else if (session.active && session.target) {
         const { ref, target } = session;
         updateWorkspaceWithFlip((current) => placeWorkspaceTab(current, ref, target.paneId, target.zone));
       }
@@ -1338,6 +1401,17 @@ export default function AtelierPane({
               >
                 {tabTitle(dragState.ref)}
               </div>
+              {dragState.slot && createPortal(
+                <div
+                  className="workspace-tab-insert"
+                  aria-hidden="true"
+                  style={{
+                    transform: `translate3d(${dragState.slot.x - 1}px, ${dragState.slot.top + 4}px, 0)`,
+                    height: Math.max(0, dragState.slot.height - 8),
+                  }}
+                />,
+                document.body,
+              )}
             </div>
           )}
         </div>
