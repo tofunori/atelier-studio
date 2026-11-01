@@ -1,129 +1,22 @@
-// Surfaces dans la barre du haut (plan 055) — TOUTES au même endroit.
-// Avant, Git/Navigateur/Terminal vivaient ici et IDE/Galerie/Connaissances/
-// Narval dans le rail : une frontière que rien ne justifiait. Le rail est
-// vertical et croissant (les projets), la barre est horizontale et fixe (les
-// surfaces) — chacun son contenu.
+// Surfaces dans la barre du haut (plan 055, compacté 2026-11-01) : la
+// galerie garde son bouton, toujours visible ; toutes les autres surfaces et
+// outils passent dans UN lanceur dont la pastille porte le nom de la surface
+// ouverte (« Surfaces » sur la galerie). Avant, six icônes épinglées et un
+// menu de personnalisation prenaient ~170 px de barre (demande Thierry,
+// variante B avec bouton Galerie).
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 import { SURFACES, type Surface } from "./surfaces";
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuGroup, ContextMenuLabel, ContextMenuItem, ContextMenuCheckboxItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent } from "./shadcn/context-menu";
 import { Tooltip } from "./ui/Tooltip";
+import { Button } from "./ui/Button";
 import { IconButton } from "./ui/IconButton";
+import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 
 /** Cible de la barre : une surface de l'atelier, l'IDE, ou l'explorateur. */
 export type TargetId = Surface | "ide" | "explorer" | "annots";
 
-const PIN_KEY = "atelier-studio.topbar-surfaces";
-/** Plafond large : c'est la fenêtre qui décide vraiment (règle CSS de repli),
- *  pas un quota arbitraire. Dix laisse la place au crumb et aux contrôles. */
-export const MAX_PINNED = 12;
-/** Trois épinglées par défaut (lot 068). La largeur de la barre appartient
- *  désormais aux onglets du pane, et une surface OUVERTE apparaît déjà comme
- *  onglet à quelques pixels de sa propre icône : les épingles ne sont qu'un
- *  lanceur, pas un indicateur d'état. Le menu donne accès à toutes, et
- *  ré-épingler reste un clic. */
-export const DEFAULT_PINNED: TargetId[] = ["explorer", "ide", "connaissances", "annots"];
-/** Migration une-fois vers le lanceur court : les listes persistées d'avant le
- *  lot 068 en comptent sept, qui reprendraient la largeur rendue aux onglets.
- *  On garde les trois PREMIÈRES de SA liste — donc son ordre à lui — une seule
- *  fois ; s'il en ré-épingle ensuite, on n'y touche plus jamais. */
-const TRIM_MIGRATION_KEY = "atelier-studio.topbar-surfaces.trim-v1";
-/** Migration une-fois : les listes épinglées persistées d'avant la surface
- * Preuves ne la contiennent pas — sans ça, les passages épinglés sont
- * introuvables (vécu : Thierry les cherchait dans Connaissances). On insère
- * après Connaissances UNE seule fois ; s'il la retire ensuite, on respecte. */
-const PREUVES_MIGRATION_KEY = "atelier-studio.topbar-surfaces.preuves-v1";
-/** Migration une-fois : le panneau Annotations (jumeau large de l'Explorateur,
- * demande explicite 2026-08-17) s'épingle après Connaissances. Retiré ensuite
- * par l'utilisateur = respecté. */
-const ANNOTS_MIGRATION_KEY = "atelier-studio.topbar-surfaces.annots-v1";
-/** Migration une-fois : la surface Noyau Python (chantier 5) s'épingle en fin
- * de barre, à côté des autres surfaces. Retirée ensuite = respecté. */
-const NOYAU_MIGRATION_KEY = "atelier-studio.topbar-surfaces.noyau-v1";
-/** Migration une-fois : la surface Documents (traitement de texte .docx,
- * demande de Thierry 2026-10-19) s'épingle en fin de barre. Retirée = respecté. */
-const DOCUMENTS_MIGRATION_KEY = "atelier-studio.topbar-surfaces.documents-v1";
-
-export function readPinned(): TargetId[] {
-  try {
-    const raw = localStorage.getItem(PIN_KEY);
-    if (!raw) {
-      // Installation neuve : elle n'a AUCUN passé à migrer, donc les deux
-      // drapeaux se posent tout de suite. Sans ça, la première liste que
-      // l'utilisateur se construit (épingler une quatrième surface) serait
-      // tronquée au remontage suivant par trim-v1, et se verrait ajouter
-      // Preuves par preuves-v1 — deux surprises qu'il lirait comme des bugs.
-      // Ce second cas est apparu avec le lot 068 : Preuves ne fait plus partie
-      // du défaut, donc sa migration retrouvait de quoi mordre.
-      try {
-        localStorage.setItem(TRIM_MIGRATION_KEY, "1");
-        localStorage.setItem(PREUVES_MIGRATION_KEY, "1");
-        localStorage.setItem(ANNOTS_MIGRATION_KEY, "1");
-        localStorage.setItem(NOYAU_MIGRATION_KEY, "1");
-        localStorage.setItem(DOCUMENTS_MIGRATION_KEY, "1");
-      } catch { /* stockage indisponible */ }
-      return DEFAULT_PINNED;
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return DEFAULT_PINNED;
-    if (parsed.length === 0) return [];
-    const list = parsed
-      .filter((id): id is string => typeof id === "string")
-      // surface renommée 2026-09-06 : une épingle persistée « narval » suit
-      .map((id): TargetId => (id === "narval" ? "calculs" : id) as TargetId)
-      .slice(0, MAX_PINNED);
-    if (!list.includes("preuves") && !localStorage.getItem(PREUVES_MIGRATION_KEY)) {
-      localStorage.setItem(PREUVES_MIGRATION_KEY, "1");
-      if (list.length < MAX_PINNED) {
-        const at = list.indexOf("connaissances");
-        list.splice(at >= 0 ? at + 1 : list.length, 0, "preuves");
-        localStorage.setItem(PIN_KEY, JSON.stringify(list));
-      }
-    }
-    if (!list.includes("annots") && !localStorage.getItem(ANNOTS_MIGRATION_KEY)) {
-      localStorage.setItem(ANNOTS_MIGRATION_KEY, "1");
-      if (list.length < MAX_PINNED) {
-        const at = list.indexOf("connaissances");
-        list.splice(at >= 0 ? at + 1 : list.length, 0, "annots");
-        localStorage.setItem(PIN_KEY, JSON.stringify(list));
-      }
-    }
-    if (!localStorage.getItem(TRIM_MIGRATION_KEY)) {
-      localStorage.setItem(TRIM_MIGRATION_KEY, "1");
-      if (list.length > DEFAULT_PINNED.length) {
-        const trimmed = list.slice(0, DEFAULT_PINNED.length);
-        localStorage.setItem(PIN_KEY, JSON.stringify(trimmed));
-        return trimmed;
-      }
-    }
-    if (!list.includes("noyau") && !localStorage.getItem(NOYAU_MIGRATION_KEY)) {
-      localStorage.setItem(NOYAU_MIGRATION_KEY, "1");
-      if (list.length < MAX_PINNED) {
-        list.push("noyau");
-        localStorage.setItem(PIN_KEY, JSON.stringify(list));
-      }
-    }
-    if (!list.includes("documents") && !localStorage.getItem(DOCUMENTS_MIGRATION_KEY)) {
-      localStorage.setItem(DOCUMENTS_MIGRATION_KEY, "1");
-      if (list.length < MAX_PINNED) {
-        list.push("documents");
-        localStorage.setItem(PIN_KEY, JSON.stringify(list));
-      }
-    }
-    return list;
-  } catch {
-    return DEFAULT_PINNED;
-  }
-}
-
-function writePinned(ids: TargetId[]) {
-  try {
-    localStorage.setItem(PIN_KEY, JSON.stringify(ids));
-  } catch { /* stockage indisponible : le choix ne survivra pas à la session */ }
-}
-
-/** Le glisser-déposer vers un pane, identique à celui du rail. */
+/** Le glisser-déposer de la galerie vers un pane, identique à celui du rail. */
 function dragProps(surface: Surface) {
   return {
     onClickCapture: (event: React.MouseEvent<HTMLSpanElement>) => {
@@ -211,95 +104,44 @@ export function buildTargets(p: {
   ];
 }
 
-export default function TopBarSurfaces(p: {
-  activeSurface: Surface;
-  showAtelier: boolean;
-  ideActive: boolean;
-  showExplorer: boolean;
-  onSelectSurface: (surface: Surface) => void;
-  onSelectIde: () => void;
-  onToggleExplorer: () => void;
-  onToggleAnnots: () => void;
-}) {
-  const [pinned, setPinned] = useState<TargetId[]>(readPinned);
+/** Les outils (bascules et IDE) suivent les surfaces dans le menu. */
+const TOOL_IDS: TargetId[] = ["explorer", "ide", "annots"];
 
-  const [customizing, setCustomizing] = useState(true);
+export default function TopBarSurfaces(p: Parameters<typeof buildTargets>[0]) {
+  const [open, setOpen] = useState(false);
   const targets = buildTargets(p);
-  const byId = new Map(targets.map((target) => [target.id, target]));
-  const visible = pinned.map((id) => byId.get(id)).filter((x): x is TopBarTarget => Boolean(x));
-
-  function togglePin(id: TargetId) {
-    setPinned((current) => {
-      const next = current.includes(id)
-        ? current.filter((x) => x !== id)
-        : [...current, id].slice(-MAX_PINNED);
-      writePinned(next);
-      return next;
-    });
-  }
-
-  // Réorganisation par le menu et pas par glisser-déposer : le glissé d'une
-  // icône de surface est DÉJÀ pris — il la dépose dans un pane du workspace.
-  function movePinned(id: TargetId, delta: -1 | 1) {
-    setPinned((current) => {
-      const from = current.indexOf(id);
-      const to = from + delta;
-      if (from < 0 || to < 0 || to >= current.length) return current;
-      const next = [...current];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      writePinned(next);
-      return next;
-    });
-  }
-
-  const button = (target: TopBarTarget) => {
-    const node = (
-      <Tooltip label={target.label} placement="bottom">
-      <IconButton
-        label={target.label}
-        aria-pressed={target.active}
-        className={`ghost topbar-qa topbar-surface ${target.active ? "on" : ""}`}
-        onClick={target.onSelect}
-      >
-        {target.icon}
-      </IconButton>
+  const gallery = targets.find((target) => target.id === "atelier")!;
+  // la pastille nomme ce qui occupe l'atelier, sauf la galerie (son bouton
+  // suffit) ; l'IDE recouvre la galerie, il se nomme donc aussi
+  const current = targets.find((target) => target.active && target.surface && target.id !== "atelier")
+    ?? (p.showAtelier && p.ideActive ? targets.find((target) => target.id === "ide") : undefined);
+  const item = (target: (typeof targets)[number]) => ({
+    key: target.id,
+    label: <><span className="topbar-menu-icon">{target.icon}</span>{target.label}</>,
+    checked: target.active, keepOpen: false,
+    onSelect: target.onSelect,
+  });
+  const rest = targets.filter((target) => target.id !== "atelier");
+  return <span className="topbar-surfaces" role="toolbar" aria-label={t("topbar.surfaces")}>
+    <span className="topbar-target topbar-surface-drag" data-active={gallery.active} {...dragProps("atelier")}>
+      <Tooltip label={gallery.label} placement="bottom">
+        <IconButton label={gallery.label} aria-pressed={gallery.active}
+          className={`ghost topbar-qa topbar-surface ${gallery.active ? "on" : ""}`} onClick={gallery.onSelect}>
+          {gallery.icon}
+        </IconButton>
       </Tooltip>
-    );
-    return (
-      <span key={target.id} data-active={target.active}
-        className={`topbar-target ${target.surface ? "topbar-surface-drag" : ""}`}
-        {...(target.surface ? dragProps(target.surface) : {})}>
-        {node}
-      </span>
-    );
-  };
-
-  return <ContextMenu onOpenChange={(open) => { if (open) setCustomizing(true); }}>
-    <ContextMenuTrigger render={<span className="topbar-surfaces" role="toolbar" tabIndex={0} aria-label={t("topbar.surfaces")} onKeyDown={(event) => {
-      if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
-      event.preventDefault();
-      const rect = event.currentTarget.getBoundingClientRect();
-      event.currentTarget.dispatchEvent(new MouseEvent("contextmenu", {bubbles:true, clientX:rect.left, clientY:rect.bottom}));
-    }} />}>
-      {visible.map(button)}
-    </ContextMenuTrigger>
-    <ContextMenuContent>
-      <ContextMenuGroup>
-        <ContextMenuLabel>{t(customizing ? "topbar.show-in-center" : "topbar.surfaces")}</ContextMenuLabel>
-        <ContextMenuItem closeOnClick={false} onClick={() => setCustomizing(!customizing)}>{t(customizing ? "topbar.back-surfaces" : "topbar.customize")}</ContextMenuItem>
-        <ContextMenuSeparator />
-        {targets.map(target => customizing ? <ContextMenuCheckboxItem key={target.id} checked={pinned.includes(target.id)} closeOnClick={false} onCheckedChange={() => togglePin(target.id)}>
-          <span className="topbar-menu-icon">{target.icon}</span>{target.label}
-        </ContextMenuCheckboxItem> : <ContextMenuItem key={target.id} onClick={target.onSelect}>{target.icon}{target.label}</ContextMenuItem>)}
-        {customizing && visible.length > 1 && <ContextMenuSub>
-          <ContextMenuSubTrigger>{t("topbar.reorder")}</ContextMenuSubTrigger>
-          <ContextMenuSubContent><ContextMenuGroup>{visible.flatMap((target,index) => [
-            <ContextMenuItem key={`${target.id}-left`} disabled={index === 0} onClick={() => movePinned(target.id,-1)}>{target.label} — {t("topbar.move-up")}</ContextMenuItem>,
-            <ContextMenuItem key={`${target.id}-right`} disabled={index === visible.length-1} onClick={() => movePinned(target.id,1)}>{target.label} — {t("topbar.move-down")}</ContextMenuItem>,
-          ])}</ContextMenuGroup></ContextMenuSubContent>
-        </ContextMenuSub>}
-      </ContextMenuGroup>
-    </ContextMenuContent>
-  </ContextMenu>;
+    </span>
+    <LazyDropdownMenu open={open} onOpenChange={setOpen} align="center" label={t("topbar.surfaces")} header={t("topbar.surfaces")}
+      trigger={<Button variant="ghost" size="sm" className="topbar-launcher" data-current={current ? "" : undefined}
+        aria-label={current ? `${t("topbar.surfaces")} : ${current.label}` : t("topbar.surfaces")}
+        aria-haspopup="menu" aria-expanded={open}>
+        {current?.icon}{/* nom court : « IDE — éditeurs et fichiers ouverts » → « IDE » */}
+        <span className="topbar-launcher-name">{current?.label.split(" — ")[0] ?? t("topbar.surfaces")}</span>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 6.2 8 9.7l3.5-3.5" /></svg>
+      </Button>}
+      groups={[
+        { key: "surfaces", items: rest.filter((target) => !TOOL_IDS.includes(target.id)).map(item) },
+        { key: "tools", separatorBefore: true, items: rest.filter((target) => TOOL_IDS.includes(target.id)).map(item) },
+      ]} />
+  </span>;
 }
