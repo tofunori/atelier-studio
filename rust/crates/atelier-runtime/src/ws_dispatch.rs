@@ -80,6 +80,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "gitDiff"
         | "zoteroSearch"
         | "zoteroDigest"
+        | "fileCards"
         | "generateCommitMsg"
         | "reformulerConsigne"
         | "importClaudeScience"

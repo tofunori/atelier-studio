@@ -55,6 +55,8 @@ const RELAYS: Record<string, Relay> = {
   ragdocResults: forward("kb-ragdoc-results"),
   // texte stocké d'une source de la base : le lecteur corrèle par id
   sourceText: forward("source-text"),
+  // cartes « article » des pièces jointes du chat (lib/chatFileCards)
+  fileCards: forward("file-cards"),
   // recherche du corpus NAS (plan 050 P3) — consommée par la surface
   // Connaissances ; l'échec voyage dans detail.error, en place
   gbrainResults: (msg) => ({
