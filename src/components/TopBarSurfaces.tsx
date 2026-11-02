@@ -8,6 +8,7 @@ import { useState } from "react";
 import { t } from "../lib/i18n";
 import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 import { SURFACES, type Surface } from "./surfaces";
+import { requestWorkspacePaneMenu } from "../lib/workspacePaneMenu";
 import { Tooltip } from "./ui/Tooltip";
 import { Button } from "./ui/Button";
 import { IconButton } from "./ui/IconButton";
@@ -123,7 +124,8 @@ export default function TopBarSurfaces(p: Parameters<typeof buildTargets>[0]) {
   });
   const rest = targets.filter((target) => target.id !== "atelier");
   return <span className="topbar-surfaces" role="toolbar" aria-label={t("topbar.surfaces")}>
-    <span className="topbar-target topbar-surface-drag" data-active={gallery.active} {...dragProps("atelier")}>
+    <span className="topbar-target topbar-surface-drag" data-active={gallery.active} {...dragProps("atelier")}
+      onContextMenu={gallery.active ? (event) => requestWorkspacePaneMenu(event, { surface: "atelier" }) : undefined}>
       <Tooltip label={gallery.label} placement="bottom">
         <IconButton label={gallery.label} aria-pressed={gallery.active}
           className={`ghost topbar-qa topbar-surface ${gallery.active ? "on" : ""}`} onClick={gallery.onSelect}>
@@ -134,7 +136,12 @@ export default function TopBarSurfaces(p: Parameters<typeof buildTargets>[0]) {
     <LazyDropdownMenu open={open} onOpenChange={setOpen} align="center" label={t("topbar.surfaces")} header={t("topbar.surfaces")}
       trigger={<Button variant="ghost" size="sm" className="topbar-launcher" data-current={current ? "" : undefined}
         aria-label={current ? `${t("topbar.surfaces")} : ${current.label}` : t("topbar.surfaces")}
-        aria-haspopup="menu" aria-expanded={open}>
+        aria-haspopup="menu" aria-expanded={open}
+        // clic droit sur la pastille = actions du pane de cette surface ; le
+        // navigateur garde son menu dans sa propre barre
+        onContextMenu={current?.surface && current.surface !== "browser"
+          ? (event: React.MouseEvent) => requestWorkspacePaneMenu(event, { surface: current.surface! })
+          : undefined}>
         {current?.icon}{/* nom court : « IDE — éditeurs et fichiers ouverts » → « IDE » */}
         <span className="topbar-launcher-name">{current?.label.split(" — ")[0] ?? t("topbar.surfaces")}</span>
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 6.2 8 9.7l3.5-3.5" /></svg>

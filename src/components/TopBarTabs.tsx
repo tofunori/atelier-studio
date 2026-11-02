@@ -7,6 +7,7 @@
 // et la croix de fermeture tient sans manger le libellé.
 //
 // Le rail garde ce qu'il sait porter : les vues, les projets, l'activité.
+import { requestWorkspacePaneMenu } from "../lib/workspacePaneMenu";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { t } from "../lib/i18n";
@@ -177,7 +178,13 @@ export default function TopBarTabs(p: {
         const label = tabLabel(tab.title);
         const on = tab.id === p.activeTab;
         return (
-          <span key={tab.id} className={`topbar-tab document-tab-shell ${on ? "on" : ""}`} data-active={on} data-tab-id={tab.id}>
+          <span key={tab.id} className={`topbar-tab document-tab-shell ${on ? "on" : ""}`} data-active={on} data-tab-id={tab.id}
+            // clic droit = actions de CE document (scinder, épingler, couleur,
+            // fermer le pane) ; l'icône isolée qui les portait est partie
+            onContextMenu={(event) => {
+              if (!on) p.onSelectTab(tab.id);
+              requestWorkspacePaneMenu(event, { id: tab.id });
+            }}>
             <RowButton
               className="topbar-tab-main"
               // le chemin complet, utile dès que l'ellipse mord. L'ancienne

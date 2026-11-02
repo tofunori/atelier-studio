@@ -80,8 +80,6 @@ final class WorkspaceModel {
     var sourceOffsets: [UUID: CGPoint] = [:]
     var revisionTarget: SourceRevisionTarget?
     var chatPickerRequested = false
-    /// iPhone chat: the section tabs unfolded beside the composer (folded by default).
-    var chatTabsExpanded = false
     var focusChatRequest = UUID()
     var importToChat = false
     var viewedArtifact: GalleryArtifact?

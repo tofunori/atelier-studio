@@ -111,8 +111,8 @@ struct NativeComposerView: View {
             }
         }
         .padding(.horizontal, expanded ? 10 : 8).padding(.vertical, expanded ? 10 : 4)
-        .atelierGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        // Embedded in the floating panel on iPhone; on iPad it carries its own margins.
+        .composerSurface(opaque: embedded)
+        // Embedded in the iPhone dock; on iPad it carries its own margins.
         .padding(.horizontal, embedded ? 0 : 12).padding(.top, embedded ? 0 : 8).padding(.bottom, embedded ? 0 : 8)
         .sheet(isPresented: $dictating) { NativeDictationSheet(workspace: workspace) }
         .sheet(isPresented: $choosingModel) { NativeModelSheet(chat: chat) }
@@ -169,16 +169,31 @@ struct NativeComposerView: View {
                 }
             }
         } label: {
+            // No white in buttons: a soft accent disc carrying an accent icon.
             ZStack {
-                Circle().fill(AtelierTheme.accent).frame(width: 34, height: 34)
-                if chat.sending { ProgressView().tint(Color(uiColor: .systemBackground)) }
-                else { Image(systemName: chat.running && !hasDraft ? "stop.fill" : "arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color(uiColor: .systemBackground)) }
+                Circle().fill(AtelierTheme.accent.opacity(0.16)).frame(width: 34, height: 34)
+                if chat.sending { ProgressView().tint(AtelierTheme.accent) }
+                else { Image(systemName: chat.running && !hasDraft ? "stop.fill" : "arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(AtelierTheme.accent) }
             }.frame(width: 44, height: 44)
         }.buttonStyle(.plain)
             .disabled(chat.sending || (!chat.running && !hasDraft))
             .accessibilityLabel(chat.running ? (hasDraft ? "Ajouter à la file d’attente" : "Arrêter la réponse") : "Envoyer au Mac")
     }
 
+}
+
+private extension View {
+    /// iPhone: an opaque raised field, so the conversation never reads through.
+    /// iPad: the floating glass it has always had.
+    @ViewBuilder func composerSurface(opaque: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        if opaque {
+            background(AtelierTheme.card, in: shape)
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        } else {
+            atelierGlass(in: shape)
+        }
+    }
 }
 
 private struct NativeModelSheet: View {

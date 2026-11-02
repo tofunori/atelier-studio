@@ -1998,9 +1998,14 @@ button.kernel-file:hover { color: var(--text-primary); }
 .changed-files-head { display: flex; align-items: center; gap: 12px;
   font-size: var(--fs-m); color: var(--text-secondary); }
 .changed-files-count { flex: 1; min-width: 0; }
-.changed-files-list { max-height: 150px; overflow-y: auto; margin-top: 4px; }
+/* La liste s'élargit de 4 px de chaque côté (marge négative + padding) : le
+   fond de survol des rangées, qui déborde de 4 px, reste DANS la liste. Sans
+   ça, ce débordement à droite suffisait à faire paraître une barre de
+   défilement horizontale sous la liste (Thierry, 2026-11-02). */
+.changed-files-list { max-height: 150px; overflow-x: hidden; overflow-y: auto;
+  margin: 4px -4px 0; padding: 0 4px; }
 /* Un diff ouvert ne se laisse pas écraser par le plafond de la liste. */
-.changed-files-list.is-expanded { max-height: none; overflow-y: visible; }
+.changed-files-list.is-expanded { max-height: none; overflow: visible; }
 .changed-files-item { min-width: 0; }
 .changed-files-diff { margin: 4px 0 8px; border-radius: var(--radius-surface);
   background: var(--surface-inset); overflow: hidden; }
@@ -3516,8 +3521,11 @@ body.dragging iframe { pointer-events: none; }
 .workspace-content-layer { position: absolute; min-width: 0; min-height: 0; overflow: hidden; pointer-events: auto; background: var(--bg); transform-origin: top left;
   container: pane / inline-size; }
 .workspace-pane-controls-slot { flex: 0 0 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; }
-.workspace-pane-menu-slot { display: inline-flex; align-items: center; flex: none; }
-.workspace-pane-menu-slot:empty { display: none; }
+/* Le slot ne montre plus rien : le menu du pane s'ouvre au clic droit sur un
+   onglet ou sur la surface (Thierry 2026-11-02), via une ancre dans <body>. */
+.workspace-pane-menu-slot { display: none; }
+.workspace-pane-controls[data-pane-controls="anchor"] { position: fixed; inset: 0 auto auto 0; width: 0; height: 0; overflow: visible; pointer-events: none; }
+.workspace-pane-controls .workspace-pane-menu-anchor { position: fixed; width: 1px; height: 1px; min-width: 0; min-height: 0; padding: 0; opacity: 0; pointer-events: none; }
 .workspace-pane-controls { display: inline-flex; align-items: center; color: var(--text-secondary); }
 .workspace-tab-content { position: absolute; inset: 0; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
 .workspace-tab-content > .ksurface,
