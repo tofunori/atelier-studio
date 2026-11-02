@@ -560,12 +560,14 @@ describe("Research Navigator — sections et déduplication", () => {
     expect(marker!.getAttribute("title")).toContain("Rendu des vignettes");
   });
 
-  it("rangée deux lignes : titre sur une ligne, méta fournisseur · heure dessous", () => {
+  it("rangée deux lignes : icône du fournisseur devant le titre, heure dessous", () => {
     const threads = [makeThread({ id: "m1", title: "Souligner passages importants", provider: "claude" })];
     renderUi(<Sidebar {...makeProps({ threads, activeId: "m1" })} />);
     const row = document.querySelector(".pnav-row")!;
+    expect(row.querySelector(".pnav-title-row > .prov-ico svg")).toBeTruthy();
     const meta = row.querySelector(".pnav-meta");
-    expect(meta?.textContent).toContain("Claude");
+    // le nom du fournisseur n'est pas répété en toutes lettres
+    expect(meta?.textContent).not.toContain("Claude");
     expect(meta?.querySelector(".row-time")).toBeTruthy();
     // plus de colonne d'heure à côté du titre : les actions sont superposées
     expect(row.querySelector(".pnav-row-end .row-time")).toBeNull();

@@ -3951,11 +3951,12 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .pnav-row.active .pnav-title-row .title { font-weight: 500; }
 .pnav-row:is(:hover, :focus-within, .menu-open, .family-preview) .pnav-title-row { padding-right: 48px; }
 .pnav-row.has-family:is(:hover, :focus-within, .menu-open, .family-preview) .pnav-title-row { padding-right: 72px; }
-/* méta : fournisseur · heure · branche · liées, en gris secondaire */
+/* méta : heure · branche · liées, en gris secondaire */
 .pnav-meta { display: flex; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap;
   font-size: var(--fs-s); line-height: 1.3; color: var(--text-muted); }
-.pnav-meta .prov-ico { margin-right: 4px; }
-.pnav-meta .prov-ico svg { width: 10px; height: 10px; }
+.pnav-title-row .prov-ico svg { width: 12px; height: 12px; }
+/* la méta s'aligne sur le texte du titre, pas sur l'icône (12 + 8) */
+.pnav-meta { padding-left: 20px; }
 .pnav-meta-item { display: inline-flex; align-items: center; gap: 2px; flex: none; }
 .pnav-meta-item + .pnav-meta-item::before { content: "\00b7"; margin: 0 4px; color: var(--text-muted); }
 .pnav-meta .row-time { margin-left: 0; }

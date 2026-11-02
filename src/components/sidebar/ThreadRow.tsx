@@ -162,17 +162,17 @@ export function ThreadRow(p: {
         >
           <span className="pnav-row-copy">
             <span className="pnav-title-row">
+              {/* Le sceau reste au rail ; la rangée garde l'icône du fournisseur (SHELL-10),
+                  devant le titre — le nom du fournisseur n'est pas répété. */}
+              <span className="prov-ico" aria-hidden="true" title={providerLabel(p.thread.provider)}>
+                <ProviderIcon provider={p.thread.provider} size={12} />
+              </span>
               <span className="title">
                 {p.unread && <span className="unread-dot" />}
                 {p.title}
               </span>
             </span>
             <span className="pnav-meta">
-              {/* Le sceau reste au rail ; la rangée garde l'icône du fournisseur (SHELL-10). */}
-              <span className="prov-ico" aria-hidden="true">
-                <ProviderIcon provider={p.thread.provider} size={10} />
-              </span>
-              <span className="pnav-meta-item">{providerLabel(p.thread.provider)}</span>
               <span className="pnav-meta-item">
                 {running ? (
                   <Spinner className="arc" size={10} label={status.label} />
