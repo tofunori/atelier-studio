@@ -29,6 +29,8 @@ struct ConversationProjectGroup: Identifiable {
 
 struct WorkspaceSidebar: View {
     @Bindable var workspace: WorkspaceModel
+    /// iPhone: the five sections head the menu, in place of a tab bar.
+    var showsSections = true
     var openSettings: () -> Void
     private var query: String { workspace.sidebarQuery }
     private var collapsed: Set<String> { workspace.sidebarCollapsed }
@@ -52,6 +54,7 @@ struct WorkspaceSidebar: View {
                     }
                 }
             }.padding(.horizontal, 12).padding(.top, 12)
+            if showsSections { sections }
             Text("Conversations").font(.title2.weight(.semibold)).kerning(-0.2)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 10)
             HStack(spacing: 8) {
@@ -111,6 +114,43 @@ struct WorkspaceSidebar: View {
                 catch { return }
             }
         }
+    }
+    private var sections: some View {
+        VStack(spacing: 2) {
+            sectionRow(.chat, glyph: .chat, title: "Chat")
+            sectionRow(.document, glyph: .document, title: "Fichier", detail: workingFileName)
+            sectionRow(.gallery, glyph: .gallery, title: "Galerie")
+            sectionRow(.articles, glyph: .book, title: "Articles")
+            sectionRow(.calculations, glyph: .calculations, title: "Calculs")
+        }
+        .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 8)
+        .overlay(alignment: .bottom) { Rectangle().fill(AtelierTheme.separator).frame(height: 1).padding(.horizontal, 20) }
+        .padding(.bottom, 4)
+    }
+    private var workingFileName: String? {
+        (workspace.documentOrigin == .gallery ? workspace.viewedArtifact?.name : nil) ?? workspace.lastDocuments[.gallery]?.artifact.name
+    }
+    private func sectionRow(_ target: WorkspaceModel.Surface, glyph: WorkSurfaceGlyph.Kind, title: String, detail: String? = nil) -> some View {
+        let selected = workspace.selectedWorkSurface == target
+        return Button {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            workspace.switchWorkSurface(target)
+        } label: {
+            HStack(spacing: 12) {
+                WorkSurfaceGlyph(kind: glyph).frame(width: 20, height: 20)
+                    .foregroundStyle(selected ? AtelierTheme.accent : AtelierTheme.secondaryText)
+                Text(title).font(.subheadline.weight(selected ? .medium : .regular))
+                    .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.85))
+                Spacer(minLength: 8)
+                if let detail { Text(detail).font(.caption).foregroundStyle(AtelierTheme.tertiaryText).lineLimit(1).truncationMode(.middle) }
+            }
+            .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(selected ? AtelierTheme.control : .clear, in: RoundedRectangle(cornerRadius: AtelierTheme.controlRadius, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .disabled(target == .document && !workspace.hasWorkingFile)
+        .accessibilityIdentifier("surface-" + String(describing: target))
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
     private func glassButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
         Button(title, systemImage: symbol, action: action)
