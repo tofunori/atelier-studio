@@ -368,7 +368,7 @@ describe("Sidebar — contrats du panneau (projet actif)", () => {
       ],
     }));
     // le popup Base UI (resume-pop) monte en portal après une microtâche
-    const searchbox = await screen.findByRole("searchbox");
+    const searchbox = await screen.findByPlaceholderText(`${t("sidebar.search")}…`);
     fireEvent.change(searchbox, { target: { value: "projet-a" } });
     expect(screen.queryByText("Session B")).toBeNull();
     fireEvent.click(screen.getByText("Session A"));
@@ -408,7 +408,7 @@ describe("Sidebar — contrats du panneau (chats sans projet)", () => {
   it("Nouveau chat sans projet appelle onNewChat", () => {
     const p = makeProps({ activeProject: null, threads: unscopedThreads() });
     renderUi(<Sidebar {...p} />);
-    fireEvent.click(screen.getByText(t("action.new-chat")));
+    fireEvent.click(screen.getByRole("button", { name: t("action.new-chat") }));
     expect(p.onNewChat).toHaveBeenCalled();
   });
 
@@ -442,7 +442,7 @@ describe("Research Navigator — header du projet actif", () => {
   it("Nouveau chat en mode projet appelle onNew(activeProject)", () => {
     const p = makeProps({ threads: projectThreads() });
     renderUi(<Sidebar {...p} />);
-    fireEvent.click(screen.getByText(t("action.new-chat")));
+    fireEvent.click(screen.getByRole("button", { name: t("action.new-chat") }));
     expect(p.onNew).toHaveBeenCalledWith(PROJECT_ROOT);
     expect(p.onNewChat).not.toHaveBeenCalled();
   });
@@ -481,10 +481,9 @@ describe("Research Navigator — header du projet actif", () => {
 });
 
 describe("Research Navigator — recherche locale", () => {
-  it("le bouton recherche ouvre un input ; la requête filtre le contexte", () => {
+  it("le champ de recherche est toujours visible ; la requête filtre le contexte", () => {
     renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
-    fireEvent.click(screen.getByRole("button", { name: t("sidebar.search-local") }));
-    const input = screen.getByRole("searchbox");
+    const input = screen.getByRole("searchbox", { name: t("sidebar.search-local") });
     fireEvent.change(input, { target: { value: "figure" } });
     expect(screen.getByText(t("sidebar.results"))).toBeTruthy();
     expect(screen.getByText("Révision figure")).toBeTruthy();
@@ -493,19 +492,17 @@ describe("Research Navigator — recherche locale", () => {
 
   it("zéro résultat : message dédié", () => {
     renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
-    fireEvent.click(screen.getByRole("button", { name: t("sidebar.search-local") }));
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zzz" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: t("sidebar.search-local") }), { target: { value: "zzz" } });
     expect(screen.getByText(t("sidebar.no-results", { q: "zzz" }))).toBeTruthy();
   });
 
-  it("Échap ferme la recherche et rend le focus au bouton", () => {
+  it("Échap vide la requête ; le champ reste en place", () => {
     renderUi(<Sidebar {...makeProps({ threads: projectThreads() })} />);
-    const btn = screen.getByRole("button", { name: t("sidebar.search-local") });
-    fireEvent.click(btn);
-    const input = screen.getByRole("searchbox");
+    const input = screen.getByRole("searchbox", { name: t("sidebar.search-local") }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "figure" } });
     fireEvent.keyDown(input, { key: "Escape" });
-    expect(screen.queryByRole("searchbox")).toBeNull();
-    expect(document.activeElement).toBe(btn);
+    expect(input.value).toBe("");
+    expect(screen.getByRole("searchbox", { name: t("sidebar.search-local") })).toBe(input);
     // la requête est vidée : les conversations réapparaissent
     expect(screen.getByText("Analyse albédo")).toBeTruthy();
   });
@@ -561,6 +558,18 @@ describe("Research Navigator — sections et déduplication", () => {
     expect(marker!.textContent).toBe("3");
     expect(screen.queryByText(/⑂/)).toBeNull();
     expect(marker!.getAttribute("title")).toContain("Rendu des vignettes");
+  });
+
+  it("rangée deux lignes : titre sur une ligne, méta fournisseur · heure dessous", () => {
+    const threads = [makeThread({ id: "m1", title: "Souligner passages importants", provider: "claude" })];
+    renderUi(<Sidebar {...makeProps({ threads, activeId: "m1" })} />);
+    const row = document.querySelector(".pnav-row")!;
+    const meta = row.querySelector(".pnav-meta");
+    expect(meta?.textContent).toContain("Claude");
+    expect(meta?.querySelector(".row-time")).toBeTruthy();
+    // plus de colonne d'heure à côté du titre : les actions sont superposées
+    expect(row.querySelector(".pnav-row-end .row-time")).toBeNull();
+    expect(row.querySelector(".pnav-row-end > .pnav-favorite")).toBeTruthy();
   });
 
   it("un titre déjà préfixé « ⑂ » (fils d'avant la migration) s'affiche nettoyé", () => {

@@ -1,12 +1,14 @@
-// Ligne de conversation du Research Navigator (plan 024, étape 5).
-// Sémantique : un bouton natif principal (ouvrir / renommer / menu contextuel)
-// + boutons d'actions SIBLINGS (jamais imbriqués). La colonne de fin réserve
-// en permanence 48 px : heure et actions partagent ce slot et se cross-fadent
-// au hover ou focus-within — aucun display:none, aucun layout shift.
+// Ligne de conversation du Research Navigator (plan 024, étape 5 ; refonte
+// « deux lignes » choisie le 2026-11-02, variante B). Le titre prend toute la
+// largeur sur une ligne ; une ligne de méta discrète porte fournisseur · heure
+// · branche · conversations liées. Sémantique : un bouton natif principal
+// (ouvrir / renommer / menu contextuel) + boutons d'actions SIBLINGS (jamais
+// imbriqués), superposés en haut à droite et révélés au survol ou au focus —
+// seule l'ellipse du titre recule, la hauteur de la rangée ne bouge pas.
 import { t } from "../../lib/i18n";
 import type { ConversationFamily } from "../../lib/threadLinks";
 import type { Thread } from "../../lib/ws";
-import { ForkBranchIcon, ProviderIcon } from "../icons";
+import { ForkBranchIcon, ProviderIcon, SessionBridgeIcon } from "../icons";
 import { Input } from "../shadcn/input";
 import {
   SidebarMenuButton,
@@ -50,6 +52,11 @@ function relativeDate(value?: string): string {
   if (days === 1) return t("time.yesterday");
   if (days < 7) return `${days} j`;
   return new Date(ts).toLocaleDateString([], { day: "2-digit", month: "2-digit" });
+}
+
+function providerLabel(provider: string): string {
+  if (provider === "opencode") return "OpenCode";
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
 function MoreGlyph() {
@@ -119,6 +126,8 @@ export function ThreadRow(p: {
       className={cx(
         "pnav-row",
         p.active && "active",
+        p.menuOpen && "menu-open",
+        p.family && "has-family",
         p.selected && "multi-sel",
         p.familyPreviewed && "family-preview",
         p.kind === "pinned" && "pinned",
@@ -151,26 +160,46 @@ export function ThreadRow(p: {
           onDoubleClick={p.onRowDoubleClick}
           onContextMenu={p.onRowContextMenu}
         >
-          <span className="prov-ico" aria-hidden="true">
-            {/* Le sceau reste au rail ; la rangée garde l'icône du fournisseur (SHELL-10). */}
-            <ProviderIcon provider={p.thread.provider} />
-          </span>
-          {p.fork ? (
-            <span className="pnav-fork" title={forkLabel ?? undefined} aria-hidden="true">
-              <ForkBranchIcon />
-              {p.fork.depth > 1 ? (
-                <span className="pnav-fork-depth">{p.fork.depth}</span>
-              ) : null}
-            </span>
-          ) : null}
           <span className="pnav-row-copy">
             <span className="pnav-title-row">
               <span className="title">
                 {p.unread && <span className="unread-dot" />}
                 {p.title}
               </span>
+            </span>
+            <span className="pnav-meta">
+              {/* Le sceau reste au rail ; la rangée garde l'icône du fournisseur (SHELL-10). */}
+              <span className="prov-ico" aria-hidden="true">
+                <ProviderIcon provider={p.thread.provider} size={10} />
+              </span>
+              <span className="pnav-meta-item">{providerLabel(p.thread.provider)}</span>
+              <span className="pnav-meta-item">
+                {running ? (
+                  <Spinner className="arc" size={10} label={status.label} />
+                ) : (
+                  <span className="row-time" aria-label={relativeDate(p.thread.updatedAt)}>
+                    {shortTime(p.thread.updatedAt)}
+                  </span>
+                )}
+              </span>
+              {p.fork ? (
+                <span className="pnav-meta-item pnav-fork" title={forkLabel ?? undefined} aria-hidden="true">
+                  <ForkBranchIcon size={11} />
+                  {p.fork.depth > 1 ? (
+                    <span className="pnav-fork-depth">{p.fork.depth}</span>
+                  ) : null}
+                </span>
+              ) : null}
+              {p.family ? (
+                <span className="pnav-meta-item pnav-meta-family" aria-hidden="true">
+                  <SessionBridgeIcon size={11} />
+                  <span className="pnav-meta-count">{p.family.size}</span>
+                </span>
+              ) : null}
               {p.heartbeat && (
-                <Clock3Icon className="pnav-heartbeat" aria-hidden="true" />
+                <span className="pnav-meta-item" aria-hidden="true">
+                  <Clock3Icon className="pnav-heartbeat" />
+                </span>
               )}
             </span>
           </span>
@@ -196,15 +225,6 @@ export function ThreadRow(p: {
           >
             <PinIcon size={10} fill={p.favorite ? "currentColor" : "none"} aria-hidden="true" />
           </IconButton>
-        <span className="row-status">
-          {running ? (
-            <Spinner className="arc" size={13} label={status.label} />
-          ) : (
-            <span className="row-time" aria-label={relativeDate(p.thread.updatedAt)}>
-              {shortTime(p.thread.updatedAt)}
-            </span>
-          )}
-        </span>
         <span className="row-actions">
           <LazyDropdownMenu
             open={p.menuOpen}

@@ -3910,25 +3910,32 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   white-space: nowrap; }
 .pnav-path { font-size: var(--fs-s); color: var(--text-muted); line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pnav-ov-wrap, .pnav-search-wrap { display: inline-flex; flex: none; }
-.pnav-cta { display: flex; align-items: center; gap: 4px; }
-.pnav-cta .pnav-new { flex: 1; justify-content: center; }
-.pnav-new-ico { display: inline-flex; margin-right: 4px; vertical-align: -1px; }
-.pnav-search { width: 100%; }
+.pnav-ov-wrap { display: inline-flex; flex: none; }
+/* seconde ligne : recherche toujours visible + « Nouveau chat » en
+   bouton-icône relief (gris, jamais d'encre blanche) */
+.pnav-cta { display: flex; align-items: center; gap: 8px; }
+.pnav-search { flex: 1; min-width: 0; }
+.pnav-cta .pnav-new.ui-btn { flex: none; width: var(--control-height); min-width: var(--control-height);
+  height: var(--control-height); padding: 0; justify-content: center; }
 
 /* contenu : fondu 140 ms au changement de projet (remount par key), opacity
    seule — aucun déplacement, reduced-motion neutralisé par les tokens */
 .pnav-scroll { animation: pnav-fade var(--motion-standard) var(--ease-out); }
+/* les rubriques portent leur propre respiration (12 px au-dessus) */
+.side-scroll.pnav-scroll { gap: 0; }
 @keyframes pnav-fade { from { opacity: 0; } to { opacity: 1; } }
 .pnav-group { display: flex; flex-direction: column; flex: none; }
-.pnav-sec { margin: 0; padding: 6px 8px 2px; line-height: 1.3; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
-  letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
+/* rubriques à un seul niveau, en casse normale : « Épinglés », puis les
+   libellés de récence (Aujourd'hui, Hier…) au même rang */
+.pnav-sec { margin: 0; padding: 12px 8px 4px; line-height: 1.3; font-size: var(--fs-s); font-weight: 500;
+  color: var(--text-muted); }
 .pnav-list { margin: 0; }
 .pnav-empty { margin: 4px 8px; color: var(--text-muted); font-size: var(--fs-m); line-height: 1.5; }
 
-/* rangées : bouton principal + slot terminal FIXE de 48 px (heure ⇄ actions
-   en cross-fade au hover/focus-within — jamais de display:none ni de shift) */
-.pnav-row { gap: 8px; }
+/* rangées « deux lignes » (variante B, 2026-11-02) : titre pleine largeur,
+   méta dessous ; actions superposées en haut à droite, révélées au
+   hover/focus-within — seule l'ellipse du titre recule, jamais la hauteur */
+.pnav-row { gap: 8px; position: relative; }
 .pnav-row:not(.active):hover { background: color-mix(in srgb, var(--bg-ctl) 55%, transparent); }
 /* Repère de la rangée active : la pilule 2×16 commune (« repère de
    sélection », fin de fichier) — jamais une seconde marque (SHELL-02). */
@@ -3937,35 +3944,43 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   height: auto; min-height: 26px; text-align: left; cursor: pointer; }
 .pnav-row-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .pnav-title-row { min-width: 0; display: flex; align-items: center; gap: 8px; }
-/* Deux lignes stables, y compris au survol : les actions gardent leur slot
-   réservé et ne reprennent jamais de largeur au titre. */
-.sidebar .pnav-title-row .title { display: -webkit-box; min-width: 0; flex: 1;
-  -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal;
-  overflow-wrap: anywhere; line-height: 1.4; color: var(--text-primary); }
-.pnav-heartbeat { width: 13px; height: 13px; flex: none; color: var(--text-muted); stroke-width: 1.5; }
+/* Une ligne, ellipse : le titre prend toute la largeur de la rangée. */
+.sidebar .pnav-title-row .title { display: block; min-width: 0; flex: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.4; color: var(--text-primary); }
+.pnav-row.active .pnav-title-row .title { font-weight: 500; }
+.pnav-row:is(:hover, :focus-within, .menu-open, .family-preview) .pnav-title-row { padding-right: 48px; }
+.pnav-row.has-family:is(:hover, :focus-within, .menu-open, .family-preview) .pnav-title-row { padding-right: 72px; }
+/* méta : fournisseur · heure · branche · liées, en gris secondaire */
+.pnav-meta { display: flex; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap;
+  font-size: var(--fs-s); line-height: 1.3; color: var(--text-muted); }
+.pnav-meta .prov-ico { margin-right: 4px; }
+.pnav-meta .prov-ico svg { width: 10px; height: 10px; }
+.pnav-meta-item { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.pnav-meta-item + .pnav-meta-item::before { content: "\00b7"; margin: 0 4px; color: var(--text-muted); }
+.pnav-meta .row-time { margin-left: 0; }
+.pnav-meta-family svg { width: 11px; height: 11px; }
+.pnav-meta-count { font-variant-numeric: tabular-nums; }
+.pnav-heartbeat { width: 11px; height: 11px; flex: none; color: var(--text-muted); stroke-width: 1.5; }
 .pnav-row .unread-dot { display: inline-block; width: 6px; height: 6px;
   margin: 0 4px 1px 0; border-radius: var(--r-pill); background: var(--accent); }
-.pnav-row-end { width: 48px; flex: none; position: relative; display: flex;
-  align-items: center; justify-content: flex-end; align-self: stretch; gap: 6px; }
-.pnav-row-end.has-family { width: 80px; justify-content: space-between; }
-.pnav-row-end .row-status { min-width: 32px; display: inline-flex; align-items: center;
-  justify-content: flex-end; transition: opacity var(--motion-fast) var(--ease-out); }
-.pnav-row-end .row-actions { position: absolute; right: 0; top: 50%;
-  transform: translateY(-50%); display: inline-flex; gap: 2px; opacity: 0;
-  pointer-events: none; transition: opacity var(--motion-fast) var(--ease-out); }
-.pnav-row:hover .row-status, .pnav-row:focus-within .row-status { opacity: 0; }
-.pnav-row:hover .row-actions, .pnav-row:focus-within .row-actions {
+.pnav-row-end { position: absolute; top: calc(var(--pad-y, 6px) - 2px); right: 4px;
+  display: flex; align-items: center; gap: 2px; opacity: 0; pointer-events: none;
+  transition: opacity var(--motion-fast) var(--ease-out); }
+.pnav-row:is(:hover, :focus-within, .menu-open, .family-preview) .pnav-row-end {
   opacity: 1; pointer-events: auto; }
+.pnav-row-end .row-actions { display: inline-flex; }
+.pnav-row-end .ui-iconbtn { width: 22px; min-width: 22px; height: 22px; padding: 0; }
 .pnav-act { color: var(--text-secondary); }
 .pnav-act:hover { color: var(--text-primary); }
 .pnav-act.on { color: var(--u-warn); }
 
 /* La relation reste un signal discret : le survol révèle la famille entière,
    le clic ouvre la structure. Aucun numéro ni couleur ne sert d'identifiant. */
-.pnav-family-marker.ui-btn { min-width: 28px; width: 28px; height: 28px;
+.pnav-family-marker.ui-btn { min-width: 22px; width: 22px; height: 22px;
   padding: 0; flex: none; border-color: transparent; border-radius: var(--r-s);
   background: transparent; color: var(--text-muted); }
-.pnav-family-marker svg { width: 16px; height: 16px; }
+.pnav-family-marker svg { width: 13px; height: 13px; }
 .pnav-family-marker.ui-btn:hover,
 .pnav-family-marker.ui-btn:focus-visible,
 .pnav-row.active .pnav-family-marker.ui-btn,
@@ -4013,10 +4028,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* marqueur de branche : remplace l'ancien préfixe « ⑂ » du titre. Éteint au
    repos, accent sur la rangée active — même règle que les toggles galerie.
    La profondeur ne s'affiche qu'à partir de la deuxième coupe. */
-.pnav-fork { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0;
+.pnav-fork { flex-shrink: 0;
   color: var(--text-muted);
   transition: color var(--motion-fast) var(--ease-out); }
-.pnav-fork svg { width: 13px; height: 13px; }
+.pnav-fork svg { width: 11px; height: 11px; }
 .pnav-fork-depth { font-size: var(--fs-xs); font-weight: 500; line-height: 1;
   font-variant-numeric: tabular-nums; }
 .pnav-row.active .pnav-fork, .pnav-row-main[aria-current="true"] .pnav-fork {
@@ -4073,16 +4088,16 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   .pnav-scroll { animation: none; }
 }
 
-/* labels temporels en casse normale : sous-niveau discret — les titres de
-   section (.pnav-sec) restent les seuls éléments uppercase du panneau */
+/* libellés de récence : même rang que les rubriques (.pnav-sec), en casse
+   normale — un seul niveau de titres dans le panneau */
 .sidebar li.thread-recency-label {
   display: block;
-  padding: 8px 8px 2px;
+  padding: 12px 8px 4px;
   border-radius: 0;
   cursor: default;
   color: var(--text-muted);
   font-size: var(--fs-s);
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.3;
 }
 /* picker d'icônes de projet */
@@ -6040,8 +6055,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 @container navigator (max-width: 220px) {
   .pnav-row { gap: 4px; }
   .pnav-row-main { gap: 6px; }
-  .pnav-row-end { width: 48px; }
-  .pnav-row-end.has-family { width: 80px; }
 
 }
 
@@ -6413,14 +6426,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 /* A quiet, direct pin survives the narrow navigator layout. */
 /* L'épingle n'apparaît qu'au survol ou au focus de la rangée (SHELL-10) ;
    dans « Épinglés », le titre de section suffit : elle reste cachée au repos. */
-.pnav-row-end > .pnav-favorite { position:absolute; right:24px; width:22px; min-width:22px; height:26px; padding:0; color:var(--text-muted); opacity:0;
-  transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
-.pnav-row:hover .pnav-row-end > .pnav-favorite, .pnav-row:focus-within .pnav-row-end > .pnav-favorite { opacity:1; }
-.pnav-row-end > .pnav-favorite:hover, .pnav-row-end > .pnav-favorite:focus-visible { opacity:1; color:var(--text-primary); }
-.pnav-row:not(.pinned) .pnav-row-end > .pnav-favorite.on { opacity:1; color:var(--text-secondary); }
-@media (prefers-reduced-motion: reduce) { .pnav-row-end > .pnav-favorite { transition: none; } }
-.pnav-row-end .row-status { min-width:22px; max-width:24px; }
-.pnav-row-end.has-family > .pnav-favorite { right:24px; }
+.pnav-row-end > .pnav-favorite { color:var(--text-muted);
+  transition: color var(--motion-fast) var(--ease-out); }
+.pnav-row-end > .pnav-favorite:hover, .pnav-row-end > .pnav-favorite:focus-visible { color:var(--text-primary); }
+@media (prefers-reduced-motion: reduce) { .pnav-row-end, .pnav-row-end > .pnav-favorite { transition: none; } }
 
 .pnav-row-end > .pnav-favorite svg { width:10px; height:10px; }
 .pnav-row-end > .pnav-favorite, .pnav-row-end > .pnav-favorite:hover { background:transparent; }
