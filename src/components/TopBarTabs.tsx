@@ -7,7 +7,7 @@
 // et la croix de fermeture tient sans manger le libellé.
 //
 // Le rail garde ce qu'il sait porter : les vues, les projets, l'activité.
-import { requestWorkspacePaneMenu } from "./WorkspacePaneMenuSlot";
+import { requestWorkspacePaneMenu } from "../lib/workspacePaneMenu";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { t } from "../lib/i18n";

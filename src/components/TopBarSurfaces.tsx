@@ -8,7 +8,7 @@ import { useState } from "react";
 import { t } from "../lib/i18n";
 import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 import { SURFACES, type Surface } from "./surfaces";
-import { requestWorkspacePaneMenu } from "./WorkspacePaneMenuSlot";
+import { requestWorkspacePaneMenu } from "../lib/workspacePaneMenu";
 import { Tooltip } from "./ui/Tooltip";
 import { Button } from "./ui/Button";
 import { IconButton } from "./ui/IconButton";

@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AtelierPane, { type AtelierTab } from "./AtelierPane";
-import { WORKSPACE_PANE_MENU, WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
+import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
+import { WORKSPACE_PANE_MENU } from "../lib/workspacePaneMenu";
 import { setLanguage, t } from "../lib/i18n";
 import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
 

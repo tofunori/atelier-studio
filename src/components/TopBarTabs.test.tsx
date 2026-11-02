@@ -8,7 +8,7 @@ import TopBarTabs, { MAX_TABS, kindOf, tabLabel, splitLabel, parentFolder, folde
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage, t } from "../lib/i18n";
 import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
-import { WORKSPACE_PANE_MENU } from "./WorkspacePaneMenuSlot";
+import { WORKSPACE_PANE_MENU } from "../lib/workspacePaneMenu";
 
 const TABS = [
   { id: "document:t1", title: "methods_en.tex", url: "file:///p/manuscript_ch1/methods_en.tex" },

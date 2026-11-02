@@ -5,7 +5,7 @@ import { fireEvent, screen, cleanup, act, within } from "@testing-library/react"
 import TopBarSurfaces, { buildTargets } from "./TopBarSurfaces";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage, t } from "../lib/i18n";
-import { WORKSPACE_PANE_MENU } from "./WorkspacePaneMenuSlot";
+import { WORKSPACE_PANE_MENU } from "../lib/workspacePaneMenu";
 
 function props(over: Partial<React.ComponentProps<typeof TopBarSurfaces>> = {}) {
   return {
