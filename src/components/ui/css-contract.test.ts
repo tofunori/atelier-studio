@@ -483,12 +483,15 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(loops.sort()).toEqual([
       ".turn-working-shimmer",
       ".ui-activity-label.is-shimmering .tool-ticker-row, .ui-activity-label.is-shimmering:not(:has(.tool-ticker))",
-      // anneau d'une action en cours (colonne d'état de la rangée, refonte du
-      // 2026-10-18) — il REMPLACE le balayage de la ligne vivante, qui ne
-      // tourne plus : une seule boucle par rangée, coupée sous reduced-motion
+      // anneau d'une action en cours (colonne d'état d'une rangée à plat,
+      // refonte du 2026-10-18) ; la grappe vivante balaie son libellé à la
+      // place (variante B, 2026-11-01) : une seule boucle par rangée, coupée
+      // sous reduced-motion
       ".ui-activity-state .tool-run-ring, .tool-status .tool-run-ring",
     ]);
-    expect(appCss).toMatch(/\.messages:has\(\.ui-activity-state \.tool-run-ring, \.tool-status \.tool-run-ring\) \.turn-working-shimmer/);
+    // La ligne du bas se fige aussi quand une grappe vivante balaie (variante
+    // B, 2026-11-01) : jamais deux reflets en même temps.
+    expect(appCss).toMatch(/\.messages:has\(\.ui-activity-state \.tool-run-ring, \.tool-status \.tool-run-ring, \.ui-activity-label\.is-shimmering\) \.turn-working-shimmer/);
   });
 
   // Deux régressions VÉCUES au banc le 2026-08-26, invisibles en jsdom (rien
