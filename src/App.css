@@ -3516,8 +3516,11 @@ body.dragging iframe { pointer-events: none; }
 .workspace-content-layer { position: absolute; min-width: 0; min-height: 0; overflow: hidden; pointer-events: auto; background: var(--bg); transform-origin: top left;
   container: pane / inline-size; }
 .workspace-pane-controls-slot { flex: 0 0 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; }
-.workspace-pane-menu-slot { display: inline-flex; align-items: center; flex: none; }
-.workspace-pane-menu-slot:empty { display: none; }
+/* Le slot ne montre plus rien : le menu du pane s'ouvre au clic droit sur un
+   onglet ou sur la surface (Thierry 2026-11-02), via une ancre dans <body>. */
+.workspace-pane-menu-slot { display: none; }
+.workspace-pane-controls[data-pane-controls="anchor"] { position: fixed; inset: 0 auto auto 0; width: 0; height: 0; overflow: visible; pointer-events: none; }
+.workspace-pane-controls .workspace-pane-menu-anchor { position: fixed; width: 1px; height: 1px; min-width: 0; min-height: 0; padding: 0; opacity: 0; pointer-events: none; }
 .workspace-pane-controls { display: inline-flex; align-items: center; color: var(--text-secondary); }
 .workspace-tab-content { position: absolute; inset: 0; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
 .workspace-tab-content > .ksurface,

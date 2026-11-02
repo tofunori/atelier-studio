@@ -1,9 +1,9 @@
 import ProjectGallery from "./ProjectGallery";
 import type { ProjectFolders } from "../lib/projectFolders";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { useWorkspacePaneMenuHost } from "./WorkspacePaneMenuSlot";
+import { useWorkspacePaneMenuHost, WORKSPACE_PANE_MENU, type WorkspacePaneMenuRequest } from "./WorkspacePaneMenuSlot";
 import Explorer from "./Explorer";
 const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
 const KnowledgeSurface = lazyWithRetry(() => import("./KnowledgeSurface"));
@@ -330,6 +330,8 @@ export default function AtelierPane({
   }, [workspace, documentById, projectRoot, url]);
   const paneMenuHost = useWorkspacePaneMenuHost();
   const [paneMenuOpen, setPaneMenuOpen] = useState<string | null>(null);
+  // point où le clic droit a ouvert le menu du pane ; null = sous l'ancre
+  const [paneMenuAt, setPaneMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [terminalBootstrap, setTerminalBootstrap] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState>(null);
   const [galleryLoaded, setGalleryLoaded] = useState(false);
@@ -874,11 +876,26 @@ export default function AtelierPane({
       const ref = refOf(String((event as CustomEvent).detail?.id ?? ""));
       if (ref) closeRef(ref);
     };
+    // Clic droit sur un onglet ou sur le bouton de la surface affichée : le
+    // menu du pane s'ouvre à l'endroit du clic, sur CE contenu.
+    const onPaneMenu = (event: Event) => {
+      const detail = (event as CustomEvent<WorkspacePaneMenuRequest>).detail;
+      if (!detail) return;
+      const id = detail.id
+        ?? (detail.surface ? workspaceTabId({ kind: "surface", surface: detail.surface as Surface }) : "");
+      const found = holderOf(id);
+      if (!found) return;
+      selectRef(found.pane.id, found.ref);
+      setPaneMenuAt({ x: detail.x, y: detail.y });
+      setPaneMenuOpen(`${found.pane.id}:${id}`);
+    };
     window.addEventListener("workspace-select-tab", onSelect);
     window.addEventListener("workspace-close-tab", onClose);
+    window.addEventListener(WORKSPACE_PANE_MENU, onPaneMenu);
     return () => {
       window.removeEventListener("workspace-select-tab", onSelect);
       window.removeEventListener("workspace-close-tab", onClose);
+      window.removeEventListener(WORKSPACE_PANE_MENU, onPaneMenu);
     };
   });
 
@@ -920,7 +937,17 @@ export default function AtelierPane({
     frame?.contentWindow?.postMessage({ type: "atelier-favorite-changed", rel: relative, fav: confirmed }, "*");
   }
 
-  function renderPaneControls(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef) {
+  /** Sans clic droit (lecteur d'écran), le menu tombe sous l'onglet actif. */
+  function paneMenuAnchorStyle(): CSSProperties {
+    if (paneMenuAt) return { left: paneMenuAt.x, top: paneMenuAt.y };
+    const rect = document.querySelector(".topbar-tab.on")?.getBoundingClientRect();
+    return rect ? { left: rect.left, top: rect.bottom } : {};
+  }
+
+  /** `anchor` : le menu de la barre du haut, sans bouton visible — il s'ouvre
+   *  au clic droit sur l'onglet ou la surface (voir WORKSPACE_PANE_MENU).
+   *  `button` : le navigateur, qui garde son bouton dans sa propre barre. */
+  function renderPaneControls(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef, mode: "anchor" | "button" = "button") {
     const paneMenuKey = `${paneNode.id}:${workspaceTabId(ref)}`;
     const relative = ref.kind === "document"
       ? relFromTabUrl(documentById.get(ref.tabId)?.url ?? "", projectRoot, url)
@@ -973,7 +1000,6 @@ export default function AtelierPane({
     }
     if (ref.kind === "document" && documentById.get(ref.tabId)) {
       const documentItems: LazyDropdownMenuItem[] = [
-        { key: "expand", label: t("atelier.full"), onSelect: onToggleExpand },
         {
           key: "pin",
           label: documentById.get(ref.tabId)?.pinned ? t("action.unpin-tab") : t("action.pin-tab"),
@@ -1036,15 +1062,32 @@ export default function AtelierPane({
       items: [{ key: "close-pane", label: t("workspace.close-pane"), destructive: true, onSelect: () => closeRef(ref) }],
     });
     return (
-      <div className="workspace-pane-controls" data-pane-controls="menu">
+      <div className="workspace-pane-controls" data-pane-controls={mode === "anchor" ? "anchor" : "menu"}>
         <LazyDropdownMenu
           open={paneMenuOpen === paneMenuKey}
-          onOpenChange={(open) => setPaneMenuOpen(open ? paneMenuKey : null)}
+          onOpenChange={(open) => {
+            setPaneMenuOpen(open ? paneMenuKey : null);
+            if (!open) setPaneMenuAt(null);
+          }}
           label={t("workspace.pane-actions")}
           header={tabTitle(ref)}
-          align="end"
+          align={mode === "anchor" ? "start" : "end"}
+          sideOffset={mode === "anchor" ? 2 : undefined}
           groups={menuGroups}
-          trigger={(
+          trigger={mode === "anchor" ? (
+            // Ancre invisible : posée au point du clic droit, elle donne au
+            // menu sa position. Hors tabulation (la touche Menu sur l'onglet
+            // fait le même chemin), mais lisible par les lecteurs d'écran.
+            <IconButton
+              className="workspace-pane-menu-anchor"
+              label={t("workspace.pane-actions")}
+              size="s"
+              tabIndex={-1}
+              style={paneMenuAnchorStyle()}
+            >
+              <span />
+            </IconButton>
+          ) : (
             <IconButton
               className="ghost"
               label={t("workspace.pane-actions")}
@@ -1351,9 +1394,12 @@ export default function AtelierPane({
   return (
     <div className="atelier-wrap modular-workspace">
       {/* Le navigateur natif ne transmet pas son focus DOM au workspace :
-          son menu reste dans sa barre réservée, sans recouvrir la page. */}
+          son menu reste dans sa barre réservée, sans recouvrir la page.
+          L'ancre vit dans <body> : la barre du haut est un conteneur de
+          requêtes (containment de mise en page) qui piégerait une ancre
+          `fixed` et la rognerait. */}
       {paneMenuHost && focusedPane && focusedRef && !(focusedRef.kind === "surface" && focusedRef.surface === "browser") && createPortal(
-        renderPaneControls(focusedPane, focusedRef), paneMenuHost, `${focusedPane.id}:${workspaceTabId(focusedRef)}`,
+        renderPaneControls(focusedPane, focusedRef, "anchor"), document.body, `${focusedPane.id}:${workspaceTabId(focusedRef)}`,
       )}
       <div className="pane-row">
         <div className="workspace-root" ref={workspaceRootRef}>

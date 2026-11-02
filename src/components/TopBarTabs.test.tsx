@@ -8,6 +8,7 @@ import TopBarTabs, { MAX_TABS, kindOf, tabLabel, splitLabel, parentFolder, folde
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage, t } from "../lib/i18n";
 import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
+import { WORKSPACE_PANE_MENU } from "./WorkspacePaneMenuSlot";
 
 const TABS = [
   { id: "document:t1", title: "methods_en.tex", url: "file:///p/manuscript_ch1/methods_en.tex" },
@@ -143,6 +144,18 @@ describe("TopBarTabs", () => {
     renderUi(<TopBarTabs {...props({ onCloseTab })} />);
     fireEvent(tab("albedo_trends.py").querySelector(".topbar-tab-main")!, new MouseEvent("auxclick", { button: 2, bubbles: true }));
     expect(onCloseTab).not.toHaveBeenCalled();
+  });
+
+  it("clic droit : sélectionne l'onglet et demande le menu de CE document au point du clic", () => {
+    const onSelectTab = vi.fn();
+    const requests: unknown[] = [];
+    const listen = (event: Event) => requests.push((event as CustomEvent).detail);
+    window.addEventListener(WORKSPACE_PANE_MENU, listen);
+    renderUi(<TopBarTabs {...props({ onSelectTab })} />);
+    fireEvent.contextMenu(tab("intro_en.tex").querySelector(".topbar-tab-main")!, { clientX: 120, clientY: 30 });
+    window.removeEventListener(WORKSPACE_PANE_MENU, listen);
+    expect(onSelectTab).toHaveBeenCalledWith("document:t2");
+    expect(requests).toEqual([{ id: "document:t2", x: 120, y: 30 }]);
   });
 
   it("plafonne à huit onglets et range le reste derrière un compteur", async () => {

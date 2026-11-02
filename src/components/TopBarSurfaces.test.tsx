@@ -5,6 +5,7 @@ import { fireEvent, screen, cleanup, act, within } from "@testing-library/react"
 import TopBarSurfaces, { buildTargets } from "./TopBarSurfaces";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage, t } from "../lib/i18n";
+import { WORKSPACE_PANE_MENU } from "./WorkspacePaneMenuSlot";
 
 function props(over: Partial<React.ComponentProps<typeof TopBarSurfaces>> = {}) {
   return {
@@ -114,5 +115,36 @@ describe("TopBarSurfaces", () => {
     await openLauncher();
     fireEvent.click(item(t("atelier.file-explorer")));
     expect(onToggleExplorer).toHaveBeenCalled();
+  });
+});
+
+describe("TopBarSurfaces — clic droit = actions du pane", () => {
+  beforeEach(() => { resetTestState(); setLanguage("fr"); });
+  afterEach(cleanup);
+
+  const capture = () => {
+    const requests: unknown[] = [];
+    const listen = (event: Event) => requests.push((event as CustomEvent).detail);
+    window.addEventListener(WORKSPACE_PANE_MENU, listen);
+    return { requests, stop: () => window.removeEventListener(WORKSPACE_PANE_MENU, listen) };
+  };
+
+  it("sur la galerie affichée, demande le menu de la galerie", () => {
+    const { requests, stop } = capture();
+    renderUi(<TopBarSurfaces {...props()} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: t("atelier.surface") }), { clientX: 10, clientY: 20 });
+    stop();
+    expect(requests).toEqual([{ surface: "atelier", x: 10, y: 20 }]);
+  });
+
+  it("sur la pastille, demande le menu de la surface ouverte — pas celui du navigateur", () => {
+    const { requests, stop } = capture();
+    const { unmount } = renderUi(<TopBarSurfaces {...props({ activeSurface: "terminal" })} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: new RegExp(`^${t("topbar.surfaces")}`) }), { clientX: 5, clientY: 6 });
+    unmount();
+    renderUi(<TopBarSurfaces {...props({ activeSurface: "browser" })} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: new RegExp(`^${t("topbar.surfaces")}`) }), { clientX: 5, clientY: 6 });
+    stop();
+    expect(requests).toEqual([{ surface: "terminal", x: 5, y: 6 }]);
   });
 });
