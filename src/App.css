@@ -1998,9 +1998,14 @@ button.kernel-file:hover { color: var(--text-primary); }
 .changed-files-head { display: flex; align-items: center; gap: 12px;
   font-size: var(--fs-m); color: var(--text-secondary); }
 .changed-files-count { flex: 1; min-width: 0; }
-.changed-files-list { max-height: 150px; overflow-y: auto; margin-top: 4px; }
+/* La liste s'élargit de 4 px de chaque côté (marge négative + padding) : le
+   fond de survol des rangées, qui déborde de 4 px, reste DANS la liste. Sans
+   ça, ce débordement à droite suffisait à faire paraître une barre de
+   défilement horizontale sous la liste (Thierry, 2026-11-02). */
+.changed-files-list { max-height: 150px; overflow-x: hidden; overflow-y: auto;
+  margin: 4px -4px 0; padding: 0 4px; }
 /* Un diff ouvert ne se laisse pas écraser par le plafond de la liste. */
-.changed-files-list.is-expanded { max-height: none; overflow-y: visible; }
+.changed-files-list.is-expanded { max-height: none; overflow: visible; }
 .changed-files-item { min-width: 0; }
 .changed-files-diff { margin: 4px 0 8px; border-radius: var(--radius-surface);
   background: var(--surface-inset); overflow: hidden; }
