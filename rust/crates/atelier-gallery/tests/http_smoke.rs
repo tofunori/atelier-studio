@@ -2164,7 +2164,8 @@ fn a_partial_state_post_keeps_every_other_key() {
         r#"{"texReadTheme":"sepia"}"#,
         r#"{"texReadFontSize":99}"#,
         r#"{"texVisualEditor":true}"#,
-        r#"{"texReadTheme":"fluo","texReadFontSize":"x"}"#,
+        r#"{"texReadWidth":"full"}"#,
+        r#"{"texReadTheme":"fluo","texReadFontSize":"x","texReadWidth":"immense"}"#,
     ] {
         assert_eq!(http(srv.port, "POST", "/state", Some(partial)).0, 200, "{partial}");
     }
@@ -2183,6 +2184,7 @@ fn a_partial_state_post_keeps_every_other_key() {
     assert_eq!(state["texReadTheme"], "sepia", "valeur hors liste ignorée");
     assert_eq!(state["texReadFontSize"], 24, "borné à 13–24");
     assert_eq!(state["texVisualEditor"], true);
+    assert_eq!(state["texReadWidth"], "full", "largeur hors liste ignorée");
     // chaque réécriture garde d'abord la sauvegarde du jour, sous .fig_thumbs/
     // (jamais un backups/ au milieu des figures du projet)
     let backups: Vec<_> = fs::read_dir(srv.root.join(".fig_thumbs").join("backups"))

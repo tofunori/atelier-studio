@@ -260,6 +260,26 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     // Hors app, --surface-app est absente : le repli #1e2124 (le noir du chat)
     // s'applique. Dans l'app, atelier_theme.js fournit la variable exacte.
     expect(fondChat.fond).toBe('rgb(30, 33, 36)');
+
+    // Largeur : la colonne suit le panneau jusqu'à 96ch ; « Pleine largeur »
+    // lève le plafond ET persiste côté serveur, comme la taille.
+    const largeur = () => fr().evaluate(() => ({
+      texte: document.getElementById('texread').getBoundingClientRect().width,
+      panneau: document.getElementById('right').clientWidth,
+    }));
+    const colonne = await largeur();
+    const [persisteLargeur] = await Promise.all([
+      page.waitForRequest(r => r.url().includes('/state') && r.method() === 'POST'),
+      fr().evaluate(() => (document.querySelector('#texreadFs .tr-width[data-width="full"]') as HTMLElement).click()),
+    ]);
+    const pleine = await largeur();
+    console.log('LARGEUR ' + JSON.stringify({colonne, pleine}));
+    expect(JSON.parse(persisteLargeur.postData() || '{}').texReadWidth).toBe('full');
+    expect(pleine.texte).toBeGreaterThan(colonne.texte);
+    expect(Math.abs(pleine.panneau - pleine.texte)).toBeLessThan(2);
+    await expect(fr().locator('#texreadFs .tr-width[data-width="full"]')).toHaveAttribute('aria-pressed', 'true');
+    await fr().evaluate(() => (document.querySelector('#texreadFs .tr-width[data-width="column"]') as HTMLElement).click());
+    expect((await largeur()).texte).toBe(colonne.texte);
     // Thème clair de l'app : la prose suit --text-primary, jamais un blanc
     // figé sur le fond crème (EDIT-01).
     const clair = await fr().evaluate(() => {

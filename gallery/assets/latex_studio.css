@@ -590,7 +590,11 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .modeseg button{width:auto;min-width:28px;gap:5px;padding:0 7px}
 .mode-label{font-size:var(--fs-label, 11px)}
 @media(max-width:480px){.mode-label{display:none}}
-#texread{max-width:68ch;padding-inline:clamp(22px,4vw,48px);line-height:1.72}
+/* Largeur de Lecture : colonne qui suit le panneau jusqu'à 96ch puis se
+   centre (défaut), ou pleine largeur choisie dans la pastille (reading.ts). */
+#texread{max-width:96ch;padding-inline:clamp(22px,4vw,48px);line-height:1.72}
+#right[data-tr-width="full"] #texread{max-width:none}
+#texreadFs .tr-width.on{background:var(--toolbar-active);color:var(--toolbar-active-text)}
 #texreadFs{opacity:.85}
 #texreadFs button{width:26px;height:26px;color:var(--txt)}
 #texread .tex-cite{color:var(--tr-head2,#b5becb);font-variant:normal;font-size:.92em;text-decoration:none;cursor:pointer;border-bottom:1px dotted var(--tr-line,#626975)}
