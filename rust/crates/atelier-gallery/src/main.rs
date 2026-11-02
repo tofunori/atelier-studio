@@ -655,6 +655,13 @@ fn sanitize_gallery_state(request: &Value) -> Value {
     {
         state["texReadTheme"] = json!(theme);
     }
+    if let Some(width) = request
+        .get("texReadWidth")
+        .and_then(Value::as_str)
+        .filter(|w| ["column", "full"].contains(w))
+    {
+        state["texReadWidth"] = json!(width);
+    }
     if let Some(visual) = request.get("texVisualEditor").and_then(Value::as_bool) {
         state["texVisualEditor"] = json!(visual);
     }
