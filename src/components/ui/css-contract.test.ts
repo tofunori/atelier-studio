@@ -1211,6 +1211,17 @@ describe("contrat lot 2 (socle)", () => {
     expect(scrollArea).not.toMatch(/tw:data-vertical:w-2\.5/);
   });
 
+  it("carte « fichiers modifiés » : le survol qui déborde des rangées ne crée pas de barre horizontale", () => {
+    // Rangées à width:calc(100% + 8px) et margin:0 -4px : la liste doit
+    // absorber ces 4 px dans son padding et ne jamais défiler en largeur.
+    const row = appCss.match(/(^|\})\s*\.changed-files-row\s*\{([^}]*)\}/m)?.[2] ?? "";
+    expect(row).toMatch(/margin:\s*0 -4px/);
+    const list = appCss.match(/(^|\})\s*\.changed-files-list\s*\{([^}]*)\}/m)?.[2] ?? "";
+    expect(list).toMatch(/overflow-x:\s*hidden/);
+    expect(list).toMatch(/margin:\s*4px -4px 0/);
+    expect(list).toMatch(/padding:\s*0 4px/);
+  });
+
   it("cadres de documents : jamais de fond blanc derrière une piste de barre transparente", () => {
     // WebKit montre le fond de l'élément iframe sous la piste transparente de la
     // barre de la fenêtre du document : un #fff donnait une barre blanche en
