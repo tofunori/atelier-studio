@@ -2,11 +2,19 @@ import UIKit
 import WebKit
 
 /// A bounded, view-owned visual backup. UIKit can display it while WebKit wakes.
+///
+/// Two cases. `.loading`: WebKit has nothing to show (first load, content
+/// process restarted), so the cover shows the last image of the message or,
+/// failing that, a lightly formatted text stand-in on the reading surface.
+/// `.resuming`: the app comes back to the foreground and WebKit still holds its
+/// layers, so the cover only lays the last image over them and never a text
+/// stand-in (raw text on a black block was the visible flash, 2026-11-01).
 @MainActor final class RichTextContinuity {
+    enum Reason { case loading, resuming }
     private final class Snapshot: NSObject {
-        let image: UIImage; let rect: CGRect; let width: CGFloat; let text: String
-        init(image: UIImage, rect: CGRect, width: CGFloat, text: String) {
-            self.image = image; self.rect = rect; self.width = width; self.text = text
+        let image: UIImage; let rect: CGRect; let width: CGFloat
+        init(image: UIImage, rect: CGRect, width: CGFloat) {
+            self.image = image; self.rect = rect; self.width = width
         }
     }
     private static let snapshots: NSCache<NSString, Snapshot> = {
@@ -20,6 +28,7 @@ import WebKit
     private var textView: UITextView?
     private var text = ""
     private var fontSize: CGFloat = 17
+    private var reason = Reason.loading
     private var captureTask: Task<Void, Never>?
     private var lastCapture = Date.distantPast
     private var captureInProgress = false
@@ -33,33 +42,77 @@ import WebKit
         show()
     }
     func update(text: String, fontSize: CGFloat) {
-        let changed = self.text != text || self.fontSize != fontSize
+        let textChanged = self.text != text, sizeChanged = self.fontSize != fontSize
         self.text = text; self.fontSize = fontSize
-        if changed { Self.snapshots.removeObject(forKey: key) }
-        if changed && isCovered { show() }
+        // A streamed message keeps its last image: formatted and slightly behind
+        // reads better than raw Markdown. Another text size reflows everything.
+        if sizeChanged { Self.snapshots.removeObject(forKey: key) }
+        if (textChanged || sizeChanged) && isCovered { show(reason) }
     }
-    func show() {
+    func show(_ requested: Reason = .loading) {
         guard let view = webView else { return }
-        cover?.removeFromSuperview()
+        // WebKit still loading when the app leaves: it has nothing to show yet.
+        let reason = isCovered && self.reason == .loading ? .loading : requested
+        cover?.removeFromSuperview(); cover = nil; textView = nil; isCovered = false
+        self.reason = reason
+        let snapshot = Self.snapshots.object(forKey: key).flatMap { abs($0.width - view.bounds.width) < 1 ? $0 : nil }
+        if reason == .resuming && snapshot == nil { return }
         let overlay = UIView(frame: view.bounds)
         overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        overlay.backgroundColor = .systemBackground
-        let fallback = UITextView(frame: overlay.bounds)
-        fallback.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        fallback.backgroundColor = .clear; fallback.isEditable = false; fallback.isScrollEnabled = false
-        fallback.textContainerInset = .zero; fallback.textContainer.lineFragmentPadding = 0
-        let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = fontSize * 1.65
-        fallback.attributedText = NSAttributedString(string: text, attributes: [.font: UIFont.systemFont(ofSize: fontSize), .foregroundColor: UIColor.label, .paragraphStyle: paragraph])
-        fallback.isUserInteractionEnabled = false
-        overlay.addSubview(fallback)
-        if let snapshot = Self.snapshots.object(forKey: key), snapshot.text == text,
-           abs(snapshot.width - view.bounds.width) < 1 {
-            let image = UIImageView(image: snapshot.image)
-            image.frame = snapshot.rect; image.backgroundColor = .systemBackground
-            overlay.addSubview(image)
-        }
+        overlay.backgroundColor = .clear
         overlay.isUserInteractionEnabled = false
-        view.addSubview(overlay); cover = overlay; textView = fallback; isCovered = true
+        if let snapshot {
+            let image = UIImageView(image: snapshot.image)
+            image.frame = snapshot.rect; image.backgroundColor = AtelierTheme.backgroundUIColor
+            overlay.addSubview(image)
+        } else {
+            let fallback = UITextView(frame: overlay.bounds)
+            fallback.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            fallback.backgroundColor = .clear; fallback.isEditable = false; fallback.isScrollEnabled = false
+            fallback.textContainerInset = .zero; fallback.textContainer.lineFragmentPadding = 0
+            fallback.attributedText = Self.standIn(for: text, fontSize: fontSize)
+            fallback.isUserInteractionEnabled = false
+            overlay.addSubview(fallback); textView = fallback
+        }
+        view.addSubview(overlay); cover = overlay; isCovered = true
+    }
+    /// The message without its Markdown marks: headings and bold in bold,
+    /// bullets as •, code fences dropped. Only shown until WebKit paints.
+    static func standIn(for text: String, fontSize: CGFloat) -> NSAttributedString {
+        let lines = text.components(separatedBy: "\n").compactMap { line -> String? in
+            let indent = String(line.prefix { $0 == " " })
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") { return nil }
+            let hashes = trimmed.prefix { $0 == "#" }.count
+            if (1...6).contains(hashes), trimmed.dropFirst(hashes).first == " " {
+                return "**" + String(trimmed.dropFirst(hashes + 1)) + "**"
+            }
+            for bullet in ["- ", "* ", "+ "] where trimmed.hasPrefix(bullet) {
+                return indent + "• " + String(trimmed.dropFirst(2))
+            }
+            return line
+        }
+        let source = lines.joined(separator: "\n")
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        let parsed = (try? NSAttributedString(markdown: source, options: options)) ?? NSAttributedString(string: source)
+        let result = NSMutableAttributedString(attributedString: parsed)
+        let whole = NSRange(location: 0, length: result.length)
+        let base = UIFont.systemFont(ofSize: fontSize)
+        let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = fontSize * 1.65
+        result.addAttributes([.font: base, .foregroundColor: UIColor.label, .paragraphStyle: paragraph], range: whole)
+        result.enumerateAttribute(.inlinePresentationIntent, in: whole) { value, range, _ in
+            guard let raw = (value as? NSNumber)?.uintValue else { return }
+            let intent = InlinePresentationIntent(rawValue: raw)
+            var font = intent.contains(.code) ? UIFont.monospacedSystemFont(ofSize: fontSize * 0.9, weight: .regular) : base
+            var traits: UIFontDescriptor.SymbolicTraits = []
+            if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
+            if intent.contains(.emphasized) { traits.insert(.traitItalic) }
+            if !traits.isEmpty, let descriptor = font.fontDescriptor.withSymbolicTraits(traits) {
+                font = UIFont(descriptor: descriptor, size: font.pointSize)
+            }
+            result.addAttribute(.font, value: font, range: range)
+        }
+        return result
     }
     func reveal() {
         cover?.removeFromSuperview(); cover = nil; textView = nil; isCovered = false
@@ -89,7 +142,7 @@ import WebKit
             guard self.text == capturedText else { self.scheduleCapture(); return }
             guard let image else { return }
             let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
-            Self.snapshots.setObject(Snapshot(image: image, rect: rect, width: width, text: capturedText), forKey: self.key, cost: cost)
+            Self.snapshots.setObject(Snapshot(image: image, rect: rect, width: width), forKey: self.key, cost: cost)
         }
     }
     func detach() {

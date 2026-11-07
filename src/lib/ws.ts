@@ -41,7 +41,9 @@ type AgentEventBody =
       notes?: { n: number; text: string }[];
       /* images locales jointes (UserDisplayEvent archivé) : vignette d'une
          figure annotée quand le tour revient de l'historique */
-      imagePaths?: string[]; ts?: number }
+      imagePaths?: string[];
+      /* cartes « article » des pièces jointes (2026-11-02), alignées sur `label` */
+      files?: ChatFileRef[]; ts?: number }
   | { kind: "text"; text: string; ts?: number }
   | { kind: "delta"; text: string; ts?: number }
   | { kind: "thinking_delta"; text: string; ts?: number }
@@ -312,6 +314,20 @@ export type UserDisplayEvent = {
   label?: string;
   pastes?: { name: string; lines: number; text?: string }[];
   imagePaths?: string[];
+  files?: ChatFileRef[];
+};
+
+/** Pièce jointe d'un message envoyé, rendue en carte « article ». `path` :
+ *  fichier local dont la carte lit taille, pages et titre (`fileCards`) ;
+ *  `title`/`journal`/`year` : notice déjà connue (référence Zotero). */
+export type ChatFileRef = {
+  name: string;
+  lines?: string;
+  path?: string;
+  kind?: string;
+  title?: string;
+  journal?: string;
+  year?: string;
 };
 
 export type Thread = {

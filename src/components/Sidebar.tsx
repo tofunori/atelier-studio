@@ -147,7 +147,6 @@ export default function Sidebar(p: {
 }) {
   // -- état local ------------------------------------------------------------
   const [query, setQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [expanded, setExpanded] = useState(false); // « afficher plus », global
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selAnchor = useRef<string | null>(null);
@@ -193,7 +192,6 @@ export default function Sidebar(p: {
   // « expanded » reste global (décision plan 024, étape 7)
   useEffect(() => {
     setQuery("");
-    setSearchOpen(false);
     setSelected(new Set());
     selAnchor.current = null;
     setMenu(null);
@@ -511,10 +509,8 @@ export default function Sidebar(p: {
             name={headerName}
             root={model.identity?.root ?? null}
             meta={meta}
-            searchOpen={searchOpen}
             query={query}
             onQueryChange={setQuery}
-            onToggleSearch={setSearchOpen}
             onNew={() => (model.mode === "project" ? p.onNew(p.activeProject!) : p.onNewChat())}
             onOpenResume={openResume}
             onRevealFinder={() => {
@@ -555,7 +551,16 @@ export default function Sidebar(p: {
 
             {(model.conversationSections.length > 0 || model.searching) && !resultsEmpty && (
               <SidebarGroup className="pnav-group tw:p-0">
-                <SidebarGroupLabel as="h3" className="pnav-sec tw:h-auto tw:rounded-none tw:p-0">
+                {/* Rubriques à un seul niveau : quand la liste porte ses
+                    libellés de récence (Aujourd'hui, Hier…), le titre
+                    « Conversations » ne reste que pour les lecteurs d'écran. */}
+                <SidebarGroupLabel
+                  as="h3"
+                  className={
+                    "pnav-sec tw:h-auto tw:rounded-none tw:p-0"
+                    + (!model.searching && model.conversationSections[0]?.bucket ? " tw:sr-only" : "")
+                  }
+                >
                   {t(model.searching ? "sidebar.results" : "sidebar.conversations")}
                 </SidebarGroupLabel>
                 <SidebarGroupContent className="tw:p-0">

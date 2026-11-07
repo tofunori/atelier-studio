@@ -33,6 +33,7 @@ import {
   PopoverTrigger,
 } from "../shadcn/popover";
 import { citeLabel } from "./turnParts";
+import { useFileCards } from "../../lib/chatFileCards";
 import type { Mark } from "../../lib/annotations";
 import { Button, IconButton, RowButton } from "../ui";
 
@@ -108,6 +109,16 @@ export function ContextShelf(p: {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [expandedImageIndex, imageAttachments.length]);
+
+  // Fichier joint par son chemin : le titre de l'article remplace le nom brut
+  // dès qu'il est connu (Zotero ou métadonnées du PDF, 2026-11-02).
+  const cardFor = useFileCards(p.attachments.flatMap((attachment) =>
+    attachment.kind === "file" && attachment.path ? [attachment.path] : []));
+  const shelfLabel = (attachment: ShelfAttachment, name: string) => {
+    const title = attachment.kind === "file" ? cardFor(attachment.path)?.title : undefined;
+    if (!title) return citeLabel(name);
+    return title.length > 34 ? `${title.slice(0, 33)}…` : title;
+  };
 
   const annotations = p.annotations ?? [];
   if (p.attachments.length === 0 && annotations.length === 0) return null;
@@ -284,7 +295,7 @@ export function ContextShelf(p: {
           const pillBody = (
             <>
               {kindGlyph(grouped ? "quote" : attachment.kind)}
-              <span className="chip-label">{citeLabel(group.name)}</span>
+              <span className="chip-label">{grouped ? citeLabel(group.name) : shelfLabel(attachment, group.name)}</span>
               {grouped
                 ? <span className="context-pill-count">{group.indexes.length}</span>
                 : attachment.lines
