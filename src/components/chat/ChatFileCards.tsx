@@ -57,9 +57,10 @@ function cardText(ref: ChatFileRef, meta: FileCardMeta | null, tag: string | nul
 export function ChatFileCards({ items }: { items: (ChatFileRef | string)[] }) {
   const refs = items.map((item) => (typeof item === "string" ? fromLabel(item) : item));
   const cardFor = useFileCards(refs.flatMap((ref) => (ref.path ? [ref.path] : [])));
+  const seen = new Map<string, number>();
   return (
     <div className="user-file-attachments">
-      {refs.map((ref, index) => {
+      {refs.map((ref) => {
         const meta = cardFor(ref.path);
         const tag = typeTag(ref);
         const folder = ref.kind === "folder" || ref.name.endsWith("/");
@@ -75,7 +76,7 @@ export function ChatFileCards({ items }: { items: (ChatFileRef | string)[] }) {
               {text.parts.length > 0 && (
                 <span className="file-card-meta">
                   {text.parts.map((part, i) => (
-                    <span key={i}>{i > 0 && <span className="file-card-dot">·</span>}{part}</span>
+                    <span key={part}>{i > 0 && <span className="file-card-dot">·</span>}{part}</span>
                   ))}
                 </span>
               )}
@@ -83,7 +84,11 @@ export function ChatFileCards({ items }: { items: (ChatFileRef | string)[] }) {
           </>
         );
         const tip = ref.path ?? ref.name;
-        const key = `${index}:${ref.path ?? ref.name}`;
+        // clé stable par pièce ; un vieux libellé répété reçoit un rang
+        const base = `${ref.kind ?? ""}:${ref.path ?? ref.name}:${ref.lines ?? ""}`;
+        const rank = seen.get(base) ?? 0;
+        seen.set(base, rank + 1);
+        const key = rank ? `${base}#${rank}` : base;
         return ref.path && !folder && !meta?.missing ? (
           <RowButton
             key={key}
