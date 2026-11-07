@@ -157,6 +157,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "zoteroCollections",
     "zoteroFav",
     "zoteroDigest",
+    "fileCards",
     "zoteroAddPdf",
     "termOpen",
     "termInput",
@@ -1723,6 +1724,43 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     json!({"type":"zoteroFav","key": key, "fav": on, "ok": false, "error": e}),
                 )],
             }
+        }
+        "fileCards" => {
+            // Cartes « article » des pièces jointes du chat : taille, pages,
+            // titre/revue/année (Zotero puis métadonnées du PDF). Lecture
+            // seule ; 24 chemins absolus au plus par demande.
+            let paths: Vec<String> = msg
+                .get("paths")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|p| p.starts_with('/'))
+                        .take(24)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let app_dir = state.app_dir().to_path_buf();
+            let cards = crate::ws_dispatch::blocking(move || {
+                paths
+                    .iter()
+                    .map(|path| {
+                        crate::file_cards::file_card(std::path::Path::new(path), |pdf| {
+                            atelier_workspace::zotero_item_for_pdf_path(&app_dir, pdf).map(|item| {
+                                crate::file_cards::KnownReference {
+                                    title: item.title,
+                                    journal: item.publication,
+                                    year: item.year,
+                                }
+                            })
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default();
+            vec![json_msg(json!({"type": "fileCards", "cards": cards}))]
         }
         "zoteroDigest" => {
             let key = msg

@@ -10,6 +10,7 @@ pub mod delegation;
 pub mod docx_tool;
 mod codex_history;
 pub mod evidence;
+pub mod file_cards;
 mod grok_history;
 mod goals;
 pub mod instance;
