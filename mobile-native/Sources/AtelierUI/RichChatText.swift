@@ -134,9 +134,11 @@ private struct RichMessageWebView: UIViewRepresentable {
             NotificationCenter.default.addObserver(self, selector: #selector(pauseRendering), name: UIApplication.willResignActiveNotification, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(resumeRendering), name: UIApplication.didBecomeActiveNotification, object: nil)
         }
-        @objc private func pauseRendering() { parent.continuity.show() }
+        // WebKit keeps its layers across the background: lay only the last image
+        // over them, never a text stand-in (the app switcher keeps that frame).
+        @objc private func pauseRendering() { parent.continuity.show(.resuming) }
         @objc private func resumeRendering() {
-            parent.continuity.show()
+            parent.continuity.show(.resuming)
             view?.evaluateJavaScript("window.resumeRendering?.()", completionHandler: nil)
         }
         func render() {
