@@ -1,13 +1,14 @@
-// Header du Research Navigator (plan 024, étape 3) — identité du projet
-// actif, action primaire Nouveau chat, recherche locale et actions rares dans
-// un overflow. Le nom local n'est PAS un sélecteur de projet : le rail et la
+// Header du Research Navigator (plan 024, étape 3 ; refonte « deux lignes »
+// du 2026-11-02) — identité du projet actif et actions rares dans un
+// overflow sur la première ligne ; recherche locale toujours visible et
+// « Nouveau chat » en bouton-icône relief sur la seconde. Le nom local n'est PAS un sélecteur de projet : le rail et la
 // top bar restent les seuls points de changement de projet.
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { t } from "../../lib/i18n";
 import { Button, IconButton } from "../ui";
 import { SearchField } from "../ui/SearchField";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
-import { PlusIcon, SearchIcon, ChatsIcon } from "../icons";
+import { PlusIcon, ChatsIcon } from "../icons";
 import { ProjIcon } from "./projectIcons";
 import type { ProjectStyleAnchor } from "./ProjectStyleMenu";
 
@@ -39,10 +40,8 @@ export function ProjectHeader(p: {
   /** chemin complet du projet ; null en mode chats sans projet */
   root: string | null;
   meta?: ProjMetaLite;
-  searchOpen: boolean;
   query: string;
   onQueryChange: (q: string) => void;
-  onToggleSearch: (open: boolean) => void;
   onNew: () => void;
   onOpenResume: (provider: "claude" | "codex", anchor?: Element | null) => void;
   onRevealFinder?: () => void;
@@ -54,18 +53,7 @@ export function ProjectHeader(p: {
   const [menuOpen, setMenuOpen] = useState(false);
   // triggerRef transmis au menu Base UI (dismiss et retour focus gérés là)
   const overflowRef = useRef<HTMLButtonElement | null>(null);
-  const searchWrapRef = useRef<HTMLSpanElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (p.searchOpen) inputRef.current?.focus();
-  }, [p.searchOpen]);
-
-  function closeSearch() {
-    p.onQueryChange("");
-    p.onToggleSearch(false);
-    searchWrapRef.current?.querySelector("button")?.focus();
-  }
 
   function customizeAnchor(): ProjectStyleAnchor {
     const element = overflowRef.current;
@@ -92,22 +80,6 @@ export function ProjectHeader(p: {
         <div className="pnav-id-col">
           <span className="pnav-name" title={p.root ?? undefined}>{p.name}</span>
         </div>
-      </div>
-      <div className="pnav-cta">
-        <Button variant="secondary" className="pnav-new" onClick={p.onNew}>
-          <span className="pnav-new-ico" aria-hidden="true"><PlusIcon size={12} /></span>
-          {t("action.new-chat")}
-        </Button>
-        <span ref={searchWrapRef} className="pnav-search-wrap">
-          <IconButton
-            label={t("sidebar.search-local")}
-            className={p.searchOpen ? "pnav-search-btn on" : "pnav-search-btn"}
-            aria-expanded={p.searchOpen}
-            onClick={() => (p.searchOpen ? closeSearch() : p.onToggleSearch(true))}
-          >
-            <SearchIcon size={13} />
-          </IconButton>
-        </span>
         <LazyDropdownMenu
           open={menuOpen}
           onOpenChange={setMenuOpen}
@@ -167,22 +139,31 @@ export function ProjectHeader(p: {
           ]}
         />
       </div>
-      {p.searchOpen && (
+      <div className="pnav-cta">
         <SearchField
           ref={inputRef}
           className="pnav-search"
           aria-label={t("sidebar.search-local")}
-          placeholder={t("sidebar.search-local")}
+          placeholder={t("sidebar.search")}
           value={p.query}
           onChange={(e) => p.onQueryChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") {
+            if (e.key === "Escape" && p.query) {
               e.stopPropagation();
-              closeSearch();
+              p.onQueryChange("");
             }
           }}
         />
-      )}
+        <Button
+          variant="secondary"
+          className="pnav-new"
+          aria-label={t("action.new-chat")}
+          title={t("action.new-chat")}
+          onClick={p.onNew}
+        >
+          <PlusIcon size={13} />
+        </Button>
+      </div>
     </header>
   );
 }
