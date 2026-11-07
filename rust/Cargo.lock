@@ -392,6 +392,7 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
+ "flate2",
  "futures-util",
  "hex",
  "http-body-util",

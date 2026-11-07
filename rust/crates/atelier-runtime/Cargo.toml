@@ -37,6 +37,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 sha2 = "0.10"
 hex = "0.4"
 notify = "8"
+# Cartes « article » des pièces jointes du chat : flux PDF compressés.
+flate2 = "1"
 
 [dev-dependencies]
 zip = { version = "2", default-features = false, features = ["deflate"] }

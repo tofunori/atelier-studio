@@ -6094,10 +6094,22 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
 .sel-toolbar.atelier-selection{gap:2px;padding:4px;background:var(--selection-surface);border:0;border-radius:var(--radius-surface);box-shadow:var(--elevation-overlay);}
 /* Annotations : contraste ambre conservant la lecture du passage. */
 ::highlight(chat-an){background:rgba(112,151,255,.18)}
-.user-file-attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom: 8px;white-space:normal}
-.user-file-attachment{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding: 6px 12px;border:0;border-radius:var(--radius-control);background:var(--surface-inset);font-size:var(--fs-s);color:var(--text-secondary);line-height:1.5}
-.user-file-attachment svg{flex:none;color:var(--text-muted)}
-.user-file-attachment>span{overflow-wrap:anywhere;min-width:0}
+/* Pièces jointes d'un message envoyé : cartes « article » HORS de la bulle
+   (variante B, 2026-11-02). Carreau au type du fichier, titre de l'article
+   (sinon nom du fichier), puis revue · année · pages en gris. */
+.user-file-attachments{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:85%;white-space:normal}
+.user-file-attachment.file-card{display:inline-flex;align-items:center;gap:12px;width:300px;max-width:100%;padding:8px 12px 8px 8px;border:0;border-radius:var(--radius-surface);background:var(--surface-inset);color:var(--text-primary);text-align:left;font:inherit;line-height:1.3;
+  transition:box-shadow var(--motion-fast) var(--ease-out)}
+.user-file-attachment.file-card.is-openable{cursor:pointer}
+.user-file-attachment.file-card.is-openable:hover{box-shadow:inset 0 0 0 100vmax var(--surface-hover)}
+.user-file-attachment.file-card.is-openable:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset)}
+.file-card-tile{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:32px;height:40px;border-radius:var(--radius-control);background:var(--surface-app);color:var(--text-muted)}
+.file-card-tile svg{flex:none}
+.file-card-tag{font-size:var(--fs-xs);font-weight:500;letter-spacing:.02em;line-height:1;color:var(--text-muted)}
+.file-card-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.file-card-title{font-size:var(--fs-m);font-weight:500;letter-spacing:-.01em;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-card-meta{font-size:var(--fs-s);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.file-card-dot{margin:0 4px}
 ::highlight(chat-highlight-amber){background:rgba(255,213,74,.40)}
 ::highlight(chat-highlight-green){background:rgba(120,220,140,.40)}
 ::highlight(chat-highlight-blue){background:rgba(120,170,255,.40)}

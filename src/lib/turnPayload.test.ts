@@ -30,13 +30,29 @@ describe("userBubbleAttachmentFields", () => {
   it("nomme les fichiers avec leurs lignes et garde les collages à part", () => {
     expect(userBubbleAttachmentFields([file, paste])).toEqual({
       label: "plot.py (lines 3-9)",
+      files: [{ name: "plot.py", lines: "3-9" }],
       pastes: [{ name: "Collage", text: "a\nb\nc" }],
+    });
+  });
+
+  it("garde le chemin d'un fichier joint et la notice d'une référence Zotero pour leurs cartes", () => {
+    const pdf: DraftAttachment = { name: "s41561.pdf", lines: null, path: "/u/Downloads/s41561.pdf", kind: "file", text: "Fichier joint : /u/Downloads/s41561.pdf" };
+    const zotero: DraftAttachment = {
+      name: "@smith2024", lines: "2024", kind: "zotero", text: "<zotero-reference/>",
+      preview: { title: "Glacier darkening", rows: [{ label: "Year", value: "2024" }, { label: "Journal", value: "The Cryosphere" }] },
+    };
+    expect(userBubbleAttachmentFields([pdf, zotero])).toEqual({
+      label: "s41561.pdf · @smith2024 (lines 2024)",
+      files: [
+        { name: "s41561.pdf", path: "/u/Downloads/s41561.pdf", kind: "file" },
+        { name: "@smith2024", kind: "zotero", title: "Glacier darkening", journal: "The Cryosphere", year: "2024" },
+      ],
     });
   });
 
   it("une figure annotée garde vignette, nom et notes ; une simple capture n'a que sa vignette", () => {
     expect(userBubbleAttachmentFields([figure])).toEqual({
-      imageUrl: "blob:fig", label: "albedo.png", notes: figure.notes,
+      imageUrl: "blob:fig", label: "albedo.png", files: [{ name: "albedo.png" }], notes: figure.notes,
     });
     expect(userBubbleAttachmentFields([snapshot])).toEqual({ imageUrl: "blob:snap" });
   });
@@ -50,6 +66,8 @@ describe("archivedUserEvent", () => {
       imagePaths: ["/tmp/c.png"],
     });
     expect(archivedUserEvent({ text: "Q", ts: 5 }, [], [])).toEqual({ kind: "user", text: "Q", ts: 5 });
+    expect(archivedUserEvent({ text: "", ts: 5, label: "a.pdf", files: [{ name: "a.pdf", path: "/p/a.pdf" }] }, [], []))
+      .toEqual({ kind: "user", text: "", ts: 5, label: "a.pdf", files: [{ name: "a.pdf", path: "/p/a.pdf" }] });
   });
 });
 

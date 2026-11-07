@@ -134,6 +134,7 @@ export function zoteroAttachment(item: ZoteroPaletteItem): Attachment {
         { label: "Citation", value: label },
         ...(item.creators ? [{ label: "Authors", value: item.creators }] : []),
         ...(item.year ? [{ label: "Year", value: item.year }] : []),
+        ...(item.publication ? [{ label: "Journal", value: item.publication }] : []),
         ...(item.doi ? [{ label: "DOI", value: item.doi }] : []),
         { label: "Digest", value: "…" },
       ],
