@@ -21,6 +21,7 @@ pub mod live_context;
 mod message_edits;
 pub mod paths;
 mod project_folders;
+mod project_home;
 pub mod prov;
 pub mod recipe;
 pub mod revision_tool;

@@ -1,11 +1,12 @@
 // Header du Research Navigator (plan 024, étape 3 ; refonte « deux lignes »
 // du 2026-11-02) — identité du projet actif et actions rares dans un
 // overflow sur la première ligne ; recherche locale toujours visible et
-// « Nouveau chat » en bouton-icône relief sur la seconde. Le nom local n'est PAS un sélecteur de projet : le rail et la
-// top bar restent les seuls points de changement de projet.
+// « Nouveau chat » en bouton-icône relief sur la seconde. Le nom ouvre le
+// menu des projets (récents, écran des projets, ouvrir un dossier, nouveau
+// projet — maquette « bureau » du 2026-11-08), en plus du rail.
 import { useRef, useState } from "react";
 import { t } from "../../lib/i18n";
-import { Button, IconButton } from "../ui";
+import { Button, IconButton, RowButton } from "../ui";
 import { SearchField } from "../ui/SearchField";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { PlusIcon, ChatsIcon } from "../icons";
@@ -13,6 +14,24 @@ import { ProjIcon } from "./projectIcons";
 import type { ProjectStyleAnchor } from "./ProjectStyleMenu";
 
 export type ProjMetaLite = { color?: string; label?: string };
+
+/** Menu du nom du projet (fourni par App). */
+export type ProjectSwitchMenu = {
+  recents: { root: string; name: string }[];
+  onSelect: (root: string) => void;
+  onAll: () => void;
+  onOpenFolder: () => void;
+  onNew: () => void;
+};
+
+function ChevronGlyph() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4.5 6.2 8 9.7l3.5-3.5" />
+    </svg>
+  );
+}
 
 /** Troncature milieu des chemins (contrat typo §6) — valeur complète en title. */
 export function middleTruncate(value: string, max = 34): string {
@@ -49,8 +68,11 @@ export function ProjectHeader(p: {
   onCustomize?: (anchor: ProjectStyleAnchor) => void;
   onRemoveProject?: () => void;
   onProjectSettings?: () => void;
+  switchMenu?: ProjectSwitchMenu;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const nameRef = useRef<HTMLButtonElement | null>(null);
   // triggerRef transmis au menu Base UI (dismiss et retour focus gérés là)
   const overflowRef = useRef<HTMLButtonElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -78,7 +100,59 @@ export function ProjectHeader(p: {
       <div className="pnav-id">
         <span className="pnav-id-ico" aria-hidden="true">{icon}</span>
         <div className="pnav-id-col">
-          <span className="pnav-name" title={p.root ?? undefined}>{p.name}</span>
+          {p.switchMenu ? (
+            <LazyDropdownMenu
+              open={switchOpen}
+              onOpenChange={setSwitchOpen}
+              triggerRef={nameRef}
+              align="start"
+              label={t("projects.switch")}
+              className="pnav-switch-menu"
+              trigger={
+                <RowButton
+                  className="pnav-name-btn"
+                  title={p.root ?? undefined}
+                  aria-haspopup="menu"
+                  aria-expanded={switchOpen}
+                  aria-label={`${p.name} — ${t("projects.switch")}`}
+                >
+                  <span className="pnav-name">{p.name}</span>
+                  <ChevronGlyph />
+                </RowButton>
+              }
+              groups={[
+                ...(p.switchMenu.recents.length
+                  ? [{
+                      key: "recent",
+                      label: t("projects.recents-menu"),
+                      items: p.switchMenu.recents.map((r) => ({
+                        key: r.root,
+                        label: r.name,
+                        onSelect: () => p.switchMenu!.onSelect(r.root),
+                      })),
+                    }]
+                  : []),
+                {
+                  key: "open",
+                  separatorBefore: p.switchMenu.recents.length > 0,
+                  items: [
+                    { key: "all", label: t("projects.all-menu"), onSelect: p.switchMenu.onAll },
+                    { key: "folder", label: t("projects.open-folder-menu"), onSelect: p.switchMenu.onOpenFolder },
+                    { key: "new", label: t("projects.new-menu"), onSelect: p.switchMenu.onNew },
+                  ],
+                },
+                ...(p.mode === "project"
+                  ? [{
+                      key: "settings",
+                      separatorBefore: true,
+                      items: [{ key: "project-settings", label: t("project.settings"), onSelect: () => p.onProjectSettings?.() }],
+                    }]
+                  : []),
+              ]}
+            />
+          ) : (
+            <span className="pnav-name" title={p.root ?? undefined}>{p.name}</span>
+          )}
         </div>
         <LazyDropdownMenu
           open={menuOpen}

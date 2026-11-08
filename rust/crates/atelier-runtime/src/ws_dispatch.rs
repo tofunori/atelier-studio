@@ -40,6 +40,7 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "getLedger"
         | "listFiles"
         | "projectFolderCatalog"
+        | "projectCards"
         | "narvalStatus"
         | "narvalSnapshot"
         | "narvalListDirectory"
@@ -360,6 +361,11 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
         error["plugins"] = json!([]);
         error["error"] = json!(message);
     }
+    if request["type"] == "projectCards" {
+        error["type"] = json!("projectCards");
+        error["cards"] = json!([]);
+        error["error"] = json!(message);
+    }
     if request["type"] == "projectFolderCatalog" {
         error["type"] = json!("projectFolderCatalog");
         error["sources"] = json!([]);
@@ -655,6 +661,7 @@ mod tests {
             "unpinPassage",
             "memorySave",
             "memoryDelete",
+            "createProject",
         ];
         for kind in crate::ws_router::ALL_MESSAGE_TYPES {
             if *kind == "ping" {
