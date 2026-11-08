@@ -6,12 +6,13 @@ import { lazy, memo, Suspense, useEffect, useLayoutEffect, useRef, useState, use
 import { activeTurnStatus } from "./activeTurnStatus";
 import { useSmoothedStream } from "./useSmoothedStream";
 import { useLiveTailText } from "../../hooks/useThreadEvents";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, EyeIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { isStoppedTerminal, type ChatTurnViewModel, type ToolAction } from "../../lib/chat/turnViewModel";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { t } from "../../lib/i18n";
 import { pasteLineCountLabel } from "../../lib/pasteView";
+import { liveContextWhere } from "../../lib/liveContext";
 import { normalizeMathDelimiters } from "../../lib/markdown";
 import { decorateKbCites } from "./kbCite";
 import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../lib/kbSources";
@@ -320,6 +321,18 @@ export const UserTurn = memo(function UserTurn(p: {
           </BubbleContent>
         </Bubble>
       ) : null /* pièce jointe seule (figure annotée) : pas de bulle vide */}
+      {p.editingText == null && e.liveContext?.name && (() => {
+        // Contexte vivant parti avec ce message : trace grise, sans le texte.
+        const where = liveContextWhere(e.liveContext);
+        return (
+          <div className="user-live-context" role="note" title={e.liveContext.path}
+            aria-label={t("live-context.trace", { name: e.liveContext.name, where })}>
+            <EyeIcon className="user-live-context-glyph" aria-hidden="true" />
+            <span className="user-live-context-name">{e.liveContext.name}</span>
+            {where && <span className="user-live-context-where">{` · ${where}`}</span>}
+          </div>
+        );
+      })()}
       {p.editingText == null && <MessageFooter className="msg-actions tw:px-0">
         {e.ts && (
           <span className="msg-time">

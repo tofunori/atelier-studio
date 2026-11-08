@@ -16,6 +16,7 @@ pub mod instance;
 pub mod kb_block;
 pub mod kernel;
 mod keep_awake;
+pub mod live_context;
 mod message_edits;
 pub mod paths;
 mod project_folders;

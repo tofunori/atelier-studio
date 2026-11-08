@@ -5,6 +5,7 @@ export * from "./disk_merge";
 export * from "./editor_contract";
 export * from "./editor_wrap";
 export * from "./file_picker";
+export * from "./live_context";
 export * from "./document_session";
 export * from "./draft_keeper";
 export * from "./selection_bridge";
