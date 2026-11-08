@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 import { renderUi } from "../test/render";
 import { setLanguage } from "../lib/i18n";
 import { recentProjects, projectActivity } from "../lib/projectsHome";
-import ProjectsHome, { activityText, dueText } from "./ProjectsHome";
+import ProjectsHome from "./ProjectsHome";
+import { activityText, dueText } from "../lib/projectsHomeText";
 
 const sent: any[] = [];
 vi.mock("../lib/wsBus", () => ({ wsSend: (msg: unknown) => { sent.push(msg); return true; } }));
