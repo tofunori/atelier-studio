@@ -301,6 +301,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       postToHost: dependencies.postToHost,
       onMutated: () => reader?.refreshAnnotations(),
       onError: (message) => showStickyNotice("err", message),
+      revealSource: () => { if (reader?.isReading()) reader.setRead(false); },
       document: doc,
       window: win,
     });

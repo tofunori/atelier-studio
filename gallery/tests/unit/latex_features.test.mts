@@ -691,9 +691,15 @@ test("LaTeX notes persist exact passages, keep their mark until authenticated de
   notes.open({text:passage,from,to});
   const input=doc.querySelector('textarea');input.value='Pourquoi ce seuil?\nAvec sa référence.';
   input.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Enter',shiftKey:true,bubbles:true}));assert.equal(writes.length,0);
+  // Entrée enregistre la note pour la prochaine ronde, sans rien envoyer au chat.
   input.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
   await new Promise(r=>setTimeout(r,0));
-  assert.equal(sends.length,1);assert.ok(sends[0].text.includes(passage));assert.equal(notes.annotations().length,1);
+  assert.equal(sends.length,0);assert.equal(writes.length,1);assert.equal(notes.annotations().length,1);
+  assert.equal(doc.getElementById('pop').style.display,'none');
+  // La bulle « Envoyer au chat » l'envoie tout de suite ; le chat la retire en la consommant.
+  notes.focus(notes.annotations()[0].id);doc.querySelector('.send-direct').click();
+  await new Promise(r=>setTimeout(r,0));
+  assert.equal(sends.length,1);assert.ok(sends[0].text.includes(passage));assert.equal(sends[0].direct,true);assert.equal(notes.annotations().length,1);
   const identity=sends[0].pdfAnnotation;
   win.dispatchEvent(new win.MessageEvent('message',{source:win,data:{type:'atelier-pdf-annotation-consumed',...identity,nonce:'wrong'}}));
   assert.equal(notes.annotations().length,1);
@@ -728,8 +734,10 @@ test("LaTeX direct chat icon waits for persistence and preserves draft actions",
     assert.equal(sends.length,before);
     finish(ok);await tick();
     assert.equal(direct.disabled,false);
-    assert.equal(sends.length,before+(ok?1:0));
-    if(ok){assert.equal(sends.at(-1).direct,selector==='.send-direct');assert.ok(sends.at(-1).text.includes('Question'));assert.equal(sends.at(-1).pdfAnnotation.rel,'tex-comments:paper.tex');}
+    // Entrée / ↑ enregistre seulement ; seule l'icône directe envoie au chat.
+    assert.equal(sends.length,before+(ok&&selector==='.send-direct'?1:0));
+    if(ok&&selector==='.send-direct'){assert.equal(sends.at(-1).direct,true);assert.ok(sends.at(-1).text.includes('Question'));assert.equal(sends.at(-1).pdfAnnotation.rel,'tex-comments:paper.tex');}
+    else if(ok){assert.equal(doc.getElementById('pop').style.display,'none');assert.equal(notes.annotations().at(-1).comment,'Question');}
     else {assert.equal(doc.getElementById('pop').style.display,'block');assert.equal(doc.querySelector('textarea').value,'Question');}
   }
   dom.window.close();

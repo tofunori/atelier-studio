@@ -267,6 +267,37 @@ pub fn docx_tool_definition() -> Value {
     })
 }
 
+pub const REVISION_TOOL_NAME: &str = "atelier_revision";
+const REVISION_ACTIONS: [&str; 2] = ["propose", "ask"];
+
+/// Rondes d'annotations de l'éditeur LaTeX : l'agent répond à chaque note
+/// sur place, sans toucher au fichier. L'utilisateur accepte ou rejette.
+pub fn revision_tool_definition() -> Value {
+    json!({
+        "name": REVISION_TOOL_NAME,
+        "description": "Answer one note of an Atelier annotation round (the user asked « Réviser avec l'agent » \
+    on a LaTeX file). NEVER edit the file yourself during a round: the user reviews each answer in place and \
+    accepts or rejects it. propose: text = the rewritten passage that replaces EXACTLY the quoted passage \
+    (same LaTeX conventions, keep \\cite/\\ref keys), reason = one short sentence in the user's language. \
+    ask: question = what you need to know (short), when you cannot answer the note without guessing. \
+    Call once per note; path, round and note come from the round request.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["action", "path", "round", "note"],
+            "properties": {
+                "action": { "type": "string", "enum": REVISION_ACTIONS },
+                "path": { "type": "string", "description": "Absolute path of the file, as given in the round request" },
+                "round": { "type": "string", "description": "Round id from the request (r…)" },
+                "note": { "type": "string", "description": "Note id from the request (between brackets)" },
+                "text": { "type": "string", "description": "propose: replacement for the quoted passage" },
+                "reason": { "type": "string", "description": "propose: why, one sentence" },
+                "question": { "type": "string", "description": "ask: the question for the user" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
 /// Ce que `tools/list` sert, dans l'ordre.
 pub fn all_tool_definitions() -> Vec<Value> {
     vec![
@@ -276,6 +307,7 @@ pub fn all_tool_definitions() -> Vec<Value> {
         python_tool_definition(),
         compute_tool_definition(),
         docx_tool_definition(),
+        revision_tool_definition(),
     ]
 }
 
@@ -300,6 +332,10 @@ pub fn bridge_call_for(tool_name: &str, args: &Value) -> Option<(String, Value)>
         DOCX_TOOL_NAME => {
             let action = args.get("action").and_then(|v| v.as_str())?;
             DOCX_ACTIONS.contains(&action).then(|| (format!("docx_{action}"), args.clone()))
+        }
+        REVISION_TOOL_NAME => {
+            let action = args.get("action").and_then(|v| v.as_str())?;
+            REVISION_ACTIONS.contains(&action).then(|| (format!("revision_{action}"), args.clone()))
         }
         TOOL_NAME => {
             let action = args
@@ -479,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_serves_six_tools() {
+    fn tools_list_serves_seven_tools() {
         let defs = all_tool_definitions();
         let names: Vec<String> = defs
             .iter()
@@ -493,7 +529,8 @@ mod tests {
                 WIDGET_GUIDE_TOOL_NAME,
                 PYTHON_TOOL_NAME,
                 COMPUTE_TOOL_NAME,
-                DOCX_TOOL_NAME
+                DOCX_TOOL_NAME,
+                REVISION_TOOL_NAME
             ]
         );
     }
@@ -531,6 +568,18 @@ mod tests {
             assert!(bridge_call_for(DOCX_TOOL_NAME, &json!({"action": action})).is_none(), "{action}");
         }
         assert!(docx_tool_definition()["description"].as_str().unwrap().len() < 800);
+    }
+
+    #[test]
+    fn revision_routes_only_answers_never_decisions() {
+        for action in REVISION_ACTIONS {
+            let (bridge, _) = bridge_call_for(REVISION_TOOL_NAME, &json!({"action": action})).unwrap();
+            assert_eq!(bridge, format!("revision_{action}"));
+        }
+        for action in ["accept", "reject", "edit", ""] {
+            assert!(bridge_call_for(REVISION_TOOL_NAME, &json!({"action": action})).is_none(), "{action}");
+        }
+        assert!(revision_tool_definition()["description"].as_str().unwrap().len() < 800);
     }
 
     #[test]

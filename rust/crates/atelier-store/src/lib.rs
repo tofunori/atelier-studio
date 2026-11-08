@@ -11,6 +11,7 @@ mod journal;
 mod ledger;
 mod memories;
 pub mod pdf_annots;
+pub mod tex_revisions;
 mod receipts;
 mod reviews;
 mod reverse_lines;

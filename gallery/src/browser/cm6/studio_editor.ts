@@ -419,7 +419,7 @@ function themePickerExtension(getTheme, setTheme) {
 }
 
 // ---- markText / addLineClass as managed decorations ------------------------
-type MarkInput = {id: number; from: number; to: number; spec: Parameters<typeof Decoration.mark>[0] & {insertLeft?: boolean}; widget?: HTMLElement};
+type MarkInput = {id: number; from: number; to: number; spec: Parameters<typeof Decoration.mark>[0] & {insertLeft?: boolean; block?: boolean}; widget?: HTMLElement};
 const addMark = StateEffect.define<MarkInput>();     // {id, from, to, spec}
 const clearMark = StateEffect.define<number>();   // id
 const addLineCls = StateEffect.define<{line: number; cls: string}>();  // {line, cls}  (0-based)
@@ -427,10 +427,13 @@ const clearLineCls = StateEffect.define<{line: number; cls: string}>();// {line,
 const setValueAnno = Annotation.define();
 class NodeWidget extends WidgetType {
   declare node: HTMLElement;
-  constructor(node: HTMLElement) { super(); this.node = node; }
+  declare own: boolean;
+  // `own` : le widget garde ses événements (champ, boutons d'un bloc de
+  // proposition) au lieu de les laisser à l'éditeur.
+  constructor(node: HTMLElement, own = false) { super(); this.node = node; this.own = own; }
   eq(other) { return other.node === this.node; }
   toDOM() { return this.node; }
-  ignoreEvent() { return false; }
+  ignoreEvent() { return this.own; }
 }
 const marksField = StateField.define({
   create: () => ({decos: Decoration.none, specs: new Map()}),
@@ -441,7 +444,7 @@ const marksField = StateField.define({
       if (e.is(addMark)) {
         const {id, from, to, spec, widget} = e.value;
         const deco = widget
-          ? Decoration.widget({widget: new NodeWidget(widget), side: spec.insertLeft ? -1 : 1})
+          ? Decoration.widget({widget: new NodeWidget(widget, !!spec.block), side: spec.insertLeft ? -1 : 1, block: !!spec.block})
           : Decoration.mark(spec);
         specs.set(id, deco);
         decos = decos.update({add: [deco.range(from, to)]});

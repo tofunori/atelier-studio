@@ -319,28 +319,56 @@
   #outline .oi.on{color:var(--text-primary,var(--txt));font-weight:500}
   #outline .l2{padding-left:20px}
   #outline .l3{padding-left:32px;color:var(--text-muted,var(--muted))}
-  #texcPanel{display:none;position:absolute;top:8px;right:8px;z-index:70;width:300px;max-height:70%;
+  /* ===== panneau Annotations : notes, puis ronde avec l'agent ===== */
+  #texcPanel{display:none;position:absolute;top:8px;right:8px;z-index:70;width:320px;max-height:calc(100% - 16px);
     background:var(--surface-overlay,var(--card));border:0;border-radius:10px;
-    box-shadow:var(--elevation-overlay,var(--elev));overflow-y:auto;padding:4px}
-  #texcPanel.open{display:block;animation:pop-fade var(--motion-fast,120ms) ease-out}
-  #texcPanel .tp-head{display:flex;align-items:center;gap:8px;padding:4px 8px 8px}
-  #texcPanel .tp-head .tp-title{font-size:var(--fs-caption, 10px);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted,var(--muted));flex:1}
-  #texcPanel .tp-head button{background:transparent;border:0;border-radius:6px;height:24px;
-    color:var(--text-muted,var(--muted));font:var(--fs-label, 11px) var(--ui-font);padding:0 8px;cursor:pointer;white-space:nowrap}
-  #texcPanel .tp-head button:hover{color:var(--txt);background:var(--card2)}
-  #texcPanel .tp-head .tp-delall:hover{color:var(--status-error,#e06c75)}
-  #texcPanel .tp-item{display:flex;gap:8px;align-items:flex-start;width:100%;text-align:left;background:transparent;
-    border:none;padding:6px 8px;border-radius:6px;cursor:pointer}
-  #texcPanel .tp-item:hover{background:var(--card2)}
-  #texcPanel .tp-dot{width:8px;height:8px;border-radius:999px;flex-shrink:0;margin-top:4px}
-  #texcPanel .tp-body{min-width:0}
-  #texcPanel .tp-quote{font:italic var(--fs-label, 11px)/1.4 var(--ui-font);color:var(--muted);
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #texcPanel .tp-note{font:var(--fs-body-s, 12px)/1.4 var(--ui-font);color:var(--txt);margin-top:1px}
-  #texcPanel .tp-x{background:transparent;border:none;color:var(--muted);cursor:pointer;padding:0 4px;
-    border-radius:6px;margin-left:auto;flex-shrink:0}
+    box-shadow:var(--elevation-overlay,var(--elev));overflow:hidden;flex-direction:column}
+  #texcPanel.open{display:flex;animation:pop-fade var(--motion-fast,120ms) ease-out}
+  #texcPanel .tp-head{display:flex;align-items:center;gap:8px;padding:12px 8px 8px 16px;flex:none}
+  #texcPanel .tp-title{font:600 var(--fs-body, 13px)/1.3 var(--ui-font);letter-spacing:-.01em;color:var(--text-primary,var(--txt))}
+  #texcPanel .tp-sub{font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
+  #texcPanel .tp-gap{flex:1}
+  #texcPanel .tp-close{display:inline-grid;place-items:center;width:24px;height:24px;padding:0;background:transparent;border:0;border-radius:6px;
+    color:var(--text-muted,var(--muted));cursor:pointer;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+  #texcPanel .tp-close svg{width:14px;height:14px}
+  #texcPanel .tp-close:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+  #texcPanel .tp-list{flex:1;min-height:0;overflow-y:auto;padding:0 8px 8px}
+  #texcPanel .tp-sec{font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-disabled,var(--muted));padding:12px 8px 4px}
+  #texcPanel .tp-item{display:flex;gap:12px;align-items:flex-start;padding:8px;border-radius:6px;cursor:pointer;
+    transition:background var(--motion-fast,120ms)}
+  #texcPanel .tp-item:hover,#texcPanel .tp-item.is-active{background:var(--surface-hover,var(--card2))}
+  #texcPanel .tp-item:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:calc(-1 * var(--focus-ring-offset,1px))}
+  #texcPanel .tp-ring{margin-top:0;cursor:inherit;pointer-events:none}
+  #texcPanel .tp-body{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+  #texcPanel .tp-note{font:var(--fs-body, 13px)/1.4 var(--ui-font);color:var(--text-primary,var(--txt));overflow-wrap:anywhere}
+  #texcPanel .tp-state{display:flex;align-items:center;gap:4px;font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-muted,var(--muted))}
+  #texcPanel .tp-ic{display:inline-grid;place-items:center;width:12px;height:12px;flex:none}
+  #texcPanel .tp-ic svg{width:12px;height:12px}
+  #texcPanel .tone-todo .tp-ic{color:var(--text-secondary,var(--txt))}
+  #texcPanel .tone-ok .tp-ic{color:var(--status-success,#98c379)}
+  #texcPanel .tone-ask .tp-ic{color:var(--status-warning,#e0b74a)}
+  #texcPanel .tp-loc{color:var(--text-disabled,var(--muted));margin-left:8px;font-variant-numeric:tabular-nums}
+  #texcPanel .tp-x{display:inline-grid;place-items:center;width:20px;height:20px;padding:0;background:transparent;border:0;border-radius:6px;
+    color:var(--text-disabled,var(--muted));cursor:pointer;flex:none;opacity:0;transition:opacity var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+  #texcPanel .tp-x svg{width:12px;height:12px}
+  #texcPanel .tp-item:hover .tp-x,#texcPanel .tp-x:focus-visible{opacity:1}
   #texcPanel .tp-x:hover{color:var(--status-error,#e06c75)}
-  #texcPanel .tp-empty{font:var(--fs-body-s, 12px) var(--ui-font);color:var(--muted);padding:6px 8px}
+  #texcPanel .tp-empty{font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--text-muted,var(--muted));padding:4px 8px 8px}
+  #texcPanel .tp-error{font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--status-error,#e06c75);padding:0 16px 8px}
+  #texcPanel .tp-foot{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border-top:1px solid var(--border-subtle,var(--border));flex:none}
+  #texcPanel .tp-primary{width:100%;height:28px;border:0;border-radius:6px;background:var(--fill-primary,var(--card2));
+    color:var(--on-fill-primary,var(--text-primary,var(--txt)));font:500 var(--fs-body-s, 12px)/1 var(--ui-font);cursor:pointer;
+    transition:background var(--motion-fast,120ms)}
+  #texcPanel .tp-primary:hover{background:var(--fill-primary-hover,var(--border))}
+  #texcPanel .tp-tools{display:flex;gap:4px;margin:0 -8px}
+  #texcPanel .tp-link{height:24px;padding:0 8px;background:transparent;border:0;border-radius:6px;color:var(--text-muted,var(--muted));
+    font:var(--fs-label, 11px)/1 var(--ui-font);cursor:pointer;white-space:nowrap;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+  #texcPanel .tp-link:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+  #texcPanel .tp-delall:hover{color:var(--status-error,#e06c75)}
+  #texcPanel .tp-work{display:flex;align-items:center;gap:8px;font:var(--fs-body-s, 12px)/1.3 var(--ui-font);color:var(--text-secondary,var(--txt))}
+  #texcPanel .tp-work .tp-cancel{margin-right:-8px}
+  #texcPanel .tp-past{font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
+  #texcPanel button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
   /* ===== console de compilation ===== */
   #texlog{display:none;flex-shrink:0;max-height:38%;background:var(--card2);border-top:1px solid var(--border);
     flex-direction:column;min-height:120px}
@@ -625,8 +653,70 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .pdf-variants[hidden]{display:none}
 #morePop .pdf-variants [data-pdf-path]{white-space:normal;overflow-wrap:anywhere;max-width:320px}
 
-.texc-hl.texc-comment{background:rgba(112,151,255,.18);border-bottom:0;border-radius:2px}
-::highlight(texc-read-comment){background:rgba(112,151,255,.18);text-decoration:none}
+/* Passage annoté : voile gris neutre, la pastille en anneau dit le numéro. */
+.texc-hl.texc-comment{background:color-mix(in srgb,var(--txt) 9%,transparent);border-bottom:0;border-radius:2px}
+::highlight(texc-read-comment){background:color-mix(in srgb,var(--txt) 9%,transparent);text-decoration:none}
+
+/* ===== Rondes d'annotations : réponse de l'agent sur place =====
+   Couleur douce (Thierry 2026-11-08) : rouge léger sur l'ancien passage, vert
+   léger sur la proposition, mots changés un ton plus fort ; ni barré ni
+   souligné. Boutons gris, ✓ vert, icône de question ambre. */
+.cm-editor{--texr-ok:var(--status-success,#98c379);--texr-cut:var(--status-error,#e06c75);
+  --texr-add-line:color-mix(in srgb,var(--texr-ok) 9%,transparent);--texr-add-word:color-mix(in srgb,var(--texr-ok) 24%,transparent);
+  --texr-del-line:color-mix(in srgb,var(--texr-cut) 9%,transparent);--texr-del-word:color-mix(in srgb,var(--texr-cut) 22%,transparent)}
+.cm-editor .texc-hl.texr-old{background:var(--texr-del-line);color:var(--text-muted,var(--muted))}
+.cm-editor .texc-hl.texr-old *{color:inherit}
+.cm-editor .texr-del-word{background:var(--texr-del-word);border-radius:2px}
+.texr-head{display:flex;align-items:center;gap:8px;padding:8px 0 4px;font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--text-muted,var(--muted));cursor:pointer;white-space:normal}
+.texr-head .texr-ring{flex:none}
+.texr-note{color:var(--text-secondary,var(--txt));overflow-wrap:anywhere}
+.texr-block{padding:4px 0 12px;font-family:var(--ui-font);white-space:normal;cursor:default;animation:pop-fade var(--motion-fast,120ms) ease-out}
+.texr-new{font-family:var(--code-font,ui-monospace,monospace);color:var(--text-primary,var(--txt))}
+.texr-new-line{background:var(--texr-add-line);box-shadow:inset 2px 0 0 var(--texr-ok);padding-left:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.texr-new-line b{font-weight:400;background:var(--texr-add-word);border-radius:2px}
+.texr-foot{max-width:720px;padding-top:8px}
+.texr-why{font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--text-muted,var(--muted))}
+.texr-acts{display:flex;align-items:center;gap:4px;margin-top:8px}
+.texr-btn{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;border:0;border-radius:6px;
+  background:var(--fill-primary,var(--card2));color:var(--on-fill-primary,var(--text-primary,var(--txt)));font:500 var(--fs-body-s, 12px)/1 var(--ui-font);
+  cursor:pointer;white-space:nowrap;transition:background var(--motion-fast,120ms)}
+.texr-btn:hover{background:var(--fill-primary-hover,var(--border))}
+.texr-ok{display:inline-grid;place-items:center;color:var(--texr-ok)}
+.texr-ok svg{width:13px;height:13px}
+.texr-kbd{color:var(--text-muted,var(--muted));font-weight:400;font-size:var(--fs-label, 11px)}
+.texr-ghost{height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--text-muted,var(--muted));
+  font:var(--fs-body-s, 12px)/1 var(--ui-font);cursor:pointer;white-space:nowrap;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+.texr-ghost:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+.texr-gap{flex:1}
+.texr-nav{display:inline-flex;align-items:center;color:var(--text-muted,var(--muted));font:var(--fs-body-s, 12px)/1 var(--ui-font);font-variant-numeric:tabular-nums}
+.texr-count{margin-right:4px}
+.texr-icon{display:inline-grid;place-items:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;
+  color:var(--text-muted,var(--muted));cursor:pointer;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+.texr-icon svg{width:13px;height:13px}
+.texr-icon:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+.texr-again-row{margin-top:8px}
+.texr-again-row[hidden]{display:none}
+.texr-field{display:flex;align-items:center;gap:8px;max-width:560px;height:32px;padding:0 4px 0 12px;border-radius:999px;
+  background:color-mix(in srgb,var(--txt) 5%,transparent)}
+.texr-question .texr-field{margin-top:8px}
+.texr-input{flex:1;min-width:0;height:100%;border:0;background:transparent;color:var(--text-primary,var(--txt));
+  font:var(--fs-body-s, 12px)/1 var(--ui-font);outline:none}
+.texr-input::placeholder{color:var(--text-disabled,var(--muted))}
+.texr-send{display:inline-grid;place-items:center;width:24px;height:24px;padding:0;border:0;border-radius:999px;flex:none;
+  background:var(--fill-primary,var(--card2));color:var(--on-fill-primary,var(--text-primary,var(--txt)));cursor:pointer;transition:background var(--motion-fast,120ms)}
+.texr-send svg{width:13px;height:13px}
+.texr-send:hover{background:var(--fill-primary-hover,var(--border))}
+.texr-ask{display:flex;gap:8px;align-items:flex-start;font:var(--fs-body, 13px)/1.5 var(--ui-font);color:var(--text-primary,var(--txt));max-width:720px}
+.texr-q{display:inline-grid;place-items:center;flex:none;margin-top:3px;color:var(--status-warning,#e0b74a)}
+.texr-q svg{width:13px;height:13px}
+.texr-who{color:var(--text-muted,var(--muted))}
+.texr-btn:focus-visible,.texr-ghost:focus-visible,.texr-icon:focus-visible,.texr-send:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+/* Note en cours chez l'agent : l'anneau respire, le panneau tourne. */
+.atelier-annotation-number.is-busy{animation:sbpulse 1.1s infinite}
+.texr-spin{display:inline-block;width:12px;height:12px;flex:none;border-radius:999px;box-sizing:border-box;
+  border:1.3px solid color-mix(in srgb,var(--txt) 22%,transparent);border-top-color:var(--text-secondary,var(--txt));animation:texr-turn .8s linear infinite}
+@keyframes texr-turn{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.atelier-annotation-number.is-busy,.texr-spin,.texr-block{animation:none}}
 .texread-annotation-number{position:absolute;z-index:6}
 
 /* La barre appartient au document : commandes fréquentes, puis menus. */

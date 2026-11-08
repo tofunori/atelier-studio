@@ -860,6 +860,30 @@ pub async fn get_pdfannot_stamp(
     (StatusCode::OK, Json(json!({"stamp": stamp, "codebook": codebook}))).into_response()
 }
 
+#[derive(Deserialize)]
+pub struct TexRevisionsQuery {
+    path: Option<String>,
+}
+
+/// GET /texrevisions?path=… — réponses de l'agent à la ronde d'annotations
+/// du fichier (`tex_revisions.json`, écrit par le runtime). L'éditeur LaTeX
+/// l'interroge pendant une ronde ; rien n'est écrit ici.
+pub async fn get_texrevisions(Query(query): Query<TexRevisionsQuery>) -> impl IntoResponse {
+    let path = query.path.unwrap_or_default();
+    if path.is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "path manquant");
+    }
+    let result = tokio::task::spawn_blocking(move || {
+        atelier_core::tex_revisions::entry(&atelier_core::tex_revisions::default_dir(), &path)
+    })
+    .await;
+    match result {
+        Ok(Ok(entry)) => (StatusCode::OK, Json(json!({"revisions": entry}))).into_response(),
+        Ok(Err(error)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+        Err(error) => json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+    }
+}
+
 /// GET /pdfannot-all — les annotations Zotero communes, superposees aux
 /// annotations des PDF du projet courant pour la portee « Bibliotheque ».
 pub async fn get_pdfannot_all(State(state): State<AppState>) -> impl IntoResponse {
