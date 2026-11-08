@@ -1,5 +1,7 @@
 import {
   createLatexAnnotationsController,
+  createLatexBibCheckController,
+  type LatexBibCheckController,
   createLatexCompileCoordinator,
   createLatexConsolePanel,
   createLatexOutlineController,
@@ -175,6 +177,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   const extension = (path || "").split(".").pop()?.toLowerCase() || "";
   const isTex = extension === "tex";
   const isCsv = extension === "csv";
+  const isBib = extension === "bib";
   const cmMode = MODE_BY_EXTENSION[extension] ?? null;
   const filename = path?.split("/").pop() || "(no file)";
   const channel = "BroadcastChannel" in win && path
@@ -188,6 +191,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   let pdfControls: LatexPdfControls | null = null;
   let annotations: LatexAnnotationsController | null = null;
   let outline: LatexOutlineController | null = null;
+  let bibCheck: LatexBibCheckController | null = null;
   let reader: LatexReadingController | null = null;
   let marge: LatexReadingMargeController | null = null;
   let pendingDiffMarks: ReadonlyArray<{kind: string; line: number; text: string}> = [];
@@ -321,6 +325,32 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       },
     });
     return outline;
+  };
+  // Références : la .bib vérifiée contre Crossref (Rust, /bibcheck/*). Une
+  // correction ne touche le tampon qu'au clic, puis s'enregistre telle quelle
+  // (sans le reformatage automatique, pensé pour la prose LaTeX).
+  const ensureBibCheck = (): LatexBibCheckController => {
+    if (bibCheck) return bibCheck;
+    bibCheck = createLatexBibCheckController({
+      path: path || "",
+      isBib,
+      getEditor: () => editor,
+      panel: doc.getElementById("bibPanel") as HTMLElement,
+      button: doc.getElementById("bibBtn"),
+      menuItem: doc.getElementById("moreRefs"),
+      revealLine: (line) => { if (editor) revealLineRange(editor, {fromLine: line, contextAfter: 8, margin: 80}); },
+      save: () => ensureSession().save(),
+      openFile: (target, where) => {
+        const query = `path=${encodeURIComponent(target)}${where.key ? `&bibkey=${encodeURIComponent(where.key)}` : ""}${where.line ? `&line=${where.line}` : ""}`;
+        const url = `/.fig_thumbs/latex_studio.html?${query}`;
+        if (win.self !== win.top) dependencies.postToHost({type: "atelier-open-tab", url, title: target.split("/").pop() || target});
+        else win.open(url, "_blank");
+      },
+      notify: (kind, message) => setState(kind, message),
+      document: doc,
+      window: win,
+    });
+    return bibCheck;
   };
   const ensurePdfControls = (): LatexPdfControls => {
     if (pdfControls) return pdfControls;
@@ -1030,7 +1060,13 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   if (path && isPdfMode) {
     doc.body.classList.add("pdfmode");
     setState("hint", "clic dans le PDF → ligne source dans l'éditeur");
-  } else if (path) void load();
+  } else if (path) void load().then(() => {
+    if (!isTex && !isBib) return;
+    const bibs = ensureBibCheck();
+    void bibs.refreshAvailability();
+    const key = parameters.get("bibkey");
+    if (isBib && key) bibs.focusKey(key);
+  });
   else {
     setState("ok", "choose a .tex file");
     void picker.show("");

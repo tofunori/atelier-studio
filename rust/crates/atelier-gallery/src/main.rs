@@ -1,4 +1,6 @@
 mod agent;
+mod bib;
+mod bibcheck;
 mod codes;
 mod docx;
 mod documents;
@@ -2663,6 +2665,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/new", post(docx::create))
         .route("/docx/list", get(docx::list))
         .route("/lint", get(documents::lint))
+        // Vérification des références (.bib contre Crossref) : le serveur
+        // propose, le navigateur applique au clic de l'utilisateur.
+        .route(
+            "/bibcheck/plan",
+            post(bibcheck::plan).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
+        .route(
+            "/bibcheck/entry",
+            post(bibcheck::entry).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
+        .route("/bibcheck/ignore", post(bibcheck::ignore))
+        .route("/bibcheck/zotero", post(bibcheck::zotero))
         // Phase 5 — notes + whiteboard
         .route("/notes/load", get(workspace::notes_load))
         .route("/notes/save", post(workspace::notes_save))
