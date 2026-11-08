@@ -305,6 +305,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
         win.latexSelectionBridge?.liveContext?.schedule();
       },
       onError: (message) => showStickyNotice("err", message),
+      revealSource: () => { if (reader?.isReading()) reader.setRead(false); },
       document: doc,
       window: win,
     });

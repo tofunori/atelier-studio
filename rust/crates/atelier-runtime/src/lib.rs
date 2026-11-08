@@ -23,6 +23,7 @@ pub mod paths;
 mod project_folders;
 pub mod prov;
 pub mod recipe;
+pub mod revision_tool;
 mod redact;
 pub mod review;
 pub mod send;

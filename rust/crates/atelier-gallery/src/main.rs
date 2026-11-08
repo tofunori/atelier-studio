@@ -2649,6 +2649,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(documents::get_pdfannot_all),
         )
         .route("/pdfannot-stamp", get(documents::get_pdfannot_stamp))
+        .route("/texrevisions", get(documents::get_texrevisions))
         .route("/pdfannot-codes", post(codes::post_pdfannot_codes))
         .route("/codebook", get(codes::get_codebook).post(codes::post_codebook))
         .route("/export-png", post(documents::export_png))
