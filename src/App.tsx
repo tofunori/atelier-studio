@@ -46,6 +46,7 @@ import { usePluginCatalog } from "./hooks/usePluginCatalog";
 import { useContextInspector } from "./hooks/useContextInspector";
 import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
 import { useStoredJson } from "./hooks/useStoredJson";
+import { projectName, recentProjects, takeLaunchProjectsHome } from "./lib/projectsHome";
 import { relaySidecarMessage } from "./lib/sidecarRelays";
 import { notifySetAside } from "./lib/setAsideNotice";
 import {
@@ -109,6 +110,7 @@ import { IconButton } from "./components/ui/IconButton";
 import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import { worstOf, writeUsageSnapshot, type Usage } from "./lib/usageSummary";
 const UsagePopover = lazyWithRetry(() => import("./components/UsagePopover"));
+const ProjectsHome = lazyWithRetry(() => import("./components/ProjectsHome"));
 import { pluginSkillsForPrompt, revalidateQueuedPluginSkills } from "./lib/plugins";
 import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedAgentSummaries, linkedConversationForProvider } from "./lib/threadLinks";
@@ -543,6 +545,17 @@ export default function App() {
   // ouvert étaient perdus (vécu 2026-08-21).
   const [lastThreadByProject, setLastThreadByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastThreadByProject", {});
   const [lastTabByProject, setLastTabByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastTabByProject", {});
+  const [projMeta, setProjMeta] = useStoredJson<Record<string, ProjMeta>>("atelier-studio.projMeta", {});
+  // Écran d'ouverture des projets : affiché une fois par lancement (s'il y a
+  // des projets), puis depuis le menu du nom du projet. "new" ouvre aussi la
+  // boîte « Nouveau projet ».
+  const [projectsHome, setProjectsHome] = useState<null | "open" | "new">(
+    () => (loadProjects().length > 0 && takeLaunchProjectsHome() ? "open" : null),
+  );
+  // Ordre « récent » : dernière ouverture dans Atelier ou dernière conversation.
+  const markProjectOpened = useCallback((root: string) => {
+    setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now() } }));
+  }, [setProjMeta]);
   // un projet est le contexte des chats — le sélectionner ramène sur la vue
   // chats si on est ailleurs, SAUF en vue Surlignés : là il filtre les fiches
   // de ce projet (re-cliquer le même projet revient à « Tous », spec §4)
@@ -557,6 +570,7 @@ export default function App() {
   // setters useState omis (stables garantis par React).
   const selectProject = useCallback((root: string) => {
     discussionNavigation.current = false;
+    markProjectOpened(root);
     if (activeView === "highlights") {
       setActiveProject(root);
       setHlFilterProject((cur) => (cur === root ? null : root));
@@ -592,9 +606,8 @@ export default function App() {
       }
     }
     setActiveView("chats");
-  }, [activeView, activeProject, lastThreadByProject, setActiveView]);
+  }, [activeView, activeProject, lastThreadByProject, setActiveView, markProjectOpened]);
   const [projectSettingsRoot, setProjectSettingsRoot] = useState<string | null>(null);
-  const [projMeta, setProjMeta] = useStoredJson<Record<string, ProjMeta>>("atelier-studio.projMeta", {});
 
   useEffect(() => {
     localStorage.setItem("atelier-studio.compact", compact ? "1" : "0");
@@ -3028,10 +3041,12 @@ export default function App() {
   // (import statique, stable) et des setters useState : deps [].
   const addProject = useCallback(async () => {
     const root = await open({ directory: true });
-    if (typeof root !== "string") return;
+    if (typeof root !== "string") return false;
     setProjects((p) => (p.includes(root) ? p : [...p, root]));
     setActiveProject(root);
-  }, []);
+    markProjectOpened(root);
+    return true;
+  }, [markProjectOpened]);
 
   // Task 25 (fix) : useCallback — passé nommé (`onNewChat`) à RailMemo et à
   // ResearchHome/CommandPalette. Dep exacte : activeProject (lu dans le
@@ -4052,6 +4067,15 @@ export default function App() {
     () => new Set(allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot)),
     [allThreads],
   );
+  const recentRoots = useMemo(() => recentProjects(projects, projMeta, allThreads), [projects, projMeta, allThreads]);
+  const projectMenu = useMemo(() => ({
+    recents: recentRoots.filter((root) => root !== activeProject).slice(0, 5)
+      .map((root) => ({ root, name: projectName(root, projMeta[root]?.label) })),
+    onSelect: (root: string) => { setActiveView("chats"); selectProject(root); },
+    onAll: () => setProjectsHome("open"),
+    onOpenFolder: () => { void addProject(); },
+    onNew: () => setProjectsHome("new"),
+  }), [recentRoots, activeProject, projMeta, selectProject, addProject, setActiveView]);
 
   // Research Home (plan 017) : modèle dérivé pur + vrais workflows, calculés
   // uniquement quand aucun thread n'est actif (la timeline monte l'accueil à
@@ -4444,6 +4468,7 @@ export default function App() {
       </LazyBoundary>
   ) : (
         <Sidebar
+          projectMenu={projectMenu}
           onProjectSettings={setProjectSettingsRoot}
           projects={projects}
           threads={allThreads}
@@ -4503,7 +4528,8 @@ export default function App() {
   // il ne se rend que sous `settings/sections/General.tsx`, donc déjà
   // couvert par `showSettings`.
   const overlayOpen = galleryFullscreen || showSettings || paletteOpen || qaMode === "open" || pluginsOpen
-    || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null || setupWelcomeOpen;
+    || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null || setupWelcomeOpen
+    || projectsHome != null;
   function updateProjectFolders(value: import("./lib/projectFolders").ProjectFolders) {
     if (!projectSettingsRoot) return;
     const next = { ...settingsRef.current, projectFolders: { ...settingsRef.current.projectFolders, [projectSettingsRoot]: value } };
@@ -4514,7 +4540,38 @@ export default function App() {
   }
   const overlaysNode = (
     <>
-      {projectSettingsRoot && <LazyBoundary fallback={null}><ProjectFoldersDialog locked={runningProjects.has(projectSettingsRoot)} root={projectSettingsRoot} value={settings.projectFolders?.[projectSettingsRoot]} onClose={() => setProjectSettingsRoot(null)} onChange={updateProjectFolders} /></LazyBoundary>}
+      {projectSettingsRoot && <LazyBoundary fallback={null}><ProjectFoldersDialog locked={runningProjects.has(projectSettingsRoot)} root={projectSettingsRoot} value={settings.projectFolders?.[projectSettingsRoot]} onClose={() => setProjectSettingsRoot(null)} onChange={updateProjectFolders}
+        card={projMeta[projectSettingsRoot]} onCardChange={(patch) => setProjMeta((prev) => ({ ...prev, [projectSettingsRoot]: { ...prev[projectSettingsRoot], ...patch } }))} /></LazyBoundary>}
+      {projectsHome && (
+        <LazyBoundary fallback={null}>
+          <ProjectsHome
+            projects={recentRoots}
+            meta={projMeta}
+            threads={allThreads}
+            connected={wsReady}
+            startWithNewProject={projectsHome === "new"}
+            onOpen={(root) => {
+              setProjectsHome(null);
+              // déjà ouvert (premier projet au lancement) : on garde son fil
+              setActiveView("chats");
+              if (root === activeProject) markProjectOpened(root);
+              else selectProject(root);
+            }}
+            onOpenFolder={() => { void addProject().then((added) => { if (added) setProjectsHome(null); }); }}
+            onCreated={(root, due) => {
+              setProjects((prev) => (prev.includes(root) ? prev : [...prev, root]));
+              setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now(), ...(due ? { due } : {}) } }));
+              discussionNavigation.current = false;
+              setActiveView("chats");
+              setActiveProject(root);
+              setActiveId(null);
+              activeIdRef.current = null;
+              setProjectsHome(null);
+            }}
+            onClose={() => setProjectsHome(null)}
+          />
+        </LazyBoundary>
+      )}
       {/* Lot A, tâche 3 : les réglages ne remplacent plus l'app (ancien
           `if (showSettings) return`) — la feuille se pose ici, par-dessus
           l'arbre monté, comme les autres surcouches de ce fragment. */}

@@ -19,6 +19,7 @@ mod keep_awake;
 mod message_edits;
 pub mod paths;
 mod project_folders;
+mod project_home;
 pub mod prov;
 pub mod recipe;
 mod redact;

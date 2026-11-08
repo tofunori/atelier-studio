@@ -24,7 +24,16 @@ const RailActivity = lazyWithRetry(() => import("./RailActivity"));
 // les favoris attendent de toute façon la liste des fils (WebSocket)
 const RailFavorites = lazyWithRetry(() => import("./sidebar/RailFavorites"));
 
-export type ProjMeta = { color?: string; label?: string };
+export type ProjMeta = {
+  color?: string;
+  label?: string;
+  /** dernière ouverture dans Atelier (ms) — ordre de l'écran des projets */
+  openedAt?: number;
+  /** échéance affichée sur la carte du projet */
+  due?: import("../lib/projectsHome").ProjectDue;
+  /** revue visée, quand la source LaTeX ne la dit pas */
+  journal?: string;
+};
 
 /** Signaux agrégés par App (lib/railSignals) : le rail ne fait que les montrer. */
 export type RailSignals = {

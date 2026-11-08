@@ -7,6 +7,7 @@ import { Input } from "./shadcn/input";
 import { Checkbox, CheckboxIndicator } from "./shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
 import { normalizeProjectFolders, type ProjectFolders, type ProjectFolder } from "../lib/projectFolders";
+import type { ProjectDue } from "../lib/projectsHome";
 import { t } from "../lib/i18n";
 import "./ProjectFolders.css";
 
@@ -36,8 +37,31 @@ function FolderAccess({ folder, locked, onChange }: { folder: ProjectFolder; loc
   </Field>;
 }
 
-export default function ProjectFoldersDialog({ root, value, onChange, onClose, locked = false }: {
+/** Ce que montre la carte du projet sur l'écran d'ouverture : revue et échéance. */
+type ProjectCardMeta = { journal?: string; due?: ProjectDue };
+
+function ProjectCardFields({ card, onChange }: { card?: ProjectCardMeta; onChange: (patch: ProjectCardMeta) => void }) {
+  const due = card?.due;
+  const setDue = (patch: Partial<ProjectDue>) => {
+    const next = { date: due?.date ?? "", label: due?.label, ...patch };
+    onChange({ due: next.date ? { date: next.date, ...(next.label?.trim() ? { label: next.label } : {}) } : undefined });
+  };
+  return <FieldGroup className="project-card-fields">
+    <Field orientation="horizontal"><FieldLabel htmlFor="project-journal">{t("projects.journal")}</FieldLabel>
+      <Input id="project-journal" value={card?.journal ?? ""} placeholder={t("projects.journal-placeholder")}
+        onChange={e => onChange({ journal: e.target.value || undefined })} /></Field>
+    <div className="project-due-row">
+      <Field orientation="horizontal"><FieldLabel htmlFor="project-due">{t("projects.due")}</FieldLabel>
+        <Input id="project-due" type="date" value={due?.date ?? ""} onChange={e => setDue({ date: e.target.value })} /></Field>
+      <Input aria-label={t("projects.due-label")} value={due?.label ?? ""} placeholder={t("projects.due-label-placeholder")}
+        disabled={!due?.date} onChange={e => setDue({ label: e.target.value })} />
+    </div>
+  </FieldGroup>;
+}
+
+export default function ProjectFoldersDialog({ root, value, onChange, onClose, locked = false, card, onCardChange }: {
   root: string; locked?: boolean; value?: ProjectFolders; onChange: (value: ProjectFolders) => void; onClose: () => void;
+  card?: ProjectCardMeta; onCardChange?: (patch: ProjectCardMeta) => void;
 }) {
   const config = normalizeProjectFolders(root, value);
   const [error, setError] = useState("");
@@ -55,6 +79,8 @@ export default function ProjectFoldersDialog({ root, value, onChange, onClose, l
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   }
   return <LazyDialog open title={t("project.folders-dialog-title")} closeLabel={t("action.close")} onOpenChange={v => { if (!v) onClose(); }} className="project-folders-dialog">
+    {onCardChange && <><div className="project-folders-heading"><h3>{t("projects.card-heading")}</h3></div>
+    <ProjectCardFields card={card} onChange={onCardChange} /></>}
     <div className="project-folders-heading"><h3>{t("project.folders-main")}</h3></div>
     <div className="project-folder-row"><Folder size={20} /><div className="project-folder-content"><strong>{root.split("/").pop() || root}</strong><code title={root}>{root}</code><GalleryVisibility checked={config.mainGallery} onChange={mainGallery => onChange({ ...config, mainGallery })}/></div></div>
     <div className="project-folders-heading"><h3>{t("project.folders-associated")}</h3><Button variant="secondary" disabled={busy || locked} onClick={() => void add()}><Plus data-icon="inline-start" />{t("project.folders-add")}</Button></div>

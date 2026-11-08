@@ -140,6 +140,8 @@ export default function Sidebar(p: {
   onRename: (threadId: string, title: string) => void;
   projMeta: Record<string, { color?: string; label?: string }>;
   onProjectSettings?: (root: string) => void;
+  /** menu du nom du projet : projets récents, écran des projets, ouvrir, créer */
+  projectMenu?: import("./sidebar/ProjectHeader").ProjectSwitchMenu;
   onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
   linkProviders?: { id: string; label: string }[];
   onContinueWith?: (thread: Thread, provider: string) => void;
@@ -528,6 +530,7 @@ export default function Sidebar(p: {
             onRemoveProject={() => {
               if (p.activeProject) p.onRemoveProject(p.activeProject);
             }}
+            switchMenu={p.projectMenu}
           />
         </SidebarHeader>
 

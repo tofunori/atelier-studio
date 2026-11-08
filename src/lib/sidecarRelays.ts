@@ -17,6 +17,9 @@ const forward = (event: string): Relay => (msg) => ({ event, detail: msg });
 
 const RELAYS: Record<string, Relay> = {
   frameChecked: forward("frame-checked"),
+  // écran d'ouverture des projets : vignettes et création, corrélées par requestId
+  projectCards: forward("project-cards"),
+  projectCreated: forward("project-created"),
   // base de connaissances (plan 049) : retour d'épinglage relayé aux
   // surfaces intéressées (bouton browser, picker du composer)
   kbAdded: (msg) => ({

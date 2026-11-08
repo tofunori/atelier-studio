@@ -3908,6 +3908,12 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .pnav-name { font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em;
   color: var(--text-primary); line-height: 1.3; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
+/* le nom ouvre le menu des projets (écran d'ouverture, 2026-11-08) */
+.pnav-name-btn.ui-rowbtn { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start;
+  max-width: 100%; min-width: 0; height: 24px; margin-left: -4px; padding: 0 4px;
+  border-radius: var(--r-s); color: var(--text-muted); transition: background-color var(--ease); }
+.pnav-name-btn.ui-rowbtn:hover, .pnav-name-btn.ui-rowbtn[aria-expanded="true"] { background: var(--surface-hover); }
+.pnav-name-btn.ui-rowbtn svg { flex: none; }
 .pnav-path { font-size: var(--fs-s); color: var(--text-muted); line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pnav-ov-wrap, .pnav-search-wrap { display: inline-flex; flex: none; }
