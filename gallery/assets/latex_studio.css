@@ -36,8 +36,8 @@
   #fname{font-size:var(--fs-body, 13px);font-weight:600;letter-spacing:-.01em;color:var(--txt);max-width:260px;overflow:hidden;text-overflow:ellipsis;flex:none;white-space:nowrap}
   header .sep{display:none}
   #toolbarActions{gap:2px}
-  #moreBtn,#texcBtn,#rewrapAllBtn,#popPdf{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;padding:0}
-  #moreBtn svg,#texcBtn svg,#rewrapAllBtn svg{width:16px;height:16px}
+  #moreBtn,#texcBtn,#bibBtn,#chatAdd,#rewrapAllBtn,#popPdf{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  #moreBtn svg,#texcBtn svg,#bibBtn svg,#chatAdd svg,#rewrapAllBtn svg{width:16px;height:16px}
   #popPdf svg{width:14px;height:14px}
   #rewrapAllBtn{position:relative}
   #rewrapAutoDot{display:none;position:absolute;top:3px;right:3px;width:4px;height:4px;border-radius:999px;background:var(--toolbar-active-text)}
@@ -901,7 +901,7 @@ body:has(#left .dv-review-bar:not([hidden])) #diffGrp #diffPrev,body:has(#left .
   #diffGrp #diffTag{gap:4px;padding:0 5px!important}
   #compileActions>#popPdf{font-size:11px;padding:0 3px;gap:1px}
   #compileActions>#popPdf svg{width:12px;height:12px}
-  #build,#toolbarWrap,#toolbarVisual,#moreBtn{width:24px;min-width:0}
+  #build,#toolbarWrap,#toolbarVisual,#moreBtn,#bibBtn{width:24px;min-width:0}
   #wrapActions{padding-left:2px}
   header{gap:2px}
 }
