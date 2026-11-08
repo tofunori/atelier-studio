@@ -66,13 +66,13 @@ test("le bloc de proposition câble Accepter, Rejeter et Redemander", () => {
   }, {accept: () => calls.push("acc"), reject: () => calls.push("rej"), again: (w: string) => calls.push(`again:${w}`), move: (s: number) => calls.push(`move:${s}`)});
   assert.equal(block.querySelector(".texr-new-line")!.innerHTML, "<b>new</b> text");
   assert.equal(block.querySelector(".texr-count")!.textContent, "1 sur 3");
-  block.querySelector<HTMLButtonElement>(".texr-accept")!.click();
-  block.querySelector<HTMLButtonElement>(".texr-reject")!.click();
-  block.querySelector<HTMLButtonElement>(".texr-again")!.click();
-  assert.equal(block.querySelector<HTMLElement>(".texr-again-row")!.hidden, false);
-  block.querySelector<HTMLInputElement>(".texr-input")!.value = "plus court";
-  block.querySelector<HTMLButtonElement>(".texr-send")!.click();
-  block.querySelector<HTMLButtonElement>(".texr-next")!.click();
+  (block.querySelector(".texr-accept") as HTMLButtonElement).click();
+  (block.querySelector(".texr-reject") as HTMLButtonElement).click();
+  (block.querySelector(".texr-again") as HTMLButtonElement).click();
+  assert.equal((block.querySelector(".texr-again-row") as HTMLElement).hidden, false);
+  (block.querySelector(".texr-input") as HTMLInputElement).value = "plus court";
+  (block.querySelector(".texr-send") as HTMLButtonElement).click();
+  (block.querySelector(".texr-next") as HTMLButtonElement).click();
   assert.deepEqual(calls, ["acc", "rej", "again:plus court", "move:1"]);
   // une seule proposition : pas de navigation
   const single = round.proposalBlock(window.document, {number: 1, comment: "", lineBefore: "", lineAfter: "", passage: "a", position: {index: 1, total: 1},
