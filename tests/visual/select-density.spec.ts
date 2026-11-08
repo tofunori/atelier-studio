@@ -13,8 +13,9 @@ test('settings selection stays compact and usable with a single disclosure chevr
   await trigger.click();
   const choice = page.getByRole('option', { name: 'Codex', exact: true });
   await expect(choice).toBeVisible();
-  // rangée du contrat commun des menus (--menu-row-height, finition lot 3)
-  expect((await choice.boundingBox())!.height).toBeLessThanOrEqual(32);
+  // rangée du contrat commun des menus (--menu-row-height, finition lot 3) ;
+  // marge sous-pixel du WebKit macOS (32,00001 px vu en CI, comme #107)
+  expect((await choice.boundingBox())!.height).toBeLessThanOrEqual(32.01);
   await choice.click();
   await expect(trigger).toContainText('Codex');
   await expect(trigger).toBeFocused();
