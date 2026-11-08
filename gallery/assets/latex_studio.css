@@ -1195,6 +1195,5 @@ html.tex-read-only #msBar,body.csvtable #msBar{display:none}
 .bc-card .bc-nav .bp-n{font-size:12px;margin-right:4px;font-variant-numeric:tabular-nums}
 #bibBtn[aria-pressed="true"]{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
 /* La carte vit dans la ligne de CodeMirror : sans ses tampons de widget, pas de ligne vide fantôme dessous. */
-.cm-line:has(> .bc-host) > .cm-widgetBuffer{display:none}
-.cm-line:has(> .bc-host) > br{display:none}
+.cm-widgetBuffer:has(+ .bc-host),.bc-host ~ .cm-widgetBuffer,.bc-host ~ br{display:none}
 @media (prefers-reduced-motion:reduce){#bibPanel,#bibPanel .bp-spin,#bibPanel .bp-chev,#bibPanel .bp-bar span{animation:none!important;transition:none!important}}
