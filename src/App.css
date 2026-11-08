@@ -5989,11 +5989,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   overflow-wrap: anywhere; }
 .live-context-detail .live-context-detail-note { font-size: var(--fs-s); color: var(--text-muted);
   font-variant-numeric: tabular-nums; }
-.live-context-code { display: flex; flex-direction: column; margin: 0; padding: 8px;
-  border-radius: var(--r-s); background: var(--bg); color: var(--text-secondary);
-  font: 400 var(--fs-s)/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.live-context-code .live-context-code-n { display: inline-block; width: 28px; color: var(--text-muted);
-  font-variant-numeric: tabular-nums; user-select: none; }
 /* trace sous la bulle : ce qui est parti avec le message, à droite comme l'heure */
 .user-live-context { display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
   font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }

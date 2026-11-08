@@ -22,34 +22,17 @@ function fakeTimers() {
   };
 }
 
-test("editor context: cursor line when nothing is selected", () => {
+test("editor context: file and cursor line, never the selection (2026-11-08)", () => {
   assert.deepEqual(plain(core.buildEditorLiveContext({
-    path: "/p/thesis/ch1.tex", kind: "tex", selection: "",
-    from: {line: 41, ch: 3}, to: {line: 41, ch: 3}, cursor: {line: 41, ch: 3},
+    path: "/p/thesis/ch1.tex", kind: "tex", cursor: {line: 41, ch: 3},
   })), {path: "/p/thesis/ch1.tex", name: "ch1.tex", kind: "tex", line: 42});
-});
-
-test("editor context: selected range is 1-based and ignores a trailing column-0 head", () => {
+  // Selecting a passage to comment or highlight it must not send it to the chat:
+  // even if a caller still passes the selection, only the head line goes out.
   const ctx = plain(core.buildEditorLiveContext({
     path: "/p/a.py", kind: "code", selection: "a\nb\n",
     from: {line: 9, ch: 0}, to: {line: 11, ch: 0}, cursor: {line: 11, ch: 0},
   }));
-  assert.deepEqual(ctx, {path: "/p/a.py", name: "a.py", kind: "code", lineFrom: 10, lineTo: 11, selection: "a\nb\n"});
-  const reversed = plain(core.buildEditorLiveContext({
-    path: "/p/a.py", kind: "code", selection: "xy",
-    from: {line: 5, ch: 4}, to: {line: 2, ch: 1},
-  }));
-  assert.equal(reversed.lineFrom, 3);
-  assert.equal(reversed.lineTo, 6);
-});
-
-test("editor context: selection cut at 12000 chars, whitespace is not a selection, no path is null", () => {
-  const long = "x".repeat(13000);
-  const ctx = core.buildEditorLiveContext({path: "/p/a.tex", kind: "tex", selection: long, from: {line: 0, ch: 0}, to: {line: 0, ch: 13000}});
-  assert.equal(ctx.selection.length, 12000);
-  const blank = plain(core.buildEditorLiveContext({path: "/p/a.tex", kind: "tex", selection: "  \n", from: {line: 3, ch: 0}, to: {line: 4, ch: 0}, cursor: {line: 4, ch: 0}}));
-  assert.equal(blank.selection, undefined);
-  assert.equal(blank.line, 5);
+  assert.deepEqual(ctx, {path: "/p/a.py", name: "a.py", kind: "code", line: 12});
   assert.equal(core.buildEditorLiveContext({path: null, kind: "tex"}), null);
 });
 
@@ -76,9 +59,9 @@ test("pdf context: page / pageCount and absolute path from the gallery root", ()
   assert.equal(core.resolvePdfLivePath({file: "x.pdf", projectRoot: "/r", texPdf: "/abs/main.pdf"}), "/abs/main.pdf");
   assert.equal(core.resolvePdfLivePath({file: "kb-pdf/42", projectRoot: "/r"}), "kb-pdf/42");
   assert.equal(core.resolvePdfLivePath({file: null, projectRoot: "/r"}), null);
-  assert.deepEqual(plain(core.buildPdfLiveContext({path: "/r/out/paper.pdf", page: 3, pageCount: 12, selection: ""})),
+  assert.deepEqual(plain(core.buildPdfLiveContext({path: "/r/out/paper.pdf", page: 3, pageCount: 12})),
     {path: "/r/out/paper.pdf", name: "paper.pdf", kind: "pdf", page: 3, pageCount: 12});
-  assert.equal(core.buildPdfLiveContext({path: "/r/a.pdf", page: 2, pageCount: 4, selection: "ice"}).selection, "ice");
+  assert.equal(core.buildPdfLiveContext({path: "/r/a.pdf", page: 2, pageCount: 4, selection: "ice"}).selection, undefined);
 });
 
 test("publisher: debounced, posts only on change, repost forces the current value", () => {
@@ -141,8 +124,8 @@ test("selection bridge: cursorActivity also feeds the live context, tab activati
   selection = "alpha"; from = {line: 4, ch: 0}; to = {line: 4, ch: 5};
   listeners.get("cursorActivity")!();
   timers.run();
-  assert.equal(posted.at(-1).context.selection, "alpha");
-  assert.equal(posted.at(-1).context.lineFrom, 5);
+  assert.deepEqual(posted.at(-1).context, {path: "/p/ch1.tex", name: "ch1.tex", kind: "tex", line: 5,
+    comments: [{line: 3, quote: "q", text: "t"}]}, "the selected text never reaches the chat");
   const count = posted.length;
   messages.forEach((fn) => fn({source: {}, data: {type: "atelier-tab-activated"}}));
   assert.equal(posted.length, count, "only the parent frame may ask for a re-post");

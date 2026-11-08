@@ -77,9 +77,6 @@ function ThumbOrGlyph({ url }: { url: string }) {
   );
 }
 
-/** Lignes montrées dans le popover du contexte vivant, au plus. */
-const LIVE_PREVIEW_LINES = 12;
-
 /** Contexte vivant (variante A, 2026-11-08) : étiquette discrète « ce que tu
  *  regardes » — sans fond au repos, un clic montre exactement ce qui part,
  *  la croix la retire pour ce message seulement. */
@@ -89,8 +86,6 @@ function LiveContextChip(p: { context: LiveContext; projectRoot?: string | null;
   const where = liveContextWhere(ctx);
   const sentence = liveContextSentence(ctx);
   const label = t("live-context.chip", { name: ctx.name, where });
-  const lines = ctx.selection?.split("\n") ?? [];
-  const first = ctx.lineFrom ?? ctx.line;
   return (
     <span className={`live-context-chip${open ? " is-open" : ""}`}>
       <Popover open={open} onOpenChange={setOpen}>
@@ -107,17 +102,6 @@ function LiveContextChip(p: { context: LiveContext; projectRoot?: string | null;
             </PopoverDescription>
           </PopoverHeader>
           {sentence && <span className="live-context-detail-note">{sentence}</span>}
-          {lines.length > 0 && (
-            <pre className="live-context-code">
-              {lines.slice(0, LIVE_PREVIEW_LINES).map((line, index) => (
-                <span key={index} className="live-context-code-line">
-                  {first != null && <span className="live-context-code-n">{first + index}</span>}
-                  {line}
-                </span>
-              ))}
-              {lines.length > LIVE_PREVIEW_LINES && <span className="live-context-code-line">…</span>}
-            </pre>
-          )}
           {ctx.comments && ctx.comments.length > 0 && (
             <span className="live-context-detail-note">
               {t("live-context.comments", { n: ctx.comments.length })}

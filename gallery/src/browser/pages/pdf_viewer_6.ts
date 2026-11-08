@@ -21,10 +21,6 @@ let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
 let __reloadPdf: () => void = null;  // posé par main() — rechargement en place après compile LaTeX
-// Contexte vivant du chat (`atelier-live-context`) : posé par la barre
-// compacte (cadre imbriqué seulement) ; la sélection maison le relance.
-let __liveContextChanged: () => void = () => {};
-
 // ---- pipeline de rendu : plafond de densité, priorités, annulation --------
 // Au-delà de 2x le gain visuel est nul alors que le canvas (mémoire ET temps
 // de peinture) grandit comme le CARRÉ du facteur : un écran à devicePixelRatio
@@ -965,7 +961,6 @@ function clearHl(){
   layerSpans = [];
   window.__pdfTextSearch?.releaseSelection();
   (document.getElementById("selinfo") as HTMLSpanElement).textContent = "";
-  __liveContextChanged();
 }
 function selectionModel(){
   if(!activeSelection || !window.AtelierPdfSelection) return null;
@@ -1023,7 +1018,6 @@ function renderSelection(){
 }
 let _selPushT: string|number|NodeJS.Timeout = null;
 function pushSelInfo(lines: number, words, text){
-  __liveContextChanged();
   clearTimeout(_selPushT);
   _selPushT = setTimeout(()=>{
     fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
@@ -4386,16 +4380,13 @@ if (window.self !== window.top) {
         path: core.resolvePdfLivePath({file: rel, projectRoot: liveRoot, texPdf: __passageParams.get("texpdf")}),
         page: total ? currentPage() : undefined,
         pageCount: total || undefined,
-        selection: hlText(),
       });
     },
     postToHost: (payload) => __atelierPost(payload),
     timers: window,
   }) : null;
   if (livePdf) {
-    __liveContextChanged = () => livePdf.schedule();
     core.onTabActivated(window, () => { if (liveRootKnown) livePdf.repost(); });
-    document.addEventListener("selectionchange", () => { if (window.__readingMode?.isOn()) livePdf.schedule(); });
     const settle = (root: unknown) => { liveRoot = typeof root === "string" ? root : null; liveRootKnown = true; livePdf.schedule(); };
     fetch("/ping").then(r => r.ok ? r.json() : null).then(j => settle(j && j.project), () => settle(null));
   }
