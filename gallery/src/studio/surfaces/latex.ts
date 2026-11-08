@@ -52,6 +52,7 @@ import {
   createStudioFilePicker,
   installChatAttach,
   installStudioCommands,
+  liveContextComments,
   revealLineRange,
   type StudioDiffController,
   type StudioDiffFactoryOptions,
@@ -94,7 +95,7 @@ interface LatexSurfaceWindow extends Window {
   cm?: LatexSurfaceEditor;
   CodeMirrorPass?: unknown;
   latexGhostController?: unknown;
-  latexSelectionBridge?: unknown;
+  latexSelectionBridge?: ReturnType<typeof attachEditorSelection>;
   __rewrapAll?: () => number;
   /** jsdiff global (`/.fig_thumbs/diff.min.js`), déjà chargé par le template. */
   Diff?: {
@@ -299,7 +300,10 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       panel: doc.getElementById("texcPanel") as HTMLElement,
       button: doc.getElementById("texcBtn") as HTMLElement,
       postToHost: dependencies.postToHost,
-      onMutated: () => reader?.refreshAnnotations(),
+      onMutated: () => {
+        reader?.refreshAnnotations();
+        win.latexSelectionBridge?.liveContext?.schedule();
+      },
       onError: (message) => showStickyNotice("err", message),
       document: doc,
       window: win,
@@ -717,6 +721,13 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       onSelection: (selection) => ensureSelectionPill().show(selection.from, selection.to, selection.text),
       hostWindow: win,
       fetchImpl: win.fetch.bind(win),
+      liveContext: {
+        path,
+        kind: isTex ? "tex" : "code",
+        postToHost: dependencies.postToHost,
+        // Liste déjà en mémoire (chargée par bind()) : aucune requête ici.
+        comments: () => (annotations ? liveContextComments(annotations.annotations()) : null),
+      },
     });
     wrap.refresh();
     statusBar?.applyVisualEditor();

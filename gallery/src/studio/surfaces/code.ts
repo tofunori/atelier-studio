@@ -222,6 +222,7 @@ export function bootstrapCodeSurface(dependencies: CodeSurfaceDependencies): Cod
       }),
       hostWindow: win,
       fetchImpl: win.fetch.bind(win),
+      liveContext: {path, kind: "code", postToHost},
     });
     (win as Window & {codeSelectionBridge?: unknown}).codeSelectionBridge = selectionBridge;
     return editor;

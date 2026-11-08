@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { parseLiveContext, type LiveContext } from "./liveContext";
 
 const STORAGE_KEY = "atelier-studio.chat-drafts:v1";
 const SCHEMA_VERSION = 1;
@@ -41,6 +42,9 @@ export type QueuedTurn = {
     autofix?: boolean;
   } | null;
   createdAt: number;
+  /** Contexte vivant capturé à la mise en file : c'est lui qui part, pas
+   * celui de l'onglet focalisé au moment du flush. */
+  liveContext?: LiveContext;
 };
 
 export type FollowUpMode = "queue" | "steer";
@@ -104,8 +108,11 @@ function normalizeQueuedTurn(value: unknown): QueuedTurn | null {
         ...(typeof item.autoReview.autofix === "boolean" ? { autofix: item.autoReview.autofix } : {}),
       }
     : null;
+  const { liveContext: rawLiveContext, ...rest } = item;
+  const liveContext = parseLiveContext(rawLiveContext);
   return {
-    ...item,
+    ...rest,
+    ...(liveContext ? { liveContext } : {}),
     id: item.id!,
     prompt: item.prompt!,
     provider: item.provider!,

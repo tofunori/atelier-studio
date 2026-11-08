@@ -28,6 +28,7 @@ import type { AgentEvent } from "../lib/ws";
 import { LazyDropdownMenu, type LazyDropdownMenuGroup, type LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
 import { SURFACES, type Surface } from "./surfaces";
 import { resetFrameVisibility, syncFrameVisibility } from "../lib/frameVisibility";
+import { LIVE_CONTEXT_EVENT, parseLiveContext, type LiveContext } from "../lib/liveContext";
 import {
   confirmDiscard,
   discardServerDraft,
@@ -801,6 +802,68 @@ export default function AtelierPane({
     window.addEventListener("message", onDirty);
     return () => window.removeEventListener("message", onDirty);
   }, [documentById]);
+
+  // Contexte vivant (2026-11-08) publié par les éditeurs (atelier-live-context) :
+  // mêmes contrôles d'origine et de nonce que atelier-dirty ; un contexte par
+  // onglet document, le dernier reçu gagne.
+  const [liveContexts, setLiveContexts] = useState<ReadonlyMap<string, LiveContext>>(() => new Map());
+  useEffect(() => {
+    const onLiveContext = (event: MessageEvent) => {
+      const data = event.data as { type?: string; context?: unknown; nonce?: unknown } | null;
+      if (data?.type !== "atelier-live-context") return;
+      const frames = workspaceRootRef.current?.querySelectorAll<HTMLIFrameElement>("iframe.atelier[data-atelier-tab]");
+      const frame = [...(frames ?? [])].find((candidate) => candidate.contentWindow === event.source);
+      if (!frame) return;
+      try {
+        const frameUrl = new URL(frame.src);
+        if (event.origin !== frameUrl.origin) return;
+        const nonce = new URLSearchParams(frameUrl.hash.slice(1)).get("atelier_nonce");
+        if (nonce && data.nonce !== nonce) return;
+      } catch { return; }
+      const tabId = frame.dataset.atelierTab ?? "";
+      if (!documentById.has(tabId)) return;
+      const context = parseLiveContext(data.context);
+      setLiveContexts((current) => {
+        if (!context && !current.has(tabId)) return current;
+        const next = new Map(current);
+        if (context) next.set(tabId, context);
+        else next.delete(tabId);
+        return next;
+      });
+    };
+    window.addEventListener("message", onLiveContext);
+    return () => window.removeEventListener("message", onLiveContext);
+  }, [documentById]);
+
+  // Onglet fermé : son contexte part avec lui.
+  useEffect(() => {
+    setLiveContexts((current) => {
+      const stale = [...current.keys()].filter((tabId) => !documentById.has(tabId));
+      if (!stale.length) return current;
+      const next = new Map(current);
+      for (const tabId of stale) next.delete(tabId);
+      return next;
+    });
+  }, [documentById]);
+
+  // Publication vers App : le contexte de l'onglet ACTIF du pane FOCALISÉ,
+  // null pour une surface, un agent ou un document sans contexte. Même garde
+  // de signature que workspace-tabs (sinon boucle de rendus).
+  const lastLiveContextSignature = useRef("null");
+  useEffect(() => {
+    const pane = findWorkspacePane(workspace.root, workspace.focusedPaneId)
+      ?? listWorkspacePanes(workspace.root)[0];
+    const ref = pane?.tabs.find((tab) => workspaceTabId(tab) === pane.activeTabId);
+    const context = ref?.kind === "document" ? liveContexts.get(ref.tabId) ?? null : null;
+    const signature = JSON.stringify(context);
+    if (signature === lastLiveContextSignature.current) return;
+    lastLiveContextSignature.current = signature;
+    window.dispatchEvent(new CustomEvent(LIVE_CONTEXT_EVENT, { detail: { context } }));
+  }, [workspace, liveContexts]);
+  // Pane démonté (projet changé, atelier replié) : plus rien sous les yeux.
+  useEffect(() => () => {
+    window.dispatchEvent(new CustomEvent(LIVE_CONTEXT_EVENT, { detail: { context: null } }));
+  }, []);
 
   const openHostTerminal = useCallback((command: string) => {
     setTerminalBootstrap(command);
