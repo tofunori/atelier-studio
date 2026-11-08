@@ -932,3 +932,89 @@ body:has(#left .dv-review-bar:not([hidden])) #diffGrp #diffPrev,body:has(#left .
 @media(prefers-reduced-motion:reduce){.cm-latex-visual .cm-vis-preamble{transition:none}}
 /* Barre à une rangée : sous 460 px, l'éditeur visuel se bascule depuis « Plus… ». */
 @media(max-width:460px){#toolbarVisual{display:none!important}}
+
+/* ===== barre du bas : position, « à faire », mots du manuscrit ===== */
+/* Fine barre de 28 px sous l'éditeur (dans #left, donc sous la source seule
+   en vue partagée). Les anciens éléments de #statusbar ne reviennent pas. */
+#msBar{flex:none;display:flex;align-items:center;gap:4px;height:28px;padding:0 12px;box-sizing:border-box;
+  background:var(--surface-header,var(--card));border-top:1px solid var(--border-subtle,var(--border));
+  font-size:var(--fs-label, 11px);line-height:1.3;color:var(--text-muted,var(--muted));font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden}
+#msBar #msPos{color:var(--text-disabled,var(--muted));min-width:0;overflow:hidden;text-overflow:ellipsis}
+#msBar .ms-sp{flex:1}
+#msBar .ms-b{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;border:0;border-radius:6px;background:transparent;
+  color:inherit;font:inherit;cursor:pointer;transition:background var(--motion-fast,120ms) var(--ease-out,ease-out),color var(--motion-fast,120ms) var(--ease-out,ease-out)}
+#msBar .ms-b[hidden]{display:none}
+#msBar .ms-b svg{width:12px;height:12px;flex:none}
+#msBar .ms-b:hover,#msBar .ms-b.on{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+#msBar .ms-b:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+#msBar .ms-b b{font-weight:500;color:var(--text-primary,var(--txt))}
+html.tex-read-only #msBar,body.csvtable #msBar{display:none}
+/* l'outil de relecture et l'annulation flottent au-dessus de la barre */
+#left:has(#msBar) .dv-review-bar,#left:has(#msBar) .dv-undo-toast{bottom:44px}
+#left:has(#msBar):has(.dv-review-bar:not([hidden])) .dv-undo-toast{bottom:92px}
+
+/* repères des « à faire » dans la marge droite (proportion du fichier) */
+#msTicks{position:absolute;top:0;right:2px;bottom:28px;width:8px;z-index:5;pointer-events:none}
+#msTicks i{position:absolute;right:0;width:8px;height:2px;background:var(--text-disabled,var(--muted));opacity:.7}
+#msTicks i.on{background:var(--accent);opacity:1}
+
+/* panneau « À faire » et détail du compte : ancrés au-dessus de la barre */
+#msTodoPanel,#msWordsCard{display:none;position:absolute;right:12px;bottom:36px;z-index:72;width:320px;max-width:calc(100% - 24px);
+  max-height:calc(100% - 52px);overflow-y:auto;box-sizing:border-box;padding:4px;border:0;border-radius:10px;
+  background:var(--surface-overlay,var(--card));box-shadow:var(--elevation-overlay,var(--elev));
+  font-size:var(--fs-body-s, 12px);line-height:1.5;color:var(--text-primary,var(--txt))}
+#msTodoPanel.open,#msWordsCard.open{display:block;animation:pop-fade var(--motion-fast,120ms) ease-out}
+#msTodoPanel .ms-head{display:flex;align-items:center;gap:8px;padding:8px 8px 4px}
+#msTodoPanel .ms-title{font-size:var(--fs-caption, 10px);font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted,var(--muted))}
+#msTodoPanel .ms-n{font-size:var(--fs-caption, 10px);color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
+#msTodoPanel .ms-group{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 8px 4px;
+  font-size:var(--fs-label, 11px);color:var(--text-disabled,var(--muted));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#msTodoPanel .ms-group .ms-n{font-size:var(--fs-label, 11px)}
+#msTodoPanel .ms-item{position:relative;padding:4px 48px 4px 8px;border-radius:6px;cursor:pointer;outline:none;
+  transition:background var(--motion-fast,120ms) var(--ease-out,ease-out)}
+#msTodoPanel .ms-item:hover,#msTodoPanel .ms-item:focus-visible{background:var(--surface-hover,var(--card2))}
+#msTodoPanel .ms-item.on{box-shadow:inset 2px 0 0 var(--accent)}
+#msTodoPanel .ms-text{color:var(--text-primary,var(--txt));overflow-wrap:anywhere}
+#msTodoPanel .ms-meta{font-size:var(--fs-label, 11px);color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#msTodoPanel .ms-acts{position:absolute;top:4px;right:4px;display:flex;gap:0;opacity:0;transition:opacity var(--motion-fast,120ms) var(--ease-out,ease-out)}
+#msTodoPanel .ms-item:hover .ms-acts,#msTodoPanel .ms-item:focus-within .ms-acts{opacity:1}
+#msTodoPanel .ms-ic{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:6px;
+  background:transparent;color:var(--text-muted,var(--muted));cursor:pointer}
+#msTodoPanel .ms-ic:hover{color:var(--text-primary,var(--txt));background:var(--surface-overlay,var(--card))}
+#msTodoPanel .ms-ic:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+#msTodoPanel .ms-empty{display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 16px 20px;text-align:center}
+#msTodoPanel .ms-empty svg{color:var(--text-disabled,var(--muted));margin-bottom:8px}
+#msTodoPanel .ms-empty-t{color:var(--text-primary,var(--txt))}
+#msTodoPanel .ms-empty-h{font-size:var(--fs-label, 11px);color:var(--text-muted,var(--muted))}
+#msTodoPanel code,#msWordsCard code{font-family:var(--code-font);font-size:var(--fs-label, 11px)}
+#msTodoPanel .ms-foot,#msWordsCard .ms-foot{margin:8px 4px 0;padding:8px 4px 4px;border-top:1px solid var(--border-subtle,var(--border));
+  font-size:var(--fs-caption, 10px);line-height:1.5;color:var(--text-disabled,var(--muted))}
+
+#msWordsCard .ms-wtop{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:8px 8px 0}
+#msWordsCard .ms-total{font-size:var(--fs-title,15px);font-weight:600;letter-spacing:-.01em;line-height:1.3;font-variant-numeric:tabular-nums}
+#msWordsCard .ms-today{font-size:var(--fs-label, 11px);color:var(--text-muted,var(--muted));font-variant-numeric:tabular-nums}
+#msWordsCard .ms-sub{padding:0 8px 8px;font-size:var(--fs-label, 11px);color:var(--text-muted,var(--muted))}
+#msWordsCard .ms-sec{display:grid;grid-template-columns:minmax(0,1fr) 96px auto;align-items:center;gap:12px;min-height:28px;padding:0 8px;
+  border-radius:6px;cursor:pointer;outline:none;transition:background var(--motion-fast,120ms) var(--ease-out,ease-out)}
+#msWordsCard .ms-sec:hover,#msWordsCard .ms-sec:focus-visible,#msWordsCard .ms-sec.on{background:var(--surface-hover,var(--card2))}
+#msWordsCard .ms-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#msWordsCard .ms-bar{height:4px;border-radius:999px;background:color-mix(in srgb,var(--text-disabled,var(--muted)) 22%,transparent);overflow:hidden}
+#msWordsCard .ms-bar i{display:block;height:100%;border-radius:999px;background:var(--text-disabled,var(--muted));opacity:.55}
+#msWordsCard .ms-sec.on .ms-bar i{background:var(--accent);opacity:1}
+#msWordsCard .ms-count{min-width:40px;text-align:right;color:var(--text-secondary,var(--muted));font-variant-numeric:tabular-nums}
+#msWordsCard .ms-count.over{color:var(--text-primary,var(--txt));font-weight:500}
+#msWordsCard .ms-limit{width:64px;height:20px;box-sizing:border-box;padding:0 4px;border:1px solid var(--border-subtle,var(--border));border-radius:6px;
+  background:transparent;color:var(--text-primary,var(--txt));font:inherit;text-align:right;font-variant-numeric:tabular-nums}
+#msWordsCard .ms-limit:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+#msWordsCard .ms-sep{height:1px;margin:4px 8px;background:var(--border-subtle,var(--border))}
+#msWordsCard .ms-mi{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;min-height:28px;padding:4px 8px;border:0;border-radius:6px;
+  background:transparent;color:var(--text-primary,var(--txt));font:inherit;text-align:left;cursor:pointer;
+  transition:background var(--motion-fast,120ms) var(--ease-out,ease-out)}
+#msWordsCard .ms-mi:hover{background:var(--surface-hover,var(--card2))}
+#msWordsCard .ms-mi:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+#msWordsCard .ms-mi svg{flex:none;color:var(--text-secondary,var(--muted))}
+@media (prefers-reduced-motion:reduce){#msTodoPanel,#msWordsCard{animation:none!important}#msBar .ms-b,#msTodoPanel .ms-item,#msTodoPanel .ms-acts,#msWordsCard .ms-sec,#msWordsCard .ms-mi{transition:none}}
+
+/* le mot-clé d'un « à faire » ressort d'un ton dans son commentaire */
+.cm-editor .cm-todo-kw,.cm-editor .cm-todo-kw *{color:var(--text-secondary,var(--txt));font-weight:500;font-style:normal}

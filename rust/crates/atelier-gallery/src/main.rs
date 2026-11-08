@@ -8,6 +8,7 @@ mod gallery;
 mod git;
 mod figure_versions;
 mod host;
+mod manuscript;
 mod openable;
 mod ranged;
 mod suggest;
@@ -2663,6 +2664,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/new", post(docx::create))
         .route("/docx/list", get(docx::list))
         .route("/lint", get(documents::lint))
+        .route("/tex/manuscript", post(manuscript::manuscript))
+        .route("/tex/manuscript/prefs", post(manuscript::prefs))
+        .route("/tex/wordcount", post(manuscript::wordcount))
         // Phase 5 — notes + whiteboard
         .route("/notes/load", get(workspace::notes_load))
         .route("/notes/save", post(workspace::notes_save))

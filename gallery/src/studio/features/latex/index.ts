@@ -14,3 +14,5 @@ export * from "./status_bar";
 export * from "./reading_context";
 
 export * from "./console_panel";
+
+export * from "./manuscript_bar";

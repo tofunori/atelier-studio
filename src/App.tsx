@@ -2496,6 +2496,9 @@ export default function App() {
         const message = themeMessage(settingsRef.current, atelierNonce);
         (e.source as Window).postMessage(message, e.origin);
       }
+      if (data.type === "atelier-open-file") {
+        openFileTabRef.current(data.path, data.line ? String(data.line) : null);
+      }
       if (data.type === "atelier-open-thread") {
         window.dispatchEvent(new CustomEvent("open-thread", { detail: { threadId: data.threadId } }));
       }

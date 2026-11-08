@@ -87,6 +87,16 @@ describe("isTrustedAtelierMessage", () => {
     expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, send: true }), nonce)).toBe(false);
   });
 
+  it("accepte l'ouverture d'un fichier du manuscrit à une ligne, bornée", () => {
+    const ok = { type: "atelier-open-file", nonce, path: "/Users/t/these/sections/discussion.tex", line: 18 };
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", ok), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, line: undefined }), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, line: 0 }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, line: "18" }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, path: "" }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg("http://127.0.0.1:19000", { ...ok, diff: true }), nonce)).toBe(false);
+  });
+
   it("accepte une sélection Quick Ask venue d'un éditeur", () => {
     const e = msg("http://127.0.0.1:19000", {
       type: "atelier-quick-ask",

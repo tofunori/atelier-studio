@@ -4,7 +4,7 @@ import type { StudioLineDiagnostic } from "../../studio/core/editor_contract";
 // API surface latex_studio.html uses (inventoried 2026-07-07). Not a general
 // CM5 shim: methods the page doesn't call don't exist here.
 import {EditorState, EditorSelection, StateEffect, StateField, Compartment, Prec, Annotation, RangeSet} from "@codemirror/state";
-import {EditorView, Decoration, keymap, highlightActiveLine, highlightActiveLineGutter, lineNumbers, gutter, GutterMarker, WidgetType, ViewPlugin, drawSelection} from "@codemirror/view";
+import {EditorView, Decoration, keymap, highlightActiveLine, highlightActiveLineGutter, lineNumbers, gutter, GutterMarker, WidgetType, ViewPlugin, MatchDecorator, drawSelection} from "@codemirror/view";
 import {defaultKeymap, historyKeymap, history, indentWithTab, selectAll} from "@codemirror/commands";
 import {openSearchPanel, searchKeymap, SearchCursor} from "@codemirror/search";
 import {bracketMatching, foldGutter, foldKeymap, StreamLanguage, indentUnit, HighlightStyle, syntaxHighlighting} from "@codemirror/language";
@@ -477,6 +477,26 @@ const marksField = StateField.define({
 // de drag, sans temporisation. Ici : effacement immédiat quand la sélection
 // bouge, recalcul après RESTING_MATCH_DELAY ms de stabilité, viewport
 // seulement.
+// « À faire » du manuscrit : le mot-clé (% TODO, FIXME, XXX, \todo,
+// \missingfigure) ressort d'un ton. MatchDecorator ne travaille que sur le
+// viewport et seulement quand le texte ou le viewport changent — jamais à la
+// sélection (PIEGES_CONNUS §15). Même relevé que `scan_todos` côté Rust.
+const todoKeywordDeco = Decoration.mark({class: "cm-todo-kw"});
+const todoKeywordMatcher = new MatchDecorator({
+  regexp: /(^|[^\\])(%+[ \t]*)(TODO|FIXME|XXX)(?![A-Za-z0-9_])|\\(?:todo|missingfigure)(?![A-Za-z@])/g,
+  decorate: (add, from, to, match) => {
+    if (match[3]) {
+      const start = from + match[1].length + match[2].length;
+      add(start, start + match[3].length, todoKeywordDeco);
+    } else add(from, to, todoKeywordDeco);
+  },
+});
+const todoKeywords = ViewPlugin.fromClass(class {
+  declare decorations: DecorationSet;
+  constructor(view: EditorView) { this.decorations = todoKeywordMatcher.createDeco(view); }
+  update(update) { this.decorations = todoKeywordMatcher.updateDeco(update, this.decorations); }
+}, {decorations: (plugin) => plugin.decorations});
+
 const RESTING_MATCH_DELAY = 160;
 const RESTING_MATCH_MIN = 3;
 const RESTING_MATCH_MAX = 200;
@@ -840,7 +860,7 @@ export function createStudioEditor(parent, opts) {
       doc: opts.value || "",
       extensions: [
         FRENCH_PHRASES,
-        ...(opts.ext === "tex" ? [autocompletion({override: [bibliographyCompletion]}), keymap.of([{key:"Ctrl-Space", run:startCompletion}]), latexDiagnosticsExtension()] : []),
+        ...(opts.ext === "tex" ? [autocompletion({override: [bibliographyCompletion]}), keymap.of([{key:"Ctrl-Space", run:startCompletion}]), latexDiagnosticsExtension(), todoKeywords] : []),
         // Pas de fond de ligne active en .tex : une ligne logique y est un
         // paragraphe entier (texte fluide ou non), donc un clic grisait tout
         // le bloc. Le numéro de ligne actif reste marqué dans la gouttière.

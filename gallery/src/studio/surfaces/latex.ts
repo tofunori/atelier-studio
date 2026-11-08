@@ -11,6 +11,8 @@ import {
   type ReadingContext,
   createLatexReadingMarge,
   createLatexSelectionPill,
+  createManuscriptBar,
+  type ManuscriptBarController,
   surroundingLines,
   type LatexPillSelection,
   createRewrapController,
@@ -193,6 +195,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   let pendingDiffMarks: ReadonlyArray<{kind: string; line: number; text: string}> = [];
   let selectionPill: LatexSelectionPillController | null = null;
   let statusBar: StudioStatusBarController | null = null;
+  let manuscriptBar: ManuscriptBarController | null = null;
   let lastCompile: {log: string; ok: boolean} | null = null;
   let stateTimer: number | null = null;
   const state = doc.getElementById("state") as HTMLElement;
@@ -681,6 +684,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     }
     editor.on("change", (...args: unknown[]) => {
       const change = args[1] as {origin?: string} | undefined;
+      manuscriptBar?.noteChange();
       if (change?.origin !== "setValue") {
         ensureSession().markDirty();
         drafts.noteChange();
@@ -732,6 +736,24 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     win.__rewrapAll = rewrap.all;
     ensureAnnotations().bind();
     ensureReader()?.bind();
+    // Barre du bas : position, « à faire » et mots du manuscrit (.tex édité).
+    if (isTex && !isPdfMode && path) {
+      manuscriptBar = createManuscriptBar({
+        path,
+        host: doc.getElementById("left") as HTMLElement,
+        getEditor: () => editor,
+        revealLine: (target, line) => {
+          if (reader?.revealSourceLine(line)) return;
+          revealLineRange(target, {fromLine: line, margin: 80, focus: true});
+        },
+        openFile: (file, line) => dependencies.postToHost({type: "atelier-open-file", path: file, line}),
+        postToHost: dependencies.postToHost,
+        document: doc,
+        window: win,
+        fetchImpl: win.fetch.bind(win),
+      });
+      manuscriptBar.bind();
+    }
     const ResizeObserverConstructor = (win as Window & {ResizeObserver?: typeof ResizeObserver}).ResizeObserver;
     const left = doc.getElementById("left");
     if (ResizeObserverConstructor && left) {
