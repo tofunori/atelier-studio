@@ -1108,3 +1108,93 @@ html.tex-read-only #msBar,body.csvtable #msBar{display:none}
 
 /* le mot-clé d'un « à faire » ressort d'un ton dans son commentaire */
 .cm-editor .cm-todo-kw,.cm-editor .cm-todo-kw *{color:var(--text-secondary,var(--txt));font-weight:500;font-style:normal}
+
+/* ===== Références : vérification de la .bib contre Crossref =====
+   Même gabarit que Commentaires (#texcPanel) : surface élevée sans bordure.
+   Une seule couleur porteuse de sens : le vert de la valeur proposée. */
+#bibPanel{display:none;position:absolute;top:8px;right:8px;z-index:70;width:340px;max-width:calc(100% - 16px);max-height:calc(100% - 16px);
+  background:var(--surface-overlay,var(--card));border:0;border-radius:10px;box-shadow:var(--elevation-overlay,var(--elev));
+  overflow-y:auto;font:var(--fs-body-s,12px)/1.5 var(--ui-font);color:var(--text-primary,var(--txt))}
+#bibPanel.open{display:block;animation:pop-fade var(--motion-fast,120ms) ease-out}
+#bibPanel .bp-head{display:flex;align-items:center;gap:8px;padding:8px 8px 4px 16px;min-height:44px;box-sizing:border-box}
+#bibPanel .bp-title{font-size:13px;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+#bibPanel .bp-meta,#bibPanel .bp-n,#bibPanel .bp-when{font-size:11px;color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
+#bibPanel .bp-when{padding:0 8px 4px}
+#bibPanel .bp-sp,.bc-card .bp-sp{flex:1}
+#bibPanel .bp-body{padding:0 8px 8px}
+#bibPanel .bp-sec{font-size:11px;color:var(--text-disabled,var(--muted));padding:12px 8px 4px}
+#bibPanel .bp-empty{padding:8px;color:var(--text-muted,var(--muted))}
+#bibPanel .bp-empty code{font:11px var(--code-font)}
+#bibPanel .bp-intro{padding:4px 8px 8px}
+#bibPanel .bp-lead{color:var(--text-muted,var(--muted))}
+#bibPanel .bp-opt{display:flex;align-items:center;gap:8px;margin-top:12px;color:var(--text-secondary,var(--txt));cursor:pointer}
+#bibPanel .bp-opt input{margin:0;accent-color:var(--text-secondary,var(--muted))}
+#bibPanel .bp-intro .bp-btn{margin-top:12px}
+#bibPanel .bp-row{border-radius:6px;transition:background var(--motion-fast,120ms) ease-out}
+#bibPanel .bp-row.on{background:var(--surface-hover,var(--card2))}
+#bibPanel .bp-it{display:flex;flex-direction:column;align-items:flex-start;gap:0;width:100%;min-width:0;padding:8px;border:0;border-radius:6px;
+  background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
+#bibPanel .bp-row:not(.on) .bp-it:hover{background:var(--surface-hover,var(--card2))}
+#bibPanel .bp-key{font:12px/1.5 var(--code-font);color:var(--text-primary,var(--txt))}
+#bibPanel .bp-sub{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted,var(--muted))}
+#bibPanel .bp-st{display:flex;align-items:center;gap:4px;margin-top:4px;font-size:11px;color:var(--text-secondary,var(--txt))}
+#bibPanel .bp-st svg{flex:none;color:var(--text-muted,var(--muted))}
+#bibPanel .bp-grp{border-top:1px solid var(--border-subtle,var(--border));margin-top:4px}
+#bibPanel .bp-grp+.bp-grp{margin-top:0}
+#bibPanel .bp-grp-h{display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 8px;border:0;border-radius:6px;background:transparent;
+  color:var(--text-secondary,var(--txt));font:inherit;cursor:pointer}
+#bibPanel .bp-grp-h:hover{background:var(--surface-hover,var(--card2))}
+#bibPanel .bp-chev{display:inline-flex;color:var(--text-disabled,var(--muted));transition:transform var(--motion-fast,120ms) ease-out}
+#bibPanel .bp-grp.open .bp-chev{transform:rotate(90deg)}
+#bibPanel .bp-retry{margin:0 0 4px 4px}
+#bibPanel .bp-run{padding:4px 8px 8px}
+#bibPanel .bp-run-h{display:flex;align-items:center;gap:8px;font-size:13px}
+#bibPanel .bp-spin{width:12px;height:12px;border-radius:999px;box-sizing:border-box;border:1.3px solid var(--text-disabled,var(--muted));
+  border-top-color:var(--text-secondary,var(--txt));animation:bp-spin .9s linear infinite}
+@keyframes bp-spin{to{transform:rotate(360deg)}}
+#bibPanel .bp-bar{height:4px;border-radius:999px;background:var(--surface-hover,var(--card2));margin-top:8px;overflow:hidden}
+#bibPanel .bp-bar span{display:block;height:100%;border-radius:999px;background:var(--text-secondary,var(--muted));transition:width var(--motion-standard,140ms) ease-out}
+#bibPanel .bp-run .bp-gh{margin:4px 0 0 -8px}
+/* Contrôles : gris, jamais blancs. */
+#bibPanel .bp-btn,.bc-card .bp-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:28px;padding:0 12px;border:0;border-radius:6px;
+  background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt));font:500 12px/1 var(--ui-font);white-space:nowrap;cursor:pointer;
+  transition:background var(--motion-fast,120ms) ease-out}
+#bibPanel .bp-btn:hover,.bc-card .bp-btn:hover{background:var(--border-strong,var(--border))}
+#bibPanel .bp-btn.wide{width:100%}
+.bc-card .bp-k{font-weight:400;font-size:11px;color:var(--text-muted,var(--muted))}
+#bibPanel .bp-gh,.bc-card .bp-gh{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;
+  color:var(--text-muted,var(--muted));font:12px/1 var(--ui-font);text-decoration:none;white-space:nowrap;cursor:pointer;transition:background var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+#bibPanel .bp-gh:hover,.bc-card .bp-gh:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+#bibPanel .bp-icon,.bc-card .bp-icon{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;
+  color:var(--text-muted,var(--muted));cursor:pointer;transition:background var(--motion-fast,120ms) ease-out}
+#bibPanel .bp-icon.sm,.bc-card .bp-icon.sm{width:24px;height:24px}
+#bibPanel .bp-icon:hover,.bc-card .bp-icon:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+/* Carte de correction : dans le panneau (.tex) ou sous l'entrée (.bib). */
+.bc-card{font:12px/1.5 var(--ui-font);color:var(--text-primary,var(--txt));padding:4px 8px 8px}
+.bc-host{display:block;white-space:normal;cursor:default;user-select:none;-webkit-user-select:none}
+.bc-card.in-editor{margin:4px 0 0;padding:8px 0 4px;max-width:720px}
+.bc-card .bc-h{display:flex;align-items:baseline;gap:8px;color:var(--text-muted,var(--muted));margin-bottom:4px}
+.bc-card .bc-doi{font:11px/1.5 var(--code-font);color:var(--text-disabled,var(--muted))}
+.bc-card .bc-lines{font:12px/1.5 var(--code-font);margin:4px 0;border-radius:6px;overflow:hidden}
+.bc-card.in-editor .bc-lines{font-size:13px;border-radius:0;margin:4px 0 4px -4px}
+.bc-card .bc-l{padding:2px 8px;white-space:pre-wrap;word-break:break-word}
+.bc-card .bc-f{color:var(--text-muted,var(--muted));white-space:pre}
+.bc-card .bc-old{color:var(--text-disabled,var(--muted))}
+.bc-card .bc-old .bc-f{color:inherit}
+.bc-card .bc-new{background:color-mix(in srgb,var(--status-success,#5fb37a) 9%,transparent);box-shadow:inset 2px 0 0 var(--status-success,#5fb37a)}
+.bc-card .bc-new b{font-weight:400;background:color-mix(in srgb,var(--status-success,#5fb37a) 22%,transparent)}
+.bc-card .bc-why{color:var(--text-muted,var(--muted));margin-top:4px}
+.bc-card .bc-cand{padding:8px 12px;border-radius:6px;background:var(--surface-inset,var(--card2));margin:4px 0}
+.bc-card .bc-ct{font-size:13px;line-height:1.3;color:var(--text-primary,var(--txt))}
+.bc-card .bc-cm{font-size:11px;color:var(--text-muted,var(--muted));margin-top:4px}
+.bc-card .bc-cand .bc-doi{display:block;margin-top:4px;color:var(--text-secondary,var(--txt))}
+.bc-card .bc-note{display:flex;gap:8px;align-items:flex-start;margin-top:8px;color:var(--text-secondary,var(--txt))}
+.bc-card .bc-note svg{flex:none;margin-top:2px;color:var(--text-muted,var(--muted))}
+.bc-card .bc-acts{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:8px}
+.bc-card .bc-nav{display:inline-flex;align-items:center;gap:0;color:var(--text-muted,var(--muted))}
+.bc-card .bc-nav .bp-n{font-size:12px;margin-right:4px;font-variant-numeric:tabular-nums}
+#bibBtn[aria-pressed="true"]{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+/* La carte vit dans la ligne de CodeMirror : sans ses tampons de widget, pas de ligne vide fantôme dessous. */
+.cm-line:has(> .bc-host) > .cm-widgetBuffer{display:none}
+.cm-line:has(> .bc-host) > br{display:none}
+@media (prefers-reduced-motion:reduce){#bibPanel,#bibPanel .bp-spin,#bibPanel .bp-chev,#bibPanel .bp-bar span{animation:none!important;transition:none!important}}

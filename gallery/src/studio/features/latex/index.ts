@@ -1,5 +1,6 @@
 export * from "./compile";
 export * from "./annotations";
+export * from "./bibcheck";
 export * from "./ghost";
 export * from "./outline";
 export * from "./pdf_controls";

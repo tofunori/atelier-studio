@@ -87,6 +87,7 @@
     <button id="outlineBtn" aria-label="Plan du document" title="Plan du document (&#8984;&#8679;O)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-list-tree" aria-hidden="true" focusable="false"><path d="M8 5h13"></path><path d="M13 12h8"></path><path d="M13 19h8"></path><path d="M3 10a2 2 0 0 0 2 2h3"></path><path d="M3 5v12a2 2 0 0 0 2 2h3"></path></svg></button>
     <button id="findBtn" style="display:none" title="Rechercher (&#8984;F)" aria-label="Rechercher"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search" aria-hidden="true" focusable="false"><path d="m21 21-4.34-4.34"></path><circle cx="11" cy="11" r="8"></circle></svg></button>
     <button id="rewrapAllBtn" aria-label="Reformater les lignes du document" title="Reformater les lignes du document (&#8679;&#8997;Q)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-text-wrap" aria-hidden="true" focusable="false"><path d="m16 16-3 3 3 3"></path><path d="M3 12h14.5a1 1 0 0 1 0 7H13"></path><path d="M3 19h6"></path><path d="M3 5h18"></path></svg><span id="rewrapAutoDot"></span></button>
+    <button id="bibBtn" style="display:none" aria-label="Références" aria-pressed="false" title="Vérifier les références avec Crossref"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 4.6C6.8 3.7 5 3.3 2.5 3.3v9c2.5 0 4.3.4 5.5 1.3 1.2-.9 3-1.3 5.5-1.3v-9C11 3.3 9.2 3.7 8 4.6z"/><path d="M8 4.6v9"/></svg></button>
     <button id="texcBtn" aria-label="Commentaires" title="Commentaires"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-message-square-text" aria-hidden="true" focusable="false"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path><path d="M7 11h10"></path><path d="M7 15h6"></path><path d="M7 7h8"></path></svg></button>
     <button id="moreBtn" aria-label="Plus d’actions" title="Plus&hellip;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
   </span>
@@ -120,6 +121,7 @@
     <button type="button" role="menuitem" data-act="outline">Plan du document <em>&#8984;&#8679;O</em></button>
     <button type="button" role="menuitem" data-act="find">Rechercher <em>&#8984;F</em></button>
     <button type="button" role="menuitem" data-act="comments">Commentaires</button>
+    <button type="button" role="menuitem" data-act="references" id="moreRefs" style="display:none">Références</button>
     <button type="button" role="menuitem" data-act="read">Vue lecture</button>
     <button type="button" role="menuitemcheckbox" aria-checked="false" data-act="visual">Éditeur visuel <span id="moreVisualVal" class="vh"></span><svg class="mck" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
     <div class="mp-sep" role="separator"></div>
@@ -177,6 +179,7 @@
 <div id="split" style="position:relative">
   <div id="outline"></div>
   <div id="texcPanel"></div>
+  <div id="bibPanel" role="region" aria-label="Références"></div>
   <div id="left"></div>
   <div id="right"><div id="marker"></div></div>
 </div>

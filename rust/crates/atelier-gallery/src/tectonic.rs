@@ -301,7 +301,7 @@ fn extract_binary(archive: &Path, out: &mut File) -> Result<(), String> {
 /// Client HTTP : proxy des variables d'environnement (sauf pour l'hôte
 /// local des tests), racines webpki complétées par `SSL_CERT_FILE` quand il
 /// est défini (proxy d'entreprise qui re-signe le TLS).
-fn agent_for(url: &str) -> ureq::Agent {
+pub(crate) fn agent_for(url: &str) -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(30))
         .timeout_read(Duration::from_secs(60))
