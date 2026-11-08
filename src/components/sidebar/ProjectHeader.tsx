@@ -9,7 +9,7 @@ import { t } from "../../lib/i18n";
 import { Button, IconButton, RowButton } from "../ui";
 import { SearchField } from "../ui/SearchField";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
-import { PlusIcon, ChatsIcon } from "../icons";
+import { PlusIcon, ChatsIcon, SidebarIcon } from "../icons";
 import { ProjIcon } from "./projectIcons";
 import type { ProjectStyleAnchor } from "./ProjectStyleMenu";
 
@@ -69,6 +69,11 @@ export function ProjectHeader(p: {
   onRemoveProject?: () => void;
   onProjectSettings?: () => void;
   switchMenu?: ProjectSwitchMenu;
+  /** colonne unifiée : replie la colonne en rail d'icônes */
+  onCollapse?: () => void;
+  /** colonne unifiée : la tuile du projet ramène à son accueil (rôle tenu
+   *  par le re-clic du projet actif dans le rail) */
+  onHome?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [switchOpen, setSwitchOpen] = useState(false);
@@ -87,6 +92,9 @@ export function ProjectHeader(p: {
     <ProjIcon name={p.meta.label.slice(5)} size={14} />
   ) : p.meta?.label ? (
     <span className="pnav-id-letter">{p.meta.label}</span>
+  ) : p.mode === "project" && p.onCollapse ? (
+    // colonne unifiée : initiale monochrome dans la tuile, jamais une pastille de couleur
+    <span className="pnav-id-letter">{p.name.charAt(0).toUpperCase()}</span>
   ) : p.mode === "project" ? (
     <span className="proj-dot" style={{ background: p.meta?.color ?? "var(--mark-neutral)" }} />
   ) : (
@@ -98,7 +106,14 @@ export function ProjectHeader(p: {
       {/* identité projet UNE seule fois dans l'app, ici (audit SHELL-04 :
           la barre du haut n'a plus de crumb) ; le chemin complet en infobulle. */}
       <div className="pnav-id">
-        <span className="pnav-id-ico" aria-hidden="true">{icon}</span>
+        {p.onHome && p.mode === "project" ? (
+          <IconButton label={t("project.home")} title={t("project.home")} className="pnav-id-ico pnav-home"
+            onClick={p.onHome}>
+            {icon}
+          </IconButton>
+        ) : (
+          <span className="pnav-id-ico" aria-hidden="true">{icon}</span>
+        )}
         <div className="pnav-id-col">
           {p.switchMenu ? (
             <LazyDropdownMenu
@@ -212,6 +227,12 @@ export function ProjectHeader(p: {
               : []),
           ]}
         />
+        {p.onCollapse && (
+          <IconButton label={t("action.collapse-sidebar")} title={t("action.collapse-sidebar")}
+            className="pnav-ov pnav-collapse" onClick={p.onCollapse}>
+            <SidebarIcon size={14} />
+          </IconButton>
+        )}
       </div>
       <div className="pnav-cta">
         <SearchField

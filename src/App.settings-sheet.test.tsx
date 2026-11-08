@@ -72,13 +72,19 @@ describe("Réglages en feuille modale", () => {
     // du vrai sujet : la composition de l'arbre React.
     await mountApp();
 
-    const railAvant = document.querySelector(".rail");
-    expect(railAvant).not.toBeNull();
+    // Colonne unifiée (2026-11-08) : le rail déplié est devenu la colonne
+    // latérale ; son pied (chunk SideColumnParts) porte le bouton Réglages.
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await flushMicrotasks(10);
+    });
+    const colonneAvant = document.querySelector(".side-fixed");
+    expect(colonneAvant).not.toBeNull();
 
-    // Déclencheur réel : le bouton Réglages épinglé en bas du rail
-    // (src/components/Rail.tsx, aria-label = t("action.settings")).
-    // Le bouton Réglages du rail ouvre un menu (Réglages / Usage) depuis
-    // 4dc49144 : la feuille s'ouvre par son item, après le chunk du menu.
+    // Déclencheur réel : le bouton Réglages épinglé en bas de la colonne
+    // (src/components/sidebar/SideColumnParts.tsx, aria-label = t("action.settings")).
+    // Il ouvre un menu (Réglages / Usage) depuis 4dc49144 : la feuille
+    // s'ouvre par son item, après le chunk du menu.
     const button = screen.getByRole("button", { name: t("action.settings") });
     await act(async () => {
       fireEvent.click(button);
@@ -111,8 +117,8 @@ describe("Réglages en feuille modale", () => {
       }
     });
     expect(document.querySelector(".settings-page")).not.toBeNull();
-    // Le cœur du test : le rail n'a PAS été démonté par l'ouverture des
+    // Le cœur du test : la colonne n'a PAS été démontée par l'ouverture des
     // réglages — c'est ce que l'ancien `if (showSettings) return` cassait.
-    expect(document.querySelector(".rail")).not.toBeNull();
+    expect(document.querySelector(".side-fixed")).toBe(colonneAvant);
   });
 });
