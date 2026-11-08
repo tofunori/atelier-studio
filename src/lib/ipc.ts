@@ -49,6 +49,16 @@ export type AtelierOpenThreadMessage = {
   threadId: string;
 };
 
+/** Panneau « À faire » et détail du compte de l'éditeur LaTeX : ouvrir un
+ *  autre fichier du manuscrit (un \input) à une ligne. `path` est absolu (ou
+ *  relatif au projet) ; l'app le résout comme une pilule fichier du chat. */
+export type AtelierOpenFileMessage = {
+  type: "atelier-open-file";
+  nonce: string;
+  path: string;
+  line?: number;
+};
+
 export type AtelierAttachPdfMessage = {
   type: "atelier-attach-pdf";
   nonce: string;
@@ -123,6 +133,7 @@ export type AtelierInboundMessage =
   | AtelierAddToChatMessage
   | AtelierAttachPdfMessage
   | AtelierOpenThreadMessage
+  | AtelierOpenFileMessage
   | AtelierQuickAskMessage
   | BrowserAddToChatMessage
   | AtelierGalleryResultMessage;
@@ -233,6 +244,13 @@ export function isTrustedAtelierMessage(
       );
     case "atelier-open-thread":
       return hasOnlyKeys(data, ["type", "nonce", "threadId"]) && isBoundedString(data.threadId, MAX_TITLE_LENGTH);
+    case "atelier-open-file":
+      return (
+        hasOnlyKeys(data, ["type", "nonce", "path", "line"]) &&
+        isBoundedString(data.path, MAX_URL_LENGTH) &&
+        (data.line === undefined ||
+          (typeof data.line === "number" && Number.isInteger(data.line) && data.line >= 1 && data.line <= 10_000_000))
+      );
     case "atelier-attach-pdf":
       return hasOnlyKeys(data, ["type", "nonce", "rel", "requestId"]) && isBoundedString(data.rel, MAX_URL_LENGTH)
         && isOptionalBoundedString(data.requestId, MAX_NONCE_LENGTH);
