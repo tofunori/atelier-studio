@@ -571,6 +571,50 @@ fn search_with_conn(
         .collect())
 }
 
+/// Notice Zotero d'un PDF de `storage/` (`storage/<clé>/<fichier>.pdf`) :
+/// la carte « article » d'une pièce jointe du chat montre son titre, sa revue
+/// et son année au lieu du nom brut du fichier. `None` hors de `storage/`,
+/// sans Zotero, ou si la pièce jointe n'a pas de parent vivant.
+pub fn item_for_pdf_path(app_dir: &Path, pdf: &Path) -> Option<ZoteroItem> {
+    let (key, file) = storage_parts(&zotero_dir(), pdf)?;
+    let conn = ensure_fresh(app_dir).ok()?;
+    item_for_storage_file(&conn, &key, &file)
+}
+
+/// `(<clé>, <fichier>)` d'un chemin `<zotero>/storage/<clé>/<fichier>`.
+fn storage_parts(zotero: &Path, pdf: &Path) -> Option<(String, String)> {
+    let rel = pdf.strip_prefix(zotero.join("storage")).ok()?;
+    let mut parts = rel.components();
+    let key = parts.next()?.as_os_str().to_str()?.to_string();
+    let file = parts.next()?.as_os_str().to_str()?.to_string();
+    if parts.next().is_some() || key.len() != 8 || !key.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some((key, file))
+}
+
+fn item_for_storage_file(conn: &Connection, key: &str, file: &str) -> Option<ZoteroItem> {
+    let candidate = conn
+        .query_row(
+            "SELECT p.itemID, p.key, p.dateAdded FROM itemAttachments ia \
+             JOIN items ai ON ai.itemID = ia.itemID \
+             JOIN items p ON p.itemID = ia.parentItemID \
+             WHERE ai.key = ?1 AND ia.path = ?2 \
+               AND p.itemID NOT IN (SELECT itemID FROM deletedItems) LIMIT 1",
+            [key, &format!("storage:{file}")],
+            |r| {
+                Ok(Candidate {
+                    item_id: r.get(0)?,
+                    key: r.get(1)?,
+                    date_added: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                })
+            },
+        )
+        .optional()
+        .ok()??;
+    hydrate_items(conn, vec![candidate]).ok()?.into_iter().next()
+}
+
 pub fn collections(app_dir: &Path) -> Result<Vec<serde_json::Value>, String> {
     let conn = ensure_fresh(app_dir)?;
     let mut stmt = conn
@@ -1239,6 +1283,29 @@ mod tests {
     /// the dedicated `orderIndex` order is exercised by
     /// `creators_are_ordered_by_order_index_not_creator_id` below, using a
     /// fixture where the two orders diverge.
+    #[test]
+    fn item_for_storage_file_finds_the_parent_article() {
+        let conn = build_fixture_conn();
+        let item = item_for_storage_file(&conn, "ATTACH01", "paper.pdf").unwrap();
+        assert_eq!(item.title, "Glacier melt in the Andes");
+        assert_eq!(item.publication, "Journal of Glaciology");
+        assert_eq!(item.year, "2024");
+        assert!(item_for_storage_file(&conn, "ATTACH01", "other.pdf").is_none());
+        assert!(item_for_storage_file(&conn, "NOPE0000", "paper.pdf").is_none());
+    }
+
+    #[test]
+    fn storage_parts_only_accepts_storage_key_file() {
+        let z = Path::new("/u/Zotero");
+        assert_eq!(
+            storage_parts(z, Path::new("/u/Zotero/storage/ABCD1234/a b.pdf")),
+            Some(("ABCD1234".into(), "a b.pdf".into()))
+        );
+        assert_eq!(storage_parts(z, Path::new("/u/Downloads/x.pdf")), None);
+        assert_eq!(storage_parts(z, Path::new("/u/Zotero/storage/ABCD1234/sub/x.pdf")), None);
+        assert_eq!(storage_parts(z, Path::new("/u/Zotero/storage/short/x.pdf")), None);
+    }
+
     #[test]
     fn search_and_search_legacy_produce_identical_json() {
         let conn = build_fixture_conn();

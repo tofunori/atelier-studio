@@ -5,7 +5,7 @@
 // groupées en popover, aperçu riche Zotero, retrait unitaire.
 import { useEffect, useState } from "react";
 import {
-  CameraIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardIcon,
+  CameraIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardIcon, EyeIcon,
   FileTextIcon, FileCode2Icon, FolderIcon, ImageIcon, QuoteIcon, XIcon,
 } from "lucide-react";
 import { t } from "../../lib/i18n";
@@ -33,8 +33,12 @@ import {
   PopoverTrigger,
 } from "../shadcn/popover";
 import { citeLabel } from "./turnParts";
+import { useFileCards } from "../../lib/chatFileCards";
 import type { Mark } from "../../lib/annotations";
 import { Button, IconButton, RowButton } from "../ui";
+import {
+  liveContextDisplayPath, liveContextSentence, liveContextWhere, type LiveContext,
+} from "../../lib/liveContext";
 
 export type ShelfAttachment = import("../../lib/chatDraftStore").DraftAttachment;
 const isLatex = (attachment: ShelfAttachment) => !attachment.imageUrl && /\.tex$/i.test(attachment.name);
@@ -73,6 +77,69 @@ function ThumbOrGlyph({ url }: { url: string }) {
   );
 }
 
+/** Lignes montrées dans le popover du contexte vivant, au plus. */
+const LIVE_PREVIEW_LINES = 12;
+
+/** Contexte vivant (variante A, 2026-11-08) : étiquette discrète « ce que tu
+ *  regardes » — sans fond au repos, un clic montre exactement ce qui part,
+ *  la croix la retire pour ce message seulement. */
+function LiveContextChip(p: { context: LiveContext; projectRoot?: string | null; onDismiss?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ctx = p.context;
+  const where = liveContextWhere(ctx);
+  const sentence = liveContextSentence(ctx);
+  const label = t("live-context.chip", { name: ctx.name, where });
+  const lines = ctx.selection?.split("\n") ?? [];
+  const first = ctx.lineFrom ?? ctx.line;
+  return (
+    <span className={`live-context-chip${open ? " is-open" : ""}`}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger render={<RowButton className="live-context-main" aria-label={label} title={label} />}>
+          <EyeIcon className="live-context-glyph" aria-hidden="true" />
+          <span className="live-context-name">{ctx.name}</span>
+          {where && <span className="live-context-where">{where}</span>}
+        </PopoverTrigger>
+        <PopoverContent side="top" align="start" className="live-context-detail tw:w-80">
+          <PopoverHeader>
+            <PopoverTitle className="live-context-detail-title">{t("live-context.title")}</PopoverTitle>
+            <PopoverDescription className="live-context-detail-path">
+              {liveContextDisplayPath(ctx.path, p.projectRoot)}
+            </PopoverDescription>
+          </PopoverHeader>
+          {sentence && <span className="live-context-detail-note">{sentence}</span>}
+          {lines.length > 0 && (
+            <pre className="live-context-code">
+              {lines.slice(0, LIVE_PREVIEW_LINES).map((line, index) => (
+                <span key={index} className="live-context-code-line">
+                  {first != null && <span className="live-context-code-n">{first + index}</span>}
+                  {line}
+                </span>
+              ))}
+              {lines.length > LIVE_PREVIEW_LINES && <span className="live-context-code-line">…</span>}
+            </pre>
+          )}
+          {ctx.comments && ctx.comments.length > 0 && (
+            <span className="live-context-detail-note">
+              {t("live-context.comments", { n: ctx.comments.length })}
+            </span>
+          )}
+        </PopoverContent>
+      </Popover>
+      {p.onDismiss && (
+        <IconButton
+          size="s"
+          className="ghost"
+          label={t("live-context.dismiss", { name: ctx.name })}
+          title={t("live-context.dismiss", { name: ctx.name })}
+          onClick={() => { setOpen(false); p.onDismiss?.(); }}
+        >
+          <XIcon className="context-pill-glyph" />
+        </IconButton>
+      )}
+    </span>
+  );
+}
+
 export function ContextShelf(p: {
   attachments: ShelfAttachment[];
   onRemoveAttachment: (index: number) => void;
@@ -80,6 +147,10 @@ export function ContextShelf(p: {
   /** annotations du fil — une SEULE pilule agrégée, dépliable */
   annotations?: Mark[];
   onRemoveAnnotation?: (text: string) => void;
+  /** contexte vivant de l'atelier — étiquette en tête de rangée */
+  liveContext?: LiveContext | null;
+  onDismissLiveContext?: () => void;
+  projectRoot?: string | null;
 }) {
   const [latexPreview, setLatexPreview] = useState<ShelfAttachment | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
@@ -109,14 +180,27 @@ export function ContextShelf(p: {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [expandedImageIndex, imageAttachments.length]);
 
+  // Fichier joint par son chemin : le titre de l'article remplace le nom brut
+  // dès qu'il est connu (Zotero ou métadonnées du PDF, 2026-11-02).
+  const cardFor = useFileCards(p.attachments.flatMap((attachment) =>
+    attachment.kind === "file" && attachment.path ? [attachment.path] : []));
+  const shelfLabel = (attachment: ShelfAttachment, name: string) => {
+    const title = attachment.kind === "file" ? cardFor(attachment.path)?.title : undefined;
+    if (!title) return citeLabel(name);
+    return title.length > 34 ? `${title.slice(0, 33)}…` : title;
+  };
+
   const annotations = p.annotations ?? [];
-  if (p.attachments.length === 0 && annotations.length === 0) return null;
+  if (p.attachments.length === 0 && annotations.length === 0 && !p.liveContext) return null;
 
   const removeLabel = (name: string, suffix = "") =>
     `${t("action.remove")} ${name}${suffix}`;
 
   return (
     <div className="chips-row context-pills" aria-label={t("context.attachments")}>
+      {p.liveContext && (
+        <LiveContextChip context={p.liveContext} projectRoot={p.projectRoot} onDismiss={p.onDismissLiveContext} />
+      )}
       {annotations.length > 0 && (
         <Popover open={openGroup === "annotations"} onOpenChange={(next) => setOpenGroup(next ? "annotations" : null)}>
           <PopoverTrigger
@@ -284,7 +368,7 @@ export function ContextShelf(p: {
           const pillBody = (
             <>
               {kindGlyph(grouped ? "quote" : attachment.kind)}
-              <span className="chip-label">{citeLabel(group.name)}</span>
+              <span className="chip-label">{grouped ? citeLabel(group.name) : shelfLabel(attachment, group.name)}</span>
               {grouped
                 ? <span className="context-pill-count">{group.indexes.length}</span>
                 : attachment.lines

@@ -2312,3 +2312,46 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!((v["author"].as_str(), v["page"].as_str()), (Some("Thierry"), Some("theme")));
 }
+
+#[test]
+fn manuscript_counts_words_lists_todos_and_keeps_its_settings() {
+    let srv = start_server();
+    fs::create_dir_all(srv.root.join("sections")).unwrap();
+    fs::write(
+        srv.root.join("main.tex"),
+        "\\documentclass{article}\n\\begin{document}\n\\section{Data}\nWe use MODIS albedo.\n% TODO ajouter la référence\n\\input{sections/discussion}\n\\end{document}\n",
+    )
+    .unwrap();
+    fs::write(srv.root.join("sections/discussion.tex"), "\\section{Discussion}\nFires darken glaciers.\n\\todo{Comparer}\n").unwrap();
+    let path = srv.root.join("main.tex").to_string_lossy().to_string();
+    let body = serde_json::json!({"path": path, "day": "2026-11-08"}).to_string();
+    assert_eq!(http_with_origin(srv.port, "POST", "/tex/manuscript", Some(&body), Some("https://evil.example")).0, 403);
+    let (status, text) = http(srv.port, "POST", "/tex/manuscript", Some(&body));
+    assert_eq!(status, 200, "{text}");
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(value["total"], 7);
+    assert_eq!(value["today"], 0);
+    assert_eq!(value["todos"].as_array().unwrap().len(), 2);
+    // Le texte non sauvegardé du fichier ouvert compte tout de suite, et
+    // l'écart du jour part de la première mesure de la journée.
+    let edited = serde_json::json!({
+        "path": path, "day": "2026-11-08",
+        "text": "\\begin{document}\n\\section{Data}\nWe use MODIS albedo every day.\n\\input{sections/discussion}\n\\end{document}\n",
+    })
+    .to_string();
+    let value: serde_json::Value = serde_json::from_str(&http(srv.port, "POST", "/tex/manuscript", Some(&edited)).1).unwrap();
+    assert_eq!(value["total"], 9);
+    assert_eq!(value["today"], 2);
+    // Réglages : la limite revient avec la section, sur disque.
+    let prefs = serde_json::json!({"path": path, "captions": false, "limits": {"Data": 250}}).to_string();
+    assert_eq!(http(srv.port, "POST", "/tex/manuscript/prefs", Some(&prefs)).0, 200);
+    let value: serde_json::Value = serde_json::from_str(&http(srv.port, "POST", "/tex/manuscript", Some(&body)).1).unwrap();
+    assert_eq!(value["captions"], false);
+    let data = value["sections"].as_array().unwrap().iter().find(|s| s["key"] == "Data").unwrap().clone();
+    assert_eq!(data["limit"], 250);
+    let (status, text) = http(srv.port, "POST", "/tex/wordcount", Some(r#"{"text":"Glacier \\emph{albedo} $x$ drops \\cite{a}."}"#));
+    assert_eq!(status, 200);
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&text).unwrap()["words"], 3);
+    let outside = serde_json::json!({"path": "/etc/passwd"}).to_string();
+    assert_eq!(http(srv.port, "POST", "/tex/manuscript", Some(&outside)).0, 403);
+}

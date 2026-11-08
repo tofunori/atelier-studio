@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · revision.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · revision · regarde.
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -15,6 +15,7 @@ import { choisirSpecialiste, type Specialiste } from "../lib/specialistes";
 import type { AgentEvent } from "../lib/ws";
 import type { ProviderInfo } from "../lib/providers";
 import type { QueuedTurn } from "../lib/chatDraftStore";
+import type { LiveContext } from "../lib/liveContext";
 import { reduceHarnessEvents, materializeHarnessHistory } from "../lib/harnessEvents";
 import { codexComposite, codexObservedLive, claudeObservedLive } from "../lib/chat/streamReplayFixtures";
 
@@ -714,7 +715,22 @@ type BenchState = {
   pins?: { index: number; label: string; anchor: string }[];
   queuedTurns?: QueuedTurn[];
   draftText?: string;
+  liveContext?: LiveContext;
 };
+
+// Contexte vivant (variante A, 2026-11-08) : l'étiquette « ce que tu
+// regardes » au-dessus du champ, et sa trace sous un message déjà envoyé.
+const LIVE_CONTEXT: LiveContext = {
+  path: "/Users/bench/Doctorat/Chapitre1/chapitre1.tex", name: "chapitre1.tex", kind: "tex",
+  lineFrom: 23, lineTo: 25,
+  selection: "Bare-ice albedo decreased by 0.04 between\n2016 and 2023 \\citep{ryan2018},\nmostly during late-summer melt.",
+  comments: [{ line: 30, text: "Préciser la région" }, { line: 41, text: "Source ?" }],
+};
+const LIVE_CONTEXT_EVENTS = [
+  { kind: "user", text: "Ce passage est-il cohérent avec la figure 3 ?", ts: ts(120),
+    liveContext: { path: LIVE_CONTEXT.path, name: "chapitre1.tex", lineFrom: 23, lineTo: 25 } },
+  { kind: "text", text: "Oui : la baisse de 0,04 correspond à la pente montrée en figure 3, panneau b.", ts: ts(110) },
+] as AgentEvent[];
 
 
 // Fichiers modifiés dans le fil (refonte 2026-10-18) : une édition à extrait,
@@ -797,6 +813,7 @@ const STATES: Record<string, BenchState> = {
   agents: { events: AGENTS, workingSince: ts(32), attachments: [], usage: { context: 22000, output: 420, cost: null, turns: 1 } },
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
+  regarde: { events: LIVE_CONTEXT_EVENTS, workingSince: null, attachments: [], usage: null, liveContext: LIVE_CONTEXT },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
   typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },
   proposal: { events: PROPOSAL, workingSince: null, attachments: [], usage: null },
@@ -897,6 +914,8 @@ export function ChatBench() {
         onReorderQueued={noop}
         attachments={activeState.attachments}
         onRemoveAttachment={noop}
+        liveContext={st.liveContext ?? null}
+        onDismissLiveContext={noop}
         onQuote={noop}
         threadId="bench-thread"
         threadTitle="Validation W&M — régions ouest"

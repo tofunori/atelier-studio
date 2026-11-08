@@ -21,6 +21,9 @@ let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
 let __reloadPdf: () => void = null;  // posé par main() — rechargement en place après compile LaTeX
+// Contexte vivant du chat (`atelier-live-context`) : posé par la barre
+// compacte (cadre imbriqué seulement) ; la sélection maison le relance.
+let __liveContextChanged: () => void = () => {};
 
 // ---- pipeline de rendu : plafond de densité, priorités, annulation --------
 // Au-delà de 2x le gain visuel est nul alors que le canvas (mémoire ET temps
@@ -962,6 +965,7 @@ function clearHl(){
   layerSpans = [];
   window.__pdfTextSearch?.releaseSelection();
   (document.getElementById("selinfo") as HTMLSpanElement).textContent = "";
+  __liveContextChanged();
 }
 function selectionModel(){
   if(!activeSelection || !window.AtelierPdfSelection) return null;
@@ -1019,6 +1023,7 @@ function renderSelection(){
 }
 let _selPushT: string|number|NodeJS.Timeout = null;
 function pushSelInfo(lines: number, words, text){
+  __liveContextChanged();
   clearTimeout(_selPushT);
   _selPushT = setTimeout(()=>{
     fetch("/selinfo", {method:"POST", headers:{"Content-Type":"application/json"},
@@ -4367,12 +4372,40 @@ if (window.self !== window.top) {
     }
     return best;
   }
+  // « Le chat sait ce que tu regardes » : fichier, page courante / total et
+  // sélection, postés à l'hôte quand ils changent. `file` est relatif à la
+  // racine du serveur galerie : GET /ping la donne (`project`) pour un chemin
+  // absolu ; `texpdf` (onglet PDF d'un studio LaTeX) l'est déjà.
+  const core = window.AtelierStudioCore;
+  let liveRoot: string | null = null, liveRootKnown = false;
+  const livePdf = core?.createLiveContextPublisher ? core.createLiveContextPublisher({
+    build: () => {
+      if (!liveRootKnown) return null;
+      const total = pageEls().length;
+      return core.buildPdfLiveContext({
+        path: core.resolvePdfLivePath({file: rel, projectRoot: liveRoot, texPdf: __passageParams.get("texpdf")}),
+        page: total ? currentPage() : undefined,
+        pageCount: total || undefined,
+        selection: hlText(),
+      });
+    },
+    postToHost: (payload) => __atelierPost(payload),
+    timers: window,
+  }) : null;
+  if (livePdf) {
+    __liveContextChanged = () => livePdf.schedule();
+    core.onTabActivated(window, () => { if (liveRootKnown) livePdf.repost(); });
+    document.addEventListener("selectionchange", () => { if (window.__readingMode?.isOn()) livePdf.schedule(); });
+    const settle = (root: unknown) => { liveRoot = typeof root === "string" ? root : null; liveRootKnown = true; livePdf.schedule(); };
+    fetch("/ping").then(r => r.ok ? r.json() : null).then(j => settle(j && j.project), () => settle(null));
+  }
   let pageRaf = 0;
   function updatePageNav(){
     pageRaf = 0;
     const total = pageEls().length;
     pgTotalN.textContent = String(total || "–");
     pgCurN.textContent = String(total ? currentPage() : "–");
+    livePdf?.schedule();
   }
   function schedulePageNav(){ if (!pageRaf) pageRaf = requestAnimationFrame(updatePageNav); }
   function gotoPage(n: string|number){

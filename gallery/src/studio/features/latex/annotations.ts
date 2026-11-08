@@ -1,4 +1,9 @@
 import {createNoteEditor} from "../annotation_ui";
+import {
+  followUp, freshReplies, newRoundId, noteHeader, paragraphOf, proposalBlock, questionBlock, removedRanges,
+  roundIcons, roundRequest, sectionOf, since, stateLabel,
+  type RoundRecord, type RoundRef, type RoundReply, type RoundState, type StoredRevisions,
+} from "./revision_round";
 import type {StudioEditor, StudioPosition, StudioRange, StudioTextMarker} from "../../core/editor_contract";
 
 interface AnnotationEditor extends StudioEditor {
@@ -14,6 +19,10 @@ export interface LatexAnnotation {
   color?: string;
   kind?: "comment" | "hl";
   number?: number;
+  /** Ronde d'annotations en cours pour cette note (revision_round.ts). */
+  round?: RoundRef;
+  rstate?: RoundState;
+  reply?: RoundReply;
 }
 
 export interface LatexAnnotationSelection {
@@ -35,6 +44,8 @@ export interface LatexAnnotationsOptions {
   onMutated?(): void;
   /** Échec à signaler hors du popover (chargement des commentaires raté). */
   onError?(message: string): void;
+  /** Ramène la vue Source (les propositions s'y affichent). */
+  revealSource?(): void;
   document?: Document;
   window?: Window;
 }
@@ -129,8 +140,10 @@ export function createLatexAnnotationsController(
 ): LatexAnnotationsController {
   const doc = options.document || document;
   const win = options.window || window;
+  // Entrée enregistre la note (elle attend la prochaine ronde) ; la bulle
+  // l'envoie tout de suite au chat, comme avant (Thierry 2026-11-08).
   const noteUI = createNoteEditor(options.popover, {
-    onSubmit(){}, onDelete(){}, onSendDirect(){void persistCurrent(true);},
+    onSubmit(){}, onDelete(){}, onSendDirect(){void persistCurrent(true);}, submitLabel:"Enregistrer",
   });
   const quote = doc.createElement("div");
   const textarea = noteUI.input;
@@ -155,6 +168,16 @@ export function createLatexAnnotationsController(
   let loaded = false;
   let loading: Promise<boolean> | null = null;
   const knownIds = new Set<string>();
+  // Rondes : historique des notes décidées (`tex-rounds:`), réponses de
+  // l'agent relevées sur /texrevisions tant qu'une note attend.
+  const roundsRel = `tex-rounds:${options.path}`;
+  let history: RoundRecord[] = [];
+  const historyKnown = new Set<string>();
+  const roundBlocks: Record<string, Array<{clear(): void}>> = {};
+  const wordMarks: Record<string, StudioTextMarker[]> = {};
+  let activeId: string | null = null;
+  let pollTimer: number | null = null;
+  let roundError = "";
   const LOAD_FAILED = "Commentaires non chargés : rien n'est enregistré tant que la liste n'est pas relue. Ta note reste disponible.";
 
   const editor = (): AnnotationEditor | null => options.getEditor();
@@ -176,18 +199,23 @@ export function createLatexAnnotationsController(
     });
     return saveQueue;
   };
+  const numberOf = (annotation: LatexAnnotation): number =>
+    annotation.number || all.filter(a=>a.kind!=="hl").indexOf(annotation)+1;
   const mark = (annotation: LatexAnnotation): void => {
     const activeEditor = editor();
     if (!activeEditor) return;
     try {
+      const answered = annotation.kind!=="hl" && (annotation.rstate==="prop" || annotation.rstate==="ask") && annotation.reply;
       marks[annotation.id] = activeEditor.markText(annotation.from, annotation.to, {
-        className: annotation.kind === "hl" ? `texc-hl texc-c-${annotation.color || "amber"}` : "texc-hl texc-comment",
+        className: annotation.kind === "hl" ? `texc-hl texc-c-${annotation.color || "amber"}`
+          : annotation.rstate==="prop" ? "texc-hl texc-comment texr-old" : "texc-hl texc-comment",
         attributes: {"data-texc": annotation.id},
       });
+      if (answered) { markRound(annotation, activeEditor); return; }
       if(annotation.kind!=="hl" && typeof activeEditor.setBookmark==="function") {
         const badge=doc.createElement("button");badge.type="button";
-        badge.className="atelier-annotation-number";
-        badge.textContent=String(annotation.number || all.filter(a=>a.kind!=="hl").indexOf(annotation)+1);
+        badge.className=`atelier-annotation-number${annotation.rstate==="busy" ? " is-busy" : ""}`;
+        badge.textContent=String(numberOf(annotation));
         badge.setAttribute("aria-label",`Annotation ${badge.textContent}`);
         badge.onclick=event=>{event.stopPropagation();if(saving)return;current=annotation;show(annotation,false,badge.getBoundingClientRect());};
         badges[annotation.id]=activeEditor.setBookmark(annotation.from,{widget:badge,insertLeft:true});
@@ -198,6 +226,10 @@ export function createLatexAnnotationsController(
     try { marks[id]?.clear(); } catch { /* already cleared */ }
     delete marks[id];
     badges[id]?.clear();delete badges[id];
+    for (const block of roundBlocks[id] || []) { try { block.clear(); } catch { /* déjà retiré */ } }
+    delete roundBlocks[id];
+    for (const word of wordMarks[id] || []) { try { word.clear(); } catch { /* déjà retiré */ } }
+    delete wordMarks[id];
   };
   const anchorAll = (): void => {
     const activeEditor = editor();
@@ -248,18 +280,273 @@ export function createLatexAnnotationsController(
   };
   const sorted = (): LatexAnnotation[] => [...all].sort((left, right) =>
     left.from.line - right.from.line || left.from.ch - right.from.ch);
+  // ---- Rondes d'annotations -------------------------------------------
+  const notes = (): LatexAnnotation[] => sorted().filter(a => a.kind !== "hl");
+  const currentRound = (): RoundRef | null => notes().find(a => a.round)?.round || null;
+  const pending = (): LatexAnnotation[] => notes().filter(a => a.round && (a.rstate === "prop" || a.rstate === "ask"));
+  const firstProposal = (): string | null => pending().find(a => a.rstate === "prop")?.id || null;
+  const sectionsFor = (items: readonly LatexAnnotation[]): string[] => {
+    const activeEditor = editor();
+    const lines = typeof activeEditor?.getValue === "function" ? activeEditor.getValue().split("\n") : [];
+    return items.map(a => sectionOf(lines, a.from.line));
+  };
+  const locOf = (annotation: LatexAnnotation): string => annotation.from.line === annotation.to.line
+    ? `ligne ${annotation.from.line + 1}` : `lignes ${annotation.from.line + 1}-${annotation.to.line + 1}`;
+
+  function markRound(annotation: LatexAnnotation, activeEditor: AnnotationEditor): void {
+    if (typeof activeEditor.setBookmark !== "function" || !annotation.reply) return;
+    const blocks: Array<{clear(): void}> = [];
+    const source = activeEditor.getValue().split("\n");
+    const paragraph = paragraphOf(source, annotation.from.line, annotation.to.line);
+    const header = noteHeader(doc, numberOf(annotation), annotation.comment, false);
+    header.addEventListener("mousedown", event => event.preventDefault());
+    header.onclick = () => { activeId = annotation.id; buildPanel(); };
+    blocks.push(activeEditor.setBookmark({line: paragraph.start, ch: 0}, {widget: header, insertLeft: true, block: true}));
+    const endLine = activeEditor.getLine(annotation.to.line) || "";
+    const reply = annotation.reply;
+    const block = reply.kind === "propose"
+      ? proposalBlock(doc, {
+        number: numberOf(annotation), comment: annotation.comment, passage: annotation.text, reply,
+        // Le paragraphe entier tel qu'il deviendrait, sous le paragraphe actuel.
+        lineBefore: [...source.slice(paragraph.start, annotation.from.line), (source[annotation.from.line] || "").slice(0, annotation.from.ch)].join("\n"),
+        lineAfter: [endLine.slice(annotation.to.ch), ...source.slice(annotation.to.line + 1, paragraph.end + 1)].join("\n"),
+        position: {index: pending().filter(a => a.rstate === "prop").findIndex(a => a.id === annotation.id) + 1,
+          total: pending().filter(a => a.rstate === "prop").length},
+      }, {
+        accept: () => decide(annotation.id, "acc"),
+        reject: () => decide(annotation.id, "rej"),
+        again: words => ask(annotation.id, "again", words),
+        move: step => move(step, annotation.id),
+      })
+      : questionBlock(doc, reply.question || "", reply.author || "L’agent", words => ask(annotation.id, "answer", words));
+    block.dataset.texr = annotation.id;
+    block.classList.toggle("is-active", activeId === annotation.id);
+    block.addEventListener("mousedown", event => {
+      if (!(event.target as Element | null)?.closest("input")) event.preventDefault();
+      // ⌘↩ vise la proposition touchée en dernier ; une question n'en est pas une.
+      if (reply.kind === "propose" && activeId !== annotation.id) { activeId = annotation.id; buildPanel(); }
+    });
+    const lastLine = activeEditor.getLine(paragraph.end) || "";
+    blocks.push(activeEditor.setBookmark({line: paragraph.end, ch: lastLine.length}, {widget: block, block: true}));
+    roundBlocks[annotation.id] = blocks;
+    if (reply.kind === "propose") {
+      const base = activeEditor.indexFromPos(annotation.from);
+      wordMarks[annotation.id] = removedRanges(annotation.text, reply.text || "").map(([from, to]) =>
+        activeEditor.markText(activeEditor.posFromIndex(base + from), activeEditor.posFromIndex(base + to), {className: "texr-del-word"}));
+    }
+  }
+  const remark = (annotation: LatexAnnotation): void => { clearMark(annotation.id); mark(annotation); };
+  // La position « k sur N » change pour toutes les propositions.
+  // Seules les propositions la portent : un bloc de question garde son champ.
+  const remarkRound = (): void => { for (const a of pending()) if (a.rstate === "prop") remark(a); };
+
+  const loadHistory = async (): Promise<void> => {
+    try {
+      const response = await win.fetch(`/pdfannot?rel=${encodeURIComponent(roundsRel)}`);
+      if (!response.ok) return;
+      const payload = await response.json() as {annots?: RoundRecord[]};
+      if (!Array.isArray(payload.annots)) return;
+      history = payload.annots;
+      history.forEach(record => historyKnown.add(String(record.id)));
+    } catch { /* l'historique n'est qu'un résumé */ }
+  };
+  const saveHistory = async (): Promise<void> => {
+    const sent = history.slice(-400);
+    try {
+      const response = await win.fetch("/pdfannot", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({rel: roundsRel, annots: sent, known: [...historyKnown]})});
+      if (response.ok) sent.forEach(record => historyKnown.add(String(record.id)));
+    } catch { /* gardé en mémoire, réécrit à la prochaine décision */ }
+  };
+
+  const post = (text: string): void => options.postToHost({type: "atelier-add-to-chat", direct: true, text});
+  const poll = (): void => {
+    if (pollTimer !== null) return;
+    pollTimer = win.setInterval(() => { void fetchReplies(); }, 2000);
+    void fetchReplies();
+  };
+  const stopPolling = (): void => { if (pollTimer !== null) win.clearInterval(pollTimer); pollTimer = null; };
+  const fetchReplies = async (): Promise<void> => {
+    const round = currentRound();
+    if (!round || !notes().some(a => a.rstate === "busy")) { stopPolling(); return; }
+    let stored: StoredRevisions | null = null;
+    try {
+      const response = await win.fetch(`/texrevisions?path=${encodeURIComponent(options.path)}`);
+      if (!response.ok) return;
+      stored = ((await response.json()) as {revisions?: StoredRevisions}).revisions || null;
+    } catch { return; }
+    const fresh = freshReplies(stored, round.id, id => all.find(a => a.id === id)?.reply?.seq || 0);
+    const answered: LatexAnnotation[] = [];
+    for (const {id, reply} of fresh) {
+      const annotation = all.find(a => a.id === id && a.round?.id === round.id);
+      if (!annotation) continue;
+      annotation.reply = reply;
+      annotation.rstate = reply.kind === "propose" ? "prop" : "ask";
+      answered.push(annotation);
+    }
+    if (!answered.length) return;
+    if (!activeId || !pending().some(a => a.id === activeId && a.rstate === "prop")) activeId = firstProposal();
+    remarkRound();
+    for (const a of answered) if (a.rstate === "ask") remark(a);
+    void save();
+    buildPanel();
+  };
+
+  const startRound = (): void => {
+    const open = notes().filter(a => !a.round || a.rstate === undefined);
+    if (!open.length) return;
+    const previous = Math.max(0, ...history.map(record => record.n || 0), ...notes().map(a => a.round?.n || 0));
+    const round: RoundRef = {id: newRoundId(), n: previous + 1};
+    // Une ronde à la fois : les notes encore en attente d'une ronde
+    // précédente y entrent aussi.
+    const members = notes();
+    for (const annotation of members) {
+      annotation.round = round;
+      if (annotation.rstate !== "prop" && annotation.rstate !== "ask") annotation.rstate = "busy";
+      if (annotation.rstate === "busy") delete annotation.reply;
+      // Les numéros de réponse repartent de 1 avec la nouvelle ronde.
+      else if (annotation.reply) annotation.reply.seq = 0;
+    }
+    const asked = members.filter(a => a.rstate === "busy");
+    roundError = "";
+    void save().then(saved => {
+      if (!saved) { roundError = "Notes non enregistrées : la ronde n'est pas partie."; buildPanel(); return; }
+      post(roundRequest(options.path, round, asked, sectionsFor(asked)));
+      for (const annotation of asked) remark(annotation);
+      buildPanel();
+      poll();
+    });
+    buildPanel();
+  };
+  const cancelRound = (): void => {
+    for (const annotation of notes()) {
+      if (annotation.rstate !== "busy") continue;
+      delete annotation.round; delete annotation.rstate; delete annotation.reply;
+      remark(annotation);
+    }
+    stopPolling();
+    void save();
+    buildPanel();
+  };
+  /** Redemander, ou répondre à la question de l'agent. */
+  function ask(id: string, kind: "again" | "answer", words: string): void {
+    const annotation = all.find(a => a.id === id);
+    if (!annotation?.round) return;
+    annotation.rstate = "busy";
+    post(followUp(options.path, annotation.round, {...annotation, number: numberOf(annotation)}, kind, words));
+    if (activeId === id) activeId = firstProposal();
+    remark(annotation);
+    remarkRound();
+    void save();
+    buildPanel();
+    poll();
+  }
+  /** Accepter remplace le passage, et lui seul ; Rejeter le garde. */
+  function decide(id: string, decision: "acc" | "rej"): void {
+    const annotation = all.find(a => a.id === id);
+    const activeEditor = editor();
+    if (!annotation?.round || !annotation.reply || annotation.rstate !== "prop" || !activeEditor || saving) return;
+    const range = marks[id]?.find() || findAnnotationRange(activeEditor.getValue(), annotation, activeEditor);
+    if (decision === "acc") {
+      if (!range || activeEditor.getRange(range.from, range.to) !== annotation.text) {
+        roundError = "Le passage a changé depuis la proposition : redemande-la.";
+        buildPanel();
+        return;
+      }
+    }
+    const next = (() => {
+      const list = pending().filter(a => a.rstate === "prop");
+      const index = list.findIndex(a => a.id === id);
+      return list[index + 1] || list[index - 1] || null;
+    })();
+    clearMark(id);
+    all = all.filter(a => a.id !== id);
+    if (decision === "acc" && range) activeEditor.replaceRange(annotation.reply.text || "", range.from, range.to, "+revision");
+    history.push({id: annotation.id, round: annotation.round.id, n: annotation.round.n, number: numberOf(annotation),
+      comment: annotation.comment, text: annotation.text, decision,
+      proposal: decision === "acc" ? annotation.reply.text : undefined, at: Date.now()});
+    roundError = "";
+    activeId = next?.id || firstProposal();
+    remarkRound();
+    void save();
+    void saveHistory();
+    buildPanel();
+    if (activeId) reveal(activeId);
+  }
+  function move(step: 1 | -1, from?: string): void {
+    const list = pending().filter(a => a.rstate === "prop");
+    if (!list.length) return;
+    const index = list.findIndex(a => a.id === (from || activeId));
+    const target = list[(index + step + list.length) % list.length];
+    if (!target) return;
+    activeId = target.id;
+    remarkRound();
+    buildPanel();
+    reveal(target.id);
+  }
+  function reveal(id: string): void {
+    const annotation = all.find(a => a.id === id);
+    const activeEditor = editor();
+    if (!annotation || !activeEditor) return;
+    options.revealSource?.();
+    activeEditor.scrollIntoView({from: annotation.from, to: {line: Math.min(annotation.to.line + 6, activeEditor.lineCount() - 1), ch: 0}}, 80);
+  }
+  // ⌘↩ : accepter la proposition active, d'où que vienne le focus.
+  doc.addEventListener("keydown", event => {
+    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+    const target = activeId ? all.find(a => a.id === activeId && a.rstate === "prop") : null;
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    decide(target.id, "acc");
+  }, true);
+
   const buildPanel = (): void => {
-    const items = sorted();
-    options.panel.innerHTML = `<div class="tp-head"><span class="tp-title">Commentaires (${items.length})</span>`
-      + '<button class="tp-sendall" title="Envoyer tous les commentaires au chat">Envoyer tout</button>'
-      + '<button class="tp-delall" title="Supprimer tous les commentaires">Tout supprimer</button></div>'
-      + (items.length ? items.map((annotation) =>
-        `<div class="tp-item" data-id="${escapeHtml(annotation.id)}">`
-        + `<span class="tp-dot" style="background:${SWATCHES[annotation.color || "amber"] || SWATCHES.amber}"></span>`
-        + `<span class="tp-body"><span class="tp-quote">« ${escapeHtml(annotation.text.slice(0, 70))} »</span>`
-        + (annotation.comment ? `<div class="tp-note">${escapeHtml(annotation.comment)}</div>` : "")
-        + `</span><button class="tp-x" data-x="${escapeHtml(annotation.id)}" title="Supprimer" aria-label="Supprimer le commentaire">✕</button></div>`).join("")
-        : '<div class="tp-empty">aucun commentaire</div>');
+    const items = notes();
+    const round = currentRound();
+    const roundItems = items.filter(a => a.round);
+    const toReview = roundItems.filter(a => a.rstate === "prop" || a.rstate === "ask").length;
+    const busy = roundItems.filter(a => a.rstate === "busy").length;
+    const fresh = items.filter(a => !a.round);
+    const title = round ? `Ronde ${round.n}` : "Annotations";
+    const sub = round
+      ? [`${roundItems.length} note${roundItems.length > 1 ? "s" : ""}`, toReview ? `${toReview} à revoir` : ""].filter(Boolean).join(" · ")
+      : items.length ? `${items.length} note${items.length > 1 ? "s" : ""}` : "";
+    const sections = sectionsFor(items);
+    let lastSection = "";
+    const list = items.map((annotation, index) => {
+      const section = sections[index] || "";
+      const head = round && section !== lastSection ? (lastSection = section, `<div class="tp-sec">${escapeHtml(section)}</div>`) : "";
+      const state = stateLabel(annotation.rstate || "note");
+      return `${head}<div class="tp-item${activeId === annotation.id ? " is-active" : ""}" data-id="${escapeHtml(annotation.id)}" role="button" tabindex="0">`
+        + `<span class="atelier-annotation-number tp-ring">${numberOf(annotation)}</span>`
+        + `<span class="tp-body"><span class="tp-note">${escapeHtml(annotation.comment || annotation.text.slice(0, 90))}</span>`
+        + `<span class="tp-state tone-${state.tone}"><span class="tp-ic">${state.icon}</span>${state.label}<span class="tp-loc">${locOf(annotation)}</span></span></span>`
+        + `<button type="button" class="tp-x" data-x="${escapeHtml(annotation.id)}" title="Supprimer la note" aria-label="Supprimer la note">${roundIcons.close}</button></div>`;
+    }).join("");
+    const past = [...new Set(history.map(record => record.n))].sort((a, b) => b - a).slice(0, 3).map(n => {
+      const records = history.filter(record => record.n === n);
+      const accepted = records.filter(record => record.decision === "acc").length;
+      const last = Math.max(...records.map(record => record.at || 0));
+      return `<div class="tp-past">Ronde ${n} · ${accepted} acceptée${accepted > 1 ? "s" : ""} sur ${records.length}, ${since(last)}</div>`;
+    }).join("");
+    let foot = "";
+    if (busy) {
+      foot = `<div class="tp-work"><span class="texr-spin"></span><span>L’agent révise ${busy} note${busy > 1 ? "s" : ""}</span><span class="tp-gap"></span>`
+        + '<button type="button" class="tp-link tp-cancel">Arrêter</button></div>';
+    } else if (fresh.length) {
+      foot = `<button type="button" class="tp-primary tp-review">Réviser avec l’agent</button>`;
+    }
+    const tools = items.length && !busy
+      ? '<div class="tp-tools"><button type="button" class="tp-link tp-sendall" title="Envoyer toutes les notes au chat, sans ronde">Envoyer au chat</button>'
+        + '<button type="button" class="tp-link tp-delall" title="Supprimer toutes les notes">Tout supprimer</button></div>'
+      : "";
+    options.panel.innerHTML = `<div class="tp-head"><span class="tp-title">${title}</span><span class="tp-sub">${sub}</span><span class="tp-gap"></span>`
+      + `<button type="button" class="tp-close" aria-label="Fermer le panneau" title="Fermer">${roundIcons.close}</button></div>`
+      + `<div class="tp-list">${list || '<div class="tp-empty">Sélectionne un passage puis « Annoter ». Tes notes s’ajoutent ici ; « Réviser avec l’agent » les lui envoie toutes ensemble.</div>'}</div>`
+      + (roundError ? `<div class="tp-error" role="status">${escapeHtml(roundError)}</div>` : "")
+      + (foot || tools || past ? `<div class="tp-foot">${foot}${tools}${past}</div>` : "");
+    doc.body.classList.toggle("has-texc", items.length > 0);
   };
   const togglePanel = (force?: boolean): void => {
     if (deleteArmTimer !== null) win.clearTimeout(deleteArmTimer);
@@ -317,7 +604,10 @@ export function createLatexAnnotationsController(
     const saved=await save();
     saving=false;noteUI.busy(false);
     if(!saved) return;
-    options.postToHost({type:"atelier-add-to-chat", direct,
+    if (options.panel.classList.contains("open")) buildPanel();
+    // Entrée garde la note pour la prochaine ronde ; seule la bulle « Envoyer
+    // au chat » l'envoie tout de suite (le chat la retire en la consommant).
+    if(direct) options.postToHost({type:"atelier-add-to-chat", direct,
       text:`${options.path} (L${annotation.from.line+1}-${annotation.to.line+1}) : « ${annotation.text} »\nCommentaire : ${annotation.comment || "(voir passage)"}`,
       pdfAnnotation:{rel:relation,id:annotation.id}});
     if(current===annotation){options.popover.style.display="none";current=null;}
@@ -376,6 +666,9 @@ export function createLatexAnnotationsController(
   options.button.onclick = () => togglePanel();
   options.panel.addEventListener("click", (event) => {
     const target = event.target as Element | null;
+    if (target?.closest(".tp-close")) { togglePanel(false); return; }
+    if (target?.closest(".tp-review")) { startRound(); return; }
+    if (target?.closest(".tp-cancel")) { cancelRound(); return; }
     const removeButton = target?.closest<HTMLElement>(".tp-x");
     if (removeButton?.dataset.x) {
       remove(removeButton.dataset.x);
@@ -410,6 +703,14 @@ export function createLatexAnnotationsController(
     const item = target?.closest<HTMLElement>(".tp-item[data-id]");
     const annotation = all.find((candidate) => candidate.id === item?.dataset.id);
     const activeEditor = editor();
+    // Pendant une ronde, le panneau reste ouvert : on passe d'une note à l'autre.
+    if (annotation?.round) {
+      activeId = annotation.id;
+      remarkRound();
+      buildPanel();
+      reveal(annotation.id);
+      return;
+    }
     if (annotation && activeEditor) {
       activeEditor.setCursor(annotation.from);
       activeEditor.scrollIntoView({from: annotation.from, to: annotation.to}, 80);
@@ -417,9 +718,16 @@ export function createLatexAnnotationsController(
       togglePanel(false);
     }
   });
+  options.panel.addEventListener("keydown", (event) => {
+    const item = (event.target as Element | null)?.closest<HTMLElement>(".tp-item[data-id]");
+    if (!item || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    item.click();
+  });
   doc.addEventListener("mousedown", (event) => {
     const target = event.target as Element | null;
-    if (options.panel.classList.contains("open") && target && !options.panel.contains(target) && !target.closest("#texcBtn")) {
+    if (options.panel.classList.contains("open") && target && !options.panel.contains(target) && !target.closest("#texcBtn")
+      && !currentRound()) {
       togglePanel(false);
     }
   });
@@ -443,9 +751,14 @@ export function createLatexAnnotationsController(
       options.onError?.(LOAD_FAILED);
       return false;
     }
+    await loadHistory();
+    activeId = firstProposal();
     // hors du try : un ancrage qui échoue n'annule pas un chargement réussi
     try { anchorAll(); } catch { /* ancrage repris au prochain passage */ }
     options.onMutated?.();
+    // Une ronde lancée avant un rechargement reprend où elle en était.
+    if (all.some(a => a.rstate === "busy")) poll();
+    if (currentRound()) togglePanel(true);
     return true;
   };
   // Relance le chargement au besoin (comme ensureLoaded de l'éditeur Markdown).

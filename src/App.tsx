@@ -15,7 +15,7 @@ import { annotationDisplayText } from "./lib/annotationDisplayText";
 import { normalizeProjectFolders, projectWritableDirectories, resolveAssociatedFile } from "./lib/projectFolders";
 import { lazy } from "react";
 const ProjectFoldersDialog = lazy(() => import("./components/ProjectFoldersDialog"));
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -46,6 +46,7 @@ import { usePluginCatalog } from "./hooks/usePluginCatalog";
 import { useContextInspector } from "./hooks/useContextInspector";
 import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
 import { useStoredJson } from "./hooks/useStoredJson";
+import { projectName, recentProjects, takeLaunchProjectsHome } from "./lib/projectsHome";
 import { relaySidecarMessage } from "./lib/sidecarRelays";
 import { notifySetAside } from "./lib/setAsideNotice";
 import {
@@ -109,6 +110,7 @@ import { IconButton } from "./components/ui/IconButton";
 import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import { worstOf, writeUsageSnapshot, type Usage } from "./lib/usageSummary";
 const UsagePopover = lazyWithRetry(() => import("./components/UsagePopover"));
+const ProjectsHome = lazyWithRetry(() => import("./components/ProjectsHome"));
 import { pluginSkillsForPrompt, revalidateQueuedPluginSkills } from "./lib/plugins";
 import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedAgentSummaries, linkedConversationForProvider } from "./lib/threadLinks";
@@ -189,6 +191,7 @@ import { pruneUnsavedDocuments } from "./lib/unsavedDocuments";
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
 import "./styles/tokens.css";
+import { LIVE_CONTEXT_EVENT, liveContextKey, liveContextTrace, parseLiveContext, type LiveContext } from "./lib/liveContext";
 import "./styles/shadcn.css";
 import "./styles/typeset.css";
 import "./styles/primitives.css";
@@ -543,6 +546,17 @@ export default function App() {
   // ouvert étaient perdus (vécu 2026-08-21).
   const [lastThreadByProject, setLastThreadByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastThreadByProject", {});
   const [lastTabByProject, setLastTabByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastTabByProject", {});
+  const [projMeta, setProjMeta] = useStoredJson<Record<string, ProjMeta>>("atelier-studio.projMeta", {});
+  // Écran d'ouverture des projets : affiché une fois par lancement (s'il y a
+  // des projets), puis depuis le menu du nom du projet. "new" ouvre aussi la
+  // boîte « Nouveau projet ».
+  const [projectsHome, setProjectsHome] = useState<null | "open" | "new">(
+    () => (loadProjects().length > 0 && takeLaunchProjectsHome() ? "open" : null),
+  );
+  // Ordre « récent » : dernière ouverture dans Atelier ou dernière conversation.
+  const markProjectOpened = useCallback((root: string) => {
+    setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now() } }));
+  }, [setProjMeta]);
   // un projet est le contexte des chats — le sélectionner ramène sur la vue
   // chats si on est ailleurs, SAUF en vue Surlignés : là il filtre les fiches
   // de ce projet (re-cliquer le même projet revient à « Tous », spec §4)
@@ -557,6 +571,7 @@ export default function App() {
   // setters useState omis (stables garantis par React).
   const selectProject = useCallback((root: string) => {
     discussionNavigation.current = false;
+    markProjectOpened(root);
     if (activeView === "highlights") {
       setActiveProject(root);
       setHlFilterProject((cur) => (cur === root ? null : root));
@@ -592,9 +607,8 @@ export default function App() {
       }
     }
     setActiveView("chats");
-  }, [activeView, activeProject, lastThreadByProject, setActiveView]);
+  }, [activeView, activeProject, lastThreadByProject, setActiveView, markProjectOpened]);
   const [projectSettingsRoot, setProjectSettingsRoot] = useState<string | null>(null);
-  const [projMeta, setProjMeta] = useStoredJson<Record<string, ProjMeta>>("atelier-studio.projMeta", {});
 
   useEffect(() => {
     localStorage.setItem("atelier-studio.compact", compact ? "1" : "0");
@@ -1041,6 +1055,28 @@ export default function App() {
     }
   }, [activeId, threads, wsReady]);
   const showAtelier = layout !== "chat";
+  // Contexte vivant (2026-11-08) : ce que l'onglet focalisé de l'atelier
+  // montre, publié par AtelierPane. Le retrait (croix) vaut pour CE contexte
+  // et CE message : une autre sélection le ramène, un envoi réussi aussi.
+  const [workspaceLiveContext, setWorkspaceLiveContext] = useState<LiveContext | null>(null);
+  const [dismissedLiveContext, setDismissedLiveContext] = useState<string | null>(null);
+  useEffect(() => {
+    const onLiveContext = (event: Event) => {
+      const context = parseLiveContext((event as CustomEvent).detail?.context);
+      setWorkspaceLiveContext((current) =>
+        JSON.stringify(current) === JSON.stringify(context) ? current : context);
+    };
+    window.addEventListener(LIVE_CONTEXT_EVENT, onLiveContext);
+    return () => window.removeEventListener(LIVE_CONTEXT_EVENT, onLiveContext);
+  }, []);
+  const offeredLiveContext = showAtelier && activeProject && workspaceLiveContext
+    && liveContextKey(workspaceLiveContext) !== dismissedLiveContext
+    ? workspaceLiveContext
+    : null;
+  // Lu au moment d'envoyer (gestionnaire) : synchronisé après le rendu,
+  // jamais muté pendant.
+  const offeredLiveContextRef = useRef(offeredLiveContext);
+  useLayoutEffect(() => { offeredLiveContextRef.current = offeredLiveContext; }, [offeredLiveContext]);
   // Miroir de la surface active de AtelierPane (côté App, pour l'icône active
   // du rail). La requête d'ouverture est distincte de la valeur active : deux
   // clics sur la même surface doivent tous deux l'ouvrir, et surtout l'event ne
@@ -2496,6 +2532,9 @@ export default function App() {
         const message = themeMessage(settingsRef.current, atelierNonce);
         (e.source as Window).postMessage(message, e.origin);
       }
+      if (data.type === "atelier-open-file") {
+        openFileTabRef.current(data.path, data.line ? String(data.line) : null);
+      }
       if (data.type === "atelier-open-thread") {
         window.dispatchEvent(new CustomEvent("open-thread", { detail: { threadId: data.threadId } }));
       }
@@ -3028,10 +3067,12 @@ export default function App() {
   // (import statique, stable) et des setters useState : deps [].
   const addProject = useCallback(async () => {
     const root = await open({ directory: true });
-    if (typeof root !== "string") return;
+    if (typeof root !== "string") return false;
     setProjects((p) => (p.includes(root) ? p : [...p, root]));
     setActiveProject(root);
-  }, []);
+    markProjectOpened(root);
+    return true;
+  }, [markProjectOpened]);
 
   // Task 25 (fix) : useCallback — passé nommé (`onNewChat`) à RailMemo et à
   // ResearchHome/CommandPalette. Dep exacte : activeProject (lu dans le
@@ -3217,12 +3258,15 @@ export default function App() {
     onAccepted?: () => void,
   ) {
     const attachments = isolatedAttachments ?? activeComposerDraft.attachments;
+    // Contexte vivant capturé À L'ENVOI (le retrait éventuel déjà appliqué).
+    const liveContext = offeredLiveContextRef.current;
     const clearSubmittedAttachments = () => {
       updateComposerDraft(activeComposerKey, draft => ({
       ...draft,
       attachments: isolatedAttachments
         ? draft.attachments.filter(attachment => !isolatedAttachments.includes(attachment)) : [],
       }));
+      setDismissedLiveContext(null);
       onAccepted?.();
     };
     const displayPrompt = prompt;
@@ -3411,6 +3455,7 @@ export default function App() {
           : [],
         autoReview: { ...settingsRef.current.autoReview },
         createdAt: Date.now(),
+        ...(liveContext ? { liveContext } : {}),
       });
       clearSubmittedAttachments();
       return;
@@ -3538,12 +3583,14 @@ export default function App() {
     const fullPrompt = promptWithAttachments(prompt, attachments);
     // identité du message : générée ici, dédupliquée à l'ack sidecar (plan 025)
     const clientMessageId = crypto.randomUUID();
+    const liveTrace = liveContext ? liveContextTrace(liveContext) : null;
     const userEvent = {
       kind: "user" as const,
       text: transcriptText,
       ts: Date.now(),
       meta: { provisional: true as const, messageId: clientMessageId },
       ...userBubbleAttachmentFields(attachments),
+      ...(liveTrace ? { liveContext: liveTrace } : {}),
       // méta KB fidèle à l'envoi (plan 049) : sources attachées à CE moment,
       // titres depuis le cache kbSources (repli sur l'id si pas encore chargé)
       ...(() => {
@@ -3657,7 +3704,10 @@ export default function App() {
       return;
     }
     if (ws.current) {
-      const displayEvent = archivedUserEvent(userEvent, attachments, imagePaths);
+      const displayEvent = {
+        ...archivedUserEvent(userEvent, attachments, imagePaths),
+        ...(liveTrace ? { liveContext: liveTrace } : {}),
+      };
       // Consigne (plan 2026-09-01) : rafraîchir la copie AVANT le tour, sur le
       // MÊME fil (pas un handoff ni un fil neuf, qui n'ont encore aucune
       // consigne enregistrée côté store) — c'est ce patch qui fait qu'une
@@ -3693,6 +3743,7 @@ export default function App() {
         }),
         mode,
         ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
+        ...(liveContext ? { liveContext } : {}),
       });
       if (envoye) pdfAnnotationDelivery.current.track(clientMessageId, attachments);
       if (!envoye) {
@@ -3756,12 +3807,15 @@ export default function App() {
     const codexInputs = structuredTurnInputs(
       supportsStructuredInputs(queuedCapabilities, queued.provider), fullPrompt, imagePaths, pluginSkills, catalogSkill,
     );
+    // contexte vivant capturé à la mise en file, pas celui d'aujourd'hui
+    const queuedTrace = queued.liveContext ? liveContextTrace(queued.liveContext) : null;
     const userEvent = {
       kind: "user" as const,
       text: annotationDisplayText(queued.prompt, queuedAttachments),
       ts: Date.now(),
       meta: { provisional: true as const, messageId: clientMessageId },
       ...userBubbleAttachmentFields(queuedAttachments),
+      ...(queuedTrace ? { liveContext: queuedTrace } : {}),
     };
     setEvents((current) => ({
       ...current,
@@ -3782,12 +3836,16 @@ export default function App() {
       provider: queued.provider,
       prompt: fullPrompt,
       clientMessageId,
-      displayEvent: archivedUserEvent(userEvent, queuedAttachments, imagePaths),
+      displayEvent: {
+        ...archivedUserEvent(userEvent, queuedAttachments, imagePaths),
+        ...(queuedTrace ? { liveContext: queuedTrace } : {}),
+      },
       ...(codexInputs ? { inputs: codexInputs } : {}),
       ...(imagePaths.length ? { attachments: imagePaths.map((path) => ({ path })) } : {}),
       ...providerTurnOptions(queued),
       mode,
       ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
+      ...(queued.liveContext ? { liveContext: queued.liveContext } : {}),
     });
     if (!envoye) return false;
     pdfAnnotationDelivery.current.track(clientMessageId, queuedAttachments);
@@ -4052,6 +4110,15 @@ export default function App() {
     () => new Set(allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot)),
     [allThreads],
   );
+  const recentRoots = useMemo(() => recentProjects(projects, projMeta, allThreads), [projects, projMeta, allThreads]);
+  const projectMenu = useMemo(() => ({
+    recents: recentRoots.filter((root) => root !== activeProject).slice(0, 5)
+      .map((root) => ({ root, name: projectName(root, projMeta[root]?.label) })),
+    onSelect: (root: string) => { setActiveView("chats"); selectProject(root); },
+    onAll: () => setProjectsHome("open"),
+    onOpenFolder: () => { void addProject(); },
+    onNew: () => setProjectsHome("new"),
+  }), [recentRoots, activeProject, projMeta, selectProject, addProject, setActiveView]);
 
   // Research Home (plan 017) : modèle dérivé pur + vrais workflows, calculés
   // uniquement quand aucun thread n'est actif (la timeline monte l'accueil à
@@ -4444,6 +4511,7 @@ export default function App() {
       </LazyBoundary>
   ) : (
         <Sidebar
+          projectMenu={projectMenu}
           onProjectSettings={setProjectSettingsRoot}
           projects={projects}
           threads={allThreads}
@@ -4503,7 +4571,8 @@ export default function App() {
   // il ne se rend que sous `settings/sections/General.tsx`, donc déjà
   // couvert par `showSettings`.
   const overlayOpen = galleryFullscreen || showSettings || paletteOpen || qaMode === "open" || pluginsOpen
-    || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null || setupWelcomeOpen;
+    || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null || setupWelcomeOpen
+    || projectsHome != null;
   function updateProjectFolders(value: import("./lib/projectFolders").ProjectFolders) {
     if (!projectSettingsRoot) return;
     const next = { ...settingsRef.current, projectFolders: { ...settingsRef.current.projectFolders, [projectSettingsRoot]: value } };
@@ -4514,7 +4583,38 @@ export default function App() {
   }
   const overlaysNode = (
     <>
-      {projectSettingsRoot && <LazyBoundary fallback={null}><ProjectFoldersDialog locked={runningProjects.has(projectSettingsRoot)} root={projectSettingsRoot} value={settings.projectFolders?.[projectSettingsRoot]} onClose={() => setProjectSettingsRoot(null)} onChange={updateProjectFolders} /></LazyBoundary>}
+      {projectSettingsRoot && <LazyBoundary fallback={null}><ProjectFoldersDialog locked={runningProjects.has(projectSettingsRoot)} root={projectSettingsRoot} value={settings.projectFolders?.[projectSettingsRoot]} onClose={() => setProjectSettingsRoot(null)} onChange={updateProjectFolders}
+        card={projMeta[projectSettingsRoot]} onCardChange={(patch) => setProjMeta((prev) => ({ ...prev, [projectSettingsRoot]: { ...prev[projectSettingsRoot], ...patch } }))} /></LazyBoundary>}
+      {projectsHome && (
+        <LazyBoundary fallback={null}>
+          <ProjectsHome
+            projects={recentRoots}
+            meta={projMeta}
+            threads={allThreads}
+            connected={wsReady}
+            startWithNewProject={projectsHome === "new"}
+            onOpen={(root) => {
+              setProjectsHome(null);
+              // déjà ouvert (premier projet au lancement) : on garde son fil
+              setActiveView("chats");
+              if (root === activeProject) markProjectOpened(root);
+              else selectProject(root);
+            }}
+            onOpenFolder={() => { void addProject().then((added) => { if (added) setProjectsHome(null); }); }}
+            onCreated={(root, due) => {
+              setProjects((prev) => (prev.includes(root) ? prev : [...prev, root]));
+              setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now(), ...(due ? { due } : {}) } }));
+              discussionNavigation.current = false;
+              setActiveView("chats");
+              setActiveProject(root);
+              setActiveId(null);
+              activeIdRef.current = null;
+              setProjectsHome(null);
+            }}
+            onClose={() => setProjectsHome(null)}
+          />
+        </LazyBoundary>
+      )}
       {/* Lot A, tâche 3 : les réglages ne remplacent plus l'app (ancien
           `if (showSettings) return`) — la feuille se pose ici, par-dessus
           l'arbre monté, comme les autres surcouches de ce fragment. */}
@@ -4719,6 +4819,10 @@ export default function App() {
           onPasteText={(text) => setAttachments((l) => addAttachment(l, pastedTextAttachment(t("chat.pasted-text"), text)))}
           onQuote={(text) => setAttachments((l) => addAttachment(l, quoteAttachment(text)))}
           disabled={!activeProject && !activeId}
+          liveContext={offeredLiveContext}
+          onDismissLiveContext={() => {
+            if (offeredLiveContext) setDismissedLiveContext(liveContextKey(offeredLiveContext));
+          }}
           onGoal={threadActions.goal}
           onSubmit={submit}
         />

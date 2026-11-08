@@ -131,6 +131,58 @@ fn open_ro(path: &Path) -> Result<rusqlite::Connection, String> {
     .map_err(|e| e.to_string())
 }
 
+/// Lien `zotero://select/…` de la fiche qui porte ce DOI (sinon ce titre),
+/// pour « Ouvrir dans Zotero » depuis la vérification des références.
+pub(crate) fn item_link(
+    cache: &Mutex<ZoteroCache>,
+    doi: Option<&str>,
+    title: Option<&str>,
+) -> Result<Option<String>, String> {
+    let copy = ensure_readonly_copy(cache)?;
+    let connection = open_ro(&copy)?;
+    let field_sql = |field: &str| {
+        format!(
+            "SELECT i.key, (SELECT g.groupID FROM groups g WHERE g.libraryID = i.libraryID), v.value
+               FROM items i
+               JOIN itemData d ON d.itemID = i.itemID
+               JOIN fields f ON f.fieldID = d.fieldID AND f.fieldName = '{field}'
+               JOIN itemDataValues v ON v.valueID = d.valueID
+              WHERE i.itemID NOT IN (SELECT itemID FROM deletedItems)"
+        )
+    };
+    let link = |key: String, group: Option<i64>| match group {
+        Some(group) => format!("zotero://select/groups/{group}/items/{key}"),
+        None => format!("zotero://select/library/items/{key}"),
+    };
+    let rows = |field: &str| -> Vec<(String, Option<i64>, String)> {
+        connection
+            .prepare(&field_sql(field))
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    if let Some(doi) = doi.map(crate::bib::clean_doi).filter(|doi| !doi.is_empty()) {
+        if let Some((key, group, _)) = rows("DOI")
+            .into_iter()
+            .find(|(_, _, value)| crate::bib::clean_doi(value).eq_ignore_ascii_case(&doi))
+        {
+            return Ok(Some(link(key, group)));
+        }
+    }
+    if let Some(title) = title.map(crate::bib::norm).filter(|title| !title.is_empty()) {
+        if let Some((key, group, _)) = rows("title")
+            .into_iter()
+            .find(|(_, _, value)| crate::bib::norm(value) == title)
+        {
+            return Ok(Some(link(key, group)));
+        }
+    }
+    Ok(None)
+}
+
 fn cite_key(creators: &str, year: &str) -> String {
     let first = creators
         .split(',')

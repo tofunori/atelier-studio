@@ -81,6 +81,8 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "upsertThread",
     "listFiles",
     "projectFolderCatalog",
+    "projectCards",
+    "createProject",
     "narvalStatus",
     "narvalSnapshot",
     "narvalListDirectory",
@@ -157,6 +159,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "zoteroCollections",
     "zoteroFav",
     "zoteroDigest",
+    "fileCards",
     "zoteroAddPdf",
     "termOpen",
     "termInput",
@@ -743,6 +746,36 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             let response_root = root.clone();
             let result = crate::ws_dispatch::blocking(move || crate::project_folders::catalog(&root, &config)).await.ok();
             vec![json_msg(json!({"type":"projectFolderCatalog","projectRoot":response_root,"requestId":request_id,"sources":result.clone().unwrap_or_else(|| json!([])),"error":if result.is_none() { Some("catalog_unavailable") } else { None }}))]
+        }
+        "projectCards" => {
+            let roots: Vec<String> = msg["roots"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+            let app_dir = state.app_dir().to_path_buf();
+            let request_id = msg["requestId"].clone();
+            let cards = crate::ws_dispatch::blocking(move || crate::project_home::cards(&roots, &app_dir))
+                .await
+                .unwrap_or_default();
+            vec![json_msg(json!({"type":"projectCards","requestId":request_id,"cards":cards}))]
+        }
+        "createProject" => {
+            let parent = msg["parent"].as_str().unwrap_or("").to_string();
+            let name = msg["name"].as_str().unwrap_or("").to_string();
+            let template = msg["template"].as_str().map(str::to_string);
+            let request_id = msg["requestId"].clone();
+            let result = crate::ws_dispatch::blocking(move || {
+                crate::project_home::create(&parent, &name, template.as_deref())
+            })
+            .await
+            .unwrap_or_else(|_| Err("Création impossible".into()));
+            vec![json_msg(match result {
+                Ok(root) => json!({"type":"projectCreated","requestId":request_id,"root":root}),
+                Err(error) => json!({"type":"projectCreated","requestId":request_id,"error":error}),
+            })]
         }
         "listFiles" => {
             let root = msg
@@ -1723,6 +1756,43 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                     json!({"type":"zoteroFav","key": key, "fav": on, "ok": false, "error": e}),
                 )],
             }
+        }
+        "fileCards" => {
+            // Cartes « article » des pièces jointes du chat : taille, pages,
+            // titre/revue/année (Zotero puis métadonnées du PDF). Lecture
+            // seule ; 24 chemins absolus au plus par demande.
+            let paths: Vec<String> = msg
+                .get("paths")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|p| p.starts_with('/'))
+                        .take(24)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let app_dir = state.app_dir().to_path_buf();
+            let cards = crate::ws_dispatch::blocking(move || {
+                paths
+                    .iter()
+                    .map(|path| {
+                        crate::file_cards::file_card(std::path::Path::new(path), |pdf| {
+                            atelier_workspace::zotero_item_for_pdf_path(&app_dir, pdf).map(|item| {
+                                crate::file_cards::KnownReference {
+                                    title: item.title,
+                                    journal: item.publication,
+                                    year: item.year,
+                                }
+                            })
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default();
+            vec![json_msg(json!({"type": "fileCards", "cards": cards}))]
         }
         "zoteroDigest" => {
             let key = msg

@@ -6,7 +6,7 @@ import type { DraftAttachment } from "./chatDraftStore";
 import type { ProviderCapabilities } from "./providers";
 import type { PluginSkill } from "./plugins";
 import { skillAttachInstruction, type CatalogSkill } from "./skills";
-import type { SendOptions, UserDisplayEvent } from "./ws";
+import type { ChatFileRef, SendOptions, UserDisplayEvent } from "./ws";
 
 type Attachment = DraftAttachment;
 type TurnInputs = NonNullable<SendOptions["inputs"]>;
@@ -25,6 +25,37 @@ function labelledAttachments(attachments: Attachment[]): Attachment[] {
   return attachments.filter((a) => (!a.imageUrl || a.notes?.length) && a.kind !== "paste");
 }
 
+/** Libellé d'une pièce jointe dans `label` (« nom (lines X) ») : la carte
+ *  d'un message envoyé se filtre sur ce même texte. */
+export function chatFileLabel(file: { name: string; lines?: string | null }): string {
+  return `${file.name}${file.lines ? ` (lines ${file.lines})` : ""}`;
+}
+
+/** Carte « article » d'une pièce jointe (2026-11-02) : le chemin, pour que
+ *  la carte lise taille, pages et titre ; la notice d'une référence Zotero. */
+function chatFileRef(a: Attachment): ChatFileRef {
+  if (a.kind === "zotero") {
+    const rows = a.preview?.rows ?? [];
+    const row = (label: string) => rows.find((r) => r.label === label)?.value;
+    const title = a.preview?.title;
+    const journal = row("Journal");
+    const year = row("Year") ?? a.lines;
+    return {
+      name: a.name,
+      kind: "zotero",
+      ...(title && title !== a.name ? { title } : {}),
+      ...(journal ? { journal } : {}),
+      ...(year ? { year } : {}),
+    };
+  }
+  return {
+    name: a.name,
+    ...(a.lines ? { lines: a.lines } : {}),
+    ...(a.path ? { path: a.path } : {}),
+    ...(a.kind ? { kind: a.kind } : {}),
+  };
+}
+
 /** Champs de la bulle utilisateur tirés des pièces jointes : vignette, noms,
  *  notes de figure annotée et collages. */
 export function userBubbleAttachmentFields(attachments: Attachment[]) {
@@ -35,7 +66,10 @@ export function userBubbleAttachmentFields(attachments: Attachment[]) {
   return {
     ...(withImage ? { imageUrl: withImage.imageUrl } : {}),
     ...(labelled.length
-      ? { label: labelled.map((a) => `${a.name}${a.lines ? ` (lines ${a.lines})` : ""}`).join(" · ") }
+      ? {
+        label: labelled.map((a) => chatFileLabel(a)).join(" · "),
+        files: labelled.map(chatFileRef),
+      }
       : {}),
     ...(withNotes ? { notes: withNotes.notes } : {}),
     ...(pastes.length ? { pastes: pastes.map((a) => ({ name: a.name, text: a.text })) } : {}),
@@ -47,7 +81,7 @@ export function userBubbleAttachmentFields(attachments: Attachment[]) {
  *  collage garde son texte : c'est du contenu de l'utilisateur, et sans lui
  *  la chip d'une bulle restaurée n'ouvrait rien (2026-09-14). */
 export function archivedUserEvent(
-  bubble: { text: string; ts: number; label?: string },
+  bubble: { text: string; ts: number; label?: string; files?: ChatFileRef[] },
   attachments: Attachment[],
   imagePaths: string[],
 ): UserDisplayEvent {
@@ -57,6 +91,7 @@ export function archivedUserEvent(
     text: bubble.text,
     ts: bubble.ts,
     ...(bubble.label ? { label: bubble.label } : {}),
+    ...(bubble.files?.length ? { files: bubble.files } : {}),
     ...(pastes.length
       ? { pastes: pastes.map((a) => ({ name: a.name, lines: a.text.split("\n").length, text: a.text })) }
       : {}),
