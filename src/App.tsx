@@ -15,7 +15,7 @@ import { annotationDisplayText } from "./lib/annotationDisplayText";
 import { normalizeProjectFolders, projectWritableDirectories, resolveAssociatedFile } from "./lib/projectFolders";
 import { lazy } from "react";
 const ProjectFoldersDialog = lazy(() => import("./components/ProjectFoldersDialog"));
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -1060,8 +1060,10 @@ export default function App() {
     && liveContextKey(workspaceLiveContext) !== dismissedLiveContext
     ? workspaceLiveContext
     : null;
+  // Lu au moment d'envoyer (gestionnaire) : synchronisé après le rendu,
+  // jamais muté pendant.
   const offeredLiveContextRef = useRef(offeredLiveContext);
-  offeredLiveContextRef.current = offeredLiveContext;
+  useLayoutEffect(() => { offeredLiveContextRef.current = offeredLiveContext; }, [offeredLiveContext]);
   // Miroir de la surface active de AtelierPane (côté App, pour l'icône active
   // du rail). La requête d'ouverture est distincte de la valeur active : deux
   // clics sur la même surface doivent tous deux l'ouvrir, et surtout l'event ne
