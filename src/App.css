@@ -4508,19 +4508,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    L'orange reste un signal (icône, liseré), jamais un fond de bouton
    (audit CHAT-14). */
 .perm-verdict { margin-top: 8px; font-size: var(--fs-m); color: var(--text-muted); }
-.approval-decisions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
-.approval-decision { min-width: 0; display: grid; grid-template-columns: 22px 1fr; align-items: start; gap: 8px;
-  padding: 8px 8px; border: 1px solid var(--border2); border-radius: var(--r-s); background: transparent;
-  color: var(--text-secondary); font: inherit; text-align: left; cursor: pointer; }
-.approval-decision:hover { background: var(--bg-ctl); border-color: var(--border-strong); color: var(--text-primary); }
-.approval-decision kbd { width: 20px; padding: 0; }
-.approval-decision span { display: flex; flex-direction: column; min-width: 0; }
-.approval-decision b { font-size: var(--fs-m); font-weight: 500; }
-.approval-decision small { margin-top: 2px; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.25; }
-.approval-decision.primary { border-color: var(--border-strong); }
-.approval-decision.primary b { color: var(--text-primary); }
-.approval-decision.danger:hover b { color: var(--status-error); }
-@media (max-width: 620px) { .approval-decisions { grid-template-columns: 1fr; } }
 /* ===== carte interaction harnais (plan 025, step 5) — étend .perm-card ===== */
 .int-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .int-type { margin-left: auto; flex: none; font-size: var(--fs-xs); color: var(--text-muted); }
@@ -4589,6 +4576,60 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .int-answered-title { font-weight: 500; }
 .int-answered-key { margin-right: 4px; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
   letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
+/* ===== approbation (variante C « compacte », choisie le 2026-11-09) =====
+   Carte sans cadre ni liseré : deux lignes (action + commande sur une ligne ;
+   raison + Refuser ▾ / Autoriser en relief gris). Répondue = une ligne de
+   12 px au rang des lignes d'outil, dépliable. Aucun accent hors focus. */
+.int-card.appr { margin: 6px 0; padding: 12px 16px; max-width: 560px; border-radius: var(--r-m);
+  background: var(--surface-raised); box-shadow: var(--card-lift); }
+.appr-l1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.appr-ico { flex: none; color: var(--text-muted); }
+.appr-title { flex: none; font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3;
+  color: var(--text-primary); }
+.appr-cmd { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 4px;
+  border-radius: var(--r-s); text-align: left; color: var(--text-muted); transition: color var(--ease); }
+.appr-cmd code, code.appr-cmd { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--code-font); font-size: var(--fs-m); line-height: 20px; }
+.appr-cmd code { flex: 1; }
+.appr-cmd:hover { color: var(--text-secondary); }
+.appr-chev { flex: none; margin-left: auto; }
+.appr-code { margin-top: 8px; padding: 8px 12px; border-radius: var(--r-s); background: var(--bg-side);
+  font-family: var(--code-font); font-size: var(--fs-m); line-height: 20px; color: var(--text-muted);
+  max-height: 240px; overflow-y: auto; }
+.appr-code-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.appr-prog { color: var(--text-secondary); font-weight: 500; }
+.appr-l2 { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }
+.appr-reason { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-s);
+  color: var(--text-muted); }
+.appr-reason svg { flex: none; }
+.appr-reason span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appr-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.appr-deny .ui-btn-label, .appr-allow .ui-btn-label { display: inline-flex; align-items: center; gap: 4px; }
+.appr-deny { color: var(--text-muted); }
+.appr-allow .ui-btn-label { gap: 8px; }
+.appr-allow kbd { padding: 0; min-width: 0; background: transparent; color: var(--text-muted); }
+.appr-split { display: inline-flex; gap: 1px; }
+.appr-split .appr-allow:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.appr-allow-more { padding: 0 4px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.appr-key { margin-left: auto; padding-left: 12px; font-size: var(--fs-s); color: var(--text-muted);
+  font-variant-numeric: tabular-nums; }
+.appr-consigne { margin-top: 8px; }
+.appr-consigne .int-input { margin-top: 0; padding: 4px 12px; }
+.appr-consigne .int-input:focus, .appr-consigne .int-input:focus-visible { border-color: var(--selection-border);
+  box-shadow: none; }
+.appr-hint { display: block; margin-top: 4px; font-size: var(--fs-s); color: var(--text-muted); }
+/* répondue : une ligne, pas de carte */
+.int-card.appr.is-done { padding: 0; background: none; box-shadow: none; }
+.appr-done { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left;
+  font-size: var(--fs-m); line-height: 20px; color: var(--text-muted); }
+.appr-done .appr-ico { color: var(--text-muted); }
+.appr-verdict { flex: none; color: var(--text-secondary); }
+.appr-sub { margin-left: -4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appr-sub::before { content: "· "; color: var(--text-muted); }
+.appr-done .appr-chev { margin-left: 0; color: var(--text-muted); opacity: 0; transition: opacity var(--ease); }
+.appr-done:hover .appr-chev, .appr-done:focus-visible .appr-chev, .appr-done[aria-expanded="true"] .appr-chev { opacity: 1; }
+.appr.is-done .appr-code { margin-left: 22px; font-size: var(--fs-s); }
+.appr.is-done .int-plan { margin-left: 22px; }
 /* détail d'outil (Bash(git status)) */
 .tool-detail { color: var(--text-muted); font-family: var(--code-font); font-size: var(--fs-s);
   margin-left: 6px; }

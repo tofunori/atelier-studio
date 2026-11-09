@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · revision · regarde.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · revision · regarde.
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -632,6 +632,35 @@ const QUESTIONS_ANSWERED: AgentEvent[] = [...QUESTIONS_BASE,
   { kind: "text", text: "C'est noté : un fichier Markdown dans `documentation/`, depuis l'envoi à Christophe.", ts: ts(20) } as AgentEvent,
 ];
 
+// Approbation de commande (variante C compacte, 2026-11-09) : la carte en
+// attente, puis l'historique où chaque approbation tient en une ligne.
+const APPR_CHOICES = [
+  { optionId: "allow", label: "Autoriser", kind: "allow_once" },
+  { optionId: "toujours", label: "Oui, et ne plus demander pour « python3 -c ' * »", kind: "allow_always" },
+  { optionId: "deny", label: "Refuser", kind: "reject_once" },
+  { optionId: "stop", label: "Refuser et arrêter", kind: "reject_always", cancelTurn: true },
+];
+const APPR_CMD = `cd /Users/tofunori/Documents/Doctorat/Chapitre1-Albedo; f=$(find resultats -name surface_brulee_region_synthese.json | head -1); echo $f; python3 -c "import json;s=json.load(open('$f'));g=s['groupes']['RGI 02'];print(g['regions']);print('surf500',g['tendance_surface_500km'])"; grep -n -i "western" manuscrit/sections/results_en.tex`;
+const appr = (id: string, detail: string, state: string, offsetS: number, answerSummary?: string): AgentEvent => ({
+  kind: "interaction", requestId: id, interactionType: "approval", title: "Exécution de commande", detail,
+  reason: "Une variable de cette commande ne peut pas être vérifiée avant l'exécution.", feedback: true,
+  choices: APPR_CHOICES, state, ...(answerSummary ? { answerSummary } : {}), ts: ts(offsetS),
+} as AgentEvent);
+const APPROVAL: AgentEvent[] = [
+  { kind: "user", text: "D'où viennent les deux rapports (2,1 et 2,3) de la synthèse ?", ts: ts(50) } as AgentEvent,
+  { kind: "text", text: "Je retrace d'où viennent les deux rapports (2,1 et 2,3) dans les sorties.", ts: ts(46) } as AgentEvent,
+  appr("ap-1", APPR_CMD, "pending", 40),
+];
+const APPROVED: AgentEvent[] = [
+  { kind: "user", text: "D'où viennent les deux rapports (2,1 et 2,3) de la synthèse ?", ts: ts(90) } as AgentEvent,
+  appr("ap-a", `cd /Users/tofunori/Documents/Doctorat/Chapitre1-Albedo; python3 -c "a=[0.936014,0.115402,0.165456];b=[1.40122,0.241062,0.85934];print(sum(b)/sum(a))"`, "answered", 80, "Oui, et ne plus demander pour « python3 -c ' * »"),
+  bash("ap-a-run", `python3 -c "a=[0.936014,0.115402,0.165456];b=[1.40122,0.241062,0.85934];print(sum(b)/sum(a))"`, "Calcule le rapport des deux périodes", "2.1012", "completed", 78, { durationMs: 900 }),
+  appr("ap-b", `cd /Users/tofunori/Documents/Doctorat/Chapitre1-Albedo; git log -S"ratio between the two periods is 2.1" --oneline -- manuscrit/sections/results_en.tex`, "answered", 70, "Autoriser"),
+  bash("ap-b-run", `git log -S"ratio between the two periods is 2.1" --oneline`, "Cherche quand le rapport est passé à 2,1", "a1b2c3d Discussion : rapport 2,1", "completed", 68, { durationMs: 3900 }),
+  appr("ap-c", APPR_CMD, "answered", 60, "Refuser · « Lis plutôt le fichier de synthèse directement »"),
+  { kind: "text", text: "D'accord, je lis directement `resultats/surface_brulee_region_synthese.json`.", ts: ts(55) } as AgentEvent,
+];
+
 // Sous-agents Claude (maquette 2026-10-18, piste A) : la mission titre chaque
 // rangée, le type passe en étiquette ; en cours puis terminés.
 function claudeAgent(id: string, type: string, description: string, status: string, offsetS: number, message?: string): AgentEvent {
@@ -823,6 +852,8 @@ const STATES: Record<string, BenchState> = {
   finagents: { events: AGENTS_CLAUDE_DONE, workingSince: null, attachments: [], usage: { context: 33000, output: 900, cost: null, turns: 1 } },
   questions: { events: QUESTIONS, workingSince: ts(40), attachments: [], usage: null },
   reponses: { events: QUESTIONS_ANSWERED, workingSince: null, attachments: [], usage: null },
+  approbation: { events: APPROVAL, workingSince: ts(50), attachments: [], usage: null },
+  approuvees: { events: APPROVED, workingSince: null, attachments: [], usage: null },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   tables: { events: WIDE_TABLES, workingSince: null, attachments: [], usage: null },

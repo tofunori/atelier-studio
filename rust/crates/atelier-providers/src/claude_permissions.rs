@@ -26,6 +26,9 @@ pub(crate) const REFUS_ATELIER: &str = "Refusé dans Atelier";
 const APERCU_MAX: usize = 24 * 1024;
 /// Plan d'ExitPlanMode : largement au-delà d'un plan réel, borne de sûreté.
 const PLAN_MAX: usize = 64 * 1024;
+/// Commande ou chemin montré sur la carte : la carte le replie sur une ligne
+/// et le déplie à la demande, il peut donc être complet (borne de sûreté).
+const DETAIL_MAX: usize = 2000;
 
 const OPT_AUTORISER: &str = "allow_once";
 const OPT_TOUJOURS: &str = "allow_always";
@@ -300,7 +303,7 @@ pub fn interaction_spec(params: &Value) -> Value {
     let mut spec = json!({
         "interactionType": "approval",
         "title": title,
-        "detail": borne(detail, 400),
+        "detail": borne(detail, DETAIL_MAX),
         "feedback": true,
         "choices": choices,
         "itemId": item_id,
