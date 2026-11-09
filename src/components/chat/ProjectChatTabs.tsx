@@ -33,10 +33,11 @@ export type ChatTabActions = {
 // LazyDropdownMenu, composant résolu gardé au niveau du module. Tant qu'il
 // n'est pas arrivé (quelques ms au démarrage), l'onglet s'affiche sans menu.
 let LoadedTabMenu: typeof import("./ChatTabMenu").ChatTabMenu | null = null;
-export const chatTabMenuModule = import("./ChatTabMenu").then((module) => {
+const chatTabMenuModule = import("./ChatTabMenu").then((module) => {
   LoadedTabMenu = module.ChatTabMenu;
-  return module;
-});
+  return true;
+  // chunk introuvable : les onglets restent utilisables, sans clic droit
+}).catch(() => false);
 
 /** Navigation only: App owns thread selection, history and per-thread drafts.
  *  Les onglets partent de la gauche ; UN seul bouton ⌄ reste au bord droit,
@@ -58,7 +59,7 @@ export function ProjectChatTabs(p: {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [menuReady, setMenuReady] = useState(LoadedTabMenu != null);
-  useEffect(() => { if (!menuReady) void chatTabMenuModule.then(() => setMenuReady(true)); }, [menuReady]);
+  useEffect(() => { if (!menuReady) void chatTabMenuModule.then(setMenuReady); }, [menuReady]);
   const list = useRef<HTMLSpanElement>(null);
   const anchor = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {

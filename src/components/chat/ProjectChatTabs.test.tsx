@@ -1,12 +1,15 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { ProjectChatTabs, chatTabMenuModule } from "./ProjectChatTabs";
+import { ProjectChatTabs } from "./ProjectChatTabs";
 import { ChatHeader } from "./ChatHeader";
 import { setLanguage } from "../../lib/i18n";
 
 afterEach(cleanup);
 // le clic droit des onglets vit dans son propre chunk
-beforeAll(async () => { await chatTabMenuModule; });
+beforeAll(async () => {
+  await import("./ChatTabMenu");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
 beforeEach(() => setLanguage("fr"));
 const chats = [{ id: "a", title: "Copernicus" }, { id: "b", title: "Albédo" }, { id: "c", title: "Discussion" }];
 

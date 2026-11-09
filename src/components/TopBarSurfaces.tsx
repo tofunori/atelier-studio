@@ -114,7 +114,7 @@ const TOOL_IDS: TargetId[] = ["explorer", "ide", "annots"];
 /** Surface ouverte hors galerie : c'est elle qui devient un onglet. L'IDE ne
  *  se nomme que s'il n'a aucun document actif (sinon l'onglet du document
  *  suffit). */
-export function currentSurface(p: SurfaceProps, documentActive: boolean): TopBarTarget | undefined {
+function currentSurface(p: SurfaceProps, documentActive: boolean): TopBarTarget | undefined {
   const targets = buildTargets(p);
   return targets.find((target) => target.active && target.surface && target.id !== "atelier")
     ?? (p.showAtelier && p.ideActive && !documentActive ? targets.find((target) => target.id === "ide") : undefined);
