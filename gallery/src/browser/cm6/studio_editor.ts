@@ -12,13 +12,15 @@ import {tags} from "@lezer/highlight";
 import {diff as computeTextDiff, getChunks, goToNextChunk, goToPreviousChunk, unifiedMergeView, getOriginalDoc, Chunk, Change} from "@codemirror/merge";
 import {reviewAnchored, setReviewFocus, currentReviewOffset} from "./review_anchored.ts";
 import {reviewUnified} from "./review_unified.ts";
-import {snapChangesToTokens} from "./review_tokens.ts";
+import {reviewDiffByLine} from "./review_tokens.ts";
 
 const REVIEW_DIFF = {scanLimit: 1000, timeout: 250};
-// LaTeX : le diff de revue ne coupe ni un mot ni une commande (maquette A,
-// 2026-09-30) : `\bar{` et `}` s'ajoutent autour de `\alpha`, intact.
+// LaTeX : le diff de revue aligne d'abord les lignes, puis les mots dans les
+// lignes remplacées (diff raffiné v2, 2026-11-09) ; il ne coupe ni un mot ni
+// une commande (maquette A, 2026-09-30) : `\bar{` et `}` s'ajoutent autour de
+// `\alpha`, intact.
 const texReviewDiff = {...REVIEW_DIFF, override: (a: string, b: string) =>
-  snapChangesToTokens(computeTextDiff(a, b, REVIEW_DIFF), a, b)
+  reviewDiffByLine(a, b, (x, y) => computeTextDiff(x, y, REVIEW_DIFF))
     .map((c) => new Change(c.fromA, c.toA, c.fromB, c.toB))};
 
 // Décision sur un bloc du diff unifié : le texte résultant (`text`) et la
@@ -292,7 +294,6 @@ function manuscriptHighlight(p) {
 // (couleur de gouttière du profil, >= 3:1 selon EDIT-19), la ligne courante
 // seule remonte d'un cran, sans bandeau.
 const manuscriptGutter = EditorView.theme({
-  ".cm-gutters": {borderRight: "0 !important"},
   ".cm-lineNumbers .cm-gutterElement": {padding: "1px 8px 0 12px !important", fontSize: "12px", fontVariantNumeric: "tabular-nums"},
   ".cm-lineNumbers .cm-gutterElement.cm-activeLineGutter": {color: "var(--text-secondary, var(--fg2, var(--muted))) !important"},
   ".cm-activeLineGutter": {backgroundColor: "transparent !important"},
@@ -318,7 +319,8 @@ function themeExtensions(id, ext = "") {
     "&.cm-focused": {outline: "none"},
     "&.cm-focused .cm-cursor": {borderLeftColor: p.accent, borderLeftWidth: "2px"},
     ".cm-activeLine": {backgroundColor: p.active},
-    ".cm-gutters": {color: `${p.gutter} !important`, backgroundColor: `${p.bg} !important`, borderRight: `1px solid ${p.border} !important`},
+    // Manuscrit .tex : gouttière sans filet (lot 1, 2026-11-09).
+    ".cm-gutters": {color: `${p.gutter} !important`, backgroundColor: `${p.bg} !important`, borderRight: ext === "tex" && followsHost ? "0 !important" : `1px solid ${p.border} !important`},
     ".cm-lineNumbers .cm-gutterElement": {padding: "0 4px"},
     ".cm-activeLineGutter": {color: p.gutterActive, backgroundColor: p.active},
     ".cm-matchingBracket": {color: `${p.accent} !important`, backgroundColor: `${p.accent}20`, outline: `1px solid ${p.accent}55`},

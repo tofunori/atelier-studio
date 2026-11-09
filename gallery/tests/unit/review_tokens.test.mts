@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {diff} from "@codemirror/merge";
-import {snapChangesToTokens, splitsToken} from "../../src/browser/cm6/review_tokens.ts";
+import {reviewDiffByLine, snapChangesToTokens, splitsToken} from "../../src/browser/cm6/review_tokens.ts";
 
 const snapped = (a: string, b: string) => snapChangesToTokens(diff(a, b), a, b)
   .map((c) => [a.slice(c.fromA, c.toA), b.slice(c.fromB, c.toB)]);
@@ -58,4 +58,37 @@ test("un retrait qui peut glisser se pose entre deux mots, sans avaler le voisin
   const b = "Les glaciers sont les plus touchés.";
   assert.deepEqual(snapped(a, b), [[", car leur zone d'ablation reste exposée plus longtemps", ""]]);
   assert.deepEqual(snapped(b, a), [["", ", car leur zone d'ablation reste exposée plus longtemps"]]);
+});
+
+// Diff raffiné v2 (2026-11-09) : lignes d'abord, puis mots.
+const byLine = (a: string, b: string) => reviewDiffByLine(a, b, (x, y) => diff(x, y))
+  .map((c) => [a.slice(c.fromA, c.toA), b.slice(c.fromB, c.toB)]);
+
+test("une ligne intacte entre deux retouches n'est jamais retirée puis rajoutée", () => {
+  const a = "Adding deposition changes the elpd.\n% Garder cette phrase ?\nThe snowpack term dominates the fit.\n";
+  const b = "Adding deposition increases the elpd.\n% Garder cette phrase ?\n";
+  const changes = byLine(a, b);
+  assert.deepEqual(changes, [["changes", "increases"], ["The snowpack term dominates the fit.\n", ""]]);
+  for (const [removed, added] of changes) {
+    assert.ok(!removed.includes("% Garder"), removed);
+    assert.ok(!added.includes("% Garder"), added);
+  }
+});
+
+test("les mots d'une phrase ne s'apparient pas avec ceux d'une autre", () => {
+  const a = "The slope remains negative in most regions.\n";
+  const b = "Smoke darkens every glacier we sampled, without exception.\n";
+  assert.deepEqual(byLine(a, b), [["The slope remains negative in most regions.", "Smoke darkens every glacier we sampled, without exception."]]);
+});
+
+test("une micro-égalité entre deux changements est absorbée", () => {
+  const a = "the slope remains, clearly, negative here\n";
+  const b = "the slope is now negative here\n";
+  assert.deepEqual(byLine(a, b), [["remains, clearly,", "is now"]]);
+});
+
+test("une retouche de mot reste au mot, sur sa ligne", () => {
+  const a = "x\nles pixels contaminés ont\ny\n";
+  const b = "x\nles pixels nuageux ont\ny\n";
+  assert.deepEqual(byLine(a, b), [["contaminés", "nuageux"]]);
 });
