@@ -1,6 +1,6 @@
 // HarnessInteraction (plan 025, step 5) : carte compacte pour l'événement
-// interactif générique du sidecar — approvals Codex, request_user_input,
-// MCP elicitation (formulaire ou URL). Même patron visuel que la carte
+// interactif générique du sidecar — request_user_input, MCP elicitation
+// (formulaire ou URL) ; les approbations passent par ApprovalCard (lazy). Même patron visuel que la carte
 // permission (.perm-card) ; la réponse part par CustomEvent "interaction-answer"
 // (App l'envoie en WS `interactionResponse`).
 //
@@ -10,15 +10,15 @@
 //  - mode URL : on affiche seulement le domaine et on émet accept/decline —
 //    JAMAIS de window.open ici, le sidecar/l'OS gère l'ouverture.
 import { lazy, Suspense, useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { AgentEvent, InteractionChoice, InteractionResponse } from "../../lib/ws";
+import type { AgentEvent, InteractionResponse } from "../../lib/ws";
 import { t } from "../../lib/i18n";
+import { sendInteractionAnswer } from "./interactionAnswer";
 import { Input } from "../shadcn/input";
 import { Field, FieldLabel, FieldTitle } from "../shadcn/field";
 import { Button, RowButton } from "../ui";
 
-const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
+// Carte d'approbation (variante C compacte) : chunk à part, budget d'entrée plein.
+const ApprovalCard = lazy(() => import("./ApprovalCard"));
 
 export type InteractionEvent = Extract<AgentEvent, { kind: "interaction" }>;
 
@@ -55,12 +55,15 @@ const CheckIcon = () => (
   </svg>
 );
 
-const isReject = (c: InteractionChoice) => c.kind === "reject_once" || c.kind === "reject_always";
+type CardProps = { event: InteractionEvent; threadId: string | null };
 
-export function HarnessInteraction({ event: e, threadId }: {
-  event: InteractionEvent;
-  threadId: string | null;
-}) {
+export function HarnessInteraction(props: CardProps) {
+  return props.event.interactionType === "approval"
+    ? <Suspense fallback={<div className="int-card appr" />}><ApprovalCard {...props} /></Suspense>
+    : <InteractionCard {...props} />;
+}
+
+function InteractionCard({ event: e, threadId }: CardProps) {
   // fige la carte dès l'envoi (optimiste, avant l'état final ré-émis par le
   // sidecar) : pas de double envoi, et toute valeur secrète quitte le DOM
   const [sent, setSent] = useState(false);
@@ -70,8 +73,6 @@ export function HarnessInteraction({ event: e, threadId }: {
   const [others, setOthers] = useState<Record<string, string>>({});
   // fieldId → options cochées (question à choix multiples)
   const [checked, setChecked] = useState<Record<string, string[]>>({});
-  // consigne jointe à un refus (« dire à l'agent quoi faire à la place »)
-  const [feedback, setFeedback] = useState("");
 
   // question affichée : une seule à la fois, onglets quand il y en a plusieurs
   const [step, setStep] = useState(0);
@@ -80,61 +81,16 @@ export function HarnessInteraction({ event: e, threadId }: {
   const fields = e.fields ?? [];
   const urlMode = e.interactionType === "mcp_elicitation" && !!e.urlDomain && fields.length === 0;
   // formulaire (questions de l'agent, MCP) : carte sobre, une question à la fois
-  const form = fields.length > 0 && e.interactionType !== "approval";
+  const form = fields.length > 0;
   const stepped = form && fields.length > 1;
   const current = form ? fields[Math.min(step, fields.length - 1)] : undefined;
   const last = step >= fields.length - 1;
   const title = (e.interactionType === "user_input" && SERVER_TITLES[e.title]) ? t(SERVER_TITLES[e.title]) : e.title;
 
   const answer = (response: InteractionResponse) => {
-    // Carte recopiée d'un fil lié (spécialiste délégué) : la réponse part
-    // au nom de ce fil, seul détenteur de la demande côté serveur.
-    window.dispatchEvent(new CustomEvent("interaction-answer", {
-      detail: { threadId: e.forThreadId ?? threadId, requestId: e.requestId, response },
-    }));
+    sendInteractionAnswer(e, threadId, response);
     setSent(true);
   };
-  // Choix dynamique : optionId OPAQUE ; un refus emporte la consigne tapée,
-  // un choix d'arrêt le signale (App interrompt alors le tour).
-  const choose = (c: InteractionChoice) => {
-    const message = e.feedback && isReject(c) ? feedback.trim() : "";
-    answer({
-      optionId: c.optionId,
-      ...(c.cancelTurn ? { cancelTurn: true } : {}),
-      ...(message ? { message } : {}),
-    });
-  };
-  useEffect(() => {
-    if (final || e.interactionType !== "approval") return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      const target = event.target;
-      if (target instanceof Element && target.matches("input, textarea, select, [contenteditable=true]")) return;
-      const pendingCards = [...document.querySelectorAll<HTMLElement>('.int-card[data-approval-pending="true"]')];
-      if (pendingCards[pendingCards.length - 1]?.dataset.requestId !== e.requestId) return;
-      // Choix dynamiques (Kimi) : la touche n sélectionne le n-ième optionId,
-      // renvoyé OPAQUE — jamais réinterprété en allow/deny.
-      if (e.choices?.length) {
-        const index = Number.parseInt(event.key, 10) - 1;
-        const choice = Number.isInteger(index) ? e.choices[index] : undefined;
-        if (!choice) return;
-        event.preventDefault();
-        choose(choice);
-        return;
-      }
-      const response =
-        event.key === "1" ? { allow: true, scope: "once" as const }
-        : event.key === "2" ? { allow: true, scope: "session" as const }
-        : event.key === "3" ? { allow: false, scope: "once" as const }
-        : event.key === "4" ? { allow: false, scope: "once" as const, cancelTurn: true }
-        : null;
-      if (!response) return;
-      event.preventDefault();
-      answer(response);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [e.interactionType, final, feedback]);
   const collect = (): Record<string, string> => {
     const out: Record<string, string> = {};
     for (const f of fields) {
@@ -152,7 +108,6 @@ export function HarnessInteraction({ event: e, threadId }: {
     const list = current[fieldId] ?? [];
     return { ...current, [fieldId]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] };
   });
-  const firstReject = e.choices?.find(isReject);
   type QField = NonNullable<InteractionEvent["fields"]>[number];
   const rowsOf = (f: QField) => f.options?.length
     ? [...f.options.map((o) => ({ value: o.value ?? o.label, label: o.label, description: o.description })),
@@ -226,7 +181,6 @@ export function HarnessInteraction({ event: e, threadId }: {
   return (
     <div
       className={`perm-card int-card${form ? " int-card--form" : ""}${final ? " answered" : ""}`}
-      data-approval-pending={!final && e.interactionType === "approval" ? "true" : undefined}
       data-form-pending={!final && form ? "true" : undefined}
       data-request-id={e.requestId}
     >
@@ -258,18 +212,6 @@ export function HarnessInteraction({ event: e, threadId }: {
       {e.forTitle ? <div className="int-for">{t("interaction.for-linked", { title: e.forTitle })}</div> : null}
       {e.detail ? <div className="int-detail">{e.detail}</div> : null}
       {e.reason && !final ? <div className="int-reason">{e.reason}</div> : null}
-      {e.markdown ? (
-        <div className={`int-plan${final ? " is-final" : ""}`}>
-          <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]}>{e.markdown}</ReactMarkdown>
-        </div>
-      ) : null}
-      {e.preview && !final ? (
-        <div className="int-preview">
-          <Suspense fallback={<span className="muted">{t("common.loading")}</span>}>
-            <AtelierDiffView before={e.preview.oldText} after={e.preview.newText} path={e.preview.path} compact />
-          </Suspense>
-        </div>
-      ) : null}
       {urlMode ? <div className="int-domain">{t("interaction.url-ask", { domain: e.urlDomain })}</div> : null}
       {!final && current ? (() => {
         const f = current;
@@ -339,22 +281,6 @@ export function HarnessInteraction({ event: e, threadId }: {
           </Field>
         );
       })() : null}
-      {!final && e.feedback && e.choices?.length ? (
-        <Input
-          className="int-input int-feedback"
-          value={feedback}
-          placeholder={t("interaction.feedback-placeholder")}
-          aria-label={t("interaction.feedback-placeholder")}
-          onChange={(ev) => setFeedback(ev.target.value)}
-          onKeyDown={(ev) => {
-            // Entrée = refuser avec cette consigne, comme dans le terminal.
-            if (ev.key === "Enter" && feedback.trim() && firstReject) {
-              ev.preventDefault();
-              choose(firstReject);
-            }
-          }}
-        />
-      ) : null}
       {form ? (
         <div className="int-foot">
           {stepped ? <span className="int-progress">{`${step + 1} / ${fields.length}`}</span> : null}
@@ -367,46 +293,7 @@ export function HarnessInteraction({ event: e, threadId }: {
         <div className="perm-verdict" role="status">{verdict}</div>
       ) : (
         <div className="perm-actions">
-          {e.interactionType === "approval" && e.choices?.length ? (
-            // Choix dynamiques (Kimi, Claude) : ordre EXACT du provider, libellés tels
-            // quels, réponse = optionId opaque. Les kinds reject_* prennent le
-            // style danger ; le premier allow_* est l'action primaire.
-            <div className="approval-decisions">
-              {e.choices.map((c, index) => {
-                const reject = c.kind === "reject_once" || c.kind === "reject_always";
-                const primary = !reject && index === 0;
-                return (
-                  <RowButton
-                    key={c.optionId}
-                    className={`approval-decision${primary ? " primary" : ""}${reject ? " danger" : ""}`}
-                    aria-label={c.label}
-                    onClick={() => choose(c)}
-                  >
-                    <kbd>{index + 1}</kbd>
-                    <span>
-                      <b>{c.label}</b>
-                      {c.description ? <small>{c.description}</small> : null}
-                    </span>
-                  </RowButton>
-                );
-              })}
-            </div>
-          ) : e.interactionType === "approval" ? (
-            <div className="approval-decisions">
-              <RowButton className="approval-decision primary" aria-label={t("interaction.allow-once")} onClick={() => answer({ allow: true, scope: "once" })}>
-                <kbd>1</kbd><span><b>{t("interaction.allow-once")}</b><small>{t("interaction.allow-once-desc")}</small></span>
-              </RowButton>
-              <RowButton className="approval-decision" aria-label={t("interaction.allow-session")} onClick={() => answer({ allow: true, scope: "session" })}>
-                <kbd>2</kbd><span><b>{t("interaction.allow-session")}</b><small>{t("interaction.allow-session-desc")}</small></span>
-              </RowButton>
-              <RowButton className="approval-decision" aria-label={t("interaction.deny")} onClick={() => answer({ allow: false, scope: "once" })}>
-                <kbd>3</kbd><span><b>{t("interaction.deny")}</b><small>{t("interaction.deny-desc")}</small></span>
-              </RowButton>
-              <RowButton className="approval-decision danger" aria-label={t("interaction.cancel-turn")} onClick={() => answer({ allow: false, scope: "once", cancelTurn: true })}>
-                <kbd>4</kbd><span><b>{t("interaction.cancel-turn")}</b><small>{t("interaction.cancel-turn-desc")}</small></span>
-              </RowButton>
-            </div>
-          ) : e.interactionType === "user_input" ? (
+          {e.interactionType === "user_input" ? (
             // user_input sans champ (cas limite) : envoyer une réponse vide
             <>
               <Button variant="primary" className="perm-allow" onClick={() => answer({ answers: {} })}>{t("interaction.submit")}</Button>

@@ -1983,7 +1983,11 @@ describe("orchestration App — caractérisation", () => {
         meta: meta("e-int-1", 2),
       },
     });
-    // la carte apparaît avec ses boutons
+    // la carte (chunk ApprovalCard chargé à la demande) apparaît avec ses boutons
+    await act(async () => {
+      await import("./components/chat/ApprovalCard");
+      await flushMicrotasks(8);
+    });
     expect(screen.getByText("Exécuter rm -rf build ?")).toBeTruthy();
     const allowBtn = screen.getByRole("button", { name: t("interaction.allow-once") });
     await act(async () => {
@@ -2011,8 +2015,9 @@ describe("orchestration App — caractérisation", () => {
         answerSummary: "autorisé une fois", meta: meta("e-int-2", 3),
       },
     });
-    expect(screen.getAllByText("Exécuter rm -rf build ?")).toHaveLength(1);
-    expect(screen.getByText("autorisé une fois")).toBeTruthy();
+    // repliée en une ligne : verdict, sans redite du résumé « autorisé une fois »
+    expect(document.querySelectorAll('.int-card[data-request-id="req-appr-1"]')).toHaveLength(1);
+    expect(screen.getByText(t("interaction.req-allowed"))).toBeTruthy();
     expect(screen.queryByRole("button", { name: t("interaction.allow-once") })).toBeNull();
   });
 
