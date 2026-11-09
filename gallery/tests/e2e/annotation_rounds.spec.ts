@@ -67,8 +67,8 @@ test('annotation round: notes wait, the agent proposes in place, accept replaces
     // Entrée garde les notes : rien n'est parti au chat.
     expect(await page.evaluate(() => (window as any).__chat.length)).toBe(0);
 
-    await page.locator('#moreBtn').click();
-    await page.locator('[data-act="comments"]').click();
+    // Annotations a son icône dans la barre (2026-11-08).
+    await page.locator('#texcBtn').click();
     const panel = page.locator('#texcPanel');
     await expect(panel.locator('.tp-title')).toHaveText('Annotations');
     await expect(panel.locator('.tp-sub')).toHaveText('2 notes');
@@ -138,8 +138,8 @@ test('annotation round: reject keeps the text and the round panel survives a rel
     await openWithHost(page, url);
     const passage = 'Glaciers retreat quickly';
     await annotate(page, 4, 0, passage, 'Chiffrer.');
-    await page.locator('#moreBtn').click();
-    await page.locator('[data-act="comments"]').click();
+    // Annotations a son icône dans la barre (2026-11-08).
+    await page.locator('#texcBtn').click();
     await page.locator('#texcPanel').getByRole('button', {name: 'Réviser avec l’agent'}).click();
     await expect.poll(() => page.evaluate(() => (window as any).__chat.length)).toBe(1);
     const text = (await page.evaluate(() => (window as any).__chat[0])).text as string;

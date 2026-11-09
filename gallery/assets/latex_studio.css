@@ -1197,3 +1197,56 @@ html.tex-read-only #msBar,body.csvtable #msBar{display:none}
 /* La carte vit dans la ligne de CodeMirror : sans ses tampons de widget, pas de ligne vide fantôme dessous. */
 .cm-widgetBuffer:has(+ .bc-host),.bc-host ~ .cm-widgetBuffer,.bc-host ~ br{display:none}
 @media (prefers-reduced-motion:reduce){#bibPanel,#bibPanel .bp-spin,#bibPanel .bp-chev,#bibPanel .bp-bar span{animation:none!important;transition:none!important}}
+
+/* Barre épurée et personnalisable (.tex, 2026-11-08, toolbar_layout.ts).
+   Les groupes s'effacent (display:contents) : chaque outil reçoit son
+   `order` (gauche 10.., #tbGap 50, droite 60..), « … » ferme la marche. */
+body.tbx #compileActions,body.tbx #wrapActions,body.tbx #chatActions,body.tbx #toolbarActions{display:contents}
+body.tbx #documentModes{order:0}
+body.tbx #tbGap{order:50;flex:1 1 auto;min-width:0;height:28px}
+body.tbx header .pdfonly{order:90}
+body.tbx #state{order:95}
+body.tbx #moreBtn{order:100}
+body.tbx #toolbarActions>#outlineBtn,body.tbx #toolbarActions>#rewrapAllBtn,body.tbx #toolbarActions>#texcBtn,body.tbx #toolbarActions>#findBtn,body.tbx #consoleBtn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0}
+body.tbx #outlineBtn svg,body.tbx #findBtn svg,body.tbx #consoleBtn svg{width:16px;height:16px}
+body.tbx header .tb-off,body.tbx #compileActions>#popPdf.tb-off,body.tbx #wrapActions>#toolbarWrap.tb-off,body.tbx #wrapActions>#toolbarVisual.tb-off,body.tbx #toolbarActions>.tb-off{display:none!important}
+body.tbx #morePop .tb-dup{display:none!important}
+/* Compiler : l'icône seule, sur son fond gris, avec la pastille du résultat. */
+body.tbx #build{width:28px;padding:0}
+body.tbx #build span{display:none}
+body.tbx #build::after{left:15px}
+/* Diff éteint : l'interrupteur seul ; versions et passages reviennent avec lui
+   (classe posée par toolbar_layout.ts : pas de :has(), trop coûteux ici). */
+body.tbx #diffGrp.tb-diff-off #dvNav>:not(#diffTag),
+body.tbx #diffGrp.tb-diff-off #diffPrev,
+body.tbx #diffGrp.tb-diff-off #diffNext,
+body.tbx #diffGrp.tb-diff-off #diffAcceptAll{display:none!important}
+
+#tbCustom{position:fixed;z-index:400;display:none;width:320px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;box-sizing:border-box;padding:4px;
+  background:var(--surface-overlay,var(--card));border:0;border-radius:10px;box-shadow:var(--elevation-overlay,var(--elev));
+  font-size:var(--fs-body-s, 12px);font-weight:400;line-height:1.5;color:var(--text-primary,var(--txt))}
+#tbCustom.open{display:block;animation:pop-fade var(--motion-fast,120ms) ease-out}
+#tbCustom .tbc-head{padding:8px 8px 4px}
+#tbCustom .tbc-head b{display:block;font-size:var(--fs-body, 13px);font-weight:600;letter-spacing:-.01em;line-height:1.3}
+#tbCustom .tbc-head span{display:block;margin-top:4px;color:var(--text-muted,var(--muted))}
+#tbCustom .tbc-sec{padding:8px 8px 4px;font-size:var(--fs-label, 11px);font-weight:500;color:var(--text-muted,var(--muted))}
+#tbCustom .tbc-row,#tbCustom .tbc-fixed{display:flex;align-items:center;gap:8px;width:100%;min-height:28px;padding:4px 8px;box-sizing:border-box;border:0;border-radius:6px;
+  background:transparent;color:var(--text-primary,var(--txt));font:inherit;text-align:left;cursor:pointer;transition:background var(--motion-fast,120ms) ease-out,opacity var(--motion-fast,120ms) ease-out}
+#tbCustom .tbc-fixed{cursor:default}
+#tbCustom .tbc-row:hover,#tbCustom .tbc-row:focus-visible{background:var(--surface-hover,var(--card2));outline:none}
+#tbCustom .tbc-row[aria-checked=false] .tbc-label,#tbCustom .tbc-row[aria-checked=false] .tbc-ic{color:var(--text-muted,var(--muted))}
+#tbCustom .tbc-grip{flex:none;display:inline-flex;width:14px;color:var(--text-disabled,var(--muted));cursor:grab}
+#tbCustom .tbc-ic{flex:none;display:inline-flex;color:var(--text-secondary,var(--txt))}
+#tbCustom .tbc-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tbCustom em{font-style:normal;font-size:var(--fs-label, 11px);color:var(--text-muted,var(--muted));font-variant-numeric:tabular-nums;white-space:nowrap}
+#tbCustom .tbc-ck{flex:none;display:inline-flex;width:15px;justify-content:flex-end}
+#tbCustom .tbc-row[aria-checked=false] .tbc-ck svg{opacity:0}
+#tbCustom .tbc-lock{color:var(--text-disabled,var(--muted))}
+#tbCustom .tbc-row.dragging{opacity:.4}
+#tbCustom .tbc-row.drop-before{box-shadow:inset 0 2px 0 var(--text-secondary,var(--txt))}
+#tbCustom .tbc-row.drop-after{box-shadow:inset 0 -2px 0 var(--text-secondary,var(--txt))}
+#tbCustom .tbc-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;padding:8px;border-top:1px solid var(--border-subtle,var(--border));
+  font-size:var(--fs-label, 11px);color:var(--text-muted,var(--muted))}
+#tbCustom .tbc-reset{white-space:nowrap;border:0;border-radius:6px;padding:4px 8px;margin:-4px -8px -4px 0;background:transparent;color:var(--text-secondary,var(--txt));font:inherit;font-weight:500;cursor:pointer}
+#tbCustom .tbc-reset:hover{background:var(--surface-hover,var(--card2))}
+@media(prefers-reduced-motion:reduce){#tbCustom.open{animation:none}#tbCustom .tbc-row{transition:none}}
