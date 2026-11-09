@@ -64,14 +64,14 @@ struct AnnotationSheet: View {
                     Spacer(minLength: 0)
                     Button { send() } label: {
                         ZStack {
-                            Circle().fill(AtelierTheme.accent).frame(width: 34, height: 34)
-                            if busy { ProgressView().tint(Color(uiColor: .systemBackground)) }
-                            else { Image(systemName: "arrow.up").fontWeight(.semibold).foregroundStyle(Color(uiColor: .systemBackground)) }
+                            Circle().fill(AtelierTheme.accentSoft).frame(width: 34, height: 34)
+                            if busy { ProgressView().tint(AtelierTheme.accent) }
+                            else { Image(systemName: "arrow.up").fontWeight(.semibold).foregroundStyle(AtelierTheme.accent) }
                         }.frame(width: 44, height: 44)
                     }.buttonStyle(.plain)
                         .disabled(busy || workspace.chat.sending || workspace.chat.running || workspace.chat.selected == nil || empty)
                         .accessibilityLabel("Envoyer au chat").accessibilityIdentifier("sendAnnotation")
-                }.padding(.horizontal, 12).padding(.vertical, 6).background(.background)
+                }.padding(.horizontal, 12).padding(.vertical, 6).background(AtelierTheme.background)
             }
             .navigationTitle("Annoter").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer", systemImage: "xmark") { dismiss() }.disabled(busy) } }

@@ -107,7 +107,7 @@ struct InlineMessageEditor: View {
             if let error { Text(error).font(.footnote).foregroundStyle(.red).textSelection(.enabled) }
             HStack {
                 Spacer()
-                Button("Annuler") { focused = false; onClose() }.disabled(submitting)
+                Button("Annuler") { focused = false; onClose() }.buttonStyle(.atelierSecondary).disabled(submitting)
                 Button {
                     let payload = [text, workspace.chat.model, workspace.chat.effort, workspace.chat.permissionMode.rawValue].joined(separator: "\u{1f}")
                     if let attemptedPayload, attemptedPayload != payload { requestID = UUID().uuidString }
@@ -121,10 +121,10 @@ struct InlineMessageEditor: View {
                     }
                 } label: {
                     if submitting { ProgressView() } else { Text("Envoyer") }
-                }.buttonStyle(.borderedProminent)
+                }.buttonStyle(.atelierPrimary)
                     .disabled(submitting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == draft.prompt)
                     .accessibilityLabel("Envoyer la modification")
-            }.buttonStyle(.bordered).controlSize(.regular)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task { focused = true }

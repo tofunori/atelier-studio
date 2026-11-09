@@ -196,8 +196,8 @@ private struct ChatEventRow: View {
                                     ChatHistoryFiles(items: workspace.chat.files(for: row), workspace: workspace)
                                 }
                                 if !userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    messageContent.padding(.horizontal, 12).padding(.vertical, 10)
-                                        .background(AtelierTheme.control, in: RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous))
+                                    messageContent.padding(.horizontal, 14).padding(.vertical, 11)
+                                        .atelierRaised()
                                 }
                             }
                         }

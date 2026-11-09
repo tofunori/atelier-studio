@@ -47,8 +47,8 @@ struct SourceRevisionView: View {
                     guard let updated = target.applying(replacement, to: workspace.source) else { return }
                     workspace.selection = nil; workspace.source = updated; workspace.saveCurrentDocument(); applied = true
                     workspace.surface = .document; dismiss()
-                }.buttonStyle(.borderedProminent).frame(maxWidth: .infinity, minHeight: 44)
-                    .disabled(!applicable || applied).padding().background(.background)
+                }.buttonStyle(.atelierPrimary).frame(maxWidth: .infinity, minHeight: 44)
+                    .disabled(!applicable || applied).padding().background(AtelierTheme.background)
             }
             .navigationTitle("Reformulation").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }

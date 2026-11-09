@@ -463,3 +463,26 @@ et une correspondance exacte du suffixe. Une question contenant « Ma note » ou
 125 tests iOS réussis, revue indépendante sans blocage, carte fermée et passage
 complet ouverts vérifiés dans le simulateur avec `--annotation-card-fixture`.
 Build iPhone signé vérifié; installation physique en attente, téléphone distant.
+
+### Direction éditoriale (B) — 2026-11-09
+
+Refonte de toute l'app d'après la maquette B choisie par Thierry
+(`captures/app-iphone-refonte-2026-11-09/` dans les fichiers du projet).
+
+- **Matière** : papier chaud en clair (`#f6f4ef`), encre en sombre (`#161514`).
+  Les surfaces posées (message envoyé, carte d'approbation, reprise de
+  lecture, calculs, composeur, vignettes) prennent `atelierRaised()` : fond
+  carte et ombre douce à deux couches, sans bordure.
+- **Typographie** : les réponses de Claude suivent la police du lecteur
+  (Éditoriale par défaut), comme les documents ; titres d'articles et de
+  conversations en serif (`AtelierTheme.serif`) ; en-têtes de sections en
+  serif italique (`atelierSectionHeading()`) ; grands titres à gauche pour
+  Galerie, Articles et Calculs.
+- **Navigation** : inchangée (menu de gauche, sans barre d'onglets). Les cinq
+  sections y deviennent des tuiles.
+- **Filtres** : onglets texte soulignés par l'accent (`EditorialTabs`) au lieu
+  des pastilles pleines et du contrôle segmenté.
+- **Boutons** : plus aucun fond blanc ou encre. Action principale =
+  `.atelierPrimary` (accent à 14 %, texte accent), secondaire =
+  `.atelierSecondary` (filet). La poignée du sélecteur d'effort passe à
+  l'accent.

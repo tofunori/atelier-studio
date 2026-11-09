@@ -177,17 +177,26 @@ struct ChatActivityView: View {
                 .padding(.bottom, 6)
             }
             ForEach(pending) { row in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(row.text).font(.subheadline)
-                    if !row.detail.isEmpty { Text(row.detail).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled) }
+                // A sheet of paper laid on the conversation: no border, a soft shadow.
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(row.text).font(.subheadline.weight(.medium))
+                    if !row.detail.isEmpty {
+                        Text(row.detail).font(.system(.caption, design: .monospaced)).foregroundStyle(.primary).textSelection(.enabled)
+                            .padding(.horizontal, 10).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(AtelierTheme.sidebar, in: RoundedRectangle(cornerRadius: AtelierTheme.controlRadius, style: .continuous))
+                    }
                     if row.approval && row.requestId != nil {
-                        HStack(spacing: 16) {
-                            Button("Autoriser une fois") { answer(row, allow: true) }.buttonStyle(.bordered)
-                            Button("Refuser") { answer(row, allow: false) }.foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Button("Refuser") { answer(row, allow: false) }.buttonStyle(.atelierSecondary)
+                            Spacer(minLength: 0)
                             if answering { ProgressView().controlSize(.mini) }
-                        }.font(.caption).disabled(answering)
+                            Button("Autoriser une fois") { answer(row, allow: true) }.buttonStyle(.atelierPrimary)
+                        }.disabled(answering)
                     } else { Text("À confirmer sur le Mac").font(.caption).foregroundStyle(.secondary) }
                 }
+                .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                .atelierRaised()
+                .padding(.vertical, 6)
             }
         }
     }

@@ -74,7 +74,7 @@ struct SyntaxSourceEditor: UIViewRepresentable {
         view.delegate = context.coordinator
         view.isEditable = workspace.editingSource
         view.adjustsFontForContentSizeCategory = true
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = AtelierTheme.backgroundUIColor
         view.autocorrectionType = .no; view.autocapitalizationType = .none
         view.smartQuotesType = .no; view.smartDashesType = .no; view.smartInsertDeleteType = .no
         view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 20, right: 12)

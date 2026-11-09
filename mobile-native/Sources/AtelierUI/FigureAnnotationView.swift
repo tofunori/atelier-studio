@@ -45,7 +45,7 @@ struct FigureAnnotationView: View {
                             location: location, text: "Figure : \(workspace.currentName)", figureRegion: region, figure: file)
                         dismiss()
                         onAnnotate(passage)
-                    }.buttonStyle(.borderedProminent).tint(annotationColor)
+                    }.buttonStyle(.atelierPrimary)
                         .foregroundStyle(.white).frame(minHeight: 44)
                 }
             }.padding(20)

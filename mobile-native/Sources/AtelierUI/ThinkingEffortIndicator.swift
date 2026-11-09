@@ -78,15 +78,16 @@ struct ThinkingEffortPanel: View {
                     let travel = max(1, geometry.size.width - inset * 2)
                     let position = inset + travel * CGFloat(selected) / CGFloat(levels.count - 1)
                     ZStack(alignment: .leading) {
-                        Capsule().fill(.primary.opacity(0.08))
-                        Capsule().fill(.primary).frame(width: position + 21)
+                        Capsule().fill(AtelierTheme.control)
+                        Capsule().fill(AtelierTheme.accent.opacity(0.32)).frame(width: position + 21)
                         ForEach(Array(levels.enumerated()), id: \.offset) { index, _ in
-                            Circle().fill(index < selected ? Color(uiColor: .systemBackground).opacity(0.25) : Color.primary.opacity(0.3))
+                            Circle().fill(index < selected ? AtelierTheme.accent.opacity(0.7) : Color.primary.opacity(0.3))
                                 .frame(width: 6, height: 6)
                                 .position(x: inset + travel * CGFloat(index) / CGFloat(levels.count - 1), y: geometry.size.height / 2)
                         }
-                        Circle().fill(Color(uiColor: .systemBackground)).frame(width: 36, height: 36)
-                            .overlay(Circle().stroke(.primary.opacity(0.12), lineWidth: 0.5))
+                        // The handle in the accent, never a white disc.
+                        Circle().fill(AtelierTheme.accent).frame(width: 30, height: 30)
+                            .shadow(color: AtelierTheme.shadow, radius: 4, y: 1.5)
                             .position(x: position, y: geometry.size.height / 2)
                     }.contentShape(Capsule())
                         .gesture(DragGesture(minimumDistance: 0).onChanged { gesture in

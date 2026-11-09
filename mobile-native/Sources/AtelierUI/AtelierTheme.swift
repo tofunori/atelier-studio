@@ -16,11 +16,11 @@ enum AtelierTheme {
         })
     }
     static var accent: Color { accent(named: UserDefaults.standard.string(forKey: "atelier.accent") ?? "sage") }
-    static let surface = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark ? UIColor(white: 0.065, alpha: 1) : .secondarySystemBackground
-    })
+    /// Raised surface behind floating controls: the paper card in both modes.
+    static let surface = tone(0xfcfbf8, 0x1f1e1c)
 
-    // Same greys as the Mac app (src/App.css), so both read as one product.
+    // Editorial direction (B, 2026-11-09): warm paper in light, ink in dark,
+    // so reading Claude, an article or a figure feels like a printed page.
     private static func uiTone(_ light: UInt32, _ dark: UInt32) -> UIColor {
         UIColor { traits in
             let hex = traits.userInterfaceStyle == .dark ? dark : light
@@ -29,18 +29,30 @@ enum AtelierTheme {
     }
     private static func tone(_ light: UInt32, _ dark: UInt32) -> Color { Color(uiColor: uiTone(light, dark)) }
     /// Reading surface: chat, gallery, articles.
-    static let background = tone(0xfbfcfd, 0x1b1e21)
+    static let background = tone(0xf6f4ef, 0x161514)
     /// The reading surface for UIKit views laid over the chat (WebKit covers).
-    static let backgroundUIColor = uiTone(0xfbfcfd, 0x1b1e21)
-    /// Recessed surface: the conversation menu.
-    static let sidebar = tone(0xf1f4f7, 0x15181b)
-    /// Raised content: previews, the resume card.
-    static let card = tone(0xffffff, 0x24282d)
-    /// Controls and the user's message.
-    static let control = tone(0xe8ebef, 0x2c3035)
-    static let separator = tone(0xe1e4e8, 0x2b2f33)
-    static let secondaryText = tone(0x5f646a, 0x90969d)
-    static let tertiaryText = tone(0x8a8f95, 0x62666c)
+    static let backgroundUIColor = uiTone(0xf6f4ef, 0x161514)
+    /// Recessed surface: code, logs, the PDF pasteboard.
+    static let sidebar = tone(0xeeebe4, 0x11100f)
+    static let recessedUIColor = uiTone(0xeeebe4, 0x11100f)
+    /// Raised content: the user's message, previews, the resume card.
+    static let card = tone(0xfcfbf8, 0x1f1e1c)
+    /// Controls and fields.
+    static let control = tone(0xe9e5dc, 0x292725)
+    static let separator = tone(0xe2ddd3, 0x2a2826)
+    static let secondaryText = tone(0x6b665e, 0x9b968d)
+    static let tertiaryText = tone(0x9a948a, 0x6b665f)
+    /// Soft shadow under raised paper: depth without a border.
+    static let shadow = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(white: 0, alpha: 0.5) : UIColor(red: 0.16, green: 0.12, blue: 0.08, alpha: 0.09)
+    })
+    /// The accent at low strength: selected rows and the primary action, never a white fill.
+    static var accentSoft: Color { accent.opacity(0.14) }
+    /// The editorial serif (New York) for what is read: titles of articles,
+    /// conversations and figure captions, section headings.
+    static func serif(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> Font {
+        .system(style, design: .serif, weight: weight)
+    }
     /// Selected tab and chips laid on glass.
     static let fill = Color.primary.opacity(0.07)
     /// Radii: controls, cards, then floating glass.
@@ -73,7 +85,7 @@ struct AtelierSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Apparence") {
+                Section {
                     Picker("Thème", selection: $appearance) {
                         Text("Système").tag("system"); Text("Clair").tag("light"); Text("Sombre").tag("dark")
                     }.pickerStyle(.segmented)
@@ -82,34 +94,40 @@ struct AtelierSettingsView: View {
                         Text("Argile").tag("rose"); Text("Graphite").tag("graphite")
                     }
                     ThemeConversationPreview(accent: AtelierTheme.accent(named: accent))
-                }
-                Section("Lecture") {
+                } header: { Text("Apparence").atelierSectionHeading() }
+                .listRowBackground(AtelierTheme.card)
+                Section {
                     Picker("Texte", selection: $textSize) { Text("Petit").tag("small"); Text("Standard").tag("standard"); Text("Grand").tag("large") }
                     Picker("Densité", selection: $density) { Text("Aérée").tag("comfortable"); Text("Compacte").tag("compact") }
                     Picker("Police du lecteur", selection: $readingFont) { Text("Éditoriale").tag("serif"); Text("Système").tag("sans") }
                     Toggle("Contraste renforcé", isOn: $contrast)
                     Text("La taille du texte respecte aussi les réglages d’accessibilité d’iOS.").font(.footnote).foregroundStyle(.secondary)
-                }
-                Section("Mouvement et retours") {
+                } header: { Text("Lecture").atelierSectionHeading() }
+                .listRowBackground(AtelierTheme.card)
+                Section {
                     Picker("Animations", selection: $motion) { Text("Naturelles").tag("native"); Text("Discrètes").tag("soft"); Text("Réduites").tag("off") }
                     Toggle("Retours tactiles", isOn: $haptics)
                     Toggle("Message envoyé", isOn: $sendHaptic).disabled(!haptics)
                     Toggle("Action confirmée", isOn: $approvalHaptic).disabled(!haptics)
                     Button("Essayer le retour tactile") { AtelierTheme.confirmation() }
                     Text("Réduire les animations dans iOS reste prioritaire.").font(.footnote).foregroundStyle(.secondary)
-                }
-                Section("Chat") {
+                } header: { Text("Mouvement et retours").atelierSectionHeading() }
+                .listRowBackground(AtelierTheme.card)
+                Section {
                     Toggle("Suivre la réponse", isOn: $follow)
                     Toggle("Développer l’activité", isOn: $activityExpanded)
                     NavigationLink("Notifications") { NativeNotificationSettings(gallery: gallery) }
-                }
-                Section("Raccourcis sur iPad") {
+                } header: { Text("Chat").atelierSectionHeading() }
+                .listRowBackground(AtelierTheme.card)
+                Section {
                     LabeledContent("Rechercher", value: "⌘ F")
                     LabeledContent("Réglages", value: "⌘ ,")
                     LabeledContent("Galerie", value: "⌘ 2")
                     LabeledContent("Articles", value: "⌘ 3")
-                }
-            }.tint(AtelierTheme.accent(named: accent)).navigationTitle("Réglages").navigationBarTitleDisplayMode(.inline)
+                } header: { Text("Raccourcis sur iPad").atelierSectionHeading() }
+                .listRowBackground(AtelierTheme.card)
+            }.scrollContentBackground(.hidden).background(AtelierTheme.background)
+            .tint(AtelierTheme.accent(named: accent)).navigationTitle("Réglages").navigationBarTitleDisplayMode(.large)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer") { dismiss() } } }
         }
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
@@ -123,21 +141,21 @@ private struct ThemeConversationPreview: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Aperçu du chat").font(.caption).foregroundStyle(.secondary)
             Text("Peux-tu éclaircir ce passage ?")
-                .padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                .padding(12).atelierRaised()
                 .frame(maxWidth: .infinity, alignment: .trailing)
             VStack(alignment: .leading, spacing: 6) {
                 Text("Atelier").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Text("Oui. On peut préciser l’idée principale, puis expliquer ce qui la soutient.")
+                Text("Oui. On peut préciser l’idée principale, puis expliquer ce qui la soutient.").font(AtelierTheme.serif(.body))
                 Label("Voir la source", systemImage: "doc.text").font(.footnote).foregroundStyle(accent)
             }
             HStack {
                 Image(systemName: "plus")
                 Text("Message à Atelier").foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-                Image(systemName: "arrow.up").font(.body.weight(.semibold)).foregroundStyle(Color(uiColor: .systemBackground))
-                    .frame(width: 32, height: 32).background(accent, in: Circle())
-            }.padding(10).background(AtelierTheme.surface, in: RoundedRectangle(cornerRadius: 22))
-        }.padding(14).background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 18))
+                Image(systemName: "arrow.up").font(.body.weight(.semibold)).foregroundStyle(accent)
+                    .frame(width: 32, height: 32).background(accent.opacity(0.14), in: Circle())
+            }.padding(10).atelierRaised(cornerRadius: 22)
+        }.padding(14).background(AtelierTheme.background, in: RoundedRectangle(cornerRadius: AtelierTheme.cardRadius))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("themeConversationPreview")
     }
@@ -147,5 +165,87 @@ extension View {
     /// Liquid Glass for what floats over content: toolbar buttons, tabs, composer.
     func atelierGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
         glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+    }
+}
+
+extension View {
+    /// Paper laid on paper: the card colour and a soft two-layer shadow, no border.
+    func atelierRaised(cornerRadius: CGFloat = AtelierTheme.cardRadius) -> some View {
+        background(AtelierTheme.card, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .shadow(color: AtelierTheme.shadow, radius: 12, y: 4)
+            .shadow(color: AtelierTheme.shadow, radius: 1.5, y: 1)
+    }
+    /// A section heading in the editorial serif, set in italics as in a journal.
+    func atelierSectionHeading() -> some View {
+        font(AtelierTheme.serif(.subheadline).italic()).foregroundStyle(AtelierTheme.secondaryText).textCase(nil)
+    }
+}
+
+/// The main action: the accent at low strength with accent text. Never a white
+/// or ink fill (Thierry, 2026-10-21).
+struct AtelierPrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(AtelierTheme.accent)
+            .padding(.horizontal, 16).frame(minHeight: 44)
+            .background(AtelierTheme.accentSoft, in: Capsule())
+            .opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : 0.45)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// A secondary action: a hairline outline, ink text.
+struct AtelierSecondaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(Color.primary.opacity(0.85))
+            .padding(.horizontal, 16).frame(minHeight: 44)
+            .overlay { Capsule().strokeBorder(AtelierTheme.separator, lineWidth: 1) }
+            .contentShape(Capsule())
+            .opacity(enabled ? (configuration.isPressed ? 0.6 : 1) : 0.45)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == AtelierPrimaryButtonStyle {
+    static var atelierPrimary: AtelierPrimaryButtonStyle { AtelierPrimaryButtonStyle() }
+}
+extension ButtonStyle where Self == AtelierSecondaryButtonStyle {
+    static var atelierSecondary: AtelierSecondaryButtonStyle { AtelierSecondaryButtonStyle() }
+}
+
+/// Text tabs underlined by the accent, in place of filled chips or a segmented
+/// control: Galerie, Calculs.
+struct EditorialTabs<Value: Hashable>: View {
+    let items: [(value: Value, title: String)]
+    @Binding var selection: Value
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var underline
+    var body: some View {
+        HStack(spacing: 20) {
+            ForEach(items, id: \.value) { item in
+                let selected = item.value == selection
+                Button { selection = item.value } label: {
+                    Text(item.title)
+                        .font(.subheadline.weight(selected ? .medium : .regular))
+                        .foregroundStyle(selected ? Color.primary : AtelierTheme.secondaryText)
+                        .padding(.vertical, 10)
+                        .overlay(alignment: .bottom) {
+                            if selected {
+                                Capsule().fill(AtelierTheme.accent).frame(height: 2)
+                                    .matchedGeometryEffect(id: "underline", in: underline)
+                            }
+                        }
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.15), value: selection)
     }
 }

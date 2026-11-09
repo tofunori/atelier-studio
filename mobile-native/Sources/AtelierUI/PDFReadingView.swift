@@ -69,7 +69,7 @@ struct PDFReadingView: View {
             if let page, workspace.documentMode == .reading, workspace.surface == .document { workspace.pdfPage = page }
         }
         .onChange(of: workspace.documentID) { _, _ in position = workspace.pdfPage }
-        .background(Color(uiColor: .systemBackground))
+        .background(AtelierTheme.background)
         .accessibilityIdentifier("pdfReadingView")
         .alert("Passage à vérifier dans le PDF", isPresented: Binding(get: { selectionErrorPage != nil }, set: { if !$0 { selectionErrorPage = nil } })) {
             Button("Voir le PDF") {

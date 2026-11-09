@@ -50,36 +50,35 @@ struct NativeGalleryView: View {
             }
         }
     }
-    private func chip(_ title: String, symbol: String? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
+    /// A toggle beside the tabs (favourites, archives): an icon, accent when on.
+    private func filterToggle(_ label: String, symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                if let symbol { Image(systemName: symbol).font(.caption) }
-                Text(title)
-            }
-            .font(.footnote.weight(.medium)).padding(.horizontal, 12).frame(minHeight: 30)
-            .foregroundStyle(selected ? Color(uiColor: .systemBackground) : AtelierTheme.secondaryText)
-            .background { Capsule().fill(selected ? Color.primary : Color.clear) }
-            .overlay { if !selected { Capsule().strokeBorder(AtelierTheme.separator) } }
-            .frame(minHeight: 44).contentShape(Rectangle())
+            Image(systemName: symbol).font(.subheadline)
+                .foregroundStyle(on ? AtelierTheme.accent : AtelierTheme.secondaryText)
+                .frame(width: 34, height: 34)
+                .background(on ? AtelierTheme.accentSoft : .clear, in: Circle())
+                .frame(width: 44, height: 44).contentShape(Rectangle())
         }.buttonStyle(.plain)
-            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(on ? .isSelected : [])
     }
+    /// Types as text tabs underlined by the accent (editorial B), toggles at the end.
     private var filterChips: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 6) {
-                chip("Favoris", symbol: filterState.favoritesOnly ? "star.fill" : "star", selected: filterState.favoritesOnly) {
+            HStack(spacing: 12) {
+                EditorialTabs(items: GalleryFilterState.types.map { (value: $0, title: $0 == "Tous" ? "Tout" : $0) },
+                              selection: Binding(get: { filter }, set: { value in updateFilter { $0.type = value } }))
+                filterToggle("Favoris seulement", symbol: filterState.favoritesOnly ? "star.fill" : "star", on: filterState.favoritesOnly) {
                     updateFilter { $0.favoritesOnly.toggle() }
-                }.accessibilityLabel("Favoris seulement")
-                ForEach(GalleryFilterState.types, id: \.self) { type in
-                    chip(type == "Tous" ? "Tout" : type, selected: filter == type) { updateFilter { $0.type = type } }
                 }
                 if hasArchives || filterState.showArchives {
-                    chip("Archives", symbol: "archivebox", selected: filterState.showArchives) {
+                    filterToggle("Afficher les copies archivées", symbol: "archivebox", on: filterState.showArchives) {
                         updateFilter { $0.showArchives.toggle() }
-                    }.accessibilityLabel("Afficher les copies archivées")
+                    }
                 }
             }.padding(.horizontal, 16)
         }.scrollIndicators(.hidden).padding(.horizontal, -16)
+        .overlay(alignment: .bottom) { Rectangle().fill(AtelierTheme.separator).frame(height: 0.5) }
     }
     private var countLabel: String {
         let format = { (value: Int) in value.formatted(.number.locale(Locale(identifier: "fr_CA"))) }
@@ -110,7 +109,7 @@ struct NativeGalleryView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if !gallery.connected {
                     Button("Connecter le Mac", systemImage: "desktopcomputer") { showConnection = true }
-                        .buttonStyle(.bordered).frame(minHeight: 44)
+                        .buttonStyle(.atelierPrimary)
                 }
                 filterChips
                 Text(countLabel)
@@ -124,10 +123,10 @@ struct NativeGalleryView: View {
                         Text(!query.isEmpty || filter != "Tous" || filterState.favoritesOnly ? "Aucun fichier ne correspond à votre recherche." : "Retrouvez les fichiers de vos projets ou importez un document.")
                     } actions: {
                         if !query.isEmpty || filter != "Tous" || filterState.favoritesOnly { Button("Réinitialiser la recherche") { updateFilter { $0.query = ""; $0.type = "Tous"; $0.favoritesOnly = false } } }
-                        else { Button("Importer", systemImage: "plus") { workspace.importRequested = true }.buttonStyle(.bordered) }
+                        else { Button("Importer", systemImage: "plus") { workspace.importRequested = true }.buttonStyle(.atelierPrimary) }
                     }
                 }
-                LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 145), spacing: 12)], spacing: 16) {
+                LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 145), spacing: 14)], spacing: 22) {
                     ForEach(items) { item in
                         VStack(alignment: .leading, spacing: 4) {
                         Button {
@@ -142,14 +141,15 @@ struct NativeGalleryView: View {
                                 ArtifactThumbnail(item: item, gallery: gallery)
                                     .frame(height: 132).frame(maxWidth: .infinity)
                                     .background(AtelierTheme.card)
-                                    .clipShape(RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous).strokeBorder(AtelierTheme.separator))
+                                    .clipShape(RoundedRectangle(cornerRadius: AtelierTheme.controlRadius, style: .continuous))
+                                    .shadow(color: AtelierTheme.shadow, radius: 10, y: 3)
+                                    .shadow(color: AtelierTheme.shadow, radius: 1, y: 0.5)
                                     .overlay(alignment: .topLeading) {
                                         if !item.ext.isEmpty {
                                             Text(item.ext.uppercased()).font(.system(size: 10, weight: .semibold)).kerning(0.2)
                                                 .foregroundStyle(AtelierTheme.secondaryText)
                                                 .padding(.horizontal, 7).padding(.vertical, 2)
-                                                .background(AtelierTheme.background, in: Capsule()).padding(8)
+                                                .background(AtelierTheme.card.opacity(0.92), in: Capsule()).padding(8)
                                                 .accessibilityHidden(true)
                                         }
                                     }
@@ -270,6 +270,21 @@ struct GalleryConnectionSheet: View {
         NavigationStack {
             Form {
                 Section {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("L’iPhone rejoint l’Atelier de votre Mac par Tailscale. Rien ne passe par Internet.")
+                            .font(AtelierTheme.serif(.title3)).foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ForEach(Array(["Sur le Mac : Réglages, Général, Avancé, Appareils distants.", "Touchez Ajouter, puis Copier le lien de connexion.", "Collez le lien ci-dessous."].enumerated()), id: \.offset) { index, step in
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Text("\(index + 1)").font(.caption.weight(.semibold).monospacedDigit()).foregroundStyle(AtelierTheme.accent)
+                                    .frame(width: 24, height: 24).background(AtelierTheme.accentSoft, in: Circle())
+                                Text(step).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }.padding(.vertical, 6)
+                    .listRowBackground(Color.clear)
+                }
+                Section {
                     PasteButton(payloadType: String.self) { values in
                         guard let link = values.first else { return }
                         busy = true
@@ -280,11 +295,12 @@ struct GalleryConnectionSheet: View {
                         }
                     }.disabled(busy)
                     Text("Copiez le lien depuis Atelier sur le Mac, puis collez-le ici.").font(.footnote).foregroundStyle(.secondary)
-                } header: { Text("Coller le lien du Mac") }
+                } header: { Text("Coller le lien du Mac").atelierSectionHeading() }
+                .listRowBackground(AtelierTheme.card)
                 DisclosureGroup("Saisir l’adresse et le code") {
                     TextField("http://adresse-du-mac:port", text: $address).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("Code d’association", text: $code)
-                }
+                }.listRowBackground(AtelierTheme.card)
                 if let error { Text(error).foregroundStyle(.red) }
                 Button {
                     busy = true
@@ -293,11 +309,14 @@ struct GalleryConnectionSheet: View {
                         do { try await gallery.connect(address: address, code: code); dismiss() }
                         catch { self.error = error.localizedDescription }
                     }
-                } label: { if busy { ProgressView() } else { Text("Connecter") } }
+                } label: { if busy { ProgressView() } else { Text("Connecter").frame(maxWidth: .infinity) } }
+                .buttonStyle(.atelierPrimary)
                 .disabled(busy || address.isEmpty || code.isEmpty)
+                .listRowBackground(Color.clear)
             }
-            .navigationTitle("Connecter le Mac").navigationBarTitleDisplayMode(.inline)
+            .scrollContentBackground(.hidden).background(AtelierTheme.background)
+            .navigationTitle("Connecter le Mac").navigationBarTitleDisplayMode(.large)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() }.disabled(busy) } }
-        }.presentationDetents([.medium, .large])
+        }.presentationDetents([.large])
     }
 }
