@@ -2176,12 +2176,15 @@ button.kernel-file:hover { color: var(--text-primary); }
    Une seule colonne à gauche du transcript porte tout ce qui se repère : une
    ligne par question posée, la même ligne en accent pour une épingle, en ambre
    pour un passage surligné, en encre vive pour l'endroit où l'on lit. Seule la
-   COULEUR distingue — la taille reste constante (métriques d'Hermes Desktop :
-   rangée de 8px, ligne de 12×1px, inactive en demi-teinte à 70 %). Repliée
-   c'est une carte du fil ; dépliée, les noms apparaissent. */
+   COULEUR distingue (rangée de 8px, trait plein de 10×1px). Repliée c'est une
+   carte du fil ; dépliée, les noms apparaissent.
+   Variante B (Thierry 2026-11-09) : au repos la marge ne montre RIEN — la
+   trame pointillée se lisait « ······ » à 14 px du texte, comme des puces du
+   tableau voisin. Elle s'éveille au survol, au focus et quand on fait défiler
+   soi-même (data-awake, posé par ChatTimeline), puis s'efface. */
 .chat { position: relative; }
 .tl-marge {
-  position: absolute; top: 24px; left: 2px; z-index: 40;
+  position: absolute; top: 24px; left: 4px; z-index: 40;
   width: 28px; max-height: calc(100% - 64px);
   display: flex; flex-direction: column; align-items: flex-end; gap: 0;
   overflow-x: hidden; overflow-y: auto; scrollbar-width: none;
@@ -2202,8 +2205,8 @@ button.kernel-file:hover { color: var(--text-primary); }
 }
 .tl-mark-item { display: block; width: 100%; }
 .tl-mark {
-  display: flex; align-items: center; justify-content: flex-end; gap: 0;
-  width: 100%; height: 8px; min-height: 8px; padding: 0 4px 0 0;
+  display: flex; align-items: center; justify-content: flex-start; gap: 0;
+  width: 100%; height: 8px; min-height: 8px; padding: 0 0 0 4px;
   border: none; background: transparent; border-radius: var(--r-s);
   cursor: pointer; text-align: left;
   transition: background var(--motion-fast) var(--ease-out);
@@ -2213,20 +2216,20 @@ button.kernel-file:hover { color: var(--text-primary); }
   padding: 2px 6px;
 }
 .tl-marge:hover .tl-mark:hover, .tl-mark:focus-visible { background: var(--bg-ctl); }
-/* la ligne : 12×1px, constante. L'inactive est une demi-teinte (trame conique
-   de 2px sur currentColor) — c'est ce qui la fait disparaître dans le fond
-   sans la faire mentir sur sa position. */
+/* le trait : plein et gris, jamais une trame (qui se lisait en pointillés).
+   Au repos il est éteint ; la marge éveillée le rallume. */
 .tl-mark-sign {
-  flex: none; width: 12px; height: 1px;
-  color: var(--mark-neutral); opacity: .7;
-  background: repeating-conic-gradient(currentColor 0% 25%, transparent 0% 50%) 0 0 / 2px 2px;
+  flex: none; width: 10px; height: 1px;
+  background: var(--mark-neutral); opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-out);
 }
-.tl-mark[data-mark="pin"] .tl-mark-sign { background: var(--accent); opacity: 1; }
-.tl-mark[data-mark="hl"] .tl-mark-sign { background: var(--hl-line); opacity: 1; }
-/* l'entrée où l'on lit : ligne pleine en encre vive — désignée par la
-   géométrie du défilement, jamais par un clic */
-.tl-mark[data-here] .tl-mark-sign { background: var(--text-primary); opacity: 1; }
+.tl-marge:is([data-awake], :hover, :focus-within) .tl-mark-sign { opacity: .6; }
+.tl-marge:is([data-awake], :hover, :focus-within) .tl-mark:is([data-mark="pin"], [data-mark="hl"], [data-here]) .tl-mark-sign { opacity: 1; }
+.tl-mark[data-mark="pin"] .tl-mark-sign { background: var(--accent); }
+.tl-mark[data-mark="hl"] .tl-mark-sign { background: var(--hl-line); }
+/* l'entrée où l'on lit : un trait plus long dans le gris fort, jamais blanc —
+   désignée par la géométrie du défilement, jamais par un clic */
+.tl-mark[data-here] .tl-mark-sign { width: 14px; background: var(--mark-neutral-strong); }
 /* PIÈGE : repliée, le libellé ne doit prendre AUCUNE place — invisible mais
    dans le flux, sa largeur intrinsèque poussait les traits hors de l'écran. */
 .tl-mark-label {
@@ -2248,9 +2251,11 @@ button.kernel-file:hover { color: var(--text-primary); }
 .tl-marge-all .tl-mark-label { color: var(--text-muted); font-size: var(--fs-xs); }
 .tl-marge-all:hover { background: var(--bg-ctl); }
 .tl-marge-all-sign {
-  flex: none; color: var(--text-disabled);
-  transition: transform var(--motion-fast) var(--ease-out);
+  flex: none; color: var(--text-disabled); opacity: 0;
+  transition: transform var(--motion-fast) var(--ease-out),
+              opacity var(--motion-fast) var(--ease-out);
 }
+.tl-marge:is([data-awake], :hover, :focus-within) .tl-marge-all-sign { opacity: 1; }
 .tl-marge-all[aria-pressed="true"] .tl-marge-all-sign { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) { .tl-marge-all-sign { transition: none; } }
 .tl-mark[data-mark="pin"] .tl-mark-label { color: var(--text-secondary); }
