@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ProjectChatTabs, type ProjectChatTab, type ChatTabActions, type ChatTabControls } from "./chat/ProjectChatTabs";
 import { ChatHeaderSlot } from "./ChatHeaderSlot";
-import { useToolbarDividerAlignment } from "./useToolbarDividerAlignment";
+import { syncTabEdges, useToolbarDividerAlignment } from "./useToolbarDividerAlignment";
 import "../styles/local-headers.css";
 import { t } from "../lib/i18n";
 import { IconButton, SegmentedControl } from "./ui";
@@ -51,7 +51,9 @@ type Layout = "chat" | "split" | "atelier";
  *  - moitié atelier : onglet Galerie épinglé, surface ouverte, documents, puis
  *    le ⌄ des surfaces et la disposition.
  * L'onglet actif prend le fond de son panneau et s'y fond (CSS) : on lit d'un
- * coup d'œil quel onglet pilote quel panneau.
+ * coup d'œil quel onglet pilote quel panneau. Languette d'un seul tenant
+ * (2026-11-09) : sans couture, raccordé par des pieds arrondis, coin du
+ * panneau carré quand l'onglet en part (syncTabEdges).
  */
 export default function TopBar({
   dividerVisible,
@@ -113,6 +115,8 @@ export default function TopBar({
   const barRef = useRef<HTMLDivElement>(null);
   const split = dividerVisible ?? (layout === "split" && showAtelier);
   useToolbarDividerAlignment(barRef, split, layout);
+  // l'onglet actif change sans redimensionnement : recaler le raccord à chaque rendu
+  useLayoutEffect(() => { syncTabEdges(barRef.current); });
   const [windowMenu, setWindowMenu] = useState(false);
   const surfaces = { activeSurface, showAtelier, ideActive, showExplorer, onSelectSurface, onSelectIde, onToggleExplorer, onToggleAnnots };
   const documentActive = showAtelier && tabs.some((tab) => tab.id === activeTab && isDocumentTab(tab));

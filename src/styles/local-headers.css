@@ -112,10 +112,32 @@
 
 /* ===== Onglets posés (variante B, 2026-11-09) =====
    Quand une moitié de la barre a son panneau dessous, ses onglets descendent
-   jusqu'au bord de la barre : l'actif prend le fond du panneau et s'y fond
-   sans couture (même liseré que le panneau, sur le haut et les flancs) ; les
-   autres ne sont que du texte, séparés d'un filet. Les contrôles du bord (⌄,
-   disposition) se calent sur la ligne de texte des onglets. */
+   jusqu'au bord de la barre : l'actif prend le fond du panneau et s'y fond ;
+   les autres ne sont que du texte, séparés d'un filet. Les contrôles du bord
+   (⌄, disposition) se calent sur la ligne de texte des onglets.
+   Languette d'un seul tenant (2026-11-09, choix B de Thierry) : l'onglet actif
+   et son panneau forment UNE forme. Trois règles :
+   - la couture : l'ombre 0 1px 0 du fond couvre le liseré haut du panneau
+     sous l'onglet. Elle déborde de 1 px sous la barre, donc aucun conteneur
+     de la rangée ne la rogne : overflow-x: clip, y visible au milieu ; les
+     boîtes qui défilent (moitiés, liste des chats) gardent 1 px en bas ;
+   - les pieds : deux arrondis creux de 10 px raccordent l'onglet au bord du
+     panneau (::before à gauche, ::after à droite) ; les listes gardent 10 px
+     de marge invisible pour ne pas les rogner sur les côtés ;
+   - le bord : la rangée part du bord du panneau. Quand l'onglet actif y est
+     collé, useToolbarDividerAlignment pose data-panel-edge sur l'onglet (pas
+     de pied gauche) et data-tab-edge sur le panneau (coin haut gauche carré). */
+.topbar[data-chat-attached] .topbar-start { padding-left: max(var(--tb-chat-left, 0px), var(--tb-lights)); }
+.topbar[data-atelier-attached] .topbar-right { padding-left: calc(var(--gutter) / 2); }
+.topbar[data-chat-attached] .project-chat-tabs,
+.topbar[data-atelier-attached] :is(.topbar-atelier-tabs, .topbar-surfaces, .topbar-tabs) {
+  overflow-x: clip; overflow-y: visible; }
+/* les deux moitiés restent des boîtes qui défilent (overflow hidden : un
+   contrôle du bord rogné reste atteignable) ; elles gardent 1 px sous la barre */
+.topbar[data-chat-attached] .topbar-start,
+.topbar[data-atelier-attached] .topbar-right { align-self: start; height: calc(100% + 1px); padding-bottom: 1px; margin-bottom: -1px; }
+.topbar[data-chat-attached] .project-chat-tabs-list { padding: 0 var(--r-m) 1px; margin: 0 calc(-1 * var(--r-m)) -1px; }
+.topbar[data-atelier-attached] .topbar-atelier-tabs .topbar-tabs { padding-left: var(--r-m); margin-left: calc(-1 * var(--r-m)); }
 .topbar[data-chat-attached] :is(.project-chat-tabs, .project-chat-tabs-list),
 .topbar[data-atelier-attached] :is(.topbar-atelier-tabs, .topbar-surfaces, .topbar-tabs) {
   align-self: stretch; align-items: flex-end; }
@@ -129,11 +151,25 @@
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell:hover { background: var(--surface-hover); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"],
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"] {
-  background: var(--bg); color: var(--text-primary); font-weight: 500; box-shadow: var(--tab-lift); z-index: 1; }
-/* la couture : 1 px du fond du panneau couvre son propre liseré sous l'onglet */
+  background: var(--bg); color: var(--text-primary); font-weight: 500; box-shadow: var(--tab-lift), 0 1px 0 var(--bg); z-index: 1; }
+/* l'onglet de document rogne son nom lui-même : l'actif laisse sortir ses pieds */
+.topbar[data-atelier-attached] .topbar-right .topbar-tab[data-active="true"] { overflow: visible; }
+.topbar[data-atelier-attached] .topbar-right .topbar-tab[data-active="true"] > .topbar-tab-main { overflow: hidden; }
+/* les pieds : arrondi creux du rayon des cartes, au fond du panneau */
+.topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::before,
+.topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::after,
+.topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::before,
+.topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::after {
+  content: ""; position: absolute; top: auto; bottom: 0; width: var(--r-m); height: var(--r-m); pointer-events: none; }
+.topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::before,
+.topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::before {
+  left: auto; right: 100%; background: radial-gradient(circle at 0 0, transparent calc(var(--r-m) - .5px), var(--bg) var(--r-m)); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::after,
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--bg); }
+  left: 100%; background: radial-gradient(circle at 100% 0, transparent calc(var(--r-m) - .5px), var(--bg) var(--r-m)); }
+.topbar .document-tab-shell[data-active="true"][data-panel-edge]::before { display: none; }
+/* coin carré du panneau sous l'onglet qui en part : règles dans App.css,
+   à côté des cartes qu'elles redessinent (même spécificité, ordre gagnant) */
 /* filet entre deux onglets inactifs, jamais contre l'actif */
 .topbar[data-chat-attached] .project-chat-tab-wrap + .project-chat-tab-wrap:not([data-active="true"])::before,
 .topbar[data-atelier-attached] .topbar-tab + .topbar-tab:not([data-active="true"])::before {
