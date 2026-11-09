@@ -9,6 +9,7 @@ import Explorer from "./Explorer";
 const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
 const KnowledgeSurface = lazyWithRetry(() => import("./KnowledgeSurface"));
 const GitSurface = lazyWithRetry(() => import("./GitSurface"));
+const HistorySurface = lazyWithRetry(() => import("./HistorySurface"));
 const TerminalSurface = lazyWithRetry(() => import("./TerminalSurface"));
 import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
@@ -1316,6 +1317,15 @@ export default function AtelierPane({
               activeThreadId={activeThreadId}
               onRequestExpand={layout === "atelier" ? undefined : onToggleExpand}
             />
+          </LazyBoundary>
+        </div>
+      );
+    }
+    if (ref.surface === "historique") {
+      return (
+        <div key="surface:historique" className="workspace-tab-content surface-body" style={{ display }}>
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <HistorySurface ws={ws} projectRoot={projectRoot} visible={active && !overlayOpen} onOpenFile={onOpenFile} />
           </LazyBoundary>
         </div>
       );

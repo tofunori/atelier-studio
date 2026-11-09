@@ -23,6 +23,13 @@ pub use mcp_du_mac::{
     cle_mcp, definition_codex, mcp_du_mac, noms_mcp_codex, serveurs_mcp_claude, McpDuMac, ServeurMcp,
 };
 mod git;
+mod history;
+pub use history::{
+    decode_text as history_decode_text, delete_history_version, history_commits, history_base, history_compare,
+    history_object_exists, history_read, history_read_disk, history_restores, history_versions,
+    restore_history_text, save_history_version, HistoryCommit, HistoryFileStat, HistoryRestore,
+    HistoryText, HistoryVersion, HISTORY_TEXT_LIMIT,
+};
 mod generated_images;
 pub use generated_images::{gallery_rel_for_image, save_generated_image};
 mod narval;
@@ -44,7 +51,7 @@ pub use compute::{
 /// Calculs lancés par l'agent : fiches d'hôte et soumission (chantier 4).
 pub use compute::{hosts as compute_hosts, submit as compute_submit};
 pub use git::{
-    changed_since, changed_since_stats, changed_since_stats_and_tree, commit, commit_details, commit_summary, commit_file_contents, create_branch, create_branch_at, delete_branch, diff,
+    is_repo, GitError, changed_since, changed_since_stats, changed_since_stats_and_tree, commit, commit_details, commit_summary, commit_file_contents, create_branch, create_branch_at, delete_branch, diff,
     diff_contents, diff_staged, fetch_all, ignore_pattern, log, merge_branch, pull, push, reset_to_commit,
     restore, restore_file_from_commit, revert_commit, revert_conflicts, revert_file, set_aside_before_rewind, snapshot, stage_file, stage_files,
     status, switch_branch, undo_last_commit, unstage_file, unstage_files, ChangedStat, DiffContents, GitCommitDetails,

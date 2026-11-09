@@ -2496,6 +2496,13 @@ fn normalize_provider_event(
         // `record_done` avale tout et log en cas de pépin.
         if let Some(prov) = prov {
             prov.record_done(project_root, snapshot_sha, &files_changed);
+            prov.record_end_state(
+                end_tree.as_deref(),
+                json!(file_stats
+                    .iter()
+                    .map(|entry| json!({"path": entry.path, "add": entry.add, "del": entry.del}))
+                    .collect::<Vec<_>>()),
+            );
         }
         if let Some(obj) = event.as_object_mut() {
             obj.insert("projectRoot".into(), json!(project_root));
