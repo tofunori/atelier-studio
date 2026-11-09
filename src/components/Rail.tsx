@@ -3,6 +3,7 @@ import { useState, useSyncExternalStore } from "react";
 import { t } from "../lib/i18n";
 import { ChatsIcon, PlusIcon, SettingsIcon, SidebarIcon, MoreIcon } from "./icons";
 import { ProjIcon } from "./sidebar/projectIcons";
+import { AllProjectsGlyph } from "./sidebar/AllProjectsGlyph";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
@@ -214,6 +215,8 @@ export default function Rail(p: {
   onSelectView: (view: ViewId) => void;
   onSelectProject: (root: string) => void;
   onAddProject: () => void;
+  /** accueil des projets (⇧⌘P) */
+  onAllProjects?: () => void;
   onExpand: () => void;
   onSettings: () => void;
   onProjectSettings?: (root: string) => void;
@@ -243,6 +246,13 @@ export default function Rail(p: {
             <LazyBoundary fallback={<span className="rail-btn" aria-hidden="true" />}>
               <RailInbox {...p.inbox} />
             </LazyBoundary>
+          )}
+          {p.onAllProjects && (
+            <Tooltip label={`${t("projects.all")} (⇧⌘P)`} placement="right">
+              <IconButton className="rail-btn rail-all-projects" label={t("projects.all")} onClick={p.onAllProjects}>
+                <AllProjectsGlyph size={19} />
+              </IconButton>
+            </Tooltip>
           )}
           <LazyDropdownMenu open={actionsOpen} onOpenChange={setActionsOpen} side="right"
             trigger={<IconButton className="rail-btn" label="Autres actions" aria-haspopup="menu"><MoreIcon /></IconButton>}

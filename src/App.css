@@ -6656,6 +6656,14 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .scol-sec { display: flex; align-items: center; gap: 8px; height: 32px; padding: 4px 4px 0 8px;
   font-size: var(--fs-s); font-weight: 500; line-height: 1.3; color: var(--text-muted); }
 .scol-sec > span { flex: 1; }
+/* « Projets › » ouvre l'accueil des projets (⇧⌘P) */
+.scol-sec-link.ui-rowbtn { display: inline-flex; align-items: center; gap: 4px; height: 20px; margin-left: -4px;
+  padding: 0 4px; border-radius: var(--r-s); font: inherit; color: inherit;
+  transition: color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+.scol-sec-link.ui-rowbtn:hover { color: var(--text-secondary); background: var(--row-hover); }
+.scol-kbd { flex: none; font-size: var(--fs-caption); color: var(--text-muted); font-variant-numeric: tabular-nums;
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-out); }
+.scol-all.ui-rowbtn:hover .scol-kbd, .scol-all.ui-rowbtn:focus-visible .scol-kbd { opacity: 1; }
 .scol-sec-btn.ui-iconbtn { width: 20px; min-width: 20px; height: 20px; padding: 0;
   background: var(--ground-ctl); color: var(--text-secondary); box-shadow: var(--card-lift); }
 .scol-projects { display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow-y: auto;
@@ -6684,7 +6692,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .scol-usage-bar { display: block; width: 40px; height: 4px; border-radius: var(--r-pill);
   background: var(--bg-ctl); overflow: hidden; }
 .scol-usage-bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--text-muted); }
-@media (prefers-reduced-motion: reduce) { .scol-row.ui-rowbtn, .scol-usage.ui-rowbtn { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .scol-row.ui-rowbtn, .scol-usage.ui-rowbtn, .scol-sec-link.ui-rowbtn, .scol-kbd { transition: none; } }
 
 /* ===== Repère de sélection (A13) =====
    UN seul signal dans les listes verticales : fond --bg-ctl + pilule

@@ -37,6 +37,8 @@ export type PaletteContext = {
     switchSurface: (surface: "atelier" | "browser" | "terminal" | "git" | "biblio") => void;
     setLayout: (layout: "chat" | "split" | "atelier") => void;
     openSettings: () => void;
+    /** accueil des projets (⇧⌘P) */
+    allProjects?: () => void;
     retitleAll: () => void;
     nextTheme: () => void;
     openFile: (rel: string) => void;
@@ -95,6 +97,15 @@ export function buildItems(ctx: PaletteContext): PaletteItem[] {
       section: "actions",
       run: actions.openSettings,
     },
+    ...(actions.allProjects
+      ? [{
+          id: "action:all-projects",
+          label: t("projects.all"),
+          hint: "⇧⌘P",
+          section: "actions" as const,
+          run: actions.allProjects,
+        }]
+      : []),
     {
       id: "action:retitle",
       label: t("palette.action.retitle"),
