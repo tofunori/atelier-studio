@@ -561,6 +561,39 @@ export function ChatTimeline(p: {
       if (frame) cancelAnimationFrame(frame);
     };
   }, [messagesRef, margeEntries, threadId, events.length]);
+  // Marge B (choix de Thierry 2026-11-09) : invisible pendant la lecture, elle
+  // s'éveille quand on fait défiler soi-même puis s'efface. Molette, doigt ou
+  // clavier seulement : le suivi automatique d'un tour en cours défile aussi,
+  // et la ferait clignoter sans que personne ne navigue. Posé à même le DOM
+  // (data-awake) : pas un rendu React par cran de molette.
+  const margeElRef = React.useRef<HTMLDivElement>(null);
+  const hasMarge = margeEntries.length > 0;
+  React.useEffect(() => {
+    const host = messagesRef.current
+      ?? timelineWrapRef.current?.querySelector<HTMLDivElement>(".messages")
+      ?? null;
+    if (!host || !hasMarge) return;
+    let sleep: ReturnType<typeof setTimeout> | undefined;
+    const wake = () => {
+      const marge = margeElRef.current;
+      if (!marge) return;
+      marge.dataset.awake = "true";
+      clearTimeout(sleep);
+      sleep = setTimeout(() => { delete marge.dataset.awake; }, 1200);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (/^(PageUp|PageDown|Home|End|ArrowUp|ArrowDown| )$/.test(e.key)) wake();
+    };
+    host.addEventListener("wheel", wake, { passive: true });
+    host.addEventListener("touchmove", wake, { passive: true });
+    host.addEventListener("keydown", onKey);
+    return () => {
+      clearTimeout(sleep);
+      host.removeEventListener("wheel", wake);
+      host.removeEventListener("touchmove", wake);
+      host.removeEventListener("keydown", onKey);
+    };
+  }, [messagesRef, hasMarge, threadId]);
   const virtualIndexForEvent = React.useCallback((eventIndex: number) => (
     virtualItems.findIndex((row) => row.type === "rendered" && row.item.type === "event" && row.item.index === eventIndex)
   ), [virtualItems]);
@@ -1238,6 +1271,7 @@ export function ChatTimeline(p: {
       />
       {margeEntries.length > 0 && (
         <div
+          ref={margeElRef}
           className={`tl-marge${threadId && review ? " below-reviewer" : ""}`}
           role="list"
           aria-label={t("chat.marge")}

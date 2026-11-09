@@ -397,6 +397,32 @@ const NO_HORIZONTAL_SCROLL: AgentEvent[] = [
   { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], ts: ts(290) } as AgentEvent,
 ];
 
+// Marge du fil (capture Thierry 2026-11-09) : une douzaine de questions, la
+// dernière réponse est un tableau qui s'empile en fiches dans un panneau
+// étroit. Sert à vérifier que les encoches de la marge restent hors du texte.
+const MARGE_QUESTIONS = [
+  "Charge le panel albédo 2000–2025.", "Filtre les glaciers sous 2 km².", "Calcule Δα par zone.",
+  "Ajoute le forçage radiatif.", "Convertis en fonte équivalente.", "Pondère par la surface de glace.",
+  "Vérifie les unités de SW↓.", "Compare avec Williamson & Menounos.", "Refais la figure 2.",
+  "Sépare ablation et accumulation.", "Arrondis à trois chiffres.", "Donne le tableau final par zone.",
+];
+const MARGE: AgentEvent[] = MARGE_QUESTIONS.flatMap((q, i) => [
+  { kind: "user", text: q, ts: ts(1200 - i * 90) } as AgentEvent,
+  { kind: "text", text: i < MARGE_QUESTIONS.length - 1
+    ? `Étape ${i + 1} faite : ${q.replace(/\.$/, "").toLowerCase()} — résultat enregistré dans le carnet.`
+    : [
+      "Bilan par zone du glacier, saison de fonte 2025 :",
+      "",
+      "| Zone | Δα | SW↓ (W m⁻²) | RF (W m⁻²) | Fonte (mm w.e.) | Poids (surface de glace) |",
+      "|:---|---:|---:|---:|---:|---:|",
+      "| Ablation | −0,0141 | 244 | 3,42 | 81 | 0,57 |",
+      "| Accumulation | −0,0144 | 243 | 3,50 | 83 | 0,22 |",
+      "| Ensemble | −0,0142 | 244 | 3,45 | 82 | 0,21 |",
+      "",
+      "Les deux zones répondent presque pareil ; l’écart de fonte tient au poids de surface.",
+    ].join("\n"), ts: ts(1150 - i * 90) } as AgentEvent,
+]);
+
 // Tableaux de prose larges (capture Thierry 2026-10-31) : ils doivent tenir
 // dans le panneau sans défilement horizontal, et s'empiler en fiches quand le
 // panneau devient trop étroit.
@@ -856,6 +882,7 @@ const STATES: Record<string, BenchState> = {
   approuvees: { events: APPROVED, workingSince: null, attachments: [], usage: null },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
+  marge: { events: MARGE, workingSince: null, attachments: [], usage: null },
   tables: { events: WIDE_TABLES, workingSince: null, attachments: [], usage: null },
   queue: {
     events: RUNNING, workingSince: ts(272), attachments: [],

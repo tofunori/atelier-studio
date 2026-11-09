@@ -108,4 +108,24 @@ describe("la marge annotée", () => {
     expect(document.querySelector(".pin-menu")).toBeTruthy();
     expect(document.querySelector(".pin-style-btn")).toBeNull();
   });
+  // Variante B (Thierry 2026-11-09) : la marge se tait pendant la lecture et
+  // ne s'éveille que quand on fait défiler soi-même — pas au défilement
+  // automatique d'un tour en cours.
+  it("s'éveille à la molette puis se rendort", () => {
+    vi.useFakeTimers();
+    try {
+      renderUi(<Chat {...chatProps({ events: TOUR })} />);
+      const marge = document.querySelector<HTMLElement>(".tl-marge")!;
+      const host = document.querySelector<HTMLElement>(".messages")!;
+      expect(marge.dataset.awake).toBeUndefined();
+      fireEvent.scroll(host);
+      expect(marge.dataset.awake).toBeUndefined();
+      fireEvent.wheel(host, { deltaY: 40 });
+      expect(marge.dataset.awake).toBe("true");
+      vi.advanceTimersByTime(1300);
+      expect(marge.dataset.awake).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
