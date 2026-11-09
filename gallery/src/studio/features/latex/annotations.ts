@@ -1,4 +1,8 @@
-import {createNoteEditor} from "../annotation_ui";
+import {createNoteEditor, pdfAnnotationColors} from "../annotation_ui";
+import {
+  anchorPdfQuote, columnItemHtml, isPdfNote, noteColorName, pdfNoteId, pdfNoteText, reviewRequestKey,
+  type ColumnNote, type StoredPdfAnnotation,
+} from "../annotation_notes";
 import {
   followUp, freshReplies, newRoundId, noteHeader, paragraphOf, proposalBlock, questionBlock, removedRanges,
   roundIcons, roundRequest, sectionOf, since, stateLabel,
@@ -35,6 +39,45 @@ export interface LatexAnnotation {
   thread?: ThreadMessage[];
   seen?: number;
   at?: number;
+  /** Note posée sur le PDF compilé (lecteur PDF), ancrée ici par SyncTeX et
+   *  par son texte : jamais écrite dans `tex-comments:`, elle vit dans le
+   *  store du PDF ; seul son état de ronde est gardé à part (`tex-pdfnotes:`). */
+  src?: "pdf";
+  pdf?: {id: string; rel: string; page: number; quote: string; rects: number[][]; kind: string};
+  /** Note du PDF que ni SyncTeX ni son texte n'ont pu situer dans la source :
+   *  listée, mais sans marque ni ronde. */
+  loose?: boolean;
+}
+
+/** Notes du PDF compilé : où les lire, et la ligne source d'un point. */
+export interface LatexPdfNotesSource {
+  /** Clé du PDF compilé dans le store des annotations (chemin relatif à la
+   *  racine du projet), `null` hors projet ou sans PDF. */
+  pdfRel(): Promise<string | null>;
+  /** Ligne source (base 1) d'un point de la page, en fractions de page. */
+  sourceLine(page: number, x: number, y: number): Promise<number | null>;
+  /** Page (et hauteur, en points) d'une ligne source (base 1). */
+  sourceView(line: number): Promise<{page: number; y: number} | null>;
+  /** Ce fichier est la racine du document : une note du PDF qu'on ne situe
+   *  nulle part y est quand même listée (« Ailleurs dans le PDF »). Un
+   *  chapitre inclus ne liste que les siennes. */
+  ownsWholePdf?(): boolean;
+}
+
+/** Ce que la couche du PDF (vue scindée) dessine : marques et pastilles. */
+export interface LatexPdfLayerNote {
+  id: string;
+  number: number;
+  color: string;
+  agent: boolean;
+  title: string;
+  /** Note posée sur le PDF : sa page et ses rectangles (fractions). */
+  page?: number;
+  rects?: number[][];
+  /** Note du .tex : passage, ligne (base 0) et hauteur SyncTeX (points). */
+  text?: string;
+  line?: number;
+  top?: number;
 }
 
 export interface LatexAnnotationSelection {
@@ -58,6 +101,11 @@ export interface LatexAnnotationsOptions {
   onError?(message: string): void;
   /** Ramène la vue Source (les propositions s'y affichent). */
   revealSource?(): void;
+  /** Notes du PDF compilé, mêlées à celles du .tex (variante B, 2026-11-09). */
+  pdfNotes?: LatexPdfNotesSource;
+  /** Prévenu quand la liste ou la numérotation change : la couche du PDF
+   *  de la vue scindée se redessine. */
+  onNotesChanged?(): void;
   document?: Document;
   window?: Window;
 }
@@ -79,6 +127,17 @@ export interface LatexAnnotationsController {
   drop(id: string): void;
   /** Ouvre le popover d'un commentaire EXISTANT (`open` en crée un nouveau). */
   focus(id: string, anchor?: {left: number; top: number; bottom: number}): void;
+  /** Relit les notes du PDF compilé (après une compilation, `fresh` oublie
+   *  les lignes SyncTeX déjà calculées). */
+  refreshPdfNotes(fresh?: boolean): Promise<void>;
+  /** Ce que la couche du PDF de la vue scindée dessine. */
+  layerNotes(): LatexPdfLayerNote[];
+  /** Marquages du PDF compilé sans note (surlignages nus) : voile seul. */
+  pdfMarks(): StoredPdfAnnotation[];
+  /** Clic sur une pastille du PDF : la colonne s'ouvre sur la note. */
+  reveal(id: string): void;
+  /** « Réviser avec l'agent » demandé depuis l'onglet PDF. */
+  startRound(): void;
 }
 
 // Pastilles : la teinte du surlignage à 85 % (--annot-*, latex_studio.css).
@@ -199,41 +258,59 @@ export function createLatexAnnotationsController(
     options.onMutated?.();
     saveQueue = saveQueue.then(async () => {
       if (!(await ensureLoaded())) { noteUI.status.textContent = LOAD_FAILED; return false; }
-      // instantané pris au tour de la file : l'état le plus récent part
-      const sent = all.map((annotation) => ({...annotation}));
+      // instantané pris au tour de la file : l'état le plus récent part.
+      // Les notes du PDF restent dans le store du PDF (syncPdfSide).
+      const sent = all.filter(annotation => annotation.src !== "pdf").map((annotation) => ({...annotation}));
       const body = JSON.stringify({rel:relation, annots:sent, known:[...knownIds]});
       try {
         const response=await win.fetch("/pdfannot",{method:"POST",headers:{"Content-Type":"application/json"},body});
         const result=await response.json();
         if(!response.ok || result.error) throw new Error("save failed");
         sent.forEach((annotation) => knownIds.add(String(annotation.id)));
-        return true;
       } catch {noteUI.status.textContent="Enregistrement impossible. Ta note reste disponible.";return false;}
+      return syncPdfSide();
     });
     return saveQueue;
   };
-  const numberOf = (annotation: LatexAnnotation): number =>
-    annotation.number || all.filter(a=>a.kind!=="hl").indexOf(annotation)+1;
+  // Numéro = rang dans l'ordre du document, notes du .tex et du PDF mêlées :
+  // le même dans la colonne, la marge de l'éditeur, la Lecture et le PDF.
+  const numberOf = (annotation: LatexAnnotation): number => {
+    const index = notes().indexOf(annotation);
+    return index >= 0 ? index + 1 : (annotation.number || 1);
+  };
+  const renumber = (): void => { notes().forEach((annotation, index) => { annotation.number = index + 1; }); };
+  // Numéro affiché par la marque actuelle : on ne redessine une marque (et
+  // ses widgets, dont un champ de réponse en cours) que s'il a changé.
+  const shownNumber: Record<string, number> = {};
+  // Éléments qui affichent ce numéro (pastille, en-têtes de ronde) : une
+  // renumérotation les met à jour sur place.
+  const numberRoots: Record<string, HTMLElement[]> = {};
   const mark = (annotation: LatexAnnotation): void => {
     const activeEditor = editor();
     if (!activeEditor) return;
+    shownNumber[annotation.id] = numberOf(annotation);
+    numberRoots[annotation.id] = [];
     try {
+      if (annotation.loose) return;
       const answered = annotation.kind!=="hl" && (annotation.rstate==="prop" || annotation.rstate==="ask") && annotation.reply;
-      const agent = annotation.kind!=="hl" && isAgentNote(annotation);
+      // une note de l'agent posée sur le PDF garde son fil dans le lecteur PDF
+      const agent = annotation.kind!=="hl" && isAgentNote(annotation) && annotation.src !== "pdf";
+      const tint = `note-c-${noteColorName(annotation.color)}`;
       marks[annotation.id] = activeEditor.markText(annotation.from, annotation.to, {
         className: annotation.kind === "hl" ? `texc-hl texc-c-${annotation.color || "amber"}`
-          : annotation.rstate==="prop" || (agent && currentSuggestion(annotation)) ? "texc-hl texc-comment texr-old" : "texc-hl texc-comment",
+          : annotation.rstate==="prop" || (agent && currentSuggestion(annotation)) ? "texc-hl texc-comment texr-old" : `texc-hl texc-comment ${tint}`,
         attributes: {"data-texc": annotation.id},
       });
       if (agent) { markAgent(annotation, activeEditor); return; }
       if (answered) { markRound(annotation, activeEditor); return; }
       if(annotation.kind!=="hl" && typeof activeEditor.setBookmark==="function") {
         const badge=doc.createElement("button");badge.type="button";
-        badge.className=`atelier-annotation-number${annotation.rstate==="busy" ? " is-busy" : ""}`;
+        badge.className=`atelier-annotation-number ${tint}${isAgentNote(annotation) ? " is-agent" : ""}${annotation.rstate==="busy" ? " is-busy" : ""}`;
         badge.textContent=String(numberOf(annotation));
         badge.setAttribute("aria-label",`Annotation ${badge.textContent}`);
         badge.onclick=event=>{event.stopPropagation();if(saving)return;current=annotation;show(annotation,false,badge.getBoundingClientRect());};
         badges[annotation.id]=activeEditor.setBookmark(annotation.from,{widget:badge,insertLeft:true});
+        numberRoots[annotation.id]?.push(badge);
       }
     } catch { /* stale range; next anchor pass retries */ }
   };
@@ -245,14 +322,18 @@ export function createLatexAnnotationsController(
     delete roundBlocks[id];
     for (const word of wordMarks[id] || []) { try { word.clear(); } catch { /* déjà retiré */ } }
     delete wordMarks[id];
+    delete numberRoots[id];
+    delete shownNumber[id];
   };
   const anchorAll = (): void => {
     const activeEditor = editor();
     if (!activeEditor) return;
     const documentText = activeEditor.getValue();
     let changed = false;
+    renumber();
     for (const annotation of all) {
       clearMark(annotation.id);
+      if (annotation.loose) continue;
       let exact = false;
       try { exact = activeEditor.getRange(annotation.from, annotation.to) === annotation.text; } catch { /* stale */ }
       if (!exact) {
@@ -271,6 +352,7 @@ export function createLatexAnnotationsController(
     if (!activeEditor) return;
     let changed = false;
     for (const annotation of all) {
+      if (annotation.loose) continue;
       const range = marks[annotation.id]?.find();
       if (!range) {
         const anchored = findAnnotationRange(activeEditor.getValue(), annotation, activeEditor);
@@ -291,15 +373,19 @@ export function createLatexAnnotationsController(
         changed = true;
       }
     }
-    if (changed) save();
+    if (changed) { refreshNumbers(); save(); }
   };
+  // Ordre du document ; une note du PDF que rien ne situe dans la source
+  // vient en dernier, par page.
   const sorted = (): LatexAnnotation[] => [...all].sort((left, right) =>
-    left.from.line - right.from.line || left.from.ch - right.from.ch);
+    (Number(Boolean(left.loose)) - Number(Boolean(right.loose)))
+    || (left.loose && right.loose ? (left.pdf?.page || 0) - (right.pdf?.page || 0) || (left.pdf?.rects[0]?.[1] || 0) - (right.pdf?.rects[0]?.[1] || 0) : 0)
+    || left.from.line - right.from.line || left.from.ch - right.from.ch);
   // ---- Rondes d'annotations -------------------------------------------
   const notes = (): LatexAnnotation[] => sorted().filter(a => a.kind !== "hl");
   // Les rondes ne portent que les notes de Thierry : l'agent ne se répond pas
   // à lui-même (ses notes ont leur propre fil, agent_notes.ts).
-  const ownNotes = (): LatexAnnotation[] => notes().filter(a => !isAgentNote(a));
+  const ownNotes = (): LatexAnnotation[] => notes().filter(a => !isAgentNote(a) && !a.loose);
   const agentNotes = (): LatexAnnotation[] => notes().filter(a => isAgentNote(a));
   const currentRound = (): RoundRef | null => ownNotes().find(a => a.round)?.round || null;
   const pending = (): LatexAnnotation[] => ownNotes().filter(a => a.round && (a.rstate === "prop" || a.rstate === "ask"));
@@ -309,8 +395,23 @@ export function createLatexAnnotationsController(
     const lines = typeof activeEditor?.getValue === "function" ? activeEditor.getValue().split("\n") : [];
     return items.map(a => sectionOf(lines, a.from.line));
   };
-  const locOf = (annotation: LatexAnnotation): string => annotation.from.line === annotation.to.line
-    ? `ligne ${annotation.from.line + 1}` : `lignes ${annotation.from.line + 1}-${annotation.to.line + 1}`;
+  const refreshNumbers = (): void => {
+    notes().forEach((annotation, index) => {
+      annotation.number = index + 1;
+      if (shownNumber[annotation.id] === index + 1) return;
+      if (!marks[annotation.id] && !badges[annotation.id]) return;
+      // sur place : un champ de réponse ouvert garde ce qu'on y tape
+      const roots = numberRoots[annotation.id] || [];
+      const rings = roots.flatMap(root => root.matches(".atelier-annotation-number") ? [root] : [...root.querySelectorAll<HTMLElement>(".atelier-annotation-number")]);
+      if (!rings.length) { remark(annotation); return; }
+      for (const ring of rings) {
+        ring.textContent = String(index + 1);
+        if (ring.hasAttribute("aria-label")) ring.setAttribute("aria-label", `Annotation ${index + 1}`);
+      }
+      shownNumber[annotation.id] = index + 1;
+    });
+    options.onNotesChanged?.();
+  };
 
   function markRound(annotation: LatexAnnotation, activeEditor: AnnotationEditor): void {
     if (typeof activeEditor.setBookmark !== "function" || !annotation.reply) return;
@@ -318,6 +419,7 @@ export function createLatexAnnotationsController(
     const source = activeEditor.getValue().split("\n");
     const paragraph = paragraphOf(source, annotation.from.line, annotation.to.line);
     const header = noteHeader(doc, numberOf(annotation), annotation.comment, false);
+    numberRoots[annotation.id]?.push(header);
     header.addEventListener("mousedown", event => event.preventDefault());
     header.onclick = () => { activeId = annotation.id; buildPanel(); };
     blocks.push(activeEditor.setBookmark({line: paragraph.start, ch: 0}, {widget: header, insertLeft: true, block: true}));
@@ -361,6 +463,7 @@ export function createLatexAnnotationsController(
     const source = activeEditor.getValue().split("\n");
     const paragraph = paragraphOf(source, annotation.from.line, annotation.to.line);
     const header = agentHeader(doc, numberOf(annotation), annotation);
+    numberRoots[annotation.id]?.push(header);
     header.dataset.texa = annotation.id;
     header.addEventListener("mousedown", event => event.preventDefault());
     header.onclick = () => { activeId = annotation.id; markSeen(annotation.id); };
@@ -403,6 +506,7 @@ export function createLatexAnnotationsController(
       decision, proposal, at: Date.now(), by: annotation.by, author: authorOf(annotation)});
     if (activeId === id) activeId = firstProposal();
     roundError = "";
+    refreshNumbers();
     void save();
     void saveHistory();
     buildPanel();
@@ -581,6 +685,7 @@ export function createLatexAnnotationsController(
       proposal: decision === "acc" ? annotation.reply.text : undefined, at: Date.now()});
     roundError = "";
     activeId = next?.id || firstProposal();
+    refreshNumbers();
     remarkRound();
     void save();
     void saveHistory();
@@ -617,6 +722,202 @@ export function createLatexAnnotationsController(
     else if (agentTarget) acceptAgent(agentTarget.id);
   }, true);
 
+
+  // ---- Notes du PDF compilé (variante B) ----------------------------------
+  // Lues dans le store du PDF, situées dans la source par SyncTeX puis par leur
+  // texte, et mêlées aux notes du .tex. Leur état de ronde vit dans
+  // `tex-pdfnotes:<chemin>` ; leur texte et leur teinte restent ceux du PDF.
+  const pdfStateRel = `tex-pdfnotes:${options.path}`;
+  let pdfRel: string | null = null;
+  let pdfRaw: StoredPdfAnnotation[] = [];
+  let pdfStamp = 0;
+  let pdfLoading: Promise<void> | null = null;
+  const pdfLines = new Map<string, number | null>();
+  const pdfStateKnown = new Set<string>();
+  let pdfStates: Record<string, Pick<LatexAnnotation, "round" | "rstate" | "reply">> = {};
+  let pdfStatesLoaded = false;
+  /** Notes du PDF présentes ici, et ce qu'on en a écrit en dernier. */
+  const pdfPresent = new Map<string, {id: string; rel: string; comment: string; color: string}>();
+  /** Page et hauteur SyncTeX des notes du .tex (colonne, couche du PDF). */
+  const pages = new Map<string, number>();
+  const texViews = new Map<string, {line: number; page: number; y: number} | null>();
+  const pdfColor = (name: string): string =>
+    (pdfAnnotationColors.find(color => color.name === (name === "purple" ? "violet" : name)) || pdfAnnotationColors[0]!).value;
+  const fetchJson = async <T,>(url: string): Promise<T | null> => {
+    try {
+      const response = await win.fetch(url);
+      return response.ok ? await response.json() as T : null;
+    } catch { return null; }
+  };
+  const postStore = async (body: Record<string, unknown>): Promise<boolean> => {
+    try {
+      const response = await win.fetch("/pdfannot", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+      return response.ok;
+    } catch { return false; }
+  };
+  const loadPdfStates = async (): Promise<void> => {
+    if (pdfStatesLoaded) return;
+    const payload = await fetchJson<{annots?: Array<{id: string} & Pick<LatexAnnotation, "round" | "rstate" | "reply">>}>(`/pdfannot?rel=${encodeURIComponent(pdfStateRel)}`);
+    if (!payload) return;
+    pdfStatesLoaded = true;
+    pdfStates = {};
+    for (const entry of payload.annots || []) {
+      pdfStateKnown.add(String(entry.id));
+      pdfStates[String(entry.id)] = {round: entry.round, rstate: entry.rstate, reply: entry.reply};
+    }
+  };
+  /** Côté PDF d'une écriture : état de ronde, note retirée, texte ou teinte
+   *  changés depuis l'éditeur. Une note du PDF ne s'écrit jamais en entier :
+   *  seule l'entrée touchée part (`known` = elle seule), le store garde le reste. */
+  async function syncPdfSide(): Promise<boolean> {
+    if (!pdfPresent.size && !pdfStateKnown.size) return true;
+    let ok = true;
+    for (const [virtualId, ref] of [...pdfPresent]) {
+      const annotation = all.find(a => a.id === virtualId);
+      if (!annotation) {
+        // décidée, rejetée ou supprimée ici : elle quitte aussi le PDF
+        pdfPresent.delete(virtualId);
+        pdfRaw = pdfRaw.filter(raw => String(raw.id) !== ref.id);
+        ok = (await postStore({rel: ref.rel, removeIds: [ref.id]})) && ok;
+        continue;
+      }
+      const color = noteColorName(annotation.color);
+      if (annotation.comment === ref.comment && color === ref.color) continue;
+      const fresh = await fetchJson<{annots?: StoredPdfAnnotation[]}>(`/pdfannot?rel=${encodeURIComponent(ref.rel)}`);
+      const stored = fresh?.annots?.find(raw => String(raw.id) === ref.id);
+      if (!stored) continue;
+      const next: StoredPdfAnnotation = {...stored, color: pdfColor(color)};
+      if (stored.kind === "comment") next.note = annotation.comment; else next.memo = annotation.comment;
+      if (await postStore({rel: ref.rel, annots: [next], known: [ref.id]})) {
+        ref.comment = annotation.comment; ref.color = color;
+        pdfRaw = pdfRaw.map(raw => String(raw.id) === ref.id ? next : raw);
+      } else ok = false;
+    }
+    const states = all.filter(a => a.src === "pdf" && a.round && a.rstate)
+      .map(a => ({id: a.id, round: a.round, rstate: a.rstate, reply: a.reply}));
+    if (states.length || pdfStateKnown.size) {
+      if (await postStore({rel: pdfStateRel, annots: states, known: [...pdfStateKnown]})) {
+        pdfStateKnown.clear();
+        states.forEach(state => pdfStateKnown.add(state.id));
+      } else ok = false;
+    }
+    return ok;
+  }
+  const loadPdfNotes = (fresh = false): Promise<void> => {
+    if (fresh) { pdfLines.clear(); texViews.clear(); }
+    pdfLoading ??= readPdfNotes().finally(() => { pdfLoading = null; });
+    return pdfLoading;
+  };
+  async function readPdfNotes(): Promise<void> {
+    const source = options.pdfNotes;
+    const activeEditor = editor();
+    if (!source || !activeEditor || !loaded) return;
+    const rel = await source.pdfRel().catch(() => null);
+    pdfRel = rel;
+    if (!rel) { replacePdfNotes([]); return; }
+    const stampBefore = await readStamp(rel);
+    const payload = await fetchJson<{annots?: StoredPdfAnnotation[]}>(`/pdfannot?rel=${encodeURIComponent(rel)}`);
+    if (!payload || !Array.isArray(payload.annots)) return;
+    if (stampBefore) pdfStamp = stampBefore;
+    pdfRaw = payload.annots;
+    await loadPdfStates();
+    const text = activeEditor.getValue();
+    const next: LatexAnnotation[] = [];
+    for (const raw of pdfRaw.filter(isPdfNote)) {
+      const page = Number(raw.page) || 1;
+      const rect = raw.rects![0]!;
+      const key = `${raw.id}|${page}|${rect.join(",")}`;
+      let line = pdfLines.get(key);
+      if (line === undefined) {
+        line = await source.sourceLine(page, (rect[0] || 0) + (rect[2] || 0) / 2, (rect[1] || 0) + (rect[3] || 0) / 2).catch(() => null);
+        pdfLines.set(key, line);
+      }
+      const id = pdfNoteId(raw.id);
+      const anchor = anchorPdfQuote(text, String(raw.text || ""), line === null ? null : line - 1);
+      if (!anchor && source.ownsWholePdf && !source.ownsWholePdf()) continue;
+      const state = pdfStates[id] || {};
+      next.push({
+        id, src: "pdf", kind: "comment",
+        pdf: {id: String(raw.id), rel, page, quote: String(raw.text || ""), rects: raw.rects!, kind: raw.kind || "hl"},
+        from: anchor ? anchor.from : {line: 0, ch: 0}, to: anchor ? anchor.to : {line: 0, ch: 0},
+        text: anchor ? anchor.text : "", loose: !anchor || undefined,
+        comment: pdfNoteText(raw), color: noteColorName(raw.color),
+        by: raw.by, author: raw.author, thread: raw.thread as ThreadMessage[] | undefined,
+        ...state,
+      });
+    }
+    replacePdfNotes(next);
+  }
+  function replacePdfNotes(next: LatexAnnotation[]): void {
+    const nextIds = new Set(next.map(a => a.id));
+    let changed = false;
+    for (const gone of all.filter(a => a.src === "pdf" && !nextIds.has(a.id))) {
+      clearMark(gone.id);
+      pdfPresent.delete(gone.id);
+      changed = true;
+    }
+    all = all.filter(a => a.src !== "pdf" || nextIds.has(a.id));
+    for (const incoming of next) {
+      const local = all.find(a => a.id === incoming.id);
+      pdfPresent.set(incoming.id, {id: incoming.pdf!.id, rel: incoming.pdf!.rel, comment: incoming.comment, color: noteColorName(incoming.color)});
+      if (!local) {
+        all.push(incoming);
+        changed = true;
+        continue;
+      }
+      // déjà ici : la source a pu bouger depuis, on garde son ancrage
+      if (local.comment !== incoming.comment || local.color !== incoming.color || local.loose !== incoming.loose) changed = true;
+      Object.assign(local, {comment: incoming.comment, color: incoming.color, pdf: incoming.pdf, by: incoming.by, author: incoming.author});
+      if (local.loose && !incoming.loose) Object.assign(local, {from: incoming.from, to: incoming.to, text: incoming.text, loose: undefined});
+    }
+    if (!changed) return;
+    renumber();
+    for (const annotation of all) if (annotation.kind !== "hl") remark(annotation);
+    options.onMutated?.();
+    options.onNotesChanged?.();
+    if (options.panel.classList.contains("open")) buildPanel();
+    void locateTexNotes();
+  }
+  /** Page SyncTeX de chaque note du .tex : « p. 3 » dans la colonne, et
+   *  l'endroit où la couche du PDF cherche son passage. */
+  let locating = false;
+  async function locateTexNotes(): Promise<void> {
+    const source = options.pdfNotes;
+    if (!source || locating || !pdfRel) return;
+    locating = true;
+    let found = false;
+    try {
+      for (const annotation of notes()) {
+        if (annotation.src === "pdf") { pages.set(annotation.id, annotation.pdf!.page); continue; }
+        const known = texViews.get(annotation.id);
+        if (known !== undefined && known?.line === annotation.from.line) continue;
+        const view = await source.sourceView(annotation.from.line + 1).catch(() => null);
+        texViews.set(annotation.id, view ? {line: annotation.from.line, ...view} : null);
+        if (view) { pages.set(annotation.id, view.page); found = true; }
+      }
+    } finally { locating = false; }
+    if (!found) return;
+    options.onNotesChanged?.();
+    if (options.panel.classList.contains("open")) buildPanel();
+  }
+  const checkPdfStore = async (): Promise<void> => {
+    if (!pdfRel) return;
+    const stamp = await readStamp(pdfRel);
+    if (!stamp || stamp === pdfStamp) return;
+    pdfStamp = stamp;
+    await loadPdfNotes();
+  };
+  // « Réviser avec l'agent » posé depuis l'onglet PDF (annotation_notes.ts).
+  const pendingReview = (): boolean => {
+    try {
+      const key = reviewRequestKey(options.path);
+      const at = Number(win.localStorage.getItem(key)) || 0;
+      if (!at) return false;
+      win.localStorage.removeItem(key);
+      return Date.now() - at < 120000;
+    } catch { return false; }
+  };
+
   const buildPanel = (): void => {
     const everything = notes();
     const fromAgent = everything.filter(a => isAgentNote(a));
@@ -641,15 +942,22 @@ export function createLatexAnnotationsController(
     const sections = sectionsFor(items);
     let lastSection = "";
     const list = items.map((annotation, index) => {
-      const section = sections[index] || "";
-      const head = round && section !== lastSection ? (lastSection = section, `<div class="tp-sec">${escapeHtml(section)}</div>`) : "";
+      const section = annotation.loose ? "Ailleurs dans le PDF" : sections[index] || "";
+      const head = section !== lastSection ? (lastSection = section, `<div class="tp-sec">${escapeHtml(section)}</div>`) : "";
       const agent = isAgentNote(annotation);
-      const state = agent ? agentState(annotation) : stateLabel(annotation.rstate || "note");
-      return `${head}<div class="tp-item${activeId === annotation.id ? " is-active" : ""}" data-id="${escapeHtml(annotation.id)}" role="button" tabindex="0">`
-        + `<span class="atelier-annotation-number tp-ring${agent ? " is-agent" : ""}${agent && hasUnread(annotation) ? " is-unread" : ""}">${numberOf(annotation)}</span>`
-        + `<span class="tp-body"><span class="tp-note">${escapeHtml(annotation.comment || annotation.text.slice(0, 90))}</span>`
-        + `<span class="tp-state tone-${state.tone}"><span class="tp-ic">${state.icon}</span>${state.label}<span class="tp-loc">${locOf(annotation)}</span></span></span>`
-        + `<button type="button" class="tp-x" data-x="${escapeHtml(annotation.id)}" title="Supprimer la note" aria-label="Supprimer la note">${roundIcons.close}</button></div>`;
+      const inRound = Boolean(annotation.round && annotation.rstate);
+      const state = agent && annotation.src !== "pdf" ? agentState(annotation) : inRound ? stateLabel(annotation.rstate || "note") : null;
+      const row: ColumnNote = {
+        id: annotation.id, number: numberOf(annotation), color: noteColorName(annotation.color),
+        quote: annotation.pdf?.quote || annotation.text, note: annotation.comment || "",
+        page: annotation.pdf?.page ?? pages.get(annotation.id) ?? null,
+        line: annotation.loose ? null : annotation.from.line + 1,
+        lineEnd: annotation.loose ? null : annotation.to.line + 1,
+        agent: agent ? authorOf(annotation) : "", unread: agent && hasUnread(annotation),
+        active: activeId === annotation.id,
+        state: state && (inRound || agent) ? state : null, src: annotation.src === "pdf" ? "pdf" : "tex",
+      };
+      return head + columnItemHtml(row);
     }).join("");
     const past = [...new Set(history.filter(record => record.n > 0).map(record => record.n))].sort((a, b) => b - a).slice(0, 3).map(n => {
       const records = history.filter(record => record.n === n);
@@ -668,7 +976,7 @@ export function createLatexAnnotationsController(
       ? '<div class="tp-tools"><button type="button" class="tp-link tp-sendall" title="Envoyer toutes les notes au chat, sans ronde">Envoyer au chat</button>'
         + '<button type="button" class="tp-link tp-delall" title="Supprimer toutes les notes">Tout supprimer</button></div>'
       : "";
-    options.panel.innerHTML = `<div class="tp-head"><span class="tp-title">${title}</span><span class="tp-sub">${sub}</span><span class="tp-gap"></span>`
+    options.panel.innerHTML = `<div class="tp-head"><span class="tp-title">${title}</span><span class="tp-sub">${escapeHtml(sub)}</span><span class="tp-gap"></span>`
       + `<button type="button" class="tp-close" aria-label="Fermer le panneau" title="Fermer">${roundIcons.close}</button></div>`
       + filters
       + `<div class="tp-list">${list || '<div class="tp-empty">Sélectionne un passage puis « Annoter ». Tes notes s’ajoutent ici ; « Réviser avec l’agent » les lui envoie toutes ensemble.</div>'}</div>`
@@ -686,6 +994,7 @@ export function createLatexAnnotationsController(
   const remove = (id: string): void => {
     all = all.filter((annotation) => annotation.id !== id);
     clearMark(id);
+    refreshNumbers();
     save();
     options.popover.style.display = "none";
     current = null;
@@ -727,7 +1036,7 @@ export function createLatexAnnotationsController(
     annotation.kind="comment";
     annotation.number ||= 1 + Math.max(0,...all.map(a=>a.number || 0));
     if(!all.some(a=>a.id===annotation.id)) all.push(annotation);
-    clearMark(annotation.id);mark(annotation);
+    clearMark(annotation.id);mark(annotation);refreshNumbers();
     saving=true;noteUI.busy(true);
     const saved=await save();
     saving=false;noteUI.busy(false);
@@ -752,13 +1061,13 @@ export function createLatexAnnotationsController(
     all=all.filter(a=>a.id!==annotation.id);saving=true;noteUI.busy(true);
     const saved=await save();saving=false;noteUI.busy(false);
     if(!saved){if(index>=0)all.splice(index,0,annotation);options.onMutated?.();return;}
-    clearMark(annotation.id);current=null;options.popover.style.display="none";buildPanel();
+    clearMark(annotation.id);current=null;options.popover.style.display="none";refreshNumbers();buildPanel();
   };
   win.addEventListener("message",event=>{
     const data=event.data;
     if(event.source!==win.parent || data?.type!=="atelier-pdf-annotation-consumed" || data.rel!==relation ||
       data.nonce!==(win as Window & {__atelierNonce?:string}).__atelierNonce) return;
-    all=all.filter(a=>a.id!==data.id);clearMark(data.id);
+    all=all.filter(a=>a.id!==data.id);clearMark(data.id);refreshNumbers();
     if(current?.id===data.id){current=null;options.popover.style.display="none";}
     void save();buildPanel();
   });
@@ -905,6 +1214,11 @@ export function createLatexAnnotationsController(
     // Une ronde lancée avant un rechargement reprend où elle en était.
     if (all.some(a => a.rstate === "busy")) poll();
     if (currentRound()) togglePanel(true);
+    options.onNotesChanged?.();
+    void loadPdfNotes().then(() => {
+      void locateTexNotes();
+      if (pendingReview()) { togglePanel(true); startRound(); }
+    });
     return true;
   };
   // ---- Relecture en direct : l'agent pose ou répond pendant que l'éditeur
@@ -915,15 +1229,16 @@ export function createLatexAnnotationsController(
     if (watchTimer !== null) return;
     watchTimer = win.setInterval(() => { void checkStore(); }, 2500);
   };
-  async function readStamp(): Promise<number> {
+  async function readStamp(rel = relation): Promise<number> {
     try {
-      const response = await win.fetch(`/pdfannot-stamp?rel=${encodeURIComponent(relation)}`);
+      const response = await win.fetch(`/pdfannot-stamp?rel=${encodeURIComponent(rel)}`);
       if (!response.ok) return 0;
       return Number(((await response.json()) as {stamp?: number}).stamp) || 0;
     } catch { return 0; }
   }
   const checkStore = async (): Promise<void> => {
     if (!loaded || doc.hidden) return;
+    await checkPdfStore();
     const stamp = await readStamp();
     if (!stamp) return;
     if (!storeStamp) { storeStamp = stamp; return; }
@@ -981,6 +1296,7 @@ export function createLatexAnnotationsController(
       }
     }
     if (!changed) return;
+    refreshNumbers();
     options.onMutated?.();
     if (arrived) togglePanel(true);
     else buildPanel();
@@ -1036,5 +1352,24 @@ export function createLatexAnnotationsController(
     drop: remove,
     annotations: () => all,
     marks: () => marks,
+    refreshPdfNotes: async (fresh = false) => { await loadPdfNotes(fresh); await locateTexNotes(); },
+    layerNotes: () => notes().flatMap((annotation): LatexPdfLayerNote[] => {
+      const base = {id: annotation.id, number: numberOf(annotation), color: noteColorName(annotation.color),
+        agent: isAgentNote(annotation), title: annotation.comment || annotation.text.slice(0, 120)};
+      if (annotation.src === "pdf") return [{...base, page: annotation.pdf!.page, rects: annotation.pdf!.rects}];
+      const view = texViews.get(annotation.id);
+      return view ? [{...base, page: view.page, text: annotation.text, line: annotation.from.line, top: view.y}] : [];
+    }),
+    pdfMarks: () => pdfRaw.filter(raw => !isPdfNote(raw) && Array.isArray(raw.rects) && raw.rects.length
+      && (!raw.kind || raw.kind === "hl" || raw.kind === "ul" || raw.kind === "st")),
+    reveal: (id: string) => {
+      const annotation = all.find(a => a.id === id);
+      if (!annotation) return;
+      activeId = id;
+      togglePanel(true);
+      if (!annotation.loose) reveal(id);
+      options.panel.querySelector<HTMLElement>(`.tp-item[data-id="${id.replace(/["\\]/g, "")}"]`)?.scrollIntoView({block: "nearest"});
+    },
+    startRound: () => { togglePanel(true); startRound(); },
   };
 }

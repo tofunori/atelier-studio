@@ -15,6 +15,7 @@ import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/cha
 import { isStoppedTerminal, timelineRowKey } from "../../lib/chat/turnViewModel";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { transitionScrollPolicy } from "../../lib/chat/scrollPolicy";
+import { loadSendMotion, sendMotion } from "../../lib/chat/sendMotion";
 import { t } from "../../lib/i18n";
 import { prefersReducedMotion, useReducedMotion } from "../../lib/motion";
 import { findTextRanges } from "../../lib/markRanges";
@@ -60,14 +61,11 @@ const ComputeJobCard = lazy(() => import("./ComputeJobCard").then((m) => ({ defa
 const WidgetFrame = lazy(() => import("./WidgetFrame").then((m) => ({ default: m.WidgetFrame })));
 
 // Identité STABLE (voir le prop maintainScrollAtEnd) : un objet recréé à
-// chaque render relance l'animation de suivi en boucle et elle n'atteint
-// jamais le bas.
-const MAINTAIN_END_ANIMATED = { animated: true } as const;
-// Au repos, le suivi reste INSTANTANÉ : la variation de hauteur du composer
-// (frappe multi-ligne) déclenchait sinon un glissement animé puis un
-// claquement au recalcul du spacer — le fil oscillait à chaque wrap (mesuré
-// Playwright 2026-08-23 : scrollTop 0→18→0). L'interpolation n'a de sens que
-// pendant un tour en cours, quand le TEXTE pousse le bas.
+// chaque render relance le suivi en boucle. Ce suivi reste INSTANTANÉ : la
+// variation de hauteur du composer (frappe multi-ligne) déclenchait sinon un
+// glissement animé puis un claquement au recalcul du spacer — le fil
+// oscillait à chaque wrap (mesuré Playwright 2026-08-23 : scrollTop 0→18→0).
+// Pendant un tour, le suivi lissé est followBottom (lib/chat/sendMotion).
 const MAINTAIN_END_INSTANT = { animated: false } as const;
 
 // Échelle 4 px (système) — l'ancien padding vertical de `.messages` dans
@@ -382,6 +380,9 @@ export function ChatTimeline(p: {
   const [autoFollow, setAutoFollow] = React.useState(true);
   const [isScrolledFromBottom, setIsScrolledFromBottom] = React.useState(false);
   const [isFirstTurnSettling, setIsFirstTurnSettling] = React.useState(false);
+  // Annulation de l'atterrissage d'un envoi en cours (effet « Envoi » plus
+  // bas) ; non nul = ni bouton « Aller en bas », ni suivi concurrent.
+  const landingRef = React.useRef<(() => void) | null>(null);
   const hadTimelineEventsRef = React.useRef(events.length > 0);
   const phaseRef = React.useRef<TurnPhase>(phase);
   const prevRowsRef = React.useRef(new Map<string, TimelineVirtualItem>());
@@ -706,11 +707,15 @@ export function ChatTimeline(p: {
     if (!native) return;
     const onWheel = (event: WheelEvent) => {
       if (event.deltaY < 0) {
+        landingRef.current?.();
         setAutoFollow(false);
         setIsScrolledFromBottom(true);
       }
     };
     const onScroll = () => {
+      // atterrissage en cours, ou position écrite par le suivi continu
+      // (lib/chat/sendMotionImpl) : pas un défilement de l'utilisateur
+      if (landingRef.current || String(native.scrollTop) === native.dataset.following) return;
       const distance = native.scrollHeight - native.clientHeight - native.scrollTop;
       const awayFromBottom = distance > 32;
       setIsScrolledFromBottom((current) => current === awayFromBottom ? current : awayFromBottom);
@@ -767,6 +772,42 @@ export function ChatTimeline(p: {
     }, 300);
     return () => window.clearInterval(id);
   }, [autoFollow, messagesRef, workingSince]);
+
+  // Envoi (« B · Envol », 2026-11-09). La bulle optimiste naissait sous le
+  // composeur ; maintainScrollAtEnd ne la suivait pas et seul le filet
+  // ci-dessus la rattrapait ≈ 600 ms après Entrée, le bouton « Aller en bas »
+  // clignotant entre-temps (mesuré au banc, image par image). Désormais un
+  // seul défilement de 180 ms, synchrone avec le vol du texte (sendMotion).
+  // (seuls les messages de l'utilisateur portent un méta provisoire, App.tsx)
+  const lastMeta = events[events.length - 1]?.meta;
+  const sentMessageId = lastMeta && "provisional" in lastMeta ? lastMeta.messageId : null;
+  // l'historique déjà présent au montage n'atterrit pas
+  const landedMessageRef = React.useRef<string | null>(sentMessageId);
+  React.useLayoutEffect(() => {
+    if (!sentMessageId || landedMessageRef.current === sentMessageId) return;
+    landedMessageRef.current = sentMessageId;
+    setAutoFollow(true);
+    setIsScrolledFromBottom(false);
+    const native = messagesRef.current;
+    if (!native) return;
+    landingRef.current?.();
+    // PAS de nettoyage lié aux dépendances : l'accusé (≈ 60 ms) retire le
+    // drapeau provisoire et relancerait l'effet en plein vol.
+    landingRef.current = sendMotion()?.landAtBottom(native, () => { landingRef.current = null; }) ?? null;
+  }, [sentMessageId, messagesRef]);
+  React.useEffect(loadSendMotion, []);
+
+  // Suivi continu pendant un tour : le bas du fil accompagne le texte image
+  // par image au lieu de sauter par paquets (ancien suivi animé de LegendList
+  // relayé par le filet, ≈ 500 ms entre deux sauts). Sans animation, on garde
+  // le suivi instantané de LegendList.
+  const continuousFollow = autoFollow && workingSince != null && !reducedMotion && !!sendMotion();
+  React.useEffect(() => {
+    if (!continuousFollow) return;
+    const native = messagesRef.current;
+    if (!native) return;
+    return sendMotion()?.followBottom(native, () => !!landingRef.current || jumpActiveRef.current);
+  }, [continuousFollow, messagesRef, threadId]);
 
   React.useEffect(() => {
     phaseRef.current = phase;
@@ -919,14 +960,12 @@ export function ChatTimeline(p: {
         // alignItemsAtEnd déplaçait tout le premier tour à chaque nouvelle
         // narration, même avec scrollToEnd animé (le scroll vaut alors 0).
         alignItemsAtEnd={false}
-        // animated : le suivi du bas s'interpole au lieu de téléporter le fil
-        // d'une hauteur de ligne à chaque wrap — mesuré au banc
-        // #chatbench-livestream (12 pas instantanés de 20-63 px sans,
-        // demande de fluidité Thierry 2026-08-23). L'objet DOIT être une
-        // constante module : recréé à chaque render, il relançait l'animation
-        // interne en boucle, qui s'arrêtait à ~32 px du bas — sous le seuil de
-        // tolérance — et laissait la ligne « esc Interrompre » cachée.
-        maintainScrollAtEnd={autoFollow ? (workingSince != null && !reducedMotion ? MAINTAIN_END_ANIMATED : MAINTAIN_END_INSTANT) : false}
+        // Pendant un tour animé, followBottom tient le bas image par image
+        // (voir plus haut) : l'ancien suivi animé de LegendList s'interpolait
+        // par paquets et s'arrêtait parfois à ~32 px du bas (#chatbench-
+        // livestream, 2026-08-23) ; en parallèle, il se battrait avec lui.
+        // Au repos et sans animation : suivi instantané.
+        maintainScrollAtEnd={autoFollow ? (continuousFollow ? false : MAINTAIN_END_INSTANT) : false}
         // Padding vertical ICI et pas dans App.css : LegendList l'extrait de
         // ce prop pour son modèle de contenu (extractPadding) — sinon chaque
         // scrollToEnd vise (paddingTop+paddingBottom) px au-dessus du vrai bas.

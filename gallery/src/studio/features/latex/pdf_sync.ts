@@ -73,6 +73,15 @@ export interface LatexPdfSyncController {
   noteEdit(): void;
   handleResize(width: number): void;
   hasDocument(): boolean;
+  /** Taille d'une page en points (scale 1), même sans vue scindée affichée :
+   *  les notes du PDF compilé se situent dans la source par SyncTeX. */
+  pageSize(page: number): Promise<{width: number; height: number} | null>;
+  /** Texte d'une page (items pdf.js), pour retrouver un passage du .tex. */
+  pageText(page: number): Promise<Array<{str?: string; transform?: number[]; width?: number; height?: number}> | null>;
+  /** Gabarit affiché d'une page (vue scindée), s'il existe. */
+  pageElement(page: number): HTMLElement | null;
+  /** Appelé après chaque mise en page (pages remplacées). */
+  onLayout(listener: () => void): void;
 }
 
 /** Marge horizontale totale autour d'une page à l'ajustement « Largeur » :
@@ -141,6 +150,25 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   let lastSyncLine: number | null = null;
   let lastRequestView = 0;
   let markerTimer: number | null = null;
+  const layoutListeners: Array<() => void> = [];
+  // Document ouvert à part quand la vue scindée n'a encore rien chargé : les
+  // notes du PDF en ont besoin pour leur taille de page et leur texte.
+  let sideDocument: {path: string; document: Promise<PdfDocument>} | null = null;
+  const documentForNotes = (): Promise<PdfDocument> | null => {
+    if (pdfDocument) return Promise.resolve(pdfDocument);
+    const pdfPath = options.getPdfPath();
+    if (!pdfPath) return null;
+    if (sideDocument?.path !== pdfPath) {
+      const opened = options.pdfjs.getDocument({
+        url: `/raw?path=${encodeURIComponent(pdfPath)}${options.tokenQuery || ""}`,
+        standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/", wasmUrl: "/.fig_thumbs/pdfjs/wasm/",
+        iccUrl: "/.fig_thumbs/pdfjs/iccs/", cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true,
+      }).promise;
+      opened.catch(() => { if (sideDocument?.document === opened) sideDocument = null; });
+      sideDocument = {path: pdfPath, document: opened};
+    }
+    return sideDocument.document;
+  };
 
   const jumpToLine = (line: number): void => {
     const editor = options.getEditor();
@@ -507,6 +535,8 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       renderedZoom = options.getZoom();
       options.right.scrollTop = scroll;
       if (previousDocument && previousDocument !== nextDocument) destroyDocument(previousDocument);
+      if (sideDocument) { const side = sideDocument; sideDocument = null; void side.document.then(pdf => pdf.destroy?.()).catch(() => undefined); }
+      for (const listener of layoutListeners) { try { listener(); } catch (error) { console.warn("PDF layout:", error); } }
 
       // Fill in variable page sizes after the first useful paint, yielding to
       // input every two pages. Keep the reader's current page at the same offset.
@@ -658,5 +688,38 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       }
     },
     hasDocument: () => Boolean(pdfDocument),
+    pageSize: async (page: number) => {
+      const known = pdfDocument ? dimensions.get(page) : undefined;
+      if (known) return {width: known.width, height: known.height};
+      const opened = documentForNotes();
+      if (!opened) return null;
+      try {
+        const pdf = await opened;
+        if (page < 1 || page > pdf.numPages) return null;
+        const base = (await pageFor(pdf, page)).getViewport({scale: 1});
+        return {width: base.width, height: base.height};
+      } catch { return null; }
+    },
+    pageText: async (page: number) => {
+      const opened = documentForNotes();
+      if (!opened) return null;
+      try {
+        const pdf = await opened;
+        if (page < 1 || page > pdf.numPages) return null;
+        let cache = textCache.get(pdf);
+        if (!cache) { cache = new Map(); textCache.set(pdf, cache); }
+        let pending = cache.get(page);
+        if (!pending) {
+          const proxy = await pageFor(pdf, page);
+          if (!proxy.getTextContent) return null;
+          pending = proxy.getTextContent().catch(error => { cache!.delete(page); throw error; });
+          cache.set(page, pending);
+        }
+        const content = await pending as {items?: Array<{str?: string; transform?: number[]; width?: number; height?: number}>};
+        return Array.isArray(content?.items) ? content.items : null;
+      } catch { return null; }
+    },
+    pageElement: (page: number) => pages[page] || null,
+    onLayout: (listener: () => void) => { layoutListeners.push(listener); },
   };
 }

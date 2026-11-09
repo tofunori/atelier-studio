@@ -570,9 +570,14 @@ export function projectChatTimeline(
     } else {
       suffix = eventKey(event, index);
     }
+    // Bulle utilisateur : identité = messageId, posé par le client à l'envoi
+    // et conservé par l'accusé. La clé ne dépend donc pas du tour : sans cela
+    // elle passait de `legacy:N` à `turn:…` à l'accusé (≈ 60 ms après Entrée)
+    // et LegendList détruisait puis recréait la bulle qu'on venait d'animer.
+    const messageId = event.kind === "user" ? event.meta?.messageId : undefined;
     rows.push({
       type: "event",
-      key: `event:${turnKey}:${suffix}`,
+      key: messageId ? `event:user:${messageId}` : `event:${turnKey}:${suffix}`,
       event,
       index,
     });

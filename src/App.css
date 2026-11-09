@@ -1784,6 +1784,20 @@ button.kernel-file:hover { color: var(--text-primary); }
   gap: 4px; min-width: 0; color: var(--text-muted); }
 .working-row { display: flex; align-items: center; gap: 12px; min-width: 0; width: 100%; }
 .working-stack > .ui-activity { width: 100%; max-width: none; margin-left: 0; margin-right: 0; }
+/* Envoi « B · Envol » (2026-11-09) : le statut du tour qui vient de partir
+   arrive en fondu une fois la bulle posée (délai ≈ durée du vol). `is-sending`
+   est posée ~450 ms sur .timeline-scroll-wrap par lib/chat/sendMotionImpl ;
+   un statut monté pendant ce temps (y compris remonté à l'accusé) s'anime. */
+.is-sending .active-turn-tail {
+  animation: active-tail-in var(--motion-fast) var(--ease-out) var(--motion-standard) both; }
+@keyframes active-tail-in { from { opacity: 0; } to { opacity: 1; } }
+/* Copie de la bulle en vol, du composeur jusqu'à sa place (lib/chat/sendMotion) :
+   posée dans .timeline-scroll-wrap, hors de la rangée virtualisée dont la
+   `contain: paint` la couperait ; police et couleurs recopiées en ligne. */
+.composer textarea.send-armed::placeholder { color: transparent; }
+.send-flight { position: absolute; left: 0; top: 0; z-index: var(--z-sticky); margin: 0;
+  pointer-events: none; will-change: transform, opacity; }
+@media (prefers-reduced-motion: reduce) { .is-sending .active-turn-tail { animation: none; } }
 .working-tool { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 8px;
   min-width: 0; color: var(--text-muted); font-size: var(--fs-m); line-height: 1.3;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

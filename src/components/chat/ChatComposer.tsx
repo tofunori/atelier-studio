@@ -21,6 +21,7 @@ import { ButtonGroup } from "../shadcn/button-group";
 import { Button } from "../ui/Button";
 import { parseNativeSlashCommand, permissionModeFromSlash } from "../../lib/slashCommands";
 import type { FollowUpMode } from "../../lib/chatDraftStore";
+import { sendMotion } from "../../lib/chat/sendMotion";
 import { codexSupportsFastMode } from "../../lib/modelCatalog";
 import { useComposerDictation } from "./useComposerDictation";
 import { ComposerDictationBar } from "./ComposerDictationBar";
@@ -228,6 +229,10 @@ export function ChatComposer(props: {
       setText("");
       return;
     }
+    // « B · Envol » : retenir d'où part le texte avant que le champ se vide.
+    // Une relance mise en file reste dans le composeur : pas de bulle, pas de
+    // vol (un envoi armé sans bulle expire seul, ex. /plan sans texte).
+    if (!(mode === "queue" && host.workingSince != null)) sendMotion()?.armSendFlight(input.formRef?.current);
     if (command?.name === "plan") {
       model.setPermissionMode("plan");
       if (command.args) {

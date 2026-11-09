@@ -1,5 +1,7 @@
 import {
   createLatexAnnotationsController,
+  createPdfNoteLayer,
+  type PdfNoteLayer,
   createLatexBibCheckController,
   type LatexBibCheckController,
   createLatexCompileCoordinator,
@@ -195,6 +197,11 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   let pdfSync: LatexPdfSyncController | null = null;
   let pdfControls: LatexPdfControls | null = null;
   let annotations: LatexAnnotationsController | null = null;
+  let noteLayer: PdfNoteLayer | null = null;
+  // Le PDF compilé n'est connu qu'après /texroot : les notes du PDF attendent.
+  let resolvePdfKnown: () => void = () => {};
+  const pdfKnown = new Promise<void>(resolve => { resolvePdfKnown = resolve; });
+  let projectRoot: Promise<string | null> | null = null;
   let outline: LatexOutlineController | null = null;
   let bibCheck: LatexBibCheckController | null = null;
   let reader: LatexReadingController | null = null;
@@ -315,10 +322,60 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       },
       onError: (message) => showStickyNotice("err", message),
       revealSource: () => { if (reader?.isReading()) reader.setRead(false); },
+      // Notes posées sur le PDF compilé : même liste, mêmes numéros (variante B).
+      pdfNotes: isTex ? {
+        pdfRel: async () => {
+          await pdfKnown;
+          if (!pdfPath) return null;
+          projectRoot ??= win.fetch("/ping").then(response => response.ok ? response.json() : null)
+            .then((ping: {project?: string} | null) => typeof ping?.project === "string" ? ping.project.replace(/\/+$/, "") : null)
+            .catch(() => null);
+          const root = await projectRoot;
+          return root && pdfPath.startsWith(`${root}/`) ? pdfPath.slice(root.length + 1) : null;
+        },
+        sourceLine: async (page, x, y) => {
+          const size = await ensurePdfSync().pageSize(page);
+          if (!size || !pdfPath) return null;
+          const response = await win.fetch("/synctex", {method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({dir: "edit", tex: path, pdf: pdfPath, page, x: x * size.width, y: y * size.height})});
+          const result = await response.json() as {line?: number; input?: string};
+          if (!result.line) return null;
+          // un autre fichier du document (\input) : pas une ligne d'ici
+          const input = String(result.input || "").replace(/^\.\//, "");
+          if (input && path && input !== path && !path.endsWith(`/${input}`)) return null;
+          return result.line;
+        },
+        sourceView: async (line) => {
+          if (!pdfPath) return null;
+          const response = await win.fetch("/synctex", {method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({dir: "view", tex: path, pdf: pdfPath, line})});
+          const result = await response.json() as {page?: number; y?: number};
+          return result.page ? {page: result.page, y: result.y || 0} : null;
+        },
+        ownsWholePdf: () => !readingRoot || readingRoot === path,
+      } : undefined,
+      onNotesChanged: () => ensureNoteLayer()?.redraw(),
       document: doc,
       window: win,
     });
     return annotations;
+  };
+  // Couche des annotations sur le PDF de la vue scindée.
+  const ensureNoteLayer = (): PdfNoteLayer | null => {
+    if (noteLayer || !isTex || isPdfMode) return noteLayer;
+    const sync = ensurePdfSync();
+    noteLayer = createPdfNoteLayer({
+      right: doc.getElementById("right") as HTMLElement,
+      notes: () => annotations?.layerNotes() || [],
+      marks: () => annotations?.pdfMarks() || [],
+      pageSize: page => sync.pageSize(page),
+      pageText: page => sync.pageText(page),
+      onPick: id => ensureAnnotations().reveal(id),
+      document: doc,
+      window: win,
+    });
+    sync.onLayout(() => noteLayer?.redraw());
+    return noteLayer;
   };
   const ensureOutline = (): LatexOutlineController => {
     if (outline) return outline;
@@ -392,6 +449,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
         pdfPath = selected;
         try {win.localStorage.setItem(`atelier.latex.pdf:${readingRoot || path}`, selected);} catch { /* private storage */ }
         void refreshReadingContext();
+        void annotations?.refreshPdfNotes(true);
       },
       getEditor: () => editor,
       right: doc.getElementById("right") as HTMLElement,
@@ -896,6 +954,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       void refreshReadingContext();
       void loadPdf();
       channel?.postMessage({t: "compiled"});
+      void annotations?.refreshPdfNotes(true);
     },
   });
   const compile = (force = false): Promise<void> => {
@@ -1145,12 +1204,20 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
           } catch { /* the PDF pane owns the visible loading/error state */ }
         }
         void refreshReadingContext();
+        resolvePdfKnown();
         if (isTex) return loadPdf().then(() => { if (isPdfMode) ensurePdfSync().requestView(); });
         return undefined;
       })
-      .catch(() => { if (isTex) void loadPdf(); });
+      .catch(() => { resolvePdfKnown(); if (isTex) void loadPdf(); });
   }
 
+  // Onglet PDF du même document : « Réviser avec l'agent » et notes posées
+  // là-bas (le store suffit, ceci n'est qu'un raccourci).
+  if (isTex && !isPdfMode && channel) channel.addEventListener("message", (event: MessageEvent) => {
+    const message = (event.data || {}) as {t?: string};
+    if (message.t === "review") ensureAnnotations().startRound();
+    else if (message.t === "notes") void annotations?.refreshPdfNotes();
+  });
   win.texcOpen = (selection) => ensureAnnotations().open(selection);
   win.texcAnchorAll = () => ensureAnnotations().anchorAll();
   win.toggleTexcPanel = (force) => ensureAnnotations().togglePanel(force);
