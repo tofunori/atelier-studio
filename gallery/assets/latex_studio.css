@@ -1215,11 +1215,12 @@ body.tbx #morePop .tb-dup{display:none!important}
 body.tbx #build{width:28px;padding:0}
 body.tbx #build span{display:none}
 body.tbx #build::after{left:15px}
-/* Diff éteint : l'interrupteur seul ; versions et passages reviennent avec lui. */
-body.tbx #diffGrp:has(#diffTag:not([aria-pressed=true])) #dvNav>:not(#diffTag),
-body.tbx #diffGrp:has(#diffTag:not([aria-pressed=true])) #diffPrev,
-body.tbx #diffGrp:has(#diffTag:not([aria-pressed=true])) #diffNext,
-body.tbx #diffGrp:has(#diffTag:not([aria-pressed=true])) #diffAcceptAll{display:none!important}
+/* Diff éteint : l'interrupteur seul ; versions et passages reviennent avec lui
+   (classe posée par toolbar_layout.ts : pas de :has(), trop coûteux ici). */
+body.tbx #diffGrp.tb-diff-off #dvNav>:not(#diffTag),
+body.tbx #diffGrp.tb-diff-off #diffPrev,
+body.tbx #diffGrp.tb-diff-off #diffNext,
+body.tbx #diffGrp.tb-diff-off #diffAcceptAll{display:none!important}
 
 #tbCustom{position:fixed;z-index:400;display:none;width:320px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;box-sizing:border-box;padding:4px;
   background:var(--surface-overlay,var(--card));border:0;border-radius:10px;box-shadow:var(--elevation-overlay,var(--elev));

@@ -180,6 +180,18 @@ export function createLatexToolbarLayout(options: LatexToolbarLayoutOptions = {}
     gap.setAttribute("aria-hidden", "true");
     header.appendChild(gap);
   }
+  // Diff éteint : l'interrupteur seul. Une classe posée ici plutôt qu'un
+  // `:has()` en CSS : le `:has()` ralentissait l'ouverture d'un gros diff
+  // (diff.spec.ts « diff worker stays responsive »).
+  const diffGrp = doc.getElementById("diffGrp");
+  const diffTag = doc.getElementById("diffTag");
+  const syncDiff = (): void => {
+    diffGrp?.classList.toggle("tb-diff-off", diffTag?.getAttribute("aria-pressed") !== "true");
+  };
+  syncDiff();
+  const Observer = (win as Window & {MutationObserver?: typeof MutationObserver}).MutationObserver;
+  const diffObserver = diffTag && Observer ? new Observer(syncDiff) : null;
+  if (diffTag) diffObserver?.observe(diffTag, {attributes: true, attributeFilter: ["aria-pressed"]});
   if (!morePop.querySelector('[data-act="customize"]')) {
     morePop.insertAdjacentHTML("beforeend",
       '<div class="mp-sep" role="separator"></div><button type="button" role="menuitem" data-act="customize">Personnaliser la barre&hellip;</button>');
@@ -398,6 +410,8 @@ export function createLatexToolbarLayout(options: LatexToolbarLayoutOptions = {}
       moreBtn.removeEventListener("click", onMoreBtn);
       doc.removeEventListener("click", onDocClick);
       doc.removeEventListener("keydown", onKey);
+      diffObserver?.disconnect();
+      diffGrp?.classList.remove("tb-diff-off");
       panel.remove();
       doc.body.classList.remove("tbx");
     },
