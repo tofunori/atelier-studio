@@ -20,7 +20,7 @@ import {
 import "./HistorySurface.css";
 
 /** Écoute les réponses projectHistory* sur la socket (sans relais dans l'entrée). */
-export function listenHistory(ws: WebSocket | null, handler: (msg: any) => void) {
+function listenHistory(ws: WebSocket | null, handler: (msg: any) => void) {
   if (!ws) return () => {};
   const listener = (event: MessageEvent) => {
     if (typeof event.data !== "string" || !event.data.includes("projectHistory")) return;
@@ -207,9 +207,11 @@ function SaveVersion({ disabled, onSave }: { disabled: boolean; onSave: (name: s
   const submit = async () => {
     if (!name.trim()) { inputRef.current?.focus(); return; }
     setBusy(true);
-    const ok = await onSave(name.trim());
-    setBusy(false);
-    if (ok) { setOpen(false); setName(""); }
+    try {
+      if (await onSave(name.trim())) { setOpen(false); setName(""); }
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) window.setTimeout(() => inputRef.current?.focus(), 0); }}>
@@ -310,14 +312,19 @@ function ComparePane({
   );
 }
 
-export default function HistorySurface({
-  ws, projectRoot, visible, onOpenFile,
-}: {
+type SurfaceProps = {
   ws: WebSocket | null;
   projectRoot: string;
   visible: boolean;
   onOpenFile: (rel: string) => void;
-}) {
+};
+
+// Changer de projet repart d'un état neuf (fil, filtres, diffs en cache).
+export default function HistorySurface(props: SurfaceProps) {
+  return <ProjectHistory key={props.projectRoot} {...props} />;
+}
+
+function ProjectHistory({ ws, projectRoot, visible, onOpenFile }: SurfaceProps) {
   const s = strings();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [repo, setRepo] = useState(true);
@@ -357,7 +364,6 @@ export default function HistorySurface({
 
   // Rafraîchi à chaque retour sur l'onglet : le fil suit le travail en cours.
   useEffect(() => { if (visible) refresh(); }, [refresh, visible]);
-  useEffect(() => { setEntries([]); setExpanded(null); setPath(""); }, [projectRoot]);
 
   const act = useCallback((message: Record<string, unknown>) => new Promise<any>((resolve) => {
     const requestId = nextId();

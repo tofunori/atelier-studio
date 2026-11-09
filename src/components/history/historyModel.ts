@@ -182,8 +182,17 @@ function locale() {
   return getResolvedLanguage() === "en" ? "en-CA" : "fr-CA";
 }
 
+// Un formateur par locale et par forme : en construire un par ligne coûte cher.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function formatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale()}|${JSON.stringify(options)}`;
+  let found = formatters.get(key);
+  if (!found) { found = new Intl.DateTimeFormat(locale(), options); formatters.set(key, found); }
+  return found;
+}
+
 export function formatTime(ts: number): string {
-  return new Intl.DateTimeFormat(locale(), { hour: "2-digit", minute: "2-digit" }).format(new Date(ts));
+  return formatter({ hour: "2-digit", minute: "2-digit" }).format(new Date(ts));
 }
 
 function dayKey(ts: number) {
@@ -196,9 +205,9 @@ export function dayLabel(ts: number, now = Date.now()): string {
   if (dayKey(ts) === dayKey(now)) return s.today;
   if (dayKey(ts) === dayKey(now - 86_400_000)) return s.yesterday;
   const sameYear = new Date(ts).getFullYear() === new Date(now).getFullYear();
-  const label = new Intl.DateTimeFormat(locale(), {
-    weekday: "long", day: "numeric", month: "long", ...(sameYear ? {} : { year: "numeric" }),
-  }).format(new Date(ts));
+  const label = formatter(sameYear
+    ? { weekday: "long", day: "numeric", month: "long" }
+    : { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(ts));
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 

@@ -84,4 +84,14 @@ describe("HistorySurface", () => {
     reply({ type: "projectHistory", projectRoot: "/autre", requestId: list.requestId, repo: true, entries: [turn] });
     expect(screen.queryByText("Corrige le chiffre de 40 %")).toBeNull();
   });
+  it("changer de projet repart d'un fil vide et le redemande", () => {
+    const { ws, sent } = fakeWs();
+    const view = render(<HistorySurface ws={ws} projectRoot={ROOT} visible onOpenFile={() => {}} />);
+    const list = sent.find((m) => m.type === "projectHistory");
+    reply({ type: "projectHistory", projectRoot: ROOT, requestId: list.requestId, repo: true, entries: [turn] });
+    expect(screen.getByText("Corrige le chiffre de 40 %")).toBeTruthy();
+    view.rerender(<HistorySurface ws={ws} projectRoot="/proj/autre" visible onOpenFile={() => {}} />);
+    expect(screen.queryByText("Corrige le chiffre de 40 %")).toBeNull();
+    expect(sent.filter((m) => m.type === "projectHistory").at(-1)).toMatchObject({ projectRoot: "/proj/autre" });
+  });
 });
