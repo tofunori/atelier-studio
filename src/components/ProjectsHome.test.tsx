@@ -64,34 +64,63 @@ describe("écran d'ouverture", () => {
     return props;
   }
 
-  it("montre les trois derniers projets, demande leurs vignettes et affiche la réponse", async () => {
-    setup();
-    const cards = document.querySelectorAll(".ph-card");
-    expect([...cards].map((c) => c.querySelector(".ph-name")?.textContent)).toEqual(["Chapitre1-Albedo", "Chapitre2-Feux", "GEO1063"]);
+  it("met le dernier projet en avant avec ses fils récents, les autres en liste", async () => {
+    const props = setup({
+      onOpenThread: vi.fn(),
+      onProjectSettings: vi.fn(),
+      threads: [
+        { id: "t1", title: "Révision de la figure 3", projectRoot: "/p/Chapitre1-Albedo", status: "running", updatedAt: "2026-11-08T11:50:00Z" },
+        { id: "t2", title: "Vérifier la .bib", projectRoot: "/p/Chapitre1-Albedo", status: "running", updatedAt: "2026-11-07T10:00:00Z" },
+        { id: "t3", title: "Plus ancien", projectRoot: "/p/Chapitre1-Albedo", status: "idle", updatedAt: "2026-11-01T10:00:00Z" },
+        { id: "t4", title: "Le plus ancien", projectRoot: "/p/Chapitre1-Albedo", status: "idle", updatedAt: "2026-10-01T10:00:00Z" },
+        { id: "sub", title: "Sous-agent", projectRoot: "/p/Chapitre1-Albedo", status: "idle", updatedAt: "2026-11-08T11:59:00Z", agentLink: {} },
+        { id: "o1", title: "Ailleurs", projectRoot: "/p/GEO1063", status: "idle", updatedAt: "2026-11-08T11:00:00Z" },
+      ],
+    });
+    expect(screen.getByRole("heading", { level: 2, name: "Chapitre1-Albedo" })).toBeInTheDocument();
     expect(screen.getByText("2 agents en cours")).toBeInTheDocument();
-    expect(sent[0]).toMatchObject({ type: "projectCards", roots: ["/p/Chapitre1-Albedo", "/p/Chapitre2-Feux", "/p/GEO1063"] });
+    expect(screen.getByText(/^Soumission /)).toBeInTheDocument();
+    // trois fils, du plus récent au plus ancien, sans sous-agent ni autre projet
+    const chats = [...document.querySelectorAll(".ph-chat-title")].map((el) => el.textContent);
+    expect(chats).toEqual(["Révision de la figure 3", "Vérifier la .bib", "Plus ancien"]);
+    fireEvent.click(screen.getByRole("button", { name: /Vérifier la \.bib/ }));
+    expect(props.onOpenThread).toHaveBeenCalledWith("t2", "/p/Chapitre1-Albedo");
+    fireEvent.click(screen.getByRole("button", { name: "Réglages du projet" }));
+    expect(props.onProjectSettings).toHaveBeenCalledWith("/p/Chapitre1-Albedo");
+    fireEvent.click(screen.getByRole("button", { name: "Reprendre" }));
+    expect(props.onOpen).toHaveBeenCalledWith("/p/Chapitre1-Albedo");
+    // tous les autres projets, toujours visibles
+    const rows = [...document.querySelectorAll(".ph-row .ph-row-name")].map((el) => el.textContent);
+    expect(rows).toEqual(["Chapitre2-Feux", "GEO1063", "atelier-studio"]);
+    expect(screen.getByText("Autres projets")).toBeInTheDocument();
+    // vignettes demandées pour le projet en avant et les premiers de la liste
+    expect(sent[0]).toMatchObject({ type: "projectCards", roots: props.projects });
     act(() => {
       window.dispatchEvent(new CustomEvent("project-cards", { detail: { requestId: sent[0].requestId, cards: [
         { root: "/p/Chapitre1-Albedo", thumb: "data:image/png;base64,AAAA", journal: "The Cryosphere" },
         { root: "/p/GEO1063", missing: true },
       ] } }));
     });
-    expect(document.querySelector(".ph-card img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(document.querySelector(".ph-hero img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
     expect(screen.getByText(/^The Cryosphere/)).toBeInTheDocument();
     expect(screen.getByText("Dossier introuvable")).toBeInTheDocument();
-    // le reste est derrière « Tous les projets »
-    expect(screen.queryByText("atelier-studio")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Tous les projets/ }));
-    expect(screen.getByText("atelier-studio")).toBeInTheDocument();
   });
 
-  it("⌘1 à ⌘3 ouvrent une carte sans changer la disposition ; Échap ferme", () => {
+  it("dit qu'il n'y a aucun projet", () => {
+    setup({ projects: [] });
+    expect(screen.getByText(/Aucun projet pour l’instant/)).toBeInTheDocument();
+    expect(document.querySelector(".ph-hero")).toBeNull();
+  });
+
+  it("⌘1 reprend le projet, ⌘2 et suivants ouvrent la liste, sans changer la disposition ; Échap ferme", () => {
     const props = setup();
     const layout = vi.fn();
     const bubble = (e: KeyboardEvent) => { if (e.metaKey) layout(e.code); };
     window.addEventListener("keydown", bubble);
     fireEvent.keyDown(window, { code: "Digit2", key: "2", metaKey: true });
     expect(props.onOpen).toHaveBeenCalledWith("/p/Chapitre2-Feux");
+    fireEvent.keyDown(window, { code: "Digit4", key: "4", metaKey: true });
+    expect(props.onOpen).toHaveBeenCalledWith("/p/atelier-studio");
     expect(layout).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
     expect(props.onClose).toHaveBeenCalled();

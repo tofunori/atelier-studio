@@ -557,6 +557,7 @@ export default function App() {
   const [projectsHome, setProjectsHome] = useState<null | "open" | "new">(
     () => (loadProjects().length > 0 && takeLaunchProjectsHome() ? "open" : null),
   );
+  const openProjectsHome = useCallback(() => setProjectsHome("open"), []);
   // Ordre « récent » : dernière ouverture dans Atelier ou dernière conversation.
   const markProjectOpened = useCallback((root: string) => {
     setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now() } }));
@@ -3049,6 +3050,12 @@ export default function App() {
         else { setQaDraft(""); setQaContext(null); setQaMode("open"); }
         return;
       }
+      // ⇧⌘P : accueil des projets (ouvre, ou referme s'il est déjà là)
+      if (e.metaKey && e.shiftKey && !e.altKey && e.code === "KeyP") {
+        e.preventDefault();
+        setProjectsHome((current) => (current ? null : "open"));
+        return;
+      }
       if (e.metaKey && !e.shiftKey && ["KeyK", "KeyP"].includes(e.code)) {
         e.preventDefault();
         setPaletteOpen((open) => !open);
@@ -4119,10 +4126,10 @@ export default function App() {
     recents: recentRoots.filter((root) => root !== activeProject).slice(0, 5)
       .map((root) => ({ root, name: projectName(root, projMeta[root]?.label) })),
     onSelect: (root: string) => { setActiveView("chats"); selectProject(root); },
-    onAll: () => setProjectsHome("open"),
+    onAll: openProjectsHome,
     onOpenFolder: () => { void addProject(); },
     onNew: () => setProjectsHome("new"),
-  }), [recentRoots, activeProject, projMeta, selectProject, addProject, setActiveView]);
+  }), [recentRoots, activeProject, projMeta, selectProject, addProject, setActiveView, openProjectsHome]);
 
   // Research Home (plan 017) : modèle dérivé pur + vrais workflows, calculés
   // uniquement quand aucun thread n'est actif (la timeline monte l'accueil à
@@ -4191,6 +4198,7 @@ export default function App() {
       switchSurface: switchToSurface,
       setLayout,
       openSettings: () => openSettings(),
+      allProjects: openProjectsHome,
       retitleAll: () => ws.current?.readyState === 1 && ws.current.send(JSON.stringify({ type: "retitleAll" })),
       nextTheme: () => {
         setSettings((current) => {
@@ -4455,6 +4463,7 @@ export default function App() {
           onSelectView={handleSelectView}
           onSelectProject={selectProject}
           onAddProject={addProject}
+          onAllProjects={openProjectsHome}
           compact={compact}
           onExpand={handleExpand}
           // Correction de revue lot A #6 : la branche « re-clic ferme »
@@ -4489,6 +4498,7 @@ export default function App() {
         running={runningProjects}
         onSelectProject={selectProject}
         onAddProject={addProject}
+        onAllProjects={openProjectsHome}
         onDiscussions={handleDiscussions}
         onSettings={handleOpenSettings}
         onProjectSettings={setProjectSettingsRoot}
@@ -4637,6 +4647,13 @@ export default function App() {
               if (root === activeProject) markProjectOpened(root);
               else selectProject(root);
             }}
+            onOpenThread={(threadId, root) => {
+              setProjectsHome(null);
+              setActiveView("chats");
+              markProjectOpened(root);
+              selectThread(threadId, root);
+            }}
+            onProjectSettings={(root) => { setProjectsHome(null); setProjectSettingsRoot(root); }}
             onOpenFolder={() => { void addProject().then((added) => { if (added) setProjectsHome(null); }); }}
             onCreated={(root, due) => {
               setProjects((prev) => (prev.includes(root) ? prev : [...prev, root]));
