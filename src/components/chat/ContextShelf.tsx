@@ -5,8 +5,8 @@
 // groupées en popover, aperçu riche Zotero, retrait unitaire.
 import { useEffect, useState } from "react";
 import {
-  CameraIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardIcon, EyeIcon,
-  FileTextIcon, FileCode2Icon, FolderIcon, ImageIcon, QuoteIcon, XIcon,
+  CameraIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ClipboardIcon,
+  FileTextIcon, FileCode2Icon, FolderIcon, ImageIcon, MessageSquareTextIcon, QuoteIcon, XIcon,
 } from "lucide-react";
 import { t } from "../../lib/i18n";
 import {
@@ -36,9 +36,6 @@ import { citeLabel } from "./turnParts";
 import { useFileCards } from "../../lib/chatFileCards";
 import type { Mark } from "../../lib/annotations";
 import { Button, IconButton, RowButton } from "../ui";
-import {
-  liveContextDisplayPath, liveContextSentence, liveContextWhere, type LiveContext,
-} from "../../lib/liveContext";
 
 export type ShelfAttachment = import("../../lib/chatDraftStore").DraftAttachment;
 const isLatex = (attachment: ShelfAttachment) => !attachment.imageUrl && /\.tex$/i.test(attachment.name);
@@ -77,53 +74,6 @@ function ThumbOrGlyph({ url }: { url: string }) {
   );
 }
 
-/** Contexte vivant (variante A, 2026-11-08) : étiquette discrète « ce que tu
- *  regardes » — sans fond au repos, un clic montre exactement ce qui part,
- *  la croix la retire pour ce message seulement. */
-function LiveContextChip(p: { context: LiveContext; projectRoot?: string | null; onDismiss?: () => void }) {
-  const [open, setOpen] = useState(false);
-  const ctx = p.context;
-  const where = liveContextWhere(ctx);
-  const sentence = liveContextSentence(ctx);
-  const label = t("live-context.chip", { name: ctx.name, where });
-  return (
-    <span className={`live-context-chip${open ? " is-open" : ""}`}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger render={<RowButton className="live-context-main" aria-label={label} title={label} />}>
-          <EyeIcon className="live-context-glyph" aria-hidden="true" />
-          <span className="live-context-name">{ctx.name}</span>
-          {where && <span className="live-context-where">{where}</span>}
-        </PopoverTrigger>
-        <PopoverContent side="top" align="start" className="live-context-detail tw:w-80">
-          <PopoverHeader>
-            <PopoverTitle className="live-context-detail-title">{t("live-context.title")}</PopoverTitle>
-            <PopoverDescription className="live-context-detail-path">
-              {liveContextDisplayPath(ctx.path, p.projectRoot)}
-            </PopoverDescription>
-          </PopoverHeader>
-          {sentence && <span className="live-context-detail-note">{sentence}</span>}
-          {ctx.comments && ctx.comments.length > 0 && (
-            <span className="live-context-detail-note">
-              {t("live-context.comments", { n: ctx.comments.length })}
-            </span>
-          )}
-        </PopoverContent>
-      </Popover>
-      {p.onDismiss && (
-        <IconButton
-          size="s"
-          className="ghost"
-          label={t("live-context.dismiss", { name: ctx.name })}
-          title={t("live-context.dismiss", { name: ctx.name })}
-          onClick={() => { setOpen(false); p.onDismiss?.(); }}
-        >
-          <XIcon className="context-pill-glyph" />
-        </IconButton>
-      )}
-    </span>
-  );
-}
-
 export function ContextShelf(p: {
   attachments: ShelfAttachment[];
   onRemoveAttachment: (index: number) => void;
@@ -131,10 +81,8 @@ export function ContextShelf(p: {
   /** annotations du fil — une SEULE pilule agrégée, dépliable */
   annotations?: Mark[];
   onRemoveAnnotation?: (text: string) => void;
-  /** contexte vivant de l'atelier — étiquette en tête de rangée */
-  liveContext?: LiveContext | null;
-  onDismissLiveContext?: () => void;
-  projectRoot?: string | null;
+  /** « Tout retirer » en tête de la liste dépliée */
+  onClearAnnotations?: () => void;
 }) {
   const [latexPreview, setLatexPreview] = useState<ShelfAttachment | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
@@ -175,50 +123,64 @@ export function ContextShelf(p: {
   };
 
   const annotations = p.annotations ?? [];
-  if (p.attachments.length === 0 && annotations.length === 0 && !p.liveContext) return null;
+  if (p.attachments.length === 0 && annotations.length === 0) return null;
 
   const removeLabel = (name: string, suffix = "") =>
     `${t("action.remove")} ${name}${suffix}`;
 
   return (
     <div className="chips-row context-pills" aria-label={t("context.attachments")}>
-      {p.liveContext && (
-        <LiveContextChip context={p.liveContext} projectRoot={p.projectRoot} onDismiss={p.onDismissLiveContext} />
-      )}
-      {annotations.length > 0 && (
-        <Popover open={openGroup === "annotations"} onOpenChange={(next) => setOpenGroup(next ? "annotations" : null)}>
-          <PopoverTrigger
-            render={<span className="chip context-pill anno-pill" />}
-          >
-            <RowButton className="context-pill-main">
-              <span className="anno-pill-dot" aria-hidden="true" />
-              <span className="chip-label">
-                {annotations.length === 1 ? t("chat.annotations-one") : t("chat.annotations-count", { n: annotations.length })}
+      {annotations.length > 0 && (() => {
+        const count = annotations.length === 1
+          ? t("chat.annotations-one") : t("chat.annotations-count", { n: annotations.length });
+        return (
+          // Capsule discrète (variante B, 2026-11-09) : ni fond ni bordure au
+          // repos, fond de contrôle au survol et tant que la liste est ouverte.
+          <Popover open={openGroup === "annotations"} onOpenChange={(next) => setOpenGroup(next ? "annotations" : null)}>
+            <PopoverTrigger render={<RowButton className="anno-pill" />}>
+              <MessageSquareTextIcon className="anno-pill-glyph" aria-hidden="true" />
+              <span className="anno-pill-label">{count}</span>
+              <ChevronUpIcon className="anno-pill-chevron" aria-hidden="true" />
+            </PopoverTrigger>
+            <PopoverContent className="anno-pill-list" side="top" align="start">
+              <span className="anno-pill-head">
+                <span className="anno-pill-title">{count}</span>
+                <span className="anno-pill-sub">{t("chat.annotations-attached")}</span>
+                {p.onClearAnnotations && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="anno-pill-clear"
+                    onClick={() => { setOpenGroup(null); p.onClearAnnotations?.(); }}
+                  >
+                    {t("chat.annotations-clear")}
+                  </Button>
+                )}
               </span>
-            </RowButton>
-          </PopoverTrigger>
-          <PopoverContent className="anno-pill-list" side="top" align="start">
-            {annotations.map((mark, index) => (
-              <span key={mark.text} className="anno-pill-row">
-                <span className="anno-pill-num">{index + 1}</span>
-                <span className="anno-pill-body">
-                  <span className="anno-pill-quote">« {mark.text.replace(/\s+/g, " ").trim()} »</span>
-                  <span className="anno-pill-note">{mark.note || t("chat.annotation-no-note")}</span>
+              {annotations.map((mark, index) => (
+                <span key={mark.text} className="anno-pill-row">
+                  <span className="anno-pill-num">{index + 1}</span>
+                  <span className="anno-pill-body">
+                    <span className="anno-pill-quote">{mark.text.replace(/\s+/g, " ").trim()}</span>
+                    <span className={`anno-pill-note${mark.note ? "" : " is-empty"}`}>
+                      {mark.note || t("chat.annotation-no-note")}
+                    </span>
+                  </span>
+                  <IconButton
+                    size="s"
+                    className="ghost anno-pill-remove"
+                    label={removeLabel(mark.text)}
+                    title={removeLabel(mark.text)}
+                    onClick={() => p.onRemoveAnnotation?.(mark.text)}
+                  >
+                    <XIcon className="context-pill-glyph" />
+                  </IconButton>
                 </span>
-                <IconButton
-                  size="s"
-                  className="ghost"
-                  label={removeLabel(mark.text)}
-                  title={removeLabel(mark.text)}
-                  onClick={() => p.onRemoveAnnotation?.(mark.text)}
-                >
-                  <XIcon className="context-pill-glyph" />
-                </IconButton>
-              </span>
-            ))}
-          </PopoverContent>
-        </Popover>
-      )}
+              ))}
+            </PopoverContent>
+          </Popover>
+        );
+      })()}
       {p.attachments.map((attachment, index) => attachment.imageUrl ? (
         <span key={`image-${index}`} className="chip context-pill" title={attachment.name}>
           <RowButton

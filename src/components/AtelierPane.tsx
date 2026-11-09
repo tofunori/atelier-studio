@@ -28,7 +28,12 @@ import type { AgentEvent } from "../lib/ws";
 import { LazyDropdownMenu, type LazyDropdownMenuGroup, type LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
 import { SURFACES, type Surface } from "./surfaces";
 import { resetFrameVisibility, syncFrameVisibility } from "../lib/frameVisibility";
-import { LIVE_CONTEXT_EVENT, parseLiveContext, type LiveContext } from "../lib/liveContext";
+import {
+  LIVE_CONTEXT_EVENT, SURFACE_LIVE_CONTEXT_EVENT, imageTabLiveContext, parseLiveContext, type LiveContext,
+} from "../lib/liveContext";
+
+/** Clé du contexte vivant publié par la galerie (figure de la lightbox). */
+const GALLERY_LIVE_KEY = "surface:atelier";
 import {
   confirmDiscard,
   discardServerDraft,
@@ -811,7 +816,10 @@ export default function AtelierPane({
     const onLiveContext = (event: MessageEvent) => {
       const data = event.data as { type?: string; context?: unknown; nonce?: unknown } | null;
       if (data?.type !== "atelier-live-context") return;
-      const frames = workspaceRootRef.current?.querySelectorAll<HTMLIFrameElement>("iframe.atelier[data-atelier-tab]");
+      // Onglets document, et (2026-11-09) cadres de la galerie : la figure
+      // ouverte dans la lightbox vaut pour l'onglet « surface:atelier ».
+      const frames = workspaceRootRef.current?.querySelectorAll<HTMLIFrameElement>(
+        "iframe.atelier[data-atelier-tab], iframe.atelier[data-atelier-role=\"gallery\"]");
       const frame = [...(frames ?? [])].find((candidate) => candidate.contentWindow === event.source);
       if (!frame) return;
       try {
@@ -820,8 +828,8 @@ export default function AtelierPane({
         const nonce = new URLSearchParams(frameUrl.hash.slice(1)).get("atelier_nonce");
         if (nonce && data.nonce !== nonce) return;
       } catch { return; }
-      const tabId = frame.dataset.atelierTab ?? "";
-      if (!documentById.has(tabId)) return;
+      const tabId = frame.dataset.atelierTab ?? (frame.dataset.atelierRole === "gallery" ? GALLERY_LIVE_KEY : "");
+      if (tabId !== GALLERY_LIVE_KEY && !documentById.has(tabId)) return;
       const context = parseLiveContext(data.context);
       setLiveContexts((current) => {
         if (!context && !current.has(tabId)) return current;
@@ -835,10 +843,31 @@ export default function AtelierPane({
     return () => window.removeEventListener("message", onLiveContext);
   }, [documentById]);
 
+  // Surfaces React (bibliothèque, navigateur) : ce qu'elles montrent arrive
+  // par un événement fenêtre, rangé sous la clé de leur onglet (surface:…).
+  useEffect(() => {
+    const onSurface = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { surface?: unknown; context?: unknown } | null;
+      if (typeof detail?.surface !== "string") return;
+      const key = `surface:${detail.surface}`;
+      const context = parseLiveContext(detail.context);
+      setLiveContexts((current) => {
+        if (!context && !current.has(key)) return current;
+        if (context && JSON.stringify(current.get(key)) === JSON.stringify(context)) return current;
+        const next = new Map(current);
+        if (context) next.set(key, context);
+        else next.delete(key);
+        return next;
+      });
+    };
+    window.addEventListener(SURFACE_LIVE_CONTEXT_EVENT, onSurface);
+    return () => window.removeEventListener(SURFACE_LIVE_CONTEXT_EVENT, onSurface);
+  }, []);
+
   // Onglet fermé : son contexte part avec lui.
   useEffect(() => {
     setLiveContexts((current) => {
-      const stale = [...current.keys()].filter((tabId) => !documentById.has(tabId));
+      const stale = [...current.keys()].filter((tabId) => !tabId.startsWith("surface:") && !documentById.has(tabId));
       if (!stale.length) return current;
       const next = new Map(current);
       for (const tabId of stale) next.delete(tabId);
@@ -854,12 +883,15 @@ export default function AtelierPane({
     const pane = findWorkspacePane(workspace.root, workspace.focusedPaneId)
       ?? listWorkspacePanes(workspace.root)[0];
     const ref = pane?.tabs.find((tab) => workspaceTabId(tab) === pane.activeTabId);
-    const context = ref?.kind === "document" ? liveContexts.get(ref.tabId) ?? null : null;
+    const docTab = ref?.kind === "document" ? documentById.get(ref.tabId) : undefined;
+    const context = ref?.kind === "document"
+      ? liveContexts.get(ref.tabId) ?? (docTab ? imageTabLiveContext(docTab) : null)
+      : ref?.kind === "surface" ? liveContexts.get(`surface:${ref.surface}`) ?? null : null;
     const signature = JSON.stringify(context);
     if (signature === lastLiveContextSignature.current) return;
     lastLiveContextSignature.current = signature;
     window.dispatchEvent(new CustomEvent(LIVE_CONTEXT_EVENT, { detail: { context } }));
-  }, [workspace, liveContexts]);
+  }, [workspace, liveContexts, documentById]);
   // Pane démonté (projet changé, atelier replié) : plus rien sous les yeux.
   useEffect(() => () => {
     window.dispatchEvent(new CustomEvent(LIVE_CONTEXT_EVENT, { detail: { context: null } }));

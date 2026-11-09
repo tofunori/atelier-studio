@@ -15,6 +15,7 @@ atelier-providers = { workspace = true }
 atelier-kb = { workspace = true }
 atelier-kernel = { workspace = true }
 atelier-docx = { workspace = true }
+atelier-pdf = { workspace = true }
 axum = { workspace = true }
 futures-util = { workspace = true }
 serde = { workspace = true }

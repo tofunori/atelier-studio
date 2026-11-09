@@ -23,7 +23,10 @@
   /* Sol des gouttières (option 3). Doit être NETTEMENT sous le fond des
      cartes, sinon elles ne décollent pas : c'est l'écart de luminance qui
      porte toute la division, il n'y a plus de trait pour compenser. */
-  --canvas: color-mix(in srgb, var(--bg) 58%, #000);
+  /* 80 % (2026-11-09, cran « anthracite ») : à 58 % le sol (#0f0f0f en
+     Claude Code) se fondait dans un fond d'écran noir ; les panneaux gardent
+     leur noir, seul le sol remonte juste assez pour décoller du bureau. */
+  --canvas: color-mix(in srgb, var(--bg) 80%, #000);
   /* poignée de redimensionnement au survol — un ton de BORDURE, jamais un
      gris de texte (--muted2 peignait un fil blanc, vécu 2026-08-16) */
   --grip: color-mix(in srgb, var(--fg) 24%, var(--bg));
@@ -3156,20 +3159,45 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .anno-said-note.is-empty { color: var(--text-muted); }
 /* ce qui a été tapé sous le bloc reste de la prose ordinaire */
 .anno-said-tail { margin-top: 12px; white-space: pre-wrap; }
-/* pilule agrégée du composer + sa liste dépliée */
-.anno-pill-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-muted); }
-.anno-pill-list { display: flex; flex-direction: column; gap: 2px; width: 320px; padding: 6px; }
-.anno-pill-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px;
-  border-radius: var(--r-s); }
-.anno-pill-row:hover { background: var(--surface-inset); }
-.anno-pill-num { flex: none; width: 16px; height: 16px; border-radius: var(--r-pill);
-  display: flex; align-items: center; justify-content: center;
-  background: var(--text-secondary); color: var(--surface-app);
-  font-size: var(--fs-xs); font-weight: 500; font-variant-numeric: tabular-nums; }
-.anno-pill-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.anno-pill-quote { font-family: var(--ui-font); font-size: var(--fs-m); color: var(--text-muted);
+/* Capsule d'annotations du composer (variante B, 2026-11-09) : étiquette
+   discrète, ni fond ni bordure au repos ; fond de contrôle au survol et tant
+   que sa liste est ouverte. Le chevron se retourne à l'ouverture. */
+.anno-pill { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; align-self: center;
+  min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: var(--r-s);
+  background: transparent; font: inherit; font-size: var(--fs-m); color: var(--text-secondary);
+  cursor: pointer; transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.anno-pill:hover, .anno-pill[data-popup-open] { background: var(--bg-ctl); color: var(--text-primary); }
+.anno-pill-glyph { width: 14px; height: 14px; flex: none; color: var(--text-muted); stroke-width: 1.4; }
+.anno-pill-label { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.anno-pill-chevron { width: 12px; height: 12px; flex: none; color: var(--text-muted); stroke-width: 1.4;
+  transition: transform var(--motion-fast) var(--ease-out); }
+.anno-pill[data-popup-open] .anno-pill-chevron { transform: rotate(180deg); }
+/* Liste dépliée : en-tête compté + « Tout retirer », numéros en anneau (même
+   pastille que sur les passages), passage sous un trait, croix au survol. */
+.anno-pill-list { display: flex; flex-direction: column; gap: 0; width: 340px; padding: 4px; }
+.anno-pill-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 4px 4px 8px; }
+.anno-pill-title { font-size: var(--fs-m); font-weight: 600; letter-spacing: -0.01em; white-space: nowrap;
+  color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.anno-pill-sub { flex: 1; min-width: 0; font-size: var(--fs-s); color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.anno-pill-note { font-size: var(--fs-m); color: var(--text-secondary); }
+.anno-pill-head .anno-pill-clear { flex: none; font-size: var(--fs-s); font-weight: 400; color: var(--text-muted); }
+.anno-pill-head .anno-pill-clear:hover { color: var(--text-primary); }
+.anno-pill-row { position: relative; display: flex; align-items: flex-start; gap: 12px;
+  padding: 8px 32px 8px 8px; border-radius: var(--r-s); transition: background var(--motion-fast) var(--ease-out); }
+.anno-pill-row:hover, .anno-pill-row:focus-within { background: var(--surface-hover); }
+.anno-pill-num { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: var(--r-pill);
+  display: flex; align-items: center; justify-content: center; color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-secondary) 50%, transparent);
+  font-size: var(--fs-xs); font-weight: 500; font-variant-numeric: tabular-nums; }
+.anno-pill-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.anno-pill-quote { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  padding-left: 6px; border-left: 2px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+  font-size: var(--fs-m); line-height: 1.5; color: var(--text-muted); }
+.anno-pill-note { padding-left: 8px; font-size: var(--fs-m); line-height: 1.5; color: var(--text-primary); }
+.anno-pill-note.is-empty { color: var(--text-muted); }
+.anno-pill-row > .anno-pill-remove { position: absolute; top: 4px; right: 4px; opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out); }
+.anno-pill-row:hover > .anno-pill-remove, .anno-pill-row:focus-within > .anno-pill-remove { opacity: 1; }
 /* citation surlignée à l'ouverture du lecteur depuis une carte passage gbrain
    (tâche 6) : Custom Highlight API si dispo (mêmes classes que chat-hl
    ci-dessus), repli <mark class="reader-quote"> sinon — même teinte. */
@@ -6032,28 +6060,37 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   object-fit: cover; border: 1px solid var(--border); background: var(--bg-ctl); }
 .context-pill .context-pill-count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .context-pill .chip-lines { font-variant-numeric: tabular-nums; }
-/* Contexte vivant (2026-11-08, variante A) : « ce que tu regardes » n'est pas
-   une pièce jointe — étiquette SANS fond au repos ; fond de contrôle tant que
-   son détail est ouvert. Le chrome du détail vient du PopoverContent partagé. */
-.live-context-chip { display: inline-flex; align-items: center; gap: 4px; flex: 0 1 auto;
-  min-width: 0; max-width: 100%; height: 28px; padding: 0 4px 0 8px;
-  border-radius: var(--r-s); background: transparent; font-size: var(--fs-m);
-  color: var(--text-secondary); transition: background var(--motion-fast) var(--ease-out); }
-.live-context-chip.is-open, .live-context-chip:hover { background: var(--bg-ctl); }
-.live-context-chip .live-context-main { display: inline-flex; align-items: center; gap: 6px;
-  min-width: 0; background: transparent; border: 0; padding: 0; color: inherit; font: inherit;
-  cursor: pointer; }
-.live-context-chip .live-context-glyph { width: 12px; height: 12px; flex: none; color: var(--text-muted); }
-.live-context-chip .live-context-name { min-width: 0; max-width: 220px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.live-context-chip .live-context-where { flex: none; white-space: nowrap; color: var(--text-muted);
-  font-variant-numeric: tabular-nums; }
-.live-context-chip > .ghost { flex: none; margin: 0; }
-.live-context-detail .live-context-detail-title { font-size: var(--fs-m); }
-.live-context-detail .live-context-detail-path { font-size: var(--fs-m); color: var(--text-secondary);
-  overflow-wrap: anywhere; }
-.live-context-detail .live-context-detail-note { font-size: var(--fs-s); color: var(--text-muted);
-  font-variant-numeric: tabular-nums; }
+/* Œil du contexte vivant (2026-11-09, variante C) : bouton du rail, sans
+   accent. Allumé = gris secondaire, un cran au-dessus du livre et de la
+   liste ; coupé (œil barré) ou rien d'ouvert = gris des autres outils du rail
+   (le gris éteint est réservé au désactivé, budget A4 du contrat CSS). Le
+   panneau reprend le chrome des menus du compositeur. */
+.composer-context-rail .live-eye { color: var(--text-secondary);
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.composer-context-rail .live-eye[data-state="off"],
+.composer-context-rail .live-eye[data-state="idle"] { color: var(--text-muted); }
+.composer-context-rail .live-eye:hover,
+.composer-context-rail .live-eye[data-open] { background: var(--bg-ctl); }
+.composer-context-rail .live-eye > svg { animation: live-eye-swap var(--motion-fast) var(--ease-out); }
+@keyframes live-eye-swap { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .composer-context-rail .live-eye > svg { animation: none; } }
+.live-eye-tip.is-hidden { display: none; }
+.composer-menu.live-eye-pop { width: 300px; max-width: calc(100vw - 24px); padding: 12px;
+  display: flex; flex-direction: column; gap: 8px; }
+.live-eye-head { display: flex; align-items: center; gap: 12px; }
+.live-eye-title { flex: 1; min-width: 0; font-size: var(--fs-m); font-weight: 500; color: var(--text-primary); }
+.live-eye-switch { position: relative; flex: none; width: 28px; height: 16px; padding: 0; border: 0;
+  border-radius: var(--r-pill); cursor: pointer;
+  background: color-mix(in srgb, var(--text-primary) 18%, transparent);
+  transition: background var(--motion-fast) var(--ease-out); }
+.live-eye-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--switch-off-thumb);
+  transition: transform var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out); }
+.live-eye-switch[data-on] { background: var(--switch-on-track); }
+.live-eye-switch[data-on]::after { transform: translateX(12px); background: var(--switch-on-thumb); }
+.live-eye-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.live-eye-path { font-size: var(--fs-m); color: var(--text-secondary); overflow-wrap: anywhere; }
+.live-eye-note { font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* trace sous la bulle : ce qui est parti avec le message, à droite comme l'heure */
 .user-live-context { display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
   font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -6622,6 +6659,14 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .scol-sec { display: flex; align-items: center; gap: 8px; height: 32px; padding: 4px 4px 0 8px;
   font-size: var(--fs-s); font-weight: 500; line-height: 1.3; color: var(--text-muted); }
 .scol-sec > span { flex: 1; }
+/* « Projets › » ouvre l'accueil des projets (⇧⌘P) */
+.scol-sec-link.ui-rowbtn { display: inline-flex; align-items: center; gap: 4px; height: 20px; margin-left: -4px;
+  padding: 0 4px; border-radius: var(--r-s); font: inherit; color: inherit;
+  transition: color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+.scol-sec-link.ui-rowbtn:hover { color: var(--text-secondary); background: var(--row-hover); }
+.scol-kbd { flex: none; font-size: var(--fs-caption); color: var(--text-muted); font-variant-numeric: tabular-nums;
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-out); }
+.scol-all.ui-rowbtn:hover .scol-kbd, .scol-all.ui-rowbtn:focus-visible .scol-kbd { opacity: 1; }
 .scol-sec-btn.ui-iconbtn { width: 20px; min-width: 20px; height: 20px; padding: 0;
   background: var(--ground-ctl); color: var(--text-secondary); box-shadow: var(--card-lift); }
 .scol-projects { display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow-y: auto;
@@ -6650,7 +6695,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .scol-usage-bar { display: block; width: 40px; height: 4px; border-radius: var(--r-pill);
   background: var(--bg-ctl); overflow: hidden; }
 .scol-usage-bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--text-muted); }
-@media (prefers-reduced-motion: reduce) { .scol-row.ui-rowbtn, .scol-usage.ui-rowbtn { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .scol-row.ui-rowbtn, .scol-usage.ui-rowbtn, .scol-sec-link.ui-rowbtn, .scol-kbd { transition: none; } }
 
 /* ===== Repère de sélection (A13) =====
    UN seul signal dans les listes verticales : fond --bg-ctl + pilule

@@ -25,6 +25,7 @@ mod project_home;
 pub mod prov;
 pub mod recipe;
 pub mod revision_tool;
+pub mod annotate_tool;
 mod redact;
 pub mod review;
 pub mod send;

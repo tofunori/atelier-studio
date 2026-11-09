@@ -5,8 +5,7 @@
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
-import { setLanguage, t } from "../../lib/i18n";
-import type { LiveContext } from "../../lib/liveContext";
+import { setLanguage } from "../../lib/i18n";
 
 afterEach(cleanup);
 beforeEach(() => setLanguage("fr"));
@@ -149,17 +148,39 @@ describe("pilule d'annotations", () => {
       />,
     );
 
-    const pills = container.querySelectorAll(".chip.context-pill");
+    // capsule discrète (variante B, 2026-11-09) : plus une pilule à bordure
+    expect(container.querySelectorAll(".chip.context-pill")).toHaveLength(0);
+    const pills = container.querySelectorAll(".anno-pill");
     expect(pills).toHaveLength(1);
     expect(pills[0]).toHaveTextContent("2 annotations");
 
-    fireEvent.click(screen.getByText("2 annotations"));
-    expect(screen.getByText("« tuiles MOD10A1 »")).toBeTruthy();
+    fireEvent.click(pills[0]);
+    expect(pills[0]).toHaveAttribute("data-popup-open");
+    expect(screen.getByText("tuiles MOD10A1")).toBeTruthy();
     expect(screen.getByText("vérifie plutôt août")).toBeTruthy();
     expect(screen.getByText("Annotation sans commentaire")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Retirer fraction glaciaire" }));
     expect(onRemoveAnnotation).toHaveBeenCalledWith("fraction glaciaire");
+  });
+
+  it("« Tout retirer » vide la liste en un geste et la referme", () => {
+    const onClearAnnotations = vi.fn();
+    const { container } = render(
+      <ContextShelf
+        attachments={[]}
+        onRemoveAttachment={vi.fn()}
+        onOpenPaste={vi.fn()}
+        annotations={marks}
+        onRemoveAnnotation={vi.fn()}
+        onClearAnnotations={onClearAnnotations}
+      />,
+    );
+    fireEvent.click(container.querySelector(".anno-pill")!);
+    expect(screen.getByText("jointes au message")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Tout retirer" }));
+    expect(onClearAnnotations).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("jointes au message")).toBeNull();
   });
 
   it("accorde le libellé au singulier", () => {
@@ -202,59 +223,7 @@ it("LaTeX : retirer la pièce jointe ne laisse ni mention ni bouton Annuler", ()
   expect(container.querySelector(".context-latex-undo")).toBeNull();
 });
 
-describe("ContextShelf — contexte vivant (variante A)", () => {
-  const ROOT = "/home/t/Doctorat";
-  const tex: LiveContext = {
-    path: `${ROOT}/Chapitre1/chapitre1.tex`, name: "chapitre1.tex", kind: "tex", line: 23,
-    comments: [{ line: 24, text: "source ?" }, { text: "à vérifier" }],
-  };
-
-  function liveShelf(context: LiveContext, attachments: ShelfAttachment[] = []) {
-    const onDismiss = vi.fn();
-    const utils = render(
-      <ContextShelf attachments={attachments} onRemoveAttachment={vi.fn()} onOpenPaste={vi.fn()}
-        liveContext={context} onDismissLiveContext={onDismiss} projectRoot={ROOT} />,
-    );
-    return { onDismiss, ...utils };
-  }
-
-  it("étiquette en tête de rangée, sans fond de pilule : œil, nom, ligne", () => {
-    const { container } = liveShelf(tex, [{ name: "plot.png", lines: null, kind: "file", text: "x" }]);
-    const row = container.querySelector(".context-pills")!;
-    const chip = row.firstElementChild!;
-    expect(chip).toHaveClass("live-context-chip");
-    expect(chip).not.toHaveClass("chip"); // pas le gabarit à fond des pièces jointes
-    expect(chip).not.toHaveClass("is-open");
-    expect(chip.querySelector(".live-context-name")).toHaveTextContent("chapitre1.tex");
-    expect(chip.querySelector(".live-context-where")).toHaveTextContent("ligne 23");
-    expect(chip.querySelector("svg.live-context-glyph")).toBeTruthy();
-  });
-
-  it("ligne du curseur et page de PDF", () => {
-    const { container, unmount } = liveShelf({ path: `${ROOT}/a.py`, name: "a.py", kind: "code", line: 42 });
-    expect(container.querySelector(".live-context-where")).toHaveTextContent("ligne 42");
-    unmount();
-    const pdf = liveShelf({ path: "/papiers/Ryan 2018.pdf", name: "Ryan 2018.pdf", kind: "pdf", page: 7, pageCount: 14 });
-    expect(pdf.container.querySelector(".live-context-where")).toHaveTextContent("page 7");
-  });
-
-  it("la croix retire le contexte pour ce message", () => {
-    const { onDismiss } = liveShelf(tex);
-    fireEvent.click(screen.getByRole("button", { name: t("live-context.dismiss", { name: "chapitre1.tex" }) }));
-    expect(onDismiss).toHaveBeenCalledTimes(1);
-  });
-
-  it("le clic montre exactement ce qui part : chemin relatif, phrase, commentaires, aucun texte", async () => {
-    const { container } = liveShelf(tex);
-    const trigger = screen.getByRole("button", { name: t("live-context.chip", { name: "chapitre1.tex", where: "ligne 23" }) });
-    expect(trigger.getAttribute("title")).toContain("chapitre1.tex");
-    fireEvent.click(trigger);
-    expect(await screen.findByText("Part avec ton message")).toBeInTheDocument();
-    expect(container.querySelector(".live-context-chip")).toHaveClass("is-open");
-    expect(screen.getByText("Chapitre1/chapitre1.tex")).toBeInTheDocument();
-    expect(screen.getByText("curseur à la ligne 23")).toBeInTheDocument();
-    expect(document.querySelector("pre")).toBeNull();
-    expect(screen.getByText("2 commentaires ouverts dans ce fichier")).toBeInTheDocument();
-  });
-
+it("le contexte vivant n'occupe plus la rangée : rien à montrer, rien de rendu", () => {
+  const { container } = shelf([]);
+  expect(container.querySelector(".context-pills")).toBeNull();
 });

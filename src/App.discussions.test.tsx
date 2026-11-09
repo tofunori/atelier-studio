@@ -20,6 +20,13 @@ import { FakeWS, flushMicrotasks } from "./test/fixtures/sidecar";
 import { resetSidecarInfo } from "./lib/sidecarInfo";
 import { isDiscussionRoot } from "./lib/discussions";
 async function settle() { await act(async () => { await vi.advanceTimersByTimeAsync(16); await flushMicrotasks(10); }); }
+// « Discussions libres » vit dans le bas de la colonne unifiée, chargé à part
+// (SideBottom, lazy) : attendre son chunk avant de cliquer, sinon le test
+// dépend de la vitesse de l'import dynamique.
+async function discussionsButton() {
+  await act(async () => { await vi.dynamicImportSettled(); await vi.advanceTimersByTimeAsync(16); await flushMicrotasks(10); });
+  return screen.getByRole("button", { name: t("discussions.title") });
+}
 beforeEach(() => {
   vi.useFakeTimers(); resetTestState(); resetSidecarInfo(); FakeWS.reset();
   vi.mocked(invoke).mockClear();
@@ -30,7 +37,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 it("creates isolated discussions, preserves context through settings hydration and sends in their own workspace", async () => {
   renderUi(<App />); await settle(); const sock = FakeWS.last();
   await act(async () => { sock.open(); }); await settle();
-  fireEvent.click(screen.getByRole("button", { name: t("discussions.title") }));
+  fireEvent.click(await discussionsButton());
   await settle();
   await act(async () => { sock.push({ type: "settingsFile", settings: { projects: ["/science"], additionalDirectories: "/science" } }); });
   await settle();
@@ -79,7 +86,7 @@ it("migrates an idle legacy free chat without losing its native session", async 
   };
   await act(async () => { sock.push({ type: "threads", threads: [legacy] }); });
   await settle();
-  fireEvent.click(screen.getByRole("button", { name: t("discussions.title") }));
+  fireEvent.click(await discussionsButton());
   await settle();
   const upserts = sock.sent.map(s => JSON.parse(s)).filter(m => m.type === "upsertThread");
   const migrated = upserts.find((message) => message.thread.id === legacy.id && isDiscussionRoot(message.thread.projectRoot));
@@ -109,7 +116,7 @@ it("waits for a running legacy provider before assigning a managed workspace", a
   };
   await act(async () => { sock.push({ type: "threads", threads: [legacy] }); });
   await settle();
-  fireEvent.click(screen.getByRole("button", { name: t("discussions.title") }));
+  fireEvent.click(await discussionsButton());
   await settle();
   expect(vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "discussion_workspace")).toHaveLength(0);
   await act(async () => { sock.push({ type: "threads", threads: [{ ...legacy, status: "idle" }] }); });

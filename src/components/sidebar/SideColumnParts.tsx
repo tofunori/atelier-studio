@@ -20,6 +20,7 @@ import RailActivity from "../RailActivity";
 import { RailSignalMark, SIGNAL_LABEL } from "../RailSignalMark";
 import type { ProjMeta, RailSignals } from "../Rail";
 import { ProjIcon } from "./projectIcons";
+import { AllProjectsGlyph } from "./AllProjectsGlyph";
 import { ProjectStyleMenu, type ProjectStyleAnchor } from "./ProjectStyleMenu";
 
 const NO_AGENTS = new Set<string>();
@@ -30,6 +31,15 @@ function AutomationsGlyph() {
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="8" cy="8" r="5.6" />
       <path d="M8 5v3l2 1.4" />
+    </svg>
+  );
+}
+
+function ChevronRightGlyph() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6.2 4.5 9.7 8l-3.5 3.5" />
     </svg>
   );
 }
@@ -72,6 +82,8 @@ export type SideBottomProps = {
   running: Set<string>;
   onSelectProject: (root: string) => void;
   onAddProject: () => void;
+  /** accueil des projets (⇧⌘P) : le titre « Projets » et la rangée du bas */
+  onAllProjects?: () => void;
   onDiscussions: () => void;
   onSettings: () => void;
   onProjectSettings?: (root: string) => void;
@@ -103,7 +115,16 @@ export function SideBottom(p: SideBottomProps) {
   return (
     <div className="scol-bottom">
       <div className="scol-sec">
-        <span>{t("sidebar.projects")}</span>
+        {p.onAllProjects ? (
+          <span>
+            <RowButton className="scol-sec-link" title={`${t("projects.all")} (⇧⌘P)`} onClick={p.onAllProjects}>
+              {t("sidebar.projects")}
+              <ChevronRightGlyph />
+            </RowButton>
+          </span>
+        ) : (
+          <span>{t("sidebar.projects")}</span>
+        )}
         <IconButton className="scol-sec-btn" label={t("action.add-project")} title={t("action.add-project")}
           onClick={p.onAddProject}>
           <PlusIcon size={12} />
@@ -160,6 +181,13 @@ export function SideBottom(p: SideBottomProps) {
           <span className="scol-row-label">{t("discussions.title")}</span>
           {discussions > 0 && <span className="scol-count" aria-hidden="true">{discussions > 99 ? "99+" : discussions}</span>}
         </RowButton>
+        {p.onAllProjects && (
+          <RowButton className="scol-row scol-all" aria-keyshortcuts="Meta+Shift+P" onClick={p.onAllProjects}>
+            <span className="scol-row-ico"><AllProjectsGlyph /></span>
+            <span className="scol-row-label">{t("projects.all")}</span>
+            <span className="scol-kbd" aria-hidden="true">⇧⌘P</span>
+          </RowButton>
+        )}
       </div>
       <div className="scol-foot">
         <LazyDropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen} side="top" align="start"

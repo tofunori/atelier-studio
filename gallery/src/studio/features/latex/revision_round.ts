@@ -49,9 +49,13 @@ export interface RoundRecord {
   number?: number;
   comment: string;
   text: string;
-  decision: "acc" | "rej";
+  /** `res` : note de l'agent résolue (agent_notes.ts). */
+  decision: "acc" | "rej" | "res";
   proposal?: string;
   at: number;
+  /** Note posée par l'agent (hors ronde : `n` vaut 0). */
+  by?: string;
+  author?: string;
 }
 
 export const newRoundId = (now = Date.now()): string => `r${now}`;

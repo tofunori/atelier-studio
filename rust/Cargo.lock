@@ -315,6 +315,7 @@ version = "0.1.0"
 dependencies = [
  "pdfium-render",
  "roxmltree",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -387,6 +388,7 @@ dependencies = [
  "atelier-integrations",
  "atelier-kb",
  "atelier-kernel",
+ "atelier-pdf",
  "atelier-protocol",
  "atelier-providers",
  "atelier-store",

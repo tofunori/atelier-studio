@@ -1,7 +1,8 @@
 // Contexte vivant (2026-11-08) côté App : le contexte publié par AtelierPane
 // part avec le message (`liveContext` du send, jamais dans `prompt`), laisse
-// une trace sur la bulle, se retire pour UN message, et un tour mis en file
-// garde le contexte capturé à la mise en file.
+// une trace sur la bulle ; l'œil du compositeur (2026-11-09) le coupe pour de
+// bon, jusqu'au prochain clic ; un tour mis en file garde le contexte capturé
+// à la mise en file.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 
@@ -21,7 +22,7 @@ vi.mock("./lib/notify", () => ({
 
 import App from "./App";
 import { t } from "./lib/i18n";
-import { LIVE_CONTEXT_EVENT } from "./lib/liveContext";
+import { LIVE_CONTEXT_EVENT, LIVE_CONTEXT_ON_KEY } from "./lib/liveContext";
 import { renderUi, resetTestState } from "./test/render";
 import { FakeWS, flushMicrotasks } from "./test/fixtures/sidecar";
 import { PROJECT_ROOT, makeThread } from "./test/fixtures";
@@ -61,7 +62,20 @@ async function send(text: string) {
 
 const last = <T,>(list: T[]) => list[list.length - 1];
 const sends = (sock: FakeWS) => sock.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "send");
-const chip = () => document.querySelector(".composer .live-context-chip");
+const eye = () => document.querySelector<HTMLButtonElement>(".composer .live-eye")!;
+async function finish(sock: FakeWS) {
+  await act(async () => {
+    sock.push({ type: "event", threadId: "thread-A", event: { kind: "done", ok: true, result: "" } });
+    await flushMicrotasks(6);
+  });
+}
+async function toggleEye() {
+  // le panneau reste ouvert après un basculement : on ne l'ouvre que s'il est fermé
+  if (!screen.queryByRole("switch")) {
+    await act(async () => { fireEvent.click(eye()); await vi.advanceTimersByTimeAsync(50); await flushMicrotasks(4); });
+  }
+  await act(async () => { fireEvent.click(screen.getByRole("switch", { name: t("live-context.share") })); await flushMicrotasks(4); });
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -70,6 +84,7 @@ beforeEach(() => {
   FakeWS.reset();
   vi.stubGlobal("WebSocket", FakeWS as unknown as typeof WebSocket);
   localStorage.setItem("atelier-studio.projects", JSON.stringify([PROJECT_ROOT]));
+  localStorage.removeItem(LIVE_CONTEXT_ON_KEY);
 });
 
 afterEach(() => {
@@ -84,8 +99,10 @@ describe("App — contexte vivant", () => {
     const sock = await mountOnThread();
     // la sélection ne part jamais d'elle-même (Thierry, 2026-11-08), même si un cadre l'envoie
     await look({ ...TEX, lineFrom: 23, lineTo: 25, selection: "Bare-ice albedo\ndecreased by 0.04" });
-    expect(chip()).toHaveTextContent("chapitre1.tex");
-    expect(chip()).toHaveTextContent(t("live-context.line", { line: 23 }));
+    expect(eye()).toHaveAttribute("data-state", "on");
+    expect(eye()).toHaveAccessibleName(t("live-context.sees", { name: "chapitre1.tex", where: t("live-context.line", { line: 23 }) }));
+    // plus d'étiquette au-dessus du champ
+    expect(document.querySelector(".composer .context-pills")).toBeNull();
 
     await send("Ce passage est-il cohérent ?");
     const sent = last(sends(sock));
@@ -98,31 +115,46 @@ describe("App — contexte vivant", () => {
     expect(document.querySelector(".messages .user-live-context")).toHaveTextContent(`chapitre1.tex · ${t("live-context.line", { line: 23 })}`);
   });
 
-  it("la croix retire le contexte pour CE message ; l'envoi le ramène ; une autre ligne aussi", async () => {
+  it("l'œil coupé : plus rien ne part, même d'un message à l'autre, et ça se retient", async () => {
     const sock = await mountOnThread();
     await look(TEX);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: t("live-context.dismiss", { name: "chapitre1.tex" }) }));
-    });
-    expect(chip()).toBeNull();
-    // une autre ligne ramène l'étiquette, revenir à la première non
-    await look({ ...TEX, line: 30 });
-    expect(chip()).toHaveTextContent(t("live-context.line", { line: 30 }));
-    await look(TEX);
-    expect(chip()).toBeNull();
+    await toggleEye();
+    expect(eye()).toHaveAttribute("data-state", "off");
+    expect(localStorage.getItem(LIVE_CONTEXT_ON_KEY)).toBe("0");
 
     await send("sans contexte");
     expect(last(sends(sock)).liveContext).toBeUndefined();
     expect(last(sends(sock)).displayEvent.liveContext).toBeUndefined();
-    // envoi accepté : le retrait ne vaut plus
-    expect(chip()).toHaveTextContent(t("live-context.line", { line: 23 }));
+    await finish(sock);
+    // une autre ligne, un autre envoi : toujours coupé
+    await look({ ...TEX, line: 30 });
+    expect(eye()).toHaveAttribute("data-state", "off");
+    await send("toujours sans");
+    expect(last(sends(sock)).prompt).toBe("toujours sans");
+    expect(last(sends(sock)).liveContext).toBeUndefined();
+    await finish(sock);
+
+    await toggleEye();
+    expect(eye()).toHaveAttribute("data-state", "on");
+    await send("avec");
+    expect(last(sends(sock)).prompt).toBe("avec");
+    expect(last(sends(sock)).liveContext).toEqual({ ...TEX, line: 30 });
+  });
+
+  it("coupé avant le démarrage : l'œil s'ouvre coupé", async () => {
+    localStorage.setItem(LIVE_CONTEXT_ON_KEY, "0");
+    const sock = await mountOnThread();
+    await look(TEX);
+    expect(eye()).toHaveAttribute("data-state", "off");
+    await send("question");
+    expect(last(sends(sock)).liveContext).toBeUndefined();
   });
 
   it("rien quand l'atelier ne montre aucun document", async () => {
     const sock = await mountOnThread();
     await look(TEX);
     await look(null);
-    expect(chip()).toBeNull();
+    expect(eye()).toHaveAttribute("data-state", "idle");
     await send("question");
     expect(last(sends(sock)).liveContext).toBeUndefined();
   });

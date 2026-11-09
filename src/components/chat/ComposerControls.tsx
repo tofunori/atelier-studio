@@ -12,6 +12,7 @@ import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { Tooltip } from "../ui/Tooltip";
+import { LiveContextEye, type LiveContextBinding } from "./LiveContextEye";
 import { RowButton } from "../ui";
 import { Kbd } from "../shadcn/kbd";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "../shadcn/popover";
@@ -169,6 +170,8 @@ export function ComposerControls(p: {
   onOpenModelSettings?: () => void;
   // base de connaissances (plan 049 T3) — picker d'attache par conversation
   kb?: KbBinding;
+  // œil du contexte vivant (2026-11-09) — absent hors de l'app (bancs, QuickAsk)
+  liveContext?: LiveContextBinding;
   // consigne de réponse du fil actif (plan 2026-09-01)
   consigneDuFil: ConsigneDuFil | null;
   onChoisirConsigne: (choix: ConsigneDuFil | null) => void;
@@ -437,6 +440,7 @@ export function ComposerControls(p: {
               specialistes={p.defaults.specialistes ?? []}
               onGererSpecialistes={() => p.onOuvrirReglagesConsignes("specialistes")}
             />
+            {p.liveContext && <LiveContextEye binding={p.liveContext} />}
             {p.kernel?.on ? (
               <RowButton
                 className="consigne-trigger kernel-trigger"

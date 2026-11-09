@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AtelierPane, { type AtelierTab } from "./AtelierPane";
 import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
 import { setLanguage } from "../lib/i18n";
-import { LIVE_CONTEXT_EVENT, type LiveContext } from "../lib/liveContext";
+import { LIVE_CONTEXT_EVENT, publishSurfaceLiveContext, type LiveContext } from "../lib/liveContext";
 import { resetUnsavedDocumentsForTests } from "../lib/unsavedDocuments";
 
 const ROOT = "/tmp/atelier-live-test";
@@ -100,6 +100,35 @@ describe("AtelierPane — contexte vivant", () => {
     expect(latest()).toMatchObject({ name: "other.tex" });
     update([MAIN, OTHER], "main");
     expect(latest()).toBeNull();
+  });
+
+  it("onglet image : la figure se déduit de l'adresse, sans script dans le cadre", () => {
+    const FIG: AtelierTab = { id: "fig", title: "fig3.png", url: `${ORIGIN}/figures/fig%203.png`, projectRoot: ROOT };
+    renderPane([FIG]);
+    expect(latest()).toEqual({ path: `${ROOT}/figures/fig 3.png`, name: "fig 3.png", kind: "figure" });
+  });
+
+  it("galerie : la figure de la lightbox vaut pour l'onglet galerie, et seulement lui", () => {
+    const { container, update } = renderPane([MAIN], "gallery");
+    const gallery = container.querySelector<HTMLIFrameElement>('iframe[data-atelier-role="gallery"]')!;
+    expect(gallery).toBeTruthy();
+    const FIG = { path: `${ROOT}/figures/fig3.png`, name: "fig3.png", kind: "figure" };
+    post(gallery, { type: "atelier-live-context", context: FIG }, new URL(gallery.src).origin);
+    expect(latest()).toEqual(FIG);
+    update([MAIN], "main");
+    expect(latest()).toBeNull();
+    update([MAIN], "gallery");
+    expect(latest()).toEqual(FIG);
+    post(gallery, { type: "atelier-live-context", context: null }, new URL(gallery.src).origin);
+    expect(latest()).toBeNull();
+  });
+
+  it("surface React : ignorée tant qu'elle n'est pas l'onglet actif", () => {
+    renderPane([MAIN], "main");
+    act(() => {
+      publishSurfaceLiveContext("browser", { path: "https://nsidc.org/", url: "https://nsidc.org/", name: "nsidc.org", kind: "web" });
+    });
+    expect(published.some((context) => context?.kind === "web")).toBe(false);
   });
 
   it("un pane démonté ne laisse aucun contexte derrière lui", () => {
