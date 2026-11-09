@@ -19,6 +19,7 @@ import { useBiblioReadState } from "./biblio/useBiblioReadState";
 import { buildCollectionTree, type CollectionTreeNode } from "./biblio/collections";
 import "./biblio/BiblioWorkspace.css";
 import type { PassageTarget, SortBy, ZoteroItem } from "./biblio/types";
+import { articleLiveContext, publishSurfaceLiveContext } from "../lib/liveContext";
 
 export type { ZoteroAddResult } from "./biblio/types";
 export { summarizeZoteroAddResults };
@@ -150,6 +151,13 @@ export default function BiblioSurface({
   }, [tabs.tabs, galleryUrl]);
   const collectionTree = useMemo(() => buildCollectionTree(collections), [collections]);
   const detailItem = tabs.activeTab?.item ?? selected;
+  // « Le chat sait ce que tu regardes » (2026-11-09) : l'article ouvert (ou
+  // sélectionné dans la liste). AtelierPane ne le publie que si la
+  // bibliothèque est l'onglet actif.
+  useEffect(() => {
+    publishSurfaceLiveContext("biblio", detailItem ? articleLiveContext(detailItem) : null);
+  }, [detailItem]);
+  useEffect(() => () => publishSurfaceLiveContext("biblio", null), []);
 
   const sortLabels: Record<SortBy, string> = {
     added: t("biblio.sort-added"),

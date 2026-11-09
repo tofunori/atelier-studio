@@ -1349,6 +1349,7 @@ async function lbShow(i: number){
   provSync();
   lb().classList.add('show');
   lbViewportRequest(true);
+  lbLiveContext(vw||isVid?null:f);
   requestAnimationFrame(lbFitImage);
   if(['png','jpg','jpeg'].includes(f.ext)) void lbVersionsPoll();
 }
@@ -1619,6 +1620,21 @@ async function lbClose(){
   lbListRestore();
   lbHostRequest(false);
   lbViewportRequest(false);
+  lbLiveContext(null);
+}
+
+// « Le chat sait ce que tu regardes » (2026-11-09) : la figure ouverte dans
+// la lightbox est publiée à l'app hôte (même canal que les éditeurs,
+// `atelier-live-context`), et null à la fermeture. Image seulement : les
+// autres formats ouvrent leur propre onglet, qui publie lui-même.
+let lbLiveSent='';
+function lbLiveContext(f: GalleryRow | null){
+  if(!EMB) return;
+  const context=f?{path:'__ROOT__/'+f.rel, name:f.name, kind:'figure'}:null;
+  const key=JSON.stringify(context);
+  if(key===lbLiveSent) return;
+  lbLiveSent=key;
+  __atelierPost({type:'atelier-live-context', context});
 }
 
 // The host owns the window; the same iframe remains alive in its top layer.
@@ -1640,7 +1656,7 @@ window.addEventListener('message',e=>{
   }
   requestAnimationFrame(lbFitImage);
 });
-window.addEventListener('pagehide',()=>{lbHostRequest(false);lbViewportRequest(false);});
+window.addEventListener('pagehide',()=>{lbHostRequest(false);lbViewportRequest(false);lbLiveContext(null);});
 // Icône Galerie de la barre de l'app : revenir à la grille. La galerie est
 // déjà l'onglet actif quand une figure y est ouverte, donc changer d'onglet
 // ne fermait rien (Thierry 2026-10-25). lbClose garde la confirmation des

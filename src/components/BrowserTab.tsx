@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
+import { publishSurfaceLiveContext } from "../lib/liveContext";
 import { composeBrowserBounds } from "../lib/browserBounds";
 import { startSelectionPoll } from "../lib/browserSelectionPoll";
 import { chatButtonState } from "../lib/browserSelectionAffordance";
@@ -473,6 +474,22 @@ export default function BrowserTab(p: {
   useEffect(() => {
     writeSession({ tabs, activeTabId });
   }, [tabs, activeTabId]);
+
+  // « Le chat sait ce que tu regardes » (2026-11-09) : l'adresse de l'onglet
+  // actif. AtelierPane ne la publie que si le navigateur est l'onglet actif.
+  const activeUrl = tabs.find((tab) => tab.id === activeTabId)?.url ?? "";
+  useEffect(() => {
+    let context = null;
+    try {
+      const u = new URL(activeUrl);
+      if (u.protocol === "https:" || u.protocol === "http:") {
+        const name = `${u.hostname}${u.pathname === "/" ? "" : u.pathname}`.slice(0, 120);
+        context = { path: activeUrl, url: activeUrl, name, kind: "web" as const };
+      }
+    } catch { /* onglet vide */ }
+    publishSurfaceLiveContext("browser", context);
+  }, [activeUrl]);
+  useEffect(() => () => publishSurfaceLiveContext("browser", null), []);
 
   // suivre la taille du pane
   useEffect(() => {

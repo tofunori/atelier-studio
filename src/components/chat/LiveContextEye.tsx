@@ -3,14 +3,15 @@
 // « regarde » qui occupait le dessus du champ.
 //  - Survol : ce que le chat voit (ou qu'il ne voit rien).
 //  - Clic : petit panneau qui montre ce qui part (chemin, position,
-//    commentaires) avec un interrupteur pour partager ou non.
+//    commentaires) avec un interrupteur pour partager ou non. Sources :
+//    éditeurs, PDF, figure, .docx, article, page web (liveContext.ts).
 //  - Coupé : œil barré, gris éteint ; ça reste coupé (liveContext.ts).
 //  - Rien d'ouvert : œil éteint, non barré.
 import { useId, useState } from "react";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 import { t } from "../../lib/i18n";
 import {
-  liveContextDisplayPath, liveContextEyeLabel, liveContextSentence, type LiveContext,
+  liveContextEyeLabel, liveContextHeadline, liveContextSentence, type LiveContext,
 } from "../../lib/liveContext";
 import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
 import { RowButton } from "../ui/RowButton";
@@ -64,7 +65,7 @@ export function LiveContextEye(p: { binding: LiveContextBinding }) {
           </div>
           {on && context ? (
             <div className="live-eye-body">
-              <span className="live-eye-path">{liveContextDisplayPath(context.path, projectRoot)}</span>
+              <span className="live-eye-path">{liveContextHeadline(context, projectRoot)}</span>
               {sentence && <span className="live-eye-note">{sentence}</span>}
               {context.comments && context.comments.length > 0 && (
                 <span className="live-eye-note">{t("live-context.comments", { n: context.comments.length })}</span>

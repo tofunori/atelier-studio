@@ -59,7 +59,15 @@
 
   const W = window as Window & {
     __atelierPost?: (p: Record<string, unknown>) => void;
-    AtelierStudioCore?: { requestChatAttachment?: (o: Record<string, unknown>) => Promise<void> };
+    AtelierStudioCore?: {
+      requestChatAttachment?: (o: Record<string, unknown>) => Promise<void>;
+      createLiveContextPublisher?: (o: {
+        build: () => Record<string, unknown> | null;
+        postToHost: (p: Record<string, unknown>) => void;
+        timers?: Window;
+      }) => { schedule(): void; repost(): void };
+      onTabActivated?: (win: Window, callback: () => void) => () => void;
+    };
     AtelierAnnotationUI?: {
       createSelectionActions(host: HTMLElement, o: Record<string, unknown>): void;
       createNoteEditor(host: HTMLElement, o: Record<string, unknown>): { input: HTMLTextAreaElement; status: HTMLElement; focus(): void };
@@ -2068,12 +2076,40 @@
         author = known ? known.name : sys;
       }
       applyModel(m);
+      live?.schedule();
       status("Enregistré dans le .docx");
       setInterval(poll, POLL_MS);
     } catch (e: any) {
       paper.innerHTML = `<div class="loading">Ce document ne s'ouvre pas ici : ${esc(e.message || String(e))}</div>`;
     }
   }
+  // « Le chat sait ce que tu regardes » (2026-11-09) : fichier, paragraphe
+  // du curseur et commentaires ouverts, publiés à l'app hôte comme les
+  // éditeurs (`atelier-live-context`). Jamais le texte sélectionné.
+  const liveCore = W.AtelierStudioCore;
+  const live = W.__atelierPost && liveCore?.createLiveContextPublisher ? liveCore.createLiveContextPublisher({
+    build: () => {
+      if (!model || !PATH.startsWith("/")) return null;
+      const sel = readSel();
+      const inPaper = !!sel && paper.contains(getSelection()?.anchorNode ?? null);
+      const comments = model.comments
+        .filter((c) => !c.done && (c.parent === undefined || c.parent === null) && c.text.trim())
+        .slice(0, 10)
+        .map((c) => ({ text: c.text.slice(0, 600), ...(c.quote ? { quote: c.quote.slice(0, 300) } : {}) }));
+      return {
+        path: PATH, name: NAME, kind: "docx",
+        ...(inPaper && sel ? { paragraph: sel.a.idx + 1 } : {}),
+        ...(comments.length ? { comments } : {}),
+      };
+    },
+    postToHost: (payload) => W.__atelierPost!(payload),
+    timers: window,
+  }) : null;
+  if (live) {
+    liveCore!.onTabActivated?.(window, () => live.repost());
+    document.addEventListener("selectionchange", () => live.schedule());
+  }
+
   window.addEventListener("pagehide", () => { flushGhosts(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) flushGhosts(); });
   boot();
