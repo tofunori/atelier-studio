@@ -127,6 +127,13 @@ export function liveContextSentence(ctx: LiveContext): string {
   return "";
 }
 
+/** Ce que dit le survol de l'œil du compositeur. */
+export function liveContextEyeLabel(b: { context: LiveContext | null; on: boolean }): string {
+  if (!b.on) return t("live-context.off");
+  if (!b.context) return t("live-context.idle");
+  return t("live-context.sees", { name: b.context.name, where: liveContextWhere(b.context) }).trim();
+}
+
 /** Chemin montré : relatif au projet quand le fichier est dedans. */
 export function liveContextDisplayPath(path: string, projectRoot?: string | null): string {
   const root = (projectRoot ?? "").replace(/\/+$/, "");

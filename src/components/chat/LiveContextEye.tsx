@@ -10,7 +10,7 @@ import { useId, useState } from "react";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 import { t } from "../../lib/i18n";
 import {
-  liveContextDisplayPath, liveContextSentence, liveContextWhere, type LiveContext,
+  liveContextDisplayPath, liveContextEyeLabel, liveContextSentence, type LiveContext,
 } from "../../lib/liveContext";
 import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
 import { RowButton } from "../ui/RowButton";
@@ -23,12 +23,6 @@ export type LiveContextBinding = {
   onToggle: (on: boolean) => void;
   projectRoot?: string | null;
 };
-
-export function liveContextEyeLabel(b: Pick<LiveContextBinding, "context" | "on">): string {
-  if (!b.on) return t("live-context.off");
-  if (!b.context) return t("live-context.idle");
-  return t("live-context.sees", { name: b.context.name, where: liveContextWhere(b.context) }).trim();
-}
 
 export function LiveContextEye(p: { binding: LiveContextBinding }) {
   const [open, setOpen] = useState(false);

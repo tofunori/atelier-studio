@@ -3,8 +3,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguage, t } from "../../lib/i18n";
-import type { LiveContext } from "../../lib/liveContext";
-import { LiveContextEye, liveContextEyeLabel, type LiveContextBinding } from "./LiveContextEye";
+import { liveContextEyeLabel, type LiveContext } from "../../lib/liveContext";
+import { LiveContextEye, type LiveContextBinding } from "./LiveContextEye";
 
 afterEach(cleanup);
 beforeEach(() => setLanguage("fr"));
