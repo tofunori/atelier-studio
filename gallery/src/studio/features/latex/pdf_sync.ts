@@ -75,6 +75,10 @@ export interface LatexPdfSyncController {
   hasDocument(): boolean;
 }
 
+/** Marge horizontale totale autour d'une page à l'ajustement « Largeur » :
+ *  28 px de chaque côté, la page posée sur la table du volet. */
+export const PDF_PAGE_GUTTER = 56;
+
 export function createLatexPdfSyncController(options: LatexPdfSyncOptions): LatexPdfSyncController {
   const doc = options.document || document;
   const win = options.window || window;
@@ -136,6 +140,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
   let forwardLine = -1;
   let lastSyncLine: number | null = null;
   let lastRequestView = 0;
+  let markerTimer: number | null = null;
 
   const jumpToLine = (line: number): void => {
     const editor = options.getEditor();
@@ -156,7 +161,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       void pageFor(targetDocument, page).then(proxy => {
         if (layout !== activeLayoutToken || targetDocument !== pdfDocument) return;
         const base = proxy.getViewport({scale: 1}); dimensions.set(page, base);
-        viewport.scale = Math.max(1, lastWidth - 24) * renderedZoom / base.width;
+        viewport.scale = Math.max(1, lastWidth - PDF_PAGE_GUTTER) * renderedZoom / base.width;
         viewport.height = base.height;
         element.style.height = `${base.height * viewport.scale}px`;
         showMarker(page, y0);
@@ -169,7 +174,15 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
     options.marker.style.display = "block";
     element.scrollIntoView({block: "nearest"});
     options.right.scrollTop = element.offsetTop + y - options.right.clientHeight / 2;
-    win.setTimeout(() => { options.marker.style.display = "none"; }, 2500);
+    // Apparition puis extinction en fondu (classe .on, transition CSS) ; un
+    // nouveau saut annule l'extinction programmée par le précédent.
+    if (markerTimer !== null) win.clearTimeout(markerTimer);
+    void options.marker.offsetWidth;
+    options.marker.classList.add("on");
+    markerTimer = win.setTimeout(() => {
+      options.marker.classList.remove("on");
+      markerTimer = win.setTimeout(() => { markerTimer = null; options.marker.style.display = "none"; }, 160);
+    }, 2400);
     return true;
   };
 
@@ -186,12 +199,12 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
     });
     const result = await response.json() as SyncResponse;
     if (!result.page) {
-      if (!silent) options.setState("hint", "synctex : pas de correspondance ici");
+      if (!silent) options.setState("hint", "SyncTeX : pas de correspondance ici");
       return;
     }
     options.channel?.postMessage({t: "view", page: result.page, y: result.y});
     if (pdfDocument && !showMarker(result.page, result.y || 0) && !silent) {
-      options.setState("err", "synctex: page not rendered");
+      options.setState("err", "SyncTeX : cette page n'est pas encore affichée");
     }
   };
 
@@ -203,7 +216,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
     });
     const result = await response.json() as SyncResponse;
     if (!result.line) {
-      options.setState("hint", "synctex : pas de correspondance ici");
+      options.setState("hint", "SyncTeX : pas de correspondance ici");
       return;
     }
     jumpToLine(result.line);
@@ -277,7 +290,7 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
       const current = (): boolean => !abandoned && (committed ? activeLayoutToken === token : token === loadToken);
       const nextDimensions = reuse ? dimensions : new Map<number, PdfViewport>();
       const paneWidth = options.right.clientWidth;
-      const width = Math.max(1, paneWidth - 24) * options.getZoom();
+      const width = Math.max(1, paneWidth - PDF_PAGE_GUTTER) * options.getZoom();
       // Off-screen layout uses the same page CSS and scroll-container margin
       // rules. It never changes the live pane's height or scroll position.
       staging = doc.createElement("div");

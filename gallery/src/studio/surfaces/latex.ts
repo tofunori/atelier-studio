@@ -1105,7 +1105,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     if (isBib && key) bibs.focusKey(key);
   });
   else {
-    setState("ok", "choose a .tex file");
+    setState("ok", "choisis un fichier .tex");
     void picker.show("");
   }
   if (path) {

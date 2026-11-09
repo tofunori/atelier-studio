@@ -263,7 +263,42 @@ const FRENCH_PHRASES = EditorState.phrases.of({
   "Completions": "Suggestions", "Diagnostics": "Diagnostics", "No diagnostics": "Aucun diagnostic",
 });
 
-function themeExtensions(id) {
+// Palette « manuscrit » des .tex (profils Atelier et Claude Code) : la prose
+// garde la couleur du texte, le balisage recule en gris (--text-muted pour
+// les commandes, --text-disabled pour les accolades), les maths gardent une
+// teinte froide discrète. Les commentaires restent en --text-muted (EDIT-19 :
+// contraste texte >= 4,5:1), en italique.
+function manuscriptHighlight(p) {
+  const muted = "var(--text-muted, var(--muted))";
+  const faint = "var(--text-disabled, var(--muted2))";
+  const secondary = "var(--text-secondary, var(--fg2, var(--muted)))";
+  const math = `color-mix(in srgb, var(--status-info, ${p.fn}) 55%, var(--text-primary, ${p.fg}))`;
+  return HighlightStyle.define([
+    {tag: tags.comment, color: muted, fontStyle: "italic"},
+    {tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword], color: muted},
+    {tag: [tags.brace, tags.squareBracket, tags.literal, tags.operator], color: faint},
+    {tag: [tags.typeName, tags.labelName, tags.special(tags.string)], color: secondary},
+    {tag: [tags.string, tags.number], color: math},
+    {tag: tags.special(tags.variableName), color: secondary},
+    {tag: tags.heading, color: p.fg, fontWeight: "600"},
+    {tag: tags.strong, color: p.fg, fontWeight: "600"},
+    {tag: tags.emphasis, color: p.fg, fontStyle: "italic"},
+    {tag: [tags.link, tags.url], color: secondary, textDecoration: "underline", textDecorationColor: faint},
+    {tag: tags.monospace, color: secondary},
+    {tag: tags.invalid, color: "var(--status-error)", textDecoration: "underline wavy"},
+  ]);
+}
+// Gouttière du manuscrit : sans filet, numéros en 12 px chiffres tabulaires
+// (couleur de gouttière du profil, >= 3:1 selon EDIT-19), la ligne courante
+// seule remonte d'un cran, sans bandeau.
+const manuscriptGutter = EditorView.theme({
+  ".cm-gutters": {borderRight: "0 !important"},
+  ".cm-lineNumbers .cm-gutterElement": {padding: "1px 8px 0 12px !important", fontSize: "12px", fontVariantNumeric: "tabular-nums"},
+  ".cm-lineNumbers .cm-gutterElement.cm-activeLineGutter": {color: "var(--text-secondary, var(--fg2, var(--muted))) !important"},
+  ".cm-activeLineGutter": {backgroundColor: "transparent !important"},
+});
+
+function themeExtensions(id, ext = "") {
   const themeId = normalizeThemeId(id);
   const p = paletteFor(themeId);
   const dark = p.dark !== false;
@@ -300,6 +335,7 @@ function themeExtensions(id) {
     // sélection avec drawSelection().
     EditorView.theme({"&.cm-focused .cm-selectionBackground, & .cm-selectionLayer .cm-selectionBackground": {background: `${p.selection} !important`}}, {dark: true}),
   ];
+  if (ext === "tex") return [editorTheme, manuscriptGutter, syntaxHighlighting(manuscriptHighlight(p))];
   const highlightStyle = HighlightStyle.define([
     {tag: tags.comment, color: p.comment, fontStyle: "italic"},
     {tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword], color: p.keyword},
@@ -824,7 +860,7 @@ export function createStudioEditor(parent, opts) {
     const changed = next !== themeId;
     themeId = next;
     if (persist) localStorage.setItem("atelier.editorTheme", next);
-    if (changed && view) view.dispatch({effects: themeComp.reconfigure(themeExtensions(next))});
+    if (changed && view) view.dispatch({effects: themeComp.reconfigure(themeExtensions(next, opts.ext))});
     if (changed && broadcast) themeChannel?.postMessage({theme: next});
   };
   const onStoredTheme = (event) => {
@@ -853,7 +889,7 @@ export function createStudioEditor(parent, opts) {
     const scheme = hostIsLight() ? "light" : "dark";
     if (scheme === hostScheme) return;
     hostScheme = scheme;
-    if (themeId === "claude-code" && view) view.dispatch({effects: themeComp.reconfigure(themeExtensions(themeId))});
+    if (themeId === "claude-code" && view) view.dispatch({effects: themeComp.reconfigure(themeExtensions(themeId, opts.ext))});
   };
   window.addEventListener("atelier-theme-applied", onHostTheme);
 
@@ -874,7 +910,7 @@ export function createStudioEditor(parent, opts) {
         clickGesture,
         indentUnit.of(opts.ext === "py" ? "    " : "  "),
         languageExtensionFor(opts.ext),
-        themeComp.of(themeExtensions(themeId)),
+        themeComp.of(themeExtensions(themeId, opts.ext)),
         mergeDiffComp.of([]),
         themePickerBase,
         themePickerExtension(() => themeId, (id) => applyTheme(id)),

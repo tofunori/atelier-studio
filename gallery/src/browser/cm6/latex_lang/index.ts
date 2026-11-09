@@ -79,7 +79,7 @@ export const latexLanguage = LRLanguage.define({
         "EnvNameGroup/...": t.typeName,
         "LabelCtrlSeq RefCtrlSeq RefStarrableCtrlSeq CiteCtrlSeq CiteStarrableCtrlSeq": t.keyword,
         "LabelArgument/... RefArgument/... BibKeyArgument/...": t.labelName,
-        "IncludeGraphicsArgument/... InputArgument/... IncludeArgument/... FilePathArgument/... BareFilePathArgument/...": t.string,
+        "IncludeGraphicsArgument/... InputArgument/... IncludeArgument/... FilePathArgument/... BareFilePathArgument/...": t.special(t.string),
         "UrlArgument/... HrefCommand/ShortTextArgument/...": t.link,
         "TextBoldCommand/TextArgument/...": t.strong,
         "TextItalicCommand/TextArgument/... EmphasisCommand/TextArgument/...": t.emphasis,

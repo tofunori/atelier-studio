@@ -193,7 +193,7 @@ export function createLatexCompileCoordinator(
           }
         }
 
-        options.setState("dirty", "compiling…");
+        options.setState("dirty", "compilation…");
         startChip();
         let response: LatexCompileResponse;
         try {

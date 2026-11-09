@@ -68,9 +68,9 @@
   .pdfmode .editonly{display:none!important}
   body:not(.pdfmode) .pdfonly{display:none!important}
   .pdfmode #left{display:none}
-  #split{flex:1;display:flex;min-height:0}
+  #split{flex:1;display:flex;min-height:0;position:relative}
   #left{position:relative;width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:var(--surface-app,var(--bg))}
-  #right{flex:1;overflow:auto;background:var(--card2);position:relative;scrollbar-gutter:stable}
+  #right{flex:1;overflow:auto;background:var(--surface-canvas,var(--card2));position:relative;scrollbar-gutter:stable}
   /* défaut éditeur seul (pas de split) — appliqué avant le rendu, sans flash */
   html.tex-editor-only #right{display:none}
   html.tex-editor-only #left{width:100%;border-right:none}
@@ -135,15 +135,44 @@
   .cm-editor.atelier-unified-review .cm-deletedChunk.atelier-pure-change .cm-deletedText{background:transparent}
   .cm-editor.atelier-unified-review.cm-merge-b .cm-changedLineGutter{background:var(--review-ok)}
   .cm-editor.atelier-unified-review .cm-deletedLineGutter{background:var(--review-cut)}
-  .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border);color:var(--text-disabled,#565e6b)}
+  .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:0;color:var(--text-disabled,#565e6b)}
   .cm-editor .cm-lineNumbers .cm-gutterElement{padding-left:4px;padding-right:4px}
   /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
   .cm-activeline{background:rgba(255,255,255,.035)}
-  .pdfpage{position:relative;margin:16px auto;background:var(--pdf-paper);box-shadow:var(--elev-soft,0 1px 4px rgba(0,0,0,.18));cursor:crosshair}
+  /* Volet PDF : une table de lecture, la page posée dessus (28 px de marge,
+     voir PDF_PAGE_GUTTER). Ombre en trois couches, pas de bordure ; en
+     sombre, le papier est atténué pour ne pas éblouir. Clic = SyncTeX, sans
+     curseur en croix. */
+  .pdfpage{position:relative;margin:24px auto;background:var(--pdf-paper);cursor:default;
+           box-shadow:0 0 0 .5px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.10)}
+  :root:not([data-scheme="light"]) .pdfpage{box-shadow:0 0 0 .5px rgba(255,255,255,.05),0 2px 4px rgba(0,0,0,.30),0 12px 32px rgba(0,0,0,.45)}
+  :root:not([data-scheme="light"]) .pdfpage canvas{filter:brightness(.93) contrast(.98)}
   .pdfpage canvas{display:block}
-  #marker{position:absolute;left:0;right:0;height:22px;background:rgba(232,130,58,.22);
-          border-left:3px solid var(--accent);pointer-events:none;display:none;z-index:5}
-  .cm-syncline{background:rgba(232,130,58,.16)}
+  /* Zoom ou redimensionnement en cours : pages étirées en attendant le rendu net. */
+  #right.pdf-stretching .pdfpage .textLayer,#right.pdf-stretching #marker{visibility:hidden}
+  /* Repère SyncTeX : voile d'accent et filet de 2 px, apparition et extinction en fondu. */
+  #marker{position:absolute;left:0;right:0;height:22px;background:color-mix(in srgb,var(--accent) 10%,transparent);
+          border-left:2px solid var(--accent);pointer-events:none;display:none;z-index:5;opacity:0;transition:opacity 150ms ease-out}
+  #marker.on{opacity:1}
+  .cm-syncline{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+  /* Pilule du PDF : page et zoom, surface élevée sans bordure, au survol. */
+  .pdf-pill{position:absolute;bottom:16px;transform:translateX(-50%) translateY(4px);display:flex;align-items:center;gap:4px;height:32px;padding:0 4px;
+            border-radius:999px;background:var(--bg-pop,var(--card));box-shadow:var(--elevation-overlay,var(--elev));z-index:30;
+            font:400 12px/1 var(--ui-font);color:var(--text-secondary,var(--muted));font-variant-numeric:tabular-nums;white-space:nowrap;
+            opacity:0;pointer-events:none;transition:opacity 150ms ease-out,transform 150ms ease-out}
+  .pdf-pill.on{opacity:1;transform:translateX(-50%);pointer-events:auto}
+  .pdf-pill[hidden]{display:none}
+  .pdf-pill .pp-b{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;
+                  background:transparent;color:var(--text-muted,var(--muted));cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
+  .pdf-pill .pp-b:hover:not(:disabled){background:var(--bg-ctl,var(--card2));color:var(--txt)}
+  .pdf-pill .pp-b:disabled{color:var(--text-disabled,var(--muted2));cursor:default}
+  .pdf-pill .pp-b:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+  .pdf-pill .pp-b svg{width:14px;height:14px}
+  .pdf-pill .pp-n{padding:0 4px;min-width:40px;text-align:center;color:var(--txt)}
+  .pdf-pill .pp-n i{font-style:normal;color:var(--text-muted,var(--muted))}
+  .pdf-pill .pp-zoom{min-width:52px;color:var(--text-secondary,var(--muted))}
+  .pdf-pill .pp-sep{width:1px;height:16px;background:var(--border);margin:0 4px}
+  @media (prefers-reduced-motion: reduce){#marker,.pdf-pill{transition:none}}
   /* Sélection : sélection NATIVE du navigateur, peinte par ::selection. Un seul
      calque, composé hors layout ; ni drawSelection ni décoration mark (voir
      SELECTION_RENDERING dans cm6/studio_editor.ts, banc scripts/bench_editor.mts).

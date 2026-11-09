@@ -21,7 +21,7 @@ function harness(t: test.TestContext) {
   t.after(() => dom.window.close());
   const win = dom.window;
   const right = win.document.getElementById('right');
-  Object.defineProperties(right, {clientWidth: {value: 624}, clientHeight: {value: 800}});
+  Object.defineProperties(right, {clientWidth: {value: 656}, clientHeight: {value: 800}});
   // JSDOM has no layout engine: model the one-page viewport explicitly.
   Object.defineProperties(win.HTMLElement.prototype, {
     scrollHeight: {configurable: true, get() {return this.querySelector('.pdfpage') ? 1000 : 0;}},
