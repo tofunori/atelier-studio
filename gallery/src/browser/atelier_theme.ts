@@ -203,6 +203,7 @@
     applyShadcnAliases(root);
     root.dataset.atelierTheme = String(message.version || 1);
     root.style.colorScheme = message.colorScheme === "light" ? "light" : "dark";
+    root.dataset.scheme = message.colorScheme === "light" ? "light" : "dark";
     if (fromCache) return;
     try {
       localStorage.setItem(THEME_CACHE_KEY, JSON.stringify({

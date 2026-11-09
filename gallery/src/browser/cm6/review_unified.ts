@@ -33,7 +33,9 @@ const insertions = StateField.define<DecorationSet>({
 const deletions = ViewPlugin.fromClass(class {
   constructor(view: EditorView) { this.mark(view); }
   update(update: ViewUpdate) {
-    if (update.docChanged || update.viewportChanged || getChunks(update.state)?.chunks !== getChunks(update.startState)?.chunks)
+    // geometryChanged : @codemirror/merge redessine le widget des lignes
+    // retirées (nouveau DOM, sans la classe) quand la mise en page bouge.
+    if (update.docChanged || update.viewportChanged || update.geometryChanged || getChunks(update.state)?.chunks !== getChunks(update.startState)?.chunks)
       update.view.requestMeasure({read: () => null, write: () => this.mark(update.view)});
   }
   mark(view: EditorView) {

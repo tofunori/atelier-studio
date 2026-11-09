@@ -220,6 +220,93 @@ test("compile coordinator blocks once on preflight then permits an immediate for
   assert.deepEqual(stopped, [17]);
 });
 
+test("compile coordinator shows the live pass and page, then flags a kept PDF", async () => {
+  assert.equal(latex.compileProgressLabel(null, 0), "compilation…");
+  assert.equal(latex.compileProgressLabel(null, 4), "compilation… 4 s");
+  assert.equal(latex.compileProgressLabel({running: true, pass: 2, page: 14, stage: "tex"}, 6), "compilation · passe 2 · page 14");
+  assert.equal(latex.compileProgressLabel({running: true, pass: 1, page: 0, stage: "tex"}, 1), "compilation · passe 1");
+  assert.equal(latex.compileProgressLabel({running: true, pass: 1, page: 9, stage: "bib"}, 3), "compilation · bibliographie");
+  assert.equal(latex.compileProgressLabel({running: false}, 2), "compilation… 2 s");
+
+  const chips: unknown[] = [];
+  const progress: unknown[] = [];
+  const stale: unknown[] = [];
+  let tickFn: (() => void) | null = null;
+  let finish: (value: unknown) => void = () => {};
+  let fail = false;
+  const coordinator = latex.createLatexCompileCoordinator({
+    isTex: true,
+    getText: () => "\\section{Ok}\n",
+    isDirty: () => false,
+    save: async () => true,
+    requestCompile: () => new Promise((resolve) => { finish = resolve; }),
+    requestProgress: async () => ({running: true, pass: 2, page: 7, stage: "tex"}),
+    onProgress: (value) => progress.push(value),
+    onStale: (value) => stale.push(value ? value.pdfMtime : null),
+    revealIssue: () => {},
+    setState: () => {},
+    setChip: (kind, message) => chips.push([kind, message]),
+    renderLog: () => {},
+    onCompiled: () => {},
+    now: () => 0,
+    clockLabel: () => "09:00",
+    startInterval: (callback) => { tickFn = callback; return 5; },
+    stopInterval: () => { tickFn = null; },
+  });
+  const running = coordinator.compile();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  tickFn?.();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(chips.at(-1), ["run", "compilation · passe 2 · page 7"]);
+  assert.deepEqual(progress.at(-1), {running: true, pass: 2, page: 7, stage: "tex"});
+  fail = true;
+  finish({ok: false, stale: true, pdfMtime: 1_700_000_000, log: "! Undefined control sequence.\nl.4 \\oops"});
+  await running;
+  assert.ok(fail);
+  assert.equal(progress.at(-1), null);
+  assert.deepEqual(stale, [1_700_000_000]);
+  assert.deepEqual(chips.at(-1), ["err", "1 erreur · dernier PDF valide"]);
+});
+
+test("compile progress UI follows pages and dates the kept PDF", () => {
+  const dom = new JSDOM(`<div id="split"><div id="right"><div class="pdfpage"></div><div class="pdfpage"></div><div class="pdfpage"></div><div class="pdfpage"></div></div></div>`);
+  const right = dom.window.document.getElementById("right") as HTMLElement;
+  Object.defineProperty(right, "clientWidth", {value: 640});
+  let clock = 1_700_000_000_000 + 3 * 60_000;
+  const ui = latex.createCompileProgressUi({document: dom.window.document, window: dom.window as unknown as Window, right, now: () => clock});
+  const line = dom.window.document.querySelector(".pdf-progress") as HTMLElement;
+  const fill = line.firstElementChild as HTMLElement;
+  assert.equal(line.hidden, true);
+  ui.progress({running: true, pass: 1, page: 2, stage: "tex"});
+  assert.equal(line.hidden, false);
+  assert.ok(line.classList.contains("known"));
+  assert.equal(fill.style.transform, "scaleX(0.5)");
+  ui.progress({running: true, pass: 1, page: 0, stage: "bib"});
+  assert.ok(!line.classList.contains("known"));
+  const label = dom.window.document.querySelector(".pdf-stale") as HTMLElement;
+  ui.progress({running: true, pass: 2, page: 3, stage: "tex"});
+  assert.equal(label.textContent, "Compilation · passe 2 · page 3");
+  ui.progress(null);
+  assert.equal(line.hidden, true);
+  assert.equal(label.hidden, true);
+
+  const flag = dom.window.document.querySelector(".pdf-stale") as HTMLElement;
+  ui.stale(1_700_000_000);
+  assert.equal(flag.hidden, false);
+  assert.match(flag.textContent || "", /^Dernier PDF valide · il y a 3 min$/);
+  right.classList.add("reading");
+  ui.stale(1_700_000_000);
+  assert.equal(flag.hidden, true);
+  right.classList.remove("reading");
+  ui.stale(null);
+  assert.equal(flag.hidden, true);
+  assert.equal(latex.staleAgeLabel(20_000), "à l’instant");
+  assert.equal(latex.staleAgeLabel(2 * 3_600_000 + 5), "il y a 2 h");
+  ui.destroy();
+  assert.equal(dom.window.document.querySelector(".pdf-stale"), null);
+  clock = 0;
+});
+
 test("compile coordinator never starts compilation when a dirty document cannot be saved", async () => {
   let requested = false;
   const chips: unknown[] = [];
@@ -622,7 +709,9 @@ test("footnote tooltips keep formulas and nested citations as plain text", () =>
     {citations:{a:{label:"Smith, 2024",title:"Result"}}, references:{f:"2"}});
   const dom = new JSDOM(html);
   assert.equal(dom.window.document.querySelector("sup").getAttribute("title"), String.raw`Score \widehat{R}; see (Smith, 2024) and 2.`);
-  assert.equal(dom.window.document.body.textContent, "Text*.");
+  assert.equal(dom.window.document.querySelector("p").textContent, "Text1.");
+  // La note numérotée rejoint la liste de fin (ou la marge, posée par la Lecture).
+  assert.match(dom.window.document.querySelector(".tex-notes li[data-fn='1']").textContent, /Score .*Smith, 2024.* and 2\./);
   assert.doesNotMatch(html, /\x00/);
   dom.window.close();
 });
@@ -1061,4 +1150,52 @@ test("reading marge: a failed load never replaces the stored section colors", as
   assert.deepEqual(server.posts[0].known, ['sec3']);
   assert.deepEqual(stored['tex-marks:paper.tex'].map(m => `${m.id}:${m.color}`).sort(), ['sec1:green', 'sec3:red']);
   dom.window.close();
+});
+
+test("Lecture typographique : sections, équations et figures numérotées, \\citet natbib", () => {
+  const context = latex.parseReadingContext("", String.raw`@article{liang,author={Liang, Shunlin},year={2001},title={Narrowband to broadband},journal={Remote Sensing of Environment},doi={10.1016/x}}`,
+    String.raw`\newlabel{fig:map}{{3}{2}}\newlabel{eq:trend}{{7}{2}}`);
+  assert.equal(context.citations.liang.names, "Liang");
+  assert.equal(context.citations.liang.year, "2001");
+  assert.equal(context.citations.liang.authors, "Shunlin Liang");
+  assert.equal(context.citations.liang.venue, "Remote Sensing of Environment");
+  const html = latex.renderLatexReadingHtml(String.raw`\begin{document}
+\section{Intro}\label{sec:intro}
+As shown by \citet{liang} and \citep{liang}.
+\section*{Remerciements}
+\begin{equation}
+a = b \label{eq:trend}
+\end{equation}
+\begin{equation*}
+c = d
+\end{equation*}
+\begin{figure}
+\includegraphics[width=\linewidth]{figures/map}
+\caption{Map.}\label{fig:map}
+\end{figure}
+\begin{figure}
+\caption{Other.}
+\end{figure}
+\end{document}`, katex, {...context, imageBases: ["/proj"]});
+  const doc = new JSDOM(html).window.document;
+  assert.equal(doc.querySelector("h2").textContent, "Intro");
+  assert.equal(doc.querySelector("h2").hasAttribute("data-nonum"), false);
+  assert.equal(doc.querySelectorAll("h2")[1].hasAttribute("data-nonum"), true);
+  const cites = doc.querySelectorAll(".tex-cite");
+  assert.equal(cites[0].textContent, "Liang (2001)");
+  assert.equal(cites[1].textContent, "Liang, 2001");
+  assert.equal(cites[0].dataset.cite, "liang");
+  assert.equal(cites[0].dataset.url, "https://doi.org/10.1016/x");
+  const numbers = [...doc.querySelectorAll(".tex-eqno")].map(n => n.textContent);
+  assert.deepEqual(numbers, ["(7)"]);
+  const figures = [...doc.querySelectorAll(".tex-fignum")].map(n => n.textContent);
+  assert.deepEqual(figures, ["Figure 3", "Figure 2"]);
+  const image = doc.querySelector("img.tex-figimg");
+  assert.deepEqual(JSON.parse(image.dataset.candidates)[0], "/thumb?path=%2Fproj%2Ffigures%2Fmap.pdf&w=1600");
+  assert.equal(doc.querySelector(".tex-nonum-doc"), null);
+});
+
+test("Lecture typographique : un fragment inclus n'invente pas de numéros de section", () => {
+  const html = latex.renderLatexReadingHtml("\\section{Study area}\nText.", katex);
+  assert.match(html, /^<div class="tex-nonum-doc" hidden><\/div>/);
 });

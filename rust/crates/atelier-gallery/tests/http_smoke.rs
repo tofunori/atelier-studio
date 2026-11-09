@@ -2017,6 +2017,89 @@ fn compile_downloads_tectonic_once_when_no_tex_is_installed() {
     assert_eq!(args.trim(), "-X compile --synctex ./main.tex");
 }
 
+/// latexmk factice : annonce une passe, expédie trois pages, attend, puis
+/// écrit le PDF (ou échoue sans le toucher si `fail` existe).
+#[cfg(unix)]
+fn fake_latexmk(bin: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let script = bin.join("latexmk");
+    fs::write(
+        &script,
+        "#!/bin/sh\n\
+         echo \"Run number 1 of rule 'pdflatex'\"\n\
+         echo '(./main.aux) [1] [2] [3]'\n\
+         /bin/sleep 1.5\n\
+         if [ -e fail ]; then echo '! Undefined control sequence.'; echo 'l.4 \\oops'; exit 12; fi\n\
+         printf '%%PDF-1.4' > main.pdf\n",
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn compile_publishes_live_progress_and_flags_a_kept_pdf() {
+    let json = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap();
+    let tools = tempfile::tempdir().unwrap();
+    let bin = tools.path().join("bin");
+    let Some(path) = path_without_tex(&bin) else {
+        return;
+    };
+    fake_latexmk(&bin);
+    let srv = start_server_with(&[("PATH", path)]);
+    fs::write(srv.root.join("main.tex"), "\\documentclass{article}\n").unwrap();
+    let (st, body) = http(srv.port, "GET", "/compile/progress?path=main.tex", None);
+    assert_eq!(
+        (st, json(&body)["running"].clone()),
+        (200, serde_json::json!(false)),
+        "{body}"
+    );
+
+    let port = srv.port;
+    let compile =
+        std::thread::spawn(move || http(port, "POST", "/compile", Some(r#"{"path":"main.tex"}"#)));
+    let mut seen = serde_json::Value::Null;
+    for _ in 0..40 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let (_, body) = http(srv.port, "GET", "/compile/progress?path=main.tex", None);
+        let got = json(&body);
+        if got["page"] == serde_json::json!(3) {
+            seen = got;
+            break;
+        }
+    }
+    assert_eq!(seen["running"], serde_json::json!(true), "{seen}");
+    assert_eq!(
+        (seen["pass"].clone(), seen["stage"].clone()),
+        (serde_json::json!(1), serde_json::json!("tex")),
+        "{seen}"
+    );
+    let (st, body) = compile.join().unwrap();
+    assert_eq!(st, 200, "{body}");
+    assert_eq!(json(&body)["ok"], serde_json::json!(true), "{body}");
+    let (_, body) = http(srv.port, "GET", "/compile/progress?path=main.tex", None);
+    assert_eq!(json(&body)["running"], serde_json::json!(false), "{body}");
+
+    // Échec sans réécriture du PDF : la réponse dit que l'aperçu reste valide.
+    fs::write(srv.root.join("fail"), "").unwrap();
+    let (st, body) = http(srv.port, "POST", "/compile", Some(r#"{"path":"main.tex"}"#));
+    assert_eq!(st, 200, "{body}");
+    let got = json(&body);
+    assert_eq!(
+        (got["ok"].clone(), got["stale"].clone()),
+        (serde_json::json!(false), serde_json::json!(true)),
+        "{body}"
+    );
+    assert!(got["pdfMtime"].as_f64().is_some(), "{body}");
+    let (st, _) = http(
+        srv.port,
+        "GET",
+        "/compile/progress?path=../dehors.tex",
+        None,
+    );
+    assert_eq!(st, 403);
+}
+
 #[test]
 fn compile_reports_a_failed_tectonic_download() {
     let tools = tempfile::tempdir().unwrap();

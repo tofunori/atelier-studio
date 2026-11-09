@@ -3,6 +3,7 @@ import {
   createLatexBibCheckController,
   type LatexBibCheckController,
   createLatexCompileCoordinator,
+  createCompileProgressUi,
   createLatexConsolePanel,
   createLatexOutlineController,
   createLatexPdfControls,
@@ -433,8 +434,11 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   const ensureReader = (): LatexReadingController | null => {
     if (!isTex) return null;
     if (reader) return reader;
+    // Les figures de la Lecture se résolvent comme \includegraphics : depuis
+    // le dossier de la racine compilée, puis celui du fichier ouvert.
+    const directory = (file: string | null | undefined): string | null => file && file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : null;
     reader = createLatexReadingController({
-      getContext: () => readingContext,
+      getContext: () => ({...readingContext, imageBases: [...new Set([directory(readingRoot), directory(path)].filter((base): base is string => Boolean(base)))]}),
       openPdfAtLine: (line, destination) => {
         if (destination?.external) {
           setState("hint", `Ce renvoi appartient à ${destination.path.split("/").at(-1)} — ouvre son PDF pour le consulter.`);
@@ -856,6 +860,9 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     lastCompile = {log: log.log, ok: log.ok};
     consolePanel.render(log);
   };
+  const compileUi = isTex
+    ? createCompileProgressUi({document: doc, window: win, right: doc.getElementById("right") as HTMLElement})
+    : null;
   const compileCoordinator = createLatexCompileCoordinator({
     isTex,
     getText: () => editor?.getValue() || "",
@@ -869,6 +876,12 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       });
       return response.json();
     },
+    requestProgress: async () => {
+      const response = await win.fetch(`/compile/progress?path=${encodeURIComponent(path || "")}`);
+      return response.ok ? response.json() : null;
+    },
+    onProgress: (progress) => compileUi?.progress(progress),
+    onStale: (response) => compileUi?.stale(response?.pdfMtime ?? null),
     revealIssue: (issue) => {
       if (!editor) return;
       revealLineRange(editor, {fromLine: issue.line - 1, margin: 120});
@@ -1105,7 +1118,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     if (isBib && key) bibs.focusKey(key);
   });
   else {
-    setState("ok", "choose a .tex file");
+    setState("ok", "choisis un fichier .tex");
     void picker.show("");
   }
   if (path) {
