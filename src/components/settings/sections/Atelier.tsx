@@ -150,8 +150,8 @@ export default function Atelier(p: SectionProps) {
             options={[
               { value: "codex:gpt-5.5:high", label: "GPT-5.5 · high" },
               { value: "codex:gpt-5.5:medium", label: "GPT-5.5 · medium" },
-              { value: "claude:claude-opus-4-8:high", label: "Opus 4.8 · high" },
-              { value: "claude:claude-sonnet-5:high", label: "Sonnet 5 · high" },
+              { value: "claude:claude-opus-5-5:high", label: "Opus 5.5 · high" },
+              { value: "claude:claude-sonnet-5-5:high", label: "Sonnet 5.5 · high" },
             ]}
           />
         </Row>
