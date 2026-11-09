@@ -1,8 +1,8 @@
-// Surfaces dans la barre du haut (plan 055, compacté 2026-11-01) : bouton
-// Galerie toujours visible + un lanceur qui nomme la surface ouverte.
+// Surfaces dans la barre du haut (plan 055 ; onglets posés 2026-11-09) :
+// onglet Galerie épinglé, surface ouverte en onglet, ⌄ des surfaces au bord.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, screen, cleanup, act, within } from "@testing-library/react";
-import TopBarSurfaces, { buildTargets } from "./TopBarSurfaces";
+import TopBarSurfaces, { SurfacesMenu, buildTargets } from "./TopBarSurfaces";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage, t } from "../lib/i18n";
 import { WORKSPACE_PANE_MENU } from "../lib/workspacePaneMenu";
@@ -23,7 +23,7 @@ function props(over: Partial<React.ComponentProps<typeof TopBarSurfaces>> = {}) 
 
 /** Le menu se charge en différé : laisser l'import dynamique se poser. */
 async function openLauncher() {
-  fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${t("topbar.surfaces")}`) }));
+  fireEvent.click(screen.getByRole("button", { name: t("topbar.surfaces") }));
   await act(async () => { await vi.dynamicImportSettled(); });
   await screen.findByText(t("atelier.calculs"));
 }
@@ -62,38 +62,43 @@ describe("cibles", () => {
 
 });
 
+const GALLERY = () => t("atelier.gallery-title");
+
 describe("TopBarSurfaces", () => {
-  it("garde la galerie à un clic, enfoncée quand elle est ouverte", () => {
+  it("garde la Galerie en onglet épinglé, enfoncée quand elle est ouverte", () => {
     const onSelectSurface = vi.fn();
     renderUi(<TopBarSurfaces {...props({ onSelectSurface })} />);
-    const gallery = screen.getByRole("button", { name: t("atelier.surface") });
+    const gallery = screen.getByRole("button", { name: GALLERY() });
     expect(gallery).toHaveAttribute("aria-pressed", "true");
+    expect(gallery.closest(".document-tab-shell")).toHaveAttribute("data-active", "true");
     fireEvent.click(gallery);
     expect(onSelectSurface).toHaveBeenCalledWith("atelier");
-    // plus de rangée d'icônes : les autres surfaces vivent dans le lanceur
+    // sur la Galerie, aucun autre onglet de surface
     expect(screen.queryByRole("button", { name: t("atelier.connaissances") })).toBeNull();
   });
 
-  it("le lanceur dit « Surfaces » sur la galerie, et le nom de la surface ouverte ailleurs", () => {
-    const { unmount } = renderUi(<TopBarSurfaces {...props()} />);
-    expect(screen.getByRole("button", { name: t("topbar.surfaces") })).toBeTruthy();
-    unmount();
+  it("la surface ouverte hors Galerie devient un onglet nommé", () => {
     renderUi(<TopBarSurfaces {...props({ activeSurface: "calculs" })} />);
-    expect(screen.getByRole("button", { name: `${t("topbar.surfaces")} : ${t("atelier.calculs")}` })).toBeTruthy();
-    expect(screen.getByRole("button", { name: t("atelier.surface") })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: t("atelier.calculs") })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: GALLERY() })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("nomme l'IDE quand il recouvre la galerie, rien quand l'atelier est masqué", () => {
+  it("l'IDE ne se nomme que sans document actif, et rien quand l'atelier est masqué", () => {
     const { unmount } = renderUi(<TopBarSurfaces {...props({ ideActive: true })} />);
-    expect(screen.getByRole("button", { name: `${t("topbar.surfaces")} : ${t("atelier.ide")}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "IDE" })).toBeTruthy();
     unmount();
+    const again = renderUi(<TopBarSurfaces {...props({ ideActive: true })} documentActive />);
+    expect(screen.queryByRole("button", { name: "IDE" })).toBeNull();
+    again.unmount();
     renderUi(<TopBarSurfaces {...props({ activeSurface: "calculs", showAtelier: false })} />);
-    expect(screen.getByRole("button", { name: t("topbar.surfaces") })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: t("atelier.calculs") })).toBeNull();
   });
+});
 
-  it("le menu liste toutes les autres surfaces et ouvre celle choisie", async () => {
+describe("SurfacesMenu", () => {
+  it("liste toutes les autres surfaces et ouvre celle choisie", async () => {
     const onSelectSurface = vi.fn();
-    renderUi(<TopBarSurfaces {...props({ onSelectSurface })} />);
+    renderUi(<SurfacesMenu {...props({ onSelectSurface })} />);
     await openLauncher();
     expect(item(t("atelier.biblio"))).toBeTruthy();
     expect(item(t("atelier.noyau"))).toBeTruthy();
@@ -102,8 +107,8 @@ describe("TopBarSurfaces", () => {
     expect(onSelectSurface).toHaveBeenCalledWith("connaissances");
   });
 
-  it("coche la surface ouverte dans le menu", async () => {
-    renderUi(<TopBarSurfaces {...props({ activeSurface: "biblio" })} />);
+  it("coche la surface ouverte", async () => {
+    renderUi(<SurfacesMenu {...props({ activeSurface: "biblio" })} />);
     await openLauncher();
     expect(item(t("atelier.biblio"))).toHaveAttribute("aria-checked", "true");
     expect(item(t("atelier.calculs"))).toHaveAttribute("aria-checked", "false");
@@ -111,7 +116,7 @@ describe("TopBarSurfaces", () => {
 
   it("l'explorateur reste une bascule, pas une surface", async () => {
     const onToggleExplorer = vi.fn();
-    renderUi(<TopBarSurfaces {...props({ onToggleExplorer })} />);
+    renderUi(<SurfacesMenu {...props({ onToggleExplorer })} />);
     await openLauncher();
     fireEvent.click(item(t("atelier.file-explorer")));
     expect(onToggleExplorer).toHaveBeenCalled();
@@ -129,21 +134,21 @@ describe("TopBarSurfaces — clic droit = actions du pane", () => {
     return { requests, stop: () => window.removeEventListener(WORKSPACE_PANE_MENU, listen) };
   };
 
-  it("sur la galerie affichée, demande le menu de la galerie", () => {
+  it("sur la Galerie affichée, demande le menu de la galerie", () => {
     const { requests, stop } = capture();
     renderUi(<TopBarSurfaces {...props()} />);
-    fireEvent.contextMenu(screen.getByRole("button", { name: t("atelier.surface") }), { clientX: 10, clientY: 20 });
+    fireEvent.contextMenu(screen.getByRole("button", { name: GALLERY() }), { clientX: 10, clientY: 20 });
     stop();
     expect(requests).toEqual([{ surface: "atelier", x: 10, y: 20 }]);
   });
 
-  it("sur la pastille, demande le menu de la surface ouverte — pas celui du navigateur", () => {
+  it("sur l'onglet de surface, demande son menu — pas celui du navigateur", () => {
     const { requests, stop } = capture();
     const { unmount } = renderUi(<TopBarSurfaces {...props({ activeSurface: "terminal" })} />);
-    fireEvent.contextMenu(screen.getByRole("button", { name: new RegExp(`^${t("topbar.surfaces")}`) }), { clientX: 5, clientY: 6 });
+    fireEvent.contextMenu(screen.getByRole("button", { name: t("atelier.terminal") }), { clientX: 5, clientY: 6 });
     unmount();
     renderUi(<TopBarSurfaces {...props({ activeSurface: "browser" })} />);
-    fireEvent.contextMenu(screen.getByRole("button", { name: new RegExp(`^${t("topbar.surfaces")}`) }), { clientX: 5, clientY: 6 });
+    fireEvent.contextMenu(screen.getByRole("button", { name: t("atelier.browser") }), { clientX: 5, clientY: 6 });
     stop();
     expect(requests).toEqual([{ surface: "terminal", x: 5, y: 6 }]);
   });

@@ -45,6 +45,9 @@
      prend une ombre plus haute. Jamais une bordure de plus. */
   --sheet-lift: 0 0 0 .5px rgba(0,0,0,.6), 0 1px 2px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.40);
   --panel-edge: inset 0 0 0 .5px rgba(255,255,255,.06), inset 0 1px 0 rgba(255,255,255,.05);
+  /* onglet actif posé sur son panneau (barre du haut, 2026-11-09) : le même
+     liseré que le panneau, sur le haut et les flancs seulement */
+  --tab-lift: inset 0 1px 0 rgba(255,255,255,.05), inset .5px 0 0 rgba(255,255,255,.06), inset -.5px 0 0 rgba(255,255,255,.06);
   --float-lift: inset 0 0 0 .5px rgba(255,255,255,.07), 0 2px 4px rgba(0,0,0,.30), 0 12px 28px rgba(0,0,0,.36);
   /* rangée sélectionnée posée sur le sol de la colonne (jamais un bouton) */
   --ground-raised: var(--bg-ctl);
@@ -93,6 +96,7 @@
   --card-lift: 0 0 0 .5px rgba(20,28,38,.08), 0 1px 3px rgba(20,28,38,.09);
   --sheet-lift: 0 0 0 .5px rgba(20,28,38,.07), 0 1px 2px rgba(20,28,38,.06), 0 10px 28px rgba(20,28,38,.08);
   --panel-edge: inset 0 1px 0 rgba(255,255,255,.7);
+  --tab-lift: inset 0 1px 0 rgba(255,255,255,.7), 0 -.5px 0 rgba(20,28,38,.07), -.5px 0 0 rgba(20,28,38,.05), .5px 0 0 rgba(20,28,38,.05);
   --float-lift: 0 0 0 .5px rgba(20,28,38,.08), 0 2px 4px rgba(20,28,38,.06), 0 12px 28px rgba(20,28,38,.10);
   /* en clair, --bg-ctl se confond avec le sol : la sélection monte au ton de
      la feuille (gris clair, jamais blanc) */
@@ -129,6 +133,9 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    (rail ↔ conversations ↔ atelier ↔ chat) ; les splits internes gardent leur
    poignée fine, sinon on paierait 8 px à chaque division. */
 .app-row { background: var(--surface-canvas); padding: var(--gutter); }
+/* sous la barre du haut, pas de gouttière : l'onglet actif se pose sur le
+   panneau qu'il pilote (onglets posés, 2026-11-09) */
+.topbar + .app-row { padding-top: 0; }
 .app { height: 100%; }
 
 /* Option 4 (2026-08-16) — le séparateur horizontal naît du DÉFILEMENT : au
@@ -1502,16 +1509,17 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* ===== shell façon VS Code : barre 32px (feux natifs) + rail + panneau +
    surface, tout COLLÉ — séparateurs 1px, aucune carte flottante, aucune
    ombre, aucun rayon sur les zones du shell. ===== */
-/* Trois zones : onglets à gauche, surfaces au CENTRE, contrôles à droite.
-   Côtés en minmax(0,1fr) → le groupe du milieu est centré sur la fenêtre et
-   ne se déplace pas quand un onglet s'ouvre ; min-width 0 laisse les onglets
-   tronquer au lieu de pousser le centre. */
-/* The left track is measured from the actual panel divider. */
-.topbar { height: 38px; flex-shrink: 0; display: grid;
-  grid-template-columns: minmax(0, var(--toolbar-left, 1fr)) auto minmax(0, 1fr); align-items: center;
-  background: var(--surface-canvas); gap: 8px; }
-.topbar-start { display: flex; align-items: center; min-width: 0; height: 100%; gap: 8px; }
-.topbar-center { display: flex; align-items: center; justify-content: center; }
+/* Deux moitiés « onglets posés » (2026-11-09) : la colonne de gauche s'arrête
+   sur l'axe mesuré du séparateur chat | atelier (--tb-axis), si bien que
+   chaque moitié de barre pilote le panneau qui est dessous ; min-width 0
+   laisse les onglets tronquer. */
+.topbar { height: 38px; flex-shrink: 0; display: grid; position: relative; z-index: 2;
+  grid-template-columns: minmax(0, max(var(--tb-axis, 50%), var(--tb-lights))) minmax(0, 1fr); align-items: center;
+  background: var(--surface-canvas); gap: 0; --tb-lights: 92px; }
+/* chat seul : l'atelier n'a pas de panneau, sa moitié garde une largeur
+   fixe au bord (Galerie, documents, ⌄, disposition) */
+.topbar[data-layout="chat"] { grid-template-columns: minmax(0, 1fr) clamp(240px, 36%, 560px); }
+.topbar-start { display: flex; align-items: center; min-width: 0; height: 100%; gap: 4px; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
   padding-left: 92px; /* réserve les feux natifs (fin ≈ x66) + ~26 de respiration */ }
 /* crumb projet aminci (2026-07-16) : nom seul en texte discret + chevron au
@@ -1553,15 +1561,14 @@ button.kernel-file:hover { color: var(--text-primary); }
 .pm-row.pm-action { color: var(--text-muted); font-weight: 400; }
 .pm-row.pm-action:hover { color: var(--text-primary); }
 .topbar .flex { flex: 1; }
-.topbar-right .topbar-qa.on { color: var(--text-primary); background: var(--bg-ctl); }
 /* La recherche était un champ de clamp(280px, 32vw, 420px) qui annonçait un
    raccourci tapé de mémoire (lot 068) : elle est redevenue une icône du
    groupe de droite, et ses 420 px sont passés aux onglets. */
 /* zone de droite : les onglets d'abord (collés au centre), puis un ressort,
    puis les contrôles au bord. min-width 0 pour que les onglets tronquent
    au lieu de décentrer les surfaces. */
-.topbar-right { display: flex; align-items: center; gap: 8px;
-  min-width: 0; padding-right: 12px; }
+.topbar-right { display: flex; align-items: center; gap: 4px; height: 100%;
+  min-width: 0; padding-right: 12px; padding-left: calc(var(--gutter) / 2 + 8px); }
 .tb-seg { display: inline-flex; background: var(--bg-ctl); border-radius: var(--r-m); padding: 4px; gap: 2px; }
 .tb-seg button { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: var(--control-height-s); background: transparent; border: none; color: var(--text-muted);
@@ -1625,7 +1632,6 @@ button.kernel-file:hover { color: var(--text-primary); }
 .rail-act-more:hover { color: var(--text-secondary); }
 /* Barre du haut : groupes séparés, surface active soulignée sur la bordure */
 .topbar-surfaces { display: inline-flex; align-items: center; gap: 4px; }
-.topbar-target { display: inline-flex; flex: none; }
 .topbar-div { width: 1px; height: 16px; background: var(--border); flex: none; margin: 0 2px; }
 /* File-tab layout; shared shape/selection live in document-tabs.css. */
 .topbar-tabs { display: flex; align-items: center; gap: 4px; min-width: 0;
@@ -1661,18 +1667,8 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* fenêtre étroite : les onglets se resserrent avant que les surfaces ne se
    replient — replier, jamais comprimer, dans cet ordre */
 @media (max-width: 1150px) { .topbar-tab { max-width: 144px; } }
-.topbar-surface { position: relative; }
 .topbar-menu-icon { display: inline-flex; width: 15px; justify-content: center; color: var(--text-muted); }
 .topbar-menu-icon svg { width: 15px; height: 15px; }
-/* Lanceur des surfaces (2026-11-01, variante B) : pastille discrète
-   « Surfaces » sur la galerie ; elle prend le nom et le fond de la surface
-   ouverte ailleurs. Jamais de fond clair : --bg-ctl comme l'onglet actif. */
-.topbar-launcher.ui-btn { gap: 6px; padding: 0 8px; color: var(--text-muted); font-weight: 400; }
-.topbar-launcher.ui-btn[data-current] { color: var(--text-primary); background: var(--bg-ctl); font-weight: 500; }
-.topbar-launcher .ui-btn-label { display: inline-flex; align-items: center; gap: 6px; }
-.topbar-launcher .ui-btn-label > svg:first-child:not(:last-child) { width: 15px; height: 15px; flex: none; }
-.topbar-launcher .ui-btn-label > svg:last-child { color: var(--text-muted); flex: none; }
-.topbar-launcher-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-btn.usage-ib { position: relative; }
 .rail-pinned { flex: none; width: 100%; display: flex; flex-direction: column; align-items: center;
   gap: 6px; padding: 8px 0 8px; }

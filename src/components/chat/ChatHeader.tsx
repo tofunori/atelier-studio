@@ -80,10 +80,10 @@ export function ChatHeader(p: {
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
-  const [linkedOpen, setLinkedOpen] = useState(false);
-  // Dans la barre du haut (2026-11-01), la vue de la transcription et les
-  // conversations liées passent dans le ⋯ : seuls les sous-agents, qui
-  // comptent ce qui tourne, gardent une icône.
+  // Dans la barre du haut (2026-11-09, variante S2), la vue de la
+  // transcription, la continuité et le renommage passent au clic droit de
+  // l'onglet du chat : seuls les sous-agents, qui comptent ce qui tourne,
+  // gardent une icône.
   const fold = p.compact === true;
   // triggerRef transmis à LazyDropdownMenu (Base UI gère dismiss et focus)
   const moreAnchor = useRef<HTMLButtonElement | null>(null);
@@ -228,9 +228,9 @@ export function ChatHeader(p: {
               {nomConsigne}
             </span>
           ) : null}
-          {p.linkedAgents?.length ? (
-            <Popover {...(fold ? { open: linkedOpen, onOpenChange: setLinkedOpen } : {})}>
-              {!fold && <Tooltip label={t("linkedConversation.title")} placement="bottom">
+          {p.linkedAgents?.length && !fold ? (
+            <Popover>
+              <Tooltip label={t("linkedConversation.title")} placement="bottom">
                 <PopoverTrigger
                   render={
                     <IconButton
@@ -241,8 +241,8 @@ export function ChatHeader(p: {
                     </IconButton>
                   }
                 />
-              </Tooltip>}
-              <PopoverContent align="end" anchor={fold ? moreAnchor : undefined} className="tw:w-72">
+              </Tooltip>
+              <PopoverContent align="end" className="tw:w-72">
                 <PopoverHeader>
                   <PopoverTitle>{t("linkedConversation.title")}</PopoverTitle>
                 </PopoverHeader>
@@ -257,7 +257,7 @@ export function ChatHeader(p: {
               </PopoverContent>
             </Popover>
           ) : null}
-          {(p.onRename != null || (fold && (p.onTranscriptViewChange != null || p.linkedAgents?.length))) && (
+          {p.onRename != null && !fold && (
             <LazyDropdownMenu
               open={menuOpen}
               onOpenChange={setMenuOpen}
@@ -275,18 +275,7 @@ export function ChatHeader(p: {
                   </svg>
                 </IconButton>
               }
-              items={[
-                ...(fold && p.onTranscriptViewChange != null ? [{
-                  key: "view", label: t("chat.transcript-view"),
-                  children: TRANSCRIPT_VIEWS.map((view) => ({
-                    key: view.id, className: "transcript-view-item", checked: view.id === (p.transcriptView ?? "normal"), keepOpen: false,
-                    label: <>{view.icon()}<span>{t(`chat.transcript-view.${view.id}`)}</span></>,
-                    onSelect: () => p.onTranscriptViewChange?.(view.id),
-                  })),
-                }] : []),
-                ...(fold && p.linkedAgents?.length ? [{ key: "linked", label: t("linkedConversation.title"), onSelect: () => setLinkedOpen(true) }] : []),
-                ...(p.onRename ? [{ key: "rename", label: t("action.rename"), onSelect: p.onRename, separatorBefore: fold }] : []),
-              ]}
+              items={[{ key: "rename", label: t("action.rename"), onSelect: p.onRename }]}
             />
           )}
         </>

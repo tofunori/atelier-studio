@@ -28,6 +28,8 @@ export function TopBarBench() {
       tabs={[{id:"pdf",title:"main_ngeo.pdf",kind:"document"},{id:"tex",title:"discussion_en.tex",kind:"document"}]}
       activeTab="tex" onSelectTab={noop} onCloseTab={noop}
       chatTabControls={{openChats:chatTabs.openChats,pinnedIds:chatTabs.pinnedIds,onTogglePin:chatTabs.togglePin,onClose:ids=>setActive(chatTabs.close(ids))}}
+      chatTabActions={{ onRename: noop, transcriptView: "normal", onTranscriptViewChange: noop,
+        linkedFor: (id) => id === "a" ? [{ id: "kimi-1", provider: "Kimi", title: "Analyse initiale", paused: false, direction: "parent" }] : [] }}
       chats={chats} activeChatId={active} onSelectChat={setActive} onNewChat={noop} />
     {host && createPortal(<ChatHeader compact title={chats.find(chat => chat.id === active)?.title ?? ""}
       provider="codex" projectName="Chapitre1-Albedo" status={null} onTranscriptViewChange={noop}
