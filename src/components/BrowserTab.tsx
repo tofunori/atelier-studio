@@ -477,18 +477,21 @@ export default function BrowserTab(p: {
 
   // « Le chat sait ce que tu regardes » (2026-11-09) : l'adresse de l'onglet
   // actif. AtelierPane ne la publie que si le navigateur est l'onglet actif.
-  const activeUrl = tabs.find((tab) => tab.id === activeTabId)?.url ?? "";
+  const activeBrowserTab = tabs.find((tab) => tab.id === activeTabId);
+  const activeUrl = activeBrowserTab?.url ?? "";
+  const activeTitle = activeBrowserTab?.title ?? "";
   useEffect(() => {
     let context = null;
     try {
       const u = new URL(activeUrl);
       if (u.protocol === "https:" || u.protocol === "http:") {
         const name = `${u.hostname}${u.pathname === "/" ? "" : u.pathname}`.slice(0, 120);
-        context = { path: activeUrl, url: activeUrl, name, kind: "web" as const };
+        const title = activeTitle.trim() && activeTitle !== t("browser.new-tab") ? activeTitle.trim().slice(0, 300) : undefined;
+        context = { path: activeUrl, url: activeUrl, name, kind: "web" as const, ...(title ? { title } : {}) };
       }
     } catch { /* onglet vide */ }
     publishSurfaceLiveContext("browser", context);
-  }, [activeUrl]);
+  }, [activeUrl, activeTitle]);
   useEffect(() => () => publishSurfaceLiveContext("browser", null), []);
 
   // suivre la taille du pane
