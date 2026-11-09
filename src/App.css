@@ -6585,13 +6585,20 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .scol-sig .rail-signal { position: static; }
 .scol-sig .rail-signal.sig-dot { width: 6px; height: 6px; border: none; }
 .scol-sig .rail-signal.sig-unread { background: var(--accent); }
-.scol-foot { display: flex; align-items: center; gap: 4px; height: 40px; margin-top: 4px;
+/* Deux bords seulement dans toute la colonne (audit design, 2026-11-09) :
+   20 px pour les icônes, titres de section, champ et tuile ; 44 px pour tout
+   libellé — rangées nommées, fils, projets et quota. Les icônes sont centrées
+   dans une case de 16 px à 20 px. */
+.app-row.unified .pnav-row .prov-ico { width: 16px; justify-content: center; }
+.app-row.unified .pnav-meta { padding-left: 24px; }
+.scol-foot { display: flex; align-items: center; gap: 0; height: 40px; margin-top: 4px;
   border-top: 1px solid var(--border-subtle); }
+.scol-foot .scol-foot-btn { width: 32px; }
 .scol-foot .rail-activity { flex-direction: row; width: auto; margin-left: auto; }
-.scol-usage.ui-rowbtn { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px;
+.scol-usage.ui-rowbtn { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 0;
   border-radius: var(--r-s); font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums;
   transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
-.scol-usage.ui-rowbtn:hover { background: var(--surface-hover); color: var(--text-secondary); }
+.scol-usage.ui-rowbtn:hover { color: var(--text-secondary); }
 .scol-usage-bar { display: block; width: 40px; height: 4px; border-radius: var(--r-pill);
   background: var(--bg-ctl); overflow: hidden; }
 .scol-usage-bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--text-muted); }
