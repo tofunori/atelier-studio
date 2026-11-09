@@ -1,31 +1,32 @@
-// Surfaces dans la barre du haut (plan 055, compacté 2026-11-01) : la
-// galerie garde son bouton, toujours visible ; toutes les autres surfaces et
-// outils passent dans UN lanceur dont la pastille porte le nom de la surface
-// ouverte (« Surfaces » sur la galerie). Avant, six icônes épinglées et un
-// menu de personnalisation prenaient ~170 px de barre (demande Thierry,
-// variante B avec bouton Galerie).
+// Surfaces dans la barre du haut (plan 055 ; refonte « onglets posés »,
+// variante B + S2 du 2026-11-09). La moitié atelier suit la même phrase que
+// celle du chat : des onglets à gauche, UN ⌄ au bord.
+//  - La Galerie est un onglet épinglé, icône seule, toujours en tête.
+//  - La surface ouverte ailleurs (terminal, navigateur, bibliothèque…) devient
+//    un onglet à sa suite ; plus de pastille « IDE » : un document ouvert est
+//    lui-même un onglet (TopBarTabs).
+//  - Le ⌄ au bord ouvre toutes les autres surfaces et les outils.
 import { useState } from "react";
 import { t } from "../lib/i18n";
 import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick } from "../lib/workspaceDrag";
 import { SURFACES, type Surface } from "./surfaces";
 import { requestWorkspacePaneMenu } from "../lib/workspacePaneMenu";
-import { Tooltip } from "./ui/Tooltip";
-import { Button } from "./ui/Button";
 import { IconButton } from "./ui/IconButton";
+import { RowButton } from "./ui/RowButton";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 
 /** Cible de la barre : une surface de l'atelier, l'IDE, ou l'explorateur. */
 export type TargetId = Surface | "ide" | "explorer" | "annots";
 
-/** Le glisser-déposer de la galerie vers un pane, identique à celui du rail. */
+/** Le glisser-déposer d'une surface vers un pane, identique à celui du rail. */
 function dragProps(surface: Surface) {
   return {
-    onClickCapture: (event: React.MouseEvent<HTMLSpanElement>) => {
+    onClickCapture: (event: React.MouseEvent<HTMLElement>) => {
       if (!shouldSuppressWorkspaceSourceClick({ kind: "surface", surface })) return;
       event.preventDefault();
       event.stopPropagation();
     },
-    onPointerDown: (event: React.PointerEvent<HTMLSpanElement>) => {
+    onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
       dispatchWorkspacePointerDragStart(event.nativeEvent, { kind: "surface", surface });
     },
   };
@@ -57,7 +58,7 @@ export type TopBarTarget = {
   surface: Surface | null;
 };
 
-export function buildTargets(p: {
+export type SurfaceProps = {
   activeSurface: Surface;
   showAtelier: boolean;
   ideActive: boolean;
@@ -66,7 +67,9 @@ export function buildTargets(p: {
   onSelectIde: () => void;
   onToggleExplorer: () => void;
   onToggleAnnots: () => void;
-}): TopBarTarget[] {
+};
+
+export function buildTargets(p: SurfaceProps): TopBarTarget[] {
   return [
     {
       id: "explorer",
@@ -108,47 +111,66 @@ export function buildTargets(p: {
 /** Les outils (bascules et IDE) suivent les surfaces dans le menu. */
 const TOOL_IDS: TargetId[] = ["explorer", "ide", "annots"];
 
-export default function TopBarSurfaces(p: Parameters<typeof buildTargets>[0]) {
-  const [open, setOpen] = useState(false);
+/** Surface ouverte hors galerie : c'est elle qui devient un onglet. L'IDE ne
+ *  se nomme que s'il n'a aucun document actif (sinon l'onglet du document
+ *  suffit). */
+export function currentSurface(p: SurfaceProps, documentActive: boolean): TopBarTarget | undefined {
+  const targets = buildTargets(p);
+  return targets.find((target) => target.active && target.surface && target.id !== "atelier")
+    ?? (p.showAtelier && p.ideActive && !documentActive ? targets.find((target) => target.id === "ide") : undefined);
+}
+
+/** Tête de la bande de l'atelier : l'onglet Galerie, épinglé, puis la
+ *  surface ouverte s'il y en a une. */
+export default function TopBarSurfaces(p: SurfaceProps & { documentActive?: boolean }) {
   const targets = buildTargets(p);
   const gallery = targets.find((target) => target.id === "atelier")!;
-  // la pastille nomme ce qui occupe l'atelier, sauf la galerie (son bouton
-  // suffit) ; l'IDE recouvre la galerie, il se nomme donc aussi
-  const current = targets.find((target) => target.active && target.surface && target.id !== "atelier")
-    ?? (p.showAtelier && p.ideActive ? targets.find((target) => target.id === "ide") : undefined);
-  const item = (target: (typeof targets)[number]) => ({
+  const galleryLabel = t("atelier.gallery-title");
+  const current = currentSurface(p, p.documentActive ?? false);
+  // nom court : « IDE — éditeurs et fichiers ouverts » → « IDE »
+  const currentName = current?.label.split(" — ")[0];
+  return <span className="topbar-surfaces" role="group" aria-label={t("topbar.surfaces")}>
+    <span className="topbar-gallery-tab document-tab-shell topbar-surface-drag" data-active={gallery.active} data-pinned=""
+      {...dragProps("atelier")}
+      onContextMenu={gallery.active ? (event) => requestWorkspacePaneMenu(event, { surface: "atelier" }) : undefined}>
+      <RowButton className="topbar-gallery-main" aria-label={galleryLabel} title={galleryLabel}
+        aria-pressed={gallery.active} onClick={gallery.onSelect}>
+        {gallery.icon}
+      </RowButton>
+    </span>
+    {current && <span className={`topbar-surface-tab document-tab-shell${current.surface ? " topbar-surface-drag" : ""}`} data-active="true"
+      {...(current.surface ? dragProps(current.surface) : {})}
+      // clic droit = actions du pane de cette surface ; le navigateur garde
+      // son menu dans sa propre barre
+      onContextMenu={current.surface && current.surface !== "browser"
+        ? (event) => requestWorkspacePaneMenu(event, { surface: current.surface! })
+        : undefined}>
+      <RowButton className="topbar-surface-main" aria-current="page" title={current.label} onClick={current.onSelect}>
+        <span className="topbar-surface-icon">{current.icon}</span>
+        <span className="topbar-surface-name">{currentName}</span>
+      </RowButton>
+    </span>}
+  </span>;
+}
+
+/** Le ⌄ au bord de l'atelier : toutes les surfaces (hors Galerie, qui a son
+ *  onglet), puis les outils. */
+export function SurfacesMenu(p: SurfaceProps) {
+  const [open, setOpen] = useState(false);
+  const targets = buildTargets(p);
+  const item = (target: TopBarTarget) => ({
     key: target.id,
     label: <><span className="topbar-menu-icon">{target.icon}</span>{target.label}</>,
     checked: target.active, keepOpen: false,
     onSelect: target.onSelect,
   });
   const rest = targets.filter((target) => target.id !== "atelier");
-  return <span className="topbar-surfaces" role="toolbar" aria-label={t("topbar.surfaces")}>
-    <span className="topbar-target topbar-surface-drag" data-active={gallery.active} {...dragProps("atelier")}
-      onContextMenu={gallery.active ? (event) => requestWorkspacePaneMenu(event, { surface: "atelier" }) : undefined}>
-      <Tooltip label={gallery.label} placement="bottom">
-        <IconButton label={gallery.label} aria-pressed={gallery.active}
-          className={`ghost topbar-qa topbar-surface ${gallery.active ? "on" : ""}`} onClick={gallery.onSelect}>
-          {gallery.icon}
-        </IconButton>
-      </Tooltip>
-    </span>
-    <LazyDropdownMenu open={open} onOpenChange={setOpen} align="center" label={t("topbar.surfaces")} header={t("topbar.surfaces")}
-      trigger={<Button variant="ghost" size="sm" className="topbar-launcher" data-current={current ? "" : undefined}
-        aria-label={current ? `${t("topbar.surfaces")} : ${current.label}` : t("topbar.surfaces")}
-        aria-haspopup="menu" aria-expanded={open}
-        // clic droit sur la pastille = actions du pane de cette surface ; le
-        // navigateur garde son menu dans sa propre barre
-        onContextMenu={current?.surface && current.surface !== "browser"
-          ? (event: React.MouseEvent) => requestWorkspacePaneMenu(event, { surface: current.surface! })
-          : undefined}>
-        {current?.icon}{/* nom court : « IDE — éditeurs et fichiers ouverts » → « IDE » */}
-        <span className="topbar-launcher-name">{current?.label.split(" — ")[0] ?? t("topbar.surfaces")}</span>
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 6.2 8 9.7l3.5-3.5" /></svg>
-      </Button>}
-      groups={[
-        { key: "surfaces", items: rest.filter((target) => !TOOL_IDS.includes(target.id)).map(item) },
-        { key: "tools", separatorBefore: true, items: rest.filter((target) => TOOL_IDS.includes(target.id)).map(item) },
-      ]} />
-  </span>;
+  return <LazyDropdownMenu open={open} onOpenChange={setOpen} align="end" label={t("topbar.surfaces")}
+    trigger={<IconButton className="topbar-surfaces-menu" label={t("topbar.surfaces")} aria-haspopup="menu" aria-expanded={open}>
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 6.2 8 9.7l3.5-3.5" /></svg>
+    </IconButton>}
+    groups={[
+      { key: "surfaces", label: t("topbar.open-in-atelier"), items: rest.filter((target) => !TOOL_IDS.includes(target.id)).map(item) },
+      { key: "tools", separatorBefore: true, items: rest.filter((target) => TOOL_IDS.includes(target.id)).map(item) },
+    ]} />;
 }

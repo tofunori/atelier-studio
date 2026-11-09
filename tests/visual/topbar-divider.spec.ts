@@ -1,14 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
 
 async function expectAligned(page: Page, split = true) {
-  await expect(page.locator(".topbar-center")).toBeVisible();
-  await expect.poll(() => page.evaluate((split) => {
-    const bar = document.querySelector('.topbar')!.getBoundingClientRect();
-    const tools = document.querySelector('.topbar-center')!.getBoundingClientRect();
-    const divider = document.querySelector('[data-panel-resize-handle-id="chat-atelier-divider"]')?.getBoundingClientRect();
-    const axis = split && divider ? divider.x + divider.width / 2 : bar.x + bar.width / 2;
-    return Math.abs(tools.x + tools.width / 2 - axis);
-  }, split)).toBeLessThan(1);
+  // onglets posés (2026-11-09) : la moitié atelier commence sur l'axe du
+  // séparateur ; en chat seul, elle garde une largeur fixe au bord droit.
+  await expect(page.locator(".topbar-right")).toBeVisible();
+  if (split) await expect.poll(() => page.evaluate(() => {
+    const right = document.querySelector('.topbar-right')!.getBoundingClientRect();
+    const divider = document.querySelector('[data-panel-resize-handle-id="chat-atelier-divider"]')!.getBoundingClientRect();
+    return Math.abs(right.x - (divider.x + divider.width / 2));
+  })).toBeLessThan(1);
   await expect(page.locator('.topbar')).toHaveCSS('height', '38px');
   await expect(page.locator('.topbar-layout-controls [role=radio]')).toHaveCount(3);
   for (const control of await page.locator('.topbar-layout-controls [role=radio]').all()) await expect(control).toBeVisible();
@@ -28,7 +28,7 @@ test('toolbar follows divider, sidebar and layout changes without an extra chat 
   await expectAligned(page);
   await page.getByRole('button', { name: 'Sidebar', exact: true }).click();
   await expectAligned(page);
-  await page.locator('.project-chat-tabs > button').last().click();
+  await page.locator('.project-chat-menu').click();
   await page.getByRole('menuitemcheckbox', { name: 'Données Copernicus', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Données Copernicus', exact: true })).toHaveAttribute('aria-current', 'page');
   await page.setViewportSize({ width: 1000, height: 850 });
@@ -67,7 +67,7 @@ test('chat tabs can be pinned, closed and reopened without native title labels',
   await first.click({button:'right'});
   await page.getByRole('menuitem',{name:/^(Pin tab|Épingler l’onglet)$/}).click();
   await expect(page.locator('.project-chat-tab-wrap.is-pinned')).toHaveCount(1);
-  await page.locator('.project-chat-tabs > button').last().click();
+  await page.locator('.project-chat-menu').click();
   await page.getByRole('menuitemcheckbox',{name:'Données Copernicus',exact:true}).click();
   const second=page.getByRole('button',{name:'Données Copernicus',exact:true});
   await expect(second).toBeVisible();
@@ -82,7 +82,7 @@ test('chat tabs can be pinned, closed and reopened without native title labels',
   await first.hover();
   await page.locator('.project-chat-tab-close').click();
   await expect(page.locator('.project-chat-tab')).toHaveCount(0);
-  await page.locator('.project-chat-tabs > button').last().click();
+  await page.locator('.project-chat-menu').click();
   await page.getByRole('menuitemcheckbox',{name:'Données Copernicus',exact:true}).click();
   await expect(second).toHaveAttribute('aria-current','page');
 });

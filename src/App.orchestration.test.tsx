@@ -1785,7 +1785,7 @@ describe("orchestration App — caractérisation", () => {
     const onSwitch = (event: Event) => switches.push((event as CustomEvent).detail);
     window.addEventListener("switch-surface", onSwitch);
 
-    // le lanceur de la barre du haut (2026-11-01) liste toutes les surfaces
+    // le ⌄ de la moitié atelier (2026-11-09) liste toutes les surfaces
     fireEvent.click(screen.getByRole("button", { name: t("topbar.surfaces") }));
     await act(async () => {
       await vi.dynamicImportSettled();
@@ -1802,8 +1802,9 @@ describe("orchestration App — caractérisation", () => {
     expect(document.querySelector('[data-panel-id="atelier"]')).toBeTruthy();
     expect(switches).toContainEqual({ surface: "biblio" });
     expect(document.querySelector(".biblio-surface")).toBeTruthy();
-    // la pastille du lanceur prend le nom de la surface ouverte
-    expect(screen.getByRole("button", { name: `${t("topbar.surfaces")} : ${t("atelier.biblio")}` })).toBeTruthy();
+    // la surface ouverte devient un onglet de la moitié atelier
+    expect(document.querySelector('.topbar-surface-main[aria-current="page"]')?.textContent)
+      .toBe(t("atelier.biblio").split(" — ")[0]);
     window.removeEventListener("switch-surface", onSwitch);
   });
 
@@ -2329,13 +2330,13 @@ describe("orchestration App — caractérisation", () => {
       name: t("linkedConversation.markerLabel", { count: 2 }),
     })).toHaveLength(2);
 
-    // dans la barre du haut, les conversations liées vivent dans le ⋯ du chat
-    fireEvent.click(within(document.querySelector<HTMLElement>(".chat-surface-header")!)
-      .getByRole("button", { name: t("action.more") }));
-    await act(async () => { await vi.dynamicImportSettled(); await flushMicrotasks(4); });
+    // dans la barre du haut (2026-11-09), la continuité vit au clic droit de
+    // l'onglet du chat
+    fireEvent.contextMenu(document.querySelector<HTMLElement>('.project-chat-tab[aria-current="page"]')!);
+    await act(async () => { await flushMicrotasks(4); });
     fireEvent.click(screen.getByRole("menuitem", { name: t("linkedConversation.title") }));
     await act(async () => { await flushMicrotasks(4); });
-    fireEvent.click(screen.getByRole("button", {
+    fireEvent.click(screen.getByRole("menuitem", {
       name: t("linkedConversation.unlinkNamed", { provider: "Claude" }),
     }));
     const unlink = sock.sent

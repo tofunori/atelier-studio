@@ -1,10 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ProjectChatTabs } from "./ProjectChatTabs";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ProjectChatTabs, chatTabMenuModule } from "./ProjectChatTabs";
 import { ChatHeader } from "./ChatHeader";
 import { setLanguage } from "../../lib/i18n";
 
 afterEach(cleanup);
+// le clic droit des onglets vit dans son propre chunk
+beforeAll(async () => { await chatTabMenuModule; });
 beforeEach(() => setLanguage("fr"));
 const chats = [{ id: "a", title: "Copernicus" }, { id: "b", title: "Albédo" }, { id: "c", title: "Discussion" }];
 
@@ -52,15 +54,56 @@ describe("project chat navigation", () => {
     expect(screen.getByRole("button", { name: "Discussion" })).toHaveFocus();
     expect(onSelect).not.toHaveBeenCalled();
   });
-  it("keeps all chats accessible through the menu and creates a chat through the existing action", async () => {
+  it("keeps one menu at the edge: new chat first, then every project chat", async () => {
     const onSelect = vi.fn(), onNew = vi.fn();
     render(<ProjectChatTabs chats={chats} activeId="a" onSelect={onSelect} onNew={onNew} />);
-    fireEvent.click(screen.getByRole("button", { name: "Nouveau chat" }));
+    // plus de + à part : le ⌄ au bord porte « Nouveau chat » en tête
+    expect(screen.queryByRole("button", { name: "Nouveau chat" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Tous les chats du projet" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Nouveau chat" }));
     expect(onNew).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Tous les chats du projet" }));
     fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Discussion" }));
     expect(onSelect).toHaveBeenCalledWith("c");
   });
+  it("renames in place on double-click, Enter commits and Escape cancels", () => {
+    const onRename = vi.fn();
+    render(<ProjectChatTabs chats={chats} activeId="a" onSelect={vi.fn()} onNew={vi.fn()} actions={{ onRename }} />);
+    fireEvent.doubleClick(screen.getByRole("button", { name: "Albédo" }));
+    const input = screen.getByRole("textbox", { name: "Renommer" });
+    fireEvent.change(input, { target: { value: "Albédo glaciaire" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onRename).toHaveBeenCalledWith("b", "Albédo glaciaire");
+    fireEvent.doubleClick(screen.getByRole("button", { name: "Copernicus" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Renommer" }), { key: "Escape" });
+    expect(onRename).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Copernicus" })).toBeInTheDocument();
+  });
+  it("puts one chat's own actions on its tab's context menu", async () => {
+    const onRename = vi.fn(), onTranscriptViewChange = vi.fn();
+    render(<ProjectChatTabs chats={chats} activeId="a" onSelect={vi.fn()} onNew={vi.fn()}
+      actions={{ onRename, transcriptView: "normal", onTranscriptViewChange,
+        linkedFor: (id) => id === "a" ? [{ id: "k", provider: "Kimi", title: "Analyse initiale", paused: false, direction: "parent" }] : [] }} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Copernicus" }));
+    expect(await screen.findByRole("menuitem", { name: "Renommer" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Vue de la transcription" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Continuité" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Renommer" }));
+    expect(await screen.findByRole("textbox", { name: "Renommer" })).toBeInTheDocument();
+  });
+  it("opens and unlinks a continued conversation from the tab's context menu", async () => {
+    const onOpenLinked = vi.fn(), onUnlinkLinked = vi.fn();
+    render(<ProjectChatTabs chats={chats} activeId="a" onSelect={vi.fn()} onNew={vi.fn()}
+      actions={{ onOpenLinked, onUnlinkLinked,
+        linkedFor: () => [{ id: "k", provider: "Kimi", title: "Analyse initiale", paused: false, direction: "child" }] }} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Copernicus" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Continuité" }));
+    expect(await screen.findByText("Continue vers")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Délier de Kimi" }));
+    expect(onUnlinkLinked).toHaveBeenCalledWith("k");
+    expect(onOpenLinked).not.toHaveBeenCalled();
+  });
+
   it("replaces the heading in the same header and preserves transcript controls", () => {
     const { container } = render(<ChatHeader title="Copernicus" provider="codex" projectName="Projet" status={null}
       projectChats={chats} activeId="a" onSelectChat={() => {}} onNewChat={() => {}}
