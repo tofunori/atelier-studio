@@ -798,7 +798,7 @@ fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
             } else {
                 "Exécution de commande"
             },
-            "detail": detail.chars().take(400).collect::<String>(),
+            "detail": detail.chars().take(2000).collect::<String>(),
             "itemId": params.get("itemId").cloned().unwrap_or(Value::Null),
         }));
     }
@@ -4258,7 +4258,7 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(spec["detail"].as_str().unwrap().chars().count(), 400);
+        assert_eq!(spec["detail"].as_str().unwrap().chars().count(), 2000);
         assert_eq!(spec["title"], "Exécution de commande");
     }
 
