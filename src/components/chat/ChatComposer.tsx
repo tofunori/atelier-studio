@@ -97,6 +97,7 @@ export type ComposerContextBundle = {
   onOpenPaste: (paste: { name: string; text: string }) => void;
   annotations?: Mark[];
   onRemoveAnnotation?: (text: string) => void;
+  onClearAnnotations?: () => void;
   /** contexte vivant de l'atelier : étiquette en tête de la rangée */
   liveContext?: LiveContext | null;
   onDismissLiveContext?: () => void;
@@ -323,6 +324,7 @@ export function ChatComposer(props: {
             attachments={context.attachments}
             annotations={context.annotations}
             onRemoveAnnotation={context.onRemoveAnnotation}
+            onClearAnnotations={context.onClearAnnotations}
             onRemoveAttachment={context.onRemoveAttachment}
             onOpenPaste={context.onOpenPaste}
             liveContext={context.liveContext}
