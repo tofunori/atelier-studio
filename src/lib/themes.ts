@@ -72,7 +72,7 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
 
   return {
     ...raw,
-    "--canvas": `color-mix(in srgb, ${bg} ${dark ? 72 : 91}%, #000)`,
+    "--canvas": `color-mix(in srgb, ${bg} ${dark ? 58 : 91}%, #000)`,
     "--grip": `color-mix(in srgb, ${fg} ${dark ? 24 : 26}%, ${bg})`,
     "--scroll-shade": dark ? "rgba(0,0,0,.40)" : "rgba(20,28,38,.13)",
     "--card-lift": `0 1px 2px ${alpha}`,
@@ -80,7 +80,7 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
     "--surface-app": bg,
     "--surface-panel": bg,
     "--surface-header": bg,
-    "--surface-canvas": `color-mix(in srgb, ${bg} ${dark ? 72 : 91}%, #000)`,
+    "--surface-canvas": `color-mix(in srgb, ${bg} ${dark ? 58 : 91}%, #000)`,
     "--surface-raised": card,
     "--surface-inset": ctl,
     "--surface-overlay": pop,
