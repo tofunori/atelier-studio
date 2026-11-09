@@ -374,55 +374,13 @@
   #outline .l2{padding-left:20px}
   #outline .l3{padding-left:32px;color:var(--text-muted,var(--muted))}
   /* ===== panneau Annotations : notes, puis ronde avec l'agent ===== */
-  #texcPanel{display:none;position:absolute;top:8px;right:8px;z-index:70;width:320px;max-height:calc(100% - 16px);
-    background:var(--surface-overlay,var(--card));border:0;border-radius:10px;
-    box-shadow:var(--elevation-overlay,var(--elev));overflow:hidden;flex-direction:column}
-  #texcPanel.open{display:flex;animation:pop-fade var(--motion-fast,120ms) ease-out}
-  #texcPanel .tp-head{display:flex;align-items:center;gap:8px;padding:12px 8px 8px 16px;flex:none}
-  #texcPanel .tp-title{font:600 var(--fs-body, 13px)/1.3 var(--ui-font);letter-spacing:-.01em;color:var(--text-primary,var(--txt))}
-  #texcPanel .tp-sub{font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
-  #texcPanel .tp-gap{flex:1}
-  #texcPanel .tp-close{display:inline-grid;place-items:center;width:24px;height:24px;padding:0;background:transparent;border:0;border-radius:6px;
-    color:var(--text-muted,var(--muted));cursor:pointer;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
-  #texcPanel .tp-close svg{width:14px;height:14px}
-  #texcPanel .tp-close:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
-  #texcPanel .tp-list{flex:1;min-height:0;overflow-y:auto;padding:0 8px 8px}
-  #texcPanel .tp-sec{font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-disabled,var(--muted));padding:12px 8px 4px}
-  #texcPanel .tp-item{display:flex;gap:12px;align-items:flex-start;padding:8px;border-radius:6px;cursor:pointer;
-    transition:background var(--motion-fast,120ms)}
-  #texcPanel .tp-item:hover,#texcPanel .tp-item.is-active{background:var(--surface-hover,var(--card2))}
-  #texcPanel .tp-item:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:calc(-1 * var(--focus-ring-offset,1px))}
-  #texcPanel .tp-ring{margin-top:0;cursor:inherit;pointer-events:none}
-  #texcPanel .tp-body{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
-  #texcPanel .tp-note{font:var(--fs-body, 13px)/1.4 var(--ui-font);color:var(--text-primary,var(--txt));overflow-wrap:anywhere}
-  #texcPanel .tp-state{display:flex;align-items:center;gap:4px;font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-muted,var(--muted))}
-  #texcPanel .tp-ic{display:inline-grid;place-items:center;width:12px;height:12px;flex:none}
-  #texcPanel .tp-ic svg{width:12px;height:12px}
-  #texcPanel .tone-todo .tp-ic{color:var(--text-secondary,var(--txt))}
-  #texcPanel .tone-ok .tp-ic{color:var(--status-success,#98c379)}
-  #texcPanel .tone-ask .tp-ic{color:var(--status-warning,#e0b74a)}
-  #texcPanel .tp-loc{color:var(--text-disabled,var(--muted));margin-left:8px;font-variant-numeric:tabular-nums}
-  #texcPanel .tp-x{display:inline-grid;place-items:center;width:20px;height:20px;padding:0;background:transparent;border:0;border-radius:6px;
-    color:var(--text-disabled,var(--muted));cursor:pointer;flex:none;opacity:0;transition:opacity var(--motion-fast,120ms),color var(--motion-fast,120ms)}
-  #texcPanel .tp-x svg{width:12px;height:12px}
-  #texcPanel .tp-item:hover .tp-x,#texcPanel .tp-x:focus-visible{opacity:1}
-  #texcPanel .tp-x:hover{color:var(--status-error,#e06c75)}
-  #texcPanel .tp-empty{font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--text-muted,var(--muted));padding:4px 8px 8px}
-  #texcPanel .tp-error{font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--status-error,#e06c75);padding:0 16px 8px}
-  #texcPanel .tp-foot{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border-top:1px solid var(--border-subtle,var(--border));flex:none}
-  #texcPanel .tp-primary{width:100%;height:28px;border:0;border-radius:6px;background:var(--fill-primary,var(--card2));
-    color:var(--on-fill-primary,var(--text-primary,var(--txt)));font:500 var(--fs-body-s, 12px)/1 var(--ui-font);cursor:pointer;
-    transition:background var(--motion-fast,120ms)}
-  #texcPanel .tp-primary:hover{background:var(--fill-primary-hover,var(--border))}
-  #texcPanel .tp-tools{display:flex;gap:4px;margin:0 -8px}
-  #texcPanel .tp-link{height:24px;padding:0 8px;background:transparent;border:0;border-radius:6px;color:var(--text-muted,var(--muted));
-    font:var(--fs-label, 11px)/1 var(--ui-font);cursor:pointer;white-space:nowrap;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
-  #texcPanel .tp-link:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
-  #texcPanel .tp-delall:hover{color:var(--status-error,#e06c75)}
-  #texcPanel .tp-work{display:flex;align-items:center;gap:8px;font:var(--fs-body-s, 12px)/1.3 var(--ui-font);color:var(--text-secondary,var(--txt))}
-  #texcPanel .tp-work .tp-cancel{margin-right:-8px}
-  #texcPanel .tp-past{font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
-  #texcPanel button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+  /* Colonne fixe (variante B, Thierry 2026-11-09) : la boîte Annotations se
+     range à droite du document, qui rétrécit pour lui laisser la place — même
+     colonne dans l'onglet PDF (pdf_viewer). Style commun : annotation_ui.css. */
+  #texcPanel{display:none;order:9;flex:none;width:320px;min-width:0;position:relative;z-index:6;
+    background:var(--surface-overlay,var(--card));box-shadow:-1px 0 0 var(--border-subtle,var(--border));overflow:hidden;flex-direction:column}
+  #texcPanel.open{display:flex;animation:notes-col-in var(--motion-fast,120ms) ease-out}
+  @keyframes notes-col-in{from{opacity:0;transform:translateX(8px)}}
   /* ===== console de compilation ===== */
   #texlog{display:none;flex-shrink:0;max-height:38%;background:var(--card2);border-top:1px solid var(--border);
     flex-direction:column;min-height:120px}
@@ -764,8 +722,8 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .pdf-variants[hidden]{display:none}
 #morePop .pdf-variants [data-pdf-path]{white-space:normal;overflow-wrap:anywhere;max-width:320px}
 
-/* Passage annoté : voile gris neutre, la pastille en anneau dit le numéro. */
-.texc-hl.texc-comment{background:color-mix(in srgb,var(--txt) 9%,transparent);border-bottom:0;border-radius:2px}
+/* Passage annoté : la teinte de la note (voile + trait), la même que sur le PDF. */
+.texc-hl.texc-comment{background:rgba(var(--note-veil,var(--annot-amber)),.36);border-bottom:0;border-radius:2px;box-shadow:inset 0 -2px 0 rgb(var(--note-ink,var(--annot-amber)))}
 ::highlight(texc-read-comment){background:color-mix(in srgb,var(--txt) 9%,transparent);text-decoration:none}
 
 /* ===== Rondes d'annotations : réponse de l'agent sur place =====
@@ -846,14 +804,7 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .texa-resolve svg{width:13px;height:13px}
 .texa-block .texr-acts{margin-top:0}
 .texa-block.texr-proposal .texr-acts{margin-top:8px}
-#texcPanel .tp-filter{display:flex;align-self:flex-start;margin:0 16px 4px;padding:2px;border-radius:6px;background:var(--surface-hover,var(--card2))}
-#texcPanel .tp-seg{height:22px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--text-muted,var(--muted));
-  font:var(--fs-label, 11px)/1 var(--ui-font);cursor:pointer;white-space:nowrap;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
-#texcPanel .tp-seg:hover{color:var(--text-primary,var(--txt))}
-#texcPanel .tp-seg.on{background:var(--fill-primary,var(--card2));color:var(--text-primary,var(--txt))}
-#texcPanel .tp-seg:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 .texa-dot{display:inline-block;width:6px;height:6px;border-radius:999px;background:var(--accent)}
-@media (prefers-reduced-motion: reduce){#texcPanel .tp-seg{transition:none}}
 
 /* La barre appartient au document : commandes fréquentes, puis menus. */
 #fileIdentity{order:0;flex:0 1 220px}
@@ -1390,3 +1341,11 @@ body.tbx #diffGrp.tb-diff-off #diffAcceptAll{display:none!important}
 #tbCustom .tbc-reset{white-space:nowrap;border:0;border-radius:6px;padding:4px 8px;margin:-4px -8px -4px 0;background:transparent;color:var(--text-secondary,var(--txt));font:inherit;font-weight:500;cursor:pointer}
 #tbCustom .tbc-reset:hover{background:var(--surface-hover,var(--card2))}
 @media(prefers-reduced-motion:reduce){#tbCustom.open{animation:none}#tbCustom .tbc-row{transition:none}}
+
+/* Couche des annotations sur le PDF de la vue scindée (pdf_note_layer.ts) :
+   cachée pendant l'étirement du zoom, comme la couche texte. */
+.pdfpage .atelier-note-layer{position:absolute;inset:0;z-index:3;pointer-events:none}
+.pdfpage .atelier-note-layer .atelier-note-pin{pointer-events:auto}
+.pdfpage .atelier-note-veil.is-under{background:transparent}
+.pdfpage .atelier-note-veil.is-strike{background:linear-gradient(transparent 46%,rgb(var(--note-ink)) 46%,rgb(var(--note-ink)) 58%,transparent 58%);box-shadow:none}
+#right.pdf-stretching .atelier-note-layer{visibility:hidden}

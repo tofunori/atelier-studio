@@ -205,3 +205,4 @@ export function createSelectionActions(host: HTMLElement, options: {
     group.addEventListener("focusout",event=>{if(!group.contains(event.relatedTarget as Node|null)){palette.hidden=true;toggle.setAttribute("aria-expanded","false");}});
   }
 }
+export * from "./annotation_notes";

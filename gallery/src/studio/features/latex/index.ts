@@ -19,3 +19,4 @@ export * from "./console_panel";
 
 export * from "./manuscript_bar";
 export * from "./toolbar_layout";
+export * from "./pdf_note_layer";

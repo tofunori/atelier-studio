@@ -1115,16 +1115,18 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     const annotations = options.getAnnotations();
     const numbers = new Map(annotations.filter(annotation => annotation.kind !== "hl").map((annotation, index) => [annotation, index + 1]));
     for (const annotation of annotations) {
+      if (!annotation.text) continue; // note du PDF qu'on n'a pas située dans la source
       const span = locateAnnotation(annotation);
       if (!span) continue;
-      const color = annotation.kind === "hl" ? (HIGHLIGHT_COLORS.includes(annotation.color || "") ? annotation.color as string : "amber") : "comment";
+      // une note prend sa teinte, comme dans l'éditeur et sur le PDF (2026-11-09)
+      const color = HIGHLIGHT_COLORS.includes(annotation.color || "") ? annotation.color as string : "amber";
       const list = byColor.get(color) || [];
       list.push(span);
       byColor.set(color, list);
       if(annotation.id && annotation.kind !== "hl") {
         const rect=span.getBoundingClientRect(), box=reading.getBoundingClientRect();
         const badge=doc.createElement("button");
-        badge.className="atelier-annotation-number texread-annotation-number";
+        badge.className=`atelier-annotation-number texread-annotation-number note-c-${color}`;
         badge.textContent=String(annotation.number || numbers.get(annotation) || 1);
         badge.setAttribute("aria-label",`Annotation ${badge.textContent}`);
         reading.style.position="relative";

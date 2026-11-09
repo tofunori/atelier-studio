@@ -263,11 +263,14 @@
   #selPill .annotate{min-height:34px;padding:7px 12px;border-radius:999px;background:var(--surface-overlay,var(--card));color:var(--txt);border:1px solid var(--border-strong);white-space:nowrap;font-family:inherit;font-size:var(--fs-body,13px)}
   #selPill{flex-wrap:wrap;max-width:calc(100vw - 16px)}
   /* graphite sur la page : ni l'accent ni une des six teintes de surlignage */
+  /* Notes (variante B, 2026-11-09) : voile franc + trait de la teinte de la
+     note, pastille numérotée dans la marge (annotation_ui.css). */
   .pdfcomment{position:absolute;z-index:8}
-  .pg .pdfcomment{--annotation-number-bg:#fff;--annotation-number-ink:#24282d}
-  body.pdf-invert .pg .pdfcomment{--annotation-number-bg:#141414;--annotation-number-ink:#dadee3}
-  .pdfcomment-line{position:absolute;z-index:7;background:rgba(36,40,45,.07);border-radius:2px;pointer-events:none}
-  body.pdf-invert .pdfcomment-line{background:rgba(218,222,227,.10)}
+  .pdfcomment-line{position:absolute;z-index:7;background:rgba(var(--note-veil),.42);box-shadow:inset 0 -2px 0 rgb(var(--note-ink));
+    border-radius:2px;mix-blend-mode:multiply;pointer-events:none}
+  .pg .pdfhl.is-inked{box-shadow:inset 0 -2px 0 rgb(var(--note-ink))}
+  body.pdf-invert .pdfcomment-line,body.pdf-invert .pg .atelier-note-veil{mix-blend-mode:screen}
+  body.pdf-invert .pg .atelier-note-pin{--pin-paper:20,20,20;--pin-text:218,222,227}
   #annotPop{position:fixed;z-index:9999;display:none}
   /* Codage qualitatif : voile graphite neutre (aucune des six teintes), propositions
      de Claude en pointillé, bandes de codage dans la marge droite de la page. */
@@ -426,6 +429,12 @@
   #annPane .fdot:hover{opacity:.72}
   #annPane .fdot.on{opacity:1;box-shadow:inset 0 0 0 1.5px var(--txt)}
   #annPane .list{flex:1;overflow-y:auto;padding:8px}
+  /* Onglet PDF d'un studio LaTeX : la colonne Annotations commune
+     (annotation_ui.css) remplace portées et filtres de couleur. */
+  #annPane.tex-notes .scope,#annPane.tex-notes .filters{display:none}
+  #annPane:not(.tex-notes) .tex-notes-foot,#annPane .tex-notes-foot[hidden]{display:none}
+  #annPane.tex-notes .list{padding:8px 8px 8px}
+  #annPane.tex-notes .tp-filter{margin:4px 8px 8px}
   /* Onglets Annotations | Plan : le titre du panneau devient le sélecteur */
   #annPane .hd .tabs{display:flex;gap:12px;min-width:0}
   #annPane .hd .tab{width:auto;height:auto;margin:0;padding:0;background:none;color:var(--muted);
@@ -538,13 +547,8 @@
     border:0;border-radius:6px;background:var(--card2);color:var(--txt);font:inherit;
     font-size:var(--fs-body-s, 12px);line-height:1.5;resize:none;outline:0;box-shadow:0 0 0 1px var(--accent)}
   #annPane .it .memo-edit::placeholder{color:var(--muted)}
-  .pg .pdfmemo{position:absolute;z-index:8;width:16px;height:16px;padding:0;border:0;border-radius:999px;
-    display:flex;align-items:center;justify-content:center;background:var(--pin-bg);color:var(--pin-ink);cursor:pointer;
-    transform:translate(4px,-50%);box-shadow:0 0 0 1px color-mix(in srgb,var(--pin-ink) 24%,transparent),0 1px 4px rgba(0,0,0,.25)}
-  .pg .pdfmemo svg{width:10px;height:10px}
-  /* Note de l'agent (outil atelier_annotate, Thierry 2026-11-09) : pastille
-     pleine et robot, fiche signée avec le fil des réponses. */
-  .pg .pdfmemo.is-agent{background:var(--pin-ink);color:var(--pin-bg);box-shadow:0 1px 4px rgba(0,0,0,.25)}
+  /* Note de l'agent (outil atelier_annotate) : pastille pleine graphite
+     (annotation_ui.css), fiche signée avec le fil des réponses. */
   #annPane .it .memo.is-agent{cursor:default;color:var(--txt)}
   .atelier-note.is-agent .atelier-note-title{display:flex;align-items:center;gap:4px}
   .atelier-note.is-agent .atelier-note-title svg{width:12px;height:12px;flex:none;color:var(--muted)}
@@ -1181,6 +1185,13 @@ async function main(){
     releaseSelection:() => _releaseSelection(),
     numPages:() => pdf.numPages,
     pageIndex:async (n) => (n >= 1 && n <= pdf.numPages ? (await textCache.text(n)).index : null),
+    // notes du studio LaTeX (onglet PDF compilé) : texte et taille d'une page
+    pageItems:async (n) => (n >= 1 && n <= pdf.numPages ? (await textCache.text(n)).tc.items : null),
+    pageSize:async (n) => {
+      if (n < 1 || n > pdf.numPages) return null;
+      const base = (await textCache.page(n)).getViewport({scale: 1});
+      return {width: base.width, height: base.height};
+    },
   };
   async function renderAll(onVisibleReady                                    ){
     clearHl(); selHide();
@@ -2758,6 +2769,7 @@ const annPane = (function(){
     view = next === "toc" && tocBox ? "toc" : next === "codes" && codesBox ? "codes" : "ann";
     tabs.forEach(t => { const on = t.dataset.v === view; t.classList.toggle("on", on); t.setAttribute("aria-selected", String(on)); });
     pane.classList.toggle("toc-on", view === "toc");
+    pane.classList.toggle("tex-notes", Boolean(window.__texNotes) && view === "ann");
     pane.classList.toggle("codes-on", view === "codes");
     if (view === "codes") openCodes();
     if (view === "toc") loadToc(); else refresh();
@@ -2768,6 +2780,9 @@ const annPane = (function(){
   function render(){
     if (pane.style.display !== "flex") return;
     if (view === "codes") { if (!cvTyping()) renderCodes(); return; }
+    // onglet PDF d'un studio LaTeX : la colonne commune (notes .tex + PDF)
+    pane.classList.toggle("tex-notes", Boolean(window.__texNotes) && view === "ann");
+    if (window.__texNotes && view === "ann") { window.__texNotes.render(pane, list, cn); return; }
     filters.innerHTML = "";
     HL_COLORS.forEach(c => {
       const d = document.createElement("span");
@@ -3360,56 +3375,32 @@ function saveAnnots(){
   return ANNOT_SAVE;
 }
 function drawAnnots(pgDiv         , n        ){
-  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line, .pdfmemo, .pdfstamp, .pdfstripe, .pdftext:not(.editing)").forEach((el) => el.remove());
+  pgDiv.querySelectorAll(".pdfhl, .pdfnote, .pdfarea, .pdfcomment, .pdfcomment-line, .pdfmemo, .pdfstamp, .pdfstripe, .atelier-note-pin, .atelier-note-veil, .pdftext:not(.editing)").forEach((el) => el.remove());
   drawCodeStripes(pgDiv, n);
-  // Keep adjacent margin numbers separately clickable, without moving the
-  // stored text anchor. Spread collisions down, then fit the group upward.
-  const comments = PDF_ANNOTS.filter(a => +a.page === +n && a.kind === "comment" && a.rects?.length)
-    .slice().sort((a,b) => a.rects[0][1] - b.rects[0][1]);
-  const height = pgDiv.clientHeight || pgDiv.getBoundingClientRect().height || 1000;
-  const tops = comments.map(a => Math.max(0, a.rects[0][1] * height));
-  for(let i=1;i<tops.length;i++) tops[i] = Math.max(tops[i], tops[i-1] + 22);
-  if(tops.length && tops[tops.length-1] > height-22){
-    tops[tops.length-1] = height-22;
-    for(let i=tops.length-2;i>=0;i--) tops[i] = Math.min(tops[i], tops[i+1]-22);
-  }
-  const commentTops = new Map(comments.map((a,i) => [a.id, tops[i]]));
+  // Notes (variante B, 2026-11-09) : voile franc + trait de la couleur de la
+  // note, pastille numérotée dans la MARGE de la page — même dessin que la
+  // vue scindée du studio LaTeX. Les pastilles d'une même marge s'écartent
+  // (24 px entre centres) sans bouger l'ancre du texte.
+  const notesUI = window.AtelierAnnotationUI;
+  const height = (pgDiv               ).clientHeight || pgDiv.getBoundingClientRect().height || 1000;
+  const pins                                                                                                                                       = [];
+  const veil = (rect          , color        , cls        , a     ) => {
+    const el = document.createElement("div");
+    el.className = cls + " note-c-" + color;
+    el.dataset.aid = String(a.id);
+    el.setAttribute("aria-hidden", "true");
+    el.style.left = rect[0] * 100 + "%"; el.style.top = rect[1] * 100 + "%";
+    el.style.width = rect[2] * 100 + "%"; el.style.height = rect[3] * 100 + "%";
+    pgDiv.appendChild(el);
+  };
   for(const a of PDF_ANNOTS){
     if(+a.page !== +n) continue;
     if(a.kind === "comment" && a.rects && a.rects.length){
-      for(const rect of a.rects){
-        const line = document.createElement("div");
-        line.className = "pdfcomment-line";
-        line.dataset.aid = String(a.id);
-        line.setAttribute("aria-hidden", "true");
-        line.style.left = rect[0] * 100 + "%";
-        line.style.top = rect[1] * 100 + "%";
-        line.style.height = rect[3] * 100 + "%";
-        line.style.width = rect[2] * 100 + "%";
-        pgDiv.appendChild(line);
-      }
-      const rc = a.rects[0];
-      const marker = document.createElement("button");
-      marker.className = "pdfcomment atelier-annotation-number";
-      marker.dataset.aid = String(a.id);
-      marker.textContent = String(a.number || PDF_ANNOTS.filter(item => item.kind === "comment").indexOf(a) + 1);
-      marker.setAttribute("aria-label", "Annotation " + marker.textContent + (a.note ? " : " + a.note : ""));
-      marker.title = a.memo || a.note || "Ajouter une note";
-      // Position beside the text line, not at the edge of the PDF sheet.
-      // Prefer the text span containing the selection's first fragment.
-      const pageBox = pgDiv.getBoundingClientRect();
-      const anchorX = pageBox.left + rc[0] * pageBox.width;
-      const anchorY = pageBox.top + (rc[1] + rc[3] / 2) * pageBox.height;
-      const lineSpan = [...pgDiv.querySelectorAll                 (".textLayer span")].find(span => {
-        const box = span.getBoundingClientRect();
-        return box.width > 0 && anchorY >= box.top - 2 && anchorY <= box.bottom + 2
-          && anchorX >= box.left - 2 && anchorX <= box.right + 2;
-      });
-      const lineLeft = lineSpan ? lineSpan.getBoundingClientRect().left - pageBox.left : rc[0] * pageBox.width;
-      marker.style.left = Math.max(3, lineLeft - 25) + "px";
-      marker.style.top = commentTops.get(a.id) + "px";
-      marker.onclick = e => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
-      pgDiv.appendChild(marker);
+      const color = notesUI.noteColorName(a.color);
+      for(const rect of a.rects) veil(rect, color, "pdfcomment-line", a);
+      pins.push({a, rect: a.rects[0], color, agent: isAgentAnnot(a), title: a.memo || a.note || "Ajouter une note",
+        label: a.note ? " : " + a.note : "", cls: "pdfcomment",
+        open: e => annotMenu(a, e.clientX, e.clientY)});
       continue;
     }
     // une zone a son propre cadre (plus bas) : surtout pas de fond de surlignage.
@@ -3431,7 +3422,8 @@ function drawAnnots(pgDiv         , n        ){
       else if(a.kind === "st"){ el.style.background = "linear-gradient(transparent 46%," + solid + " 46%," + solid + " 58%,transparent 58%)"; }
       else if(a.kind === "note"){ el.style.background = "transparent"; }
       else if(a.kind === "code"){ el.classList.add("pdfcode"); el.classList.toggle("is-suggested", !codeIds(a, "codes").length); }
-      else { el.style.background = col; }
+      // surlignage : voile + trait à l'encre de sa teinte (plus visible, 2026-11-09)
+      else { el.style.background = col; el.classList.add("is-inked", "note-c-" + notesUI.noteColorName(col)); }
       if(a.note) el.title = a.note;
       else if(a.kind === "code") el.title = codeNames(a);
       el.onclick = (e) => {
@@ -3443,20 +3435,13 @@ function drawAnnots(pgDiv         , n        ){
       };
       pgDiv.appendChild(el);
     }
-    // pastille crayon au bout du passage : il porte une note personnelle
+    // note personnelle ou note de l'agent : pastille numérotée dans la marge
     if(a.memo && (a.kind === "hl" || a.kind === "ul" || a.kind === "st" || !a.kind) && a.rects && a.rects.length){
-      const rc = a.rects[a.rects.length - 1];
-      const pin = document.createElement("button");
-      pin.type = "button";
-      pin.className = "pdfmemo" + (isAgentAnnot(a) ? " is-agent" : "");
-      pin.dataset.aid = String(a.id);
-      pin.title = isAgentAnnot(a) ? agentName(a) + " : " + a.memo : a.memo;
-      pin.setAttribute("aria-label", (isAgentAnnot(a) ? "Note de " + agentName(a) : "Note") + " : " + a.memo);
-      pin.innerHTML = isAgentAnnot(a) ? AGENT_ICON : MEMO_ICON;
-      pin.style.left = ((rc[0] + rc[2]) * 100) + "%";
-      pin.style.top = ((rc[1] + rc[3] / 2) * 100) + "%";
-      pin.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
-      pgDiv.appendChild(pin);
+      const agent = isAgentAnnot(a);
+      pins.push({a, rect: a.rects[0], color: notesUI.noteColorName(a.color), agent,
+        title: agent ? agentName(a) + " : " + a.memo : a.memo,
+        label: (agent ? " — note de " + agentName(a) : "") + " : " + a.memo, cls: "pdfmemo",
+        open: e => annotMenu(a, e.clientX, e.clientY)});
     }
     if(a.kind === "area" && a.rects && a.rects[0]){
       const rc = a.rects[0];
@@ -3495,8 +3480,65 @@ function drawAnnots(pgDiv         , n        ){
       pgDiv.appendChild(pin);
     }
   }
+  // notes venues du .tex (onglet PDF d'un studio LaTeX) : même dessin
+  for(const extra of (window.__texNoteMarks ? window.__texNoteMarks(n) : [])){
+    for(const rect of extra.rects) veil(rect, extra.color, "atelier-note-veil", extra);
+    pins.push({a: extra, rect: extra.rects[0], color: extra.color, agent: extra.agent, title: extra.title,
+      label: extra.title ? " : " + extra.title : "", cls: "is-tex", open: () => extra.open()});
+  }
+  placeNotePins(pgDiv               , n, pins, height);
 }
-// crayon de la note personnelle (pastille sur la page, rangée du panneau)
+/** Bords du texte de la page (fractions), lus sur la couche texte quand elle
+ *  existe, retenus pour quand elle est libérée. */
+const PAGE_TEXT_BOUNDS = new Map                                    ();
+function pageTextBounds(pgDiv             , n        ){
+  const spans = [...pgDiv.querySelectorAll             (".textLayer span[data-l]")]
+    .filter(span => (span.textContent || "").trim().length > 2)
+    .map(span => ({left: parseFloat(span.dataset.l), right: parseFloat(span.dataset.r)}));
+  if(spans.length){
+    const width = pgDiv.clientWidth || pgDiv.getBoundingClientRect().width;
+    PAGE_TEXT_BOUNDS.set(n, window.AtelierAnnotationUI.textBounds(spans, width));
+  }
+  return PAGE_TEXT_BOUNDS.get(n) || {min: 0.12, max: 0.88};
+}
+/** Numéro d'une note : l'ordre du document (onglet PDF d'un studio LaTeX :
+ *  notes du .tex comprises), sinon l'ordre des pages. */
+function noteNumber(a){
+  const known = window.__noteNumbers && window.__noteNumbers.get(String(a.id));
+  if(known) return known;
+  const notes = PDF_ANNOTS.filter(item => window.AtelierAnnotationUI.isPdfNote(item)).sort((x, y) =>
+    (+x.page - +y.page) || ((x.rects?.[0]?.[1] || 0) - (y.rects?.[0]?.[1] || 0)));
+  const index = notes.indexOf(a);
+  return index >= 0 ? index + 1 : (a.number || 1);
+}
+function placeNotePins(pgDiv             , n        , pins, height        ){
+  if(!pins.length) return;
+  const ui = window.AtelierAnnotationUI;
+  const edge = pageTextBounds(pgDiv, n);
+  for(const side of ["left", "right"]){
+    const group = pins.filter(pin => ui.pinSide(pin.rect) === side)
+      .map(pin => ({pin, top: ((pin.rect[1] || 0) + (pin.rect[3] || 0) / 2) * height}))
+      .sort((x, y) => x.top - y.top);
+    const tops = ui.spreadPins(group.map(g => g.top), height);
+    group.forEach(({pin}, i) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = pin.cls + " atelier-note-pin note-c-" + pin.color + (pin.agent ? " is-agent" : "");
+      button.dataset.aid = String(pin.a.id);
+      button.textContent = String(pin.a.__number || noteNumber(pin.a));
+      button.title = pin.title;
+      button.setAttribute("aria-label", "Annotation " + button.textContent + pin.label);
+      // centre à 18 px du bord du texte, jamais hors de la feuille
+      button.style.left = side === "left"
+        ? "max(12px, calc(" + (edge.min * 100) + "% - 18px))"
+        : "min(calc(100% - 12px), calc(" + (edge.max * 100) + "% + 18px))";
+      button.style.top = tops[i] + "px";
+      button.onclick = e => { e.stopPropagation(); pin.open(e); };
+      pgDiv.appendChild(button);
+    });
+  }
+}
+// crayon de la note personnelle (rangée du panneau)
 const MEMO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
 // ---- notes posées par l'agent (outil atelier_annotate, ou Claude Desktop) ----
 // Sa note est dans `memo`, signée `author` ; Thierry lui répond dans le fil
@@ -5335,7 +5377,23 @@ if (window.self !== window.top) {
     } finally { chatBtn.disabled = false; chatBtn.removeAttribute("aria-busy"); }
   };
   document.getElementById("pdftools").remove();
-  header.prepend(nav); header.appendChild(marks); header.appendChild(zoom); move("findBtn", header); header.appendChild(chatBtn); header.appendChild(more);
+  header.prepend(nav); header.appendChild(marks); header.appendChild(zoom); move("findBtn", header); header.appendChild(chatBtn);
+  // Onglet PDF d'un studio LaTeX : le bouton Annotations de l'éditeur (même
+  // icône, même place, juste avant ⋯) ouvre la même colonne ; le ≡ s'efface.
+  if (__passageParams.get("tex") && __passageParams.get("texpdf")) {
+    const notesBtn = document.createElement("button");
+    notesBtn.id = "texNotesBtn"; notesBtn.type = "button";
+    notesBtn.title = "Annotations : tes notes du PDF et du .tex, et « Réviser avec l’agent »";
+    notesBtn.setAttribute("aria-label", "Annotations");
+    notesBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + "M5 4h14v10l-5 5H5zM14 19v-5h5" + '"/></svg>';
+    const sync = () => notesBtn.setAttribute("aria-pressed", String(document.body.classList.contains("pane-on")));
+    notesBtn.onclick = (e) => { e.stopPropagation(); annPane.fromHost?.("ann"); sync(); };
+    new MutationObserver(sync).observe(document.body, {attributes: true, attributeFilter: ["class"]});
+    sync();
+    header.appendChild(notesBtn);
+    const pane = document.getElementById("paneBtn"); if (pane) pane.hidden = true;
+  }
+  header.appendChild(more);
   document.addEventListener("pointerdown", e => { if(!more.contains(e.target        )) more.open = false; });
   document.addEventListener("keydown", e => { if(e.key === "Escape" && more.open) { more.open = false; summary.focus(); } });
   const css = document.createElement("style");
@@ -5386,7 +5444,8 @@ if (window.self !== window.top) {
     .pdf-toolbar-more summary:hover { background:color-mix(in srgb,var(--txt) 6%,transparent); color:var(--txt); }
     .pdf-toolbar-more[open] summary { background:color-mix(in srgb,var(--txt) 12%,transparent); color:var(--txt); }
     @media (prefers-reduced-motion: reduce) { .pdf-toolbar-more summary { transition:none; } }
-    header.pdf-compact-toolbar #chatPdfBtn { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+    header.pdf-compact-toolbar #chatPdfBtn, header.pdf-compact-toolbar #texNotesBtn { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+    #texNotesBtn svg { width:14px; height:14px; }
     #chatPdfBtn svg { width:14px; height:14px; }
     #chatPdfBtn .ci-done, #chatPdfBtn.done .ci-idle { display:none; }
     #chatPdfBtn.done .ci-done { display:block; }
@@ -5570,6 +5629,231 @@ if (window.self !== window.top) {
     }catch(err){ st.textContent = "synctex : erreur serveur"; }
     setTimeout(() => { st.textContent = ""; }, 3000);
   });
+})();
+
+// ---- notes du studio LaTeX dans l'onglet PDF compilé (variante B, 2026-11-09)
+// Même bouton (note), même colonne, même liste que dans l'éditeur : les notes
+// du .tex (`tex-comments:`) et celles posées ici, numérotées dans l'ordre du
+// document (SyncTeX), groupées par section, avec page et ligne. « Réviser avec
+// l'agent » part dans l'onglet éditeur, où les propositions s'affichent.
+(function(){
+  const texPath = __passageParams.get("tex");
+  const texPdf = __passageParams.get("texpdf");
+  const ui = window.AtelierAnnotationUI;
+  if(!texPath || !texPdf || !ui || !ui.columnItemHtml) return;
+  const bc = "BroadcastChannel" in window ? new BroadcastChannel("latexstudio:" + texPath) : null;
+  const texRel = "tex-comments:" + texPath, stateRel = "tex-pdfnotes:" + texPath;
+  let texNotes = [], states = {}, source = "", rows = [], filter = "all", activeId = null;
+  const lines = new Map                       ();
+  const views = new Map                                          ();
+  const located = new Map                           ();
+  let marks = new Map               ();
+  let computing                       = null, again = false;
+  const escHtml = (value        ) => String(value).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"})[c]);
+  const json = (url        , init              ) => fetch(url, init).then(r => r.ok ? r.json() : null).catch(() => null);
+  const synctex = (body) => json("/synctex", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({tex: texPath, pdf: texPdf, ...body})});
+  async function loadTex(){
+    const [comments, saved, code] = await Promise.all([
+      json("/pdfannot?rel=" + encodeURIComponent(texRel)),
+      json("/pdfannot?rel=" + encodeURIComponent(stateRel)),
+      json("/code?path=" + encodeURIComponent(texPath)),
+    ]);
+    texNotes = Array.isArray(comments?.annots) ? comments.annots.filter(a => a && a.kind !== "hl" && a.from && a.to) : [];
+    states = {};
+    for (const entry of (Array.isArray(saved?.annots) ? saved.annots : [])) states[String(entry.id)] = entry;
+    if (typeof code?.text === "string") source = code.text;
+  }
+  async function lineOf(a){
+    const rect = a.rects[0], page = +a.page || 1;
+    const key = a.id + "|" + page + "|" + rect.join(",");
+    if (lines.has(key)) return lines.get(key);
+    let line = null;
+    const size = await window.__pdfTextSearch?.pageSize?.(page);
+    if (size) {
+      const hit = await synctex({dir: "edit", page, x: (rect[0] + rect[2] / 2) * size.width, y: (rect[1] + rect[3] / 2) * size.height});
+      const input = String(hit?.input || "").replace(/^\.\//, "");
+      if (hit?.line && (!input || input === texPath || texPath.endsWith("/" + input))) line = hit.line;
+    }
+    lines.set(key, line);
+    return line;
+  }
+  async function placeTex(t){
+    const key = t.id + "|" + t.from.line;
+    if (!views.has(key)) {
+      const hit = await synctex({dir: "view", line: t.from.line + 1});
+      views.set(key, hit?.page ? {page: hit.page, y: hit.y || 0} : null);
+    }
+    const view = views.get(key);
+    if (!view) return {view: null, rects: null};
+    const where = key + "|" + t.text;
+    if (!located.has(where)) {
+      const [items, size] = await Promise.all([window.__pdfTextSearch?.pageItems?.(view.page), window.__pdfTextSearch?.pageSize?.(view.page)]);
+      located.set(where, items && size ? ui.locateOnPage(ui.pageTextItems(items, size.height), t.text || "", view.y, size) : null);
+    }
+    return {view, rects: located.get(where)};
+  }
+  async function compute(){
+    const next = [];
+    for (const a of PDF_ANNOTS.filter(item => ui.isPdfNote(item))) {
+      const line = await lineOf(a);
+      const anchor = source ? ui.anchorPdfQuote(source, String(a.text || ""), line === null ? null : line - 1) : null;
+      const id = ui.pdfNoteId(a.id), state = states[id];
+      next.push({id, raw: a, src: "pdf", page: +a.page || 1, top: a.rects[0][1],
+        line: anchor ? anchor.from.line : null, ch: anchor ? anchor.from.ch : 0, lineEnd: anchor ? anchor.to.line : null,
+        color: ui.noteColorName(a.color), quote: String(a.text || ""), note: ui.pdfNoteText(a),
+        agent: isAgentAnnot(a) ? agentName(a) : "", state: state?.round && state?.rstate ? ui.stateLabel(state.rstate) : null});
+    }
+    for (const t of texNotes) {
+      const placed = await placeTex(t);
+      const agent = t.by === "agent" || t.by === "claude";
+      next.push({id: String(t.id), raw: t, src: "tex", page: placed.view?.page || null, top: 0, rects: placed.rects,
+        line: t.from.line, ch: t.from.ch, lineEnd: t.to.line, color: ui.noteColorName(t.color), quote: String(t.text || ""),
+        note: String(t.comment || ""), agent: agent ? (t.author || "Claude") : "",
+        state: t.round && t.rstate ? ui.stateLabel(t.rstate) : null});
+    }
+    next.sort(ui.compareNotes);
+    next.forEach((row, index) => { row.number = index + 1; });
+    rows = next;
+    window.__noteNumbers = new Map(rows.map(row => [row.src === "pdf" ? String(row.raw.id) : row.id, row.number]));
+    marks = new Map();
+    for (const row of rows) {
+      if (row.src !== "tex" || !row.rects?.length || !row.page) continue;
+      const list = marks.get(row.page) || [];
+      list.push({id: row.id, rects: row.rects, color: row.color, agent: Boolean(row.agent), __number: row.number,
+        title: row.note || row.quote.slice(0, 120), open: () => focusRow(row)});
+      marks.set(row.page, list);
+    }
+    document.querySelectorAll             (".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+    annPane.refresh();
+  }
+  function refreshNotes(){
+    if (computing) { again = true; return computing; }
+    computing = compute().catch(error => console.warn("notes du .tex :", error)).finally(() => {
+      computing = null;
+      if (again) { again = false; void refreshNotes(); }
+    });
+    return computing;
+  }
+  async function reload(fresh = false){
+    if (fresh) { lines.clear(); views.clear(); located.clear(); }
+    await loadTex();
+    await refreshNotes();
+  }
+  window.__texNoteMarks = (n) => marks.get(n) || [];
+  function scrollToPage(page        , top        ){
+    if (window.__readingMode?.isOn()) window.__readingMode.leave();
+    const pg = document.querySelector             ('.pg[data-page="' + page + '"]');
+    if (!pg) return;
+    const sc = document.scrollingElement || document.documentElement;
+    sc.scrollTo({top: pg.offsetTop + top * pg.offsetHeight - 90, behavior: pdfScrollBehavior()});
+  }
+  function focusRow(row){
+    activeId = row.id;
+    if (document.getElementById("annPane")?.style.display !== "flex") annPane.fromHost?.("ann");
+    else annPane.refresh();
+    document.querySelector             ('#annPane .tp-item[data-id="' + row.id.replace(/["\\]/g, "") + '"]')?.scrollIntoView({block: "nearest"});
+  }
+  function openRow(row){
+    activeId = row.id;
+    if (row.src === "pdf") {
+      scrollToPage(row.page, row.top);
+      const pg = document.querySelector('.pg[data-page="' + row.page + '"]');
+      if (pg) flashAnnotation(pg, row.raw.id);
+    } else {
+      if (row.rects?.length && row.page) scrollToPage(row.page, row.rects[0][1]);
+      // et l'éditeur se place sur la ligne (onglet LaTeX ouvert)
+      bc?.postMessage({t: "jump", line: row.line + 1});
+    }
+    annPane.refresh();
+  }
+  function noteText(row){
+    const where = row.line !== null ? " (L" + (row.line + 1) + ")" : " (p. " + row.page + ")";
+    return texPath + where + " : « " + row.quote + " »\nCommentaire : " + (row.note || "(voir passage)");
+  }
+  let foot                 = null;
+  window.__texNotes = {
+    render(pane, list, count){
+      pane.classList.add("atelier-notes-col");
+      const fromAgent = rows.filter(row => row.agent);
+      if (!fromAgent.length) filter = "all";
+      const shown = filter === "mine" ? rows.filter(row => !row.agent) : filter === "agent" ? fromAgent : rows;
+      count.textContent = rows.length ? rows.length + " note" + (rows.length > 1 ? "s" : "") : "";
+      const lines = source ? source.split("\n") : [];
+      let last = "", html = "";
+      if (fromAgent.length) {
+        const name = fromAgent[0].agent;
+        html += '<div class="tp-filter" role="group" aria-label="Filtrer les notes">' + [["all", "Toutes"], ["mine", "Les miennes"], ["agent", name]]
+          .map(([key, label]) => '<button type="button" class="tp-seg' + (filter === key ? " on" : "") + '" data-filter="' + key + '" aria-pressed="' + (filter === key) + '">' + escHtml(label) + "</button>").join("") + "</div>";
+      }
+      for (const row of shown) {
+        const section = row.line === null ? "Ailleurs dans le PDF" : lines.length ? ui.sectionOf(lines, row.line) : "";
+        if (section && section !== last) { last = section; html += '<div class="tp-sec">' + escHtml(section) + "</div>"; }
+        html += ui.columnItemHtml({id: row.id, number: row.number, color: row.color, quote: row.quote, note: row.note,
+          page: row.page, line: row.line === null ? null : row.line + 1, lineEnd: row.lineEnd === null ? null : row.lineEnd + 1,
+          agent: row.agent, active: activeId === row.id, state: row.state, src: row.src});
+      }
+      list.innerHTML = html || '<div class="tp-empty">Sélectionne un passage du PDF ou du .tex, puis note-le. Tes notes s’ajoutent ici ; « Réviser avec l’agent » les lui envoie toutes ensemble.</div>';
+      // les notes du .tex se suppriment dans l'éditeur (il garde leur fil)
+      list.querySelectorAll             ('.tp-item[data-src="tex"] .tp-x').forEach(x => x.remove());
+      if (!foot) {
+        foot = document.createElement("div");
+        foot.className = "tp-foot tex-notes-foot";
+        foot.innerHTML = '<button type="button" class="tp-primary tp-review">Réviser avec l’agent</button>'
+          + '<div class="tp-tools"><button type="button" class="tp-link tp-sendall" title="Envoyer toutes les notes au chat, sans ronde">Envoyer au chat</button></div>';
+        pane.appendChild(foot);
+        foot.addEventListener("click", e => {
+          const target = e.target           ;
+          if (target.closest(".tp-review")) {
+            try { localStorage.setItem(ui.reviewRequestKey(texPath), String(Date.now())); } catch (_) {}
+            bc?.postMessage({t: "review"});
+            // l'onglet éditeur s'ouvre (ou revient) : la ronde s'y déroule
+            __atelierPost({type: "atelier-open-file", path: texPath});
+          } else if (target.closest(".tp-sendall")) {
+            for (const row of rows.filter(r => !r.agent)) void attachPdfChatPayload({type: "atelier-add-to-chat", text: noteText(row)});
+          }
+        });
+        list.addEventListener("click", e => {
+          const target = e.target           ;
+          const seg = target.closest             (".tp-seg[data-filter]");
+          if (seg) { filter = seg.dataset.filter || "all"; annPane.refresh(); return; }
+          const x = target.closest             (".tp-x");
+          const item = target.closest             (".tp-item[data-id]");
+          const row = rows.find(r => r.id === item?.dataset.id);
+          if (!row) return;
+          if (x && row.src === "pdf") { e.stopPropagation(); void removeAnnot(row.raw); return; }
+          openRow(row);
+        });
+        list.addEventListener("keydown", e => {
+          const item = (e.target           ).closest             (".tp-item[data-id]");
+          if (!item || (e.key !== "Enter" && e.key !== " ")) return;
+          e.preventDefault(); item.click();
+        });
+      }
+      foot.hidden = !rows.some(row => !row.agent);
+    },
+  };
+  // notes du .tex : relues quand l'éditeur écrit (date du store), notes du PDF :
+  // à chaque changement ici (PDF_ANNOTS), PDF recompilé : lignes oubliées
+  let texStamp = 0;
+  setInterval(async () => {
+    if (document.hidden) return;
+    const stamp = Number((await json("/pdfannot-stamp?rel=" + encodeURIComponent(texRel)))?.stamp) || 0;
+    if (stamp && stamp !== texStamp) { const first = !texStamp; texStamp = stamp; if (!first) void reload(); }
+  }, 2500);
+  let known = "";
+  setInterval(() => {
+    const now = PDF_ANNOTS.filter(item => ui.isPdfNote(item)).map(a => a.id + ":" + (a.memo || a.note || "") + ":" + a.color).join("|");
+    if (now !== known) { known = now; void refreshNotes(); }
+  }, 1200);
+  bc?.addEventListener("message", e => {
+    if (e.data?.t === "compiled") void reload(true);
+    else if (e.data?.t === "notes") void reload();
+  });
+  window.addEventListener("pdf-document-changed", () => void reload(true));
+  // premier calcul : quand le document et ses annotations sont là
+  const start = () => { void reload(); };
+  if (ANNOTS_LOADED) start(); else setTimeout(start, 1500);
 })();
 
 /** Types shared by classic scripts and browser integration tests; erased at build. */
