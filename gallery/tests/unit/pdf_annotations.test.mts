@@ -763,3 +763,13 @@ test('keeping an agent note makes it a personal note', async () => {
   assert.equal(saved.memo, 'Ce chiffre vient de Ren 2021.');
   m.close();
 });
+
+test('removing an agent note drops all its page parts in one save', async () => {
+  const m = agentMenu();
+  m.win.PDF_ANNOTS.push({id:'a1p4-1', page:4, by:'agent', author:'Claude', text:'suite'}, {id:'own', page:4, text:'mine'});
+  m.root.querySelector('.atelier-agent-drop').click(); await tick();
+  assert.equal(m.writes.length, 1);
+  assert.deepEqual(m.win.PDF_ANNOTS.map((a: {id: string}) => a.id), ['own']);
+  assert.equal(m.root.style.display, 'none');
+  m.close();
+});

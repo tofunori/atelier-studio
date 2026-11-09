@@ -4966,9 +4966,16 @@ async function annotMenu(a, x        , y        ){
       const id = String(a.id), cut = id.lastIndexOf("p");
       const group = cut > 0 ? id.slice(0, cut + 1) : id;
       const parts = PDF_ANNOTS.filter(x => isAgentAnnot(x) && (String(x.id) === id || (cut > 0 && String(x.id).startsWith(group))));
+      // un seul enregistrement pour tous les morceaux : tout part, ou rien
+      const ids = new Set(parts.map(x => String(x.id)));
+      const before = PDF_ANNOTS;
       saving = true;
-      for (const part of parts) await removeAnnot(part);
+      PDF_ANNOTS = PDF_ANNOTS.filter(x => !ids.has(String(x.id)));
+      const saved = await saveAnnots();
       saving = false;
+      if(!saved) { PDF_ANNOTS = before; annPane.refresh(); status.textContent = "Non retiré. Réessaie."; return; }
+      redrawAllAnnots();
+      annotPop.style.display = "none"; annotationEditor = null;
     };
   }
   annotPop.querySelector             (".delete-note").onclick = async () => {
