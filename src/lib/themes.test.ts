@@ -4,7 +4,7 @@ import { followsAppearanceMode, galleryLegacyThemeVars, presetById, resolveAppea
 describe("Appearance mode", () => {
   it("honors explicit light mode and preserves canonical dark tokens", () => {
     expect(resolveAppearanceTheme({ themePreset: "atelier", theme: "light" }, true).vars["--bg"]).toBe("#f1f4f7");
-    expect(resolveAppearanceTheme({ themePreset: "atelier", theme: "dark" }, false).vars["--border"]).toBe("#2a2d31");
+    expect(resolveAppearanceTheme({ themePreset: "atelier", theme: "dark" }, false).vars["--border"]).toBe("#2f3236"); // #2a2d31 relevé de 3 % (2026-11-09)
   });
   it("follows the system only in system mode and keeps named palettes", () => {
     const selection = { themePreset: "atelier", theme: "system" as const };
@@ -43,7 +43,7 @@ describe("Claude Code theme", () => {
     const light = resolveAppearanceTheme({ themePreset: "claude-code", theme: "light" }, true);
     const system = resolveAppearanceTheme({ themePreset: "claude-code", theme: "system" }, false);
     expect(dark.dark).toBe(true);
-    expect(dark.vars["--bg"]).toBe("#1a1a19");
+    expect(dark.vars["--bg"]).toBe("#20201f"); // surfaces relevées d'un cran (choix B, 2026-11-09)
     expect(dark.vars["--accent"]).toBe("#d97757");
     expect(light.dark).toBe(false);
     expect(light.vars["--bg"]).toBe("#faf9f5");
