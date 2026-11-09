@@ -26,32 +26,41 @@ function menu(saved = true, initialNote = "", extra: Record<string, unknown> = {
     drawAnnots: (..._args) => {}, sendAnnot: async (a, fail, rel, fromEditor, direct) => { sends.push({...JSON.parse(JSON.stringify(a)), ...(direct ? {direct} : {})}); return true; },
     copyWithCitation: (..._args) => {}, annPane: {refresh(..._args){}},
     CODEBOOK: [], codeById: (_id) => undefined, codeIds: (a, key) => Array.isArray(a[key]) ? a[key] : [],
+    noteNumber: (a) => a.number || 1, normalizeHighlightColor: (c) => c, redrawAllAnnots: () => {},
   });
   vm.runInContext(html.slice(html.indexOf('async function removeAnnot(a)'), html.indexOf('/** Envoi au chat')), dom.getInternalVMContext());
   // marque et fil des notes de l'agent, appelés par la fiche
   vm.runInContext(html.slice(html.indexOf("// ---- notes posées par l'agent"), html.indexOf('// Même ordre et mêmes teintes')), dom.getInternalVMContext());
   vm.runInContext(menuCode, dom.getInternalVMContext());
-  win.annotation = {id:'test',page:3,text:'Selected passage',note:initialNote,...extra};
+  win.annotation = {id:'test',page:3,kind:'comment',text:'Selected passage',note:initialNote,...extra};
   win.PDF_ANNOTS = [win.annotation];
   win.annotMenu(win.annotation,10,10);
   return {win, writes, sends, root:win.annotPop, close:()=>win.close()};
 }
 
-test('validating a multiline note saves and automatically attaches it', async () => {
+// Variante A (Thierry 2026-11-09) : annoter = enregistrer. Rien ne part au
+// chat sans la pilule « Envoyer au chat ».
+test('validating a multiline note saves it and sends nothing to the chat', async () => {
   const m=menu();
+  assert.ok(m.root.classList.contains('is-card'));
+  assert.equal(m.root.querySelector('.send2').textContent,'Enregistrer');
+  assert.equal(m.root.querySelector('.send-direct').textContent,'Envoyer au chat');
+  assert.equal(m.root.querySelector('.atelier-note-title').textContent,'Note 1');
+  assert.equal(m.root.querySelector('.atelier-note-meta').textContent,'p. 3');
+  assert.equal(m.root.querySelector('.atelier-note-quote').textContent,'Selected passage');
   m.root.querySelector('textarea.atelier-note-input').value='First thought\nSecond thought';
   m.root.querySelector('.send2').click(); await tick();
   assert.equal(m.writes[0].note,'First thought\nSecond thought');
-  assert.equal(m.sends.length,1);
+  assert.equal(m.sends.length,0);
   assert.equal(m.root.style.display,'none');m.close();
 });
 
 test('add to chat saves the current draft before sending exact text, page and note', async () => {
   const m=menu();
   m.root.querySelector('textarea.atelier-note-input').value='Why this threshold?';
-  m.root.querySelector('.send2').click();
+  m.root.querySelector('.send-direct').click();
   assert.equal(m.sends.length,0); await tick();
-  assert.deepEqual(m.sends[0],{id:'test',page:3,text:'Selected passage',note:'Why this threshold?'});
+  assert.deepEqual(m.sends[0],{id:'test',page:3,kind:'comment',text:'Selected passage',note:'Why this threshold?',direct:true});
   m.close();
 });
 
@@ -65,13 +74,13 @@ test('failed persistence keeps the note visible and prevents chat attachment', a
   assert.match(m.root.querySelector('[role=status]').textContent,/Échec/);m.close();
 });
 
-test('clicking away attaches the note; Shift+Enter is available for multiline input', async () => {
+test('clicking away saves the note without sending it; Shift+Enter is available for multiline input', async () => {
   const m=menu();
   const input=m.root.querySelector('textarea.atelier-note-input');input.value='Draft';
   input.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Enter',shiftKey:true,bubbles:true}));
   assert.equal(m.writes.length,0);
   m.win.document.getElementById('outside').click();await tick();
-  assert.equal(m.writes[0].note,'Draft');assert.equal(m.sends.length,1);m.close();
+  assert.equal(m.writes[0].note,'Draft');assert.equal(m.sends.length,0);m.close();
 });
 
 test('annotation writes are serialized snapshots, HTTP errors are not success', async () => {
@@ -195,7 +204,7 @@ test('a local edit whose save failed survives a store change made elsewhere', as
 
  test('an existing saved note can be explicitly added again, including after a prior failure', async () => {
   const m=menu(true, 'Previously saved');
-  m.root.querySelector('.send2').click();await tick();
+  m.root.querySelector('.send-direct').click();await tick();
   assert.equal(m.sends.at(-1).note,'Previously saved');m.close();
  });
 
@@ -461,47 +470,58 @@ test('pointerdown on header colors preserves the live PDF selection',()=>{
   assert.equal(m.root.style.display,'none');m.close();
  });
 
-test('the personal note is saved with the passage and never sent to the chat', async () => {
-  const m=menu();
-  const memo=m.root.querySelector('textarea.atelier-memo-input');
-  assert.ok(memo,'the PDF bubble shows a separate note field');
-  assert.equal(m.root.querySelector('textarea.atelier-note-input').placeholder,'Demander au chat…');
-  memo.value='À reprendre dans la discussion';
-  memo.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await tick();
-  assert.equal(m.writes[0].memo,'À reprendre dans la discussion');
+test('a highlight keeps ONE note, in memo, and never sends it to the chat', async () => {
+  const m=menu(true,'',{kind:'hl'});
+  await m.win.annotMenu(m.win.annotation,10,10);
+  assert.equal(m.root.querySelector('textarea.atelier-memo-input'),null,'un seul champ');
+  const input=m.root.querySelector('textarea.atelier-note-input');
+  assert.equal(input.placeholder,'Ta note sur ce passage…');
+  input.value='À reprendre dans la discussion';
+  input.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await tick();
+  assert.equal(m.writes.at(-1).memo,'À reprendre dans la discussion');
+  assert.equal('note' in m.writes.at(-1),false);
   assert.equal(m.sends.length,0);
   assert.equal(m.root.style.display,'none');m.close();
 });
 
-test('sending to the chat keeps the personal note out of the chat text', async () => {
-  const m=menu();
-  m.root.querySelector('textarea.atelier-memo-input').value='Pour la discussion';
-  m.root.querySelector('textarea.atelier-note-input').value='Explique ce passage';
-  m.root.querySelector('.send2').click();await tick();
-  assert.equal(m.writes[0].memo,'Pour la discussion');
-  assert.equal(m.sends.length,1);
-  assert.equal(m.sends[0].note,'Explique ce passage');m.close();
+test('an older annotation with a personal note AND a chat note shows them in the one field', async () => {
+  const m=menu(true,'Explique ce passage',{kind:'hl',memo:'Pour la discussion'});
+  await m.win.annotMenu(m.win.annotation,10,10);
+  const input=m.root.querySelector('textarea.atelier-note-input');
+  assert.equal(input.value,'Pour la discussion\n\nExplique ce passage');
+  input.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await tick();
+  assert.equal(m.writes.at(-1).memo,'Pour la discussion\n\nExplique ce passage');
+  assert.equal('note' in m.writes.at(-1),false);
+  assert.equal(m.sends.length,0);m.close();
 });
 
-test('a fresh annotation with only a personal note survives closing', async () => {
-  const m=menu(true,'');
+test('the chat pill sends the one note with the passage', async () => {
+  const m=menu(true,'',{kind:'hl'});
+  await m.win.annotMenu(m.win.annotation,10,10);
+  m.root.querySelector('textarea.atelier-note-input').value='Explique ce passage';
+  m.root.querySelector('.send-direct').click();await tick();
+  assert.equal(m.writes.at(-1).memo,'Explique ce passage');
+  assert.equal(m.sends.length,1);assert.equal(m.sends[0].memo,'Explique ce passage');assert.equal(m.sends[0].direct,true);m.close();
+});
+
+test('a fresh highlight note survives closing', async () => {
+  const m=menu(true,'',{kind:'hl'});
+  await m.win.annotMenu(m.win.annotation,10,10);
   m.win.annotation.fresh=true;
-  m.root.querySelector('textarea.atelier-memo-input').value='Garder';
+  m.root.querySelector('textarea.atelier-note-input').value='Garder';
   m.win.document.getElementById('outside').click();await tick();
   assert.equal(m.win.PDF_ANNOTS.length,1);
   assert.equal(m.writes.at(-1).memo,'Garder');
   assert.equal(m.sends.length,0);m.close();
 });
 
-test('emptying the personal note removes it from the annotation', async () => {
-  const m=menu();
-  m.root.querySelector('textarea.atelier-note-input').dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await tick();
-  m.win.annotation.memo='Ancienne note';
+test('emptying the note of a highlight removes it from the annotation', async () => {
+  const m=menu(true,'',{kind:'hl',memo:'Ancienne note'});
   await m.win.annotMenu(m.win.annotation,10,10);
-  const memo=m.root.querySelector('textarea.atelier-memo-input');
-  assert.equal(memo.value,'Ancienne note');
-  memo.value='  ';
-  memo.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await tick();
+  const input=m.root.querySelector('textarea.atelier-note-input');
+  assert.equal(input.value,'Ancienne note');
+  input.value='  ';
+  input.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await tick();
   assert.equal('memo' in m.writes.at(-1),false);m.close();
 });
 
@@ -521,7 +541,7 @@ test('a free note stays personal: Enter, Escape and clicking away save it withou
     m.win.annotation.kind='note';m.win.annotation.fresh=true;
     await m.win.annotMenu(m.win.annotation,10,10);
     const input=m.root.querySelector('textarea.atelier-note-input');
-    assert.equal(input.placeholder,'Note…');
+    assert.equal(input.placeholder,'Ta note…');
     input.value='Revoir la figure 3';
     if(close==='outside') m.win.document.getElementById('outside').click();
     else input.dispatchEvent(new m.win.KeyboardEvent('keydown',{key:close==='enter'?'Enter':'Escape',bubbles:true}));
@@ -532,7 +552,7 @@ test('a free note stays personal: Enter, Escape and clicking away save it withou
   }
 });
 
-test('a free note left empty disappears; the arrow still sends it on purpose', async () => {
+test('a free note left empty disappears, even on Enter; the pill still sends it on purpose', async () => {
   let m=menu();
   m.win.annotation.kind='note';m.win.annotation.fresh=true;
   await m.win.annotMenu(m.win.annotation,10,10);
@@ -543,7 +563,7 @@ test('a free note left empty disappears; the arrow still sends it on purpose', a
   m.win.annotation.kind='note';
   await m.win.annotMenu(m.win.annotation,10,10);
   m.root.querySelector('textarea.atelier-note-input').value='À demander';
-  m.root.querySelector('.send2').click();await tick();
+  m.root.querySelector('.send-direct').click();await tick();
   assert.equal(m.sends.length,1);assert.equal(m.sends[0].note,'À demander');m.close();
 });
 

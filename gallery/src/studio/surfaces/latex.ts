@@ -48,6 +48,7 @@ import {
 } from "../features/code";
 import type {HtmlSanitizer, MarkdownParser} from "../features/markdown";
 import {createSelectionActions} from "../features/annotation_ui";
+import {sameSourceFile} from "../features/annotation_notes";
 import {
   addRecentStudioFile,
   attachEditorSelection,
@@ -341,8 +342,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
           const result = await response.json() as {line?: number; input?: string};
           if (!result.line) return null;
           // un autre fichier du document (\input) : pas une ligne d'ici
-          const input = String(result.input || "").replace(/^\.\//, "");
-          if (input && path && input !== path && !path.endsWith(`/${input}`)) return null;
+          if (!sameSourceFile(result.input, path)) return null;
           return result.line;
         },
         sourceView: async (line) => {

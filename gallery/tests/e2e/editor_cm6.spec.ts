@@ -402,7 +402,7 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
       await expect(page.locator('#texcPop')).toBeVisible();
       const direct = page.locator('#texcPop').getByRole('button', {name:'Envoyer au chat', exact:true});
       await expect(direct).toBeVisible();
-      await expect(direct).toHaveText('');
+      await expect(direct).toHaveText('Envoyer au chat');
       await expect(direct.locator('svg')).toBeVisible();
       // Texte long : la bulle garde sa largeur, passe à la ligne et grandit
       // en hauteur sans rogner ni déborder (Thierry 2026-10-19).

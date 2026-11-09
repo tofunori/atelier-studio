@@ -3782,7 +3782,7 @@ async function sendAnnot(a, onFail, relOverride: string, fromEditor?: boolean, d
   const r = relOverride || rel;
   const target = (window.SelPill && window.SelPill.target) ? window.SelPill.target() : undefined;
   let url = "/quote";
-  let payload: Record<string,unknown> = {rel:r, page:String(a.page), text:a.text, comment:a.note || "", direct:true, embed:true, target};
+  let payload: Record<string,unknown> = {rel:r, page:String(a.page), text:a.text, comment:noteBody(a), direct:true, embed:true, target};
   if(a.kind === "area") {
     if(relOverride && relOverride !== rel) { fail("ouvre l’article pour envoyer sa zone"); return false; }
     const dataUrl = areaDataUrl(a);
@@ -3790,7 +3790,7 @@ async function sendAnnot(a, onFail, relOverride: string, fromEditor?: boolean, d
     const stem = r ? r.split("/").pop().replace(/\.pdf$/i, "") : "pdf";
     url = "/save";
     payload = {name:stem + "-p" + a.page + "-zone", dataURL:dataUrl, direct:true, embed:true, target,
-      notes:a.note ? [{n:1,text:a.note}] : []};
+      notes:noteBody(a) ? [{n:1,text:noteBody(a)}] : []};
   }
   try {
     const response = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
@@ -3837,6 +3837,29 @@ window.addEventListener("message", e => {
 });
 // La bulle se lit comme une fiche : « Annotation 3 · p. 12 ». Le numéro est
 // celui de la pastille de marge, pour qu'on les relie d'un coup d'œil.
+/** Variante A (Thierry 2026-11-09) : une annotation porte UNE note. Le
+ *  commentaire, la note libre et la zone la rangent dans `note` (comme le
+ *  studio LaTeX, syncPdfSide) ; un marquage dans `memo` (isPdfNote, marge). */
+function noteField(a){ return a.kind === "comment" || a.kind === "note" || a.kind === "area" ? "note" : "memo"; }
+function noteBody(a){
+  const field = noteField(a);
+  return String(a[field] || a[field === "note" ? "memo" : "note"] || "");
+}
+/** En-tête de la fiche : anneau et « Note N » pour une note, sinon le genre
+ *  de marquage ; « p. N · ligne L » (ligne : onglet PDF d'un studio LaTeX). */
+function cardHead(a){
+  const ui = window.AtelierAnnotationUI;
+  const counted = a.kind === "comment" || ui.isPdfNote(a);
+  // onglet PDF d'un studio LaTeX : une note toute neuve n'a pas encore son
+  // rang dans l'ordre commun (.tex + PDF) ; pas de numéro inventé.
+  const ranked = !window.__noteNumbers || window.__noteNumbers.has(String(a.id));
+  const number = counted && ranked ? noteNumber(a) : null;
+  const line = window.__noteLines?.get(String(a.id));
+  const passage = a.kind !== "note" && a.kind !== "area" && a.kind !== "text" && a.kind !== "stamp";
+  return {number, color: ui.noteColorName(a.color), title: counted ? (number ? "Note " + number : "Nouvelle note") : annotHeading(a).title,
+    meta: [a.page ? "p. " + a.page : "", line ? "ligne " + line : ""].filter(Boolean).join(" · "),
+    quote: passage ? String(a.text || "") : ""};
+}
 function annotHeading(a){
   const titles = {hl:"Surlignage", ul:"Soulignement", st:"Barré", note:"Note", area:"Zone", text:"Zone de texte", stamp:"Tampon", code:"Passage codé"};
   const title = a.kind === "comment"
@@ -4137,30 +4160,32 @@ function drawCodeStripes(pgDiv: Element, n: number){
 }
 async function annotMenu(a, x: number, y: number){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
-  // Une note libre (kind "note") EST déjà une note : pas de second champ.
-  // Ailleurs, « Note » garde un texte avec le passage sans jamais l'envoyer
-  // au chat ; le champ du bas reste celui du chat.
   const agent = isAgentAnnot(a);
-  const withMemo = a.kind !== "note" && !agent;
-  // Surlignage, soulignement ou barré : la bulle permet d'en changer le style
+  // Surlignage, soulignement ou barré : la fiche permet d'en changer le style
   // et la teinte, enregistrés tout de suite (comme dans Zotero).
   const withMark = a.kind === "hl" || a.kind === "ul" || a.kind === "st";
-  // Une note libre reste PERSONNELLE : Entrée, Échap ou un clic à côté
-  // l'enregistrent sans rien envoyer ; seules les flèches l'envoient au chat.
-  const personal = a.kind === "note";
-  const noteUI = AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
-    heading:annotHeading(a),
-    ...(agent ? {placeholder:"Répondre à " + agentName(a) + "…", submitLabel:"Répondre"} : {onSendDirect(){void editor.commit(true, "force", true);}}),
-    ...(withMemo ? {memo:{value:a.memo || ""}, placeholder:"Demander au chat…"} : {}),
-    ...(withMark ? {mark:{kind:a.kind, color:normalizeHighlightColor(a.color || HL_COLORS[0]),
-      colors:AtelierAnnotationUI.pdfAnnotationColors, onChange(kind, color){
-        a.kind = kind; a.color = color;
-        void saveAnnots();
-        redrawAllAnnots();
-      }}} : {})});
+  const mark = withMark ? {kind:a.kind, color:normalizeHighlightColor(a.color || HL_COLORS[0]),
+    colors:AtelierAnnotationUI.pdfAnnotationColors, onChange(kind, color){
+      a.kind = kind; a.color = color;
+      void saveAnnots();
+      redrawAllAnnots();
+    }} : undefined;
+  // Variante A (Thierry 2026-11-09) : annoter = enregistrer. Un seul champ ;
+  // Entrée, Échap ou un clic à côté gardent la note, rien ne part au chat.
+  // Seule la pilule « Envoyer au chat » l'envoie. Une annotation d'avant qui
+  // portait deux textes (note perso + champ du chat) les réunit ici.
+  const field = noteField(a), other = field === "note" ? "memo" : "note";
+  const merged = [...new Set([a[field], a[other]].map(v => String(v || "").trim()).filter(Boolean))].join("\n\n");
+  const noteUI = agent
+    ? AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
+      heading:annotHeading(a), placeholder:"Répondre à " + agentName(a) + "…", submitLabel:"Répondre", ...(mark ? {mark} : {})})
+    : AtelierAnnotationUI.createNoteCard(annotPop, {value:merged, onSave(){}, onDelete(){}, head:cardHead(a), mark,
+      placeholder:a.kind === "note" ? "Ta note…" : "Ta note sur ce passage…",
+      onSend(){void editor.commit(true, "force", true);}});
   // Codes du passage, sous le style du marquage et avant la note
-  if(codable(a)) (annotPop.querySelector(".atelier-memo") || annotPop.querySelector(".atelier-note-row")).before(codesRow(a));
+  if(codable(a)) annotPop.querySelector(".atelier-note-row").before(codesRow(a));
   if(agent){
+    annotPop.classList.remove("is-card");
     annotPop.classList.add("is-agent");
     const title = annotPop.querySelector<HTMLElement>(".atelier-note-title");
     if(title) title.insertAdjacentHTML("afterbegin", AGENT_ICON);
@@ -4172,97 +4197,71 @@ async function annotMenu(a, x: number, y: number){
     annotPop.querySelector(".atelier-note-row").before(acts);
   } else annotPop.classList.remove("is-agent");
   const inp = annotPop.querySelector<HTMLTextAreaElement>("textarea.atelier-note-input");
-  const memoInp = annotPop.querySelector<HTMLTextAreaElement>("textarea.atelier-memo-input");
-  inp.value = a.note || "";
+  if(agent) inp.value = a.note || "";
   const status = annotPop.querySelector<HTMLElement>(".annotation-status");
   const editor = { a, commit: null };
   annotationEditor = editor;
   let saving = false;
-  let attachedNote = a.note || "";
-  editor.commit = async (close, send: string, direct = false) => {
+  const lock = (on: boolean) => {
+    inp.disabled = on;
+    annotPop.querySelectorAll<HTMLButtonElement>("button").forEach(button => { button.disabled = on; });
+  };
+  // send : true = fermeture implicite (Échap, clic à côté, autre fiche) ;
+  // "keep" = Entrée ou « Enregistrer » ; "force" = « Envoyer au chat ».
+  editor.commit = async (close, send: boolean | string, direct = false) => {
     if(saving) return false;
-    // A fresh annotation (just created by Annoter/zone/note libre) whose note
-    // is still empty when the editor closes WITHOUT explicit validation
-    // (Escape, outside click, trash) is abandoned outright: it never existed
-    // as far as the user is concerned, so it must not linger as a grey mark.
-    // An explicit validation (Enter, ↑/send2 → send==="force") with an empty
-    // note keeps it (deliberate blank marker). An EXISTING annotation that
-    // the user empties keeps today's draft-save behavior — untouched here.
-    if(a.fresh && !inp.value.trim() && !(memoInp && memoInp.value.trim()) && !codeIds(a, "codes").length && send !== "force"){
+    // Une annotation toute neuve (Annoter, zone, note libre) encore vide
+    // quand la fiche se ferme SANS validation (Échap, clic à côté) est
+    // abandonnée : elle n'a jamais existé pour Thierry, pas de marque grise.
+    // Entrée ou un envoi la gardent (repère volontaire sans texte), sauf une
+    // note libre : sans texte, une punaise vide ne dit rien.
+    if(a.fresh && !inp.value.trim() && !codeIds(a, "codes").length && send !== "force" && (send !== "keep" || a.kind === "note")){
       saving = true;
-      inp.disabled = true;
-      if(memoInp) memoInp.disabled = true;
-      annotPop.querySelectorAll<HTMLButtonElement>("button").forEach(button => { button.disabled = true; });
+      lock(true);
       status.textContent = "Suppression…";
       const removed = await removeAnnot(a);
       saving = false;
       if(removed) return true;
       if(annotationEditor === editor){
-        inp.disabled = false;
-        if(memoInp) memoInp.disabled = false;
-        annotPop.querySelectorAll<HTMLButtonElement>("button").forEach(button => { button.disabled = false; });
+        lock(false);
         status.textContent = "Suppression non enregistrée. Réessaie : ta note reste ici.";
       }
       return false;
     }
     saving = true;
-    inp.disabled = true;
-    if(memoInp) memoInp.disabled = true;
-    annotPop.querySelectorAll<HTMLButtonElement>("button").forEach(button => { button.disabled = true; });
+    lock(true);
     delete a.fresh;
-    a.note = inp.value;
-    if(memoInp){
-      if(memoInp.value.trim()) a.memo = memoInp.value;
-      else delete a.memo;
-    }
+    const value = inp.value;
+    if(field === "memo"){ if(value.trim()) a.memo = value; else delete a.memo; }
+    else a.note = value;
+    delete a[other];
     status.textContent = "Enregistrement…";
     const saved = await saveAnnots();
     if(annotationEditor !== editor) { saving = false; return saved; }
     let attached = true;
-    if(saved && send && (send === "force" || (!personal && a.note.trim() && a.note !== attachedNote))) {
+    if(saved && send === "force") {
       status.textContent = "Ajout au chat…";
       attached = await sendAnnot(a, (why) => { status.textContent = "Note enregistrée, mais ajout au chat impossible : " + why; }, undefined, true, direct);
-      if(attached) attachedNote = a.note;
     }
     saving = false;
     if(annotationEditor !== editor) return saved && attached;
-    inp.disabled = false;
-    if(memoInp) memoInp.disabled = false;
-    annotPop.querySelectorAll<HTMLButtonElement>("button").forEach(button => { button.disabled = false; });
+    lock(false);
     if(!attached) return false;
-    status.textContent = saved ? "Annotation enregistrée" : "Échec de l’enregistrement. Réessaie : ta note reste ici.";
+    status.textContent = saved ? "Note enregistrée" : "Échec de l’enregistrement. Réessaie : ta note reste ici.";
     if(!saved) return false;
     document.querySelectorAll<HTMLElement>(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
     if (window.__readingMode && window.__readingMode.isOn()) drawReadingAnnots();
     if(close) { annotPop.style.display = "none"; annotationEditor = null; }
     return true;
   };
-  function fitNote(){
-    noteUI.fit();
-    if(memoInp){ memoInp.style.height = "24px"; memoInp.style.height = Math.min(132, memoInp.scrollHeight) + "px"; }
-  }
+  function fitNote(){ noteUI.fit(); }
   inp.oninput = () => { status.textContent = ""; fitNote(); };
-  if(memoInp){
-    memoInp.oninput = () => { status.textContent = ""; fitNote(); };
-    // Entrée enregistre la note et ferme, sans rien envoyer au chat.
-    memoInp.onkeydown = (e) => {
-      e.stopPropagation();
-      if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, false); }
-      if(e.key === "Escape") { e.preventDefault(); editor.commit(true, true); }
-    };
-  }
   inp.onkeydown = (e) => {
     e.stopPropagation();
-    if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, personal ? false : "force"); }
+    if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); editor.commit(true, "keep"); }
     if(e.key === "Escape") { e.preventDefault(); editor.commit(true, true); }
   };
-  if(personal) {
-    inp.placeholder = "Note…";
-    inp.setAttribute("aria-label", "Note sur la page");
-    const send2 = annotPop.querySelector<HTMLElement>(".send2");
-    send2.title = "Ajouter la note au brouillon du chat"; send2.setAttribute("aria-label", send2.title);
-  }
-  annotPop.querySelector<HTMLElement>(".send2").onclick = () => editor.commit(true, "force");
+  annotPop.querySelector<HTMLElement>(".send2").onclick = () => editor.commit(true, "keep");
   if(agent) {
     // La fiche d'une note de l'agent n'envoie rien d'autre que les réponses :
     // fermer la fiche ne touche à rien.
@@ -4337,16 +4336,12 @@ async function annotMenu(a, x: number, y: number){
   annotPop.querySelector<HTMLElement>(".delete-note").onclick = async () => {
     if(saving) return;
     saving = true;
-    inp.disabled = true;
-    if(memoInp) memoInp.disabled = true;
-    annotPop.querySelectorAll<HTMLButtonElement>("button").forEach(button => { button.disabled = true; });
+    lock(true);
     status.textContent = "Suppression…";
     const deleted = await removeAnnot(a);
     saving = false;
     if(!deleted && annotationEditor === editor) {
-      inp.disabled = false;
-      if(memoInp) memoInp.disabled = false;
-      annotPop.querySelectorAll<HTMLButtonElement>("button").forEach(button => { button.disabled = false; });
+      lock(false);
       status.textContent = "Suppression non enregistrée. Réessaie : ta note reste ici.";
     }
   };
@@ -4986,8 +4981,7 @@ if (window.self !== window.top) {
     const size = await window.__pdfTextSearch?.pageSize?.(page);
     if (size) {
       const hit = await synctex({dir: "edit", page, x: (rect[0] + rect[2] / 2) * size.width, y: (rect[1] + rect[3] / 2) * size.height});
-      const input = String(hit?.input || "").replace(/^\.\//, "");
-      if (hit?.line && (!input || input === texPath || texPath.endsWith("/" + input))) line = hit.line;
+      if (hit?.line && ui.sameSourceFile(hit.input, texPath)) line = hit.line;
     }
     lines.set(key, line);
     return line;
@@ -5030,6 +5024,7 @@ if (window.self !== window.top) {
     next.forEach((row, index) => { row.number = index + 1; });
     rows = next;
     window.__noteNumbers = new Map(rows.map(row => [row.src === "pdf" ? String(row.raw.id) : row.id, row.number]));
+    window.__noteLines = new Map(rows.filter(row => row.src === "pdf" && row.line !== null).map(row => [String(row.raw.id), row.line + 1]));
     marks = new Map();
     for (const row of rows) {
       if (row.src !== "tex" || !row.rects?.length || !row.page) continue;

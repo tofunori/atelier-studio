@@ -219,7 +219,8 @@ test('PDF and shared annotations inherit light/dark colors and the host UI scale
     expect(values.noteFont).toBeCloseTo(Math.max(12, 13 * base / 15), 1);
     expect(values.navFont).toBeCloseTo(Math.max(11, 12 * base / 15), 1);
     expect(values.readingControls).toBeCloseTo(Math.max(11, 12 * base / 15), 1);
-    expect(values.capsuleHeight).toBe(Math.max(28, 30 * base / 15 - 2));
+    // variante A (2026-11-09) : boutons de 32 px à l’échelle 100 %, suivent l’échelle de l’app
+    expect(values.capsuleHeight).toBe(Math.max(32, 30 * base / 15 + 2));
   }
 });
 

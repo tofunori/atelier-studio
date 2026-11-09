@@ -166,7 +166,8 @@ export function createSelectionActions(host: HTMLElement, options: {
   add("Annoter",icon24(annotationIcons.note),options.onAnnotate,"atelier-capsule","annotate");
   // Codage qualitatif (lecteur PDF) : étiquette, ouvre le menu des codes.
   if(options.onCode) add("Coder",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>',options.onCode);
-  if(options.onAsk) add("Question rapide",'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-7z"/></svg>',options.onAsk);
+  // Question rapide : la bulle du chat avec « ? » (variante A, 2026-11-09).
+  if(options.onAsk) add("Question rapide",icon24(annotationIcons.chatAdd.replace("M12 8.7v6.6M8.7 12h6.6","M9.7 9.8a2.3 2.3 0 1 1 3.3 2c-.6.3-1 .8-1 1.4v.4M12 16.3v.1")),options.onAsk);
   if(options.onHighlight) {
     const colors=options.colors || annotationColors;
     let color=colors.find(c=>c.name===(selectionColors.get(doc) || options.highlightColor))?.name || "amber";
@@ -206,3 +207,4 @@ export function createSelectionActions(host: HTMLElement, options: {
   }
 }
 export * from "./annotation_notes";
+export * from "./note_card";

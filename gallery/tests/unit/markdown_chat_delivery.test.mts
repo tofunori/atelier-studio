@@ -47,7 +47,9 @@ async function fixture(t: test.TestContext) {
     }
   };
   const annotate = () => actions.querySelector('[aria-label="Annoter"]').click();
-  const submit = (value = "my note", direct = false) => {
+  // Variante A : seule la pilule « Envoyer au chat » livre au chat ;
+  // « ↵ Enregistrer » (save = true) garde la note sans rien envoyer.
+  const submit = (value = "my note", direct = true) => {
     input.value = value; note.querySelector(direct ? ".send-direct" : ".send2").click();
   };
   const ack = (ok = true, requestId = posts.at(-1)?.requestId, extra: Record<string, any> = {}) => win.dispatchEvent(new win.MessageEvent("message", {
@@ -127,6 +129,19 @@ test("WYSIWYG note remains busy until ACK and refusal retries without another an
   assert.equal(f.posts[0].pdfAnnotation.id, f.posts[1].pdfAnnotation.id);
   f.ack(); await tick();
   assert.equal(f.note.style.display, "none"); assert.equal(f.win.getSelection().rangeCount, 0);
+});
+
+test("WYSIWYG variante A : Enregistrer et Entrée gardent la note sans rien envoyer au chat", async t => {
+  const f = await fixture(t);
+  f.annotate();
+  assert.equal(f.note.querySelector(".atelier-note-quote").textContent, "First passage.");
+  f.submit("pour moi", false); await tick(); await tick();
+  assert.equal(f.writes.length, 1); assert.equal(f.writes[0].annots[0].comment, "pour moi");
+  assert.equal(f.posts.length, 0); assert.equal(f.note.style.display, "none");
+  await f.select("Second passage."); f.annotate();
+  f.input.value = "encore pour moi";
+  f.input.dispatchEvent(new f.win.KeyboardEvent("keydown", {key: "Enter", bubbles: true})); await tick(); await tick();
+  assert.equal(f.writes.length, 2); assert.equal(f.posts.length, 0); assert.equal(f.note.style.display, "none");
 });
 
 test("WYSIWYG direct note timeout retries without duplicating its persisted mark or direct insertion", async t => {

@@ -64,6 +64,30 @@ export function pdfNoteText(annotation: StoredPdfAnnotation): string {
   return String(annotation.memo || annotation.note || "").trim();
 }
 
+/** Le fichier source que SyncTeX nomme (`input`) est-il celui ouvert
+ *  (`path`) ? SyncTeX garde le chemin vu par le compilateur : absolu avec des
+ *  `/./` (« /projet/./sections/discussion_en.tex »), relatif (« ./intro.tex »)
+ *  ou sans extension. Sans cette normalisation, toutes les notes du PDF
+ *  tombaient dans « Ailleurs dans le PDF » (Thierry 2026-11-09). macOS ne
+ *  distingue pas la casse. Un `input` vide (ancienne CLI) passe. */
+export function sameSourceFile(input: string | null | undefined, path: string | null | undefined): boolean {
+  const clean = (value: string): string => {
+    const parts: string[] = [];
+    const absolute = value.startsWith("/");
+    for (const part of value.replace(/\\/g, "/").split("/")) {
+      if (!part || part === ".") continue;
+      if (part === ".." && parts.length && parts[parts.length - 1] !== "..") parts.pop();
+      else parts.push(part);
+    }
+    const joined = (absolute ? "/" : "") + parts.join("/");
+    return (/\.[a-z0-9]+$/i.test(parts[parts.length - 1] || "") ? joined : joined + ".tex").toLowerCase();
+  };
+  if (!input) return true;
+  if (!path) return false;
+  const a = clean(String(input)), b = clean(String(path));
+  return a === b || a.endsWith("/" + b.replace(/^\//, "")) || b.endsWith("/" + a.replace(/^\//, ""));
+}
+
 export function isAgentAuthor(by?: string | null): boolean {
   return by === "agent" || by === "claude";
 }
