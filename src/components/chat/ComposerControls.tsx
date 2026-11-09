@@ -35,16 +35,17 @@ function KernelGlyph() {
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import type { Specialiste } from "../../lib/specialistes";
 import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
-import { ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, MicIcon, RotateCcwIcon, SearchIcon, SquareIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronDownIcon, MicIcon, RotateCcwIcon, SearchIcon, SquareIcon } from "lucide-react";
 import type { DictationPhase } from "./useComposerDictation";
 import { modeApresPlan } from "./modeApresPlan";
+import { MenuChevron, MenuRadio, MenuStar, MenuSwitch, MenuTitle } from "./composerMenuParts";
 
 const PERMISSION_MODES = [
-  { id: "bypassPermissions", labelKey: "permission.full" },
-  { id: "acceptEdits", labelKey: "permission.accept-edits" },
-  { id: "default", labelKey: "action.ask-default" },
-  { id: "plan", labelKey: "permission.plan" },
-];
+  { id: "bypassPermissions", labelKey: "permission.full", descKey: "permission.full-desc" },
+  { id: "acceptEdits", labelKey: "permission.accept-edits", descKey: "permission.accept-edits-desc" },
+  { id: "default", labelKey: "action.ask-default", descKey: "permission.ask-desc" },
+  { id: "plan", labelKey: "permission.plan", descKey: "permission.plan-desc" },
+] as const;
 
 /** Signe du mode de permission — même icône dans le déclencheur et dans le
  *  menu. Monochrome et fine (stroke 1.3) comme tout le jeu d'icônes : c'est la
@@ -368,8 +369,7 @@ export function ComposerControls(p: {
               side="top"
               sideOffset={8}
               align="start"
-              className="composer-menu composer-add-menu plus-up"
-              header={t("action.add-file-image")}
+              className="composer-menu cm-panel composer-add-menu plus-up"
               label={t("action.add-file-image")}
               trigger={(
                 <IconButton
@@ -381,51 +381,57 @@ export function ComposerControls(p: {
                   <PlusIcon />
                 </IconButton>
               )}
-              items={[
-                {
-                  key: "attach-files",
-                  className: "mp-item",
-                  label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" /></svg><span>{t("action.add-file-image")}</span></>,
-                  onSelect: attachFiles,
-                },
-                {
-                  key: "quick-ask",
-                  className: "mp-item",
-                  label: <><ZapIcon /><span>{t("qa.open")}</span><Kbd>⌥⌘K</Kbd></>,
-                  onSelect: () => window.dispatchEvent(new CustomEvent("quick-ask-toggle")),
-                },
-                ...(allowedPermissionModes.includes("plan") ? [{
-                  key: "permission-plan",
-                  checked: permissionMode === "plan",
-                  keepOpen: false,
-                  className: "mp-item",
-                  label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" /></svg><span>{t("permission.plan")}</span></>,
-                  onSelect: () => setPermissionMode(permissionMode === "plan"
-                    ? modeApresPlan(modeAvantPlan.current.get(filCourant), allowedPermissionModes, p.defaults.defaultPermissionMode)
-                    : "plan"),
-                }] : []),
-                {
-                  key: "auto-review",
-                  checked: !!p.defaults.autoReview?.enabled,
-                  keepOpen: false,
-                  className: "mp-item",
-                  label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" /><path d="M5.8 8l1.6 1.6L10.5 6.3" /></svg><span>Auto-review</span></>,
-                  onSelect: () => window.dispatchEvent(new CustomEvent("autoreview-toggle")),
-                },
-                ...(p.kernel && KERNEL_PROVIDERS.includes(provider) ? [{
-                  key: "kernel",
-                  checked: p.kernel.on,
-                  keepOpen: false,
-                  className: "mp-item",
-                  label: <><KernelGlyph /><span>{t("kernel.menu")}</span></>,
-                  onSelect: () => window.dispatchEvent(new CustomEvent("kernel-toggle")),
-                }] : []),
-                ...(goalsSupported && p.onGoal ? [{
-                  key: "goal",
-                  className: "mp-item",
-                  label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" /></svg><span>{t("goal.menu")}</span></>,
-                  onSelect: () => setGoalOpen((v) => !v),
-                }] : []),
+              groups={[
+                // Variante C (2026-11-09) : les deux actions en tuiles, les
+                // modes dans un encart, chacun avec son interrupteur.
+                { key: "actions", className: "cm-tiles", items: [
+                  {
+                    key: "attach-files",
+                    className: "mp-item cm-tile",
+                    label: <><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" /></svg><span>{t("composer.add-tile")}</span></>,
+                    onSelect: attachFiles,
+                  },
+                  {
+                    key: "quick-ask",
+                    className: "mp-item cm-tile",
+                    label: <><ZapIcon /><span>{t("qa.open")}</span><Kbd>⌥⌘K</Kbd></>,
+                    onSelect: () => window.dispatchEvent(new CustomEvent("quick-ask-toggle")),
+                  },
+                ] },
+                { key: "modes", card: true, items: [
+                  ...(allowedPermissionModes.includes("plan") ? [{
+                    key: "permission-plan",
+                    checked: permissionMode === "plan",
+                    keepOpen: false,
+                    className: "mp-item cm-switch-row",
+                    label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" /></svg><span>{t("permission.plan")}</span><MenuSwitch /></>,
+                    onSelect: () => setPermissionMode(permissionMode === "plan"
+                      ? modeApresPlan(modeAvantPlan.current.get(filCourant), allowedPermissionModes, p.defaults.defaultPermissionMode)
+                      : "plan"),
+                  }] : []),
+                  {
+                    key: "auto-review",
+                    checked: !!p.defaults.autoReview?.enabled,
+                    keepOpen: false,
+                    className: "mp-item cm-switch-row",
+                    label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" /><path d="M5.8 8l1.6 1.6L10.5 6.3" /></svg><span>Auto-review</span><MenuSwitch /></>,
+                    onSelect: () => window.dispatchEvent(new CustomEvent("autoreview-toggle")),
+                  },
+                  ...(p.kernel && KERNEL_PROVIDERS.includes(provider) ? [{
+                    key: "kernel",
+                    checked: p.kernel.on,
+                    keepOpen: false,
+                    className: "mp-item cm-switch-row",
+                    label: <><KernelGlyph /><span>{t("kernel.menu")}</span><MenuSwitch /></>,
+                    onSelect: () => window.dispatchEvent(new CustomEvent("kernel-toggle")),
+                  }] : []),
+                  ...(goalsSupported && p.onGoal ? [{
+                    key: "goal",
+                    className: "mp-item",
+                    label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" /></svg><span>{t("goal.menu")}</span><MenuChevron /></>,
+                    onSelect: () => setGoalOpen((v) => !v),
+                  }] : []),
+                ] },
               ]}
             />
           </ButtonGroup>
@@ -457,8 +463,8 @@ export function ComposerControls(p: {
               <Select
                 compact
                 className="permission-select"
-                menuClassName="composer-menu composer-permission-menu"
-                menuLabel={t("settings.permission-default")}
+                menuClassName="composer-menu cm-panel composer-permission-menu"
+                menuLabel={<MenuTitle value={t((PERMISSION_MODES.find((m) => m.id === permissionMode)?.labelKey ?? "action.ask-default") as any)}>{t("permission.menu-title")}</MenuTitle>}
                 triggerIcon={<PermissionIcon mode={permissionMode} />}
                 title={`${t("settings.permission-default")} — ${t(
                   (PERMISSION_MODES.find((m) => m.id === permissionMode)?.labelKey ?? "action.ask-default") as any,
@@ -468,6 +474,9 @@ export function ComposerControls(p: {
                 options={permissionOptions.map((m) => ({
                   value: m.id,
                   label: t(m.labelKey as any),
+                  // variante C (2026-11-09) : tuiles 2 × 2, chacune dit ce
+                  // que le mode autorise
+                  description: t(m.descKey),
                   // l'icône est portée par l'option : même signe dans le
                   // déclencheur et dans le menu (App.css, .perm-icon)
                   icon: <span className="perm-icon"><PermissionIcon mode={m.id} /></span>,
@@ -498,12 +507,19 @@ export function ComposerControls(p: {
                   </RowButton>
                 }
               />
-              <PopoverContent plain side="top" align="end" sideOffset={8} className="composer-menu ctx-pop">
-                <PopoverTitle>{t("chat.context-window")}</PopoverTitle>
-                <span>{t("chat.context-used", { pct: contextPct, used: Math.round(p.usage.context / 1000), window: contextWindowLabel })}</span>
-                <span>{t("chat.last-output", { tokens: Math.round(p.usage.output / 1000 * 10) / 10 })}</span>
-                {p.usage.turns != null && <span>{t("chat.session-turns", { turns: p.usage.turns })}</span>}
-                {p.usage.cost != null && <span>{t("chat.cost", { cost: p.usage.cost.toFixed(2) })}</span>}
+              <PopoverContent plain side="top" align="end" sideOffset={8} className="composer-menu cm-panel ctx-pop">
+                {/* Variante C (2026-11-09) : titre + pourcentage, jauge et
+                    chiffres alignés dans un encart. */}
+                <PopoverTitle aria-label={t("chat.context-window")}><MenuTitle value={`${contextPct} %`}>{t("chat.context-window")}</MenuTitle></PopoverTitle>
+                <div className="cm-card ctx-card">
+                  <span className="ctx-meter" aria-hidden="true"><i style={{ width: `${Math.max(contextPct, 1)}%` }} /></span>
+                  <dl className="ctx-kv">
+                    <dt>{t("chat.ctx-used")}</dt><dd>{Math.round(p.usage.context / 1000)}k / {contextWindowLabel}</dd>
+                    <dt>{t("chat.ctx-last-output")}</dt><dd>{Math.round(p.usage.output / 1000 * 10) / 10}k</dd>
+                    {p.usage.turns != null && <><dt>{t("chat.ctx-turns")}</dt><dd>{p.usage.turns}</dd></>}
+                    {p.usage.cost != null && <><dt>{t("chat.ctx-cost")}</dt><dd>${p.usage.cost.toFixed(2)}</dd></>}
+                  </dl>
+                </div>
               </PopoverContent>
             </Popover>
           )}
@@ -555,7 +571,7 @@ export function ComposerControls(p: {
                   side="top"
                   align="end"
                   sideOffset={8}
-                  className="composer-menu mp-menu model-menu model-only"
+                  className="composer-menu cm-panel mp-menu model-menu model-only"
                   ref={modelMenuRef}
                   role="menu"
                   aria-label={t("chat.model-title")}
@@ -621,12 +637,11 @@ export function ComposerControls(p: {
                   </div>}
                   <div className={`model-list ${menuProvider === "opencode" ? "has-search" : ""}`}>
                     <div className="model-list-head">
-                      <span>
-                        <ProviderIcon provider={menuProvider} size={11} /> {menuInfo?.label ?? menuProvider}
-                      </span>
-                      {menuInfo?.kind === "api" && !menuInfo.ok && (
-                        <small>{t("settings.key-missing")}</small>
-                      )}
+                      <MenuTitle value={menuInfo?.kind === "api" && !menuInfo.ok
+                        ? <small>{t("settings.key-missing")}</small>
+                        : splitModelLabel(modelButtonLabel).name}>
+                        <ProviderIcon provider={menuProvider} size={12} /> {menuInfo?.label ?? menuProvider}
+                      </MenuTitle>
                     </div>
                     {menuProvider === "opencode" && (
                       <Field className="model-search-field">
@@ -646,6 +661,7 @@ export function ComposerControls(p: {
                       </Field>
                     )}
                     <div className="model-options">
+                    <div className="cm-card">
                     {menuModels.map((m) => {
                       const key = menuProvider + ":" + m.id;
                       // Claude : chaque nouveau choix part en contexte 1M. Le
@@ -656,7 +672,10 @@ export function ComposerControls(p: {
                       const selectedModelId = menuProvider === "claude" && !baseModelId.endsWith("[1m]")
                         ? `${baseModelId}[1m]`
                         : baseModelId;
-                      const active = provider === menuProvider && activeModelId === selectedModelId;
+                      // 200k et 1M sont le MÊME modèle : la rangée reste marquée
+                      // quelle que soit la fenêtre choisie plus bas.
+                      const sansFenetre = (id: string) => id.replace(/\[1m\]$/, "");
+                      const active = provider === menuProvider && sansFenetre(activeModelId) === sansFenetre(selectedModelId);
                       const fav = favModels.includes(key);
                       return (
                         // interactifs JAMAIS imbriqués (contrat ThreadRow) :
@@ -672,10 +691,10 @@ export function ComposerControls(p: {
                               setMenuOpen(false);
                             }}
                           >
+                            <MenuRadio on={active} />
                             <span title={m.id || undefined}>{modelLabel(m, menuProvider)}</span>
                           </RowButton>
                           <span className="mp-end">
-                            {active && <span className="mp-check">✓</span>}
                             {m.id && (
                               <Toggle
                                 className={`mp-star ${fav ? "on" : ""}`}
@@ -685,7 +704,7 @@ export function ComposerControls(p: {
                                 onClick={(e) => e.stopPropagation()}
                                 onPressedChange={() => toggleFavModel(key)}
                               >
-                                {fav ? "★" : "☆"}
+                                <MenuStar on={fav} />
                               </Toggle>
                             )}
                           </span>
@@ -695,16 +714,17 @@ export function ComposerControls(p: {
                     {!menuModels.length && (
                       <p className="model-no-match">{t("settings.model-no-match")}</p>
                     )}
+                    </div>
                     {menuProvider === "claude" && (
                       <>
-                        <div className="mp-sep" />
-                        <div className="mp-hd">{t("chat.context")}</div>
+                        <div className="mp-hd"><MenuTitle>{t("chat.context-window")}</MenuTitle></div>
+                        <div className="cm-seg">
                         {[
                           { id: "200k", label: t("chat.context-200k"), on: provider === "claude" && !activeModelId.includes("[1m]") },
                           { id: "1m", label: "1M", on: provider === "claude" && activeModelId.includes("[1m]") },
                         ].map((ctx) => (
                           <RowButton key={ctx.id} role="menuitemradio" aria-checked={ctx.on}
-                            className="mp-item model-row"
+                            className="mp-item model-row cm-seg-item"
                             onClick={() => {
                               if (ctx.id === "1m" && !activeModelId.includes("[1m]")) {
                                 setModel(activeModelId + "[1m]");
@@ -713,22 +733,22 @@ export function ComposerControls(p: {
                               }
                             }}>
                             <span>{ctx.label}</span>
-                            {ctx.on && <span className="mp-check">✓</span>}
                           </RowButton>
                         ))}
+                        </div>
                       </>
                     )}
                     {menuProvider === "opencode" && p.onOpenModelSettings && (
                       <>
-                        <div className="mp-sep" />
                         <RowButton
-                          className="mp-item model-row model-manage-row"
+                          className="mp-item model-row model-manage-row cm-foot"
                           onClick={() => {
                             setMenuOpen(false);
                             p.onOpenModelSettings?.();
                           }}
                         >
                           <span>{t("chat.manage-models")}</span>
+                          <MenuChevron />
                         </RowButton>
                       </>
                     )}
@@ -755,32 +775,20 @@ export function ComposerControls(p: {
                   side="top"
                   align="end"
                   sideOffset={8}
-                  className="composer-menu mp-menu effort-menu"
+                  className="composer-menu cm-panel mp-menu effort-menu"
                   ref={effortMenuRef}
                   initialFocus={(interaction) => interaction === "keyboard" ? effortTrackRef.current : false}
                   aria-label={effortTitle}
                 >
                   <div className="ef-block">
+                    {/* Variante C (2026-11-09) : titre + valeur en vigueur,
+                        la jauge dans un encart, Fast et le modèle en rangées. */}
                     <div className="ef-header">
-                      {provider === "codex" ? (
-                        <Tooltip placement="top" label={tierHint}>
-                          <Toggle size="sm" className="tier-toggle ef-fast" pressed={tierValue === "priority"}
-                            disabled={!tierSupported} aria-label={t("chat.service-tier-fast")}
-                            onPressedChange={setFastMode}>
-                            <ZapIcon data-icon="inline-start" aria-hidden="true" /><span>Fast</span>
-                          </Toggle>
-                        </Tooltip>
-                      ) : null}
-                      <div className="ef-heading">
-                        <div className="ef-title">
+                      <div className="ef-heading ef-title">
+                        <MenuTitle value={<>
                           <b key={effort} className="ef-label">{effortSummary}</b>
                           {effortIsDefault && effort !== "" && <span className="ef-default">{t("chat.effort-default")}</span>}
-                        </div>
-                        <RowButton className="ef-model-link" title={t("chat.model-title")}
-                          onClick={() => { setEffortOpen(false); setEffortHover(null); setMenuOpen(true); }}>
-                          <span>{modelButtonLabel}</span>
-                          <ChevronRightIcon aria-hidden="true" />
-                        </RowButton>
+                        </>}>{effortTitle}</MenuTitle>
                       </div>
                       <IconButton className={`ef-reset ${effortIsDefault && !fastMode ? "ef-reset-idle" : ""}`} size="s" label={t("chat.effort-reset")}
                         title={t("chat.effort-reset")} onClick={() => {
@@ -790,7 +798,8 @@ export function ComposerControls(p: {
                         <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
                       </IconButton>
                     </div>
-                    {effortLevels.length >= 2 && <div
+                    {effortLevels.length >= 2 && <div className="cm-card ef-card">
+                    <div
                       ref={effortTrackRef}
                       className={`ef-track ${effortHasUltra ? "ef-has-ultra" : ""}`}
                       role="slider"
@@ -847,8 +856,32 @@ export function ComposerControls(p: {
                           />
                         );
                       })}
+                    </div>
+                    <div className="ef-scale" aria-hidden="true">
+                      <span>{effortLabels[effortLevels[0]] ?? effortLevels[0]}</span>
+                      {(() => {
+                        const last = effortLevels[effortLevels.length - (effortHasUltra ? 2 : 1)];
+                        return <span>{effortLabels[last] ?? last}</span>;
+                      })()}
+                      {effortHasUltra && <span>{effortLabels[effortLevels[effortLevels.length - 1]] ?? effortLevels[effortLevels.length - 1]}</span>}
+                    </div>
                     </div>}
                   </div>
+                  {provider === "codex" ? (
+                    <Tooltip placement="top" label={tierHint}>
+                      <Toggle size="sm" className="tier-toggle ef-fast mp-item cm-switch-row" pressed={tierValue === "priority"}
+                        disabled={!tierSupported} aria-label={t("chat.service-tier-fast")}
+                        onPressedChange={setFastMode}>
+                        <ZapIcon data-icon="inline-start" aria-hidden="true" /><span>{t("composer.fast-mode")}</span><MenuSwitch />
+                      </Toggle>
+                    </Tooltip>
+                  ) : null}
+                  <RowButton className="ef-model-link mp-item cm-foot" title={t("chat.model-title")}
+                    onClick={() => { setEffortOpen(false); setEffortHover(null); setMenuOpen(true); }}>
+                    <ProviderIcon provider={provider} size={12} />
+                    <span>{modelButtonLabel}</span>
+                    <MenuChevron />
+                  </RowButton>
                 </PopoverContent>
               )}
               </Popover>
