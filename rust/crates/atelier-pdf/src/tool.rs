@@ -79,6 +79,42 @@ pub fn locate_tool() -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+/// Qui rend les vignettes de PDF (première page, PNG).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Thumbnailer {
+    /// `atelier-pdf thumb` : PDFium dans un processus sans interface.
+    Tool(PathBuf),
+    /// `qlmanage -t` de macOS, faute d'outil. macOS l'affiche dans le Dock
+    /// (« Running in Background ») le temps de chaque rendu.
+    QuickLook,
+}
+
+impl Thumbnailer {
+    /// L'outil d'Atelier d'abord, Quick Look seulement sur macOS.
+    pub fn locate() -> Option<Self> {
+        locate_tool()
+            .map(Self::Tool)
+            .or_else(|| cfg!(target_os = "macos").then_some(Self::QuickLook))
+    }
+
+    /// Commande qui écrit `<dir>/<nom du pdf>.png`, son plus grand côté à
+    /// `size` pixels (contrat de `qlmanage -t -s <size> -o <dir> <pdf>`).
+    pub fn command(&self, pdf: &Path, dir: &Path, size: u16) -> Command {
+        let mut cmd;
+        match self {
+            Self::Tool(path) => {
+                cmd = Command::new(path);
+                cmd.arg("thumb").arg(size.to_string()).arg(dir).arg(pdf);
+            }
+            Self::QuickLook => {
+                cmd = Command::new("qlmanage");
+                cmd.args(["-t", "-s", &size.to_string(), "-o"]).arg(dir).arg(pdf);
+            }
+        }
+        cmd
+    }
+}
+
 fn poppler_path(bin: &str) -> PathBuf {
     // Claude Desktop lance ses serveurs avec un PATH réduit : Homebrew n'y
     // est pas.

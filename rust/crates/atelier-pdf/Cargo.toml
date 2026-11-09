@@ -18,4 +18,7 @@ pdfium-render = { version = "0.9", default-features = false, features = ["pdfium
 # Passages cités (passage.rs) : sortie bbox et normalisation du texte.
 roxmltree = "0.20"
 unicode-normalization = "0.1"
+# Vignettes PNG (thumb.rs) : déjà dans l'arbre de dépendances.
+flate2 = "1"
+crc32fast = "1"
 

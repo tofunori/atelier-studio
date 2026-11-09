@@ -2,15 +2,49 @@
 //! de `pdftotext`, `pdftotext -bbox-layout -cropbox` ou `pdftohtml -xml
 //! -zoom 1`, lue par PDFium. Sans PDFium (développement sans
 //! `scripts/fetch-pdfium.sh`), passe la main à poppler s'il est installé.
+//!
+//! `atelier-pdf thumb <taille> <dossier> <fichier.pdf>` : vignette PNG de la
+//! première page (voir `thumb.rs`), au contrat de `qlmanage -t`.
 
-use atelier_pdf::{emit, engine, layout, tool};
+use atelier_pdf::{emit, engine, layout, thumb, tool};
 use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
 
 fn usage() -> ExitCode {
     eprintln!("usage : atelier-pdf <text|bbox|xml> <fichier.pdf>");
+    eprintln!("        atelier-pdf thumb <taille> <dossier> <fichier.pdf>");
     ExitCode::from(2)
+}
+
+/// `thumb` : PDFium d'abord ; sans lui (développement sans
+/// `scripts/fetch-pdfium.sh`), Quick Look sur macOS, comme avant.
+fn thumbnail(size: &str, dir: &str, file: &str) -> ExitCode {
+    let Ok(size) = size.parse::<u16>() else {
+        return usage();
+    };
+    let (pdf, dir) = (Path::new(file), Path::new(dir));
+    if !pdf.is_file() || !dir.is_dir() {
+        eprintln!("PDF ou dossier introuvable : {} → {}", pdf.display(), dir.display());
+        return ExitCode::from(1);
+    }
+    match thumb::write(pdf, dir, size) {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(error) if error.starts_with("PDFium") && cfg!(target_os = "macos") => {
+            let status = std::process::Command::new("qlmanage")
+                .args(["-t", "-s", &size.to_string(), "-o"])
+                .arg(dir)
+                .arg(pdf)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            if status.is_ok_and(|s| s.success()) { ExitCode::SUCCESS } else { ExitCode::from(1) }
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 /// PDFium absent : même sortie par poppler, si poppler est là.
@@ -46,6 +80,11 @@ fn poppler_fallback(output: tool::Output, pdf: &Path, why: &str) -> ExitCode {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [kind, size, dir, file] = args.as_slice() {
+        if kind == "thumb" {
+            return thumbnail(size, dir, file);
+        }
+    }
     let [kind, file] = args.as_slice() else {
         return usage();
     };

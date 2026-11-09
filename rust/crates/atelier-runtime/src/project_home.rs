@@ -4,7 +4,8 @@
 //! du PDF compilé (vignette PNG en data URL), la revue lue dans la source
 //! LaTeX et la date de la dernière modification de cette source. Rien n'est
 //! écrit dans le dossier du projet : les vignettes vivent dans le cache de
-//! l'app (`{app_dir}/project-thumbs/`), rendues par `qlmanage` sur macOS.
+//! l'app (`{app_dir}/project-thumbs/`), rendues par `atelier-pdf thumb`
+//! (PDFium ; `qlmanage` seulement si l'outil manque, sur macOS).
 //!
 //! `create` fabrique le dossier d'un nouveau projet, en recopiant au besoin
 //! l'arborescence (dossiers seulement, aucun fichier) d'un projet existant.
@@ -14,12 +15,13 @@ use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
+use atelier_pdf::tool::Thumbnailer;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 /// Au plus autant de cartes par demande : le bureau en montre trois.
 pub const MAX_CARDS: usize = 12;
-const THUMB_SIZE: &str = "480";
+const THUMB_SIZE: u16 = 480;
 const MAX_THUMB_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TEX_BYTES: u64 = 512 * 1024;
 const RENDER_TIMEOUT: Duration = Duration::from_secs(15);
@@ -175,9 +177,9 @@ fn run_with_timeout(command: &mut Command, timeout: Duration) -> bool {
 }
 
 /// Vignette de la première page : relue du cache, sinon rendue par
-/// `program` (`qlmanage -t -s 480 -o <dossier> <pdf>`). Un échec laisse un
+/// `program` (écrit `<dossier>/<nom du pdf>.png`). Un échec laisse un
 /// marqueur `.fail` : on ne relance pas le rendu avant que le PDF change.
-fn thumbnail(pdf: &Path, cache: &Path, program: Option<&OsStr>) -> Option<Vec<u8>> {
+fn thumbnail(pdf: &Path, cache: &Path, program: Option<&Thumbnailer>) -> Option<Vec<u8>> {
     let key = cache_key(pdf)?;
     let target = cache.join(format!("{key}.png"));
     if let Some(bytes) = read_png(&target) {
@@ -193,7 +195,7 @@ fn thumbnail(pdf: &Path, cache: &Path, program: Option<&OsStr>) -> Option<Vec<u8
     let _ = fs::remove_dir_all(&work);
     fs::create_dir(&work).ok()?;
     let ok = run_with_timeout(
-        Command::new(program).args(["-t", "-s", THUMB_SIZE, "-o"]).arg(&work).arg(pdf),
+        &mut program.command(pdf, &work, THUMB_SIZE),
         RENDER_TIMEOUT,
     );
     let name = format!("{}.png", pdf.file_name()?.to_string_lossy());
@@ -208,12 +210,12 @@ fn thumbnail(pdf: &Path, cache: &Path, program: Option<&OsStr>) -> Option<Vec<u8
     bytes
 }
 
-fn renderer() -> Option<&'static OsStr> {
-    cfg!(target_os = "macos").then(|| OsStr::new("qlmanage"))
+fn renderer() -> Option<Thumbnailer> {
+    Thumbnailer::locate()
 }
 
 /// Carte d'un dossier de projet. `missing` quand le dossier n'existe plus.
-pub fn card(root: &str, cache: &Path, program: Option<&OsStr>) -> Value {
+pub fn card(root: &str, cache: &Path, program: Option<&Thumbnailer>) -> Value {
     let path = Path::new(root);
     if !path.is_absolute() || !path.is_dir() {
         return json!({"root": root, "missing": true});
@@ -240,17 +242,18 @@ pub fn card(root: &str, cache: &Path, program: Option<&OsStr>) -> Value {
     })
 }
 
-/// Cartes de plusieurs projets, rendues en parallèle (un `qlmanage` lent ne
+/// Cartes de plusieurs projets, rendues en parallèle (un rendu lent ne
 /// retient pas les autres).
 pub fn cards(roots: &[String], app_dir: &Path) -> Vec<Value> {
     let cache = app_dir.join("project-thumbs");
     let roots: Vec<&String> = roots.iter().take(MAX_CARDS).collect();
+    let program = renderer();
     std::thread::scope(|scope| {
         let handles: Vec<_> = roots
             .iter()
             .map(|root| {
-                let cache = &cache;
-                scope.spawn(move || card(root, cache, renderer()))
+                let (cache, program) = (&cache, program.as_ref());
+                scope.spawn(move || card(root, cache, program))
             })
             .collect();
         handles
@@ -371,14 +374,14 @@ mod tests {
         let png = dir.path().join("page.png");
         fs::write(&png, PNG).unwrap();
         let count = dir.path().join("count");
-        let tool = dir.path().join("fake-qlmanage");
-        // qlmanage -t -s 480 -o <dossier> <pdf> → <dossier>/<nom du pdf>.png
-        fs::write(&tool, format!("#!/bin/sh\necho x >> '{}'\ncp '{}' \"$5/$(basename \"$6\").png\"\n", count.display(), png.display())).unwrap();
+        let tool = dir.path().join("fake-atelier-pdf");
+        // atelier-pdf thumb 480 <dossier> <pdf> → <dossier>/<nom du pdf>.png
+        fs::write(&tool, format!("#!/bin/sh\necho x >> '{}'\ncp '{}' \"$3/$(basename \"$4\").png\"\n", count.display(), png.display())).unwrap();
         fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
         let cache = dir.path().join("cache");
-        let first = card(root.to_str().unwrap(), &cache, Some(tool.as_os_str()));
+        let first = card(root.to_str().unwrap(), &cache, Some(&Thumbnailer::Tool(tool.clone())));
         assert!(first["thumb"].as_str().unwrap().starts_with("data:image/png;base64,"));
-        let second = card(root.to_str().unwrap(), &cache, Some(tool.as_os_str()));
+        let second = card(root.to_str().unwrap(), &cache, Some(&Thumbnailer::Tool(tool.clone())));
         assert_eq!(first["thumb"], second["thumb"]);
         assert_eq!(fs::read_to_string(&count).unwrap().lines().count(), 1);
         // le dossier du projet n'a rien reçu
@@ -399,8 +402,8 @@ mod tests {
         fs::write(&tool, format!("#!/bin/sh\necho x >> '{}'\nexit 1\n", count.display())).unwrap();
         fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
         let cache = dir.path().join("cache");
-        assert!(thumbnail(&pdf, &cache, Some(tool.as_os_str())).is_none());
-        assert!(thumbnail(&pdf, &cache, Some(tool.as_os_str())).is_none());
+        assert!(thumbnail(&pdf, &cache, Some(&Thumbnailer::Tool(tool.clone()))).is_none());
+        assert!(thumbnail(&pdf, &cache, Some(&Thumbnailer::Tool(tool.clone()))).is_none());
         assert_eq!(fs::read_to_string(&count).unwrap().lines().count(), 1);
     }
 
