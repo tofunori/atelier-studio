@@ -1157,9 +1157,9 @@ describe("contrat finitions (icônes, étiquettes, grille de 4)", () => {
     expect(shadcnButton).toMatch(/default: "tw:bg-fill-primary tw:text-on-fill-primary tw:hover:bg-fill-primary-hover/);
     expect(shadcnButton).toMatch(/secondary:\s*"tw:border-fill-secondary-ring tw:bg-fill-secondary[^"]*tw:hover:bg-fill-secondary-hover/);
     // CSS de l'app : l'encre en aplat n'est permise qu'aux marques non
-    // cliquables (pastille numérotée, trait de lecture) et au pouce d'effort.
+    // cliquables (pastille numérotée) et au pouce d'effort.
     const inkFill = /background(?:-color)?:\s*var\(--(?:text-primary|fg|txt)\)/;
-    const allowed = [".user-annot-badge", ".tl-mark[data-here] .tl-mark-sign", ".effort-menu .ef-thumb"];
+    const allowed = [".user-annot-badge", ".effort-menu .ef-thumb"];
     const offenders: string[] = [];
     for (const [file, css] of [["App.css", appCss], ...componentCssFiles.map((f) => [f, stripComments(readFileSync(f, "utf8"))])]) {
       for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {

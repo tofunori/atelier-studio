@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { bootPromotions, DEFAULT_SETTINGS, loadSettings, saveSettings, withBootPromotions } from "./settings";
+import { bootPromotions, DEFAULT_SETTINGS, loadSettings, migrateRetiredModels, saveSettings, withBootPromotions } from "./settings";
 
 beforeEach(() => localStorage.clear());
 
@@ -37,11 +37,11 @@ describe("settings defaults", () => {
     });
 
     localStorage.setItem("atelier-studio.settings", JSON.stringify({
-      defaultModel: { claude: "claude-opus-4-8[1m]" },
+      defaultModel: { claude: "claude-fable-5-1[1m]" },
       defaultEffort: { claude: "medium" },
     }));
     expect(loadSettings()).toMatchObject({
-      defaultModel: { claude: "claude-opus-4-8[1m]" },
+      defaultModel: { claude: "claude-fable-5-1[1m]" },
       defaultEffort: { claude: "medium" },
     });
   });
@@ -57,19 +57,46 @@ describe("settings defaults", () => {
     // Écrit tout de suite : le démarrage suivant relit la nouvelle valeur.
     expect(JSON.parse(localStorage.getItem("atelier-studio.settings") ?? "{}").defaultModel.claude)
       .toBe("claude-opus-5-5[1m]");
-    // Rejoué jamais : un retour explicite à Opus 5 · 1M est respecté.
+    // Rejoué jamais : un retour explicite à un autre modèle est respecté.
     localStorage.setItem("atelier-studio.settings", JSON.stringify({
-      defaultModel: { claude: "claude-opus-5[1m]" },
+      defaultModel: { claude: "claude-sonnet-5-5[1m]" },
     }));
-    expect(loadSettings().defaultModel.claude).toBe("claude-opus-5[1m]");
+    expect(loadSettings().defaultModel.claude).toBe("claude-sonnet-5-5[1m]");
   });
 
   it("garde un autre modèle Claude choisi explicitement", () => {
     localStorage.setItem("atelier-studio.defaults.claude-opus-5-1m", "1");
     localStorage.setItem("atelier-studio.settings", JSON.stringify({
-      defaultModel: { claude: "claude-opus-4-8[1m]" },
+      defaultModel: { claude: "claude-fable-5-1[1m]" },
     }));
-    expect(loadSettings().defaultModel.claude).toBe("claude-opus-4-8[1m]");
+    expect(loadSettings().defaultModel.claude).toBe("claude-fable-5-1[1m]");
+  });
+
+  it("migre les modèles Claude retirés vers leur remplaçant, favoris et efforts compris", () => {
+    localStorage.setItem("atelier-studio.defaults.claude-opus-5-1m", "1");
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({
+      defaultModel: { claude: "claude-opus-4-8[1m]", codex: "gpt-5.6-terra" },
+      favoriteModels: {
+        claude: ["claude-fable-5-1", "claude-fable-5", "claude-haiku-4-5-20251001"],
+        codex: ["gpt-5.5"],
+      },
+      modelEfforts: { "claude:claude-sonnet-5": "low", "claude:claude-opus-5": "max", "claude:claude-opus-5-5": "high" },
+      autoReview: { ...DEFAULT_SETTINGS.autoReview, provider: "claude", model: "claude-opus-4-8" },
+      consignesAssist: { provider: "claude", model: "claude-haiku-4-5-20251001" },
+    }));
+    const s = loadSettings();
+    expect(s.defaultModel).toEqual({ claude: "claude-opus-5-5[1m]", codex: "gpt-5.6-terra" });
+    // Fable 5 et Fable 5.1 fusionnent en une seule étoile ; Codex intact.
+    expect(s.favoriteModels).toEqual({ claude: ["claude-fable-5-1", "claude-haiku-5-5"], codex: ["gpt-5.5"] });
+    // L'effort déjà choisi pour le remplaçant prime.
+    expect(s.modelEfforts).toEqual({ "claude:claude-sonnet-5-5": "low", "claude:claude-opus-5-5": "high" });
+    expect(s.autoReview.model).toBe("claude-opus-5-5");
+    expect(s.consignesAssist.model).toBe("claude-haiku-5-5");
+    // Le miroir disque (antérieur) repasse par la même migration.
+    expect(migrateRetiredModels({ favoriteModels: { claude: ["claude-sonnet-5"] } }))
+      .toEqual({ favoriteModels: { claude: ["claude-sonnet-5-5"] } });
+    const intact = { defaultModel: { claude: "claude-fable-5-1" } };
+    expect(migrateRetiredModels(intact)).toBe(intact);
   });
 
   it("revient au panneau Chat à chaque démarrage", () => {

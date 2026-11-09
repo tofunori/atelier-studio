@@ -3,12 +3,17 @@
 export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
   claude: {
     "claude-fable-5-1": "Fable 5.1",
-    "claude-fable-5": "Fable 5",
     "claude-opus-5-5": "Opus 5.5",
+    "claude-sonnet-5-5": "Sonnet 5.5",
+    "claude-haiku-5-5": "Haiku 5.5",
+    // Anciens modèles retirés du sélecteur : libellés gardés pour l'historique
+    // (reçus de tour, anciens fils). Voir RETIRED_CLAUDE_MODELS.
+    "claude-fable-5": "Fable 5",
     "claude-opus-5": "Opus 5",
     "claude-opus-4-8": "Opus 4.8",
     "claude-sonnet-5": "Sonnet 5",
     "claude-haiku-4-5-20251001": "Haiku 4.5",
+    "claude-haiku-4-5": "Haiku 4.5",
   },
   // Grok : aucun libellé en dur. `session/new` renvoie le `name` officiel de
   // chaque modèle, servi via providerStatus.modelLabels.
@@ -35,6 +40,31 @@ export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
     "opencode-go/kimi-k3": "Kimi K3 · Go",
   },
 };
+
+// Modèles Claude retirés du catalogue (2026-10-31) → leur remplaçant dans la
+// même gamme. Sert à migrer un choix enregistré (défaut, favoris, efforts,
+// sélection d'un fil) : un id retiré n'apparaît plus dans le sélecteur, le
+// garder laisserait une coche ou une étoile orpheline.
+export const RETIRED_CLAUDE_MODELS: Record<string, string> = {
+  "claude-fable-5": "claude-fable-5-1",
+  "claude-opus-5": "claude-opus-5-5",
+  "claude-opus-4-8": "claude-opus-5-5",
+  "claude-sonnet-5": "claude-sonnet-5-5",
+  "claude-sonnet-4-5": "claude-sonnet-5-5",
+  "claude-haiku-4-5": "claude-haiku-5-5",
+  "claude-haiku-4-5-20251001": "claude-haiku-5-5",
+};
+
+/** Remplace un id Claude retiré par son successeur, suffixe `[1m]` compris.
+ * Tout autre id (autre provider, modèle actuel ou inconnu) revient tel quel. */
+export function replaceRetiredModel(provider: string, model: string): string {
+  if (provider !== "claude" || !model) return model;
+  const is1m = model.endsWith("[1m]");
+  const base = is1m ? model.slice(0, -"[1m]".length) : model;
+  const next = RETIRED_CLAUDE_MODELS[base];
+  if (!next) return model;
+  return is1m ? `${next}[1m]` : next;
+}
 
 // Niveau de service Codex « Fast » (= service_tier `priority` de l'app-server).
 // Ce n'est NI un modèle NI un effort : le catalogue Codex annonce par modèle

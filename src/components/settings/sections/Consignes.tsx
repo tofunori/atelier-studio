@@ -21,8 +21,8 @@ type Assist = { provider: string; model: string };
 const OPTIONS_MODELE_REFORMULATION: { value: string; label: string }[] = [
   { value: "codex:gpt-5.6-sol", label: "GPT-5.6 sol" },
   { value: "codex:gpt-5.5", label: "GPT-5.5" },
-  { value: "claude:claude-haiku-4-5-20251001", label: "Haiku 4.5 · rapide" },
-  { value: "claude:claude-sonnet-5", label: "Sonnet 5" },
+  { value: "claude:claude-haiku-5-5", label: "Haiku 5.5 · rapide" },
+  { value: "claude:claude-sonnet-5-5", label: "Sonnet 5.5" },
 ];
 
 const EVENT_CONSIGNE_REFORMULEE = "consigne-reformulee";

@@ -893,6 +893,35 @@ fn claude_additional_models() -> Vec<(String, Option<String>)> {
         .unwrap_or_default()
 }
 
+/// Modèles Claude retirés du sélecteur (2026-10-31) : Atelier les migre vers
+/// leur remplaçant côté interface (`RETIRED_CLAUDE_MODELS`, modelCatalog.ts).
+/// Le cache du CLI les annonce encore pour certains comptes.
+const RETIRED_CLAUDE_MODELS: &[&str] = &[
+    "claude-fable-5",
+    "claude-opus-5",
+    "claude-opus-4-8",
+    "claude-sonnet-5",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
+    "claude-haiku-4-5-20251001",
+];
+
+/// Garde une option du cache `additionalModelOptionsCache` seulement si elle
+/// ajoute un VRAI modèle au jeu intégré. Écartés : un alias de gamme sans
+/// version (« fable », « opus »… — affiché « Fable » à côté de « Fable 5.1 »,
+/// vécu le 2026-10-31), une variante `[1m]` d'un id déjà listé (le contexte
+/// 1M est un réglage du sélecteur, pas une rangée) et un modèle retiré.
+fn keep_additional_model(id: &str, builtin: &[String]) -> bool {
+    let base = id.strip_suffix("[1m]").unwrap_or(id);
+    if !base.chars().any(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    if RETIRED_CLAUDE_MODELS.contains(&base) {
+        return false;
+    }
+    !builtin.iter().any(|known| known == base)
+}
+
 #[async_trait]
 impl Provider for ClaudeProvider {
     fn id(&self) -> &str {
@@ -918,12 +947,9 @@ impl Provider for ClaudeProvider {
     fn models(&self) -> Vec<String> {
         vec![
             "claude-fable-5-1".into(),
-            "claude-fable-5".into(),
             "claude-opus-5-5".into(),
-            "claude-opus-5".into(),
-            "claude-opus-4-8".into(),
-            "claude-sonnet-5".into(),
-            "claude-haiku-4-5-20251001".into(),
+            "claude-sonnet-5-5".into(),
+            "claude-haiku-5-5".into(),
         ]
     }
     fn default_model(&self) -> String {
@@ -933,13 +959,16 @@ impl Provider for ClaudeProvider {
     /// Jeu intégré + droits du compte. Sans ce complément, un modèle ouvert
     /// à Thierry mais absent de la liste en dur reste inaccessible.
     async fn dynamic_models(&self) -> Option<Value> {
-        let extra = tokio::task::spawn_blocking(claude_additional_models)
+        let mut ids = self.models();
+        let extra: Vec<_> = tokio::task::spawn_blocking(claude_additional_models)
             .await
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(id, _)| keep_additional_model(id, &ids))
+            .collect();
         if extra.is_empty() {
             return None;
         }
-        let mut ids = self.models();
         let mut labels = serde_json::Map::new();
         for (id, label) in extra {
             if !ids.iter().any(|known| known == &id) {
@@ -1434,7 +1463,7 @@ impl Provider for ClaudeProvider {
             "--effort",
             "low",
             "--model",
-            "claude-haiku-4-5-20251001",
+            "claude-haiku-5-5",
             "--system-prompt",
             system,
             // `--` : un premier message qui commence par « - » (puce
@@ -1483,7 +1512,7 @@ impl Provider for ClaudeProvider {
             "--effort",
             "low",
             "--model",
-            "claude-haiku-4-5-20251001",
+            "claude-haiku-5-5",
             "--system-prompt",
             &system,
             "--",
@@ -1542,7 +1571,7 @@ impl Provider for ClaudeProvider {
             "--effort",
             "low",
             "--model",
-            "claude-haiku-4-5-20251001",
+            "claude-haiku-5-5",
             "--system-prompt",
             &system,
             "--",
@@ -3291,5 +3320,26 @@ mod review_tests {
         let bin = fake_cli("true");
         let error = ClaudeProvider::with_bin(bin).review(request("x", "high")).await.unwrap_err();
         assert_eq!(error, ReviewError::Provider("relecture Claude : réponse vide".into()));
+    }
+}
+
+#[cfg(test)]
+mod modeles_tests {
+    use super::*;
+
+    #[test]
+    fn options_du_cache_sans_doublon_ni_alias_ni_retire() {
+        let builtin = ClaudeProvider::with_bin("claude".into()).models();
+        // alias de gamme sans version : la rangée « Fable » du 2026-10-31
+        assert!(!keep_additional_model("fable", &builtin));
+        assert!(!keep_additional_model("opus[1m]", &builtin));
+        // déjà listé, avec ou sans [1m]
+        assert!(!keep_additional_model("claude-fable-5-1", &builtin));
+        assert!(!keep_additional_model("claude-opus-5-5[1m]", &builtin));
+        // retiré du sélecteur
+        assert!(!keep_additional_model("claude-opus-4-8", &builtin));
+        assert!(!keep_additional_model("claude-haiku-4-5-20251001", &builtin));
+        // un vrai modèle ouvert au compte reste visible
+        assert!(keep_additional_model("claude-mythos-5-1", &builtin));
     }
 }

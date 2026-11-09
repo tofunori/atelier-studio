@@ -189,7 +189,8 @@ private extension View {
         let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
         if opaque {
             background(AtelierTheme.card, in: shape)
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .shadow(color: AtelierTheme.shadow, radius: 12, y: 4)
+                .shadow(color: AtelierTheme.shadow, radius: 1.5, y: 1)
         } else {
             atelierGlass(in: shape)
         }
