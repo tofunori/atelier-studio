@@ -370,7 +370,8 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     openModelPicker();
     const modelList = document.querySelector(".model-list") as HTMLElement;
     expect(modelList).toBeTruthy();
-    expect(within(modelList).getByText("gpt-5.6")).toBeTruthy();
+    // le titre du panneau répète le modèle en vigueur : on vise la liste
+    expect(within(modelList.querySelector(".model-options") as HTMLElement).getByText("gpt-5.6")).toBeTruthy();
     expect(within(modelList).getByText("Codex")).toBeTruthy();
     expect(modelList.textContent).not.toContain("Default model");
     expect(modelList.textContent).not.toContain("CLI default");
@@ -442,7 +443,7 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     // id inconnu du front : affiché tel quel, directement depuis le catalogue
     expect(screen.getByText("claude-nova-6-preview")).toBeTruthy();
     // id connu : libellé lisible (BUILTIN_MODEL_LABELS reste une map id→label)
-    expect(within(document.querySelector(".model-list") as HTMLElement).getByText("Fable 5")).toBeTruthy();
+    expect(within(document.querySelector(".model-options") as HTMLElement).getByText("Fable 5")).toBeTruthy();
   });
 
   it("sélectionner n'importe quel modèle Claude active 1M par défaut", async () => {
@@ -493,9 +494,11 @@ describe("composer — catalogue et capabilities sidecar (plan 025, step 9)", ()
     const trigger = document.querySelector(".composer-bar .custom-select-trigger") as HTMLButtonElement;
     expect(trigger).toBeTruthy();
     fireEvent.click(trigger);
-    const options = [...document.querySelectorAll(".composer-bar .custom-select-option")]
+    const options = [...document.querySelectorAll(".composer-bar .custom-select-option .custom-select-option-label")]
       .map((el) => el.textContent);
     expect(options).toEqual(["Full access", "Accept edits", "Ask (default)", "Plan mode"]);
+    // chaque tuile dit ce que le mode autorise (variante C, 2026-11-09)
+    expect(document.querySelectorAll(".composer-bar .custom-select-option-desc")).toHaveLength(4);
   });
 
   it("filtre commandes, skills et mentions plugin avec la matrice du provider", () => {
@@ -782,7 +785,7 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     const list = document.querySelector(".model-menu .model-list") as HTMLElement;
     expect(within(list).queryByText("Claude Code")).toBeNull();
     expect(within(list).queryByText("Codex")).toBeNull();
-    expect(within(list).getByText("GLM 5.2")).toBeTruthy();
+    expect(within(list.querySelector(".model-options") as HTMLElement).getByText("GLM 5.2")).toBeTruthy();
     expect(within(list).getByText("Claude Fable 5")).toBeTruthy();
     expect(within(list).getByText("MiniMax M3")).toBeTruthy();
     expect(within(list).getByText("Kimi K3 · For Coding")).toBeTruthy();
@@ -793,7 +796,7 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
     const search = within(list).getByPlaceholderText(t("settings.model-search"));
     fireEvent.change(search, { target: { value: "kimi k3" } });
     expect(within(list).getByText("Kimi K3 · For Coding")).toBeTruthy();
-    expect(within(list).queryByText("GLM 5.2")).toBeNull();
+    expect(within(list.querySelector(".model-options") as HTMLElement).queryByText("GLM 5.2")).toBeNull();
 
     fireEvent.click(within(list).getByText("Kimi K3 · For Coding"));
     await waitFor(() => expect(
@@ -835,12 +838,14 @@ describe("composer — barre hiérarchisée (plan 020)", () => {
 
     const consigneBtn = screen.getByLabelText(t("specialiste.menu-title")) as HTMLButtonElement;
     fireEvent.click(consigneBtn);
-    await waitFor(() => expect(screen.getByText(t("specialiste.none"))).toBeTruthy());
+    // le titre de section répète le spécialiste en vigueur : on vise la rangée
+    const aucun = () => document.querySelector(".composer-style-menu .specialiste-item .consigne-nom");
+    await waitFor(() => expect(aucun()?.textContent).toBe(t("specialiste.none")));
     // ouvrir le menu consigne ne ferme pas le menu + resté ouvert au-dessus
     expect(document.querySelector(".plus-up")).toBeTruthy();
 
-    fireEvent.click(screen.getByText(t("specialiste.none")));
-    await waitFor(() => expect(screen.queryByText(t("specialiste.none"))).toBeNull());
+    fireEvent.click(aucun() as HTMLElement);
+    await waitFor(() => expect(aucun()).toBeNull());
     // fermer (par sélection) le menu consigne ne ferme pas le menu +
     expect(document.querySelector(".plus-up")).toBeTruthy();
   });

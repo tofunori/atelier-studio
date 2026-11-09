@@ -6,6 +6,7 @@ import { RowButton } from "../ui/RowButton";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import { basculerForme, choisirSpecialiste, formesDuFil, type Specialiste } from "../../lib/specialistes";
 import { t } from "../../lib/i18n";
+import { MenuChevron, MenuRadio, MenuTitle } from "./composerMenuParts";
 
 /** CLIs qui savent porter une consigne (plan du 2026-09-01). */
 export const PROVIDERS_AVEC_CONSIGNE = ["claude", "codex"];
@@ -21,20 +22,6 @@ const PIED_KEYS = {
 
 function GlypheConsigne() {
   return <List aria-hidden="true" />;
-}
-
-/** Coche de la rangée active. Le remplissage de la rangée porte déjà le
- *  signal (décision produit : aucun accent sur les consignes) — la coche
- *  le confirme sans couleur. */
-function CocheConsigne() {
-  return (
-    <span className="consigne-coche" aria-hidden="true">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-           strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3.5 8.4 6.4 11.3 12.5 4.9" />
-      </svg>
-    </span>
-  );
 }
 
 /** Menu « Spécialiste » du compositeur (plan specialistes-2026-10-18) :
@@ -83,8 +70,11 @@ export function ConsigneMenu(p: {
       className: rangeeSpecialiste(!specialiste),
       label: (
         <>
-          <span className="consigne-nom">{t("specialiste.none")}</span>
-          {!specialiste && <CocheConsigne />}
+          <MenuRadio on={!specialiste} />
+          <span className="consigne-option">
+            <span className="consigne-nom">{t("specialiste.none")}</span>
+            <span className="consigne-desc">{t("specialiste.none-desc")}</span>
+          </span>
         </>
       ),
       onSelect: () => p.onChoisir(choisirSpecialiste(p.actif, null)),
@@ -94,11 +84,11 @@ export function ConsigneMenu(p: {
       className: rangeeSpecialiste(specialiste?.id === s.id),
       label: (
         <>
+          <MenuRadio on={specialiste?.id === s.id} />
           <span className="consigne-option">
             <span className="consigne-nom">{s.nom || t("specialistes.untitled")}</span>
             {s.role && <span className="consigne-desc">{s.role}</span>}
           </span>
-          {specialiste?.id === s.id && <CocheConsigne />}
         </>
       ),
       onSelect: () => p.onChoisir(choisirSpecialiste(p.actif, specialiste?.id === s.id ? null : s)),
@@ -110,11 +100,11 @@ export function ConsigneMenu(p: {
       className: rangeeSpecialiste(true),
       label: (
         <>
+          <MenuRadio on />
           <span className="consigne-option">
             <span className="consigne-nom">{specialiste.nom}</span>
             <span className="consigne-desc">{t("specialiste.deleted")}</span>
           </span>
-          <CocheConsigne />
         </>
       ),
       onSelect: () => p.onChoisir(choisirSpecialiste(p.actif, null)),
@@ -131,7 +121,8 @@ export function ConsigneMenu(p: {
   }));
   const reglagesItems = [{
     key: "reglages",
-    label: <><SlidersHorizontal aria-hidden="true" /><span className="consigne-lien">{t("specialiste.manage-all")}</span></>,
+    className: "cm-foot",
+    label: <><SlidersHorizontal aria-hidden="true" /><span className="consigne-lien">{t("specialiste.manage-all")}</span><MenuChevron /></>,
     onSelect: p.onGererSpecialistes ?? p.onOuvrirReglages,
   }];
 
@@ -165,16 +156,20 @@ export function ConsigneMenu(p: {
       open={open}
       onOpenChange={setOpen}
       label={t("specialiste.menu-title")}
-      className="composer-menu composer-style-menu"
+      className="composer-menu cm-panel composer-style-menu"
       side="top"
       sideOffset={8}
       align="start"
       groups={[
-        { key: "specialistes", label: <span className="consigne-heading">{t("specialiste.heading")}</span>, items: specialistesItems },
+        // Variante C (2026-11-09) : chaque section = un titre avec sa valeur
+        // en vigueur, puis ses choix ; plus de séparateurs, l'espace suffit.
+        { key: "specialistes", card: true, items: specialistesItems,
+          label: <MenuTitle value={specialiste?.nom ?? t("specialiste.none")}>{t("specialiste.heading")}</MenuTitle> },
         // Le mode d'application propre au CLI (prompt système ou bloc en
         // tête) reste consultable au survol du titre, sans ligne de pied.
-        { key: "formes", separatorBefore: true, label: <span className="consigne-heading" title={pied}>{t("specialiste.forms")}</span>, items: formesItems, className: "consigne-pastilles" },
-        { key: "reglages", separatorBefore: true, items: reglagesItems },
+        ...(formesItems.length ? [{ key: "formes", items: formesItems, className: "consigne-pastilles",
+          label: <span title={pied}><MenuTitle value={t("specialiste.forms-count", { n: selection.length, total: catalogue.length })}>{t("specialiste.forms")}</MenuTitle></span> }] : []),
+        { key: "reglages", items: reglagesItems },
       ]}
       trigger={trigger}
     />
