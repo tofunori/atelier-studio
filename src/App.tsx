@@ -75,7 +75,7 @@ import { focusComposer, type ResearchHomeBundle } from "./components/ResearchHom
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
-import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
+import type { ProjMeta, HighlightEntry } from "./components/Rail";
 import TopBar from "./components/TopBar";
 import type { Surface } from "./components/surfaces";
 import ThreadChat from "./components/ThreadChat";
@@ -203,7 +203,11 @@ import "./App.css";
 // qu'un delta de stream (App re-rend au plus 1×/frame, Task 1) ne les
 // re-rende plus tant que leurs props restent référentiellement stables.
 const TopBarMemo = memo(TopBar);
-const RailMemo = memo(Rail);
+// Le rail n'apparaît plus qu'en mode replié (variante A, 2026-11-08) : hors de
+// l'entrée, comme les morceaux de la colonne latérale qui l'entourent.
+const RailMemo = memo(lazyWithRetry(() => import("./components/Rail")));
+const SideNav = lazyWithRetry<import("./components/sidebar/SideColumnParts").SideNavProps>(() => import("./components/sidebar/SideColumnParts").then((m) => ({ default: m.SideNav })));
+const SideBottom = lazyWithRetry<import("./components/sidebar/SideColumnParts").SideBottomProps>(() => import("./components/sidebar/SideColumnParts").then((m) => ({ default: m.SideBottom })));
 const RailSignalsSource = lazyWithRetry(() => import("./components/RailSignalsSource"));
 const NO_SIGNALS = {};
 
@@ -4426,6 +4430,7 @@ export default function App() {
         <LazyBoundary fallback={null}>
           <RailSignalsSource store={eventStore} threads={allThreads} unread={unread} activeId={activeId} />
         </LazyBoundary>
+        {compact && <LazyBoundary fallback={<nav className="rail rail-clean" aria-hidden="true" />}>
         <RailMemo
           signals={railView?.signals}
           inbox={railInbox}
@@ -4462,7 +4467,36 @@ export default function App() {
           onRemoveProject={handleRemoveProject}
           onReorder={handleReorderProjects}
         />
+        </LazyBoundary>}
       </>
+  );
+  // Colonne unifiée (variante A, 2026-11-08) : rangées nommées en haut,
+  // autres projets et réglages en bas, autour du panneau de vue.
+  const discussionsActive = activeView === "chats" && isDiscussionContext(activeProject);
+  const sideNavNode = (
+    <LazyBoundary fallback={<div className="scol-nav scol-nav-skel" aria-hidden="true" />}>
+      <SideNav view={activeView} inbox={railInbox} onSelectView={handleSelectView} />
+    </LazyBoundary>
+  );
+  const sideBottomNode = (
+    <LazyBoundary fallback={<div className="scol-bottom" aria-hidden="true" />}>
+      <SideBottom
+        projects={projects}
+        meta={projMeta}
+        headerProject={activeView === "chats" && !discussionsActive ? activeProject : null}
+        discussionsActive={discussionsActive}
+        signals={railView?.signals}
+        running={runningProjects}
+        onSelectProject={selectProject}
+        onAddProject={addProject}
+        onDiscussions={handleDiscussions}
+        onSettings={handleOpenSettings}
+        onProjectSettings={setProjectSettingsRoot}
+        onSetMeta={handleSetProjMeta}
+        onRemoveProject={handleRemoveProject}
+        onReorder={handleReorderProjects}
+      />
+    </LazyBoundary>
   );
   const viewPanelNode = compact ? null : activeView === "highlights" ? (
           <HighlightsPanel
@@ -4511,6 +4545,9 @@ export default function App() {
       </LazyBoundary>
   ) : (
         <Sidebar
+          nav={sideNavNode}
+          onCollapse={() => setCompact(true)}
+          onHome={activeProject && !isDiscussionContext(activeProject) ? () => selectProject(activeProject) : undefined}
           projectMenu={projectMenu}
           onProjectSettings={setProjectSettingsRoot}
           projects={projects}
@@ -4686,7 +4723,14 @@ export default function App() {
     <WorkspaceShell
       topBar={<RenderBoundary>{topBarNode}</RenderBoundary>}
       rail={<RenderBoundary>{railNode}</RenderBoundary>}
-      viewPanel={viewPanelNode == null ? null : <RenderBoundary>{viewPanelNode}</RenderBoundary>}
+      viewPanel={viewPanelNode == null ? null : (
+        <div className="scol">
+          {activeView !== "chats" && <div className="scol-top"><RenderBoundary>{sideNavNode}</RenderBoundary></div>}
+          <div className="scol-main"><RenderBoundary>{viewPanelNode}</RenderBoundary></div>
+          <RenderBoundary>{sideBottomNode}</RenderBoundary>
+        </div>
+      )}
+      unified={viewPanelNode != null}
       overlays={<RenderBoundary>{overlaysNode}</RenderBoundary>}
       dragging={dragging} onDraggingChange={setDragging}>
     <PanelGroup direction="horizontal" className="app">

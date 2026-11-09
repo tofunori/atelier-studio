@@ -204,14 +204,8 @@ it("LaTeX : retirer la pièce jointe ne laisse ni mention ni bouton Annuler", ()
 
 describe("ContextShelf — contexte vivant (variante A)", () => {
   const ROOT = "/home/t/Doctorat";
-  const selection = [
-    "Bare-ice albedo decreased by 0.04 between",
-    "2016 and 2023 \\citep{ryan2018},",
-    "mostly during late-summer melt.",
-  ].join("\n");
   const tex: LiveContext = {
-    path: `${ROOT}/Chapitre1/chapitre1.tex`, name: "chapitre1.tex", kind: "tex",
-    lineFrom: 23, lineTo: 25, selection,
+    path: `${ROOT}/Chapitre1/chapitre1.tex`, name: "chapitre1.tex", kind: "tex", line: 23,
     comments: [{ line: 24, text: "source ?" }, { text: "à vérifier" }],
   };
 
@@ -224,7 +218,7 @@ describe("ContextShelf — contexte vivant (variante A)", () => {
     return { onDismiss, ...utils };
   }
 
-  it("étiquette en tête de rangée, sans fond de pilule : œil, nom, lignes", () => {
+  it("étiquette en tête de rangée, sans fond de pilule : œil, nom, ligne", () => {
     const { container } = liveShelf(tex, [{ name: "plot.png", lines: null, kind: "file", text: "x" }]);
     const row = container.querySelector(".context-pills")!;
     const chip = row.firstElementChild!;
@@ -232,7 +226,7 @@ describe("ContextShelf — contexte vivant (variante A)", () => {
     expect(chip).not.toHaveClass("chip"); // pas le gabarit à fond des pièces jointes
     expect(chip).not.toHaveClass("is-open");
     expect(chip.querySelector(".live-context-name")).toHaveTextContent("chapitre1.tex");
-    expect(chip.querySelector(".live-context-where")).toHaveTextContent("lignes 23-25");
+    expect(chip.querySelector(".live-context-where")).toHaveTextContent("ligne 23");
     expect(chip.querySelector("svg.live-context-glyph")).toBeTruthy();
   });
 
@@ -250,35 +244,17 @@ describe("ContextShelf — contexte vivant (variante A)", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it("le clic montre exactement ce qui part : chemin relatif, phrase, texte numéroté, commentaires", async () => {
+  it("le clic montre exactement ce qui part : chemin relatif, phrase, commentaires, aucun texte", async () => {
     const { container } = liveShelf(tex);
-    const trigger = screen.getByRole("button", { name: t("live-context.chip", { name: "chapitre1.tex", where: "lignes 23-25" }) });
+    const trigger = screen.getByRole("button", { name: t("live-context.chip", { name: "chapitre1.tex", where: "ligne 23" }) });
     expect(trigger.getAttribute("title")).toContain("chapitre1.tex");
     fireEvent.click(trigger);
     expect(await screen.findByText("Part avec ton message")).toBeInTheDocument();
     expect(container.querySelector(".live-context-chip")).toHaveClass("is-open");
     expect(screen.getByText("Chapitre1/chapitre1.tex")).toBeInTheDocument();
-    expect(screen.getByText("lignes 23 à 25 sélectionnées")).toBeInTheDocument();
-    const code = document.querySelector(".live-context-code")!;
-    const numbers = [...code.querySelectorAll(".live-context-code-n")].map((n) => n.textContent);
-    expect(numbers).toEqual(["23", "24", "25"]);
-    expect(code).toHaveTextContent("mostly during late-summer melt.");
+    expect(screen.getByText("curseur à la ligne 23")).toBeInTheDocument();
+    expect(document.querySelector("pre")).toBeNull();
     expect(screen.getByText("2 commentaires ouverts dans ce fichier")).toBeInTheDocument();
   });
 
-  it("une longue sélection s'arrête à 12 lignes puis « … » ; curseur seul = phrase sans bloc", async () => {
-    const long = Array.from({ length: 20 }, (_, i) => `l${i + 1}`).join("\n");
-    const { unmount } = liveShelf({ ...tex, comments: undefined, lineFrom: 1, lineTo: 20, selection: long });
-    fireEvent.click(screen.getByRole("button", { name: /^Ce que tu regardes/ }));
-    await screen.findByText("Part avec ton message");
-    const rows = [...document.querySelectorAll(".live-context-code-line")].map((row) => row.textContent);
-    expect(rows).toHaveLength(13);
-    expect(rows[12]).toBe("…");
-    expect(screen.queryByText(/commentaire/)).toBeNull();
-    unmount();
-    liveShelf({ path: `${ROOT}/a.py`, name: "a.py", kind: "code", line: 42 });
-    fireEvent.click(screen.getByRole("button", { name: /^Ce que tu regardes/ }));
-    expect(await screen.findByText("curseur à la ligne 42")).toBeInTheDocument();
-    expect(document.querySelector(".live-context-code")).toBeNull();
-  });
 });

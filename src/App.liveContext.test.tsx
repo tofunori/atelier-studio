@@ -30,8 +30,7 @@ import { resetKbSourcesForTests } from "./lib/kbSources";
 
 const THREAD_A = makeThread({ id: "thread-A", title: "Fil A — albédo" });
 const TEX = {
-  path: `${PROJECT_ROOT}/chap/chapitre1.tex`, name: "chapitre1.tex", kind: "tex",
-  lineFrom: 23, lineTo: 25, selection: "Bare-ice albedo\ndecreased by 0.04\nduring melt.",
+  path: `${PROJECT_ROOT}/chap/chapitre1.tex`, name: "chapitre1.tex", kind: "tex", line: 23,
   comments: [{ line: 24, text: "source ?" }],
 };
 
@@ -83,31 +82,32 @@ afterEach(() => {
 describe("App — contexte vivant", () => {
   it("part avec le message, hors du prompt, et laisse une trace sur la bulle", async () => {
     const sock = await mountOnThread();
-    await look(TEX);
+    // la sélection ne part jamais d'elle-même (Thierry, 2026-11-08), même si un cadre l'envoie
+    await look({ ...TEX, lineFrom: 23, lineTo: 25, selection: "Bare-ice albedo\ndecreased by 0.04" });
     expect(chip()).toHaveTextContent("chapitre1.tex");
-    expect(chip()).toHaveTextContent(t("live-context.lines", { from: 23, to: 25 }));
+    expect(chip()).toHaveTextContent(t("live-context.line", { line: 23 }));
 
     await send("Ce passage est-il cohérent ?");
     const sent = last(sends(sock));
     expect(sent.prompt).toBe("Ce passage est-il cohérent ?");
     expect(sent.liveContext).toEqual(TEX);
     expect(sent.displayEvent.liveContext).toEqual({
-      path: TEX.path, name: "chapitre1.tex", lineFrom: 23, lineTo: 25, comments: 1,
+      path: TEX.path, name: "chapitre1.tex", line: 23, comments: 1,
     });
     // trace optimiste, avant l'écho serveur
-    expect(document.querySelector(".messages .user-live-context")).toHaveTextContent(`chapitre1.tex · ${t("live-context.lines", { from: 23, to: 25 })}`);
+    expect(document.querySelector(".messages .user-live-context")).toHaveTextContent(`chapitre1.tex · ${t("live-context.line", { line: 23 })}`);
   });
 
-  it("la croix retire le contexte pour CE message ; l'envoi le ramène ; une autre sélection aussi", async () => {
+  it("la croix retire le contexte pour CE message ; l'envoi le ramène ; une autre ligne aussi", async () => {
     const sock = await mountOnThread();
     await look(TEX);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: t("live-context.dismiss", { name: "chapitre1.tex" }) }));
     });
     expect(chip()).toBeNull();
-    // une autre sélection ramène l'étiquette, revenir à la première non
-    await look({ ...TEX, lineFrom: 30, lineTo: 31 });
-    expect(chip()).toHaveTextContent(t("live-context.lines", { from: 30, to: 31 }));
+    // une autre ligne ramène l'étiquette, revenir à la première non
+    await look({ ...TEX, line: 30 });
+    expect(chip()).toHaveTextContent(t("live-context.line", { line: 30 }));
     await look(TEX);
     expect(chip()).toBeNull();
 
@@ -115,7 +115,7 @@ describe("App — contexte vivant", () => {
     expect(last(sends(sock)).liveContext).toBeUndefined();
     expect(last(sends(sock)).displayEvent.liveContext).toBeUndefined();
     // envoi accepté : le retrait ne vaut plus
-    expect(chip()).toHaveTextContent(t("live-context.lines", { from: 23, to: 25 }));
+    expect(chip()).toHaveTextContent(t("live-context.line", { line: 23 }));
   });
 
   it("rien quand l'atelier ne montre aucun document", async () => {
@@ -143,6 +143,6 @@ describe("App — contexte vivant", () => {
     expect(queued.prompt).toBe("et ensuite ?");
     expect(queued.mode).toBe("queue");
     expect(queued.liveContext).toEqual(TEX);
-    expect(queued.displayEvent.liveContext).toMatchObject({ name: "chapitre1.tex", lineFrom: 23 });
+    expect(queued.displayEvent.liveContext).toMatchObject({ name: "chapitre1.tex", line: 23 });
   });
 });

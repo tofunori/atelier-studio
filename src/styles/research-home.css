@@ -115,3 +115,10 @@
 /* ---- état zéro projet : centre calme ---------------------------------------- */
 .rh-noproject { display: flex; min-height: 100%; align-items: center; justify-content: center;
   padding: var(--sp-6); }
+/* un vrai titre d'accueil (15 px, pas une ligne de liste) et un bouton à sa
+   taille, centrés — la dalle pleine largeur se lisait comme un champ */
+.rh-noproject .ui-empty .title { font-size: var(--fs-title); font-weight: 600; letter-spacing: -0.01em;
+  line-height: 1.3; text-align: center; }
+.rh-noproject .ui-empty .desc { text-align: center; }
+.rh-noproject .ui-empty .actions { align-items: center; margin-top: var(--sp-1); }
+.rh-noproject .ui-empty .actions > .ui-btn { width: auto; padding-inline: var(--sp-4); }

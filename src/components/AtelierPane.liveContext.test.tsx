@@ -17,7 +17,8 @@ const tabUrl = (name: string) =>
   `${ORIGIN}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(`${ROOT}/${name}`)}#atelier_nonce=${NONCE}`;
 const MAIN: AtelierTab = { id: "main", title: "main.tex", url: tabUrl("main.tex") };
 const OTHER: AtelierTab = { id: "other", title: "other.tex", url: tabUrl("other.tex") };
-const CTX = { path: `${ROOT}/main.tex`, name: "main.tex", kind: "tex", lineFrom: 3, lineTo: 5, selection: "a\nb\nc" };
+// Un cadre d'avant 2026-11-08 envoyait aussi la sélection : elle doit tomber.
+const CTX = { path: `${ROOT}/main.tex`, name: "main.tex", kind: "tex", line: 3, lineFrom: 3, lineTo: 5, selection: "a\nb\nc" };
 
 let published: (LiveContext | null)[] = [];
 const onPublish = (event: Event) => published.push((event as CustomEvent).detail.context);
@@ -77,7 +78,7 @@ describe("AtelierPane — contexte vivant", () => {
     });
     expect(published.filter(Boolean)).toHaveLength(0);
     post(frame, { type: "atelier-live-context", context: CTX });
-    expect(latest()).toMatchObject({ path: `${ROOT}/main.tex`, lineFrom: 3, lineTo: 5, selection: "a\nb\nc" });
+    expect(latest()).toEqual({ path: `${ROOT}/main.tex`, name: "main.tex", kind: "tex", line: 3 });
     post(frame, { type: "atelier-live-context", context: null });
     expect(latest()).toBeNull();
   });
@@ -93,7 +94,7 @@ describe("AtelierPane — contexte vivant", () => {
     update([MAIN, OTHER], "other");
     expect(latest()).toMatchObject({ name: "other.tex", line: 9 });
     update([MAIN, OTHER], "main");
-    expect(latest()).toMatchObject({ name: "main.tex", lineFrom: 3 });
+    expect(latest()).toMatchObject({ name: "main.tex", line: 3 });
     // fermeture de « main » : son contexte disparaît, rien de périmé ne reste publié
     update([OTHER], "other");
     expect(latest()).toMatchObject({ name: "other.tex" });

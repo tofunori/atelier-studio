@@ -1,9 +1,13 @@
 /**
  * « Le chat sait ce que tu regardes » : chaque cadre (éditeur LaTeX, éditeur
  * de code, lecteur PDF) publie à l'app hôte le fichier affiché, la ligne du
- * curseur ou les lignes sélectionnées, la page du PDF et les commentaires
- * ouverts. L'hôte en fait une pastille au-dessus du composer et la joint au
- * message suivant.
+ * curseur, la page du PDF et les commentaires ouverts. L'hôte en fait une
+ * pastille au-dessus du composer et la joint au message suivant.
+ *
+ * La SÉLECTION n'en fait pas partie (Thierry, 2026-11-08) : sélectionner un
+ * passage pour le commenter ou le surligner ne doit pas l'envoyer au chat.
+ * Un passage n'y va que par un geste explicite (« Ajouter au chat » de la
+ * capsule, canal `atelier-add-to-chat`).
  *
  * Contrat (fixé avec l'hôte) :
  *   {type: "atelier-live-context", context: null | LiveContext}
@@ -29,11 +33,8 @@ export interface LiveContext {
   path: string;
   name: string;
   kind: LiveContextKind;
-  /** Ligne du curseur (1-based) quand rien n'est sélectionné. */
+  /** Ligne du curseur (1-based), tête de la sélection s'il y en a une. */
   line?: number;
-  lineFrom?: number;
-  lineTo?: number;
-  selection?: string;
   page?: number;
   pageCount?: number;
   comments?: LiveContextComment[];
@@ -48,7 +49,6 @@ export type LiveContextMessage = {
 
 export const LIVE_CONTEXT_TYPE = "atelier-live-context";
 export const LIVE_CONTEXT_DELAY_MS = 150;
-export const LIVE_CONTEXT_SELECTION_LIMIT = 12000;
 export const LIVE_CONTEXT_COMMENT_LIMIT = 10;
 /** Un passage commenté sert à situer la note, pas à recopier le document. */
 export const LIVE_CONTEXT_QUOTE_LIMIT = 1000;
@@ -63,39 +63,21 @@ const positiveInt = (value: unknown): number | undefined => {
   return Number.isFinite(number) && number >= 1 ? Math.floor(number) : undefined;
 };
 
-const before = (a: StudioPosition, b: StudioPosition): boolean =>
-  a.line < b.line || (a.line === b.line && a.ch <= b.ch);
-
 export interface EditorLiveContextInput {
   path: string | null | undefined;
   kind: "tex" | "code";
-  /** Texte sélectionné (vide ou blanc = pas de sélection). */
-  selection?: string;
-  from?: StudioPosition;
-  to?: StudioPosition;
-  /** Tête de la sélection : la ligne du curseur quand rien n'est sélectionné. */
+  /** Tête de la sélection, ou curseur seul (positions 0-based CodeMirror). */
   cursor?: StudioPosition;
   comments?: readonly LiveContextComment[] | null;
 }
 
-/** Contexte d'un éditeur à partir de son état brut (positions 0-based CodeMirror). */
+/** Contexte d'un éditeur : fichier, ligne du curseur, commentaires ouverts.
+ *  Jamais le texte sélectionné (voir l'en-tête). */
 export function buildEditorLiveContext(input: EditorLiveContextInput): LiveContext | null {
   if (!input.path) return null;
   const context: LiveContext = {path: input.path, name: liveContextBasename(input.path), kind: input.kind};
-  const text = input.selection || "";
-  if (text.trim() && input.from && input.to) {
-    const [start, end] = before(input.from, input.to) ? [input.from, input.to] : [input.to, input.from];
-    // Sélection de lignes entières à la souris : la tête tombe en colonne 0 de
-    // la ligne SUIVANTE, qui ne contient rien de sélectionné.
-    const lastLine = end.ch === 0 && end.line > start.line ? end.line - 1 : end.line;
-    context.lineFrom = start.line + 1;
-    context.lineTo = lastLine + 1;
-    context.selection = text.length > LIVE_CONTEXT_SELECTION_LIMIT ? text.slice(0, LIVE_CONTEXT_SELECTION_LIMIT) : text;
-  } else {
-    const cursor = input.cursor || input.to || input.from;
-    const line = cursor ? positiveInt(cursor.line + 1) : undefined;
-    if (line) context.line = line;
-  }
+  const line = input.cursor ? positiveInt(input.cursor.line + 1) : undefined;
+  if (line) context.line = line;
   const comments = (input.comments || []).slice(0, LIVE_CONTEXT_COMMENT_LIMIT);
   if (comments.length) context.comments = comments.map((comment) => ({...comment}));
   return context;
@@ -105,9 +87,9 @@ export interface PdfLiveContextInput {
   path: string | null | undefined;
   page?: number;
   pageCount?: number;
-  selection?: string;
 }
 
+/** Contexte du lecteur PDF : fichier et page. Jamais le texte sélectionné. */
 export function buildPdfLiveContext(input: PdfLiveContextInput): LiveContext | null {
   if (!input.path) return null;
   const context: LiveContext = {path: input.path, name: liveContextBasename(input.path), kind: "pdf"};
@@ -115,8 +97,6 @@ export function buildPdfLiveContext(input: PdfLiveContextInput): LiveContext | n
   const page = positiveInt(input.page);
   if (page) context.page = pageCount ? Math.min(page, pageCount) : page;
   if (pageCount) context.pageCount = pageCount;
-  const text = input.selection || "";
-  if (text.trim()) context.selection = text.length > LIVE_CONTEXT_SELECTION_LIMIT ? text.slice(0, LIVE_CONTEXT_SELECTION_LIMIT) : text;
   return context;
 }
 

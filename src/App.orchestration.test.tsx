@@ -767,9 +767,11 @@ describe("orchestration App — caractérisation", () => {
     const row = document.querySelector(".app-row");
     expect(row).toBeTruthy();
     const topLevel = [...row!.children].map((el) => el.className.split(" ")[0]);
-    // ordre exact historique : rail, panneau latéral, poignée, main-card
-    expect(topLevel[0]).toBe("rail");
-    expect(topLevel).toContain("side-fixed");
+    // colonne unifiée (2026-11-08) : déplié, le rail se fond dans le panneau
+    // latéral, qui ouvre la rangée ; puis poignée et main-card
+    expect(row!.classList.contains("unified")).toBe(true);
+    expect(topLevel[0]).toBe("side-fixed");
+    expect(topLevel).not.toContain("rail");
     expect(topLevel).toContain("handle");
     expect(topLevel).toContain("main-card");
     expect(topLevel.indexOf("side-fixed")).toBeLessThan(topLevel.indexOf("handle"));
@@ -793,13 +795,12 @@ describe("orchestration App — caractérisation", () => {
   it("ouvre les automatisations dans le panneau latéral sans remplacer le workspace", async () => {
     await mountApp();
 
-    // Automatisations et surlignages vivent dans le menu « … » du rail (4dc49144)
-    fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
+    // colonne unifiée : Automatisations est une rangée nommée en tête de colonne
     await act(async () => {
       await vi.dynamicImportSettled();
       await flushMicrotasks(4);
     });
-    fireEvent.click(screen.getByRole("menuitem", { name: t("automations.title") }));
+    fireEvent.click(screen.getByRole("button", { name: t("automations.title") }));
     await act(async () => {
       await vi.dynamicImportSettled();
       await flushMicrotasks(4);
@@ -884,7 +885,7 @@ describe("orchestration App — caractérisation", () => {
     await selectThread(sock, "Fil A — albédo");
     expect(screen.queryByText(t("home.start"))).toBeNull();
 
-    fireEvent.click(document.querySelector(".rail-proj") as HTMLButtonElement);
+    fireEvent.click(screen.getByRole("button", { name: t("project.home") }));
     await act(async () => { await flushMicrotasks(4); });
 
     expect(screen.getByText(t("home.start"))).toBeTruthy();
@@ -1365,7 +1366,7 @@ describe("orchestration App — caractérisation", () => {
     const beforeHome = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "upsertThread");
     expect(beforeHome.some((message) => message.thread?.kbSourceIds?.includes("kb-home-source"))).toBe(false);
 
-    fireEvent.click(document.querySelector(".rail-proj") as HTMLButtonElement);
+    fireEvent.click(screen.getByRole("button", { name: t("project.home") }));
     await act(async () => { await flushMicrotasks(4); });
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
     fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));

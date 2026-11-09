@@ -201,19 +201,21 @@
 
 /* ---- StatusBadge ------------------------------------------------------------------------ */
 .ui-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  height: 20px; padding: 0 8px; border-radius: var(--radius-pill);
-  font: 500 var(--fs-caption)/1.3 var(--font-chrome); text-transform: uppercase; letter-spacing: var(--eyebrow-tracking);
-  background: var(--surface-inset); color: var(--text-muted);
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 20px; padding: 0; border-radius: 0;
+  font: 400 var(--fs-label)/1.3 var(--font-chrome);
+  background: transparent; color: var(--text-muted);
 }
-.ui-badge .dot { width: 5px; height: 5px; border-radius: var(--radius-pill); background: currentColor; }
-/* « actif » : texte neutre, seul le point porte l'accent — sinon « actif » et
- * « erreur » sont deux saumons voisins (PRIM-13) */
+/* Statut sans étiquette colorée (2026-11-09, « pas de tags colorés ») : texte
+ * gris en casse de phrase, sans pilule ; SEUL le point porte l'état — l'accent
+ * si ça tourne, le rouge si ça a échoué, gris sinon. */
+.ui-badge-label { display: inline-block; }
+/* casse de phrase : les libellés i18n sont en minuscules */
+.ui-badge-label::first-letter { text-transform: capitalize; }
+.ui-badge .dot { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--mark-neutral-strong); }
 .ui-badge--running { color: var(--text-secondary); }
 .ui-badge--running .dot { background: var(--status-running); }
-.ui-badge--success { color: var(--status-success); }
-.ui-badge--warning { color: var(--status-warning); }
-.ui-badge--error { color: var(--status-error); }
+.ui-badge--error .dot { background: var(--status-error); }
 
 /* ---- InspectorPanel ----------------------------------------------------------------------- */
 .ui-inspector { display: flex; flex-direction: column; min-height: 0; height: 100%;

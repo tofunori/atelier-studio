@@ -598,10 +598,15 @@ pub fn poll(
             };
             // L'enfant qui vient de finir n'est plus visible (macOS ne voit pas
             // les zombies) avant qu'atelier-run écrive l'état final : on relit
-            // un court instant avant de conclure à un processus disparu.
+            // un court instant avant de conclure à un processus disparu. Une
+            // lecture tombée au milieu de la réécriture (JSON tronqué) se relit
+            // aussi, au lieu de finir en « manifeste illisible ».
             for _ in 0..10 {
-                let live = parse_manifest(&raw).is_some_and(|m| RunState::parse(&m.state).is_live());
-                if !(live && alive == Some(false)) {
+                let settled = match parse_manifest(&raw) {
+                    Some(m) => !(RunState::parse(&m.state).is_live() && alive == Some(false)),
+                    None => false,
+                };
+                if settled {
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(50));

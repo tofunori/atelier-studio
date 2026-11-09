@@ -1,6 +1,7 @@
 // Contexte vivant (2026-11-08) : ce que l'utilisateur regarde dans l'atelier
-// au moment d'envoyer — fichier au premier plan, lignes sélectionnées ou
-// curseur, page du PDF, commentaires ouverts. Publié par les éditeurs de la
+// au moment d'envoyer — fichier au premier plan, ligne du curseur, page du
+// PDF, commentaires ouverts. Jamais la sélection : un passage ne va au chat
+// que par « Ajouter au chat » (Thierry, 2026-11-08). Publié par les éditeurs de la
 // galerie (`atelier-live-context`), validé ici, montré dans le composer et
 // envoyé avec le message (`liveContext`) ; le serveur en garde une trace sur
 // la bulle (`LiveContextTrace`, sans le texte).
@@ -14,16 +15,14 @@ export type LiveContext = {
   name: string;
   kind: "tex" | "code" | "pdf";
   line?: number;
-  lineFrom?: number;
-  lineTo?: number;
-  selection?: string;
   page?: number;
   pageCount?: number;
   comments?: LiveContextComment[];
 };
 
 /** Trace archivée sur la bulle user (rédigée par le serveur, miroir de
- *  `live_context::trace` côté Rust) : `comments` y est un compte. */
+ *  `live_context::trace` côté Rust) : `comments` y est un compte.
+ *  `lineFrom`/`lineTo` : messages envoyés avant 2026-11-08 (sélection). */
 export type LiveContextTrace = {
   path: string;
   name: string;
@@ -34,7 +33,6 @@ export type LiveContextTrace = {
   comments?: number;
 };
 
-export const LIVE_CONTEXT_SELECTION_MAX = 12_000;
 export const LIVE_CONTEXT_COMMENTS_MAX = 10;
 /** Événement fenêtre AtelierPane → App : contexte de l'onglet focalisé. */
 export const LIVE_CONTEXT_EVENT = "workspace-live-context";
@@ -49,7 +47,8 @@ function text(value: unknown, max: number): string | undefined {
   return typeof value === "string" && value.trim() ? value.slice(0, max) : undefined;
 }
 
-/** Valide un contexte reçu d'une iframe : tout champ hors contrat tombe. */
+/** Valide un contexte reçu d'une iframe : tout champ hors contrat tombe,
+ *  sélection comprise (lignes sélectionnées et texte). */
 export function parseLiveContext(raw: unknown): LiveContext | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -61,18 +60,9 @@ export function parseLiveContext(raw: unknown): LiveContext | null {
   const name = text(r.name, 300) ?? path.split("/").pop() ?? path;
   const ctx: LiveContext = { path, name, kind: r.kind as LiveContext["kind"] };
   const line = positive(r.line);
-  const lineFrom = positive(r.lineFrom);
-  const lineTo = positive(r.lineTo);
   const page = positive(r.page);
   const pageCount = positive(r.pageCount);
-  const selection = text(r.selection, LIVE_CONTEXT_SELECTION_MAX);
   if (line) ctx.line = line;
-  if (lineFrom) {
-    const to = lineTo ?? lineFrom;
-    ctx.lineFrom = Math.min(lineFrom, to);
-    ctx.lineTo = Math.max(lineFrom, to);
-  }
-  if (selection) ctx.selection = selection;
   if (page) ctx.page = page;
   if (pageCount) ctx.pageCount = pageCount;
   if (Array.isArray(r.comments)) {
@@ -90,9 +80,9 @@ export function parseLiveContext(raw: unknown): LiveContext | null {
 }
 
 /** Identité d'un contexte (fichier + position) : un retrait vaut pour elle
- *  seule ; une autre sélection ou un autre onglet ramène l'étiquette. */
+ *  seule ; une autre ligne ou un autre onglet ramène l'étiquette. */
 export function liveContextKey(ctx: LiveContext): string {
-  return [ctx.path, ctx.lineFrom ?? "", ctx.lineTo ?? "", ctx.line ?? "", ctx.page ?? ""].join("\u0000");
+  return [ctx.path, ctx.line ?? "", ctx.page ?? ""].join("\u0000");
 }
 
 /** Trace posée sur la bulle optimiste (le serveur renvoie la même). */
@@ -100,8 +90,7 @@ export function liveContextTrace(ctx: LiveContext): LiveContextTrace {
   return {
     path: ctx.path,
     name: ctx.name,
-    ...(ctx.lineFrom ? { lineFrom: ctx.lineFrom, lineTo: ctx.lineTo ?? ctx.lineFrom }
-      : ctx.line ? { line: ctx.line } : {}),
+    ...(ctx.line ? { line: ctx.line } : {}),
     ...(ctx.page ? { page: ctx.page } : {}),
     ...(ctx.comments?.length ? { comments: ctx.comments.length } : {}),
   };
@@ -120,15 +109,8 @@ export function liveContextWhere(ctx: Pick<LiveContextTrace, "lineFrom" | "lineT
   return "";
 }
 
-/** Phrase du popover : « lignes 23 à 25 sélectionnées », « curseur à la
- *  ligne 42 », « page 7 sur 14 ». */
+/** Phrase du popover : « curseur à la ligne 42 », « page 7 sur 14 ». */
 export function liveContextSentence(ctx: LiveContext): string {
-  if (ctx.lineFrom) {
-    const to = ctx.lineTo ?? ctx.lineFrom;
-    return to !== ctx.lineFrom
-      ? t("live-context.lines-selected", { from: ctx.lineFrom, to })
-      : t("live-context.line-selected", { line: ctx.lineFrom });
-  }
   if (ctx.line) return t("live-context.cursor", { line: ctx.line });
   if (ctx.page) {
     return ctx.pageCount
