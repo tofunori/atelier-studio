@@ -142,6 +142,13 @@ export default function Sidebar(p: {
   onProjectSettings?: (root: string) => void;
   /** menu du nom du projet : projets récents, écran des projets, ouvrir, créer */
   projectMenu?: import("./sidebar/ProjectHeader").ProjectSwitchMenu;
+  /** rangées nommées de la colonne unifiée (À traiter, Surlignés…), entre
+   *  l'en-tête du projet et la liste — variante A du 2026-11-08 */
+  nav?: React.ReactNode;
+  /** replie la colonne en rail d'icônes */
+  onCollapse?: () => void;
+  /** colonne unifiée : la tuile du projet ramène à son accueil */
+  onHome?: () => void;
   onSetMeta: (root: string, meta: { color?: string; label?: string }) => void;
   linkProviders?: { id: string; label: string }[];
   onContinueWith?: (thread: Thread, provider: string) => void;
@@ -527,8 +534,11 @@ export default function Sidebar(p: {
               if (p.activeProject) p.onRemoveProject(p.activeProject);
             }}
             switchMenu={p.projectMenu}
+            onCollapse={p.onCollapse}
+            onHome={p.onHome}
           />
         </SidebarHeader>
+        {p.nav}
 
         <SidebarContent className="tw:min-h-0 tw:overflow-hidden tw:p-0">
           {/* key = contexte : remount + fondu 140 ms au changement de projet */}

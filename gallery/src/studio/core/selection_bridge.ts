@@ -135,9 +135,6 @@ function attachLiveContext(editor: StudioEditor, options: EditorLiveContextOptio
     build: () => buildEditorLiveContext({
       path: options.path,
       kind: options.kind,
-      selection: editor.getSelection(),
-      from: editor.getCursor("from"),
-      to: editor.getCursor("to"),
       cursor: editor.getCursor("head"),
       comments: options.comments?.(),
     }),
