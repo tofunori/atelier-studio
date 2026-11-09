@@ -98,7 +98,7 @@ describe("popover d'annotation — annoter et envoyer", () => {
 
     // le commentaire attend le prochain message : pilule dans le composer,
     // aucun tour parti
-    await waitFor(() => expect(document.querySelector(".anno-pill-dot")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector(".anno-pill")).toBeTruthy());
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -116,7 +116,7 @@ describe("popover d'annotation — annoter et envoyer", () => {
     const onSubmit=vi.fn();renderUi(<Chat {...chatProps({onSubmit})}/>);
     const field=await openEditor("seuil hypsométrique");fireEvent.input(field,{target:{value:"précise la référence"}});
     fireEvent.click(screen.getByRole("button",{name:"Ajouter l’annotation au chat"}));
-    await waitFor(()=>expect(document.querySelector(".anno-pill-dot")).toBeTruthy());
+    await waitFor(()=>expect(document.querySelector(".anno-pill")).toBeTruthy());
     expect(onSubmit).not.toHaveBeenCalled();
     expect(localStorage.getItem("atelier-studio.marks.thread-A")).toContain("précise la référence");
   });

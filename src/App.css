@@ -3156,20 +3156,45 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .anno-said-note.is-empty { color: var(--text-muted); }
 /* ce qui a été tapé sous le bloc reste de la prose ordinaire */
 .anno-said-tail { margin-top: 12px; white-space: pre-wrap; }
-/* pilule agrégée du composer + sa liste dépliée */
-.anno-pill-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-muted); }
-.anno-pill-list { display: flex; flex-direction: column; gap: 2px; width: 320px; padding: 6px; }
-.anno-pill-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px;
-  border-radius: var(--r-s); }
-.anno-pill-row:hover { background: var(--surface-inset); }
-.anno-pill-num { flex: none; width: 16px; height: 16px; border-radius: var(--r-pill);
-  display: flex; align-items: center; justify-content: center;
-  background: var(--text-secondary); color: var(--surface-app);
-  font-size: var(--fs-xs); font-weight: 500; font-variant-numeric: tabular-nums; }
-.anno-pill-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.anno-pill-quote { font-family: var(--ui-font); font-size: var(--fs-m); color: var(--text-muted);
+/* Capsule d'annotations du composer (variante B, 2026-11-09) : étiquette
+   discrète, ni fond ni bordure au repos ; fond de contrôle au survol et tant
+   que sa liste est ouverte. Le chevron se retourne à l'ouverture. */
+.anno-pill { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; align-self: center;
+  min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: var(--r-s);
+  background: transparent; font: inherit; font-size: var(--fs-m); color: var(--text-secondary);
+  cursor: pointer; transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.anno-pill:hover, .anno-pill[data-popup-open] { background: var(--bg-ctl); color: var(--text-primary); }
+.anno-pill-glyph { width: 14px; height: 14px; flex: none; color: var(--text-muted); stroke-width: 1.4; }
+.anno-pill-label { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.anno-pill-chevron { width: 12px; height: 12px; flex: none; color: var(--text-muted); stroke-width: 1.4;
+  transition: transform var(--motion-fast) var(--ease-out); }
+.anno-pill[data-popup-open] .anno-pill-chevron { transform: rotate(180deg); }
+/* Liste dépliée : en-tête compté + « Tout retirer », numéros en anneau (même
+   pastille que sur les passages), passage sous un trait, croix au survol. */
+.anno-pill-list { display: flex; flex-direction: column; gap: 0; width: 340px; padding: 4px; }
+.anno-pill-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 4px 4px 8px; }
+.anno-pill-title { font-size: var(--fs-m); font-weight: 600; letter-spacing: -0.01em; white-space: nowrap;
+  color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.anno-pill-sub { flex: 1; min-width: 0; font-size: var(--fs-s); color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.anno-pill-note { font-size: var(--fs-m); color: var(--text-secondary); }
+.anno-pill-head .anno-pill-clear { flex: none; font-size: var(--fs-s); font-weight: 400; color: var(--text-muted); }
+.anno-pill-head .anno-pill-clear:hover { color: var(--text-primary); }
+.anno-pill-row { position: relative; display: flex; align-items: flex-start; gap: 12px;
+  padding: 8px 32px 8px 8px; border-radius: var(--r-s); transition: background var(--motion-fast) var(--ease-out); }
+.anno-pill-row:hover, .anno-pill-row:focus-within { background: var(--surface-hover); }
+.anno-pill-num { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: var(--r-pill);
+  display: flex; align-items: center; justify-content: center; color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-secondary) 50%, transparent);
+  font-size: var(--fs-xs); font-weight: 500; font-variant-numeric: tabular-nums; }
+.anno-pill-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.anno-pill-quote { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  padding-left: 6px; border-left: 2px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+  font-size: var(--fs-m); line-height: 1.5; color: var(--text-muted); }
+.anno-pill-note { padding-left: 8px; font-size: var(--fs-m); line-height: 1.5; color: var(--text-primary); }
+.anno-pill-note.is-empty { color: var(--text-muted); }
+.anno-pill-row > .anno-pill-remove { position: absolute; top: 4px; right: 4px; opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out); }
+.anno-pill-row:hover > .anno-pill-remove, .anno-pill-row:focus-within > .anno-pill-remove { opacity: 1; }
 /* citation surlignée à l'ouverture du lecteur depuis une carte passage gbrain
    (tâche 6) : Custom Highlight API si dispo (mêmes classes que chat-hl
    ci-dessus), repli <mark class="reader-quote"> sinon — même teinte. */

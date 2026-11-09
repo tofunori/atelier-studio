@@ -552,6 +552,14 @@ export default function Chat(p: {
     const match = p.highlights.find((h) => h.threadId === p.threadId && h.text === txt);
     if (match) wsSend({ type: "removeHighlight", id: match.id });
   }
+  // « Tout retirer » de la liste du composer : même retrait explicite, en bloc
+  function clearAnnotations() {
+    const texts = new Set(marks.map((m) => m.text));
+    saveMarks([]);
+    for (const h of p.highlights) {
+      if (h.threadId === p.threadId && texts.has(h.text)) wsSend({ type: "removeHighlight", id: h.id });
+    }
+  }
   // applique les marques via la CSS Custom Highlight API (aucune chirurgie DOM)
   useEffect(() => {
     const H = (window as any).Highlight;
@@ -1201,7 +1209,7 @@ export default function Chat(p: {
           liveContext: p.liveContext ?? null, onDismissLiveContext: p.onDismissLiveContext,
           projectRoot: p.projectRoot,
           onOpenPaste: setPasteView,
-          annotations: marks, onRemoveAnnotation: removeAnnotation,
+          annotations: marks, onRemoveAnnotation: removeAnnotation, onClearAnnotations: clearAnnotations,
         }}
         kb={p.onKbChange ? {
           // sans thread actif (boot, accueil) : liaison « en attente » portée
