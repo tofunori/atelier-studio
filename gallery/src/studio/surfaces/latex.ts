@@ -19,6 +19,7 @@ import {
   type LatexPillSelection,
   createRewrapController,
   createStudioStatusBar,
+  createLatexToolbarLayout,
   isAutoCompileEnabled,
   isAutoRewrapEnabled,
   installLegacyLatexGhost,
@@ -1085,6 +1086,8 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     window: win,
     storage: win.localStorage,
   });
+  // Barre épurée et personnalisable (2026-11-08) : .tex seulement.
+  if (isTex) createLatexToolbarLayout({document: doc, window: win, storage: win.localStorage});
 
   if (!isTex) configureNonTexCompatibility();
   win.setInterval(() => {
