@@ -41,4 +41,16 @@ describe("project folders dialog", () => {
     expect(changes.mock.calls.slice(-1)[0][0].folders).toEqual([]);
     expect(open).toHaveBeenCalledTimes(1);
   });
+  it("édite la revue et l'échéance de la carte du projet", async () => {
+    setLanguage("fr"); const patch = vi.fn();
+    renderUi(<ProjectFoldersDialog root="/main" value={{ mainGallery: true, folders: [] }} onChange={() => {}} onClose={() => {}}
+      card={{ due: { date: "2026-12-01" } }} onCardChange={patch}/>);
+    await waitFor(() => expect(screen.getByRole("dialog").getAttribute("data-slot")).toBe("dialog-content"));
+    fireEvent.change(screen.getByLabelText("Revue"), { target: { value: "The Cryosphere" } });
+    expect(patch).toHaveBeenLastCalledWith({ journal: "The Cryosphere" });
+    fireEvent.change(screen.getByLabelText("Libellé"), { target: { value: "Soumission" } });
+    expect(patch).toHaveBeenLastCalledWith({ due: { date: "2026-12-01", label: "Soumission" } });
+    fireEvent.change(screen.getByLabelText("Échéance"), { target: { value: "" } });
+    expect(patch).toHaveBeenLastCalledWith({ due: undefined });
+  });
 });

@@ -5,8 +5,8 @@
 // groupées en popover, aperçu riche Zotero, retrait unitaire.
 import { useEffect, useState } from "react";
 import {
-  CameraIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardIcon,
-  FileTextIcon, FileCode2Icon, FolderIcon, ImageIcon, QuoteIcon, XIcon,
+  CameraIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ClipboardIcon,
+  FileTextIcon, FileCode2Icon, FolderIcon, ImageIcon, MessageSquareTextIcon, QuoteIcon, XIcon,
 } from "lucide-react";
 import { t } from "../../lib/i18n";
 import {
@@ -33,6 +33,7 @@ import {
   PopoverTrigger,
 } from "../shadcn/popover";
 import { citeLabel } from "./turnParts";
+import { useFileCards } from "../../lib/chatFileCards";
 import type { Mark } from "../../lib/annotations";
 import { Button, IconButton, RowButton } from "../ui";
 
@@ -80,6 +81,8 @@ export function ContextShelf(p: {
   /** annotations du fil — une SEULE pilule agrégée, dépliable */
   annotations?: Mark[];
   onRemoveAnnotation?: (text: string) => void;
+  /** « Tout retirer » en tête de la liste dépliée */
+  onClearAnnotations?: () => void;
 }) {
   const [latexPreview, setLatexPreview] = useState<ShelfAttachment | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
@@ -109,6 +112,16 @@ export function ContextShelf(p: {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [expandedImageIndex, imageAttachments.length]);
 
+  // Fichier joint par son chemin : le titre de l'article remplace le nom brut
+  // dès qu'il est connu (Zotero ou métadonnées du PDF, 2026-11-02).
+  const cardFor = useFileCards(p.attachments.flatMap((attachment) =>
+    attachment.kind === "file" && attachment.path ? [attachment.path] : []));
+  const shelfLabel = (attachment: ShelfAttachment, name: string) => {
+    const title = attachment.kind === "file" ? cardFor(attachment.path)?.title : undefined;
+    if (!title) return citeLabel(name);
+    return title.length > 34 ? `${title.slice(0, 33)}…` : title;
+  };
+
   const annotations = p.annotations ?? [];
   if (p.attachments.length === 0 && annotations.length === 0) return null;
 
@@ -117,40 +130,57 @@ export function ContextShelf(p: {
 
   return (
     <div className="chips-row context-pills" aria-label={t("context.attachments")}>
-      {annotations.length > 0 && (
-        <Popover open={openGroup === "annotations"} onOpenChange={(next) => setOpenGroup(next ? "annotations" : null)}>
-          <PopoverTrigger
-            render={<span className="chip context-pill anno-pill" />}
-          >
-            <RowButton className="context-pill-main">
-              <span className="anno-pill-dot" aria-hidden="true" />
-              <span className="chip-label">
-                {annotations.length === 1 ? t("chat.annotations-one") : t("chat.annotations-count", { n: annotations.length })}
+      {annotations.length > 0 && (() => {
+        const count = annotations.length === 1
+          ? t("chat.annotations-one") : t("chat.annotations-count", { n: annotations.length });
+        return (
+          // Capsule discrète (variante B, 2026-11-09) : ni fond ni bordure au
+          // repos, fond de contrôle au survol et tant que la liste est ouverte.
+          <Popover open={openGroup === "annotations"} onOpenChange={(next) => setOpenGroup(next ? "annotations" : null)}>
+            <PopoverTrigger render={<RowButton className="anno-pill" />}>
+              <MessageSquareTextIcon className="anno-pill-glyph" aria-hidden="true" />
+              <span className="anno-pill-label">{count}</span>
+              <ChevronUpIcon className="anno-pill-chevron" aria-hidden="true" />
+            </PopoverTrigger>
+            <PopoverContent className="anno-pill-list" side="top" align="start">
+              <span className="anno-pill-head">
+                <span className="anno-pill-title">{count}</span>
+                <span className="anno-pill-sub">{t("chat.annotations-attached")}</span>
+                {p.onClearAnnotations && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="anno-pill-clear"
+                    onClick={() => { setOpenGroup(null); p.onClearAnnotations?.(); }}
+                  >
+                    {t("chat.annotations-clear")}
+                  </Button>
+                )}
               </span>
-            </RowButton>
-          </PopoverTrigger>
-          <PopoverContent className="anno-pill-list" side="top" align="start">
-            {annotations.map((mark, index) => (
-              <span key={mark.text} className="anno-pill-row">
-                <span className="anno-pill-num">{index + 1}</span>
-                <span className="anno-pill-body">
-                  <span className="anno-pill-quote">« {mark.text.replace(/\s+/g, " ").trim()} »</span>
-                  <span className="anno-pill-note">{mark.note || t("chat.annotation-no-note")}</span>
+              {annotations.map((mark, index) => (
+                <span key={mark.text} className="anno-pill-row">
+                  <span className="anno-pill-num">{index + 1}</span>
+                  <span className="anno-pill-body">
+                    <span className="anno-pill-quote">{mark.text.replace(/\s+/g, " ").trim()}</span>
+                    <span className={`anno-pill-note${mark.note ? "" : " is-empty"}`}>
+                      {mark.note || t("chat.annotation-no-note")}
+                    </span>
+                  </span>
+                  <IconButton
+                    size="s"
+                    className="ghost anno-pill-remove"
+                    label={removeLabel(mark.text)}
+                    title={removeLabel(mark.text)}
+                    onClick={() => p.onRemoveAnnotation?.(mark.text)}
+                  >
+                    <XIcon className="context-pill-glyph" />
+                  </IconButton>
                 </span>
-                <IconButton
-                  size="s"
-                  className="ghost"
-                  label={removeLabel(mark.text)}
-                  title={removeLabel(mark.text)}
-                  onClick={() => p.onRemoveAnnotation?.(mark.text)}
-                >
-                  <XIcon className="context-pill-glyph" />
-                </IconButton>
-              </span>
-            ))}
-          </PopoverContent>
-        </Popover>
-      )}
+              ))}
+            </PopoverContent>
+          </Popover>
+        );
+      })()}
       {p.attachments.map((attachment, index) => attachment.imageUrl ? (
         <span key={`image-${index}`} className="chip context-pill" title={attachment.name}>
           <RowButton
@@ -284,7 +314,7 @@ export function ContextShelf(p: {
           const pillBody = (
             <>
               {kindGlyph(grouped ? "quote" : attachment.kind)}
-              <span className="chip-label">{citeLabel(group.name)}</span>
+              <span className="chip-label">{grouped ? citeLabel(group.name) : shelfLabel(attachment, group.name)}</span>
               {grouped
                 ? <span className="context-pill-count">{group.indexes.length}</span>
                 : attachment.lines

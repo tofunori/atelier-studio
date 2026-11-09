@@ -3,6 +3,7 @@ import { useState, useSyncExternalStore } from "react";
 import { t } from "../lib/i18n";
 import { ChatsIcon, PlusIcon, SettingsIcon, SidebarIcon, MoreIcon } from "./icons";
 import { ProjIcon } from "./sidebar/projectIcons";
+import { AllProjectsGlyph } from "./sidebar/AllProjectsGlyph";
 import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
@@ -24,7 +25,16 @@ const RailActivity = lazyWithRetry(() => import("./RailActivity"));
 // les favoris attendent de toute façon la liste des fils (WebSocket)
 const RailFavorites = lazyWithRetry(() => import("./sidebar/RailFavorites"));
 
-export type ProjMeta = { color?: string; label?: string };
+export type ProjMeta = {
+  color?: string;
+  label?: string;
+  /** dernière ouverture dans Atelier (ms) — ordre de l'écran des projets */
+  openedAt?: number;
+  /** échéance affichée sur la carte du projet */
+  due?: import("../lib/projectsHome").ProjectDue;
+  /** revue visée, quand la source LaTeX ne la dit pas */
+  journal?: string;
+};
 
 /** Signaux agrégés par App (lib/railSignals) : le rail ne fait que les montrer. */
 export type RailSignals = {
@@ -205,6 +215,8 @@ export default function Rail(p: {
   onSelectView: (view: ViewId) => void;
   onSelectProject: (root: string) => void;
   onAddProject: () => void;
+  /** accueil des projets (⇧⌘P) */
+  onAllProjects?: () => void;
   onExpand: () => void;
   onSettings: () => void;
   onProjectSettings?: (root: string) => void;
@@ -234,6 +246,13 @@ export default function Rail(p: {
             <LazyBoundary fallback={<span className="rail-btn" aria-hidden="true" />}>
               <RailInbox {...p.inbox} />
             </LazyBoundary>
+          )}
+          {p.onAllProjects && (
+            <Tooltip label={`${t("projects.all")} (⇧⌘P)`} placement="right">
+              <IconButton className="rail-btn rail-all-projects" label={t("projects.all")} onClick={p.onAllProjects}>
+                <AllProjectsGlyph size={19} />
+              </IconButton>
+            </Tooltip>
           )}
           <LazyDropdownMenu open={actionsOpen} onOpenChange={setActionsOpen} side="right"
             trigger={<IconButton className="rail-btn" label="Autres actions" aria-haspopup="menu"><MoreIcon /></IconButton>}

@@ -350,6 +350,41 @@ export function placeWorkspaceTab(
   return { ...layout, root, focusedPaneId: newPane.id };
 }
 
+/** Glisser un onglet DANS la bande d'onglets : il se range avant ou après
+ *  `anchorTabId`, dans le pane de cette ancre. L'onglet actif ne change pas
+ *  (réordonner n'est pas sélectionner). Venu d'un autre pane, il le quitte,
+ *  et ce pane disparaît s'il se vide. */
+export function moveWorkspaceTab(
+  layout: WorkspaceLayout,
+  ref: WorkspaceTabRef,
+  anchorTabId: string,
+  position: "before" | "after",
+): WorkspaceLayout {
+  const tabId = workspaceTabId(ref);
+  if (tabId === anchorTabId) return layout;
+  const targetPaneId = findTabPaneId(layout.root, anchorTabId);
+  const sourcePaneId = findTabPaneId(layout.root, tabId);
+  if (!targetPaneId) return layout;
+  if (sourcePaneId === targetPaneId) {
+    const tabs = findWorkspacePane(layout.root, targetPaneId)!.tabs;
+    const without = tabs.filter((tab) => workspaceTabId(tab) !== tabId);
+    const anchor = without.findIndex((tab) => workspaceTabId(tab) === anchorTabId);
+    const next = [...without];
+    next.splice(position === "before" ? anchor : anchor + 1, 0, ref);
+    if (next.every((tab, index) => workspaceTabId(tab) === workspaceTabId(tabs[index]))) return layout;
+    return { ...layout, root: updatePane(layout.root, targetPaneId, (current) => ({ ...current, tabs: next })) };
+  }
+  let root = removeTabKeepPanes(layout.root, tabId);
+  root = collapseEmptyPanes(root) ?? root;
+  root = updatePane(root, targetPaneId, (current) => {
+    const anchor = current.tabs.findIndex((tab) => workspaceTabId(tab) === anchorTabId);
+    const tabs = [...current.tabs];
+    tabs.splice(position === "before" ? anchor : anchor + 1, 0, ref);
+    return { ...current, tabs, activeTabId: tabId };
+  });
+  return ensureFocusedPane({ ...layout, root, focusedPaneId: targetPaneId });
+}
+
 export function closeWorkspaceTab(layout: WorkspaceLayout, tabId: string): WorkspaceLayout {
   const rootWithEmpty = removeTabKeepPanes(layout.root, tabId);
   const root = collapseEmptyPanes(rootWithEmpty) ?? rootWithEmpty;

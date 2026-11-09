@@ -964,7 +964,7 @@ export function KbPicker({ binding }: { binding: KbBinding }) {
         }
       />
       {pickerOpen && (
-        <PopoverContent plain side="top" align="start" sideOffset={8} className="composer-menu kb-pop">
+        <PopoverContent plain side="top" align="start" sideOffset={8} className="composer-menu cm-panel kb-pop">
           <KbPickerPanel
             sources={sources}
             attached={binding.attached}

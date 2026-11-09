@@ -23,14 +23,33 @@
   /* Sol des gouttières (option 3). Doit être NETTEMENT sous le fond des
      cartes, sinon elles ne décollent pas : c'est l'écart de luminance qui
      porte toute la division, il n'y a plus de trait pour compenser. */
-  --canvas: color-mix(in srgb, var(--bg) 72%, #000);
+  /* 80 % (2026-11-09, cran « anthracite ») : à 58 % le sol (#0f0f0f en
+     Claude Code) se fondait dans un fond d'écran noir ; les panneaux gardent
+     leur noir, seul le sol remonte juste assez pour décoller du bureau. */
+  --canvas: color-mix(in srgb, var(--bg) 80%, #000);
   /* poignée de redimensionnement au survol — un ton de BORDURE, jamais un
      gris de texte (--muted2 peignait un fil blanc, vécu 2026-08-16) */
   --grip: color-mix(in srgb, var(--fg) 24%, var(--bg));
   /* ombre de défilement (option 4) : plus dense en sombre, où l'écart de
      luminance est faible ; discrète en clair, où elle porte déjà */
   --scroll-shade: rgba(0, 0, 0, .40);
-  --card-lift: 0 1px 2px rgba(0,0,0,.28);
+  /* profondeur (variante A, 2026-11-08) : filet 0,5 px + ombre courte —
+     courte pour ne pas mordre sur la carte voisine dans une gouttière de
+     4 px ; le reflet du haut décolle la feuille en sombre */
+  --card-lift: inset 0 .5px 0 rgba(255,255,255,.05), 0 0 0 .5px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.30);
+  /* ombre ambiante de la surface de travail, posée sur le sol de la colonne */
+  /* profondeur (2026-11-09, « donner de la dimension à chaque panneau ») :
+     la feuille se soulève du sol en trois couches (contour 0,5 px, contact,
+     ambiance) ; chaque panneau reçoit un liseré de lumière 0,5 px qui le
+     décolle en sombre ; ce qui flotte au-dessus d'un panneau (compositeur)
+     prend une ombre plus haute. Jamais une bordure de plus. */
+  --sheet-lift: 0 0 0 .5px rgba(0,0,0,.6), 0 1px 2px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.40);
+  --panel-edge: inset 0 0 0 .5px rgba(255,255,255,.06), inset 0 1px 0 rgba(255,255,255,.05);
+  --float-lift: inset 0 0 0 .5px rgba(255,255,255,.07), 0 2px 4px rgba(0,0,0,.30), 0 12px 28px rgba(0,0,0,.36);
+  /* rangée sélectionnée posée sur le sol de la colonne (jamais un bouton) */
+  --ground-raised: var(--bg-ctl);
+  /* bouton gris posé sur le sol de la colonne */
+  --ground-ctl: var(--bg-ctl);
   --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
   --accent: #e77f3e;
   /* couleurs SÉMANTIQUES d'état (ok / attention / erreur / en cours). Elles
@@ -71,7 +90,15 @@
   --canvas: color-mix(in srgb, var(--bg) 91%, #000);
   --grip: color-mix(in srgb, var(--fg) 26%, var(--bg));
   --scroll-shade: rgba(20, 28, 38, .13);
-  --card-lift: 0 1px 2px rgba(20,28,38,.10);
+  --card-lift: 0 0 0 .5px rgba(20,28,38,.08), 0 1px 3px rgba(20,28,38,.09);
+  --sheet-lift: 0 0 0 .5px rgba(20,28,38,.07), 0 1px 2px rgba(20,28,38,.06), 0 10px 28px rgba(20,28,38,.08);
+  --panel-edge: inset 0 1px 0 rgba(255,255,255,.7);
+  --float-lift: 0 0 0 .5px rgba(20,28,38,.08), 0 2px 4px rgba(20,28,38,.06), 0 12px 28px rgba(20,28,38,.10);
+  /* en clair, --bg-ctl se confond avec le sol : la sélection monte au ton de
+     la feuille (gris clair, jamais blanc) */
+  --ground-raised: var(--bg);
+  /* --bg-ctl vaut le sol en clair : le bouton fonce d'un cran, toujours gris */
+  --ground-ctl: color-mix(in srgb, var(--text-primary) 7%, var(--bg-ctl));
   --fg: #1a1d22; --fg2: #32363b; --muted: #595e64; --muted2: #82878c;
   --accent: #cf630d;
   --info: #3f6fd1;
@@ -130,7 +157,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .main-card { background: transparent; }
 .app { background: transparent; }
 .app > [data-panel] { background: var(--bg); border-radius: var(--r-m);
-  overflow: hidden; box-shadow: var(--card-lift); }
+  overflow: hidden; box-shadow: var(--panel-edge), var(--card-lift); }
 .app > .handle, .app-row > .side-handle { width: var(--gutter); flex: 0 0 var(--gutter); }
 /* La gouttière est trop fine pour être visée au pixel : la cible de pointage
    déborde de 3 px de chaque côté SANS déplacer les cartes (le ::after, lui,
@@ -383,9 +410,10 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
   white-space: nowrap; }
 .agent-detail-empty { margin: 20px 0 0; color: var(--text-muted); font-size: var(--fs-m); }
 /* Surface « Noyau Python » (chantier 5) : onglet du panneau droit. Une
-   gouttière [n] par cellule, code coloré par les règles .hljs-* du chat,
-   sorties sans cadre, figures et fichiers en pied. Rien n'est encadré deux
-   fois : la carte de code porte un filet 1 px, l'état vit dans son liseré. */
+   gouttière discrète (numéro gris, roue grise en cours), code coloré par les
+   règles .hljs-* du chat sur un fond doux sans filet ni liseré, sorties sans
+   cadre, figures et fichiers en pied. Le panneau est le SEUL à défiler : code
+   et sorties longs sont coupés (.kernel-clamp) avec « Tout afficher ». */
 .kernel-surface { display: flex; flex-direction: column; flex: 1; min-height: 0; color: var(--text-primary); }
 .kernel-surface svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor;
   stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
@@ -428,18 +456,19 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-var-size { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .kernel-vars-empty { margin: 4px 0 0 20px; color: var(--text-muted); font-size: var(--fs-m); }
 .kernel-scroll { position: relative; flex: 1; min-height: 0; overflow: auto; }
-.kernel-cells { display: flex; flex-direction: column; gap: 20px; padding: 16px 20px 24px; }
+.kernel-cells { display: flex; flex-direction: column; gap: 20px; padding: 16px 20px 24px 12px; }
 .kernel-group { display: flex; flex-direction: column; gap: 12px; }
-.kernel-group-head { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-muted);
+.kernel-group-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 24px; color: var(--text-muted);
   font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
 .kernel-group-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kernel-group-prompt { color: var(--text-secondary); }
 .kernel-cell[data-flash="true"] .kernel-cell-body { background: color-mix(in srgb, var(--accent) 8%, transparent);
   border-radius: var(--r-s); transition: background-color 150ms ease; }
-.kernel-cell { display: flex; gap: 8px; min-width: 0; }
-.kernel-cell-num { width: 28px; flex: none; padding-top: 2px; color: var(--text-muted);
-  font-family: var(--font-code); font-size: var(--fs-s); font-variant-numeric: tabular-nums; user-select: none; }
-.kernel-cell[data-status="running"] .kernel-cell-num { color: var(--accent-text); }
+.kernel-cell { display: flex; gap: 4px; min-width: 0; }
+.kernel-cell-num { display: flex; justify-content: flex-end; width: 20px; flex: none; padding: 4px 4px 0 0; color: var(--text-muted);
+  font-family: var(--font-code); font-size: var(--fs-s); line-height: 1; font-variant-numeric: tabular-nums; user-select: none; }
+.kernel-cell[data-status="running"] .kernel-cell-num { color: var(--text-muted); }
+.kernel-surface .kernel-cell-num svg, .kernel-surface .kernel-new-run svg { width: 12px; height: 12px; }
 .kernel-cell[data-status="error"] .kernel-cell-num { color: var(--status-error); }
 .kernel-cell-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .kernel-cell-head { display: flex; align-items: center; gap: 8px; min-height: 20px; color: var(--text-muted);
@@ -453,7 +482,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-cell-title svg { width: 12px; height: 12px; color: var(--text-muted); }
 .kernel-cell-fold { flex: 1; gap: 8px; color: var(--text-muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; text-align: left; }
 .kernel-cell-fold > svg { width: 12px; height: 12px; transform: rotate(-90deg); }
-.kernel-cell-fold .kernel-cell-num { width: auto; padding: 0; }
+.kernel-cell-fold .kernel-cell-num { width: auto; padding: 0; line-height: inherit; }
 .kernel-cell-fold-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text-primary); font-size: var(--fs-l); }
 .kernel-ok { display: inline-flex; color: var(--status-success); }
@@ -476,7 +505,15 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-edit:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); }
 .kernel-editor-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .kernel-editor-note { color: var(--text-muted); font-size: var(--fs-s); }
-.kernel-new { padding: 0 20px 20px; }
+.kernel-new { padding: 0 20px 20px 36px; }
+.kernel-new-field { display: flex; align-items: flex-start; gap: 4px; padding-right: 4px; border-radius: var(--r-s); background: var(--bg-card); }
+.kernel-new-field .kernel-edit { flex: 1; min-height: 36px; padding: 8px 12px; background: transparent; box-shadow: none; resize: none; }
+.kernel-new-field:focus-within { box-shadow: inset 0 0 0 1px var(--border-strong); }
+.kernel-new-field .kernel-edit:focus-visible { outline: none; }
+.kernel-new-key { flex: none; height: 36px; display: inline-flex; align-items: center; color: var(--text-muted);
+  font-family: inherit; font-size: var(--fs-s); }
+.kernel-new-run { margin-top: 6px; }
+.kernel-new-error { color: var(--status-error); }
 .kernel-new-resume { margin-left: auto; }
 .kernel-resume { display: flex; flex-direction: column; gap: 8px; padding: 0 20px 20px; }
 .kernel-resume:first-child { padding-top: 16px; }
@@ -510,22 +547,33 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .kernel-file-state { color: var(--text-muted); }
 .kernel-file-state[data-state="same"] { color: var(--status-success); }
 .kernel-file-state[data-state="modified"], .kernel-file-state[data-state="missing"] { color: var(--status-warning); }
-.kernel-cell-live { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-text); }
+.kernel-cell-live { display: inline-flex; align-items: center; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .kernel-cell-error { color: var(--status-error); }
 .kernel-reveal { opacity: 0; transition: opacity 140ms ease; }
 .kernel-cell:hover .kernel-reveal, .kernel-reveal:focus-visible { opacity: 1; }
 .kernel-code, .kernel-out { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
   font-family: var(--font-code); font-size: var(--fs-m); line-height: 1.5; }
-.kernel-code { max-height: 420px; overflow: auto; padding: 8px 12px; border-radius: var(--r-s);
-  background: var(--bg-card); color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--border);
-  transition: box-shadow 140ms ease; }
+.kernel-code { padding: 8px 12px; border-radius: var(--r-s); background: var(--bg-card); color: var(--text-secondary); }
 .kernel-code code { font: inherit; }
-.kernel-cell[data-status="running"] .kernel-code { box-shadow: inset 2px 0 0 var(--accent), inset 0 0 0 1px var(--border); }
-.kernel-cell[data-status="error"] .kernel-code { box-shadow: inset 2px 0 0 var(--status-error), inset 0 0 0 1px var(--border); }
-.kernel-out { max-height: 280px; overflow: auto; padding: 0 12px; color: var(--text-secondary); }
+.kernel-out { padding: 0 12px; color: var(--text-secondary); }
+/* Coupe sans barre : hauteur de N lignes, fondu au bord coupé (en haut pour la
+   sortie en direct, qui garde sa fin à l'écran), « Tout afficher » dessous. */
+.kernel-clamp { display: flex; flex-direction: column; min-width: 0; }
+.kernel-clamp[data-open="false"] > pre { max-height: calc(var(--kernel-clamp) * 1.5em); overflow: hidden; }
+.kernel-clamp[data-open="false"] > pre.kernel-code { max-height: calc(var(--kernel-clamp) * 1.5em + 16px); }
+.kernel-clamp[data-cut="true"] > pre { -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 48px), transparent); }
+.kernel-clamp[data-cut="true"][data-tail="true"] > pre { -webkit-mask-image: linear-gradient(to top, black calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to top, black calc(100% - 48px), transparent); }
+.kernel-more { display: inline-flex; align-self: flex-start; align-items: center; gap: 4px; height: 24px; margin: 4px 0 0 4px; padding: 0 8px;
+  border-radius: var(--r-s); color: var(--text-muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.kernel-more:hover { background: var(--surface-hover); color: var(--text-secondary); }
+.kernel-surface .kernel-more svg { width: 12px; height: 12px; transition: transform 140ms ease; }
+.kernel-more[aria-expanded="true"] svg { transform: rotate(180deg); }
 .kernel-out.kernel-stderr { color: var(--text-muted); }
 .kernel-result { display: flex; gap: 8px; padding-left: 12px; }
-.kernel-result .kernel-out { flex: 1; min-width: 0; padding: 0; }
+.kernel-result > .kernel-clamp { flex: 1; min-width: 0; }
+.kernel-result .kernel-out { padding: 0; }
 .kernel-result-label { flex: none; color: var(--text-muted); font-family: var(--font-code); font-size: var(--fs-s); line-height: 1.6; user-select: none; }
 .kernel-ename { color: var(--status-error); font-weight: 600; }
 .kernel-traceback { color: var(--text-muted); }
@@ -550,7 +598,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* La capsule de sélection partagée ; pas d'annotation durable sur une cellule. */
 .kernel-selection button[aria-label="Annoter"] { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .kernel-dot, .kernel-reveal, .kernel-code, .kernel-vars-head svg, .kernel-cell-body, .kernel-resume-head > svg { transition: none; animation: none; }
+  .kernel-dot, .kernel-reveal, .kernel-more svg, .kernel-vars-head svg, .kernel-cell-body, .kernel-resume-head > svg { transition: none; animation: none; }
 }
 .empty { color: var(--text-muted); padding-top: 24px; }
 .chat-empty-new { display: flex; flex-direction: column; gap: 4px; padding-top: 32px; user-select: none; -webkit-user-select: none; }
@@ -767,7 +815,7 @@ button.kernel-file:hover { color: var(--text-primary); }
   table-layout: auto; font-variant-numeric: tabular-nums; }
 .chat-md :is(th, td):first-child { padding-left: 0; }
 .chat-md :is(th, td):last-child { padding-right: 0; }
-.chat-md th { font-size: var(--fs-s); font-weight: 500; color: var(--text-muted); text-align: left;
+.chat-md th { font-size: var(--fs-l); font-weight: 500; color: var(--text-muted); text-align: left;
   padding: 4px 8px; vertical-align: bottom; }
 .chat-md td { padding: 4px 8px; vertical-align: top;
   border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
@@ -977,8 +1025,8 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* Surface compacte et arrondie ; les outils restent sur une seule ligne. */
 .composer-input-group { align-items: stretch; gap: 6px; padding: 8px 12px 8px;
   background: color-mix(in srgb, var(--bg-card) 55%, var(--bg-ctl));
-  border: 1px solid var(--border-interactive);
-  box-shadow: none;
+  border: 1px solid transparent;
+  box-shadow: var(--float-lift);
   border-radius: var(--radius-composer);
   transition: border-color var(--motion-fast) var(--ease-out); }
 .composer-input-group:has(textarea:focus-visible) {
@@ -1198,11 +1246,6 @@ button.kernel-file:hover { color: var(--text-primary); }
    passer en ellipse, jamais l'icône). */
 .consigne-trigger svg, .consigne-pilule svg { flex: none; }
 .consigne-pilule-nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Rangée active du menu : le REMPLISSAGE dit la sélection (aucun accent,
-   décision produit 2026-09-01), la coche la confirme. */
-.consigne-item.on { background: var(--bg-ctl); }
-.consigne-item .consigne-coche { margin-left: auto; display: flex; color: var(--text-secondary); }
-.consigne-item .consigne-coche svg { width: 12px; height: 12px; }
 /* Rangée sur UNE ligne (décision produit 2026-09-01) : la glose n'est pas
    du contenu qu'on lit, c'est une note de marge qu'on consulte. Elle passe
    donc à droite, en gris éteint, tronquée — présente pour l'œil qui
@@ -1296,8 +1339,11 @@ button.kernel-file:hover { color: var(--text-primary); }
 .turn-activity-elapsed { flex: 0 0 auto; margin-left: auto; padding-left: 16px;
   color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Reflet de la ligne vivante : LA recette du balayage (celle des rangées,
-   label-sweep plus bas : tuile 90ch, pic --text-primary, 2,4 s). Il se fige
-   dès qu'un anneau d'action tourne dans le fil — jamais deux boucles. */
+   label-sweep plus bas : tuile 90ch, pic --text-primary, --sweep-period). Il
+   se fige dès qu'un anneau d'action tourne ou qu'une rangée balaie dans le
+   fil — jamais deux boucles. 1,6 s au lieu de 2,4 s : Thierry voulait une
+   lumière plus vive (2026-11-01). */
+:root { --sweep-period: 1.6s; }
 .turn-working-shimmer {
   color: transparent;
   -webkit-text-fill-color: transparent;
@@ -1310,11 +1356,11 @@ button.kernel-file:hover { color: var(--text-primary); }
   background-repeat: repeat-x;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: label-sweep 2.4s linear infinite;
+  animation: label-sweep var(--sweep-period) linear infinite;
 }
 .turn-tail-row.is-settled .turn-activity-glyph { color: var(--text-muted); }
 .turn-tail-row.is-settled .turn-working-shimmer,
-.messages:has(.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring) .turn-working-shimmer {
+.messages:has(.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring, .ui-activity-label.is-shimmering) .turn-working-shimmer {
   animation: none; background: none; color: var(--text-secondary); -webkit-text-fill-color: currentColor; }
 @media (prefers-reduced-motion: reduce) {
   .turn-working-shimmer { animation: none; background: none; color: var(--text-primary); -webkit-text-fill-color: currentColor; }
@@ -1463,7 +1509,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* The left track is measured from the actual panel divider. */
 .topbar { height: 38px; flex-shrink: 0; display: grid;
   grid-template-columns: minmax(0, var(--toolbar-left, 1fr)) auto minmax(0, 1fr); align-items: center;
-  background: var(--surface-header); gap: 8px; }
+  background: var(--surface-canvas); gap: 8px; }
 .topbar-start { display: flex; align-items: center; min-width: 0; height: 100%; gap: 8px; }
 .topbar-center { display: flex; align-items: center; justify-content: center; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
@@ -1578,7 +1624,7 @@ button.kernel-file:hover { color: var(--text-primary); }
   font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: var(--r-s); }
 .rail-act-more:hover { color: var(--text-secondary); }
 /* Barre du haut : groupes séparés, surface active soulignée sur la bordure */
-.topbar-surfaces { display: inline-flex; align-items: center; gap: 2px; }
+.topbar-surfaces { display: inline-flex; align-items: center; gap: 4px; }
 .topbar-target { display: inline-flex; flex: none; }
 .topbar-div { width: 1px; height: 16px; background: var(--border); flex: none; margin: 0 2px; }
 /* File-tab layout; shared shape/selection live in document-tabs.css. */
@@ -1617,30 +1663,16 @@ button.kernel-file:hover { color: var(--text-primary); }
 @media (max-width: 1150px) { .topbar-tab { max-width: 144px; } }
 .topbar-surface { position: relative; }
 .topbar-menu-icon { display: inline-flex; width: 15px; justify-content: center; color: var(--text-muted); }
-.topbar-menu-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-menu-pin { color: var(--text-muted); opacity: 0; transition: opacity var(--ease), color var(--ease); }
-.topbar-menu-row:hover .topbar-menu-pin, .topbar-menu-pin.on { opacity: 1; }
-.topbar-menu-pin.on { color: var(--accent-text); }
-/* réorganisation : flèches au survol de la rangée — le glissé d'une icône est
-   déjà pris (dépôt dans un pane), on ne peut pas le réutiliser ici */
-.topbar-menu-move { color: var(--text-muted); opacity: 0; display: inline-flex;
-  transition: opacity var(--ease), color var(--ease); }
-.topbar-menu-row:hover .topbar-menu-move { opacity: 1; }
-.topbar-menu-move:hover { color: var(--text-primary); }
-.topbar-menu-move.off { opacity: 0; pointer-events: none; }
-.topbar-menu-head { padding: 4px 8px 2px; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
-  letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
-/* fenêtre étroite : les surfaces non actives cèdent avant le crumb, les
-   dernières épinglées d'abord — jamais de compression, seulement du repli */
-@media (max-width: 1400px) {
-  .topbar-surfaces > .topbar-target:not([data-active="true"]):nth-child(n+6) { display: none; }
-}
-@media (max-width: 1150px) {
-  .topbar-surfaces > .topbar-target:not([data-active="true"]):nth-child(n+5) { display: none; }
-}
-@media (max-width: 900px) {
-  .topbar-surfaces > .topbar-target:not([data-active="true"]):nth-child(n+3) { display: none; }
-}
+.topbar-menu-icon svg { width: 15px; height: 15px; }
+/* Lanceur des surfaces (2026-11-01, variante B) : pastille discrète
+   « Surfaces » sur la galerie ; elle prend le nom et le fond de la surface
+   ouverte ailleurs. Jamais de fond clair : --bg-ctl comme l'onglet actif. */
+.topbar-launcher.ui-btn { gap: 6px; padding: 0 8px; color: var(--text-muted); font-weight: 400; }
+.topbar-launcher.ui-btn[data-current] { color: var(--text-primary); background: var(--bg-ctl); font-weight: 500; }
+.topbar-launcher .ui-btn-label { display: inline-flex; align-items: center; gap: 6px; }
+.topbar-launcher .ui-btn-label > svg:first-child:not(:last-child) { width: 15px; height: 15px; flex: none; }
+.topbar-launcher .ui-btn-label > svg:last-child { color: var(--text-muted); flex: none; }
+.topbar-launcher-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-btn.usage-ib { position: relative; }
 .rail-pinned { flex: none; width: 100%; display: flex; flex-direction: column; align-items: center;
   gap: 6px; padding: 8px 0 8px; }
@@ -1838,8 +1870,8 @@ button.kernel-file:hover { color: var(--text-primary); }
   align-items: start; font-size: var(--fs-m); color: var(--text-secondary);
   overflow-wrap: anywhere; }
 .user-annot-badge { display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--text-primary);
-  color: var(--surface-app); font-size: var(--fs-xs); font-weight: 500;
+  width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--fill-primary);
+  color: var(--on-fill-primary); font-size: var(--fs-xs); font-weight: 500;
   font-variant-numeric: tabular-nums; }
 /* demande utilisateur : identifiable par le fond léger et l'alignement, sans
    grande bulle saturée (plan 020, étape 2) */
@@ -1988,14 +2020,19 @@ button.kernel-file:hover { color: var(--text-primary); }
 
 /* Carte « fichiers modifiés » : un bloc compact, actions dans l'en-tête, une
    ligne par fichier (icône + dossier atténué + nom vif + ±). */
-.changed-files-card { border-radius: var(--r-m); background: var(--bg-card);
+.changed-files-card { border-radius: var(--r-m); background: color-mix(in srgb, var(--text-primary) 3%, transparent);
   padding: 12px; margin: 8px 0; }
 .changed-files-head { display: flex; align-items: center; gap: 12px;
   font-size: var(--fs-m); color: var(--text-secondary); }
 .changed-files-count { flex: 1; min-width: 0; }
-.changed-files-list { max-height: 150px; overflow-y: auto; margin-top: 4px; }
+/* La liste s'élargit de 4 px de chaque côté (marge négative + padding) : le
+   fond de survol des rangées, qui déborde de 4 px, reste DANS la liste. Sans
+   ça, ce débordement à droite suffisait à faire paraître une barre de
+   défilement horizontale sous la liste (Thierry, 2026-11-02). */
+.changed-files-list { max-height: 150px; overflow-x: hidden; overflow-y: auto;
+  margin: 4px -4px 0; padding: 0 4px; }
 /* Un diff ouvert ne se laisse pas écraser par le plafond de la liste. */
-.changed-files-list.is-expanded { max-height: none; overflow-y: visible; }
+.changed-files-list.is-expanded { max-height: none; overflow: visible; }
 .changed-files-item { min-width: 0; }
 .changed-files-diff { margin: 4px 0 8px; border-radius: var(--radius-surface);
   background: var(--surface-inset); overflow: hidden; }
@@ -3122,20 +3159,45 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
 .anno-said-note.is-empty { color: var(--text-muted); }
 /* ce qui a été tapé sous le bloc reste de la prose ordinaire */
 .anno-said-tail { margin-top: 12px; white-space: pre-wrap; }
-/* pilule agrégée du composer + sa liste dépliée */
-.anno-pill-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-muted); }
-.anno-pill-list { display: flex; flex-direction: column; gap: 2px; width: 320px; padding: 6px; }
-.anno-pill-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px;
-  border-radius: var(--r-s); }
-.anno-pill-row:hover { background: var(--surface-inset); }
-.anno-pill-num { flex: none; width: 16px; height: 16px; border-radius: var(--r-pill);
-  display: flex; align-items: center; justify-content: center;
-  background: var(--text-secondary); color: var(--surface-app);
-  font-size: var(--fs-xs); font-weight: 500; font-variant-numeric: tabular-nums; }
-.anno-pill-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.anno-pill-quote { font-family: var(--ui-font); font-size: var(--fs-m); color: var(--text-muted);
+/* Capsule d'annotations du composer (variante B, 2026-11-09) : étiquette
+   discrète, ni fond ni bordure au repos ; fond de contrôle au survol et tant
+   que sa liste est ouverte. Le chevron se retourne à l'ouverture. */
+.anno-pill { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; align-self: center;
+  min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: var(--r-s);
+  background: transparent; font: inherit; font-size: var(--fs-m); color: var(--text-secondary);
+  cursor: pointer; transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.anno-pill:hover, .anno-pill[data-popup-open] { background: var(--bg-ctl); color: var(--text-primary); }
+.anno-pill-glyph { width: 14px; height: 14px; flex: none; color: var(--text-muted); stroke-width: 1.4; }
+.anno-pill-label { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.anno-pill-chevron { width: 12px; height: 12px; flex: none; color: var(--text-muted); stroke-width: 1.4;
+  transition: transform var(--motion-fast) var(--ease-out); }
+.anno-pill[data-popup-open] .anno-pill-chevron { transform: rotate(180deg); }
+/* Liste dépliée : en-tête compté + « Tout retirer », numéros en anneau (même
+   pastille que sur les passages), passage sous un trait, croix au survol. */
+.anno-pill-list { display: flex; flex-direction: column; gap: 0; width: 340px; padding: 4px; }
+.anno-pill-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 4px 4px 8px; }
+.anno-pill-title { font-size: var(--fs-m); font-weight: 600; letter-spacing: -0.01em; white-space: nowrap;
+  color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.anno-pill-sub { flex: 1; min-width: 0; font-size: var(--fs-s); color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.anno-pill-note { font-size: var(--fs-m); color: var(--text-secondary); }
+.anno-pill-head .anno-pill-clear { flex: none; font-size: var(--fs-s); font-weight: 400; color: var(--text-muted); }
+.anno-pill-head .anno-pill-clear:hover { color: var(--text-primary); }
+.anno-pill-row { position: relative; display: flex; align-items: flex-start; gap: 12px;
+  padding: 8px 32px 8px 8px; border-radius: var(--r-s); transition: background var(--motion-fast) var(--ease-out); }
+.anno-pill-row:hover, .anno-pill-row:focus-within { background: var(--surface-hover); }
+.anno-pill-num { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: var(--r-pill);
+  display: flex; align-items: center; justify-content: center; color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-secondary) 50%, transparent);
+  font-size: var(--fs-xs); font-weight: 500; font-variant-numeric: tabular-nums; }
+.anno-pill-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.anno-pill-quote { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  padding-left: 6px; border-left: 2px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+  font-size: var(--fs-m); line-height: 1.5; color: var(--text-muted); }
+.anno-pill-note { padding-left: 8px; font-size: var(--fs-m); line-height: 1.5; color: var(--text-primary); }
+.anno-pill-note.is-empty { color: var(--text-muted); }
+.anno-pill-row > .anno-pill-remove { position: absolute; top: 4px; right: 4px; opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out); }
+.anno-pill-row:hover > .anno-pill-remove, .anno-pill-row:focus-within > .anno-pill-remove { opacity: 1; }
 /* citation surlignée à l'ouverture du lecteur depuis une carte passage gbrain
    (tâche 6) : Custom Highlight API si dispo (mêmes classes que chat-hl
    ci-dessus), repli <mark class="reader-quote"> sinon — même teinte. */
@@ -3511,8 +3573,11 @@ body.dragging iframe { pointer-events: none; }
 .workspace-content-layer { position: absolute; min-width: 0; min-height: 0; overflow: hidden; pointer-events: auto; background: var(--bg); transform-origin: top left;
   container: pane / inline-size; }
 .workspace-pane-controls-slot { flex: 0 0 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; }
-.workspace-pane-menu-slot { display: inline-flex; align-items: center; flex: none; }
-.workspace-pane-menu-slot:empty { display: none; }
+/* Le slot ne montre plus rien : le menu du pane s'ouvre au clic droit sur un
+   onglet ou sur la surface (Thierry 2026-11-02), via une ancre dans <body>. */
+.workspace-pane-menu-slot { display: none; }
+.workspace-pane-controls[data-pane-controls="anchor"] { position: fixed; inset: 0 auto auto 0; width: 0; height: 0; overflow: visible; pointer-events: none; }
+.workspace-pane-controls .workspace-pane-menu-anchor { position: fixed; width: 1px; height: 1px; min-width: 0; min-height: 0; padding: 0; opacity: 0; pointer-events: none; }
 .workspace-pane-controls { display: inline-flex; align-items: center; color: var(--text-secondary); }
 .workspace-tab-content { position: absolute; inset: 0; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
 .workspace-tab-content > .ksurface,
@@ -3536,8 +3601,14 @@ body.dragging iframe { pointer-events: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: var(--r-m);
   background: var(--bg-pop); color: var(--text-secondary); box-shadow: var(--elev-soft);
   font-size: var(--fs-s); line-height: 1.1; will-change: transform, opacity; }
+/* Trait d'insertion quand on range un onglet dans la bande du haut : il
+   glisse d'une place à l'autre au lieu de sauter. */
+.workspace-tab-insert { position: fixed; top: 0; left: 0; width: 2px; border-radius: var(--r-pill);
+  background: var(--accent); z-index: var(--z-popover); pointer-events: none;
+  transition: transform 120ms ease-out; will-change: transform; }
 @media (prefers-reduced-motion: reduce) {
   .workspace-drop-preview, .workspace-drag-ghost { will-change: auto; }
+  .workspace-tab-insert { transition: none; will-change: auto; }
 }
 .jump-bottom { display: none; }
 /* ===== Quick Ask (side chat éphémère) — calme et spacieux ===== */
@@ -3889,28 +3960,41 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .pnav-name { font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em;
   color: var(--text-primary); line-height: 1.3; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
+/* le nom ouvre le menu des projets (écran d'ouverture, 2026-11-08) */
+.pnav-name-btn.ui-rowbtn { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start;
+  max-width: 100%; min-width: 0; height: 24px; margin-left: -4px; padding: 0 4px;
+  border-radius: var(--r-s); color: var(--text-muted); transition: background-color var(--ease); }
+.pnav-name-btn.ui-rowbtn:hover, .pnav-name-btn.ui-rowbtn[aria-expanded="true"] { background: var(--surface-hover); }
+.pnav-name-btn.ui-rowbtn svg { flex: none; }
 .pnav-path { font-size: var(--fs-s); color: var(--text-muted); line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pnav-ov-wrap, .pnav-search-wrap { display: inline-flex; flex: none; }
-.pnav-cta { display: flex; align-items: center; gap: 4px; }
-.pnav-cta .pnav-new { flex: 1; justify-content: center; }
-.pnav-new-ico { display: inline-flex; margin-right: 4px; vertical-align: -1px; }
-.pnav-search { width: 100%; }
+.pnav-ov-wrap { display: inline-flex; flex: none; }
+/* seconde ligne : recherche toujours visible + « Nouveau chat » en
+   bouton-icône relief (gris, jamais d'encre blanche) */
+.pnav-cta { display: flex; align-items: center; gap: 8px; }
+.pnav-search { flex: 1; min-width: 0; }
+.pnav-cta .pnav-new.ui-btn { flex: none; width: var(--control-height); min-width: var(--control-height);
+  height: var(--control-height); padding: 0; justify-content: center; }
 
 /* contenu : fondu 140 ms au changement de projet (remount par key), opacity
    seule — aucun déplacement, reduced-motion neutralisé par les tokens */
 .pnav-scroll { animation: pnav-fade var(--motion-standard) var(--ease-out); }
+/* les rubriques portent leur propre respiration (12 px au-dessus) */
+.side-scroll.pnav-scroll { gap: 0; }
 @keyframes pnav-fade { from { opacity: 0; } to { opacity: 1; } }
 .pnav-group { display: flex; flex-direction: column; flex: none; }
-.pnav-sec { margin: 0; padding: 6px 8px 2px; line-height: 1.3; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
-  letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
+/* rubriques à un seul niveau, en casse normale : « Épinglés », puis les
+   libellés de récence (Aujourd'hui, Hier…) au même rang */
+.pnav-sec { margin: 0; padding: 12px 8px 4px; line-height: 1.3; font-size: var(--fs-s); font-weight: 500;
+  color: var(--text-muted); }
 .pnav-list { margin: 0; }
 .pnav-empty { margin: 4px 8px; color: var(--text-muted); font-size: var(--fs-m); line-height: 1.5; }
 
-/* rangées : bouton principal + slot terminal FIXE de 48 px (heure ⇄ actions
-   en cross-fade au hover/focus-within — jamais de display:none ni de shift) */
-.pnav-row { gap: 8px; }
-.pnav-row:not(.active):hover { background: color-mix(in srgb, var(--bg-ctl) 55%, transparent); }
+/* rangées « deux lignes » (variante B, 2026-11-02) : titre pleine largeur,
+   méta dessous ; actions superposées en haut à droite, révélées au
+   hover/focus-within — seule l'ellipse du titre recule, jamais la hauteur */
+.pnav-row { gap: 8px; position: relative; }
+.pnav-row:not(.active):hover { background: var(--row-hover); }
 /* Repère de la rangée active : la pilule 2×16 commune (« repère de
    sélection », fin de fichier) — jamais une seconde marque (SHELL-02). */
 .pnav-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
@@ -3918,35 +4002,44 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   height: auto; min-height: 26px; text-align: left; cursor: pointer; }
 .pnav-row-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .pnav-title-row { min-width: 0; display: flex; align-items: center; gap: 8px; }
-/* Deux lignes stables, y compris au survol : les actions gardent leur slot
-   réservé et ne reprennent jamais de largeur au titre. */
-.sidebar .pnav-title-row .title { display: -webkit-box; min-width: 0; flex: 1;
-  -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal;
-  overflow-wrap: anywhere; line-height: 1.4; color: var(--text-primary); }
-.pnav-heartbeat { width: 13px; height: 13px; flex: none; color: var(--text-muted); stroke-width: 1.5; }
+/* Une ligne, ellipse : le titre prend toute la largeur de la rangée. */
+.sidebar .pnav-title-row .title { display: block; min-width: 0; flex: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.4; color: var(--text-primary); }
+.pnav-row.active .pnav-title-row .title { font-weight: 500; }
+.pnav-row:is(:hover, :focus-within, .menu-open, .family-preview) .pnav-title-row { padding-right: 48px; }
+.pnav-row.has-family:is(:hover, :focus-within, .menu-open, .family-preview) .pnav-title-row { padding-right: 72px; }
+/* méta : heure · branche · liées, en gris secondaire */
+.pnav-meta { display: flex; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap;
+  font-size: var(--fs-s); line-height: 1.3; color: var(--text-muted); }
+.pnav-title-row .prov-ico svg { width: 12px; height: 12px; }
+/* la méta s'aligne sur le texte du titre, pas sur l'icône (12 + 8) */
+.pnav-meta { padding-left: 20px; }
+.pnav-meta-item { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.pnav-meta-item + .pnav-meta-item::before { content: "\00b7"; margin: 0 4px; color: var(--text-muted); }
+.pnav-meta .row-time { margin-left: 0; }
+.pnav-meta-family svg { width: 11px; height: 11px; }
+.pnav-meta-count { font-variant-numeric: tabular-nums; }
+.pnav-heartbeat { width: 11px; height: 11px; flex: none; color: var(--text-muted); stroke-width: 1.5; }
 .pnav-row .unread-dot { display: inline-block; width: 6px; height: 6px;
   margin: 0 4px 1px 0; border-radius: var(--r-pill); background: var(--accent); }
-.pnav-row-end { width: 48px; flex: none; position: relative; display: flex;
-  align-items: center; justify-content: flex-end; align-self: stretch; gap: 6px; }
-.pnav-row-end.has-family { width: 80px; justify-content: space-between; }
-.pnav-row-end .row-status { min-width: 32px; display: inline-flex; align-items: center;
-  justify-content: flex-end; transition: opacity var(--motion-fast) var(--ease-out); }
-.pnav-row-end .row-actions { position: absolute; right: 0; top: 50%;
-  transform: translateY(-50%); display: inline-flex; gap: 2px; opacity: 0;
-  pointer-events: none; transition: opacity var(--motion-fast) var(--ease-out); }
-.pnav-row:hover .row-status, .pnav-row:focus-within .row-status { opacity: 0; }
-.pnav-row:hover .row-actions, .pnav-row:focus-within .row-actions {
+.pnav-row-end { position: absolute; top: calc(var(--pad-y, 6px) - 2px); right: 4px;
+  display: flex; align-items: center; gap: 2px; opacity: 0; pointer-events: none;
+  transition: opacity var(--motion-fast) var(--ease-out); }
+.pnav-row:is(:hover, :focus-within, .menu-open, .family-preview) .pnav-row-end {
   opacity: 1; pointer-events: auto; }
+.pnav-row-end .row-actions { display: inline-flex; }
+.pnav-row-end .ui-iconbtn { width: 22px; min-width: 22px; height: 22px; padding: 0; }
 .pnav-act { color: var(--text-secondary); }
 .pnav-act:hover { color: var(--text-primary); }
 .pnav-act.on { color: var(--u-warn); }
 
 /* La relation reste un signal discret : le survol révèle la famille entière,
    le clic ouvre la structure. Aucun numéro ni couleur ne sert d'identifiant. */
-.pnav-family-marker.ui-btn { min-width: 28px; width: 28px; height: 28px;
+.pnav-family-marker.ui-btn { min-width: 22px; width: 22px; height: 22px;
   padding: 0; flex: none; border-color: transparent; border-radius: var(--r-s);
   background: transparent; color: var(--text-muted); }
-.pnav-family-marker svg { width: 16px; height: 16px; }
+.pnav-family-marker svg { width: 13px; height: 13px; }
 .pnav-family-marker.ui-btn:hover,
 .pnav-family-marker.ui-btn:focus-visible,
 .pnav-row.active .pnav-family-marker.ui-btn,
@@ -3994,10 +4087,10 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 /* marqueur de branche : remplace l'ancien préfixe « ⑂ » du titre. Éteint au
    repos, accent sur la rangée active — même règle que les toggles galerie.
    La profondeur ne s'affiche qu'à partir de la deuxième coupe. */
-.pnav-fork { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0;
+.pnav-fork { flex-shrink: 0;
   color: var(--text-muted);
   transition: color var(--motion-fast) var(--ease-out); }
-.pnav-fork svg { width: 13px; height: 13px; }
+.pnav-fork svg { width: 11px; height: 11px; }
 .pnav-fork-depth { font-size: var(--fs-xs); font-weight: 500; line-height: 1;
   font-variant-numeric: tabular-nums; }
 .pnav-row.active .pnav-fork, .pnav-row-main[aria-current="true"] .pnav-fork {
@@ -4035,7 +4128,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 }
 .exp-row:hover, .git-file:hover, .ledger-row:hover, .biblio-row:hover,
 .pnav-row:not(.active):hover, .browser-hub-item:hover {
-  background-color: color-mix(in srgb, var(--surface-inset) 62%, transparent);
+  background-color: var(--row-hover);
 }
 .rail-btn:hover, .rail-view:hover, .rail-proj:hover {
   background-color: color-mix(in srgb, var(--surface-inset) 72%, transparent);
@@ -4054,16 +4147,16 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   .pnav-scroll { animation: none; }
 }
 
-/* labels temporels en casse normale : sous-niveau discret — les titres de
-   section (.pnav-sec) restent les seuls éléments uppercase du panneau */
+/* libellés de récence : même rang que les rubriques (.pnav-sec), en casse
+   normale — un seul niveau de titres dans le panneau */
 .sidebar li.thread-recency-label {
   display: block;
-  padding: 8px 8px 2px;
+  padding: 12px 8px 4px;
   border-radius: 0;
   cursor: default;
   color: var(--text-muted);
   font-size: var(--fs-s);
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.3;
 }
 /* picker d'icônes de projet */
@@ -4350,7 +4443,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   background-repeat: repeat-x;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: label-sweep 2.4s linear infinite;
+  animation: label-sweep var(--sweep-period) linear infinite;
 }
 /* Une tuile exactement : la boucle est sans couture et la distance parcourue
    ne dépend plus de la largeur de l'élément, donc la vitesse non plus. */
@@ -4443,19 +4536,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    L'orange reste un signal (icône, liseré), jamais un fond de bouton
    (audit CHAT-14). */
 .perm-verdict { margin-top: 8px; font-size: var(--fs-m); color: var(--text-muted); }
-.approval-decisions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
-.approval-decision { min-width: 0; display: grid; grid-template-columns: 22px 1fr; align-items: start; gap: 8px;
-  padding: 8px 8px; border: 1px solid var(--border2); border-radius: var(--r-s); background: transparent;
-  color: var(--text-secondary); font: inherit; text-align: left; cursor: pointer; }
-.approval-decision:hover { background: var(--bg-ctl); border-color: var(--border-strong); color: var(--text-primary); }
-.approval-decision kbd { width: 20px; padding: 0; }
-.approval-decision span { display: flex; flex-direction: column; min-width: 0; }
-.approval-decision b { font-size: var(--fs-m); font-weight: 500; }
-.approval-decision small { margin-top: 2px; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.25; }
-.approval-decision.primary { border-color: var(--border-strong); }
-.approval-decision.primary b { color: var(--text-primary); }
-.approval-decision.danger:hover b { color: var(--status-error); }
-@media (max-width: 620px) { .approval-decisions { grid-template-columns: 1fr; } }
 /* ===== carte interaction harnais (plan 025, step 5) — étend .perm-card ===== */
 .int-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .int-type { margin-left: auto; flex: none; font-size: var(--fs-xs); color: var(--text-muted); }
@@ -4524,6 +4604,60 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .int-answered-title { font-weight: 500; }
 .int-answered-key { margin-right: 4px; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
   letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
+/* ===== approbation (variante C « compacte », choisie le 2026-11-09) =====
+   Carte sans cadre ni liseré : deux lignes (action + commande sur une ligne ;
+   raison + Refuser ▾ / Autoriser en relief gris). Répondue = une ligne de
+   12 px au rang des lignes d'outil, dépliable. Aucun accent hors focus. */
+.int-card.appr { margin: 6px 0; padding: 12px 16px; max-width: 560px; border-radius: var(--r-m);
+  background: var(--surface-raised); box-shadow: var(--card-lift); }
+.appr-l1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.appr-ico { flex: none; color: var(--text-muted); }
+.appr-title { flex: none; font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3;
+  color: var(--text-primary); }
+.appr-cmd { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 4px;
+  border-radius: var(--r-s); text-align: left; color: var(--text-muted); transition: color var(--ease); }
+.appr-cmd code, code.appr-cmd { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--code-font); font-size: var(--fs-m); line-height: 20px; }
+.appr-cmd code { flex: 1; }
+.appr-cmd:hover { color: var(--text-secondary); }
+.appr-chev { flex: none; margin-left: auto; }
+.appr-code { margin-top: 8px; padding: 8px 12px; border-radius: var(--r-s); background: var(--bg-side);
+  font-family: var(--code-font); font-size: var(--fs-m); line-height: 20px; color: var(--text-muted);
+  max-height: 240px; overflow-y: auto; }
+.appr-code-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.appr-prog { color: var(--text-secondary); font-weight: 500; }
+.appr-l2 { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }
+.appr-reason { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-s);
+  color: var(--text-muted); }
+.appr-reason svg { flex: none; }
+.appr-reason span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appr-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.appr-deny .ui-btn-label, .appr-allow .ui-btn-label { display: inline-flex; align-items: center; gap: 4px; }
+.appr-deny { color: var(--text-muted); }
+.appr-allow .ui-btn-label { gap: 8px; }
+.appr-allow kbd { padding: 0; min-width: 0; background: transparent; color: var(--text-muted); }
+.appr-split { display: inline-flex; gap: 1px; }
+.appr-split .appr-allow:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.appr-allow-more { padding: 0 4px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.appr-key { margin-left: auto; padding-left: 12px; font-size: var(--fs-s); color: var(--text-muted);
+  font-variant-numeric: tabular-nums; }
+.appr-consigne { margin-top: 8px; }
+.appr-consigne .int-input { margin-top: 0; padding: 4px 12px; }
+.appr-consigne .int-input:focus, .appr-consigne .int-input:focus-visible { border-color: var(--selection-border);
+  box-shadow: none; }
+.appr-hint { display: block; margin-top: 4px; font-size: var(--fs-s); color: var(--text-muted); }
+/* répondue : une ligne, pas de carte */
+.int-card.appr.is-done { padding: 0; background: none; box-shadow: none; }
+.appr-done { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left;
+  font-size: var(--fs-m); line-height: 20px; color: var(--text-muted); }
+.appr-done .appr-ico { color: var(--text-muted); }
+.appr-verdict { flex: none; color: var(--text-secondary); }
+.appr-sub { margin-left: -4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appr-sub::before { content: "· "; color: var(--text-muted); }
+.appr-done .appr-chev { margin-left: 0; color: var(--text-muted); opacity: 0; transition: opacity var(--ease); }
+.appr-done:hover .appr-chev, .appr-done:focus-visible .appr-chev, .appr-done[aria-expanded="true"] .appr-chev { opacity: 1; }
+.appr.is-done .appr-code { margin-left: 22px; font-size: var(--fs-s); }
+.appr.is-done .int-plan { margin-left: 22px; }
 /* détail d'outil (Bash(git status)) */
 .tool-detail { color: var(--text-muted); font-family: var(--code-font); font-size: var(--fs-s);
   margin-left: 6px; }
@@ -5926,6 +6060,44 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   object-fit: cover; border: 1px solid var(--border); background: var(--bg-ctl); }
 .context-pill .context-pill-count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .context-pill .chip-lines { font-variant-numeric: tabular-nums; }
+/* Œil du contexte vivant (2026-11-09, variante C) : bouton du rail, sans
+   accent. Allumé = gris secondaire, un cran au-dessus du livre et de la
+   liste ; coupé (œil barré) ou rien d'ouvert = gris des autres outils du rail
+   (le gris éteint est réservé au désactivé, budget A4 du contrat CSS). Le
+   panneau reprend le chrome des menus du compositeur. */
+.composer-context-rail .live-eye { color: var(--text-secondary);
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.composer-context-rail .live-eye[data-state="off"],
+.composer-context-rail .live-eye[data-state="idle"] { color: var(--text-muted); }
+.composer-context-rail .live-eye:hover,
+.composer-context-rail .live-eye[data-open] { background: var(--bg-ctl); }
+.composer-context-rail .live-eye > svg { animation: live-eye-swap var(--motion-fast) var(--ease-out); }
+@keyframes live-eye-swap { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .composer-context-rail .live-eye > svg { animation: none; } }
+.live-eye-tip.is-hidden { display: none; }
+.composer-menu.live-eye-pop { width: 300px; max-width: calc(100vw - 24px); padding: 12px;
+  display: flex; flex-direction: column; gap: 8px; }
+.live-eye-head { display: flex; align-items: center; gap: 12px; }
+.live-eye-title { flex: 1; min-width: 0; font-size: var(--fs-m); font-weight: 500; color: var(--text-primary); }
+.live-eye-switch { position: relative; flex: none; width: 28px; height: 16px; padding: 0; border: 0;
+  border-radius: var(--r-pill); cursor: pointer;
+  background: color-mix(in srgb, var(--text-primary) 18%, transparent);
+  transition: background var(--motion-fast) var(--ease-out); }
+.live-eye-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--switch-off-thumb);
+  transition: transform var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out); }
+.live-eye-switch[data-on] { background: var(--switch-on-track); }
+.live-eye-switch[data-on]::after { transform: translateX(12px); background: var(--switch-on-thumb); }
+.live-eye-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.live-eye-path { font-size: var(--fs-m); color: var(--text-secondary); overflow-wrap: anywhere; }
+.live-eye-note { font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* trace sous la bulle : ce qui est parti avec le message, à droite comme l'heure */
+.user-live-context { display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.user-live-context .user-live-context-glyph { width: 12px; height: 12px; flex: none; color: var(--text-muted); }
+.user-live-context .user-live-context-name { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.user-live-context .user-live-context-where { flex: none; white-space: nowrap; }
 .kb-group { padding: 8px 4px 4px; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
   letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
 .kb-empty { font-size: var(--fs-m); color: var(--text-muted); padding: 12px 4px; }
@@ -6021,8 +6193,6 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 @container navigator (max-width: 220px) {
   .pnav-row { gap: 4px; }
   .pnav-row-main { gap: 6px; }
-  .pnav-row-end { width: 48px; }
-  .pnav-row-end.has-family { width: 80px; }
 
 }
 
@@ -6061,10 +6231,22 @@ mark.reader-search { background:rgba(232,154,56,.35);color:inherit; }
 .sel-toolbar.atelier-selection{gap:2px;padding:4px;background:var(--selection-surface);border:0;border-radius:var(--radius-surface);box-shadow:var(--elevation-overlay);}
 /* Annotations : contraste ambre conservant la lecture du passage. */
 ::highlight(chat-an){background:rgba(112,151,255,.18)}
-.user-file-attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom: 8px;white-space:normal}
-.user-file-attachment{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding: 6px 12px;border:0;border-radius:var(--radius-control);background:var(--surface-inset);font-size:var(--fs-s);color:var(--text-secondary);line-height:1.5}
-.user-file-attachment svg{flex:none;color:var(--text-muted)}
-.user-file-attachment>span{overflow-wrap:anywhere;min-width:0}
+/* Pièces jointes d'un message envoyé : cartes « article » HORS de la bulle
+   (variante B, 2026-11-02). Carreau au type du fichier, titre de l'article
+   (sinon nom du fichier), puis revue · année · pages en gris. */
+.user-file-attachments{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:85%;white-space:normal}
+.user-file-attachment.file-card{display:inline-flex;align-items:center;gap:12px;width:300px;max-width:100%;padding:8px 12px 8px 8px;border:0;border-radius:var(--radius-surface);background:var(--surface-inset);color:var(--text-primary);text-align:left;font:inherit;line-height:1.3;
+  transition:box-shadow var(--motion-fast) var(--ease-out)}
+.user-file-attachment.file-card.is-openable{cursor:pointer}
+.user-file-attachment.file-card.is-openable:hover{box-shadow:inset 0 0 0 100vmax var(--surface-hover)}
+.user-file-attachment.file-card.is-openable:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset)}
+.file-card-tile{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:32px;height:40px;border-radius:var(--radius-control);background:var(--surface-app);color:var(--text-muted)}
+.file-card-tile svg{flex:none}
+.file-card-tag{font-size:var(--fs-xs);font-weight:500;letter-spacing:.02em;line-height:1;color:var(--text-muted)}
+.file-card-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.file-card-title{font-size:var(--fs-m);font-weight:500;letter-spacing:-.01em;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-card-meta{font-size:var(--fs-s);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.file-card-dot{margin:0 4px}
 ::highlight(chat-highlight-amber){background:rgba(255,213,74,.40)}
 ::highlight(chat-highlight-green){background:rgba(120,220,140,.40)}
 ::highlight(chat-highlight-blue){background:rgba(120,170,255,.40)}
@@ -6115,7 +6297,9 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 /* Composer context tools — sober, scoped treatment shared by both menus. */
 .composer-context-rail {
   display: flex; align-items: center; gap: 4px; flex: none; padding: 4px;
-  border: 1px solid var(--border); border-radius: var(--r-m);
+  /* contour retiré (2026-11-09) : un cadre dans le compositeur flottant
+     redoublait sa silhouette ; le séparateur suffit à grouper */
+  border: 1px solid transparent; border-radius: var(--r-m);
   --ring: var(--text-muted);
 }
 .composer-context-rail button { position: relative; border-radius: var(--r-s); }
@@ -6147,16 +6331,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   --accent-foreground: var(--text-primary);
 }
 .composer-style-menu { width: 340px; max-width: calc(100vw - 24px); padding: 6px; }
-.composer-style-menu .consigne-heading { display: flex; flex-direction: column; gap: 4px; padding: 8px 4px 8px; }
-.composer-style-menu .consigne-heading > :first-child { font-size: var(--fs-m); color: var(--text-primary); font-weight: 500; }
-.composer-style-menu .consigne-subtitle { font-size: var(--fs-s); font-weight: 400; color: var(--text-muted); }
-.composer-style-menu .consigne-item { min-height: 32px; padding: 8px 32px 8px 12px; gap: 12px; }
-.composer-style-menu .consigne-item.on { background: var(--bg-ctl); }
-.composer-style-menu .consigne-option { flex-direction: column; align-items: stretch; gap: 4px; }
-.composer-style-menu .consigne-desc {
-  margin: 0; text-align: left; white-space: normal; overflow: visible;
-  overflow-wrap: anywhere; color: var(--text-muted); line-height: 1.45;
-}
+.composer-style-menu .consigne-option { flex-direction: column; align-items: stretch; gap: 0; }
+/* Rôle du spécialiste : UNE ligne sous le nom, tronquée — un repère, pas
+   la fiche (variante C, 2026-10-31 ; la fiche entière vit dans les réglages). */
+.composer-style-menu .consigne-desc { margin: 0; text-align: left; color: var(--text-muted); line-height: 1.45; }
 .composer-style-menu [data-slot="dropdown-menu-checkbox-item-indicator"] {
   width: 14px; height: 14px; border: 1px solid var(--text-muted); border-radius: var(--r-s);
   box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
@@ -6171,7 +6349,6 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .composer-style-menu [aria-checked="true"] [data-slot="dropdown-menu-checkbox-item-indicator"] {
   background: var(--text-secondary); border-color: var(--text-secondary); color: var(--bg);
 }
-.composer-style-menu .dropdown-surface-footer { padding: 12px; color: var(--text-muted); font-size: var(--fs-s); }
 .kb-pop { width: 400px; max-width: calc(100vw - 24px); padding: 12px; }
 .kb-panel-picker { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .kb-panel-picker .kb-head { min-height: 26px; }
@@ -6218,14 +6395,13 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .composer-menu :is(.consigne-nom, .consigne-lien, .ef-model-link, .kb-action, .kb-note-text) {
   font-size: var(--composer-menu-text); line-height: 1.45;
 }
-.composer-menu :is(.consigne-desc, .consigne-subtitle, .kb-meta, .kb-foot, .kb-chip-filter, .kb-group, .mp-hd, .dropdown-surface-footer, [data-slot="kbd"]) {
+.composer-menu :is(.consigne-desc, .kb-meta, .kb-foot, .kb-chip-filter, .kb-group, .mp-hd, .dropdown-surface-footer, [data-slot="kbd"]) {
   font-size: var(--composer-menu-detail); line-height: 1.45;
 }
 .composer-menu :is([data-slot="dropdown-menu-label"], .custom-select-menu-label, .model-list-head, .kb-title, [data-slot="popover-title"]) {
   padding: 8px 12px; color: var(--text-primary);
   font-size: var(--composer-menu-heading); font-weight: 500; line-height: 1.45;
 }
-.composer-menu .consigne-heading > :first-child,
 .composer-menu.effort-menu .ef-title b { font-size: var(--composer-menu-heading); color: var(--text-primary); }
 .composer-menu :is(.consigne-item > svg, .mp-item > svg, .custom-select-option-icon svg, .kb-kind svg, .model-list-head svg, .ef-reset svg, .ef-fast svg, .ef-model-link svg) {
   width: 14px; height: 14px; flex: none; stroke-width: 1.5;
@@ -6234,11 +6410,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 /* Spécialistes (plan specialistes-2026-10-18) : mêmes rangées que les
    consignes — remplissage + coche, aucun accent. Le bouton du compositeur
    garde le nom court lisible (« Glaciologue +2 », décision 2026-10-18). */
-.composer-style-menu .specialiste-item { min-height: 32px; padding: 8px 32px 8px 12px; gap: 12px; }
+.composer-style-menu .specialiste-item { min-height: 32px; padding: 6px 12px; gap: 8px; }
 .composer-style-menu .specialiste-item.on { background: var(--bg-ctl); }
 .specialiste-item .consigne-coche { margin-left: auto; display: flex; color: var(--text-secondary); }
 .specialiste-item .consigne-coche svg { width: 12px; height: 12px; }
-.composer-menu .specialiste-item > svg { width: 14px; height: 14px; flex: none; stroke-width: 1.5; }
 .composer-context-rail .specialiste-pilule,
 .composer-tool-group .specialiste-pilule {
   width: auto; max-width: 160px; padding: 0 8px; gap: 4px; justify-content: flex-start;
@@ -6248,7 +6423,6 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   font-size: var(--fs-body-s); font-weight: 500;
 }
 .specialiste-pilule-formes { flex: none; color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
-.composer-menu .consigne-heading { padding: 8px 12px 8px; }
 .composer-menu .consigne-option { gap: 4px; }
 .composer-menu .dropdown-surface-footer { padding: 12px; }
 .composer-menu :is(button, input, textarea) { font-family: inherit; }
@@ -6258,6 +6432,37 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .composer-menu .kb-title { padding: 0; }
 .composer-menu .kb-row-main { column-gap: 8px; row-gap: 4px; padding: 8px 8px; }
 .composer-menu.composer-style-menu { width: 360px; }
+/* Menu Spécialiste épuré (variante C, 2026-10-31). Titres de section =
+   l'eyebrow commun (tokens.css), pas un titre à 13 px. */
+.composer-style-menu .consigne-heading {
+  display: block; padding: 8px 12px 4px;
+  font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
+  letter-spacing: var(--eyebrow-tracking); color: var(--eyebrow-color);
+}
+.composer-style-menu .consigne-nom { font-weight: 400; }
+.composer-style-menu :is(.consigne-nom, .consigne-desc) {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Formes de réponse en pastilles : cases à cocher du menu posées en ligne.
+   Le remplissage dit la sélection, la coche la confirme ; aucun accent. */
+.composer-style-menu .consigne-pastilles { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 8px; }
+.composer-style-menu .consigne-pastilles > [data-slot="dropdown-menu-label"] { flex-basis: 100%; padding: 0; }
+.composer-style-menu .consigne-pastilles > [data-slot="dropdown-menu-label"] .consigne-heading { padding: 8px 4px 4px; }
+.composer-style-menu .consigne-pastille {
+  min-height: 24px; height: 24px; padding: 0 12px; gap: 4px;
+  border-radius: var(--r-pill); color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  transition: background-color var(--motion-fast, 120ms) ease, color var(--motion-fast, 120ms) ease;
+}
+.composer-style-menu .consigne-pastille[aria-checked="true"] { background: var(--bg-ctl); color: var(--text-primary); padding-left: 8px; }
+.composer-style-menu .consigne-pastille .consigne-nom { color: inherit; }
+.composer-style-menu .consigne-pastille [data-slot="dropdown-menu-checkbox-item-indicator"] { display: none; }
+.composer-style-menu .consigne-pastille[aria-checked="true"] [data-slot="dropdown-menu-checkbox-item-indicator"] {
+  position: static; order: -1; display: inline-flex; width: 14px; height: 14px;
+  border: 0; background: transparent; color: var(--text-secondary);
+}
+.composer-style-menu .consigne-pastille[aria-checked="true"] [data-slot="dropdown-menu-checkbox-item-indicator"] svg { color: currentColor; }
+@media (prefers-reduced-motion: reduce) { .composer-style-menu .consigne-pastille { transition: none; } }
 .composer-menu.model-menu .model-list {
   width: 100%; max-height: none; padding: 0; box-shadow: none; background: transparent;
 }
@@ -6272,6 +6477,168 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .composer-menu .ef-model-link { padding: 4px 0; }
 .composer-menu.ctx-pop { padding: 12px; gap: 8px; }
 .composer-menu.ctx-pop [data-slot="popover-title"] { padding: 0 0 2px; }
+
+/* ===== Menus du compositeur — variante C « panneau de réglages » =====
+   Choix de Thierry, 2026-11-09 (maquette /captures/menus-chat-2026-11-09).
+   Une seule famille pour les sept menus de la boîte de chat : un titre en
+   casse normale avec la valeur en vigueur à droite, les choix posés dans un
+   encart (--cm-card), un bouton radio pour un choix unique, un interrupteur
+   pour ce qui s'allume, aucune bordure ni séparateur, accent réservé à
+   l'option en vigueur. Pièces React : chat/composerMenuParts.tsx. */
+.composer-menu.cm-panel {
+  --cm-card: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  --cm-card-on: var(--bg-ctl);
+  --cm-lift: none;
+  padding: 8px;
+}
+:root[data-theme="light"] .composer-menu.cm-panel {
+  --cm-card-on: var(--bg-pop);
+  --cm-lift: 0 1px 2px color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+.cm-title { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0;
+  font-size: var(--fs-l); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em;
+  color: var(--text-primary); text-transform: none; }
+.cm-title-text { display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-title-text svg { width: 12px; height: 12px; flex: none; }
+.cm-title-val { margin-left: auto; flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: var(--fs-m); font-weight: 400; letter-spacing: 0;
+  color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.composer-menu.cm-panel :is([data-slot="dropdown-menu-label"], [data-slot="select-label"], .custom-select-menu-label) {
+  padding: 4px 4px 8px; text-transform: none; letter-spacing: normal;
+  font-size: var(--fs-l); font-weight: 600; color: var(--text-primary); }
+.composer-menu.cm-panel [data-slot="dropdown-menu-group"] + [data-slot="dropdown-menu-group"] { margin-top: 12px; }
+.composer-menu.cm-panel :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"]) {
+  padding: 6px 8px; gap: 8px; border-radius: var(--r-s); }
+.composer-menu.cm-panel :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"], .mp-item) > svg {
+  color: var(--text-muted); }
+.composer-menu.cm-panel [data-slot="kbd"] { margin-left: auto; padding: 0; min-width: 0; height: auto;
+  background: transparent; box-shadow: none; color: var(--text-muted); letter-spacing: .02em; }
+/* encart : les choix d'une section, la rangée en vigueur se soulève */
+.cm-card { display: flex; flex-direction: column; padding: 2px; border-radius: var(--r-s); background: var(--cm-card); }
+.composer-menu.cm-panel .cm-card > :is([data-highlighted], .mp-item:hover) {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.composer-menu.cm-panel .cm-card > :is(.specialiste-item.on, .model-row.active) {
+  background: var(--cm-card-on); color: var(--text-primary); box-shadow: var(--cm-lift); }
+.cm-radio { position: relative; flex: none; width: 14px; height: 14px; border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
+  transition: box-shadow var(--motion-fast) var(--ease-out); }
+/* point plein dessiné par le fond (pas de pseudo-élément : la marque de
+   sélection des listes reste unique, contrat A13) */
+.cm-radio.on { box-shadow: inset 0 0 0 1.5px var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 3px, transparent 3.5px); }
+/* interrupteur : rail gris, pastille du fond du menu une fois allumé (jamais blanche en sombre) */
+.cm-switch { position: relative; flex: none; margin-left: auto; width: 24px; height: 14px;
+  border-radius: var(--r-pill); background: var(--bg-ctl);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 8%, transparent);
+  transition: background-color var(--motion-fast) var(--ease-out); }
+.cm-switch i { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: var(--r-pill);
+  background: var(--text-muted);
+  transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+:is([aria-checked="true"], [aria-pressed="true"]) > .cm-switch { background: var(--accent); box-shadow: none; }
+:is([aria-checked="true"], [aria-pressed="true"]) > .cm-switch i { transform: translateX(10px); background: var(--bg-pop); }
+.composer-menu.cm-panel .cm-switch-row [data-slot="dropdown-menu-checkbox-item-indicator"] { display: none; }
+.composer-menu.cm-panel .cm-chev { width: 12px; height: 12px; flex: none; margin-left: auto; color: var(--text-muted); }
+.composer-menu.cm-panel .cm-foot { margin-top: 4px; color: var(--text-muted); }
+.composer-menu.cm-panel .cm-foot > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-star { width: 12px; height: 12px; }
+/* segments (fenêtre de contexte 200k / 1M) */
+.cm-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; border-radius: var(--r-s); background: var(--cm-card); }
+.composer-menu.cm-panel .cm-seg-item { justify-content: center; min-height: 24px; padding: 2px 8px;
+  border-radius: var(--r-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.composer-menu.cm-panel .cm-seg-item[aria-checked="true"] { background: var(--cm-card-on); color: var(--text-primary);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 12%, transparent); }
+
+/* menu + : deux actions en tuiles, les modes dans un encart */
+.composer-menu.cm-panel.composer-add-menu { width: 300px; }
+.cm-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.composer-menu.cm-panel .cm-tile { position: relative; flex-direction: column; align-items: flex-start; gap: 8px;
+  min-height: 0; padding: 12px; border-radius: var(--r-s); background: var(--cm-card); color: var(--text-primary); }
+.composer-menu.cm-panel .cm-tile > svg { width: 16px; height: 16px; color: var(--text-secondary); }
+.composer-menu.cm-panel .cm-tile[data-highlighted] { background: var(--bg-ctl); }
+.composer-menu.cm-panel .cm-tile [data-slot="kbd"] { position: absolute; top: 12px; right: 12px; }
+.composer-menu.cm-panel.composer-add-menu [data-slot="dropdown-menu-group"] + [data-slot="dropdown-menu-group"] { margin-top: 8px; }
+
+/* spécialiste et style */
+.composer-menu.cm-panel.composer-style-menu { width: 340px; }
+.composer-menu.cm-panel.composer-style-menu .specialiste-item { min-height: 32px; padding: 6px 8px; gap: 12px; }
+.composer-menu.cm-panel.composer-style-menu .consigne-pastilles { padding: 0; }
+.composer-menu.cm-panel .consigne-pastilles > [data-slot="dropdown-menu-label"] { flex-basis: 100%; padding: 4px 4px 8px; }
+.composer-menu.cm-panel .consigne-pastille { background: var(--cm-card); }
+.composer-menu.cm-panel .consigne-pastille[aria-checked="true"] { background: var(--bg-ctl); }
+
+/* mode de permission : tuiles 2 × 2 qui disent ce que chaque mode autorise */
+.composer-menu.cm-panel.composer-permission-menu { width: 320px; }
+.composer-permission-menu.cm-panel [data-slot="select-group"] { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.composer-permission-menu.cm-panel .custom-select-menu-label { grid-column: 1 / -1; }
+.composer-permission-menu.cm-panel .custom-select-option { align-items: flex-start; min-height: 92px; padding: 12px;
+  border-radius: var(--r-s); background: var(--cm-card); white-space: normal; }
+.composer-permission-menu.cm-panel .custom-select-option > span[aria-hidden="true"]:first-child { display: none; }
+.composer-permission-menu.cm-panel .custom-select-option [data-slot="select-item-text"] {
+  flex-direction: column; align-items: flex-start; gap: 4px; }
+.composer-permission-menu.cm-panel .custom-select-option-icon { margin-bottom: 4px; color: var(--text-muted); }
+.composer-permission-menu.cm-panel .custom-select-option-icon svg { width: 16px; height: 16px; }
+.composer-permission-menu.cm-panel .custom-select-option-label { color: var(--text-primary); white-space: normal; }
+.composer-permission-menu.cm-panel .custom-select-option-desc { font-size: var(--fs-s); line-height: 1.35; color: var(--text-muted); }
+.composer-permission-menu.cm-panel .custom-select-option[data-highlighted] { background: var(--bg-ctl); }
+.composer-permission-menu.cm-panel .custom-select-option:is([data-selected], [aria-selected="true"]) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.composer-permission-menu.cm-panel .custom-select-option:is([data-selected], [aria-selected="true"]) .custom-select-option-label { font-weight: 500; }
+.composer-permission-menu.cm-panel .custom-select-option:is([data-selected], [aria-selected="true"]) .perm-icon { color: var(--accent-text); }
+
+/* modèle */
+.composer-menu.cm-panel.model-menu { padding: 8px; background: var(--bg-pop); }
+.composer-menu.cm-panel.model-menu .model-list { width: 244px; }
+.composer-menu.cm-panel .model-list-head { display: block; padding: 4px 4px 8px; color: var(--text-primary); }
+.composer-menu.cm-panel .mp-row-main { flex: 1; gap: 8px; padding: 6px 8px; }
+.composer-menu.cm-panel .model-row { border-radius: var(--r-s); }
+.composer-menu.cm-panel .mp-star { display: inline-flex; font-size: 0; color: var(--text-muted); }
+.composer-menu.cm-panel .mp-star.on { color: var(--text-secondary); }
+.composer-menu.cm-panel .mp-hd { padding: 12px 4px 8px; }
+.composer-menu.cm-panel .model-manage-row { padding: 6px 8px; }
+
+/* effort : titre + palier, jauge dans un encart, Fast et modèle en rangées */
+.composer-menu.cm-panel.effort-menu { width: 260px; padding: 8px; border: 0;
+  background: var(--bg-pop); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.composer-menu.cm-panel .ef-block { padding: 0; }
+.composer-menu.cm-panel .ef-header { display: flex; align-items: center; gap: 4px; padding: 0 0 8px 4px; }
+.composer-menu.cm-panel .ef-heading { flex: 1; min-width: 0; text-align: left; }
+.composer-menu.cm-panel .ef-title { margin: 0; display: block; }
+.composer-menu.cm-panel .ef-title b { font-size: var(--fs-m); font-weight: 500; color: var(--text-primary); letter-spacing: 0; }
+.composer-menu.cm-panel .ef-default { margin-left: 4px; font-size: var(--fs-m); color: var(--text-muted); }
+.composer-menu.cm-panel .ef-header .ef-reset { width: 24px; min-width: 24px; height: 24px; }
+.composer-menu.cm-panel .ef-card { padding: 12px 12px 8px; margin-bottom: 4px; }
+.composer-menu.cm-panel .ef-card .ef-track { margin-top: 0; }
+.composer-menu.cm-panel .ef-scale { margin-top: 8px; font-size: var(--fs-xs); letter-spacing: 0; text-transform: none; color: var(--text-muted); }
+.composer-menu.cm-panel :is(.ef-fast, .ef-model-link) { display: flex; align-items: center; justify-content: flex-start;
+  width: 100%; height: auto; min-height: var(--menu-row-height); gap: 8px; padding: 6px 8px;
+  border: 0; border-radius: var(--r-s); box-shadow: none; background: transparent;
+  font-size: var(--fs-m); color: var(--text-secondary); }
+.composer-menu.cm-panel :is(.ef-fast, .ef-model-link):hover:not(:disabled) { background: var(--bg-ctl); color: var(--text-primary); }
+.composer-menu.cm-panel .ef-fast[aria-pressed="true"] { color: var(--text-secondary); background: transparent; }
+.composer-menu.cm-panel .ef-fast > svg { width: 14px; height: 14px; color: var(--text-muted); fill: none; }
+.composer-menu.cm-panel .ef-model-link { color: var(--text-muted); }
+.composer-menu.cm-panel .ef-model-link > svg:first-child { width: 12px; height: 12px; }
+
+/* fenêtre de contexte */
+.composer-menu.cm-panel.ctx-pop { width: 260px; padding: 8px; gap: 0; }
+.composer-menu.cm-panel.ctx-pop [data-slot="popover-title"] { padding: 4px 4px 8px; }
+.ctx-card { gap: 8px; padding: 12px; }
+.ctx-meter { display: block; height: 4px; border-radius: var(--r-pill); overflow: hidden;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+.ctx-meter i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--text-secondary); }
+.ctx-kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; margin: 0; }
+.ctx-kv dt { color: var(--text-muted); }
+.ctx-kv dd { margin: 0; text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* sources : même titre, liste dans un encart, groupes en casse normale */
+.composer-menu.cm-panel.kb-pop { width: 400px; }
+.composer-menu.cm-panel.kb-pop .kb-title { font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+.composer-menu.cm-panel.kb-pop .kb-list { padding: 2px; border-radius: var(--r-s); background: var(--cm-card); }
+.composer-menu.cm-panel.kb-pop .kb-group { padding: 8px 8px 4px; font-size: var(--fs-s); letter-spacing: normal; text-transform: none; color: var(--text-muted); }
+@media (prefers-reduced-motion: reduce) {
+  .cm-radio, .cm-switch, .cm-switch i { transition: none; }
+}
 .composer .goal-editor { font-family: var(--ui-font); font-size: var(--fs-m); }
 .composer .goal-editor-title { font-size: var(--fs-l); }
 .composer .goal-editor-hint { font-size: var(--fs-s); }
@@ -6312,8 +6679,9 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .tool-output.is-compact .tool-output-head > .tool-tick { width: 12px; height: 12px; color: var(--text-disabled); }
 .tool-output.is-compact.failed .tool-duration, .tool-output.is-compact.failed .tool-status { color: var(--status-error); }
 .tool-output.is-compact:not(.is-done):not(.failed) .tool-status { color: var(--text-muted); }
-/* Anneau d'une action en cours : la seule boucle d'une rangée vivante (le
-   libellé ne balaie plus). 1 s par tour, coupé sous reduced-motion. */
+/* Anneau d'une action en cours : la seule boucle d'une rangée d'outil à plat.
+   La grappe vivante, elle, balaie son libellé et n'a pas d'anneau (variante
+   B, 2026-11-01). 1 s par tour, coupé sous reduced-motion. */
 .ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: ui-spin var(--motion-spin) linear infinite; }
 @media (prefers-reduced-motion: reduce) {
   .ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: none; }
@@ -6322,6 +6690,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
    dernières lignes de sortie (Codex seulement : Claude n'envoie la sortie
    qu'à la fin de la commande), alignées sur le texte, sans cadre. */
 .activity-live-label { color: var(--text-primary); }
+/* Compte des actions devant le chrono de la grappe vivante (variante B) :
+   même corps que le chrono, collé à lui. */
+.activity-cluster-count, .activity-cluster-count + .activity-cluster-sep { font-size: var(--fs-m); }
+.activity-cluster-sep + .turn-activity-elapsed { padding-left: 0; }
 .activity-live-target { margin-left: 8px; padding: 0; background: none; border-radius: 0;
   color: var(--text-muted); font-family: var(--code-font); font-size: var(--fs-m); }
 .activity-live-tail { margin: -4px 0 4px 23px; min-width: 0; color: var(--text-muted);
@@ -6368,14 +6740,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 /* A quiet, direct pin survives the narrow navigator layout. */
 /* L'épingle n'apparaît qu'au survol ou au focus de la rangée (SHELL-10) ;
    dans « Épinglés », le titre de section suffit : elle reste cachée au repos. */
-.pnav-row-end > .pnav-favorite { position:absolute; right:24px; width:22px; min-width:22px; height:26px; padding:0; color:var(--text-muted); opacity:0;
-  transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
-.pnav-row:hover .pnav-row-end > .pnav-favorite, .pnav-row:focus-within .pnav-row-end > .pnav-favorite { opacity:1; }
-.pnav-row-end > .pnav-favorite:hover, .pnav-row-end > .pnav-favorite:focus-visible { opacity:1; color:var(--text-primary); }
-.pnav-row:not(.pinned) .pnav-row-end > .pnav-favorite.on { opacity:1; color:var(--text-secondary); }
-@media (prefers-reduced-motion: reduce) { .pnav-row-end > .pnav-favorite { transition: none; } }
-.pnav-row-end .row-status { min-width:22px; max-width:24px; }
-.pnav-row-end.has-family > .pnav-favorite { right:24px; }
+.pnav-row-end > .pnav-favorite { color:var(--text-muted);
+  transition: color var(--motion-fast) var(--ease-out); }
+.pnav-row-end > .pnav-favorite:hover, .pnav-row-end > .pnav-favorite:focus-visible { color:var(--text-primary); }
+@media (prefers-reduced-motion: reduce) { .pnav-row-end, .pnav-row-end > .pnav-favorite { transition: none; } }
 
 .pnav-row-end > .pnav-favorite svg { width:10px; height:10px; }
 .pnav-row-end > .pnav-favorite, .pnav-row-end > .pnav-favorite:hover { background:transparent; }
@@ -6395,13 +6763,109 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .agent-detail-panel button:focus-visible { outline: none; box-shadow: none; background: var(--surface-hover); }
 .agent-detail-panel [data-slot="scroll-area-viewport"]:focus-visible { outline: none; box-shadow: none; background: var(--surface-hover); }
 
+/* ===== Colonne unifiée (variante A, 2026-11-08) =====
+   Le rail et le panneau des conversations ne font plus qu'une colonne posée
+   sur le sol (--surface-canvas), sans carte : seul le travail reste une
+   feuille soulevée. En haut le projet et ses conversations, des rangées
+   nommées au lieu d'icônes muettes ; en bas les autres projets, les
+   réglages et le quota. Replier la colonne ramène le rail d'icônes. */
+.scol { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.scol-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.scol-main > * { flex: 1; min-height: 0; }
+.scol-top { flex: none; padding: 8px 8px 0; }
+.app-row.unified > .side-fixed { background: transparent; box-shadow: none; border-radius: 0; }
+.app-row.unified .sidebar, .app-row.unified .pnav-header { background: transparent; }
+.app-row.unified .side-scroll { --shade-bg: var(--surface-canvas); }
+.app-row.unified .sidebar.pnav { padding: 4px 8px 0; }
+.app-row.unified > .main-card { border-radius: var(--r-m); box-shadow: var(--sheet-lift); }
+/* sélection posée sur le sol : elle se soulève (fond + filet), la pilule
+   d'accent du repère A13 reste le seul signe de couleur */
+.app-row.unified .sidebar li.active:not(.multi-sel), .app-row.unified .scol-row.on {
+  background: var(--ground-raised); box-shadow: var(--card-lift); }
+.app-row.unified .sidebar.pnav .pnav-header { padding-top: 4px; }
+/* l'icône du projet s'aligne sur celles des rangées (colonne des icônes à
+   20 px, textes à 44 px) : la cible reste de 24 px, sans tuile */
+.app-row.unified .pnav-id-ico { width: 24px; height: 24px; margin-inline: -4px; border-radius: var(--r-s);
+  color: var(--text-secondary); }
+.app-row.unified .pnav-home { padding: 0; transition: color 120ms ease, background-color 120ms ease; }
+.app-row.unified .pnav-home:hover { color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 6%, var(--ground-ctl)); }
+.pnav-collapse { margin-left: -4px; }
+/* champ et « + » gris pleins, sans contour : la colonne n'a qu'un relief, celui
+   des tuiles ; jamais de bouton clair (consigne de Thierry) */
+.app-row.unified .pnav-search .ui-search-input { background: var(--surface-hover); border-color: transparent; }
+.app-row.unified .pnav-cta .pnav-new.ui-btn { background: var(--ground-ctl); border-color: transparent;
+  color: var(--text-secondary); box-shadow: var(--card-lift); }
+.app-row.unified .pnav-cta .pnav-new.ui-btn:hover { color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 6%, var(--ground-ctl)); }
+
+.scol-nav { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 0 0 8px; }
+.scol-nav-skel { height: 96px; }
+.scol-row.ui-rowbtn { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 28px;
+  padding: 0 8px; border-radius: var(--r-s); font-size: var(--fs-l); line-height: 1.3;
+  color: var(--text-secondary); text-align: left;
+  transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.scol-row.ui-rowbtn:hover:not(.on) { background: var(--row-hover); color: var(--text-primary); }
+.scol-row.ui-rowbtn.on { color: var(--text-primary); }
+.scol-row-ico { width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center;
+  justify-content: center; color: var(--text-muted); }
+.scol-row.on .scol-row-ico, .scol-row:hover .scol-row-ico { color: var(--text-secondary); }
+.scol-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scol-count { flex: none; min-width: 20px; height: 16px; padding: 0 4px; border-radius: var(--r-pill);
+  background: var(--ground-ctl); color: var(--text-secondary); font-size: var(--fs-s); line-height: 16px;
+  text-align: center; font-variant-numeric: tabular-nums; }
+.scol-count.wait { color: var(--accent-text); }
+
+.scol-bottom { flex: none; display: flex; flex-direction: column; margin: 0 8px;
+  border-top: 1px solid var(--border-subtle); }
+.scol-sec { display: flex; align-items: center; gap: 8px; height: 32px; padding: 4px 4px 0 8px;
+  font-size: var(--fs-s); font-weight: 500; line-height: 1.3; color: var(--text-muted); }
+.scol-sec > span { flex: 1; }
+/* « Projets › » ouvre l'accueil des projets (⇧⌘P) */
+.scol-sec-link.ui-rowbtn { display: inline-flex; align-items: center; gap: 4px; height: 20px; margin-left: -4px;
+  padding: 0 4px; border-radius: var(--r-s); font: inherit; color: inherit;
+  transition: color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+.scol-sec-link.ui-rowbtn:hover { color: var(--text-secondary); background: var(--row-hover); }
+.scol-kbd { flex: none; font-size: var(--fs-caption); color: var(--text-muted); font-variant-numeric: tabular-nums;
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-out); }
+.scol-all.ui-rowbtn:hover .scol-kbd, .scol-all.ui-rowbtn:focus-visible .scol-kbd { opacity: 1; }
+.scol-sec-btn.ui-iconbtn { width: 20px; min-width: 20px; height: 20px; padding: 0;
+  background: var(--ground-ctl); color: var(--text-secondary); box-shadow: var(--card-lift); }
+.scol-projects { display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow-y: auto;
+  scrollbar-width: none; }
+.scol-proj-letter { font-size: var(--fs-s); font-weight: 500; color: inherit; }
+.scol-proj.drag-over { background: var(--drop-fill); box-shadow: var(--drop-ring); }
+.scol-sig { flex: none; position: relative; width: 12px; height: 12px; display: inline-flex;
+  align-items: center; justify-content: center; }
+.scol-sig .rail-signal { position: static; }
+.scol-sig .rail-signal.sig-dot { width: 6px; height: 6px; border: none; }
+.scol-sig .rail-signal.sig-unread { background: var(--accent); }
+/* Deux bords seulement dans toute la colonne (audit design, 2026-11-09) :
+   20 px pour les icônes, titres de section, champ et tuile ; 44 px pour tout
+   libellé — rangées nommées, fils, projets et quota. Les icônes sont centrées
+   dans une case de 16 px à 20 px. */
+.app-row.unified .pnav-row .prov-ico { width: 16px; justify-content: center; }
+.app-row.unified .pnav-meta { padding-left: 24px; }
+.scol-foot { display: flex; align-items: center; gap: 0; height: 40px; margin-top: 4px;
+  border-top: 1px solid var(--border-subtle); }
+.scol-foot .scol-foot-btn { width: 32px; }
+.scol-foot .rail-activity { flex-direction: row; width: auto; margin-left: auto; }
+.scol-usage.ui-rowbtn { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 0;
+  border-radius: var(--r-s); font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums;
+  transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.scol-usage.ui-rowbtn:hover { color: var(--text-secondary); }
+.scol-usage-bar { display: block; width: 40px; height: 4px; border-radius: var(--r-pill);
+  background: var(--bg-ctl); overflow: hidden; }
+.scol-usage-bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--text-muted); }
+@media (prefers-reduced-motion: reduce) { .scol-row.ui-rowbtn, .scol-usage.ui-rowbtn, .scol-sec-link.ui-rowbtn, .scol-kbd { transition: none; } }
+
 /* ===== Repère de sélection (A13) =====
    UN seul signal dans les listes verticales : fond --bg-ctl + pilule
    2×16 accent à gauche, centrée. Le survol reste plus léger
    (--surface-hover), jamais le même fond que la sélection. Les barres
    horizontales (onglets, surfaces de la barre du haut) n'ont que le fond.
    La sélection multiple (.multi-sel) garde sa surface teintée. */
-:is(.sidebar li.active:not(.multi-sel), .rail-view.on, .rail-proj.on, .rail-clean .rail-favorite.on,
+:is(.sidebar li.active:not(.multi-sel), .scol-row.on, .rail-view.on, .rail-proj.on, .rail-clean .rail-favorite.on,
   .cmdk-item[data-selected="true"], .set-nav-item.on,
   .set-consignes-wrap.consignes-studio .set-consignes-item.on,
   .biblio-row[aria-selected="true"], .biblio-folder[aria-current="true"], .docs-row[aria-current="true"],
@@ -6410,7 +6874,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   .exp-row[data-open="true"]) {
   position: relative; background: var(--bg-ctl); color: var(--text-primary);
 }
-:is(.sidebar li.active:not(.multi-sel), .rail-view.on, .rail-proj.on, .rail-clean .rail-favorite.on,
+:is(.sidebar li.active:not(.multi-sel), .scol-row.on, .rail-view.on, .rail-proj.on, .rail-clean .rail-favorite.on,
   .cmdk-item[data-selected="true"], .set-nav-item.on,
   .set-consignes-wrap.consignes-studio .set-consignes-item.on,
   .biblio-row[aria-selected="true"], .biblio-folder[aria-current="true"], .docs-row[aria-current="true"],

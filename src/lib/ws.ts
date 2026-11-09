@@ -6,6 +6,7 @@ import {
 import { markBootMetric } from "./bootMetrics";
 import type { ConsigneDuFil } from "./consignes";
 import type { TurnContext } from "./turnContext";
+import type { LiveContext, LiveContextTrace } from "./liveContext";
 
 /** Metadata harnais (plan 025, schema v1) portée par tout événement sidecar durable. */
 export type HarnessEventMeta = {
@@ -41,7 +42,11 @@ type AgentEventBody =
       notes?: { n: number; text: string }[];
       /* images locales jointes (UserDisplayEvent archivé) : vignette d'une
          figure annotée quand le tour revient de l'historique */
-      imagePaths?: string[]; ts?: number }
+      imagePaths?: string[];
+      /* cartes « article » des pièces jointes (2026-11-02), alignées sur `label` */
+      files?: ChatFileRef[];
+      /* contexte vivant parti avec le message (trace serveur, sans le texte) */
+      liveContext?: LiveContextTrace; ts?: number }
   | { kind: "text"; text: string; ts?: number }
   | { kind: "delta"; text: string; ts?: number }
   | { kind: "thinking_delta"; text: string; ts?: number }
@@ -312,6 +317,21 @@ export type UserDisplayEvent = {
   label?: string;
   pastes?: { name: string; lines: number; text?: string }[];
   imagePaths?: string[];
+  files?: ChatFileRef[];
+  liveContext?: LiveContextTrace;
+};
+
+/** Pièce jointe d'un message envoyé, rendue en carte « article ». `path` :
+ *  fichier local dont la carte lit taille, pages et titre (`fileCards`) ;
+ *  `title`/`journal`/`year` : notice déjà connue (référence Zotero). */
+export type ChatFileRef = {
+  name: string;
+  lines?: string;
+  path?: string;
+  kind?: string;
+  title?: string;
+  journal?: string;
+  year?: string;
 };
 
 export type Thread = {
@@ -527,6 +547,9 @@ export type SendOptions = {
   autoReview?: { enabled: boolean; provider: string; model: string; effort: string; trigger: string; autofix?: boolean };
   /** Nouveau fil atomiquement dérivé de cette source lors d'un changement de provider. */
   handoffFromThreadId?: string;
+  /** Ce que l'utilisateur regarde dans l'atelier à l'envoi (capturé au
+   * submit, ou à la mise en file) — jamais recopié dans `prompt`. */
+  liveContext?: LiveContext;
 };
 
 /** `WebSocket.OPEN`, en dur. Les tests remplacent le global `WebSocket` par un

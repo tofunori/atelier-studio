@@ -8,6 +8,7 @@ struct NativeChatView: View {
     @AppStorage("atelier.density") private var density = "comfortable"
     @State private var showingWork = false
     @State private var showingOptions = false
+    @State private var showingConnection = false
     @State private var followsResponse = true
     @State private var nearBottom = true
     @State private var returnRequest = UUID()
@@ -38,21 +39,23 @@ struct NativeChatView: View {
         .toolbar(composing.wrappedValue ? .hidden : .visible, for: .tabBar)
         .toolbar {
             if workspace.chat.selected != nil {
-                // Adjacent items share one glass capsule on iOS 26.
+                // Plain icons on the opaque bar, without the iOS 26 glass capsule.
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button("Nouvelle conversation", systemImage: "square.and.pencil") { workspace.newChatRequested = true }
                         .disabled(chat.sending)
                     Menu {
                         Button("Autorisations · " + chat.permissionMode.title, systemImage: "slider.horizontal.3") { showingOptions = true }
                         Button("Travail du Mac", systemImage: "desktopcomputer") { showingWork = true }
+                        Button("Connexion · " + chat.connectionLabel, systemImage: "network") { showingConnection = true }
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Options du chat")
-                }
+                }.sharedBackgroundVisibility(.hidden)
             }
         }
 
         .onChange(of: workspace.focusChatRequest) { _, _ in showingWork = false; composing.wrappedValue = true }
         .sheet(isPresented: $showingOptions) { ChatOptionsView(chat: chat) }
         .sheet(isPresented: $showingWork) { RemoteWorkView(workspace: workspace) }
+        .sheet(isPresented: $showingConnection) { ChatConnectionDetails(chat: chat) }
         .onChange(of: chat.completedResponse) { _, _ in
             if chat.connection == .live && chat.error == nil {
                 Task { await chat.deliverPrepared(using: workspace.gallery, automatic: true, workspace: workspace) }
@@ -91,7 +94,7 @@ struct NativeChatView: View {
                 .overlay(alignment: .bottom) {
                     if !nearBottom {
                         ChatReturnToBottomButton(returning: false, reduceMotion: reduceMotion) { returnToBottom() }
-                            .padding(.bottom, 12).transition(.opacity)
+                            .padding(.bottom, 28).transition(.opacity)
                     }
                 }
         }

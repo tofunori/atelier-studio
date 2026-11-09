@@ -3,7 +3,7 @@
 ## Fonctionnalités implémentées
 
 - Navigation Chats, Galerie, Articles ; espace de travail partagé sur iPad et thèmes système, clair, noir.
-- Composer unique avec citation repliable, pièces jointes, choix de modèle et jauge d’effort ouvrant un panneau flottant à crans ; masquage des onglets pendant la saisie.
+- Composer unique avec citation repliable, pièces jointes, choix de modèle et jauge d’effort ouvrant un panneau flottant à crans ; masquage des onglets pendant la saisie. Sur iPhone, plus de barre d'onglets (variante A, 2026-11-02) : Chat, Fichier, Galerie, Articles et Calculs ouvrent le menu de gauche, et un toucher sur le titre du chat l'ouvre aussi. L'en-tête du chat et le bas sont opaques : le composeur repose sur le fond de lecture avec un court fondu, rien ne se lit à travers. Les boutons Envoyer et Arrêter portent une icône accent sur un disque accent doux, sans blanc. L'iPad garde ses onglets en verre.
 - Annotation de texte, PDF et figures ; choix de conversation, fichier joint et zone rectangulaire normalisée pour les figures.
 - Lecture LaTeX simplifiée, source à édition explicite, sélection reliée au passage original. Une sélection ambiguë renvoie vers la source. Ce lecteur ne remplace pas une compilation LaTeX.
 - Proposition de reformulation rattachée au message concerné, comparaison avant/après et application explicite. Une source modifiée ou un passage ambigu empêche l'application.
@@ -213,6 +213,7 @@ une amélioration distincte, non intégrée à cette version.
 ## Retour dans l’app sans fil vide — 7 septembre, 7 h 29
 
 - Le passage réel en arrière-plan est distingué des transitions inactives (menus système, interruptions brèves). Au retour actif, une nouvelle génération de connexion remplace immédiatement le flux suspendu sans attendre sa temporisation. Les anciens retours asynchrones sont ignorés et leur tâche URLSession est annulée explicitement. Le catalogue des assistants charge indépendamment du flux.
+- Retour au premier plan (2026-11-01) : le cache UIKit d’un message riche ne montre plus que la dernière image du rendu WebKit, posée sur la couleur de lecture. Le texte de secours (Markdown brut sur fond noir) ne sert qu’au premier chargement et après la mort du processus WebKit, et ses marques Markdown sont retirées.
 - Le transcript de la conversation courante est désormais sauvegardé avec ses identifiants d’événements et marqueurs de tours. Il se restaure avant toute requête réseau avec le brouillon et la position existants. Les lignes optimistes pending ne sont pas archivées ; running est déduit des tours réellement actifs, afin qu’un arrêt pendant upload ne bloque pas le chat au redémarrage. Les snapshots précédents restent lisibles.
 - Une reprise brève n’affiche pas de bannière de connexion pendant la première seconde ; une panne durable et une association expirée restent visibles. Les messages ne sont pas masqués pendant la synchronisation.
 - Validation : 88 XCTest réussis, dont reprise de streaming sans doublon, isolation des conversations, ancien snapshot, envoi interrompu, conservation du brouillon/position au retour actif et expiration de l’association. Revue indépendante : deux réserves corrigées (chargement initial du catalogue et état optimiste d’envoi).

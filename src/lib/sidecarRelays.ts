@@ -17,6 +17,9 @@ const forward = (event: string): Relay => (msg) => ({ event, detail: msg });
 
 const RELAYS: Record<string, Relay> = {
   frameChecked: forward("frame-checked"),
+  // écran d'ouverture des projets : vignettes et création, corrélées par requestId
+  projectCards: forward("project-cards"),
+  projectCreated: forward("project-created"),
   // base de connaissances (plan 049) : retour d'épinglage relayé aux
   // surfaces intéressées (bouton browser, picker du composer)
   kbAdded: (msg) => ({
@@ -55,6 +58,8 @@ const RELAYS: Record<string, Relay> = {
   ragdocResults: forward("kb-ragdoc-results"),
   // texte stocké d'une source de la base : le lecteur corrèle par id
   sourceText: forward("source-text"),
+  // cartes « article » des pièces jointes du chat (lib/chatFileCards)
+  fileCards: forward("file-cards"),
   // recherche du corpus NAS (plan 050 P3) — consommée par la surface
   // Connaissances ; l'échec voyage dans detail.error, en place
   gbrainResults: (msg) => ({

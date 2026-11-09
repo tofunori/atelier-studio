@@ -767,9 +767,11 @@ describe("orchestration App — caractérisation", () => {
     const row = document.querySelector(".app-row");
     expect(row).toBeTruthy();
     const topLevel = [...row!.children].map((el) => el.className.split(" ")[0]);
-    // ordre exact historique : rail, panneau latéral, poignée, main-card
-    expect(topLevel[0]).toBe("rail");
-    expect(topLevel).toContain("side-fixed");
+    // colonne unifiée (2026-11-08) : déplié, le rail se fond dans le panneau
+    // latéral, qui ouvre la rangée ; puis poignée et main-card
+    expect(row!.classList.contains("unified")).toBe(true);
+    expect(topLevel[0]).toBe("side-fixed");
+    expect(topLevel).not.toContain("rail");
     expect(topLevel).toContain("handle");
     expect(topLevel).toContain("main-card");
     expect(topLevel.indexOf("side-fixed")).toBeLessThan(topLevel.indexOf("handle"));
@@ -793,13 +795,12 @@ describe("orchestration App — caractérisation", () => {
   it("ouvre les automatisations dans le panneau latéral sans remplacer le workspace", async () => {
     await mountApp();
 
-    // Automatisations et surlignages vivent dans le menu « … » du rail (4dc49144)
-    fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
+    // colonne unifiée : Automatisations est une rangée nommée en tête de colonne
     await act(async () => {
       await vi.dynamicImportSettled();
       await flushMicrotasks(4);
     });
-    fireEvent.click(screen.getByRole("menuitem", { name: t("automations.title") }));
+    fireEvent.click(screen.getByRole("button", { name: t("automations.title") }));
     await act(async () => {
       await vi.dynamicImportSettled();
       await flushMicrotasks(4);
@@ -884,7 +885,7 @@ describe("orchestration App — caractérisation", () => {
     await selectThread(sock, "Fil A — albédo");
     expect(screen.queryByText(t("home.start"))).toBeNull();
 
-    fireEvent.click(document.querySelector(".rail-proj") as HTMLButtonElement);
+    fireEvent.click(screen.getByRole("button", { name: t("project.home") }));
     await act(async () => { await flushMicrotasks(4); });
 
     expect(screen.getByText(t("home.start"))).toBeTruthy();
@@ -1365,7 +1366,7 @@ describe("orchestration App — caractérisation", () => {
     const beforeHome = sock.sent.map((value) => JSON.parse(value)).filter((message) => message.type === "upsertThread");
     expect(beforeHome.some((message) => message.thread?.kbSourceIds?.includes("kb-home-source"))).toBe(false);
 
-    fireEvent.click(document.querySelector(".rail-proj") as HTMLButtonElement);
+    fireEvent.click(screen.getByRole("button", { name: t("project.home") }));
     await act(async () => { await flushMicrotasks(4); });
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
     fireEvent.click(within(sidebar).getByRole("button", { name: /new chat/i }));
@@ -1775,7 +1776,6 @@ describe("orchestration App — caractérisation", () => {
   });
 
   it("ouvre une surface du rail après être passé par le layout Chat", async () => {
-    localStorage.setItem("atelier-studio.topbar-surfaces", JSON.stringify(["biblio"]));
     await mountApp();
 
     await chooseLayout("chat");
@@ -1785,7 +1785,14 @@ describe("orchestration App — caractérisation", () => {
     const onSwitch = (event: Event) => switches.push((event as CustomEvent).detail);
     window.addEventListener("switch-surface", onSwitch);
 
-    fireEvent.click(screen.getByRole("button", { name: t("atelier.biblio") }));
+    // le lanceur de la barre du haut (2026-11-01) liste toutes les surfaces
+    fireEvent.click(screen.getByRole("button", { name: t("topbar.surfaces") }));
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await vi.advanceTimersByTimeAsync(0);
+      await flushMicrotasks(6);
+    });
+    fireEvent.click(within(screen.getByRole("menu")).getByText(t("atelier.biblio")));
     await act(async () => {
       await vi.dynamicImportSettled();
       await vi.advanceTimersByTimeAsync(0);
@@ -1795,8 +1802,8 @@ describe("orchestration App — caractérisation", () => {
     expect(document.querySelector('[data-panel-id="atelier"]')).toBeTruthy();
     expect(switches).toContainEqual({ surface: "biblio" });
     expect(document.querySelector(".biblio-surface")).toBeTruthy();
-    // la surface active non épinglée se révèle dans la barre
-    expect(document.querySelector(".topbar-surface.on")).toBeTruthy();
+    // la pastille du lanceur prend le nom de la surface ouverte
+    expect(screen.getByRole("button", { name: `${t("topbar.surfaces")} : ${t("atelier.biblio")}` })).toBeTruthy();
     window.removeEventListener("switch-surface", onSwitch);
   });
 
@@ -1977,7 +1984,11 @@ describe("orchestration App — caractérisation", () => {
         meta: meta("e-int-1", 2),
       },
     });
-    // la carte apparaît avec ses boutons
+    // la carte (chunk ApprovalCard chargé à la demande) apparaît avec ses boutons
+    await act(async () => {
+      await import("./components/chat/ApprovalCard");
+      await flushMicrotasks(8);
+    });
     expect(screen.getByText("Exécuter rm -rf build ?")).toBeTruthy();
     const allowBtn = screen.getByRole("button", { name: t("interaction.allow-once") });
     await act(async () => {
@@ -2005,8 +2016,9 @@ describe("orchestration App — caractérisation", () => {
         answerSummary: "autorisé une fois", meta: meta("e-int-2", 3),
       },
     });
-    expect(screen.getAllByText("Exécuter rm -rf build ?")).toHaveLength(1);
-    expect(screen.getByText("autorisé une fois")).toBeTruthy();
+    // repliée en une ligne : verdict, sans redite du résumé « autorisé une fois »
+    expect(document.querySelectorAll('.int-card[data-request-id="req-appr-1"]')).toHaveLength(1);
+    expect(screen.getByText(t("interaction.req-allowed"))).toBeTruthy();
     expect(screen.queryByRole("button", { name: t("interaction.allow-once") })).toBeNull();
   });
 
@@ -2317,7 +2329,11 @@ describe("orchestration App — caractérisation", () => {
       name: t("linkedConversation.markerLabel", { count: 2 }),
     })).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: t("linkedConversation.title") }));
+    // dans la barre du haut, les conversations liées vivent dans le ⋯ du chat
+    fireEvent.click(within(document.querySelector<HTMLElement>(".chat-surface-header")!)
+      .getByRole("button", { name: t("action.more") }));
+    await act(async () => { await vi.dynamicImportSettled(); await flushMicrotasks(4); });
+    fireEvent.click(screen.getByRole("menuitem", { name: t("linkedConversation.title") }));
     await act(async () => { await flushMicrotasks(4); });
     fireEvent.click(screen.getByRole("button", {
       name: t("linkedConversation.unlinkNamed", { provider: "Claude" }),

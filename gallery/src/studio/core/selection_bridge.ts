@@ -3,6 +3,14 @@ import type {
   StudioPosition,
   StudioTextMarker,
 } from "./editor_contract";
+import {
+  buildEditorLiveContext,
+  createLiveContextPublisher,
+  onTabActivated,
+  type LiveContextComment,
+  type LiveContextMessage,
+  type LiveContextPublisher,
+} from "./live_context";
 
 export interface EditorSelectionContext {
   text: string;
@@ -24,6 +32,19 @@ export interface EditorSelectionBridgeOptions {
   onSkipped?(): void;
   fetchImpl?: typeof fetch;
   hostWindow?: Window;
+  /** Contexte vivant pour le chat de l'hôte (`atelier-live-context`) : même
+   *  `cursorActivity` que `/selinfo`, mais le curseur seul compte aussi. */
+  liveContext?: EditorLiveContextOptions;
+}
+
+export interface EditorLiveContextOptions {
+  /** Chemin absolu du fichier ouvert ; sans lui, rien n'est publié. */
+  path: string | null | undefined;
+  kind: "tex" | "code";
+  postToHost(payload: LiveContextMessage): void;
+  /** Commentaires ouverts déjà en mémoire (lus à chaque publication). */
+  comments?(): readonly LiveContextComment[] | null | undefined;
+  delayMs?: number;
 }
 
 declare global {
@@ -40,6 +61,7 @@ export function attachEditorSelection(options: EditorSelectionBridgeOptions) {
   const fetchImpl = options.fetchImpl || fetch;
   const hostWindow = options.hostWindow || window;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  const live = options.liveContext ? attachLiveContext(editor, options.liveContext, hostWindow) : null;
 
   function clearMarker(): void {
     hostWindow._clMark?.clear();
@@ -88,6 +110,7 @@ export function attachEditorSelection(options: EditorSelectionBridgeOptions) {
   function schedule(): void {
     if (timer) clearTimeout(timer);
     timer = setTimeout(publish, delay);
+    live?.publisher.schedule();
   }
 
   editor.on("cursorActivity", schedule);
@@ -95,9 +118,40 @@ export function attachEditorSelection(options: EditorSelectionBridgeOptions) {
     clear,
     publish,
     schedule,
+    liveContext: live?.publisher ?? null,
     dispose(): void {
       clear();
+      live?.dispose();
       editor.off("cursorActivity", schedule);
+    },
+  };
+}
+
+function attachLiveContext(editor: StudioEditor, options: EditorLiveContextOptions, hostWindow: Window): {
+  publisher: LiveContextPublisher;
+  dispose(): void;
+} {
+  const publisher = createLiveContextPublisher({
+    build: () => buildEditorLiveContext({
+      path: options.path,
+      kind: options.kind,
+      cursor: editor.getCursor("head"),
+      comments: options.comments?.(),
+    }),
+    postToHost: options.postToHost,
+    delayMs: options.delayMs,
+    timers: typeof hostWindow.setTimeout === "function" ? hostWindow : undefined,
+  });
+  const stopActivation = typeof hostWindow.addEventListener === "function"
+    ? onTabActivated(hostWindow, () => publisher.repost())
+    : () => undefined;
+  // Ouverture du fichier : l'hôte voit la ligne du curseur sans attendre un geste.
+  publisher.schedule();
+  return {
+    publisher,
+    dispose(): void {
+      stopActivation();
+      publisher.dispose();
     },
   };
 }

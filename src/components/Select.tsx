@@ -14,6 +14,8 @@ export type SelectOption = {
   value: string;
   label: string;
   icon?: ReactNode;
+  /** Ligne d'explication sous le libellé (menus du compositeur). */
+  description?: ReactNode;
   disabled?: boolean;
 };
 
@@ -70,6 +72,7 @@ export function Select(p: SelectProps) {
     >
       {option.icon && <span className="custom-select-option-icon">{option.icon}</span>}
       <span className="custom-select-option-label">{option.label}</span>
+      {option.description && <span className="custom-select-option-desc">{option.description}</span>}
     </SelectItem>
   );
 

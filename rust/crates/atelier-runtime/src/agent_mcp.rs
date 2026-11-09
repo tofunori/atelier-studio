@@ -518,6 +518,10 @@ async fn handle_action(
         }
         // Outil atelier_docx : lire un .docx et y proposer des retouches en suivi.
         a if a.starts_with("docx_") => crate::docx_tool::action(state, caller_id, a, req).await,
+        // Outil atelier_revision : réponses aux rondes d'annotations LaTeX.
+        a if a.starts_with("revision_") => crate::revision_tool::action(state, caller_id, a, req).await,
+        // Outil atelier_annotate : l'agent pose ses propres notes (texte, PDF).
+        a if a.starts_with("annotate_") => crate::annotate_tool::action(state, caller_id, a, req).await,
         "" => Err("missing_action".into()),
         _ => Err("unknown_action".into()),
     }

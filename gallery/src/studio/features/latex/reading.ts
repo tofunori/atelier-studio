@@ -529,6 +529,49 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   fsPlus.onclick = () => setFontSize(fontSize + 1);
   applyFontSize();
 
+  // ---- largeur du texte : colonne (défaut) ou pleine largeur ---------------
+  // La colonne plafonne à 96ch puis se centre ; la pleine largeur suit le
+  // panneau. Même persistance que la taille (cache local + /state).
+  const WIDTH_KEY = "texReadWidth";
+  const WIDTHS: ReadonlyArray<{name: string; label: string; icon: string}> = [
+    {name: "column", label: "Colonne de lecture",
+      icon: '<path d="M6 3v10M10 3v10"/><rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke-opacity=".45"/>'},
+    {name: "full", label: "Pleine largeur",
+      icon: '<rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke-opacity=".45"/><path d="M4.8 8h6.4M6.3 6.5 4.8 8l1.5 1.5M9.7 6.5 11.2 8 9.7 9.5"/>'},
+  ];
+  const widthNames = new Set(WIDTHS.map((width) => width.name));
+  let readWidth = widthNames.has(storage.getItem(WIDTH_KEY) || "") ? storage.getItem(WIDTH_KEY) as string : "column";
+  const widthButtons: HTMLButtonElement[] = [];
+  const applyWidth = (): void => {
+    options.right.dataset.trWidth = readWidth;
+    widthButtons.forEach((button) => {
+      const on = button.dataset.width === readWidth;
+      button.classList.toggle("on", on);
+      button.setAttribute("aria-pressed", String(on));
+    });
+  };
+  const setWidth = (name: string): void => {
+    readWidth = widthNames.has(name) ? name : "column";
+    applyWidth();
+    storage.setItem(WIDTH_KEY, readWidth);
+    persistState(WIDTH_KEY, readWidth);
+  };
+  const widthSep = doc.createElement("span");
+  widthSep.className = "fs-sep";
+  fsControl.appendChild(widthSep);
+  for (const width of WIDTHS) {
+    const button = doc.createElement("button");
+    button.className = "tr-width";
+    button.dataset.width = width.name;
+    button.title = width.label;
+    button.setAttribute("aria-label", width.label);
+    button.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${width.icon}</svg>`;
+    button.onclick = () => setWidth(width.name);
+    widthButtons.push(button);
+    fsControl.appendChild(button);
+  }
+  applyWidth();
+
   // ---- fond de lecture : fond de l'app (défaut), sépia ---------------------
   // Le fond de l'app suit le thème (clair ou sombre) : sa pastille lit la même
   // variable que la Lecture au lieu d'un noir figé. L'ancien « sombre » (dark)
@@ -580,6 +623,11 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
         readTheme = String(state[THEME_KEY]);
         storage.setItem(THEME_KEY, readTheme);
         applyTheme();
+      }
+      if (widthNames.has(String(state[WIDTH_KEY] || ""))) {
+        readWidth = String(state[WIDTH_KEY]);
+        storage.setItem(WIDTH_KEY, readWidth);
+        applyWidth();
       }
     })
     .catch(() => { /* serveur muet : le cache local fait foi */ });

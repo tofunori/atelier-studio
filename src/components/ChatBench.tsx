@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · revision · regarde.
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -15,6 +15,7 @@ import { choisirSpecialiste, type Specialiste } from "../lib/specialistes";
 import type { AgentEvent } from "../lib/ws";
 import type { ProviderInfo } from "../lib/providers";
 import type { QueuedTurn } from "../lib/chatDraftStore";
+import type { LiveContext } from "../lib/liveContext";
 import { reduceHarnessEvents, materializeHarnessHistory } from "../lib/harnessEvents";
 import { codexComposite, codexObservedLive, claudeObservedLive } from "../lib/chat/streamReplayFixtures";
 
@@ -547,6 +548,29 @@ const BENCH_SPECIALISTES: Specialiste[] = [
     instructions: "Tu vérifies les références.", skills: [], tousSkills: true, connecteurs: ["scholar"], visible: true },
 ];
 
+// Passage révisé (variante E, 2026-11-01) : l'agent envoie les deux versions
+// dans un bloc ```revision, le chat souligne le nouveau et barre le retiré.
+const REVISION: AgentEvent[] = [
+  { kind: "user", text: "Propose-moi d5 au complet, plus précis sur les limites des dépôts.", ts: ts(300) } as AgentEvent,
+  {
+    kind: "text",
+    text: [
+      "**d5 proposé, au complet**",
+      "",
+      "```revision",
+      "--- avant",
+      "Within each region, however, RAQDPS deposition agrees from year to year with two independent records, the MERRA-2 reanalysis and MODIS aerosol optical depth (Methods; Supplementary Figs.~\\SFsmoke{} and~\\SFmerra{}). As in RAQDPS, black carbon deposition from all sources in MERRA-2 doubled after about 2010 near the glaciers of western Canada and the conterminous United States and peaked in 2023 \\citep{Menounos2025}. Our deposition data are not complete; they omit the wet deposition of organic matter (Methods), quantify carbon by mass rather than by its light absorption and exclude mineral dust, which fires may deposit together with carbon \\citep{Kaspari2015}. These omissions likely bias the fire slope low.",
+      "+++ après",
+      "Within each region, however, RAQDPS deposition agrees from year to year with two independent records, the MERRA-2 reanalysis and the share of MODIS observations flagged as high aerosol (Methods; Supplementary Figs.~\\SFsmoke{} and~\\SFmerra{}). As in RAQDPS, black carbon deposition from all sources in MERRA-2 doubled after about 2010 near the glaciers of western Canada and the conterminous United States and peaked in 2023 \\citep{Menounos2025}. Our deposition data are nevertheless not complete; they omit the wet deposition of organic matter (Methods), quantify carbon by mass rather than by its light absorption and exclude mineral dust, which fires may deposit together with carbon \\citep{Kaspari2015}. Where these components follow the carbon in our data, as dust carried in the same smoke may do, the fire slope includes their darkening. Wet deposition, by contrast, occurs only with precipitation and does not always follow the carbon in our data. Such differences make our deposition values less accurate and weaken the fire slope.",
+      "```",
+      "",
+      "Le premier changement nomme le relevé MODIS réellement utilisé ; la fin remplace un sens de biais non démontré par le mécanisme.",
+    ].join("\n"),
+    ts: ts(295),
+  } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 12000, output: 640, cost: 0.02, turns: 1 }, ts: ts(290) } as AgentEvent,
+];
+
 const PROPOSAL: AgentEvent[] = [
   { kind: "user", text: "Je voudrais un spécialiste pour le glacier Peyto, tu peux le partir avec moi ?", ts: ts(40) },
   { kind: "text", text: "Voici une première fiche. Garde-la telle quelle ou ajuste-la dans les réglages.", ts: ts(30) },
@@ -606,6 +630,35 @@ const QUESTIONS_ANSWERED: AgentEvent[] = [...QUESTIONS_BASE,
   { kind: "interaction", requestId: "bench-q", interactionType: "user_input", title: "Claude a des questions",
     fields: QUESTIONS_FIELDS, state: "answered", answerSummary: "Portée: Depuis l'envoi à Christophe (Recommended) · Format: Markdown dans documentation/ (Recommended)", ts: ts(30) } as AgentEvent,
   { kind: "text", text: "C'est noté : un fichier Markdown dans `documentation/`, depuis l'envoi à Christophe.", ts: ts(20) } as AgentEvent,
+];
+
+// Approbation de commande (variante C compacte, 2026-11-09) : la carte en
+// attente, puis l'historique où chaque approbation tient en une ligne.
+const APPR_CHOICES = [
+  { optionId: "allow", label: "Autoriser", kind: "allow_once" },
+  { optionId: "toujours", label: "Oui, et ne plus demander pour « python3 -c ' * »", kind: "allow_always" },
+  { optionId: "deny", label: "Refuser", kind: "reject_once" },
+  { optionId: "stop", label: "Refuser et arrêter", kind: "reject_always", cancelTurn: true },
+];
+const APPR_CMD = `cd /Users/tofunori/Documents/Doctorat/Chapitre1-Albedo; f=$(find resultats -name surface_brulee_region_synthese.json | head -1); echo $f; python3 -c "import json;s=json.load(open('$f'));g=s['groupes']['RGI 02'];print(g['regions']);print('surf500',g['tendance_surface_500km'])"; grep -n -i "western" manuscrit/sections/results_en.tex`;
+const appr = (id: string, detail: string, state: string, offsetS: number, answerSummary?: string): AgentEvent => ({
+  kind: "interaction", requestId: id, interactionType: "approval", title: "Exécution de commande", detail,
+  reason: "Une variable de cette commande ne peut pas être vérifiée avant l'exécution.", feedback: true,
+  choices: APPR_CHOICES, state, ...(answerSummary ? { answerSummary } : {}), ts: ts(offsetS),
+} as AgentEvent);
+const APPROVAL: AgentEvent[] = [
+  { kind: "user", text: "D'où viennent les deux rapports (2,1 et 2,3) de la synthèse ?", ts: ts(50) } as AgentEvent,
+  { kind: "text", text: "Je retrace d'où viennent les deux rapports (2,1 et 2,3) dans les sorties.", ts: ts(46) } as AgentEvent,
+  appr("ap-1", APPR_CMD, "pending", 40),
+];
+const APPROVED: AgentEvent[] = [
+  { kind: "user", text: "D'où viennent les deux rapports (2,1 et 2,3) de la synthèse ?", ts: ts(90) } as AgentEvent,
+  appr("ap-a", `cd /Users/tofunori/Documents/Doctorat/Chapitre1-Albedo; python3 -c "a=[0.936014,0.115402,0.165456];b=[1.40122,0.241062,0.85934];print(sum(b)/sum(a))"`, "answered", 80, "Oui, et ne plus demander pour « python3 -c ' * »"),
+  bash("ap-a-run", `python3 -c "a=[0.936014,0.115402,0.165456];b=[1.40122,0.241062,0.85934];print(sum(b)/sum(a))"`, "Calcule le rapport des deux périodes", "2.1012", "completed", 78, { durationMs: 900 }),
+  appr("ap-b", `cd /Users/tofunori/Documents/Doctorat/Chapitre1-Albedo; git log -S"ratio between the two periods is 2.1" --oneline -- manuscrit/sections/results_en.tex`, "answered", 70, "Autoriser"),
+  bash("ap-b-run", `git log -S"ratio between the two periods is 2.1" --oneline`, "Cherche quand le rapport est passé à 2,1", "a1b2c3d Discussion : rapport 2,1", "completed", 68, { durationMs: 3900 }),
+  appr("ap-c", APPR_CMD, "answered", 60, "Refuser · « Lis plutôt le fichier de synthèse directement »"),
+  { kind: "text", text: "D'accord, je lis directement `resultats/surface_brulee_region_synthese.json`.", ts: ts(55) } as AgentEvent,
 ];
 
 // Sous-agents Claude (maquette 2026-10-18, piste A) : la mission titre chaque
@@ -691,7 +744,21 @@ type BenchState = {
   pins?: { index: number; label: string; anchor: string }[];
   queuedTurns?: QueuedTurn[];
   draftText?: string;
+  liveContext?: LiveContext;
 };
+
+// Contexte vivant : l'œil du compositeur (2026-11-09, variante C) et la
+// trace sous un message déjà envoyé.
+const LIVE_CONTEXT: LiveContext = {
+  path: "/Users/bench/Doctorat/Chapitre1/chapitre1.tex", name: "chapitre1.tex", kind: "tex",
+  line: 23,
+  comments: [{ line: 30, text: "Préciser la région" }, { line: 41, text: "Source ?" }],
+};
+const LIVE_CONTEXT_EVENTS = [
+  { kind: "user", text: "Ce passage est-il cohérent avec la figure 3 ?", ts: ts(120),
+    liveContext: { path: LIVE_CONTEXT.path, name: "chapitre1.tex", line: 23 } },
+  { kind: "text", text: "Oui : la baisse de 0,04 correspond à la pente montrée en figure 3, panneau b.", ts: ts(110) },
+] as AgentEvent[];
 
 
 // Fichiers modifiés dans le fil (refonte 2026-10-18) : une édition à extrait,
@@ -774,15 +841,19 @@ const STATES: Record<string, BenchState> = {
   agents: { events: AGENTS, workingSince: ts(32), attachments: [], usage: { context: 22000, output: 420, cost: null, turns: 1 } },
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
+  regarde: { events: LIVE_CONTEXT_EVENTS, workingSince: null, attachments: [], usage: null, liveContext: LIVE_CONTEXT },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
   typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },
   proposal: { events: PROPOSAL, workingSince: null, attachments: [], usage: null },
+  revision: { events: REVISION, workingSince: null, attachments: [], usage: null },
   actionsclaude: { events: ACTIONS_CLAUDE, workingSince: ts(58), attachments: [], usage: { context: 31000, output: 640, cost: null, turns: 1 } },
   actionscodex: { events: ACTIONS_CODEX, workingSince: ts(40), attachments: [], usage: { context: 19000, output: 220, cost: null, turns: 1 } },
   claudeagents: { events: AGENTS_CLAUDE, workingSince: ts(70), attachments: [], usage: { context: 26000, output: 300, cost: null, turns: 1 } },
   finagents: { events: AGENTS_CLAUDE_DONE, workingSince: null, attachments: [], usage: { context: 33000, output: 900, cost: null, turns: 1 } },
   questions: { events: QUESTIONS, workingSince: ts(40), attachments: [], usage: null },
   reponses: { events: QUESTIONS_ANSWERED, workingSince: null, attachments: [], usage: null },
+  approbation: { events: APPROVAL, workingSince: ts(50), attachments: [], usage: null },
+  approuvees: { events: APPROVED, workingSince: null, attachments: [], usage: null },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   tables: { events: WIDE_TABLES, workingSince: null, attachments: [], usage: null },
@@ -809,6 +880,9 @@ export function ChatBench() {
   const replayFixture = hash.includes("-replayclaude") ? claudeObservedLive
     : hash.includes("-replaycodex") ? codexObservedLive : codexComposite;
   const [replayCount, setReplayCount] = useState(1);
+  // banc #chatbench-regarde : l'œil du contexte vivant (#chatbench-regarde-off
+  // l'ouvre coupé, #chatbench-regarde-vide sans onglet ouvert)
+  const [liveOn, setLiveOn] = useState(() => !hash.includes("-off"));
   const [replayReload, setReplayReload] = useState(false);
   const replayWire = replayFixture.events.slice(0, replayCount);
   const replayEvents = replayReload ? materializeHarnessHistory([...replayWire]) : reduceHarnessEvents([], replayWire);
@@ -873,6 +947,9 @@ export function ChatBench() {
         onReorderQueued={noop}
         attachments={activeState.attachments}
         onRemoveAttachment={noop}
+        liveContext={st.liveContext ? {
+          context: hash.includes("-vide") ? null : st.liveContext, on: liveOn, onToggle: setLiveOn, projectRoot: "/Users/bench/Doctorat",
+        } : undefined}
         onQuote={noop}
         threadId="bench-thread"
         threadTitle="Validation W&M — régions ouest"

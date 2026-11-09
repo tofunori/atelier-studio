@@ -25,12 +25,12 @@ test('live activity stays in the transcript tail and shows above the composer at
   await expect(elapsed).toBeVisible();
   const initialTime = await elapsed.innerText();
   // A11 (CHAT-04 / TRANS-07) : une boucle visible par tour — l'étoile est
-  // fixe, le reflet du libellé (recette unique label-sweep, 2,4 s) bouge seul.
+  // fixe, le reflet du libellé (recette unique label-sweep, 1,6 s) bouge seul.
   await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-name', 'none');
   await expect(status).toHaveCSS('font-size', '13px');
   await expect(status).toHaveCSS('font-weight', '400');
   await expect(status).toHaveCSS('animation-name', 'label-sweep');
-  await expect(status).toHaveCSS('animation-duration', '2.4s');
+  await expect(status).toHaveCSS('animation-duration', '1.6s');
 
   const messages = page.locator('.messages');
   const distanceToEnd = () => messages.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop);
@@ -43,13 +43,14 @@ test('live activity stays in the transcript tail and shows above the composer at
   };
   await expect(status).toContainText('Exécute', { timeout: 10000 });
   await checkAboveComposer();
-  // Une commande en cours : plus de balayage sur son libellé, l'anneau de la
-  // colonne d'état porte seul le mouvement.
-  const ring = page.locator('.activity-cluster.is-active .ui-activity-state .tool-run-ring');
-  await expect(ring).toBeVisible();
-  // le tempo et le tracé uniques du Spinner (ui-spin, --motion-spin)
-  await expect(ring).toHaveCSS('animation-name', 'ui-spin');
-  await expect(ring).toHaveCSS('animation-duration', '0.9s');
+  // Une commande en cours (variante B, 2026-11-01) : la phrase vivante tient
+  // seule le libellé de la grappe et c'est ce libellé qui balaie ; pas
+  // d'anneau dans la colonne d'état, une seule boucle par rangée.
+  const sweep = page.locator('.activity-cluster.is-active .ui-activity-label.is-shimmering');
+  await expect(sweep).toBeVisible();
+  await expect(sweep).toHaveCSS('animation-name', 'label-sweep');
+  await expect(sweep).toHaveCSS('animation-duration', '1.6s');
+  await expect(page.locator('.activity-cluster.is-active .ui-activity-state .tool-run-ring')).toHaveCount(0);
   await expect(status).toHaveCSS('animation-name', 'none');
   await expect(status).toContainText('Rédaction', { timeout: 10000 });
   await checkAboveComposer();

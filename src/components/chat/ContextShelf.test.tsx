@@ -148,17 +148,39 @@ describe("pilule d'annotations", () => {
       />,
     );
 
-    const pills = container.querySelectorAll(".chip.context-pill");
+    // capsule discrète (variante B, 2026-11-09) : plus une pilule à bordure
+    expect(container.querySelectorAll(".chip.context-pill")).toHaveLength(0);
+    const pills = container.querySelectorAll(".anno-pill");
     expect(pills).toHaveLength(1);
     expect(pills[0]).toHaveTextContent("2 annotations");
 
-    fireEvent.click(screen.getByText("2 annotations"));
-    expect(screen.getByText("« tuiles MOD10A1 »")).toBeTruthy();
+    fireEvent.click(pills[0]);
+    expect(pills[0]).toHaveAttribute("data-popup-open");
+    expect(screen.getByText("tuiles MOD10A1")).toBeTruthy();
     expect(screen.getByText("vérifie plutôt août")).toBeTruthy();
     expect(screen.getByText("Annotation sans commentaire")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Retirer fraction glaciaire" }));
     expect(onRemoveAnnotation).toHaveBeenCalledWith("fraction glaciaire");
+  });
+
+  it("« Tout retirer » vide la liste en un geste et la referme", () => {
+    const onClearAnnotations = vi.fn();
+    const { container } = render(
+      <ContextShelf
+        attachments={[]}
+        onRemoveAttachment={vi.fn()}
+        onOpenPaste={vi.fn()}
+        annotations={marks}
+        onRemoveAnnotation={vi.fn()}
+        onClearAnnotations={onClearAnnotations}
+      />,
+    );
+    fireEvent.click(container.querySelector(".anno-pill")!);
+    expect(screen.getByText("jointes au message")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Tout retirer" }));
+    expect(onClearAnnotations).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("jointes au message")).toBeNull();
   });
 
   it("accorde le libellé au singulier", () => {
@@ -199,4 +221,9 @@ it("LaTeX : retirer la pièce jointe ne laisse ni mention ni bouton Annuler", ()
   expect(screen.queryByText(/retiré/)).toBeNull();
   expect(screen.queryByRole("button", {name:"Annuler"})).toBeNull();
   expect(container.querySelector(".context-latex-undo")).toBeNull();
+});
+
+it("le contexte vivant n'occupe plus la rangée : rien à montrer, rien de rendu", () => {
+  const { container } = shelf([]);
+  expect(container.querySelector(".context-pills")).toBeNull();
 });

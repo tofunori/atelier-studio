@@ -15,7 +15,7 @@ import { annotationDisplayText } from "./lib/annotationDisplayText";
 import { normalizeProjectFolders, projectWritableDirectories, resolveAssociatedFile } from "./lib/projectFolders";
 import { lazy } from "react";
 const ProjectFoldersDialog = lazy(() => import("./components/ProjectFoldersDialog"));
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -46,6 +46,7 @@ import { usePluginCatalog } from "./hooks/usePluginCatalog";
 import { useContextInspector } from "./hooks/useContextInspector";
 import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
 import { useStoredJson } from "./hooks/useStoredJson";
+import { projectName, recentProjects, takeLaunchProjectsHome } from "./lib/projectsHome";
 import { relaySidecarMessage } from "./lib/sidecarRelays";
 import { notifySetAside } from "./lib/setAsideNotice";
 import {
@@ -74,7 +75,7 @@ import { focusComposer, type ResearchHomeBundle } from "./components/ResearchHom
 import { useWorkspaceEvents } from "./hooks/useWorkspaceEvents";
 import WorkspaceShell from "./components/shell/WorkspaceShell";
 import Sidebar from "./components/Sidebar";
-import Rail, { ProjMeta, HighlightEntry } from "./components/Rail";
+import type { ProjMeta, HighlightEntry } from "./components/Rail";
 import TopBar from "./components/TopBar";
 import type { Surface } from "./components/surfaces";
 import ThreadChat from "./components/ThreadChat";
@@ -109,6 +110,7 @@ import { IconButton } from "./components/ui/IconButton";
 import { showError, showInfo, showSuccess } from "./components/ui/toast";
 import { worstOf, writeUsageSnapshot, type Usage } from "./lib/usageSummary";
 const UsagePopover = lazyWithRetry(() => import("./components/UsagePopover"));
+const ProjectsHome = lazyWithRetry(() => import("./components/ProjectsHome"));
 import { pluginSkillsForPrompt, revalidateQueuedPluginSkills } from "./lib/plugins";
 import { parseLinkedAgentMention } from "./lib/linkedAgents";
 import { linkedAgentSummaries, linkedConversationForProvider } from "./lib/threadLinks";
@@ -189,6 +191,9 @@ import { pruneUnsavedDocuments } from "./lib/unsavedDocuments";
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
 import "./styles/tokens.css";
+import {
+  LIVE_CONTEXT_EVENT, liveContextTrace, parseLiveContext, readLiveContextOn, writeLiveContextOn, type LiveContext,
+} from "./lib/liveContext";
 import "./styles/shadcn.css";
 import "./styles/typeset.css";
 import "./styles/primitives.css";
@@ -200,7 +205,11 @@ import "./App.css";
 // qu'un delta de stream (App re-rend au plus 1×/frame, Task 1) ne les
 // re-rende plus tant que leurs props restent référentiellement stables.
 const TopBarMemo = memo(TopBar);
-const RailMemo = memo(Rail);
+// Le rail n'apparaît plus qu'en mode replié (variante A, 2026-11-08) : hors de
+// l'entrée, comme les morceaux de la colonne latérale qui l'entourent.
+const RailMemo = memo(lazyWithRetry(() => import("./components/Rail")));
+const SideNav = lazyWithRetry<import("./components/sidebar/SideColumnParts").SideNavProps>(() => import("./components/sidebar/SideColumnParts").then((m) => ({ default: m.SideNav })));
+const SideBottom = lazyWithRetry<import("./components/sidebar/SideColumnParts").SideBottomProps>(() => import("./components/sidebar/SideColumnParts").then((m) => ({ default: m.SideBottom })));
 const RailSignalsSource = lazyWithRetry(() => import("./components/RailSignalsSource"));
 const NO_SIGNALS = {};
 
@@ -543,6 +552,18 @@ export default function App() {
   // ouvert étaient perdus (vécu 2026-08-21).
   const [lastThreadByProject, setLastThreadByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastThreadByProject", {});
   const [lastTabByProject, setLastTabByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastTabByProject", {});
+  const [projMeta, setProjMeta] = useStoredJson<Record<string, ProjMeta>>("atelier-studio.projMeta", {});
+  // Écran d'ouverture des projets : affiché une fois par lancement (s'il y a
+  // des projets), puis depuis le menu du nom du projet. "new" ouvre aussi la
+  // boîte « Nouveau projet ».
+  const [projectsHome, setProjectsHome] = useState<null | "open" | "new">(
+    () => (loadProjects().length > 0 && takeLaunchProjectsHome() ? "open" : null),
+  );
+  const openProjectsHome = useCallback(() => setProjectsHome("open"), []);
+  // Ordre « récent » : dernière ouverture dans Atelier ou dernière conversation.
+  const markProjectOpened = useCallback((root: string) => {
+    setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now() } }));
+  }, [setProjMeta]);
   // un projet est le contexte des chats — le sélectionner ramène sur la vue
   // chats si on est ailleurs, SAUF en vue Surlignés : là il filtre les fiches
   // de ce projet (re-cliquer le même projet revient à « Tous », spec §4)
@@ -557,6 +578,7 @@ export default function App() {
   // setters useState omis (stables garantis par React).
   const selectProject = useCallback((root: string) => {
     discussionNavigation.current = false;
+    markProjectOpened(root);
     if (activeView === "highlights") {
       setActiveProject(root);
       setHlFilterProject((cur) => (cur === root ? null : root));
@@ -592,9 +614,8 @@ export default function App() {
       }
     }
     setActiveView("chats");
-  }, [activeView, activeProject, lastThreadByProject, setActiveView]);
+  }, [activeView, activeProject, lastThreadByProject, setActiveView, markProjectOpened]);
   const [projectSettingsRoot, setProjectSettingsRoot] = useState<string | null>(null);
-  const [projMeta, setProjMeta] = useStoredJson<Record<string, ProjMeta>>("atelier-studio.projMeta", {});
 
   useEffect(() => {
     localStorage.setItem("atelier-studio.compact", compact ? "1" : "0");
@@ -1041,6 +1062,33 @@ export default function App() {
     }
   }, [activeId, threads, wsReady]);
   const showAtelier = layout !== "chat";
+  // Contexte vivant (2026-11-08) : ce que l'onglet focalisé de l'atelier
+  // montre, publié par AtelierPane. L'œil du compositeur (2026-11-09) dit s'il
+  // part avec les messages : coupé, il reste coupé jusqu'au prochain clic.
+  const [workspaceLiveContext, setWorkspaceLiveContext] = useState<LiveContext | null>(null);
+  const [liveContextOn, setLiveContextOn] = useState(readLiveContextOn);
+  useEffect(() => {
+    const onLiveContext = (event: Event) => {
+      const context = parseLiveContext((event as CustomEvent).detail?.context);
+      setWorkspaceLiveContext((current) =>
+        JSON.stringify(current) === JSON.stringify(context) ? current : context);
+    };
+    window.addEventListener(LIVE_CONTEXT_EVENT, onLiveContext);
+    return () => window.removeEventListener(LIVE_CONTEXT_EVENT, onLiveContext);
+  }, []);
+  const visibleLiveContext = showAtelier && activeProject ? workspaceLiveContext : null;
+  const offeredLiveContext = liveContextOn ? visibleLiveContext : null;
+  const toggleLiveContext = useCallback((on: boolean) => {
+    writeLiveContextOn(on);
+    setLiveContextOn(on);
+  }, []);
+  const liveContextBinding = useMemo(() => ({
+    context: visibleLiveContext, on: liveContextOn, onToggle: toggleLiveContext, projectRoot: activeProject,
+  }), [visibleLiveContext, liveContextOn, toggleLiveContext, activeProject]);
+  // Lu au moment d'envoyer (gestionnaire) : synchronisé après le rendu,
+  // jamais muté pendant.
+  const offeredLiveContextRef = useRef(offeredLiveContext);
+  useLayoutEffect(() => { offeredLiveContextRef.current = offeredLiveContext; }, [offeredLiveContext]);
   // Miroir de la surface active de AtelierPane (côté App, pour l'icône active
   // du rail). La requête d'ouverture est distincte de la valeur active : deux
   // clics sur la même surface doivent tous deux l'ouvrir, et surtout l'event ne
@@ -2498,6 +2546,9 @@ export default function App() {
         const message = themeMessage(settingsRef.current, atelierNonce);
         (e.source as Window).postMessage(message, e.origin);
       }
+      if (data.type === "atelier-open-file") {
+        openFileTabRef.current(data.path, data.line ? String(data.line) : null);
+      }
       if (data.type === "atelier-open-thread") {
         window.dispatchEvent(new CustomEvent("open-thread", { detail: { threadId: data.threadId } }));
       }
@@ -3008,6 +3059,12 @@ export default function App() {
         else { setQaDraft(""); setQaContext(null); setQaMode("open"); }
         return;
       }
+      // ⇧⌘P : accueil des projets (ouvre, ou referme s'il est déjà là)
+      if (e.metaKey && e.shiftKey && !e.altKey && e.code === "KeyP") {
+        e.preventDefault();
+        setProjectsHome((current) => (current ? null : "open"));
+        return;
+      }
       if (e.metaKey && !e.shiftKey && ["KeyK", "KeyP"].includes(e.code)) {
         e.preventDefault();
         setPaletteOpen((open) => !open);
@@ -3030,10 +3087,12 @@ export default function App() {
   // (import statique, stable) et des setters useState : deps [].
   const addProject = useCallback(async () => {
     const root = await open({ directory: true });
-    if (typeof root !== "string") return;
+    if (typeof root !== "string") return false;
     setProjects((p) => (p.includes(root) ? p : [...p, root]));
     setActiveProject(root);
-  }, []);
+    markProjectOpened(root);
+    return true;
+  }, [markProjectOpened]);
 
   // Task 25 (fix) : useCallback — passé nommé (`onNewChat`) à RailMemo et à
   // ResearchHome/CommandPalette. Dep exacte : activeProject (lu dans le
@@ -3219,6 +3278,8 @@ export default function App() {
     onAccepted?: () => void,
   ) {
     const attachments = isolatedAttachments ?? activeComposerDraft.attachments;
+    // Contexte vivant capturé À L'ENVOI (rien si l'œil est coupé).
+    const liveContext = offeredLiveContextRef.current;
     const clearSubmittedAttachments = () => {
       updateComposerDraft(activeComposerKey, draft => ({
       ...draft,
@@ -3413,6 +3474,7 @@ export default function App() {
           : [],
         autoReview: { ...settingsRef.current.autoReview },
         createdAt: Date.now(),
+        ...(liveContext ? { liveContext } : {}),
       });
       clearSubmittedAttachments();
       return;
@@ -3540,12 +3602,14 @@ export default function App() {
     const fullPrompt = promptWithAttachments(prompt, attachments);
     // identité du message : générée ici, dédupliquée à l'ack sidecar (plan 025)
     const clientMessageId = crypto.randomUUID();
+    const liveTrace = liveContext ? liveContextTrace(liveContext) : null;
     const userEvent = {
       kind: "user" as const,
       text: transcriptText,
       ts: Date.now(),
       meta: { provisional: true as const, messageId: clientMessageId },
       ...userBubbleAttachmentFields(attachments),
+      ...(liveTrace ? { liveContext: liveTrace } : {}),
       // méta KB fidèle à l'envoi (plan 049) : sources attachées à CE moment,
       // titres depuis le cache kbSources (repli sur l'id si pas encore chargé)
       ...(() => {
@@ -3659,7 +3723,10 @@ export default function App() {
       return;
     }
     if (ws.current) {
-      const displayEvent = archivedUserEvent(userEvent, attachments, imagePaths);
+      const displayEvent = {
+        ...archivedUserEvent(userEvent, attachments, imagePaths),
+        ...(liveTrace ? { liveContext: liveTrace } : {}),
+      };
       // Consigne (plan 2026-09-01) : rafraîchir la copie AVANT le tour, sur le
       // MÊME fil (pas un handoff ni un fil neuf, qui n'ont encore aucune
       // consigne enregistrée côté store) — c'est ce patch qui fait qu'une
@@ -3695,6 +3762,7 @@ export default function App() {
         }),
         mode,
         ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
+        ...(liveContext ? { liveContext } : {}),
       });
       if (envoye) pdfAnnotationDelivery.current.track(clientMessageId, attachments);
       if (!envoye) {
@@ -3758,12 +3826,15 @@ export default function App() {
     const codexInputs = structuredTurnInputs(
       supportsStructuredInputs(queuedCapabilities, queued.provider), fullPrompt, imagePaths, pluginSkills, catalogSkill,
     );
+    // contexte vivant capturé à la mise en file, pas celui d'aujourd'hui
+    const queuedTrace = queued.liveContext ? liveContextTrace(queued.liveContext) : null;
     const userEvent = {
       kind: "user" as const,
       text: annotationDisplayText(queued.prompt, queuedAttachments),
       ts: Date.now(),
       meta: { provisional: true as const, messageId: clientMessageId },
       ...userBubbleAttachmentFields(queuedAttachments),
+      ...(queuedTrace ? { liveContext: queuedTrace } : {}),
     };
     setEvents((current) => ({
       ...current,
@@ -3784,12 +3855,16 @@ export default function App() {
       provider: queued.provider,
       prompt: fullPrompt,
       clientMessageId,
-      displayEvent: archivedUserEvent(userEvent, queuedAttachments, imagePaths),
+      displayEvent: {
+        ...archivedUserEvent(userEvent, queuedAttachments, imagePaths),
+        ...(queuedTrace ? { liveContext: queuedTrace } : {}),
+      },
       ...(codexInputs ? { inputs: codexInputs } : {}),
       ...(imagePaths.length ? { attachments: imagePaths.map((path) => ({ path })) } : {}),
       ...providerTurnOptions(queued),
       mode,
       ...(handoffFromThreadId ? { handoffFromThreadId } : {}),
+      ...(queued.liveContext ? { liveContext: queued.liveContext } : {}),
     });
     if (!envoye) return false;
     pdfAnnotationDelivery.current.track(clientMessageId, queuedAttachments);
@@ -4054,6 +4129,15 @@ export default function App() {
     () => new Set(allThreads.filter((t) => t.status === "running").map((t) => t.projectRoot)),
     [allThreads],
   );
+  const recentRoots = useMemo(() => recentProjects(projects, projMeta, allThreads), [projects, projMeta, allThreads]);
+  const projectMenu = useMemo(() => ({
+    recents: recentRoots.filter((root) => root !== activeProject).slice(0, 5)
+      .map((root) => ({ root, name: projectName(root, projMeta[root]?.label) })),
+    onSelect: (root: string) => { setActiveView("chats"); selectProject(root); },
+    onAll: openProjectsHome,
+    onOpenFolder: () => { void addProject(); },
+    onNew: () => setProjectsHome("new"),
+  }), [recentRoots, activeProject, projMeta, selectProject, addProject, setActiveView, openProjectsHome]);
 
   // Research Home (plan 017) : modèle dérivé pur + vrais workflows, calculés
   // uniquement quand aucun thread n'est actif (la timeline monte l'accueil à
@@ -4122,6 +4206,7 @@ export default function App() {
       switchSurface: switchToSurface,
       setLayout,
       openSettings: () => openSettings(),
+      allProjects: openProjectsHome,
       retitleAll: () => ws.current?.readyState === 1 && ws.current.send(JSON.stringify({ type: "retitleAll" })),
       nextTheme: () => {
         setSettings((current) => {
@@ -4361,6 +4446,7 @@ export default function App() {
         <LazyBoundary fallback={null}>
           <RailSignalsSource store={eventStore} threads={allThreads} unread={unread} activeId={activeId} />
         </LazyBoundary>
+        {compact && <LazyBoundary fallback={<nav className="rail rail-clean" aria-hidden="true" />}>
         <RailMemo
           signals={railView?.signals}
           inbox={railInbox}
@@ -4385,6 +4471,7 @@ export default function App() {
           onSelectView={handleSelectView}
           onSelectProject={selectProject}
           onAddProject={addProject}
+          onAllProjects={openProjectsHome}
           compact={compact}
           onExpand={handleExpand}
           // Correction de revue lot A #6 : la branche « re-clic ferme »
@@ -4397,7 +4484,37 @@ export default function App() {
           onRemoveProject={handleRemoveProject}
           onReorder={handleReorderProjects}
         />
+        </LazyBoundary>}
       </>
+  );
+  // Colonne unifiée (variante A, 2026-11-08) : rangées nommées en haut,
+  // autres projets et réglages en bas, autour du panneau de vue.
+  const discussionsActive = activeView === "chats" && isDiscussionContext(activeProject);
+  const sideNavNode = (
+    <LazyBoundary fallback={<div className="scol-nav scol-nav-skel" aria-hidden="true" />}>
+      <SideNav view={activeView} inbox={railInbox} onSelectView={handleSelectView} />
+    </LazyBoundary>
+  );
+  const sideBottomNode = (
+    <LazyBoundary fallback={<div className="scol-bottom" aria-hidden="true" />}>
+      <SideBottom
+        projects={projects}
+        meta={projMeta}
+        headerProject={activeView === "chats" && !discussionsActive ? activeProject : null}
+        discussionsActive={discussionsActive}
+        signals={railView?.signals}
+        running={runningProjects}
+        onSelectProject={selectProject}
+        onAddProject={addProject}
+        onAllProjects={openProjectsHome}
+        onDiscussions={handleDiscussions}
+        onSettings={handleOpenSettings}
+        onProjectSettings={setProjectSettingsRoot}
+        onSetMeta={handleSetProjMeta}
+        onRemoveProject={handleRemoveProject}
+        onReorder={handleReorderProjects}
+      />
+    </LazyBoundary>
   );
   const viewPanelNode = compact ? null : activeView === "highlights" ? (
           <HighlightsPanel
@@ -4446,6 +4563,10 @@ export default function App() {
       </LazyBoundary>
   ) : (
         <Sidebar
+          nav={sideNavNode}
+          onCollapse={() => setCompact(true)}
+          onHome={activeProject && !isDiscussionContext(activeProject) ? () => selectProject(activeProject) : undefined}
+          projectMenu={projectMenu}
           onProjectSettings={setProjectSettingsRoot}
           projects={projects}
           threads={allThreads}
@@ -4505,7 +4626,8 @@ export default function App() {
   // il ne se rend que sous `settings/sections/General.tsx`, donc déjà
   // couvert par `showSettings`.
   const overlayOpen = galleryFullscreen || showSettings || paletteOpen || qaMode === "open" || pluginsOpen
-    || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null || setupWelcomeOpen;
+    || newChatRequest != null || articleDialogOpen || projectSettingsRoot != null || setupWelcomeOpen
+    || projectsHome != null;
   function updateProjectFolders(value: import("./lib/projectFolders").ProjectFolders) {
     if (!projectSettingsRoot) return;
     const next = { ...settingsRef.current, projectFolders: { ...settingsRef.current.projectFolders, [projectSettingsRoot]: value } };
@@ -4516,7 +4638,45 @@ export default function App() {
   }
   const overlaysNode = (
     <>
-      {projectSettingsRoot && <LazyBoundary fallback={null}><ProjectFoldersDialog locked={runningProjects.has(projectSettingsRoot)} root={projectSettingsRoot} value={settings.projectFolders?.[projectSettingsRoot]} onClose={() => setProjectSettingsRoot(null)} onChange={updateProjectFolders} /></LazyBoundary>}
+      {projectSettingsRoot && <LazyBoundary fallback={null}><ProjectFoldersDialog locked={runningProjects.has(projectSettingsRoot)} root={projectSettingsRoot} value={settings.projectFolders?.[projectSettingsRoot]} onClose={() => setProjectSettingsRoot(null)} onChange={updateProjectFolders}
+        card={projMeta[projectSettingsRoot]} onCardChange={(patch) => setProjMeta((prev) => ({ ...prev, [projectSettingsRoot]: { ...prev[projectSettingsRoot], ...patch } }))} /></LazyBoundary>}
+      {projectsHome && (
+        <LazyBoundary fallback={null}>
+          <ProjectsHome
+            projects={recentRoots}
+            meta={projMeta}
+            threads={allThreads}
+            connected={wsReady}
+            startWithNewProject={projectsHome === "new"}
+            onOpen={(root) => {
+              setProjectsHome(null);
+              // déjà ouvert (premier projet au lancement) : on garde son fil
+              setActiveView("chats");
+              if (root === activeProject) markProjectOpened(root);
+              else selectProject(root);
+            }}
+            onOpenThread={(threadId, root) => {
+              setProjectsHome(null);
+              setActiveView("chats");
+              markProjectOpened(root);
+              selectThread(threadId, root);
+            }}
+            onProjectSettings={(root) => { setProjectsHome(null); setProjectSettingsRoot(root); }}
+            onOpenFolder={() => { void addProject().then((added) => { if (added) setProjectsHome(null); }); }}
+            onCreated={(root, due) => {
+              setProjects((prev) => (prev.includes(root) ? prev : [...prev, root]));
+              setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now(), ...(due ? { due } : {}) } }));
+              discussionNavigation.current = false;
+              setActiveView("chats");
+              setActiveProject(root);
+              setActiveId(null);
+              activeIdRef.current = null;
+              setProjectsHome(null);
+            }}
+            onClose={() => setProjectsHome(null)}
+          />
+        </LazyBoundary>
+      )}
       {/* Lot A, tâche 3 : les réglages ne remplacent plus l'app (ancien
           `if (showSettings) return`) — la feuille se pose ici, par-dessus
           l'arbre monté, comme les autres surcouches de ce fragment. */}
@@ -4588,7 +4748,14 @@ export default function App() {
     <WorkspaceShell
       topBar={<RenderBoundary>{topBarNode}</RenderBoundary>}
       rail={<RenderBoundary>{railNode}</RenderBoundary>}
-      viewPanel={viewPanelNode == null ? null : <RenderBoundary>{viewPanelNode}</RenderBoundary>}
+      viewPanel={viewPanelNode == null ? null : (
+        <div className="scol">
+          {activeView !== "chats" && <div className="scol-top"><RenderBoundary>{sideNavNode}</RenderBoundary></div>}
+          <div className="scol-main"><RenderBoundary>{viewPanelNode}</RenderBoundary></div>
+          <RenderBoundary>{sideBottomNode}</RenderBoundary>
+        </div>
+      )}
+      unified={viewPanelNode != null}
       overlays={<RenderBoundary>{overlaysNode}</RenderBoundary>}
       dragging={dragging} onDraggingChange={setDragging}>
     <PanelGroup direction="horizontal" className="app">
@@ -4721,6 +4888,7 @@ export default function App() {
           onPasteText={(text) => setAttachments((l) => addAttachment(l, pastedTextAttachment(t("chat.pasted-text"), text)))}
           onQuote={(text) => setAttachments((l) => addAttachment(l, quoteAttachment(text)))}
           disabled={!activeProject && !activeId}
+          liveContext={liveContextBinding}
           onGoal={threadActions.goal}
           onSubmit={submit}
         />

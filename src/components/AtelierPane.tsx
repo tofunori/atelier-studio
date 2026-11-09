@@ -1,9 +1,10 @@
 import ProjectGallery from "./ProjectGallery";
 import type { ProjectFolders } from "../lib/projectFolders";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useWorkspacePaneMenuHost } from "./WorkspacePaneMenuSlot";
+import { WORKSPACE_PANE_MENU, type WorkspacePaneMenuRequest } from "../lib/workspacePaneMenu";
 import Explorer from "./Explorer";
 const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
 const KnowledgeSurface = lazyWithRetry(() => import("./KnowledgeSurface"));
@@ -28,6 +29,12 @@ import { LazyDropdownMenu, type LazyDropdownMenuGroup, type LazyDropdownMenuItem
 import { SURFACES, type Surface } from "./surfaces";
 import { resetFrameVisibility, syncFrameVisibility } from "../lib/frameVisibility";
 import {
+  LIVE_CONTEXT_EVENT, SURFACE_LIVE_CONTEXT_EVENT, imageTabLiveContext, parseLiveContext, type LiveContext,
+} from "../lib/liveContext";
+
+/** Clé du contexte vivant publié par la galerie (figure de la lightbox). */
+const GALLERY_LIVE_KEY = "surface:atelier";
+import {
   confirmDiscard,
   discardServerDraft,
   isDocumentUnsaved,
@@ -44,6 +51,7 @@ import {
   findWorkspacePane,
   listWorkspacePanes,
   loadWorkspaceLayout,
+  moveWorkspaceTab,
   placeWorkspaceTab,
   reconcileWorkspaceLayout,
   resizeWorkspaceSplit,
@@ -82,7 +90,17 @@ const NOOP_SURFACE_CHANGE = (_surface: Surface) => {};
 
 type PaneBounds = { left: number; top: number; width: number; height: number };
 type DropTarget = { paneId: string; zone: WorkspaceDropZone; preview: PaneBounds };
-type DragState = { ref: WorkspaceTabRef; clientX: number; clientY: number; target: DropTarget | null } | null;
+/** Place d'insertion dans la bande d'onglets de la barre du haut : avant ou
+ *  après l'onglet `anchorTabId`. `x`, `top`, `height` (repère de la fenêtre)
+ *  placent le trait d'insertion. */
+type TabSlot = { anchorTabId: string; position: "before" | "after"; x: number; top: number; height: number };
+type DragState = {
+  ref: WorkspaceTabRef;
+  clientX: number;
+  clientY: number;
+  target: DropTarget | null;
+  slot: TabSlot | null;
+} | null;
 type PointerDragSession = {
   ref: WorkspaceTabRef;
   pointerId: number;
@@ -92,7 +110,43 @@ type PointerDragSession = {
   clientY: number;
   active: boolean;
   target: DropTarget | null;
+  /** au-dessus de la bande d'onglets : le dépôt réordonne au lieu de scinder */
+  inStrip: boolean;
+  slot: TabSlot | null;
 };
+
+/** Onglet survolé dans la bande de la barre du haut (`TopBarTabs`) : la
+ *  moitié gauche d'un onglet insère avant lui, la droite après. `"strip"`
+ *  quand le pointeur est sur la bande sans place utile (sur l'onglet tiré
+ *  lui-même) ; `null` hors de la bande. Seuls les documents et les fils
+ *  d'agent y figurent : une surface tirée ne s'y range pas. */
+function findTabSlot(ref: WorkspaceTabRef, clientX: number, clientY: number): TabSlot | "strip" | null {
+  if (ref.kind !== "document" && ref.kind !== "agent") return null;
+  const strip = document.querySelector<HTMLElement>(".topbar-tabs");
+  if (!strip) return null;
+  const bounds = strip.getBoundingClientRect();
+  if (clientX < bounds.left || clientX > bounds.right || clientY < bounds.top - 4 || clientY > bounds.bottom + 4) return null;
+  const draggedId = workspaceTabId(ref);
+  const tabs = [...strip.querySelectorAll<HTMLElement>(".topbar-tab[data-tab-id]")]
+    .map((element) => ({ id: element.dataset.tabId!, rect: element.getBoundingClientRect() }))
+    .filter(({ rect }) => rect.width > 0 && rect.right <= bounds.right + 1);
+  if (!tabs.length) return "strip";
+  const index = tabs.findIndex(({ rect }) => clientX < rect.left + rect.width / 2);
+  const before = index >= 0;
+  const anchor = before ? tabs[index] : tabs[tabs.length - 1];
+  // déposer contre soi-même, ou juste à côté de sa place actuelle, ne
+  // déplace rien : pas de trait trompeur
+  const neighbour = before ? tabs[index - 1] : null;
+  if (anchor.id === draggedId || neighbour?.id === draggedId) return "strip";
+  const gap = before && neighbour ? (anchor.rect.left - neighbour.rect.right) / 2 : 0;
+  return {
+    anchorTabId: anchor.id,
+    position: before ? "before" : "after",
+    x: before ? anchor.rect.left - gap : anchor.rect.right,
+    top: anchor.rect.top,
+    height: anchor.rect.height,
+  };
+}
 
 /** Retrouve le chemin projet du fichier d'un onglet (inverse d'openFileTab). */
 export function relFromTabUrl(url: string, projectRoot: string, baseUrl?: string): string | null {
@@ -283,6 +337,8 @@ export default function AtelierPane({
   }, [workspace, documentById, projectRoot, url]);
   const paneMenuHost = useWorkspacePaneMenuHost();
   const [paneMenuOpen, setPaneMenuOpen] = useState<string | null>(null);
+  // point où le clic droit a ouvert le menu du pane ; null = sous l'ancre
+  const [paneMenuAt, setPaneMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [terminalBootstrap, setTerminalBootstrap] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState>(null);
   const [galleryLoaded, setGalleryLoaded] = useState(false);
@@ -550,15 +606,28 @@ export default function AtelierPane({
         clientY: detail.clientY,
         active: false,
         target: null,
+        inStrip: false,
+        slot: null,
       };
+    };
+    const locate = (session: PointerDragSession, clientX: number, clientY: number) => {
+      const slot = findTabSlot(session.ref, clientX, clientY);
+      session.inStrip = slot !== null;
+      session.slot = slot && slot !== "strip" ? slot : null;
+      session.target = slot ? null : findDropTarget(clientX, clientY);
     };
     const renderPointerFrame = () => {
       pointerFrameRef.current = null;
       const session = pointerDragRef.current;
       if (!session?.active) return;
-      const target = findDropTarget(session.clientX, session.clientY);
-      session.target = target;
-      setDragState({ ref: session.ref, clientX: session.clientX, clientY: session.clientY, target });
+      locate(session, session.clientX, session.clientY);
+      setDragState({
+        ref: session.ref,
+        clientX: session.clientX,
+        clientY: session.clientY,
+        target: session.target,
+        slot: session.slot,
+      });
     };
     const onMove = (event: PointerEvent) => {
       const session = pointerDragRef.current;
@@ -580,9 +649,12 @@ export default function AtelierPane({
       if (pointerFrameRef.current !== null) {
         cancelAnimationFrame(pointerFrameRef.current);
         pointerFrameRef.current = null;
-        session.target = findDropTarget(event.clientX, event.clientY);
+        locate(session, event.clientX, event.clientY);
       }
-      if (session.active && session.target) {
+      if (session.active && session.slot) {
+        const { ref, slot } = session;
+        updateWorkspaceWithFlip((current) => moveWorkspaceTab(current, ref, slot.anchorTabId, slot.position));
+      } else if (session.active && session.target) {
         const { ref, target } = session;
         updateWorkspaceWithFlip((current) => placeWorkspaceTab(current, ref, target.paneId, target.zone));
       }
@@ -736,6 +808,95 @@ export default function AtelierPane({
     return () => window.removeEventListener("message", onDirty);
   }, [documentById]);
 
+  // Contexte vivant (2026-11-08) publié par les éditeurs (atelier-live-context) :
+  // mêmes contrôles d'origine et de nonce que atelier-dirty ; un contexte par
+  // onglet document, le dernier reçu gagne.
+  const [liveContexts, setLiveContexts] = useState<ReadonlyMap<string, LiveContext>>(() => new Map());
+  useEffect(() => {
+    const onLiveContext = (event: MessageEvent) => {
+      const data = event.data as { type?: string; context?: unknown; nonce?: unknown } | null;
+      if (data?.type !== "atelier-live-context") return;
+      // Onglets document, et (2026-11-09) cadres de la galerie : la figure
+      // ouverte dans la lightbox vaut pour l'onglet « surface:atelier ».
+      const frames = workspaceRootRef.current?.querySelectorAll<HTMLIFrameElement>(
+        "iframe.atelier[data-atelier-tab], iframe.atelier[data-atelier-role=\"gallery\"]");
+      const frame = [...(frames ?? [])].find((candidate) => candidate.contentWindow === event.source);
+      if (!frame) return;
+      try {
+        const frameUrl = new URL(frame.src);
+        if (event.origin !== frameUrl.origin) return;
+        const nonce = new URLSearchParams(frameUrl.hash.slice(1)).get("atelier_nonce");
+        if (nonce && data.nonce !== nonce) return;
+      } catch { return; }
+      const tabId = frame.dataset.atelierTab ?? (frame.dataset.atelierRole === "gallery" ? GALLERY_LIVE_KEY : "");
+      if (tabId !== GALLERY_LIVE_KEY && !documentById.has(tabId)) return;
+      const context = parseLiveContext(data.context);
+      setLiveContexts((current) => {
+        if (!context && !current.has(tabId)) return current;
+        const next = new Map(current);
+        if (context) next.set(tabId, context);
+        else next.delete(tabId);
+        return next;
+      });
+    };
+    window.addEventListener("message", onLiveContext);
+    return () => window.removeEventListener("message", onLiveContext);
+  }, [documentById]);
+
+  // Surfaces React (bibliothèque, navigateur) : ce qu'elles montrent arrive
+  // par un événement fenêtre, rangé sous la clé de leur onglet (surface:…).
+  useEffect(() => {
+    const onSurface = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { surface?: unknown; context?: unknown } | null;
+      if (typeof detail?.surface !== "string") return;
+      const key = `surface:${detail.surface}`;
+      const context = parseLiveContext(detail.context);
+      setLiveContexts((current) => {
+        if (!context && !current.has(key)) return current;
+        if (context && JSON.stringify(current.get(key)) === JSON.stringify(context)) return current;
+        const next = new Map(current);
+        if (context) next.set(key, context);
+        else next.delete(key);
+        return next;
+      });
+    };
+    window.addEventListener(SURFACE_LIVE_CONTEXT_EVENT, onSurface);
+    return () => window.removeEventListener(SURFACE_LIVE_CONTEXT_EVENT, onSurface);
+  }, []);
+
+  // Onglet fermé : son contexte part avec lui.
+  useEffect(() => {
+    setLiveContexts((current) => {
+      const stale = [...current.keys()].filter((tabId) => !tabId.startsWith("surface:") && !documentById.has(tabId));
+      if (!stale.length) return current;
+      const next = new Map(current);
+      for (const tabId of stale) next.delete(tabId);
+      return next;
+    });
+  }, [documentById]);
+
+  // Publication vers App : le contexte de l'onglet ACTIF du pane FOCALISÉ,
+  // null pour une surface, un agent ou un document sans contexte. Même garde
+  // de signature que workspace-tabs (sinon boucle de rendus).
+  const lastLiveContextSignature = useRef("null");
+  useEffect(() => {
+    const pane = findWorkspacePane(workspace.root, workspace.focusedPaneId)
+      ?? listWorkspacePanes(workspace.root)[0];
+    const ref = pane?.tabs.find((tab) => workspaceTabId(tab) === pane.activeTabId);
+    const docTab = ref?.kind === "document" ? documentById.get(ref.tabId) : undefined;
+    const context = ref?.kind === "document"
+      ? liveContexts.get(ref.tabId) ?? (docTab ? imageTabLiveContext(docTab) : null)
+      : ref?.kind === "surface" ? liveContexts.get(`surface:${ref.surface}`) ?? null : null;
+    const signature = JSON.stringify(context);
+    if (signature === lastLiveContextSignature.current) return;
+    lastLiveContextSignature.current = signature;
+    window.dispatchEvent(new CustomEvent(LIVE_CONTEXT_EVENT, { detail: { context } }));
+  }, [workspace, liveContexts, documentById]);
+  // Pane démonté (projet changé, atelier replié) : plus rien sous les yeux.
+  useEffect(() => () => {
+    window.dispatchEvent(new CustomEvent(LIVE_CONTEXT_EVENT, { detail: { context: null } }));
+  }, []);
+
   const openHostTerminal = useCallback((command: string) => {
     setTerminalBootstrap(command);
     setWorkspace((current) => activateWorkspaceTab(current, { kind: "surface", surface: "terminal" }));
@@ -811,11 +972,26 @@ export default function AtelierPane({
       const ref = refOf(String((event as CustomEvent).detail?.id ?? ""));
       if (ref) closeRef(ref);
     };
+    // Clic droit sur un onglet ou sur le bouton de la surface affichée : le
+    // menu du pane s'ouvre à l'endroit du clic, sur CE contenu.
+    const onPaneMenu = (event: Event) => {
+      const detail = (event as CustomEvent<WorkspacePaneMenuRequest>).detail;
+      if (!detail) return;
+      const id = detail.id
+        ?? (detail.surface ? workspaceTabId({ kind: "surface", surface: detail.surface as Surface }) : "");
+      const found = holderOf(id);
+      if (!found) return;
+      selectRef(found.pane.id, found.ref);
+      setPaneMenuAt({ x: detail.x, y: detail.y });
+      setPaneMenuOpen(`${found.pane.id}:${id}`);
+    };
     window.addEventListener("workspace-select-tab", onSelect);
     window.addEventListener("workspace-close-tab", onClose);
+    window.addEventListener(WORKSPACE_PANE_MENU, onPaneMenu);
     return () => {
       window.removeEventListener("workspace-select-tab", onSelect);
       window.removeEventListener("workspace-close-tab", onClose);
+      window.removeEventListener(WORKSPACE_PANE_MENU, onPaneMenu);
     };
   });
 
@@ -857,7 +1033,17 @@ export default function AtelierPane({
     frame?.contentWindow?.postMessage({ type: "atelier-favorite-changed", rel: relative, fav: confirmed }, "*");
   }
 
-  function renderPaneControls(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef) {
+  /** Sans clic droit (lecteur d'écran), le menu tombe sous l'onglet actif. */
+  function paneMenuAnchorStyle(): CSSProperties {
+    if (paneMenuAt) return { left: paneMenuAt.x, top: paneMenuAt.y };
+    const rect = document.querySelector(".topbar-tab.on")?.getBoundingClientRect();
+    return rect ? { left: rect.left, top: rect.bottom } : {};
+  }
+
+  /** `anchor` : le menu de la barre du haut, sans bouton visible — il s'ouvre
+   *  au clic droit sur l'onglet ou la surface (voir WORKSPACE_PANE_MENU).
+   *  `button` : le navigateur, qui garde son bouton dans sa propre barre. */
+  function renderPaneControls(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef, mode: "anchor" | "button" = "button") {
     const paneMenuKey = `${paneNode.id}:${workspaceTabId(ref)}`;
     const relative = ref.kind === "document"
       ? relFromTabUrl(documentById.get(ref.tabId)?.url ?? "", projectRoot, url)
@@ -910,7 +1096,6 @@ export default function AtelierPane({
     }
     if (ref.kind === "document" && documentById.get(ref.tabId)) {
       const documentItems: LazyDropdownMenuItem[] = [
-        { key: "expand", label: t("atelier.full"), onSelect: onToggleExpand },
         {
           key: "pin",
           label: documentById.get(ref.tabId)?.pinned ? t("action.unpin-tab") : t("action.pin-tab"),
@@ -973,15 +1158,32 @@ export default function AtelierPane({
       items: [{ key: "close-pane", label: t("workspace.close-pane"), destructive: true, onSelect: () => closeRef(ref) }],
     });
     return (
-      <div className="workspace-pane-controls" data-pane-controls="menu">
+      <div className="workspace-pane-controls" data-pane-controls={mode === "anchor" ? "anchor" : "menu"}>
         <LazyDropdownMenu
           open={paneMenuOpen === paneMenuKey}
-          onOpenChange={(open) => setPaneMenuOpen(open ? paneMenuKey : null)}
+          onOpenChange={(open) => {
+            setPaneMenuOpen(open ? paneMenuKey : null);
+            if (!open) setPaneMenuAt(null);
+          }}
           label={t("workspace.pane-actions")}
           header={tabTitle(ref)}
-          align="end"
+          align={mode === "anchor" ? "start" : "end"}
+          sideOffset={mode === "anchor" ? 2 : undefined}
           groups={menuGroups}
-          trigger={(
+          trigger={mode === "anchor" ? (
+            // Ancre invisible : posée au point du clic droit, elle donne au
+            // menu sa position. Hors tabulation (la touche Menu sur l'onglet
+            // fait le même chemin), mais lisible par les lecteurs d'écran.
+            <IconButton
+              className="workspace-pane-menu-anchor"
+              label={t("workspace.pane-actions")}
+              size="s"
+              tabIndex={-1}
+              style={paneMenuAnchorStyle()}
+            >
+              <span />
+            </IconButton>
+          ) : (
             <IconButton
               className="ghost"
               label={t("workspace.pane-actions")}
@@ -1288,9 +1490,12 @@ export default function AtelierPane({
   return (
     <div className="atelier-wrap modular-workspace">
       {/* Le navigateur natif ne transmet pas son focus DOM au workspace :
-          son menu reste dans sa barre réservée, sans recouvrir la page. */}
+          son menu reste dans sa barre réservée, sans recouvrir la page.
+          L'ancre vit dans <body> : la barre du haut est un conteneur de
+          requêtes (containment de mise en page) qui piégerait une ancre
+          `fixed` et la rognerait. */}
       {paneMenuHost && focusedPane && focusedRef && !(focusedRef.kind === "surface" && focusedRef.surface === "browser") && createPortal(
-        renderPaneControls(focusedPane, focusedRef), paneMenuHost, `${focusedPane.id}:${workspaceTabId(focusedRef)}`,
+        renderPaneControls(focusedPane, focusedRef, "anchor"), document.body, `${focusedPane.id}:${workspaceTabId(focusedRef)}`,
       )}
       <div className="pane-row">
         <div className="workspace-root" ref={workspaceRootRef}>
@@ -1338,6 +1543,17 @@ export default function AtelierPane({
               >
                 {tabTitle(dragState.ref)}
               </div>
+              {dragState.slot && createPortal(
+                <div
+                  className="workspace-tab-insert"
+                  aria-hidden="true"
+                  style={{
+                    transform: `translate3d(${dragState.slot.x - 1}px, ${dragState.slot.top + 4}px, 0)`,
+                    height: Math.max(0, dragState.slot.height - 8),
+                  }}
+                />,
+                document.body,
+              )}
             </div>
           )}
         </div>

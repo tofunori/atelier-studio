@@ -67,18 +67,17 @@ struct AnnotationMessageText: View {
     @State private var showingPassage = false
     var body: some View {
         if let parts = AnnotationMessageParts(text, attachmentNames: attachmentNames) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                // One thin line above the note, separated by a hairline.
                 Button { showingPassage = true } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "text.quote").font(.subheadline).foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(parts.citation).font(.caption.weight(.medium)).foregroundStyle(.primary).lineLimit(2)
-                            Text("Voir le passage cité").font(.caption).foregroundStyle(.secondary)
-                        }
+                    HStack(spacing: 8) {
+                        Image(systemName: "text.quote").font(.caption).foregroundStyle(AtelierTheme.secondaryText)
+                        Text(parts.citation).font(.caption.weight(.medium)).foregroundStyle(Color.primary.opacity(0.85))
+                            .lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 4)
-                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
-                    }.padding(10).frame(minHeight: 44)
-                        .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(AtelierTheme.tertiaryText)
+                    }.frame(minHeight: 36)
+                        .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1) }
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain)
                     .accessibilityLabel("Passage cité : " + parts.citation)

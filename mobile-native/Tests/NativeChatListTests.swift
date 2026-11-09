@@ -76,6 +76,52 @@ final class NativeChatListTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
         XCTAssertEqual(table.contentOffset.y, bottom, accuracy: 1)
     }
+    @MainActor func testTallerBottomPanelKeepsPinnedConversationAtItsEnd() async throws {
+        let state = list(follows: true)
+        let table = table(), coordinator = NativeChatList.Coordinator(parent: state)
+        coordinator.attach(table); coordinator.update(state)
+        try await Task.sleep(for: .milliseconds(100))
+        table.layoutIfNeeded()
+        // The section tabs come back under the composer once the keyboard closes after a send.
+        table.contentInset.bottom += 74
+        coordinator.scrollViewDidChangeAdjustedContentInset(table)
+        let bottom = max(-table.adjustedContentInset.top, table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom)
+        XCTAssertEqual(table.contentOffset.y, bottom, accuracy: 1)
+    }
+    @MainActor func testTallerBottomPanelLeavesManualReadingInPlace() async throws {
+        let state = list(follows: true)
+        let table = table(), coordinator = NativeChatList.Coordinator(parent: state)
+        coordinator.attach(table); coordinator.update(state)
+        try await Task.sleep(for: .milliseconds(100))
+        coordinator.scrollViewWillBeginDragging(table)
+        table.contentOffset.y = 100
+        coordinator.scrollViewDidEndDragging(table, willDecelerate: false)
+        table.contentInset.bottom += 74
+        coordinator.scrollViewDidChangeAdjustedContentInset(table)
+        XCTAssertEqual(table.contentOffset.y, 100, accuracy: 0.5)
+    }
+    @MainActor func testFingerScrollReportsDirectionOncePerChange() async throws {
+        var directions: [Bool] = []
+        var state = list(follows: true)
+        state.onScrollDirection = { directions.append($0) }
+        let table = table(), coordinator = NativeChatList.Coordinator(parent: state)
+        coordinator.attach(table); coordinator.update(state)
+        try await Task.sleep(for: .milliseconds(100))
+        table.layoutIfNeeded()
+        coordinator.scrollViewWillBeginDragging(table)
+        let start = table.contentOffset.y
+        table.contentOffset.y = start - 10; coordinator.scrollViewDidScroll(table)
+        XCTAssertEqual(directions, [])
+        table.contentOffset.y = start - 40; coordinator.scrollViewDidScroll(table)
+        table.contentOffset.y = start - 80; coordinator.scrollViewDidScroll(table)
+        XCTAssertEqual(directions, [true])
+        table.contentOffset.y = start - 40; coordinator.scrollViewDidScroll(table)
+        XCTAssertEqual(directions, [true, false])
+        // A programmatic scroll (following the reply) is not a finger scroll.
+        coordinator.scrollViewDidEndDragging(table, willDecelerate: false)
+        table.contentOffset.y = start - 200; coordinator.scrollViewDidScroll(table)
+        XCTAssertEqual(directions, [true, false])
+    }
     @MainActor func testRecentMessageKeepsTheSameRenderedCellWhenReturning() async throws {
         let state = list()
         let table = table(), coordinator = NativeChatList.Coordinator(parent: state)

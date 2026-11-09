@@ -15,7 +15,7 @@ const saveCode = html.slice(html.indexOf('function canonAnnot('), html.indexOf('
   + html.slice(html.indexOf('function saveAnnots(){'), html.indexOf('function drawAnnots'));
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
-function menu(saved = true, initialNote = "") {
+function menu(saved = true, initialNote = "", extra: Record<string, unknown> = {}) {
   const dom = new JSDOM('<div id="annotPop"></div><button id="outside">Outside</button>', {runScripts:'outside-only'});
   const win = dom.window;
   vm.runInContext(sharedUI, dom.getInternalVMContext());
@@ -28,8 +28,10 @@ function menu(saved = true, initialNote = "") {
     CODEBOOK: [], codeById: (_id) => undefined, codeIds: (a, key) => Array.isArray(a[key]) ? a[key] : [],
   });
   vm.runInContext(html.slice(html.indexOf('async function removeAnnot(a)'), html.indexOf('/** Envoi au chat')), dom.getInternalVMContext());
+  // marque et fil des notes de l'agent, appelés par la fiche
+  vm.runInContext(html.slice(html.indexOf("// ---- notes posées par l'agent"), html.indexOf('// Même ordre et mêmes teintes')), dom.getInternalVMContext());
   vm.runInContext(menuCode, dom.getInternalVMContext());
-  win.annotation = {id:'test',page:3,text:'Selected passage',note:initialNote};
+  win.annotation = {id:'test',page:3,text:'Selected passage',note:initialNote,...extra};
   win.PDF_ANNOTS = [win.annotation];
   win.annotMenu(win.annotation,10,10);
   return {win, writes, sends, root:win.annotPop, close:()=>win.close()};
@@ -623,7 +625,8 @@ function pane(annots: Record<string, unknown>[], codebook: Record<string, unknow
   });
   win.requestAnimationFrame = (fn) => win.setTimeout(fn, 0);
   const code = html.slice(html.indexOf('const PANE_KEY ='), html.indexOf('// ---- confort sombre'));
-  vm.runInContext(`var rel = "doc.pdf";\n${code}\nwindow.annPane = annPane;`, dom.getInternalVMContext());
+  const agent = html.slice(html.indexOf("// ---- notes posées par l'agent"), html.indexOf('// Même ordre et mêmes teintes'));
+  vm.runInContext(`var rel = "doc.pdf";\n${agent}\n${code}\nwindow.annPane = annPane;`, dom.getInternalVMContext());
   win.annPane.toggle();
   const list = win.document.querySelector('#annPane .list');
   return {win, saves, draws, list, close: () => win.close()};
@@ -710,4 +713,63 @@ test('emptying a note from the pane removes it; a free note edits its own text',
   assert.equal(p.saves.at(-1)[1].note, 'Idée précisée');
   assert.equal('memo' in p.saves.at(-1)[1], false);
   p.close();
+});
+
+// Note posée par l'agent (outil atelier_annotate) : fiche signée, fil de
+// réponses ; répondre enregistre le message dans le fil puis l'envoie au chat.
+function agentMenu() {
+  const m = menu(true, "", {id:'a1p3', by:'agent', author:'Claude', memo:'Ce chiffre vient de Ren 2021.',
+    thread:[{id:'m1', by:'agent', author:'Claude', text:'Note posée.', at:1}]});
+  const payloads: Array<Record<string, unknown>> = [];
+  Object.assign(m.win, {attachPdfChatPayload: async (p: Record<string, unknown>) => { payloads.push(p); },
+    rel: 'doc.pdf', __passageParams: new URLSearchParams(''), redrawAllAnnots: () => {}, notify: () => {}});
+  return {...m, payloads};
+}
+
+test('an agent note opens as a signed card with its thread and agent actions', () => {
+  const m = agentMenu();
+  assert.ok(m.root.classList.contains('is-agent'));
+  assert.equal(m.root.querySelector('.atelier-agent-note').textContent, 'Ce chiffre vient de Ren 2021.');
+  assert.equal(m.root.querySelectorAll('.atelier-agent-msg').length, 1);
+  assert.ok(m.root.querySelector('.atelier-agent-keep'));
+  assert.ok(m.root.querySelector('.atelier-agent-drop'));
+  assert.match(m.root.querySelector('textarea.atelier-note-input').placeholder, /Répondre à Claude/);
+  m.close();
+});
+
+test('replying to the agent saves the message in the thread before sending it to the chat', async () => {
+  const m = agentMenu();
+  m.root.querySelector('textarea.atelier-note-input').value = 'Et pour 2023 ?';
+  m.root.querySelector('.send2').click(); await tick(); await tick();
+  const saved = m.writes.at(-1);
+  assert.equal(saved.thread.length, 2);
+  assert.equal(saved.thread[1].by, 'user');
+  assert.equal(saved.thread[1].text, 'Et pour 2023 ?');
+  assert.equal(saved.note || '', '');
+  assert.equal(m.payloads.length, 1);
+  assert.match(String(m.payloads[0].text), /Réponse sur ta note \[a1p3\] dans doc\.pdf \(p\. 3\) : Et pour 2023 \?/);
+  assert.match(String(m.payloads[0].text), /atelier_annotate, action reply/);
+  assert.equal(m.sends.length, 0);
+  assert.match(m.root.querySelector('.atelier-agent-wait').textContent, /Claude lit ta réponse/);
+  m.close();
+});
+
+test('keeping an agent note makes it a personal note', async () => {
+  const m = agentMenu();
+  m.root.querySelector('.atelier-agent-keep').click(); await tick();
+  const saved = m.writes.at(-1);
+  assert.equal(saved.by, undefined);
+  assert.equal(saved.author, undefined);
+  assert.equal(saved.memo, 'Ce chiffre vient de Ren 2021.');
+  m.close();
+});
+
+test('removing an agent note drops all its page parts in one save', async () => {
+  const m = agentMenu();
+  m.win.PDF_ANNOTS.push({id:'a1p4-1', page:4, by:'agent', author:'Claude', text:'suite'}, {id:'own', page:4, text:'mine'});
+  m.root.querySelector('.atelier-agent-drop').click(); await tick();
+  assert.equal(m.writes.length, 1);
+  assert.deepEqual(m.win.PDF_ANNOTS.map((a: {id: string}) => a.id), ['own']);
+  assert.equal(m.root.style.display, 'none');
+  m.close();
 });

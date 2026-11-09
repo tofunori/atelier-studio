@@ -33,6 +33,11 @@ export type DropdownMenuSurfaceGroup = {
   label?: ReactNode
   items: DropdownMenuSurfaceItem[]
   separatorBefore?: boolean
+  /** Classe du groupe (ex. rangées disposées en pastilles). */
+  className?: string
+  /** Rangées posées dans un encart (menus du compositeur, variante C du
+   *  2026-11-09) : le titre reste au-dessus, hors de l'encart. */
+  card?: boolean
 }
 
 export function DropdownMenuSurface(props: {
@@ -103,9 +108,11 @@ export function DropdownMenuSurface(props: {
         {props.groups?.length ? props.groups.map((group) => (
           <Fragment key={group.key}>
             {group.separatorBefore && <DropdownMenuSeparator />}
-            <DropdownMenuGroup>
+            <DropdownMenuGroup className={group.className}>
               {group.label && <DropdownMenuLabel>{group.label}</DropdownMenuLabel>}
-              {group.items.map(renderItem)}
+              {group.card
+                ? <div className="cm-card">{group.items.map(renderItem)}</div>
+                : group.items.map(renderItem)}
             </DropdownMenuGroup>
           </Fragment>
         )) : (

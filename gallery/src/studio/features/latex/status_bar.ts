@@ -409,6 +409,7 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     if (action === "console") doc.getElementById("sbCompile")?.click();
     if (action === "autocompile") sbAutoCompile?.click();
     if (action === "comments") doc.getElementById("texcBtn")?.click();
+    if (action === "references") doc.getElementById("bibBtn")?.click();
     if (action === "poppdf") doc.getElementById("popPdf")?.click();
     if (action === "save") doc.getElementById("saveBtn")?.click();
     if (action === "open") doc.getElementById("openFile")?.click();

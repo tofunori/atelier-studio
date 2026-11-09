@@ -1,5 +1,5 @@
-// StatusBadge (plan 016) — pastille d'état compacte (point + libellé 10px
-// majuscules). Statique par contrat Quiet Instrument : l'état « running »
+// StatusBadge (plan 016) — état compact : point + libellé gris 11 px en
+// casse de phrase, sans pilule (2026-11-09). Statique par contrat Quiet Instrument : l'état « running »
 // se distingue par la couleur accent, PAS par une animation.
 import React from "react";
 import { cx } from "./internal";
@@ -22,7 +22,7 @@ export function StatusBadge(props: StatusBadgeProps) {
       {...rest}
     >
       <span className="dot" aria-hidden="true" />
-      {children}
+      <span className="ui-badge-label">{children}</span>
     </Badge>
   );
 }

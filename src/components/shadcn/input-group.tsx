@@ -54,6 +54,10 @@ function InputGroupAddon({
       className={cn(inputGroupAddonVariants({ align }), className)}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest("button")) return
+        // Un clic dans un menu portalisé (ex. pastille du menu Spécialiste)
+        // remonte ici par l'arbre React sans être dans le DOM de l'addon :
+        // il ne doit pas voler le focus au menu pour le donner au champ.
+        if (!event.currentTarget.contains(event.target as Node)) return
         event.currentTarget.parentElement
           ?.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea")
           ?.focus()

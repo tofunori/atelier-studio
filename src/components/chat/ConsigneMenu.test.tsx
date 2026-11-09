@@ -42,47 +42,38 @@ describe("ConsigneMenu", () => {
     });
   });
 
-  it("rend null quand le fil retire la consigne", () => {
+  it("rend null quand on décoche la seule forme active", () => {
+    // Variante C (2026-10-31) : plus de rangée « Aucune » pour les formes ;
+    // décocher la dernière pastille revient au même.
     const onChoisir = vi.fn();
     render(
       <ConsigneMenu {...base} actif={{ id: "concis", texte: "x" }} onChoisir={onChoisir} />,
     );
     fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
-    fireEvent.click(screen.getByText("Aucune"));
+    expect(screen.queryByText("Aucune")).toBeNull();
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Concis" }));
     expect(onChoisir).toHaveBeenCalledWith(null);
   });
 
-  it("garde la glose entière en infobulle, puisqu'elle est tronquée à l'écran", () => {
-    // Traitement D (2026-09-01) : la description passe à droite du nom sur
-    // UNE ligne, donc elle est coupée à l'ellipse dès qu'elle est longue.
-    // Sans le `title`, une consigne écrite par l'utilisateur avec une
-    // description bavarde perdrait son explication pour de bon.
-    const bavarde = {
-      id: "mienne",
-      nom: "Ma règle",
-      description: "une description délibérément trop longue pour la rangée du menu",
-      texte: "peu importe",
-    };
-    render(<ConsigneMenu {...base} consignes={[bavarde]} actif={null} />);
+  it("montre les formes en pastilles : le nom seul, sans glose ni icône", () => {
+    render(<ConsigneMenu {...base} actif={null} />);
     fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
-    const glose = document.querySelector(".consigne-desc");
-    expect(glose?.getAttribute("title")).toBe(bavarde.description);
+    const pastilles = [...document.querySelectorAll(".consigne-pastille")];
+    expect(pastilles.map((el) => el.textContent)).toEqual(CONSIGNES_LIVREES.map((c) => c.nom));
+    expect(document.querySelector(".consigne-pastilles .consigne-desc")).toBeNull();
+    expect(document.querySelector(".consigne-pastille > svg")).toBeNull();
   });
 
-  it("marque la rangée active — et « Aucune » quand le fil n'a pas de consigne", () => {
-    // Spec 2026-09-01 : fond plein + coche, AUCUN accent. Sans ce marquage,
-    // ouvrir le menu ne disait pas laquelle des consignes est en vigueur.
+  it("marque les pastilles actives, et aucune quand le fil n'a pas de consigne", () => {
+    // Spec 2026-09-01 : remplissage + coche, AUCUN accent.
     const { rerender } = render(<ConsigneMenu {...base} actif={null} />);
     fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
-    const actives = () => [...document.querySelectorAll(".consigne-item.on")];
-    expect(actives()).toHaveLength(1);
-    expect(actives()[0].textContent).toContain("Aucune");
-    expect(actives()[0].querySelector(".consigne-coche")).toBeTruthy();
+    const actives = () => [...document.querySelectorAll('.consigne-pastille[aria-checked="true"]')];
+    expect(actives()).toHaveLength(0);
 
     rerender(<ConsigneMenu {...base} actif={{ id: "rigueur", texte: "x" }} />);
     expect(actives()).toHaveLength(1);
-    expect(actives()[0].textContent).toContain("Rigueur scientifique");
-    expect(actives()[0]).toHaveAttribute("aria-checked", "true");
+    expect(actives()[0].textContent).toBe("Rigueur scientifique");
   });
 
   it("garde le fil fonctionnel quand la consigne a disparu du catalogue", () => {
@@ -168,12 +159,31 @@ describe("menu Spécialiste (plan specialistes-2026-10-18)", () => {
     expect(bouton.getAttribute("title")).toContain("Glaciologue albédo");
   });
 
-  it("« Gérer les spécialistes… » ouvre les réglages", () => {
+  it("un seul lien ouvre les réglages (spécialistes, sinon consignes)", () => {
     const onGerer = vi.fn();
-    render(<ConsigneMenu {...base} specialistes={[]} actif={null} onGererSpecialistes={onGerer} />);
+    const onReglages = vi.fn();
+    const { rerender } = render(<ConsigneMenu {...base} specialistes={[]} actif={null}
+      onOuvrirReglages={onReglages} onGererSpecialistes={onGerer} />);
     fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
-    fireEvent.click(screen.getByText("Gérer les spécialistes…"));
+    expect(screen.getAllByRole("menuitem").filter((el) => /Gérer|Modifier/.test(el.textContent ?? ""))).toHaveLength(1);
+    fireEvent.click(screen.getByText("Gérer les spécialistes et les styles…"));
     expect(onGerer).toHaveBeenCalled();
+    expect(onReglages).not.toHaveBeenCalled();
+
+    rerender(<ConsigneMenu {...base} specialistes={[]} actif={null} onOuvrirReglages={onReglages} />);
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
+    fireEvent.click(screen.getByText("Gérer les spécialistes et les styles…"));
+    expect(onReglages).toHaveBeenCalled();
+  });
+
+  it("rôle du spécialiste sur une ligne sous le nom, sans icône ni infobulle", () => {
+    render(<ConsigneMenu {...base} specialistes={[glacio]} actif={null} />);
+    fireEvent.click(screen.getByLabelText("Spécialiste du fil"));
+    const rangee = screen.getByRole("menuitem", { name: /Glaciologue albédo/ });
+    const role = rangee.querySelector(".consigne-desc");
+    expect(role?.textContent).toBe("Albédo des glaciers");
+    expect(role?.hasAttribute("title")).toBe(false);
+    expect(rangee.querySelector("svg")).toBeNull();
   });
 
   it("« Aucun » retire le spécialiste et garde les formes", () => {

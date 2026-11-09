@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, screen } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { renderUi } from '../../test/render';
 import { annotationCards } from '../../lib/annotationCards';
 import { UserTurn } from './turns';
@@ -28,10 +28,11 @@ it('renders one source and preserves the original message for editing and naviga
   fireEvent.click(screen.getByRole('button',{name:t('action.edit-resend')}));
   expect(onEditingChange).toHaveBeenCalledWith(text);
 });
-it('keeps the prompt, multiple annotations and unrelated attachments, and opens the PDF page', () => {
+it('keeps the prompt, multiple annotations and unrelated attachments, and opens the PDF page', async () => {
   renderTurn(`Vérifie ces passages\n\n${text}\n\npaper.pdf (p.7) : « Autre passage »\nCommentaire : Pourquoi ?`, 'methods_en.tex (lines 122-123) · paper.pdf (lines 7) · data.csv');
   expect(document.querySelectorAll('.chat-annotation-card')).toHaveLength(2);
-  expect(document.querySelector('.user-file-attachment')?.textContent).toBe('data.csv');
+  await waitFor(() => expect(document.querySelectorAll('.user-file-attachment')).toHaveLength(1));
+  expect(document.querySelector('.user-file-attachment .file-card-title')?.textContent).toBe('data.csv');
   expect(screen.getByText('Vérifie ces passages')).toBeTruthy();
   const opened = vi.fn();
   window.addEventListener('chat-open-file', opened, {once:true});

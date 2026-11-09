@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AtelierPane, { type AtelierTab } from "./AtelierPane";
 import { WorkspacePaneMenuSlot } from "./WorkspacePaneMenuSlot";
+import { WORKSPACE_PANE_MENU } from "../lib/workspacePaneMenu";
 import { setLanguage, t } from "../lib/i18n";
 import { WORKSPACE_POINTER_DRAG_START } from "../lib/workspaceDrag";
 
@@ -84,7 +85,7 @@ describe("AtelierPane — workspace modulaire", () => {
 
     const pane = container.querySelector<HTMLElement>("[data-pane-id]")!;
     expect(pane).toHaveAttribute("data-pane-chrome", "native");
-    await waitFor(() => expect(container.querySelector(".workspace-pane-menu-slot button")).toBeInTheDocument());
+    await waitFor(() => expect(document.querySelector("[data-pane-controls=\"anchor\"] button")).toBeInTheDocument());
     expect(container.querySelector(".kb-head .workspace-pane-controls-slot")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));
@@ -95,7 +96,20 @@ describe("AtelierPane — workspace modulaire", () => {
     expect(pane).toHaveAttribute("data-pane-chrome", "workspace");
     // Aucun contrôle ne recouvre la galerie.
     expect(pane.querySelector(".workspace-pane-controls")).toBeNull();
-    expect(container.querySelectorAll(".workspace-pane-menu-slot button")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-pane-controls=\"anchor\"] button")).toHaveLength(1);
+  });
+
+  it("le clic droit sur un onglet ouvre le menu du pane pour ce document, sans « pleine largeur »", async () => {
+    renderWorkspace();
+    act(() => {
+      window.dispatchEvent(new CustomEvent(WORKSPACE_PANE_MENU, { detail: { id: "document:analysis", x: 140, y: 36 } }));
+    });
+    expect(await screen.findByRole("menuitem", { name: t("workspace.split-right") })).toBeInTheDocument();
+    expect(screen.getByText("analysis.py", { selector: "[data-slot=dropdown-menu-label]" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: t("atelier.full") })).toBeNull();
+    const anchor = document.querySelector<HTMLElement>(".workspace-pane-menu-anchor")!;
+    expect(anchor.style.left).toBe("140px");
+    expect(anchor.style.top).toBe("36px");
   });
 
   it("scinde un onglet de code à droite et garde un document actif dans chaque pane", () => {
@@ -145,6 +159,50 @@ describe("AtelierPane — workspace modulaire", () => {
     expect(separator).toHaveAttribute("aria-valuenow", "55");
   });
 
+  it("réordonne les onglets en les glissant dans la bande du haut", async () => {
+    const { container, props } = renderWorkspace();
+    mockWorkspaceGeometry(container);
+    // bande simulée : celle de TopBarTabs vit dans la barre du haut, hors du pane
+    const makeRect = (left: number, top: number, width: number, height: number) => ({
+      x: left, y: top, left, top, width, height, right: left + width, bottom: top + height, toJSON: () => ({}),
+    } as DOMRect);
+    const strip = document.createElement("div");
+    strip.className = "topbar-tabs";
+    vi.spyOn(strip, "getBoundingClientRect").mockReturnValue(makeRect(100, 0, 400, 40));
+    for (const [index, id] of ["document:main", "document:analysis"].entries()) {
+      const tab = document.createElement("span");
+      tab.className = "topbar-tab";
+      tab.dataset.tabId = id;
+      vi.spyOn(tab, "getBoundingClientRect").mockReturnValue(makeRect(100 + index * 150, 4, 140, 32));
+      strip.appendChild(tab);
+    }
+    document.body.appendChild(strip);
+    try {
+      act(() => {
+        window.dispatchEvent(new CustomEvent(WORKSPACE_POINTER_DRAG_START, {
+          detail: { ref: { kind: "document", tabId: "main" }, clientX: 150, clientY: 20, pointerId: 14 },
+        }));
+      });
+      // sur sa propre place : ni trait ni aperçu de scission
+      fireEvent.pointerMove(window, { pointerId: 14, clientX: 200, clientY: 20 });
+      await waitFor(() => expect(container.querySelector(".workspace-drag-ghost")).toBeInTheDocument());
+      expect(document.querySelector(".workspace-tab-insert")).toBeNull();
+      expect(container.querySelector(".workspace-drop-preview")).toBeNull();
+
+      // moitié droite de analysis.py : trait juste après lui
+      fireEvent.pointerMove(window, { pointerId: 14, clientX: 360, clientY: 20 });
+      await waitFor(() => expect(document.querySelector(".workspace-tab-insert")).toBeInTheDocument());
+      expect(container.querySelector(".workspace-drop-preview")).toBeNull();
+      fireEvent.pointerUp(window, { pointerId: 14, clientX: 360, clientY: 20 });
+
+      await waitFor(() => expect(props.onReorderTabs).toHaveBeenCalledWith(["analysis", "main"]));
+      expect(document.querySelector(".workspace-tab-insert")).toBeNull();
+      expect(container.querySelectorAll(".workspace-pane")).toHaveLength(1);
+    } finally {
+      strip.remove();
+    }
+  });
+
   it("dépose Zotero depuis le rail simulé dans un pane distinct sans barre externe", async () => {
     const { container } = renderWorkspace();
     mockWorkspaceGeometry(container);
@@ -158,7 +216,7 @@ describe("AtelierPane — workspace modulaire", () => {
     expect(container.querySelectorAll(".workspace-pane")).toHaveLength(2);
     const nativePane = container.querySelector<HTMLElement>('[data-pane-chrome="native"]');
     expect(nativePane).toBeInTheDocument();
-    await waitFor(() => expect(container.querySelector(".workspace-pane-menu-slot button")).toBeInTheDocument());
+    await waitFor(() => expect(document.querySelector("[data-pane-controls=\"anchor\"] button")).toBeInTheDocument());
     expect(container.querySelector(".biblio-surface .workspace-pane-controls-slot")).toBeNull();
   });
 
@@ -175,7 +233,7 @@ describe("AtelierPane — workspace modulaire", () => {
     const nativePane = container.querySelector<HTMLElement>('[data-pane-chrome="native"]');
     expect(nativePane).toBeInTheDocument();
     expect(container.querySelectorAll('[data-pane-chrome="workspace"]')).toHaveLength(1);
-    await waitFor(() => expect(container.querySelector(".workspace-pane-menu-slot button")).toBeInTheDocument());
+    await waitFor(() => expect(document.querySelector("[data-pane-controls=\"anchor\"] button")).toBeInTheDocument());
     expect(container.querySelector(".term-bar .workspace-pane-controls-slot")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: t("workspace.pane-actions") }));

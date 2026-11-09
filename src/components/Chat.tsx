@@ -40,6 +40,7 @@ import { modelDisplayLabel, replaceRetiredModel } from "../lib/modelCatalog";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
 import { usePromptText, type DraftAttachment, type FollowUpMode, type PromptSource, type QueuedTurn } from "../lib/chatDraftStore";
 import type { Consigne, ConsigneDuFil } from "../lib/consignes";
+import type { LiveContextBinding } from "./chat/LiveContextEye";
 import { nomCourtDe, type Specialiste } from "../lib/specialistes";
 import {
   buildChatTurnViewModels,
@@ -128,6 +129,8 @@ export default function Chat(p: {
   onReorderQueued?: (draggedId: string, targetId: string) => void;
   attachments: ChatAttachment[];
   onRemoveAttachment: (index: number) => void;
+  /** œil du contexte vivant : ce que l'atelier montre et s'il est partagé */
+  liveContext?: LiveContextBinding;
   onQuote: (text: string) => void;
   threadId: string | null;
   onPasteImage: (dataURL: string) => void;
@@ -550,6 +553,14 @@ export default function Chat(p: {
     saveMarks(marks.filter((m) => m.text !== txt));
     const match = p.highlights.find((h) => h.threadId === p.threadId && h.text === txt);
     if (match) wsSend({ type: "removeHighlight", id: match.id });
+  }
+  // « Tout retirer » de la liste du composer : même retrait explicite, en bloc
+  function clearAnnotations() {
+    const texts = new Set(marks.map((m) => m.text));
+    saveMarks([]);
+    for (const h of p.highlights) {
+      if (h.threadId === p.threadId && texts.has(h.text)) wsSend({ type: "removeHighlight", id: h.id });
+    }
   }
   // applique les marques via la CSS Custom Highlight API (aucune chirurgie DOM)
   useEffect(() => {
@@ -1197,8 +1208,9 @@ export default function Chat(p: {
         }}
         context={{
           attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment,
+          liveContext: p.liveContext,
           onOpenPaste: setPasteView,
-          annotations: marks, onRemoveAnnotation: removeAnnotation,
+          annotations: marks, onRemoveAnnotation: removeAnnotation, onClearAnnotations: clearAnnotations,
         }}
         kb={p.onKbChange ? {
           // sans thread actif (boot, accueil) : liaison « en attente » portée

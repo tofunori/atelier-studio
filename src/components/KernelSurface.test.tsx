@@ -60,14 +60,38 @@ describe("KernelSurface", () => {
     expect(screen.getByText("Fil « Albédo 2024 »")).toBeTruthy();
   });
 
+  it("un seul défilement : code et sortie longs coupés, « Tout afficher » puis « Réduire »", () => {
+    // jsdom ne mesure rien : un <pre> coupé déborde de sa hauteur visible.
+    const tall = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.matches(".kernel-clamp[data-open='false'] > pre") ? 900 : 0;
+    });
+    const shown = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(200);
+    try {
+      const req = open();
+      const out = Array.from({ length: 30 }, (_, i) => `ligne ${i + 1}`).join("\n");
+      emit("kernel-cells", { requestId: req.requestId, threadId: "fil", status: RUNNING, cells: [cell({ stdout: out })] });
+      const more = screen.getAllByText("Tout afficher · 30 lignes");
+      expect(more).toHaveLength(1);
+      fireEvent.click(more[0]);
+      expect(screen.getByText("Réduire").closest("button")!.getAttribute("aria-expanded")).toBe("true");
+      expect(document.querySelector(".kernel-clamp[data-open='true'] > pre.kernel-out")).toBeTruthy();
+      fireEvent.click(screen.getByText("Réduire"));
+      expect(screen.getByText("Tout afficher · 30 lignes")).toBeTruthy();
+    } finally {
+      tall.mockRestore();
+      shown.mockRestore();
+    }
+  });
+
   it("suit une cellule en direct, l'interrompt et ignore les autres fils", () => {
     open();
     emit("kernel-cell", { threadId: "autre", phase: "started", cell: cell({ id: 9, threadId: "autre", status: "running" }) });
     expect(screen.queryAllByTestId("kernel-cell")).toHaveLength(0);
     emit("kernel-cell", { threadId: "fil", phase: "started", cell: cell({ id: 3, status: "running", code: "fit()" }) });
     expect(screen.getByText("Cellule 3 en cours")).toBeTruthy();
-    expect(screen.getByText("[*]")).toBeTruthy();
-    fireEvent.click(screen.getByText("Interrompre"));
+    // En cours : une roue grise dans la gouttière, Interrompre en icône.
+    expect(screen.getByTestId("kernel-cell").querySelector(".kernel-cell-num [data-slot='spinner']")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Interrompre"));
     expect(sent[sent.length - 1]).toMatchObject({ type: "kernelCommand", threadId: "fil", op: "interrupt" });
     emit("kernel-cell", { threadId: "fil", phase: "finished", cell: cell({ id: 3, status: "ok", code: "fit()", durationMs: 40 }) });
     expect(screen.getByText("40 ms")).toBeTruthy();
@@ -182,7 +206,7 @@ describe("KernelSurface : preuves et suivi", () => {
     fireEvent.click(screen.getByText("Démarrer"));
     expect(sent[sent.length - 1]).toMatchObject({ type: "kernelCommand", op: "restart" });
     const area = screen.getByLabelText("Nouvelle cellule") as HTMLTextAreaElement;
-    const run = screen.getByText("Lancer comme cellule 1").closest("button")!;
+    const run = screen.getByLabelText("Lancer comme cellule 1") as HTMLButtonElement;
     expect(run.disabled).toBe(true);
     fireEvent.change(area, { target: { value: "x = 2 + 2\nprint(x)" } });
     fireEvent.keyDown(area, { key: "Enter", shiftKey: true });
@@ -194,7 +218,7 @@ describe("KernelSurface : preuves et suivi", () => {
     expect(area.value).toBe("");
     emit("kernel-cell", { threadId: "fil", phase: "finished", cell: cell({ id: 1, code: "x = 2 + 2", author: "user", stdout: "4\n" }) });
     expect(screen.getByText("écrite par toi")).toBeTruthy();
-    expect(screen.getByText("Lancer comme cellule 2")).toBeTruthy();
+    expect(screen.getByLabelText("Lancer comme cellule 2")).toBeTruthy();
   });
 
   it("nouveau fil : reprend les cellules d'un fil précédent du projet", async () => {

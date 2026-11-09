@@ -6,12 +6,13 @@ import { lazy, memo, Suspense, useEffect, useLayoutEffect, useRef, useState, use
 import { activeTurnStatus } from "./activeTurnStatus";
 import { useSmoothedStream } from "./useSmoothedStream";
 import { useLiveTailText } from "../../hooks/useThreadEvents";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, EyeIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { isStoppedTerminal, type ChatTurnViewModel, type ToolAction } from "../../lib/chat/turnViewModel";
 import type { PluginCatalogEntry } from "../../lib/plugins";
 import { t } from "../../lib/i18n";
 import { pasteLineCountLabel } from "../../lib/pasteView";
+import { liveContextWhere } from "../../lib/liveContext";
 import { normalizeMathDelimiters } from "../../lib/markdown";
 import { decorateKbCites } from "./kbCite";
 import { kbSourcesSnapshot, requestKbSources, subscribeKbSources } from "../../lib/kbSources";
@@ -28,9 +29,11 @@ import { Textarea } from "../shadcn/textarea";
 import { annotationCards, isAnnotationLabel } from "../../lib/annotationCards";
 import { AnnotationCard } from "./AnnotationCard";
 import { splitFigureEnvelopes } from "../../lib/figureEnvelope";
+import { chatFileLabel } from "../../lib/turnPayload";
 // Chunk à part : le budget de l'entrée (scripts/check_entry_budget.mts) est
 // plein, et la carte ne sert qu'aux tours qui portent une figure annotée.
 const FigureAnnotationCard = lazy(() => import("./FigureAnnotationCard").then((m) => ({ default: m.FigureAnnotationCard })));
+const ChatFileCards = lazy(() => import("./ChatFileCards").then((m) => ({ default: m.ChatFileCards })));
 import { RevertConfirmDialog } from "./RevertConfirmDialog";
 
 type TimeFormat = "system" | "24h" | "12h" | undefined;
@@ -166,19 +169,14 @@ export const UserTurn = memo(function UserTurn(p: {
   const bubbleText = figureView.prompt;
   const annotationView = !e.imageUrl && !e.notes?.length && !figures.length ? annotationCards(e.text) : { prompt: bubbleText, cards: [] };
   const figureNames = new Set(figures.flatMap((figure) => [figure.name, figure.preview.split("/").pop() ?? ""]));
-  const attachmentLabels = e.label?.split(" · ").filter(label => p.editingText != null ||
-    (!isAnnotationLabel(label, annotationView.cards) && !figureNames.has(label))) ?? [];
-  const fileAttachments = e.label && !e.imageUrl && !e.notes?.length && (p.editingText != null || attachmentLabels.length) ? (
-    <div className="user-file-attachments">
-      {attachmentLabels.map((label,index) => (
-        <span className="user-file-attachment" title={label} key={`${index}:${label}`}>
-          <svg width="16" height="18" viewBox="0 0 16 18" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-            <path d="M9 1H3a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6zM9 1v5h5" />
-          </svg>
-          <span>{label}</span>
-        </span>
-      ))}
-    </div>
+  const keepLabel = (label: string) => p.editingText != null ||
+    (!isAnnotationLabel(label, annotationView.cards) && !figureNames.has(label));
+  const attachmentLabels = e.label?.split(" · ").filter(keepLabel) ?? [];
+  // Cartes « article » HORS de la bulle (2026-11-02) : `files` porte chemin
+  // et notice ; un message plus ancien n'a que les noms de `label`.
+  const fileItems = e.files?.filter((file) => keepLabel(chatFileLabel(file))) ?? attachmentLabels;
+  const fileAttachments = e.label && !e.imageUrl && !e.notes?.length && fileItems.length ? (
+    <Suspense fallback={null}><ChatFileCards items={fileItems} /></Suspense>
   ) : null;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   // Rembobiner tronque le fil et peut remettre des fichiers en arrière :
@@ -259,9 +257,9 @@ export const UserTurn = memo(function UserTurn(p: {
         </RowButton>
         );
       })}
+      {fileAttachments}
       {p.editingText != null ? (
         <div className="edit-box-shell">
-          {fileAttachments}
           <form className="edit-box" onSubmit={(ev) => { ev.preventDefault(); submitEdit(); }}>
             <div className="edit-message-body">
               <label className="sr-only" htmlFor={`edit-message-${i}`}>
@@ -309,17 +307,28 @@ export const UserTurn = memo(function UserTurn(p: {
             </div>
           </form>
         </div>
-      ) : bubbleText.trim() || (attachmentLabels.length > 0 && !e.imageUrl && !e.notes?.length) ? (
+      ) : bubbleText.trim() ? (
         <Bubble variant="secondary" align="end" className="user-bubble-shell">
           <BubbleContent className="user-bubble tw:rounded-[var(--radius-surface)]">
-            {attachmentLabels.length > 0 && fileAttachments}
             {annotationView.cards.length ? <>
               {annotationView.prompt && <div className="chat-annotation-prompt">{p.renderBubbleText(annotationView.prompt)}</div>}
               {annotationView.cards.map((annotation, index) => <AnnotationCard key={index} annotation={annotation} />)}
             </> : p.renderBubbleText(bubbleText)}
           </BubbleContent>
         </Bubble>
-      ) : null /* pièce jointe seule (figure annotée) : pas de bulle vide */}
+      ) : null /* pièces jointes seules : leurs cartes, pas de bulle vide */}
+      {p.editingText == null && e.liveContext?.name && (() => {
+        // Contexte vivant parti avec ce message : trace grise, sans le texte.
+        const where = liveContextWhere(e.liveContext);
+        return (
+          <div className="user-live-context" role="note" title={e.liveContext.path}
+            aria-label={t("live-context.trace", { name: e.liveContext.name, where })}>
+            <EyeIcon className="user-live-context-glyph" aria-hidden="true" />
+            <span className="user-live-context-name">{e.liveContext.name}</span>
+            {where && <span className="user-live-context-where">{` · ${where}`}</span>}
+          </div>
+        );
+      })()}
       {p.editingText == null && <MessageFooter className="msg-actions tw:px-0">
         {e.ts && (
           <span className="msg-time">

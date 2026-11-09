@@ -12,8 +12,17 @@ export type Usage = {
 
 // Retain messages received before the optional usage panel is first mounted.
 let latestUsage: Usage | null = null;
+const usageListeners = new Set<() => void>();
 export const readUsageSnapshot = (): Usage | null => latestUsage;
-export function writeUsageSnapshot(usage: Usage): void { latestUsage = usage; }
+export function writeUsageSnapshot(usage: Usage): void {
+  latestUsage = usage;
+  usageListeners.forEach((listener) => listener());
+}
+/** Abonnement (useSyncExternalStore) : le pied de la colonne suit le quota. */
+export function subscribeUsage(listener: () => void): () => void {
+  usageListeners.add(listener);
+  return () => { usageListeners.delete(listener); };
+}
 
 /** Pire pourcentage toutes limites confondues — pour le point sur l'icône. */
 export function worstOf(u: Usage | null): number | null {

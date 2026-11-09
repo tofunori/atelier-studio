@@ -31,6 +31,9 @@
   --surface-inset: var(--bg-ctl);
   --surface-overlay: var(--bg-pop);
   --surface-hover: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  /* survol d'une RANGÉE de liste (2026-11-09) : nettement sous la sélection
+     (--bg-ctl), pour que survol et sélection ne se confondent plus */
+  --row-hover: color-mix(in srgb, var(--text-primary) 3%, transparent);
 
   /* -- texte -------------------------------------------------------------- */
   --text-primary: var(--fg);
@@ -218,8 +221,8 @@
   --tooltip-delay: 420ms;    /* délai d'apparition (400–450), puis fade 120 */
 
   /* -- focus ---------------------------------------------------------------- */
-  --focus-ring-color: var(--accent);
-  --focus-ring-width: 1px;
+  --focus-ring-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  --focus-ring-width: 2px;
   --focus-ring-offset: 1px;
 
   /* -- élévation (menus/popovers/surfaces temporaires UNIQUEMENT) ----------- */

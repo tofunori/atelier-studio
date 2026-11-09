@@ -1,0 +1,122 @@
+/* Accueil des projets — variante A « Reprendre » (2026-11-09).
+ * Tout par tokens. Une seule couleur d'accent (l'icône de « Nouveau projet »
+ * et le point des agents en cours), boutons gris, une ligne de texte gris par
+ * information. Couvre la rangée de l'app sous la barre du haut (38 px,
+ * .topbar). Le projet mis en avant est un panneau soulevé (--panel-edge +
+ * --sheet-lift, lot #147) posé sur --bg. */
+.ph-screen {
+  position: fixed; inset: 38px 0 0 0; z-index: var(--z-popover);
+  background: var(--bg); overflow-y: auto;
+  font-family: var(--font-chrome);
+  animation: ph-in var(--motion-standard) ease-out;
+}
+.ph-screen:focus { outline: none; }
+@keyframes ph-in { from { opacity: 0; } to { opacity: 1; } }
+.ph-inner { max-width: 780px; margin: 0 auto; padding: 48px var(--sp-5) var(--sp-6); }
+
+.ph-head { display: flex; align-items: center; gap: var(--sp-2); padding-bottom: var(--sp-5); }
+.ph-head-text { min-width: 0; }
+.ph-title { margin: 0; font-size: var(--fs-title); font-weight: 600; letter-spacing: -0.01em;
+  line-height: 1.3; color: var(--text-primary); }
+.ph-sub { margin: 2px 0 0; font-size: var(--fs-body-s); line-height: 1.5; color: var(--text-muted); }
+.ph-spacer { flex: 1; }
+/* boutons gris pleins, sans contour, jamais clairs (consigne de Thierry) :
+   même traitement que le « + » de la colonne */
+.ph-screen .ui-btn--secondary.ui-btn { background: var(--ground-ctl); border-color: transparent;
+  color: var(--text-primary); box-shadow: var(--card-lift); }
+.ph-screen .ui-btn--secondary.ui-btn:hover { background: color-mix(in srgb, var(--text-primary) 6%, var(--ground-ctl)); }
+.ph-btn-ico { display: inline-flex; color: var(--text-secondary); }
+.ph-btn-ico.is-accent { color: var(--accent-text); }
+.ph-empty { margin: 0; font-size: var(--fs-body); color: var(--text-muted); }
+.ph-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--accent); flex: none; }
+.ph-num { font-variant-numeric: tabular-nums; }
+
+/* Feuille : première page du PDF compilé, ou dossier neutre. En sombre, la
+   page blanche est atténuée pour ne pas éblouir. */
+.ph-sheet {
+  aspect-ratio: 3 / 3.6; border-radius: var(--r-s); overflow: hidden;
+  background: var(--bg-pop); box-shadow: var(--elev-soft);
+  display: grid; color: var(--text-muted);
+}
+.ph-sheet img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+:root:not([data-theme="light"]) .ph-sheet img { filter: brightness(.86); }
+.ph-sheet.is-empty { place-items: center; box-shadow: none; background: var(--surface-hover); }
+.ph-sheet.is-mini { width: 20px; flex: none; border-radius: var(--r-s); }
+
+/* Projet mis en avant */
+.ph-hero {
+  display: flex; gap: var(--sp-5); padding: var(--sp-5); border-radius: var(--r-m);
+  background: var(--bg-pop); box-shadow: var(--panel-edge), var(--sheet-lift);
+}
+.ph-hero-sheet.ui-rowbtn { flex: none; width: 176px; padding: 0; border-radius: var(--r-s);
+  align-self: flex-start; transition: transform var(--motion-fast) ease; }
+.ph-hero-sheet.ui-rowbtn:hover { transform: translateY(-1px); }
+.ph-hero-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ph-eyebrow { font-size: var(--fs-label); line-height: 1.5; color: var(--text-muted); }
+.ph-hero-name { margin: 2px 0 0; font-size: var(--fs-title); font-weight: 600; letter-spacing: -0.01em;
+  line-height: 1.3; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-hero-path { margin-top: 2px; font-size: var(--fs-label); line-height: 1.5; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.ph-facts { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); margin-top: var(--sp-3);
+  font-size: var(--fs-body-s); line-height: 1.5; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ph-facts > span { display: inline-flex; align-items: center; gap: 6px; }
+.ph-facts svg { flex: none; }
+.ph-chats { display: flex; flex-direction: column; margin-top: var(--sp-4); }
+.ph-cap { font-size: var(--fs-label); line-height: 1.5; color: var(--text-muted); }
+.ph-chats .ph-cap { margin-bottom: var(--sp-1); }
+.ph-chat.ui-rowbtn {
+  display: flex; align-items: center; gap: var(--sp-2); height: 28px; margin: 0 calc(-1 * var(--sp-2));
+  padding: 0 var(--sp-2); border-radius: var(--r-s); text-align: left;
+  font-size: var(--fs-body-s); color: var(--text-secondary);
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+.ph-chat.ui-rowbtn:hover, .ph-chat.ui-rowbtn:focus-visible { background: var(--row-hover); color: var(--text-primary); }
+.ph-chat-ico { display: inline-flex; color: var(--text-muted); flex: none; }
+.ph-chat-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-chat-when { margin-left: auto; flex: none; padding-left: var(--sp-3); font-size: var(--fs-label);
+  color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ph-hero-actions { display: flex; align-items: center; gap: var(--sp-2); margin-top: auto; padding-top: var(--sp-4); }
+.ph-hero-actions .ph-quiet.ui-btn { color: var(--text-muted); }
+.ph-hero-actions .ph-quiet.ui-btn:hover { color: var(--text-primary); }
+
+.ph-kbd {
+  flex: none; min-width: 20px; padding: 0 var(--sp-1); border-radius: var(--r-s); text-align: center;
+  font-size: var(--fs-caption); line-height: 16px; color: var(--text-muted);
+  background: var(--bg-ctl); font-variant-numeric: tabular-nums;
+  opacity: 0; transition: opacity var(--motion-fast) ease;
+}
+.ph-kbd:empty { visibility: hidden; }
+.ph-kbd.is-shown, .ph-row.ui-rowbtn:hover .ph-kbd, .ph-row.ui-rowbtn:focus-visible .ph-kbd { opacity: 1; }
+
+/* Autres projets : liste compacte, toujours visible */
+.ph-list-cap { display: flex; align-items: center; gap: 6px; padding: var(--sp-6) var(--sp-2) var(--sp-1); }
+.ph-list { display: flex; flex-direction: column; padding-bottom: var(--sp-4); }
+.ph-row.ui-rowbtn {
+  display: flex; align-items: center; gap: var(--sp-3); height: 40px; padding: 0 var(--sp-2);
+  border-radius: var(--r-s); text-align: left; transition: background-color var(--motion-fast) ease;
+}
+.ph-row.ui-rowbtn:hover, .ph-row.ui-rowbtn:focus-visible { background: var(--row-hover); }
+.ph-row-name { flex: none; max-width: 40%; font-size: var(--fs-body); font-weight: 500; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-row-detail { flex: 1; min-width: 0; font-size: var(--fs-body-s); color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.ph-row-when { flex: none; font-size: var(--fs-body-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  .ph-hero { flex-direction: column; }
+  .ph-hero-sheet.ui-rowbtn { width: 140px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ph-screen { animation: none; }
+  .ph-hero-sheet.ui-rowbtn { transition: none; }
+  .ph-hero-sheet.ui-rowbtn:hover { transform: none; }
+}
+
+/* Boîte « Nouveau projet » */
+.ph-fields { gap: var(--sp-2); }
+.ph-fields [data-slot="field-label"] { flex: 0 0 88px; font-size: var(--fs-body-s); color: var(--text-muted); font-weight: 400; }
+.ph-dialog-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-4); }
+
+@media (prefers-reduced-motion: reduce) { .ph-screen { animation: none; } }
+.ph-dialog { width: min(440px, 100%); padding: var(--sp-5); }
+.ph-dialog > .ui-close.ui-iconbtn { position: absolute; top: var(--sp-3); right: var(--sp-3); }

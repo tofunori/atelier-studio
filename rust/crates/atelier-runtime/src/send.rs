@@ -261,6 +261,23 @@ reads its state when the user asks.\n</atelier-compute>"
     )
 }
 
+/// Passage révisé (2026-11-01) : l'agent qui propose une nouvelle version
+/// d'un passage mettait lui-même les ajouts en gras ; le retiré disparaissait
+/// et le LaTeX restait brut. Il envoie maintenant les deux versions dans un
+/// bloc ```revision et le chat calcule le diff mot à mot (RevisionBlock.tsx).
+/// Consigne de format pure : tous les providers.
+fn with_revision_instruction(prompt: String) -> String {
+    format!(
+        "{prompt}\n\n<atelier-revision>\nWhen you propose a new version of an existing passage of the \
+user's text (a sentence or paragraph of a .tex, .md or .docx, or text they pasted), do not mark the \
+changes yourself: no bold, italics or strike-through for what changed. Put the passage in a fenced \
+block with the language `revision`: a line `--- avant`, the passage exactly as it is now (verbatim, \
+LaTeX included), then a line `+++ après`, your new version. The chat shows the differences word by \
+word and copies the new version for the user. One block per passage; keep explanations outside the \
+block. Text with no previous version is written normally.\n</atelier-revision>"
+    )
+}
+
 /// Documents Word : un agent qui dézippe et réécrit un .docx lui-même casse
 /// les suivis, les commentaires et les citations Zotero. La consigne n'est
 /// ajoutée qu'aux tours qui parlent d'un .docx (le panneau .docx cite son
@@ -781,7 +798,7 @@ fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
             } else {
                 "Exécution de commande"
             },
-            "detail": detail.chars().take(400).collect::<String>(),
+            "detail": detail.chars().take(2000).collect::<String>(),
             "itemId": params.get("itemId").cloned().unwrap_or(Value::Null),
         }));
     }
@@ -1506,6 +1523,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let p = with_zotero_passage_instruction(p, state.server_dir());
         let p = with_figure_qc_instruction(p, state.server_dir());
         let p = with_widget_tool_instruction(p, &provider);
+        let p = with_revision_instruction(p);
         with_compute_instruction(p, &provider)
     };
     let provider_prompt = with_docx_instruction(provider_prompt, &provider);
@@ -1616,6 +1634,17 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         provider_prompt
     };
 
+    // Contexte vivant : ce que l'utilisateur regarde en envoyant. Repart à
+    // chaque tour (il change d'un message à l'autre) ; jamais pour un
+    // message d'agent lié.
+    let live_context = (msg.get("origin").and_then(Value::as_str) != Some("agent_link"))
+        .then(|| msg.get("liveContext"))
+        .flatten();
+    let provider_prompt = match crate::live_context::block(live_context, &project_root) {
+        Some(bloc) => format!("{provider_prompt}{bloc}"),
+        None => provider_prompt,
+    };
+
     let inputs = enrich_structured_inputs(inputs, &prompt, &provider_prompt);
 
     // Provider change while running: refuse
@@ -1695,6 +1724,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     // Server-authored snapshot: never accept a client's claim of delivery.
     if !origin_agent {
         user_event["context"] = context_receipt;
+        if let Some(trace) = crate::live_context::trace(live_context) {
+            user_event["liveContext"] = trace;
+        }
     }
     // Channel for provider → harness (async-safe; avoids try_lock races).
     // Bound the dedicated persistence workers and their aggregate queue budget.
@@ -2993,6 +3025,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn contexte_vivant_laisse_une_trace_sans_texte_sur_le_message() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        )
+        .with_test_provider("fake");
+        let msg = json!({
+            "type": "send",
+            "threadId": "t-live",
+            "provider": "fake",
+            "prompt": "Ce passage est-il clair ?",
+            "projectRoot": dir.path().to_string_lossy(),
+            "liveContext": {"path": "/these/chapitre1.tex", "name": "chapitre1.tex",
+                "kind": "tex", "lineFrom": 23, "lineTo": 25, "selection": "texte privé"},
+        });
+        handle_send(&state, &msg).await;
+        let events = state.journal().materialize("t-live");
+        let user = events
+            .iter()
+            .find(|e| e["kind"] == "user" && e["text"] == "Ce passage est-il clair ?")
+            .expect("message utilisateur journalisé");
+        assert_eq!(
+            user["liveContext"],
+            json!({"path": "/these/chapitre1.tex", "name": "chapitre1.tex", "lineFrom": 23, "lineTo": 25})
+        );
+        assert!(!user.to_string().contains("texte privé"));
+    }
+
+    #[tokio::test]
     async fn interrupt_arrete_le_tour_en_cours() {
         // Régression : « je clique sur stop, rien ne s'arrête », tous providers
         // confondus. Le chemin complet (handle_send → set_running → watcher
@@ -3865,6 +3931,15 @@ mod tests {
     }
 
     #[test]
+    fn revision_instruction_asks_for_both_versions_in_a_revision_block() {
+        let enriched = with_revision_instruction("révise ce paragraphe".into());
+        assert!(enriched.starts_with("révise ce paragraphe"));
+        assert!(enriched.contains("language `revision`"));
+        assert!(enriched.contains("`--- avant`") && enriched.contains("`+++ après`"));
+        assert!(enriched.contains("no bold"));
+    }
+
+    #[test]
     fn figure_qc_instruction_impose_le_render_then_verify() {
         let enriched = with_figure_qc_instruction(
             "trace la tendance d'albedo".into(),
@@ -4183,7 +4258,7 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(spec["detail"].as_str().unwrap().chars().count(), 400);
+        assert_eq!(spec["detail"].as_str().unwrap().chars().count(), 2000);
         assert_eq!(spec["title"], "Exécution de commande");
     }
 

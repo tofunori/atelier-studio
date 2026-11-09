@@ -111,7 +111,7 @@ describe("AtelierPane — chrome du pane (plan 057)", () => {
   it("document actif : pas de rechargement galerie, mais le menu du pane", () => {
     const { container } = pane({ tabs: [PDF_TAB], activeTab: "t1" });
     expect(screen.queryByRole("button", { name: "Recharger (relance le serveur si mort)" })).toBeNull();
-    expect(container.querySelector(".workspace-pane-menu-slot .workspace-pane-controls")).toBeInTheDocument();
+    expect(document.querySelector("[data-pane-controls=\"anchor\"]")).toBeInTheDocument();
     expect(container.querySelector(".modular-workspace .workspace-pane-controls")).toBeNull();
   });
 });

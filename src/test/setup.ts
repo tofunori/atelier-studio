@@ -84,3 +84,11 @@ HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
   }
   return jsdomRect.call(this);
 };
+
+// Écran d'ouverture des projets : affiché une fois par lancement de l'app.
+// Les tests d'App démarrent « déjà lancés » ; ceux de l'écran le montent
+// directement (components/ProjectsHome.test.tsx).
+import { beforeEach as projectsHomeBeforeEach } from "vitest";
+projectsHomeBeforeEach(() => {
+  try { sessionStorage.setItem("atelier-studio.projectsHomeShown", "1"); } catch { /* jsdom absent */ }
+});

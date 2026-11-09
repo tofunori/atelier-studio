@@ -12,3 +12,9 @@
 .project-folders-help .project-folders-note{margin-top: 8px}
 /* pas de gras navigateur (700) : titres et noms au poids 500 du système (SET-07) */
 .project-folders-heading h3, .project-folder-content strong { font-weight: 500; }
+/* carte du projet (écran d'ouverture) : revue et échéance */
+.project-card-fields { gap: 8px; }
+.project-card-fields [data-slot=field-label] { flex: 0 0 88px; font-size: var(--fs-body-s, 12px); font-weight: 400; color: var(--muted); }
+.project-card-fields input[type=date] { max-width: 160px; }
+.project-due-row { display: flex; align-items: center; gap: 8px; }
+.project-due-row > [data-slot=field] { flex: 0 0 auto; width: auto; }

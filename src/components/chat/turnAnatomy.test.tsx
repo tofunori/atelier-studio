@@ -314,10 +314,10 @@ describe("anatomie du tour — header d'activité", () => {
     // v2 : la série active porte « synthèse · statut vivant » sur une ligne.
     const ligne = document.querySelector(".timeline-virtual-row .activity-cluster .ui-activity") as HTMLElement;
     expect(ligne).toBeTruthy();
-    expect(ligne.querySelector(".activity-cluster-summary")?.textContent?.toLowerCase()).toContain("bayes_region_c.py");
-    // L'outil terminé n'est pas remis « en cours » : le reflet reste sur le
-    // seul statut vivant, jamais sur la synthèse ni sur la rangée.
-    expect(ligne.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    // Variante B : la phrase vivante seule porte le reflet ; la synthèse revient
+    // une fois l'étape posée, et l'outil terminé n'est pas remis « en cours ».
+    expect(ligne.querySelector(".activity-cluster-summary")).toBeNull();
+    expect(ligne.querySelector(".ui-activity-label.is-shimmering .activity-live-label")).toBeTruthy();
     fireEvent.click(ligne.querySelector(".ui-activity-trigger") as HTMLButtonElement);
     expect(document.querySelector(".activity-action-list .tool-output.failed")).toBeNull();
     expect(document.querySelector(".activity-action-list .is-shimmering")).toBeNull();
@@ -450,7 +450,9 @@ describe("anatomie du tour — header d'activité", () => {
       // à côté du bouton Arrêter) mais l'anneau de la colonne d'état.
       expect(row?.querySelector(".ui-activity-icon")).toBeTruthy();
       expect(row?.querySelector(".ui-activity-meta .turn-activity-elapsed")).toBeNull();
-      expect(row?.querySelector(".ui-activity-state .tool-run-ring")).toBeTruthy();
+      // Variante B : le libellé balaie à la place de l'anneau.
+      expect(row?.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
+      expect(row?.querySelector(".ui-activity-state .tool-run-ring")).toBeNull();
       expect(document.querySelector(".composer-turn-clock")?.textContent).toMatch(/\d+ s|\d+ min/);
     } finally { vi.useRealTimers(); }
   });
@@ -832,7 +834,7 @@ describe("anatomie du tour — header d'activité", () => {
     expect(etape.querySelector(".activity-action-list [data-activity-icon='read']")).toBeTruthy();
     const vivante = etape.querySelector(".ui-activity") as HTMLElement;
     expect(vivante.querySelector(".ui-activity-icon[data-activity-icon='command']")).toBeTruthy();
-    expect(vivante.querySelector(".ui-activity-label.is-shimmering")).toBeNull();
+    expect(vivante.querySelector(".ui-activity-label.is-shimmering")).toBeTruthy();
     fireEvent.click(vivante.querySelector(".ui-activity-trigger") as HTMLButtonElement);
     const command = vivante.querySelector(".activity-action-list [data-activity-icon='command']")?.closest(".tool-output");
     expect(command?.querySelector(".tool-output-name")?.textContent).toContain("Commande exécutée");
@@ -1119,17 +1121,49 @@ describe("anatomie du tour — header d'activité", () => {
 });
 
 describe("figure annotée envoyée depuis la galerie", () => {
-  it("garde les fichiers dans la bulle et les affiche encore pendant la modification", () => {
+  // 2026-11-02 : les fichiers sortent de la bulle, en cartes « article ».
+  it("met les fichiers en cartes au-dessus de la bulle et les garde pendant la modification", async () => {
     renderUi(<Chat {...chatProps({events:[{kind:"user",text:"Relis ceci",label:"results_en.tex · methods_en.tex",ts:FIXED_TS}] as AgentEvent[]})} />);
-    const attachments = document.querySelectorAll(".user-bubble .user-file-attachment");
-    expect([...attachments].map(el=>el.textContent)).toEqual(["results_en.tex","methods_en.tex"]);
+    await waitFor(() => expect(document.querySelectorAll(".user-wrap .user-file-attachment")).toHaveLength(2));
+    const titles = document.querySelectorAll(".user-wrap .user-file-attachment .file-card-title");
+    expect([...titles].map(el=>el.textContent)).toEqual(["results_en.tex","methods_en.tex"]);
+    expect(document.querySelectorAll(".user-wrap .file-card-tag")[0]?.textContent).toBe("TEX");
+    expect(document.querySelector(".user-bubble .user-file-attachment")).toBeNull();
+    expect(document.querySelector(".user-bubble")?.textContent).toBe("Relis ceci");
     expect(document.querySelector(".user-label")).toBeNull();
     fireEvent.click(screen.getByRole("button",{name:t("action.edit-resend")}));
-    expect(document.querySelectorAll(".edit-box-shell .user-file-attachment")).toHaveLength(2);
+    expect(document.querySelectorAll(".user-wrap .user-file-attachment")).toHaveLength(2);
+    expect(document.querySelector(".edit-box-shell")).toBeTruthy();
   });
-  it("affiche un fichier envoyé sans texte dans sa propre bulle", () => {
+  it("affiche un fichier envoyé sans texte en carte seule, sans bulle vide", async () => {
     renderUi(<Chat {...chatProps({events:[{kind:"user",text:"",label:"results_en.tex",ts:FIXED_TS}] as AgentEvent[]})} />);
-    expect(document.querySelector(".user-bubble .user-file-attachment")?.textContent).toBe("results_en.tex");
+    await waitFor(() => expect(document.querySelector(".user-file-attachment .file-card-title")?.textContent).toBe("results_en.tex"));
+    expect(document.querySelector(".user-bubble")).toBeNull();
+  });
+  it("une carte de PDF montre titre, revue et pages, et ouvre le fichier", async () => {
+    const { receiveFileCards, resetFileCards } = await import("../../lib/chatFileCards");
+    resetFileCards();
+    receiveFileCards([{ path: "/u/Downloads/s41561.pdf", size: 3_100_000, pages: 14,
+      title: "Wildfire smoke darkens glacier ice", journal: "Nature Geoscience", year: "2026" }]);
+    renderUi(<Chat {...chatProps({events:[{kind:"user",text:"",label:"s41561.pdf",ts:FIXED_TS,
+      files:[{name:"s41561.pdf",path:"/u/Downloads/s41561.pdf",kind:"file"}]}] as AgentEvent[]})} />);
+    await waitFor(() => expect(document.querySelector(".file-card-title")?.textContent).toBe("Wildfire smoke darkens glacier ice"));
+    expect(document.querySelector(".file-card-meta")?.textContent).toBe(`Nature Geoscience·2026·${t("chat.file-pages", { n: 14 })}`);
+    const opened = vi.fn();
+    window.addEventListener("chat-open-file", opened, { once: true });
+    fireEvent.click(document.querySelector(".file-card.is-openable") as HTMLButtonElement);
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toMatchObject({ rel: "/u/Downloads/s41561.pdf", line: null });
+    resetFileCards();
+  });
+  it("sans titre connu, la carte montre le nom, le type et la taille", async () => {
+    const { receiveFileCards, resetFileCards } = await import("../../lib/chatFileCards");
+    resetFileCards();
+    receiveFileCards([{ path: "/u/data/obs.csv", size: 24_000 }]);
+    renderUi(<Chat {...chatProps({events:[{kind:"user",text:"",label:"obs.csv",ts:FIXED_TS,
+      files:[{name:"obs.csv",path:"/u/data/obs.csv",kind:"file"}]}] as AgentEvent[]})} />);
+    await waitFor(() => expect(document.querySelector(".file-card-title")?.textContent).toBe("obs.csv"));
+    expect(document.querySelector(".file-card-meta")?.textContent).toMatch(/^CSV·24\s?(kB|ko)$/);
+    resetFileCards();
   });
   // 2026-09-04 : le fil n'affichait que le nom du fichier généré (horodaté)
   // au-dessus d'une bulle vide — vignette absente, notes jamais rendues.

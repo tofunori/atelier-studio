@@ -21,7 +21,6 @@ let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
 let __reloadPdf: () => void = null;  // posé par main() — rechargement en place après compile LaTeX
-
 // ---- pipeline de rendu : plafond de densité, priorités, annulation --------
 // Au-delà de 2x le gain visuel est nul alors que le canvas (mémoire ET temps
 // de peinture) grandit comme le CARRÉ du facteur : un écran à devicePixelRatio
@@ -1427,6 +1426,13 @@ const annPane = (function(){
     }
     if (isEditing(a, relX)) {
       body.appendChild(memoEditor(a, relX));
+    } else if (a.memo && a.kind !== "note" && a.kind !== "text" && isAgentAnnot(a)) {
+      // la note de l'agent se lit ici et se discute dans la fiche, sur la page
+      const m = document.createElement("div");
+      m.className = "memo is-agent";
+      m.innerHTML = AGENT_ICON;
+      m.appendChild(document.createTextNode(agentName(a) + " : " + a.memo));
+      body.appendChild(m);
     } else if (a.memo && a.kind !== "note" && a.kind !== "text") {
       const m = document.createElement("div");
       m.className = "memo";
@@ -2760,11 +2766,11 @@ function drawAnnots(pgDiv: Element, n: number){
       const rc = a.rects[a.rects.length - 1];
       const pin = document.createElement("button");
       pin.type = "button";
-      pin.className = "pdfmemo";
+      pin.className = "pdfmemo" + (isAgentAnnot(a) ? " is-agent" : "");
       pin.dataset.aid = String(a.id);
-      pin.title = a.memo;
-      pin.setAttribute("aria-label", "Note : " + a.memo);
-      pin.innerHTML = MEMO_ICON;
+      pin.title = isAgentAnnot(a) ? agentName(a) + " : " + a.memo : a.memo;
+      pin.setAttribute("aria-label", (isAgentAnnot(a) ? "Note de " + agentName(a) : "Note") + " : " + a.memo);
+      pin.innerHTML = isAgentAnnot(a) ? AGENT_ICON : MEMO_ICON;
       pin.style.left = ((rc[0] + rc[2]) * 100) + "%";
       pin.style.top = ((rc[1] + rc[3] / 2) * 100) + "%";
       pin.onclick = (e) => { e.stopPropagation(); annotMenu(a, e.clientX, e.clientY); };
@@ -2810,6 +2816,48 @@ function drawAnnots(pgDiv: Element, n: number){
 }
 // crayon de la note personnelle (pastille sur la page, rangée du panneau)
 const MEMO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
+// ---- notes posées par l'agent (outil atelier_annotate, ou Claude Desktop) ----
+// Sa note est dans `memo`, signée `author` ; Thierry lui répond dans le fil
+// (`thread`), qui part aussi au chat. Il la garde comme sienne ou la retire.
+const AGENT_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="10" height="8" rx="2"/><path d="M8 2.5v2M6 8.2v.6M10 8.2v.6"/></svg>';
+function isAgentAnnot(a){ return !!a && (a.by === "agent" || a.by === "claude"); }
+function agentName(a){ return (a && a.author) || "Claude"; }
+function agentThreadEl(a){
+  const box = document.createElement("div");
+  box.className = "atelier-agent-body";
+  const note = document.createElement("div");
+  note.className = "atelier-agent-note";
+  note.textContent = a.memo || "";
+  if (a.memo) box.appendChild(note);
+  for (const m of (Array.isArray(a.thread) ? a.thread : [])) {
+    const row = document.createElement("div");
+    row.className = "atelier-agent-msg" + (m.by === "user" ? " is-mine" : "");
+    const who = document.createElement("div");
+    who.className = "atelier-agent-who";
+    if (m.by === "user") who.textContent = "Toi";
+    else { who.innerHTML = AGENT_ICON; who.appendChild(document.createTextNode(m.author || agentName(a))); }
+    const text = document.createElement("div");
+    text.className = "atelier-agent-text";
+    text.textContent = m.text || "";
+    row.append(who, text);
+    box.appendChild(row);
+  }
+  const last = Array.isArray(a.thread) ? a.thread[a.thread.length - 1] : null;
+  if (last && last.by === "user") {
+    const wait = document.createElement("div");
+    wait.className = "atelier-agent-wait";
+    wait.textContent = agentName(a) + " lit ta réponse…";
+    box.appendChild(wait);
+  }
+  return box;
+}
+function agentReplyMessage(a, words: string){
+  const file = String(rel || "").split("/").pop();
+  return "Réponse sur ta note [" + a.id + "] dans " + file + " (p. " + a.page + ") : " + words + "\n\n"
+    + "Passage : « " + (a.text || "") + " »\nTa note : " + (a.memo || "") + "\n\n"
+    + "Réponds sous la note avec l'outil atelier_annotate, action reply (path « " + (__passageParams.get("texpdf") || rel) + " », id « " + a.id + " »). "
+    + "Ne modifie pas le fichier.";
+}
 // Même ordre et mêmes teintes que `pdfAnnotationColors` (annotation_ui.ts)
 // et que le MCP atelier-annotations (`COLORS` de highlight.rs).
 const HL_COLORS = ["rgba(255,213,74,.40)","rgba(120,220,140,.40)","rgba(120,170,255,.40)","rgba(255,140,160,.40)","rgba(255,160,80,.40)","rgba(185,150,255,.40)"];
@@ -3265,11 +3313,19 @@ function dragPlaced(e: MouseEvent, a, el: HTMLElement){
   if (!pg) return;
   e.preventDefault();   // pas de sélection de texte pendant le glissé
   const x0 = e.clientX, y0 = e.clientY, from = a.pin.slice();
+  // Une resynchro du store (veille toutes les 2,5 s) peut redessiner la page
+  // pendant le glissé : on suit alors l'élément redessiné, sinon le glissé
+  // continue sur un nœud détaché et la marque reste figée à l'écran.
+  const cls = el.classList[0], aid = CSS.escape(String(a.id));
+  const live = () => {
+    if (!el.isConnected) el = pg.querySelector<HTMLElement>("." + cls + '[data-aid="' + aid + '"]') || el;
+    return el;
+  };
   let moved = false;
   const move = (ev: MouseEvent) => {
     if (!moved && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) < 4) return;
     moved = true;
-    el.classList.add("moving");
+    live().classList.add("moving");
     const pr = pg.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, from[0] + (ev.clientX - x0) / pr.width));
     const y = Math.max(0, Math.min(1, from[1] + (ev.clientY - y0) / pr.height));
@@ -3279,7 +3335,7 @@ function dragPlaced(e: MouseEvent, a, el: HTMLElement){
   const up = () => {
     document.removeEventListener("mousemove", move);
     document.removeEventListener("mouseup", up, true);
-    el.classList.remove("moving");
+    live().classList.remove("moving");
     if (!moved) return;
     swallowClick = true;   // le relâché n'ouvre pas la bulle
     if (a.kind === "stamp") a.text = lineTextNear(pageLines(pg), a.pin[0], a.pin[1], a.style === "pastille");
@@ -3749,6 +3805,7 @@ function annotHeading(a){
     ? "Annotation " + (a.number || PDF_ANNOTS.filter(item => item.kind === "comment").indexOf(a) + 1)
     : a.kind === "stamp" && window.AtelierPdfTools ? "Tampon · " + window.AtelierPdfTools.stampById(a.stamp).label
     : titles[a.kind] || "Surlignage";
+  if (isAgentAnnot(a)) return {title: agentName(a), meta: title + (a.page ? " · p. " + a.page : "")};
   return {title, meta: a.page ? "p. " + a.page : ""};
 }
 // ---- codage qualitatif : menu des codes, rangée « Codes », bandes de marge ----
@@ -4045,7 +4102,8 @@ async function annotMenu(a, x: number, y: number){
   // Une note libre (kind "note") EST déjà une note : pas de second champ.
   // Ailleurs, « Note » garde un texte avec le passage sans jamais l'envoyer
   // au chat ; le champ du bas reste celui du chat.
-  const withMemo = a.kind !== "note";
+  const agent = isAgentAnnot(a);
+  const withMemo = a.kind !== "note" && !agent;
   // Surlignage, soulignement ou barré : la bulle permet d'en changer le style
   // et la teinte, enregistrés tout de suite (comme dans Zotero).
   const withMark = a.kind === "hl" || a.kind === "ul" || a.kind === "st";
@@ -4054,7 +4112,7 @@ async function annotMenu(a, x: number, y: number){
   const personal = a.kind === "note";
   const noteUI = AtelierAnnotationUI.createNoteEditor(annotPop, {value:a.note || "", onSubmit(){}, onDelete(){},
     heading:annotHeading(a),
-    onSendDirect(){void editor.commit(true, "force", true);},
+    ...(agent ? {placeholder:"Répondre à " + agentName(a) + "…", submitLabel:"Répondre"} : {onSendDirect(){void editor.commit(true, "force", true);}}),
     ...(withMemo ? {memo:{value:a.memo || ""}, placeholder:"Demander au chat…"} : {}),
     ...(withMark ? {mark:{kind:a.kind, color:normalizeHighlightColor(a.color || HL_COLORS[0]),
       colors:AtelierAnnotationUI.pdfAnnotationColors, onChange(kind, color){
@@ -4064,6 +4122,17 @@ async function annotMenu(a, x: number, y: number){
       }}} : {})});
   // Codes du passage, sous le style du marquage et avant la note
   if(codable(a)) (annotPop.querySelector(".atelier-memo") || annotPop.querySelector(".atelier-note-row")).before(codesRow(a));
+  if(agent){
+    annotPop.classList.add("is-agent");
+    const title = annotPop.querySelector<HTMLElement>(".atelier-note-title");
+    if(title) title.insertAdjacentHTML("afterbegin", AGENT_ICON);
+    annotPop.querySelector(".atelier-note-row").before(agentThreadEl(a));
+    const acts = document.createElement("div");
+    acts.className = "atelier-agent-acts";
+    acts.innerHTML = '<button type="button" class="atelier-agent-keep">Garder comme ma note</button>'
+      + '<button type="button" class="atelier-agent-drop">Retirer</button>';
+    annotPop.querySelector(".atelier-note-row").before(acts);
+  } else annotPop.classList.remove("is-agent");
   const inp = annotPop.querySelector<HTMLTextAreaElement>("textarea.atelier-note-input");
   const memoInp = annotPop.querySelector<HTMLTextAreaElement>("textarea.atelier-memo-input");
   inp.value = a.note || "";
@@ -4156,6 +4225,77 @@ async function annotMenu(a, x: number, y: number){
     send2.title = "Ajouter la note au brouillon du chat"; send2.setAttribute("aria-label", send2.title);
   }
   annotPop.querySelector<HTMLElement>(".send2").onclick = () => editor.commit(true, "force");
+  if(agent) {
+    // La fiche d'une note de l'agent n'envoie rien d'autre que les réponses :
+    // fermer la fiche ne touche à rien.
+    editor.commit = async (close) => {
+      if(close && annotationEditor === editor) { annotPop.style.display = "none"; annotationEditor = null; }
+      return true;
+    };
+    const replyToAgent = async () => {
+      const words = inp.value.trim();
+      if(!words || saving) return;
+      saving = true;
+      const now = Date.now();
+      const message = {id: "m" + now, by: "user", author: "Toi", text: words, at: now};
+      a.thread = [...(Array.isArray(a.thread) ? a.thread : []), message];
+      inp.value = ""; fitNote();
+      status.textContent = "Envoi…";
+      const saved = await saveAnnots();
+      saving = false;
+      if(!saved) {
+        a.thread = a.thread.filter(m => m !== message);
+        inp.value = words; fitNote();
+        status.textContent = "Réponse non enregistrée. Réessaie : elle reste ici.";
+        return;
+      }
+      annotPop.querySelector(".atelier-agent-body")?.replaceWith(agentThreadEl(a));
+      try {
+        await attachPdfChatPayload({type: "atelier-add-to-chat", text: agentReplyMessage(a, words), direct: true});
+        status.textContent = "Réponse envoyée à " + agentName(a);
+      } catch(error) {
+        status.textContent = "Réponse gardée ici, mais envoi au chat impossible : " + String(error && error.message || error).slice(0, 80);
+      }
+      annPane.refresh();
+      fitNote();
+    };
+    inp.onkeydown = (e) => {
+      e.stopPropagation();
+      if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void replyToAgent(); }
+      if(e.key === "Escape") { e.preventDefault(); void editor.commit(true); }
+    };
+    annotPop.querySelector<HTMLElement>(".send2").onclick = () => { void replyToAgent(); };
+    // Garder : la note devient celle de Thierry (son texte reste dans `memo`).
+    annotPop.querySelector<HTMLElement>(".atelier-agent-keep").onclick = async () => {
+      if(saving) return;
+      saving = true;
+      const before = {by: a.by, author: a.author};
+      delete a.by; delete a.author;
+      const saved = await saveAnnots();
+      saving = false;
+      if(!saved) { Object.assign(a, before); status.textContent = "Non enregistré. Réessaie."; return; }
+      redrawAllAnnots();
+      annotPop.style.display = "none"; annotationEditor = null;
+      notify("Note gardée");
+    };
+    // Retirer : la note, et ses morceaux sur les pages suivantes.
+    annotPop.querySelector<HTMLElement>(".atelier-agent-drop").onclick = async () => {
+      if(saving) return;
+      const id = String(a.id), cut = id.lastIndexOf("p");
+      const group = cut > 0 ? id.slice(0, cut + 1) : id;
+      const parts = PDF_ANNOTS.filter(x => isAgentAnnot(x) && (String(x.id) === id || (cut > 0 && String(x.id).startsWith(group))));
+      // un seul enregistrement pour tous les morceaux : tout part, ou rien
+      const ids = new Set(parts.map(x => String(x.id)));
+      const before = PDF_ANNOTS;
+      saving = true;
+      PDF_ANNOTS = PDF_ANNOTS.filter(x => !ids.has(String(x.id)));
+      const saved = await saveAnnots();
+      saving = false;
+      if(!saved) { PDF_ANNOTS = before; annPane.refresh(); status.textContent = "Non retiré. Réessaie."; return; }
+      redrawAllAnnots();
+      annotPop.style.display = "none"; annotationEditor = null;
+    };
+  }
   annotPop.querySelector<HTMLElement>(".delete-note").onclick = async () => {
     if(saving) return;
     saving = true;
@@ -4359,12 +4499,37 @@ if (window.self !== window.top) {
     }
     return best;
   }
+  // « Le chat sait ce que tu regardes » : fichier, page courante / total et
+  // sélection, postés à l'hôte quand ils changent. `file` est relatif à la
+  // racine du serveur galerie : GET /ping la donne (`project`) pour un chemin
+  // absolu ; `texpdf` (onglet PDF d'un studio LaTeX) l'est déjà.
+  const core = window.AtelierStudioCore;
+  let liveRoot: string | null = null, liveRootKnown = false;
+  const livePdf = core?.createLiveContextPublisher ? core.createLiveContextPublisher({
+    build: () => {
+      if (!liveRootKnown) return null;
+      const total = pageEls().length;
+      return core.buildPdfLiveContext({
+        path: core.resolvePdfLivePath({file: rel, projectRoot: liveRoot, texPdf: __passageParams.get("texpdf")}),
+        page: total ? currentPage() : undefined,
+        pageCount: total || undefined,
+      });
+    },
+    postToHost: (payload) => __atelierPost(payload),
+    timers: window,
+  }) : null;
+  if (livePdf) {
+    core.onTabActivated(window, () => { if (liveRootKnown) livePdf.repost(); });
+    const settle = (root: unknown) => { liveRoot = typeof root === "string" ? root : null; liveRootKnown = true; livePdf.schedule(); };
+    fetch("/ping").then(r => r.ok ? r.json() : null).then(j => settle(j && j.project), () => settle(null));
+  }
   let pageRaf = 0;
   function updatePageNav(){
     pageRaf = 0;
     const total = pageEls().length;
     pgTotalN.textContent = String(total || "–");
     pgCurN.textContent = String(total ? currentPage() : "–");
+    livePdf?.schedule();
   }
   function schedulePageNav(){ if (!pageRaf) pageRaf = requestAnimationFrame(updatePageNav); }
   function gotoPage(n: string|number){

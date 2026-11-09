@@ -7,6 +7,7 @@ import {
   findTabPaneId,
   listWorkspacePanes,
   loadWorkspaceLayout,
+  moveWorkspaceTab,
   parseWorkspaceLayout,
   placeWorkspaceTab,
   reconcileWorkspaceLayout,
@@ -81,6 +82,35 @@ describe("workspaceLayout", () => {
     expect(split.root.type === "split" ? split.root.direction : null).toBe(direction);
     expect(listWorkspacePanes(split.root)).toHaveLength(2);
     expect(findTabPaneId(split.root, "document:a")).not.toBe(findTabPaneId(split.root, "document:b"));
+  });
+
+  it("réordonne un onglet dans son pane sans changer l'onglet actif", () => {
+    const makeId = ids();
+    const initial = createWorkspaceLayout(["a", "b", "c"], "b", makeId);
+    const order = (layout: WorkspaceLayout) => listWorkspacePanes(layout.root)[0].tabs.map(workspaceTabId);
+
+    const after = moveWorkspaceTab(initial, { kind: "document", tabId: "a" }, "document:c", "after");
+    expect(order(after)).toEqual(["surface:atelier", "document:b", "document:c", "document:a"]);
+    expect(listWorkspacePanes(after.root)[0].activeTabId).toBe("document:b");
+
+    const before = moveWorkspaceTab(after, { kind: "document", tabId: "a" }, "document:b", "before");
+    expect(order(before)).toEqual(["surface:atelier", "document:a", "document:b", "document:c"]);
+    // déjà à sa place, ou contre lui-même : la mise en page reste la même
+    expect(moveWorkspaceTab(before, { kind: "document", tabId: "a" }, "document:b", "before")).toBe(before);
+    expect(moveWorkspaceTab(before, { kind: "document", tabId: "a" }, "document:a", "after")).toBe(before);
+  });
+
+  it("range dans la bande un onglet venu d'un autre pane et referme ce pane vide", () => {
+    const makeId = ids();
+    const initial = createWorkspaceLayout(["a", "b"], "a", makeId);
+    const split = placeWorkspaceTab(initial, { kind: "document", tabId: "a" }, initial.focusedPaneId, "right", makeId);
+    const moved = moveWorkspaceTab(split, { kind: "document", tabId: "a" }, "document:b", "before");
+
+    const panes = listWorkspacePanes(moved.root);
+    expect(panes).toHaveLength(1);
+    expect(panes[0].tabs.map(workspaceTabId)).toEqual(["surface:atelier", "document:a", "document:b"]);
+    expect(panes[0].activeTabId).toBe("document:a");
+    expect(moved.focusedPaneId).toBe(panes[0].id);
   });
 
   it("déplace un onglet au centre et collapse son ancien pane vide", () => {

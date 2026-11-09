@@ -483,12 +483,15 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     expect(loops.sort()).toEqual([
       ".turn-working-shimmer",
       ".ui-activity-label.is-shimmering .tool-ticker-row, .ui-activity-label.is-shimmering:not(:has(.tool-ticker))",
-      // anneau d'une action en cours (colonne d'état de la rangée, refonte du
-      // 2026-10-18) — il REMPLACE le balayage de la ligne vivante, qui ne
-      // tourne plus : une seule boucle par rangée, coupée sous reduced-motion
+      // anneau d'une action en cours (colonne d'état d'une rangée à plat,
+      // refonte du 2026-10-18) ; la grappe vivante balaie son libellé à la
+      // place (variante B, 2026-11-01) : une seule boucle par rangée, coupée
+      // sous reduced-motion
       ".ui-activity-state .tool-run-ring, .tool-status .tool-run-ring",
     ]);
-    expect(appCss).toMatch(/\.messages:has\(\.ui-activity-state \.tool-run-ring, \.tool-status \.tool-run-ring\) \.turn-working-shimmer/);
+    // La ligne du bas se fige aussi quand une grappe vivante balaie (variante
+    // B, 2026-11-01) : jamais deux reflets en même temps.
+    expect(appCss).toMatch(/\.messages:has\(\.ui-activity-state \.tool-run-ring, \.tool-status \.tool-run-ring, \.ui-activity-label\.is-shimmering\) \.turn-working-shimmer/);
   });
 
   // Deux régressions VÉCUES au banc le 2026-08-26, invisibles en jsdom (rien
@@ -1206,6 +1209,17 @@ describe("contrat lot 2 (socle)", () => {
     const scrollArea = shadcnSources.find(([name]) => name === "scroll-area.tsx")?.[1] ?? "";
     expect(scrollArea).toContain("w-[var(--scrollbar-size)]");
     expect(scrollArea).not.toMatch(/tw:data-vertical:w-2\.5/);
+  });
+
+  it("carte « fichiers modifiés » : le survol qui déborde des rangées ne crée pas de barre horizontale", () => {
+    // Rangées à width:calc(100% + 8px) et margin:0 -4px : la liste doit
+    // absorber ces 4 px dans son padding et ne jamais défiler en largeur.
+    const row = appCss.match(/(^|\})\s*\.changed-files-row\s*\{([^}]*)\}/m)?.[2] ?? "";
+    expect(row).toMatch(/margin:\s*0 -4px/);
+    const list = appCss.match(/(^|\})\s*\.changed-files-list\s*\{([^}]*)\}/m)?.[2] ?? "";
+    expect(list).toMatch(/overflow-x:\s*hidden/);
+    expect(list).toMatch(/margin:\s*4px -4px 0/);
+    expect(list).toMatch(/padding:\s*0 4px/);
   });
 
   it("cadres de documents : jamais de fond blanc derrière une piste de barre transparente", () => {

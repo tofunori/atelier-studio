@@ -70,6 +70,9 @@ const RADIUS_2PX: Record<string, string[]> = {
     ".tr-cut::before",
     ".tr-cut-text",
     ".texc-hl.texc-comment",
+    // rondes d'annotations : mots retirés / ajoutés
+    ".cm-editor .texr-del-word",
+    ".texr-new-line b",
     ".cm-editor .atelier-review-bracket",
   ],
   "assets/pdf_viewer.html": [

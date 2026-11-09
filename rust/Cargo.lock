@@ -225,6 +225,7 @@ dependencies = [
  "mime_guess",
  "notify",
  "rand 0.8.7",
+ "regex",
  "reqwest",
  "roxmltree",
  "rusqlite",
@@ -236,6 +237,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower-http",
+ "unicode-normalization",
  "ureq",
  "webpki-roots 0.26.11",
  "zip",
@@ -313,6 +315,7 @@ version = "0.1.0"
 dependencies = [
  "pdfium-render",
  "roxmltree",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -385,6 +388,7 @@ dependencies = [
  "atelier-integrations",
  "atelier-kb",
  "atelier-kernel",
+ "atelier-pdf",
  "atelier-protocol",
  "atelier-providers",
  "atelier-store",
@@ -392,6 +396,7 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
+ "flate2",
  "futures-util",
  "hex",
  "http-body-util",

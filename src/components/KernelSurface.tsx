@@ -3,7 +3,7 @@
 // comme les blocs du chat, figures captées, variables en mémoire ; on y
 // sélectionne du code ou une sortie pour l'envoyer au chat, comme dans le
 // lecteur PDF et l'éditeur LaTeX.
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { createSelectionActions } from "../../gallery/src/studio/features/annotation_ui";
 import { t } from "../lib/i18n";
 import {
@@ -14,7 +14,7 @@ import {
 import { localImagePreviewUrl } from "../lib/localImage";
 import { FigureGalleryBar } from "./FigureGalleryBar";
 import { highlightCode } from "./chat/md";
-import { Button, IconButton, RowButton, showError, showSuccess } from "./ui";
+import { Button, IconButton, RowButton, Spinner, showError, showSuccess } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { FigureViewer } from "./FigureViewer";
 import { FIGURE_SAVED_EVENT, figuresIn, rememberSavedFigure, savedFigure, type ShownFigure } from "../lib/kernelFigures";
@@ -233,10 +233,11 @@ function CellHead({ cell, threadId, canEdit, actions }: { cell: KernelCell; thre
       {stale ? <span className="kernel-badge" data-tone="warn">{Icon.warn}{t("kernel.stale")}</span> : null}
       <ReplayBadge cell={cell} />
       {running ? <>
-        <span className="kernel-cell-live"><span className="kernel-dot" />{t("kernel.running-for", { s: elapsed })}</span>
-        <Button variant="ghost" size="xs" onClick={() => void kernelCommand(threadId, "interrupt").catch(() => {})}>
-          {Icon.stop}{t("kernel.interrupt")}
-        </Button>
+        <span className="kernel-cell-live" title={t("kernel.running-for", { s: elapsed })}>{elapsed} s</span>
+        <IconButton size="s" className="ghost kernel-interrupt" label={t("kernel.interrupt")} title={t("kernel.interrupt")}
+          onClick={() => void kernelCommand(threadId, "interrupt").catch(() => {})}>
+          {Icon.stop}
+        </IconButton>
       </> : <>
         {cell.status === "error" ? <span className="kernel-cell-error">{t("kernel.error")}</span> : null}
         <span className="kernel-cell-time">{clock(cell.startedAt)}</span>
@@ -356,17 +357,67 @@ function FreeCell({ threadId, nextId, disabled, onResume }: {
   };
   return (
     <div className="kernel-editor kernel-new">
-      <textarea ref={area} className="kernel-code kernel-edit" value={code} spellCheck={false}
-        placeholder={t("kernel.new-placeholder")} aria-label={t("kernel.new-label")}
-        onChange={(e) => { setCode(e.target.value); fit(e.target); }}
-        onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); submit(); } }} />
-      <div className="kernel-editor-bar">
-        <Button variant="secondary" size="xs" loading={busy} disabled={disabled || !code.trim()} onClick={submit}>
-          {Icon.play}{t("kernel.run-as", { n: nextId })}
-        </Button>
-        <span className="kernel-editor-note">{error ?? t("kernel.new-note")}</span>
-        {onResume ? <Button variant="ghost" size="xs" className="kernel-new-resume" onClick={onResume}>{Icon.replay}{t("kernel.resume-open")}</Button> : null}
+      <div className="kernel-new-field">
+        <textarea ref={area} className="kernel-code kernel-edit" value={code} spellCheck={false} rows={1}
+          placeholder={t("kernel.new-placeholder")} aria-label={t("kernel.new-label")} title={t("kernel.new-note")}
+          onChange={(e) => { setCode(e.target.value); fit(e.target); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); submit(); } }} />
+        <kbd className="kernel-new-key" aria-hidden="true">⇧↵</kbd>
+        <IconButton size="s" className="ghost kernel-new-run" label={t("kernel.run-as", { n: nextId })} title={t("kernel.run-as", { n: nextId })}
+          disabled={busy || disabled || !code.trim()} onClick={submit}>
+          {busy ? <Spinner size={12} aria-hidden="true" /> : Icon.play}
+        </IconButton>
       </div>
+      {error || onResume ? (
+        <div className="kernel-editor-bar">
+          {error ? <span className="kernel-editor-note kernel-new-error">{error}</span> : null}
+          {onResume ? <Button variant="ghost" size="xs" className="kernel-new-resume" onClick={onResume}>{Icon.replay}{t("kernel.resume-open")}</Button> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Lignes montrées avant « Tout afficher » : le panneau est le seul à défiler,
+ *  ni le code ni la sortie n'ont leur propre barre. */
+const CODE_LINES = 12;
+const OUT_LINES = 10;
+
+function lineCount(text: string): number {
+  return text.replace(/\n$/u, "").split("\n").length;
+}
+
+/** Bloc coupé à `max` lignes, avec un fondu et « Tout afficher ». `tail` garde
+ *  la fin visible (sortie d'une cellule en cours). Le <pre> enfant reste tel
+ *  quel : la sélection vers le chat et le code coloré mémoïsé n'y voient rien. */
+function Clamped({ text, max, tail, children }: { text: string; max: number; tail?: boolean; children: ReactElement }) {
+  const box = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [cut, setCut] = useState(false);
+  const lines = lineCount(text);
+  useLayoutEffect(() => {
+    const pre = box.current?.firstElementChild as HTMLElement | null;
+    if (!pre || open) return;
+    const measure = () => {
+      const over = pre.scrollHeight > pre.clientHeight + 1;
+      setCut(over);
+      pre.scrollTop = tail && over ? pre.scrollHeight : 0;
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(measure);
+    watch.observe(pre);
+    return () => watch.disconnect();
+  }, [text, open, tail]);
+  return (
+    <div ref={box} className="kernel-clamp" data-open={open} data-cut={cut && !open} data-tail={!!tail}
+      style={{ "--kernel-clamp": max } as React.CSSProperties}>
+      {children}
+      {cut || open ? (
+        <RowButton className="kernel-more" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {Icon.chevron}<span>{open ? t("kernel.show-less") : lines > max ? t("kernel.show-all", { n: lines }) : t("kernel.show-all-plain")}</span>
+        </RowButton>
+      ) : null}
     </div>
   );
 }
@@ -379,20 +430,24 @@ function CellOutputs({ cell }: { cell: KernelCell }) {
   const result = useMemo(() => (cell.result ? { __html: highlightCode(cell.result, "python") } : null), [cell.result]);
   const traceback = cell.error?.traceback?.trim() ?? "";
   const stderr = cell.status !== "error" && cell.stderr?.trim() ? cell.stderr : "";
+  // En cours : la fin de la sortie reste à l'écran, comme un terminal.
+  const tail = cell.status === "running";
   return <>
-    {cell.stdout ? <pre className="kernel-out" data-part="output">{cell.stdout}</pre> : null}
-    {stderr ? <pre className="kernel-out kernel-stderr" data-part="output">{stderr}</pre> : null}
+    {cell.stdout ? <Clamped text={cell.stdout} max={OUT_LINES} tail={tail}><pre className="kernel-out" data-part="output">{cell.stdout}</pre></Clamped> : null}
+    {stderr ? <Clamped text={stderr} max={OUT_LINES} tail={tail}><pre className="kernel-out kernel-stderr" data-part="output">{stderr}</pre></Clamped> : null}
     {result ? (
       <div className="kernel-result">
         <span className="kernel-result-label" aria-hidden="true">Out</span>
-        <pre className="kernel-out hljs" data-part="output"><code dangerouslySetInnerHTML={result} /></pre>
+        <Clamped text={cell.result ?? ""} max={OUT_LINES}><pre className="kernel-out hljs" data-part="output"><code dangerouslySetInnerHTML={result} /></pre></Clamped>
       </div>
     ) : null}
     {cell.error ? (
-      <pre className="kernel-out kernel-error" data-part="output">
-        <span className="kernel-ename">{cell.error.ename}</span>{cell.error.evalue ? `: ${cell.error.evalue}` : ""}
-        {traceback ? <span className="kernel-traceback">{`\n${traceback}`}</span> : null}
-      </pre>
+      <Clamped text={traceback} max={OUT_LINES}>
+        <pre className="kernel-out kernel-error" data-part="output">
+          <span className="kernel-ename">{cell.error.ename}</span>{cell.error.evalue ? `: ${cell.error.evalue}` : ""}
+          {traceback ? <span className="kernel-traceback">{`\n${traceback}`}</span> : null}
+        </pre>
+      </Clamped>
     ) : null}
   </>;
 }
@@ -411,7 +466,7 @@ export const KernelCellView = memo(function KernelCellView({ cell, threadId, pro
       <article className="kernel-cell" data-status={cell.status} data-cell={cell.id} data-folded="true" data-testid="kernel-cell">
         <RowButton className="kernel-cell-fold" aria-expanded="false" title={t("kernel.unfold")} onClick={() => actions.onToggle(cell.id)}>
           {Icon.chevron}
-          <span className="kernel-cell-num">[{cell.id}]</span>
+          <span className="kernel-cell-num">{cell.id}</span>
           <span className="kernel-cell-fold-title">{cell.purpose || firstLine(cell.code)}</span>
           {cell.author === "user" ? <span className="kernel-badge" data-tone="muted">{Icon.user}</span> : null}
           <ReplayBadge cell={cell} />
@@ -425,7 +480,7 @@ export const KernelCellView = memo(function KernelCellView({ cell, threadId, pro
   }
   return (
     <article className="kernel-cell" data-status={cell.status} data-cell={cell.id} data-testid="kernel-cell">
-      <span className="kernel-cell-num" aria-hidden="true">[{cell.status === "running" ? "*" : cell.id}]</span>
+      <span className="kernel-cell-num" aria-hidden="true">{cell.status === "running" ? <Spinner size={12} aria-hidden="true" /> : cell.id}</span>
       <div className="kernel-cell-body">
         {editing ? <span className="kernel-cell-head kernel-editing">{cell.purpose ? <span className="kernel-cell-title-text">{cell.purpose}</span> : null}<span className="kernel-meta-end">{t("kernel.editing")}</span></span>
           : <CellHead cell={cell} threadId={threadId} canEdit={!!canEdit} actions={actions} />}
@@ -433,7 +488,7 @@ export const KernelCellView = memo(function KernelCellView({ cell, threadId, pro
         <LineageRow cell={cell} />
         {editing
           ? <CellEditor cell={cell} threadId={threadId} nextId={nextId ?? cell.id + 1} onDone={() => actions.onEdit(null)} />
-          : <pre className="kernel-code hljs" data-part="code"><code dangerouslySetInnerHTML={code} /></pre>}
+          : <Clamped text={cell.code} max={CODE_LINES}><pre className="kernel-code hljs" data-part="code"><code dangerouslySetInnerHTML={code} /></pre></Clamped>}
         <CellOutputs cell={cell} />
         {cell.figures?.length ? (
           <div className="kernel-figures">

@@ -147,7 +147,7 @@ public struct AtelierRootView: View {
                 Color.black.opacity(0.28).ignoresSafeArea()
                     .onTapGesture { workspace.sidebarRequested = false }
                     .accessibilityHidden(true)
-                WorkspaceSidebar(workspace: workspace) { showAbout = true }
+                WorkspaceSidebar(workspace: workspace, showsSections: sizeClass != .regular) { showAbout = true }
                     .frame(width: min(geometry.size.width * 0.86, sizeClass == .regular ? 340 : 360))
                     .padding(.leading, 8).padding(.vertical, 4)
                     .transition(.move(edge: .leading))
@@ -212,26 +212,37 @@ public struct AtelierRootView: View {
         NavigationStack {
             NativeChatView(workspace: workspace, composing: $composing, showsComposer: sizeClass == .regular)
                 .navigationTitle(workspace.chat.title).navigationBarTitleDisplayMode(.inline)
+                // An opaque bar: the conversation stops under its hairline
+                // instead of showing cut lines through it.
+                .toolbarBackground(AtelierTheme.background, for: .navigationBar)
+                .toolbarBackgroundVisibility(.visible, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .principal) {
-                        ChatConnectionTitle(chat: workspace.chat)
+                        ChatConnectionTitle(chat: workspace.chat) {
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                            workspace.sidebarRequested = true
+                        }
                     }
-                    ToolbarItem(placement: .topBarLeading) { sidebarButton }
+                    ToolbarItem(placement: .topBarLeading) { sidebarButton }.sharedBackgroundVisibility(.hidden)
                 }
         }
     }
-    /// Composer and tabs float in glass over the content; the tabs step aside while typing.
-    private var bottomCommandPanel: some View {
-        GlassEffectContainer(spacing: 10) {
-            VStack(spacing: 10) {
-                if sizeClass != .regular, workspace.surface == .chat, workspace.chat.selected != nil {
-                    NativeComposerView(workspace: workspace, composing: $composing, embedded: true)
-                }
-                if sizeClass == .regular || !composing { workSurfaceSwitcher }
-            }
+    /// iPhone: no tab bar. The chat keeps only its composer, docked on an
+    /// opaque band with a short fade above, so nothing reads through it; the
+    /// five sections live at the top of the menu (variant A, 2026-11-02).
+    /// iPad keeps its glass section tabs.
+    @ViewBuilder private var bottomCommandPanel: some View {
+        if sizeClass == .regular {
+            GlassEffectContainer(spacing: 10) { workSurfaceSwitcher }
+                .padding(.horizontal, 16).padding(.bottom, 4)
+        } else if showsPhoneComposer {
+            NativeComposerView(workspace: workspace, composing: $composing, embedded: true)
+                .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 4)
+                .background { PhoneComposerDock() }
         }
-        .padding(.horizontal, 16).padding(.bottom, 4)
-        .animation(systemReduceMotion || motion == "off" ? nil : .smooth(duration: 0.15), value: composing)
+    }
+    private var showsPhoneComposer: Bool {
+        sizeClass != .regular && workspace.surface == .chat && workspace.chat.selected != nil
     }
     private var workSurfaceSwitcher: some View {
         HStack(spacing: 0) {
@@ -284,7 +295,7 @@ public struct AtelierRootView: View {
     }
 }
 
-private struct WorkSurfaceGlyph: View {
+struct WorkSurfaceGlyph: View {
     enum Kind { case chat, document, gallery, book, calculations }
     let kind: Kind
     var body: some View {
@@ -330,6 +341,21 @@ private struct WorkSurfaceGlyph: View {
     }
 }
 
+/// The band under the iPhone composer: the reading background, opaque down to
+/// the screen edge, with a short fade above so the conversation ends softly.
+private struct PhoneComposerDock: View {
+    var body: some View {
+        AtelierTheme.background
+            .ignoresSafeArea(edges: .bottom)
+            .overlay(alignment: .top) {
+                LinearGradient(colors: [AtelierTheme.background.opacity(0), AtelierTheme.background], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 24).offset(y: -24)
+                    .allowsHitTesting(false)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
 private extension View {
     func surfaceVisibility(_ visible: Bool) -> some View {
         opacity(visible ? 1 : 0).allowsHitTesting(visible).accessibilityElement(children: .contain).accessibilityHidden(!visible).zIndex(visible ? 1 : 0)
@@ -338,9 +364,10 @@ private extension View {
 
 #Preview("Atelier natif") { AtelierRootView() }
 
+/// The chat title: tapping it opens the conversations, as in the Claude app.
 private struct ChatConnectionTitle: View {
     let chat: RemoteChatModel
-    @State private var showingDetails = false
+    var openConversations: () -> Void
     /// Assistant and model while the Mac is live; otherwise the connection state.
     private var subtitle: String {
         guard chat.connection == .live, let provider = chat.provider else { return chat.connectionLabel }
@@ -348,29 +375,38 @@ private struct ChatConnectionTitle: View {
         return model.isEmpty ? provider.label : provider.label + " · " + model
     }
     var body: some View {
-        Button { showingDetails = true } label: {
+        Button(action: openConversations) {
             VStack(spacing: 1) {
-                Text(chat.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
-                Text(subtitle).font(.caption).foregroundStyle(chat.connection == .associationRequired ? Color.red : Color.secondary).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(chat.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(AtelierTheme.secondaryText)
+                }
+                Text(subtitle).font(.caption).foregroundStyle(chat.connection == .associationRequired ? Color.red : AtelierTheme.secondaryText).lineLimit(1)
             }.frame(minHeight: 44)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(chat.title + ", " + chat.connectionLabel)
-        .accessibilityHint("Afficher les détails de connexion")
-        .popover(isPresented: $showingDetails) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(chat.connectionLabel).font(.subheadline.weight(.medium))
-                if let detail = chat.connectionError {
-                    Text(detail).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-                if chat.connection == .reconnecting || chat.connection == .idle {
-                    Button("Réessayer", systemImage: "arrow.clockwise") { chat.reconnect(); showingDetails = false }
-                        .font(.subheadline)
-                }
+        .accessibilityHint("Afficher les conversations")
+    }
+}
+
+/// Connection to the Mac, opened from the chat's options menu.
+struct ChatConnectionDetails: View {
+    let chat: RemoteChatModel
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(chat.connectionLabel).font(.subheadline.weight(.medium))
+            if let detail = chat.connectionError {
+                Text(detail).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            .padding(16).frame(width: 260)
-            .presentationCompactAdaptation(.popover)
+            if chat.connection == .reconnecting || chat.connection == .idle {
+                Button("Réessayer", systemImage: "arrow.clockwise") { chat.reconnect(); dismiss() }
+                    .font(.subheadline)
+            }
         }
+        .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+        .presentationDetents([.height(180)])
     }
 }
 

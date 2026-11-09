@@ -21,14 +21,17 @@ enum AtelierTheme {
     })
 
     // Same greys as the Mac app (src/App.css), so both read as one product.
-    private static func tone(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(uiColor: UIColor { traits in
+    private static func uiTone(_ light: UInt32, _ dark: UInt32) -> UIColor {
+        UIColor { traits in
             let hex = traits.userInterfaceStyle == .dark ? dark : light
             return UIColor(red: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255, blue: CGFloat(hex & 0xff) / 255, alpha: 1)
-        })
+        }
     }
+    private static func tone(_ light: UInt32, _ dark: UInt32) -> Color { Color(uiColor: uiTone(light, dark)) }
     /// Reading surface: chat, gallery, articles.
     static let background = tone(0xfbfcfd, 0x1b1e21)
+    /// The reading surface for UIKit views laid over the chat (WebKit covers).
+    static let backgroundUIColor = uiTone(0xfbfcfd, 0x1b1e21)
     /// Recessed surface: the conversation menu.
     static let sidebar = tone(0xf1f4f7, 0x15181b)
     /// Raised content: previews, the resume card.

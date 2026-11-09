@@ -37,9 +37,14 @@ for (const theme of ['dark', 'light']) {
       const plus = page.getByRole('button', { name: 'Ajouter une image / un fichier', exact: true });
       await plus.click();
       await panel('.composer-add-menu', 'add');
-      const addRow = page.getByRole('menuitem', { name: 'Ajouter une image / un fichier', exact: true });
-      await main(addRow);
-      expect((await addRow.boundingBox())!.height).toBeCloseTo(32, 2);
+      // variante C (2026-11-09) : les deux actions sont des tuiles, les modes
+      // des rangées à interrupteur dans un encart
+      const addTile = page.getByRole('menuitem', { name: 'Image ou fichier', exact: true });
+      await main(addTile);
+      expect((await addTile.boundingBox())!.height).toBeGreaterThan(56);
+      const planRow = page.getByRole('menuitemcheckbox', { name: 'Mode plan', exact: true });
+      await main(planRow);
+      expect((await planRow.boundingBox())!.height).toBeCloseTo(32, 2);
       await close();
       await expect(plus).toBeFocused();
 
@@ -70,10 +75,10 @@ for (const theme of ['dark', 'light']) {
       await panel('.composer-style-menu', 'style');
       await main(page.locator('.consigne-nom').first());
       await expect(page.locator('.consigne-desc').first()).toHaveCSS('font-size', '11px');
-      await page.getByRole('menuitemcheckbox', { name: /^Concis / }).click();
-      await page.getByRole('menuitemcheckbox', { name: /^Rigueur scientifique / }).click();
-      await expect(page.getByRole('menuitemcheckbox', { name: /^Concis / })).toHaveAttribute('aria-checked', 'true');
-      await expect(page.getByRole('menuitemcheckbox', { name: /^Rigueur scientifique / })).toHaveAttribute('aria-checked', 'true');
+      await page.getByRole('menuitemcheckbox', { name: 'Concis', exact: true }).click();
+      await page.getByRole('menuitemcheckbox', { name: 'Rigueur scientifique', exact: true }).click();
+      await expect(page.getByRole('menuitemcheckbox', { name: 'Concis', exact: true })).toHaveAttribute('aria-checked', 'true');
+      await expect(page.getByRole('menuitemcheckbox', { name: 'Rigueur scientifique', exact: true })).toHaveAttribute('aria-checked', 'true');
       const indicators = page.locator('.composer-style-menu [aria-checked="true"] [data-slot="dropdown-menu-checkbox-item-indicator"]');
       for (const indicator of await indicators.all()) {
         const circle = (await indicator.boundingBox())!;
@@ -91,13 +96,16 @@ for (const theme of ['dark', 'light']) {
       await permission.click();
       await panel('.composer-permission-menu', 'permissions');
       await main(page.getByRole('option').first());
-      expect((await page.getByRole('option').first().boundingBox())!.height).toBeCloseTo(32, 2);
+      // tuiles 2 × 2 : libellé + ligne d'explication
+      expect((await page.getByRole('option').first().boundingBox())!.height).toBeGreaterThanOrEqual(88);
+      await expect(page.locator('.custom-select-option-desc').first()).toHaveCSS('font-size', '11px');
       await close();
       await expect(permission).toBeFocused();
 
       await page.locator('.mp-btn.mp-model').click();
       await panel('.effort-menu', 'effort');
-      await expect(page.locator('.ef-title b')).toHaveCSS('font-size', '13px');
+      await expect(page.locator('.ef-title b')).toHaveCSS('font-size', '12px');
+      await expect(page.locator('.effort-menu .cm-title-text')).toHaveCSS('font-size', '13px');
       const slider = page.getByRole('slider');
       await slider.focus();
       await slider.press('ArrowLeft');
@@ -131,12 +139,13 @@ test('Codex effort, Fast and goal editor remain usable', async ({ page }) => {
   await page.locator('.mp-btn.mp-model').click();
   await expect(page.locator('.effort-menu')).toBeVisible();
   const fast = page.locator('.ef-fast');
-  await expect(fast).toHaveCSS('font-size', '11px');
+  await expect(fast).toHaveCSS('font-size', '12px');
   await fast.click();
   await expect(fast).toHaveAttribute('aria-pressed', 'true');
   const fastBox = (await fast.boundingBox())!;
   const headingBox = (await page.locator('.ef-heading').boundingBox())!;
-  expect(headingBox.x + headingBox.width).toBeLessThanOrEqual(fastBox.x);
+  // Fast est une rangée à interrupteur, sous la jauge (variante C)
+  expect(fastBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height);
   await page.locator('.ef-reset').click();
   await expect(fast).toHaveAttribute('aria-pressed', 'false');
   await page.keyboard.press('Escape');

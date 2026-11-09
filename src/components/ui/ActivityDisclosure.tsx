@@ -6,11 +6,13 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../shadcn/c
 /** Même grille que les rangées d'outil du fil : icône · libellé · méta ·
  * état · chevron. Le chevron ferme TOUJOURS la rangée (jamais collé au
  * libellé) et l'état a sa colonne fixe : anneau pendant l'exécution, croix
- * sur un échec, vide une fois posé. `aside` vit sous le déclencheur, hors du
+ * sur un échec, vide une fois posé — et vide aussi quand le libellé balaie
+ * (`shimmer`) : le reflet dit déjà que ça tourne, une boucle par rangée. `aside` vit sous le déclencheur, hors du
  * repli (traîne de sortie d'une commande en cours). */
 export function ActivityDisclosure({ open, onToggle, label, meta, icon, status = "completed", children, summary = false, shimmer = false, aside }:
   { open: boolean; onToggle: () => void; label: ReactNode; meta?: ReactNode; icon?: ActivityIcon;
     status?: "running" | "completed" | "failed"; children?: ReactNode; summary?: boolean; shimmer?: boolean; aside?: ReactNode }) {
+  const sweeping = shimmer && status === "running";
   return (
     <Collapsible
       className={cx("ui-activity", `is-${status}`, summary && "is-summary")}
@@ -19,9 +21,9 @@ export function ActivityDisclosure({ open, onToggle, label, meta, icon, status =
     >
       <CollapsibleTrigger render={<button type="button" className={cx("ui-activity-trigger", icon && "has-icon")} />}>
         {icon && <span className="ui-activity-icon" data-activity-icon={icon.cat}><ToolGlyph icon={icon} /></span>}
-        <span className={cx("ui-activity-label", shimmer && status !== "failed" && "is-shimmering")}>{label}</span>
+        <span className={cx("ui-activity-label", sweeping && "is-shimmering")}>{label}</span>
         <span className="ui-activity-meta">{meta}</span>
-        <span className="ui-activity-state"><ToolStateGlyph outcome={status === "completed" ? "none" : status === "failed" ? "failed" : "running"} /></span>
+        <span className="ui-activity-state"><ToolStateGlyph outcome={status === "failed" ? "failed" : status === "running" && !sweeping ? "running" : "none"} /></span>
         <Tick open={open} />
       </CollapsibleTrigger>
       {aside}

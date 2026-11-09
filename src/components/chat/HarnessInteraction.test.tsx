@@ -35,82 +35,6 @@ function captureAnswers() {
   return { details, dispose: () => window.removeEventListener("interaction-answer", listener) };
 }
 
-describe("HarnessInteraction — approval", () => {
-  it("rend titre, détail et type exact ; Allow once émet {allow:true} et fige la carte", () => {
-    const cap = captureAnswers();
-    try {
-      render(<HarnessInteraction event={makeEvent()} threadId={THREAD} />);
-
-      expect(screen.getByText("Exécuter `git push` ?")).toBeInTheDocument();
-      expect(screen.getByText("git push origin main")).toBeInTheDocument();
-      expect(screen.getByText(t("interaction.type-approval"))).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole("button", { name: t("interaction.allow-once") }));
-      expect(cap.details).toEqual([
-        { threadId: THREAD, requestId: "req-001", response: { allow: true, scope: "once" } },
-      ]);
-      // figée localement (optimiste) : plus aucun bouton, verdict visible
-      expect(screen.queryByRole("button")).toBeNull();
-      expect(screen.getByText(t("interaction.answered"))).toBeInTheDocument();
-    } finally {
-      cap.dispose();
-    }
-  });
-
-  it("copie d'un fil lié : nomme ce fil et répond en son nom", () => {
-    const cap = captureAnswers();
-    try {
-      render(<HarnessInteraction event={makeEvent({ forThreadId: "child-1", forTitle: "Références · Vérifier" })} threadId={THREAD} />);
-      expect(screen.getByText(t("interaction.for-linked", { title: "Références · Vérifier" }))).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: t("interaction.allow-once") }));
-      expect(cap.details).toEqual([
-        { threadId: "child-1", requestId: "req-001", response: { allow: true, scope: "once" } },
-      ]);
-    } finally {
-      cap.dispose();
-    }
-  });
-
-  it("Deny émet {allow:false}", () => {
-    const cap = captureAnswers();
-    try {
-      render(<HarnessInteraction event={makeEvent()} threadId={THREAD} />);
-      fireEvent.click(screen.getByRole("button", { name: t("interaction.deny") }));
-      expect(cap.details).toEqual([
-        { threadId: THREAD, requestId: "req-001", response: { allow: false, scope: "once" } },
-      ]);
-    } finally {
-      cap.dispose();
-    }
-  });
-
-  it("propose les quatre décisions et les raccourcis 1–4", () => {
-    const cap = captureAnswers();
-    try {
-      const { unmount } = render(<HarnessInteraction event={makeEvent()} threadId={THREAD} />);
-      expect(screen.getByRole("button", { name: t("interaction.allow-session") })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: t("interaction.cancel-turn") })).toBeInTheDocument();
-      fireEvent.keyDown(window, { key: "2" });
-      expect(cap.details[0]).toEqual({
-        threadId: THREAD,
-        requestId: "req-001",
-        response: { allow: true, scope: "session" },
-      });
-      unmount();
-
-      render(<HarnessInteraction event={makeEvent({ requestId: "req-002" })} threadId={THREAD} />);
-      fireEvent.keyDown(window, { key: "4" });
-      expect(cap.details[1]).toEqual({
-        threadId: THREAD,
-        requestId: "req-002",
-        response: { allow: false, scope: "once", cancelTurn: true },
-      });
-    } finally {
-      cap.dispose();
-    }
-  });
-});
-
 describe("HarnessInteraction — formulaire user_input", () => {
   const form = () =>
     makeEvent({
@@ -351,10 +275,11 @@ describe("HarnessInteraction — états finaux non éditables", () => {
     ["declined", t("interaction.declined")],
     ["expired", t("interaction.expired")],
   ] as const)("état %s : aucun contrôle, résumé visible", (state, expected) => {
+    // carte MCP sans formulaire (les approbations ont leur propre carte, ApprovalCard)
     const ev = makeEvent({
+      interactionType: "mcp_elicitation",
       state,
       answerSummary: state === "answered" ? "réponse : autorisé une fois" : undefined,
-      fields: [{ id: "q1", question: "Question ?", options: [{ label: "a" }] }],
     });
     const { container } = render(<HarnessInteraction event={ev} threadId={THREAD} />);
     expect(screen.queryByRole("button")).toBeNull();
@@ -366,65 +291,6 @@ describe("HarnessInteraction — états finaux non éditables", () => {
 });
 
 describe("HarnessInteraction — choix dynamiques Kimi (plan 046)", () => {
-  const kimiChoices = [
-    { optionId: "approve_once", label: "Approve once", kind: "allow_once" as const },
-    { optionId: "approve_always", label: "Approve for this session", kind: "allow_always" as const },
-    { optionId: "reject", label: "Reject", kind: "reject_once" as const },
-  ];
-
-  it("rend les choix dans l'ordre reçu et renvoie l'optionId EXACT au clic", () => {
-    const cap = captureAnswers();
-    try {
-      render(
-        <HarnessInteraction
-          event={makeEvent({ requestId: "req-kimi", title: "Bash", choices: kimiChoices })}
-          threadId={THREAD}
-        />,
-      );
-      const buttons = screen.getAllByRole("button");
-      expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
-        "Approve once",
-        "Approve for this session",
-        "Reject",
-      ]);
-      fireEvent.click(screen.getByRole("button", { name: "Approve for this session" }));
-      expect(cap.details).toEqual([
-        { threadId: THREAD, requestId: "req-kimi", response: { optionId: "approve_always" } },
-      ]);
-      expect(screen.queryByRole("button")).toBeNull();
-    } finally {
-      cap.dispose();
-    }
-  });
-
-  it("review de plan : 5 options dynamiques, raccourci clavier n → optionId n", () => {
-    const cap = captureAnswers();
-    try {
-      render(
-        <HarnessInteraction
-          event={makeEvent({
-            requestId: "req-plan",
-            title: "ExitPlanMode",
-            choices: [
-              { optionId: "plan_opt_0", label: "Variante A", kind: "allow_once" },
-              { optionId: "plan_opt_1", label: "Variante B", kind: "allow_once" },
-              { optionId: "plan_opt_2", label: "Variante C", kind: "allow_once" },
-              { optionId: "plan_revise", label: "Revise", kind: "reject_once" },
-              { optionId: "plan_reject_and_exit", label: "Reject and Exit", kind: "reject_once" },
-            ],
-          })}
-          threadId={THREAD}
-        />,
-      );
-      expect(screen.getAllByRole("button")).toHaveLength(5);
-      fireEvent.keyDown(window, { key: "5" });
-      expect(cap.details).toEqual([
-        { threadId: THREAD, requestId: "req-plan", response: { optionId: "plan_reject_and_exit" } },
-      ]);
-    } finally {
-      cap.dispose();
-    }
-  });
 
   it("question à valeurs opaques : affiche le label, renvoie la value", () => {
     const cap = captureAnswers();
@@ -488,64 +354,6 @@ describe("HarnessInteraction — choix dynamiques Kimi (plan 046)", () => {
 });
 
 describe("HarnessInteraction — Claude Code (choix du terminal, questions, plan)", () => {
-  const claudeChoices = [
-    { optionId: "allow_once", label: "Autoriser", kind: "allow_once" as const },
-    { optionId: "allow_always", label: "Oui, et ne plus demander pour « npm test:* »", kind: "allow_always" as const },
-    { optionId: "deny", label: "Refuser", kind: "reject_once" as const },
-    { optionId: "deny_stop", label: "Refuser et arrêter", kind: "reject_always" as const, cancelTurn: true },
-  ];
-  const claudeEvent = (over: Partial<InteractionEvent> = {}) => makeEvent({
-    requestId: "req-claude", title: "Exécution de commande", detail: "npm test",
-    reason: "Commande hors des règles du projet", feedback: true, choices: claudeChoices, ...over,
-  });
-
-  it("un refus emporte la consigne tapée ; une autorisation ne l'emporte pas", () => {
-    const cap = captureAnswers();
-    try {
-      render(<HarnessInteraction event={claudeEvent()} threadId={THREAD} />);
-      expect(screen.getByText("Commande hors des règles du projet")).toBeInTheDocument();
-      fireEvent.change(screen.getByLabelText(t("interaction.feedback-placeholder")), {
-        target: { value: "lance plutôt cargo test" },
-      });
-      fireEvent.click(screen.getByRole("button", { name: "Refuser" }));
-      expect(cap.details).toEqual([{ threadId: THREAD, requestId: "req-claude",
-        response: { optionId: "deny", message: "lance plutôt cargo test" } }]);
-    } finally {
-      cap.dispose();
-    }
-    cleanup();
-    const cap2 = captureAnswers();
-    try {
-      render(<HarnessInteraction event={claudeEvent({ requestId: "req-claude-2" })} threadId={THREAD} />);
-      fireEvent.change(screen.getByLabelText(t("interaction.feedback-placeholder")), { target: { value: "x" } });
-      fireEvent.click(screen.getByRole("button", { name: "Oui, et ne plus demander pour « npm test:* »" }));
-      expect(cap2.details[0].response).toEqual({ optionId: "allow_always" });
-    } finally {
-      cap2.dispose();
-    }
-  });
-
-  it("Entrée dans la consigne refuse avec elle ; « Refuser et arrêter » arrête le tour", () => {
-    const cap = captureAnswers();
-    try {
-      render(<HarnessInteraction event={claudeEvent()} threadId={THREAD} />);
-      const input = screen.getByLabelText(t("interaction.feedback-placeholder"));
-      fireEvent.change(input, { target: { value: "non, lis d'abord le README" } });
-      fireEvent.keyDown(input, { key: "Enter" });
-      expect(cap.details[0].response).toEqual({ optionId: "deny", message: "non, lis d'abord le README" });
-    } finally {
-      cap.dispose();
-    }
-    cleanup();
-    const cap2 = captureAnswers();
-    try {
-      render(<HarnessInteraction event={claudeEvent({ requestId: "req-stop" })} threadId={THREAD} />);
-      fireEvent.keyDown(window, { key: "4" });
-      expect(cap2.details[0].response).toEqual({ optionId: "deny_stop", cancelTurn: true });
-    } finally {
-      cap2.dispose();
-    }
-  });
 
   it("question à choix multiples : les options cochées partent jointes, « Autre » compris", () => {
     const cap = captureAnswers();
@@ -575,30 +383,4 @@ describe("HarnessInteraction — Claude Code (choix du terminal, questions, plan
     }
   });
 
-  it("plan à valider : le markdown est rendu au-dessus des trois choix", () => {
-    const cap = captureAnswers();
-    try {
-      render(
-        <HarnessInteraction
-          event={makeEvent({
-            requestId: "req-exit-plan", title: "Plan prêt à exécuter", detail: undefined, feedback: true,
-            markdown: "## Étapes\n\n1. Lire le panel\n2. Refaire la figure",
-            choices: [
-              { optionId: "plan_auto", label: "Oui, et accepter les modifications", kind: "allow_always" },
-              { optionId: "plan_manual", label: "Oui, en validant chaque modification", kind: "allow_once" },
-              { optionId: "plan_keep", label: "Non, continuer à planifier", kind: "reject_once" },
-            ],
-          })}
-          threadId={THREAD}
-        />,
-      );
-      expect(screen.getByRole("heading", { name: "Étapes" })).toBeInTheDocument();
-      expect(screen.getByText("Refaire la figure")).toBeInTheDocument();
-      fireEvent.change(screen.getByLabelText(t("interaction.feedback-placeholder")), { target: { value: "ajoute un test" } });
-      fireEvent.click(screen.getByRole("button", { name: "Non, continuer à planifier" }));
-      expect(cap.details[0].response).toEqual({ optionId: "plan_keep", message: "ajoute un test" });
-    } finally {
-      cap.dispose();
-    }
-  });
 });

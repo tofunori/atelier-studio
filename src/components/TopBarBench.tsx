@@ -6,11 +6,15 @@ import TopBar from "./TopBar";
 import { ChatHeader } from "./chat/ChatHeader";
 import { useChatHeaderHost } from "./ChatHeaderSlot";
 import { Button } from "./ui";
+import type { Surface } from "./surfaces";
 
 export function TopBarBench() {
   const [layout, setLayout] = useState<"chat" | "split" | "atelier">("split");
   const [sidebar, setSidebar] = useState(true);
   const [active, setActive] = useState<string | null>("a");
+  // surfaces vivantes : le lanceur de la barre (2026-11-01) se vérifie au clic
+  const [surface, setSurface] = useState<Surface>("atelier");
+  const [ide, setIde] = useState(true);
   const host = useChatHeaderHost();
   const chats = [{id:"a",title:"Analyse albédo"},{id:"b",title:"Données Copernicus"},{id:"c",title:"Discussion et conclusions du chapitre"}];
   const chatTabs = useOpenChatTabs("/bench-chats", active, chats);
@@ -18,15 +22,16 @@ export function TopBarBench() {
   return <>
     <TopBar activeProject="/Chapitre1-Albedo"
       layout={layout} onSetLayout={setLayout}
-      onOpenPalette={noop} onQuickAsk={noop} activeSurface="atelier" showAtelier={layout !== "chat"}
+      onOpenPalette={noop} onQuickAsk={noop} activeSurface={surface} showAtelier={layout !== "chat"}
       showExplorer={false} onToggleExplorer={noop} onToggleAnnots={noop}
-      onSelectSurface={noop} onSelectIde={noop} ideActive={true}
+      onSelectSurface={(next) => { setSurface(next); setIde(false); }} onSelectIde={() => setIde(true)} ideActive={ide}
       tabs={[{id:"pdf",title:"main_ngeo.pdf",kind:"document"},{id:"tex",title:"discussion_en.tex",kind:"document"}]}
       activeTab="tex" onSelectTab={noop} onCloseTab={noop}
       chatTabControls={{openChats:chatTabs.openChats,pinnedIds:chatTabs.pinnedIds,onTogglePin:chatTabs.togglePin,onClose:ids=>setActive(chatTabs.close(ids))}}
       chats={chats} activeChatId={active} onSelectChat={setActive} onNewChat={noop} />
     {host && createPortal(<ChatHeader compact title={chats.find(chat => chat.id === active)?.title ?? ""}
-      provider="codex" projectName="Chapitre1-Albedo" status={null} onTranscriptViewChange={noop} />, host)}
+      provider="codex" projectName="Chapitre1-Albedo" status={null} onTranscriptViewChange={noop}
+      linkedAgents={[{ id: "kimi-1", provider: "Kimi", title: "Analyse initiale", paused: false, direction: "parent" }]} />, host)}
     <div className="app-row">
       <div style={{width:sidebar ? 300 : 48,flexShrink:0}}>
         <Button onClick={() => setSidebar(!sidebar)}>Sidebar</Button>

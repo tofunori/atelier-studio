@@ -1,4 +1,6 @@
 mod agent;
+mod bib;
+mod bibcheck;
 mod codes;
 mod docx;
 mod documents;
@@ -8,6 +10,7 @@ mod gallery;
 mod git;
 mod figure_versions;
 mod host;
+mod manuscript;
 mod openable;
 mod ranged;
 mod suggest;
@@ -654,6 +657,13 @@ fn sanitize_gallery_state(request: &Value) -> Value {
         .filter(|t| ["chat", "dark", "sepia"].contains(t))
     {
         state["texReadTheme"] = json!(theme);
+    }
+    if let Some(width) = request
+        .get("texReadWidth")
+        .and_then(Value::as_str)
+        .filter(|w| ["column", "full"].contains(w))
+    {
+        state["texReadWidth"] = json!(width);
     }
     if let Some(visual) = request.get("texVisualEditor").and_then(Value::as_bool) {
         state["texVisualEditor"] = json!(visual);
@@ -2642,6 +2652,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(documents::get_pdfannot_all),
         )
         .route("/pdfannot-stamp", get(documents::get_pdfannot_stamp))
+        .route("/texrevisions", get(documents::get_texrevisions))
         .route("/pdfannot-codes", post(codes::post_pdfannot_codes))
         .route("/codebook", get(codes::get_codebook).post(codes::post_codebook))
         .route("/export-png", post(documents::export_png))
@@ -2656,6 +2667,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/new", post(docx::create))
         .route("/docx/list", get(docx::list))
         .route("/lint", get(documents::lint))
+        .route("/tex/manuscript", post(manuscript::manuscript))
+        .route("/tex/manuscript/prefs", post(manuscript::prefs))
+        .route("/tex/wordcount", post(manuscript::wordcount))
+        // Vérification des références (.bib contre Crossref) : le serveur
+        // propose, le navigateur applique au clic de l'utilisateur.
+        .route(
+            "/bibcheck/plan",
+            post(bibcheck::plan).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
+        .route(
+            "/bibcheck/entry",
+            post(bibcheck::entry).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
+        .route("/bibcheck/ignore", post(bibcheck::ignore))
+        .route("/bibcheck/zotero", post(bibcheck::zotero))
         // Phase 5 — notes + whiteboard
         .route("/notes/load", get(workspace::notes_load))
         .route("/notes/save", post(workspace::notes_save))

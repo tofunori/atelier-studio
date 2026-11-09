@@ -1,0 +1,16 @@
+/* Passage révisé (variante E, 2026-11-01) : la citation du chat, sans carte
+   ni couleur. Nouveau = souligné fin, retiré = barré éteint. */
+.md-revision { margin: 0; }
+.md-revision-text { border-left: 2px solid var(--border2); padding-left: 12px; color: var(--text-primary); }
+.md-revision-text p { margin: 0; }
+.md-revision-add { text-decoration: underline; text-decoration-color: var(--text-muted);
+  text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.md-revision-del { color: var(--text-muted); text-decoration: line-through;
+  text-decoration-color: var(--text-muted); text-decoration-thickness: 1px; }
+.md-revision-cite { color: var(--text-muted); }
+.md-revision-del .md-revision-cite { color: inherit; }
+.md-revision-break { display: block; height: 8px; }
+.md-revision-meta { display: flex; align-items: center; gap: 8px; margin: 4px 0 0 2px; padding-left: 12px;
+  font-size: var(--fs-m); line-height: 1.5; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.md-revision-meta > span { flex: 1; min-width: 0; }
+.md-revision-copy { color: var(--text-muted); }
