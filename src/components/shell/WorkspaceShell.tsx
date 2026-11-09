@@ -21,6 +21,9 @@ export default function WorkspaceShell(p: {
    *  classe .dragging d'app-row sert aux deux, l'état vit donc chez l'appelant */
   dragging: boolean;
   onDraggingChange: (v: boolean) => void;
+  /** colonne unifiée (variante A, 2026-11-08) : la colonne est posée sur le
+   *  sol, sans carte ; seul le travail reste une feuille soulevée */
+  unified?: boolean;
 }) {
   // largeur FIXE de la sidebar (px) : hors PanelGroup pour ne pas gonfler
   // quand le panneau atelier passe en pleine largeur
@@ -35,7 +38,7 @@ export default function WorkspaceShell(p: {
   return (
     <>
       {p.topBar}
-      <div className={`app-row ${p.dragging ? "dragging" : ""}`}>
+      <div className={`app-row ${p.dragging ? "dragging" : ""} ${p.unified ? "unified" : ""}`}>
         {p.rail}
         {p.viewPanel != null && (
           <div className="side-fixed" style={{ width: sideW }}>

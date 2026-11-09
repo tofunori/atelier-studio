@@ -36,9 +36,11 @@ it("fermer un onglet épinglé d'un autre projet que le premier l'oublie pour de
   const sock = FakeWS.last();
   await act(async () => { sock.open(); }); await settle();
 
-  const beta = [...document.querySelectorAll<HTMLButtonElement>(".rail-proj")]
+  // colonne unifiée : les autres projets sont listés en bas de la colonne
+  await act(async () => { await vi.dynamicImportSettled(); }); await settle();
+  const beta = [...document.querySelectorAll<HTMLButtonElement>(".scol-proj")]
     .find((button) => button.getAttribute("aria-label") === "beta");
-  expect(beta, "projet beta dans le rail").toBeTruthy();
+  expect(beta, "projet beta dans la colonne").toBeTruthy();
   fireEvent.click(beta!);
   await settle(); await settle();
 

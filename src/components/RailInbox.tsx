@@ -11,6 +11,7 @@ import type { Thread } from "../lib/ws";
 import { Popover, PopoverTrigger } from "./ui/Popover";
 import { MenuPanelContent } from "./ui/MenuPanel";
 import { IconButton } from "./ui/IconButton";
+import { RowButton } from "./ui/RowButton";
 import RailInboxPanel from "./RailInboxPanel";
 
 export type RailInboxProps = {
@@ -22,7 +23,46 @@ export type RailInboxProps = {
   activeId: string | null;
   onOpen: (threadId: string) => void;
   onMarkAllRead: () => void;
+  /** « row » : rangée nommée de la colonne latérale (variante A, 2026-11-08) */
+  variant?: "rail" | "row";
+  /** libellé visible de la rangée */
+  rowLabel?: string;
 };
+
+function InboxGlyph({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.5 9.5 4.3 3.8a1 1 0 0 1 .95-.7h5.5a1 1 0 0 1 .95.7l1.8 5.7v2.7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" />
+      <path d="M2.5 9.5h3.2l.8 1.6h3l.8-1.6h3.2" />
+    </svg>
+  );
+}
+
+type TriggerState = { open: boolean; label: string; count: number; waiting: boolean };
+
+/** Déclencheur de la boîte : bouton-icône du rail, ou rangée nommée de la
+ *  colonne latérale. Rendu par PopoverTrigger, qui y greffe ref et handlers. */
+function inboxTrigger(variant: RailInboxProps["variant"], rowLabel: string | undefined, s: TriggerState) {
+  const wait = s.waiting ? "wait" : "";
+  if (variant === "row") {
+    return (
+      <RowButton className={`scol-row ${s.open ? "on" : ""}`} aria-label={s.label} title={s.label}
+        aria-haspopup="dialog" aria-expanded={s.open}>
+        <span className="scol-row-ico"><InboxGlyph size={14} /></span>
+        <span className="scol-row-label">{rowLabel ?? "À traiter"}</span>
+        {s.count > 0 && <span className={`scol-count ${wait}`} aria-hidden="true">{s.count > 99 ? "99+" : s.count}</span>}
+      </RowButton>
+    );
+  }
+  return (
+    <IconButton className={`rail-btn rail-inbox-btn ${s.open ? "on" : ""}`} label={s.label} title={s.label}
+      aria-haspopup="dialog" aria-expanded={s.open}>
+      <InboxGlyph size={19} />
+      {s.count > 0 && <span className={`rail-count ${wait}`} aria-hidden="true">{s.count > 9 ? "9+" : s.count}</span>}
+    </IconButton>
+  );
+}
 
 export default function RailInbox(p: RailInboxProps) {
   const [open, setOpen] = useState(false);
@@ -38,21 +78,7 @@ export default function RailInbox(p: RailInboxProps) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={
-          <IconButton className={`rail-btn rail-inbox-btn ${open ? "on" : ""}`} label={label} title={label}
-            aria-haspopup="dialog" aria-expanded={open}>
-            <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M2.5 9.5 4.3 3.8a1 1 0 0 1 .95-.7h5.5a1 1 0 0 1 .95.7l1.8 5.7v2.7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" />
-              <path d="M2.5 9.5h3.2l.8 1.6h3l.8-1.6h3.2" />
-            </svg>
-            {count > 0 && (
-              <span className={`rail-count ${waiting ? "wait" : ""}`} aria-hidden="true">{count > 9 ? "9+" : count}</span>
-            )}
-          </IconButton>
-        }
-      />
+      <PopoverTrigger render={inboxTrigger(p.variant, p.rowLabel, { open, label, count, waiting })} />
       <MenuPanelContent className="rail-inbox" side="right" align="start" sideOffset={8} aria-label="À traiter">
         {open && <RailInboxPanel {...p} ragdocOn={ragdocOn} jobs={imports.jobs} onClose={() => setOpen(false)} />}
       </MenuPanelContent>
