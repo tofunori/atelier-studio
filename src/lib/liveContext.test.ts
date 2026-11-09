@@ -1,10 +1,10 @@
-// Contexte vivant : validation du message des iframes, identité de retrait,
+// Contexte vivant : validation du message des iframes, mémoire de l'œil,
 // trace de bulle (miroir de live_context::trace côté Rust) et libellés.
 import { beforeEach, describe, expect, it } from "vitest";
 import { setLanguage } from "./i18n";
 import {
-  liveContextDisplayPath, liveContextKey, liveContextSentence, liveContextTrace, liveContextWhere,
-  parseLiveContext,
+  LIVE_CONTEXT_ON_KEY, liveContextDisplayPath, liveContextSentence, liveContextTrace, liveContextWhere,
+  parseLiveContext, readLiveContextOn, writeLiveContextOn,
 } from "./liveContext";
 
 beforeEach(() => setLanguage("fr"));
@@ -47,11 +47,18 @@ describe("libellés et trace", () => {
     expect(liveContextWhere({ page: 7 })).toBe("page 7");
   });
 
-  it("trace sans le texte, commentaires comptés ; identité = fichier + position", () => {
+  it("trace sans le texte, commentaires comptés", () => {
     expect(liveContextTrace(tex)).toEqual({ path: "/p/ch/chapitre1.tex", name: "chapitre1.tex", line: 23, comments: 1 });
-    expect(liveContextKey(tex)).toBe(liveContextKey({ ...tex, comments: [] }));
-    expect(liveContextKey(tex)).not.toBe(liveContextKey({ ...tex, line: 24 }));
-    expect(liveContextKey(tex)).not.toBe(liveContextKey({ ...tex, path: "/p/ch/autre.tex" }));
+  });
+
+  it("l'œil est allumé par défaut et se souvient d'être coupé", () => {
+    localStorage.removeItem(LIVE_CONTEXT_ON_KEY);
+    expect(readLiveContextOn()).toBe(true);
+    writeLiveContextOn(false);
+    expect(readLiveContextOn()).toBe(false);
+    writeLiveContextOn(true);
+    expect(readLiveContextOn()).toBe(true);
+    localStorage.removeItem(LIVE_CONTEXT_ON_KEY);
   });
 
   it("chemin relatif au projet quand le fichier est dedans", () => {

@@ -5,7 +5,7 @@
 // groupées en popover, aperçu riche Zotero, retrait unitaire.
 import { useEffect, useState } from "react";
 import {
-  CameraIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardIcon, EyeIcon,
+  CameraIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardIcon,
   FileTextIcon, FileCode2Icon, FolderIcon, ImageIcon, QuoteIcon, XIcon,
 } from "lucide-react";
 import { t } from "../../lib/i18n";
@@ -36,9 +36,6 @@ import { citeLabel } from "./turnParts";
 import { useFileCards } from "../../lib/chatFileCards";
 import type { Mark } from "../../lib/annotations";
 import { Button, IconButton, RowButton } from "../ui";
-import {
-  liveContextDisplayPath, liveContextSentence, liveContextWhere, type LiveContext,
-} from "../../lib/liveContext";
 
 export type ShelfAttachment = import("../../lib/chatDraftStore").DraftAttachment;
 const isLatex = (attachment: ShelfAttachment) => !attachment.imageUrl && /\.tex$/i.test(attachment.name);
@@ -77,53 +74,6 @@ function ThumbOrGlyph({ url }: { url: string }) {
   );
 }
 
-/** Contexte vivant (variante A, 2026-11-08) : étiquette discrète « ce que tu
- *  regardes » — sans fond au repos, un clic montre exactement ce qui part,
- *  la croix la retire pour ce message seulement. */
-function LiveContextChip(p: { context: LiveContext; projectRoot?: string | null; onDismiss?: () => void }) {
-  const [open, setOpen] = useState(false);
-  const ctx = p.context;
-  const where = liveContextWhere(ctx);
-  const sentence = liveContextSentence(ctx);
-  const label = t("live-context.chip", { name: ctx.name, where });
-  return (
-    <span className={`live-context-chip${open ? " is-open" : ""}`}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger render={<RowButton className="live-context-main" aria-label={label} title={label} />}>
-          <EyeIcon className="live-context-glyph" aria-hidden="true" />
-          <span className="live-context-name">{ctx.name}</span>
-          {where && <span className="live-context-where">{where}</span>}
-        </PopoverTrigger>
-        <PopoverContent side="top" align="start" className="live-context-detail tw:w-80">
-          <PopoverHeader>
-            <PopoverTitle className="live-context-detail-title">{t("live-context.title")}</PopoverTitle>
-            <PopoverDescription className="live-context-detail-path">
-              {liveContextDisplayPath(ctx.path, p.projectRoot)}
-            </PopoverDescription>
-          </PopoverHeader>
-          {sentence && <span className="live-context-detail-note">{sentence}</span>}
-          {ctx.comments && ctx.comments.length > 0 && (
-            <span className="live-context-detail-note">
-              {t("live-context.comments", { n: ctx.comments.length })}
-            </span>
-          )}
-        </PopoverContent>
-      </Popover>
-      {p.onDismiss && (
-        <IconButton
-          size="s"
-          className="ghost"
-          label={t("live-context.dismiss", { name: ctx.name })}
-          title={t("live-context.dismiss", { name: ctx.name })}
-          onClick={() => { setOpen(false); p.onDismiss?.(); }}
-        >
-          <XIcon className="context-pill-glyph" />
-        </IconButton>
-      )}
-    </span>
-  );
-}
-
 export function ContextShelf(p: {
   attachments: ShelfAttachment[];
   onRemoveAttachment: (index: number) => void;
@@ -131,10 +81,6 @@ export function ContextShelf(p: {
   /** annotations du fil — une SEULE pilule agrégée, dépliable */
   annotations?: Mark[];
   onRemoveAnnotation?: (text: string) => void;
-  /** contexte vivant de l'atelier — étiquette en tête de rangée */
-  liveContext?: LiveContext | null;
-  onDismissLiveContext?: () => void;
-  projectRoot?: string | null;
 }) {
   const [latexPreview, setLatexPreview] = useState<ShelfAttachment | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
@@ -175,16 +121,13 @@ export function ContextShelf(p: {
   };
 
   const annotations = p.annotations ?? [];
-  if (p.attachments.length === 0 && annotations.length === 0 && !p.liveContext) return null;
+  if (p.attachments.length === 0 && annotations.length === 0) return null;
 
   const removeLabel = (name: string, suffix = "") =>
     `${t("action.remove")} ${name}${suffix}`;
 
   return (
     <div className="chips-row context-pills" aria-label={t("context.attachments")}>
-      {p.liveContext && (
-        <LiveContextChip context={p.liveContext} projectRoot={p.projectRoot} onDismiss={p.onDismissLiveContext} />
-      )}
       {annotations.length > 0 && (
         <Popover open={openGroup === "annotations"} onOpenChange={(next) => setOpenGroup(next ? "annotations" : null)}>
           <PopoverTrigger

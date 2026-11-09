@@ -747,8 +747,8 @@ type BenchState = {
   liveContext?: LiveContext;
 };
 
-// Contexte vivant (variante A, 2026-11-08) : l'étiquette « ce que tu
-// regardes » au-dessus du champ, et sa trace sous un message déjà envoyé.
+// Contexte vivant : l'œil du compositeur (2026-11-09, variante C) et la
+// trace sous un message déjà envoyé.
 const LIVE_CONTEXT: LiveContext = {
   path: "/Users/bench/Doctorat/Chapitre1/chapitre1.tex", name: "chapitre1.tex", kind: "tex",
   line: 23,
@@ -880,6 +880,9 @@ export function ChatBench() {
   const replayFixture = hash.includes("-replayclaude") ? claudeObservedLive
     : hash.includes("-replaycodex") ? codexObservedLive : codexComposite;
   const [replayCount, setReplayCount] = useState(1);
+  // banc #chatbench-regarde : l'œil du contexte vivant (#chatbench-regarde-off
+  // l'ouvre coupé, #chatbench-regarde-vide sans onglet ouvert)
+  const [liveOn, setLiveOn] = useState(() => !hash.includes("-off"));
   const [replayReload, setReplayReload] = useState(false);
   const replayWire = replayFixture.events.slice(0, replayCount);
   const replayEvents = replayReload ? materializeHarnessHistory([...replayWire]) : reduceHarnessEvents([], replayWire);
@@ -944,8 +947,9 @@ export function ChatBench() {
         onReorderQueued={noop}
         attachments={activeState.attachments}
         onRemoveAttachment={noop}
-        liveContext={st.liveContext ?? null}
-        onDismissLiveContext={noop}
+        liveContext={st.liveContext ? {
+          context: hash.includes("-vide") ? null : st.liveContext, on: liveOn, onToggle: setLiveOn, projectRoot: "/Users/bench/Doctorat",
+        } : undefined}
         onQuote={noop}
         threadId="bench-thread"
         threadTitle="Validation W&M — régions ouest"

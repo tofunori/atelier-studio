@@ -6,7 +6,7 @@ import React, { useEffect, useRef, type MutableRefObject } from "react";
 import { t } from "../../lib/i18n";
 import { ProviderInfo } from "../../lib/providers";
 import { ContextShelf, type ShelfAttachment } from "./ContextShelf";
-import type { LiveContext } from "../../lib/liveContext";
+import type { LiveContextBinding } from "./LiveContextEye";
 import type { Mark } from "../../lib/annotations";
 import { type KbBinding } from "./KbPicker";
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
@@ -97,10 +97,8 @@ export type ComposerContextBundle = {
   onOpenPaste: (paste: { name: string; text: string }) => void;
   annotations?: Mark[];
   onRemoveAnnotation?: (text: string) => void;
-  /** contexte vivant de l'atelier : étiquette en tête de la rangée */
-  liveContext?: LiveContext | null;
-  onDismissLiveContext?: () => void;
-  projectRoot?: string | null;
+  /** œil du contexte vivant (barre du bas) */
+  liveContext?: LiveContextBinding;
 };
 
 /** Base de connaissances (plan 049 T3) — attache par conversation. */
@@ -169,6 +167,7 @@ export function ChatComposer(props: {
     hasContent,
     ...model, ...menus, ...catalog, ...host,
     kb,
+    liveContext: context.liveContext,
     scopeKey: props.scopeKey,
   };
 
@@ -325,9 +324,6 @@ export function ChatComposer(props: {
             onRemoveAnnotation={context.onRemoveAnnotation}
             onRemoveAttachment={context.onRemoveAttachment}
             onOpenPaste={context.onOpenPaste}
-            liveContext={context.liveContext}
-            onDismissLiveContext={context.onDismissLiveContext}
-            projectRoot={context.projectRoot}
           />
           {/* plan 050 : plus de pilules KB au-dessus du champ — le badge du
               livre porte le compte, son survol les titres, la méta sous

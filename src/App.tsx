@@ -191,7 +191,9 @@ import { pruneUnsavedDocuments } from "./lib/unsavedDocuments";
 // doivent être définis avant les règles historiques (cascade à égalité de
 // spécificité — App.css garde le dernier mot pendant la migration).
 import "./styles/tokens.css";
-import { LIVE_CONTEXT_EVENT, liveContextKey, liveContextTrace, parseLiveContext, type LiveContext } from "./lib/liveContext";
+import {
+  LIVE_CONTEXT_EVENT, liveContextTrace, parseLiveContext, readLiveContextOn, writeLiveContextOn, type LiveContext,
+} from "./lib/liveContext";
 import "./styles/shadcn.css";
 import "./styles/typeset.css";
 import "./styles/primitives.css";
@@ -1060,10 +1062,10 @@ export default function App() {
   }, [activeId, threads, wsReady]);
   const showAtelier = layout !== "chat";
   // Contexte vivant (2026-11-08) : ce que l'onglet focalisé de l'atelier
-  // montre, publié par AtelierPane. Le retrait (croix) vaut pour CE contexte
-  // et CE message : une autre sélection le ramène, un envoi réussi aussi.
+  // montre, publié par AtelierPane. L'œil du compositeur (2026-11-09) dit s'il
+  // part avec les messages : coupé, il reste coupé jusqu'au prochain clic.
   const [workspaceLiveContext, setWorkspaceLiveContext] = useState<LiveContext | null>(null);
-  const [dismissedLiveContext, setDismissedLiveContext] = useState<string | null>(null);
+  const [liveContextOn, setLiveContextOn] = useState(readLiveContextOn);
   useEffect(() => {
     const onLiveContext = (event: Event) => {
       const context = parseLiveContext((event as CustomEvent).detail?.context);
@@ -1073,10 +1075,15 @@ export default function App() {
     window.addEventListener(LIVE_CONTEXT_EVENT, onLiveContext);
     return () => window.removeEventListener(LIVE_CONTEXT_EVENT, onLiveContext);
   }, []);
-  const offeredLiveContext = showAtelier && activeProject && workspaceLiveContext
-    && liveContextKey(workspaceLiveContext) !== dismissedLiveContext
-    ? workspaceLiveContext
-    : null;
+  const visibleLiveContext = showAtelier && activeProject ? workspaceLiveContext : null;
+  const offeredLiveContext = liveContextOn ? visibleLiveContext : null;
+  const toggleLiveContext = useCallback((on: boolean) => {
+    writeLiveContextOn(on);
+    setLiveContextOn(on);
+  }, []);
+  const liveContextBinding = useMemo(() => ({
+    context: visibleLiveContext, on: liveContextOn, onToggle: toggleLiveContext, projectRoot: activeProject,
+  }), [visibleLiveContext, liveContextOn, toggleLiveContext, activeProject]);
   // Lu au moment d'envoyer (gestionnaire) : synchronisé après le rendu,
   // jamais muté pendant.
   const offeredLiveContextRef = useRef(offeredLiveContext);
@@ -3262,7 +3269,7 @@ export default function App() {
     onAccepted?: () => void,
   ) {
     const attachments = isolatedAttachments ?? activeComposerDraft.attachments;
-    // Contexte vivant capturé À L'ENVOI (le retrait éventuel déjà appliqué).
+    // Contexte vivant capturé À L'ENVOI (rien si l'œil est coupé).
     const liveContext = offeredLiveContextRef.current;
     const clearSubmittedAttachments = () => {
       updateComposerDraft(activeComposerKey, draft => ({
@@ -3270,7 +3277,6 @@ export default function App() {
       attachments: isolatedAttachments
         ? draft.attachments.filter(attachment => !isolatedAttachments.includes(attachment)) : [],
       }));
-      setDismissedLiveContext(null);
       onAccepted?.();
     };
     const displayPrompt = prompt;
@@ -4863,10 +4869,7 @@ export default function App() {
           onPasteText={(text) => setAttachments((l) => addAttachment(l, pastedTextAttachment(t("chat.pasted-text"), text)))}
           onQuote={(text) => setAttachments((l) => addAttachment(l, quoteAttachment(text)))}
           disabled={!activeProject && !activeId}
-          liveContext={offeredLiveContext}
-          onDismissLiveContext={() => {
-            if (offeredLiveContext) setDismissedLiveContext(liveContextKey(offeredLiveContext));
-          }}
+          liveContext={liveContextBinding}
           onGoal={threadActions.goal}
           onSubmit={submit}
         />

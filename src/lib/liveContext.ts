@@ -79,10 +79,17 @@ export function parseLiveContext(raw: unknown): LiveContext | null {
   return ctx;
 }
 
-/** Identité d'un contexte (fichier + position) : un retrait vaut pour elle
- *  seule ; une autre ligne ou un autre onglet ramène l'étiquette. */
-export function liveContextKey(ctx: LiveContext): string {
-  return [ctx.path, ctx.line ?? "", ctx.page ?? ""].join("\u0000");
+/** Œil du compositeur (2026-11-09, variante C) : allumé, le contexte vivant
+ *  part avec chaque message ; coupé, il reste coupé d'un message à l'autre et
+ *  après une relance, jusqu'au prochain clic. Allumé par défaut. */
+export const LIVE_CONTEXT_ON_KEY = "atelier-studio.liveContextOn";
+
+export function readLiveContextOn(): boolean {
+  try { return localStorage.getItem(LIVE_CONTEXT_ON_KEY) !== "0"; } catch { return true; }
+}
+
+export function writeLiveContextOn(on: boolean): void {
+  try { localStorage.setItem(LIVE_CONTEXT_ON_KEY, on ? "1" : "0"); } catch { /* stockage indisponible : l'état vit en mémoire */ }
 }
 
 /** Trace posée sur la bulle optimiste (le serveur renvoie la même). */
