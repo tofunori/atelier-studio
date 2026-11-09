@@ -5,7 +5,7 @@
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { HarnessInteraction, type InteractionEvent } from "./HarnessInteraction";
-import { commandLines } from "./ApprovalCard";
+import { commandLines } from "./commandLines";
 import { setLanguage, t } from "../../lib/i18n";
 
 afterEach(cleanup);

@@ -12,6 +12,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { AgentEvent, InteractionResponse } from "../../lib/ws";
 import { t } from "../../lib/i18n";
+import { sendInteractionAnswer } from "./interactionAnswer";
 import { Input } from "../shadcn/input";
 import { Field, FieldLabel, FieldTitle } from "../shadcn/field";
 import { Button, RowButton } from "../ui";
@@ -53,14 +54,6 @@ const CheckIcon = () => (
     <path d="M3.5 8.4 6.6 11.4 12.5 4.8" />
   </svg>
 );
-
-/** Réponse envoyée à App (WS `interactionResponse`). Carte recopiée d'un fil
- *  lié (spécialiste délégué) : la réponse part au nom de ce fil, seul
- *  détenteur de la demande côté serveur. */
-export const sendInteractionAnswer = (e: InteractionEvent, threadId: string | null, response: InteractionResponse) =>
-  window.dispatchEvent(new CustomEvent("interaction-answer", {
-    detail: { threadId: e.forThreadId ?? threadId, requestId: e.requestId, response },
-  }));
 
 type CardProps = { event: InteractionEvent; threadId: string | null };
 
