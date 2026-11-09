@@ -40,7 +40,7 @@ import { modelDisplayLabel } from "../lib/modelCatalog";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
 import { usePromptText, type DraftAttachment, type FollowUpMode, type PromptSource, type QueuedTurn } from "../lib/chatDraftStore";
 import type { Consigne, ConsigneDuFil } from "../lib/consignes";
-import type { LiveContext } from "../lib/liveContext";
+import type { LiveContextBinding } from "./chat/LiveContextEye";
 import { nomCourtDe, type Specialiste } from "../lib/specialistes";
 import {
   buildChatTurnViewModels,
@@ -129,9 +129,8 @@ export default function Chat(p: {
   onReorderQueued?: (draggedId: string, targetId: string) => void;
   attachments: ChatAttachment[];
   onRemoveAttachment: (index: number) => void;
-  /** contexte vivant de l'atelier (étiquette « ce que tu regardes ») */
-  liveContext?: LiveContext | null;
-  onDismissLiveContext?: () => void;
+  /** œil du contexte vivant : ce que l'atelier montre et s'il est partagé */
+  liveContext?: LiveContextBinding;
   onQuote: (text: string) => void;
   threadId: string | null;
   onPasteImage: (dataURL: string) => void;
@@ -1206,8 +1205,7 @@ export default function Chat(p: {
         }}
         context={{
           attachments: p.attachments, onRemoveAttachment: p.onRemoveAttachment,
-          liveContext: p.liveContext ?? null, onDismissLiveContext: p.onDismissLiveContext,
-          projectRoot: p.projectRoot,
+          liveContext: p.liveContext,
           onOpenPaste: setPasteView,
           annotations: marks, onRemoveAnnotation: removeAnnotation, onClearAnnotations: clearAnnotations,
         }}

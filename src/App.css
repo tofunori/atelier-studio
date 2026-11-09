@@ -6057,28 +6057,37 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   object-fit: cover; border: 1px solid var(--border); background: var(--bg-ctl); }
 .context-pill .context-pill-count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .context-pill .chip-lines { font-variant-numeric: tabular-nums; }
-/* Contexte vivant (2026-11-08, variante A) : « ce que tu regardes » n'est pas
-   une pièce jointe — étiquette SANS fond au repos ; fond de contrôle tant que
-   son détail est ouvert. Le chrome du détail vient du PopoverContent partagé. */
-.live-context-chip { display: inline-flex; align-items: center; gap: 4px; flex: 0 1 auto;
-  min-width: 0; max-width: 100%; height: 28px; padding: 0 4px 0 8px;
-  border-radius: var(--r-s); background: transparent; font-size: var(--fs-m);
-  color: var(--text-secondary); transition: background var(--motion-fast) var(--ease-out); }
-.live-context-chip.is-open, .live-context-chip:hover { background: var(--bg-ctl); }
-.live-context-chip .live-context-main { display: inline-flex; align-items: center; gap: 6px;
-  min-width: 0; background: transparent; border: 0; padding: 0; color: inherit; font: inherit;
-  cursor: pointer; }
-.live-context-chip .live-context-glyph { width: 12px; height: 12px; flex: none; color: var(--text-muted); }
-.live-context-chip .live-context-name { min-width: 0; max-width: 220px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.live-context-chip .live-context-where { flex: none; white-space: nowrap; color: var(--text-muted);
-  font-variant-numeric: tabular-nums; }
-.live-context-chip > .ghost { flex: none; margin: 0; }
-.live-context-detail .live-context-detail-title { font-size: var(--fs-m); }
-.live-context-detail .live-context-detail-path { font-size: var(--fs-m); color: var(--text-secondary);
-  overflow-wrap: anywhere; }
-.live-context-detail .live-context-detail-note { font-size: var(--fs-s); color: var(--text-muted);
-  font-variant-numeric: tabular-nums; }
+/* Œil du contexte vivant (2026-11-09, variante C) : bouton du rail, sans
+   accent. Allumé = gris secondaire, un cran au-dessus du livre et de la
+   liste ; coupé (œil barré) ou rien d'ouvert = gris des autres outils du rail
+   (le gris éteint est réservé au désactivé, budget A4 du contrat CSS). Le
+   panneau reprend le chrome des menus du compositeur. */
+.composer-context-rail .live-eye { color: var(--text-secondary);
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.composer-context-rail .live-eye[data-state="off"],
+.composer-context-rail .live-eye[data-state="idle"] { color: var(--text-muted); }
+.composer-context-rail .live-eye:hover,
+.composer-context-rail .live-eye[data-open] { background: var(--bg-ctl); }
+.composer-context-rail .live-eye > svg { animation: live-eye-swap var(--motion-fast) var(--ease-out); }
+@keyframes live-eye-swap { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .composer-context-rail .live-eye > svg { animation: none; } }
+.live-eye-tip.is-hidden { display: none; }
+.composer-menu.live-eye-pop { width: 300px; max-width: calc(100vw - 24px); padding: 12px;
+  display: flex; flex-direction: column; gap: 8px; }
+.live-eye-head { display: flex; align-items: center; gap: 12px; }
+.live-eye-title { flex: 1; min-width: 0; font-size: var(--fs-m); font-weight: 500; color: var(--text-primary); }
+.live-eye-switch { position: relative; flex: none; width: 28px; height: 16px; padding: 0; border: 0;
+  border-radius: var(--r-pill); cursor: pointer;
+  background: color-mix(in srgb, var(--text-primary) 18%, transparent);
+  transition: background var(--motion-fast) var(--ease-out); }
+.live-eye-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--switch-off-thumb);
+  transition: transform var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out); }
+.live-eye-switch[data-on] { background: var(--switch-on-track); }
+.live-eye-switch[data-on]::after { transform: translateX(12px); background: var(--switch-on-thumb); }
+.live-eye-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.live-eye-path { font-size: var(--fs-m); color: var(--text-secondary); overflow-wrap: anywhere; }
+.live-eye-note { font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* trace sous la bulle : ce qui est parti avec le message, à droite comme l'heure */
 .user-live-context { display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
   font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }

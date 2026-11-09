@@ -20,7 +20,7 @@
  */
 import type {StudioPosition} from "./editor_contract";
 
-export type LiveContextKind = "tex" | "code" | "pdf";
+export type LiveContextKind = "tex" | "code" | "pdf" | "figure" | "docx";
 
 export interface LiveContextComment {
   line?: number;
@@ -37,6 +37,8 @@ export interface LiveContext {
   line?: number;
   page?: number;
   pageCount?: number;
+  /** Paragraphe du curseur (.docx, 1-based). */
+  paragraph?: number;
   comments?: LiveContextComment[];
 }
 
