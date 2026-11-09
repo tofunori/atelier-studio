@@ -84,6 +84,10 @@ struct TurnLog {
     usage: Option<Value>,
     done_ok: Option<bool>,
     changed: Option<Vec<String>>,
+    /// Arbre du worktree en fin de tour et ± par fichier : l'historique du
+    /// projet en tire le diff « après » d'un tour sans relire le journal.
+    end_tree: Option<String>,
+    file_stats: Option<Value>,
 }
 
 /// Contexte d'un tour, partagé entre la pompe d'événements (qui accumule les
@@ -247,6 +251,15 @@ impl TurnProvenance {
     /// pour `filesChanged`/`fileStats` : AUCUN spawn git supplémentaire ici, et
     /// aucune écriture — le journal et les recettes partent à la
     /// finalisation, une fois la réponse rendue au chat.
+    /// Arbre de fin de tour et ± des fichiers, posés dans l'entrée du journal
+    /// pour l'historique du projet (2026-11-09).
+    pub fn record_end_state(&self, end_tree: Option<&str>, file_stats: Value) {
+        if let Ok(mut log) = self.log.lock() {
+            log.end_tree = end_tree.map(str::to_string);
+            log.file_stats = Some(file_stats);
+        }
+    }
+
     pub fn record_done(&self, _project_root: &str, _snapshot_sha: Option<&str>, changed: &[String]) {
         if let Ok(mut log) = self.log.lock() {
             log.changed = Some(changed.to_vec());
@@ -420,10 +433,11 @@ impl TurnProvenance {
         recipes: &[String],
         end: TurnEnd,
     ) -> Value {
-        let (commands, reads, tools, usage) = self
+        let (commands, reads, tools, usage, end_tree, file_stats) = self
             .log
             .lock()
-            .map(|l| (l.commands.clone(), l.reads.clone(), l.tools.clone(), l.usage.clone()))
+            .map(|l| (l.commands.clone(), l.reads.clone(), l.tools.clone(), l.usage.clone(),
+                l.end_tree.clone(), l.file_stats.clone()))
             .unwrap_or_default();
         let root = Path::new(project_root);
         let reads: Vec<String> = reads
@@ -467,6 +481,8 @@ impl TurnProvenance {
             "filesChanged": files_changed,
             "recipes": recipes,
             "snapshotSha": snapshot_sha,
+            "endTree": end_tree,
+            "fileStats": file_stats,
             "head": head_sha(root),
         })
     }

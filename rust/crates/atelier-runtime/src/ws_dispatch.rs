@@ -97,6 +97,10 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "integrations"
         | "environmentStatus"
         | "kernelCells"
+        // Historique du projet : lectures seules (journal, Git, versions).
+        | "projectHistory"
+        | "projectHistoryDiff"
+        | "projectHistoryCompare"
         // N'ajoute que les CLI absents du registre (RwLock) : aucune session
         // vivante n'est touchée, donc pas de barrière globale.
         | "refreshProviders" => Class::Read,
@@ -397,6 +401,10 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
         "computeReadLog" => Some("computeLog"),
         "kernelCells" => Some("kernelCells"),
         "kernelCommand" => Some("kernelCommand"),
+        "projectHistory" | "projectHistoryDiff" | "projectHistoryCompare" => request["type"].as_str(),
+        "projectHistoryRestore" => Some("projectHistoryRestored"),
+        "projectHistorySaveVersion" => Some("projectHistoryVersionSaved"),
+        "projectHistoryDeleteVersion" => Some("projectHistoryVersionDeleted"),
         _ => None,
     };
     if let Some(kind) = response_type {
@@ -662,6 +670,9 @@ mod tests {
             "memorySave",
             "memoryDelete",
             "createProject",
+            "projectHistoryRestore",
+            "projectHistorySaveVersion",
+            "projectHistoryDeleteVersion",
         ];
         for kind in crate::ws_router::ALL_MESSAGE_TYPES {
             if *kind == "ping" {

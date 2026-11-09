@@ -17,11 +17,11 @@ pub enum GitError {
 
 type Result<T> = std::result::Result<T, GitError>;
 
-fn msg(s: impl Into<String>) -> GitError {
+pub(crate) fn msg(s: impl Into<String>) -> GitError {
     GitError::Msg(s.into())
 }
 
-fn confined_root(root: &str) -> Result<PathBuf> {
+pub(crate) fn confined_root(root: &str) -> Result<PathBuf> {
     if root.is_empty() {
         return Err(msg("root requis"));
     }
@@ -32,7 +32,7 @@ fn confined_root(root: &str) -> Result<PathBuf> {
     Ok(std::fs::canonicalize(p)?)
 }
 
-fn assert_relative(root: &Path, file_path: &str) -> Result<String> {
+pub(crate) fn assert_relative(root: &Path, file_path: &str) -> Result<String> {
     if file_path.is_empty() || file_path.contains('\0') {
         return Err(msg("path relatif requis"));
     }
@@ -56,7 +56,7 @@ fn assert_relative(root: &Path, file_path: &str) -> Result<String> {
     Ok(file_path.replace('\\', "/"))
 }
 
-fn git(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<std::process::Output> {
+pub(crate) fn git(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<std::process::Output> {
     let mut cmd = Command::new("git");
     cmd.args(args).current_dir(root).env("LC_ALL", "C");
     for (k, v) in env {
@@ -102,7 +102,7 @@ pub(crate) fn bounded_output(cmd: &mut Command, timeout: Duration) -> Result<std
     result
 }
 
-fn git_ok(root: &Path, args: &[&str]) -> Result<String> {
+pub(crate) fn git_ok(root: &Path, args: &[&str]) -> Result<String> {
     let out = git(root, args, &[])?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
@@ -117,7 +117,7 @@ fn git_ok(root: &Path, args: &[&str]) -> Result<String> {
     }
 }
 
-fn has_head(root: &Path) -> bool {
+pub(crate) fn has_head(root: &Path) -> bool {
     git(root, &["rev-parse", "--verify", "HEAD"], &[])
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -137,7 +137,7 @@ pub fn is_repo(root: &str) -> bool {
     std::fs::canonicalize(&top).ok().as_ref() == Some(&real)
 }
 
-fn ensure_repo(root: &Path) -> Result<()> {
+pub(crate) fn ensure_repo(root: &Path) -> Result<()> {
     let s = root.to_string_lossy();
     if !is_repo(&s) {
         return Err(msg(format!("repo git introuvable: {s}")));
@@ -201,7 +201,7 @@ pub struct GitCommitDetails {
     pub head: String, pub upstream: Option<String>, pub is_head: bool, pub is_published: bool,
 }
 
-fn valid_sha(sha: &str) -> bool { (4..=64).contains(&sha.len()) && sha.chars().all(|c| c.is_ascii_hexdigit()) }
+pub(crate) fn valid_sha(sha: &str) -> bool { (4..=64).contains(&sha.len()) && sha.chars().all(|c| c.is_ascii_hexdigit()) }
 
 fn parse_commit_records(output: &str) -> Vec<GitCommitSummary> {
     output.split('\x1e').filter_map(|record| {
@@ -676,7 +676,7 @@ pub struct DiffContents {
     pub binary: bool,
 }
 
-fn git_object(root: &Path, spec: &str) -> Result<Vec<u8>> {
+pub(crate) fn git_object(root: &Path, spec: &str) -> Result<Vec<u8>> {
     let output = git(root, &["show", spec], &[])?;
     if output.status.success() { return Ok(output.stdout); }
     let error = String::from_utf8_lossy(&output.stderr);
@@ -1062,7 +1062,7 @@ pub fn ignore_pattern(root: &str, pattern: &str) -> Result<String> {
 /// Arbre git du worktree COMPLET (untracked inclus) via un index temporaire —
 /// même séquence que le snapshot de début de tour (read-tree HEAD puis add -A),
 /// pour que deux arbres pris avant/après un tour soient comparables.
-fn worktree_tree(real: &std::path::Path) -> Result<String> {
+pub(crate) fn worktree_tree(real: &std::path::Path) -> Result<String> {
     // Index PERSISTANT par dépôt. Un index neuf oblige git à re-hacher tout le
     // worktree ; réutilisé, il s'appuie sur les dates de modification et ne
     // touche que ce qui a bougé. Mesuré sur un dépôt de 55 Go / 21 221
