@@ -3,6 +3,7 @@ import {
   createLatexBibCheckController,
   type LatexBibCheckController,
   createLatexCompileCoordinator,
+  createCompileProgressUi,
   createLatexConsolePanel,
   createLatexOutlineController,
   createLatexPdfControls,
@@ -859,6 +860,9 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
     lastCompile = {log: log.log, ok: log.ok};
     consolePanel.render(log);
   };
+  const compileUi = isTex
+    ? createCompileProgressUi({document: doc, window: win, right: doc.getElementById("right") as HTMLElement})
+    : null;
   const compileCoordinator = createLatexCompileCoordinator({
     isTex,
     getText: () => editor?.getValue() || "",
@@ -872,6 +876,12 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       });
       return response.json();
     },
+    requestProgress: async () => {
+      const response = await win.fetch(`/compile/progress?path=${encodeURIComponent(path || "")}`);
+      return response.ok ? response.json() : null;
+    },
+    onProgress: (progress) => compileUi?.progress(progress),
+    onStale: (response) => compileUi?.stale(response?.pdfMtime ?? null),
     revealIssue: (issue) => {
       if (!editor) return;
       revealLineRange(editor, {fromLine: issue.line - 1, margin: 120});

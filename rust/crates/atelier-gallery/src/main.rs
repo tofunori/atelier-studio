@@ -2642,6 +2642,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Phase 4 — LaTeX / PDF / export PNG
         .route("/latex-suggest", post(suggest::latex_suggest))
         .route("/compile", post(documents::compile))
+        .route("/compile/progress", get(documents::compile_progress))
         .route("/synctex", post(documents::synctex))
         .route(
             "/pdfannot",

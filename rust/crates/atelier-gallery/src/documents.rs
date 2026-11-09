@@ -134,6 +134,202 @@ fn compile_flights()
     FLIGHTS.get_or_init(Default::default)
 }
 
+// ---------------------------------------------------------------------------
+// Compilation vivante : passe et page en cours, lues dans le flux de latexmk
+// ---------------------------------------------------------------------------
+
+/// Où en est une compilation : l'éditeur affiche « passe 2 · page 14 » au lieu
+/// d'un compteur de secondes muet.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct CompileProgress {
+    /// Passe de TeX en cours (1 = première ; 0 avant le premier passage).
+    pass: u32,
+    /// Dernière page expédiée par la passe en cours.
+    page: u32,
+    /// `tex`, `bib` (bibtex/biber) ou `index` (makeindex).
+    stage: &'static str,
+}
+
+impl CompileProgress {
+    /// Une ligne du terminal de latexmk ou de tectonic. Les passes viennent des
+    /// annonces de règle ; les pages, des marqueurs `[N` que TeX imprime à
+    /// chaque page expédiée (et vide aussitôt sur le terminal).
+    fn advance(&mut self, line: &str) {
+        let rule = line
+            .split_once("Run number ")
+            .and_then(|(_, rest)| rest.split_once(" of rule '"))
+            .map(|(_, rule)| rule.trim_end_matches(['\'', '\r']).to_ascii_lowercase());
+        let tectonic = line.strip_prefix("note: ").map(str::to_ascii_lowercase);
+        let stage = match (rule.as_deref(), tectonic.as_deref()) {
+            (Some(r), _) if r.starts_with("bibtex") || r.starts_with("biber") => Some("bib"),
+            (Some(r), _) if r.starts_with("makeindex") || r.starts_with("makeglossaries") => {
+                Some("index")
+            }
+            (Some(r), _) if r.contains("latex") || r.contains("xetex") || r.contains("luatex") => {
+                Some("tex")
+            }
+            (_, Some(t)) if t.starts_with("running bibtex") || t.starts_with("running biber") => {
+                Some("bib")
+            }
+            (_, Some(t)) if t.starts_with("running tex") || t.starts_with("rerunning tex") => {
+                Some("tex")
+            }
+            _ => None,
+        };
+        match stage {
+            Some("tex") => {
+                self.pass += 1;
+                self.page = 0;
+                self.stage = "tex";
+            }
+            Some(other) => self.stage = other,
+            None => {
+                if self.stage.is_empty() {
+                    self.stage = "tex";
+                }
+                if let Some(page) = last_shipped_page(line) {
+                    self.pass = self.pass.max(1);
+                    self.page = self.page.max(page);
+                }
+            }
+        }
+    }
+}
+
+/// Dernier marqueur de page `[N` d'une ligne de terminal TeX : précédé d'un
+/// début de ligne, d'une espace ou d'un `]`, suivi de `]`, d'une espace, de
+/// `{`, `<` ou de la fin de ligne. `[1/2]`, `[]` ou une date restent ignorés.
+fn last_shipped_page(line: &str) -> Option<u32> {
+    let bytes = line.as_bytes();
+    let mut found = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b != b'[' || (i > 0 && !matches!(bytes[i - 1], b' ' | b']')) {
+            continue;
+        }
+        let digits = bytes[i + 1..]
+            .iter()
+            .take_while(|c| c.is_ascii_digit())
+            .count();
+        if digits == 0 || digits > 5 {
+            continue;
+        }
+        let after = bytes.get(i + 1 + digits).copied();
+        if !matches!(after, None | Some(b']' | b' ' | b'{' | b'<' | b'\r')) {
+            continue;
+        }
+        if let Ok(n) = line[i + 1..i + 1 + digits].parse::<u32>()
+            && n > 0
+        {
+            found = Some(n);
+        }
+    }
+    found
+}
+
+type ProgressMap =
+    std::sync::Mutex<std::collections::HashMap<PathBuf, (CompileProgress, std::time::Instant)>>;
+
+fn compile_progress_map() -> &'static ProgressMap {
+    static MAP: std::sync::OnceLock<ProgressMap> = std::sync::OnceLock::new();
+    MAP.get_or_init(Default::default)
+}
+
+/// Retire l'entrée de progression même si la compilation est abandonnée
+/// (requête coupée, budget dépassé).
+struct ProgressGuard(PathBuf);
+
+impl ProgressGuard {
+    fn start(root: &Path) -> Self {
+        compile_progress_map()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                root.to_path_buf(),
+                (CompileProgress::default(), std::time::Instant::now()),
+            );
+        Self(root.to_path_buf())
+    }
+}
+
+impl Drop for ProgressGuard {
+    fn drop(&mut self) {
+        compile_progress_map()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
+
+/// Lit un flux du compilateur ligne à ligne : tout est gardé pour le journal,
+/// et chaque ligne fait avancer la progression de `root`. Les octets restent
+/// bruts (un journal TeX n'est pas toujours de l'UTF-8).
+async fn pump_compiler_stream<R>(stream: Option<R>, root: PathBuf) -> Vec<u8>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt;
+    let mut out = Vec::new();
+    let Some(stream) = stream else { return out };
+    let mut reader = tokio::io::BufReader::new(stream);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line).await {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                out.extend_from_slice(&line);
+                let text = String::from_utf8_lossy(&line);
+                if let Some((progress, _)) = compile_progress_map()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get_mut(&root)
+                {
+                    progress.advance(text.trim_end_matches('\n'));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `GET /compile/progress?path=` — `{running, pass, page, stage, elapsed}`
+/// pour la racine TeX de `path`. Interrogé par l'éditeur pendant qu'il attend
+/// la réponse de `/compile`.
+pub async fn compile_progress(
+    State(state): State<AppState>,
+    Query(query): Query<ProgressQuery>,
+) -> impl IntoResponse {
+    let Ok(p) = safe_project_path(&state.root, &query.path) else {
+        return json_error(StatusCode::FORBIDDEN, "outside the project");
+    };
+    let root = find_tex_root(&p);
+    let Ok(root) = safe_project_path(&state.root, &root.to_string_lossy()) else {
+        return json_error(StatusCode::FORBIDDEN, "outside the project");
+    };
+    (StatusCode::OK, Json(progress_json(&root))).into_response()
+}
+
+fn progress_json(root: &Path) -> Value {
+    let map = compile_progress_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    match map.get(root) {
+        Some((progress, started)) => json!({
+            "running": true,
+            "pass": progress.pass,
+            "page": progress.page,
+            "stage": if progress.stage.is_empty() { "tex" } else { progress.stage },
+            "elapsed": started.elapsed().as_secs_f64(),
+        }),
+        None => json!({"running": false}),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ProgressQuery {
+    path: String,
+}
+
 async fn coordinated_compile(root: PathBuf, force: bool) -> Value {
     coordinated_compile_with(root, force, |root, force| async move {
         compile_document(&root, force).await
@@ -259,6 +455,7 @@ fn compile_budget(latexmk: bool) -> Duration {
 
 async fn compile_document(root: &Path, force: bool) -> Value {
     let pdf = root.with_extension("pdf");
+    let pdf_mtime_before = atelier_core::file_mtime_secs(&pdf).ok();
     let cwd = root.parent().unwrap_or_else(|| Path::new("."));
     let basename = match safe_argv_basename(
         root.file_name()
@@ -323,23 +520,37 @@ async fn compile_document(root: &Path, force: bool) -> Value {
     }
     // Retain the process-group id: killing just latexmk can leave TeX children
     // writing the PDF while the next coordinated pass starts.
-    let child = match cmd.spawn() {
+    let _progress = ProgressGuard::start(root);
+    let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(error) => return json!({"ok": false, "error": error.to_string()}),
     };
     let pid = child.id();
     let budget = compile_budget(latexmk);
-    match tokio::time::timeout(budget, child.wait_with_output()).await {
-        Ok(Ok(output)) => {
+    let stdout = pump_compiler_stream(child.stdout.take(), root.to_path_buf());
+    let stderr = pump_compiler_stream(child.stderr.take(), root.to_path_buf());
+    let finished = async {
+        let (stdout, stderr, status) = tokio::join!(stdout, stderr, child.wait());
+        status.map(|status| (stdout, stderr, status))
+    };
+    match tokio::time::timeout(budget, finished).await {
+        Ok(Ok((stdout, stderr, status))) => {
             let log = format!(
                 "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
+                String::from_utf8_lossy(&stdout),
+                String::from_utf8_lossy(&stderr)
             );
-            let ok = output.status.success() && pdf.is_file();
-            json!({"ok": ok, "pdf": if ok {json!(pdf.to_string_lossy())} else {Value::Null},
+            let ok = status.success() && pdf.is_file();
+            if ok {
+                prewarm_synctex(pdf.clone());
+            }
+            let mut response = json!({"ok": ok, "pdf": if ok {json!(pdf.to_string_lossy())} else {Value::Null},
                 "root": root.to_string_lossy(), "log": log,
-                "error": if ok {String::new()} else {compile_error_excerpt(&log)}})
+                "error": if ok {String::new()} else {compile_error_excerpt(&log)}});
+            if !ok {
+                mark_stale_pdf(&mut response, &pdf, pdf_mtime_before);
+            }
+            response
         }
         Ok(Err(error)) => json!({"ok": false, "error": error.to_string()}),
         Err(_) => {
@@ -349,9 +560,32 @@ async fn compile_document(root: &Path, force: bool) -> Value {
                     libc::kill(-(pid as i32), libc::SIGKILL);
                 }
             }
-            json!({"ok": false, "error": format!("compilation > {} s", budget.as_secs())})
+            let mut response =
+                json!({"ok": false, "error": format!("compilation > {} s", budget.as_secs())});
+            mark_stale_pdf(&mut response, &pdf, pdf_mtime_before);
+            response
         }
     }
+}
+
+/// Échec avec un PDF d'avant resté intact (`-halt-on-error` ne le réécrit
+/// pas) : l'aperçu le garde et le dit, « Dernier PDF valide · il y a 3 min ».
+fn mark_stale_pdf(response: &mut Value, pdf: &Path, before: Option<f64>) {
+    let Ok(now) = atelier_core::file_mtime_secs(pdf) else {
+        return;
+    };
+    if before.is_some_and(|before| (before - now).abs() < 1e-3) {
+        response["stale"] = json!(true);
+        response["pdfMtime"] = json!(now);
+    }
+}
+
+/// Lit le SyncTeX du PDF neuf hors du chemin de la réponse : le premier clic
+/// PDF ↔ source ne paie plus l'analyse du `.synctex.gz`.
+fn prewarm_synctex(pdf: PathBuf) {
+    tokio::task::spawn_blocking(move || {
+        let _ = crate::synctex::load_for_pdf(&pdf);
+    });
 }
 
 fn compile_error_excerpt(log: &str) -> String {
@@ -1329,6 +1563,83 @@ mod tests {
         release.notify_one();
         compile.await.unwrap();
         assert_eq!(frozen_pdf_mtime(&pdf), None);
+    }
+
+    #[test]
+    fn progress_counts_latexmk_passes_and_shipped_pages() {
+        let mut p = CompileProgress::default();
+        p.advance("Rc files read:");
+        p.advance("Run number 1 of rule 'pdflatex'");
+        assert_eq!((p.pass, p.page, p.stage), (1, 0, "tex"));
+        p.advance("(./main.aux) [1{/usr/local/texlive/2025/texmf-var/fonts/map/pdftex/updmap/pdftex.map}] [2 <./fig/a.png>]");
+        p.advance(" [3] [4]");
+        assert_eq!(p.page, 4);
+        p.advance("Run number 1 of rule 'bibtex main'");
+        assert_eq!((p.pass, p.stage), (1, "bib"));
+        p.advance("Run number 2 of rule 'pdflatex'");
+        assert_eq!((p.pass, p.page, p.stage), (2, 0, "tex"));
+        p.advance("[1]");
+        assert_eq!(p.page, 1);
+    }
+
+    #[test]
+    fn progress_follows_tectonic_notes() {
+        let mut p = CompileProgress::default();
+        p.advance("note: Running TeX ...");
+        p.advance("note: Running BibTeX ...");
+        assert_eq!((p.pass, p.stage), (1, "bib"));
+        p.advance("note: Rerunning TeX because \"main.aux\" changed ...");
+        assert_eq!((p.pass, p.stage), (2, "tex"));
+    }
+
+    #[test]
+    fn page_markers_ignore_brackets_that_are_not_pages() {
+        assert_eq!(last_shipped_page("[1/2]"), None);
+        assert_eq!(
+            last_shipped_page("Overfull \\hbox (1.2pt too wide) []\\OT1/cmr/m/n/10 x"),
+            None
+        );
+        assert_eq!(last_shipped_page("see Table[3]"), None);
+        assert_eq!(last_shipped_page("[0]"), None);
+        assert_eq!(last_shipped_page("[12]"), Some(12));
+        assert_eq!(last_shipped_page("] [7"), Some(7));
+        assert_eq!(last_shipped_page("[8{/a.enc}]"), Some(8));
+    }
+
+    #[tokio::test]
+    async fn progress_is_published_while_compiling_and_cleared_after() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("main.tex");
+        assert_eq!(progress_json(&root)["running"], json!(false));
+        let guard = ProgressGuard::start(&root);
+        let stream: &[u8] = b"Run number 1 of rule 'pdflatex'\n[1] [2]\n";
+        let log = pump_compiler_stream(Some(stream), root.clone()).await;
+        assert_eq!(log, stream);
+        let live = progress_json(&root);
+        assert_eq!(live["running"], json!(true));
+        assert_eq!(
+            (live["pass"].clone(), live["page"].clone()),
+            (json!(1), json!(2))
+        );
+        drop(guard);
+        assert_eq!(progress_json(&root)["running"], json!(false));
+    }
+
+    #[test]
+    fn a_failed_compile_that_left_the_pdf_untouched_flags_it_stale() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = dir.path().join("main.pdf");
+        let mut missing = json!({"ok": false});
+        mark_stale_pdf(&mut missing, &pdf, None);
+        assert!(missing.get("stale").is_none());
+        std::fs::write(&pdf, b"%PDF").unwrap();
+        let before = atelier_core::file_mtime_secs(&pdf).ok();
+        let mut kept = json!({"ok": false});
+        mark_stale_pdf(&mut kept, &pdf, before);
+        assert_eq!(kept["stale"], json!(true));
+        let mut fresh = json!({"ok": false});
+        mark_stale_pdf(&mut fresh, &pdf, None);
+        assert!(fresh.get("stale").is_none());
     }
 
     #[test]

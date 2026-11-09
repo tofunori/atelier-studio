@@ -180,7 +180,24 @@
   .pdf-pill .pp-n i{font-style:normal;color:var(--text-muted,var(--muted))}
   .pdf-pill .pp-zoom{min-width:52px;color:var(--text-secondary,var(--muted))}
   .pdf-pill .pp-sep{width:1px;height:16px;background:var(--border);margin:0 4px}
-  @media (prefers-reduced-motion: reduce){#marker,.pdf-pill{transition:none}}
+  /* Compilation vivante : filet de 2 px en haut du volet PDF (pages de la passe
+     en cours sur celles du PDF d'avant), indéterminé sans total. */
+  .pdf-progress{position:absolute;height:2px;overflow:hidden;z-index:31;pointer-events:none;
+                background:color-mix(in srgb,var(--txt) 6%,transparent)}
+  .pdf-progress[hidden]{display:none}
+  .pdf-progress>span{position:absolute;inset:0;transform-origin:left center;background:var(--text-secondary,var(--fg2));
+                     transform:scaleX(.24);animation:pdf-progress-sweep 1200ms ease-in-out infinite}
+  .pdf-progress.known>span{animation:none;transition:transform 150ms ease-out}
+  @keyframes pdf-progress-sweep{from{translate:-30% 0}to{translate:130% 0}}
+  /* Étiquette du volet PDF : passe et page pendant la compilation, puis « Dernier
+     PDF valide » quand elle a échoué et que l'aperçu garde le PDF d'avant. */
+  .pdf-stale{position:absolute;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px 0 10px;border-radius:999px;
+             background:var(--bg-pop,var(--card));box-shadow:var(--elevation-overlay,var(--elev));z-index:30;pointer-events:none;
+             font:400 12px/1 var(--ui-font);color:var(--text-secondary,var(--muted));font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pdf-stale[hidden]{display:none}
+  .pdf-stale svg{flex:none;color:var(--text-muted,var(--muted))}
+  .pdf-stale.live{padding:0 12px;color:var(--text-secondary,var(--muted))}
+  @media (prefers-reduced-motion: reduce){#marker,.pdf-pill,.pdf-progress.known>span{transition:none}.pdf-progress>span{animation:none;transform:scaleX(1);opacity:.5}}
   /* Sélection : sélection NATIVE du navigateur, peinte par ::selection. Un seul
      calque, composé hors layout ; ni drawSelection ni décoration mark (voir
      SELECTION_RENDERING dans cm6/studio_editor.ts, banc scripts/bench_editor.mts).

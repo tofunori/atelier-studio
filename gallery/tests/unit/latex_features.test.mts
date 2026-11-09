@@ -220,6 +220,93 @@ test("compile coordinator blocks once on preflight then permits an immediate for
   assert.deepEqual(stopped, [17]);
 });
 
+test("compile coordinator shows the live pass and page, then flags a kept PDF", async () => {
+  assert.equal(latex.compileProgressLabel(null, 0), "compilation…");
+  assert.equal(latex.compileProgressLabel(null, 4), "compilation… 4 s");
+  assert.equal(latex.compileProgressLabel({running: true, pass: 2, page: 14, stage: "tex"}, 6), "compilation · passe 2 · page 14");
+  assert.equal(latex.compileProgressLabel({running: true, pass: 1, page: 0, stage: "tex"}, 1), "compilation · passe 1");
+  assert.equal(latex.compileProgressLabel({running: true, pass: 1, page: 9, stage: "bib"}, 3), "compilation · bibliographie");
+  assert.equal(latex.compileProgressLabel({running: false}, 2), "compilation… 2 s");
+
+  const chips: unknown[] = [];
+  const progress: unknown[] = [];
+  const stale: unknown[] = [];
+  let tickFn: (() => void) | null = null;
+  let finish: (value: unknown) => void = () => {};
+  let fail = false;
+  const coordinator = latex.createLatexCompileCoordinator({
+    isTex: true,
+    getText: () => "\\section{Ok}\n",
+    isDirty: () => false,
+    save: async () => true,
+    requestCompile: () => new Promise((resolve) => { finish = resolve; }),
+    requestProgress: async () => ({running: true, pass: 2, page: 7, stage: "tex"}),
+    onProgress: (value) => progress.push(value),
+    onStale: (value) => stale.push(value ? value.pdfMtime : null),
+    revealIssue: () => {},
+    setState: () => {},
+    setChip: (kind, message) => chips.push([kind, message]),
+    renderLog: () => {},
+    onCompiled: () => {},
+    now: () => 0,
+    clockLabel: () => "09:00",
+    startInterval: (callback) => { tickFn = callback; return 5; },
+    stopInterval: () => { tickFn = null; },
+  });
+  const running = coordinator.compile();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  tickFn?.();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(chips.at(-1), ["run", "compilation · passe 2 · page 7"]);
+  assert.deepEqual(progress.at(-1), {running: true, pass: 2, page: 7, stage: "tex"});
+  fail = true;
+  finish({ok: false, stale: true, pdfMtime: 1_700_000_000, log: "! Undefined control sequence.\nl.4 \\oops"});
+  await running;
+  assert.ok(fail);
+  assert.equal(progress.at(-1), null);
+  assert.deepEqual(stale, [1_700_000_000]);
+  assert.deepEqual(chips.at(-1), ["err", "1 erreur · dernier PDF valide"]);
+});
+
+test("compile progress UI follows pages and dates the kept PDF", () => {
+  const dom = new JSDOM(`<div id="split"><div id="right"><div class="pdfpage"></div><div class="pdfpage"></div><div class="pdfpage"></div><div class="pdfpage"></div></div></div>`);
+  const right = dom.window.document.getElementById("right") as HTMLElement;
+  Object.defineProperty(right, "clientWidth", {value: 640});
+  let clock = 1_700_000_000_000 + 3 * 60_000;
+  const ui = latex.createCompileProgressUi({document: dom.window.document, window: dom.window as unknown as Window, right, now: () => clock});
+  const line = dom.window.document.querySelector(".pdf-progress") as HTMLElement;
+  const fill = line.firstElementChild as HTMLElement;
+  assert.equal(line.hidden, true);
+  ui.progress({running: true, pass: 1, page: 2, stage: "tex"});
+  assert.equal(line.hidden, false);
+  assert.ok(line.classList.contains("known"));
+  assert.equal(fill.style.transform, "scaleX(0.5)");
+  ui.progress({running: true, pass: 1, page: 0, stage: "bib"});
+  assert.ok(!line.classList.contains("known"));
+  const label = dom.window.document.querySelector(".pdf-stale") as HTMLElement;
+  ui.progress({running: true, pass: 2, page: 3, stage: "tex"});
+  assert.equal(label.textContent, "Compilation · passe 2 · page 3");
+  ui.progress(null);
+  assert.equal(line.hidden, true);
+  assert.equal(label.hidden, true);
+
+  const flag = dom.window.document.querySelector(".pdf-stale") as HTMLElement;
+  ui.stale(1_700_000_000);
+  assert.equal(flag.hidden, false);
+  assert.match(flag.textContent || "", /^Dernier PDF valide · il y a 3 min$/);
+  right.classList.add("reading");
+  ui.stale(1_700_000_000);
+  assert.equal(flag.hidden, true);
+  right.classList.remove("reading");
+  ui.stale(null);
+  assert.equal(flag.hidden, true);
+  assert.equal(latex.staleAgeLabel(20_000), "à l’instant");
+  assert.equal(latex.staleAgeLabel(2 * 3_600_000 + 5), "il y a 2 h");
+  ui.destroy();
+  assert.equal(dom.window.document.querySelector(".pdf-stale"), null);
+  clock = 0;
+});
+
 test("compile coordinator never starts compilation when a dirty document cannot be saved", async () => {
   let requested = false;
   const chips: unknown[] = [];

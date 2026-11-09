@@ -160,22 +160,32 @@ pub fn synctex_path_for(pdf: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Documents dont l'analyse SyncTeX reste en mémoire : la thèse, un article
+/// et un chapitre ouverts côte à côte ne se chassent plus l'un l'autre.
+const SYNCTEX_CACHE_ENTRIES: usize = 4;
+
 /// Analyse du SyncTeX d'un PDF, mise en cache tant que le fichier ne change
 /// pas : la recherche avant suit le curseur, un reparse par requête serait
-/// du travail jeté.
+/// du travail jeté. La compilation la préchauffe (`documents::prewarm_synctex`).
 pub fn load_for_pdf(pdf: &Path) -> Result<Arc<Synctex>, String> {
     type Entry = (PathBuf, Option<SystemTime>, u64, Arc<Synctex>);
-    static CACHE: OnceLock<Mutex<Option<Entry>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<Vec<Entry>>> = OnceLock::new();
     let path = synctex_path_for(pdf).ok_or("pas de fichier SyncTeX à côté du PDF")?;
     let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
     let (mtime, len) = (meta.modified().ok(), meta.len());
     let cache = CACHE.get_or_init(Default::default);
-    if let Some((p, m, l, parsed)) = cache.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
-        && *p == path
-        && *m == mtime
-        && *l == len
     {
-        return Ok(parsed.clone());
+        let mut entries = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = entries
+            .iter()
+            .position(|(p, m, l, _)| *p == path && *m == mtime && *l == len)
+        {
+            // Le plus récent en tête : l'éviction retire le plus ancien.
+            let entry = entries.remove(i);
+            let parsed = entry.3.clone();
+            entries.insert(0, entry);
+            return Ok(parsed);
+        }
     }
     let raw = fs::read(&path).map_err(|e| e.to_string())?;
     let bytes = if raw.starts_with(&[0x1f, 0x8b]) {
@@ -192,7 +202,10 @@ pub fn load_for_pdf(pdf: &Path) -> Result<Arc<Synctex>, String> {
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
     let parsed = Arc::new(Synctex::parse(&bytes, &dir));
-    *cache.lock().unwrap_or_else(|e| e.into_inner()) = Some((path, mtime, len, parsed.clone()));
+    let mut entries = cache.lock().unwrap_or_else(|e| e.into_inner());
+    entries.retain(|(p, ..)| *p != path);
+    entries.insert(0, (path, mtime, len, parsed.clone()));
+    entries.truncate(SYNCTEX_CACHE_ENTRIES);
     Ok(parsed)
 }
 

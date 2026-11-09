@@ -9,6 +9,32 @@ export interface LatexCompileResponse {
    *  `toolchain-download-failed` : le premier téléchargement de tectonic a
    *  échoué (réseau), rien n'a été installé. */
   reason?: string;
+  /** Échec qui a laissé intact le PDF d'avant : l'aperçu reste valide. */
+  stale?: boolean;
+  /** Date (s) du PDF gardé, quand `stale`. */
+  pdfMtime?: number;
+}
+
+/** `GET /compile/progress` : passe et page en cours, lues dans le flux de
+ *  latexmk ou de tectonic par le serveur Rust. */
+export interface LatexCompileProgress {
+  running: boolean;
+  pass?: number;
+  page?: number;
+  stage?: string;
+  elapsed?: number;
+}
+
+/** Libellé de la pastille pendant la compilation. Sans progression connue,
+ *  le compteur de secondes d'avant. */
+export function compileProgressLabel(progress: LatexCompileProgress | null, seconds: number): string {
+  const pass = progress?.running ? Number(progress.pass) || 0 : 0;
+  const page = progress?.running ? Number(progress.page) || 0 : 0;
+  if (progress?.running && progress.stage === "bib") return "compilation · bibliographie";
+  if (progress?.running && progress.stage === "index") return "compilation · index";
+  if (pass && page) return `compilation · passe ${pass} · page ${page}`;
+  if (pass) return `compilation · passe ${pass}`;
+  return seconds > 0 ? `compilation… ${seconds} s` : "compilation…";
 }
 
 export interface LatexCompileLog {
@@ -86,6 +112,12 @@ export interface LatexCompileCoordinatorOptions {
   onCompiled(response: LatexCompileResponse): void;
   /** Diagnostics du log (vide quand la compilation réussit sans avertissement ancré). */
   onDiagnostics?(list: LatexLogDiagnostic[]): void;
+  /** Progression du serveur, interrogée chaque seconde pendant la compilation. */
+  requestProgress?(): Promise<LatexCompileProgress | null>;
+  /** Progression reçue (`null` à la fin de la compilation). */
+  onProgress?(progress: LatexCompileProgress | null): void;
+  /** Échec avec le PDF d'avant intact (`stale`) ; `null` après un succès. */
+  onStale?(response: LatexCompileResponse | null): void;
   now?: () => number;
   clockLabel?: () => string;
   startInterval?: (callback: () => void, milliseconds: number) => number;
@@ -147,8 +179,10 @@ export function createLatexCompileCoordinator(
   let startedAt = 0;
   let tick: number | null = null;
 
+  let polling = false;
   const stopTick = (): void => {
     if (tick !== null) stopInterval(tick);
+    if (tick !== null) options.onProgress?.(null);
     tick = null;
   };
   const setChip = (kind: CompileChipKind, message: string): void => {
@@ -160,7 +194,23 @@ export function createLatexCompileCoordinator(
     startedAt = now();
     options.setChip("run", "compilation…");
     tick = startInterval(() => {
-      options.setChip("run", `compilation… ${Math.round((now() - startedAt) / 1000)} s`);
+      const seconds = Math.round((now() - startedAt) / 1000);
+      if (!options.requestProgress) {
+        options.setChip("run", compileProgressLabel(null, seconds));
+        return;
+      }
+      if (polling) return;
+      polling = true;
+      const handle = tick;
+      void options.requestProgress()
+        .catch(() => null)
+        .then((progress) => {
+          // Réponse arrivée après la fin : la pastille porte déjà le résultat.
+          if (tick === null || tick !== handle) return;
+          options.setChip("run", compileProgressLabel(progress, Math.round((now() - startedAt) / 1000)));
+          if (progress?.running) options.onProgress?.(progress);
+        })
+        .finally(() => { polling = false; });
     }, 1000);
   };
 
@@ -215,19 +265,22 @@ export function createLatexCompileCoordinator(
           // précis (nombre d'erreurs et de warnings). Le répéter dans la barre
           // du haut ne disait rien de neuf et occupait la place réservée à
           // l'état du DOCUMENT — sauvegarde, rechargement, baseline.
-          setChip("err", response.reason === "toolchain-missing"
+          const stale = Boolean(response.stale);
+          options.onStale?.(stale ? response : null);
+          setChip("err", (response.reason === "toolchain-missing"
             ? "LaTeX non installé — Réglages → Environnement"
             : response.reason === "toolchain-download-failed"
               ? "téléchargement de tectonic impossible — voir la console"
               : log.errors
               ? `${log.errors} ${log.errors > 1 ? "erreurs" : "erreur"}${log.warnings ? ` · ${log.warnings} warning${log.warnings > 1 ? "s" : ""}` : ""}`
-              : "échec — voir la console");
+              : "échec — voir la console") + (stale ? " · dernier PDF valide" : ""));
           // Rendre la barre du haut à l'état du document : sans ça elle
           // resterait figée sur « compiling… ».
           options.setState("ok", "saved");
           return;
         }
 
+        options.onStale?.(null);
         const clock = clockLabel();
         setChip("ok", `compilé en ${duration} s · ${clock}`);
         options.setState("ok", "saved");
