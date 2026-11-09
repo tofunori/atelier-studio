@@ -1,5 +1,5 @@
 // Thèmes complets de l'app (tokens CSS) — appliqués via data-theme + variables.
-import { ensureContrast, hueDistance, mixHex } from "./contrast";
+import { ensureContrast, hueDistance } from "./contrast";
 export type ThemePreset = {
   id: string;
   name: string;
@@ -72,7 +72,7 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
 
   return {
     ...raw,
-    "--canvas": `color-mix(in srgb, ${bg} ${dark ? 84 : 91}%, #000)`,
+    "--canvas": `color-mix(in srgb, ${bg} ${dark ? 80 : 91}%, #000)`,
     "--grip": `color-mix(in srgb, ${fg} ${dark ? 24 : 26}%, ${bg})`,
     "--scroll-shade": dark ? "rgba(0,0,0,.40)" : "rgba(20,28,38,.13)",
     "--card-lift": `0 1px 2px ${alpha}`,
@@ -80,7 +80,7 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
     "--surface-app": bg,
     "--surface-panel": bg,
     "--surface-header": bg,
-    "--surface-canvas": `color-mix(in srgb, ${bg} ${dark ? 84 : 91}%, #000)`,
+    "--surface-canvas": `color-mix(in srgb, ${bg} ${dark ? 80 : 91}%, #000)`,
     "--surface-raised": card,
     "--surface-inset": ctl,
     "--surface-overlay": pop,
@@ -181,10 +181,9 @@ export const THEME_PRESETS: ThemePreset[] = [
     ["#161a1e", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#dcdfe4", "#5a616d", "#ff7a85", "#a9d47f", "#f0ca79", "#74bdf7", "#d894e8", "#6cd0dd", "#ffffff"]),
   // Apparence de l'app Claude : gris neutres relevés sur l'app (2026-09-30),
   // orange de Claude Code, liens bleus. Suit Clair / Sombre / Système.
-  // --muted #999791 (2026-11-09) : garde 4,5:1 sur les surfaces relevées.
   withRoles(T("claude-code", "Claude Code", true,
     "#1a1a19", "#121211", "#262625", "#20201f", "#2a2a28",
-    "#2b2b29", "#3b3b39", "#f0efec", "#c3c2b8", "#999791", "#5a5955", "#d97757",
+    "#2b2b29", "#3b3b39", "#f0efec", "#c3c2b8", "#95938d", "#5a5955", "#d97757",
     ["#121211", "#e0736b", "#98c379", "#efb444", "#7aa6e7", "#c79bd6", "#6fbfb3", "#c3c2b8", "#5a5955", "#f08a82", "#aed48f", "#f5c867", "#95bbf0", "#d8b1e3", "#8bd3c7", "#f0efec"]),
     { "--link": "#7aa6e7", "--code-inline": "#de8481" }),
   T("graphite", "Graphite", true,
@@ -287,21 +286,6 @@ const DARK_PATCHES: Record<string, Record<string, string>> = {
   atelier: { "--border": "#2a2d31" },
 };
 
-/** Chrome sombre « ton sur ton » (choix B de Thierry, 2026-11-09) : sur un
- *  fond d'écran noir, un sol à 58 % de noir (#0f0f0f) se confondait avec le
- *  bureau. Les surfaces sombres d'Atelier et de Claude Code montent d'un cran
- *  (3 % vers --fg) et le sol reprend à peu près le gris d'origine du thème
- *  (--canvas = --bg à 84 %) : la fenêtre se détache, les panneaux restent
- *  posés sur le sol. Les palettes nommées (Nord, Dracula…) gardent leurs
- *  valeurs. */
-const DARK_LIFT = 0.03;
-const LIFTED_SURFACES = ["--bg", "--bg-side", "--bg-pop", "--bg-card", "--bg-ctl", "--border", "--border2"];
-export function liftDarkSurfaces(vars: Record<string, string>): Record<string, string> {
-  const out = { ...vars };
-  for (const k of LIFTED_SURFACES) if (out[k]) out[k] = mixHex(out[k], vars["--fg"], DARK_LIFT);
-  return out;
-}
-
 /** Vrai pour les presets qui suivent le réglage Clair / Sombre / Système. */
 export function followsAppearanceMode(id: string): boolean {
   return Object.prototype.hasOwnProperty.call(LIGHT_VARIANTS, id);
@@ -312,7 +296,7 @@ export function resolveAppearanceTheme(settings: { themePreset: string; theme: "
   const preset = presetById(settings.themePreset);
   if (!followsAppearanceMode(preset.id)) return preset;
   const dark = settings.theme === "system" ? systemDark : settings.theme === "dark";
-  if (dark) return { ...preset, vars: liftDarkSurfaces({ ...preset.vars, ...DARK_PATCHES[preset.id] }) };
+  if (dark) return { ...preset, vars: { ...preset.vars, ...DARK_PATCHES[preset.id] } };
   return { ...preset, dark: false, ...LIGHT_VARIANTS[preset.id]() };
 }
 

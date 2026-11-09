@@ -18,17 +18,15 @@
   /* palette graphite Precision Native (plan 023) — OKLCH teinte 255,
      chroma 0.008–0.012, paliers réguliers ; contrastes vérifiés :
      fg/bg 11.97, muted/bg 5.42, accent/bg 5.78 (script de calibration) */
-  /* surfaces relevées de 3 % vers --fg (chrome « ton sur ton », 2026-11-09) :
-     mêmes valeurs que liftDarkSurfaces() appliqué au preset atelier */
-  --bg: #24272a; --bg-side: #1c2024; --bg-pop: #292d32; --bg-card: #292d32;
-  --bg-ctl: #313439; --border: #2f3236; --border2: #484c51;
+  --bg: #1e2124; --bg-side: #161a1e; --bg-pop: #24282d; --bg-card: #24282d;
+  --bg-ctl: #2c2f34; --border: #2a2d31; --border2: #43474c;
   /* Sol des gouttières (option 3). Doit être NETTEMENT sous le fond des
      cartes, sinon elles ne décollent pas : c'est l'écart de luminance qui
      porte toute la division, il n'y a plus de trait pour compenser. */
-  /* 84 % (2026-11-09) : à 58 % le sol (#0f0f0f) se fondait dans un fond
-     d'écran noir ; il reprend le gris d'origine du thème, les panneaux
-     décollent par leur cran de plus et leur liseré de lumière. */
-  --canvas: color-mix(in srgb, var(--bg) 84%, #000);
+  /* 80 % (2026-11-09, cran « anthracite ») : à 58 % le sol (#0f0f0f en
+     Claude Code) se fondait dans un fond d'écran noir ; les panneaux gardent
+     leur noir, seul le sol remonte juste assez pour décoller du bureau. */
+  --canvas: color-mix(in srgb, var(--bg) 80%, #000);
   /* poignée de redimensionnement au survol — un ton de BORDURE, jamais un
      gris de texte (--muted2 peignait un fil blanc, vécu 2026-08-16) */
   --grip: color-mix(in srgb, var(--fg) 24%, var(--bg));
