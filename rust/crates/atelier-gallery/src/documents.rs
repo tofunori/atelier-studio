@@ -721,6 +721,46 @@ fn with_shared_pdf_store<T>(
     Ok(value)
 }
 
+/// Fil de réponses d'une note (`thread`, messages à `id`) : l'agent y ajoute
+/// ses réponses dans le store pendant que l'éditeur ou le lecteur garde sa
+/// copie. Un message du store absent de la copie envoyée est donc arrivé
+/// entre-temps : il est gardé, jamais effacé par une sauvegarde de l'écran.
+fn keep_stored_thread_messages(stored: Option<&Value>, mut annots: Value) -> Value {
+    let Some(stored) = stored.and_then(Value::as_array) else {
+        return annots;
+    };
+    let Some(list) = annots.as_array_mut() else {
+        return annots;
+    };
+    let message_id = |m: &Value| m.get("id").and_then(Value::as_str).map(str::to_string);
+    for annot in list.iter_mut() {
+        let Some(id) = annotation_id(annot) else { continue };
+        let Some(old) = stored
+            .iter()
+            .find(|a| annotation_id(a).as_deref() == Some(id.as_str()))
+            .and_then(|a| a.get("thread"))
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+        let Some(object) = annot.as_object_mut() else { continue };
+        let thread = object.entry("thread").or_insert_with(|| json!([]));
+        let Some(thread) = thread.as_array_mut() else { continue };
+        let mut added = false;
+        for message in old {
+            let Some(mid) = message_id(message) else { continue };
+            if !thread.iter().any(|m| message_id(m).as_deref() == Some(mid.as_str())) {
+                thread.push(message.clone());
+                added = true;
+            }
+        }
+        if added {
+            thread.sort_by_key(|m| m.get("at").and_then(Value::as_u64).unwrap_or(0));
+        }
+    }
+    annots
+}
+
 fn updated_annotations(store: &Value, rel: &str, body: &Value) -> Result<Value, String> {
     if let Some(ids) = body.get("removeIds") {
         let Some(ids) = ids
@@ -745,7 +785,7 @@ fn updated_annotations(store: &Value, rel: &str, body: &Value) -> Result<Value, 
                 .collect::<Vec<_>>()
         ));
     }
-    let annots = body.get("annots").cloned().unwrap_or_else(|| json!([]));
+    let annots = keep_stored_thread_messages(store.get(rel), body.get("annots").cloned().unwrap_or_else(|| json!([])));
     let Some(known) = body.get("known") else {
         return Ok(annots);
     };
@@ -1327,6 +1367,19 @@ mod tests {
     #[test]
     fn zotero_identity_is_global_but_project_paths_are_not() {
         assert!(is_zotero_pdf_rel("zotero/ABCD1234/article.pdf"));
+        // une réponse de l'agent arrivée dans le store après la copie de
+        // l'éditeur survit à sa sauvegarde
+        let store = json!({"tex-comments:/p/main.tex": [{"id": "a1", "by": "agent", "thread": [
+            {"id": "m1", "by": "user", "text": "pourquoi ?", "at": 1},
+            {"id": "m2", "by": "agent", "text": "parce que", "at": 2}
+        ]}]});
+        let body = json!({"annots": [{"id": "a1", "by": "agent", "seen": 5, "thread": [
+            {"id": "m1", "by": "user", "text": "pourquoi ?", "at": 1}
+        ]}], "known": ["a1"]});
+        let merged = updated_annotations(&store, "tex-comments:/p/main.tex", &body).unwrap();
+        assert_eq!(merged[0]["seen"], 5);
+        let texts: Vec<&str> = merged[0]["thread"].as_array().unwrap().iter().map(|m| m["text"].as_str().unwrap()).collect();
+        assert_eq!(texts, ["pourquoi ?", "parce que"]);
         assert!(!is_zotero_pdf_rel("article.pdf"));
         assert!(!is_zotero_pdf_rel("zotero/SHORT/article.pdf"));
         assert!(!is_zotero_pdf_rel("zotero/ABCD1234/folder/article.pdf"));
