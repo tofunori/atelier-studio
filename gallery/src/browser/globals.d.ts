@@ -100,7 +100,14 @@ declare global {
   }
   interface Window {
     __readingMode?: import('./pages/pdf_viewer_6').ReadingMode;
-    __pdfTextSearch?: {scan(query:string, onPage:(page:number,matches:ReturnType<typeof AtelierPdfPassage.findAllInIndex>)=>void, cancelled:()=>boolean):Promise<boolean>;ensurePage(page:number):Promise<unknown>;releaseSelection():void;numPages():number;pageIndex(page:number):Promise<ReturnType<typeof AtelierPdfPassage.createIndex>|null>};
+    __pdfTextSearch?: {scan(query:string, onPage:(page:number,matches:ReturnType<typeof AtelierPdfPassage.findAllInIndex>)=>void, cancelled:()=>boolean):Promise<boolean>;ensurePage(page:number):Promise<unknown>;releaseSelection():void;numPages():number;pageIndex(page:number):Promise<ReturnType<typeof AtelierPdfPassage.createIndex>|null>;
+      pageItems?(page:number):Promise<Array<{str?:string;transform?:number[];width?:number;height?:number}>|null>;pageSize?(page:number):Promise<{width:number;height:number}|null>};
+    /** Onglet PDF d'un studio LaTeX : numéros des notes dans l'ordre du document (id → n°). */
+    __noteNumbers?: Map<string, number>;
+    /** Onglet PDF d'un studio LaTeX : notes du .tex à dessiner sur la page `n`. */
+    __texNoteMarks?: (page: number) => Array<{id: string; rects: number[][]; color: string; agent: boolean; title: string; __number: number; open(): void}>;
+    /** Onglet PDF d'un studio LaTeX : la colonne Annotations commune. */
+    __texNotes?: {render(pane: HTMLElement, list: HTMLElement, count: HTMLElement): void};
   }
   interface Navigator {
     userAgentData?: {platform?: string;brands?: {brand:string;version:string}[]}; virtualKeyboard?: {overlaysContent: boolean} }

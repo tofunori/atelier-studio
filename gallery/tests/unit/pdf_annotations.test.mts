@@ -199,28 +199,43 @@ test('a local edit whose save failed survives a store change made elsewhere', as
   assert.equal(m.sends.at(-1).note,'Previously saved');m.close();
  });
 
-test('a comment draws a number and a full-height comment highlight', () => {
+test('a comment draws a margin pin and a tinted passage (variant B)', () => {
  const dom=new JSDOM('<div id="page"></div>',{runScripts:'outside-only'});
  const win=dom.window;
  win.PDF_ANNOTS=[{id:'n1',page:1,kind:'comment',number:7,rects:[[.2,.3,.4,.02]],note:'A question'}];
  let opened=null;win.annotMenu=(a)=>{opened=a.id;};
+ vm.runInContext(sharedUI,dom.getInternalVMContext());
  vm.runInContext(pdfSelection,dom.getInternalVMContext());
  win.drawCodeStripes=()=>{};
  vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
  const page=win.document.getElementById('page');
+ Object.defineProperty(page,'clientHeight',{value:1000});
  page.getBoundingClientRect=()=>({left:0,top:0,width:600,height:1000});win.drawAnnots(page,1);
  assert.equal(page.querySelectorAll('.pdfhl').length,0);
+ const line=page.querySelector('.pdfcomment-line');
  assert.equal(page.querySelectorAll('.pdfcomment-line').length,1);
- assert.equal(page.querySelector('.pdfcomment-line').style.top,'30%');
- assert.equal(page.querySelector('.pdfcomment-line').style.width,'40%');
- assert.equal(page.querySelector('.pdfcomment-line').style.height,'2%');
- const marker=page.querySelector('.pdfcomment');assert.equal(marker.textContent,'7');
- assert.equal(marker.style.left,'95px');marker.click();assert.equal(opened,'n1');
+ assert.equal(line.style.top,'30%');assert.equal(line.style.width,'40%');assert.equal(line.style.height,'2%');
+ assert.ok(line.classList.contains('note-c-amber'),'teinte de la note');
+ // numéro = rang dans l'ordre du document, pas le numéro stocké
+ const marker=page.querySelector('.pdfcomment');assert.equal(marker.textContent,'1');
+ assert.ok(marker.classList.contains('atelier-note-pin'));
+ // dans la marge gauche, jamais hors de la feuille ; centré sur la ligne
+ assert.match(marker.style.left,/^max\(12px, (calc\()?12% - 18px\)?\)$/);
+ assert.equal(marker.style.top,'310px');
+ marker.click();assert.equal(opened,'n1');
  win.drawAnnots(page,1);assert.equal(page.querySelectorAll('.pdfcomment').length,1);
  assert.equal(page.querySelectorAll('.pdfcomment-line').length,1);
  win.PDF_ANNOTS.push({...win.PDF_ANNOTS[0],id:'n2',number:8});win.drawAnnots(page,1);
  const markers=[...page.querySelectorAll('.pdfcomment')];
- assert.ok(parseFloat(markers[1].style.top)-parseFloat(markers[0].style.top)>=22);win.close();
+ assert.deepEqual(markers.map(m=>m.textContent),['1','2']);
+ assert.ok(parseFloat(markers[1].style.top)-parseFloat(markers[0].style.top)>=24);
+ // passage de la moitié droite : marge droite
+ win.PDF_ANNOTS=[{id:'r1',page:1,kind:'comment',rects:[[.6,.5,.3,.02]],note:'droite'}];win.drawAnnots(page,1);
+ assert.match(page.querySelector('.pdfcomment').style.left,/^min\((calc\()?100% - 12px\)?, (calc\()?88% \+ 18px\)?\)$/);
+ // onglet PDF d'un studio LaTeX : numéro de l'ordre commun (.tex + PDF)
+ win.__noteNumbers=new Map([['r1',5]]);win.drawAnnots(page,1);
+ assert.equal(page.querySelector('.pdfcomment').textContent,'5');
+ win.close();
 });
 
 test('a fresh empty comment is abandoned on Escape: removed, persisted, not sent', async () => {
@@ -591,20 +606,24 @@ test('the eraser removes a free note or a stamp instead of opening it', () => {
  assert.deepEqual(removed,['n1','s1']);win.close();
 });
 
-test('a highlight with a personal note draws a pencil badge that opens the bubble', () => {
+test('a highlight with a personal note draws a numbered margin pin that opens the bubble', () => {
  const dom=new JSDOM('<div id="page"></div>',{runScripts:'outside-only'});
  const win=dom.window;
- win.PDF_ANNOTS=[{id:'h1',page:1,kind:'hl',rects:[[.1,.2,.3,.02],[.1,.23,.5,.02]],memo:'Pour la discussion'},
+ win.PDF_ANNOTS=[{id:'h1',page:1,kind:'hl',rects:[[.1,.2,.3,.02],[.1,.23,.5,.02]],memo:'Pour la discussion',color:'rgba(120,170,255,.40)'},
    {id:'h2',page:1,kind:'hl',rects:[[.1,.5,.3,.02]]}];
  win.normalizeHighlightColor=(c)=>c;
  let opened=null;win.annotMenu=(a)=>{opened=a.id;};
+ vm.runInContext(sharedUI,dom.getInternalVMContext());
  vm.runInContext(pdfSelection,dom.getInternalVMContext());
  win.drawCodeStripes=()=>{};
  vm.runInContext(html.slice(html.indexOf('function drawAnnots('),html.indexOf('const HL_COLORS =')),dom.getInternalVMContext());
  const page=win.document.getElementById('page');
  page.getBoundingClientRect=()=>({left:0,top:0,width:600,height:1000});win.drawAnnots(page,1);
  const pins=page.querySelectorAll('.pdfmemo');assert.equal(pins.length,1);
- assert.equal(pins[0].style.left,'60%');assert.equal(pins[0].title,'Pour la discussion');
+ assert.ok(pins[0].classList.contains('atelier-note-pin'));assert.ok(pins[0].classList.contains('note-c-blue'));
+ assert.equal(pins[0].textContent,'1');assert.equal(pins[0].title,'Pour la discussion');
+ // un surlignage porte voile ET trait de sa teinte
+ assert.ok([...page.querySelectorAll('.pdfhl')].every(el=>el.classList.contains('is-inked')));
  pins[0].click();assert.equal(opened,'h1');
  win.drawAnnots(page,1);assert.equal(page.querySelectorAll('.pdfmemo').length,1);win.close();
 });

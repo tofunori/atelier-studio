@@ -90,3 +90,94 @@
 .atelier-selection,.atelier-note,.atelier-selection .atelier-color-palette{animation:atelier-pop-in var(--motion-standard,140ms) var(--ease-out,cubic-bezier(.16,1,.3,1))}
 @keyframes atelier-pop-in{from{opacity:0;transform:translateY(4px)}}
 @media(prefers-reduced-motion:reduce){.atelier-selection,.atelier-note,.atelier-selection .atelier-color-palette{animation:none}.atelier-note .atelier-mark-swatch{transition:none}}
+
+/* ===== Notes : mêmes teintes, même colonne en LaTeX et dans le PDF =====
+   Variante B (Thierry 2026-11-09). `--note-veil` = voile du passage,
+   `--note-ink` = trait, anneau et filet de la citation (triplets RVB). */
+.note-c-amber{--note-veil:255,213,74;--note-ink:214,160,20}
+.note-c-red{--note-veil:255,140,160;--note-ink:222,90,120}
+.note-c-blue{--note-veil:120,170,255;--note-ink:70,125,235}
+.note-c-green{--note-veil:120,220,140;--note-ink:55,160,90}
+.note-c-purple{--note-veil:185,150,255;--note-ink:135,100,230}
+.note-c-orange{--note-veil:255,160,80;--note-ink:220,120,40}
+.atelier-annotation-number[class*="note-c-"]{box-shadow:inset 0 0 0 1.5px rgb(var(--note-ink))}
+.atelier-annotation-number[class*="note-c-"]:hover{background:rgb(var(--note-ink));color:var(--annotation-number-bg);box-shadow:none}
+.atelier-annotation-number.is-agent[class*="note-c-"]{background:var(--fill-primary,var(--card2));color:var(--text-secondary,var(--txt));box-shadow:none}
+
+/* Pastille d'une note posée sur la page PDF, dans la marge : le papier reste
+   clair dans les deux thèmes, la pastille aussi (anneau à l'encre de la note).
+   Celle de Claude est pleine, gris graphite. */
+.atelier-note-pin{--pin-paper:255,255,255;--pin-text:61,61,58;--pin-agent:95,94,90;--pin-agent-text:240,238,230;
+  position:absolute;z-index:8;box-sizing:border-box;width:20px;height:20px;margin:-10px 0 0 -10px;padding:0;border:0;border-radius:999px;
+  display:grid;place-items:center;background:rgb(var(--pin-paper));color:rgb(var(--pin-text));cursor:pointer;
+  font:600 var(--fs-label,11px)/1 var(--ui-font,sans-serif);font-variant-numeric:tabular-nums;
+  box-shadow:inset 0 0 0 1.5px rgb(var(--note-ink,var(--pin-text))),0 1px 4px rgba(0,0,0,.18);
+  transition:transform var(--motion-fast,120ms) ease-out,box-shadow var(--motion-fast,120ms) ease-out}
+.atelier-note-pin:hover{transform:scale(1.08);box-shadow:inset 0 0 0 2px rgb(var(--note-ink,var(--pin-text))),0 2px 8px rgba(0,0,0,.24)}
+.atelier-note-pin.is-agent{background:rgb(var(--pin-agent));color:rgb(var(--pin-agent-text));box-shadow:0 1px 4px rgba(0,0,0,.24)}
+.atelier-note-pin svg{width:12px;height:12px}
+.atelier-note-pin:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+/* passage d'une note : voile franc + trait à l'encre (multiply : le texte reste noir) */
+.atelier-note-veil{position:absolute;z-index:2;pointer-events:none;mix-blend-mode:multiply;
+  background:rgba(var(--note-veil),.42);box-shadow:inset 0 -2px 0 rgb(var(--note-ink))}
+@media (prefers-reduced-motion: reduce){.atelier-note-pin{transition:none}.atelier-note-pin:hover{transform:none}}
+
+/* Colonne Annotations (#texcPanel du studio LaTeX, #annPane du PDF compilé) */
+.atelier-notes-col .tp-head{display:flex;align-items:center;gap:8px;padding:12px 8px 8px 16px;flex:none}
+.atelier-notes-col .tp-title{font:600 var(--fs-body,13px)/1.3 var(--ui-font);letter-spacing:-.01em;color:var(--text-primary,var(--txt))}
+.atelier-notes-col .tp-sub{font:var(--fs-label,11px)/1.3 var(--ui-font);color:var(--text-muted,var(--muted));font-variant-numeric:tabular-nums}
+.atelier-notes-col .tp-gap{flex:1}
+.atelier-notes-col .tp-close{display:inline-grid;place-items:center;width:24px;height:24px;padding:0;background:transparent;border:0;border-radius:6px;
+  color:var(--text-muted,var(--muted));cursor:pointer;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+.atelier-notes-col .tp-close svg{width:14px;height:14px}
+.atelier-notes-col .tp-close:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+.atelier-notes-col .tp-filter{display:flex;align-self:flex-start;gap:4px;margin:0 16px 8px}
+.atelier-notes-col .tp-seg{height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--text-muted,var(--muted));
+  font:var(--fs-body-s,12px)/1 var(--ui-font);cursor:pointer;white-space:nowrap;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+.atelier-notes-col .tp-seg:hover{color:var(--text-primary,var(--txt))}
+.atelier-notes-col .tp-seg.on{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt));font-weight:500}
+.atelier-notes-col .tp-list{flex:1;min-height:0;overflow-y:auto;padding:0 8px 8px}
+.atelier-notes-col .tp-sec{font:var(--fs-label,11px)/1.3 var(--ui-font);color:var(--text-muted,var(--muted));padding:12px 8px 4px}
+.atelier-notes-col .tp-item{display:flex;gap:12px;align-items:flex-start;padding:8px;border-radius:6px;cursor:pointer;
+  transition:background var(--motion-fast,120ms)}
+.atelier-notes-col .tp-item:hover,.atelier-notes-col .tp-item.is-active{background:var(--surface-hover,var(--card2))}
+.atelier-notes-col .tp-item:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:calc(-1 * var(--focus-ring-offset,1px))}
+.atelier-notes-col .tp-ring{flex:none;margin-top:0;cursor:inherit;pointer-events:none}
+.atelier-notes-col .tp-body{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.atelier-notes-col .tp-quote{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;padding-left:8px;
+  box-shadow:inset 2px 0 0 rgb(var(--note-ink,128,128,128));font:var(--fs-body-s,12px)/1.5 var(--ui-font);color:var(--text-muted,var(--muted))}
+.atelier-notes-col .tp-note{font:var(--fs-body,13px)/1.5 var(--ui-font);color:var(--text-primary,var(--txt));overflow-wrap:anywhere}
+.atelier-notes-col .tp-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font:var(--fs-label,11px)/1.3 var(--ui-font);color:var(--text-muted,var(--muted));font-variant-numeric:tabular-nums}
+.atelier-notes-col .tp-loc{display:inline-flex;align-items:center;gap:4px;color:var(--text-muted,var(--muted))}
+.atelier-notes-col .tp-where{display:inline-flex;align-items:center;gap:4px}
+.atelier-notes-col .tp-where svg{width:12px;height:12px;flex:none;color:var(--text-disabled,var(--muted))}
+.atelier-notes-col .tp-dot{color:var(--text-disabled,var(--muted))}
+.atelier-notes-col .tp-who{color:var(--text-secondary,var(--txt))}
+.atelier-notes-col .tp-state{display:inline-flex;align-items:center;gap:4px}
+.atelier-notes-col .tp-ic{display:inline-grid;place-items:center;width:12px;height:12px;flex:none}
+.atelier-notes-col .tp-ic svg{width:12px;height:12px}
+.atelier-notes-col .tone-todo .tp-ic{color:var(--text-secondary,var(--txt))}
+.atelier-notes-col .tone-ok .tp-ic{color:var(--status-success,#98c379)}
+.atelier-notes-col .tone-ask .tp-ic{color:var(--status-warning,#e0b74a)}
+.atelier-notes-col .tp-x{display:inline-grid;place-items:center;width:20px;height:20px;padding:0;background:transparent;border:0;border-radius:6px;
+  color:var(--text-disabled,var(--muted));cursor:pointer;flex:none;opacity:0;transition:opacity var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+.atelier-notes-col .tp-x svg{width:12px;height:12px}
+.atelier-notes-col .tp-item:hover .tp-x,.atelier-notes-col .tp-x:focus-visible{opacity:1}
+.atelier-notes-col .tp-x:hover{color:var(--status-error,#e06c75)}
+.atelier-notes-col .tp-empty{font:var(--fs-body-s,12px)/1.5 var(--ui-font);color:var(--text-muted,var(--muted));padding:4px 8px 8px}
+.atelier-notes-col .tp-error{font:var(--fs-body-s,12px)/1.5 var(--ui-font);color:var(--status-error,#e06c75);padding:0 16px 8px}
+.atelier-notes-col .tp-foot{display:flex;flex-direction:column;gap:8px;padding:12px 16px 16px;border-top:1px solid var(--border-subtle,var(--border));flex:none}
+.atelier-notes-col .tp-primary{width:100%;height:32px;border:0;border-radius:6px;background:var(--surface-hover,var(--card2));
+  color:var(--text-primary,var(--txt));font:500 var(--fs-body,13px)/1 var(--ui-font);cursor:pointer;
+  transition:background var(--motion-fast,120ms)}
+.atelier-notes-col .tp-primary:hover{background:color-mix(in srgb,var(--text-primary,var(--txt)) 8%,var(--surface-hover,var(--card2)))}
+.atelier-notes-col .tp-tools{display:flex;gap:4px;margin:0 -8px}
+.atelier-notes-col .tp-link{height:24px;padding:0 8px;background:transparent;border:0;border-radius:6px;color:var(--text-muted,var(--muted));
+  font:var(--fs-body-s,12px)/1 var(--ui-font);cursor:pointer;white-space:nowrap;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+.atelier-notes-col .tp-link:hover{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt))}
+.atelier-notes-col .tp-delall:hover{color:var(--status-error,#e06c75)}
+.atelier-notes-col .tp-work{display:flex;align-items:center;gap:8px;font:var(--fs-body-s,12px)/1.3 var(--ui-font);color:var(--text-secondary,var(--txt))}
+.atelier-notes-col .tp-work .tp-cancel{margin-right:-8px}
+.atelier-notes-col .tp-past{font:var(--fs-label,11px)/1.3 var(--ui-font);color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
+.atelier-notes-col button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+@media (prefers-reduced-motion: reduce){.atelier-notes-col .tp-seg,.atelier-notes-col .tp-item,.atelier-notes-col .tp-x,.atelier-notes-col .tp-link,.atelier-notes-col .tp-primary,.atelier-notes-col .tp-close{transition:none}}
