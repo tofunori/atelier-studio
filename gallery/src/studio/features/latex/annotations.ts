@@ -361,6 +361,7 @@ export function createLatexAnnotationsController(
     const source = activeEditor.getValue().split("\n");
     const paragraph = paragraphOf(source, annotation.from.line, annotation.to.line);
     const header = agentHeader(doc, numberOf(annotation), annotation);
+    header.dataset.texa = annotation.id;
     header.addEventListener("mousedown", event => event.preventDefault());
     header.onclick = () => { activeId = annotation.id; markSeen(annotation.id); };
     blocks.push(activeEditor.setBookmark({line: paragraph.start, ch: 0}, {widget: header, insertLeft: true, block: true}));
@@ -438,7 +439,11 @@ export function createLatexAnnotationsController(
     const annotation = all.find(a => a.id === id);
     if (!annotation || !hasUnread(annotation)) return;
     annotation.seen = Date.now();
-    remark(annotation);
+    // Sans reconstruire le bloc : le clic qui suit (Résoudre, Répondre…)
+    // doit tomber sur le bouton encore en place.
+    for (const ring of doc.querySelectorAll(".texa-head .is-unread")) {
+      if ((ring.parentElement as HTMLElement | null)?.dataset.texa === id) ring.classList.remove("is-unread");
+    }
     void save();
     buildPanel();
   }
@@ -866,7 +871,11 @@ export function createLatexAnnotationsController(
     }
   });
 
+  /** Date du store (/pdfannot-stamp) à la dernière lecture : relecture en direct plus bas. */
+  let storeStamp = 0;
   const load = async (): Promise<boolean> => {
+    // date du store AVANT la lecture : une écriture de l'agent qui suit se verra
+    const stampBefore = await readStamp();
     try {
       const response = await win.fetch(`/pdfannot?rel=${encodeURIComponent(relation)}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -883,6 +892,7 @@ export function createLatexAnnotationsController(
       for (const annotation of all) if (isAgentNote(annotation) && !annotation.number) annotation.number = nextNumber();
       serverIds.forEach((id) => knownIds.add(id));
       loaded = true;
+      if (stampBefore) storeStamp = stampBefore;
     } catch {
       options.onError?.(LOAD_FAILED);
       return false;
@@ -900,20 +910,22 @@ export function createLatexAnnotationsController(
   // ---- Relecture en direct : l'agent pose ou répond pendant que l'éditeur
   // est ouvert. Comme le lecteur PDF : la date du store (/pdfannot-stamp),
   // relue toutes les 2,5 s, puis fusion qui garde l'état local de Thierry.
-  let storeStamp = 0;
   let watchTimer: number | null = null;
   const watch = (): void => {
     if (watchTimer !== null) return;
     watchTimer = win.setInterval(() => { void checkStore(); }, 2500);
   };
-  const checkStore = async (): Promise<void> => {
-    if (!loaded || doc.hidden) return;
-    let stamp = 0;
+  async function readStamp(): Promise<number> {
     try {
       const response = await win.fetch(`/pdfannot-stamp?rel=${encodeURIComponent(relation)}`);
-      if (!response.ok) return;
-      stamp = Number(((await response.json()) as {stamp?: number}).stamp) || 0;
-    } catch { return; }
+      if (!response.ok) return 0;
+      return Number(((await response.json()) as {stamp?: number}).stamp) || 0;
+    } catch { return 0; }
+  }
+  const checkStore = async (): Promise<void> => {
+    if (!loaded || doc.hidden) return;
+    const stamp = await readStamp();
+    if (!stamp) return;
     if (!storeStamp) { storeStamp = stamp; return; }
     if (stamp === storeStamp) return;
     storeStamp = stamp;
