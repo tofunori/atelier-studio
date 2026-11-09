@@ -38,13 +38,55 @@ test('latex toolbar exposes individual diffs in a single row', async ({page}) =>
     for (const width of [1100, 700, 400]) {
       await page.setViewportSize({width, height:760});
       await expect(page.locator('#diffGrp')).toBeVisible();
-      await expect(page.locator('#toolbarWrap')).toBeVisible();
-      await expect(page.locator('#popPdf')).toBeVisible();
+      await expect(page.locator('#build')).toBeVisible();
+      await expect(page.locator('#moreBtn')).toBeVisible();
+      // Barre épurée (2026-11-08) : retour à la ligne et PDF en onglet attendent dans « … ».
+      await expect(page.locator('#toolbarWrap')).toBeHidden();
+      await expect(page.locator('#popPdf')).toBeHidden();
       await expect(page.locator('#statusbar')).toBeHidden();
       expect(await page.locator('header').evaluate(el=>el.scrollWidth <= el.clientWidth+1)).toBe(true);
     }
+    await page.setViewportSize({width: 1100, height: 760});
+    await expect(page.locator('#texcBtn')).toBeVisible();
+    // Compiler : l'icône seule.
+    await expect(page.locator('#build span')).toBeHidden();
+    // Diff éteint : l'interrupteur seul, sans flèches ni compteur.
+    await expect(page.locator('#diffPrev')).toBeHidden();
+    await expect(page.locator('#dvNav .dv-count')).toBeHidden();
+
+    // Personnaliser : clic droit sur la barre, puis cocher « Retour à la ligne ».
+    await page.locator('#tbGap').click({button: 'right'});
+    const panel = page.locator('#tbCustom');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.tbc-row[data-key="wrap"]')).toHaveAttribute('aria-checked', 'false');
+    const saved = page.waitForResponse(r => r.url().endsWith('/state') && r.request().method() === 'POST');
+    await panel.locator('.tbc-row[data-key="wrap"]').click();
+    expect(String((await saved).request().postData())).toContain('"texToolbar"');
+    await expect(panel.locator('.tbc-row[data-key="wrap"]')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('#toolbarWrap')).toBeVisible();
+    // ⌥↑ fait remonter « Ajouter au chat » d'un cran, la barre suit.
+    await panel.locator('.tbc-row[data-key="chat"]').focus();
+    await page.keyboard.press('Alt+ArrowUp');
+    const order = (id: string) => page.locator(`#${id}`).evaluate(el => Number(getComputedStyle(el).order));
+    expect(await order('chatAdd')).toBeLessThan(await order('texcBtn'));
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    // Le réglage survit au rechargement (cache local et /state).
+    await page.reload();
+    await expectEngine(page, 'cm6');
+    await expect(page.locator('#toolbarWrap')).toBeVisible();
+    expect(await order('chatAdd')).toBeLessThan(await order('texcBtn'));
+
     await page.locator('#toolbarWrap').click();
     await expect(page.locator('#toolbarWrap')).toHaveAttribute('aria-pressed','false');
+    // « Rétablir par défaut » depuis « … » > Personnaliser la barre.
+    await page.locator('#moreBtn').click();
+    await page.locator('#morePop [data-act="customize"]').click();
+    await expect(panel).toBeVisible();
+    await panel.locator('.tbc-reset').click();
+    await expect(page.locator('#toolbarWrap')).toBeHidden();
+    expect(await order('chatAdd')).toBeGreaterThan(await order('texcBtn'));
+    await page.keyboard.press('Escape');
     // Unsaved feedback must survive the compact toolbar and hidden filename.
     const before = await page.locator('#documentModes').boundingBox();
     await page.locator('.cm-content').click();
@@ -302,6 +344,8 @@ test('latex auto rewrap saves numbered physical lines that fit the window', asyn
   const paragraph = 'Wildfire carbon deposition is measured across many glacier pixels and compared with local climate controls so that a narrow editor still keeps every physical source line visible without a second visual continuation row.';
   await withProject({'wrap.tex': `\\section{Results}\n${paragraph}\n`}, async ({root, url}) => {
     await page.setViewportSize({width: 772, height: 926});
+    // Le retour à la ligne vit dans « … » par défaut : on le remet dans la barre.
+    await page.addInitScript(() => localStorage.setItem('texToolbar', JSON.stringify({v: 1, items: [{k: 'wrap', on: true}]})));
     await page.goto(url('latex_studio.html', 'wrap.tex'));
     await expectEngine(page, 'cm6');
     await page.locator('#moreBtn').click();
@@ -365,8 +409,8 @@ test('latex anchored comments persist through the typed controller in CM6', asyn
       await page.locator('#texcPop .send2').click();
       expect((await saved).ok()).toBe(true);
       await expect(page.locator('.texc-hl')).toBeVisible();
-      await page.locator('#moreBtn').click();
-      await page.locator('[data-act="comments"]').click();
+      // Annotations a son icône dans la barre (2026-11-08).
+      await page.locator('#texcBtn').click();
       await expect(page.locator('#texcPanel')).toContainText('Vérifier ce passage');
       await page.evaluate(() => texcOpen({from:{line:1,ch:0},to:{line:1,ch:8},text:'Anchored'}));
       await page.locator('#texcPop textarea').fill('Envoyer directement');
@@ -715,7 +759,7 @@ test('latex individual review keeps selection stable while scrolling diff widget
     await expect(page.locator('.cm-selectionBackground').first()).toBeVisible();
     const selection = page.locator('.cm-selectionBackground').first();
     await expect(selection).toHaveCSS('background-color', 'rgba(232, 130, 58, 0.38)');
-    await page.locator('#toolbarWrap').focus();
+    await page.locator('#texcBtn').focus();
     await expect(page.locator('.cm-review-selection')).not.toHaveClass(/cm-focused/);
     await expect(selection).toHaveCSS('background-color', 'rgba(232, 130, 58, 0.38)');
     expect(await page.evaluate(()=>cm.getSelection())).toBe('Revised');

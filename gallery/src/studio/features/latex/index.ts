@@ -17,3 +17,4 @@ export * from "./reading_context";
 export * from "./console_panel";
 
 export * from "./manuscript_bar";
+export * from "./toolbar_layout";
