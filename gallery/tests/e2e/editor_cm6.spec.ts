@@ -238,17 +238,29 @@ test('le profil Claude Code suit le thème et le mode clair/sombre de l\'app', a
     const tokenColors = () => page.locator('.cm-content .cm-line span').evaluateAll(nodes =>
       [...new Set(nodes.map(node => getComputedStyle(node).color))]);
     const editorTheme = () => page.evaluate(() => localStorage.getItem('atelier.editorTheme'));
+    // Un .tex sous un thème maison prend la palette « manuscrit » : commandes
+    // en gris atténué de l'hôte, jamais l'accent du profil sur la prose.
+    const hostColor = (token) => page.evaluate((token) => {
+      const probe = document.createElement('span');
+      probe.style.color = `var(${token})`;
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    }, token);
 
     // L'app passe au thème Claude Code : l'éditeur prend son profil.
     await host('claude-code', 'dark', '#1a1a19');
     await expect.poll(editorTheme).toBe('claude-code');
     await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(26, 26, 25)');
-    await expect.poll(tokenColors).toContain('rgb(217, 119, 87)');
+    await expect.poll(async () => (await tokenColors()).includes(await hostColor('--text-muted'))).toBe(true);
+    expect(await tokenColors()).not.toContain('rgb(217, 119, 87)');
 
     // Mode clair : variante claire, sans changer de profil.
     await host('claude-code', 'light', '#faf9f5');
     await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(250, 249, 245)');
-    await expect.poll(tokenColors).toContain('rgb(181, 83, 47)');
+    await expect.poll(async () => (await tokenColors()).includes(await hostColor('--text-muted'))).toBe(true);
+    expect(await tokenColors()).not.toContain('rgb(181, 83, 47)');
     await expect(page.locator('.cm-content')).toHaveCSS('color', 'rgb(31, 30, 28)');
 
     // L'app quitte Claude Code : le profil d'avant revient.

@@ -121,3 +121,49 @@ fn a_bad_call_fails_without_output() {
     assert!(out.stdout.is_empty());
     assert!(String::from_utf8_lossy(&out.stderr).contains("PDF introuvable"));
 }
+
+#[test]
+fn thumb_renders_the_first_page_on_white_like_qlmanage() {
+    if !pdfium_ready() {
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("atelier-pdf-thumb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir(&dir).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_atelier-pdf"))
+        .arg("thumb")
+        .arg("480")
+        .arg(&dir)
+        .arg(twocol())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    // Même nom que qlmanage : <dossier>/<nom du pdf>.png, rien d'autre.
+    let names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert_eq!(names, vec![std::ffi::OsString::from("twocol.pdf.png")]);
+    let png = std::fs::read(dir.join("twocol.pdf.png")).unwrap();
+    assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+    let width = u32::from_be_bytes(png[16..20].try_into().unwrap());
+    let height = u32::from_be_bytes(png[20..24].try_into().unwrap());
+    assert_eq!(width.max(height), 480, "{width}×{height}");
+    assert!(width < height, "page portrait : {width}×{height}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn thumb_fails_cleanly_on_a_missing_pdf() {
+    let dir = std::env::temp_dir();
+    let out = Command::new(env!("CARGO_BIN_EXE_atelier-pdf"))
+        .arg("thumb")
+        .arg("480")
+        .arg(&dir)
+        .arg("/nulle/part.pdf")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let out = Command::new(env!("CARGO_BIN_EXE_atelier-pdf"))
+        .args(["thumb", "grand", "/tmp", "/nulle/part.pdf"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+}

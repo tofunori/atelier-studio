@@ -115,8 +115,31 @@ pub fn schedule(app: tauri::AppHandle, sidecar: SidecarInfo) {
         }
         if let Err(error) = result {
             eprintln!("[atelier] gateway iPhone non disponible: {error}");
+            append_gateway_log(&format!("[atelier] gateway iPhone non disponible: {error}"));
         }
     });
+}
+
+/// Trace un échec de démarrage dans `remote/gateway.log` : lancée depuis le
+/// Dock, l'app n'a pas de stderr visible, et l'échec restait sans trace.
+fn append_gateway_log(line: &str) {
+    let Some(path) = app_dir().map(|p| p.join("remote/gateway.log")) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    if let Ok(mut file) = options.open(&path) {
+        use std::io::Write;
+        let _ = writeln!(file, "{}", redact_and_truncate(line));
+    }
 }
 
 fn read_lock() -> Option<GatewayLock> {
@@ -169,6 +192,23 @@ fn resolve_gateway(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .ok_or_else(|| "atelier-remote-gateway introuvable dans le bundle".into())
 }
 
+/// Commande Tailscale prête à l'emploi. Le binaire de Tailscale.app ne répond
+/// en ligne de commande que si `TERM` est défini ; sans lui, il tente
+/// d'ouvrir l'interface et échoue (« CLIError error 3 »). Or une app lancée
+/// depuis le Dock ou le Finder n'hérite d'aucun `TERM` : Atelier concluait
+/// alors à tort que Tailscale était déconnecté et ne lançait pas la passerelle.
+fn tailscale_command(binary: &str) -> Command {
+    let mut command = Command::new(binary);
+    if term_missing(std::env::var_os("TERM").as_deref()) {
+        command.env("TERM", "dumb");
+    }
+    command
+}
+
+fn term_missing(term: Option<&std::ffi::OsStr>) -> bool {
+    term.map_or(true, |value| value.is_empty())
+}
+
 fn tailscale_ip() -> Result<IpAddr, String> {
     let candidates = [
         "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
@@ -179,7 +219,7 @@ fn tailscale_ip() -> Result<IpAddr, String> {
         if !Path::new(binary).is_file() {
             continue;
         }
-        let Ok(output) = Command::new(binary).args(["ip", "-4"]).output() else {
+        let Ok(output) = tailscale_command(binary).args(["ip", "-4"]).output() else {
             continue;
         };
         if !output.status.success() {
@@ -206,7 +246,7 @@ fn tailscale_dns_name() -> Option<String> {
         if !Path::new(binary).is_file() {
             continue;
         }
-        let output = Command::new(binary)
+        let output = tailscale_command(binary)
             .args(["status", "--json"])
             .output()
             .ok()?;
@@ -458,6 +498,23 @@ fn push_run(out: &mut String, run: &[char]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tailscale_cli_gets_a_term_when_launched_from_the_dock() {
+        assert!(term_missing(None));
+        assert!(term_missing(Some(std::ffi::OsStr::new(""))));
+        assert!(!term_missing(Some(std::ffi::OsStr::new("xterm-256color"))));
+        let command = tailscale_command("/usr/bin/true");
+        let term = command
+            .get_envs()
+            .find(|(key, _)| *key == "TERM")
+            .and_then(|(_, value)| value);
+        if term_missing(std::env::var_os("TERM").as_deref()) {
+            assert_eq!(term, Some(std::ffi::OsStr::new("dumb")));
+        } else {
+            assert_eq!(term, None, "un TERM existant est hérité tel quel");
+        }
+    }
 
     #[test]
     fn listener_identity_ignores_other_addresses_and_deduplicates() {

@@ -14,6 +14,7 @@ path = "src/main.rs"
 atelier-core = { path = "../atelier-core" }
 atelier-fdlimit = { workspace = true }
 atelier-logs = { workspace = true }
+atelier-pdf = { workspace = true }
 atelier-protocol = { workspace = true }
 atelier-store = { workspace = true }
 atelier-workspace = { workspace = true }

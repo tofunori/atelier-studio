@@ -4356,6 +4356,17 @@ export default function App() {
           else { setActiveId(null); activeIdRef.current = null; }
         },
       }}
+      chatTabActions={{
+        onRename: threadActions.renameThread,
+        transcriptView: settings.transcriptView,
+        onTranscriptViewChange: (transcriptView) => setSettings((current) => ({ ...current, transcriptView })),
+        linkedFor: (id) => linkedAgentSummaries(allThreads, id, workingSince),
+        onOpenLinked: (threadId) => {
+          const thread = allThreads.find((entry) => entry.id === threadId);
+          if (thread) selectThread(thread.id, thread.projectRoot);
+        },
+        onUnlinkLinked: threadActions.unlinkLinkedAgent,
+      }}
       activeChatId={activeId}
       chatTitle={activeId ? allThreads.find(thread => thread.id === activeId)?.title : undefined}
       onSelectChat={(id) => {

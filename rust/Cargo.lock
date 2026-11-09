@@ -171,6 +171,7 @@ dependencies = [
 name = "atelier-core"
 version = "0.1.0"
 dependencies = [
+ "atelier-pdf",
  "atelier-store",
  "chrono",
  "hex",
@@ -313,6 +314,8 @@ dependencies = [
 name = "atelier-pdf"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
+ "flate2",
  "pdfium-render",
  "roxmltree",
  "unicode-normalization",
@@ -354,6 +357,7 @@ dependencies = [
  "atelier-core",
  "atelier-fdlimit",
  "atelier-logs",
+ "atelier-pdf",
  "atelier-protocol",
  "atelier-store",
  "atelier-workspace",

@@ -46,6 +46,7 @@ const SURFACES = new Set<Surface>([
   "browser",
   "terminal",
   "git",
+  "historique",
   "biblio",
   "connaissances",
   "generateur",

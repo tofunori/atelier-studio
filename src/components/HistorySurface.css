@@ -1,0 +1,73 @@
+/* Historique du projet (variante A, 2026-11-09) : un fil du temps par jour,
+   chaque entrée se déplie sur son diff. Tout passe par les jetons. */
+.hist-surface { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; background: var(--surface-panel); color: var(--text-primary); }
+.hist-surface > .ui-empty { margin: auto; }
+
+.hist-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; flex: none; padding: 12px 20px; border-bottom: 1px solid var(--border-subtle); }
+.hist-spacer { flex: 1; }
+.hist-path-select { max-width: 240px; }
+.hist-notice { margin: 12px 20px 0; padding: 8px 12px; border-radius: var(--r-s); background: var(--bg-ctl); color: var(--text-secondary); font-size: var(--fs-m); line-height: 1.5; }
+
+.hist-scroll { flex: 1; min-height: 0; overflow: auto; padding: 4px 20px 24px; }
+.hist-scroll > .ui-empty { margin: 48px auto; }
+.hist-day { max-width: 960px; }
+.hist-day-title { margin: 0; padding: 16px 8px 4px; font-size: var(--fs-s); font-weight: 500; line-height: 1.3; color: var(--text-muted); }
+
+.hist-entry { border-radius: var(--r-s); transition: background-color var(--motion-fast) var(--ease-out); }
+.hist-entry[data-open] { background: var(--bg-ctl); }
+.hist-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-width: 0; padding: 8px; border-radius: var(--r-s); background: transparent; color: var(--text-primary); text-align: left; transition: background-color var(--motion-fast) var(--ease-out); }
+.hist-row:hover { background: var(--surface-hover); }
+.hist-entry[data-open] .hist-row:hover { background: transparent; }
+.hist-ico { display: flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; border-radius: var(--r-pill); background: var(--bg-ctl); color: var(--text-secondary); }
+.hist-entry[data-open] .hist-ico { background: var(--surface-hover); }
+.hist-ico[data-kind="version"] { box-shadow: inset 0 0 0 1px var(--text-secondary); color: var(--text-primary); }
+.hist-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; padding-top: 2px; }
+.hist-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-l); line-height: 1.3; }
+.hist-entry[data-kind="version"] .hist-title { font-weight: 600; letter-spacing: -0.01em; }
+.hist-meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-s); line-height: 1.5; color: var(--text-muted); }
+.hist-meta-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-meta-inline { font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.hist-churn { display: inline-flex; gap: 4px; flex: none; font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
+.hist-add { color: var(--status-success); }
+.hist-del { color: var(--status-error); }
+.hist-when { flex: none; padding-top: 4px; font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.hist-chevron { display: flex; flex: none; padding-top: 4px; color: var(--text-muted); transition: transform var(--motion-fast) var(--ease-out); }
+.hist-entry[data-open] .hist-chevron { transform: rotate(90deg); }
+
+.hist-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 12px 48px; }
+.hist-files { display: flex; flex-direction: column; gap: 2px; }
+.hist-file { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 4px 8px; border-radius: var(--r-s); background: transparent; color: var(--text-secondary); font-size: var(--fs-m); text-align: left; transition: background-color var(--motion-fast) var(--ease-out); }
+.hist-file:hover { background: var(--surface-hover); }
+.hist-file[aria-selected="true"] { background: var(--surface-raised); color: var(--text-primary); }
+.hist-file-icon { display: flex; flex: none; color: var(--text-muted); }
+.hist-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--code-font, ui-monospace, Menlo, monospace); }
+
+.hist-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border-radius: var(--r-m); background: var(--surface-raised); }
+.hist-card-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); font-size: var(--fs-m); color: var(--text-secondary); }
+.hist-card-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--code-font, ui-monospace, Menlo, monospace); }
+.hist-card-note { font-size: var(--fs-s); color: var(--text-muted); }
+.hist-diff { max-height: 420px; overflow: auto; }
+.hist-diff .atelier-diff-view { height: auto; }
+.hist-diff-note { display: flex; align-items: center; gap: 8px; padding: 12px; font-size: var(--fs-m); color: var(--text-muted); }
+.hist-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px 12px; }
+.hist-actions .ui-btn-label { display: inline-flex; align-items: center; gap: 8px; }
+.hist-bar .ui-btn-label { display: inline-flex; align-items: center; gap: 8px; }
+.hist-remove { margin-left: auto; }
+
+/* Enregistrer une version : popover ancré au bouton. */
+.hist-pop { width: 360px; max-width: calc(100vw - 32px); padding: 16px; border-radius: var(--r-m); background: var(--bg-pop); box-shadow: var(--elev); color: var(--text-primary); }
+.hist-pop-title { margin: 0 0 12px; font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.hist-field { display: flex; flex-direction: column; gap: 4px; }
+.hist-label { font-size: var(--fs-s); color: var(--text-muted); }
+.hist-pop-help { margin: 8px 0 16px; font-size: var(--fs-s); line-height: 1.5; color: var(--text-muted); }
+.hist-pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Comparer deux moments. */
+.hist-compare { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.hist-compare > .ui-empty { margin: 48px auto; }
+.hist-compare-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 20px; }
+.hist-moment { min-width: 200px; max-width: 320px; }
+.hist-compare-body { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: 12px; flex: 1; min-height: 0; padding: 0 20px 20px; }
+.hist-files--side { overflow: auto; }
+.hist-card--fill { min-height: 0; }
+.hist-card--fill .hist-diff, .hist-compare-body .hist-diff { max-height: none; flex: 1; }

@@ -88,3 +88,96 @@ export function snapChangesToTokens(changes: readonly ReviewChange[], a: string,
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Diff de revue LaTeX « par ligne, puis par mot » (diff raffiné v2,
+// 2026-11-09). Le diff caractère sur tout le texte apparie des fragments d'une
+// phrase à l'autre et peut marquer retirée puis rajoutée une ligne intacte
+// (un commentaire entre deux retouches). On aligne d'abord les LIGNES ; seules
+// les lignes remplacées reçoivent un diff fin, calé sur les mots, nettoyé des
+// micro-égalités (« de », une virgule) qui hachent la lecture. Un bloc presque
+// entièrement réécrit est montré comme un remplacement entier.
+
+type DiffFn = (a: string, b: string) => readonly ReviewChange[];
+
+// Au-delà, plus de caractère libre pour coder une ligne : on garde le diff
+// caractère d'origine (document énorme, cas limite).
+const LINE_CODE_BASE = 0x100, LINE_CODE_MAX = 0xd7ff;
+// Part de texte commun (hors blancs) sous laquelle un bloc remplacé est
+// montré en entier plutôt que mot à mot.
+const REWRITE_RATIO = 0.4;
+
+function splitLines(text: string): string[] {
+  const lines = text.split(/(?<=\n)/);
+  return lines.length === 1 && lines[0] === "" ? [] : lines;
+}
+
+/** Une égalité trop courte ou sans mot entre deux changements est absorbée :
+ * « remains [negative] in » ne doit pas devenir trois îlots pour une virgule. */
+function mergeSmallGaps(changes: ReviewChange[], a: string): ReviewChange[] {
+  const out: ReviewChange[] = [];
+  for (const change of changes) {
+    const prev = out[out.length - 1];
+    if (prev) {
+      const gap = a.slice(prev.toA, change.fromA);
+      if (gap.length <= 2 || /^[\s\p{P}]*$/u.test(gap)) {
+        prev.toA = change.toA; prev.toB = change.toB;
+        continue;
+      }
+    }
+    out.push({...change});
+  }
+  return out;
+}
+
+const nonSpace = (text: string) => text.replace(/\s+/g, "").length;
+
+/** Diff fin d'un bloc de lignes remplacées, positions relatives au bloc. */
+function blockDiff(blockA: string, blockB: string, diff: DiffFn): ReviewChange[] {
+  const changes = mergeSmallGaps(snapChangesToTokens(diff(blockA, blockB), blockA, blockB), blockA);
+  const common = nonSpace(blockA) - changes.reduce((sum, c) => sum + nonSpace(blockA.slice(c.fromA, c.toA)), 0);
+  const size = Math.max(nonSpace(blockA), nonSpace(blockB));
+  if (size && common / size < REWRITE_RATIO) {
+    // Réécriture : un seul remplacement, sans la fin de ligne commune.
+    let end = 0;
+    while (end < Math.min(blockA.length, blockB.length) && blockA[blockA.length - 1 - end] === "\n" && blockB[blockB.length - 1 - end] === "\n") end++;
+    return [{fromA: 0, toA: blockA.length - end, fromB: 0, toB: blockB.length - end}];
+  }
+  return changes;
+}
+
+/** Diff de revue LaTeX : lignes d'abord, puis mots dans les lignes remplacées. */
+export function reviewDiffByLine(a: string, b: string, diff: DiffFn): ReviewChange[] {
+  const linesA = splitLines(a), linesB = splitLines(b);
+  const codes = new Map<string, string>();
+  const encode = (lines: string[]) => {
+    let out = "";
+    for (const line of lines) {
+      let code = codes.get(line);
+      if (code === undefined) {
+        const next = LINE_CODE_BASE + codes.size;
+        if (next > LINE_CODE_MAX) return null;
+        code = String.fromCharCode(next); codes.set(line, code);
+      }
+      out += code;
+    }
+    return out;
+  };
+  const encA = encode(linesA), encB = encode(linesB);
+  if (encA === null || encB === null) return snapChangesToTokens(diff(a, b), a, b);
+  const offsets = (lines: string[]) => {
+    const result = [0];
+    for (const line of lines) result.push(result[result.length - 1] + line.length);
+    return result;
+  };
+  const offA = offsets(linesA), offB = offsets(linesB);
+  const out: ReviewChange[] = [];
+  for (const block of diff(encA, encB)) {
+    const fromA = offA[block.fromA], toA = offA[block.toA], fromB = offB[block.fromB], toB = offB[block.toB];
+    if (fromA === toA || fromB === toB) { out.push({fromA, toA, fromB, toB}); continue; }
+    for (const c of blockDiff(a.slice(fromA, toA), b.slice(fromB, toB), diff)) {
+      out.push({fromA: fromA + c.fromA, toA: fromA + c.toA, fromB: fromB + c.fromB, toB: fromB + c.toB});
+    }
+  }
+  return out;
+}

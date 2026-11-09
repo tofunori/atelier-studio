@@ -55,10 +55,13 @@
 .project-chat-tab .ui-btn-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Unified titlebar: independent tab strips flank the measured tool axis. */
-.topbar-start { overflow: hidden; padding-left: 92px; box-sizing: border-box; }
+/* La moitié chat commence au bord de SON panneau (la colonne de gauche peut
+   être ouverte), jamais sous les feux natifs ; elle finit au séparateur. */
+.topbar-start { overflow: hidden; box-sizing: border-box;
+  padding-left: max(calc(var(--tb-chat-left, 0px) + 8px), var(--tb-lights)); padding-right: 8px; }
 /* plein écran macOS : plus de feux natifs, plus de réserve (audit GAP-22) */
-:root[data-fullscreen] .topbar-start { padding-left: 12px; }
-.topbar-start .project-chat-tabs { overflow: hidden; font-size: var(--fs-m); }
+:root[data-fullscreen] .topbar { --tb-lights: 12px; }
+.topbar-start .project-chat-tabs { overflow: hidden; font-size: var(--fs-m); height: 100%; }
 .topbar-chat-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-m); }
 .topbar-chat-actions { flex: none; display: flex; align-items: center; }
 .chat-surface-header.chat-header-in-topbar { display: contents; }
@@ -68,7 +71,6 @@
 .topbar-right { container-type: inline-size; container-name: topbar-documents; }
 .topbar-window-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .topbar-window-overflow { display: none; }
-.toolbar-tools-compact .topbar-surfaces > * { display: none; }
 @container topbar-documents (max-width: 300px) {
   .topbar-window-actions { display: none; }
   .topbar-window-overflow { display: flex; }
@@ -93,7 +95,61 @@
 .project-chat-tab-close.ui-iconbtn { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); }
 
 .project-chat-tab.ui-btn .project-chat-pin { width: 10px; height: 10px; stroke-width: 1.4; color: var(--text-muted); opacity: .7; }
-.topbar-surfaces { min-width: 16px; min-height: 28px; }
+.topbar-surfaces { display: inline-flex; align-items: center; gap: 0; flex: none; height: 100%; }
+.topbar-atelier-tabs { display: flex; align-items: center; min-width: 0; height: 100%; flex: 0 1 auto; overflow: hidden; }
+.topbar-atelier-tabs .topbar-tabs { height: 100%; padding-left: 0; }
+.project-chat-tabs-spring { flex: 1 1 0; min-width: 0; align-self: stretch; }
+
+/* Galerie : onglet épinglé, icône seule, toujours en tête de l'atelier */
+.topbar-gallery-tab, .topbar-surface-tab { position: relative; display: inline-flex; align-items: center; flex: none; }
+.topbar-gallery-main.ui-rowbtn, .topbar-surface-main.ui-rowbtn { display: inline-flex; align-items: center; gap: 6px;
+  height: 100%; padding: 0 12px; border-radius: inherit; color: inherit; font: inherit; }
+.topbar-gallery-main svg { width: 14px; height: 14px; }
+.topbar-surface-icon { display: inline-flex; color: var(--text-muted); }
+.topbar-surface-icon svg { width: 13px; height: 13px; }
+.topbar-surface-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-chat-menu-icon { flex: none; color: var(--text-muted); }
+
+/* ===== Onglets posés (variante B, 2026-11-09) =====
+   Quand une moitié de la barre a son panneau dessous, ses onglets descendent
+   jusqu'au bord de la barre : l'actif prend le fond du panneau et s'y fond
+   sans couture (même liseré que le panneau, sur le haut et les flancs) ; les
+   autres ne sont que du texte, séparés d'un filet. Les contrôles du bord (⌄,
+   disposition) se calent sur la ligne de texte des onglets. */
+.topbar[data-chat-attached] :is(.project-chat-tabs, .project-chat-tabs-list),
+.topbar[data-atelier-attached] :is(.topbar-atelier-tabs, .topbar-surfaces, .topbar-tabs) {
+  align-self: stretch; align-items: flex-end; }
+.topbar[data-chat-attached] .topbar-start .document-tab-shell,
+.topbar[data-atelier-attached] .topbar-right .document-tab-shell {
+  position: relative; height: 30px; flex: none; border: 0; border-radius: var(--r-m) var(--r-m) 0 0;
+  background: transparent; font-weight: 400; transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.topbar[data-chat-attached] .topbar-start .document-tab-shell { flex: 0 1 auto; }
+.topbar[data-atelier-attached] .topbar-right .topbar-tab.document-tab-shell { flex: 0 1 auto; }
+.topbar[data-chat-attached] .topbar-start .document-tab-shell:hover,
+.topbar[data-atelier-attached] .topbar-right .document-tab-shell:hover { background: var(--surface-hover); }
+.topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"],
+.topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"] {
+  background: var(--bg); color: var(--text-primary); font-weight: 500; box-shadow: var(--tab-lift); z-index: 1; }
+/* la couture : 1 px du fond du panneau couvre son propre liseré sous l'onglet */
+.topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::after,
+.topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--bg); }
+/* filet entre deux onglets inactifs, jamais contre l'actif */
+.topbar[data-chat-attached] .project-chat-tab-wrap + .project-chat-tab-wrap:not([data-active="true"])::before,
+.topbar[data-atelier-attached] .topbar-tab + .topbar-tab:not([data-active="true"])::before {
+  content: ""; position: absolute; left: 0; top: 9px; width: 1px; height: 12px; background: var(--border); }
+.topbar[data-chat-attached] .project-chat-tab-wrap[data-active="true"] + .project-chat-tab-wrap::before,
+.topbar[data-atelier-attached] .topbar-tab[data-active="true"] + .topbar-tab::before { display: none; }
+.topbar[data-chat-attached] .topbar-start > .project-chat-tabs > :not(.project-chat-tabs-list):not(.project-chat-tabs-spring),
+.topbar[data-atelier-attached] .topbar-right > :not(.topbar-atelier-tabs):not(.flex) { align-self: flex-end; margin-bottom: 1px; }
+.topbar[data-atelier-attached] .topbar-right > .topbar-div { margin-bottom: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  .topbar .document-tab-shell { transition: none; }
+}
+
+/* renommer sur place (double-clic ou clic droit → Renommer) */
+.project-chat-tab-input { width: 160px; height: 100%; padding: 0 12px; border: 0; outline: none; background: transparent;
+  color: var(--text-primary); font: inherit; }
 
 .topbar-layout-controls { display: flex; align-items: center; flex: none; }
 /* Disposition sans rail de fond (piste A, 2026-10-19) : trois icônes au même

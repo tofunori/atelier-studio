@@ -68,9 +68,9 @@
   .pdfmode .editonly{display:none!important}
   body:not(.pdfmode) .pdfonly{display:none!important}
   .pdfmode #left{display:none}
-  #split{flex:1;display:flex;min-height:0}
+  #split{flex:1;display:flex;min-height:0;position:relative}
   #left{position:relative;width:50%;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0;background:var(--surface-app,var(--bg))}
-  #right{flex:1;overflow:auto;background:var(--card2);position:relative;scrollbar-gutter:stable}
+  #right{flex:1;overflow:auto;background:var(--surface-canvas,var(--card2));position:relative;scrollbar-gutter:stable}
   /* défaut éditeur seul (pas de split) — appliqué avant le rendu, sans flash */
   html.tex-editor-only #right{display:none}
   html.tex-editor-only #left{width:100%;border-right:none}
@@ -115,35 +115,89 @@
   .cm-editor.cm-merge-b .cm-changedLine,.cm-editor .cm-inlineChangedLine,.cm-editor .cm-deletedChunk{background:transparent}
   .cm-editor.cm-merge-b .cm-changedLineGutter,.cm-editor .cm-inlineChangedLineGutter{background:var(--review-mod)}
   .cm-editor .cm-deletedLineGutter{background:var(--review-cut)}
-  /* .tex : diff unifié (maquette A, Thierry 2026-10-18). L'ancienne version
-     au-dessus, non modifiable, sur un voile rouge très léger ; la nouvelle
-     dessous sur un voile vert ; les mots changés un ton plus fort des deux
-     côtés. Ni barré ni souligné. L'ancienne garde sa coloration LaTeX,
-     éteinte d'un cran ; le trait de gouttière est rouge ou vert. */
+  /* .tex : diff unifié, version « silencieuse » (diff raffiné v2, Thierry
+     2026-11-09). Aucun aplat de ligne : un filet de 2 px à gauche du texte
+     dit ce qui part (rouge éteint) et ce qui arrive (vert éteint). L'ancienne
+     version au-dessus, d'un seul gris (--text-muted) ; les mots retirés y
+     gardent une teinte rouge légère, les mots ajoutés un fond vert léger
+     souligné d'un trait. Ni barré, ni orange, ni voile. */
   .cm-editor.atelier-unified-review{
-    --review-add-line:color-mix(in srgb,var(--review-ok) 13%,transparent);--review-del-line:color-mix(in srgb,var(--review-cut) 13%,transparent);
-    --review-add-word:color-mix(in srgb,var(--review-ok) 36%,transparent);--review-del-word:color-mix(in srgb,var(--review-cut) 36%,transparent)}
-  .cm-editor.atelier-unified-review.cm-merge-b .cm-changedLine{background:var(--review-add-line)}
-  .cm-editor.atelier-unified-review .cm-deletedChunk{background:var(--review-del-line);padding:0}
-  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine{color:inherit;padding:0 14px 0 10px}
-  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine>del{opacity:.9}
-  .cm-editor.atelier-unified-review.cm-merge-b .cm-changedText{background:var(--review-add-word)}
-  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedText{color:inherit;background:var(--review-del-word)}
-  /* Paragraphe entièrement ajouté ou retiré : le voile de ligne suffit, pas
-     de surlignage de mots par-dessus. */
+    --review-add-rule:color-mix(in srgb,var(--review-ok) 60%,transparent);--review-del-rule:color-mix(in srgb,var(--review-cut) 55%,transparent);
+    --review-add-word:color-mix(in srgb,var(--review-ok) 15%,transparent);--review-add-under:color-mix(in srgb,var(--review-ok) 45%,transparent);
+    --review-del-word:color-mix(in srgb,var(--review-cut) 11%,transparent);--review-del-ink:color-mix(in srgb,var(--review-cut) 70%,var(--txt,#d8d3c8))}
+  .cm-editor.atelier-unified-review.cm-merge-b .cm-changedLine{background:transparent;box-shadow:inset 2px 0 0 var(--review-add-rule)}
+  .cm-editor.atelier-unified-review .cm-deletedChunk{background:transparent;padding:0;box-shadow:inset 2px 0 0 var(--review-del-rule)}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine{padding:0 14px 0 10px;color:var(--text-muted,var(--muted))}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine *{color:inherit!important;font-weight:inherit!important}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedLine>del{opacity:1}
+  .cm-editor.atelier-unified-review.cm-merge-b .cm-changedText{background:var(--review-add-word);box-shadow:inset 0 -1px 0 var(--review-add-under)}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedText,
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedText *{color:var(--review-del-ink)!important}
+  .cm-editor.atelier-unified-review .cm-deletedChunk .cm-deletedText{background:var(--review-del-word)}
+  /* Paragraphe entièrement ajouté ou retiré : le filet suffit, pas de
+     surlignage de mots par-dessus ; le retiré reste d'un seul gris. */
   .cm-editor.atelier-unified-review .atelier-pure-change .cm-changedText,
-  .cm-editor.atelier-unified-review .cm-deletedChunk.atelier-pure-change .cm-deletedText{background:transparent}
-  .cm-editor.atelier-unified-review.cm-merge-b .cm-changedLineGutter{background:var(--review-ok)}
-  .cm-editor.atelier-unified-review .cm-deletedLineGutter{background:var(--review-cut)}
-  .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:1px solid var(--border);color:var(--text-disabled,#565e6b)}
+  .cm-editor.atelier-unified-review .cm-deletedChunk.atelier-pure-change .cm-deletedText{background:transparent;box-shadow:none}
+  .cm-editor.atelier-unified-review .cm-deletedChunk.atelier-pure-change .cm-deletedText,
+  .cm-editor.atelier-unified-review .cm-deletedChunk.atelier-pure-change .cm-deletedText *{color:var(--text-muted,var(--muted))!important}
+  /* Le filet du texte remplace le trait de gouttière et le rail gris. */
+  .cm-editor.atelier-unified-review.cm-merge-b .cm-changedLineGutter,.cm-editor.atelier-unified-review .cm-deletedLineGutter{background:transparent}
+  .cm-editor.atelier-unified-review .atelier-review-bracket{display:none}
+  .cm-editor .cm-gutters{background:var(--surface-app,var(--bg));border-right:0;color:var(--text-disabled,#565e6b)}
   .cm-editor .cm-lineNumbers .cm-gutterElement{padding-left:4px;padding-right:4px}
   /* craft éditeur : respiration, ligne active, gouttière lisible, curseur accent */
   .cm-activeline{background:rgba(255,255,255,.035)}
-  .pdfpage{position:relative;margin:16px auto;background:var(--pdf-paper);box-shadow:var(--elev-soft,0 1px 4px rgba(0,0,0,.18));cursor:crosshair}
+  /* Volet PDF : une table de lecture, la page posée dessus (28 px de marge,
+     voir PDF_PAGE_GUTTER). Ombre en trois couches, pas de bordure ; en
+     sombre, le papier est atténué pour ne pas éblouir. Clic = SyncTeX, sans
+     curseur en croix. */
+  .pdfpage{position:relative;margin:24px auto;background:var(--pdf-paper);cursor:default;
+           box-shadow:0 0 0 .5px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.10)}
+  :root:not([data-scheme="light"]) .pdfpage{box-shadow:0 0 0 .5px rgba(255,255,255,.05),0 2px 4px rgba(0,0,0,.30),0 12px 32px rgba(0,0,0,.45)}
+  :root:not([data-scheme="light"]) .pdfpage canvas{filter:brightness(.93) contrast(.98)}
   .pdfpage canvas{display:block}
-  #marker{position:absolute;left:0;right:0;height:22px;background:rgba(232,130,58,.22);
-          border-left:3px solid var(--accent);pointer-events:none;display:none;z-index:5}
-  .cm-syncline{background:rgba(232,130,58,.16)}
+  /* Zoom ou redimensionnement en cours : pages étirées en attendant le rendu net. */
+  #right.pdf-stretching .pdfpage .textLayer,#right.pdf-stretching #marker{visibility:hidden}
+  /* Repère SyncTeX : voile d'accent et filet de 2 px, apparition et extinction en fondu. */
+  #marker{position:absolute;left:0;right:0;height:22px;background:color-mix(in srgb,var(--accent) 10%,transparent);
+          border-left:2px solid var(--accent);pointer-events:none;display:none;z-index:5;opacity:0;transition:opacity 150ms ease-out}
+  #marker.on{opacity:1}
+  .cm-syncline{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+  /* Pilule du PDF : page et zoom, surface élevée sans bordure, au survol. */
+  .pdf-pill{position:absolute;bottom:16px;transform:translateX(-50%) translateY(4px);display:flex;align-items:center;gap:4px;height:32px;padding:0 4px;
+            border-radius:999px;background:var(--bg-pop,var(--card));box-shadow:var(--elevation-overlay,var(--elev));z-index:30;
+            font:400 12px/1 var(--ui-font);color:var(--text-secondary,var(--muted));font-variant-numeric:tabular-nums;white-space:nowrap;
+            opacity:0;pointer-events:none;transition:opacity 150ms ease-out,transform 150ms ease-out}
+  .pdf-pill.on{opacity:1;transform:translateX(-50%);pointer-events:auto}
+  .pdf-pill[hidden]{display:none}
+  .pdf-pill .pp-b{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;
+                  background:transparent;color:var(--text-muted,var(--muted));cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
+  .pdf-pill .pp-b:hover:not(:disabled){background:var(--bg-ctl,var(--card2));color:var(--txt)}
+  .pdf-pill .pp-b:disabled{color:var(--text-disabled,var(--muted2));cursor:default}
+  .pdf-pill .pp-b:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+  .pdf-pill .pp-b svg{width:14px;height:14px}
+  .pdf-pill .pp-n{padding:0 4px;min-width:40px;text-align:center;color:var(--txt)}
+  .pdf-pill .pp-n i{font-style:normal;color:var(--text-muted,var(--muted))}
+  .pdf-pill .pp-zoom{min-width:52px;color:var(--text-secondary,var(--muted))}
+  .pdf-pill .pp-sep{width:1px;height:16px;background:var(--border);margin:0 4px}
+  /* Compilation vivante : filet de 2 px en haut du volet PDF (pages de la passe
+     en cours sur celles du PDF d'avant), indéterminé sans total. */
+  .pdf-progress{position:absolute;height:2px;overflow:hidden;z-index:31;pointer-events:none;
+                background:color-mix(in srgb,var(--txt) 6%,transparent)}
+  .pdf-progress[hidden]{display:none}
+  .pdf-progress>span{position:absolute;inset:0;transform-origin:left center;background:var(--text-secondary,var(--fg2));
+                     transform:scaleX(.24);animation:pdf-progress-sweep 1200ms ease-in-out infinite}
+  .pdf-progress.known>span{animation:none;transition:transform 150ms ease-out}
+  @keyframes pdf-progress-sweep{from{translate:-30% 0}to{translate:130% 0}}
+  /* Étiquette du volet PDF : passe et page pendant la compilation, puis « Dernier
+     PDF valide » quand elle a échoué et que l'aperçu garde le PDF d'avant. */
+  .pdf-stale{position:absolute;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px 0 10px;border-radius:999px;
+             background:var(--bg-pop,var(--card));box-shadow:var(--elevation-overlay,var(--elev));z-index:30;pointer-events:none;
+             font:400 12px/1 var(--ui-font);color:var(--text-secondary,var(--muted));font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pdf-stale[hidden]{display:none}
+  .pdf-stale svg{flex:none;color:var(--text-muted,var(--muted))}
+  .pdf-stale.live{padding:0 12px;color:var(--text-secondary,var(--muted))}
+  @media (prefers-reduced-motion: reduce){#marker,.pdf-pill,.pdf-progress.known>span{transition:none}.pdf-progress>span{animation:none;transform:scaleX(1);opacity:.5}}
   /* Sélection : sélection NATIVE du navigateur, peinte par ::selection. Un seul
      calque, composé hors layout ; ni drawSelection ni décoration mark (voir
      SELECTION_RENDERING dans cm6/studio_editor.ts, banc scripts/bench_editor.mts).
@@ -625,13 +679,70 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 #texreadFs .tr-width.on{background:var(--toolbar-active);color:var(--toolbar-active-text)}
 #texreadFs{opacity:.85}
 #texreadFs button{width:26px;height:26px;color:var(--txt)}
-#texread .tex-cite{color:var(--tr-head2,#b5becb);font-variant:normal;font-size:.92em;text-decoration:none;cursor:pointer;border-bottom:1px dotted var(--tr-line,#626975)}
-#texread .tex-cite:hover,#texread .tex-cite:focus-visible{color:var(--tr-accent,var(--accent));text-decoration:underline}
-#texread .tex-ref{display:inline;padding:0;border:0;background:none;font:inherit;color:var(--tr-accent,var(--accent));cursor:pointer}
+/* Lecture typographique (lot 3, 2026-11-09) : une page de revue, pas une
+   page web. Colonne de 72 caractères, justifiée avec césure, alinéas,
+   sections numérotées, citations résolues avec fiche au clic, notes en marge,
+   vraies figures, équations numérotées. Aucune couleur d'accent dans la prose. */
+#texread{max-width:72ch;position:relative;counter-reset:tex-sec tex-sub tex-subsub}
+#texread p,#texread li{text-align:justify;hyphens:auto;-webkit-hyphens:auto;text-wrap:pretty}
+#texread p{margin:0 0 6px}
+#texread p + p{text-indent:1.5em}
+#texread h2:not([data-nonum]){counter-increment:tex-sec;counter-reset:tex-sub tex-subsub}
+#texread h3:not([data-nonum]){counter-increment:tex-sub;counter-reset:tex-subsub}
+#texread h4:not([data-nonum]){counter-increment:tex-subsub}
+#texread h2:not([data-nonum])::before{content:counter(tex-sec);display:inline-block;min-width:1.8em;font-weight:400;color:var(--tr-muted,var(--muted));font-variant-numeric:tabular-nums}
+#texread h3:not([data-nonum])::before{content:counter(tex-sec) "." counter(tex-sub);display:inline-block;min-width:2.6em;font-weight:400;color:var(--tr-muted,var(--muted));font-variant-numeric:tabular-nums}
+#texread h4:not([data-nonum])::before{content:counter(tex-sec) "." counter(tex-sub) "." counter(tex-subsub);display:inline-block;min-width:3.4em;font-weight:400;color:var(--tr-muted,var(--muted));font-variant-numeric:tabular-nums}
+#texread .tex-nonum-doc ~ :is(h2,h3,h4)::before{content:none}
+#texread .tex-cite{color:inherit;font-variant:normal;font-size:1em;text-decoration:none;cursor:pointer;
+  border-bottom:1px solid color-mix(in srgb,var(--tr-fg,var(--txt)) 18%,transparent);transition:background-color 120ms ease-out,border-color 120ms ease-out}
+#texread .tex-cite:hover,#texread .tex-cite:focus-visible,#texread .tex-cite.open{background:var(--tr-code);border-bottom-color:color-mix(in srgb,var(--tr-fg,var(--txt)) 45%,transparent);outline:none}
+#texread .tex-cite.unresolved{color:var(--tr-muted,var(--muted));border-bottom-style:dashed}
+#texread .tex-ref{display:inline;padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer;border-bottom:1px solid color-mix(in srgb,var(--tr-fg,var(--txt)) 18%,transparent)}
+#texread .tex-ref:hover,#texread .tex-ref:focus-visible{border-bottom-color:color-mix(in srgb,var(--tr-fg,var(--txt)) 45%,transparent);outline:none}
+#texread sup.tex-fn{font-family:var(--ui-font);font-size:.68em;font-weight:500;line-height:0;margin-left:1px;color:var(--tr-head2,var(--muted));cursor:default;font-variant-numeric:tabular-nums}
 #texread .tex-unsupported{white-space:normal;overflow-wrap:anywhere;color:var(--tr-fg,#e6e8ec);font-size:.85em}
 #texread .tex-env{margin:20px 0;padding:14px 18px;border-left:2px solid var(--tr-line,var(--border));background:none;text-align:left}
-#texread .tex-env button{display:block;margin-top:8px;padding:4px 0;background:none;border:0;color:var(--tr-accent,var(--accent));cursor:pointer}
+#texread .tex-env button{display:block;margin-top:8px;padding:4px 0;background:none;border:0;color:var(--tr-muted,var(--muted));font:400 12px/1.5 var(--ui-font);cursor:pointer}
+#texread .tex-env button:hover{color:var(--tr-fg,var(--txt))}
+/* Vraie figure : l'image sur papier, « Figure n » devant la légende. */
+#texread figure.tex-env.has-image{border:0;padding:0;margin:28px 0 24px;font-style:normal}
+#texread .tex-figimgs{display:flex;gap:12px;margin-bottom:10px}
+#texread .tex-figimg{display:block;flex:1;min-width:0;max-width:100%;height:auto;border-radius:6px;background:var(--pdf-paper,#fff)}
+:root:not([data-scheme="light"]) #right:not([data-tr-theme="sepia"]) #texread .tex-figimg{filter:brightness(.93) contrast(.98)}
+#texread .tex-fignum{float:left;margin-right:6px;font:600 12px/1.5 var(--ui-font);color:var(--tr-fg,var(--txt));font-style:normal}
+#texread figure.tex-env figcaption{font:400 12px/1.5 var(--ui-font);color:var(--tr-muted,var(--muted));text-align:left;hyphens:none}
+#texread figure.tex-env.has-image button{display:inline-block;margin-top:4px}
+/* Équations numérotées : le numéro au bord droit de la colonne. */
+#texread .tex-eq{display:block;position:relative}
+#texread .tex-eq .katex-display{padding-right:48px}
+#texread .tex-eqno{position:absolute;right:0;top:50%;transform:translateY(-50%);font:400 12px/1 var(--ui-font);color:var(--tr-muted,var(--muted));font-variant-numeric:tabular-nums}
 #texread .katex-display{overflow-x:auto;overflow-y:hidden;padding:5px 0}
+/* Notes : en marge quand la place le permet (reading.ts), sinon en fin de document. */
+#texread .tex-notes{margin-top:36px;padding-top:12px;border-top:1px solid var(--tr-line,var(--border));font:400 12px/1.5 var(--ui-font);color:var(--tr-muted,var(--muted))}
+#texread .tex-notes ol{margin:0;padding-left:20px}
+#texread .tex-notes li{text-align:left;hyphens:none;margin:4px 0}
+#texread .tex-notes li::marker{color:var(--tr-head2,var(--muted));font-variant-numeric:tabular-nums}
+#texread.has-sidenotes .tex-notes{display:none}
+#texread .tex-sidenote{position:absolute;font:400 12px/1.5 var(--ui-font);color:var(--tr-muted,var(--muted));text-align:left;hyphens:none}
+#texread .tex-sidenote-n{font-weight:500;color:var(--tr-head2,var(--muted));margin-right:6px;font-variant-numeric:tabular-nums}
+/* Fiche de citation : surface élevée (fond + ombre, sans bordure), au clic. */
+.tex-citecard{position:fixed;z-index:70;width:340px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:16px;border-radius:10px;
+  background:var(--bg-pop,var(--card));box-shadow:var(--elevation-overlay,var(--elev));font:400 12px/1.5 var(--ui-font);color:var(--text-secondary,var(--muted));
+  opacity:0;transform:translateY(4px);transition:opacity 150ms ease-out,transform 150ms ease-out}
+.tex-citecard.on{opacity:1;transform:none}
+.tex-citecard[hidden]{display:none}
+.tex-citecard .tcc-title{font-size:13px;font-weight:600;line-height:1.3;letter-spacing:-.01em;color:var(--txt);margin-bottom:4px}
+.tex-citecard .tcc-meta{color:var(--text-muted,var(--muted))}
+.tex-citecard .tcc-row{display:flex;gap:8px;margin-top:12px}
+.tex-citecard .tcc-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:0;border-radius:6px;background:var(--bg-ctl,var(--card2));
+  color:var(--txt);font:400 12px/1 var(--ui-font);text-decoration:none;cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
+.tex-citecard .tcc-btn:hover{background:color-mix(in srgb,var(--txt) 8%,var(--bg-ctl,var(--card2)))}
+.tex-citecard .tcc-btn.ghost{background:transparent;color:var(--text-muted,var(--muted))}
+.tex-citecard .tcc-btn.ghost:hover{color:var(--txt);background:color-mix(in srgb,var(--txt) 6%,transparent)}
+.tex-citecard .tcc-btn:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+.tex-citecard .tcc-used{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);color:var(--text-muted,var(--muted));font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: reduce){.tex-citecard,#texread .tex-cite{transition:none}}
 .pdf-load-status{padding:28px;color:var(--txt);font:13px/1.6 var(--ui-font)}
 .pdf-load-status[hidden],#right.reading .pdf-load-status{display:none}
 .pdf-load-status button{display:block;margin-top:12px;border:1px solid var(--border);border-radius:6px;padding:6px 12px;color:inherit;background:var(--card);cursor:pointer}
@@ -797,15 +908,16 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 #diffGrp #diffTag svg{width:15px;height:15px}
 #diffGrp #diffTag .dv-label{display:inline}
 #diffGrp #diffTag:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 5%,var(--card));border-color:color-mix(in srgb,var(--muted) 35%,transparent)!important;color:var(--txt)}
-#diffGrp #diffTag[aria-pressed=true]:not(:disabled){color:color-mix(in srgb,var(--accent) 70%,var(--txt));background:color-mix(in srgb,var(--accent) 16%,var(--card));border-color:color-mix(in srgb,var(--accent) 35%,transparent)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 1px 2px rgba(0,0,0,.07)}
-#diffGrp #diffTag[aria-pressed=true]:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 23%,var(--card));border-color:color-mix(in srgb,var(--accent) 55%,transparent)!important}
+/* Diff allumé : neutre (diff raffiné v2) — fond de contrôle et texte plein, aucun accent. */
+#diffGrp #diffTag[aria-pressed=true]:not(:disabled){color:var(--txt);background:var(--bg-ctl,var(--card2));border-color:transparent!important;box-shadow:none}
+#diffGrp #diffTag[aria-pressed=true]:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 6%,var(--bg-ctl,var(--card2)));border-color:transparent!important}
 #diffGrp #diffTag:active:not(:disabled){box-shadow:inset 0 1px 3px rgba(0,0,0,.15)}
 #diffGrp #diffTag:disabled{opacity:.45}
 /* EDIT-29 : même gabarit que l'interrupteur de Word (26×16, pouce 12). */
 .diff-switch{display:inline-flex;align-items:center;width:26px;height:16px;padding:2px;box-sizing:border-box;border-radius:999px;background:color-mix(in srgb,var(--bg) 80%,var(--muted));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text-primary,var(--txt)) 8%,transparent);margin-left:1px;transition:background var(--motion-standard,140ms) var(--ease-out,ease-out)}
 .diff-switch>span{width:12px;height:12px;border-radius:50%;background:var(--muted);box-shadow:0 1px 2px rgba(0,0,0,.19);transform:translateX(0);transition:transform var(--motion-standard,140ms) var(--ease-out,ease-out),background var(--motion-standard,140ms) var(--ease-out,ease-out)}
-[aria-pressed=true]>.diff-switch{background:color-mix(in srgb,var(--accent) 45%,var(--card))}
-[aria-pressed=true]>.diff-switch>span{transform:translateX(10px);background:color-mix(in srgb,var(--accent) 65%,var(--txt))}
+[aria-pressed=true]>.diff-switch{background:var(--fill-primary,color-mix(in srgb,var(--muted) 45%,transparent))}
+[aria-pressed=true]>.diff-switch>span{transform:translateX(10px);background:var(--text-secondary,var(--muted))}
 #diffGrp #diffPrev,#diffGrp #diffNext{width:24px;height:28px;order:1}
 #diffGrp #diffPrev{margin-left:5px}
 #diffRestore{display:none!important}
@@ -832,6 +944,9 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
   background:transparent;font-family:var(--ui-font);font-size:var(--fs-label, 11px);line-height:1;white-space:nowrap;user-select:none;
   opacity:.5;transition:opacity var(--motion-fast,120ms) var(--ease-out,ease-out)}
 .cm-editor .atelier-review-pill.is-current,.cm-editor .atelier-review-pill:hover{opacity:1}
+/* Diff raffiné v2 : Accepter et Refuser n'apparaissent que sur le passage
+   courant (les autres au survol) ; la rangée garde sa place, rien ne saute. */
+.cm-editor.atelier-unified-review .atelier-review-pill:not(.is-current):not(:hover):not(:focus-within){opacity:0}
 /* Lecture seule (intervention passée) : l'emplacement et le renvoi restent à gauche. */
 .cm-editor .atelier-review-pill.is-readonly{justify-content:flex-start}
 .cm-editor .atelier-review-pill .atelier-review-where{color:var(--muted);font-variant-numeric:tabular-nums;margin-right:8px}
@@ -844,10 +959,10 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 .cm-editor .atelier-review-act kbd{display:none;font:inherit;font-size:11px;color:var(--text-disabled,var(--muted));font-variant-numeric:tabular-nums}
 .cm-editor .atelier-review-pill.is-current .atelier-review-act kbd{display:inline}
 .cm-editor .atelier-review-act.drop:hover{color:var(--txt);background:color-mix(in srgb,var(--txt) 6%,transparent)}
-.cm-editor .atelier-review-act.keep{color:var(--txt);background:var(--card2);font-weight:500}
-.cm-editor .atelier-review-act.keep:hover{background:color-mix(in srgb,var(--txt) 12%,var(--card2))}
-.cm-editor .atelier-review-act.latest{gap:6px;font-size:11px;color:var(--accent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
-.cm-editor .atelier-review-act.latest:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.cm-editor .atelier-review-act.keep{color:var(--txt);background:var(--bg-ctl,var(--card2));font-weight:500}
+.cm-editor .atelier-review-act.keep:hover{background:color-mix(in srgb,var(--txt) 8%,var(--bg-ctl,var(--card2)))}
+.cm-editor .atelier-review-act.latest{gap:6px;font-size:11px;color:var(--text-secondary,var(--txt));box-shadow:inset 0 0 0 1px var(--border-strong,var(--border))}
+.cm-editor .atelier-review-act.latest:hover{color:var(--txt);background:color-mix(in srgb,var(--txt) 6%,transparent)}
 .cm-editor .atelier-review-act:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 .cm-editor .atelier-review-brackets{pointer-events:none}
 .cm-editor .atelier-review-bracket{position:absolute;border-radius:2px;background:var(--border-strong,#43474c)}
@@ -864,14 +979,14 @@ header .modeseg button.on{background:color-mix(in srgb,var(--txt) 10%,var(--card
 /* Barre de revue (diff unifié, maquette A, 2026-10-18) : surface élevée en bas
    du volet éditeur — fond + ombre douce, sans bordure. */
 #left .dv-review-bar{position:absolute;left:50%;bottom:16px;z-index:6;transform:translateX(-50%);display:flex;align-items:center;gap:8px;
-  height:40px;max-width:calc(100% - 32px);padding:0 8px 0 16px;box-sizing:border-box;border-radius:10px;background:var(--card);
+  height:36px;max-width:calc(100% - 32px);padding:0 6px 0 16px;box-sizing:border-box;border-radius:999px;background:var(--bg-pop,var(--card));
   box-shadow:var(--elevation-overlay,var(--elev,0 4px 18px rgba(0,0,0,.28),0 1px 4px rgba(0,0,0,.18)));font:12px var(--ui-font);color:var(--muted);white-space:nowrap;
   animation:rise-in var(--motion-standard,140ms) var(--ease-out,ease-out)}
 /* Pendant la revue, les flèches de la barre du haut font double emploi (EDIT-15). */
 body:has(#left .dv-review-bar:not([hidden])) #diffGrp #diffPrev,body:has(#left .dv-review-bar:not([hidden])) #diffGrp #diffNext{display:none!important}
 #left .dv-review-bar[hidden]{display:none}
 #left .dv-review-bar .dv-rb-who{display:inline-flex;align-items:center;gap:8px;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--txt)}
-#left .dv-review-bar .dv-rb-who::before{content:"";flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)}
+#left .dv-review-bar .dv-rb-who::before{content:none}
 #left .dv-review-bar .dv-rb-nav{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
 #left .dv-review-bar .dv-rb-count{min-width:40px;text-align:center}
 #left .dv-review-bar .dv-rb-sep{flex:none;width:1px;height:16px;margin:0 4px;background:var(--border)}
@@ -879,10 +994,10 @@ body:has(#left .dv-review-bar:not([hidden])) #diffGrp #diffPrev,body:has(#left .
   background:transparent;color:var(--muted);font:inherit;cursor:pointer;transition:background-color var(--motion-fast,120ms) var(--ease-out,ease-out),color var(--motion-fast,120ms) var(--ease-out,ease-out)}
 #left .dv-review-bar .dv-rb-icon{width:24px;padding:0}
 #left .dv-review-bar .dv-rb-icon svg{width:14px;height:14px}
-#left .dv-review-bar .dv-rb-act{padding:0 8px}
-#left .dv-review-bar .dv-rb-act.fill{background:var(--card2);color:var(--txt);font-weight:500}
+#left .dv-review-bar .dv-rb-act{padding:0 10px;border-radius:999px}
+#left .dv-review-bar .dv-rb-act.fill{background:var(--bg-ctl,var(--card2));color:var(--txt);font-weight:500}
 #left .dv-review-bar button:hover:not(:disabled){color:var(--txt);background:color-mix(in srgb,var(--txt) 6%,transparent)}
-#left .dv-review-bar .dv-rb-act.fill:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 12%,var(--card2))}
+#left .dv-review-bar .dv-rb-act.fill:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 8%,var(--bg-ctl,var(--card2)))}
 #left .dv-review-bar button:disabled{cursor:default;opacity:.45}
 #left .dv-review-bar button:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 /* Le toast Annuler passe au-dessus de la barre quand elle est là. */

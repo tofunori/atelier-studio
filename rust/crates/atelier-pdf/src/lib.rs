@@ -15,4 +15,5 @@ pub mod emit;
 pub mod engine;
 pub mod layout;
 pub mod passage;
+pub mod thumb;
 pub mod tool;

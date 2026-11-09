@@ -319,7 +319,7 @@ enum ThumbJob {
     },
 }
 
-/// Exécute un job de vignette (spawn qlmanage/sips, danse du dossier
+/// Exécute un job de vignette (spawn atelier-pdf/qlmanage/sips, danse du dossier
 /// temporaire, marqueur `.fail`) — identique branche par branche à l'ancien
 /// code séquentiel, seulement extrait pour être appelable depuis un
 /// travailleur du pool.
@@ -332,15 +332,29 @@ fn run_thumb_job(job: &ThumbJob) {
             name,
         } => {
             if let Some((temporary, _)) = temporary_output("png") {
-                let ok = command_success_with_timeout(
-                    Command::new("qlmanage")
-                        .args(["-t", "-s", "480", "-o"])
-                        .arg(&temporary)
-                        .arg(source)
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null()),
-                    Duration::from_secs(15),
-                );
+                // PDF : `atelier-pdf thumb` (PDFium), qui n'affiche rien
+                // dans le Dock ; `qlmanage` y montrait son icône à chaque
+                // PDF recompilé. Les vidéos restent à Quick Look.
+                let is_pdf = source
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"));
+                let command = if is_pdf {
+                    atelier_pdf::tool::Thumbnailer::locate()
+                        .map(|tool| tool.command(source, &temporary, 480))
+                } else {
+                    let mut command = Command::new("qlmanage");
+                    command.args(["-t", "-s", "480", "-o"]).arg(&temporary).arg(source);
+                    Some(command)
+                };
+                let ok = command.is_some_and(|mut command| {
+                    command_success_with_timeout(
+                        command
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null()),
+                        Duration::from_secs(15),
+                    )
+                });
                 let produced = temporary.join(format!("{name}.png"));
                 if ok && produced.is_file() {
                     let _ = fs::rename(produced, target);

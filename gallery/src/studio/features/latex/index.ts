@@ -1,4 +1,5 @@
 export * from "./compile";
+export * from "./compile_progress_ui";
 export * from "./annotations";
 export * from "./bibcheck";
 export * from "./ghost";
