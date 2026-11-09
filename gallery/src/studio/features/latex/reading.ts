@@ -383,12 +383,9 @@ export function readingImageCandidates(rel: string, bases: readonly string[]): s
   if (!clean) return [];
   const names = /\.(pdf|png|jpe?g|gif|svg|webp)$/i.test(clean) ? [clean] : [".pdf", ".png", ".jpg", ".jpeg"].map(ext => clean + ext);
   const dirs = clean.startsWith("/") ? [""] : bases.map(base => base.replace(/\/+$/, ""));
-  const out: string[] = [];
-  for (const dir of dirs) for (const name of names) {
-    const full = dir ? `${dir}/${name}` : name;
-    if (!out.includes(full)) out.push(full);
-  }
-  return out;
+  const out = new Set<string>();
+  for (const dir of dirs) for (const name of names) out.add(dir ? `${dir}/${name}` : name);
+  return [...out];
 }
 
 /** Le rendu applique au texte des substitutions déterministes (« ~ » → espace,
