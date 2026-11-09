@@ -212,26 +212,27 @@ struct NativeLibraryView: View {
             if query.isEmpty, let bookmark = workspace.lastDocuments[.articles], let article = bookmark.article {
                 Section {
                     Button { workspace.switchWorkSurface(.articles) } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "doc.text").font(.title3).foregroundStyle(AtelierTheme.tertiaryText)
-                                .frame(width: 40, height: 52)
-                                .background(AtelierTheme.background, in: RoundedRectangle(cornerRadius: 4))
-                                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(AtelierTheme.separator))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Reprendre la lecture").font(.caption.weight(.medium)).foregroundStyle(AtelierTheme.secondaryText)
-                                Text(article.title).font(.footnote.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
-                                Text("\(article.creators) · \(article.year)").font(.caption).foregroundStyle(AtelierTheme.secondaryText).lineLimit(1)
-                            }
-                        }.padding(.vertical, 4)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Reprendre la lecture").font(.caption).foregroundStyle(AtelierTheme.secondaryText)
+                            Text(article.title).font(AtelierTheme.serif(.title3, weight: .medium)).foregroundStyle(.primary).lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                            Text("\(article.creators) · \(article.year)").font(.caption).foregroundStyle(AtelierTheme.secondaryText).lineLimit(1)
+                        }
+                        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                        .atelierRaised()
                     }
-                    .listRowBackground(AtelierTheme.card)
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
                 }
             }
             Section {
                 ForEach(library.articles.filter { query.isEmpty || "\($0.title) \($0.creators) \($0.year)".localizedStandardContains(query) }) { article in
                     Button { selected = article } label: {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(article.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(2)
+                            Text(article.title).font(AtelierTheme.serif(.body, weight: .medium)).foregroundStyle(.primary).lineLimit(2)
+                                .multilineTextAlignment(.leading)
                             Text(([article.creators, article.year, article.publication].filter { !$0.isEmpty }).joined(separator: " · "))
                                 .font(.caption.monospacedDigit()).foregroundStyle(AtelierTheme.secondaryText).lineLimit(1)
                         }.padding(.vertical, 4)
@@ -240,7 +241,7 @@ struct NativeLibraryView: View {
                     .listRowSeparatorTint(AtelierTheme.separator)
                 }
             } header: {
-                if !library.articles.isEmpty { Text(query.isEmpty ? "Bibliothèque" : "Résultats").font(.caption.weight(.medium)).textCase(nil) }
+                if !library.articles.isEmpty { Text(query.isEmpty ? "Bibliothèque" : "Résultats").atelierSectionHeading() }
             }
             if library.articles.isEmpty && !library.busy {
                 ContentUnavailableView("Vos articles", systemImage: "books.vertical", description: Text("Connectez le Mac pour charger votre bibliothèque Zotero. Les PDF ouverts restent disponibles sur cet appareil."))
@@ -266,7 +267,7 @@ struct NativeLibraryView: View {
             NavigationStack {
                 List {
                     Section {
-                        Text(article.title).font(.title2.weight(.semibold))
+                        Text(article.title).font(AtelierTheme.serif(.title2, weight: .semibold))
                         Text("\(article.creators) · \(article.year)").foregroundStyle(.secondary)
                         Text(article.publication).font(.subheadline)
                         Button("Lire le PDF", systemImage: "doc.richtext") {

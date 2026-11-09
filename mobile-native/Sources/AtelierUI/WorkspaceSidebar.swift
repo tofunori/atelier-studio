@@ -55,7 +55,7 @@ struct WorkspaceSidebar: View {
                 }
             }.padding(.horizontal, 12).padding(.top, 12)
             if showsSections { sections }
-            Text("Conversations").font(.title2.weight(.semibold)).kerning(-0.2)
+            Text("Conversations").font(.title2.weight(.semibold)).kerning(-0.4)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 10)
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.subheadline).foregroundStyle(AtelierTheme.tertiaryText)
@@ -63,7 +63,8 @@ struct WorkspaceSidebar: View {
                     .submitLabel(.search).autocorrectionDisabled()
                 if !query.isEmpty { Button("Effacer la recherche", systemImage: "xmark.circle.fill") { workspace.sidebarQuery = "" }.labelStyle(.iconOnly).foregroundStyle(AtelierTheme.tertiaryText) }
             }.font(.subheadline).padding(.horizontal, 10).frame(minHeight: 40)
-                .background(AtelierTheme.control, in: RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous))
+                .background(AtelierTheme.card, in: RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous).strokeBorder(AtelierTheme.separator, lineWidth: 0.5) }
                 .padding(.horizontal, 16).padding(.bottom, 6)
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
@@ -95,9 +96,9 @@ struct WorkspaceSidebar: View {
             macStatus
         }
         .buttonStyle(.plain).foregroundStyle(.primary)
-        .background(AtelierTheme.sidebar, in: RoundedRectangle(cornerRadius: 38, style: .continuous))
+        .background(AtelierTheme.background, in: RoundedRectangle(cornerRadius: 38, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
-        .shadow(color: .black.opacity(0.22), radius: 20, y: 8)
+        .shadow(color: AtelierTheme.shadow, radius: 24, y: 8)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { workspace.sidebarRequested = false }
         .sheet(isPresented: $managingProjects) { SidebarProjectsView(workspace: workspace) }
@@ -115,40 +116,42 @@ struct WorkspaceSidebar: View {
             }
         }
     }
+    /// The five sections as tiles under the menu buttons (editorial B, 2026-11-09).
     private var sections: some View {
-        VStack(spacing: 2) {
-            sectionRow(.chat, glyph: .chat, title: "Chat")
-            sectionRow(.document, glyph: .document, title: "Fichier", detail: workingFileName)
-            sectionRow(.gallery, glyph: .gallery, title: "Galerie")
-            sectionRow(.articles, glyph: .book, title: "Articles")
-            sectionRow(.calculations, glyph: .calculations, title: "Calculs")
+        HStack(spacing: 6) {
+            sectionTile(.chat, glyph: .chat, title: "Chat")
+            sectionTile(.document, glyph: .document, title: "Fichier", detail: workingFileName)
+            sectionTile(.gallery, glyph: .gallery, title: "Galerie")
+            sectionTile(.articles, glyph: .book, title: "Articles")
+            sectionTile(.calculations, glyph: .calculations, title: "Calculs")
         }
-        .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 8)
-        .overlay(alignment: .bottom) { Rectangle().fill(AtelierTheme.separator).frame(height: 1).padding(.horizontal, 20) }
-        .padding(.bottom, 4)
+        .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 14)
     }
     private var workingFileName: String? {
         (workspace.documentOrigin == .gallery ? workspace.viewedArtifact?.name : nil) ?? workspace.lastDocuments[.gallery]?.artifact.name
     }
-    private func sectionRow(_ target: WorkspaceModel.Surface, glyph: WorkSurfaceGlyph.Kind, title: String, detail: String? = nil) -> some View {
+    private func sectionTile(_ target: WorkspaceModel.Surface, glyph: WorkSurfaceGlyph.Kind, title: String, detail: String? = nil) -> some View {
         let selected = workspace.selectedWorkSurface == target
+        let shape = RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous)
         return Button {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             workspace.switchWorkSurface(target)
         } label: {
-            HStack(spacing: 12) {
-                WorkSurfaceGlyph(kind: glyph).frame(width: 20, height: 20)
+            VStack(spacing: 6) {
+                WorkSurfaceGlyph(kind: glyph).frame(width: 21, height: 21)
                     .foregroundStyle(selected ? AtelierTheme.accent : AtelierTheme.secondaryText)
-                Text(title).font(.subheadline.weight(selected ? .medium : .regular))
-                    .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.85))
-                Spacer(minLength: 8)
-                if let detail { Text(detail).font(.caption).foregroundStyle(AtelierTheme.tertiaryText).lineLimit(1).truncationMode(.middle) }
+                Text(title).font(.caption.weight(selected ? .medium : .regular)).lineLimit(1).minimumScaleFactor(0.85)
+                    .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.8))
             }
-            .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .background(selected ? AtelierTheme.control : .clear, in: RoundedRectangle(cornerRadius: AtelierTheme.controlRadius, style: .continuous))
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, minHeight: 62)
+            .background(selected ? AtelierTheme.accentSoft : AtelierTheme.card, in: shape)
+            .overlay { if !selected { shape.strokeBorder(AtelierTheme.separator, lineWidth: 0.5) } }
+            .contentShape(shape)
         }
         .disabled(target == .document && !workspace.hasWorkingFile)
+        .opacity(target == .document && !workspace.hasWorkingFile ? 0.45 : 1)
+        .accessibilityLabel(title)
+        .accessibilityValue(detail ?? "")
         .accessibilityIdentifier("surface-" + String(describing: target))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -183,7 +186,7 @@ struct WorkspaceSidebar: View {
                 HStack(spacing: 8) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(AtelierTheme.tertiaryText).frame(width: 12)
-                    Text(group.name).font(.footnote.weight(.semibold)).kerning(-0.1).foregroundStyle(Color.primary.opacity(0.85)).lineLimit(1)
+                    Text(group.name).font(.footnote.weight(.medium)).foregroundStyle(AtelierTheme.secondaryText).lineLimit(1)
                     Spacer(minLength: 4)
                     if workspace.sidebarPreferences.settings.pinned.contains(group.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(AtelierTheme.tertiaryText) }
                     Text("\(group.threads.count)").font(.caption2.monospacedDigit()).foregroundStyle(AtelierTheme.tertiaryText)
@@ -223,7 +226,7 @@ struct WorkspaceSidebar: View {
             workspace.sidebarRequested = false
         } label: {
             VStack(alignment: .leading, spacing: 2) {
-                Text(thread.title).font(.subheadline).lineLimit(1).multilineTextAlignment(.leading)
+                Text(thread.title).font(AtelierTheme.serif(.body)).lineLimit(1).multilineTextAlignment(.leading)
                 HStack(spacing: 5) {
                     if thread.status == "running" { Image(systemName: "circle.dotted").foregroundStyle(AtelierTheme.accent) }
                     Text(provider)
@@ -234,7 +237,7 @@ struct WorkspaceSidebar: View {
                     }
                 }.font(.caption).foregroundStyle(AtelierTheme.secondaryText).lineLimit(1)
             }.padding(.vertical, 8).padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                .background(selected ? AtelierTheme.control : .clear, in: RoundedRectangle(cornerRadius: AtelierTheme.controlRadius, style: .continuous))
+                .background(selected ? AtelierTheme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: AtelierTheme.cardRadius, style: .continuous))
                 .contentShape(Rectangle())
         }.disabled(workspace.chat.sending)
             .accessibilityAddTraits(selected ? .isSelected : [])

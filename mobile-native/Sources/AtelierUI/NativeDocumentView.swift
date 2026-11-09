@@ -209,15 +209,15 @@ struct NativeDocumentView: View {
                             Label("Annoter", systemImage: "highlighter")
                                 .font(.subheadline.weight(.medium))
                                 .padding(.horizontal, 14).frame(minHeight: 44)
-                                .foregroundStyle(Color(uiColor: .systemBackground))
-                                .background(AtelierTheme.accent(named: "sage"), in: Capsule())
+                                .foregroundStyle(AtelierTheme.accent)
+                                .background(AtelierTheme.accentSoft, in: Capsule())
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("annotateSelection")
                     }
                 }
             }
-            .frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 8).background(.background)
+            .frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 8).background(AtelierTheme.background)
             }
         }
         .onChange(of: workspace.documentID) { _, _ in
@@ -322,7 +322,7 @@ struct NativePDFView: UIViewRepresentable {
         view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
-        view.backgroundColor = .secondarySystemBackground
+        view.backgroundColor = AtelierTheme.recessedUIColor
         view.document = workspace.pdfDocument
         view.restorePageWhenReady(workspace.pdfPage)
         context.coordinator.observe(view)

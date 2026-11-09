@@ -49,7 +49,7 @@ struct RichChatText: View {
             if failed { fallback }
             else {
                 ZStack(alignment: .topLeading) {
-                    RichMessageWebView(continuity: continuity, text: text, quoteTitle: quoteTitle, fontSize: fontSize * AtelierTheme.textScale(textSize), readingFont: documentStyle || quoteTitle == "Annoter" ? readingFont : "sans", compact: density == "compact", contrast: contrast, reduceMotion: reduceMotion, height: $height, selection: $selected, rendered: $rendered, failed: $failed, onSelection: onSelection, onAnnotate: onAnnotate, highlights: highlights, onHighlight: onHighlight, onQuote: onQuote)
+                    RichMessageWebView(continuity: continuity, text: text, quoteTitle: quoteTitle, fontSize: fontSize * AtelierTheme.textScale(textSize), readingFont: readingFont, compact: density == "compact", contrast: contrast, reduceMotion: reduceMotion, height: $height, selection: $selected, rendered: $rendered, failed: $failed, onSelection: onSelection, onAnnotate: onAnnotate, highlights: highlights, onHighlight: onHighlight, onQuote: onQuote)
                         .frame(height: rendered ? height : 28).opacity(rendered ? 1 : 0)
                     if !rendered {
                         ProgressView().controlSize(.small)

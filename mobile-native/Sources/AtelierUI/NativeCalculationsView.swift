@@ -11,9 +11,10 @@ struct NativeCalculationsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Picker("Emplacement", selection: $host) {
-                    Text("Tous").tag("all"); Text("Mac").tag("mac"); Text("NAS").tag("nas"); Text("Narval").tag("narval")
-                }.pickerStyle(.segmented)
+                EditorialTabs(items: [(value: "all", title: "Tous"), (value: "mac", title: "Mac"), (value: "nas", title: "NAS"), (value: "narval", title: "Narval")], selection: $host)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .bottom) { Rectangle().fill(AtelierTheme.separator).frame(height: 0.5) }
+                    .accessibilityElement(children: .contain).accessibilityLabel("Emplacement")
                 HStack {
                     TimelineView(.periodic(from: .now, by: 30)) { context in
                         if let date = model.snapshot?.observedAt.date {
@@ -44,7 +45,7 @@ struct NativeCalculationsView: View {
                 ForEach([false, true], id: \.self) { finished in
                     let runs = model.runs.filter { $0.finished == finished }
                     if !runs.isEmpty {
-                        Text(finished ? "Récents" : "En cours et en attente").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                        Text(finished ? "Récents" : "En cours et en attente").atelierSectionHeading()
                         ForEach(runs) { run in
                             Button { selected = run } label: { CalculationCard(run: run) }.buttonStyle(.plain)
                                 .accessibilityHint("Afficher les dernières nouvelles")
@@ -53,6 +54,7 @@ struct NativeCalculationsView: View {
                 }
             }.padding(20)
         }
+        .background(AtelierTheme.background)
         .refreshable { await model.refresh(using: workspace.gallery, host: host) }
         .task(id: pollingKey) {
             model.cancelPending()
@@ -79,9 +81,9 @@ private struct CalculationCard: View {
                 Spacer()
                 Text(run.stateLabel).foregroundStyle(color)
             }.font(.caption.weight(.medium))
-            Text(run.title).font(.headline).foregroundStyle(.primary)
+            Text(run.title).font(.body.weight(.medium)).foregroundStyle(.primary)
             if let project = run.project { Text(project).font(.caption).foregroundStyle(.secondary) }
-            if let fraction = run.progress?.fraction { ProgressView(value: fraction).tint(.accentColor).accessibilityLabel("Avancement") }
+            if let fraction = run.progress?.fraction { ProgressView(value: fraction).tint(AtelierTheme.accent).accessibilityLabel("Avancement") }
             HStack {
                 Text(run.step).font(.subheadline).foregroundStyle(.secondary)
                 Spacer(minLength: 8)
@@ -91,7 +93,7 @@ private struct CalculationCard: View {
                 Text("\(run.finished ? "Fin" : "Début") · \(date.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary)
             }
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+            .atelierRaised()
             .accessibilityElement(children: .combine)
     }
 }

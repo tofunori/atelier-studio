@@ -115,7 +115,7 @@ struct DocumentChangesView: View {
                 VStack(spacing: 8) {
                     if let useMacVersion {
                         Button("Utiliser la version du Mac") { useMacVersion(); dismiss() }
-                            .buttonStyle(.borderedProminent).frame(minHeight: 44)
+                            .buttonStyle(.atelierPrimary).frame(minHeight: 44)
                     }
                     Button("Revenir au document") { dismiss() }.frame(maxWidth: .infinity, minHeight: 44)
                 }.padding(.horizontal, 16).background(.bar)

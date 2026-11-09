@@ -23,7 +23,11 @@ public struct AtelierRootView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @FocusState private var composing: Bool
 
-    public init() {}
+    public init() {
+        // Editorial titles (B, 2026-11-09): large, semibold, tightened, left-aligned.
+        let large = UIFont.systemFont(ofSize: 32, weight: .semibold)
+        UINavigationBar.appearance().largeTitleTextAttributes = [.font: large, .kern: -0.8]
+    }
 
     private var connectedWorkbench: some View {
         workbench
@@ -174,21 +178,21 @@ public struct AtelierRootView: View {
                 if visitedSurfaces.contains(.gallery) || workspace.surface == .gallery || (sizeClass == .regular && workspace.surface == .chat) {
                 NavigationStack {
                     NativeGalleryView(workspace: workspace)
-                        .navigationTitle("Galerie").navigationBarTitleDisplayMode(.inline)
+                        .navigationTitle("Galerie").navigationBarTitleDisplayMode(sizeClass == .regular ? .inline : .large)
                         .toolbar { workspaceToolbar }
                 }.surfaceVisibility(workspace.surface == .gallery || (sizeClass == .regular && workspace.surface == .chat))
                 }
                 if visitedSurfaces.contains(.articles) || workspace.surface == .articles {
                 NavigationStack {
                     NativeLibraryView(workspace: workspace)
-                        .navigationTitle("Articles").navigationBarTitleDisplayMode(.inline)
+                        .navigationTitle("Articles").navigationBarTitleDisplayMode(sizeClass == .regular ? .inline : .large)
                         .toolbar { workspaceToolbar }
                 }.surfaceVisibility(workspace.surface == .articles)
                 }
                 if visitedSurfaces.contains(.calculations) || workspace.surface == .calculations {
                 NavigationStack {
                     NativeCalculationsView(workspace: workspace)
-                        .navigationTitle("Calculs").navigationBarTitleDisplayMode(.inline)
+                        .navigationTitle("Calculs").navigationBarTitleDisplayMode(sizeClass == .regular ? .inline : .large)
                         .toolbar { ToolbarItem(placement: .topBarLeading) { sidebarButton } }
                 }.surfaceVisibility(workspace.surface == .calculations)
                 }
