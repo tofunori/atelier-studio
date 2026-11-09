@@ -78,6 +78,12 @@ describe("Réglages", () => {
     await mountApp();
     // Le bouton Réglages du rail ouvre un menu (Réglages / Usage) depuis
     // 4dc49144 : la feuille s'ouvre par son item, après le chunk du menu.
+    // le bouton vit dans le bas de la colonne unifiée (SideBottom, lazy)
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await vi.advanceTimersByTimeAsync(16);
+      await flushMicrotasks(10);
+    });
     const button = screen.getByRole("button", { name: t("action.settings") });
     await act(async () => {
       fireEvent.click(button);
