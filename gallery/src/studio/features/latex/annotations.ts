@@ -4,6 +4,10 @@ import {
   roundIcons, roundRequest, sectionOf, since, stateLabel,
   type RoundRecord, type RoundRef, type RoundReply, type RoundState, type StoredRevisions,
 } from "./revision_round";
+import {
+  agentBlock, agentHeader, agentState, authorOf, currentSuggestion, hasUnread, isAgentNote, mergeThreads, replyRequest,
+  type ThreadMessage,
+} from "./agent_notes";
 import type {StudioEditor, StudioPosition, StudioRange, StudioTextMarker} from "../../core/editor_contract";
 
 interface AnnotationEditor extends StudioEditor {
@@ -23,6 +27,14 @@ export interface LatexAnnotation {
   round?: RoundRef;
   rstate?: RoundState;
   reply?: RoundReply;
+  /** Note posée par l'agent du chat (`agent`) ou Claude Desktop (`claude`) :
+   *  agent_notes.ts. */
+  by?: string;
+  author?: string;
+  suggest?: {text: string; reason?: string};
+  thread?: ThreadMessage[];
+  seen?: number;
+  at?: number;
 }
 
 export interface LatexAnnotationSelection {
@@ -176,6 +188,7 @@ export function createLatexAnnotationsController(
   const roundBlocks: Record<string, Array<{clear(): void}>> = {};
   const wordMarks: Record<string, StudioTextMarker[]> = {};
   let activeId: string | null = null;
+  let filter: "all" | "mine" | "agent" = "all";
   let pollTimer: number | null = null;
   let roundError = "";
   const LOAD_FAILED = "Commentaires non chargés : rien n'est enregistré tant que la liste n'est pas relue. Ta note reste disponible.";
@@ -206,11 +219,13 @@ export function createLatexAnnotationsController(
     if (!activeEditor) return;
     try {
       const answered = annotation.kind!=="hl" && (annotation.rstate==="prop" || annotation.rstate==="ask") && annotation.reply;
+      const agent = annotation.kind!=="hl" && isAgentNote(annotation);
       marks[annotation.id] = activeEditor.markText(annotation.from, annotation.to, {
         className: annotation.kind === "hl" ? `texc-hl texc-c-${annotation.color || "amber"}`
-          : annotation.rstate==="prop" ? "texc-hl texc-comment texr-old" : "texc-hl texc-comment",
+          : annotation.rstate==="prop" || (agent && currentSuggestion(annotation)) ? "texc-hl texc-comment texr-old" : "texc-hl texc-comment",
         attributes: {"data-texc": annotation.id},
       });
+      if (agent) { markAgent(annotation, activeEditor); return; }
       if (answered) { markRound(annotation, activeEditor); return; }
       if(annotation.kind!=="hl" && typeof activeEditor.setBookmark==="function") {
         const badge=doc.createElement("button");badge.type="button";
@@ -282,8 +297,12 @@ export function createLatexAnnotationsController(
     left.from.line - right.from.line || left.from.ch - right.from.ch);
   // ---- Rondes d'annotations -------------------------------------------
   const notes = (): LatexAnnotation[] => sorted().filter(a => a.kind !== "hl");
-  const currentRound = (): RoundRef | null => notes().find(a => a.round)?.round || null;
-  const pending = (): LatexAnnotation[] => notes().filter(a => a.round && (a.rstate === "prop" || a.rstate === "ask"));
+  // Les rondes ne portent que les notes de Thierry : l'agent ne se répond pas
+  // à lui-même (ses notes ont leur propre fil, agent_notes.ts).
+  const ownNotes = (): LatexAnnotation[] => notes().filter(a => !isAgentNote(a));
+  const agentNotes = (): LatexAnnotation[] => notes().filter(a => isAgentNote(a));
+  const currentRound = (): RoundRef | null => ownNotes().find(a => a.round)?.round || null;
+  const pending = (): LatexAnnotation[] => ownNotes().filter(a => a.round && (a.rstate === "prop" || a.rstate === "ask"));
   const firstProposal = (): string | null => pending().find(a => a.rstate === "prop")?.id || null;
   const sectionsFor = (items: readonly LatexAnnotation[]): string[] => {
     const activeEditor = editor();
@@ -335,6 +354,96 @@ export function createLatexAnnotationsController(
         activeEditor.markText(activeEditor.posFromIndex(base + from), activeEditor.posFromIndex(base + to), {className: "texr-del-word"}));
     }
   }
+  // ---- Notes de l'agent (agent_notes.ts) ----------------------------------
+  function markAgent(annotation: LatexAnnotation, activeEditor: AnnotationEditor): void {
+    if (typeof activeEditor.setBookmark !== "function") return;
+    const blocks: Array<{clear(): void}> = [];
+    const source = activeEditor.getValue().split("\n");
+    const paragraph = paragraphOf(source, annotation.from.line, annotation.to.line);
+    const header = agentHeader(doc, numberOf(annotation), annotation);
+    header.addEventListener("mousedown", event => event.preventDefault());
+    header.onclick = () => { activeId = annotation.id; markSeen(annotation.id); };
+    blocks.push(activeEditor.setBookmark({line: paragraph.start, ch: 0}, {widget: header, insertLeft: true, block: true}));
+    const endLine = activeEditor.getLine(annotation.to.line) || "";
+    const block = agentBlock(doc, {
+      note: annotation,
+      lineBefore: [...source.slice(paragraph.start, annotation.from.line), (source[annotation.from.line] || "").slice(0, annotation.from.ch)].join("\n"),
+      lineAfter: [endLine.slice(annotation.to.ch), ...source.slice(annotation.to.line + 1, paragraph.end + 1)].join("\n"),
+    }, {
+      accept: () => acceptAgent(annotation.id),
+      reject: () => closeAgent(annotation.id, "rej"),
+      resolve: () => closeAgent(annotation.id, "res"),
+      remove: () => { remove(annotation.id); buildPanel(); },
+      reply: words => replyAgent(annotation.id, words),
+      seen: () => markSeen(annotation.id),
+    });
+    block.dataset.texr = annotation.id;
+    block.addEventListener("mousedown", event => {
+      if (!(event.target as Element | null)?.closest("input")) event.preventDefault();
+      activeId = annotation.id;
+    });
+    const lastLine = activeEditor.getLine(paragraph.end) || "";
+    blocks.push(activeEditor.setBookmark({line: paragraph.end, ch: lastLine.length}, {widget: block, block: true}));
+    roundBlocks[annotation.id] = blocks;
+    const suggestion = currentSuggestion(annotation);
+    if (suggestion) {
+      const base = activeEditor.indexFromPos(annotation.from);
+      wordMarks[annotation.id] = removedRanges(annotation.text, suggestion.text).map(([from, to]) =>
+        activeEditor.markText(activeEditor.posFromIndex(base + from), activeEditor.posFromIndex(base + to), {className: "texr-del-word"}));
+    }
+  }
+  /** Résoudre, rejeter ou accepter : la note quitte la page et reste dans l'historique. */
+  function closeAgent(id: string, decision: "res" | "rej" | "acc", proposal?: string): void {
+    const annotation = all.find(a => a.id === id);
+    if (!annotation) return;
+    clearMark(id);
+    all = all.filter(a => a.id !== id);
+    history.push({id, round: "", n: 0, number: numberOf(annotation), comment: annotation.comment, text: annotation.text,
+      decision, proposal, at: Date.now(), by: annotation.by, author: authorOf(annotation)});
+    if (activeId === id) activeId = firstProposal();
+    roundError = "";
+    void save();
+    void saveHistory();
+    buildPanel();
+  }
+  function acceptAgent(id: string): void {
+    const annotation = all.find(a => a.id === id);
+    const activeEditor = editor();
+    const suggestion = annotation ? currentSuggestion(annotation) : null;
+    if (!annotation || !suggestion || !activeEditor || saving) return;
+    const range = marks[id]?.find() || findAnnotationRange(activeEditor.getValue(), annotation, activeEditor);
+    if (!range || activeEditor.getRange(range.from, range.to) !== annotation.text) {
+      roundError = "Le passage a changé depuis la proposition : réponds sous la note pour en demander une autre.";
+      togglePanel(true);
+      return;
+    }
+    clearMark(id);
+    activeEditor.replaceRange(suggestion.text, range.from, range.to, "+revision");
+    closeAgent(id, "acc", suggestion.text);
+  }
+  function replyAgent(id: string, words: string): void {
+    const annotation = all.find(a => a.id === id);
+    if (!annotation) return;
+    const now = Date.now();
+    annotation.thread = [...(annotation.thread || []), {id: `m${now}`, by: "user", author: "Toi", text: words, at: now}];
+    annotation.seen = now;
+    void save().then(saved => {
+      if (!saved) return;
+      post(replyRequest(options.path, annotation, words));
+    });
+    remark(annotation);
+    buildPanel();
+  }
+  function markSeen(id: string): void {
+    const annotation = all.find(a => a.id === id);
+    if (!annotation || !hasUnread(annotation)) return;
+    annotation.seen = Date.now();
+    remark(annotation);
+    void save();
+    buildPanel();
+  }
+  const nextNumber = (): number => 1 + Math.max(0, ...all.map(a => a.number || 0));
+
   const remark = (annotation: LatexAnnotation): void => { clearMark(annotation.id); mark(annotation); };
   // La position « k sur N » change pour toutes les propositions.
   // Seules les propositions la portent : un bloc de question garde son champ.
@@ -368,7 +477,7 @@ export function createLatexAnnotationsController(
   const stopPolling = (): void => { if (pollTimer !== null) win.clearInterval(pollTimer); pollTimer = null; };
   const fetchReplies = async (): Promise<void> => {
     const round = currentRound();
-    if (!round || !notes().some(a => a.rstate === "busy")) { stopPolling(); return; }
+    if (!round || !ownNotes().some(a => a.rstate === "busy")) { stopPolling(); return; }
     let stored: StoredRevisions | null = null;
     try {
       const response = await win.fetch(`/texrevisions?path=${encodeURIComponent(options.path)}`);
@@ -393,13 +502,13 @@ export function createLatexAnnotationsController(
   };
 
   const startRound = (): void => {
-    const open = notes().filter(a => !a.round || a.rstate === undefined);
+    const open = ownNotes().filter(a => !a.round || a.rstate === undefined);
     if (!open.length) return;
-    const previous = Math.max(0, ...history.map(record => record.n || 0), ...notes().map(a => a.round?.n || 0));
+    const previous = Math.max(0, ...history.map(record => record.n || 0), ...ownNotes().map(a => a.round?.n || 0));
     const round: RoundRef = {id: newRoundId(), n: previous + 1};
     // Une ronde à la fois : les notes encore en attente d'une ronde
     // précédente y entrent aussi.
-    const members = notes();
+    const members = ownNotes();
     for (const annotation of members) {
       annotation.round = round;
       if (annotation.rstate !== "prop" && annotation.rstate !== "ask") annotation.rstate = "busy";
@@ -419,7 +528,7 @@ export function createLatexAnnotationsController(
     buildPanel();
   };
   const cancelRound = (): void => {
-    for (const annotation of notes()) {
+    for (const annotation of ownNotes()) {
       if (annotation.rstate !== "busy") continue;
       delete annotation.round; delete annotation.rstate; delete annotation.reply;
       remark(annotation);
@@ -495,36 +604,49 @@ export function createLatexAnnotationsController(
   doc.addEventListener("keydown", event => {
     if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
     const target = activeId ? all.find(a => a.id === activeId && a.rstate === "prop") : null;
-    if (!target) return;
+    const agentTarget = activeId ? all.find(a => a.id === activeId && isAgentNote(a) && currentSuggestion(a)) : null;
+    if (!target && !agentTarget) return;
     event.preventDefault();
     event.stopPropagation();
-    decide(target.id, "acc");
+    if (target) decide(target.id, "acc");
+    else if (agentTarget) acceptAgent(agentTarget.id);
   }, true);
 
   const buildPanel = (): void => {
-    const items = notes();
+    const everything = notes();
+    const fromAgent = everything.filter(a => isAgentNote(a));
+    const agentName = fromAgent[0] ? authorOf(fromAgent[0]) : "Claude";
+    if (!fromAgent.length) filter = "all";
+    const items = filter === "mine" ? everything.filter(a => !isAgentNote(a))
+      : filter === "agent" ? fromAgent : everything;
     const round = currentRound();
-    const roundItems = items.filter(a => a.round);
+    const roundItems = everything.filter(a => a.round);
     const toReview = roundItems.filter(a => a.rstate === "prop" || a.rstate === "ask").length;
     const busy = roundItems.filter(a => a.rstate === "busy").length;
-    const fresh = items.filter(a => !a.round);
+    const fresh = ownNotes().filter(a => !a.round);
     const title = round ? `Ronde ${round.n}` : "Annotations";
     const sub = round
       ? [`${roundItems.length} note${roundItems.length > 1 ? "s" : ""}`, toReview ? `${toReview} à revoir` : ""].filter(Boolean).join(" · ")
-      : items.length ? `${items.length} note${items.length > 1 ? "s" : ""}` : "";
+      : [everything.length ? `${everything.length} note${everything.length > 1 ? "s" : ""}` : "",
+        fromAgent.length ? `${fromAgent.length} de ${agentName}` : ""].filter(Boolean).join(" · ");
+    const filters = fromAgent.length
+      ? '<div class="tp-filter" role="group" aria-label="Filtrer les notes">' + ([["all", "Toutes"], ["mine", "Les miennes"], ["agent", agentName]] as const)
+        .map(([key, label]) => `<button type="button" class="tp-seg${filter === key ? " on" : ""}" data-filter="${key}" aria-pressed="${filter === key}">${escapeHtml(label)}</button>`).join("") + "</div>"
+      : "";
     const sections = sectionsFor(items);
     let lastSection = "";
     const list = items.map((annotation, index) => {
       const section = sections[index] || "";
       const head = round && section !== lastSection ? (lastSection = section, `<div class="tp-sec">${escapeHtml(section)}</div>`) : "";
-      const state = stateLabel(annotation.rstate || "note");
+      const agent = isAgentNote(annotation);
+      const state = agent ? agentState(annotation) : stateLabel(annotation.rstate || "note");
       return `${head}<div class="tp-item${activeId === annotation.id ? " is-active" : ""}" data-id="${escapeHtml(annotation.id)}" role="button" tabindex="0">`
-        + `<span class="atelier-annotation-number tp-ring">${numberOf(annotation)}</span>`
+        + `<span class="atelier-annotation-number tp-ring${agent ? " is-agent" : ""}${agent && hasUnread(annotation) ? " is-unread" : ""}">${numberOf(annotation)}</span>`
         + `<span class="tp-body"><span class="tp-note">${escapeHtml(annotation.comment || annotation.text.slice(0, 90))}</span>`
         + `<span class="tp-state tone-${state.tone}"><span class="tp-ic">${state.icon}</span>${state.label}<span class="tp-loc">${locOf(annotation)}</span></span></span>`
         + `<button type="button" class="tp-x" data-x="${escapeHtml(annotation.id)}" title="Supprimer la note" aria-label="Supprimer la note">${roundIcons.close}</button></div>`;
     }).join("");
-    const past = [...new Set(history.map(record => record.n))].sort((a, b) => b - a).slice(0, 3).map(n => {
+    const past = [...new Set(history.filter(record => record.n > 0).map(record => record.n))].sort((a, b) => b - a).slice(0, 3).map(n => {
       const records = history.filter(record => record.n === n);
       const accepted = records.filter(record => record.decision === "acc").length;
       const last = Math.max(...records.map(record => record.at || 0));
@@ -537,16 +659,17 @@ export function createLatexAnnotationsController(
     } else if (fresh.length) {
       foot = `<button type="button" class="tp-primary tp-review">Réviser avec l’agent</button>`;
     }
-    const tools = items.length && !busy
+    const tools = everything.length && !busy
       ? '<div class="tp-tools"><button type="button" class="tp-link tp-sendall" title="Envoyer toutes les notes au chat, sans ronde">Envoyer au chat</button>'
         + '<button type="button" class="tp-link tp-delall" title="Supprimer toutes les notes">Tout supprimer</button></div>'
       : "";
     options.panel.innerHTML = `<div class="tp-head"><span class="tp-title">${title}</span><span class="tp-sub">${sub}</span><span class="tp-gap"></span>`
       + `<button type="button" class="tp-close" aria-label="Fermer le panneau" title="Fermer">${roundIcons.close}</button></div>`
+      + filters
       + `<div class="tp-list">${list || '<div class="tp-empty">Sélectionne un passage puis « Annoter ». Tes notes s’ajoutent ici ; « Réviser avec l’agent » les lui envoie toutes ensemble.</div>'}</div>`
       + (roundError ? `<div class="tp-error" role="status">${escapeHtml(roundError)}</div>` : "")
       + (foot || tools || past ? `<div class="tp-foot">${foot}${tools}${past}</div>` : "");
-    doc.body.classList.toggle("has-texc", items.length > 0);
+    doc.body.classList.toggle("has-texc", everything.length > 0);
   };
   const togglePanel = (force?: boolean): void => {
     if (deleteArmTimer !== null) win.clearTimeout(deleteArmTimer);
@@ -651,6 +774,7 @@ export function createLatexAnnotationsController(
     const highlight = target?.closest(".texc-hl");
     if (highlight) {
       const annotation = all.find((item) => item.id === highlight.getAttribute("data-texc"));
+      if (annotation && isAgentNote(annotation)) { activeId = annotation.id; markSeen(annotation.id); return; }
       if (annotation && !saving) {
         current = annotation;
         show(annotation, false);
@@ -668,6 +792,8 @@ export function createLatexAnnotationsController(
     const target = event.target as Element | null;
     if (target?.closest(".tp-close")) { togglePanel(false); return; }
     if (target?.closest(".tp-review")) { startRound(); return; }
+    const seg = target?.closest<HTMLElement>(".tp-seg[data-filter]");
+    if (seg) { filter = (seg.dataset.filter as typeof filter) || "all"; buildPanel(); return; }
     if (target?.closest(".tp-cancel")) { cancelRound(); return; }
     const removeButton = target?.closest<HTMLElement>(".tp-x");
     if (removeButton?.dataset.x) {
@@ -676,7 +802,7 @@ export function createLatexAnnotationsController(
       return;
     }
     if (target?.closest(".tp-sendall")) {
-      for(const annotation of sorted().filter(a=>a.kind!=="hl")) options.postToHost({
+      for(const annotation of ownNotes()) options.postToHost({
         type:"atelier-add-to-chat",text:`${options.path} (L${annotation.from.line+1}-${annotation.to.line+1}) : « ${annotation.text} »\nCommentaire : ${annotation.comment || "(voir passage)"}`,
         pdfAnnotation:{rel:relation,id:annotation.id}});
       togglePanel(false);
@@ -703,6 +829,14 @@ export function createLatexAnnotationsController(
     const item = target?.closest<HTMLElement>(".tp-item[data-id]");
     const annotation = all.find((candidate) => candidate.id === item?.dataset.id);
     const activeEditor = editor();
+    // Note de l'agent : son fil est sous le passage ; on y va, lu.
+    if (annotation && isAgentNote(annotation)) {
+      activeId = annotation.id;
+      markSeen(annotation.id);
+      reveal(annotation.id);
+      buildPanel();
+      return;
+    }
     // Pendant une ronde, le panneau reste ouvert : on passe d'une note à l'autre.
     if (annotation?.round) {
       activeId = annotation.id;
@@ -745,6 +879,8 @@ export function createLatexAnnotationsController(
       const localOnly = all.filter((annotation) => !serverIds.has(String(annotation.id)) && !knownIds.has(String(annotation.id)));
       for (const annotation of all) clearMark(annotation.id);
       all = [...server, ...localOnly];
+      // Les notes de l'agent arrivent sans numéro : le suivant, une fois pour toutes.
+      for (const annotation of all) if (isAgentNote(annotation) && !annotation.number) annotation.number = nextNumber();
       serverIds.forEach((id) => knownIds.add(id));
       loaded = true;
     } catch {
@@ -761,6 +897,83 @@ export function createLatexAnnotationsController(
     if (currentRound()) togglePanel(true);
     return true;
   };
+  // ---- Relecture en direct : l'agent pose ou répond pendant que l'éditeur
+  // est ouvert. Comme le lecteur PDF : la date du store (/pdfannot-stamp),
+  // relue toutes les 2,5 s, puis fusion qui garde l'état local de Thierry.
+  let storeStamp = 0;
+  let watchTimer: number | null = null;
+  const watch = (): void => {
+    if (watchTimer !== null) return;
+    watchTimer = win.setInterval(() => { void checkStore(); }, 2500);
+  };
+  const checkStore = async (): Promise<void> => {
+    if (!loaded || doc.hidden) return;
+    let stamp = 0;
+    try {
+      const response = await win.fetch(`/pdfannot-stamp?rel=${encodeURIComponent(relation)}`);
+      if (!response.ok) return;
+      stamp = Number(((await response.json()) as {stamp?: number}).stamp) || 0;
+    } catch { return; }
+    if (!storeStamp) { storeStamp = stamp; return; }
+    if (stamp === storeStamp) return;
+    storeStamp = stamp;
+    await refreshFromStore();
+  };
+  const refreshFromStore = async (): Promise<void> => {
+    let server: LatexAnnotation[];
+    try {
+      const response = await win.fetch(`/pdfannot?rel=${encodeURIComponent(relation)}`);
+      if (!response.ok) return;
+      const payload = await response.json() as {annots?: LatexAnnotation[]};
+      if (!Array.isArray(payload.annots)) return;
+      server = payload.annots;
+    } catch { return; }
+    const activeEditor = editor();
+    const serverIds = new Set(server.map(a => String(a.id)));
+    let arrived = false, changed = false;
+    for (const stored of server) {
+      const local = all.find(a => a.id === stored.id);
+      if (!local) {
+        // jamais vue ici : posée ailleurs (l'agent, une autre fenêtre)
+        if (knownIds.has(String(stored.id))) continue;
+        knownIds.add(String(stored.id));
+        if (isAgentNote(stored) && !stored.number) stored.number = nextNumber();
+        if (activeEditor) {
+          let exact = false;
+          try { exact = activeEditor.getRange(stored.from, stored.to) === stored.text; } catch { /* hors du texte */ }
+          if (!exact) {
+            const range = findAnnotationRange(activeEditor.getValue(), stored, activeEditor);
+            if (range) { stored.from = {...range.from}; stored.to = {...range.to}; }
+          }
+        }
+        all.push(stored);
+        mark(stored);
+        arrived = arrived || isAgentNote(stored);
+        changed = true;
+        continue;
+      }
+      if (!isAgentNote(local)) continue;
+      const thread = mergeThreads(local.thread, stored.thread);
+      if (thread.length !== (local.thread || []).length) {
+        local.thread = thread;
+        remark(local);
+        changed = true;
+      }
+    }
+    // une note de l'agent vue ici puis absente du store : il l'a retirée
+    for (const local of agentNotes()) {
+      if (knownIds.has(String(local.id)) && !serverIds.has(String(local.id))) {
+        clearMark(local.id);
+        all = all.filter(a => a.id !== local.id);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    options.onMutated?.();
+    if (arrived) togglePanel(true);
+    else buildPanel();
+  };
+
   // Relance le chargement au besoin (comme ensureLoaded de l'éditeur Markdown).
   function ensureLoaded(): Promise<boolean> {
     if (loaded) return Promise.resolve(true);
@@ -772,6 +985,7 @@ export function createLatexAnnotationsController(
     if (bound || !activeEditor) return;
     bound = true;
     void ensureLoaded();
+    watch();
     activeEditor.on("change", (...args: unknown[]) => {
       const change = args[1] as {origin?: string} | undefined;
       if (reanchorTimer !== null) win.clearTimeout(reanchorTimer);
