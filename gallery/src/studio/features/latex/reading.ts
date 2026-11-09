@@ -16,13 +16,30 @@ interface ReadingBlock {
   ordered?: boolean;
   items?: Array<{text: string; line: number}>;
   name?: string;
+  /** \section* et l'abstract : sans numéro. */
+  starred?: boolean;
 }
 
 export interface ReadingContext {
-  citations?: Record<string, {label: string; title: string; url?: string}>;
+  citations?: Record<string, ReadingCitation>;
   references?: Record<string, string>;
   referenceTargets?: Record<string, {path: string; line: number; external?: boolean}>;
   macros?: Record<string, string>;
+  /** Dossiers d'où résoudre \includegraphics (racine compilée, fichier ouvert). */
+  imageBases?: string[];
+}
+
+export interface ReadingCitation {
+  label: string;
+  title: string;
+  url?: string;
+  /** Noms courts (« Ren et al. ») et année, pour \citet : « Ren et al. (2021) ». */
+  names?: string;
+  year?: string;
+  /** Fiche de citation : auteurs complets, revue. */
+  authors?: string;
+  venue?: string;
+  doi?: string;
 }
 
 export interface LatexReadingOptions {
@@ -110,9 +127,12 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
   // primitives ne porte pas de texte à lire.
   body = body.replace(/^[ \t]*\\(?:ifdefined|ifx|else|fi|expandafter|endinput|input|include|def|makeatletter|makeatother)\b.*$/gm, "");
 
-  const math: Array<{source: string; display: boolean}> = [];
-  const stash = (tex: string, display: boolean, original: string): string => {
-    math.push({source: tex.trim(), display});
+  const math: Array<{source: string; display: boolean; number?: string}> = [];
+  // Numéros d'équation : celui du .aux quand l'étiquette y figure, sinon le
+  // compte des environnements numérotés (equation, multline) dans l'ordre.
+  let equationCount = 0;
+  const stash = (tex: string, display: boolean, original: string, number?: string): string => {
+    math.push({source: tex.trim(), display, number});
     // Continuation markers retain physical source lines without creating
     // paragraph boundaries inside an equation or an inline formula.
     return `\x00M${math.length - 1}\x00` + "\n\x00C\x00".repeat((original.match(/\n/g) || []).length);
@@ -122,9 +142,12 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
   body = body.replace(/\\begin\{(equation\*?|align\*?|gather\*?|multline\*?)\}([\s\S]*?)\\end\{\1\}/g,
     (whole, environment: string, text: string) => {
       const name = environment.replace("*", "");
+      const label = /\\label\{([^}]*)\}/.exec(text)?.[1];
       const inner = text.replace(/\\label\{[^}]*\}/g, "");
       const wrapper = name === "align" ? "aligned" : name === "gather" || name === "multline" ? "gathered" : "";
-      return stash(wrapper ? `\\begin{${wrapper}}${inner}\\end{${wrapper}}` : inner, true, whole);
+      const numbered = !environment.endsWith("*") && (name === "equation" || name === "multline");
+      const number = numbered ? (++equationCount, (label && context.references?.[label]) || String(equationCount)) : undefined;
+      return stash(wrapper ? `\\begin{${wrapper}}${inner}\\end{${wrapper}}` : inner, true, whole, number);
     });
   body = body.replace(/(?<!\\)\$([^$]+?)(?<!\\)\$/g, (whole, text: string) => stash(text, false, whole));
   body = body.replace(/\\\(([\s\S]+?)\\\)/g, (whole, text: string) => stash(text, false, whole));
@@ -163,12 +186,14 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
       flushList();
       continue;
     }
-    match = /^\\(title|section|subsection|subsubsection|paragraph)\*?\{([\s\S]*?)\}\s*$/.exec(line);
+    // Un \label en fin de titre (« \section{X}\label{sec:x} ») n'appartient
+    // pas au titre : on le retire avant de lire l'argument.
+    match = /^\\(title|section|subsection|subsubsection|paragraph)(\*?)\{([\s\S]*?)\}\s*$/.exec(line.replace(/\s*\\label\{[^}]*\}\s*$/, ""));
     if (match) {
       flushParagraph();
       flushList();
       const tags: Record<string, string> = {title: "h1", section: "h2", subsection: "h3", subsubsection: "h4", paragraph: "h5"};
-      blocks.push({type: "h", tag: tags[match[1] || ""] || "h2", text: match[2] || "", line: sourceLine});
+      blocks.push({type: "h", tag: tags[match[1] || ""] || "h2", text: match[3] || "", line: sourceLine, starred: match[2] === "*"});
       continue;
     }
     if (/^\\(begin|end)\{(itemize|enumerate)\}/.test(line)) {
@@ -190,7 +215,7 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
       flushList();
       const environment = match[1] || "";
       if (environment === "abstract") {
-        blocks.push({type: "h", tag: "h2", text: "Abstract", line: sourceLine});
+        blocks.push({type: "h", tag: "h2", text: "Abstract", line: sourceLine, starred: true});
         continue;
       }
       const environmentName = environment + (match[2] || "");
@@ -227,6 +252,8 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
     const symbols: Record<string, string> = {metre:"m", meter:"m", second:"s", gram:"g", kilogram:"kg", kelvin:"K", celsius:"°C", degreeCelsius:"°C", joule:"J", watt:"W", pascal:"Pa", mole:"mol", percent:"%", kilo:"k", milli:"m", micro:"µ", nano:"n", per:"/", squared:"²", cubed:"³"};
     return unit.replace(/\\([a-zA-Z]+)/g, (full, name: string) => symbols[name] ?? full);
   };
+  const footnotes: string[] = [];
+  let figureCount = 0;
   const inline = (value: string): string => {
     const generated: string[] = [];
     const protect = (html: string): string => {generated.push(html); return `\x00H${generated.length - 1}\x00`;};
@@ -254,11 +281,13 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
       (_match, command: string, first: string, second: string, keys: string) => {
         const refs = keys.split(",").map(key => {
           const entry = context.citations?.[key.trim()];
-          const label = entry?.label || key.trim();
+          // \citet : « Ren et al. (2021) », comme natbib ; sinon « Ren et al., 2021 ».
+          const label = command === "citet" && entry?.names && entry.year ? `${entry.names} (${entry.year})` : entry?.label || key.trim();
           const title = entry?.title || `Référence non résolue : ${key.trim()}`;
-          const href = entry?.url && /^https?:\/\//i.test(entry.url) ? ` href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer"` : "";
-          const tag = href ? "a" : "span";
-          return protect(`<${tag} class="tex-cite"${href} tabindex="0" title="${escapeHtml(title)}">${escapeHtml(label)}</${tag}>`);
+          const url = entry?.url && /^https?:\/\//i.test(entry.url) ? ` data-url="${escapeHtml(entry.url)}"` : "";
+          // Une fiche s'ouvre au clic (titre, auteurs, revue, DOI) : plus de
+          // départ direct vers le DOI au moindre clic dans la prose.
+          return protect(`<span class="tex-cite${entry ? "" : " unresolved"}" role="button" data-cite="${escapeHtml(key.trim())}"${url} tabindex="0" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`);
         }).join("; ");
         return `${second ? first + " " : ""}${command === "citet" ? refs : "(" + refs + ")"}${first ? ", " + (second || first) : ""}`;
       })
@@ -270,10 +299,15 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
       .replace(/\\footnote\{([^{}]*)\}/g, (_m, note: string) => {
         // Input text is already HTML-escaped. Resolve embedded citations and
         // math to text before placing it in an attribute, never KaTeX HTML.
-        const title = note.replace(/\x00H(\d+)\x00/g, (_h, index: string) => generated[Number(index)] || "")
+        const resolved = note.replace(/\x00H(\d+)\x00/g, (_h, index: string) => generated[Number(index)] || "");
+        const title = resolved
           .replace(/<[^>]*>/g, "")
           .replace(/\x00M(\d+)\x00/g, (_h, index: string) => escapeHtml(math[Number(index)]?.source || ""));
-        return protect(`<sup class="tex-fn" title="${title}">*</sup>`);
+        // Notes numérotées : la note elle-même va en marge (ou en fin de
+        // document quand la place manque), l'infobulle reste pour le survol.
+        footnotes.push(resolved);
+        const number = footnotes.length;
+        return protect(`<sup class="tex-fn" data-fn="${number}" title="${title}">${number}</sup>`);
       })
       .replace(/\\href\{([^}]*)\}\{([^}]*)\}/g, (_m, url: string, label: string) => /^https?:\/\//i.test(url) ? protect(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`) : label)
       .replace(/\\url\{([^}]*)\}/g, (_m, url: string) => /^https?:\/\//i.test(url) ? protect(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`) : url);
@@ -290,8 +324,10 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
     if (!item) return "";
     try {
       const key = JSON.stringify([item.display, macroKey, item.source]);
+      const numbered = (html: string): string => item.number
+        ? `<span class="tex-eq">${html}<span class="tex-eqno">(${escapeHtml(item.number)})</span></span>` : html;
       const cached = !statefulMath ? formulaCache.get(key) : undefined;
-      if (cached !== undefined) return cached;
+      if (cached !== undefined) return numbered(cached);
       const html = katex.renderToString(item.source, {displayMode: item.display, throwOnError: false, errorColor: "#e0726a", macros});
       if (!statefulMath && key.length + html.length <= MAX_FORMULA_CACHE_CHARACTERS) {
         formulaCache.set(key, html); cacheCharacters += key.length + html.length;
@@ -301,13 +337,13 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
           formulaCache.delete(first);
         }
       }
-      return html;
+      return numbered(html);
     } catch {
       return `<span class="tex-matherr">${escapeHtml(item.source)}</span>`;
     }
   });
-  return blocks.map((block) => {
-    if (block.type === "h") return `<${block.tag} data-line="${block.line}">${withMath(inline(block.text || ""))}</${block.tag}>`;
+  const rendered = blocks.map((block) => {
+    if (block.type === "h") return `<${block.tag} data-line="${block.line}"${block.starred ? " data-nonum" : ""}>${withMath(inline(block.text || ""))}</${block.tag}>`;
     if (block.type === "p") return `<p data-line="${block.line}" data-line-end="${block.end ?? block.line}">${withMath(inline(block.text || ""))}</p>`;
     if (block.type === "list") {
       const tag = block.ordered ? "ol" : "ul";
@@ -315,8 +351,44 @@ function renderLatexReadingBlocks(source: string, katex: KatexRenderer, context:
       return `<${tag}>${items}</${tag}>`;
     }
     const caption = /\\caption(?:\[[^\]]*\])?\{([^{}]*)\}/.exec(block.text || "")?.[1];
-    return `<figure class="tex-env" data-line="${block.line}"><figcaption>${caption ? withMath(inline(caption)) : block.name}</figcaption><button type="button" data-pdf-line="${block.line}">Voir ${block.name === "figure" ? "la figure" : "le tableau"} dans le PDF</button></figure>`;
+    // Vraie figure : l'image (vignette du serveur, PDF compris) et « Figure n »
+    // devant la légende — numéro du .aux si l'étiquette y est, sinon l'ordre.
+    let image = "", number = "";
+    if (block.name === "figure") {
+      figureCount += 1;
+      const label = /\\label\{([^}]*)\}/.exec(block.text || "")?.[1];
+      number = (label && context.references?.[label]) || String(figureCount);
+      const graphics = [...(block.text || "").matchAll(/\\includegraphics\*?(?:\[[^\]]*\])?\{([^}]+)\}/g)].map(m => m[1]!.trim());
+      const bases = context.imageBases || [];
+      image = graphics.map(rel => {
+        const candidates = readingImageCandidates(rel, bases).map(path => `/thumb?path=${encodeURIComponent(path)}&w=1600`);
+        return candidates.length ? `<img class="tex-figimg" alt="" draggable="false" data-candidates="${escapeHtml(JSON.stringify(candidates))}">` : "";
+      }).join("");
+    }
+    const lead = number ? `<span class="tex-fignum">Figure ${escapeHtml(number)}</span>` : "";
+    return `<figure class="tex-env${image ? " has-image" : ""}" data-line="${block.line}">${image ? `<div class="tex-figimgs">${image}</div>` : ""}${lead}<figcaption>${caption ? withMath(inline(caption)) : block.name}</figcaption><button type="button" data-pdf-line="${block.line}">Voir ${block.name === "figure" ? "la figure" : "le tableau"} dans le PDF</button></figure>`;
   });
+  // Un fragment inclus (sans \begin{document}) ne connaît pas son numéro de
+  // chapitre : pas de numérotation de sections plutôt qu'une fausse.
+  if (!documentMatch) rendered.unshift('<div class="tex-nonum-doc" hidden></div>');
+  if (footnotes.length) {
+    rendered.push(`<section class="tex-notes" aria-label="Notes"><ol>${footnotes.map((note, index) => `<li data-fn="${index + 1}">${withMath(note)}</li>`).join("")}</ol></section>`);
+  }
+  return rendered;
+}
+
+/** Chemins possibles d'une image \includegraphics, depuis chaque dossier de base. */
+export function readingImageCandidates(rel: string, bases: readonly string[]): string[] {
+  const clean = rel.replace(/^\.\//, "");
+  if (!clean) return [];
+  const names = /\.(pdf|png|jpe?g|gif|svg|webp)$/i.test(clean) ? [clean] : [".pdf", ".png", ".jpg", ".jpeg"].map(ext => clean + ext);
+  const dirs = clean.startsWith("/") ? [""] : bases.map(base => base.replace(/\/+$/, ""));
+  const out: string[] = [];
+  for (const dir of dirs) for (const name of names) {
+    const full = dir ? `${dir}/${name}` : name;
+    if (!out.includes(full)) out.push(full);
+  }
+  return out;
 }
 
 /** Le rendu applique au texte des substitutions déterministes (« ~ » → espace,
@@ -702,18 +774,140 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
     lineIndex = [...reading.querySelectorAll<HTMLElement>("[data-line]")]
       .map(node => ({line: Number(node.dataset.line), node})).filter(entry => Number.isFinite(entry.line));
   };
+  // ---- finitions typographiques après rendu --------------------------------
+  // Figures : la vignette du serveur, en essayant chaque chemin candidat.
+  const loadFigureImages = (): void => {
+    for (const image of reading.querySelectorAll<HTMLImageElement>("img.tex-figimg[data-candidates]:not([src])")) {
+      let candidates: string[] = [];
+      try { candidates = JSON.parse(image.dataset.candidates || "[]"); } catch { candidates = []; }
+      let next = 0;
+      const tryNext = (): void => {
+        const url = candidates[next++];
+        if (!url) { image.closest("figure")?.classList.remove("has-image"); image.remove(); return; }
+        image.src = url;
+      };
+      image.onerror = tryNext;
+      tryNext();
+    }
+  };
+  // Notes en marge, à hauteur de leur appel, quand la colonne laisse la
+  // place ; sinon elles restent en fin de document (.tex-notes).
+  const SIDENOTE_WIDTH = 200, SIDENOTE_GAP = 32;
+  const layoutSideNotes = (): void => {
+    reading.querySelectorAll(".tex-sidenote").forEach(node => node.remove());
+    reading.classList.remove("has-sidenotes");
+    if (!enabled) return;
+    const items = new Map([...reading.querySelectorAll<HTMLElement>(".tex-notes li[data-fn]")].map(item => [item.dataset.fn, item]));
+    const calls = [...reading.querySelectorAll<HTMLElement>("sup.tex-fn[data-fn]")];
+    if (!calls.length || !items.size) return;
+    const box = reading.getBoundingClientRect();
+    const pane = options.right.getBoundingClientRect();
+    const paddingRight = typeof win.getComputedStyle === "function" ? Number.parseFloat(win.getComputedStyle(reading).paddingRight) || 0 : 0;
+    const textRight = box.right - paddingRight;
+    if (textRight + SIDENOTE_GAP + SIDENOTE_WIDTH > pane.right - 16) return;
+    reading.classList.add("has-sidenotes");
+    let floor = -Infinity;
+    for (const call of calls) {
+      const item = items.get(call.dataset.fn);
+      if (!item) continue;
+      const note = doc.createElement("aside");
+      note.className = "tex-sidenote";
+      note.dataset.fn = call.dataset.fn;
+      note.innerHTML = `<span class="tex-sidenote-n">${call.dataset.fn}</span>${item.innerHTML}`;
+      const top = Math.max(call.getBoundingClientRect().top - box.top - 2, floor);
+      note.style.top = `${top}px`;
+      note.style.left = `${textRight - box.left + SIDENOTE_GAP}px`;
+      note.style.width = `${SIDENOTE_WIDTH}px`;
+      reading.appendChild(note);
+      floor = top + note.offsetHeight + 8;
+    }
+  };
+  // Fiche de citation : titre, auteurs, revue et année, DOI, nombre d'appels.
+  const citeCard = doc.createElement("div");
+  citeCard.className = "tex-citecard";
+  citeCard.setAttribute("role", "dialog");
+  citeCard.hidden = true;
+  doc.body.appendChild(citeCard);
+  let citeOpenFor: HTMLElement | null = null;
+  const closeCiteCard = (): void => {
+    if (citeCard.hidden) return;
+    citeCard.hidden = true; citeCard.classList.remove("on");
+    citeOpenFor?.classList.remove("open"); citeOpenFor = null;
+  };
+  const openCiteCard = (cite: HTMLElement): void => {
+    if (citeOpenFor === cite) { closeCiteCard(); return; }
+    closeCiteCard();
+    const key = cite.dataset.cite || "";
+    const entry = options.getContext?.().citations?.[key];
+    const uses = reading.querySelectorAll(`.tex-cite[data-cite="${(win as Window & {CSS?: {escape(value: string): string}}).CSS?.escape?.(key) ?? key}"]`).length;
+    const meta = [entry?.venue, entry?.year].filter(Boolean).join(" · ");
+    const url = cite.dataset.url || entry?.url || "";
+    citeCard.innerHTML = entry
+      ? `<div class="tcc-title">${escapeHtml(entry.title)}</div>${entry.authors ? `<div class="tcc-authors">${escapeHtml(entry.authors)}</div>` : ""}${meta || entry.doi ? `<div class="tcc-meta">${escapeHtml([meta, entry.doi].filter(Boolean).join(" · "))}</div>` : ""}`
+      : `<div class="tcc-title">Référence introuvable</div><div class="tcc-meta">La clé ${escapeHtml(key)} n’est dans aucun fichier .bib du document.</div>`;
+    const row = doc.createElement("div"); row.className = "tcc-row";
+    if (url && /^https?:\/\//i.test(url)) {
+      const link = doc.createElement("a"); link.className = "tcc-btn"; link.href = url; link.target = "_blank"; link.rel = "noopener noreferrer";
+      link.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>Ouvrir le DOI';
+      row.appendChild(link);
+    }
+    const copy = doc.createElement("button"); copy.type = "button"; copy.className = "tcc-btn ghost";
+    copy.textContent = "Copier la clé";
+    copy.onclick = () => { void win.navigator.clipboard?.writeText(key).then(() => { copy.textContent = "Clé copiée"; }).catch(() => undefined); };
+    row.appendChild(copy);
+    citeCard.appendChild(row);
+    const used = doc.createElement("div"); used.className = "tcc-used";
+    used.textContent = uses > 1 ? `Citée ${uses} fois dans ce document · ${key}` : `Citée une fois dans ce document · ${key}`;
+    citeCard.appendChild(used);
+    citeCard.hidden = false;
+    const rect = cite.getBoundingClientRect();
+    const width = citeCard.offsetWidth, height = citeCard.offsetHeight;
+    const left = Math.max(16, Math.min(rect.left, win.innerWidth - width - 16));
+    const below = rect.bottom + 8 + height <= win.innerHeight - 16;
+    citeCard.style.left = `${left}px`;
+    citeCard.style.top = `${below ? rect.bottom + 8 : Math.max(16, rect.top - 8 - height)}px`;
+    void citeCard.offsetWidth;
+    citeCard.classList.add("on");
+    cite.classList.add("open"); citeOpenFor = cite;
+  };
+  doc.addEventListener("pointerdown", (event) => {
+    const target = event.target as Element | null;
+    if (!citeCard.hidden && !citeCard.contains(target) && !target?.closest(".tex-cite")) closeCiteCard();
+  });
+  doc.addEventListener("keydown", (event) => { if (event.key === "Escape") closeCiteCard(); });
+  options.right.addEventListener("scroll", closeCiteCard, {passive: true});
+  reading.addEventListener("keydown", (event) => {
+    const cite = (event.target as Element | null)?.closest<HTMLElement>(".tex-cite");
+    if (cite && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openCiteCard(cite); }
+  });
+  let layoutFrame = 0;
+  const scheduleLayout = (): void => {
+    if (layoutFrame || !enabled) return;
+    // Les harnais de test montent la Lecture avec un `window` minimal.
+    if (typeof win.requestAnimationFrame !== "function") { layoutSideNotes(); return; }
+    layoutFrame = win.requestAnimationFrame(() => { layoutFrame = 0; layoutSideNotes(); });
+  };
+  const ResizeObserverConstructor = (win as Window & {ResizeObserver?: typeof ResizeObserver}).ResizeObserver;
+  if (ResizeObserverConstructor) new ResizeObserverConstructor(scheduleLayout).observe(options.right);
+  const finishRender = (): void => {
+    loadFigureImages();
+    layoutSideNotes();
+  };
+
   const render = (): void => {
     frame = 0;
     if (editing) return;
     const source = options.getEditor()?.getValue() || "";
     const context = options.getContext?.() || {};
     const contextKey = JSON.stringify(context);
-    if (source === lastSource && contextKey === lastContext) {options.onRendered?.(); return;}
+    if (source === lastSource && contextKey === lastContext) {scheduleLayout(); options.onRendered?.(); return;}
     const viewportTop = options.right.getBoundingClientRect().top;
     const anchor = Array.from(reading.querySelectorAll<HTMLElement>("[data-line]")).find(el => el.getBoundingClientRect().bottom > viewportTop);
     const anchorLine = anchor?.dataset.line;
     const offset = anchor ? anchor.getBoundingClientRect().top - viewportTop : 0;
-    reading.querySelectorAll(".tr-cut, .tr-cut-text").forEach(node => node.remove());
+    reading.querySelectorAll(".tr-cut, .tr-cut-text, .tex-sidenote").forEach(node => node.remove());
+    // Césure : la langue du document (babel, polyglossia), l'anglais sinon.
+    reading.lang = /\\(?:usepackage\[[^\]]*\b(?:french|francais|frenchb)\b[^\]]*\]\{babel\}|setmainlanguage\{french\}|selectlanguage\{french\})/.test(source) ? "fr" : "en";
     try {
       updateBlocks(renderLatexReadingBlocks(source, options.katex, context));
       lastSource = source; lastContext = contextKey;
@@ -721,6 +915,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
       updateBlocks([`<p style="color:var(--status-error,#e0726a)">Rendu impossible : ${escapeHtml(String(error))}</p>`]);
       lastSource = null;
     }
+    finishRender();
     applyAnnotationHighlights();
     applyDiffMarks();   // le rendu est reconstruit à chaque frappe : repeindre
     options.onRendered?.();
@@ -762,6 +957,8 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   options.popPdfButton?.addEventListener("click", () => { if (enabled) setRead(false); });
   reading.addEventListener("click", (event) => {
     const target = event.target as Element | null;
+    const cite = target?.closest<HTMLElement>(".tex-cite");
+    if (cite) { event.preventDefault(); openCiteCard(cite); return; }
     if (target?.closest("a")) return;
     const pdfTarget = target?.closest<HTMLElement>("[data-pdf-line], [data-tex-ref]");
     if (pdfTarget) {
@@ -789,7 +986,7 @@ export function createLatexReadingController(options: LatexReadingOptions): Late
   // partant de la ligne du bloc — l'ancre `data-line` sert de voisinage.
   /** Éléments que le rendu a fabriqués : leur texte n'a pas d'équivalent
    *  littéral dans le source, donc il ne peut pas servir d'ancre. */
-  const RENDERED_ONLY = ".tex-cite, .tex-ref, .tex-fn, .tex-matherr, .katex, .katex-display";
+  const RENDERED_ONLY = ".tex-cite, .tex-ref, .tex-fn, .tex-matherr, .katex, .katex-display, .tex-eqno, .tex-fignum, .tex-sidenote, .tex-notes";
   const literalFragments = (range: Range): string[] => {
     const root = range.commonAncestorContainer;
     const host = (root.nodeType === 1 ? root as Element : root.parentElement) || reading;

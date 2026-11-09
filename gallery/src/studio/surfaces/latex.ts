@@ -433,8 +433,11 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
   const ensureReader = (): LatexReadingController | null => {
     if (!isTex) return null;
     if (reader) return reader;
+    // Les figures de la Lecture se résolvent comme \includegraphics : depuis
+    // le dossier de la racine compilée, puis celui du fichier ouvert.
+    const directory = (file: string | null | undefined): string | null => file && file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : null;
     reader = createLatexReadingController({
-      getContext: () => readingContext,
+      getContext: () => ({...readingContext, imageBases: [...new Set([directory(readingRoot), directory(path)].filter((base): base is string => Boolean(base)))]}),
       openPdfAtLine: (line, destination) => {
         if (destination?.external) {
           setState("hint", `Ce renvoi appartient à ${destination.path.split("/").at(-1)} — ouvre son PDF pour le consulter.`);

@@ -41,7 +41,15 @@ export function parseReadingContext(tex: string, bib: string, aux: string): Read
     const surname = (author: string) => author.startsWith("{") && author.endsWith("}") ? plain(author) : plain(author.includes(",") ? author.split(",")[0]! : author.split(/\s+/).at(-1)!);
     const names = authors.length > 2 ? `${surname(authors[0]!)} et al.` : authors.map(surname).join(" & ");
     const label = names ? `${names}${fields.year ? ", " + fields.year : ""}` : entry[1]!;
-    citations[entry[1]!] = {label, title: fields.title || entry[1]!, url: fields.doi ? `https://doi.org/${fields.doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//, "")}` : fields.url};
+    const doi = fields.doi ? fields.doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//, "") : undefined;
+    const fullName = (author: string) => {
+      const clean = plain(author);
+      return author.includes(",") && !author.startsWith("{") ? clean.split(",").map(part => part.trim()).reverse().join(" ") : clean;
+    };
+    citations[entry[1]!] = {label, title: fields.title || entry[1]!, url: doi ? `https://doi.org/${doi}` : fields.url,
+      names: names || undefined, year: fields.year || undefined, doi,
+      authors: authors.length ? (authors.length > 6 ? `${authors.slice(0, 6).map(fullName).join(", ")} et al.` : authors.map(fullName).join(", ")) : undefined,
+      venue: plain(fields.journal || fields.journaltitle || fields.booktitle || fields.publisher || "") || undefined};
   }
   for (const match of aux.matchAll(/\\newlabel\{([^}]+)\}\{/g)) {
     const outer = texGroup(aux, match.index! + match[0].length - 1);

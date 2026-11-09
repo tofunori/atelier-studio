@@ -622,7 +622,9 @@ test("footnote tooltips keep formulas and nested citations as plain text", () =>
     {citations:{a:{label:"Smith, 2024",title:"Result"}}, references:{f:"2"}});
   const dom = new JSDOM(html);
   assert.equal(dom.window.document.querySelector("sup").getAttribute("title"), String.raw`Score \widehat{R}; see (Smith, 2024) and 2.`);
-  assert.equal(dom.window.document.body.textContent, "Text*.");
+  assert.equal(dom.window.document.querySelector("p").textContent, "Text1.");
+  // La note numérotée rejoint la liste de fin (ou la marge, posée par la Lecture).
+  assert.match(dom.window.document.querySelector(".tex-notes li[data-fn='1']").textContent, /Score .*Smith, 2024.* and 2\./);
   assert.doesNotMatch(html, /\x00/);
   dom.window.close();
 });
@@ -1061,4 +1063,52 @@ test("reading marge: a failed load never replaces the stored section colors", as
   assert.deepEqual(server.posts[0].known, ['sec3']);
   assert.deepEqual(stored['tex-marks:paper.tex'].map(m => `${m.id}:${m.color}`).sort(), ['sec1:green', 'sec3:red']);
   dom.window.close();
+});
+
+test("Lecture typographique : sections, équations et figures numérotées, \\citet natbib", () => {
+  const context = latex.parseReadingContext("", String.raw`@article{liang,author={Liang, Shunlin},year={2001},title={Narrowband to broadband},journal={Remote Sensing of Environment},doi={10.1016/x}}`,
+    String.raw`\newlabel{fig:map}{{3}{2}}\newlabel{eq:trend}{{7}{2}}`);
+  assert.equal(context.citations.liang.names, "Liang");
+  assert.equal(context.citations.liang.year, "2001");
+  assert.equal(context.citations.liang.authors, "Shunlin Liang");
+  assert.equal(context.citations.liang.venue, "Remote Sensing of Environment");
+  const html = latex.renderLatexReadingHtml(String.raw`\begin{document}
+\section{Intro}\label{sec:intro}
+As shown by \citet{liang} and \citep{liang}.
+\section*{Remerciements}
+\begin{equation}
+a = b \label{eq:trend}
+\end{equation}
+\begin{equation*}
+c = d
+\end{equation*}
+\begin{figure}
+\includegraphics[width=\linewidth]{figures/map}
+\caption{Map.}\label{fig:map}
+\end{figure}
+\begin{figure}
+\caption{Other.}
+\end{figure}
+\end{document}`, katex, {...context, imageBases: ["/proj"]});
+  const doc = new JSDOM(html).window.document;
+  assert.equal(doc.querySelector("h2").textContent, "Intro");
+  assert.equal(doc.querySelector("h2").hasAttribute("data-nonum"), false);
+  assert.equal(doc.querySelectorAll("h2")[1].hasAttribute("data-nonum"), true);
+  const cites = doc.querySelectorAll(".tex-cite");
+  assert.equal(cites[0].textContent, "Liang (2001)");
+  assert.equal(cites[1].textContent, "Liang, 2001");
+  assert.equal(cites[0].dataset.cite, "liang");
+  assert.equal(cites[0].dataset.url, "https://doi.org/10.1016/x");
+  const numbers = [...doc.querySelectorAll(".tex-eqno")].map(n => n.textContent);
+  assert.deepEqual(numbers, ["(7)"]);
+  const figures = [...doc.querySelectorAll(".tex-fignum")].map(n => n.textContent);
+  assert.deepEqual(figures, ["Figure 3", "Figure 2"]);
+  const image = doc.querySelector("img.tex-figimg");
+  assert.deepEqual(JSON.parse(image.dataset.candidates)[0], "/thumb?path=%2Fproj%2Ffigures%2Fmap.pdf&w=1600");
+  assert.equal(doc.querySelector(".tex-nonum-doc"), null);
+});
+
+test("Lecture typographique : un fragment inclus n'invente pas de numéros de section", () => {
+  const html = latex.renderLatexReadingHtml("\\section{Study area}\nText.", katex);
+  assert.match(html, /^<div class="tex-nonum-doc" hidden><\/div>/);
 });
