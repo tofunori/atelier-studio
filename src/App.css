@@ -23,7 +23,7 @@
   /* Sol des gouttières (option 3). Doit être NETTEMENT sous le fond des
      cartes, sinon elles ne décollent pas : c'est l'écart de luminance qui
      porte toute la division, il n'y a plus de trait pour compenser. */
-  --canvas: color-mix(in srgb, var(--bg) 72%, #000);
+  --canvas: color-mix(in srgb, var(--bg) 58%, #000);
   /* poignée de redimensionnement au survol — un ton de BORDURE, jamais un
      gris de texte (--muted2 peignait un fil blanc, vécu 2026-08-16) */
   --grip: color-mix(in srgb, var(--fg) 24%, var(--bg));
@@ -35,7 +35,14 @@
      4 px ; le reflet du haut décolle la feuille en sombre */
   --card-lift: inset 0 .5px 0 rgba(255,255,255,.05), 0 0 0 .5px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.30);
   /* ombre ambiante de la surface de travail, posée sur le sol de la colonne */
-  --sheet-lift: 0 4px 16px rgba(0,0,0,.22);
+  /* profondeur (2026-11-09, « donner de la dimension à chaque panneau ») :
+     la feuille se soulève du sol en trois couches (contour 0,5 px, contact,
+     ambiance) ; chaque panneau reçoit un liseré de lumière 0,5 px qui le
+     décolle en sombre ; ce qui flotte au-dessus d'un panneau (compositeur)
+     prend une ombre plus haute. Jamais une bordure de plus. */
+  --sheet-lift: 0 0 0 .5px rgba(0,0,0,.6), 0 1px 2px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.40);
+  --panel-edge: inset 0 0 0 .5px rgba(255,255,255,.06), inset 0 1px 0 rgba(255,255,255,.05);
+  --float-lift: inset 0 0 0 .5px rgba(255,255,255,.07), 0 2px 4px rgba(0,0,0,.30), 0 12px 28px rgba(0,0,0,.36);
   /* rangée sélectionnée posée sur le sol de la colonne (jamais un bouton) */
   --ground-raised: var(--bg-ctl);
   /* bouton gris posé sur le sol de la colonne */
@@ -81,7 +88,9 @@
   --grip: color-mix(in srgb, var(--fg) 26%, var(--bg));
   --scroll-shade: rgba(20, 28, 38, .13);
   --card-lift: 0 0 0 .5px rgba(20,28,38,.08), 0 1px 3px rgba(20,28,38,.09);
-  --sheet-lift: 0 4px 16px rgba(20,28,38,.07);
+  --sheet-lift: 0 0 0 .5px rgba(20,28,38,.07), 0 1px 2px rgba(20,28,38,.06), 0 10px 28px rgba(20,28,38,.08);
+  --panel-edge: inset 0 1px 0 rgba(255,255,255,.7);
+  --float-lift: 0 0 0 .5px rgba(20,28,38,.08), 0 2px 4px rgba(20,28,38,.06), 0 12px 28px rgba(20,28,38,.10);
   /* en clair, --bg-ctl se confond avec le sol : la sélection monte au ton de
      la feuille (gris clair, jamais blanc) */
   --ground-raised: var(--bg);
@@ -145,7 +154,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 .main-card { background: transparent; }
 .app { background: transparent; }
 .app > [data-panel] { background: var(--bg); border-radius: var(--r-m);
-  overflow: hidden; box-shadow: var(--card-lift); }
+  overflow: hidden; box-shadow: var(--panel-edge), var(--card-lift); }
 .app > .handle, .app-row > .side-handle { width: var(--gutter); flex: 0 0 var(--gutter); }
 /* La gouttière est trop fine pour être visée au pixel : la cible de pointage
    déborde de 3 px de chaque côté SANS déplacer les cartes (le ::after, lui,
@@ -803,7 +812,7 @@ button.kernel-file:hover { color: var(--text-primary); }
   table-layout: auto; font-variant-numeric: tabular-nums; }
 .chat-md :is(th, td):first-child { padding-left: 0; }
 .chat-md :is(th, td):last-child { padding-right: 0; }
-.chat-md th { font-size: var(--fs-s); font-weight: 500; color: var(--text-muted); text-align: left;
+.chat-md th { font-size: var(--fs-l); font-weight: 500; color: var(--text-muted); text-align: left;
   padding: 4px 8px; vertical-align: bottom; }
 .chat-md td { padding: 4px 8px; vertical-align: top;
   border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
@@ -1013,8 +1022,8 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* Surface compacte et arrondie ; les outils restent sur une seule ligne. */
 .composer-input-group { align-items: stretch; gap: 6px; padding: 8px 12px 8px;
   background: color-mix(in srgb, var(--bg-card) 55%, var(--bg-ctl));
-  border: 1px solid var(--border-interactive);
-  box-shadow: none;
+  border: 1px solid transparent;
+  box-shadow: var(--float-lift);
   border-radius: var(--radius-composer);
   transition: border-color var(--motion-fast) var(--ease-out); }
 .composer-input-group:has(textarea:focus-visible) {
@@ -1497,7 +1506,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 /* The left track is measured from the actual panel divider. */
 .topbar { height: 38px; flex-shrink: 0; display: grid;
   grid-template-columns: minmax(0, var(--toolbar-left, 1fr)) auto minmax(0, 1fr); align-items: center;
-  background: var(--surface-header); gap: 8px; }
+  background: var(--surface-canvas); gap: 8px; }
 .topbar-start { display: flex; align-items: center; min-width: 0; height: 100%; gap: 8px; }
 .topbar-center { display: flex; align-items: center; justify-content: center; }
 .topbar-left { display: flex; align-items: center; height: 100%; min-width: 0;
@@ -1858,8 +1867,8 @@ button.kernel-file:hover { color: var(--text-primary); }
   align-items: start; font-size: var(--fs-m); color: var(--text-secondary);
   overflow-wrap: anywhere; }
 .user-annot-badge { display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--text-primary);
-  color: var(--surface-app); font-size: var(--fs-xs); font-weight: 500;
+  width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--fill-primary);
+  color: var(--on-fill-primary); font-size: var(--fs-xs); font-weight: 500;
   font-variant-numeric: tabular-nums; }
 /* demande utilisateur : identifiable par le fond léger et l'alignement, sans
    grande bulle saturée (plan 020, étape 2) */
@@ -2008,7 +2017,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 
 /* Carte « fichiers modifiés » : un bloc compact, actions dans l'en-tête, une
    ligne par fichier (icône + dossier atténué + nom vif + ±). */
-.changed-files-card { border-radius: var(--r-m); background: var(--bg-card);
+.changed-files-card { border-radius: var(--r-m); background: color-mix(in srgb, var(--text-primary) 3%, transparent);
   padding: 12px; margin: 8px 0; }
 .changed-files-head { display: flex; align-items: center; gap: 12px;
   font-size: var(--fs-m); color: var(--text-secondary); }
@@ -3957,7 +3966,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
    méta dessous ; actions superposées en haut à droite, révélées au
    hover/focus-within — seule l'ellipse du titre recule, jamais la hauteur */
 .pnav-row { gap: 8px; position: relative; }
-.pnav-row:not(.active):hover { background: color-mix(in srgb, var(--bg-ctl) 55%, transparent); }
+.pnav-row:not(.active):hover { background: var(--row-hover); }
 /* Repère de la rangée active : la pilule 2×16 commune (« repère de
    sélection », fin de fichier) — jamais une seconde marque (SHELL-02). */
 .pnav-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
@@ -4091,7 +4100,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 }
 .exp-row:hover, .git-file:hover, .ledger-row:hover, .biblio-row:hover,
 .pnav-row:not(.active):hover, .browser-hub-item:hover {
-  background-color: color-mix(in srgb, var(--surface-inset) 62%, transparent);
+  background-color: var(--row-hover);
 }
 .rail-btn:hover, .rail-view:hover, .rail-proj:hover {
   background-color: color-mix(in srgb, var(--surface-inset) 72%, transparent);
@@ -6215,7 +6224,9 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 /* Composer context tools — sober, scoped treatment shared by both menus. */
 .composer-context-rail {
   display: flex; align-items: center; gap: 4px; flex: none; padding: 4px;
-  border: 1px solid var(--border); border-radius: var(--r-m);
+  /* contour retiré (2026-11-09) : un cadre dans le compositeur flottant
+     redoublait sa silhouette ; le séparateur suffit à grouper */
+  border: 1px solid transparent; border-radius: var(--r-m);
   --ring: var(--text-muted);
 }
 .composer-context-rail button { position: relative; border-radius: var(--r-s); }
@@ -6537,9 +6548,10 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .app-row.unified .sidebar li.active:not(.multi-sel), .app-row.unified .scol-row.on {
   background: var(--ground-raised); box-shadow: var(--card-lift); }
 .app-row.unified .sidebar.pnav .pnav-header { padding-top: 4px; }
-/* l'icône du projet devient une petite tuile en relief */
-.app-row.unified .pnav-id-ico { width: 24px; height: 24px; border-radius: var(--r-s);
-  background: var(--ground-ctl); box-shadow: var(--card-lift); color: var(--text-secondary); }
+/* l'icône du projet s'aligne sur celles des rangées (colonne des icônes à
+   20 px, textes à 44 px) : la cible reste de 24 px, sans tuile */
+.app-row.unified .pnav-id-ico { width: 24px; height: 24px; margin-inline: -4px; border-radius: var(--r-s);
+  color: var(--text-secondary); }
 .app-row.unified .pnav-home { padding: 0; transition: color 120ms ease, background-color 120ms ease; }
 .app-row.unified .pnav-home:hover { color: var(--text-primary);
   background: color-mix(in srgb, var(--text-primary) 6%, var(--ground-ctl)); }
@@ -6558,7 +6570,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   padding: 0 8px; border-radius: var(--r-s); font-size: var(--fs-l); line-height: 1.3;
   color: var(--text-secondary); text-align: left;
   transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
-.scol-row.ui-rowbtn:hover { background: var(--surface-hover); color: var(--text-primary); }
+.scol-row.ui-rowbtn:hover:not(.on) { background: var(--row-hover); color: var(--text-primary); }
 .scol-row.ui-rowbtn.on { color: var(--text-primary); }
 .scol-row-ico { width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center;
   justify-content: center; color: var(--text-muted); }
@@ -6588,7 +6600,8 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .scol-foot { display: flex; align-items: center; gap: 4px; height: 40px; margin-top: 4px;
   border-top: 1px solid var(--border-subtle); }
 .scol-foot .rail-activity { flex-direction: row; width: auto; margin-left: auto; }
-.scol-usage.ui-rowbtn { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px;
+.scol-usage.ui-rowbtn { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 4px;
+  margin-left: -4px; /* le libellé tombe sur la colonne des textes (44 px) */
   border-radius: var(--r-s); font-size: var(--fs-s); color: var(--text-muted); font-variant-numeric: tabular-nums;
   transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .scol-usage.ui-rowbtn:hover { background: var(--surface-hover); color: var(--text-secondary); }
