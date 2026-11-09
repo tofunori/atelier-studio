@@ -225,3 +225,31 @@ pub fn read(path: &Path) -> Result<Doc, String> {
     }
     Ok(doc)
 }
+
+/// Première page rendue sur fond blanc, son plus grand côté à `size` pixels :
+/// `(largeur, hauteur, pixels RVB)`. Sert aux vignettes (`atelier-pdf thumb`).
+pub fn render_first_page(path: &Path, size: u16) -> Result<(u32, u32, Vec<u8>), String> {
+    let pdfium = bind()?;
+    let document = pdfium.load_pdf_from_file(path, None).map_err(|e| match e {
+        PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError) => {
+            "PDF protégé par mot de passe".to_string()
+        }
+        e => format!("PDF illisible : {e}"),
+    })?;
+    let page = document.pages().first().map_err(|e| format!("PDF sans page : {e}"))?;
+    let size = i32::from(size.max(1));
+    let landscape = page.width().value > page.height().value;
+    let config = PdfRenderConfig::new()
+        .set_maximum_width(size)
+        .set_maximum_height(size);
+    let config = if landscape { config.set_target_width(size) } else { config.set_target_height(size) };
+    let bitmap = page.render_with_config(&config).map_err(|e| format!("rendu impossible : {e}"))?;
+    let (width, height) = (bitmap.width().max(0) as u32, bitmap.height().max(0) as u32);
+    let rgba = bitmap.as_rgba_bytes();
+    if width == 0 || height == 0 || rgba.len() < (width * height * 4) as usize {
+        return Err("rendu vide".into());
+    }
+    // Fond blanc posé par PDFium : l'alpha ne porte rien.
+    let rgb = rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+    Ok((width, height, rgb))
+}

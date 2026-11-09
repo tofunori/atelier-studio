@@ -3,7 +3,8 @@
 //! Images (png, jpg, jpeg, gif, webp) and PDFs only, at most 480 px. The
 //! desktop gallery's `.fig_thumbs/` cache is read first; otherwise the
 //! gateway renders into its own capped cache, `{data_dir}/thumbs/`, with
-//! `sips` (images) or `qlmanage` (PDF) on macOS. Anything else, or any
+//! `sips` (images) or `atelier-pdf thumb` (PDF, PDFium; `qlmanage` only
+//! when that tool is missing) on macOS. Anything else, or any
 //! failure, answers 404 `thumbnail_unavailable`: the phone then shows its
 //! placeholder.
 use super::*;
@@ -130,19 +131,31 @@ fn lookup(src: &Source, cache: &FsPath, key: &str) -> Cached {
     if failed { Cached::RecentFailure } else { Cached::Miss }
 }
 
-/// Renders `src` with `program` (`sips` or `qlmanage`) into a private
-/// directory of the cache, then renames the PNG into place. A failure
-/// leaves a `.fail` marker so the same revision is not retried at once.
-fn render(src: &Source, cache: &FsPath, key: &str, program: &std::ffi::OsStr) -> Option<Vec<u8>> {
+/// What renders a thumbnail. PDFs no longer go through `qlmanage`, which
+/// macOS showed in the Dock for every render.
+enum Renderer {
+    /// `sips -Z 480 -s format png <src> --out <out>` (images).
+    Sips(std::ffi::OsString),
+    /// `atelier-pdf thumb` (PDF), or Quick Look when the tool is missing.
+    Pdf(atelier_pdf::tool::Thumbnailer),
+}
+
+/// Renders `src` with `renderer` into a private directory of the cache,
+/// then renames the PNG into place. A failure leaves a `.fail` marker so
+/// the same revision is not retried at once.
+fn render(src: &Source, cache: &FsPath, key: &str, renderer: &Renderer) -> Option<Vec<u8>> {
     use std::process::{Command, Stdio};
     std::fs::create_dir_all(cache).ok()?;
     let work = cache.join(format!(".tmp-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&work).ok()?;
     let size = THUMB_SIZE.to_string();
-    let mut command = Command::new(program);
-    match src.kind {
-        Kind::Image => command.args(["-Z", &size, "-s", "format", "png"]).arg(&src.path).arg("--out").arg(work.join("thumb.png")),
-        Kind::Pdf => command.args(["-t", "-s", &size, "-o"]).arg(&work).arg(&src.path),
+    let mut command = match renderer {
+        Renderer::Sips(program) => {
+            let mut command = Command::new(program);
+            command.args(["-Z", &size, "-s", "format", "png"]).arg(&src.path).arg("--out").arg(work.join("thumb.png"));
+            command
+        }
+        Renderer::Pdf(tool) => tool.command(&src.path, &work, THUMB_SIZE as u16),
     };
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     let rendered = atelier_core::gallery_builder::command_success_with_timeout(&mut command, RENDER_TIMEOUT)
@@ -271,13 +284,16 @@ pub(super) async fn thumb(State(state): State<GatewayState>, headers: HeaderMap,
         .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "thumbnail_busy", "Aperçus en cours de préparation, réessayez"))?
         .map_err(|_| unavailable())?;
     // The permit follows the render: a phone that gives up does not free a
-    // slot while `sips`/`qlmanage` is still running.
+    // slot while `sips`/`atelier-pdf` is still running.
     let png = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         // Another request may have rendered it while this one waited.
         if let Some(bytes) = read_png(&cache.join(format!("{key}.png"))) { return Some(bytes); }
-        let program = match src.kind { Kind::Image => "sips", Kind::Pdf => "qlmanage" };
-        let png = render(&src, &cache, &key, program.as_ref());
+        let renderer = match src.kind {
+            Kind::Image => Some(Renderer::Sips("sips".into())),
+            Kind::Pdf => atelier_pdf::tool::Thumbnailer::locate().map(Renderer::Pdf),
+        }?;
+        let png = render(&src, &cache, &key, &renderer);
         if png.is_some() { prune_at_most_every_minute(&cache); }
         png
     }).await.map_err(|_| unavailable())?;
@@ -352,19 +368,20 @@ mod tests {
         // sips -Z 480 -s format png <src> --out <out>
         let sips = fake_tool(dir.path(), "cp \"$6\" \"$8\"");
         let key = image.cache_key();
-        assert_eq!(render(&image, &cache, &key, sips.as_os_str()).unwrap(), PNG);
+        assert_eq!(render(&image, &cache, &key, &Renderer::Sips(sips.into())).unwrap(), PNG);
         assert_eq!(read_png(&cache.join(format!("{key}.png"))).unwrap(), PNG);
         assert!(matches!(lookup(&image, &cache, &key), Cached::Hit(_)));
-        // qlmanage -t -s 480 -o <dir> <pdf> writes <dir>/<name>.png
+        // atelier-pdf thumb 480 <dir> <pdf> writes <dir>/<name>.png
         let pdf = source(dir.path(), "paper.pdf");
-        let qlmanage = fake_tool(dir.path(), "cp \"$6\" \"$5/$(basename \"$6\").png\"");
+        let tool = fake_tool(dir.path(), "cp \"$4\" \"$3/$(basename \"$4\").png\"");
         let key = pdf.cache_key();
-        assert_eq!(render(&pdf, &cache, &key, qlmanage.as_os_str()).unwrap(), PNG);
+        let thumbnailer = atelier_pdf::tool::Thumbnailer::Tool(tool);
+        assert_eq!(render(&pdf, &cache, &key, &Renderer::Pdf(thumbnailer)).unwrap(), PNG);
         // a tool producing something else than a PNG is a failure
         let broken = source(dir.path(), "broken.png");
         let bad = fake_tool(dir.path(), "echo text > \"$8\"");
         let key = broken.cache_key();
-        assert!(render(&broken, &cache, &key, bad.as_os_str()).is_none());
+        assert!(render(&broken, &cache, &key, &Renderer::Sips(bad.into())).is_none());
         assert!(matches!(lookup(&broken, &cache, &key), Cached::RecentFailure));
         // no render directory is left behind
         let leftovers = std::fs::read_dir(&cache).unwrap().flatten()
