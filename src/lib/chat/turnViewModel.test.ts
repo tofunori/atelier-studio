@@ -722,6 +722,29 @@ describe("clés de rangées de la timeline", () => {
     expect(kFinal).toBe(kStream);
   });
 
+  it("la bulle d'un message envoyé garde sa clé à l'accusé (« B · Envol », 2026-11-09)", () => {
+    // Régression mesurée au banc : la bulle optimiste (méta provisoire) avait
+    // une clé de position, l'accusé lui donne un tour canonique → la clé
+    // changeait et LegendList remontait la bulle en plein vol.
+    const historique: AgentEvent[] = [
+      { kind: "user", text: "Q", meta: meta("u1", "turn-1", 1) },
+      { kind: "text", text: "R", meta: meta("a1", "turn-1", 2) },
+      { kind: "done", ok: true, result: "", meta: meta("d1", "turn-1", 3) },
+    ];
+    const provisoire: AgentEvent = { kind: "user", text: "Q2", ts: T0 + 900, meta: { provisional: true, messageId: "m-42" } };
+    const accuse: AgentEvent = { ...provisoire, meta: { ...meta("u2", "turn-2", 4), messageId: "m-42" } };
+    const cle = (events: AgentEvent[], working: number | null) => {
+      const turns = buildChatTurnViewModels(events, working);
+      const row = projectChatTimeline(events, turns, new Set())
+        .find((r) => r.type === "event" && r.event.kind === "user" && r.event.text === "Q2");
+      return row ? timelineRowKey(row) : null;
+    };
+    const avant = cle([...historique, provisoire], T0 + 900);
+    expect(avant).toBe("event:user:m-42");
+    expect(cle([...historique, accuse], T0 + 900)).toBe(avant);
+    expect(cle([...historique, accuse, { kind: "started", meta: meta("s2", "turn-2", 5) } as AgentEvent], T0 + 900)).toBe(avant);
+  });
+
   it("aucune collision de clés sur un fil réaliste", () => {
     const events: AgentEvent[] = [
       question,

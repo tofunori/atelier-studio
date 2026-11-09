@@ -38,6 +38,7 @@ import { SubagentView } from "./chat/SubagentView";
 import { mentionLabel } from "./chat/mentions";
 import { modelDisplayLabel, replaceRetiredModel } from "../lib/modelCatalog";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
+import { sendMotion } from "../lib/chat/sendMotion";
 import { usePromptText, type DraftAttachment, type FollowUpMode, type PromptSource, type QueuedTurn } from "../lib/chatDraftStore";
 import type { Consigne, ConsigneDuFil } from "../lib/consignes";
 import type { LiveContextBinding } from "./chat/LiveContextEye";
@@ -238,9 +239,11 @@ export default function Chat(p: {
       // champ vide : hauteur CSS fixe, sans mesure — sous WebKit le placeholder
       // compte dans scrollHeight et gonfle la boîte au montage (largeur pas prête)
       if (text === "") {
+        const before = ta.offsetHeight;
         ta.style.height = "";
         ta.style.overflowY = "";
         ta.scrollTop = 0;
+        sendMotion()?.collapseComposer(ta, before);
         return;
       }
       // Mesure sous hauteur extérieure FIGÉE : le passage par height:auto

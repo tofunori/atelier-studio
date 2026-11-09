@@ -30,6 +30,7 @@ import { annotationCards, isAnnotationLabel } from "../../lib/annotationCards";
 import { AnnotationCard } from "./AnnotationCard";
 import { splitFigureEnvelopes } from "../../lib/figureEnvelope";
 import { chatFileLabel } from "../../lib/turnPayload";
+import { sendMotion } from "../../lib/chat/sendMotion";
 // Chunk à part : le budget de l'entrée (scripts/check_entry_budget.mts) est
 // plein, et la carte ne sert qu'aux tours qui portent une figure annotée.
 const FigureAnnotationCard = lazy(() => import("./FigureAnnotationCard").then((m) => ({ default: m.FigureAnnotationCard })));
@@ -179,6 +180,17 @@ export const UserTurn = memo(function UserTurn(p: {
     <Suspense fallback={null}><ChatFileCards items={fileItems} /></Suspense>
   ) : null;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  // Envoi « B · Envol » (2026-11-09) : la bulle d'un message qu'on vient
+  // d'envoyer reçoit le texte qui vole depuis le composeur. Au montage
+  // seulement — la clé de la rangée (messageId) survit à l'accusé ; sans
+  // envoi armé (historique, autre fil), flySentBubble ne fait rien.
+  const bubbleShellRef = useRef<HTMLDivElement>(null);
+  const provisional = Boolean(e.meta && "provisional" in e.meta);
+  useLayoutEffect(() => {
+    if (!provisional || !bubbleShellRef.current) return;
+    return sendMotion()?.flySentBubble(bubbleShellRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Rembobiner tronque le fil et peut remettre des fichiers en arrière :
   // jamais sur un simple clic (audit 2026-10-18, problème 3).
   const [revertAsked, setRevertAsked] = useState(false);
@@ -308,7 +320,7 @@ export const UserTurn = memo(function UserTurn(p: {
           </form>
         </div>
       ) : bubbleText.trim() ? (
-        <Bubble variant="secondary" align="end" className="user-bubble-shell">
+        <Bubble ref={bubbleShellRef} variant="secondary" align="end" className="user-bubble-shell">
           <BubbleContent className="user-bubble tw:rounded-[var(--radius-surface)]">
             {annotationView.cards.length ? <>
               {annotationView.prompt && <div className="chat-annotation-prompt">{p.renderBubbleText(annotationView.prompt)}</div>}
