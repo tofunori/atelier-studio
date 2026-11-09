@@ -57,7 +57,7 @@
   type Ghost = { idx: number; at: number; text: string; sent: boolean };
   type Op = Record<string, unknown>;
 
-  const W = window as Window & {
+  const W = window as unknown as Window & {
     __atelierPost?: (p: Record<string, unknown>) => void;
     AtelierStudioCore?: {
       requestChatAttachment?: (o: Record<string, unknown>) => Promise<void>;
