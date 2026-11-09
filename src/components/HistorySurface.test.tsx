@@ -92,6 +92,6 @@ describe("HistorySurface", () => {
     expect(screen.getByText("Corrige le chiffre de 40 %")).toBeTruthy();
     view.rerender(<HistorySurface ws={ws} projectRoot="/proj/autre" visible onOpenFile={() => {}} />);
     expect(screen.queryByText("Corrige le chiffre de 40 %")).toBeNull();
-    expect(sent.filter((m) => m.type === "projectHistory").at(-1)).toMatchObject({ projectRoot: "/proj/autre" });
+    expect(sent.filter((m) => m.type === "projectHistory").slice(-1)[0]).toMatchObject({ projectRoot: "/proj/autre" });
   });
 });
