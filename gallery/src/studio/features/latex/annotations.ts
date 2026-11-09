@@ -1,4 +1,4 @@
-import {createNoteEditor, pdfAnnotationColors} from "../annotation_ui";
+import {createNoteCard, pdfAnnotationColors} from "../annotation_ui";
 import {
   anchorPdfQuote, columnItemHtml, isPdfNote, noteColorName, pdfNoteId, pdfNoteText, reviewRequestKey,
   type ColumnNote, type StoredPdfAnnotation,
@@ -211,17 +211,17 @@ export function createLatexAnnotationsController(
 ): LatexAnnotationsController {
   const doc = options.document || document;
   const win = options.window || window;
-  // Entrée enregistre la note (elle attend la prochaine ronde) ; la bulle
-  // l'envoie tout de suite au chat, comme avant (Thierry 2026-11-08).
-  const noteUI = createNoteEditor(options.popover, {
-    onSubmit(){}, onDelete(){}, onSendDirect(){void persistCurrent(true);}, submitLabel:"Enregistrer",
+  // Variante A (Thierry 2026-11-09), la même fiche que dans le PDF : Entrée,
+  // Échap ou un clic à côté enregistrent la note (elle attend la prochaine
+  // ronde) ; seule la pilule « Envoyer au chat » l'envoie tout de suite.
+  const noteUI = createNoteCard(options.popover, {
+    onSave(){}, onDelete(){}, onSend(){void persistCurrent(true);}, head:{title:"Note"},
+    placeholder:"Ta note sur ce passage…",
   });
-  const quote = doc.createElement("div");
   const textarea = noteUI.input;
   const saveButton = options.popover.querySelector<HTMLButtonElement>(".send2")!;
   const chatButton = saveButton;
   const deleteButton = options.popover.querySelector<HTMLButtonElement>(".delete-note")!;
-  const resolveButton = doc.createElement("button");
   const colorButtons: HTMLButtonElement[] = [];
   const relation = `tex-comments:${options.path}`;
   let all: LatexAnnotation[] = [];
@@ -1004,10 +1004,17 @@ export function createLatexAnnotationsController(
     if (!activeEditor) return;
     noteUI.status.textContent="";
     openedAt = Date.now();
-    quote.textContent = `« ${annotation.text.slice(0, 140)}${annotation.text.length > 140 ? "…" : ""} »`;
     textarea.value = annotation.comment || "";
     deleteButton.style.display = "";
-    resolveButton.style.display = isNew ? "none" : "";
+    // Numéro qu'elle aura dans l'ordre du document, page (SyncTeX) et ligne.
+    const number = isNew
+      ? 1 + notes().filter(n => !n.loose && (n.from.line < annotation.from.line
+        || (n.from.line === annotation.from.line && n.from.ch < annotation.from.ch))).length
+      : numberOf(annotation);
+    const page = annotation.pdf?.page ?? pages.get(annotation.id);
+    noteUI.setHead({number, color: noteColorName(annotation.color), title: `Note ${number}`,
+      meta: [page ? `p. ${page}` : "", annotation.loose ? "" : `ligne ${annotation.from.line + 1}`].filter(Boolean).join(" · "),
+      quote: annotation.pdf?.quote || annotation.text});
     colorButtons.forEach((button) => button.classList.toggle("on", button.dataset.color === (annotation.color || "amber")));
     const coordinates = anchor || activeEditor.charCoords(annotation.to, "window");
     options.popover.style.display = "block";
@@ -1049,10 +1056,16 @@ export function createLatexAnnotationsController(
       pdfAnnotation:{rel:relation,id:annotation.id}});
     if(current===annotation){options.popover.style.display="none";current=null;}
   };
+  // Quitter la fiche (Échap, clic à côté) garde une note changée, jamais au chat.
+  const leave = (): void => {
+    if(current && textarea.value.trim() && textarea.value.trim() !== (current.comment || "")) void persistCurrent();
+    else {options.popover.style.display="none";current=null;}
+  };
   textarea.onkeydown=event=>{
     event.stopPropagation();
     if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void persistCurrent();}
-    if(event.key==="Escape"){event.preventDefault();options.popover.style.display="none";current=null;}
+    // Échap enregistre ce qui a été écrit ; une note neuve restée vide s'en va.
+    if(event.key==="Escape"){event.preventDefault();leave();}
   };
   chatButton.onclick=()=>{void persistCurrent();};
   deleteButton.onclick=async()=>{
@@ -1096,10 +1109,7 @@ export function createLatexAnnotationsController(
       }
     }
     if (Date.now() - openedAt < 350) return;
-    if (target && !options.popover.contains(target) && !target.closest("#selPill") && current) {
-      if(textarea.value.trim() && textarea.value.trim() !== (current.comment || "")) void persistCurrent();
-      else {options.popover.style.display="none";current=null;}
-    }
+    if (target && !options.popover.contains(target) && !target.closest("#selPill") && current) leave();
   });
   options.button.onclick = () => togglePanel();
   options.panel.addEventListener("click", (event) => {
@@ -1163,7 +1173,8 @@ export function createLatexAnnotationsController(
       activeEditor.setCursor(annotation.from);
       activeEditor.scrollIntoView({from: annotation.from, to: annotation.to}, 80);
       activeEditor.focus();
-      togglePanel(false);
+      activeId = annotation.id;
+      buildPanel();
     }
   });
   options.panel.addEventListener("keydown", (event) => {
@@ -1172,13 +1183,8 @@ export function createLatexAnnotationsController(
     event.preventDefault();
     item.click();
   });
-  doc.addEventListener("mousedown", (event) => {
-    const target = event.target as Element | null;
-    if (options.panel.classList.contains("open") && target && !options.panel.contains(target) && !target.closest("#texcBtn")
-      && !currentRound()) {
-      togglePanel(false);
-    }
-  });
+  // La colonne Annotations est fixe (variante B) : cliquer dans le texte ne la
+  // ferme plus (Thierry 2026-11-09) ; seuls la croix et le bouton la ferment.
 
   /** Date du store (/pdfannot-stamp) à la dernière lecture : relecture en direct plus bas. */
   let storeStamp = 0;

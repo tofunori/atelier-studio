@@ -114,3 +114,14 @@ test("compareNotes : ordre du document, puis page et hauteur ; ids admis par ate
   assert.match(notes.pdfNoteId("x".repeat(90)), /^pdf_x{56}$/);
   assert.equal(notes.reviewRequestKey("/p/main.tex"), "atelier.texReview:/p/main.tex");
 });
+
+test("sameSourceFile : chemins SyncTeX absolus avec /./, relatifs ou sans extension", () => {
+  const tex = "/Users/t/These/Chapitre/sections/discussion_en.tex";
+  assert.equal(notes.sameSourceFile("/Users/t/These/Chapitre/./sections/discussion_en.tex", tex), true);
+  assert.equal(notes.sameSourceFile("./sections/discussion_en.tex", tex), true);
+  assert.equal(notes.sameSourceFile("sections/discussion_en", tex), true);
+  assert.equal(notes.sameSourceFile("/Users/t/These/Chapitre/sections/../sections/Discussion_EN.tex", tex), true);
+  assert.equal(notes.sameSourceFile("", tex), true, "ancienne CLI : pas de nom");
+  assert.equal(notes.sameSourceFile("/Users/t/These/Chapitre/sections/methods_en.tex", tex), false);
+  assert.equal(notes.sameSourceFile("/Users/t/Autre/discussion_en.tex", tex), false);
+});
