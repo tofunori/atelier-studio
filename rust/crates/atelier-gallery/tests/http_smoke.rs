@@ -653,7 +653,16 @@ fn codebook_and_passage_codes_roundtrip() {
     let (st, body) = http(srv.port, "POST", "/pdfannot-codes", Some(&remove));
     assert_eq!(st, 200, "{body}");
     let (_, body) = http(srv.port, "GET", "/pdfannot?rel=zotero%2FABCD1234%2Farticle.pdf", None);
-    assert!(!body.contains("k1") && body.contains("h1"), "{body}");
+    // Par identifiant d'annotation, pas par sous-chaîne : l'identifiant du
+    // code est aléatoire et peut lui-même finir par « k1 ».
+    let listed: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let ids: Vec<&str> = listed["annots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|a| a["id"].as_str())
+        .collect();
+    assert_eq!(ids, ["h1"], "{body}");
 
     // supprimer le parent emporte le sous-code et ses traces
     let del = serde_json::json!({"op": "delete", "id": parent}).to_string();
