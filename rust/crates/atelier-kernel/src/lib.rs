@@ -1,7 +1,8 @@
 //! Noyau d'analyse persistant (chantier 5 du plan
 //! `rattrapage-claude-science-2026-10-18`).
 //!
-//! Un processus Python par fil, lancé dans l'env choisi (conda, venv) et
+//! Un processus Python par fil, lancé par défaut dans l'env « atelier » (un
+//! seul env pour toutes les analyses, géré par pixi : voir `pixi.rs`) et
 //! gardé en vie entre deux appels de l'agent : les données chargées restent
 //! en mémoire, comme dans le noyau de Claude Science. Rust lance et pilote le
 //! processus ; le pilote `atelier_noyau.py`, embarqué dans ce crate, n'est
@@ -18,6 +19,7 @@ pub mod journal;
 mod kernel;
 pub mod manager;
 pub mod packages;
+pub mod pixi;
 pub mod prints;
 pub mod recipe;
 pub mod replay;
@@ -25,7 +27,7 @@ pub mod usage;
 pub mod verify;
 mod scan;
 
-pub use envs::{discover_envs, resolve_env, PyEnv};
+pub use envs::{discover_envs, discover_envs_with, resolve_env, PyEnv};
 pub use journal::{CellJournal, CellRecord, ChainCheck, Lineage, ReplayMark, ResumedFrom, VarUse};
 pub use kernel::KernelInfo;
 pub use manager::{

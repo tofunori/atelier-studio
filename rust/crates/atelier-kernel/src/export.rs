@@ -48,6 +48,9 @@ fn header(input: &ExportInput) -> Vec<String> {
             short(&env.sha256),
             env.packages.len()
         ));
+        if let (Some(file), Some(sha)) = (&env.lock_file, &env.lock_sha256) {
+            lines.push(format!("Verrou de l'env : {file} (sha256 {})", short(sha)));
+        }
         let imports = input.cells.last().map(|c| c.imports.clone()).unwrap_or_default();
         let versions = env.versions(&imports);
         if !versions.is_empty() {
@@ -215,5 +218,20 @@ mod tests {
         assert_eq!(nb["nbformat"], 4);
         assert_eq!(nb["cells"][1]["source"][0], "print(1)");
         assert_eq!(nb["cells"][1]["outputs"][0]["text"][0], "1\n");
+    }
+
+    #[test]
+    fn l_en_tete_cite_le_verrou_d_un_env_pixi() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefix = crate::pixi::env_prefix(dir.path());
+        std::fs::create_dir_all(&prefix).unwrap();
+        std::fs::write(dir.path().join("pixi.lock"), "version: 7\n").unwrap();
+        let env = EnvSnapshot::read("atelier", &prefix, "3.12.13");
+        let cells = vec![CellRecord { id: 1, code: "1\n".into(), env: "atelier".into(), ..Default::default() }];
+        let chain = ChainCheck { checked: 1, broken_at: None };
+        let input = ExportInput { thread_title: "Noyau", cells: &cells, skipped: 0, env: Some(&env), chain: &chain, exported_at: "2026-11-10" };
+        let py = to_py(&input);
+        let sha = env.lock_sha256.as_deref().unwrap();
+        assert!(py.contains("Verrou de l'env : ") && py.contains(&format!("pixi.lock (sha256 {})", short(sha))), "{py}");
     }
 }

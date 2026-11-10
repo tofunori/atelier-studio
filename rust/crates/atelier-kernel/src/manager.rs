@@ -1,6 +1,6 @@
 //! Un noyau par fil : démarrage à la demande, cellules, arrêt à l'inactivité.
 
-use crate::envs::{discover_envs, resolve_env, PyEnv};
+use crate::envs::{discover_envs_with, resolve_env, PyEnv};
 use crate::journal::{clip, code_sha256, CellJournal, CellRecord, Lineage, ResumedFrom, VarUse};
 use crate::kernel::{Cell, Kernel, KernelInfo};
 use crate::packages::EnvSnapshot;
@@ -199,7 +199,8 @@ impl Origin {
 
 struct Slot {
     kernel: Kernel,
-    env: Arc<EnvSnapshot>,
+    /// Instantané de l'env, repris quand ses paquets changent sous le noyau.
+    env: Mutex<Arc<EnvSnapshot>>,
     /// Variable → cellules qui l'ont créée et modifiée (lignée).
     origins: Mutex<HashMap<String, Origin>>,
     /// Modules tiers chargés, relevés à la fin de la dernière cellule.
@@ -228,7 +229,7 @@ impl Slot {
     ) -> Arc<Self> {
         Arc::new(Self {
             kernel,
-            env: Arc::new(env),
+            env: Mutex::new(Arc::new(env)),
             origins: Mutex::new(origins),
             imports: Mutex::new(imports),
             last_used: Mutex::new(Instant::now()),
@@ -265,6 +266,9 @@ impl Slot {
         Some(sample)
     }
 
+    fn env(&self) -> Arc<EnvSnapshot> {
+        self.env.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
     fn touch(&self) {
         *self.last_used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
     }
@@ -303,6 +307,8 @@ pub struct KernelManager {
     driver_dir: PathBuf,
     home: PathBuf,
     journal: CellJournal,
+    /// pixi et l'env « atelier », défaut du noyau.
+    pixi: crate::pixi::Pixi,
     listener: Mutex<Option<CellListener>>,
     prints: Arc<PrintCache>,
     /// Dernier tour de chaque fil et sa demande : les cellules se rangent
@@ -332,6 +338,7 @@ impl KernelManager {
             driver_dir: data_dir.join("kernel"),
             home: home.to_path_buf(),
             journal: CellJournal::new(data_dir.join("kernel").join("cells")),
+            pixi: crate::pixi::Pixi::new(data_dir, home),
             listener: Mutex::new(None),
             prints: Arc::default(),
             turns: Mutex::new(HashMap::new()),
@@ -400,7 +407,39 @@ impl KernelManager {
     }
 
     pub fn envs(&self, project_root: Option<&Path>) -> Vec<PyEnv> {
-        discover_envs(&self.home, project_root)
+        discover_envs_with(
+            &self.home,
+            project_root,
+            Some(self.pixi.atelier_dir()),
+            self.pixi.binary().is_some(),
+        )
+    }
+
+    /// pixi et l'env « atelier » (voir `pixi.rs`).
+    pub fn pixi(&self) -> &crate::pixi::Pixi {
+        &self.pixi
+    }
+
+    /// Reprend l'instantané des noyaux vivants de cet env, après un
+    /// changement de ses paquets : les cellules suivantes portent la bonne
+    /// empreinte. Rend ces fils, chacun avec les modules déjà chargés.
+    pub(crate) async fn resnapshot(&self, prefix: &Path) -> Vec<(String, Vec<String>)> {
+        let slots: Vec<(String, Arc<Slot>)> = self
+            .slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(_, s)| s.kernel.is_alive() && s.kernel.info.env.prefix == prefix)
+            .map(|(id, s)| (id.clone(), s.clone()))
+            .collect();
+        let mut refreshed = Vec::new();
+        for (thread_id, slot) in slots {
+            let snapshot = Arc::new(self.snapshot_env(&slot.kernel.info).await);
+            *slot.env.lock().unwrap_or_else(|e| e.into_inner()) = snapshot;
+            let imports = slot.imports.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            refreshed.push((thread_id, imports));
+        }
+        refreshed
     }
 
     fn slot(&self, thread_id: &str) -> Option<Arc<Slot>> {
@@ -450,7 +489,10 @@ impl KernelManager {
         env: Option<&str>,
     ) -> Result<(Arc<Slot>, String), KernelError> {
         let envs = self.envs(Some(cwd));
-        let env = resolve_env(&envs, env).map_err(KernelError::Start)?;
+        let env = resolve_env(&envs, env)
+            .map_err(|e| KernelError::Start(self.pixi.explain_unknown(env, e)))?;
+        // Env pixi : créé au premier usage, remis d'accord avec son manifeste.
+        self.pixi.prepare(&env).await.map_err(KernelError::Start)?;
         self.write_driver().map_err(KernelError::Start)?;
         let stop = self.last_stop(thread_id);
         let cells_before = self.journal.last_id(thread_id);
@@ -939,6 +981,10 @@ impl KernelManager {
                 .map_err(KernelError::Other)?
         };
         self.write_driver().map_err(KernelError::Start)?;
+        if let Err(e) = self.pixi.prepare(&env).await {
+            backup.restore();
+            return Err(KernelError::Start(e));
+        }
         let kernel = match Kernel::start(&env, cwd, &self.driver_dir).await {
             Ok(k) => k,
             Err(e) => {
@@ -1107,20 +1153,20 @@ impl KernelManager {
             Some(slot) => {
                 let imports = slot.imports.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 let sample = slot.sample();
+                let env = slot.env();
                 KernelStatus {
                     running: true,
                     kernel: Some(slot.kernel.info.clone()),
                     busy_cell: slot.kernel.running().map(|c| c.id),
                     idle_seconds: Some(slot.idle().as_secs()),
-                    packages: slot
-                        .env
+                    packages: env
                         .versions(&imports)
                         .into_iter()
                         .take(STATUS_PACKAGES_MAX)
                         .map(|(name, version)| json!({"name": name, "version": version}))
                         .collect(),
-                    packages_total: Some(slot.env.packages.len()),
-                    env_sha256: Some(slot.env.sha256.clone()),
+                    packages_total: Some(env.packages.len()),
+                    env_sha256: Some(env.sha256.clone()),
                     rss_bytes: sample.map(|s| s.usage.rss_bytes),
                     cpu_seconds: sample.map(|s| s.usage.cpu_ms as f64 / 1000.0),
                     cpu_percent: sample.and_then(|s| s.cpu_percent),
@@ -1285,7 +1331,7 @@ impl Finisher {
             session: Some(info.started_at.clone()),
             prints,
             imports: p.imports,
-            env_sha256: Some(self.slot.env.sha256.clone()).filter(|s| !s.is_empty()),
+            env_sha256: Some(self.slot.env().sha256.clone()).filter(|s| !s.is_empty()),
             lineage,
             replay: None,
             prev_sha256: None,

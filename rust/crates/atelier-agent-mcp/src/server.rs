@@ -53,6 +53,9 @@ fn readonly(action: &str) -> bool {
             | "kernel_variables"
             | "kernel_envs"
             | "kernel_status"
+            // Suit un `kernel_add` resté en arrière-plan sans attendre la
+            // file ordonnée.
+            | "kernel_packages"
             // Pas une lecture, mais elle doit doubler un `kernel_run` qui
             // attend encore sa cellule dans la file ordonnée.
             | "kernel_interrupt"
@@ -262,7 +265,9 @@ mod tests {
     fn a_kernel_run_is_ordered_but_its_interrupt_can_overtake_it() {
         assert!(!readonly("kernel_run"));
         assert!(!readonly("kernel_restart"));
-        for action in ["kernel_wait", "kernel_variables", "kernel_interrupt", "kernel_status"] {
+        // Un changement de paquets garde son rang ; sa lecture le double.
+        assert!(!readonly("kernel_add") && !readonly("kernel_remove"));
+        for action in ["kernel_wait", "kernel_variables", "kernel_interrupt", "kernel_status", "kernel_packages"] {
             assert!(readonly(action), "{action}");
         }
     }

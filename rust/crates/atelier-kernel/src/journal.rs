@@ -138,7 +138,8 @@ pub struct CellRecord {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub imports: Vec<String>,
     /// Instantané de l'env (`kernel/envs/<sha>.json`) : versions de tous
-    /// les paquets au démarrage du noyau.
+    /// les paquets au démarrage du noyau, ou depuis le dernier ajout ou
+    /// retrait de paquet fait par l'outil pendant qu'il tournait.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

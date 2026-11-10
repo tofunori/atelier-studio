@@ -1,10 +1,13 @@
-//! Découverte des environnements Python de l'utilisateur.
+//! Découverte des environnements Python où lancer le noyau.
 //!
-//! Le noyau tourne dans un env existant, jamais dans un Python fourni par
-//! Atelier : c'est là que sont les paquets de la thèse (PyMC, xarray,
-//! rasterio…). On cherche les envs conda et mamba aux endroits habituels,
-//! ceux de Claude Science (`~/.claude-science/conda/envs`), le `.venv` du
-//! projet, et `ATELIER_KERNEL_PYTHON` qui l'emporte sur tout.
+//! Par défaut, le noyau tourne dans l'env « atelier » : un seul env pour
+//! toutes les analyses, géré par pixi dans le dossier de l'app (voir
+//! `pixi.rs`). Deux choses passent avant lui : `ATELIER_KERNEL_PYTHON`, et
+//! l'env que le projet porte lui-même (`pixi.toml`, `.venv`). Les envs conda
+//! et mamba, et ceux de Claude Science (`~/.claude-science/conda/envs`),
+//! restent listés et utilisables à la demande, mais ne sont plus pris par
+//! défaut dès que pixi est là. Sans pixi, un env pixi n'est proposé que s'il
+//! est déjà installé ; sinon l'ordre d'avant vaut toujours.
 
 use serde::Serialize;
 use std::collections::HashSet;
@@ -18,7 +21,9 @@ pub struct PyEnv {
     /// Racine de l'env (`CONDA_PREFIX`), ou dossier du venv.
     pub prefix: PathBuf,
     pub python: PathBuf,
-    /// D'où vient l'env : `conda`, `claude-science`, `projet`, `variable`, `systeme`.
+    /// D'où vient l'env : `atelier` (env d'Atelier, géré par pixi), `pixi`
+    /// (env pixi du projet), `projet` (venv du projet), `variable`, `conda`,
+    /// `claude-science`, `systeme`.
     pub source: String,
 }
 
@@ -55,6 +60,10 @@ impl Collecte {
         let Some(python) = python_of(prefix) else {
             return;
         };
+        self.pousser(name, prefix, python, source);
+    }
+
+    fn pousser(&mut self, name: String, prefix: &Path, python: PathBuf, source: &str) {
         if !self.vus.insert(canon(prefix)) {
             return;
         }
@@ -71,6 +80,19 @@ impl Collecte {
             python,
             source: source.to_string(),
         });
+    }
+
+    /// Env par défaut d'un projet pixi. Listé dès que pixi est là, même pas
+    /// encore installé : le premier noyau qui y démarre le crée.
+    fn env_pixi(&mut self, name: &str, project: &Path, source: &str, pixi_present: bool) {
+        let prefix = crate::pixi::env_prefix(project);
+        match python_of(&prefix) {
+            Some(python) => self.pousser(name.to_string(), &prefix, python, source),
+            None if pixi_present => {
+                self.pousser(name.to_string(), &prefix, prefix.join("bin/python"), source)
+            }
+            None => {}
+        }
     }
 
     fn racine_conda(&mut self, root: &Path, source: &str) {
@@ -95,8 +117,23 @@ impl Collecte {
     }
 }
 
-/// Liste les envs disponibles, dans l'ordre de préférence par défaut.
+/// Liste les envs disponibles, dans l'ordre de préférence par défaut, sans
+/// l'env d'Atelier (voir `discover_envs_with`).
 pub fn discover_envs(home: &Path, project_root: Option<&Path>) -> Vec<PyEnv> {
+    discover_envs_with(home, project_root, None, false)
+}
+
+/// Liste les envs disponibles, dans l'ordre de préférence par défaut :
+/// `ATELIER_KERNEL_PYTHON`, l'env pixi du projet, ses venvs, l'env « atelier »
+/// (`atelier_dir` : son projet pixi), puis conda, Claude Science et le Python
+/// système. `pixi_present` : pixi est sur la machine, donc un env pixi pas
+/// encore installé peut être proposé.
+pub fn discover_envs_with(
+    home: &Path,
+    project_root: Option<&Path>,
+    atelier_dir: Option<&Path>,
+    pixi_present: bool,
+) -> Vec<PyEnv> {
     let mut c = Collecte {
         envs: Vec::new(),
         vus: HashSet::new(),
@@ -120,12 +157,19 @@ pub fn discover_envs(home: &Path, project_root: Option<&Path>) -> Vec<PyEnv> {
         }
     }
     if let Some(root) = project_root {
+        // Un projet qui déclare ses dépendances garde la main.
+        if root.join("pixi.toml").is_file() {
+            c.env_pixi("pixi (projet)", root, crate::pixi::SOURCE_PROJECT, pixi_present);
+        }
         for venv in [".venv", "venv", "env"] {
             let prefix = root.join(venv);
             if prefix.join("pyvenv.cfg").is_file() {
                 c.ajouter(format!("{venv} (projet)"), &prefix, "projet");
             }
         }
+    }
+    if let Some(dir) = atelier_dir {
+        c.env_pixi(crate::pixi::ATELIER_ENV, dir, crate::pixi::SOURCE_ATELIER, pixi_present);
     }
     for root in CONDA_ROOTS {
         c.racine_conda(&home.join(root), "conda");
@@ -248,6 +292,64 @@ mod tests {
         assert!(noms.contains(&"pymc-albedo"));
         assert!(noms.contains(&"pymc-albedo (claude-science)"), "{noms:?}");
         assert!(noms.contains(&"figures"));
+    }
+
+    #[test]
+    fn l_env_atelier_passe_avant_conda_mais_apres_l_env_du_projet() {
+        let home = tempfile::tempdir().unwrap();
+        let projet = tempfile::tempdir().unwrap();
+        let atelier = home.path().join("app/python");
+        faux_env(&home.path().join("miniforge3/envs/pymc-albedo"));
+        faux_env(&home.path().join(".claude-science/conda/envs/figures"));
+        // Hors `ATELIER_KERNEL_PYTHON` et Python système, qui dépendent de la
+        // machine : le premier passe avant tout, le second après tout.
+        let liste = |projet: Option<&Path>, pixi: bool| -> Vec<PyEnv> {
+            discover_envs_with(home.path(), projet, Some(&atelier), pixi)
+                .into_iter()
+                .filter(|e| e.source != "variable" && e.source != "systeme")
+                .collect()
+        };
+        let sources = |projet: Option<&Path>, pixi: bool| -> Vec<String> {
+            liste(projet, pixi)
+                .iter()
+                .map(|e| format!("{}:{}", e.source, e.name))
+                .collect()
+        };
+
+        // pixi là : « atelier » est le défaut, même pas encore installé ;
+        // conda et Claude Science restent listés, derrière.
+        assert_eq!(
+            sources(None, true),
+            ["atelier:atelier", "conda:pymc-albedo", "claude-science:figures"]
+        );
+        let envs = liste(None, true);
+        let defaut = resolve_env(&envs, None).unwrap();
+        assert_eq!(defaut.source, "atelier");
+        assert_eq!(defaut.python, atelier.join(".pixi/envs/default/bin/python"));
+        // À la demande, un env conda se prend toujours par son nom.
+        assert_eq!(resolve_env(&envs, Some("pymc-albedo")).unwrap().source, "conda");
+
+        // Sans pixi et sans env installé : l'ordre d'avant, sans « atelier ».
+        assert_eq!(sources(None, false), ["conda:pymc-albedo", "claude-science:figures"]);
+        // Sans pixi mais env déjà installé : il reste utilisable.
+        faux_env(&atelier.join(".pixi/envs/default"));
+        assert_eq!(sources(None, false)[0], "atelier:atelier");
+
+        // Le projet garde la main : son pixi.toml, puis son .venv.
+        faux_env(&projet.path().join(".venv"));
+        std::fs::write(projet.path().join(".venv/pyvenv.cfg"), "").unwrap();
+        assert_eq!(sources(Some(projet.path()), true)[..2], ["projet:.venv (projet)", "atelier:atelier"]);
+        std::fs::write(projet.path().join("pixi.toml"), "[workspace]\n").unwrap();
+        assert_eq!(
+            sources(Some(projet.path()), true)[..3],
+            ["pixi:pixi (projet)", "projet:.venv (projet)", "atelier:atelier"]
+        );
+        // Env pixi du projet pas installé et pas de pixi : il n'est pas proposé.
+        assert_eq!(sources(Some(projet.path()), false)[0], "projet:.venv (projet)");
+
+        // Un env conda qui s'appellerait « atelier » reste désignable.
+        faux_env(&home.path().join("miniforge3/envs/atelier"));
+        assert!(sources(None, true).contains(&"conda:atelier (conda)".to_string()));
     }
 
     #[test]
