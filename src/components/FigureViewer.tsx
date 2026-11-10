@@ -15,15 +15,16 @@ import { FigureGalleryBar } from "./FigureGalleryBar";
 import { IconButton, RowButton } from "./ui";
 import "./FigureViewer.css";
 
+import { ChevronLeftIcon, ChevronRightIcon, MessageSquareIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 type View = { scale: number; x: number; y: number };
 
 const Icon = {
-  prev: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" /></svg>,
-  next: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg>,
-  minus: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" /></svg>,
-  plus: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9M8 3.5v9" /></svg>,
-  chat: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11V11h-6l-3 2.5V11h-2z" /></svg>,
-  close: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>,
+  prev: <ChevronLeftIcon size={12} />,
+  next: <ChevronRightIcon size={12} />,
+  minus: <MinusIcon size={14} />,
+  plus: <PlusIcon size={14} />,
+  chat: <MessageSquareIcon size={14} />,
+  close: <XIcon size={12} />,
 };
 
 const STEP = 1.25;

@@ -74,7 +74,7 @@ export default function RevisionBlock({ source }: { source: string }) {
               });
             }}
           >
-            <CopyIcon size={13} />
+            <CopyIcon size={14} />
           </IconButton>
         </div>
       )}

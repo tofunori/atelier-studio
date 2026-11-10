@@ -24,24 +24,18 @@ import { AllProjectsGlyph } from "./AllProjectsGlyph";
 import { ProjectStyleMenu } from "./ProjectStyleMenuLazy";
 import type { ProjectStyleAnchor } from "./ProjectStyleMenu";
 
+import { ChevronRightIcon, ClockIcon } from "lucide-react";
 const NO_AGENTS = new Set<string>();
 
 function AutomationsGlyph() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.6" />
-      <path d="M8 5v3l2 1.4" />
-    </svg>
+    <ClockIcon size={14} />
   );
 }
 
 function ChevronRightGlyph() {
   return (
-    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6.2 4.5 9.7 8l-3.5 3.5" />
-    </svg>
+    <ChevronRightIcon size={12} />
   );
 }
 
@@ -192,7 +186,7 @@ export function SideBottom(p: SideBottomProps) {
       </div>
       <div className="scol-foot">
         <LazyDropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen} side="top" align="start"
-          trigger={<IconButton className="scol-foot-btn" label={t("action.settings")}><SettingsIcon size={15} /></IconButton>}
+          trigger={<IconButton className="scol-foot-btn" label={t("action.settings")}><SettingsIcon size={14} /></IconButton>}
           items={[
             { key: "settings", label: t("action.settings"), onSelect: p.onSettings },
             { key: "usage", label: t("usage.title"), onSelect: () => window.dispatchEvent(new CustomEvent("usage-toggle")) },

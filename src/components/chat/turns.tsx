@@ -6,7 +6,7 @@ import { lazy, memo, Suspense, useEffect, useLayoutEffect, useRef, useState, use
 import { activeTurnStatus } from "./activeTurnStatus";
 import { useSmoothedStream } from "./useSmoothedStream";
 import { useLiveTailText } from "../../hooks/useThreadEvents";
-import { CheckIcon, EyeIcon } from "lucide-react";
+import { BookIcon, CheckIcon, EyeIcon, FileTextIcon, Undo2Icon, XIcon } from "lucide-react";
 import { AgentEvent } from "../../lib/ws";
 import { isStoppedTerminal, type ChatTurnViewModel, type ToolAction } from "../../lib/chat/turnViewModel";
 import type { PluginCatalogEntry } from "../../lib/plugins";
@@ -240,9 +240,7 @@ export const UserTurn = memo(function UserTurn(p: {
       )}
       {e.kb && e.kb.count > 0 && (
         <div className="user-kb-meta">
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-            <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
-          </svg>
+          <BookIcon size={12} />
           {t("kb.sent-with", { n: e.kb.count })}
           {e.kb.titles.length > 0 && (
             <span className="user-kb-meta-titles">
@@ -260,10 +258,7 @@ export const UserTurn = memo(function UserTurn(p: {
         return (
         <RowButton key={j} className="chip paste-chip"
           onClick={text == null ? undefined : () => p.onOpenPaste({ name: pa.name, text })}>
-          <svg className="chip-doc" width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
-            <rect x="0.8" y="0.8" width="9.4" height="11.4" rx="1.6" />
-            <path d="M3 4.4h5M3 6.8h5M3 9.2h3.4" />
-          </svg>
+          <FileTextIcon size={12} className="chip-doc" />
           <span className="chip-label">{pa.name}</span>
           {lineCount != null && <span className="chip-lines">{pasteLineCountLabel(lineCount)}</span>}
         </RowButton>
@@ -352,10 +347,7 @@ export const UserTurn = memo(function UserTurn(p: {
           <PencilIcon />
         </MessageAction>
         <MessageAction label={t("chat.revert-title")} onClick={() => setRevertAsked(true)}>
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M9.5 3.5 5 8l4.5 4.5" />
-            <path d="M5 8h5a3 3 0 0 1 0 6H8.5" />
-          </svg>
+          <Undo2Icon size={12} />
         </MessageAction>
         <PinBtn pinned={p.pinned} onClick={() => p.onTogglePin(i, (figures.length && !bubbleText ? figures[0].name : bubbleText || e.text).slice(0, 44))} />
       </MessageFooter>}
@@ -487,9 +479,7 @@ export function ResultCapsule(p: {
           <span className="sr-only">{t("chat.turn-done")}</span>
         ) : stopped ? null : (
           <span className="capsule-status warn" title={t("chat.turn-interrupted")}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
+            <XIcon size={12} />
             <span className="sr-only">{t("chat.turn-interrupted")}</span>
           </span>
         )}

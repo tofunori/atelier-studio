@@ -56,9 +56,9 @@ describe("ResearchHome", () => {
     const a = actions();
     render(<ResearchHome model={model({ activeProject: null })} actions={a} />);
     expect(screen.getByText(t("discussions.home"))).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: t("action.new-chat") }));
-    expect(a.onNewChat).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText("Continuer")).toBeNull();
+    // le champ de message, juste dessous, EST l'action : aucun bouton ici
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByText(t("home.continue"))).toBeNull();
     expect(screen.queryByText("Démarrer")).toBeNull();
   });
 
@@ -83,7 +83,11 @@ describe("ResearchHome", () => {
     );
     // Démarrer et le panneau Projets portent déjà l'action
     expect(container.querySelector(".rh-head .ui-btn")).toBeNull();
-    expect(container.querySelectorAll(".ui-btn--primary")).toHaveLength(0);
+    // budget d'UNE action primaire : « Reprendre », en relief sur la carte
+    const primary = container.querySelectorAll(".ui-btn--primary");
+    expect(primary).toHaveLength(1);
+    expect(primary[0]).toHaveTextContent("Reprendre");
+    expect(primary[0].closest(".rh-continue")).not.toBeNull();
   });
 
   it("Continuer : Reprendre appelle onResume avec thread + projet ; date relative jamais seule (ISO en title)", () => {
@@ -203,13 +207,23 @@ describe("ResearchHome", () => {
     const a = actions();
     render(
       <ResearchHome
-        model={model({ recentFiles: ["figs/albedo_saisonnier_2024_final_v3.pdf", "scripts/extract.py"] })}
+        model={model({
+          recentFiles: ["figs/albedo_saisonnier_2024_final_v3.pdf", "scripts/extract.py"],
+          // date du catalogue natif pour le premier ; le second n'en a pas
+          recentFileTimes: { "figs/albedo_saisonnier_2024_final_v3.pdf": NOW - 12 * 60_000 },
+        })}
         actions={a}
       />,
     );
     const row = screen.getByRole("button", { name: /albedo_saisonnier_2024_final_v3\.pdf/ });
-    expect(row).toHaveTextContent("figs");
-    expect(row).toHaveTextContent("figure");
+    // « dossier/nom » d'un seul trait, puis quand ; le glyphe dit le type
+    expect(row.querySelector(".path")).toHaveTextContent("figs/albedo_saisonnier_2024_final_v3.pdf");
+    expect(row.querySelector(".dir")).toHaveTextContent("figs/");
+    expect(row.querySelector(".when")).toHaveTextContent("il y a 12 min");
+    expect(row.querySelector(".when")).toHaveAttribute("title", new Date(NOW - 12 * 60_000).toISOString());
+    expect(row).not.toHaveTextContent("figure");
+    // sans date connue (ancien backend) : aucune colonne inventée
+    expect(screen.getByRole("button", { name: /extract\.py/ }).querySelector(".when")).toBeNull();
     fireEvent.click(row);
     expect(a.onOpenArtefact).toHaveBeenCalledWith("figs/albedo_saisonnier_2024_final_v3.pdf");
     expect(row.title).toContain("figs/albedo_saisonnier_2024_final_v3.pdf");
@@ -222,7 +236,7 @@ describe("ResearchHome", () => {
     // (SHELL-17) et n'est pas répété dans Démarrer.
     const start = within(screen.getByRole("region", { name: "Démarrer" }));
     expect(start.queryByRole("button", { name: "Nouveau chat" })).toBeNull();
-    fireEvent.click(within(screen.getByRole("region", { name: "Continuer" })).getByRole("button", { name: "Nouveau chat" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Reprendre" })).getByRole("button", { name: "Nouveau chat" }));
     expect(a.onNewChat).toHaveBeenCalledTimes(1);
     fireEvent.click(start.getByRole("button", { name: "Rechercher un fichier…" }));
     expect(a.onOpenPalette).toHaveBeenCalledTimes(1);

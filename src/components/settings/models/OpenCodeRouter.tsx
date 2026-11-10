@@ -17,6 +17,7 @@ import { EmptyState, RowButton, SegmentedControl, type SegmentedOption } from ".
 import { t } from "../../../lib/i18n";
 import { filterGroups, type ModelGroup, type Route } from "./groupRoutes";
 
+import { ChevronRightIcon, LucidePin } from "lucide-react";
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
@@ -45,20 +46,7 @@ function pluralCount(key: string, count: number, vars?: Record<string, string | 
 // : le nom accessible vient du RowButton englobant (aria-label + aria-pressed).
 function PinIcon({ size = 13 }: { size?: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="8" cy="6" r="3" />
-      <path d="M8 9v5.5" />
-    </svg>
+    <LucidePin size={size} />
   );
 }
 
@@ -67,20 +55,7 @@ function PinIcon({ size = 13 }: { size?: number }) {
 // (transitions 120–150ms, prefers-reduced-motion respecté côté CSS).
 function ChevronIcon({ open }: { open: boolean }) {
   return (
-    <svg
-      width={12}
-      height={12}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={cx("ocr-chevron", open && "ocr-chevron--open")}
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
+    <ChevronRightIcon size={12} className={cx("ocr-chevron", open && "ocr-chevron--open")} />
   );
 }
 

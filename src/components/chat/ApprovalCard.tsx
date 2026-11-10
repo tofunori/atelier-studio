@@ -19,6 +19,7 @@ import type { InteractionEvent } from "./HarnessInteraction";
 import { sendInteractionAnswer } from "./interactionAnswer";
 import { commandLines } from "./commandLines";
 
+import { BanIcon, ChevronDownIcon, ChevronUpIcon, InfoIcon, PencilIcon, ShieldCheckIcon, SquareTerminalIcon } from "lucide-react";
 const AtelierDiffView = lazy(() => import("../AtelierDiffView"));
 
 type Kind = "allow_once" | "allow_always" | "reject_once" | "reject_always";
@@ -40,16 +41,10 @@ const sansOui = (label: string, upper = true) => {
 const home = (s: string) => s.replace(/(?<![\w.~/-])\/(?:Users|home)\/[^/\s'"]+(?=[/\s'"]|$)/g, "~");
 
 const Icon = ({ title }: { title: string }) => (
-  <svg className="appr-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {title === RUN ? <><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" /><path d="M4.6 6.2 6.6 8l-2 1.8M8.2 10h3" /></>
-      : title === EDIT ? <path d="M10.6 2.9 13.1 5.4 6 12.5 3 13l.5-3z" />
-      : <><path d="M8 1.9 13 3.8v3.9c0 3-2.1 5.4-5 6.4-2.9-1-5-3.4-5-6.4V3.8z" /><path d="M5.8 8.1 7.3 9.6l3-3.2" /></>}
-  </svg>
+  title === RUN ? <SquareTerminalIcon className="appr-ico" size={14} /> : title === EDIT ? <PencilIcon className="appr-ico" size={14} /> : <ShieldCheckIcon className="appr-ico" size={14} />
 );
 const Chevron = ({ open }: { open?: boolean }) => (
-  <svg className="appr-chev" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={open ? "M4.5 9.5 8 6l3.5 3.5" : "M4.5 6.5 8 10l3.5-3.5"} />
-  </svg>
+  open ? <ChevronUpIcon className="appr-chev" size={12} /> : <ChevronDownIcon className="appr-chev" size={12} />
 );
 
 function CommandBlock({ lines }: { lines: string[] }) {
@@ -131,11 +126,7 @@ function DoneLine({ e, lines, verdict }: { e: InteractionEvent; lines: string[];
   return (
     <div className={`int-card appr is-done${verdict.allowed ? "" : " is-denied"}`} data-request-id={e.requestId}>
       <RowButton className="appr-done" aria-expanded={body ? open : undefined} disabled={!body} onClick={() => setOpen(!open)}>
-        <svg className="appr-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {verdict.allowed
-            ? <><path d="M8 1.9 13 3.8v3.9c0 3-2.1 5.4-5 6.4-2.9-1-5-3.4-5-6.4V3.8z" /><path d="M5.8 8.1 7.3 9.6l3-3.2" /></>
-            : <><circle cx="8" cy="8" r="6.2" /><path d="M3.6 3.6l8.8 8.8" /></>}
-        </svg>
+        {verdict.allowed ? <ShieldCheckIcon className="appr-ico" size={14} /> : <BanIcon className="appr-ico" size={14} />}
         <span className="appr-verdict">{verdict.label}</span>
         {verdict.sub ? <span className="appr-sub">{verdict.sub}</span> : null}
         {body ? <Chevron open={open} /> : null}
@@ -333,9 +324,7 @@ export default function ApprovalCard({ event: e, threadId }: { event: Interactio
       <div className="appr-l2">
         {e.reason ? (
           <span className="appr-reason" title={e.reason}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-              <circle cx="8" cy="8" r="6.2" /><path d="M8 7.4v3.6M8 5h.01" />
-            </svg>
+            <InfoIcon size={12} />
             <span>{e.reason}</span>
           </span>
         ) : null}

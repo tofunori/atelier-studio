@@ -17,6 +17,7 @@ import { openSetupWelcome, useSetupNeeded } from "../lib/setupEnvironment";
 import "../styles/research-home.css";
 import { FileGlyph } from "./fileGlyphs";
 
+import { ArrowDownToLineIcon, PlusIcon, SearchIcon } from "lucide-react";
 /** Paquet passé d'App à la timeline (via Chat) — modèle dérivé + vrais workflows. */
 export type ResearchHomeBundle = {
   model: ResearchHomeModel;
@@ -35,7 +36,7 @@ export type ResearchHomeActions = {
   onResumeSession: () => void;
 };
 
-function relLabel(rel: HomeRelativeDate | null): string | null {
+function relLabel(rel: HomeRelativeDate | null, short = false): string | null {
   if (!rel) return null;
   switch (rel.kind) {
     case "now": return t("home.rel.now");
@@ -44,7 +45,14 @@ function relLabel(rel: HomeRelativeDate | null): string | null {
     case "days": return t("home.rel.days", { n: rel.n });
     case "date": {
       const d = new Date(rel.iso);
-      return Number.isNaN(d.getTime()) ? rel.iso : d.toLocaleDateString();
+      if (Number.isNaN(d.getTime())) return rel.iso;
+      // colonne de dates d'une liste : « 7 juil. », l'année seulement si elle change
+      return short
+        ? d.toLocaleDateString(undefined, {
+            day: "numeric", month: "short",
+            ...(d.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}),
+          })
+        : d.toLocaleDateString();
     }
   }
 }
@@ -74,13 +82,6 @@ const STATUS_KEYS: Record<HomeContinueItem["status"], I18nKey> = {
   done: "home.status.done",
   interrupted: "home.status.interrupted",
   idle: "home.status.idle",
-};
-const KIND_KEYS: Record<HomeArtefactKind, I18nKey> = {
-  figure: "home.kind.figure",
-  document: "home.kind.document",
-  code: "home.kind.code",
-  data: "home.kind.data",
-  other: "home.kind.other",
 };
 
 /** Convention 014 : après « Reprendre », le focus va au composer. Exporté pour
@@ -128,7 +129,9 @@ function ContinueCard(p: { item: HomeContinueItem; onResume: ResearchHomeActions
         </div>
         {item.lastAction && <div className="last">{item.lastAction}</div>}
         <div className="act">
-          <Button onClick={() => p.onResume(item.threadId, item.projectRoot)}>
+          {/* L'action de la carte est en relief (--fill-primary) : un contour
+              sur une carte claire se lirait comme un bouton blanc. */}
+          <Button variant="primary" onClick={() => p.onResume(item.threadId, item.projectRoot)}>
             {item.status === "running" ? t("home.back-to-thread") : t("home.resume")}
           </Button>
         </div>
@@ -204,18 +207,18 @@ export function ResearchHome(p: ResearchHomeBundle) {
           <EmptyState
             title={t("discussions.home")}
             description={setupNeeded ? t("setup.needed-home") : t("discussions.description")}
-            actions={
+            // Le champ de message est juste dessous : il EST l'action. Seul le
+            // premier lancement garde ses boutons (configurer d'abord).
+            actions={setupNeeded ? (
               <>
-                {setupNeeded && (
-                  <Button variant="primary" onClick={openSetupWelcome}>
-                    {t("setup.finish-setup")}
-                  </Button>
-                )}
-                <Button variant={setupNeeded ? "secondary" : "primary"} onClick={actions.onNewChat}>
+                <Button variant="primary" onClick={openSetupWelcome}>
+                  {t("setup.finish-setup")}
+                </Button>
+                <Button variant="secondary" onClick={actions.onNewChat}>
                   {t("action.new-chat")}
                 </Button>
               </>
-            }
+            ) : undefined}
           />
         </div>
       </div>
@@ -229,16 +232,11 @@ export function ResearchHome(p: ResearchHomeBundle) {
         {/* Sans conversation, « Nouveau chat » vit déjà dans l'emplacement
             Continuer (SHELL-17) : pas de doublon ici. */}
         {(model.loading || model.continueItem) && <RowButton className="rh-row" onClick={actions.onNewChat}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-            <path d="M8 3.5v9M3.5 8h9" />
-          </svg>
+          <PlusIcon size={14} />
           <span className="name">{t("action.new-chat")}</span>
         </RowButton>}
         <RowButton className="rh-row" onClick={actions.onOpenPalette}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-            <circle cx="7" cy="7" r="4" />
-            <path d="M13 13l-3-3" strokeLinecap="round" />
-          </svg>
+          <SearchIcon size={14} />
           <span className="name">{t("home.search-file")}</span>
         </RowButton>
         <RowButton className="rh-row" onClick={actions.onOpenGallery}>
@@ -246,9 +244,7 @@ export function ResearchHome(p: ResearchHomeBundle) {
           <span className="name">{t("home.open-gallery")}</span>
         </RowButton>
         <RowButton className="rh-row" onClick={actions.onResumeSession}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M8 2.5v8M8 10.5L5 7.7M8 10.5l3-2.8M3 13.5h10" />
-          </svg>
+          <ArrowDownToLineIcon size={14} />
           <span className="name">{t("action.resume-session")}</span>
         </RowButton>
       </div>
@@ -259,19 +255,26 @@ export function ResearchHome(p: ResearchHomeBundle) {
     <section className="rh-section rh-sec-artefacts" aria-label={t("home.artefacts")}>
       <h2>{t("home.artefacts")}</h2>
       <div className="rh-rows">
-        {model.artefacts.map((a) => (
-          <RowButton
-            key={a.rel}
-            className="rh-row"
-            title={`${t("home.open-in-atelier")} — ${a.rel}`}
-            onClick={() => actions.onOpenArtefact(a.rel)}
-          >
-            {KIND_GLYPHS[a.kind]}
-            <span className="name">{a.name}</span>
-            {a.dir && <span className="src">{a.dir}</span>}
-            <span className="kind">{t(KIND_KEYS[a.kind])}</span>
-          </RowButton>
-        ))}
+        {model.artefacts.map((a) => {
+          const when = relLabel(a.relative, true);
+          return (
+            <RowButton
+              key={a.rel}
+              className="rh-row"
+              title={`${t("home.open-in-atelier")} — ${a.rel}`}
+              onClick={() => actions.onOpenArtefact(a.rel)}
+            >
+              {KIND_GLYPHS[a.kind]}
+              {/* Le chemin se lit d'un trait : dossier en retrait, nom en clair.
+                  Le glyphe dit déjà le type ; la colonne de droite dit quand. */}
+              <span className="path">
+                {a.dir && <span className="dir">{a.dir}/</span>}
+                <span className="name">{a.name}</span>
+              </span>
+              {when && <span className="when" title={a.modifiedAtIso ?? undefined}>{when}</span>}
+            </RowButton>
+          );
+        })}
       </div>
     </section>
   );

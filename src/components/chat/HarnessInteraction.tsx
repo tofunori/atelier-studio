@@ -17,6 +17,7 @@ import { Input } from "../shadcn/input";
 import { Field, FieldLabel, FieldTitle } from "../shadcn/field";
 import { Button, RowButton } from "../ui";
 
+import { CircleCheckIcon, CircleQuestionMarkIcon, CircleXIcon, LucideCheck } from "lucide-react";
 // Carte d'approbation (variante C compacte) : chunk à part, budget d'entrée plein.
 const ApprovalCard = lazy(() => import("./ApprovalCard"));
 
@@ -50,9 +51,7 @@ const summaryPairs = (summary: string) => {
 };
 
 const CheckIcon = () => (
-  <svg className="int-choice-check" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M3.5 8.4 6.6 11.4 12.5 4.8" />
-  </svg>
+  <LucideCheck size={12} className="int-choice-check" />
 );
 
 type CardProps = { event: InteractionEvent; threadId: string | null };
@@ -161,12 +160,7 @@ function InteractionCard({ event: e, threadId }: CardProps) {
     return (
       <div className="perm-card int-card int-card--form answered" data-request-id={e.requestId}>
         <div className="int-answered" role="status">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="8" cy="8" r="6.2" />
-            {e.state === "declined" || e.state === "expired"
-              ? <path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" />
-              : <path d="M5.4 8.2 7.2 10l3.4-3.8" />}
-          </svg>
+          {e.state === "declined" || e.state === "expired" ? <CircleXIcon size={14} /> : <CircleCheckIcon size={14} />}
           <span className="int-answered-title">
             {t(e.state === "declined" ? "interaction.declined-title" : e.state === "expired" ? "interaction.expired-title" : "interaction.answered-title")}
           </span>
@@ -185,11 +179,7 @@ function InteractionCard({ event: e, threadId }: CardProps) {
       data-request-id={e.requestId}
     >
       <div className="perm-head">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="8" cy="8" r="6.2" />
-          <path d="M6.4 6.2c.2-1 1-1.6 1.9-1.5 1 .1 1.7.9 1.6 1.8-.1 1.1-1.6 1.2-1.8 2.3" />
-          <path d="M8 11.3h.01" />
-        </svg>
+        <CircleQuestionMarkIcon size={14} />
         <span className="int-title">{title}</span>
         {stepped ? (
           <span className="int-steps" role="tablist" aria-label={t("interaction.questions")}>

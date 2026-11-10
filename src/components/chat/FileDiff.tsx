@@ -10,6 +10,7 @@ import { markHtml, splitHighlightedLines } from "../../lib/chat/diffHtml";
 import { escapeHtml, hasRegisteredLanguage, highlightCode } from "./md";
 import { RowButton } from "../ui";
 
+import { ChevronsUpDownIcon } from "lucide-react";
 /** Au-delà, le reste du fichier s'ouvre dans l'éditeur : le fil n'est pas un
  * visualiseur de gros fichiers. */
 const MAX_ROWS = 1500;
@@ -43,10 +44,7 @@ function highlightRows(rows: DiffRow[], path: string): string[] {
 }
 
 const UnfoldIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M5 5.5 8 2.5l3 3M5 10.5l3 3 3-3" />
-  </svg>
+  <ChevronsUpDownIcon size={12} />
 );
 
 export default function FileDiff({ rows, path, created = false, numbered = true }: {

@@ -21,6 +21,7 @@ import { wsSend } from "../../lib/wsBus";
 import { useIntegrations } from "../../lib/integrations";
 import { ArrowDownIcon, ArrowUpIcon } from "../icons";
 
+import { ChevronLeftIcon, CopyIcon } from "lucide-react";
 // ---- surlignage d'une citation (tâche 6) -----------------------------------
 // Custom Highlight API si `CSS.highlights` existe (mêmes classes que
 // ::highlight(chat-hl), Chat.tsx), sinon classe sur les éléments existants
@@ -188,10 +189,7 @@ export default function SourceReader(p: SourceReaderProps) {
     }}>
       <div className="gbr-bar">
         <RowButton className="gbr-back" onClick={p.onClose}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M15 5l-7 7 7 7" />
-          </svg>
+          <ChevronLeftIcon size={12} />
           {t(cible.kind !== "source" ? "gbr.back" : "gbr.back-base")}
         </RowButton>
         <span className="gbr-slug" title={clef}>{clef}</span>
@@ -235,10 +233,7 @@ export default function SourceReader(p: SourceReaderProps) {
             size="s" className="ghost" label={t("gbr.copy")} title={t("gbr.copy")}
             onClick={() => { void navigator.clipboard?.writeText(etat.markdown); }}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 012-2h8" />
-            </svg>
+            <CopyIcon size={14} />
           </IconButton>
         )}
       </div>

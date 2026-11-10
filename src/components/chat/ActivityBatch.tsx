@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react';
 import { ActivityDisclosure, RowButton } from "../ui";
+import { TriangleAlertIcon } from "lucide-react";
 import type { ToolAction } from '../../lib/chat/turnViewModel';
 import type { AgentEvent } from '../../lib/ws';
 import { isStoppedTerminal } from '../../lib/chat/turnViewModel';
@@ -108,10 +109,7 @@ function inlineCode(text: string): ReactNode {
 export function ActivityErrorLeaf({ message }: { message: string }) {
   return (
     <div className="activity-batch-error" role="alert">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M8 2.2 14.5 13.5H1.5z" />
-        <path d="M8 6.5v3.2M8 11.9v.1" />
-      </svg>
+      <TriangleAlertIcon size={14} />
       <span>{message}</span>
     </div>
   );

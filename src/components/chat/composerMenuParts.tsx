@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { ChevronRightIcon, StarIcon } from "lucide-react";
 /** Pièces communes des menus du compositeur (variante C « panneau de
  *  réglages », choisie par Thierry le 2026-11-09) : un titre avec la valeur
  *  en vigueur à droite, un interrupteur pour ce qui s'allume ou s'éteint, un
@@ -25,19 +26,13 @@ export function MenuRadio(p: { on: boolean }) {
 
 export function MenuChevron() {
   return (
-    <svg className="cm-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m6 4 4 4-4 4" />
-    </svg>
+    <ChevronRightIcon size={12} className="cm-chev" />
   );
 }
 
 /** Étoile des favoris : trait fin, pleine quand le modèle est favori. */
 export function MenuStar(p: { on: boolean }) {
   return (
-    <svg className="cm-star" viewBox="0 0 16 16" fill={p.on ? "currentColor" : "none"} stroke="currentColor"
-      strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 2.2l1.75 3.6 3.95.55-2.87 2.77.7 3.93L8 11.2l-3.53 1.85.7-3.93L2.3 6.35l3.95-.55z" />
-    </svg>
+    <StarIcon size={14} className="cm-star" fill={p.on ? "currentColor" : "none"} />
   );
 }

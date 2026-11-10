@@ -61,6 +61,9 @@ export type HomeArtefact = {
   /** dossier parent (source) ; "" à la racine */
   dir: string;
   kind: HomeArtefactKind;
+  /** date de modification sur disque (catalogue natif) ; null si inconnue */
+  modifiedAtIso: string | null;
+  relative: HomeRelativeDate | null;
 };
 
 /** Connexion sidecar en trois états : `connecting` = démarrage à froid (jamais
@@ -98,6 +101,9 @@ export type ResearchHomeInputs = {
   usageByThread: Record<string, unknown>;
   /** fichiers récemment ouverts (ordre = récence) — filtrés ICI par `files` */
   recentFiles: string[];
+  /** date de modification (ms Unix) par chemin relatif, fournie par le
+   * catalogue natif ; absente avec un ancien backend → aucune date affichée */
+  recentFileTimes?: Record<string, number>;
   /** liste des fichiers du projet actif : les artefacts d'un autre projet
    * (chemin absent de cette liste) sont exclus */
   files: string[];
@@ -245,7 +251,12 @@ export function deriveResearchHomeModel(inputs: ResearchHomeInputs): ResearchHom
     .map((rel) => {
       const segs = rel.split("/");
       const name = segs[segs.length - 1] || rel;
-      return { rel, name, dir: segs.slice(0, -1).join("/"), kind: artefactKind(rel) };
+      const ms = inputs.recentFileTimes?.[rel];
+      const when = parseWhen(typeof ms === "number" && ms > 0 ? new Date(ms).toISOString() : null, now);
+      return {
+        rel, name, dir: segs.slice(0, -1).join("/"), kind: artefactKind(rel),
+        modifiedAtIso: when.iso, relative: when.relative,
+      };
     });
 
   const projectName = inputs.projectName || activeProject.split("/").filter(Boolean).pop() || activeProject;

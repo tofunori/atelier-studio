@@ -5,6 +5,7 @@
 // plus grandes pour s'aligner sur les icônes Chats/Surlignés du rail (19px).
 import { BookIcon, BranchIcon } from "./icons";
 
+import { BookMarkedIcon, BracketsIcon, ClockIcon, FileTextIcon, GlobeIcon, HistoryIcon, LayoutGridIcon, PinIcon, SparklesIcon, SquareTerminalIcon } from "lucide-react";
 export type Surface = "atelier" | "browser" | "terminal" | "git" | "historique" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves" | "noyau" | "documents";
 
 export const SURFACES: {
@@ -16,12 +17,7 @@ export const SURFACES: {
     id: "atelier",
     labelKey: "atelier.surface",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-        <rect x="1.5" y="1.5" width="5.2" height="5.2" rx="1" />
-        <rect x="9.3" y="1.5" width="5.2" height="5.2" rx="1" />
-        <rect x="1.5" y="9.3" width="5.2" height="5.2" rx="1" />
-        <rect x="9.3" y="9.3" width="5.2" height="5.2" rx="1" />
-      </svg>
+      <LayoutGridIcon size={19} />
     ),
   },
   {
@@ -29,30 +25,21 @@ export const SURFACES: {
     id: "documents",
     labelKey: "atelier.documents",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 1.8h5.2L12.5 5v8.2c0 .6-.4 1-1 1h-7.5c-.6 0-1-.4-1-1V2.8c0-.6.4-1 1-1z" />
-        <path d="M9 1.8V5h3.5M5.5 8.2h5M5.5 10.6h3.5" />
-      </svg>
+      <FileTextIcon size={19} />
     ),
   },
   {
     id: "browser",
     labelKey: "atelier.browser",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-        <circle cx="8" cy="8" r="6.2" />
-        <path d="M1.8 8h12.4M8 1.8c2.2 2 2.2 10.4 0 12.4M8 1.8c-2.2 2-2.2 10.4 0 12.4" />
-      </svg>
+      <GlobeIcon size={19} />
     ),
   },
   {
     id: "terminal",
     labelKey: "atelier.terminal",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-        <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
-        <path d="M4.5 6l2.2 2-2.2 2M8.5 10.5h3" />
-      </svg>
+      <SquareTerminalIcon size={19} />
     ),
   },
   {
@@ -65,9 +52,7 @@ export const SURFACES: {
     id: "historique",
     labelKey: "atelier.historique",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M2.4 2.8v2.8h2.8M2.7 5.6A5.6 5.6 0 1 1 2.4 8M8 5v3l2 1.3" />
-      </svg>
+      <HistoryIcon size={19} />
     ),
   },
   {
@@ -81,10 +66,7 @@ export const SURFACES: {
     id: "connaissances",
     labelKey: "atelier.connaissances",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-        <path d="M3 12.2V3.9c0-.8.6-1.4 1.4-1.4h7.4v8.4H4.4c-.8 0-1.4.6-1.4 1.3s.6 1.4 1.4 1.4h5.1" />
-        <circle cx="12.6" cy="12.6" r="1.7" />
-      </svg>
+      <BookMarkedIcon size={19} />
     ),
   },
   {
@@ -94,10 +76,7 @@ export const SURFACES: {
     id: "preuves",
     labelKey: "atelier.preuves",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M6.6 2.6h2.8l-.4 4.2 2.4 2.4H4.6l2.4-2.4z" />
-        <path d="M8 9.2v4.2" />
-      </svg>
+      <PinIcon size={19} />
     ),
   },
   {
@@ -106,10 +85,7 @@ export const SURFACES: {
     id: "calculs",
     labelKey: "atelier.calculs",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="8" cy="8" r="6.2" />
-        <path d="M8 4.4V8l2.4 1.6" />
-      </svg>
+      <ClockIcon size={19} />
     ),
   },
   {
@@ -118,19 +94,14 @@ export const SURFACES: {
     id: "noyau",
     labelKey: "atelier.noyau",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M5.5 2.5h-2v11h2M10.5 2.5h2v11h-2M6.5 8h3" />
-      </svg>
+      <BracketsIcon size={19} />
     ),
   },
   {
     id: "generateur",
     labelKey: "atelier.generateur",
     icon: (
-      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M8 1.6l1 3 3 1-3 1-1 3-1-3-3-1 3-1z" />
-        <path d="M13 9.4l.55 1.65 1.65.55-1.65.55-.55 1.65-.55-1.65-1.65-.55 1.65-.55z" />
-      </svg>
+      <SparklesIcon size={19} />
     ),
   },
 ];

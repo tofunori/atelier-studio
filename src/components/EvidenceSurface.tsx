@@ -22,6 +22,7 @@ import { CopyIcon } from "./icons";
 import { EmptyState, IconButton, RowButton, SurfaceHeader } from "./ui";
 import { showSuccess } from "./ui/toast";
 
+import { LucidePin } from "lucide-react";
 type EvidenceGroup = { key: string | null; pins: EvidencePin[] };
 
 /** Groupe les épingles par phrase appuyée (`supports.text`, `null` = « Sans
@@ -50,11 +51,7 @@ function groupPins(pins: EvidencePin[]): EvidenceGroup[] {
 
 function PinIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6.6 2.6h2.8l-.4 4.2 2.4 2.4H4.6l2.4-2.4z" />
-      <path d="M8 9.2v4.2" />
-    </svg>
+    <LucidePin size={12} />
   );
 }
 

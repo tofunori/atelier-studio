@@ -8,9 +8,10 @@ import { figureCell, kernelCommand } from "../lib/kernel";
 import { saveLocalImageToGallery } from "../lib/localImage";
 import { IconButton } from "./ui";
 
-const GALLERY = <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="5.2" height="5.2" rx="1" /><rect x="9.3" y="1.5" width="5.2" height="5.2" rx="1" /><rect x="1.5" y="9.3" width="5.2" height="5.2" rx="1" /><rect x="9.3" y="9.3" width="5.2" height="5.2" rx="1" /></svg>;
-const SAVE = <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h8l2 2v9H3z" /><path d="M5.5 2.5v3.5h5V2.5M5.5 13.5V9.5h5v4" /></svg>;
-const CHECK = <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>;
+import { CheckIcon, LayoutGridIcon, SaveIcon } from "lucide-react";
+const GALLERY = <LayoutGridIcon size={14} />;
+const SAVE = <SaveIcon size={14} />;
+const CHECK = <CheckIcon size={12} />;
 
 export function FigureGalleryBar({ path, threadId, cell, saved: known = null, onSaved, children }: {
   path: string;

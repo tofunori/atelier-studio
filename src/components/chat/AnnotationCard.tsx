@@ -15,7 +15,7 @@ export function AnnotationCard({ annotation }: { annotation: Annotation }) {
       <FileText size={16} aria-hidden="true" />
       <span className="chat-annotation-name">{annotation.name}</span>
       {annotation.location && <span className="chat-annotation-location">· {annotation.location}</span>}
-      <ArrowUpRight size={15} className="chat-annotation-open" aria-hidden="true" />
+      <ArrowUpRight size={14} className="chat-annotation-open" aria-hidden="true" />
     </RowButton>
     <blockquote className={`chat-annotation-quote${long && !expanded ? ' is-collapsed' : ''}`}>{annotation.quote}</blockquote>
     {long && <RowButton className="chat-annotation-expand" aria-expanded={expanded}

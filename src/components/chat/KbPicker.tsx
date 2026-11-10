@@ -19,7 +19,7 @@ import {
 import { useKbActions } from "./kbActions";
 import { Popover, PopoverContent, PopoverTrigger } from "../shadcn/popover";
 import { Checkbox, CheckboxIndicator } from "../shadcn/checkbox";
-import { Search, Plus, BookOpen } from "lucide-react";
+import { ArchiveIcon, ArrowUpFromLineIcon, BookOpen, ChevronDownIcon, ChevronRightIcon, FileIcon, FilePlusIcon, FileTextIcon, FolderIcon, GlobeIcon, ListFilterIcon, MaximizeIcon, NotepadTextIcon, Plus, RotateCwIcon, Search, SquarePlayIcon, type LucideIcon, WaypointsIcon } from "lucide-react";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../shadcn/input-group";
 import { Input } from "../shadcn/input";
 import { Button } from "../ui/Button";
@@ -74,74 +74,24 @@ function fmtChars(chars: number): string {
   return chars < 1000 ? String(chars) : `${Math.round(chars / 1000)}k`;
 }
 
-export function KindIcon({ kind, size = 13 }: { kind: string; size?: number }) {
-  const common = {
-    width: size, height: size, viewBox: "0 0 16 16", fill: "none",
-    stroke: "currentColor", strokeWidth: 1.3,
-  } as const;
-  if (kind === "pdf") {
-    return (
-      <svg {...common}>
-        <path d="M4 1.8h6l3 3v9.4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" />
-        <path d="M10 1.8v3h3M5.5 9h5M5.5 11.5h3.5" />
-      </svg>
-    );
-  }
-  if (kind === "web") {
-    return (
-      <svg {...common}>
-        <circle cx="8" cy="8" r="6.2" />
-        <path d="M1.8 8h12.4M8 1.8a10 10 0 0 1 0 12.4M8 1.8a10 10 0 0 0 0 12.4" />
-      </svg>
-    );
-  }
-  if (kind === "note") {
-    return (
-      <svg {...common}>
-        <path d="M3.5 2.5h9a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z" />
-        <path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" />
-      </svg>
-    );
-  }
-  if (kind === "folder") {
-    return (
-      <svg {...common}>
-        <path d="M1.8 4.6c0-.7.6-1.3 1.3-1.3h3l1.5 1.5h5.6c.7 0 1.3.6 1.3 1.3v6c0 .7-.6 1.3-1.3 1.3H3.1c-.7 0-1.3-.6-1.3-1.3v-7.5z" />
-      </svg>
-    );
-  }
-  if (kind === "youtube") {
-    return (
-      <svg {...common}>
-        <rect x="1.8" y="3.2" width="12.4" height="9.6" rx="2" />
-        <path d="m6.6 6 3.4 2-3.4 2V6z" />
-      </svg>
-    );
-  }
-  if (kind === "gbrain" || kind === "ragdoc") {
-    return (
-      <svg {...common}>
-        <circle cx="3.5" cy="8" r="1.7" />
-        <circle cx="12" cy="3.8" r="1.7" />
-        <circle cx="12" cy="12.2" r="1.7" />
-        <path d="m5 7.2 5.5-2.7M5 8.8l5.5 2.7" />
-      </svg>
-    );
-  }
+const KIND_GLYPHS: Record<string, LucideIcon> = {
+  pdf: FileTextIcon, web: GlobeIcon, note: NotepadTextIcon, folder: FolderIcon, youtube: SquarePlayIcon,
+  gbrain: WaypointsIcon, ragdoc: WaypointsIcon,
+};
+
+export function KindIcon({ kind, size = 14 }: { kind: string; size?: number }) {
   if (kind === "zotero") {
+    // marque Zotero : dessin propre, hors famille d'icônes
     return (
-      <svg {...common}>
+      <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3}
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2" />
         <path d="M5.5 5.3h5L5.5 10.7h5" />
       </svg>
     );
   }
-  return (
-    <svg {...common}>
-      <path d="M4 1.8h6l3 3v9.4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" />
-      <path d="M10 1.8v3h3" />
-    </svg>
-  );
+  const Glyph = KIND_GLYPHS[kind] ?? FileIcon;
+  return <Glyph size={size} />;
 }
 
 function BookIcon() {
@@ -150,9 +100,7 @@ function BookIcon() {
 
 function ExpandIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-      <path d="M6.5 2.5h-4v4M9.5 13.5h4v-4M13.5 6.5v-4h-4M2.5 9.5v4h4" />
-    </svg>
+    <MaximizeIcon size={12} />
   );
 }
 
@@ -393,9 +341,7 @@ export function KbPickerPanel(p: {
               title={t("kb.gbrain-resync")}
               onClick={() => p.onResync?.(source.meta?.slug as string)}
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.8v2.7h-2.7" />
-              </svg>
+              <RotateCwIcon size={12} />
             </IconButton>
           )}
           {p.onPromote && (
@@ -406,10 +352,7 @@ export function KbPickerPanel(p: {
               title={p.promoted === source.id ? t("kb.promoted") : t("kb.promote")}
               onClick={() => p.onPromote?.(source.id)}
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <path d="M8 12.5V4M4.5 7.5 8 4l3.5 3.5" />
-                <path d="M3 14h10" />
-              </svg>
+              <ArrowUpFromLineIcon size={12} />
             </IconButton>
           )}
           {p.onPromotePage && (
@@ -420,10 +363,7 @@ export function KbPickerPanel(p: {
               title={t("kb.promote-page")}
               onClick={() => p.onPromotePage?.(source.id)}
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <path d="M4 1.8h6l3 3v9.4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" />
-                <path d="M10 1.8v3h3M8 7.5v4M6 9.5h4" />
-              </svg>
+              <FilePlusIcon size={12} />
             </IconButton>
           )}
           <IconButton
@@ -449,9 +389,7 @@ export function KbPickerPanel(p: {
                   label={t("kb.collections-menu")}
                   title={t("kb.collections-menu")}
                 >
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                    <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" />
-                  </svg>
+                  <ListFilterIcon size={12} />
                 </IconButton>
               )}
               items={(p.collections ?? []).map((coll) => {
@@ -474,9 +412,7 @@ export function KbPickerPanel(p: {
               title={source.archived ? t("kb.unarchive") : t("kb.archive")}
               onClick={() => p.onArchive?.(source.id, source.archived === true)}
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <path d="M2.2 3h11.6v3H2.2zM3.2 6v6.5a.8.8 0 0 0 .8.8h8a.8.8 0 0 0 .8-.8V6M6.5 9h3" />
-              </svg>
+              <ArchiveIcon size={12} />
             </IconButton>
           )}
           <IconButton
@@ -514,9 +450,7 @@ export function KbPickerPanel(p: {
             onClick={() => setSortMode((mode) => mode === "recent" ? "alpha" : mode === "alpha" ? "size" : "recent")}
           >
             {t(sortMode === "recent" ? "kb.sort-recent" : sortMode === "alpha" ? "kb.sort-alpha" : "kb.sort-size")}
-            <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-              <path d="m4 6 4 4 4-4" />
-            </svg>
+            <ChevronDownIcon size={12} />
           </RowButton>
         )}
         {surface ? <Input className="kb-search" aria-label={t("kb.search")} placeholder={t("kb.search")}
@@ -747,9 +681,7 @@ export function KbPickerPanel(p: {
                     }
                   }}
                 >
-                  <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-                    {open ? <path d="m4 6 4 4 4-4" /> : <path d="m6 4 4 4-4 4" />}
-                  </svg>
+                  {open ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
                   <span>{label}</span>
                   <span className="kb-group-count">— {group.length}</span>
                 </RowButton>

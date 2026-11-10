@@ -2,7 +2,11 @@
 // depuis Chat.tsx : résumé de grappes d'outils, ligne de sortie d'outil,
 // icônes de type de fichier. Aucune logique modifiée.
 import { memo, useMemo, useState, type ReactNode } from "react";
-import { CheckIcon } from "lucide-react";
+import {
+  BanIcon, BookOpenIcon, BoxIcon, ChartColumnIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderIcon,
+  GlobeIcon, GraduationCapIcon, ImagesIcon, Link2Icon, LightbulbIcon, ListChecksIcon, NetworkIcon, PencilIcon,
+  SearchIcon, ShieldCheckIcon, ShrinkIcon, SquareTerminalIcon, XIcon, type LucideIcon,
+} from "lucide-react";
 import type { ChatTurnViewModel } from "../../lib/chat/turnViewModel";
 import { AgentEvent } from "../../lib/ws";
 import { eventLabel, getResolvedLanguage, t } from "../../lib/i18n";
@@ -215,17 +219,23 @@ function toolPhrase(action: ToolAction): string {
 
 /** État d'une rangée, dans sa colonne fixe : anneau fin pendant l'exécution,
  * coche neutre une fois faite, croix (seule couleur) en cas d'échec. */
-const STATE_GLYPH = { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
-  strokeWidth: 1.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
 export function ToolStateGlyph({ outcome }: { outcome: ToolOutcome | "none" }) {
-  const c = STATE_GLYPH;
   if (outcome === "running") {
-    return <svg {...c} className="tool-run-ring"><circle cx="8" cy="8" r="5.5" opacity=".28" /><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" /></svg>;
+    // anneau de progression : dessin propre à l'app, hors famille d'icônes
+    return (
+      <svg className="tool-run-ring" width={12} height={12} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+        strokeWidth={1.4} strokeLinecap="round" aria-hidden="true">
+        <circle cx="8" cy="8" r="5.5" opacity=".28" /><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" />
+      </svg>
+    );
   }
-  if (outcome === "done") return <svg {...c} className="tool-status-icon"><path d="M3.5 8.5l3 3 6-7" /></svg>;
-  if (outcome === "failed") return <svg {...c} className="tool-status-icon"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg>;
+  if (outcome === "done") return <CheckIcon className="tool-status-icon" size={12} />;
+  if (outcome === "failed") return <XIcon className="tool-status-icon" size={12} />;
   return null;
 }
+/** Bouclier d'une action que l'utilisateur a autorisée : le reçu d'autorisation
+ * n'a plus sa ligne, il vit dans la colonne d'état de l'action. */
+const AuthorizedGlyph = () => <ShieldCheckIcon className="tool-status-icon" size={12} />;
 
 /** Nom porté par l'input d'un appel : le fichier, le motif, ou la première
  * ligne de la commande. Sert à nommer une rangée dont le libellé sémantique
@@ -249,8 +259,10 @@ export function toolInputName(input: unknown): string {
 }
 
 export const ToolOutputLine = memo(function ToolOutputLine(
-  { event, expanded, onExpandedChange, compact = false, preview }: {
+  { event, expanded, onExpandedChange, compact = false, preview, authorized }: {
     event: Extract<AgentEvent, { kind: "tool_update" }>;
+    /** Verdict de l'autorisation donnée pour cette action (« Commande autorisée »). */
+    authorized?: string;
     expanded?: boolean;
     onExpandedChange?: (open: boolean) => void;
     compact?: boolean;
@@ -292,7 +304,10 @@ export const ToolOutputLine = memo(function ToolOutputLine(
       && isJsonText(trimmedOutput),
     [cleanOutput.length, trimmedOutput],
   );
-  const failedTitle = failed ? t("chat.action-failed") : undefined;
+  // Colonne d'état : la réussite est l'état normal et ne se signale pas. Seuls
+  // parlent le travail en cours, l'échec et l'autorisation donnée.
+  const shield = outcome === "done" && authorized ? authorized : undefined;
+  const failedTitle = failed ? t("chat.action-failed") : shield;
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""} ${outcome === "done" ? "is-done" : ""}${compact ? " is-compact" : ""}`}>
       <RowButton className="tool-output-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -316,7 +331,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
                 : event.durationMs != null && event.durationMs > 0 ? fmtToolDur(event.durationMs) : null}
             </span>
             <span className="tool-status" title={failedTitle} aria-label={failedTitle}>
-              <ToolStateGlyph outcome={outcome} />
+              {shield ? <AuthorizedGlyph /> : outcome === "done" ? null : <ToolStateGlyph outcome={outcome} />}
             </span>
             <Tick open={open} />
           </>
@@ -331,8 +346,8 @@ export const ToolOutputLine = memo(function ToolOutputLine(
         {/* La COULEUR est réservée à l'échec (système de design) : une action
             réussie n'a qu'une coche neutre, sans le mot d'état brut du provider. */}
         {!compact && event.status && (
-          <span className="tool-status">
-            {outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
+          <span className="tool-status" title={shield} aria-label={shield}>
+            {shield ? <AuthorizedGlyph /> : outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
             {failed && t("chat.action-failed")}
           </span>
         )}
@@ -885,41 +900,24 @@ export function tickerRows(
   });
 }
 
+const TOOL_GLYPHS: Record<string, LucideIcon> = {
+  command: SquareTerminalIcon, thinking: LightbulbIcon, edit: PencilIcon, search: SearchIcon,
+  read: BookOpenIcon, list: FolderIcon, web: GlobeIcon, todo: ListChecksIcon,
+  permission: ShieldCheckIcon, image: ImagesIcon, visualization: ChartColumnIcon,
+  integration: Link2Icon, skill: GraduationCapIcon, agent: NetworkIcon, compaction: ShrinkIcon,
+  interrupted: BanIcon,
+};
+
 export function ToolGlyph({ icon }: { icon: ActivityIcon }) {
   if (icon.imageUrl) {
     return <img className="ui-activity-source-icon" src={icon.imageUrl} alt="" title={icon.label} />;
   }
-  const { cat } = icon;
-  const c = { width: 15, height: 15, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
-    strokeWidth: 1.35, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-  switch (cat) {
-    case "command": return <svg {...c}><rect x="1.5" y="3" width="13" height="10" rx="2" /><path d="M4.4 6.4 6.2 8l-1.8 1.6M8.4 10h3.2" /></svg>;
-    case "thinking": return <svg {...c}><path d="M5.6 11.2a4.6 4.6 0 1 1 4.8 0v1.4H5.6z" /><path d="M6.4 14.6h3.2" /></svg>;
-    case "edit": return <svg {...c}><path d="M12.2 1.6 14.4 3.8 5.5 12.7l-3 .8.8-3z" /><path d="M10.6 3.2 12.8 5.4" /></svg>;
-    case "search": return <svg {...c}><circle cx="7" cy="7" r="4.3" /><path d="M10.4 10.4 14 14" /></svg>;
-    case "read": return <svg {...c}><path d="M2.2 3.1c2.1-.5 4-.1 5.8 1.2v9c-1.8-1.3-3.7-1.7-5.8-1.2zM13.8 3.1c-2.1-.5-4-.1-5.8 1.2v9c1.8-1.3 3.7-1.7 5.8-1.2z" /></svg>;
-    case "list": return <svg {...c}><path d="M1.8 4.4h4l1.3 1.5h7.1v6.7H1.8z" /><path d="M1.8 5.9V3.4h4.6l1 1" /></svg>;
-    case "web": return <svg {...c}><circle cx="8" cy="8" r="5.6" /><path d="M2.4 8h11.2M8 2.4c1.7 1.7 1.7 9.5 0 11.2M8 2.4c-1.7 1.7-1.7 9.5 0 11.2" /></svg>;
-    case "todo": return <svg {...c}><path d="M3 4.4 4.1 5.5 6 3.4M3 10.6 4.1 11.7 6 9.6M8.4 4.6h4.6M8.4 10.8h4.6" /></svg>;
-    case "permission": return <svg {...c}><path d="M8 1.8 13 3.8v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" /><path d="m5.6 8 1.5 1.5 3.4-3.4" /></svg>;
-    case "image": return <svg {...c}><rect x="3.2" y="1.8" width="10.8" height="9.6" rx="1.6" /><path d="M3.2 4H2.6A1.6 1.6 0 0 0 1 5.6v6.8A1.6 1.6 0 0 0 2.6 14h8.8a1.6 1.6 0 0 0 1.6-1.6v-1" /><circle cx="6.4" cy="5" r="1" /><path d="m4.5 9 2.2-2.2 1.8 1.7 1.4-1.3 2 1.8" /></svg>;
-    case "visualization": return <svg {...c}><path d="M2.2 13.5V8.8h2.6v4.7M6.7 13.5V5.4h2.6v8.1M11.2 13.5V2.2h2.6v11.3M1.5 13.5h13" /></svg>;
-    case "integration": return <svg {...c}><path d="M6.2 5.1 4.4 3.3a2.1 2.1 0 0 0-3 3l2.2 2.2a2.1 2.1 0 0 0 3 0l.7-.7M9.8 10.9l1.8 1.8a2.1 2.1 0 0 0 3-3l-2.2-2.2a2.1 2.1 0 0 0-3 0l-.7.7M5.8 10.2l4.4-4.4" /></svg>;
-    case "skill": return <svg {...c}><path d="m8 1.8 1.5 3.1 3.5.5-2.5 2.5.6 3.5L8 9.8l-3.1 1.6.6-3.5L3 5.4l3.5-.5z" /><path d="M4 13.8h8" /></svg>;
-    case "agent": return <svg {...c}><circle cx="8" cy="4" r="2" /><circle cx="3.2" cy="11.5" r="1.7" /><circle cx="12.8" cy="11.5" r="1.7" /><path d="M8 6v2M4.7 10.2 8 8l3.3 2.2" /></svg>;
-    case "compaction": return <svg {...c}><path d="M2 5h4V1M14 5h-4V1M2 11h4v4M14 11h-4v4" /><path d="m6 5-4-4M10 5l4-4M6 11l-4 4M10 11l4 4" /></svg>;
-    case "interrupted": return <svg {...c}><circle cx="8" cy="8" r="5.6" /><path d="m5.2 5.2 5.6 5.6" /></svg>;
-    default: return <svg {...c}><path d="m8 1.7 5.5 3.15v6.3L8 14.3l-5.5-3.15v-6.3ZM2.5 4.85 8 8l5.5-3.15M8 8v6.3" /></svg>;
-  }
+  const Glyph = TOOL_GLYPHS[icon.cat] ?? BoxIcon;
+  return <Glyph size={14} />;
 }
 
 /** Chevron trait fin partagé (remplace les ▸/▾ texte, hors système). */
 export function Tick({ open }: { open?: boolean }) {
-  return (
-    <svg className="tool-tick" width="10" height="10" viewBox="0 0 16 16" fill="none"
-      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
-      aria-hidden="true">
-      {open ? <path d="M3.5 6l4.5 4.5L12.5 6" /> : <path d="M6 3.5l4.5 4.5L6 12.5" />}
-    </svg>
-  );
+  const Glyph = open ? ChevronDownIcon : ChevronRightIcon;
+  return <Glyph className="tool-tick" size={12} />;
 }

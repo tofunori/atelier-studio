@@ -16,6 +16,7 @@ import { useSmoothedStream } from "./useSmoothedStream";
 import type { ChangedFile } from "./changedFiles";
 import { countChanges, diffLines, parseUnifiedDiff, type DiffRow } from "../../lib/chat/lineDiff";
 
+import { ExternalLinkIcon, LucideFilePlus, LucidePencil, PinIcon } from "lucide-react";
 const FileDiff = lazy(() => import("./FileDiff"));
 type ChatDiffPayload = { diff: string; before?: string; after?: string; binary?: boolean; error?: string };
 
@@ -379,27 +380,19 @@ function EditLineCard({ path, baseSha, created, view, git }: {
 
 function FilePlusIcon() {
   return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9.2 1.8H4v12.4h8V4.6z" />
-      <path d="M9 1.8v3h3M8 7.4v4.2M5.9 9.5h4.2" />
-    </svg>
+    <LucideFilePlus size={14} />
   );
 }
 
 function OpenIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9.5 2.5h4v4M13.5 2.5 8 8" />
-      <path d="M12 9.5v3.2c0 .5-.4.8-.8.8H3.3c-.5 0-.8-.3-.8-.8V4.8c0-.4.3-.8.8-.8h3.2" />
-    </svg>
+    <ExternalLinkIcon size={12} />
   );
 }
 
 export function PencilIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11.3 2.3l2.4 2.4L5.4 13H3v-2.4z" />
-    </svg>
+    <LucidePencil size={12} />
   );
 }
 
@@ -806,10 +799,7 @@ export function PinBtn({ pinned, onClick }: { pinned: boolean; onClick: () => vo
         aria-pressed={pinned}
         className={`msg-action${pinned ? " is-active" : ""}`}
       >
-        <svg data-icon="inline-start" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-          <path d="M9.5 2.5l4 4-3 1-2.5 4.5-4-4L8.5 5.5l1-3z" />
-          <path d="M5.5 10.5L2.5 13.5" />
-        </svg>
+        <PinIcon size={12} data-icon="inline-start" />
       </IconButton>
     </Tooltip>
   );

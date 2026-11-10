@@ -85,7 +85,7 @@ test('tool disclosures keep readable sizing, a row-end chevron and keyboard acce
   await expect(trigger).toBeVisible();
   await expect(trigger).toHaveCSS('font-size', '13px');
   await expect(trigger).toHaveCSS('min-height', '36px');
-  await expect(trigger.locator('.ui-activity-icon svg')).toHaveCSS('width', '15px');
+  await expect(trigger.locator('.ui-activity-icon svg')).toHaveCSS('width', '14px');
   // Le chevron ferme la rangée (même colonne que les rangées d'outil), il
   // n'est plus collé au libellé : il ne peut donc plus mordre sur son fondu.
   const row = (await trigger.boundingBox())!;

@@ -1,6 +1,6 @@
 // Shared project actions and appearance panel for the rail and sidebar.
 import { useLayoutEffect, useRef, useState } from "react";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, Trash2Icon } from "lucide-react";
 import { t } from "../../lib/i18n";
 import { PROJ_COLORS, PROJ_ICONS, ProjIcon } from "./projectIcons";
 import { Input } from "../shadcn/input";
@@ -95,7 +95,7 @@ export function ProjectStyleMenu(props: {
           <ProjIcon name="pencil" size={16} /><span>{t("project.menu-customize")}</span><ChevronRightIcon aria-hidden="true" className="project-context-chevron" />
         </MenuPanelItem>
         {onRemove && <><Separator className="project-context-divider" /><MenuPanelItem className="project-context-action project-context-danger" onClick={() => { onRemove(root); onClose(); }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M3 4h10M6 4V2h4v2M4 4l.6 10h6.8L12 4M6.5 6.5v5M9.5 6.5v5" /></svg>
+          <Trash2Icon size={16} />
           <span>{t("project.remove")}</span>
         </MenuPanelItem></>}
       </div> : <div className="project-context-appearance">

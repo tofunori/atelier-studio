@@ -11,6 +11,7 @@ import { CloseIcon, RefreshIcon, StarFilledIcon, StarIcon } from "./icons";
 import { Input } from "./shadcn/input";
 import { Button, IconButton, RowButton, showError, showSuccess } from "./ui";
 
+import { BookPlusIcon, CheckIcon, MessageCircleIcon } from "lucide-react";
 type LocalServer = { port: number; title: string | null };
 type BrowserAddMode = "selection" | "page";
 type BrowserCapture = { text: string; title: string; url: string };
@@ -628,11 +629,7 @@ export default function BrowserTab(p: {
               else void addCurrentPageToChat();
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16"
-              fill={chatButtonState(hasSelection).filled ? "currentColor" : "none"}
-              stroke="currentColor" strokeWidth="1.3">
-              <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
-            </svg>
+            <MessageCircleIcon size={14} fill={chatButtonState(hasSelection).filled ? "currentColor" : "none"} />
           </IconButton>
           <IconButton
             size="s"
@@ -644,14 +641,9 @@ export default function BrowserTab(p: {
           >
             {kbFlash === "ok" ? (
               // confirmation visible : coche accent pendant le flash
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-                <path d="m2.8 8.6 3.4 3.4 7-7.4" />
-              </svg>
+              <CheckIcon size={14} />
             ) : (
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
-                <path d="M6.8 6.4h3.4M8.5 4.7v3.4" />
-              </svg>
+              <BookPlusIcon size={14} />
             )}
           </IconButton>
           <IconButton

@@ -4,6 +4,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import {groupAgentRows} from './chat/groupAgentRows';
 import type { LinkedAgentSummary } from "../lib/threadLinks";
 import { groupActivityRows } from './chat/groupActivityRows';
+import { fuseApprovals } from './chat/approvalFusion';
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
@@ -53,6 +54,7 @@ import {
 
 
 
+import { ArrowLeftIcon, InfoIcon, TriangleAlertIcon } from "lucide-react";
 // Cas particulier documenté (plan 025, step 9) : le harnais Grok n'a PAS
 // d'effort « Auto » ("") — il exige un effort explicite (défaut "high" dans
 // DEFAULT_SETTINGS) et son catalogue liste déjà minimal…max au complet. Le
@@ -982,6 +984,8 @@ export default function Chat(p: {
     return "id" in action && action.id ? String(action.id) : `event:${at}`;
   };
 
+  // Reçus d'autorisation simples : fondus en bouclier dans la rangée de l'action.
+  const fused = React.useMemo(() => fuseApprovals(projectedTimeline), [projectedTimeline]);
   const renderedEvents = React.useMemo(() => {
     const rows: Array<
       ProjectedTimelineItem |
@@ -992,7 +996,7 @@ export default function Chat(p: {
       toolCategory(row.event.name, "detail" in row.event ? row.event.detail : undefined) === "edit";
     // Les outils gardent leur position chronologique pendant le tour.
     // Le regroupement terminal est déjà porté par projectChatTimeline.
-    const visibleTimeline = projectedTimeline;
+    const visibleTimeline = fused.rows;
     for (let offset = 0; offset < visibleTimeline.length; offset += 1) {
       const row = visibleTimeline[offset];
       if (row.type !== "event") {
@@ -1039,7 +1043,7 @@ export default function Chat(p: {
       offset = nextOffset - 1;
     }
     return groupAgentRows(groupActivityRows(rows), turnViewModels, p.events);
-  }, [editTurns, mergedEdits, p.events, projectedTimeline, turnViewModels]);
+  }, [editTurns, mergedEdits, p.events, fused, turnViewModels]);
 
   // À la fin du tour, le pli se ferme TOUJOURS : le travail intermédiaire
   // (outils, narrations d'étape) se regroupe sous « A travaillé pendant… »,
@@ -1068,6 +1072,8 @@ export default function Chat(p: {
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     const imagePaths = imagePathsForActions([e]);
+    const receipt = e.kind === "tool_update" ? fused.shields.get(e.id) : undefined;
+    const authorized = receipt && t(receipt.title === "Exécution de commande" ? "interaction.cmd-allowed" : "interaction.req-allowed");
     const detailKey = `${p.threadId}:${actionId(e, Number(key) || 0)}`;
     if (imagePaths.length > 0 && e.kind === "tool_update") {
       if (isImageGenerationAction(e)) {
@@ -1076,7 +1082,7 @@ export default function Chat(p: {
         </div>;
       }
       return <ToolOutputLine key={detailKey} event={e} expanded={toolDetails[detailKey]}
-        compact={p.defaults.transcriptView !== 'detaille'}
+        compact={p.defaults.transcriptView !== 'detaille'} authorized={authorized}
         preview={<ImageViewPreview paths={imagePaths} projectRoot={p.imageProjectRoot ?? undefined} threadId={p.threadId ?? undefined} />}
         onExpandedChange={(expanded) => {
           setToolDetails(prev => ({ ...prev, [detailKey]: expanded }));
@@ -1099,12 +1105,7 @@ export default function Chat(p: {
       const warning = e.tone === "warning";
       return (
         <div key={key} className="tool chat-notice" data-tone={warning ? "warning" : "info"}>
-          <svg className="chat-notice-icon" width="12" height="12" viewBox="0 0 16 16" fill="none"
-            stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            {warning
-              ? <><path d="M8 2.2 14.5 13.5H1.5z" /><path d="M8 6.5v3.2M8 11.9v.1" /></>
-              : <><circle cx="8" cy="8" r="6.2" /><path d="M8 7.2v4M8 4.9v.1" /></>}
-          </svg>
+          {warning ? <TriangleAlertIcon className="chat-notice-icon" size={12} /> : <InfoIcon className="chat-notice-icon" size={12} />}
           <span className="chat-notice-text">{e.detail}</span>
         </div>
       );
@@ -1118,7 +1119,7 @@ export default function Chat(p: {
       );
     }
     return <ToolOutputLine key={detailKey} event={e} expanded={toolDetails[detailKey]}
-      compact={p.defaults.transcriptView !== 'detaille'}
+      compact={p.defaults.transcriptView !== 'detaille'} authorized={authorized}
       onExpandedChange={(expanded) => {
         setToolDetails(prev => ({ ...prev, [detailKey]: expanded }));
       }} />;
@@ -1149,17 +1150,30 @@ export default function Chat(p: {
         />
   ) : null;
 
+  // Écran vide (aucun projet, aucun fil) : titre et champ se tiennent au
+  // centre du panneau. La classe est posée ici, jamais par :has() en CSS.
+  const vide = !p.threadId && p.home?.model.state === "no-project";
+  // Au premier envoi (ou à l'ouverture d'un fil), le champ descend à sa place
+  // au lieu d'y sauter : on retient sa position tant que l'écran est vide.
+  const videTop = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const form = composerRef.current;
+    if (!form) return;
+    if (vide) { videTop.current = form.getBoundingClientRect().top; return; }
+    if (videTop.current != null) sendMotion()?.settleComposer(form, videTop.current);
+    videTop.current = null;
+  });
+
   return (
     <MdThreadContext.Provider value={p.threadId ?? null}>
     <div className="chat">
-      <div className="chat-primary">
+      <div className={vide ? "chat-primary is-vide" : "chat-primary"}>
       {p.headerInTopBar ? (headerHost && createPortal(chatHeader, headerHost)) : chatHeader}
       {p.parentThread && p.threadId ? (
         <nav className="chat-parent-crumb" aria-label={t("chat.parent-crumb", { title: p.parentThread.title })}>
           <RowButton className="chat-parent-back" onClick={p.parentThread.onBack}
             title={t("chat.parent-back", { title: p.parentThread.title })}>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 8H3M7 4 3 8l4 4" /></svg>
+            <ArrowLeftIcon size={14} />
             <span className="chat-parent-title">{p.parentThread.title}</span>
           </RowButton>
           <span className="chat-parent-sep" aria-hidden="true">›</span>
@@ -1268,6 +1282,15 @@ export default function Chat(p: {
           kernel: p.threadId && p.kernelOn !== undefined ? { on: p.kernelOn } : undefined,
         }}
       />
+      {vide && (
+        // trois gestes qui existent vraiment (palette, accueil des projets,
+        // collage d'une image dans le champ) : rien d'autre sur l'écran vide
+        <div className="chat-vide-aide">
+          <span><kbd className="ui-kbd">⌘K</kbd>{t("home.hint.search")}</span>
+          <span><kbd className="ui-kbd">⇧⌘P</kbd>{t("home.hint.projects")}</span>
+          <span><kbd className="ui-kbd">⌘V</kbd>{t("home.hint.paste")}</span>
+        </div>
+      )}
       {/* DANS le panneau, délibérément : la webview NATIVE du navigateur peint
           au-dessus de tout le DOM — un overlay pleine fenêtre (portail body,
           essayé le 2026-08-27) passait SOUS elle et se faisait couper. Le

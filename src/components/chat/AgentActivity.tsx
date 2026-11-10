@@ -167,7 +167,7 @@ function AgentStateIcon({status}: {status: AgentDisplay["status"]}) {
  * l'en-tête du groupe, au gabarit des icônes d'outil (CHAT-25) ; l'étincelle
  * reste réservée à l'état vivant du tour. */
 export function AgentRowGlyph() {
-  return <GitBranchIcon className="agent-glyph" size={15} aria-hidden="true" />;
+  return <GitBranchIcon className="agent-glyph" size={14} aria-hidden="true" />;
 }
 
 /** Colonne de durée : chrono pendant le travail, mot court sur un échec ou

@@ -801,6 +801,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                 "projectRoot": root,
                 "files": catalog.files,
                 "recentFiles": catalog.recent_files,
+                // parallèle à recentFiles (ms Unix) : l'accueil dit « quand »
+                "recentFilesModified": catalog.recent_modified_ms,
                 // Le frontend doit pouvoir DIRE que l'arbre est incomplet :
                 // un fichier absent sans avertissement passe pour un fichier
                 // inexistant (vécu 2026-09-02, dépôt de 24 414 fichiers).

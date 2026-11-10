@@ -21,6 +21,7 @@ import { Button } from "../ui/Button";
 import { RowButton } from "../ui/RowButton";
 import { Spinner } from "../ui/Spinner";
 
+import { CheckIcon, XIcon } from "lucide-react";
 export type ArticleMeta = {
   title: string;
   authors: string;
@@ -58,17 +59,11 @@ function JobIcon({ phase }: { phase: ArticleJob["phase"] }) {
   }
   if (phase === "error") {
     return (
-      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
-        strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-        <path d="M6 6l12 12M18 6L6 18" />
-      </svg>
+      <XIcon size={12} />
     );
   }
   return (
-    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 12l5 5L20 6" />
-    </svg>
+    <CheckIcon size={12} />
   );
 }
 

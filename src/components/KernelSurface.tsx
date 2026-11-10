@@ -19,21 +19,22 @@ import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { FigureViewer } from "./FigureViewer";
 import { FIGURE_SAVED_EVENT, figuresIn, rememberSavedFigure, savedFigure, type ShownFigure } from "../lib/kernelFigures";
 
+import { ArrowDownToLineIcon, ArrowUpFromLineIcon, CheckIcon, ChevronDownIcon, CircleAlertIcon, CopyIcon, Maximize2Icon, PencilIcon, PlayIcon, RotateCcwIcon, RotateCwIcon, SquareIcon, UserIcon } from "lucide-react";
 const Icon = {
-  chevron: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6.5 8 10l3.5-3.5" /></svg>,
-  restart: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6" /><path d="M11.8 1.9v2.8H9" /></svg>,
-  stop: <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" /></svg>,
-  copy: <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5" /><path d="M3 10.5V3.5c0-.8.6-1.5 1.5-1.5h6" /></svg>,
-  check: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>,
-  read: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.8 7.5 8 10.7l3.2-3.2M3 13.5h10" /></svg>,
-  written: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10.5v-8M4.8 5.5 8 2.3l3.2 3.2M3 13.5h10" /></svg>,
-  replay: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.6" /><path d="M4.2 1.9v2.8H7" /></svg>,
-  export: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.8 7.5 8 10.7l3.2-3.2M3 13.5h10" /></svg>,
-  edit: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.8l2.7 2.7L6 12.7l-3.3.6.6-3.3z" /></svg>,
-  play: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z" /></svg>,
-  user: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5" /><path d="M3.5 13.5c.6-2.3 2.3-3.5 4.5-3.5s3.9 1.2 4.5 3.5" /></svg>,
-  warn: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" /><path d="M8 5v3.4M8 10.8v.1" /></svg>,
-  expand: <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" /></svg>,
+  chevron: <ChevronDownIcon size={12} />,
+  restart: <RotateCwIcon size={14} />,
+  stop: <SquareIcon size={14} />,
+  copy: <CopyIcon size={14} />,
+  check: <CheckIcon size={12} />,
+  read: <ArrowDownToLineIcon size={14} />,
+  written: <ArrowUpFromLineIcon size={14} />,
+  replay: <RotateCcwIcon size={14} />,
+  export: <ArrowDownToLineIcon size={14} />,
+  edit: <PencilIcon size={14} />,
+  play: <PlayIcon size={14} />,
+  user: <UserIcon size={14} />,
+  warn: <CircleAlertIcon size={14} />,
+  expand: <Maximize2Icon size={14} />,
 };
 
 function duration(ms?: number): string {
