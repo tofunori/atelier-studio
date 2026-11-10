@@ -223,13 +223,15 @@ text = le passage réécrit en LaTeX, reason = une phrase en français. Une prop
 paragraphes = plusieurs appels. La carte montre l'avant / après à l'utilisateur, qui accepte ou refuse : \
 ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.";
 
-const REVISION_TOOLS: [&str; 6] = [
+const REVISION_TOOLS: [&str; 8] = [
     "open_tex_file",
     "get_selection",
     "read_tex_file",
     "propose_revision",
     "apply_revision",
     "undo_revision",
+    "load_tex_file",
+    "save_tex_file",
 ];
 
 fn revisions_offered(session: &Session, config: &Config) -> bool {
@@ -253,6 +255,8 @@ fn call_revision(config: &Config, name: &str, args: &Value) -> Result<Value, Str
         "propose_revision" => crate::revision::propose(args),
         "apply_revision" => crate::revision::replace_once(&config.app_dir, args, false),
         "undo_revision" => crate::revision::replace_once(&config.app_dir, args, true),
+        "load_tex_file" => crate::revision::load_for_edit(args),
+        "save_tex_file" => crate::revision::save_from_editor(&config.app_dir, args),
         _ => Err(format!("outil inconnu : {name}")),
     }
 }
@@ -318,6 +322,26 @@ fn revision_tools() -> Value {
             "title": "Annuler la révision",
             "description": "Réservé à la carte d'Atelier : remet le texte d'origine après un clic sur Annuler.",
             "inputSchema": app_args,
+            "annotations": {"readOnlyHint": false, "destructiveHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "load_tex_file",
+            "title": "Charger un .tex dans l'éditeur",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : texte exact du fichier et son empreinte sha256.",
+            "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "save_tex_file",
+            "title": "Enregistrer le .tex modifié à la main",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : enregistre le texte tapé par l'utilisateur après son clic sur Enregistrer. Refusé si le fichier a changé depuis le chargement.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": path,
+                "text": {"type": "string", "description": "Contenu complet du fichier."},
+                "base_sha256": {"type": "string", "description": "Empreinte reçue de load_tex_file."},
+            }, "required": ["path", "text", "base_sha256"]},
             "annotations": {"readOnlyHint": false, "destructiveHint": true},
             "_meta": app_only,
         },

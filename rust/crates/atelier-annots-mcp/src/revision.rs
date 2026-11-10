@@ -23,6 +23,8 @@ const BACKUPS_KEPT: usize = 100;
 const READ_DEFAULT_LINES: usize = 400;
 const READ_MAX_LINES: usize = 2_000;
 const OPEN_MAX_LINES: usize = 8_000;
+/// Taille maximale d'un fichier ouvert dans l'éditeur de l'artefact.
+const EDIT_MAX_BYTES: usize = 2_000_000;
 
 /// Connecteur distant : le fichier doit se trouver sous l'un des dossiers
 /// permis (après résolution des liens et des `..`).
@@ -203,6 +205,79 @@ des passages, puis te les envoyer : réponds alors par propose_revision, un appe
             "total": total,
             "lines": all[..shown],
         },
+        "isError": false,
+    }))
+}
+
+fn sha256_hex(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// `load_tex_file` (réservé aux vues) : le texte exact du fichier et son
+/// empreinte, pour l'éditeur de l'artefact. `save_tex_file` exige cette
+/// empreinte : on n'écrase jamais une version que l'éditeur n'a pas vue.
+pub fn load_for_edit(args: &Value) -> Result<Value, String> {
+    let path = tex_path(str_arg(args, "path"))?;
+    let content = read(&path)?;
+    if content.len() > EDIT_MAX_BYTES {
+        return Err(format!(
+            "{} : fichier trop gros pour l'éditeur",
+            file_name(&path)
+        ));
+    }
+    let total = content.lines().count();
+    Ok(json!({
+        "content": [{"type": "text", "text": format!("{} chargé ({total} lignes).", file_name(&path))}],
+        "structuredContent": {
+            "path": path.display().to_string(),
+            "file": file_name(&path),
+            "text": content,
+            "sha256": sha256_hex(&content),
+            "total": total,
+        },
+        "isError": false,
+    }))
+}
+
+/// `save_tex_file` (réservé aux vues) : enregistre le texte tapé à la main
+/// dans l'éditeur de l'artefact. Refuse si le fichier a changé depuis le
+/// chargement (`base_sha256`), garde une copie avant d'écrire, écrit d'un bloc.
+pub fn save_from_editor(app_dir: &Path, args: &Value) -> Result<Value, String> {
+    let path = tex_path(str_arg(args, "path"))?;
+    let text = args
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or("text manquant : le contenu complet du fichier")?;
+    let base = str_arg(args, "base_sha256").trim();
+    if base.is_empty() {
+        return Err("base_sha256 manquant : l'empreinte reçue au chargement".into());
+    }
+    if text.len() > EDIT_MAX_BYTES {
+        return Err("texte trop long pour l'éditeur".into());
+    }
+    let content = read(&path)?;
+    let current = sha256_hex(&content);
+    if current != base {
+        return Ok(json!({
+            "content": [{"type": "text", "text": format!(
+                "{} a changé depuis son ouverture dans l'éditeur : rien n'est écrit. Recharge le fichier.",
+                file_name(&path))}],
+            "structuredContent": {"ok": false, "conflict": true, "sha256": current},
+            "isError": true,
+        }));
+    }
+    let sha = sha256_hex(text);
+    if text != content {
+        backup(app_dir, &path, &content)?;
+        write_atomic(&path, text)?;
+    }
+    Ok(json!({
+        "content": [{"type": "text", "text": format!("{} enregistré.", file_name(&path))}],
+        "structuredContent": {"ok": true, "sha256": sha, "total": text.lines().count(), "unchanged": text == content},
         "isError": false,
     }))
 }
@@ -498,6 +573,42 @@ mod tests {
         assert!(replace_once(dir.path(), &args, false)
             .unwrap_err()
             .contains("changé"));
+    }
+
+    #[test]
+    fn editor_loads_then_saves_only_the_version_it_saw() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("app");
+        let path = file(dir.path());
+        let p = path.to_string_lossy().to_string();
+        let loaded = load_for_edit(&json!({"path": p})).unwrap();
+        let sc = &loaded["structuredContent"];
+        let original = sc["text"].as_str().unwrap().to_string();
+        assert_eq!(original, std::fs::read_to_string(&path).unwrap());
+        let base = sc["sha256"].as_str().unwrap().to_string();
+        assert_eq!(base.len(), 64);
+        let edited = original.replace("Another", "One more");
+        let saved = save_from_editor(
+            &app,
+            &json!({"path": p, "text": edited, "base_sha256": base}),
+        )
+        .unwrap();
+        assert_eq!(saved["structuredContent"]["ok"], true);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
+        assert_eq!(
+            std::fs::read_dir(app.join("mcp-revisions"))
+                .unwrap()
+                .count(),
+            1
+        );
+        // L'ancienne empreinte ne vaut plus : rien n'est écrasé.
+        let stale =
+            save_from_editor(&app, &json!({"path": p, "text": "x", "base_sha256": base})).unwrap();
+        assert_eq!(stale["isError"], true);
+        assert_eq!(stale["structuredContent"]["conflict"], true);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
+        assert!(save_from_editor(&app, &json!({"path": p, "text": "x"})).is_err());
+        assert!(load_for_edit(&json!({"path": "/tmp/a.txt"})).is_err());
     }
 
     #[test]

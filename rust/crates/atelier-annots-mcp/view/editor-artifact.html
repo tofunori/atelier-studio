@@ -1,0 +1,383 @@
+<title>Éditeur LaTeX Atelier</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Éditeur d'un .tex du Mac, par le connecteur Atelier. Une barre, l'éditeur
+   pleine hauteur. Système d'Atelier : tailles 11/12/13, poids 400/500/600,
+   rayons 6/10, espacements multiples de 4, transitions 120-150 ms. */
+:root {
+  --bg: #F6F5F1; --surface: #FFFFFF; --sunk: #EFEEE9; --fg: #1C1C1A; --fg2: #3F3E3A;
+  --muted: #74726B; --muted2: #A3A199; --line: #E4E2DA; --accent: #3266AD;
+  --ins-bg: #DCEBCB; --ins-fg: #234F17; --del-bg: #F6DDDA; --del-fg: #8A2F29;
+  --warn-bg: #F7EBCF; --warn-fg: #6E4A0B;
+  --tok-cmd: #2F5E9E; --tok-arg: #6A4A9C; --tok-com: #8A877E; --tok-math: #23705F;
+  --elev: 0 4px 16px rgba(0,0,0,.08);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1F1F1E; --surface: #262625; --sunk: #2E2E2C; --fg: #F2F1EC; --fg2: #CFCDC4;
+  --muted: #9C9A92; --muted2: #6E6C66; --line: #36352F; --accent: #80AADD;
+  --ins-bg: #23401A; --ins-fg: #A9D88A; --del-bg: #4A2322; --del-fg: #F0A29C;
+  --warn-bg: #45381C; --warn-fg: #EBCB86;
+  --tok-cmd: #8DB5E8; --tok-arg: #C3A6E8; --tok-com: #7D7B74; --tok-math: #7CC9B4;
+  --elev: 0 4px 16px rgba(0,0,0,.25); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #1F1F1E; --surface: #262625; --sunk: #2E2E2C; --fg: #F2F1EC; --fg2: #CFCDC4;
+  --muted: #9C9A92; --muted2: #6E6C66; --line: #36352F; --accent: #80AADD;
+  --ins-bg: #23401A; --ins-fg: #A9D88A; --del-bg: #4A2322; --del-fg: #F0A29C;
+  --warn-bg: #45381C; --warn-fg: #EBCB86;
+  --tok-cmd: #8DB5E8; --tok-arg: #C3A6E8; --tok-com: #7D7B74; --tok-math: #7CC9B4;
+  --elev: 0 4px 16px rgba(0,0,0,.25); color-scheme: dark; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 13px/1.5 var(--sans); display: flex; flex-direction: column; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--line); }
+.file { display: flex; flex-direction: column; min-width: 0; flex: 1 1 220px; }
+.file b { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.file span { font: 11px/1.3 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.state { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.state.dirty { color: var(--warn-fg); }
+.actions { display: flex; gap: 8px; align-items: center; }
+button { font: 500 12px/1 var(--sans); border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer;
+  background: var(--sunk); color: var(--fg2); transition: opacity .13s, background-color .13s; }
+button:hover:not(:disabled) { background: var(--line); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--ins-bg); color: var(--ins-fg); }
+button[aria-pressed="true"] { background: var(--ins-bg); color: var(--ins-fg); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.open { display: flex; gap: 8px; flex: 1 1 100%; }
+.open input { flex: 1; min-width: 0; font: 12px/1.3 var(--mono); color: var(--fg); background: var(--sunk); border: 0; border-radius: 6px; padding: 8px 12px; }
+.note { margin: 0; padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  font-size: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.note.warn { background: var(--warn-bg); color: var(--warn-fg); }
+.note.err { background: var(--del-bg); color: var(--del-fg); }
+.note button { padding: 4px 8px; }
+.wrap { flex: 1; min-height: 0; position: relative; }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; font-size: 12px; }
+.empty b { display: block; color: var(--fg2); font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+/* CodeMirror 5 : l'essentiel de sa feuille, aux couleurs de la page. */
+.CodeMirror { position: relative; overflow: hidden; height: 100%; font: 13px/1.6 var(--mono); background: var(--surface); color: var(--fg); direction: ltr; }
+.CodeMirror-scroll { overflow: scroll !important; margin-bottom: -50px; margin-right: -50px; padding-bottom: 50px; height: 100%; outline: none; position: relative; z-index: 0; }
+.CodeMirror-sizer { position: relative; border-right: 50px solid transparent; }
+.CodeMirror-vscrollbar, .CodeMirror-hscrollbar, .CodeMirror-scrollbar-filler, .CodeMirror-gutter-filler { position: absolute; z-index: 6; display: none; outline: none; }
+.CodeMirror-vscrollbar { right: 0; top: 0; overflow-x: hidden; overflow-y: scroll; }
+.CodeMirror-hscrollbar { bottom: 0; left: 0; overflow-y: hidden; overflow-x: scroll; }
+.CodeMirror-gutters { position: absolute; left: 0; top: 0; min-height: 100%; z-index: 3; background: var(--surface); border-right: 1px solid var(--line); }
+.CodeMirror-gutter { white-space: normal; height: 100%; display: inline-block; vertical-align: top; margin-bottom: -50px; }
+.CodeMirror-gutter-wrapper { position: absolute; z-index: 4; background: none !important; border: none !important; }
+.CodeMirror-linenumber { padding: 0 8px 0 12px; min-width: 24px; text-align: right; color: var(--muted2); white-space: nowrap; font-variant-numeric: tabular-nums; box-sizing: content-box; }
+.CodeMirror-lines { cursor: text; min-height: 1px; padding: 12px 0; }
+.CodeMirror pre.CodeMirror-line, .CodeMirror pre.CodeMirror-line-like { border-radius: 0; border-width: 0; background: transparent; font: inherit; margin: 0; white-space: pre-wrap; word-wrap: break-word; word-break: normal; color: inherit; z-index: 2; position: relative; overflow: visible; padding: 0 16px; }
+.CodeMirror-wrap pre.CodeMirror-line { word-wrap: break-word; white-space: pre-wrap; word-break: normal; }
+.CodeMirror-linebackground { position: absolute; inset: 0; z-index: 0; }
+.CodeMirror-linewidget { position: relative; z-index: 2; padding: .1px; }
+.CodeMirror-code { outline: none; }
+.CodeMirror-measure { position: absolute; width: 100%; height: 0; overflow: hidden; visibility: hidden; }
+.CodeMirror-measure pre { position: static; }
+div.CodeMirror-cursors { visibility: hidden; position: relative; z-index: 3; }
+div.CodeMirror-dragcursors, .CodeMirror-focused div.CodeMirror-cursors { visibility: visible; }
+.CodeMirror-cursor { position: absolute; pointer-events: none; border-left: 1.5px solid var(--fg); border-right: none; width: 0; }
+.CodeMirror-selected { background: var(--sunk); }
+.CodeMirror-focused .CodeMirror-selected, .CodeMirror-line::selection, .CodeMirror-line > span::selection, .CodeMirror-line > span > span::selection { background: rgba(50,102,173,.22); }
+.CodeMirror-selectedtext, .CodeMirror-crosshair { cursor: crosshair; }
+.CodeMirror-widget { display: inline; }
+.cm-tab { display: inline-block; text-decoration: inherit; }
+.cm-tag, .cm-builtin { color: var(--tok-cmd); }
+.cm-bracket { color: var(--muted); }
+.cm-keyword, .cm-atom { color: var(--tok-arg); }
+.cm-comment { color: var(--tok-com); font-style: italic; }
+.cm-number, .cm-string, .cm-variable-2 { color: var(--tok-math); }
+.cm-error { color: var(--del-fg); }
+.CodeMirror-hiddentextarea, .CodeMirror textarea { position: absolute; bottom: -1em; padding: 0; width: 1px; height: 1em; outline: none; opacity: 0; }
+/* Changements depuis l'ouverture. */
+.ins { background: var(--ins-bg); color: var(--ins-fg); border-radius: 2px; }
+.del { background: var(--del-bg); color: var(--del-fg); text-decoration: line-through; border-radius: 2px; margin-right: 4px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="bar">
+  <div class="file"><b id="fileName">Aucun fichier</b><span id="filePath">Indique le chemin d'un .tex sous Documents</span></div>
+  <span class="state" id="state"></span>
+  <div class="actions">
+    <button id="diffBtn" type="button" aria-pressed="true" title="Mots changés depuis l'ouverture">Changements</button>
+    <button id="reloadBtn" type="button" disabled>Recharger</button>
+    <button id="saveBtn" type="button" class="primary" disabled title="Cmd-S">Enregistrer</button>
+  </div>
+  <form class="open" id="openForm">
+    <input id="pathInput" type="text" spellcheck="false" autocomplete="off" placeholder="~/Documents/…/chapitre.tex" aria-label="Chemin du fichier .tex">
+    <button type="submit">Ouvrir</button>
+  </form>
+</header>
+<p class="note" id="note" hidden></p>
+<div class="wrap" id="wrap">
+  <div class="empty" id="empty"><div><b>Éditeur LaTeX d'Atelier</b>Ouvre un .tex de ton Mac : tu le modifies ici, Claude le révise dans la conversation.</div></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/stex/stex.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  var SERVER = "Atelier";
+  var POLL_MS = 6000;
+  var $ = function (id) { return document.getElementById(id); };
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+
+  var mcp = null, cm = null;
+  var doc = { path: "", file: "", sha: "", saved: "", baseline: "" };
+  var showDiff = true, busy = false, remoteChanged = false, marks = [], diffTimer = 0;
+
+  function setNote(kind, text, buttons) {
+    var n = $("note");
+    n.textContent = "";
+    if (!text) { n.hidden = true; return; }
+    n.className = "note " + kind;
+    var span = document.createElement("span");
+    span.textContent = text;
+    n.appendChild(span);
+    (buttons || []).forEach(function (b) {
+      var el = document.createElement("button");
+      el.type = "button"; el.textContent = b.label; el.onclick = b.run;
+      n.appendChild(el);
+    });
+    n.hidden = false;
+  }
+
+  function dirty() { return !!cm && cm.getValue() !== doc.saved; }
+
+  function refreshState() {
+    var s = $("state");
+    if (!doc.path) { s.textContent = ""; return; }
+    var d = dirty();
+    s.className = "state" + (d ? " dirty" : "");
+    s.textContent = d ? "Modifié" : "Enregistré";
+    $("saveBtn").disabled = !d || busy;
+    $("reloadBtn").disabled = busy;
+  }
+
+  function payloadOf(result) {
+    return (result && (result.structuredContent || result.payload)) || {};
+  }
+
+  function errorText(e) {
+    if (!e) return "Erreur inconnue.";
+    if (e.code === "tool_error") {
+      var r = e.result || {};
+      var c = (r.content || []).filter(function (x) { return x.type === "text"; })[0];
+      return c ? c.text : (e.message || "Le connecteur a refusé.");
+    }
+    if (e.code === "server_not_connected" || e.code === "not_connected")
+      return "Le connecteur Atelier n'est pas connecté : vérifie qu'il tourne sur ton Mac.";
+    if (e.code === "not_granted" || e.code === "denied")
+      return "L'accès au connecteur Atelier n'est pas autorisé pour cette page.";
+    return e.message || ("Erreur : " + e.code);
+  }
+
+  // Découpe en mots et signes (les espaces ne servent pas d'ancre) ; garde
+  // le début et la fin de chaque morceau.
+  function tokens(text) {
+    var re = /[0-9A-Za-zÀ-ÖØ-öø-ÿ_]+|[^\s0-9A-Za-zÀ-ÖØ-öø-ÿ_]/g, out = [], m;
+    while ((m = re.exec(text))) out.push({ t: m[0], at: m.index, end: m.index + m[0].length });
+    return out;
+  }
+
+  // Différence mot à mot : préfixe et suffixe communs, puis plus longue
+  // sous-suite commune sur le milieu (au-delà d'une taille raisonnable,
+  // le milieu entier est marqué changé). Chaque bloc retiré est montré
+  // juste avant le bloc ajouté qui le remplace.
+  function wordDiff(oldText, newText) {
+    var a = tokens(oldText), b = tokens(newText);
+    var p = 0;
+    while (p < a.length && p < b.length && a[p].t === b[p].t) p++;
+    var ea = a.length, eb = b.length;
+    while (ea > p && eb > p && a[ea - 1].t === b[eb - 1].t) { ea--; eb--; }
+    var A = a.slice(p, ea), B = b.slice(p, eb), ops = [];
+    var anchor = function (j) { return j < B.length ? B[j].at : (eb < b.length ? b[eb].at : (B.length ? B[B.length - 1].end : (p > 0 ? b[p - 1].end : 0))); };
+    function push(i0, i1, j0, j1) {
+      if (i1 > i0) ops.push({ kind: "del", at: j1 > j0 ? B[j0].at : anchor(j0), text: oldText.slice(A[i0].at, A[i1 - 1].end) });
+      if (j1 > j0) ops.push({ kind: "ins", from: B[j0].at, to: B[j1 - 1].end });
+    }
+    if (!A.length && !B.length) return ops;
+    var n = A.length, m = B.length;
+    if (n * m > 2500000) { push(0, n, 0, m); return ops; }
+    var w = m + 1, L = new Uint32Array((n + 1) * (m + 1));
+    for (var i = n - 1; i >= 0; i--)
+      for (var j = m - 1; j >= 0; j--)
+        L[i * w + j] = A[i].t === B[j].t ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
+    i = 0; j = 0;
+    var i0 = 0, j0 = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && A[i].t === B[j].t) { push(i0, i, j0, j); i++; j++; i0 = i; j0 = j; }
+      else if (j < m && (i >= n || L[i * w + j + 1] >= L[(i + 1) * w + j])) j++;
+      else i++;
+    }
+    push(i0, n, j0, m);
+    return ops;
+  }
+
+  function clearMarks() { marks.forEach(function (mk) { mk.clear(); }); marks = []; }
+
+  function paintDiff() {
+    if (!cm) return;
+    cm.operation(function () {
+      clearMarks();
+      if (!showDiff || !doc.baseline) return;
+      var text = cm.getValue();
+      if (text === doc.baseline) return;
+      wordDiff(doc.baseline, text).forEach(function (o) {
+        if (o.kind === "ins") {
+          marks.push(cm.markText(cm.posFromIndex(o.from), cm.posFromIndex(o.to), { className: "ins" }));
+        } else {
+          var el = document.createElement("span");
+          el.className = "del";
+          el.textContent = o.text.length > 400 ? o.text.slice(0, 400) + "…" : o.text;
+          el.title = "Retiré depuis l'ouverture";
+          marks.push(cm.setBookmark(cm.posFromIndex(o.at), { widget: el, insertLeft: true }));
+        }
+      });
+    });
+  }
+
+  function schedulePaint() { clearTimeout(diffTimer); diffTimer = setTimeout(paintDiff, 300); }
+
+  function ensureEditor() {
+    if (cm) return;
+    $("empty").hidden = true;
+    cm = CodeMirror($("wrap"), {
+      value: "", mode: "stex", lineNumbers: true, lineWrapping: true,
+      indentUnit: 2, tabSize: 2, inputStyle: "contenteditable", spellcheck: true,
+      extraKeys: { "Cmd-S": save, "Ctrl-S": save }
+    });
+    cm.on("change", function () { refreshState(); schedulePaint(); });
+  }
+
+  function setText(text) {
+    var info = cm.getScrollInfo(), cur = cm.getCursor();
+    cm.setValue(text);
+    cm.clearHistory();
+    cm.setCursor(cur);
+    cm.scrollTo(info.left, info.top);
+  }
+
+  function baselineKey(path) { return "atelier-editor-baseline:" + path; }
+
+  function load(path, first) {
+    if (!mcp) return Promise.resolve();
+    busy = true; refreshState();
+    return mcp.callTool(SERVER, "load_tex_file", { path: path }, { cache: false })
+      .then(function (r) {
+        var p = payloadOf(r);
+        ensureEditor();
+        doc.path = p.path || path; doc.file = p.file || path.split("/").pop();
+        doc.sha = p.sha256; doc.saved = p.text;
+        if (first) {
+          var kept = null;
+          try { kept = sessionStorage.getItem(baselineKey(doc.path)); } catch (e) {}
+          doc.baseline = kept != null ? kept : p.text;
+          try { sessionStorage.setItem(baselineKey(doc.path), doc.baseline); } catch (e) {}
+        }
+        $("fileName").textContent = doc.file;
+        $("filePath").textContent = doc.path;
+        store.set("atelier-editor-path", path);
+        remoteChanged = false;
+        setText(p.text);
+        setNote("", "");
+      })
+      .catch(function (e) { setNote("err", errorText(e)); })
+      .then(function () { busy = false; refreshState(); paintDiff(); });
+  }
+
+  function save(force) {
+    if (!mcp || !doc.path || busy || !dirty()) return;
+    var text = cm.getValue();
+    busy = true; refreshState();
+    var send = function (base) {
+      return mcp.callTool(SERVER, "save_tex_file", { path: doc.path, text: text, base_sha256: base }, { cache: false });
+    };
+    var run = force === true
+      ? mcp.callTool(SERVER, "load_tex_file", { path: doc.path }, { cache: false }).then(function (r) { return send(payloadOf(r).sha256); })
+      : send(doc.sha);
+    run.then(function (r) {
+        var p = payloadOf(r);
+        doc.sha = p.sha256; doc.saved = text; remoteChanged = false;
+        setNote("", "");
+      })
+      .catch(function (e) {
+        var sc = e && e.result && e.result.structuredContent;
+        if (sc && sc.conflict) {
+          setNote("warn", "Le fichier a changé ailleurs depuis l'ouverture (une révision acceptée ?). Rien n'est écrit.", [
+            { label: "Recharger le fichier", run: function () { load(doc.path, false); } },
+            { label: "Garder mes modifications", run: function () { busy = false; save(true); } }
+          ]);
+        } else setNote("err", errorText(e));
+      })
+      .then(function () { busy = false; refreshState(); });
+  }
+
+  // Le fichier change aussi quand Claude fait accepter une révision :
+  // on recharge sans bruit si rien n'est en cours ici, sinon on prévient.
+  function poll() {
+    if (!mcp || !doc.path || busy || document.hidden) return;
+    mcp.callTool(SERVER, "load_tex_file", { path: doc.path }, { cache: false })
+      .then(function (r) {
+        var p = payloadOf(r);
+        if (!p.sha256 || p.sha256 === doc.sha || busy) return;
+        if (!dirty()) { doc.sha = p.sha256; doc.saved = p.text; setText(p.text); refreshState(); paintDiff(); }
+        else if (!remoteChanged) {
+          remoteChanged = true;
+          setNote("warn", "Le fichier a changé ailleurs pendant que tu modifiais.", [
+            { label: "Recharger le fichier", run: function () { load(doc.path, false); } }
+          ]);
+        }
+      })
+      .catch(function () {});
+  }
+
+  $("openForm").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var path = $("pathInput").value.trim();
+    if (!path) return;
+    if (dirty() && path !== doc.path) {
+      setNote("warn", "Tes modifications ne sont pas enregistrées.", [
+        { label: "Enregistrer d'abord", run: function () { save(); } },
+        { label: "Ouvrir quand même", run: function () { doc.saved = cm.getValue(); load(path, true); } }
+      ]);
+      return;
+    }
+    load(path, true);
+  });
+  $("saveBtn").onclick = function () { save(); };
+  $("reloadBtn").onclick = function () {
+    if (dirty()) {
+      setNote("warn", "Recharger efface tes modifications non enregistrées.", [
+        { label: "Recharger quand même", run: function () { load(doc.path, false); } }
+      ]);
+    } else load(doc.path, false);
+  };
+  $("diffBtn").onclick = function () {
+    showDiff = !showDiff;
+    this.setAttribute("aria-pressed", String(showDiff));
+    paintDiff();
+  };
+  window.addEventListener("beforeunload", function (ev) { if (dirty()) { ev.preventDefault(); ev.returnValue = ""; } });
+
+  var last = store.get("atelier-editor-path");
+  if (last) $("pathInput").value = last;
+
+  if (!window.claude || !window.claude.use) {
+    setNote("err", "Ouvre cette page dans Claude : elle passe par ton connecteur Atelier.");
+    return;
+  }
+  window.claude.use("mcp").then(function (m) {
+    mcp = m;
+    if (!mcp) { setNote("err", "Le connecteur n'est pas disponible ici. Ouvre cette page dans Claude, avec le connecteur Atelier connecté."); return; }
+    setInterval(poll, POLL_MS);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) poll(); });
+    if (last) load(last, true);
+  });
+})();
+</script>
