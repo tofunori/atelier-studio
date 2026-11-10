@@ -11,7 +11,19 @@ const DEFAULT_LIMIT: usize = 100;
 const DEFAULT_PER_ARTICLE: usize = 5;
 const MAX_LIMIT: usize = 1000;
 
+/// État d'une connexion : ce que le client a annoncé à `initialize`.
+#[derive(Default)]
+pub struct Session {
+    /// Le client affiche les vues « MCP App » (Claude Desktop, claude.ai) :
+    /// les outils de révision LaTeX, qui passent par la carte d'Atelier, ne
+    /// sont offerts qu'à lui. `ATELIER_MCP_UI=1` le force.
+    pub ui: bool,
+}
+
 pub fn run(config: &Config) -> Result<(), String> {
+    let mut session = Session {
+        ui: std::env::var("ATELIER_MCP_UI").as_deref() == Ok("1"),
+    };
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -20,7 +32,7 @@ pub fn run(config: &Config) -> Result<(), String> {
             continue;
         }
         let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(msg) => handle(config, &msg),
+            Ok(msg) => handle_in(&mut session, config, &msg),
             Err(e) => Some(json!({"jsonrpc": "2.0", "id": null,
                 "error": {"code": -32700, "message": format!("JSON invalide : {e}")}})),
         };
@@ -33,20 +45,58 @@ pub fn run(config: &Config) -> Result<(), String> {
 }
 
 /// Une requête → sa réponse ; une notification (sans `id`) → rien.
+#[cfg(test)]
 pub fn handle(config: &Config, msg: &Value) -> Option<Value> {
+    handle_in(&mut Session::default(), config, msg)
+}
+
+pub fn handle_in(session: &mut Session, config: &Config, msg: &Value) -> Option<Value> {
     let id = msg.get("id")?.clone();
     let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
     let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
     let result = match method {
-        "initialize" => json!({
+        "initialize" => {
+            if crate::app_view::client_supports_ui(&params) {
+                session.ui = true;
+            }
+            eprintln!(
+                "atelier-annots-mcp: vues MCP App {}",
+                if session.ui {
+                    "actives"
+                } else {
+                    "absentes (client sans l'extension ui)"
+                }
+            );
+            json!({
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
-            "capabilities": {"tools": {}},
+            "capabilities": {"tools": {}, "resources": {}},
             "serverInfo": {"name": "atelier-annotations", "version": env!("CARGO_PKG_VERSION")},
-            "instructions": if config.read_only { INSTRUCTIONS_LECTURE } else { INSTRUCTIONS },
-        }),
+            "instructions": if config.read_only {
+                INSTRUCTIONS_LECTURE.to_string()
+            } else if revisions_offered(session, config) {
+                format!("{INSTRUCTIONS}\n{INSTRUCTIONS_REVISION}")
+            } else {
+                INSTRUCTIONS.to_string()
+            },
+            })
+        }
         "ping" => json!({}),
-        "tools/list" => json!({"tools": offered_tools(config)}),
-        "resources/list" => json!({"resources": []}),
+        "tools/list" => json!({"tools": offered_tools(session, config)}),
+        "resources/list" => json!({"resources": if revisions_offered(session, config) {
+            crate::app_view::resources()
+        } else {
+            json!([])
+        }}),
+        "resources/read" => {
+            let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+            match crate::app_view::read(uri) {
+                Some(found) => found,
+                None => {
+                    return Some(json!({"jsonrpc": "2.0", "id": id,
+                        "error": {"code": -32002, "message": format!("ressource inconnue : {uri}")}}))
+                }
+            }
+        }
         "prompts/list" => json!({"prompts": []}),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
@@ -54,6 +104,20 @@ pub fn handle(config: &Config, msg: &Value) -> Option<Value> {
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
+            if REVISION_TOOLS.contains(&name) {
+                let outcome = if revisions_offered(session, config) {
+                    call_revision(config, name, &args)
+                } else {
+                    Err(format!("{name} : outil réservé aux clients qui affichent les vues d'Atelier (Claude Desktop)."))
+                };
+                let result = match outcome {
+                    Ok(full) => full,
+                    Err(text) => {
+                        json!({"content": [{"type": "text", "text": text}], "isError": true})
+                    }
+                };
+                return Some(json!({"jsonrpc": "2.0", "id": id, "result": result}));
+            }
             let outcome = if config.read_only && !is_read_only_tool(name) {
                 Err(format!(
                     "{name} : outil indisponible, ce serveur est en lecture seule (ATELIER_ANNOTS_READONLY)."
@@ -114,6 +178,89 @@ list_codes donne l'arbre, les effectifs et le mémo de chaque code (ce que le co
 et des passages recopiés mot pour mot (read_article d'abord). Ce sont des propositions : l'utilisateur les garde \
 ou les retire dans Atelier. create_code : seulement sur demande.";
 
+const INSTRUCTIONS_REVISION: &str =
+    "Révision de fichiers LaTeX (.tex) de l'utilisateur, avec la carte d'Atelier :\n\
+- read_tex_file : lire un .tex (chemin absolu), lignes numérotées, par tranches (from_line, lines).\n\
+- propose_revision : SEULEMENT quand l'utilisateur demande de réécrire, resserrer ou corriger un passage. \
+Ne jamais écrire dans le fichier autrement. quote = le passage actuel recopié mot pour mot (read_tex_file d'abord), \
+text = le passage réécrit en LaTeX, reason = une phrase en français. Une proposition par paragraphe ; plusieurs \
+paragraphes = plusieurs appels. La carte montre l'avant / après à l'utilisateur, qui accepte ou refuse : \
+ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.";
+
+const REVISION_TOOLS: [&str; 4] = [
+    "read_tex_file",
+    "propose_revision",
+    "apply_revision",
+    "undo_revision",
+];
+
+fn revisions_offered(session: &Session, config: &Config) -> bool {
+    session.ui && !config.read_only
+}
+
+fn call_revision(config: &Config, name: &str, args: &Value) -> Result<Value, String> {
+    match name {
+        "read_tex_file" => crate::revision::read_tex_file(args)
+            .map(|text| json!({"content": [{"type": "text", "text": text}], "isError": false})),
+        "propose_revision" => crate::revision::propose(args),
+        "apply_revision" => crate::revision::replace_once(&config.app_dir, args, false),
+        "undo_revision" => crate::revision::replace_once(&config.app_dir, args, true),
+        _ => Err(format!("outil inconnu : {name}")),
+    }
+}
+
+fn revision_tools() -> Value {
+    let path = json!({"type": "string", "description": "Chemin absolu du fichier .tex."});
+    let app_args = json!({
+        "type": "object",
+        "properties": {"path": path, "quote": {"type": "string"}, "text": {"type": "string"}},
+        "required": ["path", "quote", "text"],
+    });
+    let app_only = json!({"ui": {"visibility": ["app"]}});
+    json!([
+        {
+            "name": "read_tex_file",
+            "title": "Lire un fichier LaTeX",
+            "description": "Lit un fichier .tex (chemin absolu), lignes numérotées. 400 lignes par défaut ; from_line et lines (2000 au plus) pour une autre tranche.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": path,
+                "from_line": {"type": "integer", "minimum": 1},
+                "lines": {"type": "integer", "minimum": 1, "maximum": 2000},
+            }, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+        },
+        {
+            "name": "propose_revision",
+            "title": "Proposer une révision LaTeX",
+            "description": "Montre à l'utilisateur, dans une carte d'Atelier, une réécriture d'un passage d'un fichier .tex (avant / après, raison), avec Accepter et Refuser. Le fichier n'est modifié que s'il clique sur Accepter.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": path,
+                "quote": {"type": "string", "description": "Le passage actuel, recopié mot pour mot du fichier (une phrase ou un paragraphe)."},
+                "text": {"type": "string", "description": "Le passage réécrit, en LaTeX, qui remplacerait quote."},
+                "reason": {"type": "string", "description": "Pourquoi, en une phrase, en français."},
+            }, "required": ["path", "quote", "text", "reason"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": false},
+            "_meta": {"ui": {"resourceUri": crate::app_view::REVISION_URI}, "ui/resourceUri": crate::app_view::REVISION_URI},
+        },
+        {
+            "name": "apply_revision",
+            "title": "Écrire la révision acceptée",
+            "description": "Réservé à la carte d'Atelier : écrit la révision après le clic de l'utilisateur sur Accepter.",
+            "inputSchema": app_args,
+            "annotations": {"readOnlyHint": false, "destructiveHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "undo_revision",
+            "title": "Annuler la révision",
+            "description": "Réservé à la carte d'Atelier : remet le texte d'origine après un clic sur Annuler.",
+            "inputSchema": app_args,
+            "annotations": {"readOnlyHint": false, "destructiveHint": true},
+            "_meta": app_only,
+        },
+    ])
+}
+
 /// Consigne du mode lecture seule (relecteur d'Atelier) : rien sur le
 /// surlignage ni le codage, que le serveur n'annonce pas dans ce mode.
 const INSTRUCTIONS_LECTURE: &str =
@@ -137,9 +284,15 @@ fn is_read_only_tool(name: &str) -> bool {
     })
 }
 
-/// Outils annoncés au client : tous, ou seulement ceux qui lisent.
-fn offered_tools(config: &Config) -> Value {
-    let all = tools();
+/// Outils annoncés au client : tous, ou seulement ceux qui lisent. Les
+/// outils de révision LaTeX s'ajoutent pour un client qui affiche les vues.
+fn offered_tools(session: &Session, config: &Config) -> Value {
+    let mut all = tools();
+    if revisions_offered(session, config) {
+        if let (Some(list), Some(extra)) = (all.as_array_mut(), revision_tools().as_array()) {
+            list.extend(extra.iter().cloned());
+        }
+    }
     if !config.read_only {
         return all;
     }
@@ -1579,5 +1732,131 @@ mod tests {
             json!({"article": "ABCD1234", "all": true}),
         );
         assert!(is_error && text.contains("Rien à changer"), "{text}");
+    }
+    #[test]
+    fn revision_tools_need_a_ui_client() {
+        let (dir, config) = setup();
+        // Client sans vues (Claude Code, relecteur) : ni outils ni ressource.
+        let mut plain = Session::default();
+        let init = handle_in(
+            &mut plain,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {}}}),
+        )
+        .unwrap();
+        assert_eq!(init["result"]["capabilities"]["resources"], json!({}));
+        let list = handle_in(
+            &mut plain,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        )
+        .unwrap();
+        let names: Vec<&str> = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert!(!names.contains(&"propose_revision"));
+        let res = handle_in(
+            &mut plain,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 3, "method": "resources/list"}),
+        )
+        .unwrap();
+        assert_eq!(res["result"]["resources"], json!([]));
+        let tex = dir.path().join("ch.tex");
+        std::fs::write(&tex, "Old sentence here.\n").unwrap();
+        let apply = handle_in(&mut plain, &config, &json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+            "params": {"name": "apply_revision", "arguments": {"path": tex, "quote": "Old sentence here.", "text": "New."}}})).unwrap();
+        assert_eq!(apply["result"]["isError"], true);
+        assert_eq!(
+            std::fs::read_to_string(&tex).unwrap(),
+            "Old sentence here.\n"
+        );
+
+        // Claude Desktop : annonce l'extension ui.
+        let mut ui = Session::default();
+        let init = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {"extensions":
+                {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}}}}),
+        )
+        .unwrap();
+        assert!(init["result"]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("propose_revision"));
+        let list = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        )
+        .unwrap();
+        let tools = list["result"]["tools"].as_array().unwrap();
+        let propose = tools
+            .iter()
+            .find(|t| t["name"] == "propose_revision")
+            .unwrap();
+        assert_eq!(
+            propose["_meta"]["ui"]["resourceUri"],
+            "ui://atelier/revision"
+        );
+        let apply_tool = tools
+            .iter()
+            .find(|t| t["name"] == "apply_revision")
+            .unwrap();
+        assert_eq!(apply_tool["_meta"]["ui"]["visibility"], json!(["app"]));
+        let res = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 3, "method": "resources/read",
+            "params": {"uri": "ui://atelier/revision"}}),
+        )
+        .unwrap();
+        let content = &res["result"]["contents"][0];
+        assert_eq!(content["mimeType"], "text/html;profile=mcp-app");
+        assert!(content["text"].as_str().unwrap().contains("AtelierExtApps"));
+        let missing = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 4, "method": "resources/read",
+            "params": {"uri": "ui://atelier/autre"}}),
+        )
+        .unwrap();
+        assert!(missing["error"].is_object());
+
+        let proposed = handle_in(&mut ui, &config, &json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+            "params": {"name": "propose_revision", "arguments": {"path": tex, "quote": "Old sentence here.", "text": "New.", "reason": "Plus court."}}})).unwrap();
+        assert_eq!(proposed["result"]["structuredContent"]["line"], 1);
+        assert_eq!(
+            std::fs::read_to_string(&tex).unwrap(),
+            "Old sentence here.\n"
+        );
+        let applied = handle_in(&mut ui, &config, &json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+            "params": {"name": "apply_revision", "arguments": {"path": tex, "quote": "Old sentence here.", "text": "New."}}})).unwrap();
+        assert_eq!(applied["result"]["isError"], false);
+        assert_eq!(std::fs::read_to_string(&tex).unwrap(), "New.\n");
+    }
+
+    #[test]
+    fn read_only_mode_never_offers_revisions() {
+        let (_dir, mut config) = setup();
+        config.read_only = true;
+        let mut ui = Session { ui: true };
+        let list = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        )
+        .unwrap();
+        assert!(!list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["name"] == "propose_revision"));
     }
 }

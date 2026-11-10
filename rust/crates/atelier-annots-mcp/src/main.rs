@@ -16,9 +16,11 @@
 //! note : seule la note personnelle (`memo`) l'est, plus le texte d'une note
 //! libre (`kind: "note"`), qui est une note par nature.
 
+mod app_view;
 mod coding;
 mod highlight;
 mod library;
+mod revision;
 mod server;
 mod zotero;
 

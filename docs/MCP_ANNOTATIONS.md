@@ -145,3 +145,27 @@ une citation contre son PDF ; il n'autorise en plus que `read_article` et
 déclarée ci-dessus pour Claude Desktop, puis `rust/target/` du dépôt. Sans
 binaire trouvé, la relecture se fait sans les articles et une citation reste
 « non concluante ».
+
+## Révisions LaTeX dans la conversation (prototype « MCP App »)
+
+Quand le client sait afficher les vues « MCP App » (Claude Desktop annonce
+l'extension `io.modelcontextprotocol/ui` à `initialize` ; `ATELIER_MCP_UI=1`
+le force), le serveur offre en plus :
+
+| Outil | Usage |
+| --- | --- |
+| `read_tex_file` | lit un .tex (chemin absolu), lignes numérotées, par tranches |
+| `propose_revision` | `path`, `quote` (passage actuel, mot pour mot), `text` (réécriture), `reason` : n'écrit **rien** ; Claude Desktop affiche la carte d'Atelier (`ui://atelier/revision`) avec l'avant / après et Accepter / Refuser |
+| `apply_revision`, `undo_revision` | réservés à la carte (`_meta.ui.visibility: ["app"]`) : écrivent seulement après un clic sur Accepter ou Annuler |
+
+Sécurité : le passage doit exister une seule fois (les blancs et retours à
+la ligne peuvent différer) ; il est revérifié au clic, et une copie du
+fichier d'avant est gardée dans `$ATELIER_APP_DIR/mcp-revisions/` (les 100
+dernières). Un client sans vues (Claude Code, relecteur d'Atelier en lecture
+seule) ne voit ni ces outils ni la ressource.
+
+La page de la carte est `rust/crates/atelier-annots-mcp/view/revision.html` ;
+son script client (SDK navigateur des MCP Apps) est vendorisé dans
+`vendor/ext-apps/` et inclus dans la page : rien n'est chargé du réseau.
+Refuser propose « Demander une autre version », qui met une demande dans la
+barre de message de Claude (jamais envoyée sans l'utilisateur).
