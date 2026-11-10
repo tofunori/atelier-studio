@@ -2176,6 +2176,7 @@ mod title_tests {
             ("default", "manual"),
             ("acceptEdits", "acceptEdits"),
             ("plan", "plan"),
+            ("auto", "auto"),
         ] {
             let args = build_args(&request(mode), None);
             let index = args

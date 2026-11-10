@@ -34,7 +34,7 @@ const PROVIDERS: ProviderInfo[] = [
     capabilities: {
       resume: true, steering: true, queue: true, goals: false, tools: true,
       toolOutput: true, permissions: true,
-      permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"],
+      permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
     },
   },
   {

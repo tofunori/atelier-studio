@@ -41,6 +41,10 @@ import { modeApresPlan } from "./modeApresPlan";
 import { MenuChevron, MenuRadio, MenuStar, MenuSwitch, MenuTitle } from "./composerMenuParts";
 
 const PERMISSION_MODES = [
+  // mode auto du CLI Claude (2026-11-10) : un classifieur approuve le courant
+  // et arrête le risqué. Seul Claude le déclare dans ses capabilities ; en
+  // tête, il occupe toute la largeur du menu (5 tuiles, cf. App.css).
+  { id: "auto", labelKey: "permission.auto", descKey: "permission.auto-desc" },
   { id: "bypassPermissions", labelKey: "permission.full", descKey: "permission.full-desc" },
   { id: "acceptEdits", labelKey: "permission.accept-edits", descKey: "permission.accept-edits-desc" },
   { id: "default", labelKey: "action.ask-default", descKey: "permission.ask-desc" },
@@ -58,6 +62,15 @@ function PermissionIcon({ mode }: { mode: string }) {
     strokeLinecap: "round" as const, strokeLinejoin: "round" as const,
     "aria-hidden": true,
   };
+  if (mode === "auto") {
+    // bouclier coché : tout passe, après un contrôle
+    return (
+      <svg {...common}>
+        <path d="M8 1.9 13 3.8v3.6c0 3-2.1 5.4-5 6.7-2.9-1.3-5-3.7-5-6.7V3.8z" />
+        <path d="m5.8 8 1.6 1.6 2.9-3" />
+      </svg>
+    );
+  }
   if (mode === "bypassPermissions") {
     // cadenas ouvert : plus rien ne demande la permission
     return (

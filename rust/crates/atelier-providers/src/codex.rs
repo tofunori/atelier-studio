@@ -220,7 +220,9 @@ pub const CODEX_PRIORITY_TIER: &str = "priority";
 fn codex_safety(permission_mode: Option<&str>) -> (&'static str, &'static str) {
     match permission_mode {
         Some("bypassPermissions") => ("danger-full-access", "never"),
-        Some("acceptEdits") => ("workspace-write", "on-request"),
+        // « auto » est propre à Claude ; un réglage par défaut « Auto » qui
+        // atteint Codex vaut son plus proche voisin, « Éditions auto ».
+        Some("acceptEdits") | Some("auto") => ("workspace-write", "on-request"),
         Some("default") => ("workspace-write", "untrusted"),
         Some("plan") => ("read-only", "never"),
         _ => ("read-only", "on-request"),
@@ -1735,6 +1737,10 @@ mod command_tests {
         );
         assert_eq!(
             codex_safety(Some("acceptEdits")),
+            ("workspace-write", "on-request")
+        );
+        assert_eq!(
+            codex_safety(Some("auto")),
             ("workspace-write", "on-request")
         );
         assert_eq!(

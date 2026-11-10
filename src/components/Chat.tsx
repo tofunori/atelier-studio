@@ -39,6 +39,7 @@ import { mentionLabel } from "./chat/mentions";
 import { modelDisplayLabel, replaceRetiredModel } from "../lib/modelCatalog";
 import { pluginCanAttach, type PluginCatalogEntry } from "../lib/plugins";
 import { sendMotion } from "../lib/chat/sendMotion";
+import { modePourFournisseur } from "./chat/modeApresPlan";
 import { usePromptText, type DraftAttachment, type FollowUpMode, type PromptSource, type QueuedTurn } from "../lib/chatDraftStore";
 import type { Consigne, ConsigneDuFil } from "../lib/consignes";
 import type { LiveContextBinding } from "./chat/LiveContextEye";
@@ -407,7 +408,10 @@ export default function Chat(p: {
       provider: pv,
       model: m,
       effort: providerSelection?.effort ?? effortFor(pv, m),
-      permissionMode: providerSelection?.permissionMode || p.defaults.defaultPermissionMode,
+      permissionMode: modePourFournisseur(
+        providerSelection?.permissionMode || p.defaults.defaultPermissionMode,
+        providerInfo(pv)?.capabilities?.permissionModes,
+      ),
       // Standard par défaut : seule une sélection Fast explicitement mémorisée
       // pour ce fil ET ce provider réactive le niveau priority.
       fastMode: pv === "codex" && providerSelection?.fastMode === true,

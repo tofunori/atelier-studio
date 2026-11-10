@@ -6628,6 +6628,9 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .composer-menu.cm-panel.composer-permission-menu { width: 320px; }
 .composer-permission-menu.cm-panel [data-slot="select-group"] { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .composer-permission-menu.cm-panel .custom-select-menu-label { grid-column: 1 / -1; }
+/* nombre impair de modes (Claude : Auto en tête) : la première tuile prend
+   toute la largeur, les quatre autres gardent la grille 2 × 2 */
+.composer-permission-menu.cm-panel .custom-select-option:nth-child(2):nth-last-child(odd) { grid-column: 1 / -1; min-height: 0; }
 .composer-permission-menu.cm-panel .custom-select-option { align-items: flex-start; min-height: 92px; padding: 12px;
   border-radius: var(--r-s); background: var(--cm-card); white-space: normal; }
 .composer-permission-menu.cm-panel .custom-select-option > span[aria-hidden="true"]:first-child { display: none; }
