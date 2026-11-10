@@ -58,6 +58,15 @@ pub struct ReviewCheck {
     pub outcome: String,
     #[serde(default)]
     pub evidence_ids: Vec<String>,
+    /// Mode `claims` : famille de l'affirmation (`number`, `computed`,
+    /// `citation`, `figure`, `conclusion`). Absent en mode `git` et dans les
+    /// revues écrites avant ce champ.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Mode `claims` : ce que le relecteur a trouvé, et où (fichier, cellule,
+    /// page). C'est la phrase montrée à côté d'une affirmation en échec.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -661,6 +670,36 @@ mod tests {
         assert!(is_sha256_hex(&hash));
         let loaded = store.get_input(&hash).unwrap();
         assert_eq!(loaded.prompt, "analyse");
+    }
+
+    /// Une revue écrite avant `category` et `proof` se relit telle quelle,
+    /// et une revue qui les porte les garde au rechargement.
+    #[test]
+    fn check_category_and_proof_are_optional_and_durable() {
+        let old: ReviewCheck = serde_json::from_value(json!({
+            "id": "git-turn-diff", "claim": "diff", "outcome": "passed", "evidenceIds": ["git-diff"],
+        }))
+        .unwrap();
+        assert_eq!(old.category, None);
+        assert_eq!(old.proof, None);
+        assert!(serde_json::to_value(&old).unwrap().get("proof").is_none());
+
+        let dir = tempdir().unwrap();
+        let store = ReviewStore::open(dir.path());
+        let mut record = sample_record(None, "turn-1");
+        record.checks = vec![ReviewCheck {
+            id: "claim-1".into(),
+            claim: "r = 0,64".into(),
+            outcome: "failed".into(),
+            evidence_ids: vec!["file:results/fit.csv".into()],
+            category: Some("number".into()),
+            proof: Some("fit.csv ligne 3 : r = 0.61".into()),
+        }];
+        let saved = store.put(record).unwrap();
+        let reopened = ReviewStore::open(dir.path());
+        let loaded = reopened.get(&saved.review_id).unwrap();
+        assert_eq!(loaded.checks, saved.checks);
+        assert_eq!(loaded.checks[0].category.as_deref(), Some("number"));
     }
 
     #[test]

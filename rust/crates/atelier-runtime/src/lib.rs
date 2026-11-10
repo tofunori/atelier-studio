@@ -30,6 +30,7 @@ pub mod revision_tool;
 pub mod annotate_tool;
 mod redact;
 pub mod review;
+pub mod review_claims;
 pub mod send;
 pub mod server;
 pub mod state;

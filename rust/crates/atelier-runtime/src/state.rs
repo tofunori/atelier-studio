@@ -462,6 +462,21 @@ impl AppState {
         self
     }
 
+    /// Installe un faux fournisseur déjà réglé (relecture lente, événements
+    /// de tour, journal des demandes de relecture).
+    #[cfg(test)]
+    pub(crate) fn with_test_fake(mut self, provider: atelier_providers::FakeProvider) -> Self {
+        use atelier_providers::Provider as _;
+        let inner = Arc::get_mut(&mut self.inner)
+            .expect("test providers must be installed before AppState is cloned");
+        inner
+            .providers
+            .get_mut()
+            .unwrap()
+            .insert(provider.id().to_string(), Arc::new(provider));
+        self
+    }
+
     /// Variante lente du provider de test : le tour dure assez longtemps pour
     /// qu'un `interrupt` arrive PENDANT le stream (le fake par défaut finit en
     /// ~20 ms, avant même le premier tour du watcher d'annulation à 50 ms).

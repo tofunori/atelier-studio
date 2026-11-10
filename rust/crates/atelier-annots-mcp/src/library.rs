@@ -10,6 +10,10 @@ pub struct Config {
     pub zotero_dir: PathBuf,
     /// Où copier `zotero.sqlite` (Zotero garde un verrou sur l'original).
     pub cache_dir: PathBuf,
+    /// Lecture seule (`ATELIER_ANNOTS_READONLY=1`) : seuls les outils marqués
+    /// `readOnlyHint` sont annoncés et appelables. C'est le mode du
+    /// relecteur d'Atelier, qui ne doit rien surligner ni coder.
+    pub read_only: bool,
 }
 
 impl Config {
@@ -26,6 +30,7 @@ impl Config {
             zotero_dir: atelier_integrations::Integrations::load_from(&app_dir).zotero_dir(),
             app_dir,
             cache_dir: std::env::temp_dir().join("atelier-annots-mcp"),
+            read_only: std::env::var("ATELIER_ANNOTS_READONLY").as_deref() == Ok("1"),
         }
     }
 }
@@ -523,6 +528,7 @@ mod tests {
             app_dir: dir.path().into(),
             zotero_dir: dir.path().join("no-zotero"),
             cache_dir: dir.path().join("cache"),
+            read_only: false,
         };
         let lib = Library::load(&config);
         let filter = |query: &str, only_with_note| Filter {

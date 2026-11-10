@@ -566,7 +566,7 @@ fn read_path_from_tool_event(event: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn is_shell_tool(name: &str) -> bool {
+pub(crate) fn is_shell_tool(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     SHELL_TOOL_NAMES.contains(&lower.as_str())
         // Grok/ACP préfixent parfois le nom natif (`shell_command`,
@@ -577,7 +577,7 @@ fn is_shell_tool(name: &str) -> bool {
 }
 
 /// La commande brute, quelle que soit la forme du provider.
-fn command_from_tool_event(event: &Value) -> Option<String> {
+pub(crate) fn command_from_tool_event(event: &Value) -> Option<String> {
     let raw = event.get("input").and_then(|input| {
         input
             .get("command")
