@@ -239,6 +239,66 @@ describe("Sidebar — contrats du panneau (projet actif)", () => {
     expect(p.onSelect).toHaveBeenCalledWith("3", PROJECT_ROOT);
   });
 
+  it("range les fils délégués sous leur conversation, avec leur état, et les ouvre au clic", () => {
+    const fil = (id: string, title: string, over: Partial<Thread>) => makeThread({
+      id, title, provider: "codex", sessionId: "s-" + id,
+      agentLink: {
+        parentThreadId: "coord", role: "thread", access: "read_write",
+        createdAt: `2026-07-20T00:00:0${id.length}.000Z`, createdBy: "user",
+        autoDeliveryLimit: 4, autoDeliveryUsed: 0, paused: false,
+      },
+      delegue: { fil: true, par: "agent" },
+      ...over,
+    });
+    const threads = [
+      makeThread({ id: "coord", title: "Réviser le chapitre 2" }),
+      fil("a", "Fil A · Résumé", { status: "running" }),
+      fil("bb", "Fil B · §2.3", { rapportA: FIXED_ISO }),
+      fil("ccc", "Fil C · Discussion", {}),
+      makeThread({ id: "autre", title: "Autre conversation" }),
+    ];
+    const p = makeProps({ threads, unread: new Set(["bb"]) });
+    renderUi(<Sidebar {...p} />);
+
+    const toggle = screen.getByRole("button", { name: t("sidebar.children-hide", { title: "Réviser le chapitre 2" }) });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const rows = [...document.querySelectorAll(".pnav-row .title")].map((el) => el.textContent);
+    // les fils suivent leur parent, dans l'ordre de lancement, sans s'aligner avec lui
+    expect(rows.indexOf("Fil A · Résumé")).toBe(rows.indexOf("Réviser le chapitre 2") + 1);
+    expect(document.querySelectorAll(".pnav-child")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: `Fil A · Résumé — ${t("sidebar.child.running")}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Fil B · §2.3 — ${t("sidebar.child.review")}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Fil C · Discussion — ${t("sidebar.child.waiting")}` })).toBeTruthy();
+    // les fils ne comptent plus dans la famille ⊶
+    expect(screen.queryByRole("button", { name: t("linkedConversation.markerLabel", { count: 4 }) })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: `Fil C · Discussion — ${t("sidebar.child.waiting")}` }));
+    expect(p.onSelect).toHaveBeenCalledWith("ccc", PROJECT_ROOT);
+
+    fireEvent.click(toggle);
+    expect(document.querySelectorAll(".pnav-child")).toHaveLength(0);
+    expect(screen.getByText(t("sidebar.children-count", { count: 3, plural: "s" }))).toBeTruthy();
+  });
+
+  it("garde ouverts les fils de la conversation quand l'un d'eux est affiché", () => {
+    const threads = [
+      makeThread({ id: "coord", title: "Coordinateur" }),
+      makeThread({
+        id: "fini", title: "Fil terminé", rapportA: FIXED_ISO, sessionId: "s",
+        agentLink: { parentThreadId: "coord", role: "thread", access: "read_write", createdAt: FIXED_ISO,
+          createdBy: "user", autoDeliveryLimit: 4, autoDeliveryUsed: 0, paused: false },
+        delegue: { fil: true },
+      }),
+    ];
+    // fils tous terminés : repliés par défaut…
+    const { unmount } = renderUi(<Sidebar {...makeProps({ threads })} />);
+    expect(document.querySelectorAll(".pnav-child")).toHaveLength(0);
+    unmount();
+    // … sauf quand l'un d'eux est le fil ouvert
+    renderUi(<Sidebar {...makeProps({ threads, activeId: "fini" })} />);
+    expect(document.querySelectorAll(".pnav-child.active")).toHaveLength(1);
+  });
+
   it("révèle au survol uniquement les membres de la même famille", () => {
     const makeLinkedPair = (rootId: string, childId: string, createdAt: string) => [
       makeThread({ id: rootId, title: `Racine ${rootId}` }),

@@ -2,7 +2,7 @@
 // (Research Navigator). Monté par main.tsx sur #navbench[-état][-wNNN][-light] ;
 // jamais dans le parcours normal (chunk lazy). Le banc rend le VRAI Sidebar
 // avec des fixtures figées : aucun sidecar requis.
-// États : rich (défaut) · empty · unscoped. Largeurs : -w220 · -w180.
+// États : rich (défaut) · empty · unscoped · coord. Largeurs : -w220 · -w180.
 import { useEffect } from "react";
 import "../styles/tokens.css";
 import "../styles/primitives.css";
@@ -45,6 +45,30 @@ const UNSCOPED: Thread[] = [
   th({ id: "u3", title: "Brouillon courriel direction", projectRoot: "", updatedAt: daysAgo(9) }),
 ];
 
+// coordinateur et fils (2026-11-09) : une conversation et les fils qu'elle a
+// lancés, rangés dessous avec leur état
+const fil = (id: string, title: string, minutes: number, over: Partial<Thread> = {}) => th({
+  id, title, provider: "codex", updatedAt: hoursAgo(minutes / 60),
+  agentLink: { parentThreadId: "coord", role: "thread", access: "read_write", createdAt: hoursAgo(1 - minutes / 600),
+    createdBy: "user", autoDeliveryLimit: 4, autoDeliveryUsed: 0, paused: false },
+  delegue: { fil: true, par: "agent" },
+  ...over,
+});
+const COORD: Thread[] = [
+  th({ id: "coord", title: "Réviser le chapitre 2", updatedAt: hoursAgo(0.05) }),
+  fil("fa", "Résumé · resserrer", 1, { status: "running" }),
+  fil("fb", "§2.3 · ajouter Box 2017", 2, { rapportA: hoursAgo(0.02) }),
+  fil("fc", "Discussion · reformuler", 3),
+  th({ id: "a", title: "Rewrap figure 3 — albédo saisonnier", updatedAt: hoursAgo(1) }),
+  th({ id: "b", title: "Extraction GEE MOD10A1 (2024)", provider: "codex", updatedAt: hoursAgo(3) }),
+  th({ id: "spec", title: "Préparer les figures", updatedAt: daysAgo(1.2) }),
+  th({ id: "sp1", title: "Code · Dépôt", provider: "claude", updatedAt: daysAgo(1.2),
+    agentLink: { parentThreadId: "spec", role: "specialist", access: "read_write", createdAt: daysAgo(1.2),
+      createdBy: "user", autoDeliveryLimit: 4, autoDeliveryUsed: 0, paused: false },
+    delegue: { specialisteId: "code", par: "agent" }, rapportA: daysAgo(1.2) }),
+  th({ id: "c", title: "Méthodologie — forçage aérosols", updatedAt: daysAgo(1.4) }),
+];
+
 const noop = () => {};
 
 type BenchState = {
@@ -71,6 +95,14 @@ const STATES: Record<string, BenchState> = {
     activeId: null,
     favorites: [],
     unread: new Set(),
+  },
+  // coordinateur : ses fils dessous (En cours, À relire, Attend ta réponse)
+  coord: {
+    activeProject: PROJ,
+    threads: COORD,
+    activeId: "coord",
+    favorites: [],
+    unread: new Set(["fb"]),
   },
   // chats sans projet
   unscoped: {

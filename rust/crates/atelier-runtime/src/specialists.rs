@@ -183,6 +183,13 @@ pub fn bloc_contexte(settings: &Value, provider: &str, peut_deleguer: bool) -> O
     } else {
         String::new()
     };
+    // Coordinateur et fils (2026-11-09) : toute conversation de premier
+    // niveau peut répartir un lot de tâches indépendantes sur des fils.
+    let delegation = if peut_deleguer {
+        format!("{delegation}\nWhen the user hands you several independent tasks at once (for example several passages of a manuscript to revise, or \"do these three things\"), you can coordinate: call `atelier_sessions` with action \"start_thread\" once per task (task: self-contained, title: a few words). Each runs in its own thread under this conversation, at most {} at once, proposes text changes as notes the user accepts in the editor, and reports back with report_to_parent, which wakes you. Keep answering the user here meanwhile; when reports arrive, sum them up in a few lines. Do this only for several independent tasks or when the user asks for threads, never for a single quick task.", crate::delegation::MAX_EN_PARALLELE)
+    } else {
+        delegation
+    };
     Some(format!(
         "\n\n<atelier-specialists>\nIn Atelier, a \"specialist\" (spécialiste) is a named profile the user keeps in Settings › Specialists: a role, standing instructions, preferred skills and connectors. A conversation can carry one specialist, picked in the composer's Specialist menu; its instructions then apply to the whole conversation. When the user talks about specialists (\"mes spécialistes\", \"le spécialiste …\", \"@Name\"), they mean these profiles.\n{liste}\nTo read full profiles, call the MCP tool `atelier_sessions` with action \"specialists\". When the user asks you to create or change a specialist, ask at most one or two short questions, then call `atelier_sessions` with action \"propose_specialist\" (nom, nomCourt: one word, role, instructions, skills, connecteurs; replaceId to change an existing one). It shows a proposal card that the user keeps, edits in Settings or dismisses: nothing is saved until they click, so never write a profile to a file.{delegation}\n</atelier-specialists>"
     ))
@@ -457,6 +464,12 @@ mod tests {
         let bloc = bloc_contexte(&json!({}), "claude", true).unwrap();
         assert!(bloc.contains("no specialist yet"));
         assert!(bloc.contains("propose_specialist"));
+    }
+
+    #[test]
+    fn seule_une_conversation_de_premier_niveau_apprend_a_lancer_des_fils() {
+        assert!(bloc_contexte(&json!({}), "claude", true).unwrap().contains("\"start_thread\""));
+        assert!(!bloc_contexte(&reglages(), "codex", false).unwrap().contains("start_thread"));
     }
 
     #[test]

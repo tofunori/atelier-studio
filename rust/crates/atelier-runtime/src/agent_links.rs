@@ -71,7 +71,7 @@ pub async fn handle_create_linked_thread(state: &AppState, msg: &Value) -> Vec<S
             if let Some(existing) = store
                 .children_of(source_id)
                 .into_iter()
-                .find(|thread| thread.provider == target_provider && crate::delegation::specialiste_delegue(thread).is_none())
+                .find(|thread| thread.provider == target_provider && !crate::delegation::est_delegue(thread))
             {
                 return vec![json_msg(json!({
                     "type": "linkedThreadCreated",
@@ -210,7 +210,7 @@ pub async fn handle_mention_agent(state: &AppState, msg: &Value) -> Vec<String> 
         store
             .children_of(source_id)
             .into_iter()
-            .find(|thread| thread.provider == target_provider && crate::delegation::specialiste_delegue(thread).is_none())
+            .find(|thread| thread.provider == target_provider && !crate::delegation::est_delegue(thread))
             .map(|thread| thread.id)
     };
     let reused = existing.is_some();

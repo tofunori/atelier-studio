@@ -21,7 +21,8 @@ import { RailSignalMark, SIGNAL_LABEL } from "../RailSignalMark";
 import type { ProjMeta, RailSignals } from "../Rail";
 import { ProjIcon } from "./projectIcons";
 import { AllProjectsGlyph } from "./AllProjectsGlyph";
-import { ProjectStyleMenu, type ProjectStyleAnchor } from "./ProjectStyleMenu";
+import { ProjectStyleMenu } from "./ProjectStyleMenuLazy";
+import type { ProjectStyleAnchor } from "./ProjectStyleMenu";
 
 const NO_AGENTS = new Set<string>();
 

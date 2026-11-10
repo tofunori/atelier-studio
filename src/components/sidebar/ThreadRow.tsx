@@ -101,6 +101,9 @@ export function ThreadRow(p: {
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
   menuItems: LazyDropdownMenuItem[];
+  /** Fils rangés sous cette conversation : nombre, et bascule afficher /
+   *  masquer (coordinateur et fils, 2026-11-09). */
+  nestedThreads?: { count: number; open: boolean; onToggle: () => void };
 }) {
   const running = p.thread.status === "running";
   // Le marqueur de branche remplace l'ancien préfixe « ⑂ » du titre : le
@@ -196,6 +199,11 @@ export function ThreadRow(p: {
                   <span className="pnav-meta-count">{p.family.size}</span>
                 </span>
               ) : null}
+              {p.nestedThreads ? (
+                <span className="pnav-meta-item pnav-meta-children">
+                  {t("sidebar.children-count", { count: p.nestedThreads.count, plural: p.nestedThreads.count > 1 ? "s" : "" })}
+                </span>
+              ) : null}
               {p.heartbeat && (
                 <span className="pnav-meta-item" aria-hidden="true">
                   <Clock3Icon className="pnav-heartbeat" />
@@ -205,6 +213,21 @@ export function ThreadRow(p: {
           </span>
         </SidebarMenuButton>
       )}
+      {p.nestedThreads ? (
+        <IconButton
+          size="s"
+          className="pnav-children-toggle"
+          label={t(p.nestedThreads.open ? "sidebar.children-hide" : "sidebar.children-show", { title: p.title })}
+          aria-expanded={p.nestedThreads.open}
+          data-open={p.nestedThreads.open ? "" : undefined}
+          onClick={p.nestedThreads.onToggle}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M6 4l4 4-4 4" />
+          </svg>
+        </IconButton>
+      ) : null}
       <span className={cx("pnav-row-end", p.family && "has-family")}>
         {p.family ? (
           <ConversationFamilyMarker

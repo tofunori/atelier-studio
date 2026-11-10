@@ -4,6 +4,7 @@ import { isDiscussionContext } from "../../lib/discussions";
 // projet, quel travail reprendre et quelles conversations ouvrir ? ».
 // Douze règles déterministes, testées dans projectNavigatorModel.test.ts.
 import type { Thread } from "../../lib/ws";
+import { delegatedChildrenByParent } from "../../lib/threadLinks";
 
 export type RecencyBucket = "today" | "yesterday" | "last7" | "older";
 export type NavigatorMode = "project" | "unscoped";
@@ -26,8 +27,12 @@ export type ProjectNavigatorModel = {
   searching: boolean;
   /** conversations masquées par la limite (hors recherche) */
   hiddenCount: number;
-  /** ordre DOM exact des threads visibles, sans doublon — base du shift-clic */
+  /** ordre DOM exact des threads visibles, sans doublon — base du shift-clic
+   *  (les fils rangés sous leur parent n'y entrent pas) */
   visibleThreadIds: string[];
+  /** règle 14 : fils délégués rangés sous leur parent (id du parent → fils,
+   *  ordre de lancement). Absents des sections hors recherche. */
+  childrenByParent: Map<string, Thread[]>;
 };
 
 export type NavigatorInput = {
@@ -89,6 +94,14 @@ function updatedTs(t: Thread): number {
   return Number.isFinite(ts) ? ts : Number.NEGATIVE_INFINITY;
 }
 
+/** Un parent prend la dernière activité de ses fils : il remonte quand un
+ * fil travaille ou rend compte. */
+function withChildrenActivity(t: Thread, children: Thread[] | undefined): Thread {
+  if (!children?.length) return t;
+  const latest = children.reduce((best, child) => (updatedTs(child) > updatedTs(best) ? child : best), t);
+  return latest === t ? t : { ...t, updatedAt: latest.updatedAt };
+}
+
 export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavigatorModel {
   const now = input.now ?? Date.now();
   const mode: NavigatorMode = isDiscussionContext(input.activeProject) ? "unscoped" : "project";
@@ -119,8 +132,17 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
     }
   }
 
+  // règle 14 : les fils délégués (spécialistes, fils lancés par le
+  // coordinateur) se rangent sous leur parent au lieu de s'aligner avec lui.
+  const childrenByParent = delegatedChildrenByParent(context);
+  const nestedIds = new Set([...childrenByParent.values()].flat().map((t) => t.id));
+  const activity = new Map(
+    context.map((t) => [t.id, updatedTs(withChildrenActivity(t, childrenByParent.get(t.id)))]),
+  );
+  const activityOf = (t: Thread) => activity.get(t.id) ?? updatedTs(t);
+
   // ordre de référence : récence (desc, stable) ou ordre manuel existant
-  const byRecency = [...context].sort((a, b) => updatedTs(b) - updatedTs(a));
+  const byRecency = [...context].sort((a, b) => activityOf(b) - activityOf(a));
   const ordered =
     input.threadOrder === "manual"
       ? [...context].sort((a, b) =>
@@ -148,6 +170,7 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
       searching: true,
       hiddenCount: 0,
       visibleThreadIds: results.map((t) => t.id),
+      childrenByParent: new Map(),
     };
   }
 
@@ -159,18 +182,24 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
   // règle 4 : Conversations = le reste, trié par dernière activité en mode
   // récent. Le chat actif n'est plus extrait dans une section spéciale.
   const pinnedIds = new Set(pinnedThreads.map((t) => t.id));
-  const rest = ordered.filter((t) => !pinnedIds.has(t.id));
+  const rest = ordered.filter((t) => !pinnedIds.has(t.id) && !nestedIds.has(t.id));
+  // Un fil ouvert est trouvable sous son parent : le parent tient lieu de
+  // conversation ouverte pour la limite (règle 13).
+  const activeChild = input.activeId && nestedIds.has(input.activeId)
+    ? context.find((t) => t.id === input.activeId)
+    : undefined;
+  const openId = activeChild?.agentLink?.parentThreadId ?? input.activeId;
 
   // règle 12 : limite existante + décompte des masqués. La conversation
   // ouverte échappe à la limite (règle 13) : la masquer la rendrait
   // introuvable exactement comme l'exclusion de contexte.
   const shown = input.expanded ? rest : rest.slice(0, CONVERSATIONS_VISIBLE);
   if (
-    input.activeId &&
-    !shown.some((t) => t.id === input.activeId) &&
-    rest.some((t) => t.id === input.activeId)
+    openId &&
+    !shown.some((t) => t.id === openId) &&
+    rest.some((t) => t.id === openId)
   ) {
-    shown.push(rest.find((t) => t.id === input.activeId)!);
+    shown.push(rest.find((t) => t.id === openId)!);
   }
   const hiddenCount = rest.length - shown.length;
 
@@ -181,7 +210,7 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
   } else {
     let current: RecencyBucket | null = null;
     for (const t of shown) {
-      const bucket = recencyBucketAt(t, now);
+      const bucket = recencyBucketAt(withChildrenActivity(t, childrenByParent.get(t.id)), now);
       if (bucket !== current) {
         conversationSections.push({ key: bucket, bucket, threads: [] });
         current = bucket;
@@ -204,5 +233,6 @@ export function deriveProjectNavigatorModel(input: NavigatorInput): ProjectNavig
     searching: false,
     hiddenCount,
     visibleThreadIds,
+    childrenByParent,
   };
 }
