@@ -174,7 +174,25 @@ div.CodeMirror-dragcursors, .CodeMirror-focused div.CodeMirror-cursors { visibil
       return "Le connecteur Atelier n'est pas connecté : vérifie qu'il tourne sur ton Mac.";
     if (e.code === "not_granted" || e.code === "denied")
       return "L'accès au connecteur Atelier n'est pas autorisé pour cette page.";
-    return e.message || ("Erreur : " + e.code);
+    return (e.message || "Erreur") + (e.code ? " (" + e.code + ")" : "");
+  }
+
+  // Accès au connecteur pas encore accordé à la page : on le demande sur
+  // un clic, puis on refait l'appel (le clic permet à Claude de demander).
+  function accessButtons(retry) {
+    return [
+      { label: "Autoriser le connecteur", run: function () {
+        setNote("warn", "Autorisation demandée…");
+        claude.use("permissions").then(function (perm) {
+          return perm ? perm.request() : null;
+        }).catch(function () {}).then(retry);
+      } },
+      { label: "Autorisations", run: function () {
+        claude.use("permissions").then(function (perm) { return perm && perm.manage(); })
+          .catch(function () { setNote("err", "Ouvre le menu Autorisations de l'artefact et active le connecteur Atelier."); })
+          .then(retry);
+      } }
+    ];
   }
 
   // Découpe en mots et signes (les espaces ne servent pas d'ancre) ; garde
@@ -287,7 +305,11 @@ div.CodeMirror-dragcursors, .CodeMirror-focused div.CodeMirror-cursors { visibil
         setText(p.text);
         setNote("", "");
       })
-      .catch(function (e) { setNote("err", errorText(e)); })
+      .catch(function (e) {
+        if (e && e.code === "tool_error") setNote("err", errorText(e));
+        else setNote("err", "Claude n'a pas encore autorisé cette page à utiliser le connecteur Atelier. " + errorText(e),
+          accessButtons(function () { load(path, first); }));
+      })
       .then(function () { busy = false; refreshState(); paintDiff(); });
   }
 
