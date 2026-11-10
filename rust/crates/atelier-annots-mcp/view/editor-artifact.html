@@ -242,6 +242,32 @@ body[data-pdf="off"] .pdf { display: none; }
 .status .chg-n { color: var(--ins-fg); }
 .status .chg-n:hover { text-decoration: underline; }
 
+/* Historique du fichier et retour en arrière. */
+.day { padding: 12px 8px 4px; font-size: 10px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--muted2); }
+.ver { display: grid; grid-template-columns: 16px 1fr; column-gap: 8px; align-items: start; width: 100%; padding: 8px; border-radius: 6px; color: var(--fg2); text-align: left; transition: background-color var(--t); }
+.ver:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.ver.sel { background: var(--row-sel); color: var(--fg); }
+.ver svg { margin-top: 3px; color: var(--muted2); }
+.ver .t { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.ver .w { font-size: 11px; color: var(--muted); }
+.ver .k { font-size: 11px; color: var(--ins-fg); font-variant-numeric: tabular-nums; }
+.hfoot { padding: 8px 8px 4px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+.cmp { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding-block: 8px; flex: none; font-size: 12px; background: color-mix(in srgb, var(--info) 12%, var(--bg)); }
+.cmp b { font-weight: 500; }
+.cmp .m { color: var(--muted); }
+.cmp .sp { flex: 1; }
+.cmp .tb { height: 24px; padding: 0 8px; }
+.cb { cursor: pointer; }
+.hpop { position: absolute; z-index: 10; width: min(360px, calc(100% - 32px)); padding: 12px 16px; border-radius: 10px; background: var(--pop); box-shadow: var(--elev); font: 400 12px/1.5 var(--ui); opacity: 0; transform: translateY(-4px); transition: opacity var(--t), transform var(--t); }
+.hpop.on { opacity: 1; transform: none; }
+.hpop .h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.hpop .h b { font-size: 11px; font-weight: 600; color: var(--fg2); }
+.hpop .h span { font-size: 11px; color: var(--muted2); font-variant-numeric: tabular-nums; }
+.hpop .tx2 { font: 400 13px/20px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; }
+.hpop .a { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.status .undo-all { color: var(--muted); }
+.status .undo-all:hover { color: var(--fg); }
+
 /* Panneau étroit (à côté de la conversation) : le volet passe par-dessus
    la source, les boutons gardent leur icône. */
 @media (max-width: 759px) {
@@ -271,6 +297,11 @@ body[data-pdf="off"] .pdf { display: none; }
   <symbol id="i-cols" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></symbol>
   <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+  <symbol id="i-hist" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
   <symbol id="i-log" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></symbol>
 </svg>
 
@@ -293,9 +324,11 @@ body[data-pdf="off"] .pdf { display: none; }
     <div class="seg" role="tablist">
       <button type="button" role="tab" id="segFiles" aria-selected="true">Fichiers</button>
       <button type="button" role="tab" id="segPlan" aria-selected="false">Plan</button>
+      <button type="button" role="tab" id="segHist" aria-selected="false">Historique</button>
     </div>
     <div class="list" id="files"><p class="hint">Connexion au connecteur Atelier…</p></div>
     <div class="list" id="plan" hidden></div>
+    <div class="list" id="hist" hidden></div>
     <form class="open" id="openForm" hidden>
       <input id="pathInput" type="text" spellcheck="false" autocomplete="off" placeholder="~/Documents/…/chapitre.tex" aria-label="Chemin du fichier">
       <button class="tb" type="submit">Ouvrir</button>
@@ -317,6 +350,11 @@ body[data-pdf="off"] .pdf { display: none; }
         <button class="tb" id="replOne" type="button">Remplacer</button>
         <button class="tb" id="replAll" type="button">Tout</button>
       </div>
+    </div>
+    <div class="cmp gut" id="cmp" hidden>
+      <span id="cmpTxt"></span><span class="sp"></span>
+      <button class="tb quiet" id="cmpClose" type="button">Fermer</button>
+      <button class="tb" id="cmpRestore" type="button"><svg class="i s"><use href="#i-undo"/></svg>Restaurer cette version</button>
     </div>
     <div class="wrap" id="wrap">
       <div class="empty" id="empty"><div><b>Éditeur LaTeX d'Atelier</b>Ton projet s'ouvre ici : tu modifies les fichiers à la main, Claude les révise dans la conversation.</div></div>
@@ -345,6 +383,7 @@ body[data-pdf="off"] .pdf { display: none; }
   <span id="stPos"></span><span class="opt" id="stWords"></span><span class="opt" id="stLang"></span>
   <span class="sp"></span>
   <button class="chg-n" id="stChg" type="button" title="Aller au changement suivant" hidden></button>
+  <button class="undo-all opt" id="stUndoAll" type="button" title="Revenir au texte de l'ouverture (Cmd-Z pour refaire)" hidden>Tout annuler</button>
   <span class="cn" id="stConn">Atelier</span>
 </footer>
 
@@ -383,6 +422,9 @@ body[data-pdf="off"] .pdf { display: none; }
   var find = { q: "", overlay: null, at: null };
   var legacy = false;            // connecteur d'avant la liste du projet
   var polling = false;
+  // Historique du fichier actif : versions gardées par le connecteur.
+  var hist = { path: null, list: [], loaded: false, off: false, sel: null };
+  var hunkPop = null;
   // Compilation et aperçu : dernier résultat, PDF affiché, pages rendues.
   var build = { running: false, result: null, issues: [], showAll: false };
   var pdfView = { path: null, mtime: null, pages: 0, ratio: 1.294, zoom: 1, inflight: 0, nodes: [], widthKey: 0 };
@@ -432,6 +474,8 @@ body[data-pdf="off"] .pdf { display: none; }
       return "Le connecteur Atelier n'est pas connecté : vérifie qu'il tourne sur ton Mac.";
     if (e.code === "not_granted" || e.code === "denied")
       return "L'accès au connecteur Atelier n'est pas autorisé pour cette page.";
+    if (e.code === "blocked_by_policy")
+      return "Claude ne connaît pas encore cet outil du connecteur Atelier : la version qui tourne sur ton Mac est ancienne, ou Claude n'a pas actualisé sa liste d'outils (Paramètres, Connecteurs, Atelier).";
     return (e.message || "Erreur") + (e.code ? " (" + e.code + ")" : "");
   }
   // Accès au connecteur pas encore accordé à la page : on le demande sur un
@@ -639,6 +683,9 @@ body[data-pdf="off"] .pdf { display: none; }
     cm.addOverlay(keyOverlay);
     cm.on("change", function () { refreshState(); schedulePaint(); scheduleWords(); schedulePlan(1200); });
     cm.on("cursorActivity", onCursor);
+    cm.on("gutterClick", function (c, line, gutter) { if (gutter === "chg") openHunk(line); });
+    cm.on("change", function () { if (hunkPop) closeHunk(); });
+    cm.on("scroll", function () { if (hunkPop) closeHunk(); });
     cm.on("inputRead", function (c, change) {
       if (change.origin === "+input" && change.text.length === 1 && /^[\\a-zA-Z{,:_-]$/.test(change.text[0])) complete(false);
     });
@@ -746,8 +793,9 @@ body[data-pdf="off"] .pdf { display: none; }
 
   function afterSwitch() {
     renderTabs(); renderCrumb(); renderTree(); renderPlan(); refreshState();
-    paintDiff(); paintProposals(); paintIssues(); updateStatus(); countWords(); persist();
+    closeHunk(); showCompare(); paintDiff(); paintProposals(); paintIssues(); updateStatus(); countWords(); persist();
     if (find.q) applyQuery();
+    if (!$("hist").hidden) loadHist(false);
   }
 
   function activate(path, line) {
@@ -779,7 +827,7 @@ body[data-pdf="off"] .pdf { display: none; }
       var d = {
         path: real, file: p.file || base(real), sha: p.sha256, saved: p.text,
         baseline: kept != null ? kept : p.text, doc: CodeMirror.Doc(p.text, modeFor(real)),
-        marks: [], widgets: [], remoteChanged: false, savedAt: ""
+        marks: [], widgets: [], remoteChanged: false, savedAt: "", openedAt: Date.now(), cmp: null
       };
       try { sessionStorage.setItem(baselineKey(real), d.baseline); } catch (e) {}
       docs[real] = d; sources[real] = p.text;
@@ -797,12 +845,16 @@ body[data-pdf="off"] .pdf { display: none; }
   }
 
   // Enregistre un document ; résout à true si le disque porte son texte.
-  function saveDoc(d, force) {
+  function saveDoc(d, force, origin) {
     if (!mcp || !d) return Promise.resolve(false);
     if (!isDirty(d)) return Promise.resolve(true);
     var text = d.doc.getValue();
     busy++; refreshState();
-    var send = function (b) { return call("save_tex_file", { path: d.path, text: text, base_sha256: b }); };
+    var send = function (b) {
+      var args = { path: d.path, text: text, base_sha256: b };
+      if (origin) args.origin = origin;
+      return call("save_tex_file", args);
+    };
     var run = force === true
       ? call("load_tex_file", { path: d.path }).then(function (p) { return send(p.sha256); })
       : send(d.sha);
@@ -812,6 +864,7 @@ body[data-pdf="off"] .pdf { display: none; }
       setNote("", "");
       schedulePlan(200);
       if (/\.bib$/i.test(d.path)) readBibKeys();
+      loadHist(true);
       return true;
     }).catch(function (e) {
       var sc = e && e.result && e.result.structuredContent;
@@ -845,27 +898,32 @@ body[data-pdf="off"] .pdf { display: none; }
       if (d) { d.marks.forEach(function (mk) { mk.clear(); }); d.marks = []; }
       cm.clearGutter("chg");
       var groups = 0;
-      if (d && d.baseline != null) {
+      var ref = d && (d.cmp ? d.cmp.text : d.baseline), show = showDiff || !!(d && d.cmp);
+      if (d && ref != null) {
         var text = d.doc.getValue();
-        if (text !== d.baseline) {
-          var ops = wordDiff(d.baseline, text), lines = {};
+        if (text !== ref) {
+          var ops = wordDiff(ref, text), lines = {};
           ops.forEach(function (o, i) {
             var prev = ops[i - 1];
             if (!(o.kind === "ins" && prev && prev.kind === "del" && prev.at === o.from)) groups++;
             if (o.kind === "ins") {
               var from = cm.posFromIndex(o.from), to = cm.posFromIndex(o.to);
-              if (showDiff) d.marks.push(cm.markText(from, to, { className: "ins" }));
+              if (show) d.marks.push(cm.markText(from, to, { className: "ins" }));
               for (var l = from.line; l <= to.line; l++) {
                 var whole = (l > from.line || !cm.getLine(l).slice(0, from.ch).trim()) && (l < to.line || !cm.getLine(l).slice(to.ch).trim());
                 if (lines[l] !== "mod") lines[l] = whole && !(prev && prev.kind === "del" && prev.at === o.from) ? "add" : "mod";
               }
             } else {
               var at = cm.posFromIndex(o.at);
-              if (showDiff) d.marks.push(cm.setBookmark(at, { widget: delSpan(o.text), insertLeft: true }));
+              if (show) d.marks.push(cm.setBookmark(at, { widget: delSpan(o.text), insertLeft: true }));
               lines[at.line] = "mod";
             }
           });
-          if (showDiff) Object.keys(lines).forEach(function (l) { cm.setGutterMarker(+l, "chg", el("div", "cb " + lines[l])); });
+          if (show) Object.keys(lines).forEach(function (l) {
+            var mk = el("div", "cb " + lines[l]);
+            mk.title = "Annuler ce changement";
+            cm.setGutterMarker(+l, "chg", mk);
+          });
         }
       }
       d && (d.changes = groups);
@@ -873,6 +931,8 @@ body[data-pdf="off"] .pdf { display: none; }
       var st = $("stChg");
       st.hidden = !groups;
       st.textContent = groups + (groups > 1 ? " changements" : " changement");
+      $("stUndoAll").hidden = !groups || !d || !!d.cmp;
+      if (hist.path && !$("hist").hidden) renderHist();
     });
   }
   function schedulePaint() { clearTimeout(diffTimer); diffTimer = setTimeout(paintDiff, 300); }
@@ -891,6 +951,202 @@ body[data-pdf="off"] .pdf { display: none; }
     cm.scrollIntoView(p, 120);
     cm.focus();
   }
+
+  // ——— Historique et retour en arrière ———
+  var ORIGINS = {
+    save: ["pen", "Avant ton enregistrement"],
+    claude: ["spark", "Avant une proposition de Claude"],
+    undo: ["undo", "Avant une annulation"],
+    restore: ["hist", "Avant une restauration"],
+    open: ["open", "À l'ouverture dans l'éditeur"]
+  };
+  function hhmm(ms) { return new Date(ms).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" }); }
+  function dayOf(ms) {
+    var d = new Date(ms), now = new Date(), y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (d.toDateString() === now.toDateString()) return "Aujourd'hui";
+    if (d.toDateString() === y.toDateString()) return "Hier";
+    return d.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" });
+  }
+  function loadHist(force) {
+    var d = cur();
+    if (!d) { hist.path = null; hist.list = []; renderHist(); return; }
+    if (!force && hist.path === d.path && hist.loaded) { renderHist(); return; }
+    if (hist.path !== d.path) { hist.path = d.path; hist.list = []; hist.loaded = false; renderHist(); }
+    if (hist.off || !mcp || !project) { hist.loaded = true; renderHist(); return; }
+    var path = d.path;
+    call("list_tex_versions", { path: path }).then(function (p) {
+      if (hist.path !== path) return;
+      hist.list = p.versions || []; hist.loaded = true; renderHist();
+    }, function (e) {
+      if (hist.path !== path) return;
+      // Connecteur d'une version d'avant : pas d'historique, le reste marche.
+      if (e && (e.code === "blocked_by_policy" || e.code === "not_in_manifest" || (e.code === "tool_error" && /inconnu|indisponible|unknown/i.test(toolText(e))))) hist.off = true;
+      hist.loaded = true; renderHist();
+    });
+  }
+  function renderHist() {
+    var box = $("hist");
+    if (box.hidden) return;
+    box.textContent = "";
+    var d = cur();
+    if (!d) { box.appendChild(el("p", "hint", "Ouvre un fichier pour voir ses versions.")); return; }
+    box.appendChild(el("div", "day", d.file));
+    var now = verRow("pen", "Maintenant", isDirty(d) ? "Pas enregistré" + (d.changes ? " · " + d.changes + (d.changes > 1 ? " changements" : " changement") : "") : (d.savedAt ? "Enregistré à " + d.savedAt : "Comme sur le Mac"), !d.cmp, true);
+    now.onclick = function () { closeCompare(); };
+    box.appendChild(now);
+    var items = hist.list.map(function (v) { return { id: v.id, time: v.time, origin: v.origin }; });
+    items.push({ id: "open", time: d.openedAt, origin: "open" });
+    items.sort(function (a, b) { return b.time - a.time; });
+    var lastDay = null;
+    items.forEach(function (v) {
+      var day = dayOf(v.time);
+      if (day !== lastDay) { box.appendChild(el("div", "day", day)); lastDay = day; }
+      var o = ORIGINS[v.origin] || ORIGINS.save;
+      var row = verRow(o[0], hhmm(v.time), o[1], !!(d.cmp && d.cmp.id === v.id), false);
+      row.onclick = function () { openCompare(v); };
+      box.appendChild(row);
+    });
+    if (!hist.loaded) box.appendChild(el("p", "hint", "Chargement des versions…"));
+    else if (hist.off) box.appendChild(el("p", "hint", "Le connecteur qui tourne sur ton Mac ne garde pas encore d'historique : relance-le (double-clic sur « Relancer le connecteur Atelier ») pour voir les versions enregistrées."));
+    box.appendChild(el("p", "hfoot", "Chaque enregistrement et chaque proposition acceptée garde une version. Restaurer en garde une aussi\u00a0: rien ne se perd."));
+  }
+  function verRow(ic, title, sub, sel, isNow) {
+    var b = el("button", "ver" + (sel ? " sel" : ""));
+    b.type = "button";
+    b.appendChild(icon(ic, true));
+    var t = el("div");
+    t.appendChild(el("div", "t", title));
+    t.appendChild(el("div", isNow && isDirty(cur()) ? "k" : "w", sub));
+    b.appendChild(t);
+    return b;
+  }
+  function openCompare(v) {
+    var d = cur();
+    if (!d) return;
+    var label = "Version de " + hhmm(v.time) + (dayOf(v.time) === "Aujourd'hui" ? "" : " (" + dayOf(v.time).toLowerCase() + ")");
+    var got = v.id === "open" ? Promise.resolve({ text: d.baseline })
+      : call("load_tex_version", { path: d.path, id: v.id });
+    got.then(function (p) {
+      if (cur() !== d) return;
+      d.cmp = { id: v.id, text: p.text, label: v.id === "open" ? "Texte à l'ouverture (" + hhmm(v.time) + ")" : label };
+      showCompare(); paintDiff(); renderHist(); closeHunk();
+      if (narrow()) setSide(false);
+    }).catch(function (e) { setNote("err", errorText(e)); });
+  }
+  function showCompare() {
+    var d = cur(), box = $("cmp");
+    if (!d || !d.cmp) { box.hidden = true; return; }
+    var t = $("cmpTxt");
+    t.textContent = "";
+    t.appendChild(el("b", "", d.cmp.label));
+    t.appendChild(document.createTextNode(" "));
+    t.appendChild(el("span", "m", d.doc.getValue() === d.cmp.text ? "identique au texte actuel" : "comparée à maintenant : en rouge ce qu'elle avait, en vert ce qui a été ajouté depuis"));
+    $("cmpRestore").disabled = d.doc.getValue() === d.cmp.text;
+    box.hidden = false;
+  }
+  function closeCompare() {
+    var d = cur();
+    if (d) d.cmp = null;
+    showCompare(); paintDiff(); renderHist();
+  }
+  // Restaurer : le texte de la version devient le texte du fichier. Les
+  // modifications pas encore enregistrées le sont d'abord, puis la
+  // restauration est enregistrée : les deux états restent dans l'historique.
+  function restoreVersion() {
+    var d = cur();
+    if (!d || !d.cmp) return;
+    var text = d.cmp.text, label = d.cmp.label;
+    $("cmpRestore").disabled = true;
+    (isDirty(d) ? saveDoc(d) : Promise.resolve(true)).then(function (ok) {
+      if (!ok) return false;
+      if (d.doc.getValue() === text) return true;
+      setWhole(d, text);
+      return saveDoc(d, false, "restore");
+    }).then(function (ok) {
+      if (!ok) { showCompare(); return; }
+      d.cmp = null;
+      showCompare(); paintDiff(); schedulePlan(200);
+      setNote("", "");
+      $("state").textContent = "Version restaurée · " + d.savedAt;
+    });
+  }
+  // Annuler un seul changement : le passage revient au texte de référence
+  // (l'ouverture, ou la version comparée), sans toucher aux autres.
+  function opsOnLine(line) {
+    var d = cur(), ref = d && (d.cmp ? d.cmp.text : d.baseline);
+    if (!d || ref == null) return [];
+    var text = d.doc.getValue();
+    return wordDiff(ref, text).filter(function (o) {
+      if (o.kind === "del") return cm.posFromIndex(o.at).line === line;
+      return cm.posFromIndex(o.from).line <= line && cm.posFromIndex(o.to).line >= line;
+    });
+  }
+  function revertOps(ops) {
+    var sorted = ops.slice().sort(function (a, b) {
+      var pa = a.kind === "ins" ? a.from : a.at, pb = b.kind === "ins" ? b.from : b.at;
+      if (pa !== pb) return pb - pa;
+      return a.kind === "ins" ? -1 : 1;
+    });
+    cm.operation(function () {
+      sorted.forEach(function (o) {
+        if (o.kind === "ins") cm.replaceRange("", cm.posFromIndex(o.from), cm.posFromIndex(o.to), "+revert");
+        else cm.replaceRange(o.text, cm.posFromIndex(o.at), null, "+revert");
+      });
+    });
+  }
+  function openHunk(line) {
+    closeHunk();
+    var d = cur(), ops = opsOnLine(line);
+    if (!d || !ops.length) return;
+    var text = d.doc.getValue(), card = el("div", "hpop"), head = el("div", "h");
+    head.appendChild(el("b", "", "Changement"));
+    head.appendChild(el("span", "", "ligne " + (line + 1) + " · " + (d.cmp ? "par rapport à " + d.cmp.label.charAt(0).toLowerCase() + d.cmp.label.slice(1) : "depuis l'ouverture")));
+    card.appendChild(head);
+    var prev = el("div", "tx2");
+    ops.forEach(function (o, i) {
+      if (i) prev.appendChild(document.createTextNode(" … "));
+      if (o.kind === "del") prev.appendChild(delSpan(o.text));
+      else prev.appendChild(el("span", "ins", text.slice(o.from, o.to)));
+    });
+    card.appendChild(prev);
+    var acts = el("div", "a"), undo = el("button", "tb"), no = el("button", "tb quiet", "Fermer");
+    undo.type = no.type = "button";
+    undo.appendChild(icon("undo", true));
+    undo.appendChild(document.createTextNode("Annuler ce changement"));
+    undo.onclick = function () { closeHunk(); revertOps(ops); cm.focus(); };
+    no.onclick = function () { closeHunk(); cm.focus(); };
+    acts.appendChild(undo); acts.appendChild(no);
+    card.appendChild(acts);
+    var wrap = $("wrap"), r = cm.charCoords(Pos(line, 0), "window"), w = wrap.getBoundingClientRect();
+    var top = r.bottom - w.top + 4;
+    if (top + 160 > w.height) top = Math.max(8, r.top - w.top - 168);
+    card.style.top = top + "px";
+    card.style.left = "48px";
+    wrap.appendChild(card);
+    hunkPop = card;
+    requestAnimationFrame(function () { card.classList.add("on"); });
+    setTimeout(function () { undo.focus(); }, 0);
+  }
+  // Remplace tout le texte en une seule étape d'annulation (Cmd-Z la défait),
+  // sans ramener la vue en haut du fichier.
+  function setWhole(d, text) {
+    var last = d.doc.lastLine();
+    d.doc.replaceRange(text, Pos(0, 0), Pos(last, d.doc.getLine(last).length), "+revert");
+  }
+  function closeHunk() {
+    if (hunkPop) { hunkPop.remove(); hunkPop = null; }
+  }
+  function undoAll() {
+    var d = cur();
+    if (!d || d.baseline == null || d.doc.getValue() === d.baseline) return;
+    closeHunk();
+    setWhole(d, d.baseline);
+    cm.focus();
+  }
+  document.addEventListener("mousedown", function (ev) {
+    if (hunkPop && !hunkPop.contains(ev.target) && !(ev.target.closest && ev.target.closest(".cb"))) closeHunk();
+  });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && hunkPop) { closeHunk(); if (cm) cm.focus(); } });
 
   // ——— Propositions de Claude ———
   function proposalsFor(path) { return revs.filter(function (r) { return r.path === path; }); }
@@ -935,7 +1191,7 @@ body[data-pdf="off"] .pdf { display: none; }
       return call("resolve_revision", { id: r.id, accept: accept }).then(function () {
         revs = revs.filter(function (x) { return x.id !== r.id; });
         return accept && d ? reload(d) : null;
-      }).then(function () { paintProposals(); renderTree(); });
+      }).then(function () { paintProposals(); renderTree(); if (accept) loadHist(true); });
     }).catch(function (e) { setNote("err", errorText(e)); paintProposals(); });
   }
   function nearestProposal(accept) {
@@ -964,13 +1220,17 @@ body[data-pdf="off"] .pdf { display: none; }
     if (!narrow()) store.set("atelier-editor-side", on ? "on" : "off");
     if (cm) cm.refresh();
   }
-  function seg(files) {
+  function seg(which) {
+    if (which !== "plan" && which !== "hist") which = "files";
+    var files = which === "files";
     $("segFiles").setAttribute("aria-selected", String(files));
-    $("segPlan").setAttribute("aria-selected", String(!files));
-    $("files").hidden = !files; $("plan").hidden = files;
+    $("segPlan").setAttribute("aria-selected", String(which === "plan"));
+    $("segHist").setAttribute("aria-selected", String(which === "hist"));
+    $("files").hidden = !files; $("plan").hidden = which !== "plan"; $("hist").hidden = which !== "hist";
     $("openForm").hidden = !files || !legacy;
-    store.set("atelier-editor-seg", files ? "files" : "plan");
-    if (!files) renderPlan();
+    store.set("atelier-editor-seg", which);
+    if (which === "plan") renderPlan();
+    if (which === "hist") loadHist(false);
   }
   function fileIcon(kind) { return kind === "figure" ? "img" : kind === "bib" ? "book" : "file"; }
 
@@ -1614,8 +1874,12 @@ body[data-pdf="off"] .pdf { display: none; }
 
   // ——— Branchements ———
   $("sideBtn").onclick = function () { setSide(document.body.getAttribute("data-side") === "off"); };
-  $("segFiles").onclick = function () { seg(true); };
-  $("segPlan").onclick = function () { seg(false); };
+  $("segFiles").onclick = function () { seg("files"); };
+  $("segPlan").onclick = function () { seg("plan"); };
+  $("segHist").onclick = function () { seg("hist"); };
+  $("cmpClose").onclick = function () { closeCompare(); };
+  $("cmpRestore").onclick = function () { restoreVersion(); };
+  $("stUndoAll").onclick = function () { undoAll(); };
   $("saveBtn").onclick = function () { save(); };
   $("reloadBtn").onclick = function () {
     var d = cur();
@@ -1680,7 +1944,7 @@ body[data-pdf="off"] .pdf { display: none; }
   });
 
   setSide(narrow() ? false : store.get("atelier-editor-side") !== "off");
-  seg(store.get("atelier-editor-seg") !== "plan");
+  seg(store.get("atelier-editor-seg"));
   setPdf(!narrow() && window.innerWidth >= 1100 && store.get("atelier-editor-pdfpane") !== "off");
 
   function start(data) {

@@ -223,7 +223,7 @@ text = le passage réécrit en LaTeX, reason = une phrase en français. Une prop
 paragraphes = plusieurs appels. La carte montre l'avant / après à l'utilisateur, qui accepte ou refuse : \
 ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.";
 
-const REVISION_TOOLS: [&str; 13] = [
+const REVISION_TOOLS: [&str; 15] = [
     "open_tex_file",
     "get_selection",
     "read_tex_file",
@@ -237,6 +237,8 @@ const REVISION_TOOLS: [&str; 13] = [
     "resolve_revision",
     "compile_tex",
     "render_pdf_page",
+    "list_tex_versions",
+    "load_tex_version",
 ];
 
 fn revisions_offered(session: &Session, config: &Config) -> bool {
@@ -273,6 +275,8 @@ fn call_revision(
         "resolve_revision" => crate::project::resolve(&config.app_dir, args, roots),
         "compile_tex" => crate::compile::compile(args),
         "render_pdf_page" => crate::compile::render_page(args),
+        "list_tex_versions" => crate::revision::list_versions(&config.app_dir, args),
+        "load_tex_version" => crate::revision::load_version(&config.app_dir, args),
         _ => Err(format!("outil inconnu : {name}")),
     }
 }
@@ -357,6 +361,7 @@ fn revision_tools() -> Value {
                 "path": path,
                 "text": {"type": "string", "description": "Contenu complet du fichier."},
                 "base_sha256": {"type": "string", "description": "Empreinte reçue de load_tex_file."},
+                "origin": {"type": "string", "enum": ["save", "restore"], "description": "restore : le texte vient d'une version de l'historique."},
             }, "required": ["path", "text", "base_sha256"]},
             "annotations": {"readOnlyHint": false, "destructiveHint": true},
             "_meta": app_only,
@@ -410,6 +415,25 @@ fn revision_tools() -> Value {
                 "page": {"type": "integer", "minimum": 1},
                 "width": {"type": "integer", "minimum": 200, "maximum": 2400},
             }, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "list_tex_versions",
+            "title": "Historique d'un fichier",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : les versions gardées d'un fichier (avant chaque enregistrement et chaque proposition acceptée), les plus récentes d'abord.",
+            "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "load_tex_version",
+            "title": "Texte d'une version gardée",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : le texte d'une version de l'historique, pour la comparer ou la restaurer.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": path,
+                "id": {"type": "string", "description": "Identifiant reçu de list_tex_versions."},
+            }, "required": ["path", "id"]},
             "annotations": {"readOnlyHint": true},
             "_meta": app_only,
         },

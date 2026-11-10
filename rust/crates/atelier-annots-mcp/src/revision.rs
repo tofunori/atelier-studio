@@ -9,7 +9,9 @@
 //! d'écrire. `undo_revision` remet le texte d'origine.
 //!
 //! Chaque écriture garde une copie du fichier d'avant dans
-//! `$ATELIER_APP_DIR/mcp-revisions/` (les 100 dernières).
+//! `$ATELIER_APP_DIR/mcp-revisions/` (les 500 dernières), avec son origine :
+//! l'historique de l'éditeur (`list_tex_versions`, `load_tex_version`) les
+//! relit.
 
 use serde_json::{json, Value};
 use std::ops::Range;
@@ -19,7 +21,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const QUOTE_MAX: usize = 20_000;
 pub const TEXT_MAX: usize = 20_000;
 pub const REASON_MAX: usize = 600;
-const BACKUPS_KEPT: usize = 100;
+const BACKUPS_KEPT: usize = 500;
+/// Versions rendues par `list_tex_versions`, les plus récentes d'abord.
+const VERSIONS_LISTED: usize = 200;
 const READ_DEFAULT_LINES: usize = 400;
 const READ_MAX_LINES: usize = 2_000;
 const OPEN_MAX_LINES: usize = 8_000;
@@ -310,7 +314,12 @@ pub fn save_from_editor(app_dir: &Path, args: &Value) -> Result<Value, String> {
     }
     let sha = sha256_hex(text);
     if text != content {
-        backup(app_dir, &path, &content)?;
+        let origin = if str_arg(args, "origin") == "restore" {
+            "restore"
+        } else {
+            "save"
+        };
+        backup(app_dir, &path, &content, origin)?;
         write_atomic(&path, text)?;
     }
     Ok(json!({
@@ -403,7 +412,12 @@ pub fn replace_once(app_dir: &Path, args: &Value, undo: bool) -> Result<Value, S
         }
     };
     let line = line_of(&content, range.start);
-    backup(app_dir, &path, &content)?;
+    backup(
+        app_dir,
+        &path,
+        &content,
+        if undo { "undo" } else { "claude" },
+    )?;
     let mut next = String::with_capacity(content.len() + replace.len());
     next.push_str(&content[..range.start]);
     next.push_str(replace);
@@ -430,14 +444,28 @@ fn done(path: &Path, line: usize, undo: bool, already: bool) -> Value {
     })
 }
 
-fn backup(app_dir: &Path, path: &Path, content: &str) -> Result<(), String> {
+/// Clé d'un fichier dans `mcp-revisions` : deux `introduction.tex` de
+/// dossiers différents ne se mélangent pas.
+fn path_key(path: &Path) -> String {
+    let real = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    sha256_hex(&real.to_string_lossy())[..12].to_string()
+}
+
+/// Copie du fichier d'avant une écriture : `{horodatage}-{clé}-{origine}-{nom}`.
+/// Origine : `save` (enregistré dans l'éditeur), `claude` (proposition
+/// acceptée), `undo` (proposition annulée).
+fn backup(app_dir: &Path, path: &Path, content: &str, origin: &str) -> Result<(), String> {
     let dir = app_dir.join("mcp-revisions");
     std::fs::create_dir_all(&dir).map_err(|e| format!("sauvegarde impossible ({e})"))?;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let name = format!("{stamp:020}-{}", file_name(path));
+    let name = format!(
+        "{stamp:020}-{}-{origin}-{}",
+        path_key(path),
+        file_name(path)
+    );
     std::fs::write(dir.join(name), content).map_err(|e| format!("sauvegarde impossible ({e})"))?;
     let mut kept: Vec<PathBuf> = std::fs::read_dir(&dir)
         .map(|it| it.filter_map(|e| e.ok().map(|e| e.path())).collect())
@@ -449,6 +477,93 @@ fn backup(app_dir: &Path, path: &Path, content: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+struct Version {
+    id: String,
+    nanos: u128,
+    origin: String,
+}
+
+/// Une copie de ce fichier-ci (nom au format de `backup`), sinon rien.
+fn parse_version(name: &str, key: &str) -> Option<Version> {
+    let mut parts = name.splitn(4, '-');
+    let stamp = parts.next()?;
+    if parts.next()? != key {
+        return None;
+    }
+    let origin = parts.next()?;
+    parts.next()?;
+    if stamp.len() != 20 || !stamp.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    if !matches!(origin, "save" | "claude" | "undo" | "restore") {
+        return None;
+    }
+    Some(Version {
+        id: name.to_string(),
+        nanos: stamp.parse().ok()?,
+        origin: origin.to_string(),
+    })
+}
+
+/// `list_tex_versions` (réservé aux vues) : les copies gardées d'un fichier,
+/// les plus récentes d'abord. Chaque copie est le fichier tel qu'il était
+/// juste avant une écriture.
+pub fn list_versions(app_dir: &Path, args: &Value) -> Result<Value, String> {
+    let path = editable_path(str_arg(args, "path"))?;
+    let key = path_key(&path);
+    let dir = app_dir.join("mcp-revisions");
+    let mut found: Vec<(Version, u64)> = std::fs::read_dir(&dir)
+        .map(|it| {
+            it.filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    let size = e.metadata().ok()?.len();
+                    parse_version(&name, &key).map(|v| (v, size))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    found.sort_by_key(|v| std::cmp::Reverse(v.0.nanos));
+    found.truncate(VERSIONS_LISTED);
+    let versions: Vec<Value> = found
+        .iter()
+        .map(|(v, size)| {
+            json!({"id": v.id, "time": (v.nanos / 1_000_000) as u64, "origin": v.origin, "size": size})
+        })
+        .collect();
+    let n = versions.len();
+    Ok(json!({
+        "content": [{"type": "text", "text": format!("{n} version(s) gardée(s) de {}.", file_name(&path))}],
+        "structuredContent": {"path": path.display().to_string(), "versions": versions},
+        "isError": false,
+    }))
+}
+
+/// `load_tex_version` (réservé aux vues) : le texte d'une copie gardée, pour
+/// la comparer au fichier ou la restaurer (par `save_tex_file`, qui garde à
+/// son tour une copie : rien ne se perd).
+pub fn load_version(app_dir: &Path, args: &Value) -> Result<Value, String> {
+    let path = editable_path(str_arg(args, "path"))?;
+    let id = str_arg(args, "id").trim();
+    let version = parse_version(id, &path_key(&path))
+        .filter(|_| !id.contains('/') && !id.contains('\\'))
+        .ok_or("version inconnue pour ce fichier")?;
+    let text = std::fs::read_to_string(app_dir.join("mcp-revisions").join(id))
+        .map_err(|_| "cette version n'est plus gardée".to_string())?;
+    Ok(json!({
+        "content": [{"type": "text", "text": format!("Version de {} chargée.", file_name(&path))}],
+        "structuredContent": {
+            "path": path.display().to_string(),
+            "id": version.id,
+            "time": (version.nanos / 1_000_000) as u64,
+            "origin": version.origin,
+            "text": text,
+            "sha256": sha256_hex(&text),
+        },
+        "isError": false,
+    }))
 }
 
 /// Écrit à côté puis renomme : l'éditeur ne voit jamais un fichier à moitié
@@ -647,6 +762,74 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
         assert!(save_from_editor(&app, &json!({"path": p, "text": "x"})).is_err());
         assert!(load_for_edit(&json!({"path": "/tmp/a.txt"})).is_err());
+    }
+
+    #[test]
+    fn every_write_keeps_a_version_the_editor_can_restore() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("app");
+        let path = file(dir.path());
+        // Un fichier du même nom ailleurs : ses versions ne se mélangent pas.
+        std::fs::create_dir_all(dir.path().join("autre")).unwrap();
+        let other = dir.path().join("autre").join(path.file_name().unwrap());
+        std::fs::write(&other, "autre\n").unwrap();
+        let p = path.to_string_lossy().to_string();
+        let first = std::fs::read_to_string(&path).unwrap();
+        let sha = |p: &str| {
+            load_for_edit(&json!({"path": p})).unwrap()["structuredContent"]["sha256"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        save_from_editor(
+            &app,
+            &json!({"path": p, "text": "deux\n", "base_sha256": sha(&p)}),
+        )
+        .unwrap();
+        let o = other.to_string_lossy().to_string();
+        save_from_editor(
+            &app,
+            &json!({"path": o, "text": "x\n", "base_sha256": sha(&o)}),
+        )
+        .unwrap();
+        save_from_editor(
+            &app,
+            &json!({"path": p, "text": "trois\n", "base_sha256": sha(&p)}),
+        )
+        .unwrap();
+
+        let listed = list_versions(&app, &json!({"path": p})).unwrap();
+        let versions = listed["structuredContent"]["versions"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(versions.len(), 2, "{versions:?}");
+        assert_eq!(versions[0]["origin"], "save");
+        assert!(versions[0]["time"].as_u64() >= versions[1]["time"].as_u64());
+        let id = |i: usize| versions[i]["id"].as_str().unwrap().to_string();
+        let newest = load_version(&app, &json!({"path": p, "id": id(0)})).unwrap();
+        assert_eq!(newest["structuredContent"]["text"], "deux\n");
+        let oldest = load_version(&app, &json!({"path": p, "id": id(1)})).unwrap();
+        assert_eq!(oldest["structuredContent"]["text"], first);
+
+        // Restaurer = enregistrer l'ancien texte : l'état d'avant est gardé.
+        save_from_editor(
+            &app,
+            &json!({"path": p, "text": first, "base_sha256": sha(&p), "origin": "restore"}),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), first);
+        let after = list_versions(&app, &json!({"path": p})).unwrap();
+        let top = &after["structuredContent"]["versions"][0];
+        assert_eq!(top["origin"], "restore");
+        let kept = load_version(&app, &json!({"path": p, "id": top["id"]})).unwrap();
+        assert_eq!(kept["structuredContent"]["text"], "trois\n");
+
+        // Une version d'un autre fichier, ou un chemin glissé dans l'id, est refusée.
+        let theirs = list_versions(&app, &json!({"path": o})).unwrap();
+        let their_id = theirs["structuredContent"]["versions"][0]["id"].clone();
+        assert!(load_version(&app, &json!({"path": p, "id": their_id})).is_err());
+        assert!(load_version(&app, &json!({"path": p, "id": format!("../{}", id(0))})).is_err());
     }
 
     #[test]
