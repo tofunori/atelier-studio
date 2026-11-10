@@ -239,8 +239,6 @@ function Detail({
   const [allVersions, setAllVersions] = useState(false);
   const [diff, setDiff] = useState<DiffState | null>(null);
   const diffRequest = useRef("");
-  // Le détail d'un autre résultat (ou d'une autre version) repart replié.
-  useEffect(() => { setAllVersions(false); setDiff(null); diffRequest.current = ""; }, [summary.path, summary.version]);
 
   const head = detail ?? summary;
   const abs = detail?.abs ?? `${root.replace(/\/$/, "")}/${summary.path}`;
@@ -632,8 +630,10 @@ function ProjectResults({ ws, projectRoot, visible, onOpenFile, previewUrl = loc
               </div>
             )}
           </div>
+          {/* La clé remonte le panneau : le détail d'un autre résultat (ou d'une
+              autre version) repart replié, sans effet de remise à zéro. */}
           {current && (
-            <Detail ws={ws} summary={current} detail={detail?.path === current.path ? detail : null} loading={detailLoading}
+            <Detail key={`${current.path}@${current.version}`} ws={ws} summary={current} detail={detail?.path === current.path ? detail : null} loading={detailLoading}
               error={detailError} root={projectRoot} send={send} resolve={previewUrl}
               onToggleStar={toggleStar} onSelect={select} onOpenFile={onOpenFile} />
           )}
