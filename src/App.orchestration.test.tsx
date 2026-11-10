@@ -2252,6 +2252,22 @@ describe("orchestration App — caractérisation", () => {
     expect(sock.sent.map((raw) => JSON.parse(raw)).some((message) => message.type === "send")).toBe(false);
   });
 
+  it("/relire demande la relecture du contenu du tour, dans un fil de n'importe quel provider", async () => {
+    const { sock } = await mountApp();
+    await pushThreads(sock, [THREAD_A]);
+    await selectThread(sock, THREAD_A.title);
+    const textarea = document.querySelector(".composer textarea") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "/relire" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await act(async () => { await flushMicrotasks(4); });
+    const messages = sock.sent.map((raw) => JSON.parse(raw));
+    const review = messages.find((message) => message.type === "requestReview");
+    expect(review).toMatchObject({ type: "requestReview", threadId: THREAD_A.id, mode: "claims" });
+    expect(review.requestId).toEqual(expect.any(String));
+    // la commande n'est jamais envoyée au provider comme un message
+    expect(messages.some((message) => message.type === "send")).toBe(false);
+  });
+
   it("crée une continuité depuis le menu, attend l'ack puis permet de la délier", async () => {
     const { sock } = await mountApp();
     await push(sock, {

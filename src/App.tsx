@@ -3307,6 +3307,12 @@ export default function App() {
       setUsageOpen(true);
       return;
     }
+    // /relire : relecture du contenu du dernier tour, dans n'importe quel fil
+    // (onRequestReview, mode `claims`). /review reste la revue Git de Codex.
+    if (nativeCommand?.name === "relire") {
+      if (activeId) window.dispatchEvent(new CustomEvent("request-review", { detail: { threadId: activeId } }));
+      return;
+    }
     if (nativeCommand?.name === "plugins") {
       if (!supportsPlugins) {
         void showInfo(`${provider} ne fournit pas de plugins dans ce chat.`);

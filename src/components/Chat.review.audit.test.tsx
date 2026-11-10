@@ -86,6 +86,13 @@ afterEach(() => {
 });
 
 
+/** La ligne « Relecture » est-elle sous le tour dont la question suit ? */
+function before(node: Element | null, text: string): boolean {
+  // la bulle du fil, pas son repère dans la marge
+  const bubble = screen.getByText(text, { selector: '[data-slot="bubble-content"], .chat-md *' });
+  return !!node && (node.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
+
 describe("Codex A2 audit reproductions", () => {
   it("renders the structured error object emitted by the Rust backend", async () => {
     renderUi(<Chat {...chatProps({ events: twoTurns })} />);
@@ -94,7 +101,7 @@ describe("Codex A2 audit reproductions", () => {
       verdict: "error", mode: "git", issues: [],
       error: { code: "REVIEW_UNSUPPORTED", message: "revue isolée non supportée" },
     }})));
-    fireEvent.click(screen.getByText("Reviewer"));
+    fireEvent.click(await screen.findByText(t("review.name")));
     expect(screen.getByText("revue isolée non supportée")).toBeTruthy();
   });
   it("does not move an existing positive verdict onto the next completed turn", async () => {
@@ -102,17 +109,22 @@ describe("Codex A2 audit reproductions", () => {
     await act(async () => window.dispatchEvent(new CustomEvent("review-result", { detail: {
       threadId: "thread-A", turnId: "turn-1", reviewId: "old", status: "done", verdict: "ok", issues: [],
     }})));
-    expect(document.querySelector(".reviewer-bar.v-ok")).toBeTruthy();
+    await screen.findByText(t("review.ok-bar"));
     view.rerender(<Chat {...chatProps({ events: twoTurns })} />);
-    expect(document.querySelector(".reviewer-bar.v-ok")).toBeNull();
+    // le verdict reste sous SON tour ; le tour suivant n'en hérite pas
+    const lines = document.querySelectorAll(".rv");
+    expect(lines).toHaveLength(1);
+    expect(before(lines[0], "deux")).toBe(true);
   });
   it("restores a review even when getReviews arrives before getHistory", async () => {
     const view = renderUi(<Chat {...chatProps({ events: [] })} />);
     await act(async () => window.dispatchEvent(new CustomEvent("reviews-list", { detail: {
       threadId: "thread-A", reviews: [{threadId: "thread-A", turnId: "turn-2", reviewId: "restored", status: "done", verdict: "inconclusive"}],
     }})));
+    expect(document.querySelector(".rv")).toBeNull();
     view.rerender(<Chat {...chatProps({ events: twoTurns })} />);
-    expect(document.querySelector(".reviewer-bar")).not.toBeNull();
+    await screen.findByText(t("review.inconclusive"));
+    expect(before(document.querySelector(".rv"), "deux")).toBe(false);
   });
   it("selects newest review from server descending order", async () => {
     renderUi(<Chat {...chatProps({ events: twoTurns })} />);
@@ -122,24 +134,27 @@ describe("Codex A2 audit reproductions", () => {
         {threadId: "thread-A", turnId: "turn-2", reviewId: "old", status: "done", verdict: "ok"},
       ],
     }})));
-    expect(document.querySelector(".reviewer-bar.v-ok")).toBeNull();
-    expect(screen.getByText(t("review.inconclusive"))).toBeTruthy();
+    expect(await screen.findByText(t("review.inconclusive"))).toBeTruthy();
+    expect(document.querySelectorAll(".rv")).toHaveLength(1);
+    expect(screen.queryByText(t("review.ok-bar"))).toBeNull();
   });
   it("does not attribute an old result without turn identity", async () => {
     renderUi(<Chat {...chatProps({ events: twoTurns })} />);
     await act(async () => window.dispatchEvent(new CustomEvent("review-result", { detail: {
       threadId: "thread-A", status: "done", verdict: "ok",
     }})));
-    expect(document.querySelector(".reviewer-bar")).toBeNull();
+    expect(document.querySelector(".rv")).toBeNull();
   });
-  it("hides the old verdict when the next turn starts, before it completes", async () => {
+  it("keeps the verdict on its own turn when the next turn starts, before it completes", async () => {
     const view = renderUi(<Chat {...chatProps({ events: twoTurns.slice(0, 3) })} />);
     await act(async () => window.dispatchEvent(new CustomEvent("review-result", { detail: {
       threadId: "thread-A", turnId: "turn-1", reviewId: "old", status: "done", verdict: "ok",
     }})));
-    expect(document.querySelector(".reviewer-bar.v-ok")).toBeTruthy();
+    await screen.findByText(t("review.ok-bar"));
     view.rerender(<Chat {...chatProps({ events: twoTurns.slice(0, 4) })} />);
-    expect(document.querySelector(".reviewer-bar")).toBeNull();
+    const lines = document.querySelectorAll(".rv");
+    expect(lines).toHaveLength(1);
+    expect(before(lines[0], "deux")).toBe(true);
   });
   it("does not roll a terminal live update back to a stale running list entry", async () => {
     renderUi(<Chat {...chatProps({ events: twoTurns })} />);
@@ -151,32 +166,42 @@ describe("Codex A2 audit reproductions", () => {
       threadId: "thread-A", reviews: [{threadId: "thread-A", turnId: "turn-2", reviewId: "latest", status: "running",
         createdAt: "2026-09-14T01:00:00Z", updatedAt: "2026-09-14T01:00:01Z"}],
     }})));
-    expect(screen.getByText(t("review.inconclusive"))).toBeTruthy();
+    expect(await screen.findByText(t("review.inconclusive"))).toBeTruthy();
+    expect(screen.queryByText(t("review.running"))).toBeNull();
   });
   it("keeps thread identities separate across selection changes", async () => {
     const view = renderUi(<Chat {...chatProps({ events: twoTurns })} />);
     await act(async () => window.dispatchEvent(new CustomEvent("review-result", { detail: {
       threadId: "thread-A", turnId: "turn-2", reviewId: "latest", status: "done", verdict: "inconclusive",
     }})));
+    await screen.findByText(t("review.inconclusive"));
     view.rerender(<Chat {...chatProps({ threadId: "thread-B", events: twoTurns })} />);
-    expect(document.querySelector(".reviewer-bar")).toBeNull();
+    expect(document.querySelector(".rv")).toBeNull();
     view.rerender(<Chat {...chatProps({ events: twoTurns })} />);
-    expect(screen.getByText(t("review.inconclusive"))).toBeTruthy();
+    expect(await screen.findByText(t("review.inconclusive"))).toBeTruthy();
   });
 
   it("clears correction state when the replacement review completes", async () => {
+    const asked: unknown[] = [];
+    const onCorrect = (event: Event) => asked.push((event as CustomEvent).detail);
+    window.addEventListener("correct-issues", onCorrect);
     renderUi(<Chat {...chatProps({ events: twoTurns })} />);
     await act(async () => window.dispatchEvent(new CustomEvent("review-result", { detail: {
       threadId: "thread-A", turnId: "turn-2", reviewId: "before-fix", status: "done", verdict: "issues",
       issues: [{claim: "check", problem: "problem", severity: "review"}],
     }})));
-    fireEvent.click(screen.getByText("Reviewer"));
+    // déplier ouvre le détail du premier échec, avec ses actions
+    fireEvent.click(await screen.findByText(t("review.name")));
     fireEvent.click(screen.getByRole("button", { name: t("review.correct") }));
+    window.removeEventListener("correct-issues", onCorrect);
+    expect(asked).toEqual([{ threadId: "thread-A", issues: [{ claim: "check", problem: "problem", severity: "review" }] }]);
+    // une seule demande par affirmation
+    expect((screen.getByRole("button", { name: t("review.corrected") }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => window.dispatchEvent(new CustomEvent("review-result", { detail: {
       threadId: "thread-A", turnId: "turn-2", reviewId: "after-fix", status: "done", verdict: "issues",
       issues: [{claim: "remaining", problem: "problem", severity: "review"}],
     }})));
-    fireEvent.click(screen.getByText("Reviewer"));
+    fireEvent.click(screen.getByText(t("review.name")));
     expect((screen.getByRole("button", { name: t("review.correct") }) as HTMLButtonElement).disabled).toBe(false);
   });
 

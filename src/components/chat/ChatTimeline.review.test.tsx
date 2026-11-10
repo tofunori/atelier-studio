@@ -1,4 +1,5 @@
-// Plan 080 A1 — faux positifs de revue : bandeau, détail développé, compact.
+// Plan 080 A1 — faux positifs de revue : ligne « Relecture » sous le tour,
+// repliée puis dépliée (variante B, 2026-11-10).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 
@@ -50,7 +51,10 @@ function chatProps(over: Partial<Parameters<typeof Chat>[0]> = {}): Parameters<t
   };
 }
 
+let serial = 0;
 async function mountReview(detail: Record<string, unknown>) {
+  // une relecture neuve par test : le dépli est mémorisé par relecture
+  serial += 1;
   renderUi(
     <Chat
       {...chatProps({
@@ -65,28 +69,25 @@ async function mountReview(detail: Record<string, unknown>) {
   await act(async () => {
     window.dispatchEvent(
       new CustomEvent("review-result", {
-        detail: { threadId: "thread-A", turnId: "review-turn", reviewId: "review-a1", status: "done", ...detail },
+        detail: { threadId: "thread-A", turnId: "review-turn", reviewId: `review-a1-${serial}`, status: "done", ...detail },
       }),
     );
   });
+  // la ligne est un chunk à part : elle arrive au rendu suivant
+  await screen.findByText(t("review.name"));
 }
 
-function expandDetail() {
-  fireEvent.click(screen.getByText("Reviewer"));
-}
+const line = () => document.querySelector(".rv");
 
-function minimize() {
-  fireEvent.click(screen.getByLabelText(t("review.minimize")));
+function toggleDetail() {
+  fireEvent.click(screen.getByText(t("review.name")));
 }
 
 function assertNoValidation() {
-  expect(document.querySelector(".rm-ok")).toBeNull();
-  expect(document.querySelector(".rb-verdict.ok")).toBeNull();
-  expect(document.querySelector(".reviewer-bar.v-ok")).toBeNull();
-  expect(document.querySelector(".reviewer-strip.v-ok")).toBeNull();
-  expect(document.body.textContent).not.toContain(t("review.ok-detail"));
+  expect(document.querySelector('.rv-state[data-outcome="passed"]')).toBeNull();
   expect(document.body.textContent).not.toContain(t("review.ok-bar"));
-  expect(screen.queryByLabelText(t("review.ok"))).toBeNull();
+  expect(document.body.textContent).not.toContain(t("review.n-passed", { n: 1 }));
+  expect(document.body.textContent).not.toContain(t("review.state.passed"));
 }
 
 beforeEach(() => {
@@ -121,14 +122,16 @@ describe("ChatTimeline review A1", () => {
     { name: "verdict non concluant sans issue", detail: { verdict: "inconclusive", issues: [] } },
   ];
 
-  it.each(inconclusiveCases)("$name : bandeau et détail sans validation", async ({ detail, detailText }) => {
+  it.each(inconclusiveCases)("$name : ligne et détail sans validation", async ({ detail, detailText }) => {
     await mountReview(detail);
-    expect(document.querySelector(".reviewer-bar")).toBeTruthy();
+    expect(line()).toBeTruthy();
+    // repliée par défaut : une seule ligne, rien de déplié
+    expect(document.querySelector(".rv-body")).toBeNull();
     assertNoValidation();
     expect(screen.getByText(t("review.inconclusive"))).toBeTruthy();
 
-    expandDetail();
-    expect(document.querySelector(".reviewer-menu")).toBeTruthy();
+    toggleDetail();
+    expect(document.querySelector(".rv-body")).toBeTruthy();
     assertNoValidation();
     if (detail.mode === "git") {
       expect(screen.getByText(t("review.git-native"))).toBeTruthy();
@@ -140,42 +143,43 @@ describe("ChatTimeline review A1", () => {
     }
     expect(screen.queryByRole("button", { name: t("review.correct") })).toBeNull();
 
-    minimize();
-    const strip = document.querySelector(".reviewer-strip");
-    expect(strip).toBeTruthy();
-    expect(strip?.classList.contains("v-ok")).toBe(false);
-    expect(strip?.getAttribute("aria-label")).toBe(t("review.inconclusive"));
+    toggleDetail();
+    expect(document.querySelector(".rv-body")).toBeNull();
+    expect(screen.getByText(t("review.inconclusive"))).toBeTruthy();
     assertNoValidation();
   });
 
-  it("un verdict ok explicite reste une validation (bandeau et détail)", async () => {
+  it("un verdict ok explicite reste une validation, sans rien à déplier", async () => {
     await mountReview({ verdict: "ok", issues: [] });
-    expect(document.querySelector(".reviewer-bar.v-ok")).toBeTruthy();
     expect(screen.getByText(t("review.ok-bar"))).toBeTruthy();
-
-    expandDetail();
-    expect(document.querySelector(".rm-ok")?.textContent).toBe(t("review.ok-detail"));
+    expect(screen.queryByText(t("review.inconclusive"))).toBeNull();
+    // aucune affirmation listée (ancien serveur) : la ligne n'est pas un bouton
+    expect(line()?.querySelector("button")).toBeNull();
     expect(screen.queryByText(t("review.git-native"))).toBeNull();
-
-    minimize();
-    expect(document.querySelector(".reviewer-strip.v-ok")).toBeTruthy();
-    expect(screen.getByLabelText(t("review.ok"))).toBeTruthy();
   });
 
-  it("issues.length === 0 ne produit pas ok-detail si le verdict n'est pas ok", async () => {
+  it("issues.length === 0 ne produit pas de validation si le verdict n'est pas ok", async () => {
     await mountReview({ verdict: "issues", issues: [] });
-    expandDetail();
+    expect(screen.getByText(t("review.inconclusive"))).toBeTruthy();
+    toggleDetail();
     assertNoValidation();
     expect(screen.getByText(t("review.inconclusive-detail"))).toBeTruthy();
   });
 
-  it("ne recrée pas le badge de revue sur ResultCapsule", async () => {
+  it("la ligne vit sous le message, hors de ResultCapsule", async () => {
     await mountReview({ verdict: "ok", issues: [] });
-    expandDetail();
     const capsule = document.querySelector(".result-capsule");
     expect(capsule).toBeTruthy();
-    expect(capsule?.querySelector(".rm-ok")).toBeNull();
-    expect(capsule?.textContent).not.toContain(t("review.ok-detail"));
+    expect(capsule?.querySelector(".rv")).toBeNull();
     expect(capsule?.textContent).not.toContain(t("review.ok-bar"));
+    // même rangée que la capsule du tour, juste au-dessus d'elle
+    expect(line()?.compareDocumentPosition(capsule!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(line()?.closest(".timeline-virtual-row")).toBe(capsule?.closest(".timeline-virtual-row"));
+  });
+
+  it("rien ne s'affiche tant qu'aucune relecture n'existe", () => {
+    renderUi(<Chat {...chatProps({ events: [events.user(), events.text(), events.done()] })} />);
+    expect(line()).toBeNull();
+    expect(screen.queryByText(t("review.name"))).toBeNull();
   });
 });

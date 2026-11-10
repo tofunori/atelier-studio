@@ -447,8 +447,9 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   // Tout le RESTE continue de se différencier par la COULEUR et le TEXTE
   // (--status-running, libellé), jamais par le mouvement — la liste interdite
   // ci-dessous reste fermée, et le total reste plafonné à deux. Hors
-  // périmètre : le spinner de la barre Reviewer (.rb-spin), bannière au-dessus
-  // du fil, jamais co-visible — une revue ne démarre que sur un tour terminé.
+  // périmètre : le Spinner partagé (primitives.css) de la ligne « Relecture »
+  // (.rv-wait), posée sous un tour TERMINÉ — une relecture ne démarre jamais
+  // sur un tour en cours ; App.css ne lui ajoute aucune animation.
   it("chat : seules les animations explicites de statut et de repli sont autorisées", () => {
     const rules = [...appCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
       selector: m[1].trim().replace(/\s+/g, " "),
@@ -822,7 +823,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
         new RegExp(`\\.${selector}\\s*\\{[\\s\\S]*?background:\\s*var\\(--surface-panel\\)`),
       );
     }
-    for (const selector of ["surface-bar", "term-bar", "browser-chrome", "browser-bar", "git-head", "git-commit", "biblio-reader-head", "reviewer-bar"]) {
+    for (const selector of ["surface-bar", "term-bar", "browser-chrome", "browser-bar", "git-head", "git-commit", "biblio-reader-head"]) {
       expect(appCss, `${selector} doit utiliser --surface-header`).toMatch(
         new RegExp(`\\.${selector}\\s*\\{[\\s\\S]*?background:\\s*var\\(--surface-header\\)`),
       );
@@ -957,7 +958,7 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
   it("menus : fond + ombre, jamais de bordure", () => {
     const names = [
       "proj-menu", "mp-menu", "model-provider-list", "model-list",
-      "ctx-pop", "suggest", "reviewer-menu", "pin-menu",
+      "ctx-pop", "suggest", "pin-menu",
     ];
     const rules = [...appCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
       selector: m[1].trim().replace(/\s+/g, " "),

@@ -429,6 +429,71 @@ fn le_chiffre_cite_retrouve_dans_sa_cellule_compte_comme_verifie() {
     assert_eq!(projected["checkedTools"], json!(["cellule 4"]));
 }
 
+// La ligne « Relecture » du chat déplie une rangée par affirmation : la
+// projection les rend toutes, vérifiées comprises, sans toucher à `issues`.
+#[test]
+fn la_projection_liste_chaque_affirmation_avec_sa_preuve_et_sa_cellule() {
+    let facts = TurnFacts { cells: vec![cell(4, "turn-1", "r = 0.52")], ..TurnFacts::default() };
+    let input = claims_input("r = 0,91 [cellule 4](atelier-cell:4). La pente vaut 0,42.", &facts);
+    let mut claims = number_claim(json!(["tool-0"]));
+    claims.as_array_mut().unwrap().push(json!({
+        "id":"claim-2","category":"citation","claim":"L'article de Ren le confirme",
+        "outcome":"inconclusive","evidenceIds":[],"proof":"PDF introuvable"
+    }));
+    let decision = decide_review(&input, &answer(claims));
+    let projected = project_review_result(&record_of(&input, &decision), None);
+    let listed = projected["claims"].as_array().unwrap();
+    // Le contrôle du serveur, puis les affirmations du relecteur ; ni
+    // l'extraction ni les familles, qui ne sont pas des affirmations.
+    let ids: Vec<_> = listed.iter().map(|entry| entry["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["cell-cite-1", "claim-1", "claim-2"]);
+    assert_eq!(listed[0]["outcome"], "failed");
+    assert_eq!(listed[0]["category"], "number");
+    assert_eq!(listed[0]["cell"], 4);
+    assert_eq!(listed[0]["evidenceIds"], json!(["cell-4"]));
+    assert!(listed[0]["proof"].as_str().unwrap().contains("ne figure pas dans la sortie de la cellule 4"));
+    assert_eq!(listed[1]["outcome"], "passed");
+    assert_eq!(listed[1]["claim"], "La pente vaut 0,42");
+    assert_eq!(listed[1]["proof"], "`pente = 0.4213` dans la sortie de fit.py");
+    assert_eq!(listed[1]["evidenceIds"], json!(["tool-0"]));
+    assert!(listed[1].get("cell").is_none());
+    assert_eq!(listed[2]["outcome"], "inconclusive");
+    // `issues` ne change pas : les échecs seulement, au format d'avant.
+    assert_eq!(projected["issues"].as_array().unwrap().len(), 1);
+    assert_eq!(projected["issues"][0]["claim"], "0,91 [cellule 4]");
+    assert_eq!(projected["checks"], decision.checks.len());
+}
+
+#[test]
+fn la_projection_ne_liste_une_famille_que_si_elle_porte_seule_l_echec() {
+    let input = claims_input("La pente vaut 0,52.", &TurnFacts::default());
+    let mut checks = vec![json!({"id":EXTRACTION_CHECK,"outcome":"passed","evidenceIds":["response-0"]})];
+    for family in &FAMILIES {
+        let outcome = if family.category == "figure" { "failed" } else { "passed" };
+        checks.push(json!({"id":family.check_id,"claim":family.claim,"outcome":outcome}));
+    }
+    let decision = decide_review(&input, &json!({"checks": checks}).to_string());
+    let projected = project_review_result(&record_of(&input, &decision), None);
+    let listed = projected["claims"].as_array().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["id"], "claims-figures");
+    assert_eq!(listed[0]["outcome"], "failed");
+}
+
+#[test]
+fn rien_a_verifier_donne_une_liste_vide_et_sa_limite() {
+    let input = claims_input("Bonjour !", &TurnFacts::default());
+    let decision = decide_review(&input, &answer(json!([])));
+    let projected = project_review_result(&record_of(&input, &decision), None);
+    assert_eq!(projected["verdict"], "inconclusive");
+    assert_eq!(projected["claims"], json!([]));
+    assert!(projected["limitations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|code| code == "no-verifiable-claim"));
+}
+
 #[test]
 fn une_reponse_illisible_reste_non_concluante() {
     let input = claims_input("La pente vaut 0,42.", &TurnFacts::default());

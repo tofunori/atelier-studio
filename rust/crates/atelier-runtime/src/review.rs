@@ -834,6 +834,45 @@ pub fn project_review_result(record: &ReviewRecord, request_id: Option<&str>) ->
             })
         })
         .collect();
+    // Une entrée par affirmation, vérifiée ou non : c'est ce que la ligne
+    // « Relecture » du chat déplie. `issues` ne porte que les échecs et reste
+    // tel quel (anciens clients, app iPhone). En mode `claims`, les
+    // vérifications exigées (extraction, familles) ne sont pas des
+    // affirmations : une famille n'apparaît que si elle est seule à porter
+    // l'échec, comme dans `issues`.
+    let listed: Vec<Value> = record
+        .checks
+        .iter()
+        .filter(|check| {
+            !claims
+                || !review_claims::is_required_check_id(&check.id)
+                || (precise.is_empty() && check.outcome == "failed")
+        })
+        .map(|check| {
+            let mut entry = json!({
+                "id": check.id,
+                "claim": check.claim,
+                "outcome": check.outcome,
+                "evidenceIds": check.evidence_ids,
+            });
+            let fields = entry.as_object_mut().unwrap();
+            if let Some(category) = &check.category {
+                fields.insert("category".into(), json!(category));
+            }
+            if let Some(proof) = &check.proof {
+                fields.insert("proof".into(), json!(proof));
+            }
+            // La cellule du noyau qui sert de preuve : le chat l'ouvre.
+            let cell = check
+                .evidence_ids
+                .iter()
+                .find_map(|id| id.strip_prefix("cell-")?.parse::<u64>().ok());
+            if let Some(cell) = cell {
+                fields.insert("cell".into(), json!(cell));
+            }
+            entry
+        })
+        .collect();
     let mut payload = json!({
         "type": "reviewResult",
         "threadId": record.thread_id,
@@ -846,6 +885,7 @@ pub fn project_review_result(record: &ReviewRecord, request_id: Option<&str>) ->
         "coverage": record.coverage,
         "mode": record.mode,
         "issues": issues,
+        "claims": listed,
         "checks": record.checks.len(),
         "limitations": record.limitations,
         "createdAt": record.created_at,

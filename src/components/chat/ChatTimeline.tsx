@@ -1,14 +1,15 @@
 import { ChatAnnotationBadges } from "./ChatAnnotationBadges";
 import {createNoteEditor,createSelectionActions} from "../../../gallery/src/studio/features/annotation_ui";
 // ChatTimeline (plan 015, correction 3) : composant de PRODUCTION de la
-// timeline — barre du reviewer, liste des tours (streaming/outils/résultats),
-// indicateur Working, chapitres épinglés, bouton « aller au dernier message ».
+// timeline — liste des tours (streaming/outils/résultats, ligne « Relecture »
+// sous chaque tour relu), indicateur Working, chapitres épinglés, bouton
+// « aller au dernier message ».
 // JSX déplacé VERBATIM depuis Chat.tsx ; les bundles sont déstructurés vers les
 // noms locaux d'origine pour garantir l'équivalence pixel.
 import React, { Suspense, lazy, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { stabilizeVirtualRows, virtualRowType } from "./virtualRows";
-import { isWebSearchName, isSummarizableTool, Tick } from "./toolPresentation";
+import { isWebSearchName, isSummarizableTool } from "./toolPresentation";
 import { SourcesCard } from "./SourcesCard";
 import { AgentEvent } from "../../lib/ws";
 import type { ProjectedTimelineItem, ToolAction, TurnPhase } from "../../lib/chat/turnViewModel";
@@ -21,12 +22,11 @@ import { prefersReducedMotion, useReducedMotion } from "../../lib/motion";
 import { findTextRanges } from "../../lib/markRanges";
 import { parseAnnotationBlock, type Mark, type ParsedAnnotations } from "../../lib/annotations";
 import { isValidSkill } from "./mentions";
-import { CloseIcon, MinusIcon } from "../icons";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
   ActivityFold, ActiveTurnHeader, ActiveTurnTail, TurnActivityStatus, currentThought,
-  type ReviewState,
 } from "./turns";
+import type { Review } from "./useReviews";
 import { ResearchHome, type ResearchHomeBundle } from "../ResearchHome";
 import { EditLine, ActivityCard, LiveThinking, Working, formatPermInput } from "./turnParts";
 import { deriveChangedFiles } from "./changedFiles";
@@ -36,7 +36,7 @@ import { HarnessInteraction } from "./HarnessInteraction";
 import { SpecialistProposalCard } from "./SpecialistProposalCard";
 import { MemoryProposalCard } from "./MemoryProposalCard";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { Button, IconButton, RowButton, ScrollToBottomButton, Spinner } from "../ui";
+import { Button, RowButton, ScrollToBottomButton } from "../ui";
 import { activeMargeIndex, createMarkIndexCache, deriveMargeEntries, margeMode, sameMargeEntries, type MargeEntry } from "../../lib/marge";
 import type { Pin } from "../../lib/pins";
 import type { QaContext } from "../../lib/quickAskContext";
@@ -57,6 +57,8 @@ import { ActivityStep } from './ActivityBatch';
 import { activeTurnStatus } from './activeTurnStatus';
 // Carte de calcul (rare) : chargée à la première tâche proposée, hors de l'entrée.
 const ComputeJobCard = lazy(() => import("./ComputeJobCard").then((m) => ({ default: m.ComputeJobCard })));
+// Ligne « Relecture » (variante B) : chargée à la première relecture du fil.
+const ReviewLine = lazy(() => import("./ReviewLine"));
 // widgets d'agent : rares, chargés à la demande (budget d'entrée, 2026-10-21)
 const WidgetFrame = lazy(() => import("./WidgetFrame").then((m) => ({ default: m.WidgetFrame })));
 
@@ -104,12 +106,10 @@ export type TimelineThread = {
   phase: TurnPhase;
 };
 export type TimelineReview = {
-  review: ReviewState & { checks?: number; checkedTools?: string[]; checkedFiles?: string[] } | null;
-  reviewMin: boolean; setReviewMin: React.Dispatch<React.SetStateAction<boolean>>;
-  setReview: React.Dispatch<React.SetStateAction<any>>;
-  barOpen: boolean; setBarOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  fixing: boolean; setFixing: React.Dispatch<React.SetStateAction<boolean>>;
-  reviewOpen: boolean; setReviewOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  /** relecture la plus récente de chaque tour relu, par `turnId` */
+  reviews: ReadonlyMap<string, Review>;
+  /** écarte une affirmation, ou la relecture entière sans `claimId` */
+  dismiss: (review: Review, claimId?: string) => void;
 };
 export type TimelineList = {
   renderedEvents: RenderedItem[];
@@ -288,7 +288,16 @@ export function ChatTimeline(p: {
   // plus complet de chaque tour — cf. doublonsDePensee.
   const doublonsPensee = useMemo(() => doublonsDePensee(events), [events]);
 
-  const { review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen } = p.rev;
+  const { reviews, dismiss } = p.rev;
+  // Relecture d'un tour (variante B) : une ligne sous le message, portée par
+  // la rangée qui ferme le tour. Rien tant qu'aucune relecture n'existe.
+  const reviewLine = (event: AgentEvent) => {
+    const meta = event.meta;
+    const review = meta && "turnId" in meta && meta.turnId ? reviews.get(meta.turnId) : undefined;
+    return review
+      ? <Suspense fallback={null}><ReviewLine review={review} onDismiss={dismiss} /></Suspense>
+      : null;
+  };
   const {
     renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
     renderToolLine, fmtWorkDur, plugins, onOpenAgent, eventsByThreadId,
@@ -483,13 +492,13 @@ export function ChatTimeline(p: {
     thinkingCollapsed,
     openToolGroups,
     pins,
-    reviewOpen,
+    reviews,
     workingSince,
     activeMessageStart,
     activeMessageEnd,
     activeStepKey,
     activeStatusLabel: activeStatus?.label ?? null,
-  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviewOpen, workingSince, activeMessageStart, activeMessageEnd, derniereLigneTravail, lastThinkingIndex, activeStepKey, activeStatus?.label]);
+  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviews, workingSince, activeMessageStart, activeMessageEnd, derniereLigneTravail, lastThinkingIndex, activeStepKey, activeStatus?.label]);
   // Marge annotée : dérivée des événements déjà projetés. L'ancienne référence
   // est conservée quand la marge ne change pas (les deltas de stream ne créent
   // jamais d'entrée) — même discipline d'identité que listExtraData.
@@ -836,111 +845,6 @@ export function ChatTimeline(p: {
   }, []);
   return (
     <>
-      {threadId && review && reviewMin && (
-        <RowButton
-          className={`reviewer-strip v-${review.status === "running" ? "running" : review.verdict}`}
-          title={t("review.expand")}
-          aria-label={
-            review.status === "running"
-              ? t("review.running")
-              : review.verdict === "ok"
-              ? t("review.ok")
-              : review.verdict === "issues"
-              ? t("review.issues", { n: review.issues?.length ?? 0 })
-              : t("review.inconclusive")
-          }
-          onClick={() => setReviewMin(false)}
-        />
-      )}
-      {threadId && review && !reviewMin && (
-        <div className="reviewer-wrap">
-          <div
-            className={`reviewer-bar v-${review.status === "running" ? "running" : review.verdict} ${review.status === "done" ? "clickable" : ""}`}
-          >
-            <RowButton
-              className="rb-main"
-              onClick={() => review.status === "done" && setBarOpen((v) => !v)}
-            >
-              <svg className="rb-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
-                {review.verdict === "ok" && <path d="M5.8 8l1.6 1.6L10.5 6.3" />}
-              </svg>
-              <span className="rb-name">Reviewer</span>
-              <span className="rb-dot">·</span>
-              {fixing ? (
-                <span className="rb-verdict running"><Spinner className="rb-spin" size={10} aria-hidden="true" /> {t("review.fixing")}</span>
-              ) : review.status === "running" ? (
-                <span className="rb-verdict running"><Spinner className="rb-spin" size={10} aria-hidden="true" /> {t("review.running")}</span>
-              ) : review.verdict === "ok" ? (
-                <span className="rb-verdict ok">{t("review.ok-bar")}</span>
-              ) : review.verdict === "issues" ? (
-                <span className="rb-verdict warn">{t("review.issues", { n: review.issues?.length ?? 0 })}</span>
-              ) : (
-                <span className="rb-verdict">{t("review.inconclusive")}</span>
-              )}
-              {review.status === "done" && !fixing && review.checks != null && review.checks > 0 && (
-                <>
-                  <span className="rb-dot">·</span>
-                  <span className="rb-checks">{t("review.checks", { n: review.checks })}</span>
-                </>
-              )}
-              {review.status === "done" ? <span className="rb-chevron"><Tick open={barOpen} /></span> : null}
-            </RowButton>
-            <IconButton size="s" className="rb-min" title={t("review.minimize")} label={t("review.minimize")} onClick={(e) => { e.stopPropagation(); setBarOpen(false); setReviewMin(true); }}><MinusIcon size={11} /></IconButton>
-            <IconButton size="s" className="rb-close" title={t("review.close")} label={t("review.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}><CloseIcon size={11} /></IconButton>
-          </div>
-          {barOpen && review.status === "done" ? (
-            <div className="reviewer-menu">
-              {review.verdict === "ok" ? (
-                <div className="rm-ok">{t("review.ok-detail")}</div>
-              ) : review.verdict === "issues" && review.issues?.length ? (
-                <>
-                  {review.issues.map((iss, k) => (
-                    <div key={k} className={`rm-issue s-${iss.severity}`}>
-                      <div className="rm-claim">« {iss.claim} »</div>
-                      <div className="rm-problem">{iss.problem}</div>
-                      {iss.fix && <div className="rm-fix">→ {iss.fix}</div>}
-                    </div>
-                  ))}
-                  <Button
-                    variant="primary"
-                    className="rm-correct"
-                    disabled={fixing}
-                    onClick={() => {
-                      setFixing(true);
-                      setBarOpen(false);
-                      window.dispatchEvent(new CustomEvent("correct-issues", { detail: { threadId: threadId, issues: review.issues } }));
-                    }}
-                  >
-                    {fixing ? t("review.fixing") : t("review.correct")}
-                  </Button>
-                </>
-              ) : (
-                <div className="rm-native">
-                  {review.mode === "git" ? <div className="rm-mode">{t("review.git-native")}</div> : null}
-                  {review.mode === "git" ? <div className="rm-mode">{t("review.git-scope")}</div> : null}
-                  {review.error ? <div className="rm-problem">{review.error}</div> : null}
-                  {review.text?.trim() ? <div className="rm-problem">{review.text}</div> : null}
-                  {!review.error && !review.text?.trim() ? (
-                    <div className="rm-problem">{t("review.inconclusive-detail")}</div>
-                  ) : null}
-                </div>
-              )}
-              {(review.checkedTools?.length || review.checkedFiles?.length) ? (
-                <div className="rm-checked">
-                  <div className="rm-checked-h">{t("review.checked-against")}</div>
-                  {review.checkedFiles?.map((f, k) => (
-                    <div key={"f" + k} className="rm-checked-row"><span className="rm-ck-kind">fichier</span> {f}</div>
-                  ))}
-                  {review.checkedTools?.map((tl, k) => (
-                    <div key={"t" + k} className="rm-checked-row"><span className="rm-ck-kind">outil</span> {tl}</div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      )}
       <div ref={timelineWrapRef} className="timeline-scroll-wrap">
       <LegendList
         key={threadId ?? "atelier-home"}
@@ -1275,22 +1179,23 @@ export function ChatTimeline(p: {
             // Une interruption VOLONTAIRE (stop, steer) n'est pas un échec :
             // elle ne doit laisser ni ligne d'erreur ni libellé d'arrêt dans
             // la timeline (un texte partiel déjà reçu reste affiché).
-            if (isStoppedTerminal(e)) return null;
-            return <ChatErrorRow key={i} message={e.message} />;
+            if (isStoppedTerminal(e)) return reviewLine(e);
+            return <React.Fragment key={i}><ChatErrorRow message={e.message} />{reviewLine(e)}</React.Fragment>;
           }
           if (e.kind === "done") {
             const isLastDone = !events.slice(i + 1).some((x) => x.kind === "done");
             // « Annuler le tour » = revert au message user du tour (capacité
             // existante onRevert, nouvelle destination — plan 020, étape 5)
             return (
-              <ResultCapsule
-                key={i}
-                event={e}
-                isLastDone={isLastDone}
-                threadId={threadId}
-                review={review}
-                changedFiles={isLastDone ? lastDoneChangedFiles : undefined}
-              />
+              <React.Fragment key={i}>
+                {reviewLine(e)}
+                <ResultCapsule
+                  event={e}
+                  isLastDone={isLastDone}
+                  threadId={threadId}
+                  changedFiles={isLastDone ? lastDoneChangedFiles : undefined}
+                />
+              </React.Fragment>
             );
           }
           return null;
@@ -1311,7 +1216,7 @@ export function ChatTimeline(p: {
       {margeEntries.length > 0 && (
         <div
           ref={margeElRef}
-          className={`tl-marge${threadId && review ? " below-reviewer" : ""}`}
+          className="tl-marge"
           role="list"
           aria-label={t("chat.marge")}
         >
