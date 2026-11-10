@@ -1437,6 +1437,106 @@ fn prov_reste_confine_au_projet_et_derriere_le_garde_dorigine() {
     );
     assert_eq!(st, 403, "/prov inter-origines doit être refusé");
 }
+
+/// L'éditeur SVG envoie ses retouches en OBJET v2 (`collectEdits()` :
+/// `{version: 2, transforms, added, removed, styles}`). `/save-svg` n'écrivait
+/// `<figure>.edits.json` que pour un tableau : le calque durable n'existait
+/// jamais, et une figure régénérée perdait toutes ses retouches.
+#[test]
+fn save_svg_ecrit_le_calque_de_retouches_v2_et_le_lecteur_le_reapplique() {
+    let srv = start_server();
+    let fresh = concat!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\">",
+        "<!-- title --><text id=\"title_1\" style=\"fill: #000\">Titre</text>",
+        "<g id=\"legend_1\"><rect width=\"3\" height=\"2\"/></g>",
+        "</svg>",
+    );
+    let figure = srv.root.join("fig.svg");
+    let sidecar = srv.root.join("fig.edits.json");
+    fs::write(&figure, fresh).unwrap();
+    let save = |edits: serde_json::Value| {
+        let body = serde_json::json!({
+            "rel": "fig.svg", "name": "fig.svg", "svg": fresh, "edits": edits,
+        })
+        .to_string();
+        let (st, body) = http(srv.port, "POST", "/save-svg", Some(&body));
+        assert_eq!(st, 200, "{body}");
+    };
+    let read_sidecar = || -> serde_json::Value {
+        serde_json::from_str(&fs::read_to_string(&sidecar).expect("fig.edits.json absent"))
+            .unwrap()
+    };
+
+    // 1. Le calque v2 est écrit à la racine du fichier, tel que le client
+    //    l'envoie : c'est le format que relisent `reapply_svg_edits.py` et
+    //    `atelier_core::svg_edits`.
+    let v2 = serde_json::json!({
+        "version": 2,
+        "transforms": [{"id": "title_1", "text": "title", "delta": "translate(3,4)"}],
+        "added": [{"id": "added_text_1", "x": 12.5, "y": 8, "content": "Note",
+                   "style": "fill: #000", "transform": ""}],
+        "removed": [{"id": "legend_1", "text": null}],
+        "styles": [{"id": "title_1", "text": "title", "props": {"fill": "rgb(204, 0, 0)"}}],
+    });
+    save(v2.clone());
+    assert_eq!(read_sidecar(), v2);
+
+    // 2. De bout en bout : le script régénère la figure, le lecteur repose
+    //    les retouches enregistrées par la route.
+    fs::write(&figure, fresh).unwrap();
+    let report = atelier_core::svg_edits::reapply_file(&figure, None, None).unwrap();
+    assert_eq!(
+        (report.applied, report.total, report.missing),
+        (4, 4, 0),
+        "{:?}",
+        report.missing_detail
+    );
+    assert_eq!(
+        fs::read_to_string(&figure).unwrap(),
+        concat!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\">",
+            "<!-- title --><text id=\"title_1\" style=\"fill: rgb(204, 0, 0)\" transform=\"translate(3,4)\">Titre</text>",
+            "<text id=\"added_text_1\" x=\"12.5\" y=\"8\" style=\"fill: #000\">Note</text>",
+            "</svg>",
+        )
+    );
+
+    // 3. Une liste absente vaut liste vide ; le fichier garde les quatre.
+    save(serde_json::json!({"version": 2, "removed": [{"id": "legend_1"}]}));
+    assert_eq!(
+        read_sidecar(),
+        serde_json::json!({
+            "version": 2, "transforms": [], "added": [], "removed": [{"id": "legend_1"}], "styles": [],
+        })
+    );
+
+    // 4. Un calque mal formé (une liste qui n'en est pas une) ne touche pas
+    //    au calque déjà enregistré.
+    let kept = read_sidecar();
+    save(serde_json::json!({"version": 2, "transforms": "oups"}));
+    save(serde_json::json!("oups"));
+    assert_eq!(read_sidecar(), kept);
+
+    // 5. Un calque v2 vide (plus aucune retouche) supprime le fichier, comme
+    //    le faisait un tableau vide.
+    save(serde_json::json!({
+        "version": 2, "transforms": [], "added": [], "removed": [], "styles": [],
+    }));
+    assert!(!sidecar.exists(), "un calque v2 vide doit supprimer le fichier");
+
+    // 6. L'ancien tableau reste accepté, sous son enveloppe d'origine.
+    let legacy = serde_json::json!([{"id": "title_1", "text": "title", "delta": "translate(1,1)"}]);
+    save(legacy.clone());
+    assert_eq!(
+        read_sidecar(),
+        serde_json::json!({"svg": "fig.svg", "edits": legacy})
+    );
+    fs::write(&figure, fresh).unwrap();
+    let report = atelier_core::svg_edits::reapply_file(&figure, None, None).unwrap();
+    assert_eq!((report.applied, report.missing), (1, 0));
+    save(serde_json::json!([]));
+    assert!(!sidecar.exists(), "un tableau vide supprime toujours le fichier");
+}
 // --- HTTP Range / ETag / 304 (Porte : PDF/vidéo streamables + cache) -------
 
 /// Fichier "vidéo" bidon — seule l'extension compte pour `is_video_path`,
