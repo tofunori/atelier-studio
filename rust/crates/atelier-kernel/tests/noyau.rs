@@ -386,12 +386,14 @@ async fn l_etat_du_noyau_porte_sa_memoire_et_son_processeur() {
     assert_eq!(m.usage_updates(), vec!["fil".to_string()]);
     assert!(m.usage_updates().is_empty());
 
-    // 64 Mo écrits en mémoire, une demi-seconde de calcul et un
+    // 64 Mo écrits en mémoire, une demi-seconde de processeur et un
     // sous-processus : le relevé suivant (pas avant une seconde) les voit.
+    // La boucle compte le temps processeur, pas l'horloge : sur une machine
+    // chargée, une demi-seconde d'horloge ne donne pas toujours 0,3 s de calcul.
     let code = "import subprocess, sys, time\n\
 gros = b'x' * (64 * 1024 * 1024)\n\
-fin = time.time() + 0.5\n\
-while time.time() < fin: pass\n\
+fin = time.process_time() + 0.5\n\
+while time.process_time() < fin: pass\n\
 enfant = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])";
     let r = m.run(req("fil", projet.path(), None, code)).await.unwrap();
     assert_eq!(r.cell["status"], "ok", "{}", r.cell);
