@@ -893,10 +893,11 @@ fn claude_additional_models() -> Vec<(String, Option<String>)> {
         .unwrap_or_default()
 }
 
-/// Modèles Claude retirés du sélecteur (2026-10-31) : Atelier les migre vers
+/// Modèles Claude retirés du sélecteur (2026-10-31 ; Fable 5.1 le 2026-11-10) : Atelier les migre vers
 /// leur remplaçant côté interface (`RETIRED_CLAUDE_MODELS`, modelCatalog.ts).
 /// Le cache du CLI les annonce encore pour certains comptes.
 const RETIRED_CLAUDE_MODELS: &[&str] = &[
+    "claude-fable-5-1",
     "claude-fable-5",
     "claude-opus-5",
     "claude-opus-4-8",
@@ -946,7 +947,7 @@ impl Provider for ClaudeProvider {
     }
     fn models(&self) -> Vec<String> {
         vec![
-            "claude-fable-5-1".into(),
+            "claude-fable-5-2".into(),
             "claude-opus-5-5".into(),
             "claude-sonnet-5-5".into(),
             "claude-haiku-5-5".into(),
@@ -3334,9 +3335,10 @@ mod modeles_tests {
         assert!(!keep_additional_model("fable", &builtin));
         assert!(!keep_additional_model("opus[1m]", &builtin));
         // déjà listé, avec ou sans [1m]
-        assert!(!keep_additional_model("claude-fable-5-1", &builtin));
+        assert!(!keep_additional_model("claude-fable-5-2", &builtin));
         assert!(!keep_additional_model("claude-opus-5-5[1m]", &builtin));
         // retiré du sélecteur
+        assert!(!keep_additional_model("claude-fable-5-1", &builtin));
         assert!(!keep_additional_model("claude-opus-4-8", &builtin));
         assert!(!keep_additional_model("claude-haiku-4-5-20251001", &builtin));
         // un vrai modèle ouvert au compte reste visible

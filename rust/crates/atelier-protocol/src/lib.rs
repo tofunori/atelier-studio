@@ -271,7 +271,7 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             label: "Claude Code".into(),
             kind: "cli".into(),
             models: vec![
-                "claude-fable-5-1".into(),
+                "claude-fable-5-2".into(),
                 "claude-opus-5-5".into(),
                 "claude-sonnet-5-5".into(),
                 "claude-haiku-5-5".into(),
@@ -580,7 +580,7 @@ mod tests {
         assert_eq!(
             claude.models,
             vec![
-                "claude-fable-5-1",
+                "claude-fable-5-2",
                 "claude-opus-5-5",
                 "claude-sonnet-5-5",
                 "claude-haiku-5-5"

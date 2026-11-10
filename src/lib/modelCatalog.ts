@@ -2,12 +2,13 @@
 // catalogue providerStatus du sidecar. Un id inconnu reste affiché tel quel.
 export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
   claude: {
-    "claude-fable-5-1": "Fable 5.1",
+    "claude-fable-5-2": "Fable 5.2",
     "claude-opus-5-5": "Opus 5.5",
     "claude-sonnet-5-5": "Sonnet 5.5",
     "claude-haiku-5-5": "Haiku 5.5",
     // Anciens modèles retirés du sélecteur : libellés gardés pour l'historique
     // (reçus de tour, anciens fils). Voir RETIRED_CLAUDE_MODELS.
+    "claude-fable-5-1": "Fable 5.1",
     "claude-fable-5": "Fable 5",
     "claude-opus-5": "Opus 5",
     "claude-opus-4-8": "Opus 4.8",
@@ -41,12 +42,13 @@ export const BUILTIN_MODEL_LABELS: Record<string, Record<string, string>> = {
   },
 };
 
-// Modèles Claude retirés du catalogue (2026-10-31) → leur remplaçant dans la
+// Modèles Claude retirés du catalogue (2026-10-31 ; Fable 5.1 le 2026-11-10) → leur remplaçant dans la
 // même gamme. Sert à migrer un choix enregistré (défaut, favoris, efforts,
 // sélection d'un fil) : un id retiré n'apparaît plus dans le sélecteur, le
 // garder laisserait une coche ou une étoile orpheline.
 export const RETIRED_CLAUDE_MODELS: Record<string, string> = {
-  "claude-fable-5": "claude-fable-5-1",
+  "claude-fable-5-1": "claude-fable-5-2",
+  "claude-fable-5": "claude-fable-5-2",
   "claude-opus-5": "claude-opus-5-5",
   "claude-opus-4-8": "claude-opus-5-5",
   "claude-sonnet-5": "claude-sonnet-5-5",

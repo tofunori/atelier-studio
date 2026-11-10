@@ -280,7 +280,7 @@ function promoteDefaults(stored: Partial<Settings>): Partial<Settings> {
   return promoted;
 }
 
-/** Migre les modèles Claude retirés du catalogue (Fable 5, Opus 5, Opus 4.8,
+/** Migre les modèles Claude retirés du catalogue (Fable 5, Fable 5.1, Opus 5, Opus 4.8,
  * Sonnet 5, Haiku 4.5) vers leur remplaçant, partout où un choix est
  * enregistré : défaut, favoris (sans doublon), efforts par modèle, relecture
  * automatique, reformulation des consignes. Idempotente, et rend le MÊME objet

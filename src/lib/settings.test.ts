@@ -37,11 +37,11 @@ describe("settings defaults", () => {
     });
 
     localStorage.setItem("atelier-studio.settings", JSON.stringify({
-      defaultModel: { claude: "claude-fable-5-1[1m]" },
+      defaultModel: { claude: "claude-fable-5-2[1m]" },
       defaultEffort: { claude: "medium" },
     }));
     expect(loadSettings()).toMatchObject({
-      defaultModel: { claude: "claude-fable-5-1[1m]" },
+      defaultModel: { claude: "claude-fable-5-2[1m]" },
       defaultEffort: { claude: "medium" },
     });
   });
@@ -67,9 +67,9 @@ describe("settings defaults", () => {
   it("garde un autre modèle Claude choisi explicitement", () => {
     localStorage.setItem("atelier-studio.defaults.claude-opus-5-1m", "1");
     localStorage.setItem("atelier-studio.settings", JSON.stringify({
-      defaultModel: { claude: "claude-fable-5-1[1m]" },
+      defaultModel: { claude: "claude-fable-5-2[1m]" },
     }));
-    expect(loadSettings().defaultModel.claude).toBe("claude-fable-5-1[1m]");
+    expect(loadSettings().defaultModel.claude).toBe("claude-fable-5-2[1m]");
   });
 
   it("migre les modèles Claude retirés vers leur remplaçant, favoris et efforts compris", () => {
@@ -86,8 +86,8 @@ describe("settings defaults", () => {
     }));
     const s = loadSettings();
     expect(s.defaultModel).toEqual({ claude: "claude-opus-5-5[1m]", codex: "gpt-5.6-terra" });
-    // Fable 5 et Fable 5.1 fusionnent en une seule étoile ; Codex intact.
-    expect(s.favoriteModels).toEqual({ claude: ["claude-fable-5-1", "claude-haiku-5-5"], codex: ["gpt-5.5"] });
+    // Fable 5 et Fable 5.1 fusionnent en une seule étoile Fable 5.2 ; Codex intact.
+    expect(s.favoriteModels).toEqual({ claude: ["claude-fable-5-2", "claude-haiku-5-5"], codex: ["gpt-5.5"] });
     // L'effort déjà choisi pour le remplaçant prime.
     expect(s.modelEfforts).toEqual({ "claude:claude-sonnet-5-5": "low", "claude:claude-opus-5-5": "high" });
     expect(s.autoReview.model).toBe("claude-opus-5-5");
@@ -95,7 +95,7 @@ describe("settings defaults", () => {
     // Le miroir disque (antérieur) repasse par la même migration.
     expect(migrateRetiredModels({ favoriteModels: { claude: ["claude-sonnet-5"] } }))
       .toEqual({ favoriteModels: { claude: ["claude-sonnet-5-5"] } });
-    const intact = { defaultModel: { claude: "claude-fable-5-1" } };
+    const intact = { defaultModel: { claude: "claude-fable-5-2" } };
     expect(migrateRetiredModels(intact)).toBe(intact);
   });
 
