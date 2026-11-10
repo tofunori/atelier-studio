@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, PinIcon, PlusIcon, X } from "lucide-react";
 import { Button, IconButton } from "../ui";
 import { LazyDropdownMenu } from "../ui/LazyDropdownMenu";
 import { t } from "../../lib/i18n";
@@ -106,7 +106,7 @@ export function ProjectChatTabs(p: {
         onClick={() => p.onSelect(chat.id)}
         // double-clic = renommer sur place, comme un onglet de document
         onDoubleClick={rename ? () => setEditing(chat.id) : undefined}
-      >{pinned && <svg className="project-chat-pin tw:size-[10px]" width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><g transform="rotate(35 8 8)"><path d="M5 2.5h6v1.2l-1 .6v3l1.5 1.5v1H8.6v3.4L8 14l-.6-.8V9.8H4.5v-1L6 7.3v-3l-1-.6z" /></g></svg>}<span className="project-chat-tab-label">{title}</span>{isUnread && <span className="project-chat-tab-unread" aria-hidden="true" />}</Button>}
+      >{pinned && <PinIcon size={12} className="project-chat-pin" fill="currentColor" />}<span className="project-chat-tab-label">{title}</span>{isUnread && <span className="project-chat-tab-unread" aria-hidden="true" />}</Button>}
       {p.controls && !pinned && editing !== chat.id && <IconButton size="s" className="project-chat-tab-close document-tab-close"
         label={`${t("action.close-tab")} — ${title}`}
         onClick={() => p.controls!.onClose([chat.id])}><X size={12} aria-hidden="true" /></IconButton>}
@@ -127,7 +127,7 @@ export function ProjectChatTabs(p: {
       </IconButton>}
       groups={[
         { key: "new", items: [{ key: "new", keepOpen: false, onSelect: p.onNew,
-          label: <><svg className="project-chat-menu-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>{t("action.new-project-chat")}</> }] },
+          label: <><PlusIcon size={14} className="project-chat-menu-icon" />{t("action.new-project-chat")}</> }] },
         { key: "chats", separatorBefore: true, label: t("chat.project-chats"), items: p.chats.map((chat) => ({ key: chat.id,
           label: chat.title || t("app.new-chat-title"),
           checked: chat.id === p.activeId, keepOpen: false,

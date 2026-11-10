@@ -214,7 +214,8 @@ pub(crate) fn map_permission_mode(mode: &str) -> Option<&'static str> {
     match mode {
         "default" => Some("default"),
         "plan" => Some("plan"),
-        "acceptEdits" => Some("auto"),
+        // « auto » (mode Claude) suit « Éditions auto », comme chez Codex
+        "acceptEdits" | "auto" => Some("auto"),
         "bypassPermissions" => Some("yolo"),
         _ => None,
     }
@@ -2052,6 +2053,7 @@ mod tests {
         assert_eq!(map_permission_mode("default"), Some("default"));
         assert_eq!(map_permission_mode("plan"), Some("plan"));
         assert_eq!(map_permission_mode("acceptEdits"), Some("auto"));
+        assert_eq!(map_permission_mode("auto"), Some("auto"));
         assert_eq!(map_permission_mode("bypassPermissions"), Some("yolo"));
         assert_eq!(map_permission_mode("exotique"), None);
     }

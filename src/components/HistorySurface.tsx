@@ -19,6 +19,7 @@ import {
 } from "./history/historyModel";
 import "./HistorySurface.css";
 
+import { ArrowUpDownIcon, BotIcon, ChevronRightIcon, FileIcon, FlagIcon, GitCommitHorizontalIcon, MessageSquareIcon, PencilIcon, RotateCcwIcon, RotateCwIcon } from "lucide-react";
 /** Écoute les réponses projectHistory* sur la socket (sans relais dans l'entrée). */
 function listenHistory(ws: WebSocket | null, handler: (msg: any) => void) {
   if (!ws) return () => {};
@@ -37,25 +38,18 @@ type DiffState = { loading: true } | { loading: false; error?: string; before?: 
 let sequence = 0;
 const nextId = () => `h${Date.now().toString(36)}${(sequence++).toString(36)}`;
 
-function svg(path: React.ReactNode, size = 14) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{path}</svg>
-  );
-}
-
 const ICONS = {
-  turn: svg(<><rect x="3" y="5" width="10" height="7.5" rx="2" /><path d="M8 2.6V5M6.2 8.4v.8M9.8 8.4v.8" /></>),
-  edit: svg(<path d="M10.5 3 13 5.5 6 12.5H3.5V10z" />),
-  version: svg(<><path d="M3.6 2.4v11.4" /><path d="M3.6 3.2h8.2l-1.8 2.4 1.8 2.4H3.6" /></>),
-  commit: svg(<><circle cx="8" cy="8" r="2.4" /><path d="M1.8 8h3.8M10.4 8h3.8" /></>),
-  restore: svg(<><path d="M3 4.2v3h3" /><path d="M3.4 7.2A5 5 0 1 1 4.6 11.6" /></>),
+  turn: <BotIcon size={14} />,
+  edit: <PencilIcon size={14} />,
+  version: <FlagIcon size={14} />,
+  commit: <GitCommitHorizontalIcon size={14} />,
+  restore: <RotateCcwIcon size={14} />,
 };
-const FILE_ICON = svg(<><path d="M4 2h5.5L12 4.5V14H4z" /><path d="M9.5 2v2.5H12" /></>);
-const COMPARE_ICON = svg(<><path d="M5 2.5v11M11 2.5v11" /><path d="M2.8 5 5 2.8 7.2 5M8.8 11 11 13.2 13.2 11" /></>);
-const REFRESH_ICON = svg(<><path d="M13 4.2v3h-3" /><path d="M12.6 7.2A5 5 0 1 0 11.4 11.6" /></>);
-const CHAT_ICON = svg(<path d="M3 4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5V11H4a1 1 0 0 1-1-1z" />);
-const CHEVRON = svg(<path d="M6.2 4.5 9.7 8l-3.5 3.5" />, 12);
+const FILE_ICON = <FileIcon size={14} />;
+const COMPARE_ICON = <ArrowUpDownIcon size={14} />;
+const REFRESH_ICON = <RotateCwIcon size={14} />;
+const CHAT_ICON = <MessageSquareIcon size={14} />;
+const CHEVRON = <ChevronRightIcon size={12} />;
 
 function send(ws: WebSocket | null, message: Record<string, unknown>) {
   if (ws?.readyState !== WebSocket.OPEN) return false;

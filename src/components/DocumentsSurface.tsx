@@ -11,6 +11,7 @@ import { Input } from "./shadcn/input";
 import { Button, EmptyState, IconButton, Popover, PopoverContent, PopoverTitle, PopoverTrigger, RowButton, Select, showError } from "./ui";
 import "./DocumentsSurface.css";
 
+import { FileIcon } from "lucide-react";
 type DocEntry = { path: string; mtime: number; changes: number };
 type Template = "blank" | "article" | "copy";
 
@@ -59,10 +60,7 @@ function frameUrl(galleryUrl: string, path: string): string | null {
 }
 
 const FILE_ICON = (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M4 1.8h5.2L12.5 5v8.2c0 .6-.4 1-1 1h-7.5c-.6 0-1-.4-1-1V2.8c0-.6.4-1 1-1z" />
-    <path d="M9 1.8V5h3.5" />
-  </svg>
+  <FileIcon size={14} />
 );
 
 export default function DocumentsSurface({

@@ -163,6 +163,21 @@ describe("deriveResearchHomeModel", () => {
     expect(m.artefacts.map((a) => a.rel)).toEqual(["figs/mienne.pdf", "notes.md"]);
   });
 
+  it("artefacts : la date du catalogue natif devient une date relative ; sans date, rien d'inventé", () => {
+    const m = deriveResearchHomeModel(
+      inputs({
+        recentFiles: ["a.pdf", "b.py", "c.md"],
+        recentFileTimes: { "a.pdf": NOW - 12 * 60_000, "b.py": NOW - 40 * 86_400_000 },
+      }),
+    );
+    if (m.state !== "project") throw new Error("attendu project");
+    const [a, b, c] = m.artefacts;
+    expect(a.relative).toEqual({ kind: "minutes", n: 12 });
+    expect(a.modifiedAtIso).toBe(new Date(NOW - 12 * 60_000).toISOString());
+    expect(b.relative?.kind).toBe("date");
+    expect(c).toMatchObject({ modifiedAtIso: null, relative: null });
+  });
+
   it("threads d'un autre projet exclus de Continuer et d'À traiter", () => {
     const m = deriveResearchHomeModel(
       inputs({

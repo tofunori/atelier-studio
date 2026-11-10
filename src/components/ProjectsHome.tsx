@@ -5,7 +5,7 @@
 // visible. ⌘1 reprend le projet, ⌘2 à ⌘9 ouvrent les suivants, Échap revient
 // au projet courant. Chargé à la demande (budget de l'entrée) ; les vignettes
 // viennent du serveur Rust (`projectCards`, atelier-runtime/src/project_home.rs).
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
@@ -18,6 +18,7 @@ import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
 import type { ProjMeta } from "./Rail";
 import "../styles/projects-home.css";
 
+import { ClockIcon, FolderIcon, MessageSquareIcon, PlusIcon } from "lucide-react";
 type ThreadLike = {
   id?: string;
   title?: string;
@@ -45,19 +46,10 @@ const CARD_REQUESTS = 6;
 const SHORTCUTS = 9;
 const RECENT_CHATS = 3;
 
-function svg(path: ReactNode, size = 14) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {path}
-    </svg>
-  );
-}
-const folderGlyph = (size = 14) =>
-  svg(<path d="M2 4.5a1 1 0 0 1 1-1h3l1.4 1.6H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" />, size);
-const PlusGlyph = () => svg(<path d="M8 3.2v9.6M3.2 8h9.6" />);
-const ClockGlyph = () => svg(<><circle cx="8" cy="8" r="5.6" /><path d="M8 5v3.2l2 1.3" /></>, 11);
-const ChatGlyph = () => svg(<path d="M3 4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5V11H4a1 1 0 0 1-1-1z" />, 12);
+const folderGlyph = (size = 14) => <FolderIcon size={size} />;
+const PlusGlyph = () => <PlusIcon size={14} />;
+const ClockGlyph = () => <ClockIcon size={12} />;
+const ChatGlyph = () => <MessageSquareIcon size={12} />;
 
 function Sheet(p: { card?: ProjectCard; small?: boolean }) {
   const size = p.small ? " is-mini" : "";
@@ -68,7 +60,7 @@ function Sheet(p: { card?: ProjectCard; small?: boolean }) {
       </div>
     );
   }
-  return <div className={`ph-sheet is-empty${size}`}>{folderGlyph(p.small ? 11 : 20)}</div>;
+  return <div className={`ph-sheet is-empty${size}`}>{folderGlyph(p.small ? 12 : 20)}</div>;
 }
 
 /** Chemin lisible : le dossier personnel devient « ~ ». */

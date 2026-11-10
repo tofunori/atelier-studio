@@ -85,8 +85,15 @@ afterEach(() => {
   cleanup();
 });
 
+/** La ligne « Relecture » est-elle sous le tour dont la question suit ? */
+function before(node: Element | null, text: string): boolean {
+  // la bulle du fil, pas son repère dans la marge
+  const bubble = screen.getByText(text, { selector: '[data-slot="bubble-content"], .chat-md *' });
+  return !!node && (node.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
+
 describe("Chat review A2", () => {
-  it("un résultat tardif du tour N n'écrase pas le tour N+1", async () => {
+  it("un résultat tardif du tour N s'affiche sous le tour N, pas sous le tour N+1", async () => {
     renderUi(<Chat {...chatProps({ events: twoTurns })} />);
     await act(async () => {
       window.dispatchEvent(new CustomEvent("review-result", {
@@ -100,11 +107,15 @@ describe("Chat review A2", () => {
         },
       }));
     });
-    expect(document.querySelector(".reviewer-bar.v-ok")).toBeNull();
-    expect(screen.queryByText(t("review.ok-bar"))).toBeNull();
+    await screen.findByText(t("review.ok-bar"));
+    const lines = document.querySelectorAll(".rv");
+    expect(lines).toHaveLength(1);
+    // sous la réponse 1, donc avant la question du tour 2
+    expect(before(lines[0], "deux")).toBe(true);
+    expect(before(lines[0], "réponse 1")).toBe(false);
   });
 
-  it("recharge via getReviews le verdict du tour courant", async () => {
+  it("recharge via getReviews la relecture de chaque tour relu", async () => {
     renderUi(<Chat {...chatProps({ events: twoTurns })} />);
     await act(async () => {
       window.dispatchEvent(new CustomEvent("reviews-list", {
@@ -124,9 +135,14 @@ describe("Chat review A2", () => {
         },
       }));
     });
-    expect(screen.getByText(t("review.inconclusive"))).toBeTruthy();
-    fireEvent.click(screen.getByText("Reviewer"));
+    // un « ok » sans identité de relecture (ancienne projection) ne valide rien
+    expect(await screen.findAllByText(t("review.inconclusive"))).toHaveLength(2);
+    expect(screen.queryByText(t("review.ok-bar"))).toBeNull();
+    const lines = document.querySelectorAll(".rv");
+    expect(before(lines[0], "deux")).toBe(true);
+    expect(before(lines[1], "deux")).toBe(false);
+    fireEvent.click(lines[1].querySelector(".rv-head")!);
     expect(screen.getByText(t("review.git-scope"))).toBeTruthy();
-    expect(document.querySelector(".rm-ok")).toBeNull();
+    expect(document.querySelector('.rv-state[data-outcome="passed"]')).toBeNull();
   });
 });

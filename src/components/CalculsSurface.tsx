@@ -16,7 +16,7 @@
 // configuration, et « Tous » ne couvre que les hôtes configurés (le serveur
 // l'impose aussi). Sans aucune grappe, la vue Slurm n'a pas d'entrée.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Clock3Icon, RefreshCwIcon, ServerIcon, SquareTerminalIcon } from "lucide-react";
+import { ChevronRightIcon, Clock3Icon, RefreshCwIcon, ServerIcon, SquareTerminalIcon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import { clusterSshCommand, useIntegrations, type IntegrationsEffective } from "../lib/integrations";
@@ -705,9 +705,7 @@ const RunRow = memo(function RunRow({ run, open, now, forgetError, onToggle, onF
           <small>{activityAgo(run, now)}</small>
         </span>
         <span className="calculs-run-chevron" aria-hidden="true">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 3.5L10.5 8 6 12.5" />
-          </svg>
+          <ChevronRightIcon size={12} />
         </span>
       </RowButton>
       <div className="calculs-run-fold">

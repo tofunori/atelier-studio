@@ -94,7 +94,7 @@
 .project-chat-tab-wrap .ui-btn-label > svg { flex: none; }
 .project-chat-tab-close.ui-iconbtn { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); }
 
-.project-chat-tab.ui-btn .project-chat-pin { width: 10px; height: 10px; stroke-width: 1.4; color: var(--text-muted); opacity: .7; }
+.project-chat-tab.ui-btn .project-chat-pin { width: 12px; height: 12px; color: var(--text-muted); opacity: .7; }
 .topbar-surfaces { display: inline-flex; align-items: center; gap: 0; flex: none; height: 100%; }
 .topbar-atelier-tabs { display: flex; align-items: center; min-width: 0; height: 100%; flex: 0 1 auto; overflow: hidden; }
 .topbar-atelier-tabs .topbar-tabs { height: 100%; padding-left: 0; }
@@ -106,7 +106,7 @@
   height: 100%; padding: 0 12px; border-radius: inherit; color: inherit; font: inherit; }
 .topbar-gallery-main svg { width: 14px; height: 14px; }
 .topbar-surface-icon { display: inline-flex; color: var(--text-muted); }
-.topbar-surface-icon svg { width: 13px; height: 13px; }
+.topbar-surface-icon svg { width: 14px; height: 14px; }
 .topbar-surface-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-chat-menu-icon { flex: none; color: var(--text-muted); }
 
@@ -188,6 +188,8 @@
   color: var(--text-primary); font: inherit; }
 
 .topbar-layout-controls { display: flex; align-items: center; flex: none; }
+/* taille fixe : la taille par défaut du groupe est en rem et sort de la grille */
+.topbar-layout-controls .ui-seg svg { width: var(--icon-m); height: var(--icon-m); }
 /* Disposition sans rail de fond (piste A, 2026-10-19) : trois icônes au même
    rang que les autres contrôles de la barre ; seule la sélection a un fond. */
 .topbar-layout-controls .ui-seg { background: transparent; padding: 0; }

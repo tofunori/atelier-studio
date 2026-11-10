@@ -1798,6 +1798,14 @@ pub(crate) fn normalize_tool_result(block: &Value) -> (String, bool, usize) {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string()
+                } else if b.get("type").and_then(|v| v.as_str()) == Some("image") {
+                    // Image rendue par un outil (figure du noyau Python) : la
+                    // ligne d'outil la signale, sans son base64.
+                    let mime = b
+                        .pointer("/source/media_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("image");
+                    format!("[image jointe : {mime}]")
                 } else {
                     b.to_string()
                 }
@@ -3213,5 +3221,18 @@ mod tests {
         // Un identifiant de session douteux ne sort jamais du dossier.
         st.session_id = Some("../x".into());
         assert!(tasks_dir(&st).is_none());
+    }
+
+    #[test]
+    fn une_image_rendue_par_un_outil_ne_met_pas_son_base64_dans_la_ligne() {
+        let data = "iVBORw0KGgo".repeat(20_000);
+        let block = json!({"type": "tool_result", "tool_use_id": "t1", "content": [
+            {"type": "text", "text": "{\"cell\": 3}"},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}},
+        ]});
+        let (output, truncated, length) = normalize_tool_result(&block);
+        assert_eq!(output, "{\"cell\": 3}\n[image jointe : image/png]");
+        assert!(!truncated);
+        assert_eq!(length, output.len());
     }
 }

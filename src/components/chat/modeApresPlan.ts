@@ -17,3 +17,13 @@ export function modeApresPlan(
   if (repli("acceptEdits")) return "acceptEdits";
   return permis.find((mode) => repli(mode)) ?? "acceptEdits";
 }
+
+/** Mode effectivement appliqué pour un fournisseur. « Auto » n'existe que
+ * chez Claude (classifieur du CLI) : un réglage par défaut « Auto » qui atteint
+ * un fournisseur sans ce mode prend son plus proche voisin, « Éditions auto ».
+ * Catalogue inconnu ou vide : le mode passe tel quel (le backend a le même
+ * repli). */
+export function modePourFournisseur(mode: string, permis?: readonly string[] | null): string {
+  if (mode !== "auto" || !permis || permis.length === 0 || permis.includes("auto")) return mode;
+  return permis.includes("acceptEdits") ? "acceptEdits" : (permis.find((m) => m !== "bypassPermissions") ?? mode);
+}

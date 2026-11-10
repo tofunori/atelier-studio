@@ -105,7 +105,7 @@ export default function RagdocWorkspace(p:{articles:ArticleRow[]; corpusStatus?:
   }
   const library=p.articles.filter(a=>`${a.title} ${a.slug}`.toLowerCase().includes(query.toLowerCase()));
   return <section className="rd-workspace" aria-label="Espace Ragdoc">
-    <nav className="rd-nav" aria-label="Parcours Ragdoc">{SECTIONS.map(([id,label,Icon])=><Button key={id} variant="ghost" aria-pressed={section===id} onClick={()=>{setSection(id);setError("");}}><Icon size={15}/>{t(label)}{id==="review"&&ready.length>0&&<span className="rd-count">{ready.length}</span>}</Button>)}</nav>
+    <nav className="rd-nav" aria-label="Parcours Ragdoc">{SECTIONS.map(([id,label,Icon])=><Button key={id} variant="ghost" aria-pressed={section===id} onClick={()=>{setSection(id);setError("");}}><Icon size={14}/>{t(label)}{id==="review"&&ready.length>0&&<span className="rd-count">{ready.length}</span>}</Button>)}</nav>
     {prefs.pending.length>0&&<div className="rd-notice"><span>{prefs.pending.length} nouveau{prefs.pending.length>1?"x":""} PDF Zotero à examiner</span><Button variant="ghost" onClick={()=>{zoteroRequest.current++;setBusy(false);setZotero(prefs.pending);setZoteroSelected([]);setSection("import");}}>Examiner</Button></div>}
     {error&&<div className="rd-warning" role="alert">{error}</div>}
     <div className="rd-content">

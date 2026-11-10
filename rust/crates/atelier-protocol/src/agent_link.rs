@@ -168,4 +168,15 @@ pub mod agent_mcp_limits {
     pub const WAIT_MAX_MS: u64 = 60_000;
     pub const REQUEST_BODY_MAX: usize = 256 * 1024;
     pub const BRIDGE_RESPONSE_MAX: usize = 128 * 1024;
+    /// Clé réservée, au premier niveau d'une réponse du pont : images à
+    /// joindre au résultat de l'outil, `[{"mimeType": "image/png", "data":
+    /// "<base64>"}]`. Le shim MCP la retire de la réponse et en fait des
+    /// blocs de contenu image ; elle ne compte pas dans
+    /// `BRIDGE_RESPONSE_MAX`, qui borne le texte.
+    pub const BRIDGE_IMAGES_KEY: &str = "_mcpImages";
+    /// Images par réponse, et taille totale de leur base64. Au-delà le pont
+    /// ne joint aucune image (les figures du noyau, seules à s'en servir,
+    /// restent en dessous : 3 PNG de 1 Mo au plus).
+    pub const BRIDGE_IMAGES_MAX: usize = 4;
+    pub const BRIDGE_IMAGES_MAX_BYTES: usize = 6 * 1024 * 1024;
 }

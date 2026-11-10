@@ -5,16 +5,14 @@
 // d'un filet (PRIM-12 / TRANS-27, WCAG 1.4.1) : icône 14 px au trait dans la
 // couleur du statut, fond teinté à 8 %, aucune bordure.
 import React from "react";
+import { CircleCheckIcon, CircleXIcon, InfoIcon, TriangleAlertIcon, type LucideIcon } from "lucide-react";
 import { cx } from "./internal";
 import { Alert } from "../shadcn/alert";
 
 export type NoticeTone = "info" | "success" | "warning" | "error";
 
-const TONE_PATHS: Record<NoticeTone, React.ReactNode> = {
-  info: <><circle cx="8" cy="8" r="6" /><path d="M8 7.2v3.6M8 5.2v.1" /></>,
-  success: <><circle cx="8" cy="8" r="6" /><path d="M5.4 8.2l1.8 1.8 3.4-3.6" /></>,
-  warning: <><path d="M8 2.5l5.8 10.2H2.2z" /><path d="M8 6.5v3M8 11.2v.1" /></>,
-  error: <><circle cx="8" cy="8" r="6" /><path d="M6 6l4 4M10 6l-4 4" /></>,
+const TONE_ICONS: Record<NoticeTone, LucideIcon> = {
+  info: InfoIcon, success: CircleCheckIcon, warning: TriangleAlertIcon, error: CircleXIcon,
 };
 
 export function InlineNotice(props: {
@@ -23,16 +21,14 @@ export function InlineNotice(props: {
   className?: string;
 }) {
   const { children, tone = "info", className } = props;
+  const ToneIcon = TONE_ICONS[tone];
   return (
     <Alert
       role={tone === "error" ? "alert" : "status"}
       variant={tone === "error" ? "destructive" : "default"}
       className={cx("ui-notice", `ui-notice--${tone}`, className)}
     >
-      <svg className="ui-notice-icon" width="14" height="14" viewBox="0 0 16 16" fill="none"
-        stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        {TONE_PATHS[tone]}
-      </svg>
+      <ToneIcon className="ui-notice-icon" size={14} />
       <div className="ui-notice-body">{children}</div>
     </Alert>
   );

@@ -22,7 +22,7 @@ export const SearchField = React.forwardRef<HTMLInputElement, SearchFieldProps>(
   function SearchField({ className, inputClassName, ...rest }, ref) {
     return (
       <span className={cx("ui-search", className)}>
-        <span className="ui-search-icon" aria-hidden="true"><SearchIcon size={13} /></span>
+        <span className="ui-search-icon" aria-hidden="true"><SearchIcon size={14} /></span>
         <Input {...rest} ref={ref} type="search" className={cx("ui-search-input", inputClassName)} />
       </span>
     );

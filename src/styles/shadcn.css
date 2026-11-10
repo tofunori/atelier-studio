@@ -19,6 +19,9 @@
  * (non stratifiée) garde la main. */
 @layer base {
   *, ::before, ::after, ::backdrop { border-color: var(--sh-border); }
+  /* Icône de la famille sans taille déclarée : 14 px (Lucide dessine sinon à
+     24 px). Couche base : toute règle de composant ou utilitaire l'emporte. */
+  :where(svg.lucide[width="24"][height="24"]) { width: var(--icon-m); height: var(--icon-m); }
 }
 
 :root {
@@ -240,7 +243,7 @@
 [data-slot="select-item"] [data-icon="select-check"] { width: var(--check-size); height: var(--check-size); stroke-width: 1.5; }
 [data-slot="select-trigger"] [data-icon="select-chevron"] svg { width: 12px; height: 12px; stroke-width: 1.4; color: var(--text-muted); }
 [data-slot="dropdown-menu-sub-trigger"] > svg:last-child,
-[data-slot="context-menu-sub-trigger"] > svg:last-child { width: 11px; height: 11px; stroke-width: 1.5; }
+[data-slot="context-menu-sub-trigger"] > svg:last-child { width: 12px; height: 12px; stroke-width: 1.5; }
 
 /* Product menu contract. Target each portal directly, including submenus.
  * Mixed panels opt in through MenuPanelContent; informational popovers keep

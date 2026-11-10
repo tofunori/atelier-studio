@@ -175,6 +175,7 @@ export default function General(p: SectionProps) {
             value={s.defaultPermissionMode}
             onChange={(value) => save({ defaultPermissionMode: value })}
             options={[
+              { value: "auto", label: t("permission.auto") },
               { value: "bypassPermissions", label: t("permission.full") },
               { value: "acceptEdits", label: t("permission.accept-edits") },
               { value: "default", label: t("action.ask-default") },

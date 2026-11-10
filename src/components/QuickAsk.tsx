@@ -18,6 +18,7 @@ import {
   Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger,
 } from "./shadcn/popover";
 
+import { ClockIcon, FolderIcon, FolderOpenIcon, MessageCircleIcon, Trash2Icon } from "lucide-react";
 type QaMsg = { role: "user" | "assistant"; text: string; streaming?: boolean; context?: QaContext; error?: boolean };
 // Les anciens récents enregistrés marquaient l'erreur par un préfixe ⚠.
 const isQaError = (msg: QaMsg) => msg.error === true || msg.text.startsWith("⚠");
@@ -462,9 +463,7 @@ export default function QuickAsk({
           <span>{t("qa.title")}</span>
           <IconButton className="qa-recents-btn" label={t("qa.recents")} title={t("qa.recents")}
             onClick={() => setRecentsOpen((v) => !v)}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-              <circle cx="8" cy="8" r="6.2" /><path d="M8 4.5V8l2.5 1.5" />
-            </svg>
+            <ClockIcon size={12} />
           </IconButton>
           <IconButton
             className="qa-recents-btn qa-clear-btn"
@@ -482,9 +481,7 @@ export default function QuickAsk({
               window.setTimeout(() => inputRef.current?.focus(), 0);
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-              <path d="M3 4h10M6.5 4V2.8c0-.4.3-.8.8-.8h1.4c.5 0 .8.4.8.8V4M4.5 4l.7 8.4c0 .5.4.8.9.8h3.8c.5 0 .9-.3.9-.8L11.5 4" />
-            </svg>
+            <Trash2Icon size={12} />
           </IconButton>
           <IconButton className="qa-min" label={t("qa.minimize")} title={t("qa.minimize")} onClick={onMinimize}><MinusIcon size={12} /></IconButton>
           <Popover modal={false}>
@@ -649,9 +646,7 @@ export default function QuickAsk({
                 window.setTimeout(() => inputRef.current?.focus(), 0);
               }}
             >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-                <path d="M14 8c0 3-2.7 5.2-6 5.2-.8 0-1.6-.1-2.3-.4L2.5 14l1-2.6C2.6 10.5 2 9.3 2 8c0-3 2.7-5.2 6-5.2S14 5 14 8z" />
-              </svg>
+              <MessageCircleIcon size={14} />
             </RowButton>
           </div>
         )}
@@ -702,16 +697,9 @@ export default function QuickAsk({
               onClick={() => setFouille((v) => !v)}
             >
               {fouille ? (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.4}
-                  strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
-                  <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v1.5" />
-                  <path d="M3 17.5V7.5M4.5 19h13L21 11.5H7.5z" />
-                </svg>
+                <FolderOpenIcon size={14} />
               ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.4}
-                  strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
-                  <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17.5z" />
-                </svg>
+                <FolderIcon size={14} />
               )}
             </IconButton>
           <Textarea

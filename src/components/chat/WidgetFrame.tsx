@@ -7,7 +7,7 @@
 // combiné à allow-scripts, le contenu (écrit par un modèle) pourrait retirer
 // lui-même son propre bac à sable.
 import { useEffect, useRef, useState } from "react";
-import { Maximize2Icon, XIcon } from "lucide-react";
+import { Maximize2Icon, SlidersHorizontalIcon, XIcon } from "lucide-react";
 import type { AgentEvent } from "../../lib/ws";
 import { t } from "../../lib/i18n";
 import { getSidecarInfo, sidecarHeaders } from "../../lib/sidecarInfo";
@@ -257,12 +257,7 @@ export function WidgetFrame(props: { event: WidgetEvent; threadId: string | null
 
   const widgetLabel = (
     <span className="widget-bar-left">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-           strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-        <path d="M2 4.5h5M11 4.5h3M2 11.5h3M9 11.5h5" />
-        <circle cx="9" cy="4.5" r="1.9" />
-        <circle cx="7" cy="11.5" r="1.9" />
-      </svg>
+      <SlidersHorizontalIcon size={12} />
       <span className="widget-title">{event.title}</span>
     </span>
   );

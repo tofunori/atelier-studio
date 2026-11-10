@@ -4,8 +4,8 @@ use crate::codex_parse::{answer_from_interaction, map_turn_notification, TurnMap
 use crate::codex_rpc::{CodexAppServer, ThreadConnection};
 use crate::traits::{
     prompts_reformulation_with_options, Provider, ProviderCaps, ReviewError, ReviewRequest,
-    ReviewResponse, RewriteOptions, SendMode, SendRequest, SendResult, REVIEW_PROVIDER_TIMEOUT,
-    REVIEW_SYSTEM_PROMPT,
+    ReviewResponse, RewriteOptions, SendMode, SendRequest, SendResult, REVIEW_ANNOTATIONS_SERVER,
+    REVIEW_PROVIDER_TIMEOUT, REVIEW_SYSTEM_PROMPT, REVIEW_TOOLS_SYSTEM_PROMPT,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -137,17 +137,18 @@ impl CodexProvider {
         req: ReviewRequest,
         delai: Duration,
     ) -> Result<ReviewResponse, ReviewError> {
-        let codex_id = open_thread(
-            &self.server,
-            None,
-            json!({
-                "cwd": Value::Null,
-                "sandbox": "read-only",
-                "approvalPolicy": "never",
-            }),
-        )
-        .await
-        .map_err(|error| ReviewError::Provider(format!("relecture Codex : {error}")))?;
+        if let Some(access) = &req.access {
+            let root = std::path::Path::new(&access.project_root);
+            if !root.is_absolute() || !root.is_dir() {
+                return Err(ReviewError::Provider(format!(
+                    "relecture Codex : dossier du projet introuvable ({})",
+                    access.project_root
+                )));
+            }
+        }
+        let codex_id = open_thread(&self.server, None, review_thread_opts(&req))
+            .await
+            .map_err(|error| ReviewError::Provider(format!("relecture Codex : {error}")))?;
 
         let (tx, rx) = oneshot::channel::<Result<String, String>>();
         self.server
@@ -155,7 +156,7 @@ impl CodexProvider {
             .await;
 
         // codex n'a pas de prompt système séparé, comme pour la reformulation.
-        let message = format!("{REVIEW_SYSTEM_PROMPT}\n\n{}", req.dossier);
+        let message = format!("{}\n\n{}", review_preamble(&req), req.dossier);
         let mut params = json!({
             "threadId": codex_id,
             "input": [{ "type": "text", "text": message, "text_elements": [] }],
@@ -213,6 +214,48 @@ impl Default for CodexProvider {
     }
 }
 
+/// Options d'ouverture du fil éphémère d'une relecture.
+///
+/// Toujours `sandbox: "read-only"` et `approvalPolicy: "never"` : le
+/// relecteur ne peut rien écrire, et rien ne lui sera accordé en cours de
+/// route. Sans `access`, pas de répertoire de travail, comme avant. Avec
+/// (mode `claims`, lot 1b), le fil s'ouvre dans le dossier du projet pour
+/// que Codex y lise et y cherche ; le serveur des annotations, s'il est
+/// joignable, est déclaré comme dans `native_open_opts` et lancé en lecture
+/// seule (c'est le serveur lui-même qui retire ses outils d'écriture : le
+/// bac à sable de Codex ne couvre pas les appels MCP).
+fn review_thread_opts(req: &ReviewRequest) -> Value {
+    let mut opts = json!({
+        "cwd": Value::Null,
+        "sandbox": "read-only",
+        "approvalPolicy": "never",
+    });
+    let Some(access) = &req.access else {
+        return opts;
+    };
+    opts["cwd"] = json!(access.project_root);
+    if let Some(annotations) = &access.annotations {
+        opts["config"] = json!({ "mcp_servers": { REVIEW_ANNOTATIONS_SERVER: {
+            "command": annotations.command,
+            "args": [],
+            "env": annotations.launch_env(),
+        }}});
+    }
+    opts
+}
+
+/// Texte placé avant le dossier : la consigne commune du relecteur, plus,
+/// quand il a des yeux, ce que le bac à sable de Codex lui laisse faire.
+/// Codex lit les fichiers par son shell : on le cantonne à la lecture.
+fn review_preamble(req: &ReviewRequest) -> String {
+    if req.access.is_none() {
+        return REVIEW_SYSTEM_PROMPT.to_string();
+    }
+    format!(
+        "{REVIEW_TOOLS_SYSTEM_PROMPT} Ton bac à sable est en lecture seule : n'utilise le shell que pour lire (cat, rg, ls, sed -n), sans rien écrire ni joindre le réseau."
+    )
+}
+
 /// Identifiant du niveau de service Codex « Fast » (`service_tiers` du
 /// catalogue app-server : `{id: "priority", name: "Fast"}`).
 pub const CODEX_PRIORITY_TIER: &str = "priority";
@@ -220,7 +263,9 @@ pub const CODEX_PRIORITY_TIER: &str = "priority";
 fn codex_safety(permission_mode: Option<&str>) -> (&'static str, &'static str) {
     match permission_mode {
         Some("bypassPermissions") => ("danger-full-access", "never"),
-        Some("acceptEdits") => ("workspace-write", "on-request"),
+        // « auto » est propre à Claude ; un réglage par défaut « Auto » qui
+        // atteint Codex vaut son plus proche voisin, « Éditions auto ».
+        Some("acceptEdits") | Some("auto") => ("workspace-write", "on-request"),
         Some("default") => ("workspace-write", "untrusted"),
         Some("plan") => ("read-only", "never"),
         _ => ("read-only", "on-request"),
@@ -1735,6 +1780,10 @@ mod command_tests {
         );
         assert_eq!(
             codex_safety(Some("acceptEdits")),
+            ("workspace-write", "on-request")
+        );
+        assert_eq!(
+            codex_safety(Some("auto")),
             ("workspace-write", "on-request")
         );
         assert_eq!(

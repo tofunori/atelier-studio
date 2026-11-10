@@ -896,6 +896,27 @@ fn file_change_update(item: &Value, status: &str) -> Value {
     })
 }
 
+/// Résultat d'un outil MCP sans le base64 de ses images (figures du noyau
+/// Python) : la ligne d'outil les signale, elle ne les recopie pas.
+fn without_image_data(result: &Value) -> Value {
+    let is_image = |block: &Value| block.get("type").and_then(Value::as_str) == Some("image");
+    let has_image = result
+        .get("content")
+        .and_then(Value::as_array)
+        .is_some_and(|blocks| blocks.iter().any(is_image));
+    if !has_image {
+        return result.clone();
+    }
+    let mut result = result.clone();
+    let blocks = result.get_mut("content").and_then(Value::as_array_mut);
+    for block in blocks.into_iter().flatten().filter(|b| is_image(b)) {
+        if let Some(data) = block.get_mut("data") {
+            *data = json!("[image jointe]");
+        }
+    }
+    result
+}
+
 fn mcp_update(item: &Value, message: Option<&str>) -> Value {
     let name = [item.get("server"), item.get("tool")]
         .into_iter()
@@ -915,7 +936,7 @@ fn mcp_update(item: &Value, message: Option<&str>) -> Value {
     } else if let Some(e) = item.get("error") {
         e.to_string()
     } else if let Some(r) = item.get("result") {
-        r.to_string()
+        without_image_data(r).to_string()
     } else {
         String::new()
     };
@@ -1649,5 +1670,28 @@ mod tests {
         assert_eq!(e[0]["usage"]["cost"], Value::Null);
         assert_eq!(e[0]["usage"]["turns"], Value::Null);
         assert_eq!(e[0]["__ephemeral"], true);
+    }
+
+    #[test]
+    fn une_image_rendue_par_un_outil_mcp_ne_met_pas_son_base64_dans_la_ligne() {
+        let data = "iVBORw0KGgo".repeat(20_000);
+        let item = json!({
+            "id": "m1", "type": "mcpToolCall", "server": "atelier", "tool": "atelier_python",
+            "status": "completed", "arguments": {"action": "run"},
+            "result": {"content": [
+                {"type": "text", "text": "{\"cell\": 3}"},
+                {"type": "image", "mimeType": "image/png", "data": data},
+            ]},
+        });
+        let ev = mcp_update(&item, None);
+        let output = ev["output"].as_str().unwrap();
+        assert!(output.contains("{\\\"cell\\\": 3}"), "{output}");
+        assert!(output.contains("[image jointe]") && output.contains("image/png"), "{output}");
+        assert!(!output.contains("iVBOR"), "{output}");
+        assert!(ev.get("truncated").is_none(), "{ev}");
+
+        // Sans image, le résultat s'affiche comme avant.
+        let plain = json!({"content": [{"type": "text", "text": "3 articles"}], "structuredContent": {"n": 3}});
+        assert_eq!(without_image_data(&plain), plain);
     }
 }

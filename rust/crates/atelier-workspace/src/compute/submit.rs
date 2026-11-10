@@ -11,6 +11,11 @@
 //! Le script de l'agent voyage en base64 : aucun caractère qu'il contient ne
 //! peut sortir de la commande distante. Tout le reste (dossier, ressources,
 //! libellé) est validé caractère par caractère avant de toucher un shell.
+//!
+//! Une soumission Slurm n'est tentée qu'une fois. Si sa réponse se perd
+//! (délai, connexion coupée), la tâche est cherchée sur la grappe et adoptée
+//! si elle y est ([`reconcile_command`]) : on n'annonce pas un échec pour une
+//! tâche qui tourne, et rien n'est jamais soumis une seconde fois.
 
 use super::exec::{classify_ssh_failure, shell_quote, Exec, ExecError, SSH_OPTIONS};
 use super::local::{parse_manifest, pid_alive};
@@ -362,15 +367,49 @@ fn ssh_error(host: Target, output_stderr: &str) -> HostError {
     HostError::new(host.as_str(), &code, message)
 }
 
-fn run_ssh(exec: &dyn Exec, host: Target, target: &str, command: &str) -> Result<String, HostError> {
+/// Échec d'un appel ssh, avec ce qu'il faut pour décider de la suite : la
+/// commande distante a-t-elle pu s'exécuter malgré l'échec vu d'ici ?
+struct SshFailure {
+    error: HostError,
+    may_have_run: bool,
+}
+
+/// Vrai si ssh n'a jamais ouvert de session : la commande n'a pas pu partir.
+/// Ces deux messages n'apparaissent qu'à l'établissement de la connexion, pour
+/// le relais comme pour la grappe (`ssh: connect to host … port 22: …`).
+fn never_connected(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("could not resolve hostname") || lower.contains("connect to host")
+}
+
+/// Un appel ssh. Un échec est AMBIGU (`may_have_run`) quand rien ne dit que la
+/// commande distante n'a pas tourné : délai dépassé de ce côté, session
+/// coupée (ssh sort en 255), processus tué par un signal (ici ou au relais).
+/// Il est CERTAIN quand ssh n'a pas pu être lancé, quand la connexion n'a
+/// jamais été ouverte, quand l'authentification est refusée, ou quand le
+/// shell distant a lui-même rendu un code d'erreur (1 à 127).
+fn ssh_call(exec: &dyn Exec, host: Target, target: &str, command: &str) -> Result<String, SshFailure> {
     let mut args: Vec<&str> = SSH_OPTIONS.to_vec();
     args.push(target);
     args.push(command);
     match exec.run("ssh", &args, SSH_TIMEOUT) {
         Ok(output) if output.success => Ok(output.stdout),
-        Ok(output) => Err(ssh_error(host, &output.stderr)),
-        Err(ExecError { code, message }) => Err(HostError::new(host.as_str(), &code, message)),
+        Ok(output) => {
+            let error = ssh_error(host, &output.stderr);
+            let may_have_run = error.code != "auth"
+                && !never_connected(&output.stderr)
+                && output.status.is_none_or(|status| status >= 128);
+            Err(SshFailure { error, may_have_run })
+        }
+        Err(ExecError { code, message }) => Err(SshFailure {
+            may_have_run: code != "unavailable",
+            error: HostError::new(host.as_str(), &code, message),
+        }),
     }
+}
+
+fn run_ssh(exec: &dyn Exec, host: Target, target: &str, command: &str) -> Result<String, HostError> {
+    ssh_call(exec, host, target, command).map_err(|failure| failure.error)
 }
 
 /// Résolution d'une grappe (alias, passerelle, racines) : par défaut le
@@ -484,13 +523,29 @@ fn submit_nas(cfg: &ComputeConfig, spec: &JobSpec, job_id: &str, exec: &dyn Exec
     })
 }
 
+/// Étiquette unique posée sur la tâche Slurm (`--comment`) : `squeue` la
+/// rend, ce qui permet de retrouver la tâche sans connaître son numéro. Le
+/// nom de la tâche reste le libellé de l'utilisateur.
+fn submission_tag(job_id: &str) -> String {
+    format!("atelier-{job_id}")
+}
+
 /// Commande `sbatch` : le script est déposé dans `<workDir>/.atelier/`, la
 /// sortie va à côté (`job-<id>-<numéro>.out`). `--parsable` rend le numéro.
+///
+/// Deux traces servent à la réconciliation ([`reconcile_command`]) quand la
+/// réponse se perd en route :
+/// - le dossier `job-<id>.sub`, créé juste avant `sbatch` par un `mkdir` qui
+///   échoue s'il existe : c'est le jeton de la soumission, pris une seule
+///   fois, soit par cette commande, soit par la réconciliation ;
+/// - `job-<id>.sub/jobid`, où le numéro rendu par `sbatch` est écrit avant
+///   d'être renvoyé (`|| true` : un disque plein ne masque pas la réponse).
 pub fn sbatch_command(spec: &JobSpec, job_id: &str, work_dir: &str) -> String {
     let wd = shell_quote(work_dir);
     let mut options = vec![
         "--parsable".to_string(),
         format!("--job-name={}", job_name(&spec.label)),
+        format!("--comment={}", submission_tag(job_id)),
         format!("--output=\"$d\"/job-{job_id}-%j.out"),
     ];
     let r = &spec.resources;
@@ -520,10 +575,99 @@ pub fn sbatch_command(spec: &JobSpec, job_id: &str, work_dir: &str) -> String {
     };
     format!(
         "set -e; d={wd}/.atelier; mkdir -p \"$d\"; printf %s {script} | base64 -d > \"$d/job-{job_id}.sh\"; \
-         cd -- {wd}; sbatch {options} \"$d/job-{job_id}.sh\"",
+         cd -- {wd}; mkdir \"$d/job-{job_id}.sub\"; j=$(sbatch {options} \"$d/job-{job_id}.sh\"); \
+         printf '%s\\n' \"$j\" > \"$d/job-{job_id}.sub/jobid\" || true; printf '%s\\n' \"$j\"",
         script = shell_quote(&b64(&script)),
         options = options.join(" "),
     )
+}
+
+/// Ce que la grappe dit d'une soumission dont la réponse s'est perdue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reconciled {
+    /// La tâche existe : son numéro Slurm.
+    Found(String),
+    /// `sbatch` n'a pas tourné et ne tournera plus : le jeton est pris.
+    NotSubmitted,
+    /// `sbatch` a démarré sans laisser de numéro, ou la grappe n'a pas pu
+    /// être interrogée.
+    Uncertain,
+}
+
+/// Commande de réconciliation, en lecture seule pour Slurm. Elle tente de
+/// prendre le jeton de la soumission :
+/// - pris ici (`::FENCED`) : `sbatch` n'a jamais démarré, et la soumission
+///   d'origine, si elle traîne encore, échouera sur son propre `mkdir` ;
+/// - déjà pris par la soumission (`::TAKEN`) : on rend le numéro écrit par
+///   `sbatch` (`::JOBID`), puis les tâches de `squeue` qui portent
+///   l'étiquette (`::QUEUED numéro|étiquette`), terminées comprises.
+///
+/// Elle ne soumet rien et ne supprime rien.
+pub fn reconcile_command(job_id: &str, work_dir: &str) -> String {
+    format!(
+        "d={wd}/.atelier; t=\"$d/job-{job_id}.sub\"; \
+         if mkdir -p \"$d\" 2>/dev/null && mkdir \"$t\" 2>/dev/null; then : > \"$t/fenced\"; printf '::FENCED\\n'; \
+         elif [ -e \"$t/fenced\" ]; then printf '::FENCED\\n'; \
+         elif [ -d \"$t\" ]; then printf '::TAKEN\\n'; \
+         if [ -s \"$t/jobid\" ]; then printf '::JOBID %s\\n' \"$(head -n 1 \"$t/jobid\")\"; fi; \
+         squeue --me --states=all --noheader --format='%i|%k' 2>/dev/null | grep -F -- '|{tag}' | sed 's/^/::QUEUED /'; \
+         else printf '::UNKNOWN\\n'; fi",
+        wd = shell_quote(work_dir),
+        tag = submission_tag(job_id),
+    )
+}
+
+/// Lit la réponse de [`reconcile_command`]. Le numéro écrit par `sbatch`
+/// prime ; à défaut, une tâche de `squeue` dont l'étiquette est EXACTEMENT
+/// celle de la soumission. Tout le reste est incertain.
+pub fn parse_reconcile(stdout: &str, job_id: &str) -> Reconciled {
+    let tag = submission_tag(job_id);
+    let lines: Vec<&str> = stdout.lines().map(str::trim).collect();
+    if lines.contains(&"::FENCED") {
+        return Reconciled::NotSubmitted;
+    }
+    let recorded = lines
+        .iter()
+        .find_map(|line| line.strip_prefix("::JOBID "))
+        .and_then(parse_sbatch);
+    let queued = || {
+        lines
+            .iter()
+            .filter_map(|line| line.strip_prefix("::QUEUED "))
+            .filter_map(|row| row.split_once('|'))
+            .find(|(_, comment)| comment.trim() == tag)
+            .and_then(|(job, _)| parse_sbatch(job))
+    };
+    match recorded.or_else(queued) {
+        Some(job) => Reconciled::Found(job),
+        None => Reconciled::Uncertain,
+    }
+}
+
+const RECONCILE_ATTEMPTS: u32 = 3;
+/// Pause entre deux essais de réconciliation : le temps qu'un `sbatch` encore
+/// en vol rende son numéro, ou qu'un lien retombé revienne. Nulle en test.
+const RECONCILE_PAUSE: Duration = if cfg!(test) { Duration::ZERO } else { Duration::from_secs(5) };
+
+/// Interroge la grappe après un échec ambigu de la soumission. Quelques
+/// essais espacés, jamais de nouvelle soumission.
+fn reconcile_slurm(profile: &NarvalProfile, host: Target, job_id: &str, work_dir: &str, exec: &dyn Exec) -> Reconciled {
+    let (target, command) = profile.ssh_invocation(&reconcile_command(job_id, work_dir));
+    for attempt in 0..RECONCILE_ATTEMPTS {
+        if attempt > 0 {
+            std::thread::sleep(RECONCILE_PAUSE);
+        }
+        match ssh_call(exec, host, &target, &command) {
+            Ok(out) => match parse_reconcile(&out, job_id) {
+                Reconciled::Uncertain => {}
+                verdict => return verdict,
+            },
+            // Duo : la session du relais est fermée, insister ne sert à rien.
+            Err(failure) if failure.error.code == "auth" => break,
+            Err(_) => {}
+        }
+    }
+    Reconciled::Uncertain
 }
 
 /// `12345` ou `12345;narval` → `12345`.
@@ -543,15 +687,43 @@ fn submit_slurm(profile: &NarvalProfile, spec: &JobSpec, job_id: &str, exec: &dy
             .validate_path(&spec.work_dir)
             .map_err(|error| HostError::new(host.as_str(), "invalid_job", error.message))?
     };
-    let (target, command) = profile.ssh_invocation(&sbatch_command(spec, job_id, &work_dir));
-    let out = run_ssh(exec, host, &target, &command)?;
-    let job = parse_sbatch(&out)
-        .ok_or_else(|| HostError::new(host.as_str(), "command_failed", format!("réponse de sbatch illisible : {}", out.trim())))?;
-    Ok(Launched {
+    let launched = |job: String| Launched {
         run_id: format!("slurm:{job}"),
-        remote_id: job.clone(),
         log_path: Some(format!("{work_dir}/.atelier/job-{job_id}-{job}.out")),
-    })
+        remote_id: job,
+    };
+    let (target, command) = profile.ssh_invocation(&sbatch_command(spec, job_id, &work_dir));
+    let failure = match ssh_call(exec, host, &target, &command) {
+        Ok(out) => match parse_sbatch(&out) {
+            Some(job) => return Ok(launched(job)),
+            // ssh a réussi mais le numéro est illisible : `sbatch` a pu
+            // soumettre (bruit d'un profil de shell avant sa réponse).
+            None => SshFailure {
+                error: HostError::new(host.as_str(), "command_failed", format!("réponse de sbatch illisible : {}", out.trim())),
+                may_have_run: true,
+            },
+        },
+        Err(failure) => failure,
+    };
+    if !failure.may_have_run {
+        return Err(failure.error);
+    }
+    // Échec ambigu : la tâche tourne peut-être. On la cherche sur la grappe
+    // avant de conclure, et on l'adopte si elle y est. Aucune nouvelle
+    // soumission : c'est à l'utilisateur de relancer, depuis la carte.
+    match reconcile_slurm(profile, host, job_id, &work_dir, exec) {
+        Reconciled::Found(job) => Ok(launched(job)),
+        Reconciled::NotSubmitted => Err(failure.error),
+        Reconciled::Uncertain => Err(HostError::new(
+            host.as_str(),
+            &failure.error.code,
+            format!(
+                "soumission incertaine sur {} ({}) : la tâche est peut-être partie, vérifie dans Calculs avant de relancer",
+                host.label(),
+                failure.error.message
+            ),
+        )),
+    }
 }
 
 fn status_from_manifest(raw: &str, alive: Option<bool>) -> Option<JobStatus> {
@@ -875,6 +1047,239 @@ mod tests {
             submit(&cfg(dir.path()), &spec, "0123456789ab", &illisible, &narval).unwrap_err().code,
             "command_failed"
         );
+    }
+
+    /// Réponses de la réconciliation, reconnues par `squeue` : la commande
+    /// `sbatch`, elle, ne contient pas ce mot.
+    const RECONCILE: &str = "squeue --me";
+
+    fn timeout() -> Result<Output, ExecError> {
+        Err(ExecError::new("timeout", "ssh n'a pas répondu dans le délai imparti"))
+    }
+
+    fn submit_narval(exec: &FakeExec) -> Result<Launched, HostError> {
+        let spec = validate(&slurm_job()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        submit(&cfg(dir.path()), &spec, "0123456789ab", exec, &narval)
+    }
+
+    /// Nombre d'appels qui soumettent : la soumission est la seule commande
+    /// qui contient `sbatch`.
+    fn sbatch_calls(exec: &FakeExec) -> usize {
+        exec.calls().iter().filter(|call| call.contains("sbatch")).count()
+    }
+
+    #[test]
+    fn la_soumission_pose_une_etiquette_et_un_jeton_sur_la_grappe() {
+        let spec = validate(&slurm_job()).unwrap();
+        let command = sbatch_command(&spec, "0123456789ab", "/scratch/tofunori/m42");
+        assert!(command.contains("--comment=atelier-0123456789ab"), "{command}");
+        // le jeton est pris AVANT sbatch, le numéro écrit avant d'être rendu
+        let token = command.find("mkdir \"$d/job-0123456789ab.sub\";").expect("jeton");
+        let sbatch = command.find("j=$(sbatch ").expect("sbatch");
+        let record = command.find("> \"$d/job-0123456789ab.sub/jobid\" || true").expect("numéro écrit");
+        assert!(token < sbatch && sbatch < record, "{command}");
+        assert!(command.starts_with("set -e;"), "un jeton déjà pris arrête tout : {command}");
+
+        let reconcile = reconcile_command("0123456789ab", "/scratch/it's/m42");
+        assert!(reconcile.starts_with("d='/scratch/it'\\''s/m42'/.atelier;"), "dossier cité : {reconcile}");
+        assert!(reconcile.contains("grep -F -- '|atelier-0123456789ab'"), "{reconcile}");
+        assert!(!reconcile.contains("sbatch"), "la réconciliation ne soumet rien : {reconcile}");
+        assert!(!reconcile.contains("rm ") && !reconcile.contains("scancel"), "ni ne supprime : {reconcile}");
+    }
+
+    #[test]
+    fn la_reponse_de_la_reconciliation_est_lue_sans_deviner() {
+        let id = "0123456789ab";
+        assert_eq!(parse_reconcile("::FENCED\n", id), Reconciled::NotSubmitted);
+        assert_eq!(parse_reconcile("::TAKEN\n::JOBID 65700123;narval\n", id), Reconciled::Found("65700123".into()));
+        // pas de numéro écrit : la tâche de squeue qui porte l'étiquette exacte
+        assert_eq!(
+            parse_reconcile("::TAKEN\n::QUEUED 7|atelier-0123456789abc\n::QUEUED 65700555|atelier-0123456789ab\n", id),
+            Reconciled::Found("65700555".into())
+        );
+        // le numéro rendu par sbatch prime sur squeue
+        assert_eq!(
+            parse_reconcile("::TAKEN\n::JOBID 11\n::QUEUED 22|atelier-0123456789ab\n", id),
+            Reconciled::Found("11".into())
+        );
+        // comme pour sbatch, seul le numéro (des chiffres) est gardé
+        assert_eq!(parse_reconcile("::TAKEN\n::JOBID 12; rm -rf /\n", id), Reconciled::Found("12".into()));
+        for uncertain in [
+            "",
+            "::TAKEN\n",
+            "::UNKNOWN\n",
+            "::TAKEN\n::JOBID \n",
+            "::TAKEN\n::JOBID 12$(reboot)\n",
+            "::TAKEN\n::QUEUED 7|atelier-0123456789abc\n",
+            "::TAKEN\n::QUEUED x|atelier-0123456789ab\n",
+            "bannière du relais\n",
+        ] {
+            assert_eq!(parse_reconcile(uncertain, id), Reconciled::Uncertain, "{uncertain:?}");
+        }
+    }
+
+    #[test]
+    fn un_delai_apres_sbatch_adopte_la_tache_retrouvee_sur_la_grappe() {
+        // sbatch est parti, la réponse n'est jamais revenue : avant, Atelier
+        // annonçait un échec et la tâche était relancée en double.
+        let exec = FakeExec::new()
+            .on("sbatch", timeout())
+            .on(RECONCILE, Ok(Output::ok("::TAKEN\n::JOBID 65700123;narval\n")));
+        let launched = submit_narval(&exec).unwrap();
+        assert_eq!(launched.run_id, "slurm:65700123");
+        assert_eq!(launched.remote_id, "65700123");
+        assert_eq!(
+            launched.log_path.as_deref(),
+            Some("/scratch/tofunori/m42/.atelier/job-0123456789ab-65700123.out")
+        );
+        let calls = exec.calls();
+        assert_eq!(calls.len(), 2, "une soumission, une réconciliation : {calls:?}");
+        assert_eq!(sbatch_calls(&exec), 1, "jamais de nouvelle soumission");
+        assert!(calls[1].contains(" -- nas ssh "), "la réconciliation passe par le relais : {}", calls[1]);
+        assert!(calls[1].contains("job-0123456789ab.sub"), "{}", calls[1]);
+    }
+
+    #[test]
+    fn une_session_coupee_retrouve_la_tache_par_son_etiquette() {
+        // Session ssh coupée (ssh sort en 255) et numéro non écrit : squeue
+        // rend la tâche qui porte l'étiquette de cette soumission.
+        let exec = FakeExec::new()
+            .on("sbatch", Ok(Output::failed(255, "Timeout, server narval not responding.")))
+            .on(RECONCILE, Ok(Output::ok("::TAKEN\n::QUEUED 65700555|atelier-0123456789ab\n")));
+        assert_eq!(submit_narval(&exec).unwrap().run_id, "slurm:65700555");
+        // Réponse illisible alors que ssh a réussi : même recherche.
+        let exec = FakeExec::new()
+            .on("sbatch", Ok(Output::ok("Bienvenue sur Narval\n65700777\n")))
+            .on(RECONCILE, Ok(Output::ok("::TAKEN\n::JOBID 65700777\n")));
+        assert_eq!(submit_narval(&exec).unwrap().run_id, "slurm:65700777");
+        assert_eq!(sbatch_calls(&exec), 1);
+    }
+
+    #[test]
+    fn un_jeton_repris_confirme_l_echec_tel_quel() {
+        // La soumission n'a jamais atteint sbatch : la réconciliation prend
+        // le jeton, l'échec d'origine est dit sans réserve.
+        let exec = FakeExec::new().on("sbatch", timeout()).on(RECONCILE, Ok(Output::ok("::FENCED\n")));
+        let err = submit_narval(&exec).unwrap_err();
+        assert_eq!(err.code, "timeout");
+        assert_eq!(err.message, "ssh n'a pas répondu dans le délai imparti");
+        assert_eq!(exec.calls().len(), 2);
+        assert_eq!(sbatch_calls(&exec), 1);
+    }
+
+    #[test]
+    fn une_soumission_incertaine_le_dit_et_ne_resoumet_jamais() {
+        // sbatch a démarré sans rendre de numéro, puis la grappe ne répond
+        // plus : on ne sait pas, et on le dit.
+        for reconcile in [Ok(Output::ok("::TAKEN\n")), timeout()] {
+            let exec = FakeExec::new().on("sbatch", timeout()).on(RECONCILE, reconcile);
+            let err = submit_narval(&exec).unwrap_err();
+            assert_eq!(err.code, "timeout", "le code d'origine est gardé");
+            assert!(err.message.starts_with("soumission incertaine sur Narval"), "{}", err.message);
+            assert!(err.message.contains("ssh n'a pas répondu"), "la cause reste lisible : {}", err.message);
+            assert!(err.message.contains("avant de relancer"), "{}", err.message);
+            assert_eq!(exec.calls().len(), 1 + RECONCILE_ATTEMPTS as usize, "essais bornés");
+            assert_eq!(sbatch_calls(&exec), 1, "jamais de nouvelle soumission");
+        }
+        // Duo refusé pendant la réconciliation : on n'insiste pas.
+        let exec = FakeExec::new()
+            .on("sbatch", timeout())
+            .on(RECONCILE, Ok(Output::failed(255, "Permission denied (keyboard-interactive).")));
+        let err = submit_narval(&exec).unwrap_err();
+        assert!(err.message.starts_with("soumission incertaine"), "{}", err.message);
+        assert_eq!(exec.calls().len(), 2);
+    }
+
+    #[test]
+    fn un_echec_certain_ne_declenche_aucune_reconciliation() {
+        let cas = [
+            // sbatch a refusé : le shell distant a rendu son code
+            (Ok(Output::failed(1, "sbatch: error: Batch job submission failed: Invalid account")), "command_failed"),
+            // la connexion n'a jamais été ouverte
+            (Ok(Output::failed(255, "ssh: Could not resolve hostname nas: nodename nor servname provided")), "unavailable"),
+            (Ok(Output::failed(255, "ssh: connect to host narval port 22: Connection timed out")), "unavailable"),
+            // ssh n'a pas pu être lancé
+            (Err(ExecError::new("unavailable", "impossible de lancer ssh")), "unavailable"),
+            // Duo : dit tel quel, sans autre appel
+            (Ok(Output::failed(255, "Permission denied (keyboard-interactive,hostbased).")), "auth"),
+        ];
+        for (reponse, code) in cas {
+            let exec = FakeExec::new().on("sbatch", reponse).on(RECONCILE, Ok(Output::ok("::TAKEN\n::JOBID 1\n")));
+            let err = submit_narval(&exec).unwrap_err();
+            assert_eq!(err.code, code, "{}", err.message);
+            assert!(!err.message.contains("incertaine"), "{}", err.message);
+            assert_eq!(exec.calls().len(), 1, "un seul appel ssh : {:?}", exec.calls());
+        }
+    }
+
+    /// Les deux commandes dans un vrai shell, avec un `sbatch` et un `squeue`
+    /// factices : le jeton ne se prend qu'une fois, dans un sens comme dans
+    /// l'autre.
+    #[test]
+    fn le_jeton_ne_laisse_partir_qu_une_soumission_dans_un_vrai_shell() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let bin = root.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let submitted = root.path().join("submitted.log");
+        let tool = |name: &str, body: String| {
+            let path = bin.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        // `sbatch` note chaque soumission et rend un numéro à la `--parsable`.
+        tool("sbatch", format!("echo \"$@\" >> '{}'\necho '65700123;narval'", submitted.display()));
+        tool("squeue", "echo '65700555|atelier-00aa11bb22cc'\necho '9|atelier-00aa11bb22ccdd'".into());
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let sh = |command: &str| {
+            let out = std::process::Command::new("/bin/sh")
+                .args(["-c", command])
+                .env("PATH", &path)
+                .output()
+                .unwrap();
+            (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
+        };
+        let submissions = || std::fs::read_to_string(&submitted).map(|log| log.lines().count()).unwrap_or(0);
+        let spec = validate(&slurm_job()).unwrap();
+        let work = |name: &str| root.path().join(name).to_string_lossy().into_owned();
+
+        // 1. Soumission normale, puis réconciliation : le numéro est retrouvé.
+        let wd = work("ça marche d'un coup");
+        let (code, out) = sh(&sbatch_command(&spec, "0123456789ab", &wd));
+        assert_eq!((code, parse_sbatch(&out).as_deref()), (Some(0), Some("65700123")), "{out}");
+        assert_eq!(
+            std::fs::read_to_string(format!("{wd}/.atelier/job-0123456789ab.sh")).unwrap(),
+            "#!/bin/bash\nmodule load python\npython fit.py --region all\n"
+        );
+        let (code, out) = sh(&reconcile_command("0123456789ab", &wd));
+        assert_eq!((code, parse_reconcile(&out, "0123456789ab")), (Some(0), Reconciled::Found("65700123".into())), "{out}");
+        // la même commande rejouée ne soumet pas une seconde fois
+        let (code, _) = sh(&sbatch_command(&spec, "0123456789ab", &wd));
+        assert_ne!(code, Some(0));
+        assert_eq!(submissions(), 1);
+
+        // 2. Réconciliation d'abord : elle prend le jeton, et la soumission
+        //    qui arrive ensuite échoue avant sbatch.
+        let wd = work("jamais partie");
+        for _ in 0..2 {
+            let (code, out) = sh(&reconcile_command("a1b2c3d4e5f6", &wd));
+            assert_eq!((code, parse_reconcile(&out, "a1b2c3d4e5f6")), (Some(0), Reconciled::NotSubmitted), "{out}");
+        }
+        let (code, out) = sh(&sbatch_command(&spec, "a1b2c3d4e5f6", &wd));
+        assert_ne!(code, Some(0), "{out}");
+        assert_eq!(submissions(), 1, "aucune soumission après le jeton repris");
+
+        // 3. Jeton pris par la soumission, numéro non écrit : squeue rend la
+        //    tâche qui porte l'étiquette exacte ; une autre étiquette, rien.
+        let wd = work("numéro perdu");
+        std::fs::create_dir_all(format!("{wd}/.atelier/job-00aa11bb22cc.sub")).unwrap();
+        let (_, out) = sh(&reconcile_command("00aa11bb22cc", &wd));
+        assert_eq!(parse_reconcile(&out, "00aa11bb22cc"), Reconciled::Found("65700555".into()), "{out}");
+        std::fs::create_dir_all(format!("{wd}/.atelier/job-ffffffffffff.sub")).unwrap();
+        let (_, out) = sh(&reconcile_command("ffffffffffff", &wd));
+        assert_eq!(parse_reconcile(&out, "ffffffffffff"), Reconciled::Uncertain, "{out}");
+        assert_eq!(submissions(), 1);
     }
 
     #[test]

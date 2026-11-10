@@ -212,7 +212,7 @@ export default function AutomationsPanel(props: {
         <div className="side-top" data-tauri-drag-region>
           <span className="flex" />
           <IconButton className="mini compact-btn" label={t("action.collapse-sidebar")} title={t("action.collapse-sidebar")} onClick={props.onCompact}>
-            <SidebarIcon size={17} />
+            <SidebarIcon size={16} />
           </IconButton>
         </div>
         <div className="hl-head">

@@ -1,26 +1,27 @@
-// Icônes providers — approximations sobres (starburst Anthropic, nœud OpenAI),
-// monochromes en currentColor : le parent fixe la couleur (TRANS-05, SET-02).
-import type { ReactNode } from "react";
+// Icônes de l'app : UNE famille (Lucide), deux tailles de travail (12 et 14 px),
+// trait unifié par primitives.css. Ce module garde les noms historiques : les
+// appelants ne changent pas, et une taille hors grille (11, 13, 15) est ramenée
+// sur la grille ici. Restent dessinés à la main : les logos de fournisseur
+// (approximations sobres, monochromes en currentColor : le parent fixe la
+// couleur, TRANS-05, SET-02) et le pont entre sessions, propres à Atelier.
+import {
+  ArrowDownIcon as LucideArrowDown, ArrowDownToLineIcon, ArrowUpIcon as LucideArrowUp,
+  ArrowUpRightIcon as LucideArrowUpRight, BanIcon, BrainIcon, CheckIcon as LucideCheck,
+  ChevronRightIcon, CopyIcon as LucideCopy, DownloadIcon as LucideDownload, EllipsisIcon,
+  ExternalLinkIcon, EyeIcon, FileTextIcon, GitBranchIcon, GitForkIcon, GlobeIcon,
+  HighlighterIcon as LucideHighlighter, HouseIcon, ImageIcon, LibraryIcon, ListFilterIcon,
+  ListTreeIcon, Maximize2Icon, MessageSquareIcon, Minimize2Icon, MinusIcon as LucideMinus,
+  PanelLeftIcon, PanelRightIcon, PlusIcon as LucidePlus, ReplyIcon as LucideReply, RotateCwIcon,
+  SearchIcon as LucideSearch, SettingsIcon as LucideSettings, StarIcon as LucideStar,
+  TriangleAlertIcon, XIcon, ZapIcon as LucideZap,
+} from "lucide-react";
 
 type IconProps = { size?: number };
 
-function StrokeIcon({ size = 13, children }: IconProps & { children: ReactNode }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  );
-}
+/** Grille des tailles : 12 (dense), 14 (courant), 16 et plus tels quels. */
+const grid = (size: number) => (size <= 12 ? 12 : size < 16 ? 14 : size);
+/** Signes (croix, coche, chevron, tiret) : 12 px tant qu'ils ne sont pas en grand. */
+const sign = (size: number) => (size < 16 ? 12 : size);
 
 export function ClaudeIcon({ size = 13 }: { size?: number }) {
   return (
@@ -50,14 +51,9 @@ export function GrokIcon({ size = 13 }: { size?: number }) {
   );
 }
 
-export function ApiProviderIcon({ size = 13 }: { size?: number }) {
-  // globe générique pour les providers API (OpenRouter, GLM, MiniMax…)
-  return (
-    <StrokeIcon size={size}>
-      <circle cx="8" cy="8" r="5.5" />
-      <path d="M2.5 8h11M8 2.5c-3.6 3.2-3.6 7.8 0 11M8 2.5c3.6 3.2 3.6 7.8 0 11" />
-    </StrokeIcon>
-  );
+// globe générique pour les providers API (OpenRouter, GLM, MiniMax…)
+export function ApiProviderIcon({ size = 14 }: IconProps) {
+  return <GlobeIcon size={grid(size)} />;
 }
 
 export function ProviderIcon({ provider, size = 13 }: { provider: string; size?: number }) {
@@ -67,74 +63,33 @@ export function ProviderIcon({ provider, size = 13 }: { provider: string; size?:
   return <ApiProviderIcon size={size} />;
 }
 
-export function ResumeIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M8 2.2v7.2" />
-      <path d="M5.2 6.8L8 9.6l2.8-2.8" />
-      <path d="M3 12.8h10" />
-    </StrokeIcon>
-  );
+export function ResumeIcon({ size = 14 }: IconProps) {
+  return <ArrowDownToLineIcon size={grid(size)} />;
 }
 
 /* Vue de la transcription (sélecteur du header de conversation, 2026-08-21) :
-   une icône par mode — œil (Normal), cerveau (Réflexion en cours, la même
-   silhouette que la ligne « réfléchit »), liste arborescente (Détaillé),
-   lignes décroissantes (Résumé). */
-export function ViewNormalIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z" />
-      <circle cx="8" cy="8" r="2" />
-    </StrokeIcon>
-  );
+   une icône par mode : œil (Normal), cerveau (Réflexion en cours), liste
+   arborescente (Détaillé), lignes décroissantes (Résumé). */
+export function ViewNormalIcon({ size = 14 }: IconProps) {
+  return <EyeIcon size={grid(size)} />;
+}
+export function ViewThinkingIcon({ size = 14 }: IconProps) {
+  return <BrainIcon size={grid(size)} />;
+}
+export function ViewDetailedIcon({ size = 14 }: IconProps) {
+  return <ListTreeIcon size={grid(size)} />;
+}
+export function ViewSummaryIcon({ size = 14 }: IconProps) {
+  return <ListFilterIcon size={grid(size)} />;
 }
 
-export function ViewThinkingIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M6 2.5a2 2 0 0 0-2 2c-1.2.3-2 1.3-2 2.5s.8 2.2 2 2.5a2 2 0 0 0 2 2M10 2.5a2 2 0 0 1 2 2c1.2.3 2 1.3 2 2.5s-.8 2.2-2 2.5a2 2 0 0 1-2 2M6 2.5v9M10 2.5v9" />
-    </StrokeIcon>
-  );
+export function ForkIcon({ size = 14 }: IconProps) {
+  return <GitForkIcon size={grid(size)} />;
 }
-
-export function ViewDetailedIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M2.5 3.5h11M2.5 8h2M7.5 8h6M2.5 12.5h2M7.5 12.5h6" />
-    </StrokeIcon>
-  );
-}
-
-export function ViewSummaryIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M2.5 5h11M2.5 8h7M2.5 11h4" />
-    </StrokeIcon>
-  );
-}
-
-export function ForkIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M4.2 3.2v3.4c0 1.1.9 2 2 2H8" />
-      <path d="M4.2 12.8V9.4c0-1.1.9-2 2-2H8" />
-      <path d="M8 4.5l3.8 3.5L8 11.5" />
-    </StrokeIcon>
-  );
-}
-
 /** Marqueur de branche dans la barre latérale : une conversation qui repart
- * d'un point du fil parent. Le trait part du point de coupe (le disque) et
- * remonte vers la nouvelle direction. */
-export function ForkBranchIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <circle cx="5" cy="13.4" r="1.5" />
-      <path d="M5 11.9V6.4c0-1.2.9-2.1 2.1-2.1H11" />
-      <path d="M9.4 2.6L11.2 4.3 9.4 6" />
-    </StrokeIcon>
-  );
+ * d'un point du fil parent. */
+export function ForkBranchIcon({ size = 14 }: IconProps) {
+  return <GitForkIcon size={grid(size)} />;
 }
 
 /** Marqueur Atelier d'une continuité entre conversations. Ce n'est ni une
@@ -159,302 +114,111 @@ export function SessionBridgeIcon({ size = 14 }: IconProps) {
   );
 }
 
-export function BranchIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <circle cx="4" cy="4" r="1.6" />
-      <circle cx="12" cy="4" r="1.6" />
-      <circle cx="4" cy="12" r="1.6" />
-      <path d="M4 5.6v4.8" />
-      <path d="M5.6 4h2.2c1.4 0 2.2.8 2.2 2.2V8" />
-    </StrokeIcon>
-  );
+export function BranchIcon({ size = 14 }: IconProps) {
+  return <GitBranchIcon size={grid(size)} />;
 }
-
-export function BookIcon({ size = 13 }: IconProps) {
-  // étagère : deux livres droits + un incliné
-  return (
-    <StrokeIcon size={size}>
-      <path d="M2.5 2.5h2.6v11H2.5z" />
-      <path d="M5.1 2.5h2.6v11H5.1z" />
-      <path d="M8.6 3.3l2.5-.7 2.9 10.6-2.5.7z" />
-      <path d="M2.5 11h5.2" />
-    </StrokeIcon>
-  );
+export function BookIcon({ size = 14 }: IconProps) {
+  return <LibraryIcon size={grid(size)} />;
 }
-
-export function StarIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M8 2.2l1.7 3.5 3.8.6-2.8 2.7.7 3.8L8 11l-3.4 1.8.7-3.8-2.8-2.7 3.8-.6z" />
-    </StrokeIcon>
-  );
+export function StarIcon({ size = 14 }: IconProps) {
+  return <LucideStar size={grid(size)} />;
 }
-
-export function LedgerIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M4 2.5h7.2c.8 0 1.4.6 1.4 1.4v8.2c0 .8-.6 1.4-1.4 1.4H4c-.8 0-1.4-.6-1.4-1.4V3.9c0-.8.6-1.4 1.4-1.4z" />
-      <path d="M5.2 5.4h5.4M5.2 8h5.4M5.2 10.6h3.2" />
-    </StrokeIcon>
-  );
+export function LedgerIcon({ size = 14 }: IconProps) {
+  return <FileTextIcon size={grid(size)} />;
 }
-
-export function CloseIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6" />
-    </StrokeIcon>
-  );
+export function CloseIcon({ size = 14 }: IconProps) {
+  return <XIcon size={sign(size)} />;
 }
-
-export function MinusIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M3 8h10" />
-    </StrokeIcon>
-  );
+export function MinusIcon({ size = 14 }: IconProps) {
+  return <LucideMinus size={sign(size)} />;
 }
-
-export function RefreshIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M12.7 6.1A4.8 4.8 0 1 0 11.2 11" />
-      <path d="M12.8 2.8v3.3H9.5" />
-    </StrokeIcon>
-  );
+export function RefreshIcon({ size = 14 }: IconProps) {
+  return <RotateCwIcon size={grid(size)} />;
 }
-
-export function GalleryIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <rect x="2.2" y="2.7" width="11.6" height="10.6" rx="2" />
-      <circle cx="5.6" cy="6" r="1.1" />
-      <path d="M2.8 11.2 6 8l2.2 2 2.4-2.6 2.6 2.8" />
-    </StrokeIcon>
-  );
+export function GalleryIcon({ size = 14 }: IconProps) {
+  return <ImageIcon size={grid(size)} />;
 }
-
-export function HomeIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M2.2 7.1 8 2.4l5.8 4.7" />
-      <path d="M3.6 6.2v7h8.8v-7M6.4 13.2V9h3.2v4.2" />
-    </StrokeIcon>
-  );
+export function HomeIcon({ size = 14 }: IconProps) {
+  return <HouseIcon size={grid(size)} />;
 }
-
-export function CheckIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M3.2 8.4l3.1 3.1 6.5-7" />
-    </StrokeIcon>
-  );
+export function CheckIcon({ size = 14 }: IconProps) {
+  return <LucideCheck size={sign(size)} />;
 }
-
-export function CopyIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <rect x="5.2" y="3.2" width="7.2" height="7.2" rx="1.4" />
-      <path d="M3.6 5.6H2.8c-.7 0-1.2.5-1.2 1.2v5.4c0 .7.5 1.2 1.2 1.2h5.4c.7 0 1.2-.5 1.2-1.2v-.8" />
-    </StrokeIcon>
-  );
+export function CopyIcon({ size = 14 }: IconProps) {
+  return <LucideCopy size={grid(size)} />;
 }
-
-export function OpenIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M6.2 3.2H3.8c-.8 0-1.4.6-1.4 1.4v7.6c0 .8.6 1.4 1.4 1.4h7.6c.8 0 1.4-.6 1.4-1.4V9.8" />
-      <path d="M9 2.5h4.5V7" />
-      <path d="M8.2 7.8l5.1-5.1" />
-    </StrokeIcon>
-  );
+export function OpenIcon({ size = 14 }: IconProps) {
+  return <ExternalLinkIcon size={grid(size)} />;
 }
-
-export function PlusIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M8 3.2v9.6M3.2 8h9.6" />
-    </StrokeIcon>
-  );
+export function PlusIcon({ size = 14 }: IconProps) {
+  return <LucidePlus size={grid(size)} />;
 }
-
-export function ExpandIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M6 2H2v4M10 14h4v-4M2 6l4-4M14 10l-4 4" />
-    </StrokeIcon>
-  );
+export function ExpandIcon({ size = 14 }: IconProps) {
+  return <Maximize2Icon size={grid(size)} />;
 }
-
-export function CollapseIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5" />
-    </StrokeIcon>
-  );
+export function CollapseIcon({ size = 14 }: IconProps) {
+  return <Minimize2Icon size={grid(size)} />;
 }
-
-export function SettingsIcon({ size = 13 }: IconProps) {
-  // engrenage : couronne + dents ATTACHÉES + moyeu — pas un soleil
-  return (
-    <StrokeIcon size={size}>
-      <circle cx="8" cy="8" r="4.6" />
-      <circle cx="8" cy="8" r="1.7" />
-      <path d="M8 1.5v1.9M8 12.6v1.9M1.5 8h1.9M12.6 8h1.9M3.4 3.4l1.35 1.35M11.25 11.25l1.35 1.35M12.6 3.4l-1.35 1.35M4.75 11.25L3.4 12.6" />
-    </StrokeIcon>
-  );
+export function SettingsIcon({ size = 14 }: IconProps) {
+  return <LucideSettings size={grid(size)} />;
 }
-
-export function SidebarIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <rect x="2.2" y="3" width="11.6" height="10" rx="2" />
-      <path d="M5.4 3v10" />
-    </StrokeIcon>
-  );
+export function SidebarIcon({ size = 14 }: IconProps) {
+  return <PanelLeftIcon size={grid(size)} />;
 }
-
-export function PanelIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
-      <path d="M9.8 2.8v10.4" />
-    </svg>
-  );
+export function PanelIcon({ size = 14 }: IconProps) {
+  return <PanelRightIcon size={grid(size)} />;
 }
-
-export function SearchIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-      <circle cx="7" cy="7" r="4.4" /><path d="M10.4 10.4L14 14" />
-    </svg>
-  );
+export function SearchIcon({ size = 14 }: IconProps) {
+  return <LucideSearch size={grid(size)} />;
 }
-
-export function ArrowDownIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 3v10M3.6 8.8L8 13.2l4.4-4.4" />
-    </svg>
-  );
+export function ArrowDownIcon({ size = 14 }: IconProps) {
+  return <LucideArrowDown size={grid(size)} />;
 }
-
-export function ChatsIcon({ size = 13 }: { size?: number }) {
-  // vue « Chats » de la barre d'activité : bulle de conversation
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2.2" y="3" width="11.6" height="8" rx="2.4" />
-      <path d="M5.6 11v2.6l3.2-2.6" />
-    </svg>
-  );
+/** Vue « Chats » de la barre d'activité. */
+export function ChatsIcon({ size = 14 }: IconProps) {
+  return <MessageSquareIcon size={grid(size)} />;
 }
-
-export function HighlighterIcon({ size = 13 }: { size?: number }) {
-  // vue « Surlignés » de la barre d'activité : surligneur + trait marqué
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M11.2 2.2l2.6 2.6-6.2 6.2-3.4.8.8-3.4z" />
-      <path d="M9.5 3.9l2.6 2.6" />
-      <path d="M2.4 13.6h4.6" />
-    </svg>
-  );
+/** Vue « Surlignés » de la barre d'activité. */
+export function HighlighterIcon({ size = 14 }: IconProps) {
+  return <LucideHighlighter size={grid(size)} />;
 }
-
-export function ZapIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8.8 1.8L3.6 9h3.6l-.9 5.2L11.5 7H7.9l.9-5.2z" />
-    </svg>
-  );
+export function ZapIcon({ size = 14 }: IconProps) {
+  return <LucideZap size={grid(size)} />;
 }
-
-export function DownloadIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M8 2.4v7.2M5.1 6.6L8 9.6l2.9-3" />
-      <path d="M2.8 11.6v1.2c0 .8.6 1.4 1.4 1.4h7.6c.8 0 1.4-.6 1.4-1.4v-1.2" />
-    </StrokeIcon>
-  );
+export function DownloadIcon({ size = 14 }: IconProps) {
+  return <LucideDownload size={grid(size)} />;
 }
-
-// Lot 3 (SHELL-14, SURF-27) : les caractères qui servaient d'icônes (… ▸ ▾ ↑ ↓
-// ★ ↰ ⤴ ∅) ont chacun leur glyphe au trait, grille 16, currentColor.
 export function MoreIcon({ size = 14 }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" stroke="none" aria-hidden="true">
-      <circle cx="3.2" cy="8" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="12.8" cy="8" r="1" />
-    </svg>
-  );
+  return <EllipsisIcon size={grid(size)} />;
 }
 
 /** Chevron de dépliage : pointe à droite ; l'état ouvert le tourne de 90°
- *  en CSS (.ui-disclosure-chevron[data-open]) — UNE convention partout. */
+ *  en CSS (.ui-disclosure-chevron[data-open]) : UNE convention partout. */
 export function ChevronIcon({ size = 12, open }: IconProps & { open?: boolean }) {
-  return (
-    <svg className="ui-disclosure-chevron" data-open={open ? "" : undefined} width={size} height={size}
-      viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 3.5L10.5 8 6 12.5" />
-    </svg>
-  );
+  return <ChevronRightIcon className="ui-disclosure-chevron" data-open={open ? "" : undefined} size={sign(size)} />;
 }
 
 export function ArrowUpIcon({ size = 14 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M8 13V3M3.6 7.2L8 2.8l4.4 4.4" />
-    </StrokeIcon>
-  );
+  return <LucideArrowUp size={grid(size)} />;
 }
 
-export function StarFilledIcon({ size = 13 }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" stroke="currentColor"
-      strokeWidth="1.25" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 2.2l1.7 3.5 3.8.6-2.8 2.7.7 3.8L8 11l-3.4 1.8.7-3.8-2.8-2.7 3.8-.6z" />
-    </svg>
-  );
+export function StarFilledIcon({ size = 14 }: IconProps) {
+  return <LucideStar size={grid(size)} fill="currentColor" />;
 }
 
 /** Renvoyer dans le fil (Quick Ask « injecter »). */
-export function ReplyIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M6 4.5L2.5 8 6 11.5" /><path d="M2.5 8h7c2.2 0 4 1.8 4 4v.5" />
-    </StrokeIcon>
-  );
+export function ReplyIcon({ size = 14 }: IconProps) {
+  return <LucideReply size={grid(size)} />;
 }
-
 /** Ouvrir ailleurs / promouvoir en conversation. */
-export function ArrowUpRightIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M5 11l6-6M6 5h5v5" />
-    </StrokeIcon>
-  );
+export function ArrowUpRightIcon({ size = 14 }: IconProps) {
+  return <LucideArrowUpRight size={grid(size)} />;
 }
-
-/** Alerte (erreur d'une réponse, état dégradé) : triangle au trait, pas d'emoji ⚠. */
-export function AlertIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <path d="M8 2.5l5.8 10.2H2.2z" /><path d="M8 6.5v3M8 11.2v.1" />
-    </StrokeIcon>
-  );
+/** Alerte (erreur d'une réponse, état dégradé) : triangle au trait, pas d'emoji. */
+export function AlertIcon({ size = 14 }: IconProps) {
+  return <TriangleAlertIcon size={grid(size)} />;
 }
-
 /** « Aucun » (pas de couleur, pas d'icône). */
-export function NoneIcon({ size = 13 }: IconProps) {
-  return (
-    <StrokeIcon size={size}>
-      <circle cx="8" cy="8" r="5" /><path d="M4.5 11.5l7-7" />
-    </StrokeIcon>
-  );
+export function NoneIcon({ size = 14 }: IconProps) {
+  return <BanIcon size={grid(size)} />;
 }

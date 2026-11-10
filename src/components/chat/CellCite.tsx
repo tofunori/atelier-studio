@@ -9,6 +9,7 @@ import { Button, Popover, PopoverContent, PopoverTrigger, RowButton } from "../u
 import { citedValue, textBefore } from "./cellCiteText";
 import { MdThreadContext } from "./mdThread";
 
+import { CheckIcon, CircleAlertIcon, SquareTerminalIcon } from "lucide-react";
 /** Verdict d'un chiffre cité : `found` dans la sortie, `code` seulement dans
  *  le code, `missing`, `unknown` (sortie coupée), `nocell`. */
 type ClaimCheck = { status: "found" | "code" | "missing" | "unknown" | "nocell"; closest?: string };
@@ -43,9 +44,9 @@ function verifyClaim(threadId: string, cell: number, value: string): Promise<Cla
   return promise;
 }
 
-const CHECK = <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>;
-const WARN = <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.8" /><path d="M8 5v3.4M8 10.8v.1" /></svg>;
-const CELL = <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><path d="M5 6.5 6.8 8 5 9.5M8.5 9.8h2.5" /></svg>;
+const CHECK = <CheckIcon size={12} />;
+const WARN = <CircleAlertIcon size={14} />;
+const CELL = <SquareTerminalIcon size={14} />;
 
 /** Valeur de la sortie écrite comme l'agent écrit (virgule décimale). */
 function asWritten(shown: string, claim: string): string {

@@ -36,13 +36,9 @@ import {
 // import direct (pas via le barrel) : le banc est hors parcours normal,
 // l'eager-load du chunk Base UI y est voulu
 import { DropdownMenuSurface } from "./DropdownMenuSurface";
+import { SettingsIcon } from "lucide-react";
 
-const GearIcon = (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-    <circle cx="8" cy="8" r="2.4" />
-    <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4" />
-  </svg>
-);
+const GearIcon = <SettingsIcon size={14} />;
 
 export function UiBench() {
   // #uibench-light → départ en thème clair (captures one-shot reproductibles)

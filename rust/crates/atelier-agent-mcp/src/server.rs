@@ -4,6 +4,7 @@ use crate::schema::{
     all_tool_definitions, bridge_call_for, help_text, widget_guide_text, PYTHON_TOOL_NAME,
     TOOL_NAME, WIDGET_GUIDE_TOOL_NAME,
 };
+use atelier_protocol::agent_mcp_limits as lim;
 use serde_json::{json, Value};
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -52,6 +53,9 @@ fn readonly(action: &str) -> bool {
             | "kernel_variables"
             | "kernel_envs"
             | "kernel_status"
+            // Suit un `kernel_add` resté en arrière-plan sans attendre la
+            // file ordonnée.
+            | "kernel_packages"
             // Pas une lecture, mais elle doit doubler un `kernel_run` qui
             // attend encore sa cellule dans la file ordonnée.
             | "kernel_interrupt"
@@ -194,9 +198,48 @@ async fn serve(
     Ok(())
 }
 
-fn tool_result(id: &Value, value: Value, is_error: bool) -> Value {
+/// Images que le pont joint à une réponse sous sa clé réservée (les figures
+/// d'une cellule du noyau) : retirées de la réponse et rendues en blocs de
+/// contenu image MCP. Une entrée sans base64, ou dont le type n'est pas une
+/// image, est ignorée.
+fn take_images(value: &mut Value) -> Vec<Value> {
+    let images = value
+        .as_object_mut()
+        .and_then(|o| o.remove(lim::BRIDGE_IMAGES_KEY));
+    let Some(Value::Array(images)) = images else {
+        return Vec::new();
+    };
+    images
+        .into_iter()
+        .filter_map(|image| {
+            let Value::Object(mut image) = image else {
+                return None;
+            };
+            match (image.remove("mimeType"), image.remove("data")) {
+                (Some(Value::String(mime)), Some(Value::String(data)))
+                    if mime.starts_with("image/") && !data.is_empty() =>
+                {
+                    Some(json!({"type": "image", "data": data, "mimeType": mime}))
+                }
+                _ => None,
+            }
+        })
+        .take(lim::BRIDGE_IMAGES_MAX)
+        .collect()
+}
+
+fn tool_result(id: &Value, mut value: Value, is_error: bool) -> Value {
+    let images = take_images(&mut value);
     let text = serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".into());
-    json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":text}],"isError":is_error,"structuredContent":value}})
+    if images.is_empty() {
+        return json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":text}],"isError":is_error,"structuredContent":value}});
+    }
+    // Avec des images, pas de `structuredContent` : un client qui le préfère
+    // à `content` quand il est là ne montrerait que lui au modèle, et les
+    // images seraient perdues. Le texte porte déjà toute la réponse.
+    let mut content = vec![json!({"type": "text", "text": text})];
+    content.extend(images);
+    json!({"jsonrpc":"2.0","id":id,"result":{"content":content,"isError":is_error}})
 }
 fn error_result_value(id: &Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
@@ -222,7 +265,9 @@ mod tests {
     fn a_kernel_run_is_ordered_but_its_interrupt_can_overtake_it() {
         assert!(!readonly("kernel_run"));
         assert!(!readonly("kernel_restart"));
-        for action in ["kernel_wait", "kernel_variables", "kernel_interrupt", "kernel_status"] {
+        // Un changement de paquets garde son rang ; sa lecture le double.
+        assert!(!readonly("kernel_add") && !readonly("kernel_remove"));
+        for action in ["kernel_wait", "kernel_variables", "kernel_interrupt", "kernel_status", "kernel_packages"] {
             assert!(readonly(action), "{action}");
         }
     }
@@ -264,6 +309,119 @@ mod tests {
             .unwrap();
         assert!(lines.next_line().await.unwrap().is_none());
     }
+    #[test]
+    fn bridge_images_become_mcp_image_blocks_after_the_text() {
+        let value = json!({
+            "cell": {"cell": 3, "status": "ok", "figuresSeen": "Images jointes"},
+            "finished": true,
+            lim::BRIDGE_IMAGES_KEY: [
+                {"mimeType": "image/png", "data": "iVBORw0KGgo="},
+                {"mimeType": "text/html", "data": "PGI+"},
+                {"mimeType": "image/png", "data": ""},
+                {"mimeType": "image/png"},
+                "iVBORw0KGgo=",
+                {"mimeType": "image/jpeg", "data": "/9j/4AAQ"},
+            ],
+        });
+        let frame = tool_result(&json!(7), value, false);
+        let result = &frame["result"];
+        let content = result["content"].as_array().unwrap();
+        assert_eq!(content.len(), 3, "{content:?}");
+        // Le texte d'abord : toute la réponse, sans la clé réservée ni base64.
+        assert_eq!(content[0]["type"], "text");
+        let text = content[0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(
+            parsed,
+            json!({"cell": {"cell": 3, "status": "ok", "figuresSeen": "Images jointes"}, "finished": true})
+        );
+        assert!(!text.contains(lim::BRIDGE_IMAGES_KEY) && !text.contains("iVBOR"));
+        // Puis les images valides, dans l'ordre, au format MCP.
+        assert_eq!(
+            content[1],
+            json!({"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"})
+        );
+        assert_eq!(
+            content[2],
+            json!({"type": "image", "data": "/9j/4AAQ", "mimeType": "image/jpeg"})
+        );
+        assert_eq!(result["isError"], false);
+        assert!(result.get("structuredContent").is_none(), "{result}");
+
+        // Jamais plus d'images que le pont n'en laisse passer.
+        let many: Vec<Value> = (0..lim::BRIDGE_IMAGES_MAX + 3)
+            .map(|_| json!({"mimeType": "image/png", "data": "iVBORw0KGgo="}))
+            .collect();
+        let frame = tool_result(&json!(8), json!({lim::BRIDGE_IMAGES_KEY: many}), false);
+        assert_eq!(
+            frame["result"]["content"].as_array().unwrap().len(),
+            1 + lim::BRIDGE_IMAGES_MAX
+        );
+    }
+
+    #[test]
+    fn a_result_without_images_is_unchanged() {
+        let value = json!({"threads": [{"id": "a"}], "count": 1});
+        let frame = tool_result(&json!(1), value.clone(), false);
+        assert_eq!(
+            frame,
+            json!({"jsonrpc":"2.0","id":1,"result":{
+                "content":[{"type":"text","text":serde_json::to_string_pretty(&value).unwrap()}],
+                "isError":false,"structuredContent":value}})
+        );
+        // Une clé réservée vide ou mal formée ne laisse pas de trace.
+        for images in [
+            json!([]),
+            json!("x"),
+            json!([{"mimeType": "text/plain", "data": "eA=="}]),
+        ] {
+            let frame = tool_result(
+                &json!(2),
+                json!({"ok": true, lim::BRIDGE_IMAGES_KEY: images}),
+                true,
+            );
+            assert_eq!(frame["result"]["structuredContent"], json!({"ok": true}));
+            assert_eq!(frame["result"]["content"].as_array().unwrap().len(), 1);
+            assert_eq!(frame["result"]["isError"], true);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_kernel_cell_with_figures_reaches_the_client_as_text_and_images() {
+        let call: Call = Arc::new(|action, _| {
+            Box::pin(async move {
+                assert_eq!(action, "kernel_run");
+                Ok(json!({
+                    "cell": {"cell": 1, "status": "ok"},
+                    "finished": true,
+                    lim::BRIDGE_IMAGES_KEY: [{"mimeType": "image/png", "data": "iVBORw0KGgo="}],
+                }))
+            })
+        });
+        let (client, server) = tokio::io::duplex(65536);
+        let (read, write) = tokio::io::split(server);
+        let task = tokio::spawn(serve(BufReader::new(read), write, call));
+        let (read, mut write) = tokio::io::split(client);
+        let mut lines = BufReader::new(read).lines();
+        write_frame(
+            &mut write,
+            &json!({"id":1,"method":"tools/call","params":{"name":PYTHON_TOOL_NAME,"arguments":{"action":"run","code":"1"}}}),
+        )
+        .await
+        .unwrap();
+        write.shutdown().await.unwrap();
+        let line = lines.next_line().await.unwrap().unwrap();
+        task.await.unwrap().unwrap();
+        let frame: Value = serde_json::from_str(&line).unwrap();
+        let content = frame["result"]["content"].as_array().unwrap();
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(
+            content[1],
+            json!({"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"})
+        );
+        assert_eq!(frame["result"]["isError"], false);
+    }
+
     #[tokio::test]
     async fn mutations_keep_wire_order_while_reads_progress() {
         let seen = Arc::new(std::sync::Mutex::new(Vec::new()));

@@ -469,10 +469,27 @@ describe("ToolOutputLine — rangée compacte", () => {
     ...extra,
   } as AgentEvent as Extract<AgentEvent, { kind: "tool_update" }>);
 
-  it("n'affiche pas le mot d'état d'une action réussie, seulement la coche", () => {
+  it("une action réussie ne se signale pas : ni mot d'état ni coche, la colonne reste posée", () => {
     const { container } = renderUi(<ToolOutputLine compact event={update({ name: "Read", input: { file_path: "/a/b/App.tsx" } })} />);
     expect(container.textContent).not.toContain("completed");
-    expect(container.querySelector(".tool-status-icon")).toBeTruthy();
+    expect(container.querySelector(".tool-status")).toBeTruthy();
+    expect(container.querySelector(".tool-status-icon")).toBeNull();
+  });
+
+  it("une action autorisée porte le bouclier et son verdict dans la colonne d'état", () => {
+    const { container } = renderUi(<ToolOutputLine compact authorized="Commande autorisée" event={update({ input: { command: "ls" } })} />);
+    const status = container.querySelector(".tool-status") as HTMLElement;
+    expect(status).toHaveAttribute("aria-label", "Commande autorisée");
+    expect(status.querySelector(".tool-status-icon")).toBeTruthy();
+  });
+
+  it("l'échec et le travail en cours passent avant le bouclier", () => {
+    const failed = renderUi(<ToolOutputLine compact authorized="Commande autorisée" event={update({ status: "failed", exitCode: 2 })} />);
+    expect(failed.container.querySelector(".tool-status")).toHaveAttribute("aria-label", t("chat.action-failed"));
+    failed.unmount();
+    const running = renderUi(<ToolOutputLine compact authorized="Commande autorisée" event={update({ status: "inProgress" })} />);
+    expect(running.container.querySelector(".tool-status .tool-run-ring")).toBeTruthy();
+    expect(running.container.querySelector(".tool-status")).not.toHaveAttribute("aria-label");
   });
 
   it("nomme la cible quand le libellé sémantique reste générique", () => {
@@ -504,9 +521,9 @@ describe("ToolOutputLine — rangée compacte", () => {
   it("grille fixe : durée, état et chevron toujours posés, même vides", () => {
     const { container } = renderUi(<ToolOutputLine compact event={update({ status: "inProgress", input: { command: "make" } })} />);
     const head = container.querySelector(".tool-output-head") as HTMLElement;
-    expect([...head.children].map((child) => child.getAttribute("class"))).toEqual([
-      "tool-output-icon", "tool-output-name", "tool-duration", "tool-status", "tool-tick",
-    ]);
+    // le chevron vient de la famille d'icônes : il porte aussi ses classes à elle
+    const cells = ["tool-output-icon", "tool-output-name", "tool-duration", "tool-status", "tool-tick"];
+    expect([...head.children].map((child) => cells.find((cell) => child.classList.contains(cell)))).toEqual(cells);
     expect(head.querySelector(".tool-status .tool-run-ring")).toBeTruthy();
   });
 

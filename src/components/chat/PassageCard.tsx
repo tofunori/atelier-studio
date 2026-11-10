@@ -14,33 +14,22 @@ import { citeLabel } from "./turnParts";
 import { IconButton, RowButton, Tooltip } from "../ui";
 import { gbrainCiteLabel, humanizeGbrainSlug, openGbrainPassage, openRagdocPassage, openZoteroPassage, useMdPlugins, type PassageRef } from "./md";
 
+import { ExternalLinkIcon, FileTextIcon, LucidePin } from "lucide-react";
 function DocIcon({ size = 15 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 1.8h7l3 3v9.4H3z" />
-      <path d="M10 1.8v3h3M5.2 8h5.6M5.2 10.5h4" />
-    </svg>
+    <FileTextIcon size={size} />
   );
 }
 
 function PinIcon({ size = 12 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6.6 2.6h2.8l-.4 4.2 2.4 2.4H4.6l2.4-2.4z" />
-      <path d="M8 9.2v4.2" />
-    </svg>
+    <LucidePin size={size} />
   );
 }
 
 function OpenIcon({ size = 14 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6.5 3.5h-3v9h9v-3" />
-      <path d="M9 3h4v4M13 3 7.5 8.5" />
-    </svg>
+    <ExternalLinkIcon size={size} />
   );
 }
 
@@ -115,7 +104,7 @@ export function PassageCard({ refData }: { refData: PassageRef }) {
       )}
       <div className="passage-card-meta">
         <RowButton className="passage-card-source" onClick={openPassage} title={fullLabel}>
-          <DocIcon size={13} />
+          <DocIcon size={14} />
           <span className="evidence-meta-src" title={fullLabel}>{label}</span>
         </RowButton>
         {refData.kind !== "gbrain" && refData.page ? <span className="evidence-meta-page">p. {refData.page}</span> : null}

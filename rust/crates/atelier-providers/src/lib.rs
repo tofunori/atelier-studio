@@ -54,6 +54,7 @@ pub use registry::{
 };
 pub use traits::{
     AtelierMcpLaunch, CommitMessageDetails, RestrictionMcp, RestrictionSkills, InteractionFn, Provider, ProviderCaps, ReviewError,
-    ReviewRequest, ReviewResponse, RewriteOptions, SendMode, SendRequest, SendResult,
-    SessionBindingFn,
+    ReviewAccess, ReviewAnnotations, ReviewRequest, ReviewResponse, RewriteOptions, SendMode,
+    SendRequest, SendResult, SessionBindingFn, REVIEW_ANNOTATIONS_READONLY_ENV,
+    REVIEW_ANNOTATIONS_SERVER, REVIEW_ANNOTATION_TOOLS, REVIEW_READ_TOOLS,
 };

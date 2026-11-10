@@ -27,20 +27,22 @@ import { LiveClock } from "./LiveClock";
 /** Crochets de cellule : le noyau Python du fil. */
 function KernelGlyph() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M5.5 2.5h-2v11h2M10.5 2.5h2v11h-2M6.5 8h3" />
-    </svg>
+    <BracketsIcon size={14} />
   );
 }
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import type { Specialiste } from "../../lib/specialistes";
 import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
-import { ArrowUpIcon, ChevronDownIcon, MicIcon, RotateCcwIcon, SearchIcon, SquareIcon } from "lucide-react";
+import { ArrowUpIcon, BracketsIcon, ChevronDownIcon, CircleQuestionMarkIcon, FileTextIcon, ListIcon, LockOpenIcon, MicIcon, PaperclipIcon, PencilIcon, RotateCcwIcon, SearchIcon, ShieldCheckIcon, SquareIcon, TargetIcon } from "lucide-react";
 import type { DictationPhase } from "./useComposerDictation";
 import { modeApresPlan } from "./modeApresPlan";
 import { MenuChevron, MenuRadio, MenuStar, MenuSwitch, MenuTitle } from "./composerMenuParts";
 
 const PERMISSION_MODES = [
+  // mode auto du CLI Claude (2026-11-10) : un classifieur approuve le courant
+  // et arrête le risqué. Seul Claude le déclare dans ses capabilities ; en
+  // tête, il occupe toute la largeur du menu (5 tuiles, cf. App.css).
+  { id: "auto", labelKey: "permission.auto", descKey: "permission.auto-desc" },
   { id: "bypassPermissions", labelKey: "permission.full", descKey: "permission.full-desc" },
   { id: "acceptEdits", labelKey: "permission.accept-edits", descKey: "permission.accept-edits-desc" },
   { id: "default", labelKey: "action.ask-default", descKey: "permission.ask-desc" },
@@ -48,50 +50,16 @@ const PERMISSION_MODES = [
 ] as const;
 
 /** Signe du mode de permission — même icône dans le déclencheur et dans le
- *  menu. Monochrome et fine (stroke 1.3) comme tout le jeu d'icônes : c'est la
+ *  menu. Monochrome et fine comme tout le jeu d'icônes : c'est la
  *  FORME qui dit le mode (cadenas ouvert, crayon, question, feuille), pas une
  *  couleur — la barre du composer n'a pas à clignoter pour être lue. */
 function PermissionIcon({ mode }: { mode: string }) {
-  const common = {
-    width: 13, height: 13, viewBox: "0 0 16 16", fill: "none",
-    stroke: "currentColor", strokeWidth: 1.3,
-    strokeLinecap: "round" as const, strokeLinejoin: "round" as const,
-    "aria-hidden": true,
-  };
-  if (mode === "bypassPermissions") {
-    // cadenas ouvert : plus rien ne demande la permission
-    return (
-      <svg {...common}>
-        <rect x="3" y="7.2" width="10" height="6.4" rx="1.6" />
-        <path d="M5.4 7.2V5.1a2.6 2.6 0 0 1 5.1-.7" />
-      </svg>
-    );
-  }
-  if (mode === "acceptEdits") {
-    // crayon : les écritures passent, le reste demande
-    return (
-      <svg {...common}>
-        <path d="M11.1 2.9a1.6 1.6 0 0 1 2.3 2.3L6.2 12.4l-3 .7.7-3z" />
-      </svg>
-    );
-  }
-  if (mode === "plan") {
-    // feuille : on écrit un plan, on ne touche à rien
-    return (
-      <svg {...common}>
-        <path d="M4 2.4h5.4L12.6 5.6v8H4z" /><path d="M9.2 2.6v3.2h3.2" />
-        <path d="M6.2 8.6h4.2M6.2 11h2.8" />
-      </svg>
-    );
-  }
+  // bouclier coché : tout passe, après un contrôle ; cadenas ouvert : plus rien
+  // ne demande ; crayon : les écritures passent ; feuille : on écrit un plan ;
   // question : chaque action est soumise
-  return (
-    <svg {...common}>
-      <circle cx="8" cy="8" r="5.8" />
-      <path d="M6.5 6.4a1.6 1.6 0 0 1 3 .5c0 1.1-1.5 1.3-1.5 2.3" />
-      <path d="M8 11.4h.01" />
-    </svg>
-  );
+  const Glyph = mode === "auto" ? ShieldCheckIcon : mode === "bypassPermissions" ? LockOpenIcon
+    : mode === "acceptEdits" ? PencilIcon : mode === "plan" ? FileTextIcon : CircleQuestionMarkIcon;
+  return <Glyph size={14} />;
 }
 
 type ModelEntry = { id: string; label: string };
@@ -388,7 +356,7 @@ export function ComposerControls(p: {
                   {
                     key: "attach-files",
                     className: "mp-item cm-tile",
-                    label: <><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M13.5 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.2 2.2 0 0 1 3.1 3.1l-5.5 5.5a1.1 1.1 0 0 1-1.6-1.6l5-5" /></svg><span>{t("composer.add-tile")}</span></>,
+                    label: <><PaperclipIcon size={16} /><span>{t("composer.add-tile")}</span></>,
                     onSelect: attachFiles,
                   },
                   {
@@ -404,7 +372,7 @@ export function ComposerControls(p: {
                     checked: permissionMode === "plan",
                     keepOpen: false,
                     className: "mp-item cm-switch-row",
-                    label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2.5 4h2M6.5 4h7M2.5 8h2M6.5 8h7M2.5 12h2M6.5 12h7" /></svg><span>{t("permission.plan")}</span><MenuSwitch /></>,
+                    label: <><ListIcon size={14} /><span>{t("permission.plan")}</span><MenuSwitch /></>,
                     onSelect: () => setPermissionMode(permissionMode === "plan"
                       ? modeApresPlan(modeAvantPlan.current.get(filCourant), allowedPermissionModes, p.defaults.defaultPermissionMode)
                       : "plan"),
@@ -414,7 +382,7 @@ export function ComposerControls(p: {
                     checked: !!p.defaults.autoReview?.enabled,
                     keepOpen: false,
                     className: "mp-item cm-switch-row",
-                    label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" /><path d="M5.8 8l1.6 1.6L10.5 6.3" /></svg><span>Auto-review</span><MenuSwitch /></>,
+                    label: <><ShieldCheckIcon size={14} /><span>Auto-review</span><MenuSwitch /></>,
                     onSelect: () => window.dispatchEvent(new CustomEvent("autoreview-toggle")),
                   },
                   ...(p.kernel && KERNEL_PROVIDERS.includes(provider) ? [{
@@ -428,7 +396,7 @@ export function ComposerControls(p: {
                   ...(goalsSupported && p.onGoal ? [{
                     key: "goal",
                     className: "mp-item",
-                    label: <><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2.4" /></svg><span>{t("goal.menu")}</span><MenuChevron /></>,
+                    label: <><TargetIcon size={14} /><span>{t("goal.menu")}</span><MenuChevron /></>,
                     onSelect: () => setGoalOpen((v) => !v),
                   }] : []),
                 ] },

@@ -13,30 +13,20 @@ import type { Surface } from "./surfaces";
 import { MoreIcon } from "./icons";
 
 
+import { Columns2Icon, PanelRightIcon, SquareIcon } from "lucide-react";
 function LayoutChatIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-      <rect x="2" y="3" width="12" height="10" rx="1.5" />
-      <rect x="2.65" y="3.65" width="10.7" height="8.7" rx="1" fill="currentColor" opacity="0.32" stroke="none" />
-    </svg>
+    <SquareIcon size={14} />
   );
 }
 function LayoutSplitIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-      <rect x="2" y="3" width="12" height="10" rx="1.5" />
-      <path d="M8 3v10" />
-      <rect x="2.65" y="3.65" width="4.6" height="8.7" fill="currentColor" opacity="0.32" stroke="none" />
-    </svg>
+    <Columns2Icon size={14} />
   );
 }
 function LayoutAtelierIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-      <rect x="2" y="3" width="12" height="10" rx="1.5" />
-      <path d="M8 3v10" />
-      <rect x="8.65" y="3.65" width="4.7" height="8.7" fill="currentColor" opacity="0.32" stroke="none" />
-    </svg>
+    <PanelRightIcon size={14} />
   );
 }
 

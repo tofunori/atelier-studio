@@ -5,7 +5,7 @@
 
 use atelier_core::{
     atomic_write, atomic_write_text, ensure_orig_backup, file_mtime_secs, find_tex_root,
-    safe_project_path,
+    safe_project_path, svg_edits,
 };
 use axum::{
     Json,
@@ -541,6 +541,55 @@ pub async fn codesave(
     (StatusCode::OK, Json(json!({"mtime": mtime}))).into_response()
 }
 
+/// Ce que `/save-svg` fait de `<figure>.edits.json` pour un `edits` reçu.
+#[derive(Debug, PartialEq)]
+enum EditsSidecar {
+    /// Plus aucune retouche : le fichier est supprimé.
+    Remove,
+    /// Contenu JSON à écrire.
+    Write(Value),
+}
+
+/// Calque de retouches durable à poser à côté de la figure, dans le format
+/// que relisent `reapply_svg_edits.py` et `atelier_core::svg_edits`.
+///
+/// - Objet v2 de l'éditeur SVG (`{version: 2, transforms, added, removed,
+///   styles}`) : écrit à la RACINE du fichier, les quatre listes toujours
+///   présentes (absente ou `null` = vide). Les quatre vides : suppression.
+/// - Tableau (ancien format, deltas seuls) : enveloppe `{"svg", "edits"}`
+///   d'origine ; tableau vide : suppression.
+/// - Tout le reste, dont un objet v2 dont une liste n'est pas un tableau :
+///   `None`, le calque déjà enregistré n'est pas touché.
+fn edits_sidecar(svg_name: &str, edits: &Value) -> Option<EditsSidecar> {
+    if let Some(list) = edits.as_array() {
+        return Some(if list.is_empty() {
+            EditsSidecar::Remove
+        } else {
+            EditsSidecar::Write(json!({"svg": svg_name, "edits": list}))
+        });
+    }
+    if !svg_edits::is_v2(edits) {
+        return None;
+    }
+    let mut layer = serde_json::Map::new();
+    layer.insert("version".into(), json!(2));
+    let mut empty = true;
+    for key in svg_edits::V2_SECTIONS {
+        let list = match edits.get(key) {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(list)) => list.clone(),
+            Some(_) => return None,
+        };
+        empty &= list.is_empty();
+        layer.insert(key.into(), Value::Array(list));
+    }
+    Some(if empty {
+        EditsSidecar::Remove
+    } else {
+        EditsSidecar::Write(Value::Object(layer))
+    })
+}
+
 /// `POST /save-svg` — overwrite in-project SVG + one-time `.orig.bak` + edits sidecar.
 pub async fn save_svg(
     State(state): State<AppState>,
@@ -585,7 +634,12 @@ pub async fn save_svg(
         return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string());
     }
     // Durable edit layer sidecar (same path logic as Python).
-    if let Some(edits) = body.edits.as_ref().filter(|v| v.is_array()) {
+    let svg_name = dst.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    if let Some(layer) = body
+        .edits
+        .as_ref()
+        .and_then(|edits| edits_sidecar(svg_name, edits))
+    {
         let ep = {
             let mut p = dst.clone();
             // plot.svg → plot.edits.json
@@ -593,16 +647,13 @@ pub async fn save_svg(
             p.set_file_name(format!("{stem}.edits.json"));
             p
         };
-        if let Some(list) = edits.as_array() {
-            if list.is_empty() {
+        match layer {
+            EditsSidecar::Remove => {
                 if ep.exists() && !ep.is_symlink() {
                     let _ = std::fs::remove_file(&ep);
                 }
-            } else {
-                let payload = json!({
-                    "svg": dst.file_name().and_then(|n| n.to_str()).unwrap_or_default(),
-                    "edits": edits,
-                });
+            }
+            EditsSidecar::Write(payload) => {
                 if let Ok(bytes) = serde_json::to_vec_pretty(&payload)
                     && let Err(error) = atomic_write(&ep, &bytes)
                 {
@@ -692,5 +743,45 @@ mod tests {
     fn svg_root_rejected() {
         assert!(validate_svg_payload("<div/>").is_err());
         assert!(validate_svg_payload("not xml").is_err());
+    }
+
+    #[test]
+    fn le_calque_v2_s_ecrit_a_la_racine_et_le_tableau_sous_son_enveloppe() {
+        let delta = json!({"id": "t", "delta": "translate(1,1)"});
+        assert_eq!(
+            edits_sidecar("fig.svg", &json!({"version": 2, "transforms": [delta.clone()], "added": null})),
+            Some(EditsSidecar::Write(json!({
+                "version": 2, "transforms": [delta.clone()], "added": [], "removed": [], "styles": [],
+            })))
+        );
+        assert_eq!(
+            edits_sidecar("fig.svg", &json!([delta.clone()])),
+            Some(EditsSidecar::Write(json!({"svg": "fig.svg", "edits": [delta]})))
+        );
+    }
+
+    #[test]
+    fn un_calque_vide_supprime_et_un_calque_mal_forme_ne_touche_a_rien() {
+        assert_eq!(edits_sidecar("fig.svg", &json!([])), Some(EditsSidecar::Remove));
+        assert_eq!(
+            edits_sidecar("fig.svg", &json!({"version": 2})),
+            Some(EditsSidecar::Remove)
+        );
+        assert_eq!(
+            edits_sidecar(
+                "fig.svg",
+                &json!({"version": 2, "transforms": [], "added": [], "removed": [], "styles": []})
+            ),
+            Some(EditsSidecar::Remove)
+        );
+        for malformed in [
+            json!({"version": 2, "styles": {"fill": "#c00"}}),
+            json!({"svg": "fig.svg", "edits": []}),
+            json!("oups"),
+            json!(2),
+            Value::Null,
+        ] {
+            assert_eq!(edits_sidecar("fig.svg", &malformed), None, "{malformed}");
+        }
     }
 }

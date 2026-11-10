@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · revision · regarde.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · regarde · relecteur (-encours, -rien).
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -34,7 +34,7 @@ const PROVIDERS: ProviderInfo[] = [
     capabilities: {
       resume: true, steering: true, queue: true, goals: false, tools: true,
       toolOutput: true, permissions: true,
-      permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions"],
+      permissionModes: ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
     },
   },
   {
@@ -687,6 +687,25 @@ const APPROVED: AgentEvent[] = [
   { kind: "text", text: "D'accord, je lis directement `resultats/surface_brulee_region_synthese.json`.", ts: ts(55) } as AgentEvent,
 ];
 
+// Capture de Thierry (2026-11-10) : un long tour où chaque commande est
+// autorisée — un reçu « Commande autorisée » entre chaque étape.
+const OUTILS_RECUS: AgentEvent[] = [
+  { kind: "user", text: "Vérifie que les chiffres des Résultats correspondent aux fichiers sources, puis donne ton avis.", ts: ts(2000) } as AgentEvent,
+  appr("or-1", `sed -n '200,260p' manuscrit/supplement_en.tex`, "answered", 1990, "Autoriser"),
+  bash("or-1-run", `sed -n '200,260p' manuscrit/supplement_en.tex`, "Affiche les Tableaux S3 à S6 et la légende de la Fig. S14", "…", "completed", 1988, { durationMs: 1900 }),
+  appr("or-2", `ls resultats/`, "answered", 1980, "Autoriser"),
+  bash("or-2-run", `ls resultats/`, "Liste les fichiers de résultats disponibles pour recalculer les chiffres", "…", "completed", 1978, { durationMs: 58 }),
+  bash("or-3-run", `ls -R resultats/sources`, "Inspecte la structure des fichiers sources des chiffres", "…", "completed", 1970, { durationMs: 382000 }),
+  appr("or-4", `python3 scripts/recalcule.py`, "answered", 1500, "Autoriser"),
+  { kind: "text", text: "Je recalcule les chiffres des Résultats sur les fichiers sources (dernière étape avant mon avis).", ts: ts(1490) } as AgentEvent,
+  bash("or-4-run", `python3 scripts/recalcule.py`, "Recalcule les chiffres des Résultats depuis les fichiers sources", "…", "completed", 1480, { durationMs: 26000 }),
+  appr("or-5", `python3 scripts/robustesse.py`, "answered", 1400, "Autoriser"),
+  bash("or-5-run", `python3 scripts/robustesse.py`, "Vérifie les comptes de robustesse, les pentes régionales et les formes concaves", "…", "completed", 1398, { durationMs: 1900 }),
+  appr("or-6", `python3 scripts/fumee.py`, "answered", 1300, "Autoriser"),
+  bash("or-6-run", `python3 scripts/fumee.py`, "Vérifie les pentes selon le filtre de fumée et compte les mots des sections", "…", "completed", 1298, { durationMs: 292000 }),
+  appr("or-7", `python3 scripts/avis.py`, "answered", 20, "Autoriser"),
+];
+
 // Sous-agents Claude (maquette 2026-10-18, piste A) : la mission titre chaque
 // rangée, le type passe en étiquette ; en cours puis terminés.
 function claudeAgent(id: string, type: string, description: string, status: string, offsetS: number, message?: string): AgentEvent {
@@ -761,6 +780,71 @@ const ACTIONS_CODEX: AgentEvent[] = [
     ["tests/test_masque.py ........".padEnd(44) + "[ 34%]", "tests/test_pentes.py ..........".padEnd(44) + "[ 77%]", "tests/test_regions.py ..."].join("\n"),
     "inProgress", 18, { source: "codex" }),
 ];
+
+// Relecteur (variante B, 2026-11-10) : deux tours relus. Le premier est tout
+// vérifié, le second porte un échec, un avertissement et quatre vérifiées.
+// Chaque événement porte l'identité de son tour : la ligne « Relecture » se
+// range sous le tour qu'elle relit.
+const inTurn = (turn: string, list: AgentEvent[]): AgentEvent[] => list.map((event, index) => ({
+  ...event,
+  meta: { schemaVersion: 1, eventId: `${turn}-${index}`, threadId: "bench-thread", turnId: turn,
+    provider: "claude", sequence: index + 1, ts: (event as { ts?: number }).ts ?? NOW, durable: true, origin: "provider" },
+} as AgentEvent));
+const RELECTEUR: AgentEvent[] = [
+  ...inTurn("turn-masque", [
+    { kind: "user", text: "Applique le masque nuage à août 2023 et dis-moi ce qu'il retire.", ts: ts(900) } as AgentEvent,
+    { kind: "text", text: "Le masque nuage retire 14 % des pixels d'août 2023 [cellule 27](atelier-cell:27). Je l'applique avant de recalculer les moyennes.", ts: ts(880) } as AgentEvent,
+    { kind: "done", ok: true, result: "", projectRoot: "/tmp/bench", filesChanged: [], ts: ts(878) } as AgentEvent,
+  ]),
+  ...inTurn("turn-albedo", [
+    { kind: "user", text: "Compare l'albédo d'août 2023 à la moyenne 2002–2022 sur la zone d'ablation. La baisse tient-elle après le filtre nuage ?", ts: ts(420) } as AgentEvent,
+    { kind: "text", text: "Oui, la baisse tient. Après le filtre nuage, l'albédo moyen d'août 2023 sur la zone d'ablation est de **0,42** [cellule 29](atelier-cell:29), soit 0,09 sous la moyenne 2002–2022 [cellule 29](atelier-cell:29).\n\nC'est cohérent avec Williamson et Menounos (2021), qui attribuent l'essentiel de cette baisse au carbone noir déposé par les feux.\n\nLa figure 4 a été régénérée avec le nouveau masque ; elle sort de `fig4_feux.py`.", ts: ts(350) } as AgentEvent,
+    { kind: "done", ok: true, result: "", projectRoot: "/tmp/bench", filesChanged: [], ts: ts(348) } as AgentEvent,
+  ]),
+];
+const RELECTEUR_RIEN: AgentEvent[] = inTurn("turn-bonjour", [
+  { kind: "user", text: "Bonjour !", ts: ts(60) } as AgentEvent,
+  { kind: "text", text: "Bonjour Thierry. Dis-moi sur quoi tu veux travailler aujourd'hui.", ts: ts(55) } as AgentEvent,
+  { kind: "done", ok: true, result: "", projectRoot: "/tmp/bench", filesChanged: [], ts: ts(54) } as AgentEvent,
+]);
+const verified = (id: string, category: string, claim: string, proof: string, evidenceIds: string[], cell?: number) =>
+  ({ id, category, claim, outcome: "passed", proof, evidenceIds, cell });
+/** Relectures telles que le serveur les projette (`reviewResult`). */
+const RELECTEUR_REVIEWS: Record<string, Record<string, unknown>[]> = {
+  relecteur: [
+    { turnId: "turn-masque", reviewId: "rv-masque", status: "done", verdict: "ok", mode: "claims", claims: [
+      verified("cell-cite-1", "number", "14 % [cellule 27]", "14 % figure dans la sortie de la cellule 27.", ["cell-27"], 27),
+      verified("claim-1", "computed", "Le masque nuage est appliqué à août 2023", "La cellule 27 applique `masque_nuage` au mois d'août 2023.", ["cell-27"], 27),
+      verified("claim-2", "number", "14 % des pixels sont retirés", "`pixels retirés : 14.0 %` dans la sortie de la cellule 27.", ["cell-27"], 27),
+      verified("claim-3", "computed", "Le masque est appliqué avant les moyennes", "La cellule 28 recalcule les moyennes sur les pixels masqués.", ["cell-28"], 28),
+      verified("claim-4", "conclusion", "Le filtre ne retire qu'une part mineure des pixels", "14 % retirés, 86 % conservés (cellule 27).", ["cell-27"], 27),
+    ] },
+    { turnId: "turn-albedo", reviewId: "rv-albedo", status: "done", verdict: "issues", mode: "claims",
+      issues: [{ claim: "0,42 [cellule 29]", problem: "0,42 ne figure pas dans la sortie de la cellule 29 ; valeur la plus proche : 0,38.", severity: "review" }],
+      claims: [
+        { id: "cell-cite-1", category: "number", claim: "0,42 [cellule 29]", outcome: "failed",
+          proof: "0,42 ne figure pas dans la sortie de la cellule 29 ; valeur la plus proche : 0,38.", evidenceIds: ["cell-29"], cell: 29 },
+        { id: "claim-1", category: "citation", outcome: "inconclusive",
+          claim: "Williamson et Menounos (2021) attribuent l'essentiel de cette baisse au carbone noir",
+          proof: "Williamson et Menounos 2021, p. 4 : le passage relie la baisse d'albédo à la profondeur optique des aérosols et à la température de l'air. La part du carbone noir n'y est pas chiffrée.",
+          evidenceIds: ["article:williamson2021"] },
+        verified("claim-2", "figure", "La figure 4 a été régénérée avec le nouveau masque", "fig4_feux.png sort de fig4_feux.py, exécuté à 14:05.", ["file:figures/fig4_feux.py", "cell-30"], 30),
+        verified("cell-cite-2", "number", "0,09 [cellule 29]", "0,09 figure dans la sortie de la cellule 29.", ["cell-29"], 29),
+        verified("claim-3", "computed", "L'albédo moyen est calculé après le filtre nuage", "La cellule 29 moyenne les pixels gardés par le masque de la cellule 27.", ["cell-29"], 29),
+        verified("claim-4", "conclusion", "La baisse tient après le filtre nuage", "Écart de −0,13 après masque (cellule 29), du même signe qu'avant.", ["cell-29"], 29),
+      ] },
+  ],
+  encours: [
+    { turnId: "turn-masque", reviewId: "rv-masque", status: "done", verdict: "ok", mode: "claims", claims: [
+      verified("claim-1", "number", "14 % des pixels sont retirés", "`pixels retirés : 14.0 %` dans la sortie de la cellule 27.", ["cell-27"], 27),
+    ] },
+    { turnId: "turn-albedo", reviewId: "rv-albedo-run", status: "running", mode: "claims" },
+  ],
+  rien: [
+    { turnId: "turn-bonjour", reviewId: "rv-bonjour", status: "done", verdict: "inconclusive", mode: "claims", claims: [],
+      limitations: ["no-verifiable-claim"], text: "Aucune affirmation vérifiable n'a été relevée dans la réponse." },
+  ],
+};
 
 type BenchState = {
   events: AgentEvent[];
@@ -880,9 +964,11 @@ const STATES: Record<string, BenchState> = {
   reponses: { events: QUESTIONS_ANSWERED, workingSince: null, attachments: [], usage: null },
   approbation: { events: APPROVAL, workingSince: ts(50), attachments: [], usage: null },
   approuvees: { events: APPROVED, workingSince: null, attachments: [], usage: null },
+  outilsrecus: { events: OUTILS_RECUS, workingSince: ts(1973), attachments: [], usage: { context: 61000, output: 2400, cost: null, turns: 1 } },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   marge: { events: MARGE, workingSince: null, attachments: [], usage: null },
+  relecteur: { events: RELECTEUR, workingSince: null, attachments: [], usage: null, pins: [] },
   tables: { events: WIDE_TABLES, workingSince: null, attachments: [], usage: null },
   queue: {
     events: RUNNING, workingSince: ts(272), attachments: [],
@@ -935,7 +1021,17 @@ export function ChatBench() {
     const id = window.setInterval(() => setLiveElapsed((Date.now() - started) % 27000), 80);
     return () => window.clearInterval(id);
   }, [isLive]);
-  const activeState = replay
+  // #chatbench-relecteur[-encours|-rien] : les relectures arrivent comme en
+  // vrai, par l'événement que App relaie depuis le serveur.
+  const relecture = key !== "relecteur" ? null : hash.includes("-encours") ? "encours" : hash.includes("-rien") ? "rien" : "relecteur";
+  useEffect(() => {
+    if (!relecture) return;
+    for (const detail of RELECTEUR_REVIEWS[relecture]) {
+      window.dispatchEvent(new CustomEvent("review-result", { detail: { type: "reviewResult", threadId: "bench-thread", ...detail } }));
+    }
+  }, [relecture]);
+  const activeState = relecture === "rien" ? { ...st, events: RELECTEUR_RIEN }
+    : replay
     ? { ...st, events: replayEvents, workingSince: replayFinished && !hash.includes('-stale') ? null : NOW }
     : interactiveFirstMessage
     ? { ...st, events: firstMessageEvents, workingSince: firstMessageWorkingSince }

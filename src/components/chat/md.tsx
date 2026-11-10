@@ -48,6 +48,7 @@ import { PassageCard } from "./PassageCard";
 import { fileRefFromLink } from "./fileRefLink";
 import { setPendingPassageOpen } from "../../lib/pendingPassageOpen";
 
+import { ArrowUpIcon, BookIcon, FileIcon, FileTextIcon, WaypointsIcon } from "lucide-react";
 for (const [nom, def] of [
   ["bash", bash], ["css", css], ["diff", diff], ["ini", ini],
   ["javascript", javascript], ["json", json], ["julia", julia], ["latex", latex],
@@ -643,9 +644,7 @@ export const MD_COMPONENTS = {
             detail: { id: citeParams.get("id"), loc: citeParams.get("loc") },
           }))}
         >
-          <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-            <path d="M3.2 12.9V4.1c0-.9.7-1.6 1.6-1.6h8v9.4H4.8c-.9 0-1.6.7-1.6 1s.7 1.6 1.6 1.6h8v-2.6" />
-          </svg>
+          <BookIcon size={12} />
           {label}
         </RowButton>
       );
@@ -660,9 +659,7 @@ export const MD_COMPONENTS = {
     if (passage)
       return (
         <RowButton className="file-ref zotero-passage-ref" onClick={() => openZoteroPassage(passage)} title={zoteroPassageTitle(passage)}>
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M3 1.8h7l3 3v9.4H3z" /><path d="M10 1.8v3h3M5.2 8h5.6M5.2 10.5h4" />
-          </svg>
+          <FileTextIcon size={12} />
           {label}
         </RowButton>
       );
@@ -672,10 +669,7 @@ export const MD_COMPONENTS = {
     if (gbrainPassage)
       return (
         <RowButton className="file-ref gbrain-passage-ref" onClick={() => openGbrainPassage(gbrainPassage)} title={t("passage.open-gbrain")}>
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <circle cx="4" cy="4" r="1.5" /><circle cx="12" cy="4" r="1.5" /><circle cx="8" cy="12" r="1.5" />
-            <path d="M5.3 5.1L7 10.6M10.7 5.1L9 10.6M5.5 4h5" />
-          </svg>
+          <WaypointsIcon size={12} />
           {label}
         </RowButton>
       );
@@ -683,9 +677,7 @@ export const MD_COMPONENTS = {
     if (ref)
       return (
         <RowButton className="file-ref" onClick={() => openFileRef(ref, { page: pdfPageFromLink(label, ref) })} title={t("action.open-file", { ref })}>
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
-          </svg>
+          <FileIcon size={12} />
           {label}
         </RowButton>
       );
@@ -707,10 +699,7 @@ export const MD_COMPONENTS = {
           }}
         >
           {backref ? (
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-              strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M8 13V3.5M4 7l4-4 4 4" />
-            </svg>
+            <ArrowUpIcon size={12} />
           ) : props.children}
         </a>
       );
@@ -730,9 +719,7 @@ export const MD_COMPONENTS = {
     if (!props.className && FILE_REF.test(txt))
       return (
         <RowButton className="file-ref" onClick={() => openFileRef(txt)} title={t("action.open-file", { ref: txt })}>
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M4 1.8h5.2L13 5.6v8.6H4z" /><path d="M9 1.8v4h4" />
-          </svg>
+          <FileIcon size={12} />
           {txt}
         </RowButton>
       );

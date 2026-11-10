@@ -5,6 +5,7 @@ import { t } from "../../lib/i18n";
 import type { AgentEvent } from "../../lib/ws";
 import { Button, RowButton } from "../ui";
 
+import { ChevronDownIcon, PauseIcon, PencilIcon, PlayIcon, SquareIcon, TargetIcon } from "lucide-react";
 export type GoalInfo = NonNullable<Extract<AgentEvent, { kind: "goal" }>["goal"]>;
 
 export function fmtGoalTime(seconds: number): string {
@@ -15,14 +16,10 @@ export function fmtGoalTime(seconds: number): string {
 }
 
 export const GoalGlyph = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M16.6 8a7.5 7.5 0 1 1-4.6-4.6M13.3 9a4 4 0 1 1-2.3-2.3" />
-    <path d="m9 11 8-8m-3 3 .3-3.3L17 1l-.2 2.2L19 3l-1.7 2.7L14 6" />
-    <circle cx="9" cy="11" r=".8" />
-  </svg>
+  <TargetIcon size={size} />
 );
 
-const Pencil = () => <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m11.5 2 2.5 2.5-8.5 8.5-3.5 1 1-3.5ZM10 3.5 12.5 6" /></svg>;
+const Pencil = () => <PencilIcon size={14} />;
 
 export function GoalBar({ goal, onGoal, onStop }: {
   goal: GoalInfo;
@@ -71,16 +68,14 @@ export function GoalBar({ goal, onGoal, onStop }: {
         <span className="goal-bar-actions">
           {(active || resumable) && <RowButton className="goal-bar-control" title={resumable ? t("goal.resume") : t("goal.pause")} aria-label={resumable ? t("goal.resume") : t("goal.pause")}
             onClick={() => onGoal("set", goal.objective, resumable ? "active" : "paused")}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {resumable ? <path d="m4 2.5 7 4.5-7 4.5z" /> : <path d="M4.5 3v8M9.5 3v8" />}
-            </svg>
+            {resumable ? <PlayIcon size={14} /> : <PauseIcon size={14} />}
           </RowButton>}
           <RowButton ref={editButton} className="goal-bar-control" title={t("goal.edit")} aria-label={t("goal.edit")} onClick={() => { setOpen(true); setEditing(true); }}><Pencil /></RowButton>
           <RowButton className="goal-bar-control goal-bar-stop" title={t("goal.stop")} aria-label={t("goal.stop")} onClick={() => { onGoal("clear"); onStop(); }}>
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1" /></svg>
+            <SquareIcon size={14} />
           </RowButton>
           <RowButton className="goal-bar-control" title={open ? t("action.close") : t("goal.details")} aria-label={t("goal.details")} aria-expanded={open} onClick={() => { setOpen(!open); setEditing(false); }}>
-            <svg className="goal-bar-chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><path d="m2 4 4 4 4-4" /></svg>
+            <ChevronDownIcon size={12} className="goal-bar-chev" />
           </RowButton>
         </span>
       </div>

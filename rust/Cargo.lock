@@ -136,6 +136,7 @@ name = "atelier-agent-mcp"
 version = "0.1.0"
 dependencies = [
  "atelier-fdlimit",
+ "atelier-protocol",
  "reqwest",
  "serde",
  "serde_json",

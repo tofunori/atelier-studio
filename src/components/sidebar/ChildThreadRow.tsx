@@ -11,6 +11,7 @@ import { SidebarMenuButton, SidebarMenuItem } from "../shadcn/sidebar";
 import { IconButton, Spinner } from "../ui";
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 
+import { EllipsisIcon } from "lucide-react";
 const STATE_KEYS = {
   running: "sidebar.child.running",
   queued: "sidebar.child.queued",
@@ -75,9 +76,7 @@ export function ChildThreadRow(p: {
           className="pnav-thread-menu"
           trigger={
             <IconButton size="s" label={t("thread.more-actions")} className="pnav-act" aria-haspopup="menu">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <circle cx="3.2" cy="8" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="12.8" cy="8" r="1" />
-              </svg>
+              <EllipsisIcon size={12} />
             </IconButton>
           }
           items={p.menuItems}

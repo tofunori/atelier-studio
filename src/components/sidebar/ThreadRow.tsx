@@ -17,7 +17,7 @@ import {
 import { IconButton, Spinner } from "../ui";
 import { LazyDropdownMenu, type LazyDropdownMenuItem } from "../ui/LazyDropdownMenu";
 import { presentStatus } from "../../lib/statusPresentation";
-import { Clock3Icon, PinIcon } from "lucide-react";
+import { ChevronRightIcon, Clock3Icon, EllipsisIcon, PinIcon } from "lucide-react";
 import { ConversationFamilyMarker } from "./ConversationFamilyMarker";
 
 function cx(...parts: Array<string | false | null | undefined>): string {
@@ -61,9 +61,7 @@ function providerLabel(provider: string): string {
 
 function MoreGlyph() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <circle cx="3.2" cy="8" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="12.8" cy="8" r="1" />
-    </svg>
+    <EllipsisIcon size={12} />
   );
 }
 
@@ -187,7 +185,7 @@ export function ThreadRow(p: {
               </span>
               {p.fork ? (
                 <span className="pnav-meta-item pnav-fork" title={forkLabel ?? undefined} aria-hidden="true">
-                  <ForkBranchIcon size={11} />
+                  <ForkBranchIcon size={12} />
                   {p.fork.depth > 1 ? (
                     <span className="pnav-fork-depth">{p.fork.depth}</span>
                   ) : null}
@@ -195,7 +193,7 @@ export function ThreadRow(p: {
               ) : null}
               {p.family ? (
                 <span className="pnav-meta-item pnav-meta-family" aria-hidden="true">
-                  <SessionBridgeIcon size={11} />
+                  <SessionBridgeIcon size={12} />
                   <span className="pnav-meta-count">{p.family.size}</span>
                 </span>
               ) : null}
@@ -222,10 +220,7 @@ export function ThreadRow(p: {
           data-open={p.nestedThreads.open ? "" : undefined}
           onClick={p.nestedThreads.onToggle}
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M6 4l4 4-4 4" />
-          </svg>
+          <ChevronRightIcon size={12} />
         </IconButton>
       ) : null}
       <span className={cx("pnav-row-end", p.family && "has-family")}>
@@ -246,7 +241,7 @@ export function ThreadRow(p: {
             className={cx("pnav-act pnav-favorite", p.favorite && "on")}
             onClick={p.onToggleFavorite}
           >
-            <PinIcon size={10} fill={p.favorite ? "currentColor" : "none"} aria-hidden="true" />
+            <PinIcon size={12} fill={p.favorite ? "currentColor" : "none"} aria-hidden="true" />
           </IconButton>
         <span className="row-actions">
           <LazyDropdownMenu

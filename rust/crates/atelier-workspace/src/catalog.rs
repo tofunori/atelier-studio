@@ -15,6 +15,7 @@ const BUILTINS: &[&str] = &[
     "clear",
     "compact",
     "review",
+    "relire",
     "context",
     "status",
     "model",
@@ -38,6 +39,10 @@ pub const PLAFOND_CATALOGUE: usize = 50_000;
 pub struct FileCatalog {
     pub files: Vec<String>,
     pub recent_files: Vec<String>,
+    /// Date de modification (millisecondes Unix) de chaque entrée de
+    /// `recent_files`, même ordre, même longueur : l'accueil affiche « quand »
+    /// sans refaire un `stat` par fichier côté interface.
+    pub recent_modified_ms: Vec<u64>,
     /// Le dépôt dépasse `PLAFOND_CATALOGUE` : l'arbre affiché est incomplet.
     /// Le frontend DOIT le dire — une troncature muette est un mensonge.
     pub tronque: bool,
@@ -96,6 +101,7 @@ fn list_file_catalog_uncached(project_root: &str) -> FileCatalog {
         return FileCatalog {
             files: Vec::new(),
             recent_files: Vec::new(),
+            recent_modified_ms: Vec::new(),
             tronque: false,
         };
     }
@@ -104,6 +110,7 @@ fn list_file_catalog_uncached(project_root: &str) -> FileCatalog {
         return FileCatalog {
             files: Vec::new(),
             recent_files: Vec::new(),
+            recent_modified_ms: Vec::new(),
             tronque: false,
         };
     }
@@ -111,11 +118,12 @@ fn list_file_catalog_uncached(project_root: &str) -> FileCatalog {
     // access to the project directory. Keep stdout drained on a helper thread
     // so a large repository cannot deadlock the child before the timeout.
     if let Some(all) = git_files_bounded(root) {
-        let recent_files = recent_project_files(root, &all, 12);
+        let (recent_files, recent_modified_ms) = recent_project_files(root, &all, 12);
         let tronque = all.len() > PLAFOND_CATALOGUE;
         return FileCatalog {
             files: all.into_iter().take(PLAFOND_CATALOGUE).collect(),
             recent_files,
+            recent_modified_ms,
             tronque,
         };
     }
@@ -123,11 +131,12 @@ fn list_file_catalog_uncached(project_root: &str) -> FileCatalog {
     // the directory read off the WebSocket worker and return an empty catalog
     // rather than making the whole sidecar unresponsive.
     let (all, incomplete) = read_dir_bounded(root);
-    let recent_files = recent_project_files(root, &all, 12);
+    let (recent_files, recent_modified_ms) = recent_project_files(root, &all, 12);
     let tronque = incomplete || all.len() > PLAFOND_CATALOGUE;
     FileCatalog {
         files: all.into_iter().take(PLAFOND_CATALOGUE).collect(),
         recent_files,
+        recent_modified_ms,
         tronque,
     }
 }
@@ -151,7 +160,9 @@ fn git_files_bounded(root: &Path) -> Option<Vec<String>> {
     )
 }
 
-fn recent_project_files(root: &Path, files: &[String], limit: usize) -> Vec<String> {
+/// Les `limit` fichiers les plus récemment modifiés, du plus récent au plus
+/// ancien, avec leur date (ms Unix) dans un vecteur parallèle.
+fn recent_project_files(root: &Path, files: &[String], limit: usize) -> (Vec<String>, Vec<u64>) {
     const HIDDEN: &[&str] = &["figures_index.html", "figures_data.json"];
     const GENERATED_PREFIXES: &[&str] = &[
         "dist/",
@@ -176,7 +187,7 @@ fn recent_project_files(root: &Path, files: &[String], limit: usize) -> Vec<Stri
         ".blg",
         ".bak",
     ];
-    if limit == 0 { return Vec::new(); }
+    if limit == 0 { return (Vec::new(), Vec::new()); }
     let mut ranked: BinaryHeap<Reverse<(u128, Reverse<&String>)>> = BinaryHeap::new();
     for (modified, rel) in files.iter()
         .filter(|rel| {
@@ -209,7 +220,9 @@ fn recent_project_files(root: &Path, files: &[String], limit: usize) -> Vec<Stri
     }
     let mut best: Vec<_> = ranked.into_iter().map(|Reverse((mtime, Reverse(rel)))| (mtime, rel)).collect();
     best.sort_by(|(ma, ra), (mb, rb)| mb.cmp(ma).then_with(|| ra.cmp(rb)));
-    best.into_iter().map(|(_, rel)| rel.clone()).collect()
+    best.into_iter()
+        .map(|(mtime, rel)| (rel.clone(), u64::try_from(mtime / 1_000_000).unwrap_or(u64::MAX)))
+        .unzip()
 }
 
 fn read_dir_bounded(root: &Path) -> (Vec<String>, bool) {
@@ -454,6 +467,8 @@ mod tests {
 
         let catalog = list_file_catalog(dir.path().to_str().unwrap());
         assert_eq!(catalog.recent_files, vec!["frais.ts", "ancien.md"]);
+        // même ordre, même longueur : la date suit son fichier
+        assert_eq!(catalog.recent_modified_ms, vec![20_000, 10_000]);
         assert!(catalog.files.iter().any(|file| file == "frais.ts"));
     }
 

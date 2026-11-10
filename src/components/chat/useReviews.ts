@@ -1,16 +1,37 @@
-import { useCallback, useEffect, useState } from "react";
-import type { AgentEvent } from "../../lib/ws";
-import type { ReviewState } from "./turns";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-type Review = NonNullable<ReviewState> & {
+/** Une affirmation relue : la phrase citée, son issue et sa preuve. */
+export type ReviewClaim = {
+  id: string;
+  claim: string;
+  /** `passed`, `failed` ou `inconclusive` */
+  outcome: string;
+  /** famille (`number`, `computed`, `citation`, `figure`, `conclusion`) */
+  category?: string;
+  proof?: string;
+  evidenceIds: string[];
+  /** cellule du noyau qui sert de preuve */
+  cell?: number;
+};
+
+export type Review = {
   threadId: string;
   turnId: string;
   reviewId: string;
+  status: string;
+  verdict?: string;
+  mode?: string;
+  text?: string | null;
+  error?: string;
+  outcome?: string | null;
+  coverage?: string;
+  executionStatus?: string;
   createdAt?: string;
   updatedAt?: string;
-  checks?: number;
-  checkedTools?: string[];
-  checkedFiles?: string[];
+  issues?: { claim: string; problem: string; severity: string; fix?: string }[];
+  /** une entrée par affirmation, vérifiées comprises (absent : ancien serveur) */
+  claims?: ReviewClaim[];
+  limitations?: string[];
 };
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -30,6 +51,13 @@ function decode(value: unknown): Review | null {
   const text = (key: string) => typeof msg[key] === "string" ? msg[key] as string : undefined;
   const verdict = text("verdict");
   const error = object(msg.error);
+  const issues = Array.isArray(msg.issues) ? msg.issues.flatMap((item) => {
+    const issue = object(item);
+    if (!issue || typeof issue.claim !== "string" || typeof issue.problem !== "string"
+        || typeof issue.severity !== "string") return [];
+    return [{ claim: issue.claim, problem: issue.problem, severity: issue.severity,
+      fix: typeof issue.fix === "string" ? issue.fix : undefined }];
+  }) : undefined;
   return {
     threadId: msg.threadId, turnId: msg.turnId,
     // Older projections with a known turn remain attributable; no turn is invented.
@@ -41,15 +69,20 @@ function decode(value: unknown): Review | null {
     error: text("error") ?? (typeof error?.message === "string" ? error.message : undefined),
     outcome: text("outcome"), coverage: text("coverage"), executionStatus: text("executionStatus"),
     createdAt: text("createdAt"), updatedAt: text("updatedAt"),
-    checks: typeof msg.checks === "number" ? msg.checks : undefined,
-    checkedTools: strings(msg.checkedTools), checkedFiles: strings(msg.checkedFiles),
-    issues: Array.isArray(msg.issues) ? msg.issues.flatMap((item) => {
-      const issue = object(item);
-      if (!issue || typeof issue.claim !== "string" || typeof issue.problem !== "string"
-          || typeof issue.severity !== "string") return [];
-      return [{ claim: issue.claim, problem: issue.problem, severity: issue.severity,
-        fix: typeof issue.fix === "string" ? issue.fix : undefined }];
-    }) : undefined,
+    limitations: strings(msg.limitations),
+    issues,
+    claims: Array.isArray(msg.claims) ? msg.claims.flatMap((item) => {
+      const claim = object(item);
+      if (!claim || typeof claim.id !== "string" || typeof claim.claim !== "string"
+          || typeof claim.outcome !== "string") return [];
+      return [{ id: claim.id, claim: claim.claim, outcome: claim.outcome,
+        category: typeof claim.category === "string" ? claim.category : undefined,
+        proof: typeof claim.proof === "string" ? claim.proof : undefined,
+        evidenceIds: strings(claim.evidenceIds) ?? [],
+        cell: typeof claim.cell === "number" ? claim.cell : undefined }];
+    // Ancien serveur : seuls les problèmes sont connus, chacun devient une rangée.
+    }) : issues?.map((issue, index) => ({ id: `issue-${index}`, claim: issue.claim, outcome: "failed",
+      proof: issue.fix ? `${issue.problem} → ${issue.fix}` : issue.problem, evidenceIds: [] })),
   };
 }
 
@@ -75,7 +108,9 @@ function merge(previous: Review[], incoming: Review[]): Review[] {
   });
 }
 
-export function useReviews(threadId: string | null, events: AgentEvent[]) {
+/** Relectures du fil, rangées par tour : la plus récente de chaque tour relu.
+ *  Un tour sans relecture n'a pas d'entrée (la relecture est optionnelle). */
+export function useReviews(threadId: string | null) {
   const [records, setRecords] = useState<Review[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   useEffect(() => {
@@ -96,18 +131,24 @@ export function useReviews(threadId: string | null, events: AgentEvent[]) {
     };
   }, [threadId]);
 
-  // Include the active turn: the previous verdict disappears as soon as a new turn starts.
-  let turnId: string | null = null;
-  for (let i = events.length - 1; i >= 0; i--) {
-    const meta = events[i].meta;
-    const id = meta && "turnId" in meta ? meta.turnId : undefined;
-    if (typeof id === "string" && id) { turnId = id; break; }
-    if (events[i].kind === "user") break;
-  }
-  const latest = records.find((review) => review.threadId === threadId && review.turnId === turnId);
-  const review = latest && !dismissed.has(identity(latest)) ? latest : null;
-  const dismiss = useCallback(() => {
-    if (latest) setDismissed((previous) => new Set([...previous, identity(latest)]));
-  }, [latest]);
-  return { review, dismiss };
+  const reviews = useMemo(() => {
+    const byTurn = new Map<string, Review>();
+    const seen = new Set<string>();
+    for (const review of records) {
+      // `records` est trié du plus récent au plus ancien : une relecture plus
+      // ancienne du même tour ne revient pas, même si la dernière est écartée.
+      if (review.threadId !== threadId || seen.has(review.turnId)) continue;
+      seen.add(review.turnId);
+      const key = identity(review);
+      if (dismissed.has(key)) continue;
+      const kept = review.claims?.filter((claim) => !dismissed.has(key + claim.id));
+      byTurn.set(review.turnId, kept && kept.length !== review.claims!.length ? { ...review, claims: kept } : review);
+    }
+    return byTurn;
+  }, [records, dismissed, threadId]);
+  /** Écarte une affirmation (`claimId`) ou, sans elle, la relecture entière. */
+  const dismiss = useCallback((review: Review, claimId = "") => {
+    setDismissed((previous) => new Set(previous).add(identity(review) + claimId));
+  }, []);
+  return { reviews, dismiss };
 }

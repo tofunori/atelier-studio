@@ -653,7 +653,16 @@ fn codebook_and_passage_codes_roundtrip() {
     let (st, body) = http(srv.port, "POST", "/pdfannot-codes", Some(&remove));
     assert_eq!(st, 200, "{body}");
     let (_, body) = http(srv.port, "GET", "/pdfannot?rel=zotero%2FABCD1234%2Farticle.pdf", None);
-    assert!(!body.contains("k1") && body.contains("h1"), "{body}");
+    // Par identifiant d'annotation, pas par sous-chaîne : l'identifiant du
+    // code est aléatoire et peut lui-même finir par « k1 ».
+    let listed: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let ids: Vec<&str> = listed["annots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|a| a["id"].as_str())
+        .collect();
+    assert_eq!(ids, ["h1"], "{body}");
 
     // supprimer le parent emporte le sous-code et ses traces
     let del = serde_json::json!({"op": "delete", "id": parent}).to_string();
@@ -701,6 +710,151 @@ fn origin_boundary_guards_every_route_before_routing() {
     assert_eq!(st, 403, "Origin null → 403");
     let (st, _) = http(srv.port, "OPTIONS", "/state", None);
     assert_eq!(st, 200, "OPTIONS sans Origin → 200");
+}
+
+/// Envoie une requête écrite à la main (en-têtes compris) et rend le statut :
+/// pour choisir l'en-tête `Host`, que `http()` fixe à `127.0.0.1:<port>`.
+fn raw_status(port: u16, request: &str) -> u16 {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut buf = Vec::new();
+    let _ = stream.read_to_end(&mut buf);
+    String::from_utf8_lossy(&buf)
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|status| status.parse().ok())
+        .unwrap_or(0)
+}
+
+/// DNS rebinding : une page servie depuis `evil.example`, dont le nom est
+/// ensuite re-résolu vers 127.0.0.1, interroge la galerie en MÊME origine.
+/// Ses GET n'ont donc pas d'`Origin` — que le garde d'origine acceptait — mais
+/// leur `Host` reste celui de l'attaquant. Avant ce contrôle, elle lisait
+/// `/data`, `/raw` et tout fichier du projet.
+#[test]
+fn le_host_ferme_la_lecture_par_dns_rebinding() {
+    let srv = start_server();
+    let port = srv.port;
+    fs::write(srv.root.join("secret.py"), b"CLE = 'a ne pas lire'\n").unwrap();
+    let get = |path: &str, host: &str| {
+        raw_status(port, &format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"))
+    };
+    let local = format!("127.0.0.1:{port}");
+    let evil = format!("evil.example:{port}");
+    for route in [
+        "/data",
+        "/raw?path=secret.py",
+        "/code?path=secret.py",
+        "/secret.py",
+        "/ls",
+        "/state",
+        "/",
+        "/figures_index.html",
+        "/health",
+        "/ping",
+    ] {
+        assert_eq!(get(route, &local), 200, "{route} : témoin, servi à la boucle locale");
+        assert_eq!(get(route, &evil), 403, "{route} ne doit pas être servi à un Host étranger");
+    }
+    // Un nom qui contient ou imite une adresse de boucle locale reste un nom
+    // étranger ; un autre port n'est pas ce serveur ; un Host vide non plus.
+    for host in [
+        "evil.example".to_string(),
+        format!("127.0.0.1.evil.example:{port}"),
+        format!("localhost.evil.example:{port}"),
+        format!("evil.localhost:{port}"),
+        format!("127.0.0.1:{}", port + 1),
+        format!("localhost:{}", port + 1),
+        format!("127.0.0.1:{port}:{port}"),
+        String::new(),
+    ] {
+        assert_eq!(get("/data", &host), 403, "Host {host:?}");
+    }
+    // Deux en-têtes Host : jamais servi (403 ici, ou 400 si hyper refuse).
+    let twice = raw_status(
+        port,
+        &format!("GET /data HTTP/1.1\r\nHost: {local}\r\nHost: {evil}\r\nConnection: close\r\n\r\n"),
+    );
+    assert!(matches!(twice, 400 | 403), "deux Host → {twice}");
+    // L'écriture en même origine était déjà refusée par l'Origin ; elle le reste.
+    let post = raw_status(
+        port,
+        &format!(
+            "POST /favorite HTTP/1.1\r\nHost: {evil}\r\nOrigin: http://{evil}\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+        ),
+    );
+    assert_eq!(post, 403);
+}
+
+/// Inventaire des appelants de la galerie : chacun envoie un `Host` de boucle
+/// locale (ou aucun) et doit rester servi. Les requêtes sont celles du code
+/// cité, à l'octet près quand il écrit la requête lui-même.
+#[test]
+fn le_controle_du_host_ne_refuse_aucun_appelant_legitime() {
+    let srv = start_server();
+    let port = srv.port;
+    let cases: Vec<(&str, String)> = vec![
+        // src-tauri/src/identity.rs `http_json` (sonde /health de l'app)
+        (
+            "sonde de l'app",
+            format!("GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nAccept: application/json\r\n\r\n"),
+        ),
+        // iframes et fetch de la webview : `http://127.0.0.1:<port>/…`
+        // (src-tauri/src/atelier.rs `gallery_url`), origine tauri://localhost
+        (
+            "webview de l'app",
+            format!("GET /data HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: tauri://localhost\r\nConnection: close\r\n\r\n"),
+        ),
+        // pages de la galerie elles-mêmes (fetch en même origine)
+        (
+            "page de la galerie",
+            format!("GET /rev HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\nConnection: close\r\n\r\n"),
+        ),
+        // gallery/tests/unit/diff_suite.mts et l'onglet navigateur de l'app
+        // (`http://localhost:<port>`)
+        (
+            "localhost",
+            format!("GET /data HTTP/1.1\r\nHost: localhost:{port}\r\nConnection: close\r\n\r\n"),
+        ),
+        ("casse", format!("GET /data HTTP/1.1\r\nHost: LocalHost:{port}\r\nConnection: close\r\n\r\n")),
+        ("point final", format!("GET /data HTTP/1.1\r\nHost: localhost.:{port}\r\nConnection: close\r\n\r\n")),
+        ("IPv6", format!("GET /data HTTP/1.1\r\nHost: [::1]:{port}\r\nConnection: close\r\n\r\n")),
+        // rust/crates/atelier-workspace/src/scan.rs `html_title`
+        (
+            "titre d'un serveur local",
+            format!("GET / HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"),
+        ),
+        // scan.rs `check_frame` : HTTP/1.0 et Host SANS port
+        (
+            "check_frame",
+            "GET /figures_index.html HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".to_string(),
+        ),
+        (
+            "check_frame localhost",
+            "GET /figures_index.html HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n".to_string(),
+        ),
+        (
+            "check_frame IPv6",
+            "GET /figures_index.html HTTP/1.0\r\nHost: [::1]\r\nConnection: close\r\n\r\n".to_string(),
+        ),
+        // sonde minimale sans aucun Host : jamais un navigateur
+        ("sans Host", "GET /ping HTTP/1.0\r\n\r\n".to_string()),
+        // agent muni du jeton : le Host ne compte pas (liaison distante)
+        (
+            "jeton d'agent",
+            "GET /data HTTP/1.1\r\nHost: mac.tailnet.example:8443\r\nAuthorization: Bearer smoke-token\r\nConnection: close\r\n\r\n".to_string(),
+        ),
+    ];
+    for (caller, request) in cases {
+        assert_eq!(raw_status(port, &request), 200, "{caller} : {request:?}");
+    }
+    // sans le jeton, le même Host distant est refusé
+    assert_eq!(
+        raw_status(port, "GET /data HTTP/1.1\r\nHost: mac.tailnet.example:8443\r\nConnection: close\r\n\r\n"),
+        403
+    );
 }
 
 #[test]
@@ -1436,6 +1590,106 @@ fn prov_reste_confine_au_projet_et_derriere_le_garde_dorigine() {
         Some("https://evil.example"),
     );
     assert_eq!(st, 403, "/prov inter-origines doit être refusé");
+}
+
+/// L'éditeur SVG envoie ses retouches en OBJET v2 (`collectEdits()` :
+/// `{version: 2, transforms, added, removed, styles}`). `/save-svg` n'écrivait
+/// `<figure>.edits.json` que pour un tableau : le calque durable n'existait
+/// jamais, et une figure régénérée perdait toutes ses retouches.
+#[test]
+fn save_svg_ecrit_le_calque_de_retouches_v2_et_le_lecteur_le_reapplique() {
+    let srv = start_server();
+    let fresh = concat!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\">",
+        "<!-- title --><text id=\"title_1\" style=\"fill: #000\">Titre</text>",
+        "<g id=\"legend_1\"><rect width=\"3\" height=\"2\"/></g>",
+        "</svg>",
+    );
+    let figure = srv.root.join("fig.svg");
+    let sidecar = srv.root.join("fig.edits.json");
+    fs::write(&figure, fresh).unwrap();
+    let save = |edits: serde_json::Value| {
+        let body = serde_json::json!({
+            "rel": "fig.svg", "name": "fig.svg", "svg": fresh, "edits": edits,
+        })
+        .to_string();
+        let (st, body) = http(srv.port, "POST", "/save-svg", Some(&body));
+        assert_eq!(st, 200, "{body}");
+    };
+    let read_sidecar = || -> serde_json::Value {
+        serde_json::from_str(&fs::read_to_string(&sidecar).expect("fig.edits.json absent"))
+            .unwrap()
+    };
+
+    // 1. Le calque v2 est écrit à la racine du fichier, tel que le client
+    //    l'envoie : c'est le format que relisent `reapply_svg_edits.py` et
+    //    `atelier_core::svg_edits`.
+    let v2 = serde_json::json!({
+        "version": 2,
+        "transforms": [{"id": "title_1", "text": "title", "delta": "translate(3,4)"}],
+        "added": [{"id": "added_text_1", "x": 12.5, "y": 8, "content": "Note",
+                   "style": "fill: #000", "transform": ""}],
+        "removed": [{"id": "legend_1", "text": null}],
+        "styles": [{"id": "title_1", "text": "title", "props": {"fill": "rgb(204, 0, 0)"}}],
+    });
+    save(v2.clone());
+    assert_eq!(read_sidecar(), v2);
+
+    // 2. De bout en bout : le script régénère la figure, le lecteur repose
+    //    les retouches enregistrées par la route.
+    fs::write(&figure, fresh).unwrap();
+    let report = atelier_core::svg_edits::reapply_file(&figure, None, None).unwrap();
+    assert_eq!(
+        (report.applied, report.total, report.missing),
+        (4, 4, 0),
+        "{:?}",
+        report.missing_detail
+    );
+    assert_eq!(
+        fs::read_to_string(&figure).unwrap(),
+        concat!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\">",
+            "<!-- title --><text id=\"title_1\" style=\"fill: rgb(204, 0, 0)\" transform=\"translate(3,4)\">Titre</text>",
+            "<text id=\"added_text_1\" x=\"12.5\" y=\"8\" style=\"fill: #000\">Note</text>",
+            "</svg>",
+        )
+    );
+
+    // 3. Une liste absente vaut liste vide ; le fichier garde les quatre.
+    save(serde_json::json!({"version": 2, "removed": [{"id": "legend_1"}]}));
+    assert_eq!(
+        read_sidecar(),
+        serde_json::json!({
+            "version": 2, "transforms": [], "added": [], "removed": [{"id": "legend_1"}], "styles": [],
+        })
+    );
+
+    // 4. Un calque mal formé (une liste qui n'en est pas une) ne touche pas
+    //    au calque déjà enregistré.
+    let kept = read_sidecar();
+    save(serde_json::json!({"version": 2, "transforms": "oups"}));
+    save(serde_json::json!("oups"));
+    assert_eq!(read_sidecar(), kept);
+
+    // 5. Un calque v2 vide (plus aucune retouche) supprime le fichier, comme
+    //    le faisait un tableau vide.
+    save(serde_json::json!({
+        "version": 2, "transforms": [], "added": [], "removed": [], "styles": [],
+    }));
+    assert!(!sidecar.exists(), "un calque v2 vide doit supprimer le fichier");
+
+    // 6. L'ancien tableau reste accepté, sous son enveloppe d'origine.
+    let legacy = serde_json::json!([{"id": "title_1", "text": "title", "delta": "translate(1,1)"}]);
+    save(legacy.clone());
+    assert_eq!(
+        read_sidecar(),
+        serde_json::json!({"svg": "fig.svg", "edits": legacy})
+    );
+    fs::write(&figure, fresh).unwrap();
+    let report = atelier_core::svg_edits::reapply_file(&figure, None, None).unwrap();
+    assert_eq!((report.applied, report.missing), (1, 0));
+    save(serde_json::json!([]));
+    assert!(!sidecar.exists(), "un tableau vide supprime toujours le fichier");
 }
 // --- HTTP Range / ETag / 304 (Porte : PDF/vidéo streamables + cache) -------
 

@@ -206,6 +206,16 @@ export function flySentBubble(shell: HTMLElement): () => void {
   return finish;
 }
 
+/** Le composeur quitte le centre de l'écran vide : il glisse jusqu'à sa place
+ * au bas du fil au lieu d'y sauter. `fromTop` = sa position avant le
+ * changement de mise en page. */
+export function settleComposer(form: HTMLElement, fromTop: number): void {
+  const dy = fromTop - form.getBoundingClientRect().top;
+  if (Math.abs(dy) < 1 || typeof form.animate !== "function" || reducedMotion()) return;
+  form.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }],
+    { duration: COMPOSER_COLLAPSE_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
+}
+
 /** Le composeur vidé par l'envoi se replie en 140 ms au lieu de claquer
  * (le fil sautait de 26 px au même instant). `before` = hauteur avant vidage. */
 export function collapseComposer(field: HTMLElement, before: number): void {

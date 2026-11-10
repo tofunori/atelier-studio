@@ -45,6 +45,7 @@ import { Input } from "../shadcn/input";
 import { RowButton } from "../ui/RowButton";
 import { Spinner } from "../ui/Spinner";
 
+import { CheckIcon, EllipsisIcon, EllipsisVerticalIcon, PaperclipIcon, PlusIcon, XIcon } from "lucide-react";
 export type KbFilter = "all" | "attached" | "pdf" | "note" | "web" | "file" | "corpus";
 
 /** Vue courante du rail : ce que l'utilisateur a rangé, pas ce que le système déduit. */
@@ -373,10 +374,7 @@ export default function KbSurface(p: {
             {job.phase === "converting" || job.phase === "writing" ? (
               <Spinner className="kbs-spin" size={13} aria-hidden="true" />
             ) : done ? (
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-                strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 8.5l3.5 3.5L13 4" />
-              </svg>
+              <CheckIcon size={12} />
             ) : (
               <KindIcon kind="pdf" />
             )}
@@ -401,10 +399,7 @@ export default function KbSurface(p: {
             label={t("kbs.job-clear")}
             onClick={() => dismissArticleImport(job.requestId)}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-              strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
+            <XIcon size={12} />
           </IconButton>
         )}
       </div>
@@ -644,10 +639,7 @@ export default function KbSurface(p: {
             title={t(on ? "kbs.detach" : "kbs.attach")}
             onClick={() => p.onToggle(source.id)}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-              strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M10.6 3.6v7.2a3.1 3.1 0 0 1-6.2 0V4.2a2 2 0 0 1 4 0v6.4a1 1 0 0 1-2 0V4.8" />
-            </svg>
+            <PaperclipIcon size={14} />
           </RowButton>
         )}
         <span className="kb-meta">{row.meta}</span>
@@ -659,9 +651,7 @@ export default function KbSurface(p: {
             label={t("kbs.menu-label")}
             trigger={(
               <IconButton size="s" className="ghost" label={t("kbs.menu-label")} title={t("kbs.menu-label")}>
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                  <circle cx="8" cy="3" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="8" cy="13" r="1.3" />
-                </svg>
+                <EllipsisVerticalIcon size={12} />
               </IconButton>
             )}
             items={rowMenu(row)}
@@ -724,10 +714,7 @@ export default function KbSurface(p: {
         {newColl === null ? (
           p.onCreateCollection && (
             <RowButton className="kbs-rail-new" onClick={() => setNewColl("")}>
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-                strokeWidth="1.35" strokeLinecap="round" aria-hidden="true">
-                <path d="M8 3.5v9M3.5 8h9" />
-              </svg>
+              <PlusIcon size={14} />
               {t("kbs.new-folder")}
             </RowButton>
           )
@@ -872,9 +859,7 @@ export default function KbSurface(p: {
           label={t("kbs.panel-menu")}
           trigger={(
             <IconButton size="s" className="ghost" label={t("kbs.panel-menu")} title={t("kbs.panel-menu")}>
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <circle cx="3" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="13" cy="8" r="1.3" />
-              </svg>
+              <EllipsisIcon size={14} />
             </IconButton>
           )}
           items={[

@@ -10,6 +10,7 @@ const BrowserTab = lazyWithRetry(() => import("./BrowserTab"));
 const KnowledgeSurface = lazyWithRetry(() => import("./KnowledgeSurface"));
 const GitSurface = lazyWithRetry(() => import("./GitSurface"));
 const HistorySurface = lazyWithRetry(() => import("./HistorySurface"));
+const ResultsSurface = lazyWithRetry(() => import("./ResultsSurface"));
 const TerminalSurface = lazyWithRetry(() => import("./TerminalSurface"));
 import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 const BiblioSurface = lazyWithRetry(() => import("./BiblioSurface"));
@@ -73,6 +74,7 @@ import {
   type WorkspacePointerDragStartDetail,
 } from "../lib/workspaceDrag";
 
+import { CodeXmlIcon, PanelRightIcon } from "lucide-react";
 export type AtelierTab = {
   id: string;
   url: string;
@@ -1191,7 +1193,7 @@ export default function AtelierPane({
               title={t("workspace.pane-actions")}
               size="s"
             >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M9 3v10"/></svg>
+              <PanelRightIcon size={14} />
             </IconButton>
           )}
         />
@@ -1202,9 +1204,7 @@ export default function AtelierPane({
   function renderIdeHome() {
     return (
       <div className="ide-home">
-        <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
-        </svg>
+        <CodeXmlIcon size={30} />
         <div className="ide-home-title">{t("ide.empty-title")}</div>
         <div className="ide-home-sub">{t("ide.empty-sub")}</div>
         {recentFiles.length > 0 && (
@@ -1326,6 +1326,15 @@ export default function AtelierPane({
         <div key="surface:historique" className="workspace-tab-content surface-body" style={{ display }}>
           <LazyBoundary fallback={<div className="pane-slot" />}>
             <HistorySurface ws={ws} projectRoot={projectRoot} visible={active && !overlayOpen} onOpenFile={onOpenFile} />
+          </LazyBoundary>
+        </div>
+      );
+    }
+    if (ref.surface === "resultats") {
+      return (
+        <div key="surface:resultats" className="workspace-tab-content surface-body" style={{ display }}>
+          <LazyBoundary fallback={<div className="pane-slot" />}>
+            <ResultsSurface ws={ws} projectRoot={projectRoot} visible={active && !overlayOpen} onOpenFile={onOpenFile} />
           </LazyBoundary>
         </div>
       );

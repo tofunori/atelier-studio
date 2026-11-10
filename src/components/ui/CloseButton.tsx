@@ -10,12 +10,10 @@ import { t } from "../../lib/i18n";
 import { IconButton } from "./IconButton";
 import { cx } from "./internal";
 
+import { XIcon } from "lucide-react";
 export function CloseIcon({ size = 16 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" aria-hidden="true" className="ui-close-icon">
-      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-    </svg>
+    <XIcon size={size} className="ui-close-icon" />
   );
 }
 

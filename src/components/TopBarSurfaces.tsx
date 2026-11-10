@@ -15,6 +15,7 @@ import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui/RowButton";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 
+import { ChevronDownIcon, CodeXmlIcon, FolderIcon, LayoutListIcon } from "lucide-react";
 /** Cible de la barre : une surface de l'atelier, l'IDE, ou l'explorateur. */
 export type TargetId = Surface | "ide" | "explorer" | "annots";
 
@@ -33,19 +34,13 @@ function dragProps(surface: Surface) {
 }
 
 const EXPLORER_ICON = (
-  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
-  </svg>
+  <FolderIcon size={14} />
 );
 const ANNOTS_ICON = (
-  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2.5 3h3v3h-3zM7.5 3.8h6M7.5 5.2h4M2.5 9h3v3h-3zM7.5 9.8h6M7.5 11.2h4" />
-  </svg>
+  <LayoutListIcon size={14} />
 );
 const IDE_ICON = (
-  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M5.5 5 3 8l2.5 3M10.5 5 13 8l-2.5 3M8.8 3.5 7.2 12.5" />
-  </svg>
+  <CodeXmlIcon size={14} />
 );
 
 export type TopBarTarget = {
@@ -167,7 +162,7 @@ export function SurfacesMenu(p: SurfaceProps) {
   const rest = targets.filter((target) => target.id !== "atelier");
   return <LazyDropdownMenu open={open} onOpenChange={setOpen} align="end" label={t("topbar.surfaces")}
     trigger={<IconButton className="topbar-surfaces-menu" label={t("topbar.surfaces")} aria-haspopup="menu" aria-expanded={open}>
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 6.2 8 9.7l3.5-3.5" /></svg>
+      <ChevronDownIcon size={12} />
     </IconButton>}
     groups={[
       { key: "surfaces", label: t("topbar.open-in-atelier"), items: rest.filter((target) => !TOOL_IDS.includes(target.id)).map(item) },

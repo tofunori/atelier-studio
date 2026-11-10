@@ -10,6 +10,7 @@ import { getResolvedLanguage, t } from "../../lib/i18n";
 import { formatFileSize, useFileCards, type FileCardMeta } from "../../lib/chatFileCards";
 import { RowButton } from "../ui";
 
+import { FileIcon, FolderIcon } from "lucide-react";
 /** Ancien message (sans `files`) : « nom (lines X) » redevient une carte. */
 function fromLabel(label: string): ChatFileRef {
   const m = /^(.*?) \(lines ([^)]+)\)$/.exec(label);
@@ -25,14 +26,9 @@ function typeTag(ref: ChatFileRef): string | null {
 
 function Glyph({ folder }: { folder: boolean }) {
   return folder ? (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
-      <path d="M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2v-7.6z" />
-    </svg>
+    <FolderIcon size={14} />
   ) : (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 1.8h5.2L12.5 5v8.2c0 .6-.4 1-1 1h-7.5c-.6 0-1-.4-1-1V2.8c0-.6.4-1 1-1z" />
-      <path d="M9 1.8V5h3.5" />
-    </svg>
+    <FileIcon size={14} />
   );
 }
 

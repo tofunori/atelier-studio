@@ -9,7 +9,7 @@
 // Le rail garde ce qu'il sait porter : les vues, les projets, l'activité.
 import { requestWorkspacePaneMenu } from "../lib/workspacePaneMenu";
 import { useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, MessageSquareIcon } from "lucide-react";
 import { t } from "../lib/i18n";
 import { moveDocumentTabFocus } from "../lib/surfaceKeyboard";
 import { CloseIcon } from "./icons";
@@ -103,10 +103,7 @@ function KindGlyph({ kind }: { kind: ReturnType<typeof kindOf> }) {
 export function tabIcon(tab: PaneTab) {
   if (tab.kind === "agent") {
     return (
-      <svg className="topbar-tab-kind" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
-        strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M2.5 3.5h11v7.5H5.5l-3 2.5z" />
-      </svg>
+      <MessageSquareIcon size={14} className="topbar-tab-kind" />
     );
   }
   return <KindGlyph kind={kindOf(tab)} />;
@@ -229,7 +226,7 @@ export default function TopBarTabs(p: {
               title={t("action.close-tab")}
               onClick={() => p.onCloseTab(tab.id)}
             >
-              <CloseIcon size={11} />
+              <CloseIcon size={12} />
             </IconButton>
           </span>
         );
