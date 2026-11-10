@@ -180,6 +180,9 @@ ou les retire dans Atelier. create_code : seulement sur demande.";
 
 const INSTRUCTIONS_REVISION: &str =
     "Révision de fichiers LaTeX (.tex) de l'utilisateur, avec la carte d'Atelier :\n\
+- get_selection : le passage que l'utilisateur a sélectionné dans l'éditeur LaTeX d'Atelier (fichier, lignes, texte \
+exact). L'appeler dès qu'il parle de « ma sélection » ou de « ce passage » ; son texte sert tel quel de quote pour \
+propose_revision avec le fichier indiqué.\n\
 - read_tex_file : lire un .tex (chemin absolu), lignes numérotées, par tranches (from_line, lines).\n\
 - propose_revision : SEULEMENT quand l'utilisateur demande de réécrire, resserrer ou corriger un passage. \
 Ne jamais écrire dans le fichier autrement. quote = le passage actuel recopié mot pour mot (read_tex_file d'abord), \
@@ -187,7 +190,8 @@ text = le passage réécrit en LaTeX, reason = une phrase en français. Une prop
 paragraphes = plusieurs appels. La carte montre l'avant / après à l'utilisateur, qui accepte ou refuse : \
 ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.";
 
-const REVISION_TOOLS: [&str; 4] = [
+const REVISION_TOOLS: [&str; 5] = [
+    "get_selection",
     "read_tex_file",
     "propose_revision",
     "apply_revision",
@@ -200,6 +204,15 @@ fn revisions_offered(session: &Session, config: &Config) -> bool {
 
 fn call_revision(config: &Config, name: &str, args: &Value) -> Result<Value, String> {
     match name {
+        "get_selection" => {
+            let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            crate::revision::get_selection(&home, now)
+                .map(|text| json!({"content": [{"type": "text", "text": text}], "isError": false}))
+        }
         "read_tex_file" => crate::revision::read_tex_file(args)
             .map(|text| json!({"content": [{"type": "text", "text": text}], "isError": false})),
         "propose_revision" => crate::revision::propose(args),
@@ -218,6 +231,13 @@ fn revision_tools() -> Value {
     });
     let app_only = json!({"ui": {"visibility": ["app"]}});
     json!([
+        {
+            "name": "get_selection",
+            "title": "Lire ma sélection dans Atelier",
+            "description": "Le passage que l'utilisateur a sélectionné dans l'éditeur LaTeX d'Atelier : fichier (chemin absolu), lignes, texte exact. À appeler quand il parle de « ma sélection », « ce passage », « ce que j'ai sélectionné ».",
+            "inputSchema": {"type": "object", "properties": {}},
+            "annotations": {"readOnlyHint": true},
+        },
         {
             "name": "read_tex_file",
             "title": "Lire un fichier LaTeX",

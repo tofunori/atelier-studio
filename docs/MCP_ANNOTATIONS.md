@@ -154,6 +154,7 @@ le force), le serveur offre en plus :
 
 | Outil | Usage |
 | --- | --- |
+| `get_selection` | le passage sélectionné dans l'éditeur LaTeX d'Atelier (`~/.claude/fig-selection.json`, publié par la galerie via `/selinfo`) : fichier, lignes, texte exact. Geste : sélectionner dans Atelier, puis écrire « révise ma sélection » dans Claude Desktop |
 | `read_tex_file` | lit un .tex (chemin absolu), lignes numérotées, par tranches |
 | `propose_revision` | `path`, `quote` (passage actuel, mot pour mot), `text` (réécriture), `reason` : n'écrit **rien** ; Claude Desktop affiche la carte d'Atelier (`ui://atelier/revision`) avec l'avant / après et Accepter / Refuser |
 | `apply_revision`, `undo_revision` | réservés à la carte (`_meta.ui.visibility: ["app"]`) : écrivent seulement après un clic sur Accepter ou Annuler |

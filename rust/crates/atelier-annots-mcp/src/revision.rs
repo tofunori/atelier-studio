@@ -295,6 +295,60 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     })
 }
 
+/// `get_selection` : le passage sélectionné dans l'éditeur d'Atelier.
+///
+/// La galerie publie la sélection courante dans `~/.claude/fig-selection.json`
+/// (`POST /selinfo` : `text`, `rel` = chemin absolu, `page` = « L12-14 »,
+/// `ts` en secondes) et retire le fichier quand la sélection est vide. On ne
+/// lit ce fichier que lorsque l'utilisateur le demande (« ma sélection »).
+pub fn get_selection(home: &Path, now_secs: f64) -> Result<String, String> {
+    let path = home.join(".claude").join("fig-selection.json");
+    let none = || {
+        "Aucune sélection dans Atelier : sélectionne un passage dans l'éditeur LaTeX d'Atelier, puis redemande.".to_string()
+    };
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(_) => return Err(none()),
+    };
+    let sel: Value = serde_json::from_str(&raw).map_err(|_| none())?;
+    let text = sel["text"].as_str().unwrap_or("");
+    if text.trim().is_empty() {
+        return Err(none());
+    }
+    let file = sel["rel"].as_str().unwrap_or("").trim();
+    let lines = sel["page"].as_str().unwrap_or("").trim();
+    let mut out = String::new();
+    if !file.is_empty() {
+        out.push_str(&format!("Fichier : {file}\n"));
+    }
+    if let Some(range) = lines.strip_prefix('L') {
+        out.push_str(&format!("Lignes : {range}\n"));
+    }
+    if let Some(ts) = sel["ts"].as_f64() {
+        // Anciennes versions : millisecondes.
+        let ts = if ts > 1e11 { ts / 1000.0 } else { ts };
+        let minutes = ((now_secs - ts).max(0.0) / 60.0).round() as u64;
+        out.push_str(&format!(
+            "Sélectionné il y a {}\n",
+            if minutes == 0 {
+                "moins d'une minute".to_string()
+            } else {
+                format!("{minutes} min")
+            }
+        ));
+    }
+    let is_tex = Path::new(file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("tex"));
+    if !is_tex {
+        out.push_str("(Ce n'est pas un fichier .tex : la carte de révision ne s'applique pas.)\n");
+    }
+    out.push_str("Passage :\n");
+    out.push_str(text);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,5 +451,35 @@ mod tests {
         assert!(out.contains("    3  seasons"));
         assert!(!out.contains("Another"));
         assert!(out.contains("from_line 4"));
+    }
+
+    #[test]
+    fn selection_from_the_editor() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let err = get_selection(home, 1000.0).unwrap_err();
+        assert!(err.contains("Aucune sélection"), "{err}");
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::write(
+            home.join(".claude/fig-selection.json"),
+            r#"{"lines":2,"words":5,"text":"In the years with\nlarge fires","rel":"/u/t/ch1.tex","name":"ch1.tex","page":"L12-13","ts":880.5}"#,
+        )
+        .unwrap();
+        let out = get_selection(home, 1000.0).unwrap();
+        assert!(out.contains("Fichier : /u/t/ch1.tex"), "{out}");
+        assert!(out.contains("Lignes : 12-13"), "{out}");
+        assert!(out.contains("il y a 2 min"), "{out}");
+        assert!(out.ends_with("In the years with\nlarge fires"), "{out}");
+        assert!(!out.contains("pas un fichier .tex"), "{out}");
+        std::fs::write(
+            home.join(".claude/fig-selection.json"),
+            r#"{"text":"x","rel":"/u/a.pdf","page":"3","ts":1000000}"#,
+        )
+        .unwrap();
+        let out = get_selection(home, 1000.0).unwrap();
+        assert!(
+            out.contains("pas un fichier .tex") && out.contains("moins d'une minute"),
+            "{out}"
+        );
     }
 }
