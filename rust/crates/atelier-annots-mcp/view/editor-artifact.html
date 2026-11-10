@@ -60,6 +60,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--info); outl
 .ib:hover:not(:disabled) { background: var(--ctl); color: var(--fg); }
 .ib[aria-pressed="true"] { background: var(--ctl); color: var(--fg); }
 .ib:disabled { opacity: .45; }
+.ur { display: flex; gap: 0; flex: none; }
 .tb { height: 28px; flex: none; padding: 0 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; font-weight: 500; color: var(--fg2); background: var(--ctl); white-space: nowrap; transition: background-color var(--t), color var(--t), opacity var(--t); }
 .tb:hover:not(:disabled) { background: var(--ctl-2); }
 .tb:disabled { opacity: .45; }
@@ -300,6 +301,7 @@ body[data-pdf="off"] .pdf { display: none; }
   <symbol id="i-pen" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></symbol>
   <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"/></symbol>
   <symbol id="i-hist" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
   <symbol id="i-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
   <symbol id="i-log" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></symbol>
@@ -309,6 +311,7 @@ body[data-pdf="off"] .pdf { display: none; }
   <button class="ib" id="sideBtn" type="button" aria-pressed="true" aria-label="Volet du projet" title="Volet du projet"><svg class="i"><use href="#i-panel"/></svg></button>
   <div class="crumb" id="crumb"><b>Éditeur LaTeX</b></div>
   <span class="state" id="state"></span>
+  <span class="ur"><button class="ib" id="undoBtn" type="button" aria-label="Annuler" title="Annuler (Cmd-Z)" disabled><svg class="i"><use href="#i-undo"/></svg></button><button class="ib" id="redoBtn" type="button" aria-label="Rétablir" title="Rétablir (Cmd-Maj-Z)" disabled><svg class="i"><use href="#i-redo"/></svg></button></span>
   <button class="ib" id="findBtn" type="button" aria-pressed="false" aria-label="Rechercher" title="Rechercher (Cmd-F)" disabled><svg class="i"><use href="#i-search"/></svg></button>
   <button class="tb quiet" id="diffBtn" type="button" aria-pressed="true" title="Mots changés depuis l'ouverture"><svg class="i"><use href="#i-diff"/></svg><span class="lbl">Changements</span><span class="n" id="diffN"></span></button>
   <button class="ib" id="reloadBtn" type="button" aria-label="Recharger depuis le Mac" title="Recharger depuis le Mac" disabled><svg class="i"><use href="#i-reload"/></svg></button>
@@ -583,6 +586,8 @@ body[data-pdf="off"] .pdf { display: none; }
     $("saveBtn").disabled = !d || !isDirty(d) || busy > 0;
     $("reloadBtn").disabled = !d || busy > 0;
     $("findBtn").disabled = !d;
+    var hs = d && cm ? cm.historySize() : { undo: 0, redo: 0 };
+    $("undoBtn").disabled = !hs.undo; $("redoBtn").disabled = !hs.redo;
     $("compileBtn").disabled = build.running || !mainPath();
     if (!d) { s.textContent = ""; s.className = "state"; return; }
     var dirty = isDirty(d);
@@ -1880,6 +1885,8 @@ body[data-pdf="off"] .pdf { display: none; }
   $("cmpClose").onclick = function () { closeCompare(); };
   $("cmpRestore").onclick = function () { restoreVersion(); };
   $("stUndoAll").onclick = function () { undoAll(); };
+  $("undoBtn").onclick = function () { if (cm) { cm.undo(); cm.focus(); refreshState(); } };
+  $("redoBtn").onclick = function () { if (cm) { cm.redo(); cm.focus(); refreshState(); } };
   $("saveBtn").onclick = function () { save(); };
   $("reloadBtn").onclick = function () {
     var d = cur();
