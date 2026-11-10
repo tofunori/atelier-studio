@@ -24,6 +24,32 @@ const READ_DEFAULT_LINES: usize = 400;
 const READ_MAX_LINES: usize = 2_000;
 const OPEN_MAX_LINES: usize = 8_000;
 
+/// Connecteur distant : le fichier doit se trouver sous l'un des dossiers
+/// permis (après résolution des liens et des `..`).
+pub fn within_roots(raw: &str, roots: &[PathBuf]) -> Result<(), String> {
+    let path = tex_path(raw)?;
+    let real = path
+        .canonicalize()
+        .map_err(|e| format!("{raw} : chemin illisible ({e})"))?;
+    let allowed = roots.iter().any(|root| {
+        root.canonicalize()
+            .map(|root| real.starts_with(root))
+            .unwrap_or(false)
+    });
+    if allowed {
+        Ok(())
+    } else {
+        Err(format!(
+            "{raw} : hors des dossiers ouverts au connecteur ({})",
+            roots
+                .iter()
+                .map(|r| r.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    }
+}
+
 /// Un fichier .tex existant, donné par un chemin absolu.
 fn tex_path(raw: &str) -> Result<PathBuf, String> {
     let raw = raw.trim();
@@ -529,5 +555,20 @@ mod tests {
             .unwrap()
             .contains("propose_revision"));
         assert!(open_tex(&json!({"path": "relatif.tex"})).is_err());
+    }
+
+    #[test]
+    fn remote_files_must_be_under_the_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let inside = dir.path().join("docs");
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::write(inside.join("a.tex"), "x").unwrap();
+        std::fs::write(dir.path().join("b.tex"), "x").unwrap();
+        let roots = vec![inside.clone()];
+        assert!(within_roots(inside.join("a.tex").to_str().unwrap(), &roots).is_ok());
+        let out = dir.path().join("b.tex");
+        assert!(within_roots(out.to_str().unwrap(), &roots).is_err());
+        let sneaky = inside.join("../b.tex");
+        assert!(within_roots(sneaky.to_str().unwrap(), &roots).is_err());
     }
 }

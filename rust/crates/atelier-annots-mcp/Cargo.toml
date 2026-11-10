@@ -18,6 +18,11 @@ serde_json = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
 roxmltree = "0.20"
 unicode-normalization = "0.1"
+axum = { workspace = true }
+tokio = { workspace = true }
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.8"
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -18,11 +18,26 @@ pub struct Session {
     /// les outils de révision LaTeX, qui passent par la carte d'Atelier, ne
     /// sont offerts qu'à lui. `ATELIER_MCP_UI=1` le force.
     pub ui: bool,
+    /// Connecteur distant (`--http`) : seuls les outils LaTeX, et seulement
+    /// sur des fichiers sous ces dossiers. `None` : serveur local (stdio).
+    pub remote_roots: Option<Vec<std::path::PathBuf>>,
+}
+
+impl Session {
+    /// Session d'un client du connecteur distant (claude.ai) : il affiche les
+    /// vues, et n'atteint que les fichiers sous `roots`.
+    pub fn remote(roots: Vec<std::path::PathBuf>) -> Self {
+        Session {
+            ui: true,
+            remote_roots: Some(roots),
+        }
+    }
 }
 
 pub fn run(config: &Config) -> Result<(), String> {
     let mut session = Session {
         ui: std::env::var("ATELIER_MCP_UI").as_deref() == Ok("1"),
+        remote_roots: None,
     };
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
@@ -71,7 +86,9 @@ pub fn handle_in(session: &mut Session, config: &Config, msg: &Value) -> Option<
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
             "capabilities": {"tools": {}, "resources": {}},
             "serverInfo": {"name": "atelier-annotations", "version": env!("CARGO_PKG_VERSION")},
-            "instructions": if config.read_only {
+            "instructions": if session.remote_roots.is_some() {
+                INSTRUCTIONS_REVISION.to_string()
+            } else if config.read_only {
                 INSTRUCTIONS_LECTURE.to_string()
             } else if revisions_offered(session, config) {
                 format!("{INSTRUCTIONS}\n{INSTRUCTIONS_REVISION}")
@@ -104,6 +121,19 @@ pub fn handle_in(session: &mut Session, config: &Config, msg: &Value) -> Option<
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
+            if let Some(roots) = &session.remote_roots {
+                if !REVISION_TOOLS.contains(&name) {
+                    let text = format!("{name} : outil indisponible dans le connecteur distant.");
+                    return Some(json!({"jsonrpc": "2.0", "id": id, "result":
+                        {"content": [{"type": "text", "text": text}], "isError": true}}));
+                }
+                if let Some(path) = args.get("path").and_then(Value::as_str) {
+                    if let Err(text) = crate::revision::within_roots(path, roots) {
+                        return Some(json!({"jsonrpc": "2.0", "id": id, "result":
+                            {"content": [{"type": "text", "text": text}], "isError": true}}));
+                    }
+                }
+            }
             if REVISION_TOOLS.contains(&name) {
                 let outcome = if revisions_offered(session, config) {
                     call_revision(config, name, &args)
@@ -320,6 +350,13 @@ fn is_read_only_tool(name: &str) -> bool {
 /// Outils annoncés au client : tous, ou seulement ceux qui lisent. Les
 /// outils de révision LaTeX s'ajoutent pour un client qui affiche les vues.
 fn offered_tools(session: &Session, config: &Config) -> Value {
+    if session.remote_roots.is_some() {
+        return if revisions_offered(session, config) {
+            revision_tools()
+        } else {
+            json!([])
+        };
+    }
     let mut all = tools();
     if revisions_offered(session, config) {
         if let (Some(list), Some(extra)) = (all.as_array_mut(), revision_tools().as_array()) {
@@ -1879,7 +1916,7 @@ mod tests {
     fn read_only_mode_never_offers_revisions() {
         let (_dir, mut config) = setup();
         config.read_only = true;
-        let mut ui = Session { ui: true };
+        let mut ui = Session { ui: true, remote_roots: None };
         let list = handle_in(
             &mut ui,
             &config,

@@ -151,10 +151,15 @@ dependencies = [
  "atelier-integrations",
  "atelier-pdf",
  "atelier-store",
+ "axum",
+ "base64",
+ "rand 0.8.7",
  "roxmltree",
  "rusqlite",
  "serde_json",
+ "sha2",
  "tempfile",
+ "tokio",
  "unicode-normalization",
 ]
 
