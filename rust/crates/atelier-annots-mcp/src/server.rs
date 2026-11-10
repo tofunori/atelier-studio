@@ -136,7 +136,7 @@ pub fn handle_in(session: &mut Session, config: &Config, msg: &Value) -> Option<
             }
             if REVISION_TOOLS.contains(&name) {
                 let outcome = if revisions_offered(session, config) {
-                    call_revision(config, name, &args)
+                    call_revision(config, session, name, &args)
                 } else {
                     Err(format!("{name} : outil réservé aux clients qui affichent les vues d'Atelier (Claude Desktop)."))
                 };
@@ -223,7 +223,7 @@ text = le passage réécrit en LaTeX, reason = une phrase en français. Une prop
 paragraphes = plusieurs appels. La carte montre l'avant / après à l'utilisateur, qui accepte ou refuse : \
 ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.";
 
-const REVISION_TOOLS: [&str; 8] = [
+const REVISION_TOOLS: [&str; 11] = [
     "open_tex_file",
     "get_selection",
     "read_tex_file",
@@ -232,13 +232,22 @@ const REVISION_TOOLS: [&str; 8] = [
     "undo_revision",
     "load_tex_file",
     "save_tex_file",
+    "list_tex_project",
+    "list_revisions",
+    "resolve_revision",
 ];
 
 fn revisions_offered(session: &Session, config: &Config) -> bool {
     session.ui && !config.read_only
 }
 
-fn call_revision(config: &Config, name: &str, args: &Value) -> Result<Value, String> {
+fn call_revision(
+    config: &Config,
+    session: &Session,
+    name: &str,
+    args: &Value,
+) -> Result<Value, String> {
+    let roots = session.remote_roots.as_deref();
     match name {
         "open_tex_file" => crate::revision::open_tex(args),
         "get_selection" => {
@@ -252,11 +261,14 @@ fn call_revision(config: &Config, name: &str, args: &Value) -> Result<Value, Str
         }
         "read_tex_file" => crate::revision::read_tex_file(args)
             .map(|text| json!({"content": [{"type": "text", "text": text}], "isError": false})),
-        "propose_revision" => crate::revision::propose(args),
-        "apply_revision" => crate::revision::replace_once(&config.app_dir, args, false),
-        "undo_revision" => crate::revision::replace_once(&config.app_dir, args, true),
+        "propose_revision" => crate::project::propose(&config.app_dir, args),
+        "apply_revision" => crate::project::apply(&config.app_dir, args, false),
+        "undo_revision" => crate::project::apply(&config.app_dir, args, true),
         "load_tex_file" => crate::revision::load_for_edit(args),
         "save_tex_file" => crate::revision::save_from_editor(&config.app_dir, args),
+        "list_tex_project" => crate::project::list(args, roots),
+        "list_revisions" => crate::project::list_revisions(&config.app_dir, args, roots),
+        "resolve_revision" => crate::project::resolve(&config.app_dir, args, roots),
         _ => Err(format!("outil inconnu : {name}")),
     }
 }
@@ -342,6 +354,35 @@ fn revision_tools() -> Value {
                 "text": {"type": "string", "description": "Contenu complet du fichier."},
                 "base_sha256": {"type": "string", "description": "Empreinte reçue de load_tex_file."},
             }, "required": ["path", "text", "base_sha256"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "list_tex_project",
+            "title": "Lister les fichiers du projet",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : fichiers .tex, .bib, styles et figures du projet, et son fichier principal.",
+            "inputSchema": {"type": "object", "properties": {
+                "dir": {"type": "string", "description": "Chemin absolu du dossier ; absent : les dossiers ouverts au connecteur."},
+            }},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "list_revisions",
+            "title": "Propositions en attente",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : propositions de révision pas encore acceptées ni refusées.",
+            "inputSchema": {"type": "object", "properties": {"path": path}},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "resolve_revision",
+            "title": "Accepter ou refuser une proposition",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : écrit la proposition après le clic de l'utilisateur sur Accepter, ou la retire après Refuser.",
+            "inputSchema": {"type": "object", "properties": {
+                "id": {"type": "string", "description": "Identifiant reçu de list_revisions."},
+                "accept": {"type": "boolean", "description": "true : écrire la révision ; false : la retirer."},
+            }, "required": ["id", "accept"]},
             "annotations": {"readOnlyHint": false, "destructiveHint": true},
             "_meta": app_only,
         },

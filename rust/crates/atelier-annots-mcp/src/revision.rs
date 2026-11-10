@@ -29,7 +29,7 @@ const EDIT_MAX_BYTES: usize = 2_000_000;
 /// Connecteur distant : le fichier doit se trouver sous l'un des dossiers
 /// permis (après résolution des liens et des `..`).
 pub fn within_roots(raw: &str, roots: &[PathBuf]) -> Result<(), String> {
-    let path = tex_path(raw)?;
+    let path = abs_file(raw)?;
     let real = path
         .canonicalize()
         .map_err(|e| format!("{raw} : chemin illisible ({e})"))?;
@@ -52,24 +52,50 @@ pub fn within_roots(raw: &str, roots: &[PathBuf]) -> Result<(), String> {
     }
 }
 
+/// Fichiers texte d'un projet LaTeX que l'éditeur de l'artefact ouvre et
+/// enregistre.
+pub const EDITABLE_EXT: [&str; 7] = ["tex", "bib", "sty", "cls", "bst", "ltx", "tikz"];
+
+/// Un fichier existant, donné par un chemin absolu (`~/` accepté).
+fn abs_file(raw: &str) -> Result<PathBuf, String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err("path manquant : le chemin absolu du fichier .tex".into());
+    }
+    let expanded = expand_home(raw);
+    if !expanded.is_absolute() {
+        return Err(format!("{raw} : donne le chemin absolu du fichier"));
+    }
+    if !expanded.is_file() {
+        return Err(format!("{raw} : fichier introuvable"));
+    }
+    Ok(expanded)
+}
+
+pub(crate) fn expand_home(raw: &str) -> PathBuf {
+    match raw.strip_prefix("~/") {
+        Some(rest) => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(rest),
+        None => PathBuf::from(raw),
+    }
+}
+
+fn has_ext(path: &Path, allowed: &[&str]) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| allowed.iter().any(|a| e.eq_ignore_ascii_case(a)))
+}
+
 /// Un fichier .tex existant, donné par un chemin absolu.
 fn tex_path(raw: &str) -> Result<PathBuf, String> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Err("path manquant : le chemin absolu du fichier .tex".into());
     }
-    let expanded = match raw.strip_prefix("~/") {
-        Some(rest) => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(rest),
-        None => PathBuf::from(raw),
-    };
+    let expanded = expand_home(raw);
     if !expanded.is_absolute() {
         return Err(format!("{raw} : donne le chemin absolu du fichier"));
     }
-    let is_tex = expanded
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("tex"));
-    if !is_tex {
+    if !has_ext(&expanded, &["tex"]) {
         return Err(format!(
             "{raw} : seuls les fichiers .tex sont pris en charge"
         ));
@@ -80,13 +106,25 @@ fn tex_path(raw: &str) -> Result<PathBuf, String> {
     Ok(expanded)
 }
 
-fn read(path: &Path) -> Result<String, String> {
+/// Un fichier que l'éditeur de l'artefact peut ouvrir : .tex, .bib, styles.
+fn editable_path(raw: &str) -> Result<PathBuf, String> {
+    let path = abs_file(raw)?;
+    if !has_ext(&path, &EDITABLE_EXT) {
+        return Err(format!(
+            "{} : l'éditeur ouvre les fichiers .tex, .bib et de style",
+            raw.trim()
+        ));
+    }
+    Ok(path)
+}
+
+pub(crate) fn read(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path)
         .map_err(|e| format!("{} : lecture impossible ({e})", path.display()))
 }
 
 /// Ligne (à partir de 1) de l'octet `at`.
-fn line_of(content: &str, at: usize) -> usize {
+pub(crate) fn line_of(content: &str, at: usize) -> usize {
     content[..at].bytes().filter(|b| *b == b'\n').count() + 1
 }
 
@@ -130,7 +168,7 @@ fn find_all(content: &str, needle: &str) -> Vec<Range<usize>> {
     out
 }
 
-fn find_unique(content: &str, needle: &str, what: &str) -> Result<Range<usize>, String> {
+pub(crate) fn find_unique(content: &str, needle: &str, what: &str) -> Result<Range<usize>, String> {
     let hits = find_all(content, needle);
     match hits.len() {
         1 => Ok(hits[0].clone()),
@@ -139,11 +177,11 @@ fn find_unique(content: &str, needle: &str, what: &str) -> Result<Range<usize>, 
     }
 }
 
-fn str_arg<'a>(args: &'a Value, key: &str) -> &'a str {
+pub(crate) fn str_arg<'a>(args: &'a Value, key: &str) -> &'a str {
     args.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn file_name(path: &Path) -> String {
+pub(crate) fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default()
@@ -221,7 +259,7 @@ fn sha256_hex(text: &str) -> String {
 /// empreinte, pour l'éditeur de l'artefact. `save_tex_file` exige cette
 /// empreinte : on n'écrase jamais une version que l'éditeur n'a pas vue.
 pub fn load_for_edit(args: &Value) -> Result<Value, String> {
-    let path = tex_path(str_arg(args, "path"))?;
+    let path = editable_path(str_arg(args, "path"))?;
     let content = read(&path)?;
     if content.len() > EDIT_MAX_BYTES {
         return Err(format!(
@@ -247,7 +285,7 @@ pub fn load_for_edit(args: &Value) -> Result<Value, String> {
 /// dans l'éditeur de l'artefact. Refuse si le fichier a changé depuis le
 /// chargement (`base_sha256`), garde une copie avant d'écrire, écrit d'un bloc.
 pub fn save_from_editor(app_dir: &Path, args: &Value) -> Result<Value, String> {
-    let path = tex_path(str_arg(args, "path"))?;
+    let path = editable_path(str_arg(args, "path"))?;
     let text = args
         .get("text")
         .and_then(Value::as_str)

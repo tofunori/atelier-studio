@@ -22,6 +22,7 @@ mod connector;
 mod highlight;
 mod library;
 mod oauth;
+mod project;
 mod revision;
 mod server;
 mod zotero;
