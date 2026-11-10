@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · revision · regarde.
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · regarde.
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -687,6 +687,25 @@ const APPROVED: AgentEvent[] = [
   { kind: "text", text: "D'accord, je lis directement `resultats/surface_brulee_region_synthese.json`.", ts: ts(55) } as AgentEvent,
 ];
 
+// Capture de Thierry (2026-11-10) : un long tour où chaque commande est
+// autorisée — un reçu « Commande autorisée » entre chaque étape.
+const OUTILS_RECUS: AgentEvent[] = [
+  { kind: "user", text: "Vérifie que les chiffres des Résultats correspondent aux fichiers sources, puis donne ton avis.", ts: ts(2000) } as AgentEvent,
+  appr("or-1", `sed -n '200,260p' manuscrit/supplement_en.tex`, "answered", 1990, "Autoriser"),
+  bash("or-1-run", `sed -n '200,260p' manuscrit/supplement_en.tex`, "Affiche les Tableaux S3 à S6 et la légende de la Fig. S14", "…", "completed", 1988, { durationMs: 1900 }),
+  appr("or-2", `ls resultats/`, "answered", 1980, "Autoriser"),
+  bash("or-2-run", `ls resultats/`, "Liste les fichiers de résultats disponibles pour recalculer les chiffres", "…", "completed", 1978, { durationMs: 58 }),
+  bash("or-3-run", `ls -R resultats/sources`, "Inspecte la structure des fichiers sources des chiffres", "…", "completed", 1970, { durationMs: 382000 }),
+  appr("or-4", `python3 scripts/recalcule.py`, "answered", 1500, "Autoriser"),
+  { kind: "text", text: "Je recalcule les chiffres des Résultats sur les fichiers sources (dernière étape avant mon avis).", ts: ts(1490) } as AgentEvent,
+  bash("or-4-run", `python3 scripts/recalcule.py`, "Recalcule les chiffres des Résultats depuis les fichiers sources", "…", "completed", 1480, { durationMs: 26000 }),
+  appr("or-5", `python3 scripts/robustesse.py`, "answered", 1400, "Autoriser"),
+  bash("or-5-run", `python3 scripts/robustesse.py`, "Vérifie les comptes de robustesse, les pentes régionales et les formes concaves", "…", "completed", 1398, { durationMs: 1900 }),
+  appr("or-6", `python3 scripts/fumee.py`, "answered", 1300, "Autoriser"),
+  bash("or-6-run", `python3 scripts/fumee.py`, "Vérifie les pentes selon le filtre de fumée et compte les mots des sections", "…", "completed", 1298, { durationMs: 292000 }),
+  appr("or-7", `python3 scripts/avis.py`, "answered", 20, "Autoriser"),
+];
+
 // Sous-agents Claude (maquette 2026-10-18, piste A) : la mission titre chaque
 // rangée, le type passe en étiquette ; en cours puis terminés.
 function claudeAgent(id: string, type: string, description: string, status: string, offsetS: number, message?: string): AgentEvent {
@@ -880,6 +899,7 @@ const STATES: Record<string, BenchState> = {
   reponses: { events: QUESTIONS_ANSWERED, workingSince: null, attachments: [], usage: null },
   approbation: { events: APPROVAL, workingSince: ts(50), attachments: [], usage: null },
   approuvees: { events: APPROVED, workingSince: null, attachments: [], usage: null },
+  outilsrecus: { events: OUTILS_RECUS, workingSince: ts(1973), attachments: [], usage: { context: 61000, output: 2400, cost: null, turns: 1 } },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   marge: { events: MARGE, workingSince: null, attachments: [], usage: null },
