@@ -42,10 +42,10 @@ pub fn handle(config: &Config, msg: &Value) -> Option<Value> {
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "atelier-annotations", "version": env!("CARGO_PKG_VERSION")},
-            "instructions": INSTRUCTIONS,
+            "instructions": if config.read_only { INSTRUCTIONS_LECTURE } else { INSTRUCTIONS },
         }),
         "ping" => json!({}),
-        "tools/list" => json!({"tools": tools()}),
+        "tools/list" => json!({"tools": offered_tools(config)}),
         "resources/list" => json!({"resources": []}),
         "prompts/list" => json!({"prompts": []}),
         "tools/call" => {
@@ -54,7 +54,14 @@ pub fn handle(config: &Config, msg: &Value) -> Option<Value> {
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            match call(config, name, &args) {
+            let outcome = if config.read_only && !is_read_only_tool(name) {
+                Err(format!(
+                    "{name} : outil indisponible, ce serveur est en lecture seule (ATELIER_ANNOTS_READONLY)."
+                ))
+            } else {
+                call(config, name, &args)
+            };
+            match outcome {
                 Ok(text) => json!({"content": [{"type": "text", "text": text}], "isError": false}),
                 Err(text) => json!({"content": [{"type": "text", "text": text}], "isError": true}),
             }
@@ -106,6 +113,45 @@ list_codes donne l'arbre, les effectifs et le mémo de chaque code (ce que le co
 - code_passages : SEULEMENT quand l'utilisateur demande de coder ; seulement avec des codes existants, \
 et des passages recopiés mot pour mot (read_article d'abord). Ce sont des propositions : l'utilisateur les garde \
 ou les retire dans Atelier. create_code : seulement sur demande.";
+
+/// Consigne du mode lecture seule (relecteur d'Atelier) : rien sur le
+/// surlignage ni le codage, que le serveur n'annonce pas dans ce mode.
+const INSTRUCTIONS_LECTURE: &str =
+    "Articles de l'utilisateur (PDF Zotero) et ses annotations, en LECTURE SEULE : aucun outil ne surligne, \
+ne code ni ne modifie quoi que ce soit.\n\
+- read_article : le texte du PDF Zotero d'un article, page par page (clé Zotero, auteur et année, ou mots \
+du titre ; `pages` pour n'en lire qu'une partie). C'est l'outil pour vérifier qu'un passage cité figure bien \
+dans l'article.\n\
+- get_article_annotations : les passages que l'utilisateur a surlignés ou notés dans des articles nommés \
+(articles: [...]).\n\
+- search_annotations : recherche dans toutes les annotations, groupées par article.\n\
+Citer chaque élément avec sa référence et sa page.";
+
+/// Un outil qui ne fait que lire : c'est sa propre annotation MCP
+/// (`readOnlyHint`) qui le dit, pas une seconde liste à tenir à jour.
+fn is_read_only_tool(name: &str) -> bool {
+    tools().as_array().is_some_and(|list| {
+        list.iter().any(|tool| {
+            tool["name"] == name && tool["annotations"]["readOnlyHint"] == json!(true)
+        })
+    })
+}
+
+/// Outils annoncés au client : tous, ou seulement ceux qui lisent.
+fn offered_tools(config: &Config) -> Value {
+    let all = tools();
+    if !config.read_only {
+        return all;
+    }
+    Value::Array(
+        all.as_array()
+            .into_iter()
+            .flatten()
+            .filter(|tool| tool["annotations"]["readOnlyHint"] == json!(true))
+            .cloned()
+            .collect(),
+    )
+}
 
 fn tools() -> Value {
     json!([
@@ -872,6 +918,7 @@ mod tests {
             app_dir: dir.path().into(),
             zotero_dir: dir.path().into(),
             cache_dir: dir.path().join("cache"),
+            read_only: false,
         };
         (dir, config)
     }
@@ -940,6 +987,64 @@ mod tests {
         )
         .unwrap();
         assert_eq!(unknown["error"]["code"], -32601);
+    }
+
+    /// Mode du relecteur d'Atelier : seuls les outils qui lisent sont
+    /// annoncés, et un outil d'écriture appelé quand même est refusé sans
+    /// rien écrire.
+    #[test]
+    fn read_only_mode_offers_and_runs_reading_tools_only() {
+        let (dir, mut config) = setup();
+        config.read_only = true;
+        let list = handle(
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        )
+        .unwrap();
+        let names: Vec<&str> = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "search_annotations",
+                "list_annotated_articles",
+                "get_article_annotations",
+                "read_article",
+                "list_codes",
+                "get_code_passages"
+            ]
+        );
+        let init = handle(
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        )
+        .unwrap();
+        let instructions = init["result"]["instructions"].as_str().unwrap();
+        assert!(instructions.contains("LECTURE SEULE"), "{instructions}");
+        assert!(!instructions.contains("highlight_passage"), "{instructions}");
+
+        let store = dir.path().join("pdf_annots.json");
+        let before = std::fs::read(&store).unwrap();
+        for (name, args) in [
+            ("highlight_passage", json!({"article": "ABCD1234", "quote": "Grain size evolves with time"})),
+            ("update_highlights", json!({"article": "ABCD1234", "all": true, "color": "vert"})),
+            ("remove_highlights", json!({"article": "ABCD1234", "all": true})),
+            ("create_code", json!({"name": "Albédo"})),
+            ("code_passages", json!({"article": "ABCD1234", "passages": [{"quote": "Grain size"}], "codes": ["Albédo"]})),
+        ] {
+            let (text, is_error) = call_tool(&config, name, args);
+            assert!(is_error, "{name} doit être refusé : {text}");
+            assert!(text.contains("lecture seule"), "{text}");
+        }
+        assert_eq!(std::fs::read(&store).unwrap(), before);
+        assert!(!dir.path().join("codebook.json").exists());
+
+        let (text, is_error) = call_tool(&config, "search_annotations", json!({}));
+        assert!(!is_error, "{text}");
     }
 
     #[test]

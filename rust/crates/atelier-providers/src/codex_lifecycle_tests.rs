@@ -613,7 +613,77 @@ async fn goal_created_on_first_turn_has_an_atelier_owner_before_send_returns() {
 }
 
 fn review_request(model: &str, effort: &str) -> ReviewRequest {
-    ReviewRequest { model: model.into(), effort: effort.into(), dossier: "DOSSIER-123".into() }
+    ReviewRequest { model: model.into(), effort: effort.into(), dossier: "DOSSIER-123".into(), access: None }
+}
+
+/// Lot 1b : le fil éphémère s'ouvre dans le dossier du projet, toujours en
+/// bac à sable lecture seule et sans accord possible ; le serveur des
+/// annotations y est déclaré en lecture seule.
+#[tokio::test]
+async fn structured_review_with_access_reads_the_project_in_a_read_only_sandbox() {
+    let fake = FakeCodex::new("normal");
+    let provider = provider(&fake);
+    let root = tempfile::tempdir().unwrap();
+    let mut request = review_request("gpt-5.5", "high");
+    request.access = Some(crate::traits::ReviewAccess {
+        project_root: root.path().display().to_string(),
+        additional_directories: vec![],
+        annotations: Some(crate::traits::ReviewAnnotations {
+            command: "/opt/atelier/atelier-annots-mcp".into(),
+            env: std::collections::BTreeMap::new(),
+        }),
+    });
+    provider.review(request).await.unwrap();
+    let requests = fake.requests();
+    let start = requests.iter().find(|r| r["method"] == "thread/start").unwrap();
+    assert_eq!(start["params"]["sandbox"], "read-only");
+    assert_eq!(start["params"]["approvalPolicy"], "never");
+    assert_eq!(start["params"]["cwd"], json!(root.path().display().to_string()));
+    assert!(start["params"].get("threadId").is_none());
+    let server = &start["params"]["config"]["mcp_servers"]["atelier-annotations"];
+    assert_eq!(server["command"], "/opt/atelier/atelier-annots-mcp");
+    assert_eq!(server["env"]["ATELIER_ANNOTS_READONLY"], "1");
+    let turn = requests.iter().find(|r| r["method"] == "turn/start").unwrap();
+    // Le tour ne rouvre aucun droit : ni politique de bac à sable, ni accord.
+    assert!(turn["params"].get("sandboxPolicy").is_none());
+    assert!(turn["params"].get("approvalPolicy").is_none());
+    let text = turn["params"]["input"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with(crate::traits::REVIEW_TOOLS_SYSTEM_PROMPT), "{text}");
+    assert!(text.contains("lecture seule"), "{text}");
+    assert!(text.ends_with("DOSSIER-123"), "{text}");
+}
+
+#[test]
+fn structured_review_thread_options_never_leave_the_read_only_sandbox() {
+    let mut request = review_request("m", "high");
+    assert_eq!(
+        super::review_thread_opts(&request),
+        json!({"cwd": null, "sandbox": "read-only", "approvalPolicy": "never"})
+    );
+    request.access = Some(crate::traits::ReviewAccess {
+        project_root: "/projets/albedo".into(),
+        additional_directories: vec!["/nas/donnees".into()],
+        annotations: None,
+    });
+    assert_eq!(
+        super::review_thread_opts(&request),
+        json!({"cwd": "/projets/albedo", "sandbox": "read-only", "approvalPolicy": "never"})
+    );
+}
+
+#[tokio::test]
+async fn structured_review_with_access_refuses_a_missing_project() {
+    let fake = FakeCodex::new("normal");
+    let provider = provider(&fake);
+    let mut request = review_request("gpt-5.5", "high");
+    request.access = Some(crate::traits::ReviewAccess {
+        project_root: "/dossier/qui/n-existe-pas".into(),
+        additional_directories: vec![],
+        annotations: None,
+    });
+    let error = provider.review(request).await.unwrap_err();
+    assert!(matches!(&error, ReviewError::Provider(m) if m.contains("dossier du projet introuvable")), "{error:?}");
+    assert!(!fake.requests().iter().any(|r| r["method"] == "thread/start"));
 }
 
 #[tokio::test]

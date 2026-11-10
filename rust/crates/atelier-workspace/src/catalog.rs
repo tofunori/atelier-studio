@@ -15,6 +15,7 @@ const BUILTINS: &[&str] = &[
     "clear",
     "compact",
     "review",
+    "relire",
     "context",
     "status",
     "model",

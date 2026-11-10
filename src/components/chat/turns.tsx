@@ -1,6 +1,6 @@
 // Composants de tour du chat (plan 015, slice 4) — JSX déplacé verbatim
 // depuis le dispatcher de Chat.tsx. Chaque composant est memoizable : état
-// (editing, plis, review) et callbacks restent dans Chat, passés en props.
+// (editing, plis) et callbacks restent dans Chat, passés en props.
 // Clés et classes inchangées : le streaming et l'ancrage ne bougent pas.
 import { lazy, memo, Suspense, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { activeTurnStatus } from "./activeTurnStatus";
@@ -40,20 +40,6 @@ import { RevertConfirmDialog } from "./RevertConfirmDialog";
 type TimeFormat = "system" | "24h" | "12h" | undefined;
 type UserEvent = Extract<AgentEvent, { kind: "user" }>;
 type DoneEvent = Extract<AgentEvent, { kind: "done" }>;
-export type ReviewState = {
-  status: string;
-  verdict?: string;
-  mode?: string;
-  text?: string | null;
-  error?: string;
-  turnId?: string;
-  reviewId?: string;
-  outcome?: string | null;
-  coverage?: string;
-  executionStatus?: string;
-  issues?: { claim: string; problem: string; severity: string; fix?: string }[];
-} | null;
-
 function MessageAction(p: {
   label: string;
   onClick: () => void;
@@ -453,14 +439,14 @@ export const AssistantText = memo(function AssistantText(p: {
 });
 
 /** Capsule résultat (plan 020, étape 5) — UNIQUEMENT des données attribuables
- * au tour : statut terminal, fichiers réellement modifiés (diff à la demande),
- * review si lancée et annulation du tour. La télémétrie tokens/coût reste hors
+ * au tour : statut terminal et fichiers réellement modifiés (diff à la
+ * demande). La relecture du tour a sa propre ligne, juste au-dessus
+ * (ReviewLine, posée par ChatTimeline). La télémétrie tokens/coût reste hors
  * de l'interface. Vocabulaire honnête : « Tour terminé », jamais « réussi ». */
 export function ResultCapsule(p: {
   event: DoneEvent;
   isLastDone: boolean;
   threadId: string | null;
-  review: ReviewState;
   /** carte enrichie « N fichiers modifiés » — dérivée par l'appelant depuis
    * les events `edit` du tour, rendue seulement pour le dernier tour terminé. */
   changedFiles?: ChangedFile[];
@@ -489,11 +475,6 @@ export function ResultCapsule(p: {
             bulle du message user, qui flottait en absolu par-dessus la carte
             des fichiers. L'annulation FICHIERS vit dans cette carte. */}
       </div>
-      {/* Badge et détail de revue retirés (2026-08-21) : la barre Reviewer en
-          haut de la timeline porte déjà le MÊME verdict (mêmes clés i18n), le
-          compte d'issues, le nombre de vérifications et le bouton Corriger.
-          Deux widgets branchés sur le même objet `review`, visibles ensemble
-          sans le moindre clic. */}
       <DoneDiffToggle event={e} threadId={p.threadId} changedFiles={p.isLastDone ? p.changedFiles : undefined} />
     </div>
   );

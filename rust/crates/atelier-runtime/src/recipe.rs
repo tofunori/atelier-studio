@@ -442,6 +442,138 @@ pub fn script_literal_inputs(root: &Path, script_abs: &Path, text: &str) -> Vec<
     out
 }
 
+/// Extensions essayées pour un `\includegraphics{fig}` sans extension, dans
+/// l'ordre de pdfLaTeX.
+const TEX_FIGURE_EXTS: [&str; 5] = ["pdf", "png", "jpg", "jpeg", "eps"];
+/// Fichiers `.tex` suivis depuis le document principal (`\input`, `\include`).
+const TEX_FILES_MAX: usize = 40;
+
+/// Argument entre accolades qui suit `command` (options `[...]` sautées),
+/// pour chaque occurrence sur une ligne non commentée.
+fn tex_arguments<'a>(text: &'a str, command: &str) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        // Un `%` non échappé ouvre un commentaire jusqu'à la fin de la ligne.
+        let mut end = line.len();
+        let mut previous = ' ';
+        for (at, c) in line.char_indices() {
+            if c == '%' && previous != '\\' {
+                end = at;
+                break;
+            }
+            previous = c;
+        }
+        let mut rest = &line[..end];
+        while let Some(at) = rest.find(command) {
+            rest = &rest[at + command.len()..];
+            // `\includegraphics` ne doit pas attraper `\includegraphicsfoo`.
+            if rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            let mut tail = rest.trim_start().trim_start_matches('*').trim_start();
+            if tail.starts_with('[') {
+                let Some(close) = tail.find(']') else { break };
+                tail = tail[close + 1..].trim_start();
+            }
+            let Some(inner) = tail.strip_prefix('{') else { continue };
+            let Some(close) = inner.find('}') else { break };
+            let argument = inner[..close].trim();
+            if !argument.is_empty() && argument.len() <= 512 && !argument.contains(['#', '\\', '$']) {
+                out.push(argument);
+            }
+            rest = &inner[close + 1..];
+        }
+    }
+    out
+}
+
+/// Figures qu'un document LaTeX inclut (`\includegraphics`), y compris dans
+/// les fichiers qu'il charge par `\input`, `\include` ou `\subfile` : ce sont
+/// les entrées du PDF compilé. Un PDF devient ainsi « périmé » quand une de
+/// ses figures est régénérée après lui.
+pub fn tex_figure_inputs(root: &Path, tex_abs: &Path, text: &str) -> Vec<PathBuf> {
+    let main_dir = tex_abs.parent().unwrap_or(root).to_path_buf();
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut seen: Vec<PathBuf> = vec![normalize(tex_abs)];
+    let mut queue: Vec<String> = vec![text.to_string()];
+    let mut graphics_dirs: Vec<String> = vec![String::new()];
+    while let Some(source) = queue.pop() {
+        // `\graphicspath{{figures/}{figs/}}` : dossiers où chercher.
+        if let Some(at) = source.find("\\graphicspath") {
+            let mut depth = 0usize;
+            let mut current = String::new();
+            for c in source[at + "\\graphicspath".len()..].chars().take(600) {
+                match c {
+                    '{' => {
+                        depth += 1;
+                        current.clear();
+                    }
+                    '}' => {
+                        let dir = current.trim();
+                        if depth == 2 && !dir.is_empty() && !dir.contains(['\\', '\n'])
+                            && !graphics_dirs.iter().any(|d| d == dir) && graphics_dirs.len() < 12
+                        {
+                            graphics_dirs.push(dir.to_string());
+                        }
+                        current.clear();
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    c if depth == 2 => current.push(c),
+                    c if depth == 0 && !c.is_whitespace() => break,
+                    _ => {}
+                }
+            }
+        }
+        for name in tex_arguments(&source, "\\includegraphics") {
+            let has_extension = Path::new(name).extension().is_some();
+            let mut candidates: Vec<PathBuf> = Vec::new();
+            for base in [&main_dir, &root.to_path_buf()] {
+                for dir in &graphics_dirs {
+                    let stem = expand(&format!("{dir}{name}"), base);
+                    if has_extension {
+                        candidates.push(stem);
+                    } else {
+                        for ext in TEX_FIGURE_EXTS {
+                            let mut with = stem.clone().into_os_string();
+                            with.push(format!(".{ext}"));
+                            candidates.push(PathBuf::from(with));
+                        }
+                    }
+                }
+            }
+            if let Some(found) = candidates.iter().map(|p| normalize(p)).find(|p| p.is_file()) {
+                if !out.contains(&found) {
+                    out.push(found);
+                }
+            }
+            if out.len() >= INPUTS_MAX {
+                return out;
+            }
+        }
+        for command in ["\\input", "\\include", "\\subfile"] {
+            for name in tex_arguments(&source, command) {
+                let mut file = expand(name, &main_dir);
+                if file.extension().is_none() {
+                    file.set_extension("tex");
+                }
+                let file = normalize(&file);
+                if seen.contains(&file) || seen.len() >= TEX_FILES_MAX {
+                    continue;
+                }
+                seen.push(file.clone());
+                let small = std::fs::metadata(&file).is_ok_and(|m| m.is_file() && m.len() <= SCRIPT_SCAN_MAX_BYTES);
+                if let Some(text) = small.then(|| std::fs::read_to_string(&file).ok()).flatten() {
+                    queue.push(text);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Empreintes des fichiers, calculées une fois par tour même si plusieurs
 /// fichiers produits partagent les mêmes entrées.
 pub struct Fingerprints {
@@ -599,6 +731,8 @@ pub fn build(
     if let (Some(path), Some(text)) = (main_script.as_ref(), main_text.as_deref()) {
         if extension_lower(&path.to_string_lossy()).as_deref() != Some("tex") {
             input_paths.extend(script_literal_inputs(root, path, text));
+        } else {
+            input_paths.extend(tex_figure_inputs(root, path, text));
         }
     }
     let mut inputs = Vec::new();
@@ -757,6 +891,30 @@ mod tests {
             recipe.inputs[0]["sha256"],
             "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
         );
+    }
+
+    #[test]
+    fn un_pdf_compile_a_pour_entrees_les_figures_du_document() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        touch(root, "figures/fig1.png", "a");
+        touch(root, "figures/fig2.pdf", "b");
+        touch(root, "figures/oubliee.png", "c");
+        touch(root, "sections/resultats.tex", "\\includegraphics[width=\\linewidth]{fig2}\n");
+        touch(
+            root,
+            "main.tex",
+            "\\graphicspath{{figures/}}\n\\begin{document}\n\\includegraphics{figures/fig1.png} % \\includegraphics{figures/oubliee.png}\n\\input{sections/resultats}\n\\inputencoding{utf8}\n\\end{document}\n",
+        );
+        touch(root, "main.pdf", "pdf");
+        let commands = vec![command_facts(root, "tectonic main.tex")];
+        let mut prints = Fingerprints::default();
+        let recipe = build(root, "main.pdf", &commands, &[], &mut prints);
+        assert_eq!(recipe.command.as_deref(), Some("tectonic main.tex"));
+        assert_eq!(recipe.scripts, vec!["main.tex"]);
+        let inputs: Vec<&str> = recipe.inputs.iter().map(|i| i["path"].as_str().unwrap()).collect();
+        assert_eq!(inputs, vec!["figures/fig1.png", "figures/fig2.pdf"]);
+        assert_eq!(recipe.inputs[0]["sha256"].as_str().unwrap().len(), 64);
     }
 
     #[test]

@@ -129,3 +129,19 @@ Puis, dans `~/Library/Application Support/Claude/claude_desktop_config.json` :
 
 Relancer Claude Desktop. Exemple de demande : « Propose-moi des éléments pour
 ma discussion à partir des passages que j'ai notés. »
+
+## Lecture seule (relecteur d'Atelier)
+
+Avec `ATELIER_ANNOTS_READONLY=1`, le serveur n'annonce et n'exécute que ses
+outils de lecture (`readOnlyHint`) : `search_annotations`,
+`list_annotated_articles`, `get_article_annotations`, `read_article`,
+`list_codes`, `get_code_passages`. Un appel à un outil d'écriture est refusé.
+
+C'est ainsi que le relecteur d'Atelier (mode `claims`,
+`rust/crates/atelier-runtime/src/review_claims.rs`) le joint pour vérifier
+une citation contre son PDF ; il n'autorise en plus que `read_article` et
+`get_article_annotations`. Le relecteur cherche le binaire dans cet ordre :
+`ATELIER_ANNOTS_MCP_BIN`, à côté de `atelier-studio-server`, la commande
+déclarée ci-dessus pour Claude Desktop, puis `rust/target/` du dépôt. Sans
+binaire trouvé, la relecture se fait sans les articles et une citation reste
+« non concluante ».

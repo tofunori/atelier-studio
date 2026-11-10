@@ -4,6 +4,7 @@ export const ATELIER_NATIVE_SLASH_COMMANDS = [
   "clear",
   "compact",
   "review",
+  "relire",
   "context",
   "status",
   "model",

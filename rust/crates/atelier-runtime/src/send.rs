@@ -1980,6 +1980,10 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let tid = thread_id.clone();
     let memoire_root = project_root.clone();
     let memoire_prompt = prompt.clone();
+    // Relecture de fin de tour : le réglage que le client a joint à son
+    // envoi (le bureau le fait, l'iPhone non) et le message du tour.
+    let relecture_reglage = msg.get("autoReview").cloned();
+    let relecture_prompt = prompt.clone();
     let h2 = Arc::clone(&h);
     let pimpl = Arc::clone(&provider_impl);
     let session_id = state
@@ -2400,6 +2404,16 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 turn_id.clone(),
                 memoire_root,
                 memoire_prompt,
+            ));
+            // Relecture du contenu du tour (`autoReview`, éteint par
+            // défaut) : sur une tâche à part, après le terminal. Elle ne
+            // retarde ni la réponse ni le tour suivant.
+            tokio::spawn(crate::review_claims::review_after_turn(
+                state2.clone(),
+                tid.clone(),
+                turn_id.clone(),
+                relecture_reglage,
+                relecture_prompt,
             ));
         }
         if succeeded && auto_title {

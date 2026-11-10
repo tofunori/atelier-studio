@@ -2230,6 +2230,8 @@ export default function App() {
     const onAutoReviewToggle = () => {
       setSettings((s) => ({ ...s, autoReview: { ...s.autoReview, enabled: !s.autoReview.enabled } }));
     };
+    // État vide de la surface Résultats : « Allumer les recettes ».
+    const onResultsRecipesOn = () => setSettings((s) => ({ ...s, recipes: true }));
     const onCorrectIssues = (e: Event) => {
       const { threadId, issues } = (e as CustomEvent).detail ?? {};
       ws.current?.send(JSON.stringify({ type: "clientLog", note: `correct-issues reçu tid=${String(threadId).slice(0,8)} issues=${Array.isArray(issues)?issues.length:"?"}` }));
@@ -2352,6 +2354,7 @@ export default function App() {
       // Citation « cellule N » du chat : la surface s'ouvre sur la cellule.
       "kernel-panel-open": onKernelPanel,
       "kernel-add-to-chat": onKernelAddToChat,
+      "results-recipes-on": onResultsRecipesOn,
       "permission-answer": onPermAnswer,
       "interaction-answer": onInteractionAnswer,
       "correct-issues": onCorrectIssues,
@@ -3308,6 +3311,12 @@ export default function App() {
     }
     if (nativeCommand?.name === "usage") {
       setUsageOpen(true);
+      return;
+    }
+    // /relire : relecture du contenu du dernier tour, dans n'importe quel fil
+    // (onRequestReview, mode `claims`). /review reste la revue Git de Codex.
+    if (nativeCommand?.name === "relire") {
+      if (activeId) window.dispatchEvent(new CustomEvent("request-review", { detail: { threadId: activeId } }));
       return;
     }
     if (nativeCommand?.name === "plugins") {

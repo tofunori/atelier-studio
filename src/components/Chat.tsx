@@ -454,9 +454,7 @@ export default function Chat(p: {
   }, [selectionKey, provider, model, effort, fastMode, permissionMode]);
   const [selIdx, setSelIdx] = useState(0);
   const [quote, setQuote] = useState<{ x: number; y: number; text: string; messageIndex: number | null } | null>(null);
-  const { review, dismiss: setReview } = useReviews(p.threadId, p.events);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [barOpen, setBarOpen] = useState(false);
+  const rev = useReviews(p.threadId);
   const [pasteView, setPasteView] = useState<{ name: string; text: string } | null>(null);
   const [pasteCopied, setPasteCopied] = useState(false);
   // lecture choisie par le contenu (Source / Texte) — cf. lib/pasteView
@@ -474,12 +472,6 @@ export default function Chat(p: {
     const timer = window.setTimeout(() => setPasteCopied(false), 1200);
     return () => window.clearTimeout(timer);
   }, [pasteCopied]);
-  const [fixing, setFixing] = useState(false);
-  const [reviewMin, setReviewMin] = useState(false);
-  useEffect(() => { setBarOpen(false); setFixing(false); setReviewMin(false); }, [p.threadId]);
-  useEffect(() => {
-    if (review?.status === "done") setFixing(false);
-  }, [review]);
   const [pinMenu, setPinMenu] = useState<{ index: number; x: number; y: number } | null>(null);
 
   // ---- annotations persistantes sur les réponses ----
@@ -1194,7 +1186,7 @@ export default function Chat(p: {
           liveNote: p.liveNote ?? null,
           phase: turnViewModels[turnViewModels.length - 1]?.phase ?? "idle",
         }}
-        rev={{ review, reviewMin, setReviewMin, setReview, barOpen, setBarOpen, fixing, setFixing, reviewOpen, setReviewOpen }}
+        rev={rev}
         list={{
           renderedEvents, eventsByThreadId: p.eventsByThreadId, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
           renderToolLine, fmtWorkDur, plugins: p.plugins ?? [], onOpenAgent: openAgent,

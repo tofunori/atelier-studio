@@ -50,7 +50,12 @@ pub fn cell_recipe(kernel_dir: &Path, cell: &CellRecord, display: impl Fn(&Path)
     let snapshot = env_snapshot(kernel_dir, cell.env_sha256.as_deref());
     if let Some(snap) = &snapshot {
         env["prefix"] = json!(snap.prefix);
-        if Path::new(&snap.prefix).join("conda-meta").is_dir() {
+        if let (Some(file), Some(sha)) = (&snap.lock_file, &snap.lock_sha256) {
+            // Env pixi : le verrou fixe tout l'env, pas seulement les
+            // paquets que la cellule a importés.
+            env["pixi"] = json!(cell.env);
+            env["lock"] = json!({"file": file, "sha256": sha});
+        } else if Path::new(&snap.prefix).join("conda-meta").is_dir() {
             env["conda"] = json!(cell.env);
         }
         let packages = snap.versions(&cell.imports);
@@ -122,6 +127,40 @@ mod tests {
         assert_eq!(r["cell"]["purpose"], "Tracer la figure");
         assert_eq!(r["inputs"][0]["sha256"], "abc");
         assert_eq!(r["env"]["packages"]["numpy"], "2.1.3");
+        assert_eq!(r["env"]["lock"], serde_json::Value::Null, "pas de verrou hors pixi");
         assert!(writer_of(&kernel, "autre-fil", &fig).is_none());
+    }
+
+    #[test]
+    fn la_recette_porte_l_empreinte_du_verrou_pixi() {
+        let dir = tempfile::tempdir().unwrap();
+        let kernel = dir.path().join("kernel");
+        let projet = dir.path().join("python");
+        let prefix = crate::pixi::env_prefix(&projet);
+        std::fs::create_dir_all(prefix.join("lib/python3.12/site-packages/numpy-2.1.3.dist-info")).unwrap();
+        std::fs::create_dir_all(prefix.join("conda-meta")).unwrap();
+        std::fs::write(projet.join("pixi.lock"), "version: 7\n").unwrap();
+        let snap = EnvSnapshot::read("atelier", &prefix, "3.12.13");
+        std::fs::create_dir_all(kernel.join("envs")).unwrap();
+        std::fs::write(
+            kernel.join("envs").join(format!("{}.json", snap.sha256)),
+            serde_json::to_vec(&snap).unwrap(),
+        )
+        .unwrap();
+        let cell = CellRecord {
+            id: 1,
+            thread_id: "t".into(),
+            env: "atelier".into(),
+            imports: vec!["numpy".into()],
+            env_sha256: Some(snap.sha256.clone()),
+            ..Default::default()
+        };
+        let r = cell_recipe(&kernel, &cell, |p| p.display().to_string());
+        assert_eq!(r["env"]["pixi"], "atelier");
+        assert_eq!(r["env"]["conda"], serde_json::Value::Null);
+        assert_eq!(r["env"]["lock"]["sha256"], json!(snap.lock_sha256));
+        assert!(r["env"]["lock"]["file"].as_str().unwrap().ends_with("python/pixi.lock"));
+        assert_eq!(r["env"]["snapshotSha256"], json!(snap.sha256));
+        assert_eq!(r["env"]["packages"]["numpy"], "2.1.3");
     }
 }

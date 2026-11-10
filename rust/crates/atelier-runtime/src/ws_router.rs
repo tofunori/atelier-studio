@@ -201,6 +201,9 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "projectHistoryRestore",
     "projectHistorySaveVersion",
     "projectHistoryDeleteVersion",
+    "projectResults",
+    "projectResultDetail",
+    "projectResultStar",
 ];
 
 fn narval_reply<T: serde::Serialize>(
@@ -721,6 +724,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         | "projectHistoryRestore"
         | "projectHistorySaveVersion"
         | "projectHistoryDeleteVersion" => crate::project_history::handle(state, msg_type, &msg).await,
+        "projectResults" | "projectResultDetail" | "projectResultStar" => {
+            crate::results::handle(state, msg_type, &msg).await
+        }
         "getLedger" => {
             let root = msg
                 .get("projectRoot")

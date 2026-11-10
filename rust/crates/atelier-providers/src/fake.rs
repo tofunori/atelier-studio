@@ -14,6 +14,13 @@ pub struct FakeProvider {
     delay_ms: u64,
     structured_review: bool,
     review_text: String,
+    /// Durée simulée d'une relecture : sert à montrer qu'elle ne retient ni
+    /// la fin du tour ni le tour suivant.
+    review_delay_ms: u64,
+    /// Demandes de relecture reçues, dans l'ordre.
+    review_log: std::sync::Arc<std::sync::Mutex<Vec<ReviewRequest>>>,
+    /// Événements émis en plus pendant un tour (une édition de fichier…).
+    turn_events: Vec<serde_json::Value>,
     catalogue: Option<(u64, std::sync::Arc<std::sync::atomic::AtomicUsize>)>,
 }
 
@@ -24,6 +31,9 @@ impl FakeProvider {
             delay_ms: 5,
             structured_review: false,
             review_text: String::new(),
+            review_delay_ms: 0,
+            review_log: std::sync::Arc::default(),
+            turn_events: Vec::new(),
             catalogue:None,
         }
     }
@@ -42,6 +52,23 @@ impl FakeProvider {
         self.structured_review = true;
         self.review_text = text.into();
         self
+    }
+
+    pub fn with_review_delay(mut self, ms: u64) -> Self {
+        self.review_delay_ms = ms;
+        self
+    }
+
+    /// Ajoute un événement que chaque tour émettra avant son texte final.
+    pub fn with_turn_event(mut self, event: serde_json::Value) -> Self {
+        self.turn_events.push(event);
+        self
+    }
+
+    /// Journal partagé des demandes de relecture : à prendre avant de
+    /// confier le fournisseur au registre.
+    pub fn review_log(&self) -> std::sync::Arc<std::sync::Mutex<Vec<ReviewRequest>>> {
+        std::sync::Arc::clone(&self.review_log)
     }
 }
 
@@ -104,6 +131,9 @@ impl Provider for FakeProvider {
             (req.on_event)(json!({"kind":"delta","text": chunk}));
             tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
         }
+        for event in &self.turn_events {
+            (req.on_event)(event.clone());
+        }
         (req.on_event)(json!({"kind":"text","text":"Hello from fake provider."}));
         (req.on_event)(json!({"kind":"usage","input":10,"output":20}));
         SendResult {
@@ -125,7 +155,13 @@ impl Provider for FakeProvider {
         if !self.structured_review {
             return Err(ReviewError::Unsupported);
         }
-        let _ = (&req.model, &req.effort, &req.dossier);
+        self.review_log
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(req);
+        if self.review_delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(self.review_delay_ms)).await;
+        }
         Ok(ReviewResponse {
             text: self.review_text.clone(),
         })

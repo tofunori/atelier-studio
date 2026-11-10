@@ -39,6 +39,7 @@ use notify::{EventKind, RecursiveMode, Watcher};
 use serde_json::{Value, json};
 use std::{
     fs,
+    net::{Ipv4Addr, Ipv6Addr},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -1065,8 +1066,76 @@ fn authorized(headers: &HeaderMap, token: &str) -> bool {
         .is_some_and(|value| value == expected)
 }
 
+/// Vrai si `authority` (la valeur d'un en-tête `Host`) désigne CE serveur par
+/// un nom de boucle locale : `localhost` ou une adresse IP littérale de boucle
+/// locale, suivis ou non du port du serveur. Tout autre nom est étranger, même
+/// s'il se résout vers 127.0.0.1 — c'est justement le cas à refuser.
+///
+/// Le port est facultatif : un navigateur ne l'omet que sur le port 80, et la
+/// sonde `check_frame` (atelier-workspace `scan.rs`) n'en envoie jamais. Quand
+/// il est présent, c'est celui du serveur, comme pour `Origin`.
+fn loopback_authority(authority: &str, own_port: u16) -> bool {
+    let port = if let Some(rest) = authority.strip_prefix('[') {
+        // adresse IPv6 entre crochets : `[::1]` ou `[::1]:<port>`
+        let Some((host, after)) = rest.split_once(']') else {
+            return false;
+        };
+        if !host.parse::<Ipv6Addr>().is_ok_and(|ip| ip.is_loopback()) {
+            return false;
+        }
+        match after.strip_prefix(':') {
+            Some(port) => Some(port),
+            None if after.is_empty() => None,
+            None => return false,
+        }
+    } else {
+        let (host, port) = match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        };
+        // `localhost.` (point final) est le même nom ; la casse ne compte pas
+        let name = host.strip_suffix('.').unwrap_or(host);
+        let local = name.eq_ignore_ascii_case("localhost")
+            || host.parse::<Ipv4Addr>().is_ok_and(|ip| ip.is_loopback());
+        if !local {
+            return false;
+        }
+        port
+    };
+    match port {
+        None => true,
+        Some(port) => {
+            !port.is_empty()
+                && port.bytes().all(|b| b.is_ascii_digit())
+                && port.parse::<u16>() == Ok(own_port)
+        }
+    }
+}
+
+/// Garde contre le DNS rebinding. Une page servie depuis `evil.example`, dont
+/// le nom est ensuite re-résolu vers 127.0.0.1, interroge la galerie en MÊME
+/// origine : ses GET n'ont pas d'`Origin`, donc `loopback_origin` les accepte.
+/// Leur `Host` reste pourtant celui de l'attaquant — un navigateur ne laisse
+/// pas une page le réécrire. On exige donc un `Host` de boucle locale.
+///
+/// Sans `Host` (HTTP/1.0 d'une sonde), on accepte, comme sans `Origin` : tout
+/// navigateur en envoie un, et un client qui n'est pas un navigateur n'a pas
+/// besoin de rebinding pour lire la boucle locale. Deux `Host` : refusé.
+fn loopback_host(headers: &HeaderMap, own_port: u16) -> bool {
+    let mut hosts = headers.get_all(header::HOST).iter();
+    let Some(host) = hosts.next() else {
+        return true;
+    };
+    hosts.next().is_none()
+        && host
+            .to_str()
+            .is_ok_and(|value| loopback_authority(value, own_port))
+}
+
 pub(crate) fn request_allowed(headers: &HeaderMap, state: &AppState) -> bool {
-    (!state.remote && loopback_origin(headers, state.port))
+    (!state.remote
+        && loopback_origin(headers, state.port)
+        && loopback_host(headers, state.port))
         || authorized(headers, &state.agent_token)
 }
 
@@ -1156,11 +1225,14 @@ async fn origin_guard_middleware(
     next: Next,
 ) -> axum::response::Response {
     if !request_allowed(req.headers(), &state) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({"error": "loopback origin required"})),
-        )
-            .into_response();
+        // le motif distingue un Host étranger (DNS rebinding, redirection de
+        // port vers un autre port local) d'une origine étrangère
+        let error = if !state.remote && !loopback_host(req.headers(), state.port) {
+            "loopback host required"
+        } else {
+            "loopback origin required"
+        };
+        return (StatusCode::FORBIDDEN, Json(json!({"error": error}))).into_response();
     }
     next.run(req).await
 }
@@ -2373,6 +2445,102 @@ mod cors_tests {
         assert!(cors_allowed_origin(&headers(Some("null"), None), 19175, "tok").is_none());
         // pas d'Origin (curl, navigation) : rien à échoyer, rien à faire
         assert!(cors_allowed_origin(&headers(None, None), 19175, "tok").is_none());
+    }
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::{loopback_authority, loopback_host};
+    use axum::http::{HeaderMap, HeaderValue, header};
+
+    const PORT: u16 = 19175;
+
+    fn with_hosts(values: &[&str]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for value in values {
+            h.append(header::HOST, HeaderValue::from_str(value).unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn les_noms_de_boucle_locale_designent_ce_serveur() {
+        for host in [
+            // sonde de l'app, webview, pages de la galerie, curl de la doc
+            "127.0.0.1:19175",
+            // suite diff (Node) et onglet navigateur
+            "localhost:19175",
+            "LOCALHOST:19175",
+            "localhost.:19175",
+            "[::1]:19175",
+            // toute la plage 127/8 est la boucle locale
+            "127.0.0.2:19175",
+            // sonde `check_frame` : jamais de port
+            "127.0.0.1",
+            "localhost",
+            "[::1]",
+        ] {
+            assert!(loopback_authority(host, PORT), "{host}");
+        }
+    }
+
+    #[test]
+    fn un_nom_etranger_n_est_jamais_ce_serveur() {
+        for host in [
+            // le cas du rebinding : un nom public re-résolu vers 127.0.0.1
+            "evil.example:19175",
+            "evil.example",
+            // noms qui imitent la boucle locale
+            "127.0.0.1.evil.example:19175",
+            "localhost.evil.example:19175",
+            "evil.localhost:19175",
+            "localhost..:19175",
+            "localhostx:19175",
+            // adresses qui ne sont pas la boucle locale
+            "0.0.0.0:19175",
+            "192.168.1.10:19175",
+            "[::]:19175",
+            "[::ffff:127.0.0.1]:19175",
+            "[fe80::1]:19175",
+            // formes IPv4 non canoniques : refusées plutôt qu'interprétées
+            "127.1:19175",
+            "2130706433:19175",
+            "0x7f.0.0.1:19175",
+            // un autre port n'est pas ce serveur
+            "127.0.0.1:19176",
+            "localhost:80",
+            "[::1]:19176",
+            // ports mal formés
+            "127.0.0.1:",
+            "127.0.0.1:+19175",
+            "127.0.0.1:19175:19175",
+            "127.0.0.1:19175 ",
+            "127.0.0.1:99999",
+            // crochets mal formés, identifiants, valeur vide
+            "[::1",
+            "[::1]19175",
+            "::1",
+            "user@127.0.0.1:19175",
+            "",
+            " 127.0.0.1:19175",
+        ] {
+            assert!(!loopback_authority(host, PORT), "{host:?}");
+        }
+    }
+
+    #[test]
+    fn sans_host_on_sert_avec_deux_host_on_refuse() {
+        // HTTP/1.0 d'une sonde : jamais un navigateur
+        assert!(loopback_host(&HeaderMap::new(), PORT));
+        assert!(loopback_host(&with_hosts(&["127.0.0.1:19175"]), PORT));
+        assert!(!loopback_host(&with_hosts(&["evil.example:19175"]), PORT));
+        // deux Host, même tous deux locaux : requête ambiguë, refusée
+        assert!(!loopback_host(&with_hosts(&["127.0.0.1:19175", "evil.example:19175"]), PORT));
+        assert!(!loopback_host(&with_hosts(&["127.0.0.1:19175", "127.0.0.1:19175"]), PORT));
+        // octets non ASCII : pas un nom de boucle locale
+        let mut h = HeaderMap::new();
+        h.insert(header::HOST, HeaderValue::from_bytes(b"localhost\xff:19175").unwrap());
+        assert!(!loopback_host(&h, PORT));
     }
 }
 

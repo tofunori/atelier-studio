@@ -155,22 +155,25 @@ pub const PYTHON_TOOL_NAME: &str = "atelier_python";
 pub fn python_tool_definition() -> Value {
     json!({
         "name": PYTHON_TOOL_NAME,
-        "description": "Persistent Python kernel of this conversation (like a notebook: variables and \
-    loaded data stay in memory between calls; every cell is logged). Only works when the user turned it on \
-    for this conversation; otherwise use your shell. Actions: run (code and purpose, optional env on first \
-    run), wait, variables, interrupt, restart, envs, status. Cite a number a cell printed with its citeAs link.",
+        "description": "Persistent Python kernel of this conversation (a notebook: variables and loaded data \
+    stay in memory between calls; every cell is logged). Only works when the user turned it on; otherwise \
+    use your shell. Actions: run (code, purpose), wait, variables, interrupt, restart, envs, status, add / \
+    remove / packages (env packages: never pip or conda yourself). Cite a number a cell printed with its \
+    citeAs link. Open matplotlib figures come back as images in the result: look at them.",
         "inputSchema": {
             "type": "object",
             "required": ["action"],
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["run", "wait", "variables", "interrupt", "restart", "envs", "status"]
+                    "enum": ["run", "wait", "variables", "interrupt", "restart", "envs", "status", "add", "remove", "packages"]
                 },
                 "code": { "type": "string", "description": "Python code of the cell (run). The value of a last bare expression is returned." },
                 "purpose": { "type": "string", "description": "What this cell does, one short sentence in the user's language (run). It titles the cell in the user's notebook." },
                 "cell": { "type": "integer", "description": "Cell number (wait)" },
-                "env": { "type": "string", "description": "Env name from action envs, or an absolute path (run, restart)" },
+                "env": { "type": "string", "description": "Env name from action envs, or an absolute path (run, restart). Omit it to use the default env." },
+                "packages": { "type": "array", "items": { "type": "string" }, "description": "Package names (add, remove), conda-forge by default, e.g. [\"xarray\", \"numpy>=2.1\"]. Names only: no option, path or URL." },
+                "pypi": { "type": "boolean", "description": "The packages come from PyPI (add, remove). Only for a package conda-forge does not have." },
                 "waitSeconds": { "type": "integer", "description": "Max seconds to wait before returning status running (default 45, max 50)" }
             },
             "additionalProperties": false
@@ -593,9 +596,21 @@ mod tests {
         assert_eq!(action, "kernel_run");
         assert_eq!(forwarded["code"], "x = 1");
         assert!(bridge_call_for(PYTHON_TOOL_NAME, &json!({})).is_none());
+        // Les paquets passent par l'outil, avec leur liste telle quelle.
+        let args = json!({"action": "add", "packages": ["xarray", "numpy>=2.1"], "pypi": false});
+        let (action, forwarded) = bridge_call_for(PYTHON_TOOL_NAME, &args).unwrap();
+        assert_eq!(action, "kernel_add");
+        assert_eq!(forwarded["packages"], json!(["xarray", "numpy>=2.1"]));
         // La description repart à chaque tour : elle reste courte.
         let def = python_tool_definition();
         assert!(def["description"].as_str().unwrap().len() < 500);
+        // Elle dit que les figures reviennent en images, même à une session
+        // ouverte avant que la consigne du noyau n'en parle.
+        assert!(def["description"].as_str().unwrap().contains("come back as images"));
+        let actions = def["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap();
+        for action in ["add", "remove", "packages"] {
+            assert!(actions.contains(&json!(action)), "{action}");
+        }
     }
 
     #[test]

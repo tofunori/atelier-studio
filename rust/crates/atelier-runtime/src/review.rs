@@ -1,8 +1,9 @@
 //! Isolated structured review (plan 080 A2) and native Git classification (A1).
 
+use crate::review_claims::{self, TurnFacts};
 use crate::state::AppState;
 use crate::ws_router::{err_thread, json_msg};
-use atelier_providers::{ReviewError, ReviewRequest};
+use atelier_providers::{ReviewAccess, ReviewError, ReviewRequest};
 use atelier_store::{
     dedup_key, evidence_sha256, hash_config, new_review_id, now_iso, RequiredCheck, ReviewCheck,
     ReviewConfig, ReviewErrorInfo, ReviewEvidence, ReviewInput, ReviewPolicy, ReviewRecord,
@@ -149,6 +150,19 @@ pub fn build_review_input(
     mode: &str,
     events: &[Value],
 ) -> ReviewInput {
+    build_review_input_with(thread_id, turn_id, mode, events, &TurnFacts::default())
+}
+
+/// Dossier figé d'un tour. `facts` : ce que le runtime sait en plus du
+/// journal du fil (dossier du projet, cellules du noyau) ; seul le mode
+/// `claims` s'en sert.
+pub fn build_review_input_with(
+    thread_id: &str,
+    turn_id: &str,
+    mode: &str,
+    events: &[Value],
+    facts: &TurnFacts,
+) -> ReviewInput {
     let turn_events = events_for_turn(events, turn_id);
     let prompt = turn_events
         .iter()
@@ -187,6 +201,10 @@ pub fn build_review_input(
             "réponse du tour",
         );
     }
+    // Pour le mode `claims` : les outils du tour et, parmi eux, les commandes
+    // shell (ce qui a vraiment tourné).
+    let mut tool_names = Vec::new();
+    let mut shell_evidence = Vec::new();
     for (index, event) in turn_events
         .iter()
         .filter(|event| {
@@ -198,6 +216,15 @@ pub fn build_review_input(
         .enumerate()
     {
         let name = event.get("name").and_then(Value::as_str).unwrap_or("outil");
+        // `__…` : marqueurs internes du runtime, pas des outils de l'agent.
+        if !name.starts_with("__") {
+            tool_names.push(name.to_string());
+            if crate::prov::is_shell_tool(name) {
+                if let Some(command) = crate::prov::command_from_tool_event(event) {
+                    shell_evidence.push((format!("tool-{index}"), command));
+                }
+            }
+        }
         // Preserve the journal reference, exact invocation, exit code and all
         // upstream loss markers; a preview must not become a complete proof.
         let body = serde_json::to_string(event).expect("journal event JSON");
@@ -355,6 +382,22 @@ pub fn build_review_input(
             path,
         );
     }
+    let mut extra = Map::new();
+    if mode == REVIEW_MODE_CLAIMS {
+        let complements = review_claims::dossier_complements(
+            turn_id,
+            &responses,
+            &changed_files,
+            &tool_names,
+            &shell_evidence,
+            facts,
+        );
+        for (id, origin, kind, content, summary) in &complements.evidence {
+            push_evidence(&mut evidence, id, origin, kind, content, summary);
+        }
+        truncated.extend(complements.truncated);
+        extra = complements.extra;
+    }
     let required_checks = required_checks_for(mode, &evidence, &missing);
     if prompt.trim().is_empty() {
         missing.push("prompt".into());
@@ -376,7 +419,7 @@ pub fn build_review_input(
         truncated,
         diff,
         diff_scope: "turn".into(),
-        extra: Map::new(),
+        extra,
     }
 }
 
@@ -405,6 +448,9 @@ fn required_checks_for(
     evidence: &[ReviewEvidence],
     missing: &[String],
 ) -> Vec<RequiredCheck> {
+    if mode == REVIEW_MODE_CLAIMS {
+        return review_claims::required_checks(evidence);
+    }
     if mode != REVIEW_MODE_GIT {
         return Vec::new();
     }
@@ -427,37 +473,74 @@ fn required_checks_for(
 }
 
 pub fn transmitted_dossier(input: &ReviewInput) -> (String, Vec<String>, String) {
-    let full = render_dossier(input, true);
+    // En mode `claims`, la fin du dossier (fermeture des données, rappel du
+    // format) est gardée même quand le reste est coupé.
+    let tag = (input.mode == REVIEW_MODE_CLAIMS).then(data_tag);
+    let tail = tag.as_deref().map(dossier_tail).unwrap_or_default();
+    let full = render_dossier(input, true, tag.as_deref());
     if full.len() <= MAX_DOSSIER_BYTES {
         let coverage = coverage_of(input, &[]);
         return (full, Vec::new(), coverage);
     }
-    let compact = render_dossier(input, false);
+    let compact = render_dossier(input, false, tag.as_deref());
     let truncated = vec!["dossier-transmitted".into()];
     let coverage = coverage_of(input, &truncated);
     if compact.len() <= MAX_DOSSIER_BYTES {
         (compact, truncated, coverage)
     } else {
-        let mut end = MAX_DOSSIER_BYTES;
+        let mut end = MAX_DOSSIER_BYTES - tail.len();
         while !compact.is_char_boundary(end) {
             end -= 1;
         }
-        let clipped = compact[..end].to_string();
+        let clipped = format!("{}{tail}", &compact[..end]);
         (clipped, truncated, coverage)
     }
 }
 
-fn render_dossier(input: &ReviewInput, include_content: bool) -> String {
+/// Balise qui délimite les données non fiables d'un dossier `claims`. Le
+/// jeton est tiré au hasard à chaque dossier : un texte relu ne peut pas
+/// écrire d'avance la balise fermante pour sortir du bloc.
+fn data_tag() -> String {
+    let token: String = new_review_id()
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(12)
+        .collect();
+    format!("donnees-{token}")
+}
+
+/// Fin d'un dossier `claims` : fermeture des données, rappel du format.
+fn dossier_tail(tag: &str) -> String {
+    format!("</{tag}>\n{}\n", review_claims::FORMAT_LINE)
+}
+
+/// `data_tag` : la balise des données en mode `claims` ; `None` en mode
+/// `git`, dont le rendu ne change pas.
+fn render_dossier(input: &ReviewInput, include_content: bool, data_tag: Option<&str>) -> String {
     let checks =
         serde_json::to_string_pretty(&input.required_checks).unwrap_or_else(|_| "[]".into());
     let mut body = String::new();
-    body.push_str(
-        "Tu es un vérificateur indépendant. N'utilise aucun outil. Réponds uniquement par JSON.\n",
-    );
-    body.push_str(&format!("scopeId: {}\n", input.scope_id));
-    body.push_str(&format!("mode: {}\n", input.mode));
-    body.push_str("diffScope: changements du tour ciblé uniquement, pas le dépôt entier.\n");
-    body.push_str(&format!("requiredChecks:\n{checks}\n"));
+    if let Some(tag) = data_tag {
+        // La consigne vient AVANT les données, et tout ce qui vient du tour
+        // relu est enfermé entre deux balises : c'est une donnée.
+        body.push_str(&review_claims::instructions(input, tag));
+        body.push_str(&format!("scopeId: {}\n", input.scope_id));
+        body.push_str(&format!("mode: {}\n", input.mode));
+        body.push_str(&format!("requiredChecks:\n{checks}\n"));
+        body.push_str(&format!(
+            "serverChecks:\n{}\n",
+            review_claims::server_checks_block(input)
+        ));
+        body.push_str(&format!("<{tag}>\n"));
+    } else {
+        body.push_str(
+            "Tu es un vérificateur indépendant. N'utilise aucun outil. Réponds uniquement par JSON.\n",
+        );
+        body.push_str(&format!("scopeId: {}\n", input.scope_id));
+        body.push_str(&format!("mode: {}\n", input.mode));
+        body.push_str("diffScope: changements du tour ciblé uniquement, pas le dépôt entier.\n");
+        body.push_str(&format!("requiredChecks:\n{checks}\n"));
+    }
     body.push_str(&format!("prompt:\n{}\n", input.prompt));
     body.push_str("responses:\n");
     for response in &input.responses {
@@ -484,9 +567,13 @@ fn render_dossier(input: &ReviewInput, include_content: bool) -> String {
             body.push('\n');
         }
     }
-    body.push_str(
-        "Réponds exclusivement avec {\"checks\":[{\"id\":\"...\",\"claim\":\"...\",\"outcome\":\"passed|failed|inconclusive\",\"evidenceIds\":[\"...\"]}],\"limitations\":[]}\n",
-    );
+    if let Some(tag) = data_tag {
+        body.push_str(&dossier_tail(tag));
+    } else {
+        body.push_str(
+            "Réponds exclusivement avec {\"checks\":[{\"id\":\"...\",\"claim\":\"...\",\"outcome\":\"passed|failed|inconclusive\",\"evidenceIds\":[\"...\"]}],\"limitations\":[]}\n",
+        );
+    }
     body
 }
 
@@ -541,7 +628,16 @@ struct ModelCheck {
     outcome: String,
     #[serde(rename = "evidenceIds", default)]
     evidence_ids: Vec<String>,
+    /// Mode `claims` : famille de l'affirmation et preuve en clair.
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
+    proof: Option<String>,
 }
+
+/// Longueur gardée d'une preuve en clair : assez pour un extrait et sa
+/// source, sans laisser un relecteur bavard gonfler le verdict durable.
+const MAX_PROOF_CHARS: usize = 2000;
 
 pub fn decide_review(input: &ReviewInput, raw_text: &str) -> ReviewDecision {
     let (_, truncated, _) = transmitted_dossier(input);
@@ -554,21 +650,41 @@ fn decide_transmitted_review(
     truncated: &[String],
 ) -> ReviewDecision {
     let coverage = coverage_of(input, truncated);
-    let known_ids: HashSet<_> = input
+    let claims = input.mode == REVIEW_MODE_CLAIMS;
+    let dossier_ids: HashSet<_> = input
         .evidence
         .iter()
         .map(|item| item.evidence_id.as_str())
         .collect();
+    // En mode `claims`, le relecteur lit aussi des fichiers et des articles :
+    // ces preuves-là sont recevables si le serveur peut les rattacher à ce
+    // que le relecteur avait le droit de lire.
+    let known = |id: &str| {
+        dossier_ids.contains(id) || (claims && review_claims::dynamic_evidence_known(input, id))
+    };
     let parsed = parse_model_output(raw_text);
     let mut limitations = input.missing.clone();
     limitations.extend(input.truncated.clone());
     limitations.extend_from_slice(truncated);
     let Ok(output) = parsed else {
         limitations.push("unparseable".into());
+        // Les vérifications faites par le serveur tiennent même si la
+        // réponse du relecteur est illisible : un chiffre cité absent de sa
+        // cellule reste un problème.
+        let checks = if claims {
+            review_claims::server_checks(input)
+        } else {
+            Vec::new()
+        };
+        let outcome = if checks.iter().any(|check| check.outcome == "failed") {
+            "failed"
+        } else {
+            "inconclusive"
+        };
         return ReviewDecision {
-            outcome: "inconclusive".into(),
+            outcome: outcome.into(),
             coverage,
-            checks: Vec::new(),
+            checks,
             limitations,
         };
     };
@@ -584,22 +700,24 @@ fn decide_transmitted_review(
             duplicate = true;
             continue;
         }
-        if item
-            .evidence_ids
-            .iter()
-            .any(|id| !known_ids.contains(id.as_str()))
-        {
+        if item.evidence_ids.iter().any(|id| !known(id)) {
             unknown_evidence = true;
         }
         let outcome = match item.outcome.as_str() {
             "passed" | "failed" | "inconclusive" => item.outcome,
             _ => "inconclusive".into(),
         };
+        let proof = item
+            .proof
+            .map(|proof| proof.trim().chars().take(MAX_PROOF_CHARS).collect::<String>())
+            .filter(|proof| !proof.is_empty());
         checks.push(ReviewCheck {
             id: item.id,
             claim: item.claim.unwrap_or_default(),
             outcome,
             evidence_ids: item.evidence_ids,
+            category: item.category,
+            proof,
         });
     }
     if duplicate {
@@ -608,6 +726,10 @@ fn decide_transmitted_review(
     if unknown_evidence {
         limitations.push("unknown-evidence".into());
     }
+    // Règles du serveur propres aux affirmations : un « vérifié » sans preuve
+    // ou un « calculé » sans exécution ne passe pas, et les chiffres cités
+    // avec leur cellule sont jugés ici, pas par le relecteur.
+    let nothing_verified = claims && review_claims::apply_rules(input, &mut checks, &mut limitations);
     let required_ids: Vec<_> = input
         .required_checks
         .iter()
@@ -644,6 +766,7 @@ fn decide_transmitted_review(
         || missing_check_evidence
         || omitted
         || duplicate
+        || nothing_verified
         || required_ids.is_empty()
         || coverage != "complete"
         || !required_all_passed
@@ -685,16 +808,69 @@ pub fn project_review_result(record: &ReviewRecord, request_id: Option<&str>) ->
         (_, Some("inconclusive")) => json!("inconclusive"),
         _ => json!("inconclusive"),
     };
-    let issues: Vec<Value> = record
+    let claims = record.mode == REVIEW_MODE_CLAIMS;
+    let failed: Vec<&ReviewCheck> = record
         .checks
         .iter()
         .filter(|check| check.outcome == "failed")
+        .collect();
+    // Mode `claims` : une famille en échec répète l'affirmation qui l'a fait
+    // échouer. On montre l'affirmation ; la famille seulement si elle est
+    // seule à porter le problème.
+    let precise: Vec<&ReviewCheck> = failed
+        .iter()
+        .copied()
+        .filter(|check| !claims || !review_claims::is_required_check_id(&check.id))
+        .collect();
+    let issues: Vec<Value> = if precise.is_empty() { &failed } else { &precise }
+        .iter()
         .map(|check| {
             json!({
                 "claim": check.claim,
-                "problem": check.outcome,
+                // La preuve en clair quand le relecteur (ou le serveur) en a
+                // écrit une ; sinon le résultat brut, comme avant.
+                "problem": check.proof.as_deref().unwrap_or(check.outcome.as_str()),
                 "severity": "review",
             })
+        })
+        .collect();
+    // Une entrée par affirmation, vérifiée ou non : c'est ce que la ligne
+    // « Relecture » du chat déplie. `issues` ne porte que les échecs et reste
+    // tel quel (anciens clients, app iPhone). En mode `claims`, les
+    // vérifications exigées (extraction, familles) ne sont pas des
+    // affirmations : une famille n'apparaît que si elle est seule à porter
+    // l'échec, comme dans `issues`.
+    let listed: Vec<Value> = record
+        .checks
+        .iter()
+        .filter(|check| {
+            !claims
+                || !review_claims::is_required_check_id(&check.id)
+                || (precise.is_empty() && check.outcome == "failed")
+        })
+        .map(|check| {
+            let mut entry = json!({
+                "id": check.id,
+                "claim": check.claim,
+                "outcome": check.outcome,
+                "evidenceIds": check.evidence_ids,
+            });
+            let fields = entry.as_object_mut().unwrap();
+            if let Some(category) = &check.category {
+                fields.insert("category".into(), json!(category));
+            }
+            if let Some(proof) = &check.proof {
+                fields.insert("proof".into(), json!(proof));
+            }
+            // La cellule du noyau qui sert de preuve : le chat l'ouvre.
+            let cell = check
+                .evidence_ids
+                .iter()
+                .find_map(|id| id.strip_prefix("cell-")?.parse::<u64>().ok());
+            if let Some(cell) = cell {
+                fields.insert("cell".into(), json!(cell));
+            }
+            entry
         })
         .collect();
     let mut payload = json!({
@@ -709,6 +885,7 @@ pub fn project_review_result(record: &ReviewRecord, request_id: Option<&str>) ->
         "coverage": record.coverage,
         "mode": record.mode,
         "issues": issues,
+        "claims": listed,
         "checks": record.checks.len(),
         "limitations": record.limitations,
         "createdAt": record.created_at,
@@ -725,6 +902,24 @@ pub fn project_review_result(record: &ReviewRecord, request_id: Option<&str>) ->
             "error".into(),
             json!({"code": error.code, "message": error.message}),
         );
+    }
+    if claims {
+        let fields = payload.as_object_mut().unwrap();
+        // Ce contre quoi la relecture a vérifié (figé avec le verdict).
+        for key in ["checkedFiles", "checkedTools"] {
+            if let Some(list) = record.extra.get(key).filter(|list| list.is_array()) {
+                fields.insert(key.into(), list.clone());
+            }
+        }
+        // Un « non concluant » dit pourquoi : les affirmations restées sans
+        // preuve et les limites de la relecture.
+        if execution_status == "completed" && record.outcome.as_deref() == Some("inconclusive") {
+            if let Some(text) =
+                review_claims::inconclusive_text(&record.checks, &record.limitations)
+            {
+                fields.insert("text".into(), json!(text));
+            }
+        }
     }
     payload
 }
@@ -757,76 +952,94 @@ pub async fn handle_request_review(state: &AppState, msg: &Value) -> Vec<String>
             Ok(trigger) => trigger,
             Err(error) => return vec![err_thread(thread_id, error)],
         };
-    let config = ReviewConfig {
-        provider: auto
-            .and_then(|v| v.get("provider"))
-            .and_then(Value::as_str)
-            .unwrap_or("codex")
-            .to_string(),
-        model: auto
-            .and_then(|v| v.get("model"))
-            .and_then(Value::as_str)
-            .unwrap_or("gpt-5.5")
-            .to_string(),
-        effort: auto
-            .and_then(|v| v.get("effort"))
-            .and_then(Value::as_str)
-            .unwrap_or("high")
-            .to_string(),
-    };
-    let policy = ReviewPolicy {
-        enabled: auto
-            .and_then(|v| v.get("enabled"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        trigger: trigger.clone(),
-        autofix: auto
-            .and_then(|v| v.get("autofix"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        max_corrections: 1,
-    };
+    let (config, policy) = review_claims::config_and_policy(auto, &trigger);
     // Hash the admitted payload, not the subsequently resolved implicit turn.
     let mut payload = msg.as_object().cloned().unwrap_or_default();
     payload.remove("requestId");
     payload.remove("type");
-    let fingerprint = atelier_store::canonical_sha256(&Value::Object(payload));
+    let order = ReviewOrder {
+        mode,
+        turn_id: msg
+            .get("turnId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string),
+        trigger: "manual".into(),
+        request_id: request_id.map(str::to_string),
+        fingerprint: atelier_store::canonical_sha256(&Value::Object(payload)),
+        config,
+        policy,
+    };
+    match admit_review(state, &thread, order).await {
+        Ok(projected) => vec![json_msg(projected)],
+        Err(error) => vec![err_thread(thread_id, error)],
+    }
+}
+
+/// Une relecture à admettre : à la demande (`requestReview`) ou d'office en
+/// fin de tour (`review_claims::review_after_turn`).
+pub struct ReviewOrder {
+    pub mode: String,
+    /// `None` : le dernier tour terminé du fil.
+    pub turn_id: Option<String>,
+    /// Ce qui a déclenché la relecture, écrit dans le verdict durable :
+    /// `manual` à la demande, sinon le déclencheur du réglage.
+    pub trigger: String,
+    pub request_id: Option<String>,
+    /// Empreinte de la demande : un même identifiant ne sert pas deux
+    /// demandes différentes.
+    pub fingerprint: String,
+    pub config: ReviewConfig,
+    pub policy: ReviewPolicy,
+}
+
+/// Fige le dossier du tour, réserve la relecture et la lance sur une tâche à
+/// part. Rend tout de suite l'état initial (`running`), ou l'état d'une
+/// relecture déjà admise pour la même demande.
+pub async fn admit_review(
+    state: &AppState,
+    thread: &atelier_store::Thread,
+    order: ReviewOrder,
+) -> Result<Value, String> {
+    let thread_id = thread.id.as_str();
+    let request_id = order.request_id.as_deref();
     if let Some(request_id) = request_id {
-        match state.reviews().get_by_request(request_id) {
-            Ok(Some(existing)) => {
-                if existing.thread_id == thread_id
-                    && existing
-                        .extra
-                        .get("requestFingerprint")
-                        .and_then(Value::as_str)
-                        == Some(fingerprint.as_str())
-                {
-                    return vec![json_msg(project_review_result(&existing, Some(request_id)))];
-                }
-                return vec![err_thread(thread_id, "REQUEST_COLLISION")];
+        if let Some(existing) = state
+            .reviews()
+            .get_by_request(request_id)
+            .map_err(|error| error.to_string())?
+        {
+            if existing.thread_id == thread_id
+                && existing
+                    .extra
+                    .get("requestFingerprint")
+                    .and_then(Value::as_str)
+                    == Some(order.fingerprint.as_str())
+            {
+                return Ok(project_review_result(&existing, Some(request_id)));
             }
-            Ok(None) => {}
-            Err(error) => return vec![err_thread(thread_id, error.to_string())],
+            return Err("REQUEST_COLLISION".into());
         }
     }
     let events = state.journal().materialize(thread_id);
-    let turn_id = match msg
-        .get("turnId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-    {
-        Some(id) => id.to_string(),
-        None => match last_finished_turn_id(&events) {
-            Some(id) => id,
-            None => return vec![err_thread(thread_id, "review: aucun tour terminé")],
-        },
+    let turn_id = match order.turn_id {
+        Some(id) => id,
+        None => last_finished_turn_id(&events).ok_or("review: aucun tour terminé")?,
     };
-    let input = build_review_input(thread_id, &turn_id, &mode, &events);
-    let input_hash = match state.reviews().put_input(&input) {
-        Ok(hash) => hash,
-        Err(error) => return vec![err_thread(thread_id, error.to_string())],
+    let mode = order.mode;
+    // Mode `claims` : ce que le runtime sait du tour en plus du journal du
+    // fil (dossier du projet, cellules du noyau) entre dans le dossier figé.
+    let facts = if mode == REVIEW_MODE_CLAIMS {
+        review_claims::turn_facts(state, thread_id, &thread.project_root, &events, &turn_id).await
+    } else {
+        TurnFacts::default()
     };
-    let config_hash = hash_config(&config, &policy);
+    let input = build_review_input_with(thread_id, &turn_id, &mode, &events, &facts);
+    let input_hash = state
+        .reviews()
+        .put_input(&input)
+        .map_err(|error| error.to_string())?;
+    let config_hash = hash_config(&order.config, &order.policy);
     let now = now_iso();
     let record = ReviewRecord {
         schema_version: REVIEW_SCHEMA_VERSION,
@@ -836,11 +1049,11 @@ pub async fn handle_request_review(state: &AppState, msg: &Value) -> Vec<String>
         input_hash: input_hash.clone(),
         config_hash: config_hash.clone(),
         dedup_key: dedup_key(thread_id, &turn_id, &input_hash, &config_hash, &mode),
-        client_request_id: request_id.map(str::to_string),
+        client_request_id: order.request_id.clone(),
         mode: mode.clone(),
-        trigger: "manual".into(),
-        config: config.clone(),
-        policy,
+        trigger: order.trigger,
+        config: order.config,
+        policy: order.policy,
         status: "queued".into(),
         outcome: None,
         coverage: coverage_of(&input, &[]),
@@ -850,22 +1063,17 @@ pub async fn handle_request_review(state: &AppState, msg: &Value) -> Vec<String>
         created_at: now.clone(),
         updated_at: now,
         error: None,
-        extra: Map::from_iter([("requestFingerprint".into(), json!(fingerprint))]),
+        extra: Map::from_iter([("requestFingerprint".into(), json!(order.fingerprint))]),
     };
-    let reserved = match state.reviews().reserve(record) {
-        Ok(reserved) => reserved,
-        Err(error) => return vec![err_thread(thread_id, error.to_string())],
-    };
+    let reserved = state
+        .reviews()
+        .reserve(record)
+        .map_err(|error| error.to_string())?;
     match reserved {
         ReviewReservation::Collision(existing) => {
-            vec![err_thread(
-                thread_id,
-                format!("REQUEST_COLLISION:{}", existing.review_id),
-            )]
+            Err(format!("REQUEST_COLLISION:{}", existing.review_id))
         }
-        ReviewReservation::Existing(existing) => {
-            vec![json_msg(project_review_result(&existing, request_id))]
-        }
+        ReviewReservation::Existing(existing) => Ok(project_review_result(&existing, request_id)),
         ReviewReservation::New(record) => {
             let projected = project_review_result(&record, request_id);
             let state = state.clone();
@@ -874,9 +1082,26 @@ pub async fn handle_request_review(state: &AppState, msg: &Value) -> Vec<String>
             tokio::spawn(async move {
                 run_isolated_review(state, review_id, thread_id_owned, input).await;
             });
-            vec![json_msg(projected)]
+            Ok(projected)
         }
     }
+}
+
+/// Ce que le relecteur a le droit de lire, d'après le dossier figé. Mode
+/// `claims` seulement, et seulement si le dossier du projet existait à
+/// l'admission ; le mode `git` reste sans outil.
+fn review_access(state: &AppState, input: &ReviewInput) -> Option<ReviewAccess> {
+    if input.mode != REVIEW_MODE_CLAIMS {
+        return None;
+    }
+    let (project_root, additional_directories, annotations) = review_claims::access_of(input)?;
+    Some(ReviewAccess {
+        project_root,
+        additional_directories,
+        annotations: annotations
+            .then(|| review_claims::annotations_for(state))
+            .flatten(),
+    })
 }
 
 async fn run_isolated_review(
@@ -920,10 +1145,15 @@ async fn run_isolated_review(
         return;
     }
     let (dossier, truncated, coverage) = transmitted_dossier(&input);
+    let access = review_access(&state, &input);
+    // Le relecteur lit les fichiers tels qu'ils sont pendant la relecture,
+    // pas tels qu'ils étaient à la fin du tour.
+    let reads_live_files = access.is_some();
     let request = ReviewRequest {
         model: record.config.model.clone(),
         effort: record.config.effort.clone(),
         dossier,
+        access,
     };
     let result = tokio::time::timeout(REVIEW_TIMEOUT, provider.review(request)).await;
     let mut next = record;
@@ -964,7 +1194,26 @@ async fn run_isolated_review(
             });
         }
         Ok(Ok(response)) => {
-            let decision = decide_transmitted_review(&input, &response.text, &truncated);
+            let mut decision = decide_transmitted_review(&input, &response.text, &truncated);
+            // Un tour plus récent a pu réécrire les fichiers que le relecteur
+            // vient de lire : un « vérifié » ne vaut alors plus pour le tour
+            // relu. Un problème relevé reste signalé.
+            if reads_live_files
+                && review_claims::thread_moved_on(
+                    &state.journal().materialize(&thread_id),
+                    &input.turn_id,
+                )
+            {
+                decision.limitations.push("later-turn-started".into());
+                if decision.outcome == "passed" {
+                    decision.outcome = "inconclusive".into();
+                }
+            }
+            if input.mode == REVIEW_MODE_CLAIMS {
+                let (files, tools) = review_claims::checked_against(&input, &decision.checks);
+                next.extra.insert("checkedFiles".into(), json!(files));
+                next.extra.insert("checkedTools".into(), json!(tools));
+            }
             next.status = "completed".into();
             next.outcome = Some(decision.outcome);
             next.coverage = decision.coverage;
@@ -1155,13 +1404,17 @@ mod tests {
 
     #[test]
     fn zero_required_checks_cannot_pass() {
-        let input = build_review_input(
+        let mut input = build_review_input(
             "thread-a",
             "turn-1",
             REVIEW_MODE_CLAIMS,
             &sample_events("thread-a", "turn-1"),
         );
-        assert!(input.required_checks.is_empty());
+        // Le mode `claims` a désormais ses vérifications exigées. Un dossier
+        // qui n'en porte aucune (un ancien dossier rejoué) ne passe toujours
+        // pas.
+        assert!(!input.required_checks.is_empty());
+        input.required_checks.clear();
         let decision = decide_review(
             &input,
             r#"{"checks":[{"id":"easy","claim":"ok","outcome":"passed","evidenceIds":["prompt"]}]}"#,
@@ -1526,6 +1779,7 @@ mod tests {
             model: "m".into(),
             effort: "high".into(),
             dossier: "scopeId: git:turn-1".into(),
+            access: None,
         };
         let provider = FakeProvider::new("codex");
         assert!(!provider.structured_review());

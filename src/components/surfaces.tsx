@@ -5,12 +5,12 @@
 // plus grandes pour s'aligner sur les icônes Chats/Surlignés du rail (19px).
 import { BookIcon, BranchIcon } from "./icons";
 
-import { BookMarkedIcon, BracketsIcon, ClockIcon, FileTextIcon, GlobeIcon, HistoryIcon, LayoutGridIcon, PinIcon, SparklesIcon, SquareTerminalIcon } from "lucide-react";
-export type Surface = "atelier" | "browser" | "terminal" | "git" | "historique" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves" | "noyau" | "documents";
+import { BookMarkedIcon, BracketsIcon, ClockIcon, FileTextIcon, GalleryVerticalEndIcon, GlobeIcon, HistoryIcon, LayoutGridIcon, PinIcon, SparklesIcon, SquareTerminalIcon } from "lucide-react";
+export type Surface = "atelier" | "browser" | "terminal" | "git" | "historique" | "resultats" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves" | "noyau" | "documents";
 
 export const SURFACES: {
   id: Surface;
-  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.historique" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.calculs" | "atelier.preuves" | "atelier.noyau" | "atelier.documents";
+  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.historique" | "atelier.resultats" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.calculs" | "atelier.preuves" | "atelier.noyau" | "atelier.documents";
   icon: React.ReactNode;
 }[] = [
   {
@@ -53,6 +53,14 @@ export const SURFACES: {
     labelKey: "atelier.historique",
     icon: (
       <HistoryIcon size={19} />
+    ),
+  },
+  {
+    // Résultats du projet (2026-11-10) : la pile de ce qu'il a produit.
+    id: "resultats",
+    labelKey: "atelier.resultats",
+    icon: (
+      <GalleryVerticalEndIcon size={19} />
     ),
   },
   {

@@ -9,7 +9,8 @@ use crate::claude_parse::{flush_pending, parse_line, ClaudeStreamState};
 use crate::traits::{
     prompts_reformulation_with_options, CommitMessageDetails, Provider, ProviderCaps,
     ReviewError, ReviewRequest, ReviewResponse, RewriteOptions, SendMode, SendRequest, SendResult,
-    REVIEW_PROVIDER_TIMEOUT, REVIEW_SYSTEM_PROMPT,
+    REVIEW_ANNOTATIONS_SERVER, REVIEW_ANNOTATION_TOOLS, REVIEW_PROVIDER_TIMEOUT, REVIEW_READ_TOOLS,
+    REVIEW_SYSTEM_PROMPT, REVIEW_TOOLS_SYSTEM_PROMPT,
 };
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -293,6 +294,39 @@ impl ClaudeProvider {
         }
     }
 
+    /// Un lancement de la CLI pour une relecture : dossier sur stdin, sortie
+    /// complète rendue telle quelle. `echeance` couvre les deux essais d'une
+    /// même relecture (voir `review`).
+    async fn run_review_cli(
+        &self,
+        req: &ReviewRequest,
+        compat: bool,
+        cwd: &Path,
+        echeance: tokio::time::Instant,
+    ) -> Result<std::process::Output, ReviewError> {
+        let mut cmd = Command::new(&self.bin);
+        cmd.args(review_args(req, compat))
+            .envs(review_env(req))
+            .current_dir(cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = cmd
+            .spawn()
+            .map_err(|error| ReviewError::Provider(format!("Impossible de lancer Claude : {error}")))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            // Un échec d'écriture (CLI déjà sorti) n'est pas la cause : la
+            // vraie raison est dans son stderr, lu juste après.
+            let _ = stdin.write_all(req.dossier.as_bytes()).await;
+            drop(stdin);
+        }
+        tokio::time::timeout_at(echeance, child.wait_with_output())
+            .await
+            .map_err(|_| ReviewError::Timeout)?
+            .map_err(|error| ReviewError::Provider(format!("relecture Claude : {error}")))
+    }
+
     async fn reap_after_eof(&self, thread_id: &str, pid: Option<u32>) {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
         loop {
@@ -490,31 +524,117 @@ impl Default for ClaudeProvider {
     }
 }
 
-/// Arguments d'une relecture isolée : un appel `-p` sans session, sans
-/// outils ni permissions, comme le titre et le message de commit. Le
+/// Arguments d'une relecture isolée : un appel `-p` sans session. Le
 /// dossier part sur stdin (jusqu'à 128 Ko : trop pour rester lisible dans
 /// `ps`, et rien ne garantit qu'il ne commence pas par « - »).
-fn review_args(req: &ReviewRequest) -> Vec<String> {
-    let mut args: Vec<String> = [
-        "-p",
-        "--safe-mode",
-        "--no-session-persistence",
-        "--tools",
-        "",
-        "--permission-mode",
-        "dontAsk",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+///
+/// Sans `access` : aucun outil, comme le titre et le message de commit.
+///
+/// Avec `access` (mode `claims`, lot 1b), le relecteur lit sans pouvoir
+/// rien changer. Chaque option ferme une porte, sondée contre la CLI
+/// 2.1.322 le 2026-11-10 :
+/// - `--tools Read,Grep,Glob` : ce sont ses seuls outils intégrés. Ni
+///   Bash, ni Write, ni Edit, ni accès au web ;
+/// - `--permission-mode dontAsk` : tout ce qui demanderait un accord est
+///   refusé, donc tout outil MCP hors de `--allowedTools` ;
+/// - `--restricted` : les outils de fichiers sont confinés au répertoire de
+///   travail et aux `--add-dir`, et les réglages utilisateur, projet et
+///   locaux sont ignorés (une règle `allow` du projet n'élargit rien, aucun
+///   hook ne tourne). Le CLAUDE.md du projet n'est pas chargé non plus ;
+/// - `--strict-mcp-config` : aucun serveur MCP personnel ;
+/// - `--safe-mode` tant qu'aucun serveur MCP n'est joint. Il coupe TOUS les
+///   serveurs MCP, y compris celui de `--mcp-config` : avec les annotations
+///   il doit donc céder la place, et `--disable-slash-commands` plus les
+///   variables de `review_env` reprennent ce qu'il garantissait.
+///
+/// `compat` : repli pour une CLI qui ne connaît pas `--restricted`. On
+/// garde alors `--safe-mode`, donc sans annotations.
+///
+/// Les options variadiques (`--tools`, `--mcp-config`, `--allowedTools`,
+/// `--add-dir`) sont toutes suivies d'une autre option ; `--system-prompt`,
+/// à une seule valeur, ferme la marche.
+fn review_args(req: &ReviewRequest, compat: bool) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-p".into()];
+    let annotations = req
+        .access
+        .as_ref()
+        .and_then(|access| access.annotations.as_ref())
+        .filter(|_| !compat);
+    if annotations.is_none() {
+        args.push("--safe-mode".into());
+    }
+    if req.access.is_some() && !compat {
+        args.push("--restricted".into());
+    }
+    args.push("--no-session-persistence".into());
+    args.push("--tools".into());
+    args.push(if req.access.is_some() {
+        REVIEW_READ_TOOLS.join(",")
+    } else {
+        String::new()
+    });
+    args.extend(["--permission-mode".into(), "dontAsk".into()]);
+    if let Some(access) = &req.access {
+        if !compat {
+            args.push("--strict-mcp-config".into());
+        }
+        if let Some(annotations) = annotations {
+            let config = json!({ "mcpServers": { REVIEW_ANNOTATIONS_SERVER: {
+                "command": annotations.command,
+                "args": [],
+                "env": annotations.launch_env(),
+            }}});
+            let allowed: Vec<String> = REVIEW_ANNOTATION_TOOLS
+                .iter()
+                .map(|tool| format!("mcp__{REVIEW_ANNOTATIONS_SERVER}__{tool}"))
+                .collect();
+            args.push("--disable-slash-commands".into());
+            args.extend(["--mcp-config".into(), config.to_string()]);
+            args.extend(["--allowedTools".into(), allowed.join(",")]);
+        }
+        // Un drapeau par dossier : la forme variadique avalerait la suite.
+        for dossier in access
+            .additional_directories
+            .iter()
+            .map(|d| d.trim())
+            .filter(|d| d.starts_with('/'))
+        {
+            args.extend(["--add-dir".into(), dossier.to_string()]);
+        }
+    }
     if !req.model.trim().is_empty() {
         args.extend(["--model".into(), req.model.trim().into()]);
     }
     if !req.effort.trim().is_empty() {
         args.extend(["--effort".into(), req.effort.trim().into()]);
     }
-    args.extend(["--system-prompt".into(), REVIEW_SYSTEM_PROMPT.into()]);
+    let system = if req.access.is_some() {
+        REVIEW_TOOLS_SYSTEM_PROMPT
+    } else {
+        REVIEW_SYSTEM_PROMPT
+    };
+    args.extend(["--system-prompt".into(), system.into()]);
     args
+}
+
+/// Variables posées quand le relecteur a des outils : ni CLAUDE.md ni
+/// mémoire automatique dans son contexte. `--safe-mode` et `--restricted`
+/// les écartent déjà ; elles restent pour le jour où l'un des deux
+/// changerait de portée (une CLI qui les ignore n'en souffre pas).
+fn review_env(req: &ReviewRequest) -> Vec<(&'static str, &'static str)> {
+    if req.access.is_none() {
+        return Vec::new();
+    }
+    vec![
+        ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
+        ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
+    ]
+}
+
+/// La CLI a-t-elle refusé `--restricted` faute de le connaître ?
+fn restricted_unknown(stderr: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(stderr);
+    text.contains("unknown option") && text.contains("--restricted")
 }
 
 fn last_stderr_line(stderr: &[u8]) -> String {
@@ -1667,26 +1787,31 @@ impl Provider for ClaudeProvider {
     }
 
     async fn review(&self, req: ReviewRequest) -> Result<ReviewResponse, ReviewError> {
-        let mut cmd = Command::new(&self.bin);
-        cmd.args(review_args(&req))
-            .current_dir(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        let mut child = cmd
-            .spawn()
-            .map_err(|error| ReviewError::Provider(format!("Impossible de lancer Claude : {error}")))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            // Un échec d'écriture (CLI déjà sorti) n'est pas la cause : la
-            // vraie raison est dans son stderr, lu juste après.
-            let _ = stdin.write_all(req.dossier.as_bytes()).await;
-            drop(stdin);
+        // Répertoire de travail. Sans outil, $HOME comme avant : rien n'y est
+        // lu. Avec outils, le dossier du projet : c'est lui que `--restricted`
+        // et `dontAsk` laissent lire, et les chemins relatifs de la réponse
+        // relue s'y résolvent. Surtout pas $HOME, qui ouvrirait tout le
+        // compte à la lecture.
+        let cwd = match &req.access {
+            None => PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())),
+            Some(access) => {
+                let root = PathBuf::from(&access.project_root);
+                if !root.is_absolute() || !root.is_dir() {
+                    return Err(ReviewError::Provider(format!(
+                        "relecture Claude : dossier du projet introuvable ({})",
+                        access.project_root
+                    )));
+                }
+                root
+            }
+        };
+        let echeance = tokio::time::Instant::now() + REVIEW_PROVIDER_TIMEOUT;
+        let mut output = self.run_review_cli(&req, false, &cwd, echeance).await?;
+        if !output.status.success() && req.access.is_some() && restricted_unknown(&output.stderr) {
+            // CLI plus ancienne : même relecture sans `--restricted`, sous
+            // `--safe-mode`, donc sans le serveur des annotations.
+            output = self.run_review_cli(&req, true, &cwd, echeance).await?;
         }
-        let output = tokio::time::timeout(REVIEW_PROVIDER_TIMEOUT, child.wait_with_output())
-            .await
-            .map_err(|_| ReviewError::Timeout)?
-            .map_err(|error| ReviewError::Provider(format!("relecture Claude : {error}")))?;
         if !output.status.success() {
             return Err(ReviewError::Provider(format!(
                 "relecture Claude : {}",
@@ -3255,7 +3380,8 @@ mod review_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let bin = dir.join("fake-claude");
         let script = format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\ncat > \"$0.stdin\"\n{body}\n"
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\npwd > \"$0.cwd\"\n\
+             printf '%s' \"$CLAUDE_CODE_DISABLE_CLAUDE_MDS\" > \"$0.env\"\ncat > \"$0.stdin\"\n{body}\n"
         );
         std::fs::write(&bin, script).unwrap();
         #[cfg(unix)]
@@ -3271,7 +3397,158 @@ mod review_tests {
             model: model.into(),
             effort: effort.into(),
             dossier: "-- dossier qui commence par un tiret".into(),
+            access: None,
         }
+    }
+
+    fn recorded_args(bin: &Path) -> Vec<String> {
+        std::fs::read_to_string(bin.with_extension("args"))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn value_of(args: &[String], flag: &str) -> Option<String> {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    }
+
+    /// Dossier de projet jetable et demande de relecture qui y donne accès.
+    fn request_with_access(annotations: bool) -> (PathBuf, ReviewRequest) {
+        let root = std::env::temp_dir().join(format!("claude-review-projet-{}", Uuid::new_v4()));
+        let donnees = root.join("donnees-associees");
+        std::fs::create_dir_all(&donnees).unwrap();
+        let mut req = request("claude-opus-5-5", "high");
+        req.access = Some(crate::traits::ReviewAccess {
+            project_root: root.display().to_string(),
+            additional_directories: vec![donnees.display().to_string(), "relatif/ignoré".into()],
+            annotations: annotations.then(|| crate::traits::ReviewAnnotations {
+                command: PathBuf::from("/opt/atelier/atelier-annots-mcp"),
+                env: std::collections::BTreeMap::from([(
+                    "ATELIER_APP_DIR".to_string(),
+                    "/tmp/app".to_string(),
+                )]),
+            }),
+        });
+        (root, req)
+    }
+
+    /// Lot 1b : avec accès, le relecteur n'a que la lecture et la recherche,
+    /// confinées au projet ; aucune option ne lui rend l'écriture ou le shell.
+    #[tokio::test]
+    async fn avec_acces_le_relecteur_lit_le_projet_sans_ecrire_ni_lancer() {
+        let bin = fake_cli("echo '{\"checks\":[]}'");
+        let (root, req) = request_with_access(false);
+        ClaudeProvider::with_bin(bin.clone()).review(req).await.unwrap();
+        let args = recorded_args(&bin);
+        assert_eq!(value_of(&args, "--tools").as_deref(), Some("Read,Grep,Glob"));
+        assert_eq!(value_of(&args, "--permission-mode").as_deref(), Some("dontAsk"));
+        for flag in ["-p", "--safe-mode", "--restricted", "--strict-mcp-config", "--no-session-persistence"] {
+            assert!(args.iter().any(|a| a == flag), "{flag} manque : {args:?}");
+        }
+        for forbidden in ["Bash", "Write", "Edit", "WebFetch", "--dangerously-skip-permissions", "bypassPermissions", "acceptEdits"] {
+            assert!(!args.iter().any(|a| a.contains(forbidden)), "{forbidden} présent : {args:?}");
+        }
+        assert!(!args.iter().any(|a| a == "--mcp-config" || a == "--allowedTools"));
+        // Seul le dossier associé absolu passe, par son propre drapeau.
+        let dirs: Vec<&String> = args
+            .windows(2)
+            .filter(|w| w[0] == "--add-dir")
+            .map(|w| &w[1])
+            .collect();
+        assert_eq!(dirs, vec![&root.join("donnees-associees").display().to_string()]);
+        assert_eq!(
+            value_of(&args, "--system-prompt").as_deref(),
+            Some(REVIEW_TOOLS_SYSTEM_PROMPT)
+        );
+        assert_eq!(args.last().map(String::as_str), Some(REVIEW_TOOLS_SYSTEM_PROMPT));
+        // Le relecteur travaille dans le projet, pas dans $HOME.
+        let cwd = std::fs::read_to_string(bin.with_extension("cwd")).unwrap();
+        assert_eq!(
+            std::fs::canonicalize(cwd.trim()).unwrap(),
+            std::fs::canonicalize(&root).unwrap()
+        );
+        assert_eq!(std::fs::read_to_string(bin.with_extension("env")).unwrap(), "1");
+        // Le dossier reste une donnée sur stdin.
+        let stdin = std::fs::read_to_string(bin.with_extension("stdin")).unwrap();
+        assert_eq!(stdin, "-- dossier qui commence par un tiret");
+    }
+
+    /// Le serveur des annotations part en lecture seule, et seuls ses deux
+    /// outils de lecture sont autorisés. `--safe-mode` couperait le serveur :
+    /// il cède la place à `--restricted` et `--disable-slash-commands`.
+    #[tokio::test]
+    async fn les_annotations_arrivent_en_lecture_seule_avec_deux_outils_permis() {
+        let bin = fake_cli("echo '{\"checks\":[]}'");
+        let (_root, req) = request_with_access(true);
+        ClaudeProvider::with_bin(bin.clone()).review(req).await.unwrap();
+        let args = recorded_args(&bin);
+        assert!(!args.iter().any(|a| a == "--safe-mode"), "{args:?}");
+        for flag in ["--restricted", "--strict-mcp-config", "--disable-slash-commands"] {
+            assert!(args.iter().any(|a| a == flag), "{flag} manque : {args:?}");
+        }
+        assert_eq!(value_of(&args, "--tools").as_deref(), Some("Read,Grep,Glob"));
+        assert_eq!(value_of(&args, "--permission-mode").as_deref(), Some("dontAsk"));
+        let config: Value = serde_json::from_str(&value_of(&args, "--mcp-config").unwrap()).unwrap();
+        let server = &config["mcpServers"]["atelier-annotations"];
+        assert_eq!(server["command"], "/opt/atelier/atelier-annots-mcp");
+        assert_eq!(server["env"]["ATELIER_ANNOTS_READONLY"], "1");
+        assert_eq!(server["env"]["ATELIER_APP_DIR"], "/tmp/app");
+        assert_eq!(config["mcpServers"].as_object().unwrap().len(), 1);
+        assert_eq!(
+            value_of(&args, "--allowedTools").as_deref(),
+            Some("mcp__atelier-annotations__read_article,mcp__atelier-annotations__get_article_annotations")
+        );
+        // Aucune option variadique ne peut avaler la suivante.
+        for flag in ["--mcp-config", "--allowedTools", "--add-dir", "--tools"] {
+            let i = args.iter().position(|a| a == flag).unwrap();
+            assert!(args[i + 2].starts_with("--"), "{flag} suivi de {}", args[i + 2]);
+        }
+    }
+
+    /// Une CLI qui ne connaît pas `--restricted` ne fait pas échouer la
+    /// relecture : second essai sous `--safe-mode`, sans annotations, avec
+    /// les mêmes outils de lecture.
+    #[tokio::test]
+    async fn une_cli_sans_restricted_relit_quand_meme_sous_safe_mode() {
+        let bin = fake_cli(
+            "for a in \"$@\"; do if [ \"$a\" = \"--restricted\" ]; then \
+             echo \"error: unknown option '--restricted'\" >&2; exit 1; fi; done\n\
+             echo '{\"checks\":[]}'",
+        );
+        let (_root, req) = request_with_access(true);
+        let response = ClaudeProvider::with_bin(bin.clone()).review(req).await.unwrap();
+        assert_eq!(response.text, "{\"checks\":[]}");
+        let args = recorded_args(&bin);
+        assert!(args.iter().any(|a| a == "--safe-mode"), "{args:?}");
+        assert!(!args.iter().any(|a| a == "--restricted" || a == "--mcp-config" || a == "--allowedTools"), "{args:?}");
+        assert_eq!(value_of(&args, "--tools").as_deref(), Some("Read,Grep,Glob"));
+        assert_eq!(value_of(&args, "--permission-mode").as_deref(), Some("dontAsk"));
+    }
+
+    /// Un autre refus de la CLI n'est pas rejoué.
+    #[tokio::test]
+    async fn un_autre_echec_avec_acces_remonte_sans_second_essai() {
+        let bin = fake_cli("echo x >> \"$0.runs\"; echo 'Invalid model' >&2; exit 1");
+        let (_root, req) = request_with_access(false);
+        let error = ClaudeProvider::with_bin(bin.clone()).review(req).await.unwrap_err();
+        assert_eq!(error, ReviewError::Provider("relecture Claude : Invalid model".into()));
+        assert_eq!(std::fs::read_to_string(bin.with_extension("runs")).unwrap().lines().count(), 1);
+    }
+
+    /// Sans dossier de projet, pas de relecture outillée : elle se ferait
+    /// depuis un autre répertoire, que rien n'autorise à lire.
+    #[tokio::test]
+    async fn sans_dossier_de_projet_la_cli_n_est_pas_lancee() {
+        let bin = fake_cli("echo '{\"checks\":[]}'");
+        let (root, req) = request_with_access(false);
+        std::fs::remove_dir_all(&root).unwrap();
+        let error = ClaudeProvider::with_bin(bin.clone()).review(req).await.unwrap_err();
+        assert!(matches!(&error, ReviewError::Provider(m) if m.contains("dossier du projet introuvable")), "{error:?}");
+        assert!(!bin.with_extension("args").exists());
     }
 
     #[tokio::test]
@@ -3302,11 +3579,15 @@ mod review_tests {
         assert_eq!(pair("--effort").as_deref(), Some("high"));
         assert_eq!(pair("--system-prompt").as_deref(), Some(REVIEW_SYSTEM_PROMPT));
         assert!(!args.iter().any(|a| a.contains("commence par un tiret")));
+        // Sans accès, rien ne change : ni outil, ni option de lecture.
+        assert!(args.iter().any(|a| a == "--safe-mode"));
+        assert!(!args.iter().any(|a| a == "--restricted" || a == "--add-dir" || a == "--mcp-config"));
+        assert_eq!(std::fs::read_to_string(bin.with_extension("env")).unwrap(), "");
     }
 
     #[test]
     fn sans_modele_ni_effort_le_cli_garde_ses_defauts() {
-        let args = review_args(&request(" ", ""));
+        let args = review_args(&request(" ", ""), false);
         assert!(!args.iter().any(|a| a == "--model" || a == "--effort"));
     }
 

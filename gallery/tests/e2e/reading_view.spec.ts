@@ -194,11 +194,16 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     await expect(fr().locator('#texread .texread-edit')).toHaveCount(0);
     await expect(fr().locator('#texread')).toContainText('23 melt seasons');
 
+    // Les réglages de la Lecture partent un à un (`persistState` les enchaîne) :
+    // l'envoi d'un clic précédent peut encore être en route. Chaque attente
+    // vise donc l'envoi qui porte SA clé, pas le premier POST /state venu.
+    const envoiEtat = (cle: string) => page.waitForRequest(r =>
+      r.url().includes('/state') && r.method() === 'POST' && (r.postData() || '').includes(`"${cle}"`));
     // Taille de police : A+ grossit la prose ET persiste côté serveur —
     // le localStorage du WebView ne survit pas au redémarrage (piège n°1).
     const avantFs = await fr().evaluate(() => getComputedStyle(document.getElementById('texread')).fontSize);
     const [persiste] = await Promise.all([
-      page.waitForRequest(r => r.url().includes('/state') && r.method() === 'POST'),
+      envoiEtat('texReadFontSize'),
       fr().evaluate(() => (document.querySelector('#texreadFs button[aria-label*="Agrandir"]') as HTMLElement).click()),
     ]);
     const apresFs = await fr().evaluate(() => getComputedStyle(document.getElementById('texread')).fontSize);
@@ -244,7 +249,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     // Lecture sur --surface-app, le noir du chat de l'app.
     const fondAvant = await fr().evaluate(() => getComputedStyle(document.getElementById('right')).backgroundColor);
     const [persisteTheme] = await Promise.all([
-      page.waitForRequest(r => r.url().includes('/state') && r.method() === 'POST'),
+      envoiEtat('texReadTheme'),
       fr().evaluate(() => (document.querySelector('#texreadFs .tr-sw[data-theme="sepia"]') as HTMLElement).click()),
     ]);
     const fondSepia = await fr().evaluate(() => getComputedStyle(document.getElementById('right')).backgroundColor);
@@ -269,7 +274,7 @@ test('vue Lecture : plein cadre, pas de préambule, sélection annotable', async
     }));
     const colonne = await largeur();
     const [persisteLargeur] = await Promise.all([
-      page.waitForRequest(r => r.url().includes('/state') && r.method() === 'POST'),
+      envoiEtat('texReadWidth'),
       fr().evaluate(() => (document.querySelector('#texreadFs .tr-width[data-width="full"]') as HTMLElement).click()),
     ]);
     const pleine = await largeur();

@@ -101,6 +101,11 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "projectHistory"
         | "projectHistoryDiff"
         | "projectHistoryCompare"
+        // Résultats du projet : lecture des recettes ; l'étoile n'écrit que
+        // son petit store, sérialisé par son propre verrou (results.rs).
+        | "projectResults"
+        | "projectResultDetail"
+        | "projectResultStar"
         // N'ajoute que les CLI absents du registre (RwLock) : aucune session
         // vivante n'est touchée, donc pas de barrière globale.
         | "refreshProviders" => Class::Read,
@@ -405,6 +410,8 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
         "projectHistoryRestore" => Some("projectHistoryRestored"),
         "projectHistorySaveVersion" => Some("projectHistoryVersionSaved"),
         "projectHistoryDeleteVersion" => Some("projectHistoryVersionDeleted"),
+        "projectResults" | "projectResultDetail" => request["type"].as_str(),
+        "projectResultStar" => Some("projectResultStarred"),
         _ => None,
     };
     if let Some(kind) = response_type {
