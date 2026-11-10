@@ -70,7 +70,8 @@ describe("routes Kimi K3 concurrentes", () => {
 describe("replaceRetiredModel", () => {
   it("remplace un modèle Claude retiré par son successeur, [1m] compris", () => {
     expect(replaceRetiredModel("claude", "claude-opus-4-8[1m]")).toBe("claude-opus-5-5[1m]");
-    expect(replaceRetiredModel("claude", "claude-fable-5")).toBe("claude-fable-5-1");
+    expect(replaceRetiredModel("claude", "claude-fable-5")).toBe("claude-fable-5-2");
+    expect(replaceRetiredModel("claude", "claude-fable-5-1[1m]")).toBe("claude-fable-5-2[1m]");
     expect(replaceRetiredModel("claude", "claude-sonnet-5")).toBe("claude-sonnet-5-5");
     expect(replaceRetiredModel("claude", "claude-haiku-4-5-20251001")).toBe("claude-haiku-5-5");
   });
@@ -84,5 +85,6 @@ describe("replaceRetiredModel", () => {
   it("nomme les quatre modèles actuels", () => {
     expect(modelDisplayLabel("claude", "claude-sonnet-5-5")).toBe("Sonnet 5.5");
     expect(modelDisplayLabel("claude", "claude-haiku-5-5")).toBe("Haiku 5.5");
+    expect(modelDisplayLabel("claude", "claude-fable-5-2")).toBe("Fable 5.2");
   });
 });
