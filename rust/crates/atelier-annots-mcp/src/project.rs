@@ -93,24 +93,51 @@ fn walk(base: &Path, dir: &Path, depth: usize, out: &mut Vec<Entry>, truncated: 
     }
 }
 
-/// Le fichier principal : le .tex le moins profond qui porte un
-/// `\documentclass` hors commentaire.
+/// Le fichier principal : un .tex qui porte un `\documentclass` hors
+/// commentaire, le moins profond ; à égalité, celui qui inclut d'autres
+/// fichiers (`\input`, `\include`, `\subfile`), puis `main.tex`, puis
+/// l'ordre alphabétique. Un document d'essai posé à côté du vrai projet ne
+/// passe donc pas devant lui.
 fn main_file(entries: &[Entry]) -> Option<&Entry> {
     let mut tex: Vec<&Entry> = entries
         .iter()
         .filter(|e| ext_of(&e.path) == "tex")
         .collect();
     tex.sort_by_key(|e| (e.rel.matches('/').count(), e.rel.to_lowercase()));
-    tex.into_iter().take(MAIN_CANDIDATES).find(|e| {
-        let Ok(bytes) = std::fs::read(&e.path) else {
-            return false;
-        };
-        let head = String::from_utf8_lossy(&bytes[..bytes.len().min(MAIN_HEAD_BYTES)]);
-        head.lines().any(|line| {
-            let line = line.trim_start();
-            !line.starts_with('%') && line.contains("\\documentclass")
+    tex.into_iter()
+        .take(MAIN_CANDIDATES)
+        .filter_map(|e| {
+            let bytes = std::fs::read(&e.path).ok()?;
+            let head = String::from_utf8_lossy(&bytes[..bytes.len().min(MAIN_HEAD_BYTES)]);
+            let code: Vec<&str> = head
+                .lines()
+                .map(|line| line.trim_start())
+                .filter(|line| !line.starts_with('%'))
+                .collect();
+            if !code.iter().any(|line| line.contains("\\documentclass")) {
+                return None;
+            }
+            let includes = code.iter().any(|line| {
+                ["\\input{", "\\include{", "\\subfile{", "\\input "]
+                    .iter()
+                    .any(|cmd| line.contains(cmd))
+            });
+            let named_main = matches!(
+                revision::file_name(&e.path).to_lowercase().as_str(),
+                "main.tex" | "these.tex" | "thesis.tex" | "manuscript.tex"
+            );
+            Some((
+                (
+                    e.rel.matches('/').count(),
+                    !includes,
+                    !named_main,
+                    e.rel.to_lowercase(),
+                ),
+                e,
+            ))
         })
-    })
+        .min_by(|a, b| a.0.cmp(&b.0))
+        .map(|(_, e)| e)
 }
 
 /// `list_tex_project` (réservé aux vues) : les fichiers du projet. `dir`
@@ -356,6 +383,37 @@ pub fn resolve(app_dir: &Path, args: &Value, roots: Option<&[PathBuf]>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_main_file_is_the_one_that_includes_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("essai.tex"),
+            "\\documentclass{article}\n\\begin{document}x\\end{document}\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("aaa.tex"), "\\documentclass{article}\n").unwrap();
+        std::fs::write(
+            root.join("main.tex"),
+            "\\documentclass{article}\n\\input{sections/intro}\n",
+        )
+        .unwrap();
+        let roots = vec![root.to_path_buf()];
+        let out = list(&json!({}), Some(&roots)).unwrap();
+        assert_eq!(
+            out["structuredContent"]["projects"][0]["main"],
+            root.join("main.tex").display().to_string()
+        );
+
+        // Sans inclusion nulle part : main.tex passe devant l'ordre alphabétique.
+        std::fs::write(root.join("main.tex"), "\\documentclass{article}\n").unwrap();
+        let out = list(&json!({}), Some(&roots)).unwrap();
+        assert_eq!(
+            out["structuredContent"]["projects"][0]["main"],
+            root.join("main.tex").display().to_string()
+        );
+    }
 
     #[test]
     fn lists_project_files_and_finds_the_main_one() {

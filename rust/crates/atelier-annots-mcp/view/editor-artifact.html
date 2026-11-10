@@ -11,6 +11,7 @@
   --fg: #1a1d22; --fg2: #32363b; --muted: #595e64; --muted2: #82878c;
   --accent: #cf630d; --info: #3f6fd1; --ok: #2f6b41; --warn: #7a5a09; --hot: #a8322a;
   --tok-math: #1c7566; --ins-fg: #1f5230; --del-fg: #8f2a23;
+  --canvas: #e3e7ec; --paper: #ffffff;
   --elev: 0 4px 18px rgba(20,28,38,.12), 0 1px 4px rgba(20,28,38,.08);
   --elev-soft: 0 0 0 .5px rgba(20,28,38,.08), 0 1px 3px rgba(20,28,38,.09);
   --ui: -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
@@ -23,6 +24,7 @@
   --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
   --accent: #e77f3e; --info: #7aa2f7; --ok: #98c379; --warn: #e0b74a; --hot: #e06c75;
   --tok-math: #7cc9b4; --ins-fg: #b9dea3; --del-fg: #f0a7a2;
+  --canvas: #161a1e; --paper: #f4f4f2;
   --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
   --elev-soft: 0 0 0 .5px rgba(255,255,255,.06), 0 1px 3px rgba(0,0,0,.3);
   color-scheme: dark; } }
@@ -32,6 +34,7 @@
   --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
   --accent: #e77f3e; --info: #7aa2f7; --ok: #98c379; --warn: #e0b74a; --hot: #e06c75;
   --tok-math: #7cc9b4; --ins-fg: #b9dea3; --del-fg: #f0a7a2;
+  --canvas: #161a1e; --paper: #f4f4f2;
   --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
   --elev-soft: 0 0 0 .5px rgba(255,255,255,.06), 0 1px 3px rgba(0,0,0,.3);
   color-scheme: dark; }
@@ -196,6 +199,40 @@ div.CodeMirror-dragcursors, .CodeMirror-focused div.CodeMirror-cursors { visibil
 li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
 .CodeMirror-hint .d { color: var(--muted2); font-family: var(--ui); overflow: hidden; text-overflow: ellipsis; max-width: 280px; margin-left: auto; }
 
+/* Erreurs de compilation, dans la source. */
+.err-bg { background: color-mix(in srgb, var(--hot) 12%, transparent); }
+.warn-bg { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+
+/* Aperçu PDF. */
+.pdf { flex: 1; min-width: 0; background: var(--canvas); display: flex; flex-direction: column; position: relative; }
+body[data-pdf="off"] .pdf { display: none; }
+.pdf-h { display: flex; align-items: center; gap: 12px; height: 36px; flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pdf-h .cs { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pdf-h .cs::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--muted2); flex: none; transition: background-color var(--t); }
+.pdf-h .cs.ok::before { background: var(--ok); }
+.pdf-h .cs.warn::before { background: var(--warn); }
+.pdf-h .cs.err::before { background: var(--hot); }
+.pdf-h .cs.run::before { background: var(--info); animation: pulse 1s ease-in-out infinite alternate; }
+@keyframes pulse { from { opacity: .35; } to { opacity: 1; } }
+.pdf-h .zm { display: flex; align-items: center; gap: 4px; }
+.pdf-h .zm .ib { width: 24px; height: 24px; }
+.pdf-h .zm span { min-width: 36px; text-align: center; }
+.issues { flex: none; max-height: 40%; overflow-y: auto; padding: 0 8px 8px; display: grid; gap: 0; }
+.issues .row { height: auto; min-height: 28px; align-items: flex-start; padding-block: 4px; white-space: normal; }
+.issues .row .dot { margin-top: 7px; background: var(--hot); }
+.issues .row.w .dot { background: var(--warn); }
+.issues .row .loc { flex: none; color: var(--muted); font: 11px/20px var(--mono); }
+.issues .row .msg { flex: 1; min-width: 0; line-height: 20px; overflow-wrap: anywhere; }
+.issues .more { color: var(--muted); font-size: 11px; padding: 4px 8px; text-align: left; }
+.issues .more:hover { color: var(--fg); }
+.pdf-s { flex: 1; min-height: 0; overflow: auto; padding: 4px 16px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.pg { position: relative; width: 100%; max-width: var(--pg-max, 100%); background: var(--paper); box-shadow: var(--elev-soft); flex: none; transition: opacity var(--t); }
+.pg img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.pg.old img { opacity: .6; }
+.pdf-e { margin: auto; max-width: 320px; text-align: center; color: var(--muted); display: grid; gap: 12px; justify-items: center; padding: 24px 0; }
+.pdf-e b { color: var(--fg2); font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.log { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 12px 16px 24px; font: 11px/1.5 var(--mono); color: var(--fg2); white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* Barre d'état. */
 .status { display: flex; align-items: center; gap: 16px; height: 24px; flex: none; background: var(--side); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
 .status .sp { flex: 1; }
@@ -209,6 +246,7 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
    la source, les boutons gardent leur icône. */
 @media (max-width: 759px) {
   .side { position: absolute; z-index: 9; inset: 0 auto 0 0; box-shadow: var(--elev); }
+  .pdf { position: absolute; z-index: 7; inset: 0; }
   .lbl, .crumb .opt, .status .opt { display: none; }
   .tb { padding: 0 8px; }
 }
@@ -229,6 +267,11 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
   <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
   <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-cols" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-log" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></symbol>
 </svg>
 
 <header class="top gut">
@@ -238,6 +281,8 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
   <button class="ib" id="findBtn" type="button" aria-pressed="false" aria-label="Rechercher" title="Rechercher (Cmd-F)" disabled><svg class="i"><use href="#i-search"/></svg></button>
   <button class="tb quiet" id="diffBtn" type="button" aria-pressed="true" title="Mots changés depuis l'ouverture"><svg class="i"><use href="#i-diff"/></svg><span class="lbl">Changements</span><span class="n" id="diffN"></span></button>
   <button class="ib" id="reloadBtn" type="button" aria-label="Recharger depuis le Mac" title="Recharger depuis le Mac" disabled><svg class="i"><use href="#i-reload"/></svg></button>
+  <button class="tb quiet" id="pdfBtn" type="button" aria-pressed="false" title="Aperçu PDF"><svg class="i"><use href="#i-cols"/></svg><span class="lbl">PDF</span></button>
+  <button class="tb" id="compileBtn" type="button" title="Compiler (Cmd-Entrée)" disabled><svg class="i"><use href="#i-play"/></svg><span class="lbl" id="compileLbl">Compiler</span></button>
   <span class="sep"></span>
   <button class="tb primary" id="saveBtn" type="button" title="Enregistrer (Cmd-S)" disabled><svg class="i"><use href="#i-save"/></svg><span class="lbl">Enregistrer</span></button>
 </header>
@@ -275,6 +320,23 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
     </div>
     <div class="wrap" id="wrap">
       <div class="empty" id="empty"><div><b>Éditeur LaTeX d'Atelier</b>Ton projet s'ouvre ici : tu modifies les fichiers à la main, Claude les révise dans la conversation.</div></div>
+    </div>
+  </section>
+  <section class="pdf" id="pdf" aria-label="Aperçu PDF">
+    <div class="pdf-h gut">
+      <span id="pdfPage"></span>
+      <span class="zm" id="pdfZoom" hidden>
+        <button class="ib" id="zoomOut" type="button" aria-label="Réduire" title="Réduire"><svg class="i s"><use href="#i-minus"/></svg></button>
+        <span id="zoomN">100 %</span>
+        <button class="ib" id="zoomIn" type="button" aria-label="Agrandir" title="Agrandir"><svg class="i s"><use href="#i-plus"/></svg></button>
+      </span>
+      <span class="cs" id="pdfState">Pas encore compilé</span>
+      <button class="ib" id="logBtn" type="button" aria-pressed="false" aria-label="Journal de compilation" title="Journal de compilation" hidden><svg class="i"><use href="#i-log"/></svg></button>
+    </div>
+    <div class="issues" id="issues" hidden></div>
+    <pre class="log" id="log" hidden></pre>
+    <div class="pdf-s" id="pages">
+      <div class="pdf-e" id="pdfEmpty"><b>Aperçu du PDF</b><span>Compile le projet pour voir le document ici. Les erreurs s'affichent avec leur fichier et leur ligne.</span></div>
     </div>
   </section>
 </div>
@@ -320,6 +382,10 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
   var showDiff = true, busy = 0, diffTimer = 0, wordsTimer = 0, drafts = {};
   var find = { q: "", overlay: null, at: null };
   var legacy = false;            // connecteur d'avant la liste du projet
+  var polling = false;
+  // Compilation et aperçu : dernier résultat, PDF affiché, pages rendues.
+  var build = { running: false, result: null, issues: [], showAll: false };
+  var pdfView = { path: null, mtime: null, pages: 0, ratio: 1.294, zoom: 1, inflight: 0, nodes: [], widthKey: 0 };
 
   function el(tag, cls, text) {
     var n = document.createElement(tag);
@@ -473,6 +539,7 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
     $("saveBtn").disabled = !d || !isDirty(d) || busy > 0;
     $("reloadBtn").disabled = !d || busy > 0;
     $("findBtn").disabled = !d;
+    $("compileBtn").disabled = build.running || !mainPath();
     if (!d) { s.textContent = ""; s.className = "state"; return; }
     var dirty = isDirty(d);
     s.className = "state" + (dirty ? " dirty" : "");
@@ -565,7 +632,8 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
         "Alt-Backspace": function () { return nearestProposal(false) ? undefined : CodeMirror.Pass; },
         "Enter": closeEnvironment,
         "Tab": function (c) { if (c.somethingSelected()) c.indentSelection("add"); else c.replaceSelection("  ", "end"); },
-        "Ctrl-Space": function () { complete(true); }
+        "Ctrl-Space": function () { complete(true); },
+        "Cmd-Enter": function () { compile(); }, "Ctrl-Enter": function () { compile(); }
       }
     });
     cm.addOverlay(keyOverlay);
@@ -678,7 +746,7 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
 
   function afterSwitch() {
     renderTabs(); renderCrumb(); renderTree(); renderPlan(); refreshState();
-    paintDiff(); paintProposals(); updateStatus(); countWords(); persist();
+    paintDiff(); paintProposals(); paintIssues(); updateStatus(); countWords(); persist();
     if (find.q) applyQuery();
   }
 
@@ -910,6 +978,10 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
     var box = $("files");
     if (!project) return;
     box.textContent = "";
+    if (!project.projects.length) {
+      box.appendChild(el("p", "hint", "Aucun dossier de ton Mac n'est encore ouvert à Claude. Ajoute ton projet dans le réglage du connecteur d'Atelier, puis recharge cette page."));
+      return;
+    }
     var many = project.projects.length > 1, count = 0;
     project.projects.forEach(function (pr) {
       var root = { dirs: {}, files: [], editable: false };
@@ -1287,6 +1359,259 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
     fetchProposals();
   }
 
+
+  // ——— Compilation ———
+  // Fichier à compiler : la racine désignée par « % !TEX root = … » dans le
+  // fichier actif, sinon le principal du projet, sinon le fichier actif.
+  function mainPath() {
+    var d = cur();
+    if (d && /\.tex$/i.test(d.path)) {
+      var head = d.doc.getRange(Pos(0, 0), Pos(Math.min(d.doc.lineCount(), 8), 0));
+      var m = /^%\s*!TEX\s+root\s*=\s*(.+?)\s*$/im.exec(head);
+      if (m) {
+        var parts = (dirOf(d.path) + "/" + m[1]).split("/"), out = [];
+        parts.forEach(function (x) { if (x === "..") out.pop(); else if (x !== "." && x !== "") out.push(x); });
+        return "/" + out.join("/");
+      }
+    }
+    var pr = project && project.projects.filter(function (p) { return !d || d.path.indexOf(p.path + "/") === 0; })[0];
+    pr = pr || (project && project.projects[0]);
+    if (pr && pr.main) return pr.main;
+    return d && /\.tex$/i.test(d.path) ? d.path : null;
+  }
+  function relName(path) {
+    var pr = project && project.projects.filter(function (p) { return path.indexOf(p.path + "/") === 0; })[0];
+    return pr ? path.slice(pr.path.length + 1) : base(path);
+  }
+  function plural(n, one, many) { return n + " " + (n > 1 ? many : one); }
+  function secondsText(s) { return String(s).replace(".", ","); }
+
+  function compile() {
+    var main = mainPath();
+    if (!mcp || !main || build.running) return;
+    build.running = true;
+    $("compileLbl").textContent = "Compilation…";
+    setBuildState("run", "Compilation de " + base(main) + "…");
+    refreshState();
+    // Tout ce qui est modifié est enregistré d'abord : latexmk lit le disque.
+    var dirty = tabs.map(function (p) { return docs[p]; }).filter(isDirty);
+    var chain = Promise.resolve(true);
+    dirty.forEach(function (d) { chain = chain.then(function (ok) { return ok && saveDoc(d); }); });
+    chain.then(function (ok) {
+      if (!ok) { setBuildState("err", "Enregistrement impossible : compilation annulée"); return null; }
+      return call("compile_tex", { path: main }).then(function (r) {
+        if (r.busy) { setBuildState("run", "Une compilation est déjà en cours sur le Mac"); return; }
+        build.result = r;
+        showBuild(r, main);
+      }, function (e) {
+        setBuildState("err", "Compilation impossible");
+        setNote("err", errorText(e), accessIfNeeded(e, compile));
+      });
+    }).then(function () {
+      build.running = false;
+      $("compileLbl").textContent = "Compiler";
+      refreshState();
+    });
+  }
+  function accessIfNeeded(e, retry) {
+    return e && e.code !== "tool_error" ? accessButtons(retry) : undefined;
+  }
+  function setBuildState(kind, text) {
+    var n = $("pdfState");
+    n.className = "cs " + kind;
+    n.textContent = text;
+  }
+
+  function showBuild(r, main) {
+    var errs = (r.errors || []).map(function (x) { x.kind = "e"; return x; });
+    var warns = (r.warnings || []).map(function (x) { x.kind = "w"; return x; });
+    build.issues = errs.concat(warns);
+    build.showAll = false;
+    if (r.ok) {
+      setBuildState(warns.length ? "warn" : "ok", "Compilé en " + secondsText(r.seconds) + " s" + (warns.length ? " · " + plural(warns.length, "avertissement", "avertissements") : ""));
+    } else {
+      setBuildState("err", errs.length > 1 ? plural(errs.length, "erreur", "erreurs") : "Échec de la compilation");
+    }
+    $("log").textContent = r.log || "";
+    $("logBtn").hidden = !r.log;
+    renderIssues();
+    paintIssues();
+    if (!r.pdf && !pdfView.path) {
+      var empty = $("pdfEmpty");
+      empty.textContent = "";
+      empty.appendChild(el("b", "", "Pas encore de PDF"));
+      empty.appendChild(el("span", "", "Corrige l'erreur indiquée puis recompile (Cmd-Entrée)."));
+    }
+    if (r.pdf) {
+      store.set("atelier-editor-pdf:" + main, r.pdf);
+      if (r.fresh || r.pdf !== pdfView.path) showPdf(r.pdf, r.pdfMtime);
+    }
+    // Panneau étroit : l'aperçu remplace la source le temps de voir le
+    // résultat ; une erreur cliquée ramène à la source.
+    if (narrow() || errs.length) setPdf(true);
+    if (errs.length && errs[0].path && !narrow()) goToIssue(errs[0]);
+  }
+
+  function renderIssues() {
+    var box = $("issues");
+    box.textContent = "";
+    var list = build.issues, limit = build.showAll ? list.length : 6;
+    box.hidden = !list.length;
+    list.slice(0, limit).forEach(function (x) {
+      var row = el("button", "row" + (x.kind === "w" ? " w" : ""));
+      row.type = "button";
+      row.appendChild(el("span", "dot"));
+      if (x.path) row.appendChild(el("span", "loc", relName(x.path) + (x.line ? ":" + x.line : "")));
+      row.appendChild(el("span", "msg", x.message + (x.context ? "  " + x.context : "")));
+      var openable = x.path && (fileIndex[x.path] || docs[x.path] || legacy);
+      row.title = openable ? "Aller à la ligne" : "";
+      if (openable) row.onclick = function () { goToIssue(x); };
+      else row.classList.add("off");
+      box.appendChild(row);
+    });
+    if (list.length > limit) {
+      var more = el("button", "more", "Afficher les " + list.length + " messages");
+      more.type = "button";
+      more.onclick = function () { build.showAll = true; renderIssues(); };
+      box.appendChild(more);
+    }
+  }
+  function goToIssue(x) {
+    if (!x.path) return;
+    if (narrow()) setPdf(false);
+    var line = Math.max(0, (x.line || 1) - 1);
+    if (fileIndex[x.path] || docs[x.path] || legacy) openFile(x.path, line);
+  }
+  // Lignes des erreurs et avertissements, surlignées dans la source.
+  function paintIssues() {
+    tabs.forEach(function (p) {
+      var d = docs[p];
+      (d.issueMarks || []).forEach(function (m) { d.doc.removeLineClass(m.h, "background", m.c); });
+      d.issueMarks = [];
+      build.issues.forEach(function (x) {
+        if (x.path !== p || !x.line || x.line > d.doc.lineCount()) return;
+        var c = x.kind === "w" ? "warn-bg" : "err-bg";
+        d.issueMarks.push({ h: d.doc.addLineClass(x.line - 1, "background", c), c: c });
+      });
+    });
+  }
+
+  // ——— Aperçu PDF ———
+  function setPdf(on) {
+    document.body.setAttribute("data-pdf", on ? "on" : "off");
+    $("pdfBtn").setAttribute("aria-pressed", String(on));
+    if (!narrow()) store.set("atelier-editor-pdfpane", on ? "on" : "off");
+    if (cm) cm.refresh();
+    if (on) { layoutPages(); pump(); }
+  }
+  function pdfOn() { return document.body.getAttribute("data-pdf") === "on"; }
+  function renderWidth() {
+    var box = $("pages"), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var css = Math.max(240, box.clientWidth - 32) * pdfView.zoom;
+    return Math.min(2400, Math.max(400, Math.ceil(css * dpr / 200) * 200));
+  }
+  function callImage(tool, input) {
+    return mcp.callTool(SERVER, tool, input, { cache: false }).then(function (r) {
+      online(true);
+      var img = (r.content || []).filter(function (c) { return c.type === "image"; })[0];
+      return { info: payloadOf(r), src: img ? "data:" + (img.mimeType || "image/png") + ";base64," + img.data : null };
+    });
+  }
+  function showPdf(path, mtime) {
+    var fresh = path !== pdfView.path;
+    pdfView.path = path; pdfView.mtime = mtime;
+    $("pdfEmpty").hidden = true;
+    if (fresh) { pdfView.nodes.forEach(function (n) { n.remove(); }); pdfView.nodes = []; pdfView.pages = 0; }
+    pdfView.nodes.forEach(function (n) { n.classList.add("old"); n.dataset.want = "1"; });
+    // La page 1 donne le nombre de pages et le format ; les autres viennent
+    // à mesure qu'elles approchent de la vue.
+    return render(1, true).then(function () { layoutPages(); pump(); });
+  }
+  function layoutPages() {
+    var box = $("pages");
+    if (!pdfView.pages) return;
+    while (pdfView.nodes.length < pdfView.pages) {
+      var n = el("div", "pg");
+      n.dataset.page = String(pdfView.nodes.length + 1);
+      n.dataset.want = "1";
+      box.appendChild(n);
+      pdfView.nodes.push(n);
+    }
+    while (pdfView.nodes.length > pdfView.pages) pdfView.nodes.pop().remove();
+    var css = Math.max(240, box.clientWidth - 32) * pdfView.zoom;
+    box.style.setProperty("--pg-max", Math.round(css) + "px");
+    pdfView.nodes.forEach(function (n) { n.style.aspectRatio = "1 / " + pdfView.ratio; n.style.width = Math.round(css) + "px"; });
+    $("pdfZoom").hidden = false;
+    $("zoomN").textContent = Math.round(pdfView.zoom * 100) + " %";
+    var key = renderWidth();
+    if (key !== pdfView.widthKey) {
+      pdfView.widthKey = key;
+      pdfView.nodes.forEach(function (n) { n.dataset.want = "1"; });
+    }
+    trackPage();
+  }
+  function render(page, first) {
+    var path = pdfView.path, mtime = pdfView.mtime, width = renderWidth();
+    pdfView.inflight++;
+    return callImage("render_pdf_page", { path: path, page: page, width: width }).then(function (out) {
+      if (path !== pdfView.path) return;
+      var info = out.info || {};
+      if (info.pages) pdfView.pages = info.pages;
+      if (first && info.width && info.height) pdfView.ratio = info.height / info.width;
+      if (info.pdfMtime && info.pdfMtime !== mtime) pdfView.mtime = info.pdfMtime;
+      if (first) layoutPages();
+      var n = pdfView.nodes[page - 1];
+      if (!n || !out.src) return;
+      var img = n.querySelector("img") || n.appendChild(el("img"));
+      img.alt = "Page " + page;
+      img.src = out.src;
+      n.classList.remove("old");
+      n.dataset.want = "";
+      n.dataset.width = String(width);
+    }, function (e) {
+      if (first) {
+        setNote("err", "Aperçu impossible : " + errorText(e), accessIfNeeded(e, function () { showPdf(path, mtime); }));
+        $("pdfEmpty").hidden = pdfView.nodes.length > 0;
+      }
+    }).then(function () { pdfView.inflight--; pump(); });
+  }
+  // Rend les pages visibles (et leurs voisines), deux à la fois.
+  function pump() {
+    if (!pdfView.path || !pdfOn() || document.hidden) return;
+    var box = $("pages"), top = box.scrollTop - box.clientHeight, bottom = box.scrollTop + box.clientHeight * 2;
+    var wanted = pdfView.nodes.filter(function (n) {
+      return n.dataset.want === "1" && !n.dataset.busy && n.offsetTop + n.offsetHeight >= top && n.offsetTop <= bottom;
+    });
+    while (pdfView.inflight < 2 && wanted.length) {
+      var n = wanted.shift();
+      n.dataset.busy = "1";
+      (function (n) { render(Number(n.dataset.page)).then(function () { delete n.dataset.busy; }); })(n);
+    }
+  }
+  function trackPage() {
+    var box = $("pages"), mid = box.scrollTop + box.clientHeight / 2, at = 1;
+    pdfView.nodes.forEach(function (n, i) { if (n.offsetTop <= mid) at = i + 1; });
+    $("pdfPage").textContent = pdfView.pages ? "Page " + at + " sur " + pdfView.pages : "";
+  }
+  function zoom(step) {
+    var levels = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2], i = levels.indexOf(pdfView.zoom);
+    if (i < 0) i = 3;
+    var next = levels[Math.max(0, Math.min(levels.length - 1, i + step))];
+    if (next === pdfView.zoom) return;
+    var box = $("pages"), ratio = box.scrollTop / Math.max(1, box.scrollHeight);
+    pdfView.zoom = next;
+    layoutPages();
+    box.scrollTop = ratio * box.scrollHeight;
+    pump();
+  }
+  // Au démarrage : le dernier PDF compilé de ce projet, s'il existe.
+  function restorePdf() {
+    var main = mainPath(), last = main && store.get("atelier-editor-pdf:" + main);
+    if (last && !pdfView.path) showPdf(last, null).then(function () {
+      if (pdfView.pages) setBuildState("", "Dernier PDF compilé");
+    });
+  }
+
   // ——— Branchements ———
   $("sideBtn").onclick = function () { setSide(document.body.getAttribute("data-side") === "off"); };
   $("segFiles").onclick = function () { seg(true); };
@@ -1306,6 +1631,20 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
     paintDiff();
   };
   $("stChg").onclick = nextChange;
+  $("compileBtn").onclick = function () { compile(); };
+  $("pdfBtn").onclick = function () { setPdf(!pdfOn()); };
+  $("zoomIn").onclick = function () { zoom(1); };
+  $("zoomOut").onclick = function () { zoom(-1); };
+  $("logBtn").onclick = function () {
+    var on = this.getAttribute("aria-pressed") !== "true";
+    this.setAttribute("aria-pressed", String(on));
+    $("log").hidden = !on; $("pages").hidden = on;
+  };
+  var scrollTimer = 0;
+  $("pages").addEventListener("scroll", function () {
+    trackPage();
+    clearTimeout(scrollTimer); scrollTimer = setTimeout(pump, 120);
+  }, { passive: true });
   $("findBtn").onclick = function () { if ($("find").hidden) openFind(); else closeFind(); };
   $("findX").onclick = closeFind;
   $("findNext").onclick = function () { step(1); };
@@ -1330,13 +1669,19 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
     if (!(ev.metaKey || ev.ctrlKey) || ev.altKey) return;
     var k = ev.key.toLowerCase();
     if (k === "s") { ev.preventDefault(); save(); }
+    else if (k === "enter") { ev.preventDefault(); compile(); }
     else if (k === "f" && cur()) { ev.preventDefault(); openFind(); }
   });
   window.addEventListener("beforeunload", function (ev) { if (anyDirty()) { ev.preventDefault(); ev.returnValue = ""; } });
-  window.addEventListener("resize", function () { if (cm) cm.refresh(); });
+  var resizeTimer = 0;
+  window.addEventListener("resize", function () {
+    if (cm) cm.refresh();
+    clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { layoutPages(); pump(); }, 150);
+  });
 
   setSide(narrow() ? false : store.get("atelier-editor-side") !== "off");
   seg(store.get("atelier-editor-seg") !== "plan");
+  setPdf(!narrow() && window.innerWidth >= 1100 && store.get("atelier-editor-pdfpane") !== "off");
 
   function start(data) {
     drafts = (data && data.drafts) || {};
@@ -1372,10 +1717,15 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
       return chain.then(function () { return first ? openFile(first) : null; });
     }, function (e) {
       // Connecteur d'avant la liste du projet : on ouvre par le chemin.
-      var unknown = e && (e.code === "not_in_manifest" || (e.code === "tool_error" && /inconnu|indisponible|unknown/i.test(toolText(e))));
+      // « blocked_by_policy » : Claude ne connaît pas cet outil sur le
+      // connecteur, donc le connecteur qui tourne est d'une version d'avant.
+      var stale = e && e.code === "blocked_by_policy";
+      var unknown = stale || (e && (e.code === "not_in_manifest" || (e.code === "tool_error" && /inconnu|indisponible|unknown/i.test(toolText(e)))));
       if (!unknown) { $("files").textContent = ""; accessNote(e, connect); throw e; }
       project = null; legacy = true;
       $("files").textContent = "";
+      if (stale) setNote("warn", "Claude ne voit pas encore les outils de cette version. Redémarre le connecteur sur ton Mac (Ctrl-C, ↑, Entrée), actualise sa liste d'outils dans Paramètres, Connecteurs, Atelier, puis réessaie.",
+        [{ label: "Réessayer", run: function () { setNote("", ""); legacy = false; connect(); } }]);
       $("files").appendChild(el("p", "hint", "Ce connecteur ne liste pas encore le projet. Ouvre un fichier par son chemin."));
       $("openForm").hidden = false;
       var last = store.get("atelier-editor-path");
@@ -1383,6 +1733,10 @@ li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
     }).then(function () {
       schedulePlan(100);
       fetchProposals();
+      refreshState();
+      restorePdf();
+      if (polling) return;
+      polling = true;
       setInterval(poll, POLL_MS);
       document.addEventListener("visibilitychange", function () { if (!document.hidden) poll(); });
     }).catch(function () {});

@@ -181,9 +181,20 @@ latéral, le même binaire sert aussi de **connecteur distant** :
 
 ```sh
 atelier-annots-mcp --set-code          # une fois : le code tapé pour connecter Claude (8 caractères au moins)
-ATELIER_CONNECTOR_URL=https://<mac>.<tailnet>.ts.net atelier-annots-mcp --http 8791
-tailscale funnel --bg 8791             # adresse publique https → 127.0.0.1:8791
+tailscale funnel --bg 8791             # une fois : adresse publique https → 127.0.0.1:8791
 ```
+
+**Atelier lance lui-même le connecteur** (`src-tauri/src/claude_connector.rs`)
+à chaque démarrage, sur 127.0.0.1:8791, avec l'adresse Tailscale du Mac ; il
+remplace un connecteur d'une version précédente (ou lancé à la main) et
+survit à la fermeture de l'app. Réglage :
+`$ATELIER_APP_DIR/claude-connector/config.json`,
+`{"enabled": true, "roots": ["~/Documents/These"]}`. Sans réglage, il est
+lancé seulement si Claude a déjà été relié (`state.json` présent).
+`roots` est relu à chaque requête : aucun fichier n'est servi tant qu'aucun
+dossier n'y figure. Journal : `claude-connector/connector.log`. À la main,
+pour essayer : `ATELIER_CONNECTOR_URL=https://<mac>.<tailnet>.ts.net
+ATELIER_CONNECTOR_ROOTS=<dossier> atelier-annots-mcp --http 8791`.
 
 Puis, dans Claude : Réglages, Connecteurs, « Ajouter un connecteur
 personnalisé », adresse `https://<mac>.<tailnet>.ts.net/mcp`. Claude ouvre la
@@ -197,9 +208,32 @@ page d'Atelier où l'on tape son code.
   (`$ATELIER_APP_DIR/claude-connector/state.json`, droits 600). Cinq codes
   faux bloquent la page quinze minutes. `--set-code` retire les connexions accordées.
 - Seuls les outils LaTeX (`open_tex_file`, `get_selection`, `read_tex_file`,
-  `propose_revision`, `apply_revision`, `undo_revision`), sur des fichiers sous
-  `ATELIER_CONNECTOR_ROOTS` (défaut `~/Documents`, chemins séparés par `:`).
+  `propose_revision`, `apply_revision`, `undo_revision`, et ceux réservés à
+  l'éditeur de l'artefact ci-dessous), sur des fichiers sous les dossiers du
+  réglage (ou `ATELIER_CONNECTOR_ROOTS`, chemins séparés par `:`).
 - Les appels de Claude (`/mcp`, `/token`, `/register`) doivent venir des
   adresses d'Anthropic (`ATELIER_CONNECTOR_ALLOW`, défaut `160.79.104.0/21`)
   quand le tunnel transmet `X-Forwarded-For`.
 - Le Mac doit être allumé.
+
+### Éditeur LaTeX dans un artefact claude.ai
+
+`view/editor-artifact.html` est un artefact publié (capacité `mcp`, serveur
+« Atelier ») : le projet LaTeX du Mac s'ouvre à droite de la conversation,
+avec arbre des fichiers, plan, onglets, recherche, changements mot à mot,
+propositions de Claude dans le texte (Accepter / Refuser), compilation et
+aperçu PDF. Il appelle des outils réservés aux vues (`_meta.ui.visibility
+["app"]`), invisibles du modèle :
+
+| Outil | Rôle |
+| --- | --- |
+| `load_tex_file` / `save_tex_file` | lire et écrire un .tex, .bib, .sty, .cls, .bst, .ltx, .tikz (écriture refusée si le fichier a changé) |
+| `list_tex_project` | fichiers des dossiers ouverts et fichier principal (celui qui inclut les autres) |
+| `list_revisions` / `resolve_revision` | propositions de Claude en attente ; accepter ou refuser |
+| `compile_tex` | latexmk dans le dossier du principal, sans `\write18` (`-no-shell-escape` même si un latexmkrc le demande), 180 s au plus ; erreurs et avertissements avec fichier et ligne, lus dans le `.log` (`-file-line-error`) |
+| `render_pdf_page` | une page du PDF en PNG (gris si la page n'a pas de couleur), rendue par PDFium dans un processus enfant (`--render-page`) |
+
+Après une version qui ajoute des outils : relancer le connecteur (Atelier le
+fait à son démarrage), puis actualiser la liste d'outils du connecteur dans
+claude.ai (Réglages, Connecteurs, Atelier). Sinon l'artefact reçoit
+`blocked_by_policy`.

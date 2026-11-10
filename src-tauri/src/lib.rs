@@ -2,6 +2,7 @@ mod appsnap;
 mod atelier;
 mod boot_metrics;
 mod browser;
+mod claude_connector;
 mod dictation;
 mod discussions;
 mod identity;
@@ -81,6 +82,9 @@ pub fn run() {
             }
             app.manage(appsnap::AppSnapManager::new(app.handle()));
             macos_badge_permission::request_badge_authorization_native();
+            // Connecteur Claude : lancé (ou remplacé par la nouvelle version)
+            // à chaque démarrage, sans onglet Terminal.
+            claude_connector::schedule(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

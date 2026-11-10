@@ -12,7 +12,7 @@ const DEFAULT_PER_ARTICLE: usize = 5;
 const MAX_LIMIT: usize = 1000;
 
 /// État d'une connexion : ce que le client a annoncé à `initialize`.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Session {
     /// Le client affiche les vues « MCP App » (Claude Desktop, claude.ai) :
     /// les outils de révision LaTeX, qui passent par la carte d'Atelier, ne
@@ -223,7 +223,7 @@ text = le passage réécrit en LaTeX, reason = une phrase en français. Une prop
 paragraphes = plusieurs appels. La carte montre l'avant / après à l'utilisateur, qui accepte ou refuse : \
 ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.";
 
-const REVISION_TOOLS: [&str; 11] = [
+const REVISION_TOOLS: [&str; 13] = [
     "open_tex_file",
     "get_selection",
     "read_tex_file",
@@ -235,6 +235,8 @@ const REVISION_TOOLS: [&str; 11] = [
     "list_tex_project",
     "list_revisions",
     "resolve_revision",
+    "compile_tex",
+    "render_pdf_page",
 ];
 
 fn revisions_offered(session: &Session, config: &Config) -> bool {
@@ -269,6 +271,8 @@ fn call_revision(
         "list_tex_project" => crate::project::list(args, roots),
         "list_revisions" => crate::project::list_revisions(&config.app_dir, args, roots),
         "resolve_revision" => crate::project::resolve(&config.app_dir, args, roots),
+        "compile_tex" => crate::compile::compile(args),
+        "render_pdf_page" => crate::compile::render_page(args),
         _ => Err(format!("outil inconnu : {name}")),
     }
 }
@@ -384,6 +388,29 @@ fn revision_tools() -> Value {
                 "accept": {"type": "boolean", "description": "true : écrire la révision ; false : la retirer."},
             }, "required": ["id", "accept"]},
             "annotations": {"readOnlyHint": false, "destructiveHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "compile_tex",
+            "title": "Compiler le projet LaTeX",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : compile le fichier principal avec latexmk (sans shell-escape) et rend les erreurs et avertissements avec fichier et ligne.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu du .tex principal."},
+                "force": {"type": "boolean", "description": "true : tout recompiler (latexmk -g)."},
+            }, "required": ["path"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "render_pdf_page",
+            "title": "Page du PDF compilé",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : une page du PDF en image PNG pour l'aperçu.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu du PDF."},
+                "page": {"type": "integer", "minimum": 1},
+                "width": {"type": "integer", "minimum": 200, "maximum": 2400},
+            }, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
             "_meta": app_only,
         },
     ])

@@ -34,7 +34,9 @@ pub struct Connector {
     config: Config,
     oauth: Mutex<OAuth>,
     sessions: Mutex<HashMap<String, Session>>,
-    roots: Vec<PathBuf>,
+    /// `ATELIER_CONNECTOR_ROOTS` ; absent, les dossiers sont relus dans
+    /// `claude-connector/config.json` à chaque requête (réglage d'Atelier).
+    roots_env: Option<Vec<PathBuf>>,
     base_url: Option<String>,
     allow: Option<Vec<(u32, u32)>>,
 }
@@ -52,10 +54,37 @@ fn parse_cidr(text: &str) -> Option<(u32, u32)> {
     Some((u32::from(ip) & mask, mask))
 }
 
+/// Dossiers ouverts au connecteur, d'après le réglage d'Atelier
+/// (`{"roots": ["~/Documents/These", …]}`). Pas de fichier, ou pas de
+/// dossier : aucun fichier n'est servi.
+pub fn config_roots(app_dir: &std::path::Path) -> Vec<PathBuf> {
+    let Ok(raw) = std::fs::read(app_dir.join("claude-connector/config.json")) else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(&raw) else {
+        return Vec::new();
+    };
+    value["roots"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(crate::revision::expand_home)
+                .filter(|p| p.is_absolute())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 impl Connector {
+    fn roots(&self) -> Vec<PathBuf> {
+        self.roots_env
+            .clone()
+            .unwrap_or_else(|| config_roots(&self.config.app_dir))
+    }
+
     pub fn from_env(config: Config) -> Self {
-        let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
-        let roots = std::env::var("ATELIER_CONNECTOR_ROOTS")
+        let roots_env = std::env::var("ATELIER_CONNECTOR_ROOTS")
             .ok()
             .filter(|v| !v.trim().is_empty())
             .map(|v| {
@@ -63,8 +92,7 @@ impl Connector {
                     .filter(|p| !p.is_empty())
                     .map(PathBuf::from)
                     .collect()
-            })
-            .unwrap_or_else(|| vec![home.join("Documents")]);
+            });
         let allow = match std::env::var("ATELIER_CONNECTOR_ALLOW")
             .ok()
             .as_deref()
@@ -84,7 +112,7 @@ impl Connector {
             oauth: Mutex::new(OAuth::load(&config.app_dir)),
             config,
             sessions: Mutex::new(HashMap::new()),
-            roots,
+            roots_env,
             base_url,
             allow,
         }
@@ -184,7 +212,7 @@ pub fn run(config: Config, port: u16) -> Result<(), String> {
     eprintln!(
         "atelier-annots-mcp: connecteur sur http://127.0.0.1:{port}/mcp, dossiers ouverts : {}",
         connector
-            .roots
+            .roots()
             .iter()
             .map(|r| r.display().to_string())
             .collect::<Vec<_>>()
@@ -470,7 +498,10 @@ async fn mcp_post(State(c): State<Shared>, headers: HeaderMap, body: Bytes) -> R
         Some(id) if !initializing => id.to_string(),
         _ => crate::oauth::random_token(),
     };
-    let replies: Vec<Value> = {
+    // La session est copiée hors du verrou, et l'appel tourne hors du
+    // runtime : une compilation LaTeX (des dizaines de secondes) ne bloque ni
+    // les autres requêtes ni les autres conversations.
+    let mut session = {
         let mut sessions = match c.sessions.lock() {
             Ok(s) => s,
             Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
@@ -478,20 +509,35 @@ async fn mcp_post(State(c): State<Shared>, headers: HeaderMap, body: Bytes) -> R
         if !sessions.contains_key(&session_id) && sessions.len() >= SESSIONS_MAX {
             sessions.clear();
         }
+        let roots = c.roots();
         let session = sessions
             .entry(session_id.clone())
-            .or_insert_with(|| Session::remote(c.roots.clone()));
-        messages
+            .or_insert_with(|| Session::remote(roots.clone()));
+        // Un dossier ajouté ou retiré dans Atelier vaut dès la requête suivante.
+        session.remote_roots = Some(roots);
+        session.clone()
+    };
+    let worker = c.clone();
+    let handled = tokio::task::spawn_blocking(move || {
+        let replies: Vec<Value> = messages
             .iter()
             .filter_map(|m| {
-                let reply = handle_in(session, &c.config, m);
+                let reply = handle_in(&mut session, &worker.config, m);
                 // `initialize` lit les capacités du client ; à distance, les
                 // outils LaTeX restent offerts dans tous les cas.
                 session.ui = true;
                 reply
             })
-            .collect()
+            .collect();
+        (replies, session)
+    })
+    .await;
+    let Ok((replies, session)) = handled else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
+    if let Ok(mut sessions) = c.sessions.lock() {
+        sessions.insert(session_id.clone(), session);
+    }
     let mut response = if replies.is_empty() {
         StatusCode::ACCEPTED.into_response()
     } else if message.is_array() {
@@ -538,6 +584,25 @@ mod tests {
         assert_eq!(inside & cidr.1, cidr.0);
         assert_ne!(outside & cidr.1, cidr.0);
         assert!(parse_cidr("nope").is_none());
+    }
+
+    #[test]
+    fn folders_come_from_atelier_settings_and_default_to_none() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            config_roots(dir.path()).is_empty(),
+            "sans réglage : aucun dossier"
+        );
+        std::fs::create_dir_all(dir.path().join("claude-connector")).unwrap();
+        std::fs::write(
+            dir.path().join("claude-connector/config.json"),
+            r#"{"enabled": true, "roots": ["/Users/t/These", "relatif", 3]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config_roots(dir.path()),
+            vec![PathBuf::from("/Users/t/These")]
+        );
     }
 
     #[test]
