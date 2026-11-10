@@ -2224,6 +2224,8 @@ export default function App() {
     const onAutoReviewToggle = () => {
       setSettings((s) => ({ ...s, autoReview: { ...s.autoReview, enabled: !s.autoReview.enabled } }));
     };
+    // État vide de la surface Résultats : « Allumer les recettes ».
+    const onResultsRecipesOn = () => setSettings((s) => ({ ...s, recipes: true }));
     const onCorrectIssues = (e: Event) => {
       const { threadId, issues } = (e as CustomEvent).detail ?? {};
       ws.current?.send(JSON.stringify({ type: "clientLog", note: `correct-issues reçu tid=${String(threadId).slice(0,8)} issues=${Array.isArray(issues)?issues.length:"?"}` }));
@@ -2346,6 +2348,7 @@ export default function App() {
       // Citation « cellule N » du chat : la surface s'ouvre sur la cellule.
       "kernel-panel-open": onKernelPanel,
       "kernel-add-to-chat": onKernelAddToChat,
+      "results-recipes-on": onResultsRecipesOn,
       "permission-answer": onPermAnswer,
       "interaction-answer": onInteractionAnswer,
       "correct-issues": onCorrectIssues,

@@ -5,11 +5,11 @@
 // plus grandes pour s'aligner sur les icônes Chats/Surlignés du rail (19px).
 import { BookIcon, BranchIcon } from "./icons";
 
-export type Surface = "atelier" | "browser" | "terminal" | "git" | "historique" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves" | "noyau" | "documents";
+export type Surface = "atelier" | "browser" | "terminal" | "git" | "historique" | "resultats" | "biblio" | "connaissances" | "generateur" | "calculs" | "preuves" | "noyau" | "documents";
 
 export const SURFACES: {
   id: Surface;
-  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.historique" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.calculs" | "atelier.preuves" | "atelier.noyau" | "atelier.documents";
+  labelKey: "atelier.surface" | "atelier.browser" | "atelier.terminal" | "atelier.git" | "atelier.historique" | "atelier.resultats" | "atelier.biblio" | "atelier.connaissances" | "atelier.generateur" | "atelier.calculs" | "atelier.preuves" | "atelier.noyau" | "atelier.documents";
   icon: React.ReactNode;
 }[] = [
   {
@@ -67,6 +67,17 @@ export const SURFACES: {
     icon: (
       <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2.4 2.8v2.8h2.8M2.7 5.6A5.6 5.6 0 1 1 2.4 8M8 5v3l2 1.3" />
+      </svg>
+    ),
+  },
+  {
+    // Résultats du projet (2026-11-10) : la pile de ce qu'il a produit.
+    id: "resultats",
+    labelKey: "atelier.resultats",
+    icon: (
+      <svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="5.5" width="10" height="8" rx="1.5" />
+        <path d="M4.5 3.5h7M6 1.8h4" />
       </svg>
     ),
   },

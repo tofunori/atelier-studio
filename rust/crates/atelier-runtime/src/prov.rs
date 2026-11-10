@@ -526,18 +526,23 @@ fn sidecar_path(root: &Path, rel_figure: &str) -> PathBuf {
 /// dans chaque dossier de figures serait du bruit chez l'utilisateur.
 /// Version 2 : mêmes champs que la v1, plus la recette (`command`,
 /// `scriptVersions`, `inputs`, `env.packages`) ; un lecteur v1 l'ignore.
+/// `generations` compte toutes les régénérations, y compris celles que le
+/// plafond de `history` a fait tomber : c'est le numéro de version que montre
+/// l'écran « Résultats » (`results.rs`).
 fn append_history(sidecar: &Path, rel_figure: &str, entry: &Value) -> std::io::Result<()> {
     let parsed = atelier_store::durable::load_with(sidecar, |bytes| {
         let value: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-        value
+        let history = value
             .get("history")
             .and_then(Value::as_array)
             .map(|a| a.iter().filter(|e| e.is_object()).cloned().collect::<Vec<Value>>())
-            .ok_or_else(|| "pas de liste « history »".to_string())
+            .ok_or_else(|| "pas de liste « history »".to_string())?;
+        let generations = generations_of(&value, history.len());
+        Ok((history, generations))
     });
-    let mut history = match parsed {
-        Ok(history) => history.unwrap_or_default(),
-        Err(atelier_store::durable::StoreError::Unreadable { copy: Some(_), .. }) => Vec::new(),
+    let (mut history, generations) = match parsed {
+        Ok(found) => found.unwrap_or_default(),
+        Err(atelier_store::durable::StoreError::Unreadable { copy: Some(_), .. }) => (Vec::new(), 0),
         Err(error) => return Err(error.into()),
     };
     history.insert(0, entry.clone());
@@ -545,11 +550,23 @@ fn append_history(sidecar: &Path, rel_figure: &str, entry: &Value) -> std::io::R
     let document = json!({
         "version": 2,
         "figure": rel_figure,
+        "generations": generations + 1,
         "history": history,
     });
     let body = serde_json::to_string_pretty(&document)
         .map_err(|e| std::io::Error::other(e.to_string()))?;
     atelier_store::durable::write_durable(sidecar, format!("{body}\n").as_bytes())
+}
+
+/// Nombre de régénérations d'un sidecar : le compteur `generations` quand il
+/// existe (jamais en dessous de ce que `history` garde), sinon la longueur de
+/// `history` (sidecars écrits avant le compteur).
+pub(crate) fn generations_of(document: &Value, history_len: usize) -> u64 {
+    document
+        .get("generations")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .max(history_len as u64)
 }
 
 fn is_read_tool(name: &str) -> bool {
@@ -623,7 +640,7 @@ fn in_hidden_dir(rel: &str) -> bool {
 }
 
 /// Famille d'un fichier qui reçoit une recette, `None` sinon.
-fn recipe_kind(rel: &str) -> Option<&'static str> {
+pub(crate) fn recipe_kind(rel: &str) -> Option<&'static str> {
     if in_hidden_dir(rel) {
         return None;
     }
@@ -888,6 +905,8 @@ mod tests {
         assert_eq!(history.len(), HISTORY_MAX, "history plafonne à 20");
         assert_eq!(history[0]["threadId"], "th-24", "la plus récente en tête");
         assert_eq!(history[19]["threadId"], "th-5");
+        // Le compteur de régénérations survit au plafond : c'est la version 25.
+        assert_eq!(doc["generations"], 25);
         // Titre absent → clé omise, pas `null`.
         assert!(history[0].get("threadTitle").is_none());
         assert!(history[0].get("model").is_none());
