@@ -9,22 +9,23 @@ import { t, type I18nKey } from "../../lib/i18n";
 import { openKernelCell } from "../../lib/kernel";
 import { Button, RowButton, Spinner } from "../ui";
 import type { Review, ReviewClaim } from "./useReviews";
+import {
+  ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CircleAlertIcon, CircleCheckIcon, CircleXIcon, SearchCheckIcon,
+  SquareTerminalIcon,
+} from "lucide-react";
 
-const svg = (size: number, paths: ReactNode) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths}</svg>
-);
-const REVIEW = svg(14, <><circle cx="7" cy="7" r="4.6" /><path d="m10.4 10.4 3.1 3.1M5.1 7.1l1.3 1.3 2.4-2.7" /></>);
-const CELL = svg(13, <><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><path d="M5 6.5 6.8 8 5 9.5M8.5 9.8h2.5" /></>);
+// Icônes : la famille Lucide (verrou icon-family.test.ts).
+const REVIEW = <SearchCheckIcon size={14} aria-hidden="true" />;
+const CELL = <SquareTerminalIcon size={12} aria-hidden="true" />;
 const CHEVRON = {
-  down: svg(12, <path d="M4.5 6.2 8 9.7l3.5-3.5" />),
-  up: svg(12, <path d="M4.5 9.8 8 6.3l3.5 3.5" />),
-  right: svg(12, <path d="M6.2 4.5 9.7 8l-3.5 3.5" />),
+  down: <ChevronDownIcon size={12} aria-hidden="true" />,
+  up: <ChevronUpIcon size={12} aria-hidden="true" />,
+  right: <ChevronRightIcon size={12} aria-hidden="true" />,
 };
 const STATE: Record<string, ReactNode> = {
-  failed: svg(16, <><circle cx="8" cy="8" r="5.8" /><path d="M6 6l4 4M10 6l-4 4" /></>),
-  inconclusive: svg(16, <><circle cx="8" cy="8" r="5.8" /><path d="M8 5v3.4M8 10.8v.1" /></>),
-  passed: svg(16, <><circle cx="8" cy="8" r="5.8" /><path d="M5.4 8.2l1.8 1.8 3.4-3.8" /></>),
+  failed: <CircleXIcon size={16} aria-hidden="true" />,
+  inconclusive: <CircleAlertIcon size={16} aria-hidden="true" />,
+  passed: <CircleCheckIcon size={16} aria-hidden="true" />,
 };
 
 const FAMILIES = new Set(["number", "computed", "citation", "figure", "conclusion"]);

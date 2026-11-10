@@ -18,6 +18,10 @@ import {
   type InputState, type ResultBrief, type ResultDetail, type ResultFilter, type ResultKind, type ResultOrigin,
   type ResultSummary, type ResultView,
 } from "./results/resultsModel";
+import {
+  ChevronDownIcon, ChevronRightIcon, CircleAlertIcon, EllipsisIcon, FileCodeIcon, FileTextIcon, ImageIcon, LayoutGridIcon,
+  ListIcon, MessageSquareIcon, RotateCcwIcon, SquareTerminalIcon, StarIcon, TableIcon, TerminalIcon, type LucideIcon,
+} from "lucide-react";
 import "./ResultsSurface.css";
 
 const AtelierDiffView = lazyWithRetry(() => import("./AtelierDiffView"));
@@ -26,32 +30,21 @@ const AtelierDiffView = lazyWithRetry(() => import("./AtelierDiffView"));
 const VERSIONS_SHOWN = 3;
 const VIEW_KEY = "atelier-studio.resultsView";
 
-function svg(path: React.ReactNode, size = 14, stroke = 1.4) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={stroke}
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{path}</svg>
-  );
+// Icônes : la famille Lucide (verrou icon-family.test.ts), 12 et 14 px.
+function icon(Icon: LucideIcon, size = 14) {
+  return <Icon size={size} aria-hidden="true" />;
 }
 
-const STAR_PATH = "M8 2.4l1.7 3.5 3.9.5-2.8 2.7.7 3.8L8 11.1l-3.5 1.8.7-3.8-2.8-2.7 3.9-.5z";
-const KIND_PATHS: Record<ResultKind, React.ReactNode> = {
-  figure: <><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><path d="M2.8 11.2l3-3 2.2 2.2 1.8-1.8 3.4 3.2" /><circle cx="10.6" cy="6" r=".9" /></>,
-  table: <><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><path d="M2.5 6.5h11M2.5 9.8h11M6.5 3v10" /></>,
-  pdf: <><path d="M4 2h5.5L12 4.5V14H4z" /><path d="M9.5 2v2.5H12M6 8h4M6 10.5h4" /></>,
+const KIND_ICONS: Record<ResultKind, LucideIcon> = { figure: ImageIcon, table: TableIcon, pdf: FileTextIcon };
+const ORIGIN_ICONS: Record<ResultOrigin["kind"], LucideIcon> = {
+  script: FileCodeIcon, cell: SquareTerminalIcon, command: TerminalIcon, turn: MessageSquareIcon,
 };
-const ORIGIN_PATHS: Record<ResultOrigin["kind"], React.ReactNode> = {
-  script: <><path d="M4 2h5.5L12 4.5V14H4z" /><path d="M6.6 8.2 5.3 9.5l1.3 1.3M9.4 8.2l1.3 1.3-1.3 1.3" /></>,
-  cell: <><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><path d="M5 6.5 6.8 8 5 9.5M8.5 9.8h2.5" /></>,
-  command: <path d="M3.5 5 7 8l-3.5 3M8.5 11.5h4" />,
-  turn: <path d="M3 4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5V11H4a1 1 0 0 1-1-1z" />,
-};
-const WARN_PATH = <><circle cx="8" cy="8" r="5.8" /><path d="M8 5v3.4M8 10.8v.1" /></>;
-const LIST_ICON = svg(<path d="M5.5 4.5h8M5.5 8h8M5.5 11.5h8M2.6 4.5h.1M2.6 8h.1M2.6 11.5h.1" />);
-const GRID_ICON = svg(<><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></>);
-const REPLAY_ICON = svg(<><path d="M3 8a5 5 0 1 0 1.6-3.7" /><path d="M3 3v3h3" /></>, 13);
-const MORE_ICON = svg(<><circle cx="3.5" cy="8" r=".7" fill="currentColor" stroke="none" /><circle cx="8" cy="8" r=".7" fill="currentColor" stroke="none" /><circle cx="12.5" cy="8" r=".7" fill="currentColor" stroke="none" /></>);
-const CHEVRON_DOWN = svg(<path d="M4.5 6.2 8 9.7l3.5-3.5" />, 11);
-const CHEVRON_RIGHT = svg(<path d="M6.2 4.5 9.7 8l-3.5 3.5" />, 12);
+const LIST_ICON = icon(ListIcon);
+const GRID_ICON = icon(LayoutGridIcon);
+const REPLAY_ICON = icon(RotateCcwIcon, 12);
+const MORE_ICON = icon(EllipsisIcon);
+const CHEVRON_DOWN = icon(ChevronDownIcon, 12);
+const CHEVRON_RIGHT = icon(ChevronRightIcon, 12);
 
 type Send = (message: Record<string, unknown>) => boolean;
 type PreviewResolver = (abs: string) => Promise<string>;
@@ -135,7 +128,7 @@ function Thumb({ result, root, resolve, size }: {
     );
   }
   if (size === "mini") {
-    return <span ref={ref} className="res-thumb res-thumb-icon" data-size={size}>{svg(KIND_PATHS[result.kind])}</span>;
+    return <span ref={ref} className="res-thumb res-thumb-icon" data-size={size}>{icon(KIND_ICONS[result.kind])}</span>;
   }
   // PDF : une feuille ; tableau : une grille. Pas d'aperçu du contenu.
   return (
@@ -153,8 +146,7 @@ function Star({ result, onToggle, className }: { result: ResultSummary; onToggle
   return (
     <IconButton size="s" label={label} title={label} aria-pressed={result.starred}
       className={`res-star${className ? ` ${className}` : ""}`} onClick={() => onToggle(result)}>
-      <svg width="14" height="14" viewBox="0 0 16 16" fill={result.starred ? "currentColor" : "none"} stroke="currentColor"
-        strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={STAR_PATH} /></svg>
+      <StarIcon size={14} fill={result.starred ? "currentColor" : "none"} aria-hidden="true" />
     </IconButton>
   );
 }
@@ -165,14 +157,14 @@ function breakable(name: string): React.ReactNode {
 }
 
 function StaleMark() {
-  return <span className="res-stale">{svg(WARN_PATH, 12)}{strings().staleMark}</span>;
+  return <span className="res-stale">{icon(CircleAlertIcon, 12)}{strings().staleMark}</span>;
 }
 
-function Origin({ origin, size = 13 }: { origin: ResultOrigin; size?: number }) {
+function Origin({ origin, size = 12 }: { origin: ResultOrigin; size?: number }) {
   const label = originLabel(origin);
   return (
     <span className="res-origin" title={origin.path ?? label}>
-      {svg(ORIGIN_PATHS[origin.kind], size)}<span>{label}</span>
+      {icon(ORIGIN_ICONS[origin.kind], size)}<span>{label}</span>
     </span>
   );
 }
@@ -210,7 +202,7 @@ function Links({ title, items, onSelect }: { title: string; items: ResultBrief[]
       {items.length === 0 && <div className="res-link-none">{strings().none}</div>}
       {items.map((item) => (
         <RowButton key={item.path} className="res-link" title={item.path} onClick={() => onSelect(item.path)}>
-          <span className="res-link-icon">{svg(KIND_PATHS[item.kind])}</span>
+          <span className="res-link-icon">{icon(KIND_ICONS[item.kind])}</span>
           <span className="res-link-name">{item.name}</span>
           <span className="res-link-version">v{item.version}</span>
         </RowButton>
@@ -296,7 +288,7 @@ function Detail({
       <div className="res-detail-meta">{detailMeta(head)}</div>
       {head.stale && (
         <div className="res-banner" role="status">
-          {svg(WARN_PATH)}
+          {icon(CircleAlertIcon)}
           <span><b>{s.staleLead}</b> {staleSentence(head.stale)}</span>
         </div>
       )}
