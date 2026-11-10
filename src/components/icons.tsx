@@ -13,7 +13,7 @@ import {
   ListTreeIcon, Maximize2Icon, MessageSquareIcon, Minimize2Icon, MinusIcon as LucideMinus,
   PanelLeftIcon, PanelRightIcon, PlusIcon as LucidePlus, ReplyIcon as LucideReply, RotateCwIcon,
   SearchIcon as LucideSearch, SettingsIcon as LucideSettings, StarIcon as LucideStar,
-  TriangleAlertIcon, XIcon, ZapIcon as LucideZap, type LucideIcon,
+  TriangleAlertIcon, XIcon, ZapIcon as LucideZap,
 } from "lucide-react";
 
 type IconProps = { size?: number };
@@ -22,12 +22,6 @@ type IconProps = { size?: number };
 const grid = (size: number) => (size <= 12 ? 12 : size < 16 ? 14 : size);
 /** Signes (croix, coche, chevron, tiret) : 12 px tant qu'ils ne sont pas en grand. */
 const sign = (size: number) => (size < 16 ? 12 : size);
-
-function family(Glyph: LucideIcon, fit = grid) {
-  return function Icon({ size = 14 }: IconProps) {
-    return <Glyph size={fit(size)} />;
-  };
-}
 
 export function ClaudeIcon({ size = 13 }: { size?: number }) {
   return (
@@ -58,7 +52,9 @@ export function GrokIcon({ size = 13 }: { size?: number }) {
 }
 
 // globe générique pour les providers API (OpenRouter, GLM, MiniMax…)
-export const ApiProviderIcon = family(GlobeIcon);
+export function ApiProviderIcon({ size = 14 }: IconProps) {
+  return <GlobeIcon size={grid(size)} />;
+}
 
 export function ProviderIcon({ provider, size = 13 }: { provider: string; size?: number }) {
   if (provider === "codex") return <CodexIcon size={size} />;
@@ -67,20 +63,34 @@ export function ProviderIcon({ provider, size = 13 }: { provider: string; size?:
   return <ApiProviderIcon size={size} />;
 }
 
-export const ResumeIcon = family(ArrowDownToLineIcon);
+export function ResumeIcon({ size = 14 }: IconProps) {
+  return <ArrowDownToLineIcon size={grid(size)} />;
+}
 
 /* Vue de la transcription (sélecteur du header de conversation, 2026-08-21) :
    une icône par mode : œil (Normal), cerveau (Réflexion en cours), liste
    arborescente (Détaillé), lignes décroissantes (Résumé). */
-export const ViewNormalIcon = family(EyeIcon);
-export const ViewThinkingIcon = family(BrainIcon);
-export const ViewDetailedIcon = family(ListTreeIcon);
-export const ViewSummaryIcon = family(ListFilterIcon);
+export function ViewNormalIcon({ size = 14 }: IconProps) {
+  return <EyeIcon size={grid(size)} />;
+}
+export function ViewThinkingIcon({ size = 14 }: IconProps) {
+  return <BrainIcon size={grid(size)} />;
+}
+export function ViewDetailedIcon({ size = 14 }: IconProps) {
+  return <ListTreeIcon size={grid(size)} />;
+}
+export function ViewSummaryIcon({ size = 14 }: IconProps) {
+  return <ListFilterIcon size={grid(size)} />;
+}
 
-export const ForkIcon = family(GitForkIcon);
+export function ForkIcon({ size = 14 }: IconProps) {
+  return <GitForkIcon size={grid(size)} />;
+}
 /** Marqueur de branche dans la barre latérale : une conversation qui repart
  * d'un point du fil parent. */
-export const ForkBranchIcon = family(GitForkIcon);
+export function ForkBranchIcon({ size = 14 }: IconProps) {
+  return <GitForkIcon size={grid(size)} />;
+}
 
 /** Marqueur Atelier d'une continuité entre conversations. Ce n'est ni une
  * chaîne ni une couleur de statut : deux sessions, un passage explicite. */
@@ -104,33 +114,83 @@ export function SessionBridgeIcon({ size = 14 }: IconProps) {
   );
 }
 
-export const BranchIcon = family(GitBranchIcon);
-export const BookIcon = family(LibraryIcon);
-export const StarIcon = family(LucideStar);
-export const LedgerIcon = family(FileTextIcon);
-export const CloseIcon = family(XIcon, sign);
-export const MinusIcon = family(LucideMinus, sign);
-export const RefreshIcon = family(RotateCwIcon);
-export const GalleryIcon = family(ImageIcon);
-export const HomeIcon = family(HouseIcon);
-export const CheckIcon = family(LucideCheck, sign);
-export const CopyIcon = family(LucideCopy);
-export const OpenIcon = family(ExternalLinkIcon);
-export const PlusIcon = family(LucidePlus);
-export const ExpandIcon = family(Maximize2Icon);
-export const CollapseIcon = family(Minimize2Icon);
-export const SettingsIcon = family(LucideSettings);
-export const SidebarIcon = family(PanelLeftIcon);
-export const PanelIcon = family(PanelRightIcon);
-export const SearchIcon = family(LucideSearch);
-export const ArrowDownIcon = family(LucideArrowDown);
+export function BranchIcon({ size = 14 }: IconProps) {
+  return <GitBranchIcon size={grid(size)} />;
+}
+export function BookIcon({ size = 14 }: IconProps) {
+  return <LibraryIcon size={grid(size)} />;
+}
+export function StarIcon({ size = 14 }: IconProps) {
+  return <LucideStar size={grid(size)} />;
+}
+export function LedgerIcon({ size = 14 }: IconProps) {
+  return <FileTextIcon size={grid(size)} />;
+}
+export function CloseIcon({ size = 14 }: IconProps) {
+  return <XIcon size={sign(size)} />;
+}
+export function MinusIcon({ size = 14 }: IconProps) {
+  return <LucideMinus size={sign(size)} />;
+}
+export function RefreshIcon({ size = 14 }: IconProps) {
+  return <RotateCwIcon size={grid(size)} />;
+}
+export function GalleryIcon({ size = 14 }: IconProps) {
+  return <ImageIcon size={grid(size)} />;
+}
+export function HomeIcon({ size = 14 }: IconProps) {
+  return <HouseIcon size={grid(size)} />;
+}
+export function CheckIcon({ size = 14 }: IconProps) {
+  return <LucideCheck size={sign(size)} />;
+}
+export function CopyIcon({ size = 14 }: IconProps) {
+  return <LucideCopy size={grid(size)} />;
+}
+export function OpenIcon({ size = 14 }: IconProps) {
+  return <ExternalLinkIcon size={grid(size)} />;
+}
+export function PlusIcon({ size = 14 }: IconProps) {
+  return <LucidePlus size={grid(size)} />;
+}
+export function ExpandIcon({ size = 14 }: IconProps) {
+  return <Maximize2Icon size={grid(size)} />;
+}
+export function CollapseIcon({ size = 14 }: IconProps) {
+  return <Minimize2Icon size={grid(size)} />;
+}
+export function SettingsIcon({ size = 14 }: IconProps) {
+  return <LucideSettings size={grid(size)} />;
+}
+export function SidebarIcon({ size = 14 }: IconProps) {
+  return <PanelLeftIcon size={grid(size)} />;
+}
+export function PanelIcon({ size = 14 }: IconProps) {
+  return <PanelRightIcon size={grid(size)} />;
+}
+export function SearchIcon({ size = 14 }: IconProps) {
+  return <LucideSearch size={grid(size)} />;
+}
+export function ArrowDownIcon({ size = 14 }: IconProps) {
+  return <LucideArrowDown size={grid(size)} />;
+}
 /** Vue « Chats » de la barre d'activité. */
-export const ChatsIcon = family(MessageSquareIcon);
+export function ChatsIcon({ size = 14 }: IconProps) {
+  return <MessageSquareIcon size={grid(size)} />;
+}
 /** Vue « Surlignés » de la barre d'activité. */
-export const HighlighterIcon = family(LucideHighlighter);
-export const ZapIcon = family(LucideZap);
-export const DownloadIcon = family(LucideDownload);
-export const MoreIcon = family(EllipsisIcon);
+export function HighlighterIcon({ size = 14 }: IconProps) {
+  return <LucideHighlighter size={grid(size)} />;
+}
+export function ZapIcon({ size = 14 }: IconProps) {
+  return <LucideZap size={grid(size)} />;
+}
+export function DownloadIcon({ size = 14 }: IconProps) {
+  return <LucideDownload size={grid(size)} />;
+}
+export function MoreIcon({ size = 14 }: IconProps) {
+  return <EllipsisIcon size={grid(size)} />;
+}
 
 /** Chevron de dépliage : pointe à droite ; l'état ouvert le tourne de 90°
  *  en CSS (.ui-disclosure-chevron[data-open]) : UNE convention partout. */
@@ -138,17 +198,27 @@ export function ChevronIcon({ size = 12, open }: IconProps & { open?: boolean })
   return <ChevronRightIcon className="ui-disclosure-chevron" data-open={open ? "" : undefined} size={sign(size)} />;
 }
 
-export const ArrowUpIcon = family(LucideArrowUp);
+export function ArrowUpIcon({ size = 14 }: IconProps) {
+  return <LucideArrowUp size={grid(size)} />;
+}
 
 export function StarFilledIcon({ size = 14 }: IconProps) {
   return <LucideStar size={grid(size)} fill="currentColor" />;
 }
 
 /** Renvoyer dans le fil (Quick Ask « injecter »). */
-export const ReplyIcon = family(LucideReply);
+export function ReplyIcon({ size = 14 }: IconProps) {
+  return <LucideReply size={grid(size)} />;
+}
 /** Ouvrir ailleurs / promouvoir en conversation. */
-export const ArrowUpRightIcon = family(LucideArrowUpRight);
+export function ArrowUpRightIcon({ size = 14 }: IconProps) {
+  return <LucideArrowUpRight size={grid(size)} />;
+}
 /** Alerte (erreur d'une réponse, état dégradé) : triangle au trait, pas d'emoji. */
-export const AlertIcon = family(TriangleAlertIcon);
+export function AlertIcon({ size = 14 }: IconProps) {
+  return <TriangleAlertIcon size={grid(size)} />;
+}
 /** « Aucun » (pas de couleur, pas d'icône). */
-export const NoneIcon = family(BanIcon);
+export function NoneIcon({ size = 14 }: IconProps) {
+  return <BanIcon size={grid(size)} />;
+}
