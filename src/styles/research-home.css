@@ -5,8 +5,8 @@
  * le panneau chat n'a pas la largeur du viewport. */
 .research-home { container-type: inline-size; width: 100%; }
 .rh {
-  max-width: 980px; margin: 0 auto; padding: var(--sp-6) var(--sp-5);
-  display: flex; flex-direction: column; gap: var(--sp-6);
+  max-width: 980px; margin: 0 auto; padding: var(--sp-8) var(--sp-5) var(--sp-6);
+  display: flex; flex-direction: column; gap: var(--sp-8);
   font-family: var(--font-chrome);
 }
 
@@ -26,7 +26,7 @@
  * Une colonne (<880px de conteneur) : les wrappers passent en display:contents
  * et l'ordre exigé par le plan (Continuer → À traiter → Artefacts → Démarrer)
  * est imposé par `order` sur les sections elles-mêmes. */
-.rh-grid { display: flex; flex-direction: column; gap: var(--sp-6); }
+.rh-grid { display: flex; flex-direction: column; gap: var(--sp-8); }
 .rh-col { display: contents; }
 .rh-sec-continue { order: 1; }
 .rh-sec-attention { order: 2; }
@@ -34,42 +34,53 @@
 .rh-sec-start { order: 4; }
 @container (min-width: 880px) {
   .rh-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--sp-8); align-items: start; }
-  .rh-col { display: flex; flex-direction: column; gap: var(--sp-6); min-width: 0; }
+  .rh-col { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
   .rh-sec-continue, .rh-sec-attention, .rh-sec-artefacts, .rh-sec-start { order: 0; }
 }
 
 /* ---- sections cardless -------------------------------------------------- */
-.rh-section { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+/* Intertitres en casse normale (2026-11-10) : une voix calme, alignée sur le
+   texte des rangées (retrait 8 px), au lieu d'une étiquette en capitales. */
+.rh-section { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
 .rh-section > h2 {
-  margin: 0; font-size: var(--eyebrow-size); font-weight: var(--eyebrow-weight);
-  letter-spacing: var(--eyebrow-tracking); text-transform: uppercase; color: var(--eyebrow-color); }
+  margin: 0; padding-left: var(--sp-2); font-size: var(--fs-body-s); font-weight: 500;
+  line-height: 1.3; color: var(--text-muted); }
 
 /* ---- Continuer : la seule zone élevée ----------------------------------- */
+/* Surface posée par son ombre, sans contour ; l'action tient à droite, sur
+   toute la hauteur du texte. Carte étroite : l'action repasse dessous. */
 .rh-continue {
-  background: var(--surface-raised); border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-surface); padding: var(--sp-4);
-  display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0;
+  background: var(--surface-raised); box-shadow: var(--panel-edge), var(--card-lift);
+  border-radius: var(--radius-surface); padding: var(--sp-4) var(--sp-5);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  column-gap: var(--sp-4); row-gap: var(--sp-1); min-width: 0;
 }
-.rh-continue .t { font-size: var(--fs-title); font-weight: 500; letter-spacing: -0.01em;
+.rh-continue > * { grid-column: 1; }
+.rh-continue .t { font-size: var(--fs-title); font-weight: 600; letter-spacing: -0.01em;
   color: var(--text-primary); line-height: 1.3;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rh-continue.is-empty { background: var(--surface-inset); border-color: transparent; }
+.rh-continue.is-empty { background: var(--surface-inset); box-shadow: none;
+  display: flex; flex-direction: column; gap: var(--sp-2); }
 .rh-continue.is-empty .t { font-size: var(--fs-body); font-weight: 500; white-space: normal; }
 .rh-continue-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-1); }
 .rh-continue .meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
-  font-size: var(--fs-label); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  font-size: var(--fs-body-s); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .rh-continue .meta .sep { opacity: .6; }
 .rh-continue .last {
-  font-size: var(--fs-body-s); color: var(--text-secondary); line-height: 1.5;
+  font-size: var(--fs-body-s); color: var(--text-muted); line-height: 1.5; margin-top: var(--sp-1);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rh-continue .act { display: flex; gap: var(--sp-2); margin-top: var(--sp-1); }
+.rh-continue .act { grid-column: 2; grid-row: 1 / span 3; display: flex; gap: var(--sp-2); }
+@container (max-width: 480px) {
+  .rh-continue { grid-template-columns: minmax(0, 1fr); }
+  .rh-continue .act { grid-column: 1; grid-row: auto; margin-top: var(--sp-1); }
+}
 
 /* ---- listes (artefacts, démarrer) : lignes-boutons sobres ---------------- */
 .rh-rows { display: flex; flex-direction: column; }
 .rh-row {
   display: flex; align-items: center; gap: var(--sp-3);
-  width: 100%; padding: var(--sp-2) var(--sp-2); background: transparent; border: none;
+  width: 100%; padding: 6px var(--sp-2); background: transparent; border: none;
   border-radius: var(--radius-control); cursor: pointer; text-align: left;
   color: var(--text-secondary); font: 400 var(--fs-body)/1.4 var(--font-chrome);
   min-width: 0;
@@ -81,19 +92,21 @@
   outline-offset: var(--focus-ring-offset); }
 .rh-row svg { flex-shrink: 0; color: var(--text-muted); }
 .rh-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* dossier aligné à droite, type dans une colonne fixe (audit SHELL-18) :
-   les deux bords restent droits d'une ligne à l'autre, une seule casse */
-.rh-row .src { margin-left: auto; flex-shrink: 1; min-width: 0; text-align: right;
-  font-size: var(--fs-label); color: var(--text-muted);
+/* fichier récent : « dossier/nom » d'un seul trait (le dossier cède la place
+   en premier quand la ligne manque), date tabulaire calée à droite */
+.rh-row .path { display: flex; min-width: 0; }
+.rh-row .dir { flex: 0 1000 auto; min-width: 0; color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rh-row .kind { flex: none; width: 72px; font-size: var(--fs-label); color: var(--text-muted);
-  text-align: left; }
+.rh-row .path .name { flex: 0 1 auto; min-width: 0; }
+.rh-row .when { margin-left: auto; flex: none; font-size: var(--fs-body-s); color: var(--text-muted);
+  font-variant-numeric: tabular-nums; }
 
 /* ---- À traiter ------------------------------------------------------------ */
 .rh-attention { display: flex; flex-direction: column; gap: var(--sp-2); }
-.rh-attention .ui-notice { align-items: flex-start; }
+/* alerte neutre : le ton reste dans le glyphe, pas dans un fond teinté */
+.rh-attention .ui-notice { align-items: flex-start; background: var(--surface-inset); }
 .rh-attention .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.rh-attention .body .d { font-size: var(--fs-label); color: var(--text-muted);
+.rh-attention .body .d { font-size: var(--fs-body-s); color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- hint neutre (projet sans thread) -------------------------------------- */
@@ -103,8 +116,8 @@
  * barres statiques, AUCUN shimmer ; n'apparaît qu'après un délai perceptible
  * (350 ms) pour ne pas clignoter sur les démarrages rapides ----------------- */
 .rh-skeleton {
-  background: var(--surface-raised); border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-surface); padding: var(--sp-4);
+  background: var(--surface-raised); box-shadow: var(--panel-edge), var(--card-lift);
+  border-radius: var(--radius-surface); padding: var(--sp-4) var(--sp-5);
   display: flex; flex-direction: column; gap: var(--sp-3);
   /* apparition différée : skeleton-appear (App.css), recette commune */
 }

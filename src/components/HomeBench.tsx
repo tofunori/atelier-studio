@@ -33,6 +33,10 @@ const ARTEFACTS = [
   "notes/reunion_direction_2026-07-07.md",
 ];
 
+// Dates de modification du banc : du plus récent au plus ancien, pour montrer
+// chaque forme de date relative (minutes, heures, jours, date).
+const ARTEFACT_AGES_MIN = [12, 40, 60 * 5, 60 * 26, 60 * 24 * 3, 60 * 24 * 40];
+
 const BASE: ResearchHomeInputs = {
   activeProject: PROJ,
   projectName: "Thèse albédo — glaciers de l'Ouest",
@@ -42,6 +46,7 @@ const BASE: ResearchHomeInputs = {
   usageByThread: {},
   recentFiles: [],
   files: ARTEFACTS,
+  recentFileTimes: Object.fromEntries(ARTEFACTS.map((rel, i) => [rel, NOW - ARTEFACT_AGES_MIN[i] * 60_000])),
   sidecar: "ready",
   atelierError: null,
   now: NOW,

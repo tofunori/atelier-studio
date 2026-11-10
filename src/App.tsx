@@ -975,6 +975,8 @@ export default function App() {
   // fichiers Git suivis/non ignorés. Repli sur les derniers fichiers ouverts
   // uniquement avec un ancien backend qui ne connaît pas encore recentFiles.
   const [diskRecents, setDiskRecents] = useState<string[]>([]);
+  // date de modification (ms) de chaque récent, pour l'accueil du projet
+  const [diskRecentTimes, setDiskRecentTimes] = useState<Record<string, number>>({});
   // jeton d'accès éditeur hors projet : posé par le serveur galerie au boot
   // (~/.atelier-studio/gallery_token), lu via Rust. Absent (vieux serveur) →
   // l'ouverture hors projet est simplement indisponible.
@@ -2073,7 +2075,11 @@ export default function App() {
       if (msg.type === "files" && msg.projectRoot === activeProjectRef.current) {
         setFileCatalog({ root: msg.projectRoot, files: Array.isArray(msg.files) ? msg.files : [] });
         setFilesTruncated(msg.truncated === true);
-        setDiskRecents(Array.isArray(msg.recentFiles) ? msg.recentFiles : []);
+        const recents: string[] = Array.isArray(msg.recentFiles) ? msg.recentFiles : [];
+        setDiskRecents(recents);
+        const times: unknown[] = Array.isArray(msg.recentFilesModified) ? msg.recentFilesModified : [];
+        setDiskRecentTimes(Object.fromEntries(recents.flatMap((rel, i) =>
+          typeof times[i] === "number" ? [[rel, times[i] as number]] : [])));
       }
       if (msg.type === "agentMentionAccepted" && typeof msg.requestId === "string") {
         pendingAgentMentions.current.delete(msg.requestId);
@@ -4182,6 +4188,7 @@ export default function App() {
       recentFiles: diskRecents.length
         ? diskRecents
         : recentFiles.filter((file) => files.includes(file)),
+      recentFileTimes: diskRecentTimes,
       // Le catalogue @ reste plafonné à 5 000 chemins ; un fichier récent du
       // même projet peut donc être hors de cette fenêtre alphabétique.
       files: diskRecents.length ? [...new Set([...files, ...diskRecents])] : files,

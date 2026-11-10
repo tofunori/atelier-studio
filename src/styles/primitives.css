@@ -360,7 +360,7 @@
 /* ---- ScrollToBottom — bouton contextuel compact, façon Codex ---------- */
 .ui-scroll-to-bottom { position: absolute; bottom: var(--sp-3); left: 50%; transform: translateX(-50%); width: 32px; height: 32px;
   display: flex; align-items: center; justify-content: center; z-index: var(--z-sticky); padding: 0; border: 0;
-  border-radius: var(--radius-pill); background: var(--surface-raised); color: var(--text-secondary); box-shadow: var(--elevation-overlay);
+  border-radius: var(--radius-pill); background: var(--surface-inset); color: var(--text-secondary); box-shadow: var(--elevation-overlay);
   cursor: pointer; opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .ui-scroll-to-bottom.is-visible { opacity: 1; pointer-events: auto; }
 /* Pendant un tour actif, la pastille porte aussi le chrono : c'est le seul

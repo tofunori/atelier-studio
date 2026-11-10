@@ -1149,10 +1149,24 @@ export default function Chat(p: {
         />
   ) : null;
 
+  // Écran vide (aucun projet, aucun fil) : titre et champ se tiennent au
+  // centre du panneau. La classe est posée ici, jamais par :has() en CSS.
+  const vide = !p.threadId && p.home?.model.state === "no-project";
+  // Au premier envoi (ou à l'ouverture d'un fil), le champ descend à sa place
+  // au lieu d'y sauter : on retient sa position tant que l'écran est vide.
+  const videTop = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const form = composerRef.current;
+    if (!form) return;
+    if (vide) { videTop.current = form.getBoundingClientRect().top; return; }
+    if (videTop.current != null) sendMotion()?.settleComposer(form, videTop.current);
+    videTop.current = null;
+  });
+
   return (
     <MdThreadContext.Provider value={p.threadId ?? null}>
     <div className="chat">
-      <div className="chat-primary">
+      <div className={vide ? "chat-primary is-vide" : "chat-primary"}>
       {p.headerInTopBar ? (headerHost && createPortal(chatHeader, headerHost)) : chatHeader}
       {p.parentThread && p.threadId ? (
         <nav className="chat-parent-crumb" aria-label={t("chat.parent-crumb", { title: p.parentThread.title })}>
@@ -1268,6 +1282,15 @@ export default function Chat(p: {
           kernel: p.threadId && p.kernelOn !== undefined ? { on: p.kernelOn } : undefined,
         }}
       />
+      {vide && (
+        // trois gestes qui existent vraiment (palette, accueil des projets,
+        // collage d'une image dans le champ) : rien d'autre sur l'écran vide
+        <div className="chat-vide-aide">
+          <span><kbd className="ui-kbd">⌘K</kbd>{t("home.hint.search")}</span>
+          <span><kbd className="ui-kbd">⇧⌘P</kbd>{t("home.hint.projects")}</span>
+          <span><kbd className="ui-kbd">⌘V</kbd>{t("home.hint.paste")}</span>
+        </div>
+      )}
       {/* DANS le panneau, délibérément : la webview NATIVE du navigateur peint
           au-dessus de tout le DOM — un overlay pleine fenêtre (portail body,
           essayé le 2026-08-27) passait SOUS elle et se faisait couper. Le
