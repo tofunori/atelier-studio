@@ -16,6 +16,7 @@ mod goals;
 pub mod instance;
 pub mod kb_block;
 pub mod kernel;
+pub mod kernel_figures;
 mod keep_awake;
 pub mod live_context;
 mod message_edits;

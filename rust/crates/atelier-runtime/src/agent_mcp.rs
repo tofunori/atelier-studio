@@ -465,14 +465,33 @@ pub async fn agent_mcp_handler(
         Err(code) => json!({"error": code}),
     };
 
+    (StatusCode::OK, Json(bound_response(result)))
+}
+
+/// Borne la réponse du pont. Le texte tient dans `BRIDGE_RESPONSE_MAX` ; les
+/// images jointes sous la clé réservée (figures du noyau) ont leurs propres
+/// bornes et ne comptent pas dans celle du texte. Des images hors bornes ne
+/// partent pas, et la réponse le dit.
+pub(crate) fn bound_response(mut result: Value) -> Value {
+    let images = result
+        .as_object_mut()
+        .and_then(|o| o.remove(lim::BRIDGE_IMAGES_KEY));
     let serialized = serde_json::to_vec(&result).unwrap_or_else(|_| b"{}".to_vec());
     if serialized.len() > lim::BRIDGE_RESPONSE_MAX {
-        return (
-            StatusCode::OK,
-            Json(json!({"error": err::PAYLOAD_TOO_LARGE, "truncated": true})),
-        );
+        return json!({"error": err::PAYLOAD_TOO_LARGE, "truncated": true});
     }
-    (StatusCode::OK, Json(result))
+    if let (Some(Value::Array(images)), Some(reply)) = (images, result.as_object_mut()) {
+        let bytes: usize = images
+            .iter()
+            .map(|i| i.get("data").and_then(Value::as_str).map_or(0, str::len))
+            .sum();
+        if images.len() <= lim::BRIDGE_IMAGES_MAX && bytes <= lim::BRIDGE_IMAGES_MAX_BYTES {
+            reply.insert(lim::BRIDGE_IMAGES_KEY.into(), Value::Array(images));
+        } else {
+            reply.insert("imagesDropped".into(), json!(true));
+        }
+    }
+    result
 }
 
 // re-export State for handler signature convenience
@@ -858,6 +877,44 @@ pub async fn mark_context_seeded(state: &AppState, thread_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn les_images_jointes_ne_comptent_pas_dans_la_borne_du_texte() {
+        // Une image plus grosse que la borne du texte passe quand même.
+        let data = "A".repeat(lim::BRIDGE_RESPONSE_MAX * 2);
+        let out = bound_response(json!({
+            "cell": {"cell": 3, "status": "ok"},
+            lim::BRIDGE_IMAGES_KEY: [{"mimeType": "image/png", "data": data}],
+        }));
+        assert_eq!(out["cell"]["cell"], 3);
+        assert_eq!(out[lim::BRIDGE_IMAGES_KEY][0]["data"].as_str().unwrap().len(), data.len());
+
+        // Le texte reste borné, avec ou sans image : rien ne part.
+        let long = "x".repeat(lim::BRIDGE_RESPONSE_MAX + 1);
+        let out = bound_response(json!({
+            "cell": {"stdout": long},
+            lim::BRIDGE_IMAGES_KEY: [{"mimeType": "image/png", "data": "AAAA"}],
+        }));
+        assert_eq!(out, json!({"error": err::PAYLOAD_TOO_LARGE, "truncated": true}));
+
+        // Trop d'images, ou trop lourdes : le texte part sans elles et le dit.
+        let many: Vec<Value> = (0..=lim::BRIDGE_IMAGES_MAX)
+            .map(|_| json!({"mimeType": "image/png", "data": "AAAA"}))
+            .collect();
+        let out = bound_response(json!({"cell": {"cell": 1}, lim::BRIDGE_IMAGES_KEY: many}));
+        assert_eq!(out, json!({"cell": {"cell": 1}, "imagesDropped": true}));
+        let heavy = "A".repeat(lim::BRIDGE_IMAGES_MAX_BYTES + 1);
+        let out = bound_response(json!({
+            "cell": {"cell": 1},
+            lim::BRIDGE_IMAGES_KEY: [{"mimeType": "image/png", "data": heavy}],
+        }));
+        assert_eq!(out, json!({"cell": {"cell": 1}, "imagesDropped": true}));
+
+        // Les réponses des autres outils passent telles quelles.
+        let plain = json!({"threads": [{"id": "a"}], "count": 1});
+        assert_eq!(bound_response(plain.clone()), plain);
+        assert_eq!(bound_response(json!({"error": "unknown_action"})), json!({"error": "unknown_action"}));
+    }
 
     #[test]
     fn le_serveur_mcp_part_meme_sur_un_fil_sans_lien() {

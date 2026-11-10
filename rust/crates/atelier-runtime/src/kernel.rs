@@ -3,7 +3,9 @@
 //! `atelier-kernel` ; ce module le relie aux fils, au pont MCP et au bus.
 
 use crate::state::AppState;
-use atelier_kernel::{CellEvent, RunRequest};
+use atelier_kernel::usage::human_bytes;
+use atelier_kernel::{CellEvent, KernelStatus, RunRequest};
+use atelier_protocol::agent_mcp_limits as lim;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -14,6 +16,8 @@ const IDLE_SHUTDOWN: Duration = Duration::from_secs(30 * 60);
 /// Codex à 60 s par défaut. Au-delà, l'agent reçoit « running » et revient.
 const WAIT_MAX_SECS: u64 = 50;
 const WAIT_DEFAULT_SECS: u64 = 45;
+/// Rythme du relevé de mémoire et de processeur des noyaux vivants.
+const USAGE_TICK: Duration = Duration::from_secs(5);
 
 /// Clé du fil qui porte l'interrupteur (coupé par défaut).
 pub const ENABLED_KEY: &str = "kernelEnabled";
@@ -51,6 +55,22 @@ pub fn spawn_idle_reaper(state: AppState) {
     });
 }
 
+/// Mémoire et processeur de chaque noyau vivant, relevés sans lancer de
+/// processus. Le relevé part dans `kernelStatus`, le message que le panneau
+/// reçoit déjà, et seulement quand les chiffres ont bougé : un noyau au
+/// repos ne publie rien.
+pub fn spawn_usage_ticker(state: AppState) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(USAGE_TICK);
+        loop {
+            tick.tick().await;
+            for thread_id in state.kernels().usage_updates() {
+                publish_status(&state, &thread_id);
+            }
+        }
+    });
+}
+
 fn publish_status(state: &AppState, thread_id: &str) {
     state.publish(
         json!({
@@ -71,6 +91,19 @@ pub async fn action(
     caller_id: &str,
     action: &str,
     req: &Value,
+) -> Result<Value, String> {
+    dispatch(state, caller_id, action, req, false).await
+}
+
+/// `from_panel` : la commande vient du panneau du noyau, pas de l'agent. Ce
+/// que l'utilisateur fait là sans l'agent (redémarrer) lui est dit à sa
+/// prochaine cellule.
+async fn dispatch(
+    state: &AppState,
+    caller_id: &str,
+    action: &str,
+    req: &Value,
+    from_panel: bool,
 ) -> Result<Value, String> {
     let thread = state.threads().lock().await.get(caller_id).cloned();
     let Some(appelant) = thread else {
@@ -140,20 +173,26 @@ L'utilisateur peut changer de mode dans le compositeur."
                 remember_env(state, caller_id).await;
                 publish_status(state, caller_id);
             }
-            serde_json::to_value(outcome).map_err(|e| e.to_string())?
+            let mut out = serde_json::to_value(outcome).map_err(|e| e.to_string())?;
+            attach_figures(state, caller_id, &mut out).await;
+            out
         }
         "kernel_wait" => {
             let id = req
                 .get("cell")
                 .and_then(Value::as_u64)
                 .ok_or("kernel_missing_cell — passe le numéro de la cellule dans cell.")?;
-            serde_json::to_value(
+            let mut out = serde_json::to_value(
                 kernels
                     .wait(caller_id, id, wait)
                     .await
                     .map_err(|e| e.message())?,
             )
-            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+            // Cellule longue enfin finie, ou cellule relue : ses figures
+            // reviennent ici comme à la fin d'un `run`.
+            attach_figures(state, caller_id, &mut out).await;
+            out
         }
         "kernel_variables" => {
             json!({"variables": kernels.variables(caller_id).await.map_err(|e| e.message())?})
@@ -173,7 +212,7 @@ L'utilisateur peut changer de mode dans le compositeur."
                 );
             }
             let info = kernels
-                .restart(caller_id, &cwd, env, default_env)
+                .restart(caller_id, &cwd, env, default_env, !from_panel)
                 .await
                 .map_err(|e| e.message())?;
             remember_env(state, caller_id).await;
@@ -191,17 +230,73 @@ L'utilisateur peut changer de mode dans le compositeur."
                 "default": envs.first().map(|e| e.name.clone()),
             })
         }
-        "kernel_status" => json!({
-            "enabled": enabled(Some(&thread)),
-            "status": kernels.status(caller_id),
-            "lastCells": kernels.journal().list(caller_id, 5).iter().map(|c| json!({
-                "cell": c.id, "status": c.status, "startedAt": c.started_at,
-                "code": atelier_kernel::journal::clip(&c.code, 600),
-            })).collect::<Vec<_>>(),
-        }),
+        "kernel_status" => {
+            let status = kernels.status(caller_id);
+            let mut out = json!({
+                "enabled": enabled(Some(&thread)),
+                "idleShutdownSeconds": IDLE_SHUTDOWN.as_secs(),
+                "lastCells": kernels.journal().list(caller_id, 5).iter().map(|c| json!({
+                    "cell": c.id, "status": c.status, "startedAt": c.started_at,
+                    "code": atelier_kernel::journal::clip(&c.code, 600),
+                })).collect::<Vec<_>>(),
+            });
+            if let Some(memory) = memory_line(&status) {
+                out["memory"] = json!(memory);
+            }
+            if let Some(stop) = &status.last_stop {
+                out["note"] = json!(format!(
+                    "{} : ses variables sont perdues. La prochaine cellule (action run) démarre un noyau neuf ; reprends d'abord les cellules dont la suite dépend (lastCells donne le code des dernières).",
+                    stop.sentence()
+                ));
+            }
+            out["status"] = json!(status);
+            out
+        }
         _ => return Err("unknown_action".into()),
     };
     Ok(out)
+}
+
+/// Joint à la réponse d'une cellule finie les images de ses figures (clé
+/// réservée du pont, que le shim MCP rend en contenu image) et dit à
+/// l'agent lesquelles il voit. Sans figure, la réponse ne change pas.
+async fn attach_figures(state: &AppState, thread_id: &str, out: &mut Value) {
+    let figures: Vec<String> = out["cell"]["figures"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f.as_str().map(str::to_string))
+        .collect();
+    if figures.is_empty() {
+        return;
+    }
+    let dir = state.kernels().figures_dir(thread_id);
+    let found =
+        tokio::task::spawn_blocking(move || crate::kernel_figures::attach(&dir, &figures)).await;
+    let Ok(Some(found)) = found else {
+        return;
+    };
+    out["cell"]["figuresSeen"] = json!(found.seen);
+    if !found.images.is_empty() {
+        out[lim::BRIDGE_IMAGES_KEY] = json!(found.images);
+    }
+}
+
+/// Mémoire du noyau en clair, pour que l'agent s'adapte avant de charger de
+/// grosses données.
+fn memory_line(status: &KernelStatus) -> Option<String> {
+    let rss = status.rss_bytes?;
+    let who = match status.processes {
+        Some(n) if n > 1 => format!(" (noyau et {} sous-processus)", n - 1),
+        _ => String::new(),
+    };
+    let machine = atelier_kernel::usage::machine_memory_bytes()
+        .map(|total| format!(" ; la machine a {} de mémoire physique", human_bytes(total)))
+        .unwrap_or_default();
+    Some(format!(
+        "Le noyau occupe {} de mémoire résidente{who}{machine}.",
+        human_bytes(rss)
+    ))
 }
 
 fn read_only(thread: &atelier_store::Thread) -> bool {
@@ -274,7 +369,7 @@ pub async fn handle_command(state: &AppState, msg: &Value) -> Vec<String> {
     let op = msg.get("op").and_then(Value::as_str).unwrap_or("");
     let result = match op {
         "variables" | "interrupt" | "restart" | "envs" => {
-            action(state, thread_id, &format!("kernel_{op}"), msg).await
+            dispatch(state, thread_id, &format!("kernel_{op}"), msg, true).await
         }
         "link" => link_file(state, thread_id, msg).await,
         "verify" => Ok(verify_claims(state, thread_id, msg)),
@@ -805,11 +900,23 @@ then work on it in later cells; keep each cell focused. The kernel starts on the
 project folder. Pick the env once with `env` on that first run (action \"envs\" lists them, conda and \
 Claude Science envs included); use \"restart\" with another env to switch.{env} A cell that runs longer \
 than ~45 s returns status \"running\": call action \"wait\" with its cell number, or \"interrupt\". Save \
-figures with savefig (the backend is Agg). Keep using the shell for git, file management and non-Python tools.\n\
+figures with savefig (the backend is Agg) and leave them open (no plt.close()): the matplotlib figures still open \
+when a cell ends are captured as PNG, and the first {figures} of a cell come back to you as images in the tool \
+result, on \"run\" and on \"wait\" (`figuresSeen` says which; a figure over {figure_mb} MB or {figure_side} px, or \
+beyond the first {figures}, comes back as a path only). You see what you plot: look at every image before you \
+describe or show it (axes, units, legend, empty panels, overlapping text) and fix the code if it is wrong. Keep \
+using the shell for git, file management and non-Python tools.\n\
+The kernel is stopped after {idle} minutes without a cell, and its variables with it. The next run then starts a \
+fresh kernel and says so first (`attention`): re-run the cells you still need before going on. Action \"status\" \
+gives the kernel's memory (`memory`, `status.rssBytes`): check it before loading large data.\n\
 Give each run a `purpose`: one short sentence, in the user's language, saying what the cell does (it titles \
 the cell in the user's notebook). When your answer states a number that a cell printed, cite that cell right \
 after it as a link `[cellule N](atelier-cell:N)` (N = the cell number), with the number written as the cell \
-printed it or rounded: the app checks every cited number against the cell's output.\n</atelier-kernel>"
+printed it or rounded: the app checks every cited number against the cell's output.\n</atelier-kernel>",
+            figures = crate::kernel_figures::ATTACHED_MAX,
+            figure_mb = crate::kernel_figures::BYTES_MAX / (1024 * 1024),
+            figure_side = crate::kernel_figures::SIDE_MAX,
+            idle = IDLE_SHUTDOWN.as_secs() / 60,
         )
     } else {
         "\n\n<atelier-kernel>\nThe user turned off the persistent Python kernel for this conversation: \
@@ -905,6 +1012,271 @@ mod tests {
             .ok()?;
         let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
         std::path::Path::new(&p).is_file().then_some(p)
+    }
+
+    #[test]
+    fn la_consigne_dit_que_l_agent_voit_ses_figures_et_que_le_noyau_s_arrete() {
+        let on = fil(json!({"kernelEnabled": true}), Some("s1"));
+        let (bloc, _) = announcement(Some(&on), "claude").unwrap();
+        for attendu in [
+            "the first 3 of a cell come back to you as images in the tool result, on \"run\" and on \"wait\"",
+            "`figuresSeen`",
+            "a figure over 1 MB or 4096 px",
+            "look at every image before you describe or show it",
+            "stopped after 30 minutes without a cell",
+            "`attention`",
+            "`status.rssBytes`",
+        ] {
+            assert!(bloc.contains(attendu), "« {attendu} » manque : {bloc}");
+        }
+    }
+
+    /// Fil « fil » au noyau allumé, dans un projet vide.
+    async fn etat_avec_noyau(dir: &Path, projet: &Path) -> AppState {
+        let state = AppState::new(
+            crate::paths::AppPaths::from_app_dir(dir.to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "hash".into(),
+            "/tmp".into(),
+        );
+        state
+            .threads()
+            .lock()
+            .await
+            .upsert(
+                json!({"id": "fil", "projectRoot": projet.display().to_string(),
+                       "provider": "claude", ENABLED_KEY: true}),
+                false,
+            )
+            .unwrap();
+        state
+    }
+
+    /// Faux pyplot (matplotlib n'est pas requis) : `ouvertes` liste les
+    /// figures ouvertes, et `savefig` écrit un vrai PNG de (40 + n)×30.
+    const FAUX_PYPLOT: &str = r#"
+import struct, sys, types, zlib
+def _png(largeur, hauteur):
+    def bloc(nom, d):
+        return struct.pack(">I", len(d)) + nom + d + struct.pack(">I", zlib.crc32(nom + d) & 0xffffffff)
+    lignes = b"".join(b"\x00" + b"\xff" * (3 * largeur) for _ in range(hauteur))
+    entete = struct.pack(">IIBBBBB", largeur, hauteur, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + bloc(b"IHDR", entete) + bloc(b"IDAT", zlib.compress(lignes)) + bloc(b"IEND", b"")
+plt = types.ModuleType("matplotlib.pyplot")
+ouvertes = [1, 2, 3, 4]
+class Fig:
+    def __init__(self, n): self.n = n
+    def savefig(self, chemin, **kw): open(chemin, "wb").write(_png(40 + self.n, 30))
+plt.get_fignums = lambda: list(ouvertes)
+plt.figure = lambda n: Fig(n)
+plt.close = lambda quoi: ouvertes.clear()
+sys.modules["matplotlib.pyplot"] = plt
+"#;
+
+    fn images(out: &Value) -> Vec<Vec<u8>> {
+        use base64::Engine;
+        out[lim::BRIDGE_IMAGES_KEY]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|image| {
+                assert_eq!(image["mimeType"], "image/png");
+                base64::engine::general_purpose::STANDARD
+                    .decode(image["data"].as_str().unwrap())
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn l_agent_recoit_ses_figures_en_images_au_run_au_wait_et_apres_un_rejeu() {
+        let Some(py) = python() else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let projet = tempfile::tempdir().unwrap();
+        let state = etat_avec_noyau(dir.path(), projet.path()).await;
+
+        // Quatre figures ouvertes : trois jointes en image, la quatrième en chemin.
+        let out = action(&state, "fil", "kernel_run", &json!({"code": FAUX_PYPLOT, "env": py}))
+            .await
+            .unwrap();
+        assert_eq!(out["cell"]["status"], "ok", "{out}");
+        assert_eq!(out["cell"]["figures"].as_array().unwrap().len(), 4);
+        let vues = images(&out);
+        assert_eq!(vues.len(), 3);
+        for (rang, png) in vues.iter().enumerate() {
+            let fichier = std::fs::read(out["cell"]["figures"][rang].as_str().unwrap()).unwrap();
+            assert_eq!(png, &fichier, "l'image jointe est le PNG de la figure, dans l'ordre");
+            assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+        }
+        let dit = out["cell"]["figuresSeen"].as_str().unwrap();
+        assert!(
+            dit.starts_with("Images jointes à ce résultat, dans l'ordre : figure 1 (41×30 px), figure 2 (42×30 px), figure 3 (43×30 px). Chemin seul, sans image : figure 4 (au-delà de 3 images par cellule)."),
+            "{dit}"
+        );
+        // Le pont laisse passer la réponse avec ses images.
+        let borne = crate::agent_mcp::bound_response(out.clone());
+        assert_eq!(borne, out);
+
+        // Sans figure, la réponse ne change pas.
+        let out = action(&state, "fil", "kernel_run", &json!({"code": "1 + 1"}))
+            .await
+            .unwrap();
+        assert!(out.get(lim::BRIDGE_IMAGES_KEY).is_none(), "{out}");
+        assert!(out["cell"].get("figuresSeen").is_none(), "{out}");
+
+        // Cellule longue : rien avec « running », la figure arrive au wait.
+        let longue = "import time\ntime.sleep(1)\nouvertes.append(7)";
+        let out = action(&state, "fil", "kernel_run", &json!({"code": longue, "waitSeconds": 0}))
+            .await
+            .unwrap();
+        assert_eq!(out["cell"]["status"], "running", "{out}");
+        assert!(out.get(lim::BRIDGE_IMAGES_KEY).is_none(), "{out}");
+        let fin = action(&state, "fil", "kernel_wait", &json!({"cell": 3}))
+            .await
+            .unwrap();
+        assert_eq!(fin["cell"]["status"], "ok", "{fin}");
+        assert_eq!(images(&fin).len(), 1, "{fin}");
+        assert!(
+            fin["cell"]["figuresSeen"].as_str().unwrap().contains("figure 1 (47×30 px)"),
+            "{fin}"
+        );
+
+        // Rejouer à neuf écrit ses figures ailleurs et les efface : celles
+        // des cellules d'origine restent là pour l'agent.
+        state.kernels().shutdown("fil").await;
+        let bilan = state
+            .kernels()
+            .replay("fil", projet.path(), |_, _, _| {})
+            .await
+            .unwrap();
+        assert_eq!(bilan.error, 0, "{bilan:?}");
+        assert!(!state.kernels().kernel_dir().join("replay-figures").join(atelier_kernel::journal::thread_key("fil")).exists());
+        let relue = action(&state, "fil", "kernel_wait", &json!({"cell": 1}))
+            .await
+            .unwrap();
+        assert_eq!(images(&relue), vues, "{}", relue["cell"]["figuresSeen"]);
+
+        // Figure effacée du disque : chemin seul, et la réponse le dit.
+        std::fs::remove_file(relue["cell"]["figures"][0].as_str().unwrap()).unwrap();
+        let relue = action(&state, "fil", "kernel_wait", &json!({"cell": 1}))
+            .await
+            .unwrap();
+        assert_eq!(images(&relue).len(), 3, "la quatrième figure prend la place libre");
+        assert!(
+            relue["cell"]["figuresSeen"].as_str().unwrap().contains("figure 1 (fichier absent)"),
+            "{relue}"
+        );
+        state.kernels().shutdown_all().await;
+    }
+
+    #[tokio::test]
+    async fn l_agent_est_prevenu_quand_le_noyau_a_ete_fauche_et_voit_sa_memoire() {
+        let Some(py) = python() else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let projet = tempfile::tempdir().unwrap();
+        let state = etat_avec_noyau(dir.path(), projet.path()).await;
+        let out = action(&state, "fil", "kernel_run", &json!({"code": "a = 41", "env": py}))
+            .await
+            .unwrap();
+        assert!(out.get("attention").is_none(), "{out}");
+
+        // État demandé par l'agent : mémoire du noyau, délai d'arrêt.
+        let etat = action(&state, "fil", "kernel_status", &json!({})).await.unwrap();
+        assert_eq!(etat["idleShutdownSeconds"], 1800);
+        assert_eq!(etat["status"]["running"], true);
+        if cfg!(any(target_os = "linux", target_os = "macos")) {
+            assert!(etat["status"]["rssBytes"].as_u64().unwrap() > 1024 * 1024, "{etat}");
+            let memoire = etat["memory"].as_str().unwrap();
+            assert!(
+                memoire.starts_with("Le noyau occupe ") && memoire.contains("de mémoire résidente ; la machine a "),
+                "{memoire}"
+            );
+        }
+
+        // Le relevé part dans le `kernelStatus` que le panneau reçoit déjà.
+        let mut bus = state.subscribe_bus();
+        spawn_usage_ticker(state.clone());
+        let message = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let v: Value = serde_json::from_str(&bus.recv().await.unwrap()).unwrap();
+                if v["type"] == "kernelStatus" {
+                    return v;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(message["threadId"], "fil");
+        assert_eq!(message["status"]["running"], true);
+        if cfg!(any(target_os = "linux", target_os = "macos")) {
+            assert!(message["status"]["rssBytes"].as_u64().unwrap() > 0, "{message}");
+            assert_eq!(message["status"]["processes"], 1);
+        }
+
+        // Fauché pour inactivité : l'état le dit, puis la cellule suivante.
+        assert_eq!(state.kernels().reap_idle(Duration::ZERO).await, vec!["fil".to_string()]);
+        let etat = action(&state, "fil", "kernel_status", &json!({})).await.unwrap();
+        assert_eq!(etat["status"]["running"], false);
+        assert_eq!(etat["status"]["lastStop"]["reason"], "idle");
+        let note = etat["note"].as_str().unwrap();
+        assert!(note.contains("inactivité") && note.contains("variables sont perdues"), "{note}");
+        assert_eq!(etat["lastCells"][0]["code"], "a = 41");
+        let refus = action(&state, "fil", "kernel_variables", &json!({})).await.unwrap_err();
+        assert!(refus.starts_with("no_kernel") && refus.contains("inactivité"), "{refus}");
+
+        let out = action(&state, "fil", "kernel_run", &json!({"code": "a + 1"}))
+            .await
+            .unwrap();
+        assert_eq!(out["cell"]["error"]["ename"], "NameError", "{out}");
+        let attention = out["attention"].as_str().unwrap();
+        for attendu in ["noyau neuf", "inactivité", "par la cellule 1 n'existent plus", "Reprends d'abord"] {
+            assert!(attention.contains(attendu), "« {attendu} » manque : {attention}");
+        }
+        // L'avertissement ouvre le texte que l'agent lit.
+        assert!(serde_json::to_string_pretty(&out).unwrap().starts_with("{\n  \"attention\":"));
+
+        // L'agent reprend la cellule perdue ; plus rien à signaler ensuite.
+        let out = action(&state, "fil", "kernel_run", &json!({"code": "a = 41\na + 1"}))
+            .await
+            .unwrap();
+        assert_eq!(out["cell"]["result"], "42", "{out}");
+        assert!(out.get("attention").is_none() && out.get("note").is_none(), "{out}");
+
+        // Fauché, puis relancé par l'utilisateur (bouton Démarrer du panneau,
+        // cellule écrite à la main) : l'agent n'a rien vu, sa cellule
+        // suivante le lui dit quand même.
+        state.kernels().reap_idle(Duration::ZERO).await;
+        let reponse = handle_command(&state, &json!({"threadId": "fil", "op": "restart"})).await;
+        assert!(reponse[0].contains("\"restarted\":true"), "{reponse:?}");
+        let main = rerun(&state, "fil", &json!({"code": "b = 1"})).await.unwrap();
+        action(&state, "fil", "kernel_wait", &json!({"cell": main["cell"]}))
+            .await
+            .unwrap();
+        let out = action(&state, "fil", "kernel_run", &json!({"code": "a"}))
+            .await
+            .unwrap();
+        assert_eq!(out["cell"]["error"]["ename"], "NameError", "{out}");
+        let attention = out["attention"].as_str().unwrap();
+        assert!(
+            attention.contains("noyau neuf") && attention.contains("inactivité"),
+            "{attention}"
+        );
+
+        // Redémarrage demandé par l'agent : sa réponse le dit déjà, la
+        // cellule suivante n'a rien à ajouter.
+        let out = action(&state, "fil", "kernel_restart", &json!({})).await.unwrap();
+        assert_eq!(out["note"], "Noyau neuf : les variables précédentes sont perdues.");
+        let out = action(&state, "fil", "kernel_run", &json!({"code": "1"}))
+            .await
+            .unwrap();
+        assert!(out.get("attention").is_none(), "{out}");
+        state.kernels().shutdown_all().await;
     }
 
     #[tokio::test]

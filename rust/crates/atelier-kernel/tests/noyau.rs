@@ -361,3 +361,165 @@ async fn rejouer_a_neuf_compare_et_reconstruit_l_etat() {
     assert!(py_export.contains("(modifiée à la main d'après [2])"), "{py_export}");
     m.shutdown_all().await;
 }
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn l_etat_du_noyau_porte_sa_memoire_et_son_processeur() {
+    let Some(py) = python() else {
+        return;
+    };
+    let py = py.display().to_string();
+    let data = tempfile::tempdir().unwrap();
+    let projet = tempfile::tempdir().unwrap();
+    let m = KernelManager::new(data.path(), data.path());
+    assert!(m.status("fil").rss_bytes.is_none(), "pas de noyau, pas de relevé");
+    m.run(req("fil", projet.path(), Some(&py), "x = 1"))
+        .await
+        .unwrap();
+    let avant = m.status("fil");
+    let rss_avant = avant.rss_bytes.unwrap();
+    assert!(rss_avant > 1024 * 1024, "{avant:?}");
+    assert_eq!(avant.processes, Some(1));
+    assert!(avant.cpu_seconds.is_some());
+    assert!(avant.cpu_percent.is_none(), "le pour cent demande deux relevés");
+    // Premier relevé : il part vers le panneau ; rien n'a bougé ensuite.
+    assert_eq!(m.usage_updates(), vec!["fil".to_string()]);
+    assert!(m.usage_updates().is_empty());
+
+    // 64 Mo écrits en mémoire, une demi-seconde de calcul et un
+    // sous-processus : le relevé suivant (pas avant une seconde) les voit.
+    let code = "import subprocess, sys, time\n\
+gros = b'x' * (64 * 1024 * 1024)\n\
+fin = time.time() + 0.5\n\
+while time.time() < fin: pass\n\
+enfant = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])";
+    let r = m.run(req("fil", projet.path(), None, code)).await.unwrap();
+    assert_eq!(r.cell["status"], "ok", "{}", r.cell);
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let apres = m.status("fil");
+    assert!(
+        apres.rss_bytes.unwrap() >= rss_avant + 48 * 1024 * 1024,
+        "{avant:?} puis {apres:?}"
+    );
+    assert!(
+        apres.cpu_seconds.unwrap() >= avant.cpu_seconds.unwrap() + 0.3,
+        "{avant:?} puis {apres:?}"
+    );
+    assert!(apres.cpu_percent.unwrap() > 0.0, "{apres:?}");
+    assert_eq!(apres.processes, Some(2), "le sous-processus est compté");
+    assert_eq!(m.usage_updates(), vec!["fil".to_string()]);
+
+    // Champs en plus de ceux que le panneau lit déjà, sous ces noms.
+    let json = serde_json::to_value(&apres).unwrap();
+    assert!(json["rssBytes"].as_u64().unwrap() > 0, "{json}");
+    assert!(json["cpuSeconds"].is_number() && json["cpuPercent"].is_number(), "{json}");
+    assert_eq!(json["processes"], 2);
+    assert_eq!(json["running"], true);
+    m.shutdown_all().await;
+    assert!(m.status("fil").rss_bytes.is_none());
+}
+
+#[tokio::test]
+async fn un_noyau_fauche_pour_inactivite_previent_a_la_cellule_suivante() {
+    let Some(py) = python() else {
+        return;
+    };
+    let py = py.display().to_string();
+    let data = tempfile::tempdir().unwrap();
+    let projet = tempfile::tempdir().unwrap();
+    let m = KernelManager::new(data.path(), data.path());
+    let r = m
+        .run(req("fil", projet.path(), Some(&py), "a = 1"))
+        .await
+        .unwrap();
+    assert!(r.warning.is_none(), "premier démarrage : rien n'est perdu");
+    m.run(req("fil", projet.path(), None, "b = a + 1"))
+        .await
+        .unwrap();
+
+    assert_eq!(m.reap_idle(Duration::ZERO).await, vec!["fil".to_string()]);
+    // Le panneau et l'agent savent pourquoi le noyau ne tourne plus.
+    let etat = m.status("fil");
+    assert!(!etat.running);
+    assert_eq!(etat.last_stop.as_ref().unwrap().reason, "idle");
+    let erreur = m.variables("fil").await.unwrap_err().message();
+    assert!(
+        erreur.starts_with("no_kernel") && erreur.contains("inactivité") && erreur.contains("perdues"),
+        "{erreur}"
+    );
+
+    // La cellule suivante tourne dans un noyau neuf, et le dit d'abord.
+    let r = m
+        .run(req("fil", projet.path(), None, "'a' in globals()"))
+        .await
+        .unwrap();
+    assert_eq!(r.cell["result"], "False");
+    assert_eq!(r.cell["cell"], 3);
+    let note = r.note.as_deref().unwrap();
+    assert!(note.starts_with("Noyau relancé") && note.contains("inactivité"), "{note}");
+    let attention = r.warning.as_deref().unwrap();
+    for attendu in ["noyau neuf", "inactivité", "cellules 1 à 2", "Reprends d'abord"] {
+        assert!(attention.contains(attendu), "« {attendu} » manque : {attention}");
+    }
+    let texte = serde_json::to_value(&r).unwrap().to_string();
+    assert!(
+        texte.starts_with("{\"attention\":"),
+        "l'avertissement ouvre la réponse : {texte}"
+    );
+    assert!(m.status("fil").last_stop.is_none(), "un noyau tourne de nouveau");
+
+    // Dit une fois : la cellule d'après n'a plus rien à signaler.
+    let r = m.run(req("fil", projet.path(), None, "1")).await.unwrap();
+    assert!(r.warning.is_none() && r.note.is_none());
+
+    // Arrêt demandé par l'utilisateur, qui relance ensuite lui-même une
+    // cellule : elle démarre le noyau, mais l'avertissement attend l'agent.
+    assert!(m.shutdown("fil").await);
+    assert_eq!(m.status("fil").last_stop.unwrap().reason, "requested");
+    let mut main = req("fil", projet.path(), None, "c = 3");
+    main.author = Some("user");
+    let r = m.run(main).await.unwrap();
+    assert!(r.note.as_deref().unwrap().starts_with("Noyau relancé"));
+    assert!(r.warning.is_none(), "une cellule lancée à la main n'emporte pas l'avertissement");
+    let r = m.run(req("fil", projet.path(), None, "1")).await.unwrap();
+    assert!(r.note.is_none());
+    let attention = r.warning.as_deref().unwrap();
+    assert!(
+        attention.contains("arrêté ou redémarré à la demande") && attention.contains("cellules 1 à 4"),
+        "{attention}"
+    );
+    m.shutdown_all().await;
+
+    // Atelier relancé : aucun arrêt noté, mais le journal a des cellules.
+    let relance = KernelManager::new(data.path(), data.path());
+    let r = relance
+        .run(req("fil", projet.path(), Some(&py), "1"))
+        .await
+        .unwrap();
+    let attention = r.warning.as_deref().unwrap();
+    assert!(
+        attention.contains("Atelier a été relancé") && attention.contains("cellules 1 à 6"),
+        "{attention}"
+    );
+    // Redémarrage demandé par l'agent : il le sait, la cellule suivante se
+    // tait. Demandé au panneau : elle le lui dit.
+    relance
+        .restart("fil", projet.path(), Some(&py), None, true)
+        .await
+        .unwrap();
+    let r = relance
+        .run(req("fil", projet.path(), None, "1"))
+        .await
+        .unwrap();
+    assert!(r.warning.is_none() && r.note.is_none());
+    relance
+        .restart("fil", projet.path(), Some(&py), None, false)
+        .await
+        .unwrap();
+    let r = relance
+        .run(req("fil", projet.path(), None, "1"))
+        .await
+        .unwrap();
+    assert!(r.warning.as_deref().unwrap().contains("noyau neuf"));
+    relance.shutdown_all().await;
+}

@@ -21,6 +21,7 @@ pub mod packages;
 pub mod prints;
 pub mod recipe;
 pub mod replay;
+pub mod usage;
 pub mod verify;
 mod scan;
 
@@ -29,7 +30,7 @@ pub use journal::{CellJournal, CellRecord, ChainCheck, Lineage, ReplayMark, Resu
 pub use kernel::KernelInfo;
 pub use manager::{
     panel_view, CellEvent, CellListener, KernelError, KernelManager, KernelStatus, Origin,
-    RunOutcome, RunRequest,
+    RunOutcome, RunRequest, StopInfo,
 };
 
 /// Source du pilote, écrite sur disque au premier lancement.

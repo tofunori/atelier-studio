@@ -27,6 +27,12 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(700);
 const STATUS_PACKAGES_MAX: usize = 60;
 /// Extrait de la demande du tour gardé sur chaque cellule.
 const TURN_PROMPT_MAX: usize = 200;
+/// Mémoire et processeur d'un noyau ne sont pas relus plus souvent.
+const USAGE_MIN_INTERVAL: Duration = Duration::from_secs(1);
+/// Écarts à partir desquels un relevé repart vers le panneau : 1 Mo de
+/// mémoire résidente, ou un point de processeur.
+const USAGE_RSS_STEP: u64 = 1024 * 1024;
+const USAGE_CPU_STEP: f64 = 1.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KernelError {
@@ -34,6 +40,8 @@ pub enum KernelError {
     Busy(u64),
     /// Pas de noyau vivant pour ce fil.
     NoKernel,
+    /// Pas de noyau vivant : celui du fil a été arrêté, ses variables avec.
+    Stopped(StopInfo),
     /// Le noyau tourne avec un autre env que celui demandé.
     OtherEnv {
         running: String,
@@ -52,6 +60,10 @@ impl KernelError {
                 "kernel_busy — la cellule {id} tourne encore. Attends-la (action wait, cell={id}) ou interromps-la (action interrupt)."
             ),
             Self::NoKernel => "no_kernel — aucun noyau ne tourne dans ce fil ; la première cellule (action run) le démarre.".into(),
+            Self::Stopped(stop) => format!(
+                "no_kernel — {} : ses variables sont perdues. La prochaine cellule (action run) démarre un noyau neuf ; reprends d'abord les cellules dont la suite dépend.",
+                stop.sentence()
+            ),
             Self::OtherEnv { running, asked } => format!(
                 "kernel_other_env — le noyau tourne avec l'env « {running} ». Pour passer à « {asked} », appelle restart avec env=\"{asked}\" (les variables seront perdues)."
             ),
@@ -77,10 +89,51 @@ pub type CellListener = Arc<dyn Fn(CellEvent) + Send + Sync>;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunOutcome {
+    /// À lire avant le résultat : la cellule a tourné dans un noyau neuf,
+    /// l'état des cellules précédentes est perdu. La clé passe en tête de
+    /// la réponse (clés triées), devant les sorties de la cellule.
+    #[serde(rename = "attention", skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
     pub cell: Value,
     pub finished: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+}
+
+/// Dernier arrêt du noyau d'un fil : pourquoi, et quand.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopInfo {
+    /// `idle` (inactivité), `requested` (bouton Arrêter, interrupteur coupé)
+    /// ou `died` (processus mort).
+    pub reason: &'static str,
+    pub at: String,
+    /// Délai d'inactivité qui a déclenché l'arrêt, en secondes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idle_seconds: Option<u64>,
+}
+
+impl StopInfo {
+    fn now(reason: &'static str, idle: Option<Duration>) -> Self {
+        Self {
+            reason,
+            at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            idle_seconds: idle.map(|d| d.as_secs()),
+        }
+    }
+
+    /// Ce qui est arrivé à l'ancien noyau, en une proposition sans point.
+    pub fn sentence(&self) -> String {
+        match (self.reason, self.idle_seconds) {
+            ("idle", Some(secs)) if secs >= 60 => format!(
+                "L'ancien noyau a été arrêté après {} min d'inactivité",
+                secs / 60
+            ),
+            ("idle", _) => "L'ancien noyau a été arrêté pour inactivité".into(),
+            ("requested", _) => "L'ancien noyau a été arrêté ou redémarré à la demande".into(),
+            _ => "L'ancien noyau s'était arrêté".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -101,6 +154,31 @@ pub struct KernelStatus {
     pub packages_total: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env_sha256: Option<String>,
+    /// Mémoire résidente du noyau et de ses sous-processus, en octets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rss_bytes: Option<u64>,
+    /// Temps processeur cumulé du noyau et de ses sous-processus, en secondes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_seconds: Option<f64>,
+    /// Processeur utilisé depuis le relevé précédent, en pour cent d'un
+    /// cœur (100 = un cœur plein ; davantage avec plusieurs fils ou
+    /// sous-processus). Absent au premier relevé.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_percent: Option<f64>,
+    /// Processus comptés dans ces chiffres : le noyau et son groupe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processes: Option<u32>,
+    /// Noyau arrêté : cause et heure du dernier arrêt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_stop: Option<StopInfo>,
+}
+
+/// Relevé de mémoire et de processeur gardé sur le noyau.
+#[derive(Debug, Clone, Copy)]
+struct Sample {
+    at: Instant,
+    usage: crate::usage::Usage,
+    cpu_percent: Option<f64>,
 }
 
 /// Cellule qui a créé, puis modifié en dernier, une variable du noyau.
@@ -129,9 +207,64 @@ struct Slot {
     last_used: Mutex<Instant>,
     /// Cellule en cours et son enregistrement final, posé par le finisseur.
     pending: Mutex<Option<(u64, watch::Receiver<Option<CellRecord>>)>>,
+    /// Dernier relevé de mémoire et de processeur.
+    sample: Mutex<Option<Sample>>,
+    /// Mémoire et processeur du dernier relevé envoyé au panneau.
+    usage_told: Mutex<Option<(u64, f64)>>,
+    /// À dire à l'agent avec sa prochaine cellule : ce noyau est neuf alors
+    /// que le fil avait un état, perdu depuis. Reste là tant qu'une cellule
+    /// de l'agent ne l'a pas emporté, même si l'utilisateur a démarré le
+    /// noyau ou lancé des cellules entre-temps.
+    warning: Mutex<Option<String>>,
 }
 
 impl Slot {
+    fn new(
+        kernel: Kernel,
+        env: EnvSnapshot,
+        origins: HashMap<String, Origin>,
+        imports: Vec<String>,
+        warning: Option<String>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            kernel,
+            env: Arc::new(env),
+            origins: Mutex::new(origins),
+            imports: Mutex::new(imports),
+            last_used: Mutex::new(Instant::now()),
+            pending: Mutex::new(None),
+            sample: Mutex::new(None),
+            usage_told: Mutex::new(None),
+            warning: Mutex::new(warning),
+        })
+    }
+
+    /// Mémoire et processeur du noyau : relus dans le système au plus une
+    /// fois par `USAGE_MIN_INTERVAL`, sinon le dernier relevé. Le pour cent
+    /// de processeur se mesure d'un relevé au suivant.
+    fn sample(&self) -> Option<Sample> {
+        let mut last = self.sample.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(recent) = last.filter(|s| s.at.elapsed() < USAGE_MIN_INTERVAL) {
+            return Some(recent);
+        }
+        let usage = crate::usage::read(self.kernel.info.pid)?;
+        let at = Instant::now();
+        let cpu_percent = last.map(|before| {
+            let seconds = at.duration_since(before.at).as_secs_f64().max(1e-3);
+            // Sous macOS le cumul peut reculer quand un sous-processus se
+            // termine : jamais de pour cent négatif.
+            let spent = usage.cpu_ms.saturating_sub(before.usage.cpu_ms) as f64 / 1000.0;
+            (spent / seconds * 1000.0).round() / 10.0
+        });
+        let sample = Sample {
+            at,
+            usage,
+            cpu_percent,
+        };
+        *last = Some(sample);
+        Some(sample)
+    }
+
     fn touch(&self) {
         *self.last_used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
     }
@@ -177,6 +310,8 @@ pub struct KernelManager {
     turns: Mutex<HashMap<String, (String, String)>>,
     /// Fils dont un rejeu tourne, avec son drapeau d'arrêt.
     replays: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
+    /// Dernier arrêt du noyau de chaque fil, oublié quand un noyau repart.
+    stops: Mutex<HashMap<String, StopInfo>>,
 }
 
 impl KernelManager {
@@ -201,6 +336,7 @@ impl KernelManager {
             prints: Arc::default(),
             turns: Mutex::new(HashMap::new()),
             replays: Mutex::new(HashMap::new()),
+            stops: Mutex::new(HashMap::new()),
         }
     }
 
@@ -303,32 +439,64 @@ impl KernelManager {
         Ok(())
     }
 
+    /// Démarre un noyau neuf pour le fil. Rend aussi la phrase qui annonce
+    /// le démarrage ; si le fil avait déjà un état (arrêt noté, ou cellules
+    /// au journal), l'avertissement « état perdu » attend l'agent sur le
+    /// noyau.
     async fn start_slot(
         &self,
         thread_id: &str,
         cwd: &Path,
         env: Option<&str>,
-    ) -> Result<Arc<Slot>, KernelError> {
+    ) -> Result<(Arc<Slot>, String), KernelError> {
         let envs = self.envs(Some(cwd));
         let env = resolve_env(&envs, env).map_err(KernelError::Start)?;
         self.write_driver().map_err(KernelError::Start)?;
+        let stop = self.last_stop(thread_id);
+        let cells_before = self.journal.last_id(thread_id);
         let kernel = Kernel::start(&env, cwd, &self.driver_dir)
             .await
             .map_err(KernelError::Start)?;
         let snapshot = self.snapshot_env(&kernel.info).await;
-        let slot = Arc::new(Slot {
+        let started = Started::new(&kernel.info, stop.as_ref(), cells_before);
+        let slot = Slot::new(
             kernel,
-            env: Arc::new(snapshot),
-            origins: Mutex::new(HashMap::new()),
-            imports: Mutex::new(Vec::new()),
-            last_used: Mutex::new(Instant::now()),
-            pending: Mutex::new(None),
-        });
+            snapshot,
+            HashMap::new(),
+            Vec::new(),
+            started.warning,
+        );
+        self.adopt(thread_id, slot.clone());
+        Ok((slot, started.note))
+    }
+
+    /// Ce noyau devient celui du fil ; l'arrêt du précédent est oublié.
+    fn adopt(&self, thread_id: &str, slot: Arc<Slot>) {
         self.slots
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(thread_id.to_string(), slot.clone());
-        Ok(slot)
+            .insert(thread_id.to_string(), slot);
+        self.stops
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(thread_id);
+    }
+
+    fn last_stop(&self, thread_id: &str) -> Option<StopInfo> {
+        self.stops
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(thread_id)
+            .cloned()
+    }
+
+    /// Erreur d'une action qui demande un noyau vivant : dit si celui du
+    /// fil a été arrêté.
+    fn no_kernel(&self, thread_id: &str) -> KernelError {
+        match self.last_stop(thread_id) {
+            Some(stop) => KernelError::Stopped(stop),
+            None => KernelError::NoKernel,
+        }
     }
 
     /// Versions des paquets de l'env au démarrage, gardées une fois par
@@ -355,8 +523,8 @@ impl KernelManager {
         .unwrap_or_else(|_| EnvSnapshot::read("", Path::new(""), ""))
     }
 
-    /// Noyau vivant du fil, démarré au besoin. Rend aussi la phrase à dire à
-    /// l'agent quand un noyau vient de (re)démarrer.
+    /// Noyau vivant du fil, démarré au besoin. Rend aussi la phrase à dire
+    /// quand un noyau vient de (re)démarrer.
     async fn ensure(
         &self,
         thread_id: &str,
@@ -366,7 +534,6 @@ impl KernelManager {
     ) -> Result<(Arc<Slot>, Option<String>), KernelError> {
         let lock = self.thread_lock(thread_id);
         let _guard = lock.lock().await;
-        let mut was_dead = false;
         if let Some(slot) = self.slot(thread_id) {
             if slot.kernel.is_alive() {
                 if let Some(asked) = env.filter(|e| !env_matches(&slot.kernel.info.env, e)) {
@@ -377,30 +544,17 @@ impl KernelManager {
                 }
                 return Ok((slot, None));
             }
-            was_dead = true;
+            // Processus mort sans arrêt demandé (plantage, mémoire épuisée).
             self.slots
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(thread_id);
+            self.stops
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(thread_id.to_string(), StopInfo::now("died", None));
         }
-        let slot = self.start_slot(thread_id, cwd, env.or(default_env)).await?;
-        let info = &slot.kernel.info;
-        let note = format!(
-            "{} : Python {} de l'env « {} », dossier {}.{}",
-            if was_dead {
-                "Noyau relancé"
-            } else {
-                "Noyau démarré"
-            },
-            info.python_version,
-            info.env.name,
-            info.cwd.display(),
-            if was_dead {
-                " L'ancien noyau s'était arrêté : ses variables sont perdues."
-            } else {
-                ""
-            }
-        );
+        let (slot, note) = self.start_slot(thread_id, cwd, env.or(default_env)).await?;
         Ok((slot, Some(note)))
     }
 
@@ -470,7 +624,18 @@ impl KernelManager {
             let _ = tx.send(Some(record));
         });
         let outcome = wait_record(rx, &cell, req.wait).await;
-        Ok(RunOutcome { note, ..outcome })
+        // L'avertissement « état perdu » part avec la première cellule de
+        // l'agent dans ce noyau, pas avec une cellule lancée à la main.
+        let warning = if req.author.is_none() {
+            slot.warning.lock().unwrap_or_else(|e| e.into_inner()).take()
+        } else {
+            None
+        };
+        Ok(RunOutcome {
+            note,
+            warning,
+            ..outcome
+        })
     }
 
     /// Sorties d'une cellule longue envoyées au panneau au fil de l'eau.
@@ -573,7 +738,7 @@ impl KernelManager {
         let slot = self
             .slot(thread_id)
             .filter(|s| s.kernel.is_alive())
-            .ok_or(KernelError::NoKernel)?;
+            .ok_or_else(|| self.no_kernel(thread_id))?;
         slot.touch();
         let mut vars = slot.kernel.variables(VARS_TIMEOUT).await.map_err(|e| {
             match e.strip_prefix("busy:").and_then(|n| n.parse().ok()) {
@@ -598,7 +763,7 @@ impl KernelManager {
         let slot = self
             .slot(thread_id)
             .filter(|s| s.kernel.is_alive())
-            .ok_or(KernelError::NoKernel)?;
+            .ok_or_else(|| self.no_kernel(thread_id))?;
         let running = slot.kernel.running();
         if let Some(cell) = &running {
             slot.kernel.interrupt();
@@ -611,21 +776,35 @@ impl KernelManager {
         Ok(running.map(|c| c.id))
     }
 
+    /// Arrête le noyau du fil et en démarre un neuf. `agent_knows` : c'est
+    /// l'agent qui le demande, il sait que l'état est perdu ; sinon
+    /// (bouton du panneau) sa prochaine cellule le lui dira.
     pub async fn restart(
         &self,
         thread_id: &str,
         cwd: &Path,
         env: Option<&str>,
         default_env: Option<&str>,
+        agent_knows: bool,
     ) -> Result<KernelInfo, KernelError> {
         self.shutdown(thread_id).await;
         let lock = self.thread_lock(thread_id);
         let _guard = lock.lock().await;
-        let slot = self.start_slot(thread_id, cwd, env.or(default_env)).await?;
+        let (slot, _) = self.start_slot(thread_id, cwd, env.or(default_env)).await?;
+        if agent_knows {
+            slot.warning.lock().unwrap_or_else(|e| e.into_inner()).take();
+        }
         Ok(slot.kernel.info.clone())
     }
 
+    /// Arrêt demandé (bouton Arrêter, interrupteur coupé, redémarrage).
     pub async fn shutdown(&self, thread_id: &str) -> bool {
+        self.stop(thread_id, StopInfo::now("requested", None)).await
+    }
+
+    /// Arrête le noyau du fil et note pourquoi : la prochaine cellule
+    /// démarrera un noyau neuf et devra le dire.
+    async fn stop(&self, thread_id: &str, why: StopInfo) -> bool {
         let slot = self
             .slots
             .lock()
@@ -633,6 +812,10 @@ impl KernelManager {
             .remove(thread_id);
         match slot {
             Some(slot) => {
+                self.stops
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(thread_id.to_string(), why);
                 slot.kernel.shutdown().await;
                 true
             }
@@ -841,18 +1024,8 @@ impl KernelManager {
             // repart de toutes, pas seulement des cellules d'après.
             kernel.info.started_at = session;
             let snapshot = self.snapshot_env(&kernel.info).await;
-            let slot = Arc::new(Slot {
-                kernel,
-                env: Arc::new(snapshot),
-                origins: Mutex::new(origins),
-                imports: Mutex::new(imports),
-                last_used: Mutex::new(Instant::now()),
-                pending: Mutex::new(None),
-            });
-            self.slots
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(thread_id.to_string(), slot);
+            // L'état est reconstruit : plus rien à dire de l'ancien arrêt.
+            self.adopt(thread_id, Slot::new(kernel, snapshot, origins, imports, None));
             summary.adopted = true;
         } else {
             kernel.shutdown().await;
@@ -876,7 +1049,7 @@ impl KernelManager {
     /// Arrête les noyaux restés sans cellule depuis `idle`. Une cellule en
     /// cours n'est jamais coupée : un long calcul n'est pas de l'inactivité.
     pub async fn reap_idle(&self, idle: Duration) -> Vec<String> {
-        let victims: Vec<String> = self
+        let victims: Vec<(String, bool)> = self
             .slots
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -884,18 +1057,56 @@ impl KernelManager {
             .filter(|(_, s)| {
                 !s.kernel.is_alive() || (s.kernel.running().is_none() && s.idle() >= idle)
             })
-            .map(|(id, _)| id.clone())
+            .map(|(id, s)| (id.clone(), s.kernel.is_alive()))
             .collect();
-        for id in &victims {
-            self.shutdown(id).await;
+        for (id, alive) in &victims {
+            let why = if *alive {
+                StopInfo::now("idle", Some(idle))
+            } else {
+                StopInfo::now("died", None)
+            };
+            self.stop(id, why).await;
         }
-        victims
+        victims.into_iter().map(|(id, _)| id).collect()
+    }
+
+    /// Relève mémoire et processeur de chaque noyau vivant et rend les fils
+    /// dont les chiffres ont assez bougé depuis le dernier envoi pour
+    /// repartir vers le panneau. Un noyau au repos ne rend rien.
+    pub fn usage_updates(&self) -> Vec<String> {
+        let live: Vec<(String, Arc<Slot>)> = self
+            .slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(_, s)| s.kernel.is_alive())
+            .map(|(id, s)| (id.clone(), s.clone()))
+            .collect();
+        live.into_iter()
+            .filter_map(|(id, slot)| {
+                let sample = slot.sample()?;
+                let now = (sample.usage.rss_bytes, sample.cpu_percent.unwrap_or(0.0));
+                let mut told = slot.usage_told.lock().unwrap_or_else(|e| e.into_inner());
+                let moved = match *told {
+                    None => true,
+                    Some((rss, cpu)) => {
+                        rss.abs_diff(now.0) >= USAGE_RSS_STEP
+                            || (cpu - now.1).abs() >= USAGE_CPU_STEP
+                    }
+                };
+                if moved {
+                    *told = Some(now);
+                }
+                moved.then_some(id)
+            })
+            .collect()
     }
 
     pub fn status(&self, thread_id: &str) -> KernelStatus {
         match self.slot(thread_id).filter(|s| s.kernel.is_alive()) {
             Some(slot) => {
                 let imports = slot.imports.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let sample = slot.sample();
                 KernelStatus {
                     running: true,
                     kernel: Some(slot.kernel.info.clone()),
@@ -910,6 +1121,11 @@ impl KernelManager {
                         .collect(),
                     packages_total: Some(slot.env.packages.len()),
                     env_sha256: Some(slot.env.sha256.clone()),
+                    rss_bytes: sample.map(|s| s.usage.rss_bytes),
+                    cpu_seconds: sample.map(|s| s.usage.cpu_ms as f64 / 1000.0),
+                    cpu_percent: sample.and_then(|s| s.cpu_percent),
+                    processes: sample.map(|s| s.usage.processes),
+                    last_stop: None,
                 }
             }
             None => KernelStatus {
@@ -920,7 +1136,61 @@ impl KernelManager {
                 packages: Vec::new(),
                 packages_total: None,
                 env_sha256: None,
+                rss_bytes: None,
+                cpu_seconds: None,
+                cpu_percent: None,
+                processes: None,
+                last_stop: self.last_stop(thread_id),
             },
+        }
+    }
+}
+
+/// Ce qu'un noyau qui vient de démarrer fait dire : la phrase du démarrage,
+/// pour qui l'a déclenché, et l'avertissement réservé à l'agent.
+struct Started {
+    note: String,
+    /// Présent quand un noyau a déjà servi dans ce fil : l'état est perdu.
+    warning: Option<String>,
+}
+
+impl Started {
+    /// `stop` : arrêt connu du noyau précédent. `cells_before` : dernière
+    /// cellule du journal du fil avant ce démarrage (0 : fil neuf).
+    fn new(info: &KernelInfo, stop: Option<&StopInfo>, cells_before: u64) -> Self {
+        let place = format!(
+            "Python {} de l'env « {} », dossier {}.",
+            info.python_version,
+            info.env.name,
+            info.cwd.display()
+        );
+        if stop.is_none() && cells_before == 0 {
+            return Self {
+                note: format!("Noyau démarré : {place}"),
+                warning: None,
+            };
+        }
+        let cause = match stop {
+            Some(stop) => stop.sentence(),
+            // Cellules au journal sans arrêt noté : le serveur d'Atelier a
+            // redémarré, et ses noyaux avec lui.
+            None => "Le noyau précédent de ce fil ne tourne plus (Atelier a été relancé depuis)"
+                .to_string(),
+        };
+        let lost = match cells_before {
+            0 => "Les variables, les imports et les données chargées avant n'existent plus."
+                .to_string(),
+            1 => "Les variables, les imports et les données chargées par la cellule 1 n'existent plus."
+                .to_string(),
+            n => format!(
+                "Les variables, les imports et les données chargées par les cellules 1 à {n} n'existent plus."
+            ),
+        };
+        Self {
+            note: format!("Noyau relancé : {place} {cause} : ses variables sont perdues."),
+            warning: Some(format!(
+                "Cette cellule a tourné dans un noyau neuf. {cause}. {lost} Reprends d'abord les cellules dont la suite dépend : relance leur code dans l'ordre (action status rend les dernières cellules du journal avec leur code), puis relance celle-ci si elle en dépendait."
+            )),
         }
     }
 }
@@ -1125,6 +1395,7 @@ fn finished(r: &CellRecord) -> RunOutcome {
         );
     }
     RunOutcome {
+        warning: None,
         cell,
         finished: true,
         note: None,
@@ -1150,7 +1421,80 @@ async fn wait_record(
             "stdoutSoFar": clip(&p.stdout, REPLY_STDOUT_MAX / 2),
             "hint": format!("La cellule continue dans le noyau. Rappelle l'outil avec action=wait, cell={} pour la suite, ou action=interrupt pour l'arrêter.", cell.id),
         }),
+        warning: None,
         finished: false,
         note: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn info() -> KernelInfo {
+        KernelInfo {
+            pid: 1,
+            python_version: "3.12.3".into(),
+            executable: "/env/bin/python".into(),
+            env: PyEnv {
+                name: "pymc-albedo".into(),
+                prefix: "/env".into(),
+                python: "/env/bin/python".into(),
+                source: "conda".into(),
+            },
+            cwd: "/projet".into(),
+            started: Instant::now(),
+            started_at: "2026-11-10T10:00:00.000Z".into(),
+        }
+    }
+
+    #[test]
+    fn l_arret_dit_sa_cause() {
+        let idle = StopInfo::now("idle", Some(Duration::from_secs(30 * 60)));
+        assert_eq!(
+            idle.sentence(),
+            "L'ancien noyau a été arrêté après 30 min d'inactivité"
+        );
+        assert_eq!(idle.idle_seconds, Some(1800));
+        assert_eq!(
+            StopInfo::now("requested", None).sentence(),
+            "L'ancien noyau a été arrêté ou redémarré à la demande"
+        );
+        assert_eq!(
+            StopInfo::now("died", None).sentence(),
+            "L'ancien noyau s'était arrêté"
+        );
+        let message = KernelError::Stopped(idle).message();
+        assert!(
+            message.starts_with("no_kernel — L'ancien noyau a été arrêté après 30 min d'inactivité : ses variables sont perdues."),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn un_premier_demarrage_n_avertit_pas_un_redemarrage_si() {
+        let neuf = Started::new(&info(), None, 0);
+        assert_eq!(
+            neuf.note,
+            "Noyau démarré : Python 3.12.3 de l'env « pymc-albedo », dossier /projet."
+        );
+        assert!(neuf.warning.is_none());
+
+        let idle = StopInfo::now("idle", Some(Duration::from_secs(1800)));
+        let relance = Started::new(&info(), Some(&idle), 7);
+        assert_eq!(
+            relance.note,
+            "Noyau relancé : Python 3.12.3 de l'env « pymc-albedo », dossier /projet. L'ancien noyau a été arrêté après 30 min d'inactivité : ses variables sont perdues."
+        );
+        let attention = relance.warning.unwrap();
+        assert!(attention.starts_with("Cette cellule a tourné dans un noyau neuf. L'ancien noyau a été arrêté après 30 min d'inactivité. Les variables, les imports et les données chargées par les cellules 1 à 7 n'existent plus. Reprends d'abord les cellules dont la suite dépend"), "{attention}");
+
+        // Aucun arrêt noté mais des cellules au journal : Atelier a redémarré.
+        let relance = Started::new(&info(), None, 1);
+        let attention = relance.warning.unwrap();
+        assert!(
+            attention.contains("Atelier a été relancé") && attention.contains("par la cellule 1 n'existent plus"),
+            "{attention}"
+        );
     }
 }

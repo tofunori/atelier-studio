@@ -158,7 +158,8 @@ pub fn python_tool_definition() -> Value {
         "description": "Persistent Python kernel of this conversation (like a notebook: variables and \
     loaded data stay in memory between calls; every cell is logged). Only works when the user turned it on \
     for this conversation; otherwise use your shell. Actions: run (code and purpose, optional env on first \
-    run), wait, variables, interrupt, restart, envs, status. Cite a number a cell printed with its citeAs link.",
+    run), wait, variables, interrupt, restart, envs, status. Cite a number a cell printed with its citeAs link. \
+    Matplotlib figures left open come back as images in the result: look at them.",
         "inputSchema": {
             "type": "object",
             "required": ["action"],
@@ -596,6 +597,9 @@ mod tests {
         // La description repart à chaque tour : elle reste courte.
         let def = python_tool_definition();
         assert!(def["description"].as_str().unwrap().len() < 500);
+        // Elle dit que les figures reviennent en images, même à une session
+        // ouverte avant que la consigne du noyau n'en parle.
+        assert!(def["description"].as_str().unwrap().contains("come back as images"));
     }
 
     #[test]
