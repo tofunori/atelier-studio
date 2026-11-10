@@ -282,7 +282,10 @@ function Detail({
   const versions = detail?.versions ?? [];
   const shown = allVersions ? versions : versions.slice(0, VERSIONS_SHOWN);
   const lost = detail ? Math.max(0, detail.versionCount - versions.length) : 0;
-  const envLine = recipe ? [recipe.env.name, recipe.env.python ? `Python ${recipe.env.python}` : ""].filter(Boolean).join(" · ") : "";
+  const envName = recipe?.env.name ? `${recipe.env.name}${recipe.env.manager === "pixi" ? " (pixi)" : ""}` : "";
+  const envLine = recipe ? [envName, recipe.env.python ? `Python ${recipe.env.python}` : ""].filter(Boolean).join(" · ") : "";
+  // Env pixi : l'empreinte du verrou dit tout l'env ; sinon celle de l'instantané des paquets.
+  const envSha = recipe ? recipe.env.lock || recipe.env.sha : null;
   const emptyRecipe = recipe && !recipe.script && !recipe.command && !recipe.cell && recipe.inputs.length === 0 && !envLine;
 
   return (
@@ -351,7 +354,7 @@ function Detail({
           {envLine && (
             <div className="res-kv">
               <span className="res-k">{s.environment}</span>
-              <div className="res-v"><span>{envLine}</span>{recipe.env.sha && <span className="res-sha">{recipe.env.sha}</span>}</div>
+              <div className="res-v"><span>{envLine}</span>{envSha && <span className="res-sha">{envSha}</span>}</div>
             </div>
           )}
         </section>

@@ -51,7 +51,7 @@ export type ResultRecipe = {
   command: string | null;
   cell: { id?: number; purpose?: string | null; env?: string | null; author?: string | null; threadId?: string | null } | null;
   inputs: ResultInput[];
-  env: { name: string | null; python: string | null; sha: string | null; packages: number };
+  env: { name: string | null; manager?: "pixi" | "conda" | null; lock?: string | null; python: string | null; sha: string | null; packages: number };
   threadId?: string | null;
   threadTitle?: string | null;
   head?: string | null;
@@ -359,7 +359,7 @@ export function reproduceDraft(detail: Pick<ResultDetail, "abs" | "sidecar" | "e
     const version = (Array.isArray(e.scriptVersions) ? e.scriptVersions : []).find((x: any) => x && x.path === script);
     return version?.sha256 ? String(version.sha256).slice(0, 7) : "";
   })();
-  const envLine = [env.conda ? `conda ${env.conda}` : "", env.python ? `Python ${env.python}` : ""].filter(Boolean).join(" · ");
+  const envLine = [env.pixi ? `pixi ${env.pixi}` : env.conda ? `conda ${env.conda}` : "", env.python ? `Python ${env.python}` : ""].filter(Boolean).join(" · ");
   const lines = [`Reproduis ce résultat : ${detail.abs}`, `Recette : ${detail.sidecar}`];
   if (command) lines.push(`Commande enregistrée : ${command}`);
   if (e.cell?.id) {

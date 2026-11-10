@@ -631,10 +631,21 @@ fn recipe_json(entry: &Value, states: &[InputState], results: &HashSet<&str>) ->
             .map(short)
     });
     let env = entry.get("env").cloned().unwrap_or(Value::Null);
-    let env_name = env
-        .get("conda")
-        .and_then(Value::as_str)
+    // Env pixi (verrou noté dans la recette) avant conda : c'est lui qui fixe
+    // tout l'env, et c'est son empreinte de verrou que l'écran montre.
+    let pixi = env.get("pixi").and_then(Value::as_str);
+    let conda = env.get("conda").and_then(Value::as_str);
+    let env_name = pixi
+        .or(conda)
         .or_else(|| entry.pointer("/cell/env").and_then(Value::as_str));
+    let env_manager = if pixi.is_some() {
+        Some("pixi")
+    } else if conda.is_some() {
+        Some("conda")
+    } else {
+        None
+    };
+    let env_lock = env.pointer("/lock/sha256").and_then(Value::as_str).map(short);
     let inputs: Vec<Value> = states
         .iter()
         .map(|s| json!({
@@ -657,6 +668,8 @@ fn recipe_json(entry: &Value, states: &[InputState], results: &HashSet<&str>) ->
         "inputs": inputs,
         "env": {
             "name": env_name,
+            "manager": env_manager,
+            "lock": env_lock,
             "python": env.get("python").and_then(Value::as_str),
             "sha": env.get("snapshotSha256").and_then(Value::as_str).map(short),
             "packages": env.get("packages").and_then(Value::as_object).map(|p| p.len()).unwrap_or(0),
@@ -1017,6 +1030,19 @@ mod tests {
         let pdf = result_detail(&app, r, "main.pdf", &[]).unwrap();
         assert_eq!(pdf["dependsOn"][0]["path"], fig);
         assert_eq!(pdf["stale"]["input"], fig);
+
+        // Une cellule du noyau sous l'env pixi : l'écran nomme pixi et montre
+        // l'empreinte du verrou.
+        let csv = result_detail(&app, r, "out/tendances.csv", &[]).unwrap();
+        assert_eq!(csv["recipe"]["env"]["manager"], Value::Null, "ni pixi ni conda noté");
+        write(&root, "out/pixi.csv", "a,b\n");
+        sidecar(&root, "out/pixi.csv", json!({"history": [{"ts": "2026-11-10T10:00:00Z", "cell": {"id": 3, "env": "atelier"},
+            "inputs": [], "env": {"pixi": "atelier", "python": "3.12.7",
+                "lock": {"file": "python/pixi.lock", "sha256": "0123456789abcdef0123456789abcdef"}}}]}));
+        let pixi = result_detail(&app, r, "out/pixi.csv", &[]).unwrap();
+        assert_eq!(pixi["recipe"]["env"]["name"], "atelier");
+        assert_eq!(pixi["recipe"]["env"]["manager"], "pixi");
+        assert_eq!(pixi["recipe"]["env"]["lock"], "0123456");
 
         assert!(result_detail(&app, r, "figures/inconnue.png", &[]).is_err());
         assert!(result_detail(&app, r, "../fig.png", &[]).is_err());
