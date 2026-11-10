@@ -4,6 +4,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import {groupAgentRows} from './chat/groupAgentRows';
 import type { LinkedAgentSummary } from "../lib/threadLinks";
 import { groupActivityRows } from './chat/groupActivityRows';
+import { fuseApprovals } from './chat/approvalFusion';
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
@@ -982,6 +983,8 @@ export default function Chat(p: {
     return "id" in action && action.id ? String(action.id) : `event:${at}`;
   };
 
+  // Reçus d'autorisation simples : fondus en bouclier dans la rangée de l'action.
+  const fused = React.useMemo(() => fuseApprovals(projectedTimeline), [projectedTimeline]);
   const renderedEvents = React.useMemo(() => {
     const rows: Array<
       ProjectedTimelineItem |
@@ -992,7 +995,7 @@ export default function Chat(p: {
       toolCategory(row.event.name, "detail" in row.event ? row.event.detail : undefined) === "edit";
     // Les outils gardent leur position chronologique pendant le tour.
     // Le regroupement terminal est déjà porté par projectChatTimeline.
-    const visibleTimeline = projectedTimeline;
+    const visibleTimeline = fused.rows;
     for (let offset = 0; offset < visibleTimeline.length; offset += 1) {
       const row = visibleTimeline[offset];
       if (row.type !== "event") {
@@ -1039,7 +1042,7 @@ export default function Chat(p: {
       offset = nextOffset - 1;
     }
     return groupAgentRows(groupActivityRows(rows), turnViewModels, p.events);
-  }, [editTurns, mergedEdits, p.events, projectedTimeline, turnViewModels]);
+  }, [editTurns, mergedEdits, p.events, fused, turnViewModels]);
 
   // À la fin du tour, le pli se ferme TOUJOURS : le travail intermédiaire
   // (outils, narrations d'étape) se regroupe sous « A travaillé pendant… »,
@@ -1068,6 +1071,8 @@ export default function Chat(p: {
 
   function renderToolLine(e: Extract<AgentEvent, { kind: "tool" | "tool_update" }>, key: React.Key) {
     const imagePaths = imagePathsForActions([e]);
+    const receipt = e.kind === "tool_update" ? fused.shields.get(e.id) : undefined;
+    const authorized = receipt && t(receipt.title === "Exécution de commande" ? "interaction.cmd-allowed" : "interaction.req-allowed");
     const detailKey = `${p.threadId}:${actionId(e, Number(key) || 0)}`;
     if (imagePaths.length > 0 && e.kind === "tool_update") {
       if (isImageGenerationAction(e)) {
@@ -1076,7 +1081,7 @@ export default function Chat(p: {
         </div>;
       }
       return <ToolOutputLine key={detailKey} event={e} expanded={toolDetails[detailKey]}
-        compact={p.defaults.transcriptView !== 'detaille'}
+        compact={p.defaults.transcriptView !== 'detaille'} authorized={authorized}
         preview={<ImageViewPreview paths={imagePaths} projectRoot={p.imageProjectRoot ?? undefined} threadId={p.threadId ?? undefined} />}
         onExpandedChange={(expanded) => {
           setToolDetails(prev => ({ ...prev, [detailKey]: expanded }));
@@ -1118,7 +1123,7 @@ export default function Chat(p: {
       );
     }
     return <ToolOutputLine key={detailKey} event={e} expanded={toolDetails[detailKey]}
-      compact={p.defaults.transcriptView !== 'detaille'}
+      compact={p.defaults.transcriptView !== 'detaille'} authorized={authorized}
       onExpandedChange={(expanded) => {
         setToolDetails(prev => ({ ...prev, [detailKey]: expanded }));
       }} />;

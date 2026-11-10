@@ -6726,16 +6726,18 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 @media (prefers-reduced-motion: reduce) { .figure-gallery-bar { transition:none; } }
 .md-image-error { color:var(--text-muted); font-size:var(--fs-s); }
 /* Category disclosures share the chat activity scale and keep full labels. */
-.activity-action-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* Les actions d'une étape forment UN bloc serré : rangées de 28 px, sans
+   trou entre elles (maquette « affichage des outils », 2026-11-10). */
+.activity-action-list { display: flex; flex-direction: column; gap: 0; min-width: 0; }
 .activity-action-list > :is(.tool-output, .ui-activity, .tool) { margin: 0; width: 100%; min-width: 0; }
-.activity-action-list .tool-output-head { min-height: 36px; padding-block: 8px; }
+.activity-action-list .tool-output-head { min-height: 28px; padding-block: 4px; }
 .activity-action-list .tool-output-name { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 /* Rangées d'action du fil (outils, pensées, ligne vivante) : UNE grille —
    icône · texte · durée (56 px) · état (12 px) · chevron (12 px) — et le même
    survol que les rangées .ui-activity (fond qui déborde de 8 px). */
 .tool-output.is-compact .tool-output-head, .activity-thought-head {
   grid-template-columns: 15px minmax(0, 1fr) 56px 12px 12px;
-  width: calc(100% + 16px); margin: 0 -8px; padding: 8px; border-radius: var(--radius-control);
+  width: calc(100% + 16px); margin: 0 -8px; padding: 4px 8px; border-radius: var(--radius-control);
   transition: background-color var(--motion-fast) ease; }
 .tool-output.is-compact .tool-output-head:hover, .tool-output.is-compact.open .tool-output-head,
 .activity-thought-head:hover, .activity-thought.open .activity-thought-head {
@@ -6748,6 +6750,14 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .tool-output.is-compact .tool-duration { justify-self: end; }
 .tool-output.is-compact .tool-status { justify-content: center; width: 12px; height: 12px; }
 .tool-output.is-compact .tool-output-head > .tool-tick { width: 12px; height: 12px; color: var(--text-disabled); }
+/* Le chevron d'une rangée d'action ne se montre qu'au survol, au focus
+   clavier ou quand la rangée est ouverte : au repos, la colonne reste vide. */
+.tool-output.is-compact .tool-output-head > .tool-tick, .activity-thought-head > .tool-tick {
+  opacity: 0; transition: opacity var(--motion-fast) ease; }
+.tool-output.is-compact .tool-output-head:is(:hover, :focus-visible) > .tool-tick,
+.tool-output.is-compact.open .tool-output-head > .tool-tick,
+.activity-thought-head:is(:hover, :focus-visible) > .tool-tick,
+.activity-thought.open .activity-thought-head > .tool-tick { opacity: 1; }
 .tool-output.is-compact.failed .tool-duration, .tool-output.is-compact.failed .tool-status { color: var(--status-error); }
 .tool-output.is-compact:not(.is-done):not(.failed) .tool-status { color: var(--text-muted); }
 /* Anneau d'une action en cours : la seule boucle d'une rangée d'outil à plat.
@@ -6756,7 +6766,8 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: ui-spin var(--motion-spin) linear infinite; }
 @media (prefers-reduced-motion: reduce) {
   .ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: none; }
-  .tool-output.is-compact .tool-output-head, .activity-thought-head { transition: none; } }
+  .tool-output.is-compact .tool-output-head, .activity-thought-head,
+  .tool-output.is-compact .tool-output-head > .tool-tick, .activity-thought-head > .tool-tick { transition: none; } }
 /* Ligne vivante : verbe au plein contraste, commande en mono, puis les trois
    dernières lignes de sortie (Codex seulement : Claude n'envoie la sortie
    qu'à la fin de la commande), alignées sur le texte, sans cadre. */
@@ -6788,7 +6799,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .activity-batch-thought { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 8px 4px; color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); line-height: 1.6; white-space: pre-wrap; }
 .activity-batch-thought svg { flex: 0 0 auto; margin-top: 2px; }
 .activity-thought { min-width: 0; color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); }
-.activity-thought-head { display: grid; min-height: 36px; align-items: center; gap: 8px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.activity-thought-head { display: grid; min-height: 28px; align-items: center; gap: 8px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
 .activity-thought-head > .tool-tick { width: 12px; height: 12px; color: var(--text-disabled); }
 .activity-thought-preview code { font-family: var(--code-font); font-size: var(--fs-m); color: inherit; background: none; padding: 0; }
 .activity-thought-head:hover .activity-thought-preview { color: var(--text-secondary); }

@@ -226,6 +226,11 @@ export function ToolStateGlyph({ outcome }: { outcome: ToolOutcome | "none" }) {
   if (outcome === "failed") return <svg {...c} className="tool-status-icon"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg>;
   return null;
 }
+/** Bouclier d'une action que l'utilisateur a autorisée : le reçu d'autorisation
+ * n'a plus sa ligne, il vit dans la colonne d'état de l'action. */
+const AuthorizedGlyph = () => (
+  <svg {...STATE_GLYPH} className="tool-status-icon"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4zM6 8l1.5 1.5 3-3" /></svg>
+);
 
 /** Nom porté par l'input d'un appel : le fichier, le motif, ou la première
  * ligne de la commande. Sert à nommer une rangée dont le libellé sémantique
@@ -249,8 +254,10 @@ export function toolInputName(input: unknown): string {
 }
 
 export const ToolOutputLine = memo(function ToolOutputLine(
-  { event, expanded, onExpandedChange, compact = false, preview }: {
+  { event, expanded, onExpandedChange, compact = false, preview, authorized }: {
     event: Extract<AgentEvent, { kind: "tool_update" }>;
+    /** Verdict de l'autorisation donnée pour cette action (« Commande autorisée »). */
+    authorized?: string;
     expanded?: boolean;
     onExpandedChange?: (open: boolean) => void;
     compact?: boolean;
@@ -292,7 +299,10 @@ export const ToolOutputLine = memo(function ToolOutputLine(
       && isJsonText(trimmedOutput),
     [cleanOutput.length, trimmedOutput],
   );
-  const failedTitle = failed ? t("chat.action-failed") : undefined;
+  // Colonne d'état : la réussite est l'état normal et ne se signale pas. Seuls
+  // parlent le travail en cours, l'échec et l'autorisation donnée.
+  const shield = outcome === "done" && authorized ? authorized : undefined;
+  const failedTitle = failed ? t("chat.action-failed") : shield;
   return (
     <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""} ${outcome === "done" ? "is-done" : ""}${compact ? " is-compact" : ""}`}>
       <RowButton className="tool-output-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -316,7 +326,7 @@ export const ToolOutputLine = memo(function ToolOutputLine(
                 : event.durationMs != null && event.durationMs > 0 ? fmtToolDur(event.durationMs) : null}
             </span>
             <span className="tool-status" title={failedTitle} aria-label={failedTitle}>
-              <ToolStateGlyph outcome={outcome} />
+              {shield ? <AuthorizedGlyph /> : outcome === "done" ? null : <ToolStateGlyph outcome={outcome} />}
             </span>
             <Tick open={open} />
           </>
@@ -331,8 +341,8 @@ export const ToolOutputLine = memo(function ToolOutputLine(
         {/* La COULEUR est réservée à l'échec (système de design) : une action
             réussie n'a qu'une coche neutre, sans le mot d'état brut du provider. */}
         {!compact && event.status && (
-          <span className="tool-status">
-            {outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
+          <span className="tool-status" title={shield} aria-label={shield}>
+            {shield ? <AuthorizedGlyph /> : outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
             {failed && t("chat.action-failed")}
           </span>
         )}
