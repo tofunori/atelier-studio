@@ -443,7 +443,10 @@ fn log_tail(backend: &Backend, host: Target, launched: &Launched) -> Option<Vec<
 // ---- décisions de l'utilisateur (carte du fil) ---------------------------
 
 /// Soumission effective : `launching` → `queued` (ou `launch_failed`, avec
-/// le message de l'hôte, sans nouvel essai).
+/// le message de l'hôte, sans nouvel essai). Sur une grappe, une réponse
+/// perdue (délai, connexion coupée) ne vaut pas échec : `submit` cherche la
+/// tâche sur la grappe et rend `Ok` s'il la retrouve — elle est alors suivie
+/// comme les autres. S'il ne peut pas trancher, le message le dit.
 async fn launch(state: &AppState, backend: &Backend, id: &str) {
     let Some(job) = load(state.app_dir()).jobs.into_iter().find(|j| j.id == id) else {
         return;
@@ -907,6 +910,60 @@ mod tests {
         let mut schedule = Schedule::default();
         poll_once(&state, &b, &mut schedule).await;
         assert_eq!(fake.calls().len(), 1, "aucun nouvel essai, aucune sonde");
+    }
+
+    fn reponse_perdue() -> Result<ComputeOutput, ComputeExecError> {
+        Err(ComputeExecError { code: "timeout".into(), message: "ssh n'a pas répondu dans le délai imparti".into() })
+    }
+
+    fn soumissions(fake: &Fake) -> usize {
+        fake.calls().iter().filter(|call| call.contains("sbatch")).count()
+    }
+
+    #[tokio::test]
+    async fn une_reponse_perdue_adopte_la_tache_retrouvee_au_lieu_d_annoncer_un_echec() {
+        // sbatch est parti, sa réponse s'est perdue : la carte annonçait un
+        // échec alors que la tâche tournait, et elle était relancée en double.
+        let (state, dir) = test_state().await;
+        let fake = Arc::new(
+            Fake::default()
+                .on("sbatch", reponse_perdue())
+                .on("squeue --me", Ok(ComputeOutput::ok("::TAKEN\n::JOBID 65701000\n")))
+                .on("sacct -j 65701000", Ok(ComputeOutput::ok("RUNNING|0:0\n"))),
+        );
+        let b = backend(dir.path(), fake.clone());
+        let id = action_propose_job(&state, &b, "t1", &narval_job()).await.unwrap()["jobId"].as_str().unwrap().to_string();
+        decide(&state, &b, &id, "launch", false).await.unwrap();
+        let job = settle(&state, &id).await;
+        assert_eq!((job.status, job.message.clone()), (JobStatus::Queued, None));
+        let launched = job.launched.unwrap();
+        assert_eq!(launched.run_id, "slurm:65701000");
+        assert_eq!(launched.log_path.as_deref(), Some(format!("/scratch/u/m42/.atelier/job-{id}-65701000.out").as_str()));
+        assert_eq!(fake.calls().len(), 2, "une soumission, une réconciliation");
+        assert_eq!(soumissions(&fake), 1, "jamais de nouvelle soumission");
+        assert_eq!(events(&state).last().unwrap()["status"], "queued");
+        // adoptée : le guetteur la suit comme n'importe quelle tâche
+        let mut schedule = Schedule::default();
+        poll_once(&state, &b, &mut schedule).await;
+        assert_eq!(load(state.app_dir()).jobs[0].status, JobStatus::Running);
+        assert_eq!(soumissions(&fake), 1);
+    }
+
+    #[tokio::test]
+    async fn un_echec_confirme_par_la_grappe_reste_un_echec_sans_nouvelle_soumission() {
+        let (state, dir) = test_state().await;
+        let fake = Arc::new(Fake::default().on("sbatch", reponse_perdue()).on("squeue --me", Ok(ComputeOutput::ok("::FENCED\n"))));
+        let b = backend(dir.path(), fake.clone());
+        let id = action_propose_job(&state, &b, "t1", &narval_job()).await.unwrap()["jobId"].as_str().unwrap().to_string();
+        decide(&state, &b, &id, "launch", false).await.unwrap();
+        let job = settle(&state, &id).await;
+        assert_eq!(job.status, JobStatus::LaunchFailed);
+        assert_eq!(job.message.as_deref(), Some("ssh n'a pas répondu dans le délai imparti"));
+        assert!(job.launched.is_none());
+        let mut schedule = Schedule::default();
+        poll_once(&state, &b, &mut schedule).await;
+        assert_eq!(fake.calls().len(), 2, "une soumission, une réconciliation, aucune sonde");
+        assert_eq!(soumissions(&fake), 1);
     }
 
     #[tokio::test]
