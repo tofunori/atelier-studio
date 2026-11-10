@@ -3,6 +3,8 @@ import { makeThread } from "../test/fixtures";
 import {
   conversationContinuity,
   conversationFamilies,
+  delegatedChildrenByParent,
+  delegatedState,
   linkedConversationForProvider,
   linkedAgentSummaries,
   linkedConversations,
@@ -116,5 +118,35 @@ describe("threadLinks", () => {
     expect(markers.get("child-a")).toBe(markers.get("root-a"));
     expect(markers.get("root-b")?.id).toBe("root-b");
     expect(markers.get("child-b")).toBe(markers.get("root-b"));
+  });
+});
+
+describe("fils délégués (coordinateur et fils)", () => {
+  const link = (parentThreadId: string, createdAt: string) => ({
+    parentThreadId, role: "thread" as const, access: "read_write" as const, createdAt,
+    createdBy: "user" as const, autoDeliveryLimit: 4, autoDeliveryUsed: 0, paused: false,
+  });
+
+  it("range sous le parent les seuls fils délégués, un niveau, dans l'ordre de lancement", () => {
+    const threads = [
+      makeThread({ id: "p" }),
+      makeThread({ id: "b", agentLink: link("p", "2026-07-20T00:00:02.000Z"), delegue: { fil: true } }),
+      makeThread({ id: "a", agentLink: link("p", "2026-07-20T00:00:01.000Z"), delegue: { specialisteId: "s1" } }),
+      makeThread({ id: "suite", agentLink: link("p", "2026-07-20T00:00:03.000Z") }),
+      makeThread({ id: "orphelin", agentLink: link("absent", "2026-07-20T00:00:04.000Z"), delegue: { fil: true } }),
+      makeThread({ id: "petit", agentLink: link("a", "2026-07-20T00:00:05.000Z"), delegue: { fil: true } }),
+    ];
+    const children = delegatedChildrenByParent(threads);
+    expect(children.get("p")?.map((t) => t.id)).toEqual(["a", "b"]);
+    expect([...children.keys()]).toEqual(["p"]);
+  });
+
+  it("écrit l'état d'un fil", () => {
+    const fil = makeThread({ id: "f", sessionId: null, delegue: { fil: true } });
+    expect(delegatedState(fil, false, false)).toBe("queued");
+    expect(delegatedState({ ...fil, sessionId: "s" }, false, false)).toBe("waiting");
+    expect(delegatedState({ ...fil, sessionId: "s" }, true, false)).toBe("running");
+    expect(delegatedState({ ...fil, sessionId: "s", rapportA: "2026-07-20T00:00:00.000Z" }, false, true)).toBe("review");
+    expect(delegatedState({ ...fil, sessionId: "s", rapportA: "2026-07-20T00:00:00.000Z" }, false, false)).toBe("done");
   });
 });

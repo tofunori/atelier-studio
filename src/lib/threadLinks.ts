@@ -222,3 +222,54 @@ export function linkedAgentSummaries(
     return summary;
   });
 }
+
+/** Fil confié par son parent (spécialiste délégué, ou fil lancé par la
+ * conversation qui coordonne). Coordinateur et fils, 2026-11-09 : ces fils
+ * se rangent SOUS leur parent dans la colonne et n'ont pas d'onglet à eux. */
+export function isDelegatedThread(thread: Thread): boolean {
+  return !!thread.agentLink && !!thread.delegue && typeof thread.delegue === "object";
+}
+
+/** Parent sous lequel ranger `thread`, s'il est un fil délégué dont le parent
+ * est connu et n'est pas lui-même rangé (un seul niveau). */
+export function nestingParentId(
+  thread: Thread,
+  byId: ReadonlyMap<string, Thread>,
+): string | null {
+  if (!isDelegatedThread(thread)) return null;
+  const parent = byId.get(thread.agentLink!.parentThreadId);
+  if (!parent || parent.id === thread.id || isDelegatedThread(parent)) return null;
+  return parent.id;
+}
+
+/** Fils délégués de chaque parent présent dans `threads`, du plus ancien au
+ * plus récent (ordre de lancement : Fil A, Fil B, Fil C). */
+export function delegatedChildrenByParent(threads: Thread[]): Map<string, Thread[]> {
+  const byId = new Map(threads.map((thread) => [thread.id, thread]));
+  const children = new Map<string, Thread[]>();
+  for (const thread of threads) {
+    const parentId = nestingParentId(thread, byId);
+    if (!parentId) continue;
+    const list = children.get(parentId) ?? [];
+    list.push(thread);
+    children.set(parentId, list);
+  }
+  for (const list of children.values()) {
+    list.sort((left, right) =>
+      (left.agentLink?.createdAt ?? "").localeCompare(right.agentLink?.createdAt ?? "")
+      || left.id.localeCompare(right.id));
+  }
+  return children;
+}
+
+/** État d'un fil délégué, tel que la colonne l'écrit sous son parent. */
+export type DelegatedState = "running" | "queued" | "waiting" | "review" | "done";
+
+export function delegatedState(thread: Thread, running: boolean, unread: boolean): DelegatedState {
+  if (running || thread.status === "running") return "running";
+  if (typeof thread.rapportA === "string" && thread.rapportA) return unread ? "review" : "done";
+  // Pas encore de session : la tâche attend son tour dans la boîte aux lettres.
+  if (!thread.sessionId) return "queued";
+  // Le fil s'est arrêté sans rendre compte : il pose une question ou bloque.
+  return "waiting";
+}

@@ -234,3 +234,46 @@ describe("règles 10-12 — ordre visible, dates invalides, limite", () => {
     expect(expanded.visibleThreadIds).toHaveLength(9);
   });
 });
+
+describe("règle 14 — fils délégués rangés sous leur parent", () => {
+  const link = (parentThreadId: string) => ({
+    parentThreadId, role: "thread" as const, access: "read_write" as const, createdAt: iso(-10 * DAY),
+    createdBy: "user" as const, autoDeliveryLimit: 4, autoDeliveryUsed: 0, paused: false,
+  });
+
+  it("retire les fils de la liste, les rend sous le parent, et le parent prend leur activité", () => {
+    const threads = [
+      makeThread({ id: "p", title: "Coordinateur", updatedAt: iso(-3 * DAY) }),
+      makeThread({ id: "c1", title: "Fil 1", updatedAt: iso(-1 * HOUR), agentLink: link("p"), delegue: { fil: true } }),
+      makeThread({ id: "x", title: "Autre", updatedAt: iso(-2 * HOUR) }),
+      // une conversation continuée par l'utilisateur reste à son rang
+      makeThread({ id: "u", title: "Suite Codex", updatedAt: iso(-4 * HOUR), agentLink: link("x") }),
+    ];
+    const m = deriveProjectNavigatorModel(baseInput({ threads }));
+    expect(m.visibleThreadIds).toEqual(["p", "x", "u"]);
+    expect(m.conversationSections[0].bucket).toBe("today");
+    expect(m.childrenByParent.get("p")?.map((t) => t.id)).toEqual(["c1"]);
+    expect(m.childrenByParent.has("x")).toBe(false);
+  });
+
+  it("un fil ouvert garde son parent visible malgré la limite", () => {
+    const threads = [
+      ...Array.from({ length: CONVERSATIONS_VISIBLE + 2 }, (_, i) =>
+        makeThread({ id: `n${i}`, title: `Récent ${i}`, updatedAt: iso(-i * HOUR) })),
+      makeThread({ id: "old", title: "Vieux coordinateur", updatedAt: iso(-30 * DAY) }),
+      makeThread({ id: "kid", title: "Fil", updatedAt: iso(-30 * DAY), agentLink: link("old"), delegue: { fil: true } }),
+    ];
+    const m = deriveProjectNavigatorModel(baseInput({ threads, activeId: "kid" }));
+    expect(m.visibleThreadIds).toContain("old");
+    expect(m.visibleThreadIds).not.toContain("kid");
+  });
+
+  it("la recherche reste à plat et trouve aussi les fils", () => {
+    const threads = [
+      makeThread({ id: "p", title: "Coordinateur" }),
+      makeThread({ id: "c1", title: "Fil résumé", agentLink: link("p"), delegue: { fil: true } }),
+    ];
+    const m = deriveProjectNavigatorModel(baseInput({ threads, query: "resume" }));
+    expect(m.visibleThreadIds).toEqual(["c1"]);
+  });
+});

@@ -354,7 +354,7 @@ export type Thread = {
   /** Plan 057 — relation parent/enfant (sur l'enfant seulement). */
   agentLink?: {
     parentThreadId: string;
-    role: "collaborator";
+    role: "collaborator" | "specialist" | "thread";
     access: "read_write";
     createdAt: string;
     createdBy: "user";
@@ -362,6 +362,12 @@ export type Thread = {
     autoDeliveryUsed: number;
     paused: boolean;
   };
+  /** Fil confié par son parent : spécialiste délégué (`specialisteId`) ou
+   *  fil de travail lancé par la conversation qui coordonne (`fil`). La
+   *  colonne le range sous son parent, sans onglet à lui. */
+  delegue?: { specialisteId?: string; fil?: boolean; par?: string } | null;
+  /** Quand ce fil enfant a rendu compte à son parent ; effacé à la suite. */
+  rapportA?: string | null;
   /** Bifurcation : portée par le fil, jamais par son titre. */
   fork?: {
     parentThreadId: string;

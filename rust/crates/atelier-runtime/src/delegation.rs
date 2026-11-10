@@ -42,6 +42,13 @@ pub fn specialiste_delegue(thread: &Thread) -> Option<&str> {
     thread.extra.get("delegue")?.get("specialisteId")?.as_str()
 }
 
+/// Fil confié par son parent : à un spécialiste (`delegate`, `@Nom`) ou fil
+/// de travail lancé par une conversation qui coordonne (`start_thread`).
+/// Les deux comptent dans `MAX_EN_PARALLELE` et s'arrêtent avec le parent.
+pub fn est_delegue(thread: &Thread) -> bool {
+    thread.extra.get("delegue").is_some_and(Value::is_object)
+}
+
 fn titre(nom_court: &str, tache: &str) -> String {
     let ligne = tache.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
     let court: String = ligne.chars().take(TITRE_TACHE_MAX).collect();
@@ -165,7 +172,7 @@ pub async fn deleguer(
         let mailbox = state.mailbox().lock().await;
         let occupes = enfants
             .iter()
-            .filter(|t| specialiste_delegue(t).is_some())
+            .filter(|t| est_delegue(t))
             .filter(|t| Some(&t.id) != existant.as_ref().map(|e| &e.id))
             .filter(|t| au_travail(&mailbox, parent_id, t))
             .count();
@@ -206,7 +213,8 @@ pub async fn deleguer(
                         .min(lim::MAX_AUTO_DELIVERY);
                 }
                 link.paused = false;
-                let mut patch = json!({"id": enfant.id, "agentLink": link, "consigne": consigne});
+                // Nouvelle tâche : le rapport de la précédente ne vaut plus.
+                let mut patch = json!({"id": enfant.id, "agentLink": link, "consigne": consigne, RAPPORT_CLE: null});
                 patch.as_object_mut().unwrap().extend(reglages);
                 store.upsert(patch, true)?;
                 (enfant.id, true)
@@ -273,6 +281,169 @@ pub async fn deleguer(
                 let _ = state.threads().lock().await.delete(&enfant_id);
             }
             Err(error)
+        }
+    }
+}
+
+/// Clé posée sur un fil enfant quand il a rendu compte (`report_to_parent`) :
+/// la colonne l'affiche « Terminé » sous son parent. Effacée à la tâche
+/// suivante que le parent lui confie.
+pub const RAPPORT_CLE: &str = "rapportA";
+
+/// Message remis à un fil de travail lancé par le coordinateur. Plusieurs fils
+/// tournent dans le même dossier : aucun ne réécrit un manuscrit, chacun pose
+/// ses réécritures en propositions que l'utilisateur accepte dans l'éditeur.
+pub fn message_de_fil(tache: &str) -> String {
+    format!(
+        "Task from the conversation that coordinates this work (you are one of its threads):\n{tache}\n\nWork on this task only. Other threads may work in the same project at the same time, so do not rewrite a manuscript or text document (.tex, .md, .docx) yourself: anchor each proposed change on its passage with the MCP tool `atelier_annotate` (action \"note\": quote = the passage copied verbatim, comment = why, text = the rewritten passage); the user accepts or rejects it in the editor. Other files: touch only the ones this task names. If you need the user's answer to go on, ask it in one short question and stop. When you are done, call the MCP tool `atelier_sessions` with action \"report_to_parent\", a requestId and report.summary: a short summary of your result (proposals left, files written, open questions)."
+    )
+}
+
+/// Action `start_thread` d'`atelier_sessions` : la conversation qui coordonne
+/// lance un fil de travail pour une tâche quelconque (`task`, `title`,
+/// `provider` facultatifs). Contrairement à `delegate`, chaque appel ouvre un
+/// NOUVEAU fil (deux passages à réviser = deux fils) ; pour relancer un fil
+/// existant, `send_message`. Mêmes garde-fous que la délégation.
+pub async fn action_start_thread(state: &AppState, caller_id: &str, req: &Value) -> Result<Value, String> {
+    let tache = req.get("task").and_then(Value::as_str).unwrap_or("").trim().to_string();
+    if tache.is_empty() {
+        return Err("missing_task".into());
+    }
+    if tache.len() > TACHE_MAX {
+        return Err(atelier_protocol::agent_mcp_errors::PAYLOAD_TOO_LARGE.into());
+    }
+    let request_id = req
+        .get("requestId")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let (parent, enfants) = {
+        let store = state.threads().lock().await;
+        let parent = store
+            .get(caller_id)
+            .cloned()
+            .ok_or_else(|| atelier_protocol::agent_mcp_errors::CALLER_UNKNOWN.to_string())?;
+        (parent, store.children_of(caller_id))
+    };
+    if parent.agent_link.is_some() {
+        return Err("delegation_depth_exceeded: a thread cannot start threads in turn; report to the coordinating conversation instead".into());
+    }
+    if !parent.project_root.starts_with('/') {
+        return Err("delegation_project_missing".into());
+    }
+    let provider = req
+        .get("provider")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or(parent.provider.as_str())
+        .to_ascii_lowercase();
+    if !matches!(provider.as_str(), "claude" | "codex") || state.provider(&provider).is_none() {
+        return Err("specialist_provider_unsupported: threads run with Claude or Codex".into());
+    }
+    if enfants.len() >= lim::MAX_CHILDREN {
+        return Err(format!("delegation_children_limit: at most {} linked threads", lim::MAX_CHILDREN));
+    }
+    let occupes = {
+        let mailbox = state.mailbox().lock().await;
+        enfants.iter().filter(|t| est_delegue(t)).filter(|t| au_travail(&mailbox, caller_id, t)).count()
+    };
+    if occupes >= MAX_EN_PARALLELE {
+        return Err(format!(
+            "specialists_busy: {MAX_EN_PARALLELE} threads are already working for this conversation; wait for one to finish"
+        ));
+    }
+    // Modèle et effort ne valent que pour le même fournisseur ; le noyau
+    // Python et le mode de permission suivent toujours le parent.
+    let mut reglages = reglages_herites(&parent, None);
+    if provider != parent.provider {
+        reglages.retain(|cle, _| cle == "permissionMode");
+    }
+    reglages.insert(crate::kernel::ENABLED_KEY.into(), json!(crate::kernel::enabled(Some(&parent))));
+    let titre_demande = req.get("title").and_then(Value::as_str).map(str::trim).unwrap_or("");
+    let titre_fil = if titre_demande.is_empty() {
+        titre("Fil", &tache)
+    } else {
+        titre_demande.chars().take(TITRE_TACHE_MAX + 16).collect()
+    };
+    let enfant_id = Uuid::new_v4().to_string();
+    {
+        let now = atelier_store::iso_now();
+        let link = AgentLink {
+            parent_thread_id: caller_id.to_string(),
+            role: "thread".into(),
+            access: "read_write".into(),
+            created_at: now.clone(),
+            created_by: Par::Agent.cle().into(),
+            auto_delivery_limit: crate::agent_mailbox::ECHANGES_PAR_TACHE,
+            auto_delivery_used: 0,
+            paused: false,
+        };
+        let mut patch = json!({
+            "id": enfant_id,
+            "projectRoot": parent.project_root,
+            "provider": provider,
+            "title": titre_fil,
+            "sessionId": null,
+            "status": "idle",
+            "agentLink": link,
+            "createdAt": now,
+            "delegue": {"fil": true, "par": Par::Agent.cle()},
+        });
+        patch.as_object_mut().unwrap().extend(reglages);
+        state.threads().lock().await.upsert(patch, false)?;
+    }
+    let mut texte = message_de_fil(&tache);
+    if crate::kernel::enabled(Some(&parent)) {
+        texte.push_str("\n\nThe persistent Python kernel of the coordinating conversation is shared with you: run Python with the MCP tool `atelier_python`, where its variables and loaded data are already in memory.");
+    }
+    match crate::agent_mailbox::enqueue_user_mention(state, caller_id, &enfant_id, &texte, &request_id).await {
+        Ok(delivery) => {
+            for m in broadcast_threads(state).await {
+                state.publish(m);
+            }
+            Ok(json!({
+                "targetThreadId": enfant_id,
+                "title": titre_fil,
+                "provider": provider,
+                "delivery": delivery,
+                "note": "The thread works beside this conversation; the user sees it under this conversation and can open it. It reports back with report_to_parent, which wakes you. Send it a follow-up with send_message (targetThreadId).",
+            }))
+        }
+        Err(error) => {
+            let _ = state.threads().lock().await.delete(&enfant_id);
+            Err(error)
+        }
+    }
+}
+
+/// Un fil enfant a rendu compte : la colonne le montre « Terminé ».
+pub async fn noter_rapport(state: &AppState, enfant_id: &str) {
+    let fait = state
+        .threads()
+        .lock()
+        .await
+        .upsert(json!({"id": enfant_id, RAPPORT_CLE: atelier_store::iso_now()}), true)
+        .is_ok();
+    if fait {
+        for m in broadcast_threads(state).await {
+            state.publish(m);
+        }
+    }
+}
+
+/// Le parent confie une suite à un fil qui avait rendu compte : il repasse
+/// « au travail » dans la colonne.
+pub async fn effacer_rapport(state: &AppState, enfant_id: &str) {
+    let efface = {
+        let mut store = state.threads().lock().await;
+        let marque = store.get(enfant_id).is_some_and(|t| t.extra.get(RAPPORT_CLE).is_some_and(|v| !v.is_null()));
+        marque && store.upsert(json!({"id": enfant_id, RAPPORT_CLE: null}), true).is_ok()
+    };
+    if efface {
+        for m in broadcast_threads(state).await {
+            state.publish(m);
         }
     }
 }
@@ -419,7 +590,7 @@ pub async fn arreter_les_delegues(state: &AppState, parent_id: &str) -> Vec<Stri
         store
             .children_of(parent_id)
             .into_iter()
-            .filter(|t| specialiste_delegue(t).is_some())
+            .filter(est_delegue)
             .collect()
     };
     let now = atelier_store::iso_now();
@@ -700,6 +871,77 @@ mod tests {
         crate::agent_links::handle_set_link_paused(&s, &json!({"threadId": "p", "peerThreadId": id, "paused": false})).await;
         assert!(remis_en_file(&s, &message_id).await);
         assert_eq!(lien(&s, &id).await.auto_delivery_used, 0);
+    }
+
+    #[tokio::test]
+    async fn lancer_un_fil_ouvre_un_nouveau_fil_a_chaque_tache() {
+        let s = etat();
+        parent(&s).await;
+        let a = action_start_thread(&s, "p", &json!({"task": "Resserre le résumé", "title": "Résumé · resserrer"})).await.unwrap();
+        let b = action_start_thread(&s, "p", &json!({"task": "Ajoute Box 2017 au §2.3"})).await.unwrap();
+        assert_ne!(a["targetThreadId"], b["targetThreadId"]);
+        let ida = a["targetThreadId"].as_str().unwrap().to_string();
+        {
+            let store = s.threads().lock().await;
+            let fil = store.get(&ida).unwrap();
+            assert_eq!(fil.title, "Résumé · resserrer");
+            assert_eq!(fil.provider, "codex");
+            assert_eq!(fil.extra["model"], "gpt-x");
+            assert!(est_delegue(fil) && specialiste_delegue(fil).is_none());
+            assert_eq!(fil.agent_link.as_ref().unwrap().parent_thread_id, "p");
+            let idb = b["targetThreadId"].as_str().unwrap();
+            assert_eq!(store.get(idb).unwrap().title, "Fil · Ajoute Box 2017 au §2.3");
+        }
+        let messages = s.mailbox().lock().await.list_for_link("p", &ida);
+        assert!(messages.iter().any(|m| m.text.contains("Resserre le résumé") && m.text.contains("atelier_annotate") && m.text.contains("report_to_parent")));
+    }
+
+    #[tokio::test]
+    async fn les_fils_comptent_avec_les_specialistes_et_ne_lancent_pas_de_fils() {
+        let s = etat();
+        parent(&s).await;
+        let fil = action_start_thread(&s, "p", &json!({"task": "a"})).await.unwrap();
+        action_start_thread(&s, "p", &json!({"task": "b"})).await.unwrap();
+        action_delegate(&s, "p", &json!({"specialist": "Stats", "task": "c"})).await.unwrap();
+        let trop = action_start_thread(&s, "p", &json!({"task": "d"})).await.unwrap_err();
+        assert!(trop.starts_with("specialists_busy"), "{trop}");
+        let trop = action_delegate(&s, "p", &json!({"specialist": "Revue", "task": "d"})).await.unwrap_err();
+        assert!(trop.starts_with("specialists_busy"), "{trop}");
+        let id = fil["targetThreadId"].as_str().unwrap();
+        let profond = action_start_thread(&s, id, &json!({"task": "x"})).await.unwrap_err();
+        assert!(profond.starts_with("delegation_depth_exceeded"), "{profond}");
+        assert_eq!(action_start_thread(&s, "p", &json!({"task": "  "})).await.unwrap_err(), "missing_task");
+        assert!(action_start_thread(&s, "p", &json!({"task": "x", "provider": "grok"})).await.unwrap_err().starts_with("specialist_provider_unsupported"));
+        // Stop sur le coordinateur arrête aussi ses fils.
+        assert_eq!(arreter_les_delegues(&s, "p").await.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn le_rapport_marque_le_fil_puis_une_suite_l_efface() {
+        let s = etat();
+        parent(&s).await;
+        let r = action_start_thread(&s, "p", &json!({"task": "a"})).await.unwrap();
+        let id = r["targetThreadId"].as_str().unwrap().to_string();
+        let marque = |s: &AppState, id: &str| {
+            let s = s.clone();
+            let id = id.to_string();
+            async move { s.threads().lock().await.get(&id).unwrap().extra.get(RAPPORT_CLE).is_some_and(|v| !v.is_null()) }
+        };
+        assert!(!marque(&s, &id).await);
+        crate::agent_mailbox::action_report_to_parent(&s, &id, &json!({"requestId": "r1", "report": {"summary": "fait"}}))
+            .await
+            .unwrap();
+        assert!(marque(&s, &id).await);
+        crate::agent_mailbox::action_send_message(&s, "p", &json!({"targetThreadId": id, "text": "encore", "requestId": "s1"}))
+            .await
+            .unwrap();
+        assert!(!marque(&s, &id).await);
+    }
+
+    #[test]
+    fn le_message_du_fil_demande_des_propositions_et_un_rapport() {
+        let m = message_de_fil("Resserre le résumé");
+        assert!(m.contains("Resserre le résumé") && m.contains("atelier_annotate") && m.contains("report_to_parent"));
     }
 
     #[test]

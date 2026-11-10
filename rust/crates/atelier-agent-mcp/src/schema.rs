@@ -7,7 +7,7 @@ pub const TOOL_NAME: &str = "atelier_sessions";
 pub fn tool_definition() -> Value {
     json!({
         "name": TOOL_NAME,
-        "description": "Inspect and coordinate Atelier linked-agent sessions, read, delegate to or propose the user's specialists (action=specialists, action=delegate, action=propose_specialist), and search or propose project notes (action=memories, action=propose_memory). Use action=help for details.",
+        "description": "Inspect and coordinate Atelier linked-agent sessions, start parallel working threads (action=start_thread), read, delegate to or propose the user's specialists (action=specialists, action=delegate, action=propose_specialist), and search or propose project notes (action=memories, action=propose_memory). Use action=help for details.",
         "inputSchema": {
             "type": "object",
             "required": ["action"],
@@ -25,6 +25,7 @@ pub fn tool_definition() -> Value {
                         "report_to_parent",
                         "specialists",
                         "delegate",
+                        "start_thread",
                         "propose_specialist",
                         "memories",
                         "propose_memory"
@@ -42,7 +43,9 @@ pub fn tool_definition() -> Value {
                 "traceId": { "type": "string" },
                 "hop": { "type": "integer" },
                 "specialist": { "type": "string", "description": "delegate: nomCourt, name or id of the specialist (from action specialists)" },
-                "task": { "type": "string", "description": "delegate: the sub-task, self-contained (the specialist does not see this conversation)" },
+                "task": { "type": "string", "description": "delegate, start_thread: the sub-task, self-contained (the thread does not see this conversation)" },
+                "title": { "type": "string", "description": "start_thread: short title shown to the user, e.g. \"Résumé · resserrer\"" },
+                "provider": { "type": "string", "enum": ["claude", "codex"], "description": "start_thread: agent of the new thread (default: same as this conversation)" },
                 "nom": { "type": "string", "description": "propose_specialist: full name" },
                 "nomCourt": { "type": "string", "description": "propose_specialist: one word, used in the composer and as @mention" },
                 "role": { "type": "string", "description": "propose_specialist: when to use this specialist, 1-2 sentences" },
@@ -408,6 +411,7 @@ pub fn help_text() -> Value {
             "report_to_parent": "Queue structured report to parent (requestId, report/text)",
             "specialists": "The user's specialist profiles (Settings › Specialists), full text",
             "delegate": "Hand a sub-task to one of the user's specialists (specialist, task). It runs in a linked conversation beside this one, at most 3 at once, and reports back with report_to_parent; follow it with wait/read_context",
+            "start_thread": "Start a new working thread for one self-contained task (task, title, provider). Use it when the user hands you several independent tasks at once (e.g. several passages to revise) so they run in parallel: one thread per task, at most 3 working at once. Each thread proposes text changes as notes in the editor instead of rewriting files, and reports back with report_to_parent, which wakes you; follow up with send_message",
             "propose_specialist": "Show a proposal card for a new or changed specialist (nom, nomCourt, role, instructions, skills, connecteurs, replaceId); saved only if the user clicks Keep",
             "memories": "Search the project notes Atelier keeps (query, limit)",
             "propose_memory": "Show a card proposing a durable project note (text; replaceId to correct one); saved only if the user clicks Keep"
