@@ -11,6 +11,7 @@ import { agentTitle, liveStatusMessage, statusLabel } from "./agentText";
 import { LiveClock } from "./LiveClock";
 import { ToolStateGlyph } from "./toolPresentation";
 
+import { ChevronDownIcon } from "lucide-react";
 /** Délai après lequel un sous-agent terminé quitte la liste principale. */
 const AGENT_DONE_GRACE_MS = 2 * 60 * 1000;
 
@@ -135,7 +136,7 @@ export default function AgentsMenu({ subagents, specialists, running, trigger, o
           className: "agents-menu-foot",
           label: (
             <span className="agents-menu-foot-row" data-open={showDone || undefined}>
-              <svg className="agents-menu-chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6.5 8 10l3.5-3.5" /></svg>
+              <ChevronDownIcon size={12} className="agents-menu-chev" />
               <span>{t(done.length === 1 ? "chat.agents-done-one" : "chat.agents-done", { count: done.length })}</span>
               <span className="agents-menu-foot-hint">{t("chat.agents-done-hint")}</span>
             </span>

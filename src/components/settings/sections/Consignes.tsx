@@ -3,7 +3,7 @@ import { normaliserNom, nouvelId, type Consigne } from "../../../lib/consignes";
 import type { SectionProps } from "../shared";
 import { DEFAULT_SETTINGS, type Settings } from "../../../lib/settings";
 import { getResolvedLanguage, t } from "../../../lib/i18n";
-import { Check, ChevronDown, Mic, Plus, Square, Undo2, WandSparkles, X } from "lucide-react";
+import { Check, ChevronDown, LockIcon, Mic, Plus, Square, Undo2, WandSparkles, X } from "lucide-react";
 import { useConsigneAssistant, type ConsigneRewriteMode, type ConsigneRewriteRequest } from "./useConsigneAssistant";
 import "./Consignes.css";
 import { Button, IconButton, InlineNotice, RowButton, Select } from "../../ui";
@@ -73,11 +73,7 @@ export function reformulerViaWs(
 // consommateur.
 function IconeCadenas() {
   return (
-    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"
-         strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
-    </svg>
+    <LockIcon size={12} />
   );
 }
 
@@ -185,7 +181,7 @@ export function Consignes(p: {
                       <div className="consignes-action-picker">
                         <Button variant="secondary" className="set-consignes-reformuler" loading={a.busy}
                           disabled={!p.reformuler || (a.mode === "custom" && !a.custom.trim())}
-                          onClick={a.run}><WandSparkles size={15} aria-hidden="true" />{!selected.texte.trim() && a.mode === "clarify" ? t("settings.consignes-write") : action.label}</Button>
+                          onClick={a.run}><WandSparkles size={14} aria-hidden="true" />{!selected.texte.trim() && a.mode === "clarify" ? t("settings.consignes-write") : action.label}</Button>
                         <Select title={copy("Action de reformulation", "Rewrite action")} value={a.mode} disabled={a.busy}
                           triggerIcon={<ChevronDown size={14} />} onChange={value => a.setMode(value as ConsigneRewriteMode)} options={modes} />
                       </div>

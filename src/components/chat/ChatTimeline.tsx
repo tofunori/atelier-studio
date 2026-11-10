@@ -53,6 +53,7 @@ import { AgentMessageCard } from "./AgentMessageCard";
 import { wsSend } from "../../lib/wsBus";
 import { Deferred, RenderBoundary } from "../RenderBoundary";
 import { TimelineStamp } from "./TimelineStamp";
+import { CheckIcon, ListChecksIcon, ShieldCheckIcon, ShieldIcon, TriangleAlertIcon } from "lucide-react";
 import { ActivityStep } from './ActivityBatch';
 import { activeTurnStatus } from './activeTurnStatus';
 // Carte de calcul (rare) : chargée à la première tâche proposée, hors de l'entrée.
@@ -861,10 +862,7 @@ export function ChatTimeline(p: {
               className="rb-main"
               onClick={() => review.status === "done" && setBarOpen((v) => !v)}
             >
-              <svg className="rb-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z" />
-                {review.verdict === "ok" && <path d="M5.8 8l1.6 1.6L10.5 6.3" />}
-              </svg>
+              {review.verdict === "ok" ? <ShieldCheckIcon className="rb-ico" size={14} /> : <ShieldIcon className="rb-ico" size={14} />}
               <span className="rb-name">Reviewer</span>
               <span className="rb-dot">·</span>
               {fixing ? (
@@ -886,8 +884,8 @@ export function ChatTimeline(p: {
               )}
               {review.status === "done" ? <span className="rb-chevron"><Tick open={barOpen} /></span> : null}
             </RowButton>
-            <IconButton size="s" className="rb-min" title={t("review.minimize")} label={t("review.minimize")} onClick={(e) => { e.stopPropagation(); setBarOpen(false); setReviewMin(true); }}><MinusIcon size={11} /></IconButton>
-            <IconButton size="s" className="rb-close" title={t("review.close")} label={t("review.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}><CloseIcon size={11} /></IconButton>
+            <IconButton size="s" className="rb-min" title={t("review.minimize")} label={t("review.minimize")} onClick={(e) => { e.stopPropagation(); setBarOpen(false); setReviewMin(true); }}><MinusIcon size={12} /></IconButton>
+            <IconButton size="s" className="rb-close" title={t("review.close")} label={t("review.close")} onClick={(e) => { e.stopPropagation(); setReview(null); }}><CloseIcon size={12} /></IconButton>
           </div>
           {barOpen && review.status === "done" ? (
             <div className="reviewer-menu">
@@ -1201,7 +1199,7 @@ export function ChatTimeline(p: {
             return (
               <div key={i} className={`perm-card ${e.answered != null ? "answered" : ""}`}>
                 <div className="perm-head">
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 1.8l5 2v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z"/></svg>
+                  <ShieldIcon size={14} />
                   <span>{t("perm.ask", { tool: e.toolName })}</span>
                 </div>
                 {e.input ? (() => {
@@ -1248,18 +1246,14 @@ export function ChatTimeline(p: {
             return (
               <div key={i} className="todos-card">
                 <div className="todos-head">
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M2.5 4l1 1 2-2M2.5 8.5l1 1 2-2M2.5 13l1 1 2-2M8 4.5h5.5M8 9h5.5M8 13.5h5.5" />
-                  </svg>
+                  <ListChecksIcon size={14} />
                   <span>{t("chat.plan-progress", { done: faits, total: e.items.length })}</span>
                 </div>
                 <div className="todos">
                   {e.items.map((todo, idx) => (
                     <div key={idx} className={todo.completed ? "todo done" : todo.active ? "todo active" : "todo"}>
                       <span className="todo-box">{todo.completed ? (
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="m3.5 8.5 3 3 6-7" />
-                        </svg>
+                        <CheckIcon size={12} />
                       ) : todo.active ? <span className="todo-dot" aria-hidden="true" /> : null}</span>
                       <span>{todo.text}</span>
                     </div>
@@ -1433,9 +1427,7 @@ function ChatErrorRow({ message }: { message: string }) {
   };
   return (
     <div className="error chat-error" role="alert">
-      <svg className="chat-error-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M8 2.5l5.8 10.2H2.2z" /><path d="M8 6.5v3M8 11.2v.1" />
-      </svg>
+      <TriangleAlertIcon size={14} className="chat-error-icon" />
       <div className="chat-error-body">
         <span className="chat-error-title">{title}</span>
         {detail && (

@@ -33,6 +33,7 @@ import type { AgentDisplay } from "./AgentActivity";
 import { ToolGlyph } from "./toolPresentation";
 import type { LinkedAgentSummary } from "../../lib/threadLinks";
 
+import { EllipsisIcon } from "lucide-react";
 // Panneau des agents chargé à la demande : le JS d'entrée est à son budget.
 const AgentsMenu = lazy(() => import("./AgentsMenu"));
 
@@ -270,9 +271,7 @@ export function ChatHeader(p: {
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                 >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                    <circle cx="3.5" cy="8" r="1.15" /><circle cx="8" cy="8" r="1.15" /><circle cx="12.5" cy="8" r="1.15" />
-                  </svg>
+                  <EllipsisIcon size={14} />
                 </IconButton>
               }
               items={[{ key: "rename", label: t("action.rename"), onSelect: p.onRename }]}

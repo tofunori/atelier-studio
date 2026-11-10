@@ -521,9 +521,9 @@ describe("ToolOutputLine — rangée compacte", () => {
   it("grille fixe : durée, état et chevron toujours posés, même vides", () => {
     const { container } = renderUi(<ToolOutputLine compact event={update({ status: "inProgress", input: { command: "make" } })} />);
     const head = container.querySelector(".tool-output-head") as HTMLElement;
-    expect([...head.children].map((child) => child.getAttribute("class"))).toEqual([
-      "tool-output-icon", "tool-output-name", "tool-duration", "tool-status", "tool-tick",
-    ]);
+    // le chevron vient de la famille d'icônes : il porte aussi ses classes à elle
+    const cells = ["tool-output-icon", "tool-output-name", "tool-duration", "tool-status", "tool-tick"];
+    expect([...head.children].map((child) => cells.find((cell) => child.classList.contains(cell)))).toEqual(cells);
     expect(head.querySelector(".tool-status .tool-run-ring")).toBeTruthy();
   });
 

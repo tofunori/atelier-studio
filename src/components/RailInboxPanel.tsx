@@ -6,19 +6,21 @@ import { MenuPanelItem } from "./ui/MenuPanel";
 import { RowButton } from "./ui/RowButton";
 import type { RailInboxProps } from "./RailInbox";
 
+import { CirclePauseIcon, CircleQuestionMarkIcon, MessageSquareIcon, ShieldIcon, XIcon, type LucideIcon } from "lucide-react";
 const GROUP_LABEL: Record<InboxGroup, string> = {
   wait: "Attend ta réponse",
   fail: "Échecs",
   done: "Terminé",
 };
 
-const ICONS: Record<InboxItem["icon"], React.ReactNode> = {
-  permission: <path d="M8 2 13 4v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4z" />,
-  question: <><circle cx="8" cy="8" r="5.6" /><path d="M6.4 6.4a1.7 1.7 0 0 1 3.2.6c0 1.1-1.6 1.4-1.6 2.4M8 11.3v.1" /></>,
-  paused: <><circle cx="8" cy="8" r="5.6" /><path d="M6.6 5.8v4.4M9.4 5.8v4.4" /></>,
-  done: <><rect x="2.2" y="3" width="11.6" height="8" rx="2.4" /><path d="M5.6 11v2.6l3.2-2.6" /></>,
-  fail: <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />,
+const ICONS: Record<InboxItem["icon"], LucideIcon> = {
+  permission: ShieldIcon, question: CircleQuestionMarkIcon, paused: CirclePauseIcon, done: MessageSquareIcon, fail: XIcon,
 };
+
+function InboxIcon({ item }: { item: InboxItem }) {
+  const Glyph = ICONS[item.icon];
+  return <Glyph className={`rail-inbox-icon ${item.group}`} size={14} />;
+}
 
 export default function RailInboxPanel(p: RailInboxProps & {
   ragdocOn: boolean;
@@ -59,10 +61,7 @@ export default function RailInboxPanel(p: RailInboxProps & {
           <div className="rail-inbox-label">{GROUP_LABEL[group]}</div>
           {list.map((item) => (
             <MenuPanelItem key={item.id} className="rail-inbox-item" onClick={() => openItem(item)}>
-              <svg className={`rail-inbox-icon ${item.group}`} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-                strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                {ICONS[item.icon]}
-              </svg>
+              <InboxIcon item={item} />
               <span className="rail-inbox-text">
                 <span className="rail-inbox-main">{item.title}</span>
                 <span className="rail-inbox-detail">{item.detail}</span>

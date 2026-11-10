@@ -294,7 +294,7 @@
 /* Activity typography follows the user's chat scale. Details remain ordinary
    collapsibles: native keyboard behavior comes from the existing Base UI root. */
 .ui-activity { --activity-fs: max(12px, calc(var(--chat-fs, 13.5px) - .5px));
-  --activity-icon-size: max(14px, calc(var(--chat-fs, 13.5px) + 1.5px));
+  --activity-icon-size: max(14px, calc(var(--chat-fs, 13.5px) + .5px));
   max-width: min(var(--chat-col, 760px), 100%); margin: 2px auto;
   color: var(--text-secondary); font-size: var(--activity-fs); line-height: 1.6; }
 .ui-activity-trigger { width: calc(100% + 16px); min-height: 36px; margin: 0 -8px;

@@ -8,13 +8,10 @@ import type { MouseEvent } from "react";
 import { t } from "../../lib/i18n";
 import { harvestWebSources } from "../../lib/webSources";
 
+import { LucideGlobe } from "lucide-react";
 function GlobeIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="6" />
-      <path d="M2 8h12M8 2c1.8 2 2.6 4 2.6 6S9.8 12 8 14C6.2 12 5.4 10 5.4 8S6.2 4 8 2z" />
-    </svg>
+    <LucideGlobe size={12} />
   );
 }
 

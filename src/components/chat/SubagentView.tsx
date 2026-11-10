@@ -12,6 +12,7 @@ import type { ToolAction } from "../../lib/chat/turnViewModel";
 import { ToolStateGlyph } from "./toolPresentation";
 import { TurnActivityStatus } from "./turns";
 
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 type Block =
   | { kind: "step"; key: string; actions: ToolAction[] }
   | { kind: "prose"; key: string; text: string; streaming: boolean; error: boolean };
@@ -40,10 +41,7 @@ function transcriptBlocks(events: AgentEvent[]): Block[] {
 }
 
 function ChevronIcon({ back = false }: { back?: boolean }) {
-  return <svg width={12} height={12} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4}
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={back ? "M9.5 4.5 6 8l3.5 3.5" : "M6.5 4.5 10 8l-3.5 3.5"} />
-  </svg>;
+  return back ? <ChevronLeftIcon size={12} /> : <ChevronRightIcon size={12} />;
 }
 
 /** Ce que la vue montre autour du transcript : mission, rapport de repli

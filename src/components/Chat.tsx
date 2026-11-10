@@ -54,6 +54,7 @@ import {
 
 
 
+import { ArrowLeftIcon, InfoIcon, TriangleAlertIcon } from "lucide-react";
 // Cas particulier documenté (plan 025, step 9) : le harnais Grok n'a PAS
 // d'effort « Auto » ("") — il exige un effort explicite (défaut "high" dans
 // DEFAULT_SETTINGS) et son catalogue liste déjà minimal…max au complet. Le
@@ -1104,12 +1105,7 @@ export default function Chat(p: {
       const warning = e.tone === "warning";
       return (
         <div key={key} className="tool chat-notice" data-tone={warning ? "warning" : "info"}>
-          <svg className="chat-notice-icon" width="12" height="12" viewBox="0 0 16 16" fill="none"
-            stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            {warning
-              ? <><path d="M8 2.2 14.5 13.5H1.5z" /><path d="M8 6.5v3.2M8 11.9v.1" /></>
-              : <><circle cx="8" cy="8" r="6.2" /><path d="M8 7.2v4M8 4.9v.1" /></>}
-          </svg>
+          {warning ? <TriangleAlertIcon className="chat-notice-icon" size={12} /> : <InfoIcon className="chat-notice-icon" size={12} />}
           <span className="chat-notice-text">{e.detail}</span>
         </div>
       );
@@ -1177,8 +1173,7 @@ export default function Chat(p: {
         <nav className="chat-parent-crumb" aria-label={t("chat.parent-crumb", { title: p.parentThread.title })}>
           <RowButton className="chat-parent-back" onClick={p.parentThread.onBack}
             title={t("chat.parent-back", { title: p.parentThread.title })}>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 8H3M7 4 3 8l4 4" /></svg>
+            <ArrowLeftIcon size={14} />
             <span className="chat-parent-title">{p.parentThread.title}</span>
           </RowButton>
           <span className="chat-parent-sep" aria-hidden="true">›</span>

@@ -14,6 +14,7 @@ import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui/RowButton";
 import RailInboxPanel from "./RailInboxPanel";
 
+import { InboxIcon } from "lucide-react";
 export type RailInboxProps = {
   /** signal de chaque fil (même source que les puces) */
   signals: Record<string, RailSignal>;
@@ -31,11 +32,7 @@ export type RailInboxProps = {
 
 function InboxGlyph({ size }: { size: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2.5 9.5 4.3 3.8a1 1 0 0 1 .95-.7h5.5a1 1 0 0 1 .95.7l1.8 5.7v2.7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" />
-      <path d="M2.5 9.5h3.2l.8 1.6h3l.8-1.6h3.2" />
-    </svg>
+    <InboxIcon size={size} />
   );
 }
 

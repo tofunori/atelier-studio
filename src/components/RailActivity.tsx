@@ -13,6 +13,7 @@ import {
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { RowButton } from "./ui/RowButton";
 
+import { CheckIcon, FileIcon, MessageSquareIcon, XIcon } from "lucide-react";
 export const MAX_PASTILLES = 5;
 /** Un succès s'efface ; un échec attend qu'on le regarde. */
 export const DONE_LINGER_MS = 10_000;
@@ -54,16 +55,9 @@ function ring(ratio: number | null, state: ActivityItem["state"]) {
 }
 
 function glyph(item: ActivityItem) {
-  if (item.state === "failed") {
-    return <path d="M6 6l12 12M18 6L6 18" />;
-  }
-  if (item.state === "done") {
-    return <path d="M4 12l5 5L20 6" />;
-  }
-  if (item.kind === "article") {
-    return <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /></>;
-  }
-  return <path d="M4 5h16v11H8l-4 3z" />;
+  const Glyph = item.state === "failed" ? XIcon : item.state === "done" ? CheckIcon
+    : item.kind === "article" ? FileIcon : MessageSquareIcon;
+  return <Glyph className="rail-act-glyph" />;
 }
 
 /** Les conversions d'article, converties en pastilles. Exporté pour les tests. */
@@ -142,10 +136,7 @@ export default function RailActivity(p: {
           onClick={item.onOpen}
         >
           {ring(item.ratio, item.state)}
-          <svg className="rail-act-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            {glyph(item)}
-          </svg>
+          {glyph(item)}
           {item.projectColor && <span className="rail-act-tick" />}
         </RowButton>
       ))}

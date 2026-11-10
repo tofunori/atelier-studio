@@ -8,6 +8,7 @@ import { IconButton, SurfaceHeader } from "./ui";
 import { RefreshIcon } from "./icons";
 import "../styles/local-headers.css";
 
+import { InfoIcon } from "lucide-react";
 /** Même vocabulaire que Research Home (017) — un artefact garde son genre. */
 const KIND_KEYS: Record<HomeArtefactKind, I18nKey> = {
   figure: "home.kind.figure",
@@ -53,10 +54,7 @@ export function DocumentHeader(p: { rel: string; onInspect?: (rel: string) => vo
           {p.onInspect && (
             <IconButton label={t("inspector.open")} title={t("inspector.open")} size="s"
               onClick={() => p.onInspect!(p.rel)}>
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-                <circle cx="8" cy="8" r="5.4" />
-                <path d="M8 7.2v3.4M8 5.2v.1" />
-              </svg>
+              <InfoIcon size={14} />
             </IconButton>
           )}
         </>
@@ -76,10 +74,7 @@ export function DocumentTabMeta(p: { rel: string; onInspect?: (rel: string) => v
       {p.onInspect && (
         <IconButton label={t("inspector.open")} title={t("inspector.open")} size="s"
           onClick={() => p.onInspect!(p.rel)}>
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-            <circle cx="8" cy="8" r="5.4" />
-            <path d="M8 7.2v3.4M8 5.2v.1" />
-          </svg>
+          <InfoIcon size={14} />
         </IconButton>
       )}
     </div>

@@ -17,6 +17,7 @@ import { openSetupWelcome, useSetupNeeded } from "../lib/setupEnvironment";
 import "../styles/research-home.css";
 import { FileGlyph } from "./fileGlyphs";
 
+import { ArrowDownToLineIcon, PlusIcon, SearchIcon } from "lucide-react";
 /** Paquet passé d'App à la timeline (via Chat) — modèle dérivé + vrais workflows. */
 export type ResearchHomeBundle = {
   model: ResearchHomeModel;
@@ -231,16 +232,11 @@ export function ResearchHome(p: ResearchHomeBundle) {
         {/* Sans conversation, « Nouveau chat » vit déjà dans l'emplacement
             Continuer (SHELL-17) : pas de doublon ici. */}
         {(model.loading || model.continueItem) && <RowButton className="rh-row" onClick={actions.onNewChat}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-            <path d="M8 3.5v9M3.5 8h9" />
-          </svg>
+          <PlusIcon size={14} />
           <span className="name">{t("action.new-chat")}</span>
         </RowButton>}
         <RowButton className="rh-row" onClick={actions.onOpenPalette}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-            <circle cx="7" cy="7" r="4" />
-            <path d="M13 13l-3-3" strokeLinecap="round" />
-          </svg>
+          <SearchIcon size={14} />
           <span className="name">{t("home.search-file")}</span>
         </RowButton>
         <RowButton className="rh-row" onClick={actions.onOpenGallery}>
@@ -248,9 +244,7 @@ export function ResearchHome(p: ResearchHomeBundle) {
           <span className="name">{t("home.open-gallery")}</span>
         </RowButton>
         <RowButton className="rh-row" onClick={actions.onResumeSession}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M8 2.5v8M8 10.5L5 7.7M8 10.5l3-2.8M3 13.5h10" />
-          </svg>
+          <ArrowDownToLineIcon size={14} />
           <span className="name">{t("action.resume-session")}</span>
         </RowButton>
       </div>

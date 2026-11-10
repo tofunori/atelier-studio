@@ -13,6 +13,7 @@ import { PlusIcon, ChatsIcon, SidebarIcon } from "../icons";
 import { ProjIcon } from "./projectIcons";
 import type { ProjectStyleAnchor } from "./ProjectStyleMenu";
 
+import { ChevronDownIcon, EllipsisIcon } from "lucide-react";
 export type ProjMetaLite = { color?: string; label?: string };
 
 /** Menu du nom du projet (fourni par App). */
@@ -26,10 +27,7 @@ export type ProjectSwitchMenu = {
 
 function ChevronGlyph() {
   return (
-    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4.5 6.2 8 9.7l3.5-3.5" />
-    </svg>
+    <ChevronDownIcon size={12} />
   );
 }
 
@@ -43,12 +41,7 @@ export function middleTruncate(value: string, max = 34): string {
 
 function OverflowGlyph() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-      <circle cx="3.2" cy="8" r="0.9" fill="currentColor" stroke="none" />
-      <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
-      <circle cx="12.8" cy="8" r="0.9" fill="currentColor" stroke="none" />
-    </svg>
+    <EllipsisIcon size={14} />
   );
 }
 
@@ -256,7 +249,7 @@ export function ProjectHeader(p: {
           title={t("action.new-chat")}
           onClick={p.onNew}
         >
-          <PlusIcon size={13} />
+          <PlusIcon size={14} />
         </Button>
       </div>
     </header>
