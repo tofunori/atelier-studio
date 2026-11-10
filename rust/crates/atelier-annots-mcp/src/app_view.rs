@@ -9,11 +9,13 @@
 use serde_json::{json, Value};
 
 pub const REVISION_URI: &str = "ui://atelier/revision";
+pub const READER_URI: &str = "ui://atelier/reader";
 pub const MIME: &str = "text/html;profile=mcp-app";
 /// Clé de l'extension MCP Apps dans les capacités du client.
 pub const EXTENSION_ID: &str = "io.modelcontextprotocol/ui";
 
 const PAGE: &str = include_str!("../view/revision.html");
+const READER_PAGE: &str = include_str!("../view/reader.html");
 const BUNDLE: &str = include_str!("../vendor/ext-apps/app-with-deps.js");
 const SLOT: &str = "/*__EXT_APPS__*/";
 
@@ -41,10 +43,18 @@ fn bundle_as_global() -> String {
     )
 }
 
-pub fn revision_page() -> String {
+fn with_sdk(page: &str) -> String {
     // `</script` ne doit pas apparaître dans le script inclus.
     let script = bundle_as_global().replace("</script", "<\\/script");
-    PAGE.replacen(SLOT, &script, 1)
+    page.replacen(SLOT, &script, 1)
+}
+
+pub fn revision_page() -> String {
+    with_sdk(PAGE)
+}
+
+pub fn reader_page() -> String {
+    with_sdk(READER_PAGE)
 }
 
 /// Le client sait-il afficher des vues ? (capacité annoncée à `initialize`)
@@ -60,22 +70,32 @@ pub fn client_supports_ui(init_params: &Value) -> bool {
 }
 
 pub fn resources() -> Value {
-    json!([{
-        "uri": REVISION_URI,
-        "name": "Proposition de révision LaTeX",
-        "description": "Carte d'Atelier : avant / après d'un passage .tex, avec Accepter et Refuser.",
-        "mimeType": MIME,
-    }])
+    json!([
+        {
+            "uri": REVISION_URI,
+            "name": "Proposition de révision LaTeX",
+            "description": "Carte d'Atelier : avant / après d'un passage .tex, avec Accepter et Refuser.",
+            "mimeType": MIME,
+        },
+        {
+            "uri": READER_URI,
+            "name": "Lecteur LaTeX",
+            "description": "Carte d'Atelier : un fichier .tex à lire, où l'utilisateur sélectionne et note des passages, puis les envoie à Claude.",
+            "mimeType": MIME,
+        },
+    ])
 }
 
 pub fn read(uri: &str) -> Option<Value> {
-    if uri != REVISION_URI {
-        return None;
-    }
+    let text = match uri {
+        REVISION_URI => revision_page(),
+        READER_URI => reader_page(),
+        _ => return None,
+    };
     Some(json!({"contents": [{
-        "uri": REVISION_URI,
+        "uri": uri,
         "mimeType": MIME,
-        "text": revision_page(),
+        "text": text,
         "_meta": {"ui": {
             "prefersBorder": true,
             // Polices de l'hôte (Anthropic Sans) ; rien d'autre n'est chargé.
@@ -96,8 +116,16 @@ mod tests {
 
     #[test]
     fn page_inlines_the_sdk_as_a_global() {
-        let page = revision_page();
+        for page in [revision_page(), reader_page()] {
+            check_page(&page);
+        }
+        assert!(read(READER_URI).is_some() && read(REVISION_URI).is_some());
+        assert!(read("ui://atelier/inconnu").is_none());
+    }
+
+    fn check_page(page: &str) {
         assert!(!page.contains(SLOT));
+        let page = page.to_string();
         assert!(page.contains("globalThis.AtelierExtApps={"));
         for name in [
             "App:",

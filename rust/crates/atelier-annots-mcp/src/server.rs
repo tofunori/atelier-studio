@@ -180,6 +180,9 @@ ou les retire dans Atelier. create_code : seulement sur demande.";
 
 const INSTRUCTIONS_REVISION: &str =
     "Révision de fichiers LaTeX (.tex) de l'utilisateur, avec la carte d'Atelier :\n\
+- open_tex_file : quand l'utilisateur veut ouvrir, voir, relire ou annoter un .tex dans la conversation. \
+La carte lui permet de sélectionner et noter des passages ; il te les envoie ensuite dans un message, \
+passage recopié mot pour mot : réponds par propose_revision pour chacun (quote = ce passage), en suivant sa note.\n\
 - get_selection : le passage que l'utilisateur a sélectionné dans l'éditeur LaTeX d'Atelier (fichier, lignes, texte \
 exact). L'appeler dès qu'il parle de « ma sélection » ou de « ce passage » ; son texte sert tel quel de quote pour \
 propose_revision avec le fichier indiqué.\n\
@@ -190,7 +193,8 @@ text = le passage réécrit en LaTeX, reason = une phrase en français. Une prop
 paragraphes = plusieurs appels. La carte montre l'avant / après à l'utilisateur, qui accepte ou refuse : \
 ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.";
 
-const REVISION_TOOLS: [&str; 5] = [
+const REVISION_TOOLS: [&str; 6] = [
+    "open_tex_file",
     "get_selection",
     "read_tex_file",
     "propose_revision",
@@ -204,6 +208,7 @@ fn revisions_offered(session: &Session, config: &Config) -> bool {
 
 fn call_revision(config: &Config, name: &str, args: &Value) -> Result<Value, String> {
     match name {
+        "open_tex_file" => crate::revision::open_tex(args),
         "get_selection" => {
             let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
             let now = std::time::SystemTime::now()
@@ -231,6 +236,14 @@ fn revision_tools() -> Value {
     });
     let app_only = json!({"ui": {"visibility": ["app"]}});
     json!([
+        {
+            "name": "open_tex_file",
+            "title": "Ouvrir un .tex dans Atelier",
+            "description": "Ouvre un fichier .tex (chemin absolu) dans une carte d'Atelier où l'utilisateur le lit, sélectionne et note des passages, puis te les envoie. À appeler quand il veut ouvrir, voir, relire ou annoter un .tex dans la conversation. N'écrit rien.",
+            "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": {"ui": {"resourceUri": crate::app_view::READER_URI}, "ui/resourceUri": crate::app_view::READER_URI},
+        },
         {
             "name": "get_selection",
             "title": "Lire ma sélection dans Atelier",

@@ -22,6 +22,7 @@ pub const REASON_MAX: usize = 600;
 const BACKUPS_KEPT: usize = 100;
 const READ_DEFAULT_LINES: usize = 400;
 const READ_MAX_LINES: usize = 2_000;
+const OPEN_MAX_LINES: usize = 8_000;
 
 /// Un fichier .tex existant, donné par un chemin absolu.
 fn tex_path(raw: &str) -> Result<PathBuf, String> {
@@ -147,6 +148,37 @@ pub fn read_tex_file(args: &Value) -> Result<String, String> {
         out.push_str(&format!("… suite : from_line {}\n", from + count));
     }
     Ok(out)
+}
+
+/// `open_tex_file` : envoie le fichier à la carte « lecteur » d'Atelier, où
+/// l'utilisateur sélectionne et note des passages avant de les envoyer à
+/// Claude. Rien n'est écrit.
+pub fn open_tex(args: &Value) -> Result<Value, String> {
+    let path = tex_path(str_arg(args, "path"))?;
+    let content = read(&path)?;
+    let all: Vec<&str> = content.lines().collect();
+    let total = all.len();
+    let shown = total.min(OPEN_MAX_LINES);
+    let file = file_name(&path);
+    let mut note = format!(
+        "{file} est ouvert dans la carte d'Atelier ({total} lignes). L'utilisateur peut y sélectionner et noter \
+des passages, puis te les envoyer : réponds alors par propose_revision, un appel par passage."
+    );
+    if shown < total {
+        note.push_str(&format!(
+            " Seules les {shown} premières lignes sont affichées dans la carte."
+        ));
+    }
+    Ok(json!({
+        "content": [{"type": "text", "text": note}],
+        "structuredContent": {
+            "path": path.display().to_string(),
+            "file": file,
+            "total": total,
+            "lines": all[..shown],
+        },
+        "isError": false,
+    }))
 }
 
 /// `propose_revision` : vérifie la proposition et la renvoie à la vue.
@@ -481,5 +513,21 @@ mod tests {
             out.contains("pas un fichier .tex") && out.contains("moins d'une minute"),
             "{out}"
         );
+    }
+
+    #[test]
+    fn open_sends_the_lines_to_the_reader() {
+        let dir = tempfile::tempdir().unwrap();
+        let tex = dir.path().join("ch1.tex");
+        std::fs::write(&tex, "\\section{A}\nLigne deux\n").unwrap();
+        let out = open_tex(&json!({"path": tex.display().to_string()})).unwrap();
+        assert_eq!(out["structuredContent"]["total"], 2);
+        assert_eq!(out["structuredContent"]["lines"][1], "Ligne deux");
+        assert_eq!(out["structuredContent"]["file"], "ch1.tex");
+        assert!(out["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("propose_revision"));
+        assert!(open_tex(&json!({"path": "relatif.tex"})).is_err());
     }
 }

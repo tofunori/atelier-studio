@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>Atelier · lecteur</title>
+<style>
+/* Vue « lecteur LaTeX » d'Atelier dans une conversation Claude : l'utilisateur
+   lit son .tex, sélectionne et note des passages, puis les envoie à Claude.
+   Couleurs : variables de l'hôte (Claude), avec des valeurs de repli.
+   Système d'Atelier : tailles 11/12/13, poids 400/500/600, rayons 6/10,
+   espacements multiples de 4, transitions 120-150 ms, icônes SVG fines. */
+:root {
+  --a-bg: var(--color-background-primary, light-dark(#FFFFFF, #30302E));
+  --a-sunk: var(--color-background-secondary, light-dark(#F5F4ED, #262624));
+  --a-ctl: var(--color-background-tertiary, light-dark(#FAF9F5, #141413));
+  --a-fg: var(--color-text-primary, light-dark(#141413, #FAF9F5));
+  --a-fg2: var(--color-text-secondary, light-dark(#3D3D3A, #C2C0B6));
+  --a-muted: var(--color-text-tertiary, light-dark(#73726C, #9C9A92));
+  --a-line: var(--color-border-tertiary, light-dark(rgba(31,30,29,.15), rgba(222,220,209,.15)));
+  --a-mark: var(--color-background-warning, light-dark(#FAEFD8, #4A3A12));
+  --a-mark-fg: var(--color-text-warning, light-dark(#805A12, #E9B95C));
+  --a-ok-bg: var(--color-background-success, light-dark(#E9F1DC, #1B4614));
+  --a-ok-fg: var(--color-text-success, light-dark(#265B19, #7AB948));
+  --a-del-fg: var(--color-text-danger, light-dark(#7F2C28, #EE8884));
+  --a-info: var(--color-text-info, light-dark(#3266AD, #80AADD));
+  --a-pop: var(--color-background-primary, light-dark(#FFFFFF, #3A3A37));
+  --a-sans: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif);
+  --a-mono: var(--font-mono, ui-monospace, Menlo, monospace);
+  --a-elev: 0 4px 16px rgba(0,0,0,.25);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; }
+body { font-family: var(--a-sans); font-size: 13px; line-height: 1.5; color: var(--a-fg); }
+.card { background: var(--a-bg); border-radius: 10px; display: flex; flex-direction: column; }
+.full .card { height: 100vh; border-radius: 0; }
+.hd { display: flex; align-items: center; gap: 8px; padding: 12px 16px 8px; }
+.mark { width: 20px; height: 20px; border-radius: 6px; background: var(--a-sunk); display: grid; place-items: center; color: var(--a-fg); flex: none; }
+.ttl { font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.sub { color: var(--a-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.sp { margin-left: auto; }
+.icon { width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--a-muted); display: grid; place-items: center; cursor: pointer; transition: background-color .14s, color .14s; }
+.icon:hover { background: var(--a-sunk); color: var(--a-fg); }
+.icon:focus-visible, .btn:focus-visible { outline: 2px solid var(--a-info); outline-offset: 2px; }
+.doc { margin: 0 16px; background: var(--a-sunk); border-radius: 6px; overflow: auto; max-height: 420px; padding: 8px 0; }
+.full .doc { flex: 1; max-height: none; }
+.ln { display: grid; grid-template-columns: 48px 1fr; font-family: var(--a-mono); font-size: 12px; line-height: 1.6; transition: background-color .14s; }
+.no { color: var(--a-muted); text-align: right; padding-right: 12px; font-variant-numeric: tabular-nums; user-select: none; -webkit-user-select: none; opacity: .7; }
+.tx { color: var(--a-fg2); white-space: pre-wrap; overflow-wrap: anywhere; padding-right: 16px; min-height: 1.6em; }
+.tx .c { color: var(--a-fg); font-weight: 500; }
+.tx .k { color: var(--a-muted); }
+.ln.noted { box-shadow: inset 2px 0 0 var(--a-mark-fg); }
+.tx mark { background: var(--a-mark); color: var(--a-fg); border-radius: 3px; }
+.tx ::selection, .tx::selection { background: color-mix(in srgb, var(--a-info) 30%, transparent); }
+.pill { position: fixed; z-index: 10; width: 280px; background: var(--a-pop); border-radius: 10px; box-shadow: var(--a-elev); padding: 8px; display: none; flex-direction: column; gap: 8px; opacity: 0; transform: translateY(4px); transition: opacity .14s, transform .14s; }
+.pill.on { display: flex; }
+.pill.in { opacity: 1; transform: none; }
+.pill textarea { font: inherit; font-size: 12px; line-height: 1.5; color: var(--a-fg); background: var(--a-sunk); border: 0; border-radius: 6px; padding: 8px; resize: none; height: 56px; }
+.pill textarea:focus { outline: 2px solid var(--a-info); outline-offset: 0; }
+.pill .row { display: flex; align-items: center; gap: 8px; }
+.ft { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 16px; }
+.tray { display: flex; flex-direction: column; gap: 4px; padding: 8px 16px 0; }
+.item { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.item .where { color: var(--a-mark-fg); font-weight: 500; font-variant-numeric: tabular-nums; flex: none; }
+.item .what { color: var(--a-fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.item .what em { font-style: normal; color: var(--a-muted); }
+.item .icon { width: 20px; height: 20px; flex: none; }
+.note { color: var(--a-muted); font-size: 12px; }
+.btn { border: 0; font: inherit; font-size: 12px; font-weight: 500; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: background-color .14s, opacity .14s, transform .12s; }
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .5; cursor: default; }
+.pri { background: var(--a-ok-bg); color: var(--a-ok-fg); }
+.sec { background: var(--a-sunk); color: var(--a-fg2); }
+.done { display: inline-flex; align-items: center; gap: 4px; color: var(--a-ok-fg); font-size: 12px; font-weight: 500; }
+.err { color: var(--a-del-fg); font-size: 12px; }
+.skel { height: 12px; border-radius: 6px; background: var(--a-sunk); margin: 8px 16px; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="hd">
+    <span class="mark"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5h5.5L12.5 5.5v8h-8.5z"/><path d="M9.5 2.5v3h3"/><path d="M6 8.5h4.5M6 11h3"/></svg></span>
+    <span class="ttl" id="file">Atelier</span>
+    <span class="sub" id="count"></span>
+    <span class="sp"></span>
+    <button class="icon" id="fullBtn" hidden aria-label="Plein écran" title="Plein écran"></button>
+  </div>
+  <div id="doc"><div class="skel" style="width:88%"></div><div class="skel" style="width:76%"></div><div class="skel" style="width:52%"></div></div>
+  <div class="tray" id="tray"></div>
+  <div class="ft" id="foot"><span class="note">Sélectionne un passage pour le noter.</span></div>
+</div>
+<div class="pill" id="pill" role="dialog" aria-label="Noter le passage">
+  <textarea id="noteIn" placeholder="Ta note (facultatif) : ce qui ne va pas, ce que tu veux"></textarea>
+  <div class="row"><span class="sub" id="pillWhere"></span><span class="sp"></span><button class="btn pri" id="addBtn">Ajouter</button></div>
+</div>
+<script type="module">/*__EXT_APPS__*/</script>
+<script type="module">
+const { App, applyDocumentTheme, applyHostStyleVariables, applyHostFonts } = globalThis.AtelierExtApps;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const svg = (d, w = 14) => `<svg width="${w}" height="${w}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const EXPAND = svg('<path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9"/>');
+const SHRINK = svg('<path d="M13.5 6.5h-4v-4M2.5 9.5h4v4M9.5 6.5l4-4M6.5 9.5l-4 4"/>');
+const CLOSE = svg('<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>', 12);
+const CHECK = svg('<path d="M3.5 8.5l3 3 6-7"/>', 12);
+
+let doc = null;            // {path, file, total, lines}
+let notes = [];            // [{from:{l,c}, to:{l,c}, text, note}]
+let pending = null;        // sélection en cours, avant « Ajouter »
+let fullscreen = false;
+
+const app = new App({ name: "Atelier", version: "0.1.0" }, { availableDisplayModes: ["inline", "fullscreen"] });
+
+function theme(ctx) {
+  if (!ctx) return;
+  if (ctx.theme) applyDocumentTheme(ctx.theme);
+  if (ctx.styles?.variables) applyHostStyleVariables(ctx.styles.variables);
+  if (ctx.styles?.css?.fonts) applyHostFonts(ctx.styles.css.fonts);
+  if (ctx.availableDisplayModes) $("fullBtn").hidden = !ctx.availableDisplayModes.includes("fullscreen");
+  if (ctx.displayMode) setFull(ctx.displayMode === "fullscreen");
+}
+app.onhostcontextchanged = theme;
+
+function setFull(on) {
+  fullscreen = on;
+  document.body.classList.toggle("full", on);
+  $("fullBtn").innerHTML = on ? SHRINK : EXPAND;
+  $("fullBtn").title = $("fullBtn").ariaLabel = on ? "Quitter le plein écran" : "Plein écran";
+}
+setFull(false);
+$("fullBtn").onclick = async () => {
+  try {
+    const r = await app.requestDisplayMode({ mode: fullscreen ? "inline" : "fullscreen" });
+    if (r?.mode) setFull(r.mode === "fullscreen");
+  } catch { /* l'hôte garde son mode */ }
+};
+
+// Coloration sobre : commandes \foo en appui, commentaires % éteints.
+function paint(line) {
+  let code = line, comment = "";
+  const m = /(^|[^\\])%/.exec(line);
+  if (m) { const at = m.index + m[1].length; code = line.slice(0, at); comment = line.slice(at); }
+  const body = esc(code).replace(/\\[A-Za-z@]+\*?/g, (c) => `<span class="c">${c}</span>`);
+  return body + (comment ? `<span class="k">${esc(comment)}</span>` : "");
+}
+
+function render() {
+  const rows = doc.lines.map((line, i) =>
+    `<div class="ln" data-l="${i}"><span class="no">${i + 1}</span><span class="tx">${paint(line)}</span></div>`).join("");
+  $("doc").className = "doc";
+  $("doc").innerHTML = rows;
+  $("file").textContent = doc.file;
+  $("count").textContent = doc.total + " lignes";
+  paintNoted();
+  renderTray();
+}
+
+// Position (ligne, colonne) d'un point de la sélection DOM dans le source.
+function point(node, offset, isEnd) {
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  const row = el?.closest(".ln");
+  if (!row) return null;
+  const l = Number(row.dataset.l);
+  const tx = row.querySelector(".tx");
+  if (!tx.contains(node) && node !== tx) return { l, c: isEnd ? doc.lines[l].length : 0 };
+  const r = document.createRange();
+  r.setStart(tx, 0);
+  r.setEnd(node, offset);
+  return { l, c: Math.min(r.toString().length, doc.lines[l].length) };
+}
+
+function slice(from, to) {
+  if (from.l === to.l) return doc.lines[from.l].slice(from.c, to.c);
+  const parts = [doc.lines[from.l].slice(from.c)];
+  for (let l = from.l + 1; l < to.l; l++) parts.push(doc.lines[l]);
+  parts.push(doc.lines[to.l].slice(0, to.c));
+  return parts.join("\n");
+}
+
+const where = (n) => n.from.l === n.to.l ? `l. ${n.from.l + 1}` : `l. ${n.from.l + 1}–${n.to.l + 1}`;
+
+function readSelection() {
+  const sel = getSelection();
+  if (!doc || !sel || sel.isCollapsed || !sel.rangeCount) return null;
+  const r = sel.getRangeAt(0);
+  if (!$("doc").contains(r.commonAncestorContainer)) return null;
+  let from = point(r.startContainer, r.startOffset, false);
+  let to = point(r.endContainer, r.endOffset, true);
+  if (!from || !to) return null;
+  // Une sélection qui finit au tout début d'une ligne s'arrête à la précédente.
+  if (to.c === 0 && to.l > from.l) to = { l: to.l - 1, c: doc.lines[to.l - 1].length };
+  const raw = slice(from, to);
+  // On retire les blancs des bords, en gardant les positions justes.
+  const lead = raw.length - raw.trimStart().length, trail = raw.length - raw.trimEnd().length;
+  if (!raw.trim()) return null;
+  const text = raw.trim();
+  return { from: shift(from, lead), to: shift(to, -trail), text, rect: r.getBoundingClientRect() };
+}
+function shift(p, n) {
+  let { l, c } = p;
+  while (n > 0) { const room = doc.lines[l].length - c; if (n <= room) { c += n; n = 0; } else { n -= room + 1; l++; c = 0; } }
+  while (n < 0) { if (-n <= c) { c += n; n = 0; } else { n += c + 1; l--; c = doc.lines[l].length; } }
+  return { l, c };
+}
+
+function showPill(p) {
+  pending = p;
+  const pill = $("pill");
+  $("pillWhere").textContent = where(p);
+  $("noteIn").value = "";
+  pill.classList.add("on");
+  const w = 280, gap = 8;
+  let x = Math.min(Math.max(8, p.rect.left), innerWidth - w - 8);
+  let y = p.rect.bottom + gap;
+  if (y + 110 > innerHeight) y = Math.max(8, p.rect.top - 110 - gap);
+  pill.style.left = x + "px";
+  pill.style.top = y + "px";
+  requestAnimationFrame(() => pill.classList.add("in"));
+}
+function hidePill() {
+  pending = null;
+  $("pill").classList.remove("in", "on");
+}
+
+document.addEventListener("mouseup", (e) => {
+  if ($("pill").contains(e.target)) return;
+  setTimeout(() => { const p = readSelection(); p ? showPill(p) : hidePill(); }, 0);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") hidePill();
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && pending) add();
+});
+$("addBtn").onclick = () => add();
+
+function add() {
+  if (!pending) return;
+  notes.push({ from: pending.from, to: pending.to, text: pending.text, note: $("noteIn").value.trim() });
+  notes.sort((a, b) => a.from.l - b.from.l || a.from.c - b.from.c);
+  getSelection()?.removeAllRanges();
+  hidePill();
+  paintNoted();
+  renderTray();
+}
+
+// Passages notés : surlignés au caractère près, barre en marge.
+let marked = new Set();
+function lineHtml(l) {
+  const line = doc.lines[l];
+  const segs = notes.filter((n) => n.from.l <= l && l <= n.to.l)
+    .map((n) => [n.from.l === l ? n.from.c : 0, n.to.l === l ? n.to.c : line.length])
+    .sort((a, b) => a[0] - b[0]);
+  let html = "", pos = 0;
+  for (const [s, e] of segs) {
+    const from = Math.max(s, pos);
+    if (e <= from) continue;
+    html += paint(line.slice(pos, from)) + "<mark>" + paint(line.slice(from, e)) + "</mark>";
+    pos = e;
+  }
+  return html + paint(line.slice(pos));
+}
+function paintNoted() {
+  const on = new Set();
+  for (const n of notes) for (let l = n.from.l; l <= n.to.l; l++) on.add(l);
+  for (const l of new Set([...marked, ...on])) {
+    const row = document.querySelector(`.ln[data-l="${l}"]`);
+    if (!row) continue;
+    row.classList.toggle("noted", on.has(l));
+    row.querySelector(".tx").innerHTML = lineHtml(l);
+  }
+  marked = on;
+}
+
+function renderTray() {
+  $("tray").innerHTML = notes.map((n, i) =>
+    `<div class="item"><span class="where">${where(n)}</span><span class="what">${n.note ? esc(n.note) : "<em>" + esc(n.text.replace(/\s+/g, " ").slice(0, 120)) + "</em>"}</span>` +
+    `<button class="icon" data-i="${i}" aria-label="Retirer" title="Retirer">${CLOSE}</button></div>`).join("");
+  $("tray").querySelectorAll("button").forEach((b) => (b.onclick = () => { notes.splice(Number(b.dataset.i), 1); paintNoted(); renderTray(); }));
+  const n = notes.length;
+  $("foot").innerHTML = n
+    ? `<button class="btn pri" id="send">Envoyer à Claude (${n})</button><span class="note">Rien ne part sans ton accord.</span>`
+    : '<span class="note">Sélectionne un passage pour le noter.</span>';
+  if (n) $("send").onclick = send;
+}
+
+function message() {
+  const out = [`Passages notés dans ${doc.file} (${doc.path}) :`, ""];
+  notes.forEach((n, i) => {
+    const lines = n.from.l === n.to.l ? `Ligne ${n.from.l + 1}` : `Lignes ${n.from.l + 1}-${n.to.l + 1}`;
+    out.push(`${i + 1}. ${lines}${n.note ? ". Ma note : " + n.note : ""}`);
+    out.push("```latex", n.text, "```", "");
+  });
+  out.push("Propose une révision pour chacun (carte Atelier), en suivant mes notes.");
+  return out.join("\n");
+}
+
+async function send() {
+  const btn = $("send");
+  btn.disabled = true;
+  try {
+    const r = await app.sendMessage({ role: "user", content: [{ type: "text", text: message() }] });
+    if (r?.isError) { $("foot").insertAdjacentHTML("beforeend", '<span class="err">Claude n’a pas pris le message.</span>'); btn.disabled = false; return; }
+    const n = notes.length;
+    notes = [];
+    paintNoted();
+    renderTray();
+    $("foot").innerHTML = `<span class="done">${CHECK}${n} passage${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""} à Claude</span>`;
+  } catch {
+    btn.disabled = false;
+  }
+}
+
+app.ontoolresult = (result) => {
+  const sc = result?.structuredContent;
+  if (result?.isError || !Array.isArray(sc?.lines)) {
+    $("doc").innerHTML = "";
+    $("foot").innerHTML = '<span class="err">' + esc(result?.content?.find((c) => c.type === "text")?.text || "Rien à afficher.") + "</span>";
+    return;
+  }
+  doc = sc;
+  render();
+};
+
+await app.connect();
+theme(app.getHostContext());
+</script>
+</body>
+</html>
