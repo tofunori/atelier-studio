@@ -96,12 +96,23 @@ pub fn read(uri: &str) -> Option<Value> {
         "uri": uri,
         "mimeType": MIME,
         "text": text,
-        "_meta": {"ui": {
-            "prefersBorder": true,
-            // Polices de l'hôte (Anthropic Sans) ; rien d'autre n'est chargé.
-            "csp": {"resourceDomains": ["https://assets.claude.ai"]},
-        }},
+        "_meta": {"ui": ui_meta(uri)},
     }]}))
+}
+
+fn ui_meta(uri: &str) -> Value {
+    let mut ui = json!({
+        "prefersBorder": true,
+        // Polices de l'hôte (Anthropic Sans) ; rien d'autre n'est chargé.
+        "csp": {"resourceDomains": ["https://assets.claude.ai"]},
+    });
+    if uri == READER_URI {
+        // Extension de Claude (hors spécification MCP Apps) : ouvrir le
+        // lecteur dans le panneau latéral, à côté de la conversation, là où
+        // ce panneau existe ; sinon il reste dans la conversation.
+        ui["preferredDisplayMode"] = json!("fullscreen");
+    }
+    ui
 }
 
 #[cfg(test)]
@@ -119,7 +130,13 @@ mod tests {
         for page in [revision_page(), reader_page()] {
             check_page(&page);
         }
-        assert!(read(READER_URI).is_some() && read(REVISION_URI).is_some());
+        let reader = read(READER_URI).unwrap();
+        assert_eq!(
+            reader["contents"][0]["_meta"]["ui"]["preferredDisplayMode"],
+            "fullscreen"
+        );
+        let card = read(REVISION_URI).unwrap();
+        assert!(card["contents"][0]["_meta"]["ui"]["preferredDisplayMode"].is_null());
         assert!(read("ui://atelier/inconnu").is_none());
     }
 
