@@ -748,6 +748,21 @@ fn le_binaire_des_annotations_se_cherche_dans_l_ordre() {
     .unwrap();
     assert_eq!(resolve_annotations_binary(None, &server, Some(&home)), Some(declared.clone()));
 
+    // Une autre commande rangée sous ce nom n'est pas retenue.
+    let autre = dir.path().join("bin/autre-chose");
+    touch(&autre);
+    std::fs::write(
+        &config,
+        json!({"mcpServers": {"atelier-annotations": {"command": autre}}}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(resolve_annotations_binary(None, &server, Some(&home)), None);
+    std::fs::write(
+        &config,
+        json!({"mcpServers": {"atelier-annotations": {"command": declared}}}).to_string(),
+    )
+    .unwrap();
+
     // À côté du serveur : passe avant la configuration de Claude Desktop.
     let bundled = server_dir.join("rust-server/atelier-annots-mcp");
     touch(&bundled);
@@ -940,6 +955,25 @@ async fn eteint_par_defaut_aucune_relecture_ne_part_en_fin_de_tour() {
     b.settings(json!({"autoReview": {"enabled": false, "provider": "fake", "trigger": "always"}}));
     review_after_turn(b.state.clone(), "t-off".into(), turn, None, "bonjour".into()).await;
     assert!(b.records("t-off").is_empty());
+    assert!(b.reviews.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn un_fil_delegue_n_est_pas_relu_d_office() {
+    let b = bench(fake());
+    let turn = b.turn(&b.send_msg("t-enfant", "bonjour")).await;
+    b.settle().await;
+    {
+        let mut threads = b.state.threads().lock().await;
+        let mut fil = serde_json::to_value(threads.get("t-enfant").unwrap()).unwrap();
+        fil["agentLink"] = json!({"parentThreadId": "t-parent", "createdAt": "2026-11-10T00:00:00Z", "autoDeliveryLimit": 3});
+        threads.upsert(fil, false).unwrap();
+        assert!(threads.get("t-enfant").unwrap().agent_link.is_some());
+    }
+    b.settings(on("always"));
+    review_after_turn(b.state.clone(), "t-enfant".into(), turn, None, "bonjour".into()).await;
+    b.settle().await;
+    assert!(b.records("t-enfant").is_empty());
     assert!(b.reviews.lock().unwrap().is_empty());
 }
 

@@ -863,6 +863,12 @@ pub async fn review_after_turn(
     let Some(thread) = thread else {
         return;
     };
+    // Un fil délégué (spécialiste, sous-agent) n'est pas relu d'office : son
+    // rapport revient au fil parent, dont la réponse est relue. Sans cela,
+    // une délégation en mode « toujours » lancerait une relecture par agent.
+    if thread.agent_link.is_some() {
+        return;
+    }
     let order = crate::review::ReviewOrder {
         mode: crate::review::REVIEW_MODE_CLAIMS.into(),
         turn_id: Some(turn_id.clone()),
@@ -901,8 +907,10 @@ pub fn readable_directories(project_root: &str, settings: &Value) -> Vec<String>
 
 /// Où trouver `atelier-annots-mcp`, dans l'ordre : la variable
 /// `ATELIER_ANNOTS_MCP_BIN`, à côté du serveur (le jour où il est livré avec
-/// l'app), la commande déclarée dans Claude Desktop (c'est l'installation
-/// que décrit `docs/MCP_ANNOTATIONS.md`), puis l'arbre cargo du dépôt.
+/// l'app), puis la commande déclarée dans Claude Desktop (c'est
+/// l'installation que décrit `docs/MCP_ANNOTATIONS.md`). Jamais un chemin
+/// relatif au répertoire courant : le binaire trouvé est exécuté, et le
+/// répertoire courant peut être un dossier de projet.
 /// `None` : le serveur n'est pas joignable, la relecture s'en passe.
 pub fn resolve_annotations_binary(
     override_bin: Option<&str>,
@@ -920,13 +928,15 @@ pub fn resolve_annotations_binary(
     if let Some(declared) = home.and_then(claude_desktop_annotations_command) {
         candidates.push(declared);
     }
-    candidates.push(PathBuf::from("rust/target/release").join(NAME));
-    candidates.push(PathBuf::from("rust/target/debug").join(NAME));
-    candidates.into_iter().find(|path| path.is_file())
+    candidates
+        .into_iter()
+        .find(|path| path.is_absolute() && path.is_file())
 }
 
 /// Commande du serveur `atelier-annotations` dans la configuration de Claude
-/// Desktop, lue sans rien y écrire.
+/// Desktop, lue sans rien y écrire. Retenue seulement si c'est bien le
+/// binaire des annotations : une autre commande rangée sous ce nom n'est pas
+/// lancée par le relecteur.
 fn claude_desktop_annotations_command(home: &Path) -> Option<PathBuf> {
     let path = home.join("Library/Application Support/Claude/claude_desktop_config.json");
     let config: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
@@ -936,6 +946,7 @@ fn claude_desktop_annotations_command(home: &Path) -> Option<PathBuf> {
         .get("command")?
         .as_str()
         .map(PathBuf::from)
+        .filter(|command| command.file_name().is_some_and(|name| name == "atelier-annots-mcp"))
 }
 
 /// Serveur des annotations pour cette instance d'Atelier, s'il est
