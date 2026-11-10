@@ -51,5 +51,5 @@ test('Markdown WYSIWYG exposes the shared selection capsules', async ({page}) =>
   await expect(actions.getByRole('button', {name: 'Question rapide'})).toBeVisible();
   await expect(actions.getByRole('button', {name: 'Surligner'})).toBeVisible();
   await actions.getByRole('button', {name: 'Annoter'}).click();
-  await expect(page.getByRole('textbox', {name: 'Commentaire sur le passage'})).toBeVisible();
+  await expect(page.getByRole('textbox', {name: 'Note sur le passage'})).toBeVisible();
 });

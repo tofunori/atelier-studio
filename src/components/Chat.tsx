@@ -16,10 +16,10 @@ import { messageIndexFromNode, quoteContext } from "../lib/quickAskContext";
 import type { HighlightEntry } from "./Rail";
 import { CheckIcon, CloseIcon, CopyIcon } from "./icons";
 import { classifyPaste, pasteMetaLabel } from "../lib/pasteView";
-import { IconButton } from "./ui";
+import { IconButton, RowButton } from "./ui";
 import { ProviderInfo, providerAllowsCommand } from "../lib/providers";
 import { effortOptionsFor, sortEffortLevels } from "../lib/effortOrder";
-import { ImageViewPreview } from "./chat/ImageViewPreview";
+import { ImageViewPreview } from "./chat/ImageViewPreviewLazy";
 import { MdThreadContext } from "./chat/mdThread";
 import { ToolOutputLine, distinctToolActions, imagePathsForActions, isSummarizableTool, Tick, toolCategory } from "./chat/toolPresentation";
 import { fmtClock } from "./chat/clock";
@@ -191,6 +191,10 @@ export default function Chat(p: {
   agentProviders?: { id: string; label: string }[];
   linkedAgents?: LinkedAgentSummary[];
   onOpenLinkedAgent?: (threadId: string) => void;
+  /** Fil rangé sous une conversation (coordinateur et fils, 2026-11-09) :
+   *  il s'ouvre à la place du chat, sous un fil d'Ariane qui ramène au
+   *  parent — il n'a pas d'onglet à lui. */
+  parentThread?: { title: string; onBack: () => void } | null;
   /** Vue de la transcription (sélecteur du header) — remonte le choix vers App. */
   onTranscriptViewChange?: (view: "normal" | "reflexion" | "detaille" | "resume") => void;
   notice?: ChatNoticeData | null;
@@ -1150,6 +1154,18 @@ export default function Chat(p: {
     <div className="chat">
       <div className="chat-primary">
       {p.headerInTopBar ? (headerHost && createPortal(chatHeader, headerHost)) : chatHeader}
+      {p.parentThread && p.threadId ? (
+        <nav className="chat-parent-crumb" aria-label={t("chat.parent-crumb", { title: p.parentThread.title })}>
+          <RowButton className="chat-parent-back" onClick={p.parentThread.onBack}
+            title={t("chat.parent-back", { title: p.parentThread.title })}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"
+              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 8H3M7 4 3 8l4 4" /></svg>
+            <span className="chat-parent-title">{p.parentThread.title}</span>
+          </RowButton>
+          <span className="chat-parent-sep" aria-hidden="true">›</span>
+          <span className="chat-parent-current" aria-current="page">{p.threadTitle}</span>
+        </nav>
+      ) : null}
       <ChatTimeline
         thread={{
           threadId: p.threadId,

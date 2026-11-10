@@ -1,4 +1,4 @@
-import {createNoteEditor, createSelectionActions} from "../annotation_ui";
+import {createNoteCard, createSelectionActions} from "../annotation_ui";
 import {requestChatAttachment} from "../../core/chat_attach";
 
 type MarkdownMark = {
@@ -264,11 +264,18 @@ export function createMarkdownWysiwygSelection(
       if (!destroyed) setQuoteBusy(false);
     }
   };
-  const noteUI = createNoteEditor(note, {
-    onSubmit: (value) => { void submitNote(value, false); },
-    onSendDirect: (value) => { void submitNote(value, true); },
+  // Variante A (Thierry 2026-11-09) : Entrée enregistre la note sur le
+  // passage, sans rien envoyer ; la pilule « Envoyer au chat » l'envoie.
+  const noteUI = createNoteCard(note, {
+    head: {title: "Note"}, placeholder: "Ta note sur ce passage…",
+    onSave: (value) => { void submitNote(value, null); },
+    onSend: (value) => { void submitNote(value, true); },
     onDelete: () => { void deleteNote(); },
-    onDismiss: () => { note.style.display = "none"; noteDraft = null; },
+    // Échap garde ce qui est écrit ; une note vide s'en va.
+    onDismiss: () => {
+      if (noteUI.input.value.trim()) { void submitNote(noteUI.input.value, null); return; }
+      note.style.display = "none"; noteDraft = null;
+    },
   });
   const deleteNote = async (): Promise<void> => {
     const draft = noteDraft;
@@ -310,7 +317,9 @@ export function createMarkdownWysiwygSelection(
       }
     }
   };
-  const submitNote = async (value: string, direct: boolean): Promise<void> => {
+  /** `direct` : true = envoyée au chat tout de suite ; null = seulement
+   *  enregistrée (Entrée, variante A). */
+  const submitNote = async (value: string, direct: boolean | null): Promise<void> => {
     const draft = noteDraft;
     if (!draft || draft.pending || destroyed) return;
     const snapshot = draft.snapshot;
@@ -321,8 +330,8 @@ export function createMarkdownWysiwygSelection(
       draft.saved = false;
       draft.requestId = undefined;
     }
-    if (draft.direct !== direct) draft.requestId = undefined;
-    draft.direct = direct;
+    if (draft.direct !== (direct ?? undefined)) draft.requestId = undefined;
+    draft.direct = direct ?? undefined;
     draft.requestId ||= win.crypto.randomUUID();
     draft.pending = true;
     noteUI.busy(true);
@@ -332,7 +341,7 @@ export function createMarkdownWysiwygSelection(
     try {
       if (!draft.saved) draft.saved = await addMark(mark);
       if (!draft.saved) throw new Error("Enregistrement impossible.");
-      await deliver(draft.requestId, {type: "atelier-add-to-chat", direct,
+      if (direct) await deliver(draft.requestId, {type: "atelier-add-to-chat", direct,
         text: `${options.path}${snapshot.page ? ` (${snapshot.page})` : ""} : « ${snapshot.text} »\nCommentaire : ${mark.comment || "(voir passage)"}`,
         pdfAnnotation: {rel: relation, id: mark.id}});
       if (!destroyed && noteDraft === draft) {
@@ -365,6 +374,7 @@ export function createMarkdownWysiwygSelection(
       note.setAttribute("aria-busy", "false");
       noteUI.status.textContent = "";
       noteUI.input.value = "";
+      noteUI.setHead({title: "Note", color: "blue", meta: selected.page || "", quote: selected.text});
       place(note, selected.rect);
       noteUI.focus();
     },

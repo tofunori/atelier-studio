@@ -33,10 +33,17 @@ import { ProjectHeader } from "./sidebar/ProjectHeader";
 import { ThreadRow } from "./sidebar/ThreadRow";
 import { PROJ_ICONS, ProjIcon } from "./sidebar/projectIcons";
 import { ChevronIcon } from "./icons";
-import { ProjectStyleMenu, type ProjectStyleAnchor } from "./sidebar/ProjectStyleMenu";
+import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenuLazy";
+import type { ProjectStyleAnchor } from "./sidebar/ProjectStyleMenu";
 import { Popover } from "./shadcn/popover";
 import { MenuPanelContent, MenuPanelItem } from "./ui/MenuPanel";
-import { conversationFamilies, linkedConversations } from "../lib/threadLinks";
+import {
+  conversationFamilies,
+  delegatedChildrenByParent,
+  delegatedState,
+  linkedConversations,
+} from "../lib/threadLinks";
+import { ChildThreadRow } from "./sidebar/ChildThreadRow";
 
 // ré-exports publics — Rail et TopBar importent depuis ./Sidebar
 export { PROJ_ICONS, ProjIcon };
@@ -186,12 +193,17 @@ export default function Sidebar(p: {
     [p.activeProject, p.activeId, p.threads, p.favorites, p.threadOrder, query, expanded],
   );
 
+  // Les fils délégués se rangent sous leur parent (règle 14 du modèle) : ils
+  // ne comptent plus dans la « famille » ⊶, que gardent les conversations
+  // continuées avec un autre agent.
   const familyByThread = useMemo(() => {
     const root = p.activeProject ?? "";
-    return conversationFamilies(
-      p.threads.filter((thread) => threadRoot(thread) === root),
-    );
+    const project = p.threads.filter((thread) => threadRoot(thread) === root);
+    const nested = new Set([...delegatedChildrenByParent(project).values()].flat().map((thread) => thread.id));
+    return conversationFamilies(project.filter((thread) => !nested.has(thread.id)));
   }, [p.activeProject, p.threads]);
+  // bascule afficher/masquer les fils, choisie à la main pour un parent
+  const [childToggles, setChildToggles] = useState<Record<string, boolean>>({});
 
   const handleFamilyPreviewChange = useCallback((familyId: string, previewed: boolean) => {
     setPreviewFamilyId((current) => previewed ? familyId : current === familyId ? null : current);
@@ -207,6 +219,7 @@ export default function Sidebar(p: {
     setProjMenu(null);
     setEditingId(null);
     setPreviewFamilyId(null);
+    setChildToggles({});
   }, [p.activeProject]);
 
   // -- reprise de session (contrat conservé : événements globaux) ------------
@@ -449,7 +462,14 @@ export default function Sidebar(p: {
       : undefined;
     const rowSource = `${kind}:${th.id}`;
     const family = familyByThread.get(th.id);
-    return (
+    const children = model.childrenByParent.get(th.id) ?? [];
+    const states = children.map((child) => delegatedState(child, false, p.unread.has(child.id)));
+    // Ouverts d'office quand le parent ou un fil est ouvert (sinon le fil
+    // actif serait introuvable), puis selon le choix de l'utilisateur, puis
+    // tant qu'un fil travaille ou attend quelque chose de lui.
+    const childOpen = children.some((child) => child.id === p.activeId)
+      || (childToggles[th.id] ?? (th.id === p.activeId || states.some((state) => state !== "done")));
+    const row = (
       <ThreadRow
         key={th.id}
         thread={th}
@@ -489,7 +509,42 @@ export default function Sidebar(p: {
           else setMenu(null);
         }}
         menuItems={threadMenuItems(th, rowSource)}
+        nestedThreads={children.length ? {
+          count: children.length,
+          open: childOpen,
+          onToggle: () => setChildToggles((current) => ({ ...current, [th.id]: !childOpen })),
+        } : undefined}
       />
+    );
+    if (!children.length || !childOpen) return row;
+    return (
+      <Fragment key={th.id}>
+        {row}
+        {children.map((child, index) => {
+          const childSource = `${kind}:${th.id}:${child.id}`;
+          return (
+            <ChildThreadRow
+              key={child.id}
+              thread={child}
+              title={threadTitle(child)}
+              state={states[index]}
+              active={child.id === p.activeId}
+              unread={p.unread.has(child.id)}
+              onOpen={() => p.onSelect(child.id, threadRoot(child))}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openThreadMenu(child.id, childSource);
+              }}
+              menuOpen={menu?.threadId === child.id && menu.source === childSource}
+              onMenuOpenChange={(open) => {
+                if (open) openThreadMenu(child.id, childSource);
+                else setMenu(null);
+              }}
+              menuItems={threadMenuItems(child, childSource)}
+            />
+          );
+        })}
+      </Fragment>
     );
   }
 

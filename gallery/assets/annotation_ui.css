@@ -1,12 +1,22 @@
-.atelier-selection{--selection-surface:var(--surface-overlay,var(--card,#24282d));--selection-ink:var(--text-primary,var(--txt,#dadee3));--selection-icon:var(--text-muted,var(--muted,#90969d));--selection-hover:color-mix(in srgb,var(--selection-ink) 9%,var(--selection-surface));--selection-rule:color-mix(in srgb,var(--selection-ink) 14%,var(--selection-surface));--selection-button:max(28px,calc(var(--control-height,30px) - 2px));box-sizing:border-box;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;padding:4px;border:0;border-radius:10px;background:var(--selection-surface);box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px #0004))}
+.atelier-selection{--selection-surface:var(--surface-overlay,var(--card,#24282d));--selection-ink:var(--text-primary,var(--txt,#dadee3));--selection-icon:var(--text-secondary,var(--muted,#b8bec7));--selection-hover:color-mix(in srgb,var(--selection-ink) 9%,var(--selection-surface));--selection-rule:color-mix(in srgb,var(--selection-ink) 14%,var(--selection-surface));--selection-button:max(32px,calc(var(--control-height,30px) + 2px));box-sizing:border-box;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;padding:4px;border:0;border-radius:10px;background:var(--selection-surface);box-shadow:var(--elevation-overlay,var(--elev,0 4px 16px #0004))}
 /* Une seule capsule : la surface porte l'ombre, les boutons n'ont ni bordure ni fond au repos. */
 .atelier-selection .atelier-capsule,.atelier-selection .atelier-swatch{box-sizing:border-box;flex:none;cursor:pointer;font:var(--fs-body-s,12px)/1.3 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif);transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms),box-shadow var(--motion-fast,120ms)}
-.atelier-selection .atelier-capsule{display:inline-flex;align-items:center;justify-content:center;gap:0;border:0;border-radius:6px;width:var(--selection-button);height:var(--selection-button);min-height:0;padding:0;background:transparent;color:var(--selection-icon);box-shadow:none;white-space:nowrap}
+.atelier-selection .atelier-capsule{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:0;border:0;border-radius:6px;width:var(--selection-button);height:var(--selection-button);min-height:0;padding:0;background:transparent;color:var(--selection-icon);box-shadow:none;white-space:nowrap}
 .atelier-selection .atelier-capsule:hover{background:var(--selection-hover);color:var(--selection-ink)}
 .atelier-selection>[role=status]:empty{display:none}
 .atelier-selection>[role=status]{padding:0 8px;font:var(--fs-body-s,12px)/1.3 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif);color:var(--selection-icon);white-space:nowrap}
 .atelier-selection .atelier-highlight-actions{position:relative;display:flex;align-items:center}
-.atelier-selection .atelier-highlight-actions:not(:first-child)::before{content:"";flex:none;width:1px;height:16px;margin:0 4px;background:var(--selection-rule)}
+/* Variante A (Thierry 2026-11-09) : deux groupes. « Pour toi » d'abord
+   (Surligner ▾, Annoter, Coder), puis, après un filet, « vers le chat »
+   (Ajouter au chat, Question rapide). L'ordre DOM ne change pas : seul
+   l'ordre d'affichage, pour les lecteurs d'écran comme pour les tests. */
+.atelier-selection .atelier-highlight-actions{order:-1}
+.atelier-selection>[data-act=add]{order:1}
+.atelier-selection>[aria-label="Question rapide"]{order:2}
+.atelier-selection>[role=status]{order:3}
+.atelier-selection>[data-act=add],.atelier-selection>[aria-label="Question rapide"]:not([data-act=add]~*){margin-left:8px}
+.atelier-selection>[data-act=add]::after,.atelier-selection>[aria-label="Question rapide"]:not([data-act=add]~*)::after{content:"";position:absolute;left:-5px;top:50%;margin-top:-8px;width:1px;height:16px;background:var(--selection-rule);pointer-events:none}
+/* Libellé au survol : l'infobulle commune (atelier_tooltip.js) lit le title. */
 .atelier-selection .atelier-highlight-actions>.atelier-capsule:not(.atelier-color-toggle):not([data-mark]){position:relative;color:var(--selection-ink)}
 .atelier-selection .atelier-highlight-actions>.atelier-capsule:not(.atelier-color-toggle):not([data-mark])::after{content:"";position:absolute;bottom:4px;left:8px;right:8px;height:2px;border-radius:999px;background:var(--annotation-color)}
 .atelier-selection .atelier-color-toggle{width:16px}
@@ -64,6 +74,29 @@
 .atelier-note .atelier-memo-input::placeholder{color:var(--text-muted,var(--muted,#90969d))}
 .atelier-note .annotation-status{font-size:var(--fs-label,11px);color:var(--text-secondary,var(--muted,#b8bec7));line-height:1.4}
 .atelier-note .annotation-status:empty{display:none}
+/* Fiche « annoter = enregistrer » (variante A, Thierry 2026-11-09), commune
+   au PDF, au LaTeX et au Markdown. En-tête : anneau à la teinte de la note,
+   titre, page et ligne ; le passage sous un filet d'encre ; un seul champ en
+   creux ; au pied, « ↵ Enregistrer » discret et la pilule grise du chat.
+   Aucun bouton plein : rien de blanc, dans aucun thème. */
+.atelier-note.is-card{width:320px;padding:12px 16px}
+.atelier-note.is-card>*+*{margin-top:12px}
+.atelier-note.is-card .atelier-note-head{margin:0 -8px 0 0}
+.atelier-note.is-card .atelier-note-title{font-size:var(--fs-body,13px)}
+.atelier-note.is-card .atelier-note-ring{flex:none;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:20px;height:20px;padding:0 4px;border-radius:999px;color:var(--text-primary,var(--txt,#dadee3));box-shadow:inset 0 0 0 1.5px rgb(var(--note-ink));font:500 var(--fs-label,11px)/1 var(--ui-font,sans-serif);font-variant-numeric:tabular-nums}
+.atelier-note.is-card .atelier-note-ring[hidden],.atelier-note.is-card .atelier-note-meta[hidden],.atelier-note.is-card .atelier-note-quote[hidden]{display:none}
+.atelier-note.is-card>.atelier-note-quote{margin:8px 0 0;padding:0 0 0 8px;box-shadow:inset 2px 0 rgb(var(--note-ink));font:italic var(--fs-body,13px)/1.5 var(--quote-font,'New York','Iowan Old Style',Charter,Georgia,serif);color:var(--text-secondary,var(--muted,#b8bec7));display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.atelier-note.is-card>.atelier-note-row:not(:first-child){margin:12px 0 0;padding:0;border-top:0}
+.atelier-note.is-card .atelier-note-field textarea{height:44px;min-height:44px;padding:8px 12px;border-radius:6px;background:var(--surface-sunken,color-mix(in srgb,var(--text-primary,#dadee3) 5%,transparent));transition:box-shadow var(--motion-fast,120ms)}
+.atelier-note.is-card .atelier-note-field textarea:focus-visible{box-shadow:inset 0 0 0 1px var(--border-strong,color-mix(in srgb,var(--text-primary,#dadee3) 20%,transparent))}
+.atelier-note.is-card .atelier-note-foot{display:flex;align-items:center;gap:8px}
+.atelier-note.is-card .atelier-note-save{gap:4px;height:24px;margin-left:-8px;padding:0 8px;border-radius:6px;font:var(--fs-label,11px)/1 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif);color:var(--text-muted,var(--muted,#90969d))}
+.atelier-note.is-card .atelier-note-save svg{width:12px;height:12px}
+.atelier-note.is-card .atelier-note-save:hover{background:var(--surface-hover,var(--card2,#ffffff0a));color:var(--text-primary,var(--txt,#dadee3))}
+.atelier-note.is-card .atelier-note-pill{gap:4px;height:24px;padding:0 12px 0 8px;border-radius:999px;background:var(--surface-hover,var(--card2,#ffffff0a));font:var(--fs-body-s,12px)/1 var(--ui-font,-apple-system,BlinkMacSystemFont,sans-serif);color:var(--text-secondary,var(--txt,#dadee3))}
+.atelier-note.is-card .atelier-note-pill svg{width:14px;height:14px}
+.atelier-note.is-card .atelier-note-pill:hover{background:color-mix(in srgb,var(--text-primary,#dadee3) 12%,transparent);color:var(--text-primary,var(--txt,#dadee3))}
+@media(prefers-reduced-motion:reduce){.atelier-note.is-card .atelier-note-field textarea{transition:none}}
 @media(prefers-reduced-motion:reduce){.atelier-selection .atelier-capsule,.atelier-selection .atelier-swatch,.atelier-note button{transition:none}}
 /* Pastille de marge : anneau fin dans l'encre du fond qui la porte (graphite
    sur la page PDF, texte du thème ailleurs), jamais l'accent ni une teinte de
@@ -73,6 +106,8 @@
 @media(prefers-reduced-motion:reduce){.atelier-annotation-number{transition:none}}
 
 .atelier-capsule svg{width:16px;height:16px;flex:none;stroke-width:1.5}
+.atelier-selection .atelier-capsule>svg{width:18px;height:18px}
+.atelier-selection .atelier-color-toggle>svg{width:12px;height:12px}
 
 .atelier-capsule:active{transform:scale(.96)}
 @media(prefers-reduced-motion:reduce){.atelier-capsule:active{transform:none}}

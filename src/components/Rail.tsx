@@ -4,7 +4,7 @@ import { t } from "../lib/i18n";
 import { ChatsIcon, PlusIcon, SettingsIcon, SidebarIcon, MoreIcon } from "./icons";
 import { ProjIcon } from "./sidebar/projectIcons";
 import { AllProjectsGlyph } from "./sidebar/AllProjectsGlyph";
-import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenu";
+import { ProjectStyleMenu } from "./sidebar/ProjectStyleMenuLazy";
 import type { ViewId } from "../lib/settings";
 import { IconButton } from "./ui/IconButton";
 import { RowButton } from "./ui";

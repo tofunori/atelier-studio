@@ -104,6 +104,8 @@ declare global {
       pageItems?(page:number):Promise<Array<{str?:string;transform?:number[];width?:number;height?:number}>|null>;pageSize?(page:number):Promise<{width:number;height:number}|null>};
     /** Onglet PDF d'un studio LaTeX : numéros des notes dans l'ordre du document (id → n°). */
     __noteNumbers?: Map<string, number>;
+    /** Ligne source (base 1) des notes du PDF compilé, par id (SyncTeX). */
+    __noteLines?: Map<string, number>;
     /** Onglet PDF d'un studio LaTeX : notes du .tex à dessiner sur la page `n`. */
     __texNoteMarks?: (page: number) => Array<{id: string; rects: number[][]; color: string; agent: boolean; title: string; __number: number; open(): void}>;
     /** Onglet PDF d'un studio LaTeX : la colonne Annotations commune. */

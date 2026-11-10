@@ -20,7 +20,9 @@ function reply(detail: Record<string, unknown>) {
 }
 
 const ROOT = "/proj/these";
-const now = Date.now();
+// Midi du jour local : les deux entrées tombent toujours « Aujourd’hui », même
+// quand la suite tourne juste après minuit (now - 2 min serait alors « Hier »).
+const now = new Date().setHours(12, 0, 0, 0);
 const turn = {
   id: "turn:t1:u1:abcd", kind: "turn", ts: now - 60_000, title: "Corrige le chiffre de 40 %", provider: "codex",
   threadId: "t1", threadTitle: "Relire la discussion", snapshot: "abcd1234",

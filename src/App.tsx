@@ -113,7 +113,7 @@ const UsagePopover = lazyWithRetry(() => import("./components/UsagePopover"));
 const ProjectsHome = lazyWithRetry(() => import("./components/ProjectsHome"));
 import { pluginSkillsForPrompt, revalidateQueuedPluginSkills } from "./lib/plugins";
 import { parseLinkedAgentMention } from "./lib/linkedAgents";
-import { linkedAgentSummaries, linkedConversationForProvider } from "./lib/threadLinks";
+import { linkedAgentSummaries, linkedConversationForProvider, nestingParentId } from "./lib/threadLinks";
 import { catalogSkillForPrompt } from "./lib/skills";
 import { init as initNotify, notifyRunDone, notifyReview } from "./lib/notify";
 import { railViewStore } from "./lib/railViewStore";
@@ -3880,10 +3880,27 @@ export default function App() {
     if (isDiscussionContext(activeProject)) return [];
     return allThreads.filter(thread => thread.projectRoot === activeProject);
   }, [allThreads, activeProject]);
-  const chatTabs = useOpenChatTabs(isDiscussionContext(activeProject) ? null : activeProject, activeId, projectChatCandidates);
-  const projectChats = useMemo(() => projectChatCandidates.filter(thread =>
-    !thread.agentLink || thread.id === activeId || chatTabs.openChats.some(open => open.id === thread.id)
-  ), [projectChatCandidates, activeId, chatTabs.openChats]);
+  // Coordinateur et fils (2026-11-09) : un fil délégué (spécialiste, fil
+  // lancé par le coordinateur) n'a pas d'onglet à lui. Ouvert, il s'affiche à
+  // la place du chat et l'onglet de son parent reste l'onglet actif.
+  const nestingParentById = useMemo(() => {
+    const byId = new Map(projectChatCandidates.map(thread => [thread.id, thread]));
+    const parents = new Map<string, string>();
+    for (const thread of projectChatCandidates) {
+      const parentId = nestingParentId(thread, byId);
+      if (parentId) parents.set(thread.id, parentId);
+    }
+    return parents;
+  }, [projectChatCandidates]);
+  const activeTabId = (activeId && nestingParentById.get(activeId)) || activeId;
+  const tabCandidates = useMemo(
+    () => projectChatCandidates.filter(thread => !nestingParentById.has(thread.id)),
+    [projectChatCandidates, nestingParentById],
+  );
+  const chatTabs = useOpenChatTabs(isDiscussionContext(activeProject) ? null : activeProject, activeTabId, tabCandidates);
+  const projectChats = useMemo(() => tabCandidates.filter(thread =>
+    !thread.agentLink || thread.id === activeTabId || chatTabs.openChats.some(open => open.id === thread.id)
+  ), [tabCandidates, activeTabId, chatTabs.openChats]);
   allThreadsRef.current = allThreads;
   // A legacy discussion selected while its provider is idle is migrated as
   // soon as the authoritative thread list contains it. A running provider is
@@ -4350,7 +4367,7 @@ export default function App() {
         onTogglePin: chatTabs.togglePin,
         onClose: (ids) => {
           const next = chatTabs.close(ids);
-          if (next === activeId) return;
+          if (next === activeTabId) return;
           const thread = projectChats.find(entry => entry.id === next);
           if (thread) selectThread(thread.id, thread.projectRoot);
           else { setActiveId(null); activeIdRef.current = null; }
@@ -4367,7 +4384,7 @@ export default function App() {
         },
         onUnlinkLinked: threadActions.unlinkLinkedAgent,
       }}
-      activeChatId={activeId}
+      activeChatId={activeTabId}
       chatTitle={activeId ? allThreads.find(thread => thread.id === activeId)?.title : undefined}
       onSelectChat={(id) => {
         const thread = projectChats.find(entry => entry.id === id);
@@ -4829,6 +4846,13 @@ export default function App() {
           providers={providerList}
           agentProviders={linkableAgentProviders(providerList)}
           linkedAgents={linkedAgentSummaries(allThreads, activeId, workingSince)}
+          parentThread={activeTabId && activeTabId !== activeId ? {
+            title: allThreads.find((entry) => entry.id === activeTabId)?.title || t("app.new-chat-title"),
+            onBack: () => {
+              const parent = allThreads.find((entry) => entry.id === activeTabId);
+              if (parent) selectThread(parent.id, parent.projectRoot);
+            },
+          } : null}
           onOpenLinkedAgent={(threadId) => {
             const thread = allThreads.find((entry) => entry.id === threadId);
             if (thread) selectThread(thread.id, thread.projectRoot);

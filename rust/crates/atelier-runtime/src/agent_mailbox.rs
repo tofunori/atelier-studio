@@ -37,7 +37,7 @@ pub async fn action_send_message(
         .ok_or_else(|| "missing_requestId".to_string())?;
     authorize_target(state, caller_id, target_id).await?;
 
-    enqueue_and_schedule(
+    let reponse = enqueue_and_schedule(
         state,
         caller_id,
         target_id,
@@ -48,7 +48,11 @@ pub async fn action_send_message(
         req.get("traceId").and_then(|v| v.as_str()),
         req.get("hop").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
     )
-    .await
+    .await?;
+    // Une suite confiée à un fil qui avait rendu compte le remet au travail
+    // (sans effet dans l'autre sens : effacer ne touche qu'un fil marqué).
+    crate::delegation::effacer_rapport(state, target_id).await;
+    Ok(reponse)
 }
 
 pub async fn action_report_to_parent(
@@ -87,7 +91,7 @@ pub async fn action_report_to_parent(
         .unwrap_or("(rapport)")
         .to_string();
 
-    enqueue_and_schedule(
+    let reponse = enqueue_and_schedule(
         state,
         caller_id,
         &parent_id,
@@ -98,7 +102,10 @@ pub async fn action_report_to_parent(
         req.get("traceId").and_then(|v| v.as_str()),
         req.get("hop").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
     )
-    .await
+    .await?;
+    // La colonne range ce fil « Terminé » sous son parent.
+    crate::delegation::noter_rapport(state, caller_id).await;
+    Ok(reponse)
 }
 
 /// Trusted user-initiated mention from the Atelier WebSocket. Relationship and
@@ -110,7 +117,7 @@ pub async fn enqueue_user_mention(
     text: &str,
     request_id: &str,
 ) -> Result<Value, String> {
-    enqueue_and_schedule(
+    let reponse = enqueue_and_schedule(
         state,
         source_thread_id,
         target_thread_id,
@@ -121,7 +128,9 @@ pub async fn enqueue_user_mention(
         None,
         0,
     )
-    .await
+    .await?;
+    crate::delegation::effacer_rapport(state, target_thread_id).await;
+    Ok(reponse)
 }
 
 async fn enqueue_and_schedule(
@@ -332,12 +341,12 @@ pub async fn recharger_apres_message_humain(state: &AppState, thread_id: &str) {
         let mut ids: Vec<String> = store
             .children_of(thread_id)
             .iter()
-            .filter(|t| crate::delegation::specialiste_delegue(t).is_some())
+            .filter(|t| crate::delegation::est_delegue(t))
             .map(|t| t.id.clone())
             .collect();
         if store
             .get(thread_id)
-            .is_some_and(|t| t.agent_link.is_some() && crate::delegation::specialiste_delegue(t).is_some())
+            .is_some_and(|t| t.agent_link.is_some() && crate::delegation::est_delegue(t))
         {
             ids.push(thread_id.to_string());
         }

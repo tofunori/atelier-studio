@@ -810,8 +810,10 @@ test("LaTeX direct chat icon waits for persistence and preserves draft actions",
   const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
   await notes.load();
   const direct=doc.querySelector('.send-direct');
-  assert.equal(direct.textContent,'');
-  assert.equal(direct.getAttribute('aria-label'),'Envoyer au chat');
+  // Variante A : une pilule « Envoyer au chat » et « ↵ Enregistrer », lisibles.
+  assert.equal(direct.textContent,'Envoyer au chat');
+  assert.equal(doc.querySelector('.send2').textContent,'Enregistrer');
+  assert.ok(doc.getElementById('pop').classList.contains('is-card'));
   for (const [selector,ok] of [['.send-direct',true],['.send2',true],['.send-direct',false]]) {
     notes.open({text:'Passage',from,to});
     doc.querySelector('textarea').value='Question';
@@ -1198,4 +1200,42 @@ c = d
 test("Lecture typographique : un fragment inclus n'invente pas de numéros de section", () => {
   const html = latex.renderLatexReadingHtml("\\section{Study area}\nText.", katex);
   assert.match(html, /^<div class="tex-nonum-doc" hidden><\/div>/);
+});
+
+test("LaTeX variante A : Échap et un clic à côté enregistrent la note sans rien envoyer au chat", async () => {
+  const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button><p id="away">x</p>', {url:'http://localhost'});
+  const win=dom.window, doc=win.document, sends=[], writes=[];
+  win.fetch=async(_url,options?: {body: string})=>{ if(!options) return {ok:true,json:async()=>({annots:[]})}; writes.push(JSON.parse(options.body)); return {ok:true,json:async()=>({ok:true})}; };
+  const from={line:4,ch:0},to={line:4,ch:7};
+  const editor={charCoords:()=>({left:100,top:80,bottom:100}),markText:()=>({clear(..._args){},find:()=>({from,to})})};
+  const notes=latex.createLatexAnnotationsController({path:'paper.tex',getEditor:()=>editor,popover:doc.getElementById('pop'),panel:doc.getElementById('panel'),button:doc.getElementById('notes'),postToHost:(p)=>sends.push(p),document:doc,window:win});
+  const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+  await notes.load();
+  notes.open({text:'Passage',from,to});
+  // en-tête : anneau, « Note 1 », la ligne, le passage cité
+  assert.equal(doc.querySelector('.atelier-note-title').textContent,'Note 1');
+  assert.equal(doc.querySelector('.atelier-note-meta').textContent,'ligne 5');
+  assert.equal(doc.querySelector('.atelier-note-quote').textContent,'Passage');
+  const textarea=doc.querySelector('textarea');
+  textarea.value='Juste pour moi';
+  textarea.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  await tick();await tick();
+  assert.equal(notes.annotations().at(-1).comment,'Juste pour moi');
+  assert.equal(sends.length,0);
+  assert.ok(writes.length>=1);
+  dom.window.close();
+});
+
+test("LaTeX : cliquer dans le texte ne ferme plus la colonne Annotations", async () => {
+  const dom = new JSDOM('<div id="pop"></div><div id="panel"></div><button id="notes"></button><p id="away">x</p>', {url:'http://localhost'});
+  const win=dom.window, doc=win.document;
+  win.fetch=async()=>({ok:true,json:async()=>({annots:[]})});
+  const editor={charCoords:()=>({left:100,top:80,bottom:100}),markText:()=>({clear(..._args){},find:()=>null})};
+  const notes=latex.createLatexAnnotationsController({path:'paper.tex',getEditor:()=>editor,popover:doc.getElementById('pop'),panel:doc.getElementById('panel'),button:doc.getElementById('notes'),postToHost(){},document:doc,window:win});
+  await notes.load();
+  notes.togglePanel(true);
+  doc.getElementById('away').dispatchEvent(new win.MouseEvent('mousedown',{bubbles:true}));
+  doc.getElementById('away').dispatchEvent(new win.MouseEvent('click',{bubbles:true}));
+  assert.ok(doc.getElementById('panel').classList.contains('open'));
+  dom.window.close();
 });

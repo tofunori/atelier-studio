@@ -27,6 +27,7 @@ export function useToolbarDividerAlignment(ref: RefObject<HTMLDivElement | null>
         : atelierRect && atelierRect.width > 0 ? atelierRect.left - rect.left : rect.width / 2;
       bar.style.setProperty("--tb-chat-left", `${Math.max(0, chatLeft)}px`);
       bar.style.setProperty("--tb-axis", `${Math.max(0, axis)}px`);
+      syncTabEdges(bar);
     };
     align();
     if (typeof ResizeObserver === "undefined") return;
@@ -39,6 +40,10 @@ export function useToolbarDividerAlignment(ref: RefObject<HTMLDivElement | null>
       window.removeEventListener("resize", align);
       bar.style.removeProperty("--tb-chat-left");
       bar.style.removeProperty("--tb-axis");
+      syncTabEdges(null);
     };
   }, [ref, split, layout]);
 }
+
+/** Raccord des onglets posés (tabEdges.ts) : chargé à part, hors budget d'entrée. */
+export const syncTabEdges = (bar: HTMLElement | null) => void import("./tabEdges").then(m => m.syncTabEdges(bar));
