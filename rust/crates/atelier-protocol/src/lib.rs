@@ -319,6 +319,9 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
                     "acceptEdits".into(),
                     "plan".into(),
                     "bypassPermissions".into(),
+                    // mode auto du CLI (`--permission-mode auto`) : un
+                    // classifieur approuve le courant et arrête le risqué.
+                    "auto".into(),
                 ],
             },
             version: None,
@@ -607,6 +610,14 @@ mod tests {
             "structuredReview opt-in, jamais déduit de review natif"
         );
         assert_eq!(kimi.capabilities.permission_modes.len(), 4);
+    }
+
+    #[test]
+    fn seul_claude_declare_le_mode_auto() {
+        for p in builtin_providers() {
+            let auto = p.capabilities.permission_modes.iter().any(|m| m == "auto");
+            assert_eq!(auto, p.id == "claude", "mode auto chez {}", p.id);
+        }
     }
 
     #[test]

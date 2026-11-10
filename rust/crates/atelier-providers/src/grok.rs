@@ -494,7 +494,8 @@ impl GrokProvider {
                     // limite externe, documentée dans le plan 056.
                     return cancelled_outcome();
                 }
-                if mode.as_deref() == Some("acceptEdits") && permission_is_edit(&params) {
+                // « auto » (mode Claude) suit « Éditions auto », comme chez Codex
+                if matches!(mode.as_deref(), Some("acceptEdits") | Some("auto")) && permission_is_edit(&params) {
                     return auto_permission_outcome(&params).unwrap_or_else(cancelled_outcome);
                 }
                 // Le CLI attend Thierry : le filet s'arrête le temps de la

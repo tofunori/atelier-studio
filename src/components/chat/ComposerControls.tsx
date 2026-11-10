@@ -39,6 +39,10 @@ import { modeApresPlan } from "./modeApresPlan";
 import { MenuChevron, MenuRadio, MenuStar, MenuSwitch, MenuTitle } from "./composerMenuParts";
 
 const PERMISSION_MODES = [
+  // mode auto du CLI Claude (2026-11-10) : un classifieur approuve le courant
+  // et arrête le risqué. Seul Claude le déclare dans ses capabilities ; en
+  // tête, il occupe toute la largeur du menu (5 tuiles, cf. App.css).
+  { id: "auto", labelKey: "permission.auto", descKey: "permission.auto-desc" },
   { id: "bypassPermissions", labelKey: "permission.full", descKey: "permission.full-desc" },
   { id: "acceptEdits", labelKey: "permission.accept-edits", descKey: "permission.accept-edits-desc" },
   { id: "default", labelKey: "action.ask-default", descKey: "permission.ask-desc" },
@@ -50,10 +54,11 @@ const PERMISSION_MODES = [
  *  FORME qui dit le mode (cadenas ouvert, crayon, question, feuille), pas une
  *  couleur — la barre du composer n'a pas à clignoter pour être lue. */
 function PermissionIcon({ mode }: { mode: string }) {
-  // cadenas ouvert : plus rien ne demande ; crayon : les écritures passent ;
-  // feuille : on écrit un plan ; question : chaque action est soumise
-  const Glyph = mode === "bypassPermissions" ? LockOpenIcon : mode === "acceptEdits" ? PencilIcon
-    : mode === "plan" ? FileTextIcon : CircleQuestionMarkIcon;
+  // bouclier coché : tout passe, après un contrôle ; cadenas ouvert : plus rien
+  // ne demande ; crayon : les écritures passent ; feuille : on écrit un plan ;
+  // question : chaque action est soumise
+  const Glyph = mode === "auto" ? ShieldCheckIcon : mode === "bypassPermissions" ? LockOpenIcon
+    : mode === "acceptEdits" ? PencilIcon : mode === "plan" ? FileTextIcon : CircleQuestionMarkIcon;
   return <Glyph size={14} />;
 }
 
