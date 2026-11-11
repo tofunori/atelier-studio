@@ -1715,7 +1715,10 @@ body[data-pdf="off"] .pdf { display: none; }
       if (m) {
         var parts = (dirOf(d.path) + "/" + m[1]).split("/"), out = [];
         parts.forEach(function (x) { if (x === "..") out.pop(); else if (x !== "." && x !== "") out.push(x); });
-        return "/" + out.join("/");
+        var root = "/" + out.join("/");
+        // Une copie archivée garde souvent un « !TEX root » qui ne mène plus
+        // nulle part : on ne le suit que s'il désigne un fichier du projet.
+        if (fileIndex[root] || !Object.keys(fileIndex).length) return root;
       }
     }
     var pr = project && project.projects.filter(function (p) { return !d || d.path.indexOf(p.path + "/") === 0; })[0];
