@@ -21,6 +21,7 @@ mod app_view;
 mod coding;
 mod compile;
 mod connector;
+mod figures;
 mod highlight;
 mod library;
 mod oauth;

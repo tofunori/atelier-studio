@@ -221,9 +221,12 @@ propose_revision avec le fichier indiqué.\n\
 Ne jamais écrire dans le fichier autrement. quote = le passage actuel recopié mot pour mot (read_tex_file d'abord), \
 text = le passage réécrit en LaTeX, reason = une phrase en français. Une proposition par paragraphe ; plusieurs \
 paragraphes = plusieurs appels. La carte montre l'avant / après à l'utilisateur, qui accepte ou refuse : \
-ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.";
+ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.\n\
+- get_figure_notes : les notes que l'utilisateur a posées sur une figure (cadre ou point numéroté) et t'a envoyées \
+depuis l'éditeur, avec la figure annotée. L'appeler dès qu'il parle de ses notes ou annotations sur une figure ; \
+répondre à chaque note par son numéro.";
 
-const REVISION_TOOLS: [&str; 15] = [
+const REVISION_TOOLS: [&str; 19] = [
     "open_tex_file",
     "get_selection",
     "read_tex_file",
@@ -239,6 +242,10 @@ const REVISION_TOOLS: [&str; 15] = [
     "render_pdf_page",
     "list_tex_versions",
     "load_tex_version",
+    "list_tex_figures",
+    "render_figure",
+    "save_figure_notes",
+    "get_figure_notes",
 ];
 
 fn revisions_offered(session: &Session, config: &Config) -> bool {
@@ -277,6 +284,10 @@ fn call_revision(
         "render_pdf_page" => crate::compile::render_page(args),
         "list_tex_versions" => crate::revision::list_versions(&config.app_dir, args),
         "load_tex_version" => crate::revision::load_version(&config.app_dir, args),
+        "list_tex_figures" => crate::figures::list(&config.app_dir, args, roots),
+        "render_figure" => crate::figures::render(args),
+        "save_figure_notes" => crate::figures::save(&config.app_dir, args),
+        "get_figure_notes" => crate::figures::get(&config.app_dir, args, roots),
         _ => Err(format!("outil inconnu : {name}")),
     }
 }
@@ -436,6 +447,51 @@ fn revision_tools() -> Value {
             }, "required": ["path", "id"]},
             "annotations": {"readOnlyHint": true},
             "_meta": app_only,
+        },
+        {
+            "name": "list_tex_figures",
+            "title": "Figures du projet",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : les figures d'un dossier de projet, le fichier et la ligne où chacune est citée (\\includegraphics), et les notes posées dessus.",
+            "inputSchema": {"type": "object", "properties": {
+                "dir": {"type": "string", "description": "Chemin absolu du dossier du projet."},
+            }, "required": ["dir"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "render_figure",
+            "title": "Aperçu d'une figure",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : une figure du projet (PDF, PNG, JPEG, SVG) en image, réduite à width pixels.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu de la figure."},
+                "width": {"type": "integer", "minimum": 80, "maximum": 2400},
+                "page": {"type": "integer", "minimum": 1},
+            }, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "save_figure_notes",
+            "title": "Garder les notes d'une figure",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : remplace les notes (cadre ou point, texte) posées sur une figure ; send les envoie à Claude avec l'image annotée. Rangées dans le dossier d'Atelier, jamais dans le projet.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu de la figure."},
+                "notes": {"type": "array", "items": {"type": "object"}},
+                "send": {"type": "boolean"},
+                "image": {"type": "string", "description": "La figure annotée, PNG ou JPEG en base64."},
+                "uses": {"type": "array", "items": {"type": "object"}},
+            }, "required": ["path", "notes"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": false},
+            "_meta": app_only,
+        },
+        {
+            "name": "get_figure_notes",
+            "title": "Lire mes notes sur une figure",
+            "description": "Les notes que l'utilisateur a posées sur une figure de son projet LaTeX (onglet Figures de l'éditeur) et t'a envoyées : la figure annotée en image, chaque note numérotée avec sa place, et où la figure est citée. À appeler quand il parle de ses notes sur une figure, de « la figure que je t'ai envoyée » ou de « mes annotations ». Sans path : les derniers envois.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu d'une figure précise (facultatif)."},
+            }},
+            "annotations": {"readOnlyHint": true},
         },
     ])
 }

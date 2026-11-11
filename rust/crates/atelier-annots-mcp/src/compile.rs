@@ -58,7 +58,7 @@ impl Drop for Running {
     }
 }
 
-fn mtime_ms(path: &Path) -> Option<u64> {
+pub(crate) fn mtime_ms(path: &Path) -> Option<u64> {
     let modified = std::fs::metadata(path).ok()?.modified().ok()?;
     Some(modified.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64)
 }

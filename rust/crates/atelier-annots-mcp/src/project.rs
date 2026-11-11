@@ -25,7 +25,7 @@ const PENDING_MAX_AGE_MS: u64 = 7 * 24 * 3600 * 1000;
 
 static PENDING_LOCK: Mutex<()> = Mutex::new(());
 
-fn ext_of(path: &Path) -> String {
+pub(crate) fn ext_of(path: &Path) -> String {
     path.extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase())
@@ -42,16 +42,16 @@ fn kind_of(ext: &str) -> Option<&'static str> {
     }
 }
 
-struct Entry {
-    path: PathBuf,
-    rel: String,
-    kind: &'static str,
-    size: u64,
+pub(crate) struct Entry {
+    pub(crate) path: PathBuf,
+    pub(crate) rel: String,
+    pub(crate) kind: &'static str,
+    pub(crate) size: u64,
 }
 
 /// Parcours du dossier : fichiers du projet seulement, sans suivre les liens
 /// (un lien ne doit pas faire sortir du dossier ouvert), sans dossiers cachés.
-fn walk(base: &Path, dir: &Path, depth: usize, out: &mut Vec<Entry>, truncated: &mut bool) {
+pub(crate) fn walk(base: &Path, dir: &Path, depth: usize, out: &mut Vec<Entry>, truncated: &mut bool) {
     let Ok(read) = std::fs::read_dir(dir) else {
         return;
     };
@@ -98,7 +98,7 @@ fn walk(base: &Path, dir: &Path, depth: usize, out: &mut Vec<Entry>, truncated: 
 /// fichiers (`\input`, `\include`, `\subfile`), puis `main.tex`, puis
 /// l'ordre alphabétique. Un document d'essai posé à côté du vrai projet ne
 /// passe donc pas devant lui.
-fn main_file(entries: &[Entry]) -> Option<&Entry> {
+pub(crate) fn main_file(entries: &[Entry]) -> Option<&Entry> {
     let mut tex: Vec<&Entry> = entries
         .iter()
         .filter(|e| ext_of(&e.path) == "tex")
@@ -189,7 +189,7 @@ pub fn list(args: &Value, roots: Option<&[PathBuf]>) -> Result<Value, String> {
     }))
 }
 
-fn dir_allowed(dir: &Path, roots: &[PathBuf]) -> bool {
+pub(crate) fn dir_allowed(dir: &Path, roots: &[PathBuf]) -> bool {
     let Ok(real) = dir.canonicalize() else {
         return false;
     };
@@ -200,7 +200,7 @@ fn dir_allowed(dir: &Path, roots: &[PathBuf]) -> bool {
     })
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)

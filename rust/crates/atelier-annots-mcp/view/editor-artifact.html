@@ -11,7 +11,7 @@
   --fg: #1a1d22; --fg2: #32363b; --muted: #595e64; --muted2: #82878c;
   --accent: #cf630d; --info: #3f6fd1; --ok: #2f6b41; --warn: #7a5a09; --hot: #a8322a;
   --tok-math: #1c7566; --ins-fg: #1f5230; --del-fg: #8f2a23;
-  --canvas: #e3e7ec; --paper: #ffffff;
+  --canvas: #e3e7ec; --paper: #ffffff; --ann: #3f6fd1; --on-ann: #ffffff; --paper-ink: #595e64;
   --elev: 0 4px 18px rgba(20,28,38,.12), 0 1px 4px rgba(20,28,38,.08);
   --elev-soft: 0 0 0 .5px rgba(20,28,38,.08), 0 1px 3px rgba(20,28,38,.09);
   --ui: -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
@@ -24,7 +24,7 @@
   --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
   --accent: #e77f3e; --info: #7aa2f7; --ok: #98c379; --warn: #e0b74a; --hot: #e06c75;
   --tok-math: #7cc9b4; --ins-fg: #b9dea3; --del-fg: #f0a7a2;
-  --canvas: #161a1e; --paper: #f4f4f2;
+  --canvas: #161a1e; --paper: #f4f4f2; --ann: #3f6fd1; --on-ann: #ffffff; --paper-ink: #595e64;
   --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
   --elev-soft: 0 0 0 .5px rgba(255,255,255,.06), 0 1px 3px rgba(0,0,0,.3);
   color-scheme: dark; } }
@@ -34,7 +34,7 @@
   --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
   --accent: #e77f3e; --info: #7aa2f7; --ok: #98c379; --warn: #e0b74a; --hot: #e06c75;
   --tok-math: #7cc9b4; --ins-fg: #b9dea3; --del-fg: #f0a7a2;
-  --canvas: #161a1e; --paper: #f4f4f2;
+  --canvas: #161a1e; --paper: #f4f4f2; --ann: #3f6fd1; --on-ann: #ffffff; --paper-ink: #595e64;
   --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
   --elev-soft: 0 0 0 .5px rgba(255,255,255,.06), 0 1px 3px rgba(0,0,0,.3);
   color-scheme: dark; }
@@ -80,7 +80,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--info); outl
 
 /* Corps : volet et source. */
 .body { flex: 1; min-height: 0; display: flex; position: relative; }
-.side { width: 232px; flex: none; background: var(--side); display: flex; flex-direction: column; min-height: 0; }
+.side { width: 256px; flex: none; background: var(--side); display: flex; flex-direction: column; min-height: 0; }
 body[data-side="off"] .side { display: none; }
 .seg { display: flex; gap: 4px; margin: 12px 12px 8px; padding: 2px; border-radius: 6px; background: color-mix(in srgb, var(--fg) 7%, transparent); flex: none; }
 .seg button { flex: 1; height: 24px; border-radius: 4px; font-size: 11px; font-weight: 500; color: var(--muted); transition: background-color var(--t), color var(--t); }
@@ -294,6 +294,84 @@ body[data-pdf="off"] .pdf { display: none; }
 .status .undo-all { color: var(--muted); }
 .status .undo-all:hover { color: var(--fg); }
 
+/* Figures : liste du volet, galerie et visionneuse dans le panneau de droite. */
+.chips { display: flex; gap: 4px; flex-wrap: wrap; padding: 0 4px 8px; }
+.chip { height: 24px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--muted); transition: background-color var(--t), color var(--t); }
+.chip:hover { color: var(--fg); }
+.chip[aria-pressed="true"] { background: var(--ctl); color: var(--fg); }
+.grp { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 6px; width: 100%; color: var(--muted); font-size: 11px; font-weight: 500; text-align: left; transition: background-color var(--t); }
+.grp:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.grp svg { color: var(--muted2); transition: transform var(--t); }
+.grp.shut svg { transform: rotate(-90deg); }
+.grp .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.grp .n { font-variant-numeric: tabular-nums; color: var(--muted2); font-weight: 400; }
+.row .nb, .card .nb { height: 16px; min-width: 16px; padding: 0 4px; border-radius: 999px; background: var(--ann); color: var(--on-ann); font-size: 10px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; flex: none; }
+.pdf:not([data-mode="pdf"]) > .pp { display: none !important; }
+.pdf[data-mode="pdf"] > .fg { display: none; }
+.fg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fg-h { display: flex; align-items: center; gap: 8px; height: 36px; flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.fg-h .tb { height: 24px; padding: 0 8px; }
+.fg-h .ib { width: 24px; height: 24px; }
+.fg-h .ttl { min-width: 0; flex: 1; display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.fg-h .ttl b { color: var(--fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.fg-h .ttl span { overflow: hidden; text-overflow: ellipsis; }
+.fg-h .ttl svg { color: var(--muted2); }
+.fg-h .ct { font-variant-numeric: tabular-nums; color: var(--muted2); }
+.fg-s { flex: 1; min-height: 0; overflow: auto; padding: 4px 16px 24px; display: flex; flex-direction: column; gap: 16px; }
+.fsec { display: grid; gap: 8px; }
+.fsec h4 { margin: 0; font-size: 11px; font-weight: 500; color: var(--muted); display: flex; gap: 8px; min-width: 0; }
+.fsec h4 b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.fsec h4 span { font-variant-numeric: tabular-nums; color: var(--muted2); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 12px; }
+.card { border-radius: 10px; background: var(--pop); box-shadow: var(--elev-soft); overflow: hidden; text-align: left; display: grid; min-width: 0; transition: box-shadow var(--t), transform var(--t); }
+.card:hover { box-shadow: var(--elev); transform: translateY(-1px); }
+.card .th { aspect-ratio: 4 / 3; background: var(--paper); display: grid; place-items: center; position: relative; overflow: hidden; }
+.card .th img { width: 100%; height: 100%; object-fit: contain; padding: 8px; display: block; }
+.card .th .ph { color: var(--paper-ink); font-size: 11px; padding: 8px; text-align: center; }
+.card .nb { position: absolute; top: 8px; right: 8px; height: 20px; min-width: 20px; padding: 0 4px; font-size: 11px; }
+.card .meta { padding: 8px 12px; display: grid; min-width: 0; }
+.card .meta b { font-weight: 500; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .meta span { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .meta span.un { color: var(--muted2); }
+.fempty { margin: auto; max-width: 320px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; padding: 24px 0; }
+.fempty b { color: var(--fg2); font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.stage { position: relative; display: grid; justify-items: center; padding-top: 4px; }
+.paper { position: relative; width: 100%; background: var(--paper); border-radius: 6px; box-shadow: var(--elev-soft); overflow: hidden; touch-action: none; }
+.paper img { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
+.paper .ld { padding: 48px 16px; text-align: center; color: var(--paper-ink); font-size: 11px; }
+.paper[data-tool="box"], .paper[data-tool="point"] { cursor: crosshair; }
+.ov { position: absolute; inset: 0; }
+.abox { position: absolute; border: 1.5px solid var(--ann); border-radius: 4px; background: color-mix(in srgb, var(--ann) 8%, transparent); transition: background-color var(--t); }
+.abox.sel { background: color-mix(in srgb, var(--ann) 16%, transparent); }
+.pin { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 999px; background: var(--ann); color: var(--on-ann); font-size: 11px; font-weight: 600; display: grid; place-items: center; box-shadow: 0 1px 3px rgba(0,0,0,.25); font-variant-numeric: tabular-nums; transition: transform var(--t); }
+.pin:hover, .pin.sel { transform: scale(1.12); }
+.pin.draft { background: color-mix(in srgb, var(--ann) 70%, var(--on-ann)); }
+.npop { position: absolute; z-index: 6; width: min(296px, calc(100% - 8px)); border-radius: 10px; background: var(--pop); box-shadow: var(--elev); padding: 12px; display: grid; gap: 8px; opacity: 0; transform: translateY(-4px); transition: opacity var(--t), transform var(--t); }
+.npop.on { opacity: 1; transform: none; }
+.npop .h { display: flex; align-items: center; gap: 8px; font-weight: 500; color: var(--fg); }
+.npop .h .pin { position: static; margin: 0; }
+.npop .h .m { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: auto; }
+.npop textarea { width: 100%; min-height: 64px; resize: vertical; border: 0; border-radius: 6px; background: var(--ctl); color: var(--fg); font: 400 12px/1.5 var(--ui); padding: 8px; box-sizing: border-box; }
+.npop textarea:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+.npop .a { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.npop .a .tb { height: 24px; padding: 0 8px; }
+.npop .a .rm { color: var(--hot); }
+.npop .a .sp { flex: 1; }
+.fblk { display: grid; gap: 4px; }
+.fblk > .lb { font-size: 11px; font-weight: 500; color: var(--muted); padding: 0 8px; }
+.fblk .row .tag { font-family: var(--mono); font-size: 11px; }
+.fblk .hint { padding: 4px 8px; }
+.nrow { display: grid; grid-template-columns: 20px 1fr; gap: 4px 8px; padding: 8px; border-radius: 6px; text-align: left; width: 100%; transition: background-color var(--t); }
+.nrow:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.nrow.sel { background: var(--row-sel); }
+.nrow .pin { position: static; margin: 0; }
+.nrow p { margin: 0; color: var(--fg2); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.nrow p.em { color: var(--muted2); font-style: italic; }
+.nrow small { grid-column: 2; color: var(--muted2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.nrow small.st { color: var(--ok); }
+.fsent { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--ok) 12%, var(--bg)); color: var(--fg); font-size: 12px; }
+.fsent .tb { height: 24px; padding: 0 8px; }
+
 /* Panneau étroit (à côté de la conversation) : le volet passe par-dessus
    la source, les boutons gardent leur icône. */
 @media (max-width: 759px) {
@@ -334,6 +412,11 @@ body[data-pdf="off"] .pdf { display: none; }
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
   <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c4.66 0 8.64 2.89 9.94 6.65a1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49"/><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"/><path d="M17.48 17.5A10.75 10.75 0 0 1 2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14"/><path d="m2 2 20 20"/></symbol>
   <symbol id="i-log" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></symbol>
+  <symbol id="i-sq" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1.5" stroke-dasharray="3 2.5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0-.03.94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
 </svg>
 
 <header class="top gut">
@@ -358,11 +441,13 @@ body[data-pdf="off"] .pdf { display: none; }
     <div class="seg" role="tablist">
       <button type="button" role="tab" id="segFiles" aria-selected="true">Fichiers</button>
       <button type="button" role="tab" id="segPlan" aria-selected="false">Plan</button>
+      <button type="button" role="tab" id="segFigs" aria-selected="false">Figures</button>
       <button type="button" role="tab" id="segHist" aria-selected="false">Historique</button>
     </div>
     <div class="list" id="files"><p class="hint">Connexion au connecteur Atelier…</p></div>
     <div class="list" id="plan" hidden></div>
     <div class="list" id="hist" hidden></div>
+    <div class="list" id="figs" hidden></div>
     <form class="open" id="openForm" hidden>
       <input id="pathInput" type="text" spellcheck="false" autocomplete="off" placeholder="~/Documents/…/chapitre.tex" aria-label="Chemin du fichier">
       <button class="tb" type="submit">Ouvrir</button>
@@ -394,8 +479,8 @@ body[data-pdf="off"] .pdf { display: none; }
       <div class="empty" id="empty"><div><b>Éditeur LaTeX d'Atelier</b>Ton projet s'ouvre ici : tu modifies les fichiers à la main, Claude les révise dans la conversation.</div></div>
     </div>
   </section>
-  <section class="pdf" id="pdf" aria-label="Aperçu PDF">
-    <div class="pdf-h gut">
+  <section class="pdf" id="pdf" aria-label="Aperçu PDF" data-mode="pdf">
+    <div class="pdf-h pp gut">
       <span id="pdfPage"></span>
       <span class="zm" id="pdfZoom" hidden>
         <button class="ib" id="zoomOut" type="button" aria-label="Réduire" title="Réduire"><svg class="i s"><use href="#i-minus"/></svg></button>
@@ -405,10 +490,14 @@ body[data-pdf="off"] .pdf { display: none; }
       <button class="cs" id="pdfState" type="button" disabled><span class="t" id="pdfStateT">Pas encore compilé</span><svg class="i s"><use id="pdfStateI" href="#i-eye-off"/></svg></button>
       <button class="ib" id="logBtn" type="button" aria-pressed="false" aria-label="Journal de compilation" title="Journal de compilation" hidden><svg class="i"><use href="#i-log"/></svg></button>
     </div>
-    <div class="issues" id="issues" hidden></div>
-    <pre class="log" id="log" hidden></pre>
-    <div class="pdf-s" id="pages">
+    <div class="issues pp" id="issues" hidden></div>
+    <pre class="log pp" id="log" hidden></pre>
+    <div class="pdf-s pp" id="pages">
       <div class="pdf-e" id="pdfEmpty"><b>Aperçu du PDF</b><span>Compile le projet pour voir le document ici. Les erreurs s'affichent avec leur fichier et leur ligne.</span></div>
+    </div>
+    <div class="fg" id="fg">
+      <div class="fg-h gut" id="fgHead"></div>
+      <div class="fg-s" id="fgBody"></div>
     </div>
   </section>
 </div>
@@ -722,6 +811,7 @@ body[data-pdf="off"] .pdf { display: none; }
     cm.addOverlay(keyOverlay);
     cm.on("change", function () { refreshState(); schedulePaint(); scheduleWords(); schedulePlan(1200); });
     cm.on("cursorActivity", onCursor);
+    cm.on("mousedown", function (c, ev) { setTimeout(function () { onEditorClick(c, ev); }, 0); });
     cm.on("gutterClick", function (c, line, gutter) { if (gutter === "chg") openHunk(line); });
     cm.on("change", function () { if (hunkPop) closeHunk(); });
     cm.on("scroll", function () { if (hunkPop) closeHunk(); });
@@ -1039,6 +1129,7 @@ body[data-pdf="off"] .pdf { display: none; }
       schedulePlan(200);
       if (/\.bib$/i.test(d.path)) readBibKeys();
       loadHist(true);
+      if (figs.loaded) { clearTimeout(figs.timer); figs.timer = setTimeout(function () { loadFigures(true); }, 800); }
       return true;
     }).catch(function (e) {
       var sc = e && e.result && e.result.structuredContent;
@@ -1397,16 +1488,22 @@ body[data-pdf="off"] .pdf { display: none; }
     if (cm) cm.refresh();
   }
   function seg(which) {
-    if (which !== "plan" && which !== "hist") which = "files";
+    if (which !== "plan" && which !== "hist" && which !== "figs") which = "files";
     var files = which === "files";
     $("segFiles").setAttribute("aria-selected", String(files));
     $("segPlan").setAttribute("aria-selected", String(which === "plan"));
+    $("segFigs").setAttribute("aria-selected", String(which === "figs"));
     $("segHist").setAttribute("aria-selected", String(which === "hist"));
-    $("files").hidden = !files; $("plan").hidden = which !== "plan"; $("hist").hidden = which !== "hist";
+    $("files").hidden = !files; $("plan").hidden = which !== "plan"; $("hist").hidden = which !== "hist"; $("figs").hidden = which !== "figs";
     $("openForm").hidden = !files || !legacy;
     store.set("atelier-editor-seg", which);
     if (which === "plan") renderPlan();
     if (which === "hist") loadHist(false);
+    if (which === "figs") {
+      renderFigList();
+      loadFigures(false);
+      if (rightMode() === "pdf" && !narrow()) setRight("grid");
+    }
   }
   function fileIcon(kind) { return kind === "figure" ? "img" : kind === "bib" ? "book" : "file"; }
 
@@ -1449,15 +1546,17 @@ body[data-pdf="off"] .pdf { display: none; }
         });
         node.files.forEach(function (f) {
           var n = proposalsFor(f.path).length;
-          var row = el("button", "row" + (f.path === active ? " sel" : "") + (f.editable ? "" : " off"));
+          var isFig = f.kind === "figure" && !legacy;
+          var row = el("button", "row" + (f.path === active ? " sel" : "") + (f.editable || isFig ? "" : " off"));
           row.type = "button"; row.style.paddingLeft = (8 + depth * 16 + (depth ? 4 : 0)) + "px";
-          row.title = f.editable ? f.rel : f.rel + " (figure, pas ouverte dans l'éditeur)";
+          row.title = f.editable ? f.rel : isFig ? f.rel + " · ouvrir la figure" : f.rel + " (pas ouvert dans l'éditeur)";
           row.appendChild(icon(fileIcon(f.kind)));
           row.appendChild(el("span", "nm", base(f.rel)));
           if (n) { var t = el("span", "tag acc", String(n)); t.title = n > 1 ? n + " propositions de Claude" : "1 proposition de Claude"; row.appendChild(t); }
           else if (f.path === pr.main) row.appendChild(el("span", "tag", "principal"));
           if (docs[f.path] && isDirty(docs[f.path])) { var dot = el("span", "dot"); dot.title = "Modifié"; row.appendChild(dot); }
           if (f.editable) row.onclick = function () { openFile(f.path); };
+          else if (isFig) row.onclick = function () { loadFigures(false).then(function () { openFigure(f.path); }); };
           else row.setAttribute("aria-disabled", "true");
           box.appendChild(row);
         });
@@ -1527,6 +1626,8 @@ body[data-pdf="off"] .pdf { display: none; }
     var open = tabs.filter(function (t) { return t.indexOf(pr.path + "/") === 0; })[0];
     var target = open || pr.main || (pr.files.filter(function (f) { return f.kind === "tex"; })[0] || {}).path;
     resetPdf();
+    resetFigures();
+    if (!$("figs").hidden) loadFigures(false);
     var go = target ? openFile(target) : Promise.resolve();
     return Promise.resolve(go).then(function () { schedulePlan(100); restorePdf(); renderCrumb(); });
   }
@@ -1882,6 +1983,7 @@ body[data-pdf="off"] .pdf { display: none; }
     var main = mainPath();
     if (!mcp || !main || build.running) return;
     build.running = true;
+    if (rightMode() !== "pdf") setRight("pdf");
     $("compileLbl").textContent = "Compilation…";
     setBuildState("run", "Compilation de " + base(main) + "…");
     refreshState();
@@ -2138,12 +2240,609 @@ body[data-pdf="off"] .pdf { display: none; }
     });
   }
 
+  // ——— Figures ———
+  // Onglet Figures du volet (liste par dossier), galerie et visionneuse dans
+  // le panneau de droite, à la place du PDF. Les notes (cadre ou point) sont
+  // gardées par le connecteur dans le dossier d'Atelier, jamais dans le
+  // projet ; « Envoyer à Claude » joint la figure annotée telle qu'on la voit.
+  var figs = { dir: null, list: [], byPath: {}, loaded: false, loading: null, off: false, err: null,
+    chip: store.get("atelier-editor-figchip") || "all", open: null, notes: [], tool: null, sel: null,
+    thumbs: {}, full: {}, queue: [], inflight: 0, shut: {}, sent: null, drag: null };
+  var FIG_SNAP_MAX = 1600;
+
+  function figDir(f) { var i = f.rel.lastIndexOf("/"); return i < 0 ? "" : f.rel.slice(0, i); }
+  function figStem(rel) { return rel.replace(/\.[a-z0-9]+$/i, ""); }
+  function figUsed(f) { return f.uses && f.uses.length > 0; }
+  function figNoteCount(f) { return (f.notes || []).filter(function (n) { return n.text; }).length; }
+  function figShown(f) {
+    if (figs.chip === "used") return figUsed(f);
+    if (figs.chip === "notes") return figNoteCount(f) > 0;
+    return true;
+  }
+  function useText(u) { return base(u.rel) + ":" + u.line; }
+
+  function loadFigures(force) {
+    var pr = proj();
+    if (!pr || !mcp || figs.off) return Promise.resolve(false);
+    if (figs.loading) return figs.loading;
+    if (figs.loaded && !force && figs.dir === pr.path) return Promise.resolve(true);
+    figs.loading = call("list_tex_figures", { dir: pr.path }).then(function (p) {
+      if (proj() !== pr) return false;
+      figs.dir = pr.path; figs.list = p.figures || []; figs.byPath = {}; figs.loaded = true; figs.err = null;
+      figs.list.forEach(function (f) { figs.byPath[f.path] = f; });
+      if (figs.open && figs.byPath[figs.open] && !figs.drag && !figs.sel) figs.notes = cloneNotes(figs.byPath[figs.open].notes);
+      return true;
+    }, function (e) {
+      var stale = e && (e.code === "blocked_by_policy" || e.code === "not_in_manifest" || (e.code === "tool_error" && /inconnu|indisponible|unknown/i.test(toolText(e))));
+      if (stale) figs.off = true; else figs.err = errorText(e);
+      return false;
+    }).then(function (ok) { figs.loading = null; renderFigList(); if (!(figs.sel && rightMode() === "fig")) renderFigPane(); return ok; });
+    renderFigList();
+    return figs.loading;
+  }
+  function resetFigures() {
+    figs.dir = null; figs.list = []; figs.byPath = {}; figs.loaded = false; figs.err = null;
+    figs.open = null; figs.notes = []; figs.sel = null; figs.sent = null; figs.thumbs = {}; figs.full = {}; figs.queue = [];
+    if (rightMode() !== "pdf") setRight("pdf");
+  }
+  function figGroups() {
+    var groups = {}, order = [];
+    figs.list.forEach(function (f) {
+      if (!figShown(f)) return;
+      var d = figDir(f);
+      if (!groups[d]) { groups[d] = []; order.push(d); }
+      groups[d].push(f);
+    });
+    order.sort(function (a, b) {
+      var ua = groups[a].some(figUsed) ? 0 : 1, ub = groups[b].some(figUsed) ? 0 : 1;
+      return ua - ub || a.localeCompare(b);
+    });
+    return order.map(function (d) {
+      groups[d].sort(function (x, y) { return base(x.rel).localeCompare(base(y.rel), "fr", { numeric: true }); });
+      return { dir: d, items: groups[d] };
+    });
+  }
+  function chipRow(onPick) {
+    var row = el("div", "chips");
+    [["all", "Toutes"], ["used", "Citées"], ["notes", "Avec notes"]].forEach(function (c) {
+      var b = el("button", "chip", c[1]);
+      b.type = "button"; b.setAttribute("aria-pressed", String(figs.chip === c[0]));
+      b.onclick = function () { figs.chip = c[0]; store.set("atelier-editor-figchip", c[0]); renderFigList(); renderFigPane(); if (onPick) onPick(); };
+      row.appendChild(b);
+    });
+    return row;
+  }
+  function staleFigNote(box) {
+    box.appendChild(el("p", "hint", "Le connecteur qui tourne sur ton Mac ne connaît pas encore les figures. Relance Atelier, puis actualise les outils du connecteur dans Claude (Paramètres, Connecteurs, Atelier)."));
+  }
+
+  function renderFigList() {
+    var box = $("figs");
+    if (box.hidden) return;
+    box.textContent = "";
+    if (figs.off) { staleFigNote(box); return; }
+    if (figs.err) { box.appendChild(el("p", "hint", "Figures introuvables : " + figs.err)); return; }
+    if (!figs.loaded) { box.appendChild(el("p", "hint", "Recherche des figures du projet…")); return; }
+    box.appendChild(chipRow());
+    var groups = figGroups();
+    if (!groups.length) {
+      box.appendChild(el("p", "hint", figs.list.length ? "Aucune figure pour ce filtre." : "Aucune figure (PDF, PNG, JPEG, SVG) dans le dossier du projet."));
+      return;
+    }
+    groups.forEach(function (g) {
+      var key = figs.dir + "/" + g.dir;
+      if (figs.shut[key] == null) figs.shut[key] = figs.chip === "all" && !g.items.some(function (f) { return figUsed(f) || figNoteCount(f); });
+      var head = el("button", "grp" + (figs.shut[key] ? " shut" : ""));
+      head.type = "button"; head.setAttribute("aria-expanded", String(!figs.shut[key]));
+      head.title = g.dir || "Dossier du projet";
+      head.appendChild(icon("cd", true));
+      head.appendChild(el("span", "nm", g.dir ? "‎" + g.dir : "Dossier du projet"));
+      head.appendChild(el("span", "n", String(g.items.length)));
+      head.onclick = function () { figs.shut[key] = !figs.shut[key]; renderFigList(); };
+      box.appendChild(head);
+      if (figs.shut[key]) return;
+      g.items.forEach(function (f) {
+        var n = figNoteCount(f);
+        var row = el("button", "row" + (f.path === figs.open && rightMode() === "fig" ? " sel" : "") + (figUsed(f) ? "" : " dim"));
+        row.type = "button"; row.style.paddingLeft = "20px";
+        row.title = f.rel + (figUsed(f) ? " · citée dans " + f.uses.map(useText).join(", ") : " · pas citée dans le texte");
+        row.appendChild(icon("img"));
+        row.appendChild(el("span", "nm", base(f.rel)));
+        if (n) { var b = el("span", "nb", String(n)); b.title = n > 1 ? n + " notes" : "1 note"; row.appendChild(b); }
+        else if (!figUsed(f)) row.appendChild(el("span", "tag", "pas citée"));
+        row.onclick = function () { openFigure(f.path); };
+        box.appendChild(row);
+      });
+    });
+  }
+
+  // ——— Panneau de droite : PDF, galerie, figure ———
+  function rightMode() { return $("pdf").getAttribute("data-mode") || "pdf"; }
+  function setRight(mode) {
+    $("pdf").setAttribute("data-mode", mode);
+    $("pdf").setAttribute("aria-label", mode === "pdf" ? "Aperçu PDF" : "Figures");
+    if (mode !== "fig") closeNotePop();
+    if (mode !== "pdf" && !pdfOn()) setPdf(true);
+    renderFigPane();
+    renderFigList();
+    if (mode === "pdf") { layoutPages(); pump(); }
+  }
+  function headBtn(cls, iconId, label, run, title) {
+    var b = el("button", cls);
+    b.type = "button";
+    if (iconId) b.appendChild(icon(iconId, cls.indexOf("ib") >= 0 ? false : true));
+    if (label) b.appendChild(el("span", "", label));
+    if (title) { b.title = title; b.setAttribute("aria-label", title); }
+    b.onclick = run;
+    return b;
+  }
+  function renderFigPane() {
+    var mode = rightMode();
+    if (mode === "pdf") return;
+    var head = $("fgHead"), body = $("fgBody");
+    head.textContent = ""; body.textContent = "";
+    if (mode === "grid") renderGrid(head, body);
+    else renderViewer(head, body);
+  }
+
+  function renderGrid(head, body) {
+    head.appendChild(headBtn("tb quiet", "left", "PDF", function () { setRight("pdf"); }, "Revenir au PDF"));
+    var t = el("span", "ttl");
+    t.appendChild(el("b", "", "Figures"));
+    if (figs.loaded) t.appendChild(el("span", "ct", String(figs.list.length)));
+    head.appendChild(t);
+    if (figs.off) { var e0 = el("div", "fempty"); staleFigNote(e0); body.appendChild(e0); return; }
+    if (!figs.loaded) { body.appendChild(el("div", "fempty", figs.err ? "Figures introuvables : " + figs.err : "Recherche des figures du projet…")); return; }
+    body.appendChild(chipRow());
+    var groups = figGroups();
+    if (!groups.length) {
+      var e = el("div", "fempty");
+      e.appendChild(el("b", "", figs.list.length ? "Aucune figure pour ce filtre" : "Aucune figure"));
+      e.appendChild(el("span", "", figs.list.length ? "Choisis « Toutes » pour les voir toutes." : "Le dossier du projet ne contient ni PDF, ni PNG, ni JPEG, ni SVG."));
+      body.appendChild(e);
+      return;
+    }
+    groups.forEach(function (g) {
+      var sec = el("section", "fsec"), h = el("h4");
+      h.appendChild(el("b", "", g.dir ? "‎" + g.dir : "Dossier du projet"));
+      h.appendChild(el("span", "", String(g.items.length)));
+      sec.appendChild(h);
+      var grid = el("div", "cards");
+      g.items.forEach(function (f) { grid.appendChild(card(f)); });
+      sec.appendChild(grid);
+      body.appendChild(sec);
+    });
+    observeThumbs();
+  }
+  function card(f) {
+    var c = el("button", "card");
+    c.type = "button"; c.title = f.rel;
+    var th = el("div", "th");
+    th.dataset.path = f.path;
+    paintThumb(th, f);
+    var n = figNoteCount(f);
+    if (n) { var b = el("span", "nb", String(n)); b.title = n > 1 ? n + " notes" : "1 note"; th.appendChild(b); }
+    c.appendChild(th);
+    var m = el("div", "meta");
+    m.appendChild(el("b", "", base(f.rel)));
+    if (figUsed(f)) m.appendChild(el("span", "", useText(f.uses[0]) + (f.uses.length > 1 ? " · +" + (f.uses.length - 1) : "")));
+    else m.appendChild(el("span", "un", "Pas citée"));
+    c.appendChild(m);
+    c.onclick = function () { openFigure(f.path); };
+    return c;
+  }
+  function paintThumb(th, f) {
+    var t = figs.thumbs[f.path];
+    var old = th.querySelector("img, .ph");
+    if (old) old.remove();
+    if (t && t.src && t.mtime === f.mtime) {
+      var img = el("img"); img.alt = ""; img.src = t.src; img.loading = "lazy";
+      th.insertBefore(img, th.firstChild);
+    } else if (t && t.err) th.insertBefore(el("span", "ph", t.err), th.firstChild);
+    else th.insertBefore(el("span", "ph", ""), th.firstChild);
+  }
+  var thumbObserver = null;
+  function observeThumbs() {
+    if (thumbObserver) thumbObserver.disconnect();
+    var nodes = Array.prototype.slice.call($("fgBody").querySelectorAll(".th"));
+    var want = function (th) {
+      var f = figs.byPath[th.dataset.path], t = f && figs.thumbs[f.path];
+      if (f && !(t && (t.src || t.err) && t.mtime === f.mtime) && figs.queue.indexOf(f.path) < 0) { figs.queue.push(f.path); pumpThumbs(); }
+    };
+    if (!window.IntersectionObserver) { nodes.forEach(want); return; }
+    thumbObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { want(en.target); thumbObserver.unobserve(en.target); } });
+    }, { root: $("fgBody"), rootMargin: "240px" });
+    nodes.forEach(function (n) { thumbObserver.observe(n); });
+  }
+  function pumpThumbs() {
+    while (figs.inflight < 3 && figs.queue.length) {
+      var path = figs.queue.shift(), f = figs.byPath[path];
+      if (!f) continue;
+      figs.inflight++;
+      (function (f) {
+        callImage("render_figure", { path: f.path, width: 400 }).then(function (out) {
+          figs.thumbs[f.path] = { src: out.src, mtime: f.mtime };
+        }, function (e) {
+          figs.thumbs[f.path] = { err: /pas d'aperçu/i.test(toolText(e)) ? "Pas d'aperçu (." + f.ext + ")" : "Aperçu impossible", mtime: f.mtime };
+        }).then(function () {
+          figs.inflight--;
+          var th = $("fgBody").querySelector('.th[data-path="' + cssq(f.path) + '"]');
+          if (th) paintThumb(th, f);
+          pumpThumbs();
+        });
+      })(f);
+    }
+  }
+
+  // ——— Visionneuse et notes ———
+  function cloneNotes(list) { return (list || []).map(function (n) { var o = {}; for (var k in n) o[k] = n[k]; return o; }); }
+  function openFigure(path) {
+    if (!figs.byPath[path]) return;
+    if (figs.open !== path) { figs.open = path; figs.notes = cloneNotes(figs.byPath[path].notes); figs.sel = null; figs.tool = null; figs.sent = null; }
+    if (narrow()) setSide(false);
+    setRight("fig");
+  }
+  function figWidth() {
+    var w = $("fgBody").clientWidth || 600, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    return Math.min(2000, Math.max(400, Math.ceil((w - 32) * dpr / 200) * 200));
+  }
+  function unsentCount() { return figs.notes.filter(function (n) { return n.text && n.status !== "sent"; }).length; }
+  function renderViewer(head, body) {
+    var f = figs.byPath[figs.open];
+    if (!f) { setRight("grid"); return; }
+    head.appendChild(headBtn("ib", "left", "", function () { setRight("grid"); }, "Toutes les figures"));
+    var t = el("span", "ttl");
+    if (figDir(f)) { t.appendChild(el("span", "", "‎" + figDir(f).split("/").pop())); t.appendChild(icon("cr", true)); }
+    t.appendChild(el("b", "", base(f.rel)));
+    t.title = f.rel;
+    head.appendChild(t);
+    var box = headBtn("ib", "sq", "", function () { setTool("box"); }, "Cadre : tire un rectangle sur la figure");
+    var pt = headBtn("ib", "pin", "", function () { setTool("point"); }, "Point : clique sur la figure");
+    box.setAttribute("aria-pressed", String(figs.tool === "box")); pt.setAttribute("aria-pressed", String(figs.tool === "point"));
+    box.id = "fgBox"; pt.id = "fgPoint";
+    head.appendChild(box); head.appendChild(pt);
+    head.appendChild(el("span", "sep"));
+    var send = headBtn("tb primary", "send", "Envoyer à Claude", function () { sendNotes(); }, "");
+    send.id = "fgSend"; send.disabled = !unsentCount();
+    send.title = unsentCount() ? "Envoyer les notes et la figure annotée à Claude" : "Aucune nouvelle note à envoyer";
+    head.appendChild(send);
+
+    var stage = el("div", "stage"), paper = el("div", "paper");
+    paper.id = "fgPaper";
+    if (figs.tool) paper.setAttribute("data-tool", figs.tool);
+    var full = figs.full[f.path];
+    if (full && full.src && full.mtime === f.mtime) {
+      var img = el("img"); img.id = "fgImg"; img.alt = base(f.rel); img.src = full.src; img.draggable = false;
+      paper.appendChild(img);
+      var ov = el("div", "ov"); ov.id = "fgOv";
+      paper.appendChild(ov);
+      paintNotes(ov);
+      bindDraw(paper);
+    } else {
+      paper.appendChild(el("div", "ld", full && full.err ? full.err : "Chargement de la figure…"));
+      if (!full || full.mtime !== f.mtime) loadFull(f);
+    }
+    stage.appendChild(paper);
+    body.appendChild(stage);
+
+    if (figs.sent) {
+      var ok = el("div", "fsent");
+      ok.appendChild(el("span", "", figs.sent));
+      var cp = headBtn("tb", "copy", "Copier la demande", function () {
+        var ask = "Regarde mes notes sur la figure " + base(f.rel) + " (get_figure_notes).";
+        try { navigator.clipboard.writeText(ask).then(function () { flashStatus("Demande copiée : colle-la dans la conversation"); }, function () {}); } catch (e) {}
+      }, "");
+      ok.appendChild(cp);
+      body.appendChild(ok);
+    }
+
+    var uses = el("div", "fblk");
+    uses.appendChild(el("div", "lb", "Citée dans"));
+    if (figUsed(f)) f.uses.forEach(function (u) {
+      var r = el("button", "row");
+      r.type = "button"; r.title = "Voir dans le texte";
+      r.appendChild(icon("file"));
+      r.appendChild(el("span", "nm", u.rel));
+      r.appendChild(el("span", "tag", "l. " + u.line));
+      r.onclick = function () { openFile(u.path, u.line - 1); };
+      uses.appendChild(r);
+    });
+    else uses.appendChild(el("p", "hint", "Aucun \\includegraphics ne la cite dans les fichiers du projet."));
+    body.appendChild(uses);
+
+    var list = el("div", "fblk");
+    list.appendChild(el("div", "lb", figs.notes.length ? "Notes" : "Notes : aucune"));
+    if (!figs.notes.length) list.appendChild(el("p", "hint", "Choisis Cadre ou Point dans la barre, pose-le sur la figure et écris ta note. « Envoyer à Claude » lui transmet la figure annotée."));
+    figs.notes.forEach(function (n) {
+      var r = el("button", "nrow" + (figs.sel === n.id ? " sel" : ""));
+      r.type = "button";
+      r.appendChild(pinNode(n));
+      r.appendChild(el("p", n.text ? "" : "em", n.text || "Sans texte"));
+      var st = n.status === "sent" ? "envoyée à Claude" : "brouillon";
+      r.appendChild(el("small", n.status === "sent" ? "st" : "", (n.kind === "box" ? "Cadre" : "Point") + " · " + st));
+      r.onclick = function () { selectNote(n.id); };
+      list.appendChild(r);
+    });
+    body.appendChild(list);
+    if (figs.sel) placeNotePop();
+  }
+  function pinNode(n) {
+    var p = el("span", "pin" + (n.status === "sent" ? "" : " draft") + (figs.sel === n.id ? " sel" : ""), String(n.n));
+    return p;
+  }
+  function loadFull(f) {
+    var w = figWidth();
+    figs.full[f.path] = { mtime: f.mtime, busy: true };
+    callImage("render_figure", { path: f.path, width: w }).then(function (out) {
+      figs.full[f.path] = { src: out.src, mtime: f.mtime };
+    }, function (e) {
+      figs.full[f.path] = { err: /pas d'aperçu/i.test(toolText(e)) ? "Pas d'aperçu pour un fichier ." + f.ext + " : ouvre la version PDF ou PNG de la figure." : "Aperçu impossible : " + errorText(e), mtime: f.mtime };
+    }).then(function () { if (figs.open === f.path && rightMode() === "fig") renderFigPane(); });
+  }
+  function renumber() { figs.notes.forEach(function (n, i) { n.n = i + 1; }); }
+  function paintNotes(ov) {
+    ov.textContent = "";
+    figs.notes.forEach(function (n) {
+      if (n.kind === "box") {
+        var b = el("div", "abox" + (figs.sel === n.id ? " sel" : ""));
+        b.style.left = (n.x * 100) + "%"; b.style.top = (n.y * 100) + "%";
+        b.style.width = (n.w * 100) + "%"; b.style.height = (n.h * 100) + "%";
+        b.onclick = function (ev) { if (figs.tool) return; ev.stopPropagation(); selectNote(n.id); };
+        ov.appendChild(b);
+      }
+      var p = pinNode(n);
+      p.style.left = (n.x * 100) + "%"; p.style.top = (n.y * 100) + "%";
+      p.setAttribute("role", "button"); p.tabIndex = 0;
+      p.title = n.text || "Note " + n.n;
+      p.onclick = function (ev) { ev.stopPropagation(); selectNote(n.id); };
+      p.onkeydown = function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); selectNote(n.id); } };
+      ov.appendChild(p);
+    });
+  }
+  function setTool(tool) {
+    figs.tool = figs.tool === tool ? null : tool;
+    closeNotePop();
+    var paper = $("fgPaper");
+    if (paper) { if (figs.tool) paper.setAttribute("data-tool", figs.tool); else paper.removeAttribute("data-tool"); }
+    if ($("fgBox")) $("fgBox").setAttribute("aria-pressed", String(figs.tool === "box"));
+    if ($("fgPoint")) $("fgPoint").setAttribute("aria-pressed", String(figs.tool === "point"));
+  }
+  function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+  function bindDraw(paper) {
+    var at = function (ev) {
+      var r = paper.getBoundingClientRect();
+      return { x: clamp01((ev.clientX - r.left) / r.width), y: clamp01((ev.clientY - r.top) / r.height) };
+    };
+    paper.addEventListener("pointerdown", function (ev) {
+      if (!figs.tool || ev.button !== 0) return;
+      ev.preventDefault();
+      var p = at(ev);
+      if (figs.tool === "point") { addNote({ kind: "point", x: p.x, y: p.y, w: 0, h: 0 }); return; }
+      try { paper.setPointerCapture(ev.pointerId); } catch (e) {}
+      var b = el("div", "abox sel");
+      $("fgOv").appendChild(b);
+      figs.drag = { x0: p.x, y0: p.y, el: b, x: p.x, y: p.y, w: 0, h: 0 };
+      place(b, figs.drag);
+    });
+    paper.addEventListener("pointermove", function (ev) {
+      var d = figs.drag;
+      if (!d) return;
+      var p = at(ev);
+      d.x = Math.min(d.x0, p.x); d.y = Math.min(d.y0, p.y); d.w = Math.abs(p.x - d.x0); d.h = Math.abs(p.y - d.y0);
+      place(d.el, d);
+    });
+    var end = function () {
+      var d = figs.drag;
+      if (!d) return;
+      figs.drag = null;
+      d.el.remove();
+      if (d.w < 0.012 && d.h < 0.012) addNote({ kind: "point", x: d.x0, y: d.y0, w: 0, h: 0 });
+      else addNote({ kind: "box", x: d.x, y: d.y, w: d.w, h: d.h });
+    };
+    paper.addEventListener("pointerup", end);
+    paper.addEventListener("click", function (ev) {
+      if (figs.tool || !figs.sel || (ev.target !== $("fgImg") && ev.target !== $("fgOv"))) return;
+      commitPop(); dropEmpty(); figs.sel = null; renderFigPane();
+    });
+    paper.addEventListener("pointercancel", function () { if (figs.drag) { figs.drag.el.remove(); figs.drag = null; } });
+    function place(b, d) {
+      b.style.left = (d.x * 100) + "%"; b.style.top = (d.y * 100) + "%";
+      b.style.width = (d.w * 100) + "%"; b.style.height = (d.h * 100) + "%";
+    }
+  }
+  function addNote(geo) {
+    var n = { id: "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), kind: geo.kind,
+      x: geo.x, y: geo.y, w: geo.w, h: geo.h, text: "", status: "draft", t: Date.now(), fresh: true };
+    commitPop(); dropEmpty();
+    figs.notes.push(n);
+    renumber();
+    figs.sent = null;
+    figs.tool = null;
+    figs.sel = n.id;
+    renderFigPane();
+  }
+  function noteById(id) { return figs.notes.filter(function (n) { return n.id === id; })[0] || null; }
+  // Le texte tapé dans la bulle ouverte est gardé avant de passer ailleurs.
+  function commitPop() {
+    var n = noteById(figs.sel), ta = notePop && notePop.querySelector("textarea");
+    if (!n || !ta) return;
+    var v = ta.value.trim();
+    if (v && v !== n.text) { n.text = v; n.status = "draft"; delete n.fresh; persistNotes(false); }
+  }
+  function selectNote(id) {
+    if (figs.sel && figs.sel !== id) { commitPop(); dropEmpty(); }
+    figs.sel = id;
+    renderFigPane();
+  }
+  // Une note neuve laissée vide disparaît quand on passe à autre chose.
+  function dropEmpty() {
+    var n = noteById(figs.sel);
+    if (n && n.fresh && !n.text) { figs.notes.splice(figs.notes.indexOf(n), 1); renumber(); }
+  }
+  var notePop = null;
+  function closeNotePop() {
+    if (notePop) { notePop.remove(); notePop = null; }
+  }
+  function placeNotePop() {
+    closeNotePop();
+    var n = noteById(figs.sel), paper = $("fgPaper");
+    if (!n || !paper || !$("fgImg")) return;
+    var pop = el("div", "npop");
+    var h = el("div", "h");
+    h.appendChild(pinNode(n));
+    h.appendChild(el("span", "", n.fresh && !n.text ? "Nouvelle note" : "Note " + n.n));
+    h.appendChild(el("span", "m", n.kind === "box" ? "Cadre" : "Point"));
+    pop.appendChild(h);
+    var ta = el("textarea");
+    ta.value = n.text || ""; ta.placeholder = "Ce qu'il faut changer ici…"; ta.setAttribute("aria-label", "Note " + n.n);
+    pop.appendChild(ta);
+    var a = el("div", "a");
+    var del = headBtn("tb quiet rm", "", n.fresh && !n.text ? "Annuler" : "Supprimer", function () { removeNote(n.id); }, "");
+    a.appendChild(del);
+    a.appendChild(el("span", "sp"));
+    a.appendChild(headBtn("tb", "", "Garder", function () { keepNote(n, ta.value); }, ""));
+    a.appendChild(headBtn("tb primary", "send", "Envoyer à Claude", function () { keepNote(n, ta.value, true); }, ""));
+    pop.appendChild(a);
+    ta.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); dropEmpty(); figs.sel = null; renderFigPane(); }
+      else if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); ev.stopPropagation(); keepNote(n, ta.value); }
+    });
+    var stage = paper.parentNode;
+    stage.appendChild(pop);
+    // Sous le cadre ou le point, dans la largeur de la figure.
+    var pw = paper.clientWidth, ph = paper.clientHeight, popW = pop.offsetWidth;
+    var left = Math.max(4, Math.min(pw - popW - 4, n.x * pw + (n.kind === "box" ? 0 : -16)));
+    var top = (n.y + (n.kind === "box" ? n.h : 0)) * ph + 16;
+    if (top + pop.offsetHeight > ph + 120 && n.y * ph > pop.offsetHeight + 16) top = n.y * ph - pop.offsetHeight - 16;
+    pop.style.left = (paper.offsetLeft + left) + "px"; pop.style.top = (paper.offsetTop + top) + "px";
+    notePop = pop;
+    requestAnimationFrame(function () { pop.classList.add("on"); });
+    ta.focus({ preventScroll: true });
+    pop.scrollIntoView({ block: "nearest" });
+  }
+  function payloadNotes() {
+    return figs.notes.map(function (n) { return { id: n.id, kind: n.kind, x: n.x, y: n.y, w: n.w, h: n.h, text: n.text, status: n.status, t: n.t }; });
+  }
+  function persistNotes(send, image) {
+    var f = figs.byPath[figs.open];
+    if (!f) return Promise.resolve(false);
+    var args = { path: f.path, notes: payloadNotes() };
+    if (send) { args.send = true; args.image = image; args.uses = (f.uses || []).map(function (u) { return { rel: u.rel, line: u.line }; }); }
+    busy++; refreshState();
+    return call("save_figure_notes", args).then(function (p) {
+      f.notes = p.notes || []; f.sentAt = p.sentAt;
+      if (figs.open === f.path) { figs.notes = cloneNotes(f.notes); }
+      return true;
+    }, function (e) {
+      if (e && (e.code === "blocked_by_policy" || e.code === "not_in_manifest")) figs.off = true;
+      setNote("err", "Notes non gardées : " + errorText(e), accessIfNeeded(e, function () { persistNotes(send, image); }));
+      return false;
+    }).then(function (ok) { busy--; refreshState(); renderFigList(); renderFigPane(); return ok; });
+  }
+  function keepNote(n, text, send) {
+    text = (text || "").trim();
+    if (!text) { removeNote(n.id); return; }
+    if (text !== n.text) { n.text = text; n.status = "draft"; }
+    delete n.fresh;
+    figs.sel = null;
+    if (send) sendNotes(); else persistNotes(false);
+  }
+  function removeNote(id) {
+    var n = noteById(id);
+    if (!n) return;
+    figs.notes.splice(figs.notes.indexOf(n), 1);
+    renumber();
+    figs.sel = null;
+    if (n.fresh && !n.text) { renderFigPane(); return; }
+    persistNotes(false);
+  }
+  // La figure telle qu'on la voit, cadres et pastilles compris.
+  function snapshot() {
+    var img = $("fgImg");
+    if (!img || !img.naturalWidth) return null;
+    var W = Math.min(img.naturalWidth, FIG_SNAP_MAX), H = Math.round(img.naturalHeight * W / img.naturalWidth);
+    var c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    var g = c.getContext("2d"), css = getComputedStyle(document.documentElement);
+    var ann = css.getPropertyValue("--ann").trim() || "#3f6fd1", on = css.getPropertyValue("--on-ann").trim() || "#ffffff";
+    var paper = css.getPropertyValue("--paper").trim() || "#ffffff";
+    g.fillStyle = paper; g.fillRect(0, 0, W, H);
+    g.drawImage(img, 0, 0, W, H);
+    var k = Math.max(1, W / 720), r = 11 * k;
+    figs.notes.forEach(function (n) {
+      if (!n.text || n.kind !== "box") return;
+      g.save();
+      g.globalAlpha = 0.1; g.fillStyle = ann; g.fillRect(n.x * W, n.y * H, n.w * W, n.h * H);
+      g.globalAlpha = 1; g.strokeStyle = ann; g.lineWidth = 2 * k; g.strokeRect(n.x * W, n.y * H, n.w * W, n.h * H);
+      g.restore();
+    });
+    figs.notes.forEach(function (n) {
+      if (!n.text) return;
+      var x = Math.max(r, Math.min(W - r, n.x * W)), y = Math.max(r, Math.min(H - r, n.y * H));
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = ann; g.fill();
+      g.lineWidth = 1.5 * k; g.strokeStyle = on; g.stroke();
+      g.fillStyle = on; g.font = "600 " + Math.round(12 * k) + "px -apple-system, system-ui, sans-serif";
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(String(n.n), x, y + 0.5 * k);
+    });
+    try {
+      var png = c.toDataURL("image/png");
+      return png.length > 7000000 ? c.toDataURL("image/jpeg", 0.9) : png;
+    } catch (e) { return null; }
+  }
+  function sendNotes() {
+    var f = figs.byPath[figs.open];
+    if (!f || !unsentCount()) return Promise.resolve(false);
+    closeNotePop();
+    var image = snapshot();
+    if (!image) { setNote("err", "La figure n'est pas encore affichée : attends son chargement, puis réessaie."); return Promise.resolve(false); }
+    return persistNotes(true, image).then(function (ok) {
+      if (ok) figs.sent = "Envoyé à Claude. Dans la conversation, demande-lui de regarder tes notes sur la figure : il les lit avec la figure annotée.";
+      renderFigPane();
+      return ok;
+    });
+  }
+
+  // Un clic sur le nom d'une figure dans \includegraphics{…} l'ouvre à droite.
+  var INC_RE = /\\includegraphics\*?\s*(?:\[[^\]]*\]\s*)*\{([^}]*)\}/g;
+  function figureAt(path, line, ch) {
+    var text = cm.getLine(line) || "", m, hit = null;
+    INC_RE.lastIndex = 0;
+    while ((m = INC_RE.exec(text))) {
+      var from = m.index + m[0].length - 1 - m[1].length, to = m.index + m[0].length;
+      if (ch >= from && ch <= to) { hit = m[1].trim(); break; }
+    }
+    if (!hit) return null;
+    var stem = figStem(hit.replace(/^\.\//, "")), byLine = figs.list.filter(function (f) {
+      return (f.uses || []).some(function (u) { return u.path === path && u.line === line + 1; });
+    });
+    var tail = function (f) { var s = figStem(f.rel); return s === stem || s.slice(-stem.length - 1) === "/" + stem; };
+    var exact = byLine.filter(tail)[0] || (byLine.length === 1 ? byLine[0] : null);
+    if (exact) return exact;
+    var named = figs.list.filter(tail);
+    return named.length === 1 || (named.length > 1 && named.every(function (f) { return figStem(f.rel) === figStem(named[0].rel); }))
+      ? named.sort(function (a, b) { return extRank(a.ext) - extRank(b.ext); })[0] : null;
+  }
+  function extRank(ext) { var i = ["pdf", "png", "jpg", "jpeg", "eps", "svg"].indexOf(ext); return i < 0 ? 9 : i; }
+  function onEditorClick(c, ev) {
+    if (narrow() || ev.button !== 0 || ev.shiftKey || ev.altKey) return;
+    var pos = c.coordsChar({ left: ev.clientX, top: ev.clientY }, "window"), path = active;
+    if (!/\\includegraphics/.test(c.getLine(pos.line) || "")) return;
+    var go = function () {
+      var f = figureAt(path, pos.line, pos.ch);
+      if (f) openFigure(f.path);
+    };
+    if (figs.loaded) go(); else loadFigures(false).then(go);
+  }
+
   // ——— Branchements ———
   $("sideBtn").onclick = function () { setSide(document.body.getAttribute("data-side") === "off"); };
   $("segFiles").onclick = function () { seg("files"); };
   $("projBtn").onclick = function () { if ($("projMenu").classList.contains("on")) closeProjMenu(); else openProjMenu(); };
   $("segPlan").onclick = function () { seg("plan"); };
   $("segHist").onclick = function () { seg("hist"); };
+  $("segFigs").onclick = function () { seg("figs"); };
   $("cmpClose").onclick = function () { closeCompare(); };
   $("cmpRestore").onclick = function () { restoreVersion(); };
   $("stUndoAll").onclick = function () { undoAll(); };
@@ -2208,11 +2907,14 @@ body[data-pdf="off"] .pdf { display: none; }
     else if (k === "enter") { ev.preventDefault(); compile(); }
     else if (k === "f" && cur()) { ev.preventDefault(); openFind(); }
   });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && figs.tool && rightMode() === "fig") { ev.preventDefault(); setTool(figs.tool); }
+  });
   window.addEventListener("beforeunload", function (ev) { if (anyDirty()) { ev.preventDefault(); ev.returnValue = ""; } });
   var resizeTimer = 0;
   window.addEventListener("resize", function () {
     if (cm) cm.refresh();
-    clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { layoutPages(); pump(); }, 150);
+    clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { layoutPages(); pump(); if (figs.sel && rightMode() === "fig") placeNotePop(); }, 150);
   });
 
   setSide(narrow() ? false : store.get("atelier-editor-side") !== "off");
@@ -2271,6 +2973,7 @@ body[data-pdf="off"] .pdf { display: none; }
       fetchProposals();
       refreshState();
       restorePdf();
+      if (!$("figs").hidden || rightMode() !== "pdf") loadFigures(false);
       if (polling) return;
       polling = true;
       setInterval(poll, POLL_MS);

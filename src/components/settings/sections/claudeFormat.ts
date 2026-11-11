@@ -21,7 +21,7 @@ export type ClaudeStatus = {
 export type ClaudeAction = (action: string, payload?: Record<string, unknown>) => Promise<ClaudeStatus>;
 
 /** Outils trop bavards pour le journal (une page de PDF = un appel). */
-const QUIET = new Set(["render_pdf_page", "list_revisions"]);
+const QUIET = new Set(["render_pdf_page", "render_figure", "list_revisions"]);
 
 const TIME = new Intl.DateTimeFormat("fr-CA", { hour: "2-digit", minute: "2-digit" });
 const DAY = new Intl.DateTimeFormat("fr-CA", { day: "numeric", month: "short" });
