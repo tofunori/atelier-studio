@@ -11,7 +11,8 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.reject(new 
 import { open } from "@tauri-apps/plugin-dialog";
 import { renderUi, resetTestState } from "../../../test/render";
 import { setLanguage } from "../../../lib/i18n";
-import { ClaudePanel, actionLabel, shortPath, when, type ClaudeStatus } from "./Claude";
+import { ClaudePanel } from "./Claude";
+import { actionLabel, shortPath, visibleActivity, when, type ClaudeStatus } from "./claudeFormat";
 import ClaudeSection from "./Claude";
 import type { SectionProps } from "../shared";
 
@@ -146,5 +147,11 @@ describe("Réglages › Claude", () => {
     expect(when(new Date(2026, 10, 9, 18, 42).getTime() / 1000, ref)).toMatch(/·/);
     expect(actionLabel("compile_tex")).toBe("Compilé");
     expect(actionLabel("outil_neuf")).toBe("Outil outil_neuf");
+  });
+
+  it("donne une clé stable à chaque action, même répétée dans la même seconde", () => {
+    const save = { t: 100, tool: "save_tex_file", path: "/a/m.tex", ok: true };
+    const keys = visibleActivity([save, { t: 100, tool: "render_pdf_page" }, save]).map((a) => a.key);
+    expect(keys).toEqual(["100-save_tex_file-/a/m.tex", "100-save_tex_file-/a/m.tex#2"]);
   });
 });
