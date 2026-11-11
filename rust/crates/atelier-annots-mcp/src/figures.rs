@@ -576,7 +576,9 @@ pub fn get(app_dir: &Path, args: &Value, roots: Option<&[PathBuf]>) -> Result<Va
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|u| Some(format!("{}:{}", u["rel"].as_str()?, u["line"].as_u64()?)))
+            .filter_map(|u| Some((u["rel"].as_str()?, u["line"].as_u64()?)))
+            .filter(|(rel, _)| !archived(rel))
+            .map(|(rel, line)| format!("{rel}:{line}"))
             .collect();
         let mut text = format!("Figure : {key}\n");
         text.push_str(&if uses.is_empty() {
@@ -608,6 +610,18 @@ pub fn get(app_dir: &Path, args: &Value, roots: Option<&[PathBuf]>) -> Result<Va
 
 // ——— Liste ———
 
+/// Un fichier rangé dans un dossier d'archives (`_archives/`, `archive/`,
+/// `Archives_old/`…) : une copie d'une ancienne version, pas le manuscrit.
+pub(crate) fn archived(rel: &str) -> bool {
+    let mut parts: Vec<&str> = rel.split(['/', '\\']).collect();
+    parts.pop();
+    parts.iter().any(|d| {
+        d.trim_start_matches('_')
+            .to_lowercase()
+            .starts_with("archive")
+    })
+}
+
 /// `list_tex_figures` (réservé à l'éditeur) : les figures du dossier, où
 /// chacune est citée, et leurs notes.
 pub fn list(app_dir: &Path, args: &Value, roots: Option<&[PathBuf]>) -> Result<Value, String> {
@@ -624,6 +638,8 @@ pub fn list(app_dir: &Path, args: &Value, roots: Option<&[PathBuf]>) -> Result<V
     let mut entries = Vec::new();
     let mut truncated = false;
     project::walk(&base, &base, 0, &mut entries, &mut truncated);
+    // Les vieilles copies du manuscrit (_archives/…) ne citent ni ne montrent rien.
+    entries.retain(|e| !archived(&e.rel));
     let main_dir = project::main_file(&entries)
         .and_then(|m| m.path.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| base.clone());
@@ -972,6 +988,38 @@ mod tests {
         assert_eq!(find("manuscrit/figures/main/fig2.pdf")["uses"], json!([]));
         assert_eq!(find("manuscrit/figures/supp/s1.png")["uses"][0]["line"], 3);
         assert_eq!(out["structuredContent"]["unresolved"], 1);
+    }
+
+    #[test]
+    fn ignores_archived_copies() {
+        assert!(archived("_archives/2026-10-22_lot1/main_ngeo.tex"));
+        assert!(archived("manuscrit/Archive_old/x/captions.tex"));
+        assert!(!archived("manuscrit/main_ngeo.tex"));
+        assert!(!archived("archives_notes.tex"));
+        let dir = tempfile::tempdir().unwrap();
+        let app = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, "main.tex", b"\\documentclass{article}\n\\begin{document}\n\\includegraphics{figures/f1}\n\\end{document}\n");
+        write(
+            root,
+            "_archives/2026-10-01/main.tex",
+            b"\\includegraphics{../../figures/f1}\n\\includegraphics{figures/f1}\n",
+        );
+        write(root, "_archives/2026-10-01/figures/f1.pdf", b"%PDF-1.4");
+        write(root, "figures/f1.pdf", b"%PDF-1.4");
+        let out = list(
+            app.path(),
+            &json!({"dir": root.display().to_string()}),
+            None,
+        )
+        .unwrap();
+        let figs = out["structuredContent"]["figures"].as_array().unwrap();
+        assert_eq!(figs.len(), 1, "{figs:?}");
+        assert_eq!(figs[0]["rel"], "figures/f1.pdf");
+        assert_eq!(
+            figs[0]["uses"],
+            json!([{"path": root.join("main.tex").display().to_string(), "rel": "main.tex", "line": 3}])
+        );
     }
 
     #[test]

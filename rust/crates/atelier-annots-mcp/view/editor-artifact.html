@@ -341,6 +341,11 @@ body[data-pdf="off"] .pdf { display: none; }
 .paper .ld { padding: 48px 16px; text-align: center; color: var(--paper-ink); font-size: 11px; }
 .paper[data-tool="box"], .paper[data-tool="point"] { cursor: crosshair; }
 .ov { position: absolute; inset: 0; }
+/* Figure agrandie : elle prend aussi la place de la source. */
+body[data-wide="on"] .main { display: none; }
+body[data-wide="on"] .stage { display: flex; justify-content: center; }
+body[data-wide="on"] .paper { width: fit-content; max-width: 100%; }
+body[data-wide="on"] .paper img { width: auto; max-width: 100%; max-height: calc(100vh - 120px); }
 .abox { position: absolute; border: 1.5px solid var(--ann); border-radius: 4px; background: color-mix(in srgb, var(--ann) 8%, transparent); transition: background-color var(--t); }
 .abox.sel { background: color-mix(in srgb, var(--ann) 16%, transparent); }
 .pin { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 999px; background: var(--ann); color: var(--on-ann); font-size: 11px; font-weight: 600; display: grid; place-items: center; box-shadow: 0 1px 3px rgba(0,0,0,.25); font-variant-numeric: tabular-nums; transition: transform var(--t); }
@@ -416,6 +421,8 @@ body[data-pdf="off"] .pdf { display: none; }
   <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
   <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0-.03.94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></symbol>
+  <symbol id="i-max" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></symbol>
+  <symbol id="i-min" viewBox="0 0 24 24"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
 </svg>
 
@@ -1412,8 +1419,8 @@ body[data-pdf="off"] .pdf { display: none; }
     if ($("projMenu").classList.contains("on") && !ev.target.closest("#projMenu, #projBtn")) closeProjMenu();
     if (hunkPop && !hunkPop.contains(ev.target) && !(ev.target.closest && ev.target.closest(".cb"))) closeHunk();
   });
-  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && $("projMenu").classList.contains("on")) { closeProjMenu(); $("projBtn").focus(); } });
-  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && hunkPop) { closeHunk(); if (cm) cm.focus(); } });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && $("projMenu").classList.contains("on")) { ev.preventDefault(); closeProjMenu(); $("projBtn").focus(); } });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && hunkPop) { ev.preventDefault(); closeHunk(); if (cm) cm.focus(); } });
 
   // ——— Propositions de Claude ———
   function proposalsFor(path) { return revs.filter(function (r) { return r.path === path; }); }
@@ -2253,6 +2260,12 @@ body[data-pdf="off"] .pdf { display: none; }
   function figDir(f) { var i = f.rel.lastIndexOf("/"); return i < 0 ? "" : f.rel.slice(0, i); }
   function figStem(rel) { return rel.replace(/\.[a-z0-9]+$/i, ""); }
   function figUsed(f) { return f.uses && f.uses.length > 0; }
+  // La même figure sous une autre extension (fig.png à côté de fig.pdf), celle que LaTeX cite.
+  function twinUsed(f) {
+    var stem = f.path.replace(/\.[^./]+$/, ""), hit = null;
+    figs.list.forEach(function (g) { if (!hit && g !== f && figUsed(g) && g.path.replace(/\.[^./]+$/, "") === stem) hit = g; });
+    return hit;
+  }
   function figNoteCount(f) { return (f.notes || []).filter(function (n) { return n.text; }).length; }
   function figShown(f) {
     if (figs.chip === "used") return figUsed(f);
@@ -2361,6 +2374,7 @@ body[data-pdf="off"] .pdf { display: none; }
   function setRight(mode) {
     $("pdf").setAttribute("data-mode", mode);
     $("pdf").setAttribute("aria-label", mode === "pdf" ? "Aperçu PDF" : "Figures");
+    if (mode === "pdf") setWide(false, true);
     if (mode !== "fig") closeNotePop();
     if (mode !== "pdf" && !pdfOn()) setPdf(true);
     renderFigPane();
@@ -2374,6 +2388,20 @@ body[data-pdf="off"] .pdf { display: none; }
     if (label) b.appendChild(el("span", "", label));
     if (title) { b.title = title; b.setAttribute("aria-label", title); }
     b.onclick = run;
+    return b;
+  }
+  function isWide() { return document.body.getAttribute("data-wide") === "on"; }
+  function setWide(on, quiet) {
+    if (on === isWide()) return;
+    if (on) document.body.setAttribute("data-wide", "on"); else document.body.removeAttribute("data-wide");
+    if (quiet) return;
+    renderFigPane();
+    if (!on && cm) cm.refresh();
+  }
+  function wideBtn() {
+    var w = isWide();
+    var b = headBtn("ib", w ? "min" : "max", "", function () { setWide(!isWide()); }, w ? "Réduire : revenir au texte (Échap)" : "Agrandir : la figure prend aussi la place du texte");
+    b.id = "fgWide"; b.setAttribute("aria-pressed", String(w));
     return b;
   }
   function renderFigPane() {
@@ -2391,6 +2419,7 @@ body[data-pdf="off"] .pdf { display: none; }
     t.appendChild(el("b", "", "Figures"));
     if (figs.loaded) t.appendChild(el("span", "ct", String(figs.list.length)));
     head.appendChild(t);
+    head.appendChild(wideBtn());
     if (figs.off) { var e0 = el("div", "fempty"); staleFigNote(e0); body.appendChild(e0); return; }
     if (!figs.loaded) { body.appendChild(el("div", "fempty", figs.err ? "Figures introuvables : " + figs.err : "Recherche des figures du projet…")); return; }
     body.appendChild(chipRow());
@@ -2501,7 +2530,7 @@ body[data-pdf="off"] .pdf { display: none; }
     var pt = headBtn("ib", "pin", "", function () { setTool("point"); }, "Point : clique sur la figure");
     box.setAttribute("aria-pressed", String(figs.tool === "box")); pt.setAttribute("aria-pressed", String(figs.tool === "point"));
     box.id = "fgBox"; pt.id = "fgPoint";
-    head.appendChild(box); head.appendChild(pt);
+    head.appendChild(box); head.appendChild(pt); head.appendChild(wideBtn());
     head.appendChild(el("span", "sep"));
     var send = headBtn("tb primary", "send", "Envoyer à Claude", function () { sendNotes(); }, "");
     send.id = "fgSend"; send.disabled = !unsentCount();
@@ -2529,10 +2558,7 @@ body[data-pdf="off"] .pdf { display: none; }
     if (figs.sent) {
       var ok = el("div", "fsent");
       ok.appendChild(el("span", "", figs.sent));
-      var cp = headBtn("tb", "copy", "Copier la demande", function () {
-        var ask = "Regarde mes notes sur la figure " + base(f.rel) + " (get_figure_notes).";
-        try { navigator.clipboard.writeText(ask).then(function () { flashStatus("Demande copiée : colle-la dans la conversation"); }, function () {}); } catch (e) {}
-      }, "");
+      var cp = headBtn("tb", "copy", "Copier la demande", function () { copyAsk(f); }, "");
       ok.appendChild(cp);
       body.appendChild(ok);
     }
@@ -2545,10 +2571,24 @@ body[data-pdf="off"] .pdf { display: none; }
       r.appendChild(icon("file"));
       r.appendChild(el("span", "nm", u.rel));
       r.appendChild(el("span", "tag", "l. " + u.line));
-      r.onclick = function () { openFile(u.path, u.line - 1); };
+      r.onclick = function () { setWide(false); openFile(u.path, u.line - 1); };
       uses.appendChild(r);
     });
-    else uses.appendChild(el("p", "hint", "Aucun \\includegraphics ne la cite dans les fichiers du projet."));
+    else {
+      var twin = twinUsed(f);
+      if (twin) {
+        uses.appendChild(el("p", "hint", "Pas ce fichier-ci, mais sa version " + twin.ext.toUpperCase() + " (même nom), que LaTeX utilise :"));
+        twin.uses.forEach(function (u) {
+          var r = el("button", "row");
+          r.type = "button"; r.title = "Voir dans le texte";
+          r.appendChild(icon("file"));
+          r.appendChild(el("span", "nm", u.rel));
+          r.appendChild(el("span", "tag", "l. " + u.line));
+          r.onclick = function () { setWide(false); openFile(u.path, u.line - 1); };
+          uses.appendChild(r);
+        });
+      } else uses.appendChild(el("p", "hint", "Aucun \\includegraphics ne la cite dans les fichiers du projet."));
+    }
     body.appendChild(uses);
 
     var list = el("div", "fblk");
@@ -2791,14 +2831,28 @@ body[data-pdf="off"] .pdf { display: none; }
       return png.length > 7000000 ? c.toDataURL("image/jpeg", 0.9) : png;
     } catch (e) { return null; }
   }
+  // La phrase à coller dans la conversation ; une page ne peut pas écrire elle-même dans le chat.
+  function copyAsk(f, quiet) {
+    var ask = "Regarde mes notes sur la figure " + base(f.rel) + " (get_figure_notes).";
+    try {
+      navigator.clipboard.writeText(ask).then(function () {
+        if (!quiet) flashStatus("Demande copiée : colle-la dans la conversation");
+      }, function () {});
+      return true;
+    } catch (e) { return false; }
+  }
   function sendNotes() {
     var f = figs.byPath[figs.open];
     if (!f || !unsentCount()) return Promise.resolve(false);
     closeNotePop();
     var image = snapshot();
     if (!image) { setNote("err", "La figure n'est pas encore affichée : attends son chargement, puis réessaie."); return Promise.resolve(false); }
+    // Copié pendant le clic (le presse-papiers l'exige) : il ne reste qu'à coller dans la conversation.
+    var copied = copyAsk(f, true);
     return persistNotes(true, image).then(function (ok) {
-      if (ok) figs.sent = "Envoyé à Claude. Dans la conversation, demande-lui de regarder tes notes sur la figure : il les lit avec la figure annotée.";
+      if (ok) figs.sent = copied
+        ? "Envoyé. La demande est copiée : colle-la dans la conversation (⌘V puis Entrée), Claude lira tes notes avec la figure annotée."
+        : "Envoyé à Claude. Dans la conversation, demande-lui de regarder tes notes sur la figure : il les lit avec la figure annotée.";
       renderFigPane();
       return ok;
     });
@@ -2908,7 +2962,9 @@ body[data-pdf="off"] .pdf { display: none; }
     else if (k === "f" && cur()) { ev.preventDefault(); openFind(); }
   });
   document.addEventListener("keydown", function (ev) {
-    if (ev.key === "Escape" && figs.tool && rightMode() === "fig") { ev.preventDefault(); setTool(figs.tool); }
+    if (ev.key !== "Escape" || ev.defaultPrevented) return;
+    if (figs.tool && rightMode() === "fig") { ev.preventDefault(); setTool(figs.tool); }
+    else if (isWide() && rightMode() !== "pdf") { ev.preventDefault(); setWide(false); }
   });
   window.addEventListener("beforeunload", function (ev) { if (anyDirty()) { ev.preventDefault(); ev.returnValue = ""; } });
   var resizeTimer = 0;
