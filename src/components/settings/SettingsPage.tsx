@@ -11,12 +11,12 @@ import { lazyWithRetry } from "../LazyBoundary";
 import { SavedIndicator, useSavedFlash } from "./primitives";
 import { SECTIONS, resolveSection, type SectionId } from "./sections";
 import type { SectionProps } from "./shared";
-import { ArrowLeft, SlidersHorizontal, Contrast, Cpu, Images, FileText, Plug, RotateCcw, ChevronRight, Wrench, UserRound, Brain } from "lucide-react";
+import { ArrowLeft, SlidersHorizontal, Contrast, Cpu, Images, FileText, Plug, RotateCcw, ChevronRight, Wrench, UserRound, Brain, Sparkle } from "lucide-react";
 import { searchSettings } from "./search";
 import { SettingsSearchTarget, type SearchTarget } from "./searchTarget";
 import "../../styles/settings-refined.css";
 
-const SECTION_ICONS = { general: SlidersHorizontal, apparence: Contrast, modeles: Cpu, environnement: Wrench, atelier: Images, integrations: Plug, consignes: FileText, specialistes: UserRound, memoire: Brain };
+const SECTION_ICONS = { general: SlidersHorizontal, apparence: Contrast, modeles: Cpu, environnement: Wrench, atelier: Images, integrations: Plug, claude: Sparkle, consignes: FileText, specialistes: UserRound, memoire: Brain };
 
 // lazyWithRetry (pas React.lazy nu) : React.lazy mémorise un import rejeté,
 // donc un chunk de section en échec resterait mort jusqu'au redémarrage de
@@ -28,6 +28,7 @@ const Environment = lazyWithRetry(() => import("./sections/Environment"));
 const Appearance = lazyWithRetry(() => import("./sections/Appearance"));
 const Atelier = lazyWithRetry(() => import("./sections/Atelier"));
 const Integrations = lazyWithRetry(() => import("./sections/Integrations"));
+const Claude = lazyWithRetry(() => import("./sections/Claude"));
 const Consignes = lazyWithRetry(() => import("./sections/Consignes"));
 const Specialistes = lazyWithRetry(() => import("./sections/Specialistes"));
 const Memoire = lazyWithRetry(() => import("./sections/Memoire"));
@@ -35,7 +36,7 @@ const Memoire = lazyWithRetry(() => import("./sections/Memoire"));
 type PanelComponent = React.ComponentType<SectionProps>;
 
 const PANELS: Record<SectionId, PanelComponent> = {
-  general: General, modeles: Models, environnement: Environment, apparence: Appearance, atelier: Atelier, integrations: Integrations, consignes: Consignes, specialistes: Specialistes, memoire: Memoire,
+  general: General, modeles: Models, environnement: Environment, apparence: Appearance, atelier: Atelier, integrations: Integrations, claude: Claude, consignes: Consignes, specialistes: Specialistes, memoire: Memoire,
 };
 
 export default function SettingsPage(p: {

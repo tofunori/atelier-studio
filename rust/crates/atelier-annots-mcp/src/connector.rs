@@ -523,6 +523,7 @@ async fn mcp_post(State(c): State<Shared>, headers: HeaderMap, body: Bytes) -> R
             .iter()
             .filter_map(|m| {
                 let reply = handle_in(&mut session, &worker.config, m);
+                crate::activity::record(&worker.config.app_dir, m, reply.as_ref());
                 // `initialize` lit les capacités du client ; à distance, les
                 // outils LaTeX restent offerts dans tous les cas.
                 session.ui = true;

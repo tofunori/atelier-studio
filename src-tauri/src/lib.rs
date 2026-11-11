@@ -96,6 +96,7 @@ pub fn run() {
             discussions::discussion_ensure_document,
             discussions::discussion_create_document,
             remote_gateway::remote_device_action,
+            claude_connector::claude_connector_action,
             atelier::gallery_token,
             appsnap::appsnap_get_state,
             appsnap::appsnap_read_capture,

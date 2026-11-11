@@ -250,6 +250,184 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
     Err(format!("connecteur non joignable sur {bind}"))
 }
 
+// ——— Page « Claude » des réglages ———
+
+/// Réécrit `config.json` en gardant les clés inconnues (fichier en 600).
+fn update_config(
+    dir: &Path,
+    change: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let path = dir.join("config.json");
+    let mut value: serde_json::Value = std::fs::read(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_slice(&raw).ok())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
+    change(value.as_object_mut().expect("objet"));
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(
+        &tmp,
+        serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    }
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+fn roots_of(dir: &Path) -> Vec<String> {
+    std::fs::read(dir.join("config.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v["roots"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect()
+}
+
+/// Ajoute ou retire un dossier ouvert à Claude. Un dossier ajouté doit
+/// exister ; le chemin est gardé tel quel (absolu).
+fn edit_roots(dir: &Path, path: &str, add: bool) -> Result<Vec<String>, String> {
+    let path = path.trim().trim_end_matches('/').to_string();
+    if add {
+        let p = Path::new(&path);
+        if !p.is_absolute() || !p.is_dir() {
+            return Err(format!("{path} : dossier introuvable"));
+        }
+    }
+    let mut roots = roots_of(dir);
+    roots.retain(|r| r.trim_end_matches('/') != path);
+    if add {
+        roots.push(path);
+    }
+    let list = roots.clone();
+    update_config(dir, |m| {
+        m.insert("roots".into(), serde_json::json!(list));
+    })?;
+    Ok(roots)
+}
+
+fn binary_for(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let resource = app.path().resource_dir().ok();
+    candidates(resource.as_deref())
+        .into_iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| "atelier-annots-mcp introuvable dans le bundle".to_string())
+}
+
+/// Lance le binaire avec une option (`--status`, `--disconnect`,
+/// `--set-code`), l'entrée standard donnée.
+fn run_binary(app: &tauri::AppHandle, arg: &str, input: Option<&str>) -> Result<String, String> {
+    use std::io::Write;
+    let binary = binary_for(app)?;
+    let app_dir = app_dir().ok_or("dossier utilisateur introuvable")?;
+    let mut child = Command::new(&binary)
+        .arg(arg)
+        .env("ATELIER_APP_DIR", &app_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{BINARY} : {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(input.unwrap_or("").as_bytes());
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(err
+            .trim()
+            .trim_start_matches("atelier-annots-mcp: ")
+            .to_string());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Arrête le connecteur d'Atelier et le relance (le code ou les accès ont
+/// changé : le connecteur les garde en mémoire).
+fn restart(app: &tauri::AppHandle) -> Result<(), String> {
+    let dir = dir().ok_or("dossier utilisateur introuvable")?;
+    if let Some(lock) = read_lock(&dir) {
+        terminate(lock.pid);
+        let _ = std::fs::remove_file(dir.join("connector.lock"));
+    }
+    ensure(app)
+}
+
+fn status(app: &tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let dir = dir().ok_or("dossier utilisateur introuvable")?;
+    let mut value: serde_json::Value = run_binary(app, "--status", None)
+        .ok()
+        .and_then(|raw| serde_json::from_str(raw.trim()).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let lock = read_lock(&dir);
+    value["enabled"] = serde_json::json!(enabled(&dir));
+    value["running"] = serde_json::json!(healthy());
+    value["byAtelier"] = serde_json::json!(lock.is_some());
+    value["roots"] = serde_json::json!(roots_of(&dir));
+    value["url"] = serde_json::json!(
+        crate::remote_gateway::tailscale_dns_name().map(|dns| format!("https://{dns}/mcp"))
+    );
+    value["home"] = serde_json::json!(dirs::home_dir().map(|h| h.display().to_string()));
+    Ok(value)
+}
+
+/// Actions de la page « Claude » : `status`, `enable` {on}, `addRoot` /
+/// `removeRoot` {path}, `setCode` {code}, `disconnect`. Répond l'état à jour.
+#[tauri::command]
+pub async fn claude_connector_action(
+    app: tauri::AppHandle,
+    action: String,
+    payload: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = dir().ok_or("dossier utilisateur introuvable")?;
+        let arg = |k: &str| payload.as_ref().map(|p| p[k].clone()).unwrap_or_default();
+        match action.as_str() {
+            "status" => {}
+            "enable" => {
+                let on = arg("on").as_bool().unwrap_or(false);
+                update_config(&dir, |m| {
+                    m.insert("enabled".into(), serde_json::json!(on));
+                })?;
+                ensure(&app)?;
+            }
+            "addRoot" | "removeRoot" => {
+                let path = arg("path");
+                let path = path.as_str().ok_or("chemin manquant")?;
+                edit_roots(&dir, path, action == "addRoot")?;
+                // Le connecteur relit les dossiers à chaque requête.
+            }
+            "setCode" => {
+                let code = arg("code");
+                let code = code.as_str().ok_or("code manquant")?;
+                if code.contains('\n') {
+                    return Err("le code tient sur une ligne".into());
+                }
+                run_binary(&app, "--set-code", Some(&format!("{code}\n")))?;
+                if enabled(&dir) {
+                    restart(&app)?;
+                }
+            }
+            "disconnect" => {
+                run_binary(&app, "--disconnect", None)?;
+                if enabled(&dir) {
+                    restart(&app)?;
+                }
+            }
+            _ => return Err("action inconnue".into()),
+        }
+        status(&app)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,6 +447,39 @@ mod tests {
         )
         .unwrap();
         assert!(enabled(dir.path()));
+    }
+
+    #[test]
+    fn folders_are_added_once_removed_and_other_settings_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().display().to_string();
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"enabled": true, "x": 1}"#,
+        )
+        .unwrap();
+        assert!(edit_roots(dir.path(), "/pas/la", true).is_err());
+        assert!(edit_roots(dir.path(), "relatif", true).is_err());
+        assert_eq!(
+            edit_roots(dir.path(), &path, true).unwrap(),
+            vec![path.clone()]
+        );
+        assert_eq!(
+            edit_roots(dir.path(), &format!("{path}/"), true).unwrap(),
+            vec![path.clone()]
+        );
+        let raw: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("config.json")).unwrap())
+                .unwrap();
+        assert_eq!(raw["x"], 1);
+        assert_eq!(raw["enabled"], true);
+        assert!(edit_roots(dir.path(), &path, false).unwrap().is_empty());
+        // Un dossier disparu se retire quand même.
+        std::fs::write(dir.path().join("config.json"), r#"{"roots": ["/disparu"]}"#).unwrap();
+        assert!(edit_roots(dir.path(), "/disparu", false)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

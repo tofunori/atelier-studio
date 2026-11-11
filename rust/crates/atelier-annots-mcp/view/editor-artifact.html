@@ -104,6 +104,23 @@ body[data-side="off"] .side { display: none; }
 .open input, .find input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--ctl); color: var(--fg); font: 12px/1 var(--ui); }
 .open input { font-family: var(--mono); font-size: 11px; }
 .open input::placeholder, .find input::placeholder { color: var(--muted2); }
+.side { position: relative; }
+.proj { display: flex; align-items: center; gap: 8px; margin: 12px 12px 0; width: calc(100% - 24px); padding: 4px 8px; border-radius: 6px; text-align: left; transition: background-color var(--t); flex: none; }
+.proj:hover, .proj[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.proj .pt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.proj .pn { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj .ps { font-size: 11px; color: var(--muted); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.proj > svg { color: var(--muted2); flex: none; }
+.pmenu { position: absolute; z-index: 12; top: 56px; left: 12px; right: 12px; padding: 4px; border-radius: 10px; background: var(--pop); box-shadow: var(--elev); opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity var(--t), transform var(--t); }
+.pmenu.on { opacity: 1; transform: none; pointer-events: auto; }
+.pmenu .mi { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 8px; border-radius: 6px; text-align: left; transition: background-color var(--t); }
+.pmenu .mi:hover { background: var(--ctl); }
+.pmenu .mi .pt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pmenu .mi .pn { font-size: 12px; color: var(--fg); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmenu .mi .ps { font: 10px/1.5 var(--mono); color: var(--muted2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmenu .mi > svg { color: var(--fg2); flex: none; }
+.pmenu .mi > svg.no { visibility: hidden; }
+.pmenu .pnote { margin: 4px 0 0; padding: 8px 8px 4px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.5; color: var(--muted); }
 .side-foot { padding: 8px 16px 12px; font: 10px/1.5 var(--mono); color: var(--muted2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
 
@@ -301,6 +318,8 @@ body[data-pdf="off"] .pdf { display: none; }
   <symbol id="i-pen" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></symbol>
   <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-ud" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></symbol>
   <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"/></symbol>
   <symbol id="i-hist" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
   <symbol id="i-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
@@ -324,6 +343,8 @@ body[data-pdf="off"] .pdf { display: none; }
 
 <div class="body">
   <aside class="side" id="side" aria-label="Projet">
+    <button class="proj" id="projBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Changer de projet" hidden><span class="pt"><span class="pn" id="projName"></span><span class="ps" id="projSub"></span></span><svg class="i s"><use href="#i-ud"/></svg></button>
+    <div class="pmenu" id="projMenu" role="menu" aria-label="Projets"></div>
     <div class="seg" role="tablist">
       <button type="button" role="tab" id="segFiles" aria-selected="true">Fichiers</button>
       <button type="button" role="tab" id="segPlan" aria-selected="false">Plan</button>
@@ -430,6 +451,7 @@ body[data-pdf="off"] .pdf { display: none; }
   var hunkPop = null;
   // Compilation et aperçu : dernier résultat, PDF affiché, pages rendues.
   var build = { running: false, result: null, issues: [], showAll: false };
+  var curProj = store.get("atelier-editor-project") || null;
   var pdfView = { path: null, mtime: null, pages: 0, ratio: 1.294, zoom: 1, inflight: 0, nodes: [], widthKey: 0 };
 
   function el(tag, cls, text) {
@@ -601,7 +623,7 @@ body[data-pdf="off"] .pdf { display: none; }
   function renderCrumb() {
     var c = $("crumb"), d = cur();
     c.textContent = "";
-    if (!d) { c.appendChild(el("b", "", project && project.projects[0] ? project.projects[0].name : "Éditeur LaTeX")); return; }
+    if (!d) { c.appendChild(el("b", "", proj() ? proj().name : "Éditeur LaTeX")); return; }
     var f = fileIndex[d.path], parts = f ? [f.project.name].concat(f.rel.split("/")) : [d.file];
     parts.forEach(function (part, i) {
       var last = i === parts.length - 1;
@@ -797,6 +819,8 @@ body[data-pdf="off"] .pdf { display: none; }
   }
 
   function afterSwitch() {
+    var fa = cur() && fileIndex[cur().path];
+    if (fa && fa.project.path !== curProj) { curProj = fa.project.path; store.set("atelier-editor-project", curProj); renderProj(); }
     renderTabs(); renderCrumb(); renderTree(); renderPlan(); refreshState();
     closeHunk(); showCompare(); paintDiff(); paintProposals(); paintIssues(); updateStatus(); countWords(); persist();
     if (find.q) applyQuery();
@@ -1149,8 +1173,10 @@ body[data-pdf="off"] .pdf { display: none; }
     cm.focus();
   }
   document.addEventListener("mousedown", function (ev) {
+    if ($("projMenu").classList.contains("on") && !ev.target.closest("#projMenu, #projBtn")) closeProjMenu();
     if (hunkPop && !hunkPop.contains(ev.target) && !(ev.target.closest && ev.target.closest(".cb"))) closeHunk();
   });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && $("projMenu").classList.contains("on")) { closeProjMenu(); $("projBtn").focus(); } });
   document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && hunkPop) { closeHunk(); if (cm) cm.focus(); } });
 
   // ——— Propositions de Claude ———
@@ -1247,8 +1273,8 @@ body[data-pdf="off"] .pdf { display: none; }
       box.appendChild(el("p", "hint", "Aucun dossier de ton Mac n'est encore ouvert à Claude. Ajoute ton projet dans le réglage du connecteur d'Atelier, puis recharge cette page."));
       return;
     }
-    var many = project.projects.length > 1, count = 0;
-    project.projects.forEach(function (pr) {
+    var count = 0;
+    [proj()].forEach(function (pr) {
       var root = { dirs: {}, files: [], editable: false };
       pr.files.forEach(function (f) {
         var parts = f.rel.split("/"), node = root;
@@ -1291,20 +1317,73 @@ body[data-pdf="off"] .pdf { display: none; }
           box.appendChild(row);
         });
       }
-      if (many) {
-        var key = pr.path, head = el("button", "row" + (shut[key] ? " shut" : ""));
-        head.type = "button";
-        head.appendChild(icon("cd", true)); head.appendChild(icon("folder"));
-        head.appendChild(el("span", "nm", pr.name));
-        head.onclick = function () { shut[key] = !shut[key]; renderTree(); };
-        box.appendChild(head);
-        if (!shut[key]) draw(root, 1, "");
-      } else draw(root, 0, "");
+      draw(root, 0, "");
     });
     if (!count) box.appendChild(el("p", "hint", "Aucun fichier .tex ou .bib dans le dossier ouvert au connecteur."));
-    var first = project.projects[0];
+    var first = proj();
     $("sideFoot").textContent = first ? first.path.replace(/^\/Users\/[^/]+/, "~") : "";
     $("sideFoot").title = first ? first.path : "";
+  }
+
+  // ——— Projets : un dossier ouvert au connecteur = un projet ———
+  function proj() {
+    if (!project || !project.projects.length) return null;
+    return project.projects.filter(function (p) { return p.path === curProj; })[0] || project.projects[0];
+  }
+  function home(path) { return path.replace(/^\/Users\/[^/]+/, "~"); }
+  function projSub(pr) {
+    var n = pr.files.filter(function (f) { return f.editable; }).length;
+    return (pr.main ? base(pr.main) + " · " : "") + n + (n > 1 ? " fichiers" : " fichier");
+  }
+  function renderProj() {
+    var pr = proj(), b = $("projBtn");
+    b.hidden = !pr;
+    if (!pr) return;
+    $("projName").textContent = pr.name;
+    $("projSub").textContent = projSub(pr);
+    b.title = pr.path;
+  }
+  function openProjMenu() {
+    var m = $("projMenu"), pr = proj();
+    m.textContent = "";
+    project.projects.forEach(function (p) {
+      var row = el("button", "mi");
+      row.type = "button"; row.setAttribute("role", "menuitemradio");
+      row.setAttribute("aria-checked", String(p === pr));
+      var t = el("span", "pt");
+      t.appendChild(el("span", "pn", p.name));
+      t.appendChild(el("span", "ps", home(p.path)));
+      row.appendChild(t);
+      var ck = icon("check", true);
+      if (p !== pr) ck.classList.add("no");
+      row.appendChild(ck);
+      row.onclick = function () { closeProjMenu(); switchProject(p.path); };
+      m.appendChild(row);
+    });
+    m.appendChild(el("p", "pnote", "Les dossiers ouverts à Claude s'ajoutent dans Atelier : Réglages, Claude."));
+    m.classList.add("on");
+    $("projBtn").setAttribute("aria-expanded", "true");
+  }
+  function closeProjMenu() {
+    $("projMenu").classList.remove("on");
+    $("projBtn").setAttribute("aria-expanded", "false");
+  }
+  function resetPdf() {
+    pdfView.nodes.forEach(function (n) { n.remove(); });
+    pdfView.nodes = []; pdfView.pages = 0; pdfView.path = null; pdfView.mtime = null;
+    $("pdfEmpty").hidden = false;
+  }
+  function switchProject(path) {
+    if (!project || path === (proj() && proj().path)) return;
+    curProj = path; store.set("atelier-editor-project", path);
+    var pr = proj();
+    renderProj(); renderTree();
+    // Un onglet déjà ouvert dans ce projet, sinon son fichier principal.
+    var open = tabs.filter(function (t) { return t.indexOf(pr.path + "/") === 0; })[0];
+    var target = open || pr.main || (pr.files.filter(function (f) { return f.kind === "tex"; })[0] || {}).path;
+    resetPdf();
+    var go = target ? openFile(target) : Promise.resolve();
+    return Promise.resolve(go).then(function () { schedulePlan(100); restorePdf(); renderCrumb(); });
   }
 
   function loadProject() {
@@ -1315,7 +1394,7 @@ body[data-pdf="off"] .pdf { display: none; }
         pr.files.forEach(function (f) { f.project = pr; fileIndex[f.path] = f; });
       });
       $("openForm").hidden = true;
-      renderTree(); renderCrumb();
+      renderProj(); renderTree(); renderCrumb();
       return true;
     });
   }
@@ -1377,7 +1456,7 @@ body[data-pdf="off"] .pdf { display: none; }
     var mainPath = null, d = cur();
     if (project) {
       var f = d && fileIndex[d.path];
-      mainPath = (f && f.project.main) || (project.projects[0] && project.projects[0].main);
+      mainPath = (f && f.project.main) || (proj() && proj().main);
     }
     var start = mainPath || (d && /\.(tex|ltx)$/i.test(d.path) ? d.path : null);
     if (!start) { plan = []; renderPlan(); return; }
@@ -1640,7 +1719,7 @@ body[data-pdf="off"] .pdf { display: none; }
       }
     }
     var pr = project && project.projects.filter(function (p) { return !d || d.path.indexOf(p.path + "/") === 0; })[0];
-    pr = pr || (project && project.projects[0]);
+    pr = pr || proj();
     if (pr && pr.main) return pr.main;
     return d && /\.tex$/i.test(d.path) ? d.path : null;
   }
@@ -1880,6 +1959,7 @@ body[data-pdf="off"] .pdf { display: none; }
   // ——— Branchements ———
   $("sideBtn").onclick = function () { setSide(document.body.getAttribute("data-side") === "off"); };
   $("segFiles").onclick = function () { seg("files"); };
+  $("projBtn").onclick = function () { if ($("projMenu").classList.contains("on")) closeProjMenu(); else openProjMenu(); };
   $("segPlan").onclick = function () { seg("plan"); };
   $("segHist").onclick = function () { seg("hist"); };
   $("cmpClose").onclick = function () { closeCompare(); };
@@ -1980,7 +2060,7 @@ body[data-pdf="off"] .pdf { display: none; }
       var wanted = ((saved && saved.tabs) || []).filter(function (p) { return fileIndex[p] && fileIndex[p].editable; });
       var first = saved && wanted.indexOf(saved.active) >= 0 ? saved.active : wanted[0];
       if (!wanted.length) {
-        var pr = project.projects[0], f = pr && (pr.main || (pr.files.filter(function (x) { return x.kind === "tex"; })[0] || {}).path);
+        var pr = proj(), f = pr && (pr.main || (pr.files.filter(function (x) { return x.kind === "tex"; })[0] || {}).path);
         if (f) { wanted = [f]; first = f; }
       }
       var chain = Promise.resolve();

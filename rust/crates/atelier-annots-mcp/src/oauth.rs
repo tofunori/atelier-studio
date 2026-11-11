@@ -147,6 +147,40 @@ impl OAuth {
         self.save()
     }
 
+    /// `--disconnect` (bouton « Déconnecter Claude » d'Atelier) : retire
+    /// les clients et les jetons ; le code reste. Claude devra se relier.
+    pub fn disconnect(&mut self) -> Result<(), String> {
+        self.state["clients"] = json!({});
+        self.state["tokens"] = json!({});
+        self.save()
+    }
+
+    /// `--status` : ce que la page « Claude » d'Atelier affiche. Relié = un
+    /// jeton de renouvellement encore valable.
+    pub fn summary(&self) -> Value {
+        let t = now();
+        let mut linked: Option<(String, u64)> = None;
+        if let Some(tokens) = self.state["tokens"].as_object() {
+            for entry in tokens.values() {
+                if entry["kind"] != "refresh" || entry["expires"].as_u64().unwrap_or(0) <= t {
+                    continue;
+                }
+                let client = &self.state["clients"][entry["client"].as_str().unwrap_or("")];
+                let name = client["name"].as_str().unwrap_or("Claude").to_string();
+                let since = client["created"].as_u64().unwrap_or(0);
+                if linked.as_ref().map(|(_, s)| since < *s).unwrap_or(true) {
+                    linked = Some((name, since));
+                }
+            }
+        }
+        json!({
+            "codeSet": self.has_secret(),
+            "linked": linked.is_some(),
+            "client": linked.as_ref().map(|(n, _)| n.clone()),
+            "linkedSince": linked.map(|(_, s)| s),
+        })
+    }
+
     pub fn register(&mut self, body: &Value) -> Result<Value, String> {
         let uris: Vec<String> = body["redirect_uris"]
             .as_array()
@@ -346,6 +380,38 @@ mod tests {
 
     fn challenge_of(verifier: &str) -> String {
         URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+    }
+
+    #[test]
+    fn status_shows_the_link_and_disconnect_removes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut auth = OAuth::load(dir.path());
+        assert_eq!(auth.summary()["codeSet"], false);
+        auth.set_secret("glacier-albedo-2026").unwrap();
+        let client = auth
+            .register(&json!({"redirect_uris": [REDIRECTS[0]], "client_name": "claude.ai"}))
+            .unwrap();
+        let id = client["client_id"].as_str().unwrap().to_string();
+        let verifier = "v".repeat(50);
+        let challenge = challenge_of(&verifier);
+        assert_eq!(auth.summary()["linked"], false);
+        let code = auth
+            .authorize(&id, REDIRECTS[0], &challenge, "S256", "glacier-albedo-2026")
+            .unwrap();
+        let tokens = auth
+            .exchange_code(&code, &id, REDIRECTS[0], &verifier)
+            .unwrap();
+        let summary = OAuth::load(dir.path()).summary();
+        assert_eq!(summary["codeSet"], true);
+        assert_eq!(summary["linked"], true);
+        assert_eq!(summary["client"], "claude.ai");
+        assert!(summary["linkedSince"].as_u64().unwrap() > 0);
+        OAuth::load(dir.path()).disconnect().unwrap();
+        let after = OAuth::load(dir.path());
+        assert!(!after.access_ok(&tokens.access_token));
+        assert_eq!(after.summary()["linked"], false);
+        // Le code reste : Claude peut se relier avec lui.
+        assert_eq!(after.summary()["codeSet"], true);
     }
 
     #[test]

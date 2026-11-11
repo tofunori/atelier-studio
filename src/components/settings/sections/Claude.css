@@ -1,0 +1,16 @@
+/* Réglages › Claude : adresse, code et dernières actions dans les cartes. */
+.claude-set .set-row-ctl { gap: 8px; }
+.claude-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--text-disabled); flex: none; transition: background-color var(--motion-fast) var(--ease-out); }
+.claude-dot.on { background: var(--status-success); }
+.claude-url { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--fs-s) / 1.5 var(--font-mono); color: var(--text-secondary); user-select: all; }
+.claude-code { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border-subtle); }
+.claude-code input { flex: 1; min-width: 160px; }
+.claude-empty { margin: 0; padding: 12px 0; color: var(--text-muted); font-size: var(--fs-m); line-height: 1.5; }
+.claude-activity { list-style: none; margin: 0; padding: 4px 0; display: flex; flex-direction: column; }
+.claude-activity li { display: flex; align-items: baseline; gap: 12px; padding: 8px 0; font-size: var(--fs-m); line-height: 1.5; }
+.claude-activity li + li { border-top: 1px solid var(--border-subtle); }
+.claude-time { flex: none; min-width: 88px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.claude-what { flex: 1; min-width: 0; display: flex; gap: 8px; color: var(--text-primary); overflow: hidden; }
+.claude-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-s); }
+.claude-failed { flex: none; color: var(--status-error); font-size: var(--fs-s); }
+@media (prefers-reduced-motion: reduce) { .claude-dot { transition: none; } }

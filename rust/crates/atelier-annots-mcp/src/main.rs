@@ -16,6 +16,7 @@
 //! note : seule la note personnelle (`memo`) l'est, plus le texte d'une note
 //! libre (`kind: "note"`), qui est une note par nature.
 
+mod activity;
 mod app_view;
 mod coding;
 mod compile;
@@ -41,10 +42,22 @@ fn main() {
             connector::run(config, port)
         }
         Some("--set-code") => set_code(&config),
+        // Page « Claude » des réglages d'Atelier : état et déconnexion.
+        Some("--status") => {
+            let mut status = oauth::OAuth::load(&config.app_dir).summary();
+            status["roots"] = serde_json::json!(connector::config_roots(&config.app_dir)
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>());
+            status["activity"] = serde_json::json!(activity::recent(&config.app_dir, 20));
+            println!("{status}");
+            Ok(())
+        }
+        Some("--disconnect") => oauth::OAuth::load(&config.app_dir).disconnect(),
         // Processus enfant de `render_pdf_page` (voir compile.rs).
         Some("--render-page") => compile::render_child(&args[1..]),
         Some(other) => Err(format!(
-            "option inconnue : {other} (--http [port], --set-code)"
+            "option inconnue : {other} (--http [port], --set-code, --status, --disconnect)"
         )),
         None => server::run(&config),
     };

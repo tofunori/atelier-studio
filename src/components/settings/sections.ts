@@ -3,7 +3,7 @@
 // = une ligne ici + un fichier dans sections/.
 import type { I18nKey } from "../../lib/i18n";
 
-export type SectionId = "general" | "modeles" | "environnement" | "apparence" | "atelier" | "integrations" | "consignes" | "specialistes" | "memoire";
+export type SectionId = "general" | "modeles" | "environnement" | "apparence" | "atelier" | "integrations" | "claude" | "consignes" | "specialistes" | "memoire";
 
 export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
   { id: "general", labelKey: "settings.general" },
@@ -16,6 +16,9 @@ export const SECTIONS: readonly { id: SectionId; labelKey: I18nKey }[] = [
   // Services distants (Ragdoc, gbrain, NAS, grappes) : désactivés tant que
   // rien n'est rempli ici.
   { id: "integrations", labelKey: "settings.integrations" },
+  // Connecteur Claude : ce que claude.ai peut ouvrir sur ce Mac (dossiers,
+  // code d'accès, dernières actions).
+  { id: "claude", labelKey: "settings.claude" },
   { id: "consignes", labelKey: "settings.consignes" },
   // Fiches nommées (rôle, instructions, skills) qu'un fil peut porter.
   { id: "specialistes", labelKey: "settings.specialistes" },
