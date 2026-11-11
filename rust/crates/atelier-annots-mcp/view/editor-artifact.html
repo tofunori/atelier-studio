@@ -231,6 +231,11 @@ body[data-pdf="off"] .pdf { display: none; }
 .pdf-h .cs.warn::before { background: var(--warn); }
 .pdf-h .cs.err::before { background: var(--hot); }
 .pdf-h .cs.run::before { background: var(--info); animation: pulse 1s ease-in-out infinite alternate; }
+.pdf-h .cs { color: inherit; height: 24px; padding: 0 6px; margin-right: -6px; border-radius: 6px; transition: background-color var(--t), color var(--t); }
+.pdf-h .cs .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pdf-h .cs .i { flex: none; display: none; }
+.pdf-h .cs:not(:disabled) .i { display: block; }
+.pdf-h .cs:not(:disabled):hover { background: var(--ctl); color: var(--fg); }
 @keyframes pulse { from { opacity: .35; } to { opacity: 1; } }
 .pdf-h .zm { display: flex; align-items: center; gap: 4px; }
 .pdf-h .zm .ib { width: 24px; height: 24px; }
@@ -283,6 +288,9 @@ body[data-pdf="off"] .pdf { display: none; }
 .hpop .h span { font-size: 11px; color: var(--muted2); font-variant-numeric: tabular-nums; }
 .hpop .tx2 { font: 400 13px/20px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; }
 .hpop .a { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.status .rw { color: var(--muted); transition: color var(--t); }
+.status .rw:hover, .status .rw.on { color: var(--fg); }
+.status .rw-msg { color: var(--muted); }
 .status .undo-all { color: var(--muted); }
 .status .undo-all:hover { color: var(--fg); }
 
@@ -323,6 +331,8 @@ body[data-pdf="off"] .pdf { display: none; }
   <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"/></symbol>
   <symbol id="i-hist" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
   <symbol id="i-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c4.66 0 8.64 2.89 9.94 6.65a1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49"/><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"/><path d="M17.48 17.5A10.75 10.75 0 0 1 2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14"/><path d="m2 2 20 20"/></symbol>
   <symbol id="i-log" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></symbol>
 </svg>
 
@@ -392,7 +402,7 @@ body[data-pdf="off"] .pdf { display: none; }
         <span id="zoomN">100 %</span>
         <button class="ib" id="zoomIn" type="button" aria-label="Agrandir" title="Agrandir"><svg class="i s"><use href="#i-plus"/></svg></button>
       </span>
-      <span class="cs" id="pdfState">Pas encore compilé</span>
+      <button class="cs" id="pdfState" type="button" disabled><span class="t" id="pdfStateT">Pas encore compilé</span><svg class="i s"><use id="pdfStateI" href="#i-eye-off"/></svg></button>
       <button class="ib" id="logBtn" type="button" aria-pressed="false" aria-label="Journal de compilation" title="Journal de compilation" hidden><svg class="i"><use href="#i-log"/></svg></button>
     </div>
     <div class="issues" id="issues" hidden></div>
@@ -406,6 +416,8 @@ body[data-pdf="off"] .pdf { display: none; }
 <footer class="status gut">
   <span id="stPos"></span><span class="opt" id="stWords"></span><span class="opt" id="stLang"></span>
   <span class="sp"></span>
+  <span class="rw-msg" id="stRewrapMsg" hidden></span>
+  <button class="rw opt" id="stRewrap" type="button" aria-pressed="false">Reformatage : auto</button>
   <button class="chg-n" id="stChg" type="button" title="Aller au changement suivant" hidden></button>
   <button class="undo-all opt" id="stUndoAll" type="button" title="Revenir au texte de l'ouverture (Cmd-Z pour refaire)" hidden>Tout annuler</button>
   <span class="cn" id="stConn">Atelier</span>
@@ -450,7 +462,7 @@ body[data-pdf="off"] .pdf { display: none; }
   var hist = { path: null, list: [], loaded: false, off: false, sel: null };
   var hunkPop = null;
   // Compilation et aperçu : dernier résultat, PDF affiché, pages rendues.
-  var build = { running: false, result: null, issues: [], showAll: false };
+  var build = { running: false, result: null, issues: [], showAll: false, hideWarn: store.get("atelier-editor-hidewarn") === "1", nWarn: 0, okText: "" };
   var curProj = store.get("atelier-editor-project") || null;
   var pdfView = { path: null, mtime: null, pages: 0, ratio: 1.294, zoom: 1, inflight: 0, nodes: [], widthKey: 0 };
 
@@ -874,9 +886,142 @@ body[data-pdf="off"] .pdf { display: none; }
   }
 
   // Enregistre un document ; résout à true si le disque porte son texte.
+  // ——— Retours à la ligne (repris d'Atelier, gallery/src/studio/features/latex/rewrap.ts) ———
+  // Vrais retours à la ligne à la largeur du panneau : ⌥Q pour le
+  // paragraphe, ⇧⌥Q pour tout le fichier, et tout le fichier avant chaque
+  // enregistrement quand « Reformatage : auto » est actif. Règle absolue
+  // (docs/PIEGES_CONNUS.md §5) : un bloc LaTeX qui contient un % non échappé
+  // n'est jamais touché, et les lignes faites d'une seule commande restent
+  // des frontières. La différence mot à mot ignore les blancs : un
+  // reformatage n'apparaît pas dans les changements.
+  var NO_WRAP_ENV = /^(verbatim|lstlisting|minted|equation|align|alignat|eqnarray|gather|multline|displaymath|math|tabular|tabularx|array|table|figure|itemize|enumerate|description|thebibliography|tikzpicture|verse|quote|quotation)\*?$/;
+  function autoRewrap() { return store.get("atelier-editor-autorewrap") !== "0"; }
+  function rewrapColumn() {
+    if (!cm) return 80;
+    var cw = Math.max(1, cm.defaultCharWidth());
+    var code = cm.getWrapperElement().querySelector(".CodeMirror-code");
+    var line = cm.getWrapperElement().querySelector("pre.CodeMirror-line");
+    var cs = line ? getComputedStyle(line) : null;
+    var pad = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0;
+    var width = (code && code.clientWidth) || Math.max(0, cm.getWrapperElement().clientWidth - cm.getGutterElement().offsetWidth - 16);
+    return Math.max(40, Math.min(120, Math.floor(Math.max(0, width - pad - cw * 2) / cw)));
+  }
+  function rwPrefix(line) { var m = /^\s*(%+)\s?/.exec(line); return m ? m[1] : ""; }
+  function rwLines(lines, col) {
+    var first = lines[0] || "", indent = (/^\s*/.exec(first) || [""])[0], fp = rwPrefix(first);
+    var allComment = !!fp && lines.every(function (l) { return !l.trim() || l.trim().indexOf(fp) === 0; });
+    var prefix = allComment ? indent + fp + " " : indent;
+    var stripRe = new RegExp("^\\s*" + fp + "\\s?");
+    var words = [];
+    lines.forEach(function (l) { (allComment ? l.replace(stripRe, "").trim() : l.trim()).split(/\s+/).forEach(function (w) { if (w) words.push(w); }); });
+    var out = [], curLine = "";
+    words.forEach(function (w) {
+      if (!curLine) curLine = prefix + w;
+      else if ((curLine + " " + w).length <= col) curLine += " " + w;
+      else { out.push(curLine); curLine = prefix + w; }
+    });
+    if (curLine) out.push(curLine);
+    return out;
+  }
+  function rwReflowable(block) {
+    var fp = rwPrefix(block[0] || "");
+    if (fp && block.every(function (l) { return !l.trim() || l.trim().indexOf(fp) === 0; })) return true;
+    return !block.some(function (l) { return l.replace(/\\./g, "  ").indexOf("%") >= 0; });
+  }
+  function rwCommandOnly(v) {
+    return v.trim() !== "" && !/[a-zà-ÿ]/i.test(v.replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*/g, ""));
+  }
+  function rewrapParagraph() {
+    var d = cur();
+    if (!cm || !d || !/\.tex$/i.test(d.path)) return;
+    var from, to;
+    if (cm.somethingSelected()) { from = cm.getCursor("from").line; to = cm.getCursor("to").line; }
+    else {
+      var c = cm.getCursor().line, last = cm.lineCount() - 1;
+      from = c; while (from > 0 && cm.getLine(from - 1).trim() !== "") from--;
+      to = c; while (to < last && cm.getLine(to + 1).trim() !== "") to++;
+    }
+    var lines = [];
+    for (var l = from; l <= to; l++) lines.push(cm.getLine(l));
+    if (!rwReflowable(lines)) { flashStatus("Non reformaté : commentaire % au milieu du paragraphe"); return; }
+    // Une ligne faite d'une seule commande (\section{…}) reste une frontière.
+    var col = rewrapColumn(), outL = [], run = [];
+    var flush = function () { if (run.length) outL.push.apply(outL, rwLines(run, col)); run = []; };
+    lines.forEach(function (v) { if (rwCommandOnly(v) || !v.trim()) { flush(); outL.push(v); } else run.push(v); });
+    flush();
+    var out = outL.join("\n");
+    if (out !== lines.join("\n")) cm.replaceRange(out, Pos(from, 0), Pos(to, cm.getLine(to).length), "+rewrap");
+  }
+  // Tout le document `doc` (un CodeMirror.Doc) ; rend le nombre de paragraphes reformatés.
+  function rewrapAll(doc) {
+    var col = rewrapColumn(), last = doc.lineCount() - 1, paras = [], line = 0, depth = 0;
+    while (line <= last) {
+      var raw = doc.getLine(line), re = /\\(begin|end)\{([^}]*)\}/g, mm;
+      while ((mm = re.exec(raw))) if (NO_WRAP_ENV.test(mm[2] || "")) depth += mm[1] === "begin" ? 1 : -1;
+      if (depth > 0 || raw.trim() === "") { line++; continue; }
+      var end = line, block = [raw];
+      while (end < last) {
+        var next = doc.getLine(end + 1), open = /\\begin\{([^}]*)\}/.exec(next);
+        if (next.trim() === "" || (open && NO_WRAP_ENV.test(open[1] || ""))) break;
+        block.push(next); end++;
+      }
+      var prose = block.some(function (v) { return !rwCommandOnly(v) && v.trim() !== ""; });
+      if (prose && rwReflowable(block)) {
+        var out = [], run = [];
+        var flush = function () { if (run.length) out.push.apply(out, rwLines(run, col)); run = []; };
+        block.forEach(function (v) { if (rwCommandOnly(v)) { flush(); out.push(v); } else run.push(v); });
+        flush();
+        if (out.join("\n") !== block.join("\n")) paras.push({ from: line, to: end, out: out });
+      }
+      line = end + 1;
+    }
+    if (paras.length) {
+      var c = doc.getCursor();
+      var apply = function () {
+        for (var i = paras.length - 1; i >= 0; i--) doc.replaceRange(paras[i].out.join("\n"), Pos(paras[i].from, 0), Pos(paras[i].to, doc.getLine(paras[i].to).length), "+rewrap");
+      };
+      if (cm && cm.getDoc() === doc) cm.operation(apply); else apply();
+      doc.setCursor(Pos(Math.min(c.line, doc.lineCount() - 1), c.ch));
+    }
+    return paras.length;
+  }
+  function flashStatus(text) {
+    var n = $("stRewrapMsg");
+    n.textContent = text;
+    n.hidden = false;
+    clearTimeout(flashStatus.t);
+    flashStatus.t = setTimeout(function () { n.hidden = true; }, 3000);
+  }
+  function renderRewrap() {
+    var on = autoRewrap(), b = $("stRewrap");
+    b.textContent = on ? "Reformatage : auto" : "Reformatage : manuel";
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+    b.title = (on ? "Les lignes sont remises à la largeur du panneau à chaque enregistrement. " : "Les lignes ne sont reformatées qu'à la demande. ") + "⌥Q : paragraphe, ⇧⌥Q : tout le fichier.";
+  }
+  function toggleRewrap() {
+    var on = !autoRewrap();
+    store.set("atelier-editor-autorewrap", on ? "1" : "0");
+    renderRewrap();
+    var d = cur();
+    if (on && d && /\.tex$/i.test(d.path)) { var n = rewrapAll(d.doc); if (n) flashStatus(plural(n, "paragraphe reformaté", "paragraphes reformatés")); }
+    if (cm) cm.focus();
+  }
+  // ⌥Q donne « œ » sur un clavier Mac : on lit la touche physique.
+  document.addEventListener("keydown", function (ev) {
+    if (!ev.altKey || ev.metaKey || ev.ctrlKey || ev.code !== "KeyQ") return;
+    var d = cur();
+    if (!cm || !d || !/\.tex$/i.test(d.path)) return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (ev.shiftKey) { var n = rewrapAll(d.doc); flashStatus(n ? plural(n, "paragraphe reformaté", "paragraphes reformatés") : "Rien à reformater"); }
+    else rewrapParagraph();
+    cm.focus();
+  }, true);
+
   function saveDoc(d, force, origin) {
     if (!mcp || !d) return Promise.resolve(false);
     if (!isDirty(d)) return Promise.resolve(true);
+    if (autoRewrap() && /\.tex$/i.test(d.path) && origin !== "restore") { try { rewrapAll(d.doc); } catch (e) { /* on enregistre le texte tel quel */ } }
     var text = d.doc.getValue();
     busy++; refreshState();
     var send = function (b) {
@@ -1766,16 +1911,50 @@ body[data-pdf="off"] .pdf { display: none; }
   function setBuildState(kind, text) {
     var n = $("pdfState");
     n.className = "cs " + kind;
-    n.textContent = text;
+    $("pdfStateT").textContent = text;
+    n.disabled = true;
+    n.removeAttribute("title");
+    n.removeAttribute("aria-pressed");
+  }
+  // « Compilé · N avertissements » : un clic masque ou montre les
+  // avertissements (liste et surlignage) ; les erreurs restent toujours.
+  function renderWarnToggle() {
+    var n = $("pdfState"), k = build.nWarn;
+    if (!k) return;
+    var label = build.hideWarn ? "Afficher les avertissements" : "Masquer les avertissements";
+    // Le compte d'abord : si la place manque, c'est la durée qui est coupée.
+    $("pdfStateT").textContent = plural(k, "avertissement", "avertissements") + (build.hideWarn ? (k > 1 ? " masqués" : " masqué") : "") + " · " + build.okText.charAt(0).toLowerCase() + build.okText.slice(1);
+    $("pdfStateI").setAttribute("href", build.hideWarn ? "#i-eye" : "#i-eye-off");
+    n.disabled = false;
+    n.title = label;
+    n.setAttribute("aria-label", label);
+    n.setAttribute("aria-pressed", String(build.hideWarn));
+  }
+  function toggleWarnings() {
+    if (!build.nWarn) return;
+    build.hideWarn = !build.hideWarn;
+    store.set("atelier-editor-hidewarn", build.hideWarn ? "1" : "0");
+    renderWarnToggle();
+    renderIssues();
+    paintIssues();
+  }
+  function shownIssues() {
+    return build.hideWarn ? build.issues.filter(function (x) { return x.kind !== "w"; }) : build.issues;
   }
 
   function showBuild(r, main) {
     var errs = (r.errors || []).map(function (x) { x.kind = "e"; return x; });
-    var warns = (r.warnings || []).map(function (x) { x.kind = "w"; return x; });
+    // Le shell-escape est coupé exprès : son avertissement n'apprend rien.
+    var warns = (r.warnings || []).filter(function (x) { return !/shell escape feature is not enabled/i.test(x.message || ""); })
+      .map(function (x) { x.kind = "w"; return x; });
     build.issues = errs.concat(warns);
     build.showAll = false;
+    build.nWarn = 0;
     if (r.ok) {
-      setBuildState(warns.length ? "warn" : "ok", "Compilé en " + secondsText(r.seconds) + " s" + (warns.length ? " · " + plural(warns.length, "avertissement", "avertissements") : ""));
+      build.okText = "Compilé en " + secondsText(r.seconds) + " s";
+      setBuildState(warns.length ? "warn" : "ok", build.okText);
+      build.nWarn = warns.length;
+      renderWarnToggle();
     } else {
       setBuildState("err", errs.length > 1 ? plural(errs.length, "erreur", "erreurs") : "Échec de la compilation");
     }
@@ -1802,7 +1981,7 @@ body[data-pdf="off"] .pdf { display: none; }
   function renderIssues() {
     var box = $("issues");
     box.textContent = "";
-    var list = build.issues, limit = build.showAll ? list.length : 6;
+    var list = shownIssues(), limit = build.showAll ? list.length : 6;
     box.hidden = !list.length;
     list.slice(0, limit).forEach(function (x) {
       var row = el("button", "row" + (x.kind === "w" ? " w" : ""));
@@ -1835,7 +2014,7 @@ body[data-pdf="off"] .pdf { display: none; }
       var d = docs[p];
       (d.issueMarks || []).forEach(function (m) { d.doc.removeLineClass(m.h, "background", m.c); });
       d.issueMarks = [];
-      build.issues.forEach(function (x) {
+      shownIssues().forEach(function (x) {
         if (x.path !== p || !x.line || x.line > d.doc.lineCount()) return;
         var c = x.kind === "w" ? "warn-bg" : "err-bg";
         d.issueMarks.push({ h: d.doc.addLineClass(x.line - 1, "background", c), c: c });
@@ -1968,6 +2147,9 @@ body[data-pdf="off"] .pdf { display: none; }
   $("cmpClose").onclick = function () { closeCompare(); };
   $("cmpRestore").onclick = function () { restoreVersion(); };
   $("stUndoAll").onclick = function () { undoAll(); };
+  $("stRewrap").onclick = toggleRewrap;
+  renderRewrap();
+  $("pdfState").onclick = toggleWarnings;
   $("undoBtn").onclick = function () { if (cm) { cm.undo(); cm.focus(); refreshState(); } };
   $("redoBtn").onclick = function () { if (cm) { cm.redo(); cm.focus(); refreshState(); } };
   $("saveBtn").onclick = function () { save(); };
