@@ -2530,7 +2530,9 @@ body[data-wide="on"] .paper img { width: auto; max-width: 100%; max-height: calc
     var pt = headBtn("ib", "pin", "", function () { setTool("point"); }, "Point : clique sur la figure");
     box.setAttribute("aria-pressed", String(figs.tool === "box")); pt.setAttribute("aria-pressed", String(figs.tool === "point"));
     box.id = "fgBox"; pt.id = "fgPoint";
-    head.appendChild(box); head.appendChild(pt); head.appendChild(wideBtn());
+    var cpy = headBtn("ib", "copy", "", function () { copyFigure(f); }, "Copier la figure : colle-la dans ton message à Claude pour dessiner dessus");
+    cpy.id = "fgCopy";
+    head.appendChild(box); head.appendChild(pt); head.appendChild(cpy); head.appendChild(wideBtn());
     head.appendChild(el("span", "sep"));
     var send = headBtn("tb primary", "send", "Envoyer à Claude", function () { sendNotes(); }, "");
     send.id = "fgSend"; send.disabled = !unsentCount();
@@ -2798,18 +2800,26 @@ body[data-wide="on"] .paper img { width: auto; max-width: 100%; max-height: calc
     persistNotes(false);
   }
   // La figure telle qu'on la voit, cadres et pastilles compris.
-  function snapshot() {
+  // La figure telle qu'on la voit ; `label` ajoute dessous une ligne avec
+  // son chemin, pour que Claude la retrouve dans le projet.
+  function drawFigure(label) {
     var img = $("fgImg");
     if (!img || !img.naturalWidth) return null;
     var W = Math.min(img.naturalWidth, FIG_SNAP_MAX), H = Math.round(img.naturalHeight * W / img.naturalWidth);
+    var k = Math.max(1, W / 720), r = 11 * k, band = label ? Math.round(28 * k) : 0;
     var c = document.createElement("canvas");
-    c.width = W; c.height = H;
+    c.width = W; c.height = H + band;
     var g = c.getContext("2d"), css = getComputedStyle(document.documentElement);
     var ann = css.getPropertyValue("--ann").trim() || "#3f6fd1", on = css.getPropertyValue("--on-ann").trim() || "#ffffff";
     var paper = css.getPropertyValue("--paper").trim() || "#ffffff";
-    g.fillStyle = paper; g.fillRect(0, 0, W, H);
+    var ink = css.getPropertyValue("--paper-ink").trim() || "#595e64";
+    g.fillStyle = paper; g.fillRect(0, 0, W, H + band);
+    if (label) {
+      g.fillStyle = ink; g.font = "400 " + Math.round(12 * k) + "px -apple-system, system-ui, sans-serif";
+      g.textAlign = "left"; g.textBaseline = "middle";
+      g.fillText(label, 12 * k, H + band / 2, W - 24 * k);
+    }
     g.drawImage(img, 0, 0, W, H);
-    var k = Math.max(1, W / 720), r = 11 * k;
     figs.notes.forEach(function (n) {
       if (!n.text || n.kind !== "box") return;
       g.save();
@@ -2826,6 +2836,11 @@ body[data-wide="on"] .paper img { width: auto; max-width: 100%; max-height: calc
       g.textAlign = "center"; g.textBaseline = "middle";
       g.fillText(String(n.n), x, y + 0.5 * k);
     });
+    return c;
+  }
+  function snapshot() {
+    var c = drawFigure(null);
+    if (!c) return null;
     try {
       var png = c.toDataURL("image/png");
       return png.length > 7000000 ? c.toDataURL("image/jpeg", 0.9) : png;
@@ -2840,6 +2855,20 @@ body[data-wide="on"] .paper img { width: auto; max-width: 100%; max-height: calc
       }, function () {});
       return true;
     } catch (e) { return false; }
+  }
+  // Copiée en image (notes comprises, chemin dessous) : on la colle dans le
+  // message de Claude, on dessine dessus avec son outil, on envoie.
+  function copyFigure(f) {
+    var c = drawFigure(f.rel);
+    var hint = "Copie d'image refusée ici : clic droit sur la figure, puis Copier l'image.";
+    if (!c) { setNote("err", "La figure n'est pas encore affichée : attends son chargement, puis réessaie."); return; }
+    if (!navigator.clipboard || !navigator.clipboard.write || typeof ClipboardItem === "undefined") { flashStatus(hint); return; }
+    var blob = new Promise(function (ok, ko) { c.toBlob(function (b) { if (b) ok(b); else ko(new Error("toBlob")); }, "image/png"); });
+    try {
+      navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(function () {
+        flashStatus("Figure copiée : colle-la (⌘V) dans ton message à Claude, dessine dessus, puis envoie.");
+      }, function () { flashStatus(hint); });
+    } catch (e) { flashStatus(hint); }
   }
   function sendNotes() {
     var f = figs.byPath[figs.open];
