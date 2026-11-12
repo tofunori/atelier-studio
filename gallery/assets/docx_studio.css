@@ -179,8 +179,6 @@ body.blanche #caret{background:var(--doc-ink)}
 #caret.on{display:block;animation:caret-blink 1s steps(1) infinite}
 @keyframes caret-blink{50%{opacity:0}}
 body.blanche #paper{background:var(--doc-paper);color:var(--doc-ink);--text-primary:var(--doc-ink);--text-muted:var(--doc-ink-muted);--text-secondary:var(--doc-ink-muted)}
-#cbars{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:1}
-#cbars>i{position:absolute;width:2px;border-radius:999px;background:color-mix(in srgb,var(--doc-a1) 55%,transparent)}
 #paper .loading{font:400 13px/1.5 var(--ui-font);color:var(--text-muted)}
 .d-p{position:relative;margin:0 0 12px;white-space:pre-wrap;min-height:1.7em}
 .d-p.h0{font-size:24px;font-weight:600;line-height:1.3;letter-spacing:-0.01em;margin:24px 0 16px}
@@ -263,6 +261,8 @@ body.v-final .chip.fig img,body.v-original .chip.fig img{opacity:1;outline:0}
 body.v-final .del,body.v-original .ins{display:none}
 body.v-final .ins,body.v-original .del{color:inherit;text-decoration:none;background:none}
 body.v-final .fmt,body.v-original .fmt{text-decoration:none}
+/* Lecture : le texte nu ; seul le passage du commentaire ouvert reste marqué. */
+body.v-final .cmt:not(.on){background:none;box-shadow:none}
 body.v-final .d-p.changed::before,body.v-original .d-p.changed::before,body.v-revue:not(.no-lane) .d-p.changed::before,body.v-final .d-p[class*="mark-"]::after,body.v-original .d-p[class*="mark-"]::after{display:none}
 .ins.pending{color:var(--rev-color)}
 

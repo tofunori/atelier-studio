@@ -559,14 +559,14 @@
     fitPage();
   }
   const zoomPct = () => Math.round(ptPx / PT * 100);
-  // Feuilles, numéros de ligne et traits de révision sont dessinés par
+  // Feuilles et numéros de ligne sont dessinés par
   // rapport au coin de la page ; leurs calques suivent la page quand elle
   // se recentre (panneau élargi ou rétréci, marge des fiches qui apparaît,
   // retour sur la surface) sans refaire la mise en page.
   let laidOutHidden = false;
   function followPaper() {
     const x = `${paper.offsetLeft}px`, y = `${paper.offsetTop}px`;
-    for (const l of [sheets, lnLayer, cbars]) {
+    for (const l of [sheets, lnLayer]) {
       if (l.style.left !== x) l.style.left = x;
       if (l.style.top !== y) l.style.top = y;
     }
@@ -701,7 +701,6 @@
     drawSheets(pg, pages);
     drawLines(pg);
     pageCount = pages;
-    drawBars();
     placeCards();
     spy();
     if (findOpen()) runFind(false);
@@ -985,47 +984,7 @@
     lnLayer.replaceChildren(frag);
   }
 
-  // Vue Lecture : le texte se lit comme accepté, un trait fin dans la marge
-  // de gauche signale chaque groupe de lignes retouchées.
-  const cbars = $("cbars");
   let pageCount = 1;
-  function drawBars() {
-    const pg = model?.page;
-    if (view !== "final" || !pg) { if (cbars.firstChild) cbars.replaceChildren(); return; }
-    const o = paper.getBoundingClientRect().top;
-    const spans                     = [];
-    const push = (r                     ) => { if (r && r.height > 2 && r.height < 120) spans.push([r.top - o, r.bottom - o]); };
-    for (const el of Array.from(paper.querySelectorAll             (".ins[data-ch]"))) for (const r of Array.from(el.getClientRects())) push(r);
-    // Une suppression masquée tombe sur la ligne du texte qui l'entoure.
-    for (const el of Array.from(paper.querySelectorAll             (".del[data-ch]"))) {
-      const prev = el.previousElementSibling, next = el.nextElementSibling;
-      const pr = prev ? Array.from(prev.getClientRects()) : [];
-      push(pr.length ? pr[pr.length - 1] : next ? next.getClientRects()[0] : undefined);
-    }
-    // Mise en forme ou marque de paragraphe : tout le paragraphe.
-    for (const el of Array.from(paper.querySelectorAll             (".d-p.changed"))) {
-      if (el.querySelector(".ins[data-ch],.del[data-ch]")) continue;
-      const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-      spans.push([r.top - o + (parseFloat(cs.paddingTop) || 0), r.bottom - o - (parseFloat(cs.paddingBottom) || 0)]);
-    }
-    spans.sort((a, b) => a[0] - b[0]);
-    const merged                     = [];
-    for (const s of spans) {
-      const last = merged[merged.length - 1];
-      if (last && s[0] <= last[1] + 6) last[1] = Math.max(last[1], s[1]);
-      else merged.push([s[0], s[1]]);
-    }
-    const x = (pg.left - 9) * ptPx;
-    const frag = document.createDocumentFragment();
-    for (const [a, b] of merged) {
-      const i = document.createElement("i");
-      i.style.left = `${x}px`;
-      i.style.top = `${a - 2}px`;
-      i.style.height = `${b - a + 4}px`;
-      frag.appendChild(i);
-    }
-    cbars.replaceChildren(frag);
-  }
 
   function repaint(idx        ) {
     const old = paper.querySelector(`.d-p[data-idx="${idx}"]`)                      ;

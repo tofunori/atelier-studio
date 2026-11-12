@@ -384,6 +384,11 @@ test('docx: barre de mise en forme, vues et page blanche', async ({page, project
   await page.locator('#vRead').click();
   await expect(page.locator('#vRead')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.d-p[data-idx="1"] .del').first()).toBeHidden();
+  // Le texte nu : ni trait dans la marge, ni passage commenté peint ; les fiches restent.
+  await expect(page.locator('#cbars')).toHaveCount(0);
+  const cmt = page.locator('.cmt:not(.on):not(.done)').first();
+  await expect(cmt).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('#cards .it').first()).toBeAttached();
   await view('Original');
   await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'false');
   await page.locator('#vReview').click();
