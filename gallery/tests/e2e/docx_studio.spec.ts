@@ -509,6 +509,39 @@ test('docx: le texte se coupe en pages comme dans Word, numéros de ligne repris
   expect(await layout()).toBe(typed);
 });
 
+test('docx: feuilles et numéros de ligne suivent la page quand le panneau change de taille ou revient', async ({page, project}) => {
+  await page.setViewportSize({width: 1400, height: 900});
+  await open(page, project);
+  await expect(page.locator('#lnums span').first()).toHaveText('1');
+  // Zoom fixé : la largeur de la page ne bouge plus, seule sa position change.
+  await page.locator('#foot [data-z="out"]').click();
+  const aligned = () => page.evaluate(() => {
+    const paper = document.getElementById('paper')!.getBoundingClientRect();
+    const sheet = document.querySelector('#sheets .sheet')!.getBoundingClientRect();
+    const num = document.querySelector('#lnums span')!.getBoundingClientRect();
+    const text = document.querySelector('.d-p[data-idx="0"]')!.getBoundingClientRect();
+    return {dx: Math.abs(sheet.left - paper.left), dw: Math.abs(sheet.width - paper.width), numIn: num.left >= sheet.left && num.right < text.left};
+  });
+  const ok = {dx: expect.any(Number), dw: expect.any(Number), numIn: true};
+  const check = async () => {
+    await expect.poll(async () => { const a = await aligned(); return a.dx < 1 && a.dw < 1 && a.numIn; }).toBe(true);
+    expect(await aligned()).toEqual(ok);
+  };
+  await check();
+  // Panneau rétréci puis élargi (surface partagée avec le chat, puis seule).
+  await page.setViewportSize({width: 900, height: 900});
+  await check();
+  await page.setViewportSize({width: 1600, height: 900});
+  await check();
+  // Surface masquée pendant une mise en page (autre onglet), puis ré-affichée.
+  await page.evaluate(() => { document.getElementById('scroll')!.style.display = 'none'; });
+  await page.locator('#foot [data-z="in"]').click();
+  await page.setViewportSize({width: 1100, height: 900});
+  await page.evaluate(() => { document.getElementById('scroll')!.style.display = ''; });
+  await check();
+  await expect.poll(() => page.locator('#sheets .sheet').count()).toBeGreaterThanOrEqual(1);
+});
+
 test('docx: une bibliographie Zotero passe à la ligne et se coupe en feuilles pleines', async ({page, project}) => {
   await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path.join(project.root, 'Bibliographie.docx'))}`);
   await expect(page.locator('#sheets .sheet').nth(1)).toBeAttached();
