@@ -859,7 +859,7 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .texv-his-k span{font-weight:400;color:var(--text-muted,var(--muted))}
 .texv-his-t{overflow-wrap:anywhere}
 .texv-his-t s{color:var(--status-error,#e06c75);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--status-error,#e06c75) 60%,transparent)}
-.texv-his-t b{font-weight:400;background:var(--texr-add-word);border-radius:2px}
+.texv-his-t b{font-weight:400;background:var(--texr-add-word)}
 .texv-since{margin:0 0 8px;padding:8px 12px;border-radius:10px;background:var(--surface-hover,var(--card2))}
 .texv-since-t{margin-bottom:8px;font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--text-muted,var(--muted))}
 .texv-since .texr-acts{margin-top:0}
