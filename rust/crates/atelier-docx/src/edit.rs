@@ -5,7 +5,7 @@
 //! autre auteur est refusé avec une explication.
 
 use crate::walk::{self, Inline, Kind, Piece, Tok};
-use crate::xml::{self, W14, escape_attr, escape_text};
+use crate::xml::{self, escape_attr, escape_text};
 use crate::{COMMENTS, Docx, DocxError, Result, Signature, err};
 use roxmltree::Document;
 use std::ops::Range;
@@ -27,11 +27,7 @@ pub(crate) fn target(src: &str, doc: &Document, paragraph: &str) -> Result<Targe
     let story = crate::story::parse_ref(paragraph)?;
     let paras = walk::paragraphs_in(doc, &story.scope);
     let local = story.local.as_str();
-    let index = match local.strip_prefix('p').and_then(|n| n.parse::<usize>().ok()) {
-        Some(i) => Some(i),
-        None => paras.iter().position(|p| p.node.attribute((W14, "paraId")) == Some(local)),
-    };
-    let Some(index) = index.filter(|i| *i < paras.len()) else {
+    let Some(index) = crate::story::local_index(&paras, local) else {
         return err(format!("paragraphe {paragraph} introuvable"));
     };
     let mut state = walk::State::default();
