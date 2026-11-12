@@ -2684,6 +2684,7 @@ export default function App() {
             ...(review.now ? { now: review.now } : {}),
             ...(review.likely ? { likely: review.likely } : {}),
             ...(review.edit ? { edit: review.edit, ready: review.ready === true } : {}),
+            ...(review.note ? { note: review.note } : {}),
           };
           const first = (review.author || "").trim().split(/\s+/)[0] || t("chat.review-reviewer");
           const threadId = attachContextToChat(data.text, {

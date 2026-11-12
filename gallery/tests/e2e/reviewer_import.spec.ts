@@ -112,26 +112,32 @@ test('reviewer .docx: comments land in the .tex, signed, with report, filter, st
     await expect(panel.locator('.tp-sec-file')).toHaveText(['main.tex', 'methods.texouvert']);
     await expect(panel.locator('.tp-item[data-path]')).toHaveCount(1);
     await expect(panel.locator('.tp-item:not([data-path])')).toHaveCount(4);
-    const heads = page.locator('.texv-head:not(.is-edit)');
-    await expect(heads).toHaveCount(4);
-    await expect(heads.first()).toContainText('Christophe');
-    // Ses modifications : un en-tête par paragraphe, à part de ses commentaires.
-    await expect(page.locator('.texv-head.is-edit')).toHaveCount(2);
+    // Rien d'inséré dans le texte (maquette v8) : un numéro par commentaire
+    // dans la marge, un crayon par retouche, l'état en couleur seule.
+    const rings = page.locator('.texv-mk:not(.is-edit)');
+    await expect(rings).toHaveCount(4);
+    await expect(page.locator('.texv-mk.is-edit')).toHaveCount(2);
+    await expect(page.locator('.cm-content .atelier-annotation-number')).toHaveCount(0);
+    await expect(panel.locator('.tp-item .tp-sdot.tone-info').first()).toHaveAttribute('title', /à faire/i);
     await expect(panel.locator('.tp-edits')).toContainText('0 sur 2 phrases');
     await expect(panel.locator('.tp-edit-row[data-edits] .tp-edit-n')).toHaveText(['1', '1', '0']);
 
-    // Ouvrir le commentaire exact : la réponse Word de Thierry, puis à l'ordre du jour.
-    await heads.first().click();
-    const block = page.locator('.texv-block');
-    await expect(block).toHaveCount(1);
-    await expect(block.locator('.texv-word')).toContainText('Thierry');
-    await block.locator('.texv-agenda').click();
-    await expect(panel.locator('.tp-chip[data-rstate="agenda"]')).toHaveText('À voir avec lui · 1');
-    await panel.locator('.tp-agenda-open').click();
-    await expect(panel.locator('.tp-agenda li')).toHaveCount(1);
+    // Ouvrir le commentaire exact : une bulle, la réponse Word de Thierry.
+    await rings.first().click();
+    const pop = page.locator('.texv-pop');
+    await expect(pop).toHaveCount(1);
+    await expect(pop).toHaveAttribute('aria-label', /Christophe/);
+    await expect(pop.locator('.texv-word')).toHaveAttribute('title', /Thierry/);
+    const position = await pop.locator('.texv-pos').textContent();
+    expect(position).toMatch(/^\d \/ 6$/);
+    // Cocher le numéro : réglé ; Suivant passe au suivant.
+    await pop.locator('.texv-tick').click();
+    await expect(panel.locator('.tp-chip[data-rstate="done"]')).toHaveText('Réglés · 1');
+    await expect(rings.first()).toHaveClass(/is-done/);
+    await page.locator('.texv-pop .texv-next').click();
+    await expect(page.locator('.texv-pop .texv-pos')).not.toHaveText(position || '');
 
     // Réimporter le même fichier n'ajoute rien.
-    await panel.locator('.tp-agenda-close').click();
     await page.locator('#moreBtn').click();
     const again = page.waitForEvent('filechooser');
     await page.locator('#moreReviewImport').click();
@@ -139,18 +145,20 @@ test('reviewer .docx: comments land in the .tex, signed, with report, filter, st
     await (await again).setFiles(docx);
     expect((await second).ok()).toBe(true);
     await expect(page.locator('.texv-report-card')).toContainText('rien n’a été ajouté');
-    await expect(page.locator('.texv-head:not(.is-edit)')).toHaveCount(4);
+    await expect(page.locator('.texv-mk')).toHaveCount(6);
     await page.locator('.texv-report-close').first().click();
 
     // Sa retouche prête : sa version en vert, Accepter l'écrit dans le .tex.
     await panel.locator('.tp-edit-row[data-edits="apply"]').click();
     await expect(panel.locator('.tp-item')).toHaveCount(1);
-    await expect(panel.locator('.tp-item')).toContainText('S’applique telle quelle');
+    // L'état se lit à la couleur, son nom au survol du point.
+    await expect(panel.locator('.tp-item .tp-sdot')).toHaveAttribute('title', 'S’applique telle quelle');
     await panel.locator('.tp-item').click();
-    const ready = page.locator('.texv-block');
-    await expect(ready.locator('.texv-concl')).toContainText('Sa version');
-    await expect(ready.locator('.texr-new b')).toContainText('with care');
-    await ready.locator('.texr-accept').click();
+    const ready = page.locator('.texv-pop.is-edit');
+    await expect(ready.locator('.texv-pop-note')).toContainText('Christophe');
+    await expect(ready.locator('.texv-his b')).toContainText('with care');
+    await expect(ready.locator('.texv-accept')).toHaveAttribute('aria-label', 'Appliquer sa version');
+    await ready.locator('.texv-accept').click();
     await expect(page.locator('.cm-content')).toContainText('The model is $x = a + b$ with care fitted to all zones.');
     const editOf = (eid: number) => JSON.parse(readFileSync(path.join(root, '.fig_thumbs', 'pdf_annots.json'), 'utf8'))[`tex-comments:${methods}`]
       .find((n: any) => n.review.eid === eid).review;
@@ -160,19 +168,20 @@ test('reviewer .docx: comments land in the .tex, signed, with report, filter, st
     // Celle que ton texte a dépassée : sa version barrée/verte, Garder mon texte.
     await panel.locator('.tp-edit-row[data-edits="changed"]').click();
     await panel.locator('.tp-item').click();
-    const changed = page.locator('.texv-block');
-    await expect(changed.locator('.texv-his-t s')).toHaveText(' greater than');
-    await expect(changed.locator('.texv-his-t b')).toHaveText(' above');
-    await expect(changed.locator('.texv-merge')).toContainText('Demander à Claude de fusionner');
-    await changed.locator('.texv-keep').click();
+    const changed = page.locator('.texv-pop.is-edit');
+    await expect(changed.locator('.texv-his s')).toHaveText(' greater than');
+    await expect(changed.locator('.texv-his b')).toHaveText(' above');
+    await expect(changed.locator('.texv-chat')).toHaveAttribute('aria-label', 'Demander à Claude de fusionner');
+    await expect(changed.locator('.texv-refuse')).toHaveAttribute('aria-label', 'Garder mon texte');
+    await changed.locator('.texv-refuse').click();
     await expect.poll(() => editOf(1).state).toBe('done');
     expect(editOf(1).refused).toBeGreaterThan(0);
     await expect(panel.locator('.tp-edits')).toContainText('2 sur 2 phrases');
     await expect(page.locator('.cm-content')).toContainText('greater than $70^\\circ$');
     await panel.locator('.tp-edit-row[data-edits="done"]').click();
     await expect(panel.locator('.tp-item')).toHaveCount(2);
-    await expect(panel.locator('.tp-list')).toContainText('Acceptée');
-    await expect(panel.locator('.tp-list')).toContainText('Ton texte gardé');
+    expect(await panel.locator('.tp-item .tp-sdot').evaluateAll(dots => dots.map(d => d.getAttribute('title')).sort()))
+      .toEqual(['Acceptée', 'Ton texte gardé']);
     await panel.locator('.tp-edit-row[data-edits="done"]').click();
 
     // Un commentaire d'un autre fichier : le clic demande d'ouvrir ce fichier,
@@ -181,7 +190,7 @@ test('reviewer .docx: comments land in the .tex, signed, with report, filter, st
     const focus = await page.evaluate(() => JSON.parse(localStorage.getItem('atelier.reviewFocus') || 'null'));
     expect(focus?.path).toBe(main);
     await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(main)}`);
-    await expect(page.locator('.texv-block')).toHaveCount(1);
+    await expect(page.locator('.texv-pop')).toHaveCount(1);
     await expect(page.locator('#texcPanel .tp-item.is-active')).toHaveCount(1);
     expect(await page.evaluate(() => localStorage.getItem('atelier.reviewFocus'))).toBeNull();
   } finally { await stop(server); await removeTempRoot(root); }
@@ -263,20 +272,37 @@ test('reviewer comments go to the chat one by one, and the chat bar drives the e
     expect((await sent())[2].review.n).toBe(3);
     expect(noteOf(second.review).review.state).toBe('todo');
 
-    // Sur le texte : « Dans le chat », et trois gestes sous le commentaire.
+    // Sur le texte : rien d'inséré, un numéro dans la marge par commentaire.
     const inFile = (await sent()).map(m => m.review).find(r => r.path === methods);
-    if (inFile) {
-      const head = editor.locator(`.texv-head[data-texa="${inFile.id}"]`);
-      await expect(head).toContainText(/Dans le chat|Réglé/);
-    }
-    await editor.locator('.texv-head').first().click();
-    const block = editor.locator('.texv-block');
-    await expect(block.locator('.texr-acts button')).toHaveCount(1 + (await block.locator('.texv-reopen').count() ? 0 : 2));
-    await expect(block.locator('.texr-input')).toHaveCount(0);
+    if (inFile) await expect(editor.locator(`.texv-mk[data-texa="${inFile.id}"]`)).toHaveCount(1);
+    await expect(editor.locator('.cm-content .atelier-annotation-number')).toHaveCount(0);
 
-    // Réglé, il reste relisible : ce qui a changé depuis son commentaire.
-    if (await block.locator('.texv-done').count()) await block.locator('.texv-done').click();
-    await expect(editor.locator('.texv-block .texv-likely.is-done')).toContainText('Réglé');
+    // Un seul bouton, le chat : Thierry écrit sa note, Entrée l'envoie avec
+    // le commentaire de Christophe.
+    await editor.locator('.texv-mk:not(.is-done):not(.is-edit)').first().click();
+    const pop = editor.locator('.texv-pop');
+    await expect(pop).toHaveCount(1);
+    await expect(pop.locator('.texv-pop-row .texv-ib')).toHaveCount(1);
+    await pop.locator('.texv-chat').click();
+    const input = editor.locator('.texv-pop .texv-cmp-t');
+    await expect(input).toBeFocused();
+    await input.fill('Pas sûr, qu’en penses-tu ?');
+    await input.press('Enter');
+    await expect.poll(async () => (await sent()).length).toBe(4);
+    const withNote = (await sent())[3];
+    expect(withNote.review.note).toBe('Pas sûr, qu’en penses-tu ?');
+    expect(withNote.text).toContain('Ma note : « Pas sûr, qu’en penses-tu ? »');
+    await expect(editor.locator('.texv-pop .texv-said:not(.texv-word)')).toHaveText('Pas sûr, qu’en penses-tu ?');
+
+    // Cocher le numéro : réglé, la couleur seule le dit.
+    await editor.locator('.texv-pop .texv-tick').click();
+    await expect.poll(() => noteOf(withNote.review).review.state).toBe('done');
+    await expect(editor.locator(`.texv-mk[data-texa="${withNote.review.id}"]`)).toHaveClass(/is-done/);
+    await expect(editor.locator('.texv-pop .texv-dot')).toHaveClass(/tone-ok/);
+
+    // Un clic ailleurs dans le texte referme la bulle.
+    await editor.locator('.cm-line').last().click();
+    await expect(editor.locator('.texv-pop')).toHaveCount(0);
   } finally { host?.close(); await stop(server); await removeTempRoot(root); }
 });
 

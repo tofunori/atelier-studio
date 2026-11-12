@@ -2,19 +2,20 @@
  *  Thierry 2026-11-12) : le directeur commente le .docx tiré du .tex, Atelier
  *  pose chaque commentaire sur son passage (`POST /review/import`, Rust).
  *
- *  Ses commentaires vivent dans le panneau Annotations habituel, signés de
- *  son nom (`by: "reviewer"`). Thierry en discute UN PAR UN DANS LE CHAT
- *  (maquette « chat-un-par-un », 2026-11-12) : l'éditeur envoie le
- *  commentaire au chat, la barre du chat dit Réglé / À voir avec lui /
- *  Suivant, et la correction que Claude propose revient sur le texte à
- *  accepter ou refuser. Claude peut aussi juger qu'une retouche règle déjà
- *  un commentaire (« Sans doute réglé ») : Suivant le saute.
+ *  Dans l'éditeur (maquette « annotations épurées » v8, 2026-11-12) : rien
+ *  n'est inséré dans le texte. Un numéro dans la marge par commentaire, la
+ *  couleur seule dit l'état ; le commentaire ouvert flotte dans une bulle
+ *  sous son passage (reviewer_overlay.ts). Une seule icône, le chat : Thierry
+ *  y écrit sa note, qui part au chat avec le commentaire ; la correction que
+ *  Claude propose revient sur une ligne, à accepter ou refuser. Ses
+ *  retouches (suivi des modifications de Word) suivent le même modèle :
+ *  un crayon dans la marge, sa version barré / ajouté dans la bulle.
  *
- *  Ce module ne garde aucun état : reconnaissance, libellés, blocs affichés
- *  dans l'éditeur, messages envoyés au chat, bilan d'import et ordre du jour. */
+ *  Ce module ne garde aucun état : reconnaissance, couleurs, bulle, messages
+ *  envoyés au chat, bilan d'import et ordre du jour. */
 
-import {insertedHtml, removedRanges, roundIcons} from "./revision_round";
-import {agentIcon, hasUnread, type AgentFields} from "./agent_notes";
+import {roundIcons, wordDiff} from "./revision_round";
+import {hasUnread, type AgentFields} from "./agent_notes";
 
 export type ReviewState = "todo" | "agenda" | "done";
 
@@ -172,36 +173,6 @@ export function reviewerState(note: ReviewerFields): {icon: string; label: strin
     label: note.review?.kind === "question" ? "Question · à faire" : "À faire", tone: "todo"};
 }
 
-/** En-tête au-dessus du passage : pastille, prénom, son commentaire, état. */
-export function reviewerHeader(doc: Document, number: number, note: ReviewerFields): HTMLElement {
-  const root = doc.createElement("div");
-  const state = reviewerState(note);
-  root.className = "texr-head texa-head texv-head" + (reviewState(note) === "done" ? " is-done" : "");
-  const edit = isEdit(note);
-  if (edit) root.classList.add("is-edit");
-  root.innerHTML = (edit ? `<span class="texv-edit-ic">${reviewIcons.edit}</span>`
-    : `<span class="atelier-annotation-number texr-ring is-reviewer${hasUnread(note) ? " is-unread" : ""}">${number}</span>`)
-    + `<span class="texa-who">${escapeHtml(reviewerName(note))}</span>`
-    + `<span class="texr-note">${escapeHtml(edit ? editVerb(note) : (note.comment || "").replace(/\s+/g, " "))}</span>`
-    + `<span class="texv-state tone-${state.tone}"><span class="tp-ic">${state.icon}</span>${escapeHtml(state.label)}</span>`;
-  return root;
-}
-
-export interface ReviewerBlockView {
-  note: ReviewerFields;
-  lineBefore: string;
-  lineAfter: string;
-}
-
-export interface ReviewerBlockActions {
-  accept(): void;
-  refuse(): void;
-  state(next: ReviewState): void;
-  /** `merge` : « Demander à Claude de fusionner » (une de ses retouches). */
-  chat(merge?: boolean): void;
-  seen(): void;
-}
-
 /** Sa phrase, mots retirés barrés en rouge, ajoutés sur fond vert. */
 export function editDiffHtml(diff: Array<[string, string]> | undefined, after = ""): string {
   if (!diff?.length) return escapeHtml(after);
@@ -219,38 +190,40 @@ export function editDiffHtml(diff: Array<[string, string]> | undefined, after = 
   }).join("");
 }
 
-/** Une de ses retouches que le .tex ne prend pas telle quelle (ou réglée) :
- *  sa version, puis fusion par Claude, ton texte gardé ou le chat. */
-function editBlock(doc: Document, view: ReviewerBlockView, actions: ReviewerBlockActions): HTMLElement {
-  const {note} = view;
+/** Couleur de l'état, seule marque d'état sur le texte et dans la bulle
+ *  (Thierry 2026-11-12 : « trop de texte », plus aucun mot d'état) :
+ *  bleu à faire, vert réglé ou sans doute réglé, ambre à voir ou passage
+ *  changé depuis son retour. Le nom de l'état reste au survol. */
+export type ReviewTone = "info" | "ok" | "warn";
+export function reviewerTone(note: ReviewerFields): ReviewTone {
   const state = reviewState(note);
-  const edit = note.review?.edit || {};
-  const root = doc.createElement("div");
-  root.className = "texr-block texa-block texv-block texv-edit";
-  const date = note.review?.date ? new Date(note.review.date) : null;
-  const when = date && !Number.isNaN(date.getTime()) ? ` · sur le texte du ${date.getDate()} ${MONTHS[date.getMonth()]}` : "";
-  const his = `<div class="texv-his"><div class="texv-his-k">Sa version<span>${escapeHtml(when)}</span></div>`
-    + `<div class="texv-his-t">${editDiffHtml(edit.diff, edit.after)}</div></div>`;
-  const chat = `<button type="button" class="texr-ghost texv-chat" title="Envoyer sa modification au chat et en discuter avec Claude">${reviewIcons.talk}En discuter dans le chat</button>`;
-  let body: string;
-  if (state === "done") {
-    body = his + `<div class="texr-foot"><div class="texr-acts"><button type="button" class="texr-ghost texv-reopen">Rouvrir</button></div></div>`;
-  } else {
-    const since = note.review?.refused ? "Tu as refusé la fusion proposée : ton texte reste tel quel."
-      : edit.status === "changed" ? "Depuis, tu as changé ce passage : sa version ne s’applique plus telle quelle."
-        : "Ta version est gardée.";
-    body = his + `<div class="texv-since"><div class="texv-since-t">${escapeHtml(since)}</div><div class="texr-acts">`
-      + `<button type="button" class="texr-btn texv-merge" title="Claude propose une correction qui reprend ses changements dans ton texte">${reviewIcons.merge}Demander à Claude de fusionner</button>`
-      + '<button type="button" class="texr-ghost texv-keep" title="Ranger sa modification en « Réglé » sans rien changer">Garder mon texte</button>'
-      + chat + "</div></div>";
+  if (state === "done" || likelySettled(note)) return "ok";
+  if (state === "agenda") return "warn";
+  if (reviewerSuggestion(note)) return "info";
+  // Sa retouche ne s'applique plus telle quelle : à fusionner.
+  if (isEdit(note)) return "warn";
+  if (note.review?.chatAt) return "info";
+  return note.review?.fit === "changed" ? "warn" : "info";
+}
+
+/** Avant / après sur une seule ligne : mots retirés barrés, mots ajoutés
+ *  surlignés, dans l'ordre du texte. */
+export function mergedDiffHtml(before: string, after: string): string {
+  const {old, neu} = wordDiff(before, after);
+  const piece = (tag: "del" | "ins", t: string): string => {
+    const word = t.trimEnd();
+    return word ? `<${tag}>${escapeHtml(word)}</${tag}>${escapeHtml(t.slice(word.length))}` : escapeHtml(t);
+  };
+  let html = "";
+  let i = 0, j = 0;
+  while (i < old.length || j < neu.length) {
+    const a = old[i], b = neu[j];
+    if (a?.changed) { html += piece("del", a.t); i += 1; }
+    else if (b?.changed) { html += piece("ins", b.t); j += 1; }
+    else { html += escapeHtml((a || b)?.t || ""); i += 1; j += 1; }
   }
-  root.innerHTML = body;
-  root.querySelector<HTMLButtonElement>(".texv-merge")?.addEventListener("click", () => actions.chat(true));
-  root.querySelector<HTMLButtonElement>(".texv-keep")?.addEventListener("click", () => actions.refuse());
-  root.querySelector<HTMLButtonElement>(".texv-reopen")?.addEventListener("click", () => actions.state("todo"));
-  root.querySelector<HTMLButtonElement>(".texv-chat")?.addEventListener("click", () => actions.chat());
-  root.addEventListener("pointerdown", () => { if (hasUnread(note)) actions.seen(); });
-  return root;
+  // Mots changés qui se suivent : une seule marque, espace compris.
+  return html.replace(/<\/(del|ins)>([ \t]+)<\1>/g, "$2");
 }
 
 /** Ce que Claude disait de la dernière correction proposée (acceptée ou non). */
@@ -260,87 +233,129 @@ function lastSuggestionReason(note: ReviewerFields): string {
   return "";
 }
 
-/** Ce qu'il commentait, mots disparus depuis marqués. */
-function deletedHtml(before: string, after: string): string {
-  let html = "";
-  let at = 0;
-  for (const [from, to] of removedRanges(before, after)) {
-    html += escapeHtml(before.slice(at, from)) + `<s>${escapeHtml(before.slice(from, to))}</s>`;
-    at = to;
-  }
-  return html + escapeHtml(before.slice(at));
+export interface ReviewerBubbleView {
+  note: ReviewerFields;
+  number: number;
+  /** Rang parmi ses commentaires de ce fichier (1…total). */
+  index: number;
+  total: number;
+  /** Champ de note ouvert (« Discuter dans le chat »), et son brouillon. */
+  composing: boolean;
+  draft: string;
+  /** Note de Thierry partie au chat avec le commentaire, s'il y en a une. */
+  said?: string;
 }
 
-/** Ses réponses déjà écrites dans Word, sous son commentaire. */
-function wordReplies(note: ReviewerFields): string {
-  const name = escapeHtml(reviewerName(note));
-  return (note.review?.replies || []).map(reply => `<div class="texa-msg texv-word"><div class="texa-msg-who">${reviewIcons.person}`
-    + `${escapeHtml(reply.author || name)} · dans Word</div><div class="texa-msg-text">${escapeHtml(reply.text || "")}</div></div>`).join("");
+export interface ReviewerBubbleActions {
+  /** Coche du numéro : réglé, ou rouvert s'il l'était. */
+  tick(): void;
+  chat(): void;
+  send(text: string): void;
+  cancel(): void;
+  draft(text: string): void;
+  accept(): void;
+  refuse(): void;
+  nav(delta: number): void;
+  seen(): void;
 }
 
-/** Bloc sous le paragraphe du commentaire actif : son passage d'origine si
- *  le .tex a bougé, ses réponses dans Word, l'avis « sans doute réglé » de
- *  Claude ou la correction qu'il propose, et trois gestes au plus. La
- *  discussion elle-même a lieu dans le chat. */
-export function reviewerBlock(doc: Document, view: ReviewerBlockView, actions: ReviewerBlockActions): HTMLElement {
+const bubbleIcons = {
+  up: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3.5M4.5 7 8 3.5 11.5 7"/></svg>',
+  prev: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 4.5 6.3 8l3.5 3.5"/></svg>',
+  next: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.2 4.5 9.7 8l-3.5 3.5"/></svg>',
+} as const;
+
+/** Bulle d'un commentaire du relecteur (maquette « annotations épurées » v8,
+ *  choisie le 2026-11-12) : flotte sous son passage sans rien insérer dans
+ *  le texte. Le numéro se coche pour dire « réglé » ; une seule icône, le
+ *  chat, ouvre un champ où Thierry écrit sa note, qui part au chat avec le
+ *  commentaire. La correction de Claude tient sur une ligne (barré / ajouté),
+ *  ✓ l'accepte, ✕ la refuse ; un commentaire réglé garde son avant / après. */
+export function reviewerBubble(doc: Document, view: ReviewerBubbleView, actions: ReviewerBubbleActions): HTMLElement {
   const {note} = view;
-  const suggestion = reviewState(note) === "done" ? null : reviewerSuggestion(note);
-  if (isEdit(note) && !suggestion) return editBlock(doc, view, actions);
   const state = reviewState(note);
+  const done = state === "done";
+  const suggestion = done ? null : reviewerSuggestion(note);
   const likely = !suggestion && likelySettled(note);
-  const root = doc.createElement("div");
-  root.className = "texr-block texa-block texv-block" + (suggestion ? " texr-proposal" : "");
-  const fit = fitNote(note);
+  const tone = reviewerTone(note);
+  const label = reviewerState(note).label;
+  const name = reviewerName(note);
+  const edit = isEdit(note);
+  const fit = done || likely || edit ? "" : fitNote(note);
+  // Un seul signe : le point. La place approximative se lit à son survol.
   const quote = (note.review?.quote || "").replace(/\s+/g, " ").trim();
-  const origin = fit && !likely && state !== "done"
-    ? `<div class="texv-fit">${reviewIcons.warn}<span>${escapeHtml(fit)}${quote && note.review?.on !== "figure" ? ` · il commentait « ${escapeHtml(quote.slice(0, 200))} »` : ""}</span></div>`
-    : "";
   const now = note.text.replace(/\s+/g, " ").trim();
-  const diff = quote && quote !== now
-    ? `<div class="texv-likely-row"><span class="texv-likely-k">Il commentait</span><span class="texv-likely-old">${deletedHtml(quote, now)}</span></div>`
-      + `<div class="texv-likely-row"><span class="texv-likely-k">Maintenant</span><span class="texv-likely-now">${insertedHtml(quote, now)}</span></div>`
-    : "";
-  // Réglé : ce qui a changé depuis son commentaire, et pourquoi (la
-  // correction acceptée ou l'avis de Claude), pour relire comment c'est réglé.
-  const settledWhy = state === "done" ? (lastSuggestionReason(note) || note.review?.likely?.reason || "") : "";
-  const settled = state === "done"
-    ? `<div class="texv-likely is-done"><div class="texv-likely-head">${roundIcons.check}Réglé${diff ? "" : '<span class="texv-likely-by">· passage inchangé</span>'}</div>`
-      + diff + (settledWhy ? `<div class="texv-likely-why">${escapeHtml(settledWhy)}</div>` : "") + "</div>"
-    : "";
-  const verdict = likely
-    ? `<div class="texv-likely"><div class="texv-likely-head">${reviewIcons.likely}Sans doute déjà réglé par ta retouche<span class="texv-likely-by">· avis de Claude</span></div>`
-      + diff
-      + (note.review?.likely?.reason ? `<div class="texv-likely-why">${escapeHtml(note.review.likely.reason)}</div>` : "") + "</div>"
-    : "";
-  const proposal = suggestion
-    ? (suggestion.his ? `<div class="texv-concl">${reviewIcons.edit}Sa version · ton texte n’a pas bougé, elle s’applique telle quelle</div>`
-      : `<div class="texv-concl">${agentIcon}${isEdit(note) ? "Fusion proposée par Claude" : "Correction proposée par Claude"}</div>`)
-      + (suggestion.reason ? `<div class="texv-reason">${escapeHtml(suggestion.reason)}</div>` : "")
-      + `<div class="texr-new" role="group" aria-label="${suggestion.his ? "Sa version" : "Correction proposée par Claude"}">`
-      + (escapeHtml(view.lineBefore) + insertedHtml(note.text, suggestion.text) + escapeHtml(view.lineAfter)).split("\n")
-        .map(line => `<div class="texr-new-line">${line || "&#8203;"}</div>`).join("") + "</div>"
-    : "";
-  const chat = `<button type="button" class="texr-ghost texv-chat" title="Envoyer ce commentaire au chat et en discuter avec Claude">${reviewIcons.talk}Discuter dans le chat</button>`;
-  const acts = suggestion && isEdit(note)
-    ? `<button type="button" class="texr-btn texr-accept" title="Écrire cette version dans le .tex (⌘↩)"><span class="texr-ok">${roundIcons.check}</span>Accepter<span class="texr-kbd">⌘↩</span></button>`
-      + `<button type="button" class="texr-ghost texv-refuse" title="${suggestion.his ? "Garder ton texte" : "Écarter cette fusion"}">Refuser</button>`
-      + `<button type="button" class="texr-ghost texv-chat" title="Envoyer sa modification au chat et en discuter avec Claude">${reviewIcons.talk}En discuter dans le chat</button>`
+  const dotTitle = fit ? `${label} · ${fit}${quote && note.review?.on !== "figure" ? ` · il commentait « ${quote.slice(0, 200)} »` : ""}` : label;
+  const root = doc.createElement("div");
+  root.className = "texv-pop";
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-label", `${edit ? "Modification" : "Commentaire"} ${view.number} de ${name}`);
+  if (edit) root.classList.add("is-edit");
+  root.dataset.texv = (note as {id?: string}).id || "";
+  const tick = `<button type="button" class="texv-tick${done ? " is-done" : ""}" data-tip="${done ? "Rouvrir" : "Marquer réglé"}" aria-label="${done ? "Rouvrir" : "Marquer réglé"}">`
+    + `<span class="atelier-annotation-number is-reviewer texv-ring tone-${tone}"><span class="texv-n">${done ? "" : edit ? reviewIcons.edit : view.number}</span><span class="texv-ck">${roundIcons.check}</span></span></button>`;
+  // Sa retouche : ✓ applique sa version (ou la fusion de Claude), ✕ garde
+  // ton texte ; à fusionner, le chat demande la fusion à Claude.
+  const accept = suggestion?.his ? "Appliquer sa version" : edit ? "Accepter la fusion" : "Accepter la correction";
+  const refuse = edit && (!suggestion || suggestion.his) ? "Garder mon texte" : "Refuser";
+  const chat = edit ? "Demander à Claude de fusionner" : "Discuter dans le chat";
+  const keep = `<button type="button" class="texv-ib texv-refuse" data-tip="${refuse}" aria-label="${refuse}">${roundIcons.cross}</button>`;
+  const tools = view.composing || done ? ""
     : suggestion
-    ? `<button type="button" class="texr-btn texr-accept" title="Accepter la correction (⌘↩)"><span class="texr-ok">${roundIcons.check}</span>Accepter la correction<span class="texr-kbd">⌘↩</span></button>`
-      + '<button type="button" class="texr-ghost texv-refuse">Refuser</button>'
-    : state === "done"
-      ? '<button type="button" class="texr-ghost texv-reopen">Rouvrir</button>'
-      : state === "agenda"
-        ? '<button type="button" class="texr-ghost texv-agenda" aria-pressed="true">Retirer de l’ordre du jour</button>' + chat
-        : `<button type="button" class="texr-btn texv-done" title="${likely ? "Oui, c’est réglé" : "Réglé : corrigé, rien à lui répondre"}">${roundIcons.check}Réglé</button>`
-          + `<button type="button" class="texr-ghost texv-agenda" aria-pressed="false">${reviewIcons.flag}À voir avec lui</button>` + chat;
-  root.innerHTML = origin + settled + wordReplies(note) + verdict + proposal + `<div class="texr-foot"><div class="texr-acts">${acts}</div></div>`;
-  root.querySelector<HTMLButtonElement>(".texr-accept")?.addEventListener("click", () => actions.accept());
-  root.querySelector<HTMLButtonElement>(".texv-refuse")?.addEventListener("click", () => actions.refuse());
-  root.querySelector<HTMLButtonElement>(".texv-done")?.addEventListener("click", () => actions.state("done"));
-  root.querySelector<HTMLButtonElement>(".texv-reopen")?.addEventListener("click", () => actions.state("todo"));
-  root.querySelector<HTMLButtonElement>(".texv-agenda")?.addEventListener("click", () => actions.state(state === "agenda" ? "todo" : "agenda"));
-  root.querySelector<HTMLButtonElement>(".texv-chat")?.addEventListener("click", () => actions.chat());
+      ? `<button type="button" class="texv-ib texv-accept is-ok" data-tip="${accept} · ⌘↩" aria-label="${accept}">${roundIcons.check}</button>` + keep
+      : `<button type="button" class="texv-ib texv-chat" data-tip="${chat}" aria-label="${chat}">${reviewIcons.talk}</button>` + (edit ? keep : "");
+  const text = edit ? `${name} ${editVerb(note)}` : (note.comment || "").trim();
+  const head = `<div class="texv-pop-row">${tick}<div class="texv-pop-note">${escapeHtml(text)}</div>`
+    + `<span class="texv-dot tone-${tone}" title="${escapeHtml(dotTitle)}" role="img" aria-label="${escapeHtml(dotTitle)}"></span>${tools}</div>`;
+  const why = (text: string): string => text ? `<div class="texv-why">${escapeHtml(text)}</div>` : "";
+  const said = view.said ? `<div class="texv-said">${escapeHtml(view.said)}</div>` : "";
+  const replies = (note.review?.replies || []).map(reply =>
+    `<div class="texv-said texv-word" title="${escapeHtml(reply.author || "")} · dans Word">${escapeHtml(reply.text || "")}</div>`).join("");
+  // Sa version : mots retirés barrés, ajoutés en vert.
+  const his = edit ? `<div class="texv-dif texv-his">${editDiffHtml(note.review?.edit?.diff, note.review?.edit?.after)}</div>` : "";
+  const fusion = edit && !view.composing && suggestion && !suggestion.his
+    ? `<div class="texv-dif">${mergedDiffHtml(note.text, suggestion.text)}</div>${why(suggestion.reason || "")}` : "";
+  let box = "";
+  if (edit) {
+    box = `<div class="texv-box">${view.composing ? "" : said}${fusion || his}</div>`;
+  }
+  if (view.composing) {
+    box += `<div class="texv-cmp"><textarea class="texv-cmp-t" rows="2" placeholder="Ta note pour Claude…" aria-label="Ta note pour Claude">${escapeHtml(view.draft)}</textarea>`
+      + `<button type="button" class="texv-ib texv-send" data-tip="Envoyer au chat · Entrée" aria-label="Envoyer au chat">${bubbleIcons.up}</button></div>`;
+  } else if (edit) {
+    // Sa version (ou la fusion de Claude) est déjà dans la boîte.
+  } else if (suggestion) {
+    box = `<div class="texv-box">${said}<div class="texv-dif">${mergedDiffHtml(note.text, suggestion.text)}</div>${why(suggestion.reason || "")}</div>`;
+  } else if (done || likely) {
+    const reason = done ? lastSuggestionReason(note) || note.review?.likely?.reason || "" : note.review?.likely?.reason || "";
+    const diff = quote && quote !== now ? `<div class="texv-dif">${mergedDiffHtml(quote, now)}</div>` : "";
+    box = diff || reason ? `<div class="texv-box">${diff}${why(reason)}</div>` : "";
+  } else if (said || replies) {
+    box = `<div class="texv-box">${replies}${said}</div>`;
+  }
+  const nav = `<div class="texv-pop-nav"><span class="texv-pos">${view.index} / ${view.total}</span>`
+    + `<button type="button" class="texv-ib texv-prev" aria-label="Commentaire précédent"${view.index <= 1 ? " disabled" : ""}>${bubbleIcons.prev}</button>`
+    + `<button type="button" class="texv-ib texv-next" aria-label="Commentaire suivant"${view.index >= view.total ? " disabled" : ""}>${bubbleIcons.next}</button></div>`;
+  root.innerHTML = head + box + nav;
+  const on = (selector: string, fn: () => void): void => {
+    root.querySelector<HTMLButtonElement>(selector)?.addEventListener("click", event => { event.stopPropagation(); fn(); });
+  };
+  on(".texv-tick", () => actions.tick());
+  on(".texv-chat", () => actions.chat());
+  on(".texv-accept", () => actions.accept());
+  on(".texv-refuse", () => actions.refuse());
+  on(".texv-prev", () => actions.nav(-1));
+  on(".texv-next", () => actions.nav(1));
+  const input = root.querySelector<HTMLTextAreaElement>(".texv-cmp-t");
+  on(".texv-send", () => actions.send(input?.value || ""));
+  input?.addEventListener("input", () => actions.draft(input.value));
+  input?.addEventListener("keydown", event => {
+    // Le champ garde ses touches : ni l'éditeur ni la page ne les voient,
+    // sauf les raccourcis ⌘ (enregistrer…).
+    if (!event.metaKey && !event.ctrlKey) event.stopPropagation();
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); actions.send(input.value); }
+    else if (event.key === "Escape") { event.preventDefault(); actions.cancel(); }
+  });
   root.addEventListener("pointerdown", () => { if (hasUnread(note)) actions.seen(); });
   return root;
 }
@@ -373,13 +388,14 @@ const clip = (text: string | undefined, max: number): string => {
 };
 
 /** Ce que Claude lit quand un commentaire arrive dans le chat. */
-export function reviewChatPrompt(comment: ReviewComment): string {
+export function reviewChatPrompt(comment: ReviewComment, note = ""): string {
   const name = (comment.author || "Le relecteur").trim();
   const first = name.split(/\s+/)[0] || name;
   const before = comment.quote && clip(comment.quote, 4000) !== clip(comment.now, 4000) ? `\nCe qu'il commentait dans Word : « ${clip(comment.quote, 4000)} »` : "";
   return `Commentaire ${comment.n} sur ${comment.total} de ${name} (${fileName(comment.path)}, ligne ${comment.line || "?"}) : ${comment.comment || ""}\n`
-    + `Passage aujourd'hui : « ${clip(comment.now, 4000)} »${before}\n\n`
-    + `On en discute un par un. Donne ton avis en quelques phrases : ${first} a-t-il raison, et que faire ? Lis le manuscrit au besoin. `
+    + `Passage aujourd'hui : « ${clip(comment.now, 4000)} »${before}\n`
+    + (note.trim() ? `Ma note : « ${note.trim()} »\n` : "")
+    + `\nOn en discute un par un. Donne ton avis en quelques phrases${note.trim() ? ", en tenant compte de ma note" : ""} : ${first} a-t-il raison, et que faire ? Lis le manuscrit au besoin. `
     + `Si une correction s'impose, propose-la avec atelier_annotate action reply (path « ${comment.path} », id « ${comment.id} », `
     + "text = une phrase, suggestion = le passage réécrit en LaTeX) : elle s'affiche sur le texte, à accepter ou refuser. "
     + `Ne modifie jamais le fichier toi-même. ${first} ne voit pas cette discussion.`;
@@ -387,14 +403,15 @@ export function reviewChatPrompt(comment: ReviewComment): string {
 
 /** Ce que Claude lit quand une de ses retouches arrive dans le chat ;
  *  `merge` : Thierry demande la fusion d'emblée. */
-export function editChatPrompt(comment: ReviewComment, merge = false): string {
+export function editChatPrompt(comment: ReviewComment, merge = false, note = ""): string {
   const name = (comment.author || "Le relecteur").trim();
   const first = name.split(/\s+/)[0] || name;
   const edit = comment.edit || {};
   const where = `${fileName(comment.path)}, ligne ${comment.line || "?"}`;
   const head = `Modification ${comment.n} sur ${comment.total} de ${name} (${where}), dans son suivi des modifications de Word.\n`
     + `Sa phrase d'origine : « ${clip(edit.before, 4000) || "(aucune : il ajoute une phrase)"} »\n`
-    + `Sa version : « ${clip(edit.after, 4000) || "(il supprime la phrase)"} »\n`;
+    + `Sa version : « ${clip(edit.after, 4000) || "(il supprime la phrase)"} »\n`
+    + (note.trim() ? `Ma note : « ${note.trim()} »\n` : "");
   const tool = `atelier_annotate action reply (path « ${comment.path} », id « ${comment.id} », text = une phrase, suggestion = le passage réécrit en LaTeX)`;
   if (edit.ready && !merge) {
     return head + `Le .tex n'a pas bougé : sa version s'applique telle quelle, et Thierry l'accepte ou la refuse lui-même dans la barre du chat.\n\n`

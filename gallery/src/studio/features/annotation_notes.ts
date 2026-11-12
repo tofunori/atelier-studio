@@ -393,7 +393,11 @@ export function columnItemHtml(note: ColumnNote): string {
   const ring = `atelier-annotation-number tp-ring note-c-${note.color}${note.reviewer ? " is-reviewer" : note.agent ? " is-agent" : ""}${note.unread ? " is-unread" : ""}`;
   const quote = note.quote.trim() ? `<span class="tp-quote">${escapeHtml(note.quote.replace(/\s+/g, " ").trim().slice(0, 240))}</span>` : "";
   const text = note.note.trim() ? `<span class="tp-note">${escapeHtml(note.note)}</span>` : "";
-  const state = note.state
+  // Relecteur (maquette v8) : un point de couleur, le nom de l'état au survol.
+  const dot = note.reviewer && note.state
+    ? `<span class="tp-sdot tone-${escapeHtml(note.state.tone)}" title="${escapeHtml(note.state.label)}" role="img" aria-label="${escapeHtml(note.state.label)}"></span>`
+    : "";
+  const state = note.state && !note.reviewer
     ? `<span class="tp-state tone-${escapeHtml(note.state.tone)}"><span class="tp-ic">${note.state.icon}</span>${escapeHtml(note.state.label)}</span>`
     : "";
   const who = note.agent ? `<span class="tp-who">${escapeHtml(note.agent)}</span>` : "";
@@ -402,6 +406,7 @@ export function columnItemHtml(note: ColumnNote): string {
   return `<div class="tp-item note-c-${note.color}${note.active ? " is-active" : ""}" data-id="${escapeHtml(note.id)}" data-src="${note.src}"${note.path ? ` data-path="${escapeHtml(note.path)}"` : ""} role="button" tabindex="0">`
     + `<span class="${ring}">${note.number}</span>`
     + `<span class="tp-body">${quote}${text}${meta ? `<span class="tp-meta">${meta}</span>` : ""}</span>`
+    + dot
     + (note.removable === false ? "" : `<button type="button" class="tp-x" data-x="${escapeHtml(note.id)}" title="Supprimer la note" aria-label="Supprimer la note">${CLOSE_ICON}</button>`) + "</div>";
 }
 
