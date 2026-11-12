@@ -245,7 +245,7 @@ body.v-final .del,body.v-original .ins{display:none}
 body.v-final .ins,body.v-original .del{color:inherit;text-decoration:none;background:none}
 body.v-final .fmt,body.v-original .fmt{text-decoration:none}
 body.v-final .d-p.changed::before,body.v-original .d-p.changed::before,body.v-revue:not(.no-lane) .d-p.changed::before,body.v-final .d-p[class*="mark-"]::after,body.v-original .d-p[class*="mark-"]::after{display:none}
-.pending{color:var(--rev-color)}
+.ins.pending{color:var(--rev-color)}
 
 
 /* ---- marge de revue ---- */
