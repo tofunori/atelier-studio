@@ -43,7 +43,12 @@ for (const theme of ["dark", "light"]) {
     expect((await file.boundingBox())!.width).toBeCloseTo(width, 1);
     await expect(page.locator('.topbar-tab-ext').first()).toHaveText('.tex');
     // Actual ellipsis, not only a capped outer box with overflowing contents.
-    for (const selector of ['.project-chat-tab-label', '.topbar-tab-stem', '.biblio-document-tab .biblio-tab span']) {
+    // Onglet de fichier : le tronc est abrégé au caractère près par
+    // TopBarTabs (« methods_en_vers….tex »), sans trou avant l'extension.
+    const fileName = page.locator('.topbar-tab-name').first();
+    await expect(fileName).toHaveText(/…\.tex$/);
+    expect(await fileName.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    for (const selector of ['.project-chat-tab-label', '.biblio-document-tab .biblio-tab span']) {
       const label = page.locator(selector).first();
       expect(await label.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
       await expect(label).toHaveCSS('text-overflow', 'ellipsis');

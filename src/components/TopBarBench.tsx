@@ -19,14 +19,21 @@ export function TopBarBench() {
   const chats = [{id:"a",title:"Analyse albédo"},{id:"b",title:"Données Copernicus"},{id:"c",title:"Discussion et conclusions du chapitre"}];
   const chatTabs = useOpenChatTabs("/bench-chats", active, chats);
   const noop = () => {};
+  // #wsbench-topbar-many : beaucoup de documents, les onglets doivent se
+  // compresser comme dans un navigateur au lieu de déborder
+  const many = window.location.hash.includes("-many");
+  const docTabs = many
+    ? ["supplementary.tex", "supplementary.tex — PDF", "results_en.tex", "methods_en.tex", "results_en.tex — PDF", "introduction_en.tex", "discussion_en.tex"]
+        .map((title, index) => ({ id: `d${index}`, title, kind: "document" as const }))
+    : [{id:"pdf",title:"main_ngeo.pdf",kind:"document" as const},{id:"tex",title:"discussion_en.tex",kind:"document" as const}];
   return <>
     <TopBar activeProject="/Chapitre1-Albedo"
       layout={layout} onSetLayout={setLayout}
       onOpenPalette={noop} onQuickAsk={noop} activeSurface={surface} showAtelier={layout !== "chat"}
       showExplorer={false} onToggleExplorer={noop} onToggleAnnots={noop}
       onSelectSurface={(next) => { setSurface(next); setIde(false); }} onSelectIde={() => setIde(true)} ideActive={ide}
-      tabs={[{id:"pdf",title:"main_ngeo.pdf",kind:"document"},{id:"tex",title:"discussion_en.tex",kind:"document"}]}
-      activeTab="tex" onSelectTab={noop} onCloseTab={noop}
+      tabs={docTabs}
+      activeTab={many ? "d4" : "tex"} onSelectTab={noop} onCloseTab={noop}
       chatTabControls={{openChats:chatTabs.openChats,pinnedIds:chatTabs.pinnedIds,onTogglePin:chatTabs.togglePin,onClose:ids=>setActive(chatTabs.close(ids))}}
       chatTabActions={{ onRename: noop, transcriptView: "normal", onTranscriptViewChange: noop,
         linkedFor: (id) => id === "a" ? [{ id: "kimi-1", provider: "Kimi", title: "Analyse initiale", paused: false, direction: "parent" }] : [] }}

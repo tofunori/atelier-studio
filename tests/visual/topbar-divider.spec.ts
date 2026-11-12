@@ -86,3 +86,40 @@ test('chat tabs can be pinned, closed and reopened without native title labels',
   await page.getByRole('menuitemcheckbox',{name:'Données Copernicus',exact:true}).click();
   await expect(second).toHaveAttribute('aria-current','page');
 });
+
+test('document tabs shrink together, then overflow into a counter instead of being cut', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 850 });
+  await page.goto('/#wsbench-topbar-many');
+  const tabs = page.locator('.topbar-tabs .topbar-tab');
+  await expect(tabs.first()).toBeVisible();
+  const check = async () => {
+    const strip = (await page.locator('.topbar-tabs').boundingBox())!;
+    const boxes = await tabs.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
+    // même largeur pour tous, entre 112 et 168 px
+    for (const box of boxes) {
+      expect(Math.abs(box.width - boxes[0].width)).toBeLessThan(1);
+      expect(box.width).toBeGreaterThanOrEqual(111.5);
+      expect(box.width).toBeLessThanOrEqual(168);
+      // aucun onglet coupé au bord de la barre
+      expect(box.right).toBeLessThanOrEqual(strip.x + strip.width + 1);
+    }
+    // l'onglet actif reste dans la barre ; le reste est derrière « +N »
+    await expect(page.locator('.topbar-tab[data-active="true"]')).toHaveCount(1);
+    const hidden = 7 - boxes.length;
+    if (hidden > 0) await expect(page.locator('.topbar-tab-more')).toHaveText(`+${hidden}`);
+    else await expect(page.locator('.topbar-tab-more')).toHaveCount(0);
+    // nom abrégé au caractère près : pas de trou avant l'extension
+    for (const name of await page.locator('.topbar-tab-name').all()) {
+      expect(await name.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      await expect(name).not.toContainText('— PDF');
+    }
+    return boxes.length;
+  };
+  // côte à côte : peu de place, des onglets passent dans le compteur
+  const split = await check();
+  expect(split).toBeLessThan(7);
+  // atelier seul : la place revient, les onglets aussi
+  await page.locator('.topbar-layout-controls [role=radio]').nth(2).click();
+  await expect.poll(() => tabs.count()).toBeGreaterThan(split);
+  await check();
+});
