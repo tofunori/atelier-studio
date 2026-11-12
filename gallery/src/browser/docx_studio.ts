@@ -527,17 +527,20 @@
   // document garde ses coupures (la frappe ne refait pas tout le manuscrit).
   let linesFrame = 0;
   let dirtyFrom: number | null = null;
+  let dirtyTo = -1;
   let dirtyAll = false;
   function scheduleLines(from?: number) {
-    if (typeof from === "number") dirtyFrom = dirtyFrom === null ? from : Math.min(dirtyFrom, from);
+    if (typeof from === "number") { dirtyFrom = dirtyFrom === null ? from : Math.min(dirtyFrom, from); dirtyTo = Math.max(dirtyTo, from); }
     else dirtyAll = true;
     if (linesFrame) return;
     linesFrame = requestAnimationFrame(() => {
       linesFrame = 0;
       const from = dirtyAll ? null : dirtyFrom;
+      const to = dirtyTo;
       dirtyAll = false;
       dirtyFrom = null;
-      layoutPages(from);
+      dirtyTo = -1;
+      layoutPages(from, to);
     });
   }
   /** Blocs du flux, dans l'ordre : paragraphes, lignes de tableau, notes,
@@ -551,7 +554,7 @@
     }
     return blocks;
   }
-  function layoutPages(from: number | null = null) {
+  function layoutPages(from: number | null = null, to = -1) {
     const pg = model?.page;
     if (!pg) return;
     const s = getSelection();
@@ -570,16 +573,26 @@
       start = blocks.findIndex((b) => b.getBoundingClientRect().top - o >= limit);
       if (start <= 0) { start = 0; page = 0; }
     }
-    const first = blocks[start];
-    for (const g of Array.from(paper.querySelectorAll(".d-gap"))) {
-      // Les coupures avant le premier bloc recoupé restent en place.
-      if (start > 0 && first && !(first.compareDocumentPosition(g) & (Node.DOCUMENT_POSITION_FOLLOWING | Node.DOCUMENT_POSITION_CONTAINED_BY))) continue;
-      const parent = g.parentNode;
-      g.remove();
-      parent?.normalize();
+    // Mise en page complète : toutes les coupures repartent de zéro. Sinon
+    // chaque bloc retire ses propres coupures au moment d'être recoupé, et la
+    // coupe s'arrête dès qu'un bloc après la retouche retombe à sa place
+    // d'avant (la suite du manuscrit est alors identique).
+    if (from === null) {
+      for (const g of Array.from(paper.querySelectorAll(".d-gap"))) {
+        const parent = g.parentNode;
+        g.remove();
+        parent?.normalize();
+      }
+      blockTops = new WeakMap();
+    }
+    let until = Infinity;
+    if (from !== null) {
+      const last = paper.querySelector(`.d-p[data-idx="${Math.max(from, to)}"]`);
+      const k = last ? blocks.findIndex((b) => b === last || b.contains(last)) : -1;
+      until = k >= 0 ? k : Infinity;
     }
     paper.style.minHeight = "";
-    const pages = paginate(pg, blocks, start, page);
+    const pages = paginate(pg, blocks, start, page, until, from !== null);
     if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
     drawSheets(pg, pages);
     drawLines(pg);
@@ -634,13 +647,28 @@
   function gapEl(inline: boolean, h: number) {
     const g = document.createElement(inline ? "span" : "div");
     g.className = "d-gap";
+    g.dataset.run = String(gapRun);
     g.contentEditable = "false";
     g.style.height = `${Math.max(0, h)}px`;
     return g;
   }
 
-  /** Coupe le flux en feuilles ; rend le nombre de feuilles. */
-  function paginate(pg: Page, blocks: HTMLElement[], start = 0, page0 = 0): number {
+  /** Haut de chaque bloc (par rapport à la page) à la dernière coupe. */
+  let blockTops = new WeakMap<Element, number>();
+  let gapRun = 0;
+  /** Coupures laissées par une coupe précédente : avant le bloc (ou sa note) et dedans. */
+  function staleGaps(el: HTMLElement, withBefore: boolean): Element[] {
+    const out: Element[] = Array.from(el.querySelectorAll(".d-gap")).filter((g) => (g as HTMLElement).dataset.run !== String(gapRun));
+    if (withBefore) {
+      const host = el.closest(".d-note") && !el.previousElementSibling ? el.closest(".d-note") as HTMLElement : el;
+      for (let p = host.previousElementSibling; p && p.classList.contains("d-gap") && (p as HTMLElement).dataset.run !== String(gapRun); p = p.previousElementSibling) out.push(p);
+    }
+    return out;
+  }
+  /** Coupe le flux en feuilles ; rend le nombre de feuilles. `until` : dernier
+   *  bloc retouché ; passé lui, la coupe s'arrête au premier bloc resté en place. */
+  function paginate(pg: Page, blocks: HTMLElement[], start = 0, page0 = 0, until = Infinity, partial = false): number {
+    gapRun++;
     const pt = ptPx, pageH = pg.height * pt, stride = pageH + GAP;
     // Positions relues par rapport à la page à chaque mesure : WebKit
     // ancre le défilement pendant qu'on insère les intervalles (le panneau
@@ -658,14 +686,27 @@
       if (host.tagName === "TR") {
         const tr = document.createElement("tr");
         tr.className = "d-gap";
+        tr.dataset.run = String(gapRun);
         tr.innerHTML = `<td colspan="99" style="padding:0;border:0"><div style="height:${Math.max(0, h)}px"></div></td>`;
         host.before(tr);
       } else host.before(gapEl(false, h));
     };
     let page = page0;
     let forceNext = false;
+    let done = blocks.length;
     for (let b = start; b < blocks.length; b++) {
       const el = blocks[b];
+      if (partial) {
+        // Passé la retouche, un bloc qui n'a pas bougé clôt la coupe.
+        if (b > until && !forceNext) {
+          const was = blockTops.get(el);
+          if (was !== undefined && Math.abs(topOfEl(el) - was) < 0.5) { done = b; break; }
+        }
+        const stale = staleGaps(el, b > start);
+        if (stale.length) {
+          for (const g of stale) { const parent = g.parentNode; g.remove(); parent?.normalize(); }
+        }
+      }
       if (el.tagName === "TR") {
         const r = el.getBoundingClientRect();
         const top = r.top - O(), bottom = r.bottom - O();
@@ -751,6 +792,9 @@
       const lastLine = lines[lines.length - 1];
       if (forced.some((y) => y >= lastLine.top - 1)) forceNext = true;
     }
+    // Positions retenues pour la prochaine coupe (lectures seules, une mise en page).
+    const o = O();
+    for (let b = start; b < done; b++) blockTops.set(blocks[b], blocks[b].getBoundingClientRect().top - o);
     const end = paper.scrollHeight;
     return Math.max(1, pageAt(Math.max(0, end - pg.bottom * pt - 1)) + 1);
   }
@@ -1733,17 +1777,27 @@
 
   function renderCards() {
     cardItems = collectCards();
+    // Les fiches inchangées gardent leur élément (et leur hauteur mesurée) :
+    // une réponse du disque ne reconstruit que ce qui a bougé.
+    const prev = new Map((Array.from(cardsEl.children) as HTMLElement[]).map((el) => [el.dataset.key!, el]));
     const frag = document.createDocumentFragment();
     for (const it of cardItems) {
-      const el = document.createElement("div");
-      el.className = "card" + (it.done ? " done" : "") + (it.key === focusKey ? " focus" : "");
-      el.dataset.key = it.key;
-      el.style.setProperty("--rev-color", authorColor(it.author));
       const initials = it.author.split(/\s+/).map((w) => w[0] || "").join("").slice(0, 2).toUpperCase() || "?";
       const acts = it.kind === "change"
         ? `<span class="c-acts"><button class="tb no" data-act="reject" data-tooltip="Refuser">${ICON.x}</button><button class="tb ok" data-act="accept" data-tooltip="Accepter">${ICON.check}</button></span>`
         : "";
-      el.innerHTML = `<div class="c-head"><span class="av">${esc(initials)}</span><span class="c-name">${esc(it.author || "Inconnu")}</span>${it.head}${acts}</div>${it.body}`;
+      const html = `<div class="c-head"><span class="av">${esc(initials)}</span><span class="c-name">${esc(it.author || "Inconnu")}</span>${it.head}${acts}</div>${it.body}`;
+      const cls = "card" + (it.done ? " done" : "") + (it.key === focusKey ? " focus" : "");
+      const color = authorColor(it.author);
+      let el = prev.get(it.key);
+      if (!el || el.dataset.html !== html || el.style.getPropertyValue("--rev-color") !== color) {
+        el = document.createElement("div");
+        el.dataset.key = it.key;
+        el.dataset.html = html;
+        el.style.setProperty("--rev-color", color);
+        el.innerHTML = html;
+      }
+      el.className = cls;
       frag.appendChild(el);
     }
     cardsEl.replaceChildren(frag);
@@ -1760,26 +1814,30 @@
 
   function placeCards() {
     const visible = view === "revue";
+    const els = Array.from(cardsEl.children) as HTMLElement[];
+    // Écritures d'abord, puis toutes les lectures, puis les positions : une
+    // seule mise en page pour toute la marge, au lieu d'une par fiche
+    // (908 fiches sur la copie de Christophe : 3,6 s par réponse du disque).
+    const display = visible ? "block" : "none";
+    for (const el of els) if (el.style.display !== display) el.style.display = display;
     const base = cardsEl.getBoundingClientRect().top;
-    let bottom = 0;
-    const order: { el: HTMLElement; y: number }[] = [];
     const byKey = new Map(cardItems.map((c) => [c.key, c]));
-    for (const el of Array.from(cardsEl.children) as HTMLElement[]) {
+    const order = els.map((el) => {
       const it = byKey.get(el.dataset.key!)!;
-      el.style.display = visible ? "block" : "none";
       const a = it.anchor && it.anchor.isConnected ? it.anchor : null;
-      const want = a ? a.getBoundingClientRect().top - base : 1e6;
-      order.push({ el, y: want });
-    }
+      return { el, y: a ? a.getBoundingClientRect().top - base : 1e6, h: visible ? el.offsetHeight : 0 };
+    });
     order.sort((x, y) => x.y - y.y);
+    let bottom = 0;
     for (const o of order) {
       const y = Math.max(o.y === 1e6 ? bottom : o.y, bottom);
-      o.el.style.top = `${y}px`;
-      bottom = y + o.el.offsetHeight + 8;
+      const top = `${y}px`;
+      if (o.el.style.top !== top) o.el.style.top = top;
+      bottom = y + o.h + 8;
     }
     cardsEl.style.height = `${bottom}px`;
-    const ordered = order.map((o) => o.el.dataset.key!);
-    cardItems.sort((a, b) => ordered.indexOf(a.key) - ordered.indexOf(b.key));
+    const rank = new Map(order.map((o, k) => [o.el.dataset.key!, k]));
+    cardItems.sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0));
     const n = cardItems.findIndex((c) => c.key === focusKey);
     $("navNum").textContent = `${n >= 0 ? n + 1 : 0} / ${cardItems.filter((c) => !c.done).length}`;
   }
@@ -1984,7 +2042,10 @@
     caret.classList.add("on");
   }
   paper.addEventListener("focus", placeCaret);
-  paper.addEventListener("input", () => scheduleLines());
+  paper.addEventListener("input", () => {
+    const sel = readSel();
+    scheduleLines(sel ? sel.a.idx : undefined);
+  });
   // Une image qui arrive après la mise en page déplace la suite : on recoupe.
   const imageArrived = (e: Event) => {
     const img = e.target as HTMLElement;
