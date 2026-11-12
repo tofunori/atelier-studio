@@ -194,6 +194,76 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
     }
 }
 
+/// `GET /docx/triage?path=` — suivis rangés par nature pour la revue : fond,
+/// nombres et renvois, ponctuation et orthographe, espaces et mise en forme
+/// (règles déterministes du moteur, `atelier_docx::triage`).
+pub async fn triage(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<PathQuery>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &q.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || -> Result<Value, String> {
+        let mut docx = Docx::open(&path).map_err(|e| e.0)?;
+        let model = docx.model().map_err(|e| e.0)?;
+        serde_json::to_value(atelier_docx::triage::triage(&model)).map_err(|e| e.to_string())
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err(e)) => json_error(StatusCode::UNPROCESSABLE_ENTITY, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct DecideSetBody {
+    path: String,
+    /// Révision affichée par le panneau ; absente = pas de contrôle.
+    revision: Option<String>,
+    ids: Vec<u32>,
+    /// `accept` ou `reject`.
+    decision: String,
+    #[serde(default)]
+    author: String,
+}
+
+/// `POST /docx/decide-set` — `{path, revision, ids, decision}` : accepte ou
+/// refuse un ensemble de suivis d'un seul geste (« Accepter les mineurs ») ;
+/// même verrou, même contrôle et même historique que `/docx/op`, une seule
+/// annulation. Rend le modèle à jour.
+pub async fn decide_set(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<DecideSetBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &body.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let (decision, label) = match body.decision.as_str() {
+        "accept" => (atelier_docx::review::Decision::Accept, "accepter un ensemble"),
+        "reject" => (atelier_docx::review::Decision::Reject, "refuser un ensemble"),
+        _ => return json_error(StatusCode::BAD_REQUEST, "décision : accept ou reject"),
+    };
+    if body.ids.is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "aucun suivi à décider");
+    }
+    let author = body.author.trim().chars().take(80).collect::<String>();
+    let job = move || -> Result<Value, (StatusCode, String)> {
+        let origin = Origin { source: "panneau", author: &author, label };
+        let (result, revision) = atelier_docx::edit_file_as(&path, body.revision.as_deref(), &origin, |d| atelier_docx::review::decide_set(d, &body.ids, decision))
+            .map_err(|e| (refusal(&e), e.0))?;
+        let model = model_json(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        Ok(json!({"ok": true, "result": result, "revision": revision, "model": model}))
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err((status, e))) => json_error(status, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
 const FIGURE_EXTS: [&str; 4] = ["png", "jpg", "jpeg", "gif"];
 const FIGURE_MAX: u64 = 40 * 1024 * 1024;
 
