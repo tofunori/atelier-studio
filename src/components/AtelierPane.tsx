@@ -351,7 +351,7 @@ export default function AtelierPane({
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set());
   const [paneBounds, setPaneBounds] = useState<Record<string, PaneBounds>>({});
   const paneBoundsRef = useRef(paneBounds);
-  paneBoundsRef.current = paneBounds;
+  useLayoutEffect(() => { paneBoundsRef.current = paneBounds; }, [paneBounds]);
   const workspaceRootRef = useRef<HTMLDivElement | null>(null);
   const pointerDragRef = useRef<PointerDragSession | null>(null);
   const pointerFrameRef = useRef<number | null>(null);
