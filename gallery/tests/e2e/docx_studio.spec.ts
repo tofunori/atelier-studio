@@ -701,6 +701,37 @@ test('docx: pendant que le panneau change de taille, la page s\'étire sans se r
   expect((await state()).stretching).toBe(false);
 });
 
+test('docx: la marge des commentaires se resserre à la poignée, la page en profite et la largeur tient au rechargement', async ({page, project}) => {
+  await page.setViewportSize({width: 1440, height: 900});
+  await open(page, project);
+  await expect(page.locator('#cards .it').first()).toBeVisible();
+  const state = () => page.evaluate(() => ({
+    cards: document.getElementById('cards')!.offsetWidth,
+    paper: document.getElementById('paper')!.offsetWidth,
+    stored: localStorage.getItem('docxLaneW'),
+  }));
+  const before = await state();
+  expect(before.cards).toBe(312);
+  const grip = (await page.locator('#laneGrip').boundingBox())!;
+  const x = grip.x + grip.width / 2, y = grip.y + 200;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(x + i * 10, y);
+  await page.mouse.up();
+  await expect.poll(async () => (await state()).cards).toBe(252);
+  await expect.poll(async () => (await state()).paper).toBeGreaterThan(before.paper);
+  expect((await state()).stored).toBe('252');
+  // La poignée suit le bord des fiches.
+  const moved = (await page.locator('#laneGrip').boundingBox())!;
+  expect(moved.x).toBeCloseTo(grip.x + 60, 0);
+  await page.reload();
+  await expect(page.locator('#cards .it').first()).toBeVisible();
+  expect((await state()).cards).toBe(252);
+  // Double-clic : largeur d'origine.
+  await page.locator('#laneGrip').dblclick();
+  await expect.poll(async () => (await state()).cards).toBe(312);
+});
+
 test('docx: une bibliographie Zotero passe à la ligne et se coupe en feuilles pleines', async ({page, project}) => {
   await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path.join(project.root, 'Bibliographie.docx'))}`);
   await expect(page.locator('#sheets .sheet').nth(1)).toBeAttached();

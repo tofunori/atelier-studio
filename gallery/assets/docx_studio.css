@@ -109,7 +109,7 @@ body.w1 .hide1,body.w2 .hide2,body.w3 .hide3{display:none}
 .notice svg{color:var(--status-warning)}
 
 /* ---- disposition ---- */
-.main{flex:1 1 auto;min-height:0;display:flex}
+.main{position:relative;flex:1 1 auto;min-height:0;display:flex}
 
 /* ---- plan et commentaires ---- */
 .side{width:240px;flex-shrink:0;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--border-subtle,var(--border))}
@@ -146,7 +146,7 @@ body.no-side .side{display:none}
 .more{margin:12px 8px 0;font-size:11px;color:var(--text-muted)}
 
 /* ---- page ---- */
-#scroll{position:relative;flex:1 1 auto;min-width:0;overflow:auto;padding:24px 360px 72px 24px;background:color-mix(in srgb,var(--surface-app,var(--bg)) 60%,var(--surface-inset));--scroll-track:color-mix(in srgb,var(--surface-app,var(--bg)) 60%,var(--surface-inset))}
+#scroll{position:relative;flex:1 1 auto;min-width:0;overflow:auto;padding:24px calc(var(--lane,312px) + 48px) 72px 24px;background:color-mix(in srgb,var(--surface-app,var(--bg)) 60%,var(--surface-inset));--scroll-track:color-mix(in srgb,var(--surface-app,var(--bg)) 60%,var(--surface-inset))}
 #paper{position:relative;max-width:760px;min-height:calc(100% - 24px);margin:0 auto;padding:48px 64px;border-radius:6px;background:var(--surface-raised,var(--card));color:var(--text-primary);box-shadow:var(--lift);font:400 15px/1.7 'Times New Roman',Georgia,'Iowan Old Style',serif;outline:none;caret-color:transparent;word-wrap:break-word}
 /* Curseur dessiné : fin, couleur de l'encre, à la hauteur des lettres (le curseur natif de WebKit prend toute la hauteur de ligne). */
 /* Page à l'échelle du document (format, marges, styles de Word) : --pt = un point. */
@@ -251,7 +251,7 @@ body.v-final .d-p.changed::before,body.v-original .d-p.changed::before,body.v-re
 
 
 /* ---- marge de revue ---- */
-#cards{position:absolute;top:24px;left:0;width:312px}
+#cards{position:absolute;top:24px;left:0;width:var(--lane,312px)}
 body.no-margin #scroll{padding-right:24px}
 body.no-margin #cards,body.no-margin #leader{display:none}
 /* Panneau étroit : la fiche active s'ouvre en fenêtre sous son passage. */
@@ -414,3 +414,10 @@ body.lane-over #leader{display:none}
 ::highlight(docx-tochat){text-decoration:underline dotted var(--doc-none);text-decoration-thickness:1.5px;text-underline-offset:4px}
 #chatnums{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none}
 #chatnums i{position:absolute;left:0;top:0;font:500 10px/1 var(--ui-font);font-style:normal;color:var(--doc-none);font-variant-numeric:tabular-nums}
+/* Poignée de la marge des fiches (docx_studio.ts, laneGrip) : même langage que les séparateurs d’Atelier, rien au repos, pastille au survol. */
+#laneGrip{position:absolute;top:0;bottom:0;width:12px;margin-left:-6px;cursor:col-resize;z-index:4;touch-action:none;outline:none}
+#laneGrip::after{content:"";position:absolute;inset-block:12px;left:50%;width:3px;border-radius:999px;transform:translateX(-50%);background:color-mix(in srgb,var(--text-primary,var(--txt)) 24%,transparent);opacity:0;pointer-events:none;transition:opacity 130ms ease-out}
+#laneGrip:hover::after,#laneGrip:focus-visible::after,body.lane-drag #laneGrip::after{opacity:1}
+body.no-margin #laneGrip,body.no-lane #laneGrip,body.lane-over #laneGrip,body.lane-in #laneGrip,body.lane-out #laneGrip{display:none}
+body.lane-drag,body.lane-drag *{cursor:col-resize!important;user-select:none;-webkit-user-select:none}
+@media (prefers-reduced-motion:reduce){#laneGrip::after{transition:none}}
