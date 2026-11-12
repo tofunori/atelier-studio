@@ -1889,9 +1889,31 @@
   }
   $("vReview").addEventListener("click", () => setView("revue"));
   $("vRead").addEventListener("click", () => setView("final"));
-  /** Menu de la révision : décisions d'ensemble, affichage et page. */
-  function reviewMenu(trigger: HTMLElement) {
+  /** Ouvre un autre .docx : nouvel onglet dans Atelier, sinon sur place. */
+  function openDocx(path: string) {
+    if (parent !== window) parent.postMessage({ type: "atelier-open-file", nonce: LANE_NONCE, path }, "*");
+    else location.href = `${location.pathname}?path=${encodeURIComponent(path)}`;
+  }
+  const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
+  /** Copie à côté du document : nouvelle version ou version reçue. */
+  async function copyAside(kind: "new" | "received") {
+    try {
+      const r = await api("/docx/version", { path: PATH, kind });
+      const name = baseName(r.path);
+      status(kind === "new"
+        ? `Nouvelle version enregistrée : ${name}. ${baseName(PATH)} reste tel quel.`
+        : `Version reçue rouverte en copie : ${name}.`);
+      openDocx(r.path);
+    } catch (e) {
+      status(`Copie impossible : ${(e as Error).message}`, true);
+    }
+  }
+  /** Menu de la révision : décisions d'ensemble, versions, affichage et page. */
+  async function reviewMenu(trigger: HTMLElement) {
     if (!model) return;
+    // Ce que l'historique sait (version reçue, prochain nom) ; jamais bloquant.
+    const hist: { received?: { at: string } | null; nextVersion?: string | null } | null = openTrigger === trigger
+      ? null : await fetch(`/docx/history?path=${enc(PATH)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     const items: Item[] = [
       { label: "Tout accepter", run: () => decideAll("accept_all") },
       { label: "Tout refuser", run: () => decideAll("reject_all") },
@@ -1903,6 +1925,17 @@
         items.push({ label: `Accepter celles de ${a.name}`, run: () => decideAll("accept_all", a.name) });
         items.push({ label: `Refuser celles de ${a.name}`, run: () => decideAll("reject_all", a.name) });
       }
+    }
+    const hint = (text: string) => `<span class="mi-k">${esc(text)}</span>`;
+    const who = reviewer();
+    items.push(
+      { label: "", sep: true },
+      { label: "Versions", head: true },
+      { label: "Enregistrer une nouvelle version", html: `<span>Enregistrer une nouvelle version</span>${hist?.nextVersion ? hint(hist.nextVersion.replace(/^.*(_v\d+\.docx)$/, "…$1")) : ""}`, run: () => copyAside("new") },
+    );
+    if (hist?.received) {
+      const label = `Ouvrir la version reçue${who ? ` de ${firstName(who)}` : ""}`;
+      items.push({ label, html: `<span>${esc(label)}</span>${hint(dateFr(hist.received.at))}`, run: () => copyAside("received") });
     }
     items.push(
       { label: "", sep: true },

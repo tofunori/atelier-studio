@@ -1,5 +1,5 @@
 import {test as base, expect, type Page} from '@playwright/test';
-import {copyFile, mkdtemp, realpath, writeFile} from 'node:fs/promises';
+import {copyFile, mkdtemp, readFile, realpath, writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -772,4 +772,35 @@ test('docx: la sélection est peinte à la hauteur des lettres, et la fiche rapp
   await caretAfter(page, 0, 'Fraction');
   await expect(rects).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test('docx: nouvelle version et version reçue s\'ouvrent en copies à côté, sans toucher le document', async ({page, project}) => {
+  await open(page, project);
+  const original = await readFile(project.doc);
+  // Rien de reçu d'autre tant que le document n'a pas bougé.
+  await page.locator('#revMenu').click();
+  await expect(page.locator('.menu .mi-head', {hasText: 'Versions'})).toBeVisible();
+  await expect(page.locator('.menu .mi', {hasText: 'Ouvrir la version reçue'})).toHaveCount(0);
+  const save = page.locator('.menu .mi', {hasText: 'Enregistrer une nouvelle version'});
+  await expect(save).toContainText('…_v2.docx');
+  await save.click();
+  const v2 = path.join(project.root, 'Chapitre 2 corrigé CK_v2.docx');
+  await expect(page).toHaveURL(/CK_v2\.docx/);
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  expect((await readFile(v2)).equals(original)).toBe(true);
+  expect((await readFile(project.doc)).equals(original)).toBe(true);
+
+  // Une retouche sur l'original : sa version reçue reste rouvrable telle quelle.
+  const m = await disk(page, project);
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: 'Thierry', op: {op: 'replace', find: 'compromis', with: 'équilibre'}}});
+  expect(r.ok()).toBe(true);
+  await open(page, project);
+  await page.locator('#revMenu').click();
+  const received = page.locator('.menu .mi', {hasText: 'Ouvrir la version reçue de Christophe'});
+  await expect(received).toBeVisible();
+  await expect(page.locator('.menu .mi', {hasText: 'Enregistrer une nouvelle version'})).toContainText('…_v3.docx');
+  await received.click();
+  await expect(page).toHaveURL(/CK_recu\.docx/);
+  expect((await readFile(path.join(project.root, 'Chapitre 2 corrigé CK_recu.docx'))).equals(original)).toBe(true);
+  expect((await readFile(project.doc)).equals(original)).toBe(false);
 });
