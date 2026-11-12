@@ -344,8 +344,9 @@ export function ComposerControls(p: {
   const folded = barWidth != null && barWidth < COMPOSER_FOLD_AT;
   const compact = barWidth != null && barWidth < COMPOSER_COMPACT_AT;
   const tiny = barWidth != null && barWidth < COMPOSER_TINY_AT;
-  const [trayOpen, setTrayOpen] = useState(false);
-  useEffect(() => { if (!folded) setTrayOpen(false); }, [folded]);
+  // le plateau n'existe qu'une fois la barre repliée : ouvert = demandé ET replié
+  const [trayWanted, setTrayOpen] = useState(false);
+  const trayOpen = folded && trayWanted;
   const contextWindow = p.usage
     ? p.usage.window
       ?? (model.includes("[1m]") ? 1_000_000
