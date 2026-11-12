@@ -463,7 +463,7 @@
     const room = scroller.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const next = zoom ? PT * zoom / 100 : PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT)));
     showZoom(next);
-    if (!force && Math.abs(next - ptPx) < 1e-3) return;
+    if (!force && Math.abs(next - ptPx) < 1e-3) { followPaper(); return; }
     ptPx = next;
     document.documentElement.style.setProperty("--pt", `${next.toFixed(4)}px`);
     scheduleLines();
@@ -477,6 +477,18 @@
     fitPage();
   }
   const zoomPct = () => Math.round(ptPx / PT * 100);
+  // Feuilles, numéros de ligne et traits de révision sont dessinés par
+  // rapport au coin de la page ; leurs calques suivent la page quand elle
+  // se recentre (panneau élargi ou rétréci, marge des fiches qui apparaît,
+  // retour sur la surface) sans refaire la mise en page.
+  let laidOutHidden = false;
+  function followPaper() {
+    const x = `${paper.offsetLeft}px`, y = `${paper.offsetTop}px`;
+    for (const l of [sheets, lnLayer, cbars]) {
+      if (l.style.left !== x) l.style.left = x;
+      if (l.style.top !== y) l.style.top = y;
+    }
+  }
   // Barre d'état : page, mots, revue, enregistrement, signature et zoom.
   foot.innerHTML = `<span id="ftPage"></span><span id="ftWords" class="hide1"></span><span id="ftOpen" class="hide2"></span>
     <span class="sp"></span>
@@ -560,6 +572,10 @@
   function layoutPages(from                = null, to = -1) {
     const pg = model?.page;
     if (!pg) return;
+    // Surface masquée (autre onglet, autre surface) : rien ne se mesure, la
+    // coupe attend que la page revienne à l'écran.
+    if (!scroller.clientWidth || !paper.offsetWidth) { laidOutHidden = true; return; }
+    laidOutHidden = false;
     const s = getSelection();
     const keep = s && s.rangeCount && paper.contains(s.anchorNode) ? readSel() : null;
     const blocks = flowBlocks();
@@ -597,6 +613,7 @@
     paper.style.minHeight = "";
     const pages = paginate(pg, blocks, start, page, until, from !== null);
     if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
+    followPaper();
     drawSheets(pg, pages);
     drawLines(pg);
     pageCount = pages;
@@ -828,8 +845,8 @@
     for (let k = 0; k < pages; k++) {
       const sh = document.createElement("div");
       sh.className = "sheet";
-      sh.style.left = `${paper.offsetLeft}px`;
-      sh.style.top = `${paper.offsetTop + k * stride}px`;
+      sh.style.left = "0";
+      sh.style.top = `${k * stride}px`;
       sh.style.width = `${paper.offsetWidth}px`;
       sh.style.height = `${pageH}px`;
       if (k > 0) {
@@ -854,7 +871,7 @@
     if (!ln) { lnLayer.replaceChildren(); return; }
     const pt = ptPx, stride = pg.height * pt + GAP;
     const o = paper.getBoundingClientRect().top;
-    const x = paper.offsetLeft + (pg.left - ln.distance) * pt;
+    const x = (pg.left - ln.distance) * pt;
     const size = (ln.size || 10) * pt;
     const frag = document.createDocumentFragment();
     let n = ln.start;
@@ -874,7 +891,7 @@
           num.textContent = String(n);
           num.style.fontSize = `${size}px`;
           num.style.left = `${x}px`;
-          num.style.top = `${paper.offsetTop + line.bottom - size * 1.15}px`;
+          num.style.top = `${line.bottom - size * 1.15}px`;
           frag.appendChild(num);
         }
         n++;
@@ -914,12 +931,12 @@
       if (last && s[0] <= last[1] + 6) last[1] = Math.max(last[1], s[1]);
       else merged.push([s[0], s[1]]);
     }
-    const x = paper.offsetLeft + (pg.left - 9) * ptPx;
+    const x = (pg.left - 9) * ptPx;
     const frag = document.createDocumentFragment();
     for (const [a, b] of merged) {
       const i = document.createElement("i");
       i.style.left = `${x}px`;
-      i.style.top = `${paper.offsetTop + a - 2}px`;
+      i.style.top = `${a - 2}px`;
       i.style.height = `${b - a + 4}px`;
       frag.appendChild(i);
     }
@@ -2275,6 +2292,19 @@
     } else if (e.key === "Escape" && host?.dataset.key === "draft") { e.preventDefault(); cancelDraft(); }
   });
   window.addEventListener("resize", () => { responsive(); layoutCards(); });
+  // Le panneau change de taille sans que la fenêtre le sache (marge des
+  // fiches, liste du document, iframe ré-affichée) : la page se recentre,
+  // les calques la suivent ; une coupe faite à l'aveugle est refaite.
+  let reflowFrame = 0;
+  new ResizeObserver(() => {
+    if (reflowFrame) return;
+    reflowFrame = requestAnimationFrame(() => {
+      reflowFrame = 0;
+      if (!scroller.clientWidth) return;
+      layoutCards();
+      if (laidOutHidden) scheduleLines();
+    });
+  }).observe(scroller);
 
   // ---------------------------------------------- commentaire en brouillon
   const HL = typeof CSS !== "undefined" && "highlights" in CSS && typeof (window                                      ).Highlight === "function";
