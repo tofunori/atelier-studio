@@ -179,10 +179,8 @@ body.blanche #caret{background:var(--doc-ink)}
 #caret.on{display:block;animation:caret-blink 1s steps(1) infinite}
 @keyframes caret-blink{50%{opacity:0}}
 body.blanche #paper{background:var(--doc-paper);color:var(--doc-ink);--text-primary:var(--doc-ink);--text-muted:var(--doc-ink-muted);--text-secondary:var(--doc-ink-muted)}
-#cbars{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:1}
 /* Panneau redimensionné : la page et ses calques s’étirent au compositeur (docx_studio.ts, stretchTo). */
-body.stretching #paper,body.stretching #sheets,body.stretching #lnums,body.stretching #cbars{will-change:transform}
-#cbars>i{position:absolute;width:2px;border-radius:999px;background:color-mix(in srgb,var(--doc-a1) 55%,transparent)}
+body.stretching #paper,body.stretching #sheets,body.stretching #lnums{will-change:transform}
 #paper .loading{font:400 13px/1.5 var(--ui-font);color:var(--text-muted)}
 .d-p{position:relative;margin:0 0 12px;white-space:pre-wrap;min-height:1.7em}
 .d-p.h0{font-size:24px;font-weight:600;line-height:1.3;letter-spacing:-0.01em;margin:24px 0 16px}
@@ -221,6 +219,25 @@ table.d-t .d-p.changed::before{display:none}
 .chip.flow{white-space:inherit;padding:0;border-radius:0;background:none}
 .chip.obj{font:400 12px/1.5 var(--ui-font);color:var(--text-muted)}
 .chip.note{font-size:10px;vertical-align:super;padding:0 2px}
+/* Équations (KaTeX) : police, taille et encre de la page ; les symboles
+   seuls gardent les fontes de KaTeX. Un clic ouvre leur LaTeX. */
+.chip.eq{padding:0;border-radius:6px;background:none;color:inherit;cursor:pointer;transition:background-color 120ms ease-out}
+.chip.eq:hover,.chip.eq.on{background:color-mix(in srgb,currentColor 7%,transparent)}
+.chip.eq.disp{display:block;text-align:center;white-space:normal}
+.chip.eq .katex{font-family:inherit;font-size:1.05em;line-height:1.2;color:inherit}
+.chip.eq .katex .mathnormal{font-family:inherit;font-style:italic}
+.chip.eq .katex .mathrm{font-family:inherit}
+.chip.eq .katex-display{margin:0}
+.chip.eq.raw{font:400 .8em/1.5 var(--code-font,ui-monospace,'SF Mono',Menlo,monospace);color:var(--text-muted)}
+/* Ajout et suppression en suivi : le soulignement et le trait ne
+   traversent pas les boîtes de KaTeX, on les dessine sur la puce. */
+.chip.eq.ins{box-shadow:inset 0 -1px 0 color-mix(in srgb,var(--rev-color) 45%,transparent)}
+.chip.eq.del{position:relative;cursor:default}
+.chip.eq.del::after{content:'';position:absolute;left:0;right:0;top:50%;height:1px;background:color-mix(in srgb,var(--rev-color) 70%,var(--paper-bg))}
+body.v-final .chip.eq.ins{box-shadow:none}
+body.v-original .chip.eq.del::after{display:none}
+body.v-original .chip.eq{cursor:default}
+body.v-original .chip.eq:hover{background:none}
 .chip.fig{display:inline-block;padding:0;border-radius:0;background:none;vertical-align:bottom;max-width:100%}
 .chip.fig img{display:block;max-width:100%;height:auto}
 .chip.fig.del img{opacity:.4;outline:2px solid var(--rev-color);outline-offset:2px}
@@ -246,8 +263,10 @@ body.v-final .chip.fig img,body.v-original .chip.fig img{opacity:1;outline:0}
 body.v-final .del,body.v-original .ins{display:none}
 body.v-final .ins,body.v-original .del{color:inherit;text-decoration:none;background:none}
 body.v-final .fmt,body.v-original .fmt{text-decoration:none}
+/* Lecture : le texte nu ; seul le passage du commentaire ouvert reste marqué. */
+body.v-final .cmt:not(.on){background:none;box-shadow:none}
 body.v-final .d-p.changed::before,body.v-original .d-p.changed::before,body.v-revue:not(.no-lane) .d-p.changed::before,body.v-final .d-p[class*="mark-"]::after,body.v-original .d-p[class*="mark-"]::after{display:none}
-.pending{color:var(--rev-color)}
+.ins.pending{color:var(--rev-color)}
 
 
 /* ---- marge de revue ---- */
@@ -362,6 +381,23 @@ body.lane-over #leader{display:none}
 .pop .c-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:12px}
 .pop label{display:block;font-size:12px;color:var(--text-muted)}
 .pop input{width:100%;height:28px;margin-top:4px;padding:0 8px;border:0;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px var(--ui-font)}
+/* Équation en LaTeX : titre, source, aperçu, deux boutons. */
+.pop.eqpop{display:flex;flex-direction:column;gap:12px;width:460px;padding:16px;font:400 12px/1.5 var(--ui-font);color:var(--text-primary)}
+.eq-hd{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted)}
+.eq-hd .tag{margin-left:auto;padding:0 8px;line-height:20px;border-radius:999px;background:var(--bg-ctl,var(--surface-inset));font-size:10px;font-weight:500;color:var(--text-muted);white-space:nowrap}
+.eq-hd .tag[hidden]{display:none}
+.eq-src{display:block;width:100%;min-height:40px;padding:8px 12px;border:0;border-radius:6px;outline:0;resize:none;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px/1.6 var(--code-font,ui-monospace,'SF Mono',Menlo,monospace);overflow-wrap:anywhere}
+.pop.eqpop textarea.eq-src:focus-visible{outline:0;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text-primary) 24%,transparent)}
+.eq-prev{min-height:24px;overflow-x:auto;overflow-y:hidden;text-align:center;font:400 15px/1.5 'Times New Roman','Tinos',Georgia,serif;color:var(--text-primary);transition:opacity 120ms ease-out}
+.eq-prev.bad{opacity:.4}
+.eq-prev .katex{font-family:inherit;font-size:1.05em}
+.eq-prev .katex .mathnormal{font-family:inherit;font-style:italic}
+.eq-prev .katex .mathrm{font-family:inherit}
+.eq-prev .katex-display{margin:0}
+.eq-err{font-size:12px;color:var(--status-error)}
+.eq-err:empty{display:none}
+.eq-ft{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.eq-ft .kbd{margin-left:4px;padding:0 4px;border-radius:6px;background:color-mix(in srgb,var(--text-primary) 8%,transparent);font:500 10px/1.2 var(--ui-font);color:var(--text-muted);font-variant-numeric:tabular-nums}
 /* Bulle d'une modification : auteur, genre, date ; refuser, accepter. */
 .pop.bub{display:flex;align-items:center;gap:8px;width:auto;padding:4px 4px 4px 12px;white-space:nowrap}
 .bub .w{margin-right:4px;font-size:12px;color:var(--text-secondary)}
@@ -396,6 +432,58 @@ body.lane-over #leader{display:none}
 .z-pct{min-width:44px;padding:0 4px;font-size:11px;font-variant-numeric:tabular-nums}
 .z-step:hover,.z-pct:hover{background:var(--surface-hover);color:var(--text-primary)}
 .z-pct.on{color:var(--text-secondary)}
+
+/* ---- tri des suivis et revue au clavier (2026-11-12) ----
+   Le panneau prend la colonne de la marge ; la barre de revue flotte sous
+   le milieu de la page. Surfaces élevées : fond pop et ombre, sans bordure. */
+.main{position:relative}
+.tribtn{gap:4px;padding:0 8px}
+.tribtn .t{font-size:12px;white-space:nowrap}
+.tribtn:disabled{opacity:.45;cursor:default;background:transparent}
+body.triage #cards,body.triage #leader{display:none}
+body.triage #scroll,body.triage.no-margin #scroll,body.triage.lane-over #scroll{padding-right:360px}
+.tri{position:absolute;top:24px;left:0;z-index:3;display:flex;flex-direction:column;gap:8px;width:312px;max-height:calc(100% - 48px);overflow-y:auto;animation:tri-in 140ms ease-out both}
+.tri[hidden]{display:none}
+@keyframes tri-in{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
+.tri-p{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:10px;background:var(--bg-pop,var(--surface-overlay));box-shadow:var(--elev)}
+.tri-hd{display:flex;align-items:center;gap:8px;min-height:20px}
+.tri-hd h2{margin:0;font-size:13px;font-weight:600;line-height:1.3;letter-spacing:-0.01em;color:var(--text-primary)}
+.tri-who{display:inline-flex;align-items:center;gap:4px;height:24px;margin:0 0 0 -8px;padding:0 8px;border:0;border-radius:6px;background:transparent;font:600 13px/1.3 var(--ui-font);letter-spacing:-0.01em;color:var(--text-primary);cursor:pointer;transition:background-color 120ms ease-out}
+.tri-who:hover,.tri-who.open{background:var(--surface-hover)}
+.tri-who svg{color:var(--text-muted)}
+.tri-n{margin-left:auto;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tri-bar{display:flex;height:4px;border-radius:999px;background:var(--bg-ctl,var(--surface-inset));overflow:hidden}
+.tri-bar i{display:block;height:100%;transition:width 150ms ease-out}
+.tri-gs{display:flex;flex-direction:column;gap:4px}
+.tri-sep{height:1px;margin:4px 8px;background:var(--border-subtle,var(--border))}
+.tri-g{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;font-size:12px;color:var(--text-primary);text-align:left;cursor:pointer;transition:background-color 120ms ease-out}
+.tri-g:hover,.tri-g.on{background:var(--surface-hover)}
+.tri-g:disabled{cursor:default;color:var(--text-muted);background:transparent}
+.tri-g .c{min-width:32px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted)}
+.tri-g .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tri-ac{display:flex;align-items:center;gap:8px}
+.tri-ac .sp{flex:1}
+.tri-ac .btn.q.on{background:var(--surface-hover);color:var(--text-primary)}
+.tri-cur{cursor:default}
+.tri-cur .tx{color:var(--text-secondary)}
+/* Passage en revue : la teinte de son auteur, comme une sélection. */
+#paper .tri-on{background:color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);box-shadow:0 0 0 2px color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);border-radius:0;transition:background-color 120ms ease-out}
+#paper .d-p.tri-on{box-shadow:none;border-radius:6px}
+.rbar{position:absolute;bottom:16px;left:0;z-index:4;display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:10px;background:var(--bg-pop,var(--surface-overlay));box-shadow:var(--elev);font-size:12px;line-height:1.3;color:var(--text-primary);white-space:nowrap;outline:none;animation:rbar-in 140ms ease-out both}
+.rbar[hidden]{display:none}
+@keyframes rbar-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+/* Focus de la barre : anneau neutre, comme les champs, pas d'orange. */
+.rbar:focus-visible{box-shadow:var(--elev),0 0 0 1px color-mix(in srgb,var(--text-primary) 24%,transparent)}
+.rbar .tag{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;border-radius:999px;background:var(--bg-ctl,var(--surface-inset));font-size:10px;font-weight:500;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.rbar .tag b{font-weight:500;color:var(--text-secondary)}
+.rbar .who{color:var(--text-primary)}
+.rbar .av{margin-right:-4px}
+.rbar .vs{margin:0}
+.rbar .btn{gap:8px}
+.rbar kbd,.rbar .key{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 4px;border:0;border-radius:6px;background:color-mix(in srgb,var(--text-primary) 8%,transparent);font:500 10px/1 var(--ui-font);color:var(--text-muted);font-variant-numeric:tabular-nums}
+.rbar .key{cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
+.rbar .key:hover{background:var(--press);color:var(--text-primary)}
+.rbar .key+.key{margin-left:-8px}
 
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{transition:none !important;animation:none !important}

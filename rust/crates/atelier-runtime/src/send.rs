@@ -292,7 +292,11 @@ fn with_docx_instruction(prompt: String, provider: &str) -> String {
         "{prompt}\n\n<atelier-docx>\nFor any .docx, use the MCP tool `atelier_docx` (action=read first). \
 Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
 supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \
-signed with your name; only the user accepts or rejects them.\n</atelier-docx>"
+signed with your name; only the user accepts or rejects them. Replies to the supervisor's \
+comments (draft_reply) are written as the user, in French: short, natural and casual, with « … », \
+a small typo now and then is fine, never a long or formal answer, and never a rewritten passage. \
+A correction you suggest for the supervisor's comment goes first in your chat answer (before / after); \
+make it a tracked edit in the .docx only once the user says so.\n</atelier-docx>"
     )
 }
 
@@ -3940,6 +3944,8 @@ mod tests {
     fn docx_instruction_only_when_a_docx_is_in_play() {
         let enriched = with_docx_instruction("Réponds aux commentaires de Christophe dans Chapitre2.DOCX".into(), "codex");
         assert!(enriched.contains("atelier_docx") && enriched.contains("Never unzip"));
+        assert!(enriched.contains("short, natural and casual"), "consigne de style des réponses");
+        assert!(enriched.contains("only once the user says so"), "la correction passe d'abord par le chat");
         assert_eq!(with_docx_instruction("relis mon intro".into(), "claude"), "relis mon intro");
         assert_eq!(with_docx_instruction("a.docx".into(), "openrouter"), "a.docx");
     }

@@ -363,9 +363,10 @@ test('docx: barre de mise en forme, vues et page blanche', async ({page, project
   await open(page, project);
   await select(page, 2, 'compromis');
   await page.locator('[data-run="b"]').click();
+  // Le gras se voit tout de suite, puis arrive dans le fichier en suivi.
   await expect(page.locator('.d-p[data-idx="2"] b', {hasText: 'compromis'})).toHaveCount(1);
+  await expect.poll(async () => (await disk(page, project)).changes.some(c => c.author === 'Thierry' && c.kind === 'format')).toBe(true);
   let m = await disk(page, project);
-  expect(m.changes.some(c => c.author === 'Thierry' && c.kind === 'format')).toBe(true);
 
   await caretAfter(page, 2, 'pureté');
   await page.locator('#btnAlign').click();
@@ -383,6 +384,11 @@ test('docx: barre de mise en forme, vues et page blanche', async ({page, project
   await page.locator('#vRead').click();
   await expect(page.locator('#vRead')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.d-p[data-idx="1"] .del').first()).toBeHidden();
+  // Le texte nu : ni trait dans la marge, ni passage commenté peint ; les fiches restent.
+  await expect(page.locator('#cbars')).toHaveCount(0);
+  const cmt = page.locator('.cmt:not(.on):not(.done)').first();
+  await expect(cmt).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('#cards .it').first()).toBeAttached();
   await view('Original');
   await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'false');
   await page.locator('#vReview').click();
@@ -878,6 +884,9 @@ test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place 
   await expect(page.locator('#f')).toHaveCSS('width', '800px');
 });
 
+// ---------------------------------------------------------------- tri des suivis
+// Document synthétique (fixture `tri` d'atelier-docx, anglais et français) :
+// 29 suivis de Christophe et un de Marie Dupont.
 test('docx: la sélection est peinte à la hauteur des lettres, et la fiche rappelle le passage commenté', async ({page, project}) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -936,4 +945,485 @@ test('docx: nouvelle version et version reçue s\'ouvrent en copies à côté, s
   await expect(page).toHaveURL(/CK_recu\.docx/);
   expect((await readFile(path.join(project.root, 'Chapitre 2 corrigé CK_recu.docx'))).equals(original)).toBe(true);
   expect((await readFile(project.doc)).equals(original)).toBe(false);
+});
+
+// ------------------------------------------------ gestes montrés d'avance
+// Effacer, Entrée, jointure et gras s'affichent avant la réponse du serveur ;
+// effacements et frappe consécutifs partent en une seule retouche.
+
+/** Texte affiché d'un paragraphe : sans les suppressions barrées. */
+const TRI = path.join(path.dirname(FIXTURE), 'tri.docx');
+const triTest = base.extend<{tri: {url: string; doc: string}}>({
+  tri: async ({}, use) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'atelier-docx-tri-'));
+    await copyFile(TRI, path.join(root, 'Résultats CK.docx'));
+    const port = await freePort();
+    const server = spawnGalleryServer({root, port, watch: false});
+    try {
+      await waitForServer(port, {child: server});
+      await use({url: `http://127.0.0.1:${port}`, doc: path.join(root, 'Résultats CK.docx')});
+    } finally {
+      await stopGalleryServer(server);
+      await removeTempRoot(root);
+    }
+  },
+});
+
+async function openTri(page: Page, tri: {url: string; doc: string}) {
+  await page.request.post(`${tri.url}/docx/prefs`, {data: {author: 'Thierry'}});
+  await page.setViewportSize({width: 1440, height: 900});
+  await page.goto(`${tri.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(tri.doc)}`);
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('4 Results');
+  await page.locator('#btnTri').click();
+  await expect(page.locator('#tri')).toBeVisible();
+  await expect(page.locator('.tri-g[data-g="fond"] .c')).toHaveText('6');
+}
+
+const changeIds = async (page: Page, tri: {url: string; doc: string}) =>
+  (await disk(page, tri)).changes.map((c) => c.id).sort((a, b) => a - b);
+
+triTest('docx: le tri range les suivis et « Accepter les mineurs » n’accepte que les mineurs', async ({page, tri}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await openTri(page, tri);
+  await expect(page.locator('#btnTri')).toHaveAttribute('aria-pressed', 'true');
+  // La marge cède la place au panneau.
+  await expect(page.locator('#cards')).toBeHidden();
+  // Relecteur principal par défaut ; Marie Dupont se choisit dans le titre.
+  await expect(page.locator('#triWho')).toHaveText('Suivis de Christophe');
+  const count = (g: string) => page.locator(`.tri-g[data-g="${g}"] .c`);
+  await expect(count('nombres')).toHaveText('3');
+  await expect(count('ponctuation')).toHaveText('7');
+  await expect(count('espaces')).toHaveText('3');
+  await expect(page.locator('.tri-n')).toHaveText('19 en attente');
+  await expect(page.locator('#triMinor')).toHaveText('Accepter les 10 mineurs');
+  await expect(page.locator('.tri-bar i')).toHaveCount(4);
+
+  await page.locator('#triMinor').click();
+  await expect(count('ponctuation')).toHaveText('0');
+  await expect(count('espaces')).toHaveText('0');
+  await expect(page.locator('#triMinor')).toBeDisabled();
+  await expect.poll(() => changeIds(page, tri)).toEqual([1, 2, 5, 6, 7, 8, 11, 12, 13, 14, 17, 18, 22, 23, 27, 28, 30]);
+  const m = await disk(page, tri);
+  expect(m.paragraphs[1].text).toContain('largest decline in the Coast Range, where');
+  expect(m.paragraphs[1].text).toContain('uniform: glaciers above 2400 m');
+  expect(m.paragraphs[3].text).toContain('L’albédo');
+  // Fond et nombres intacts, le compte du fond aussi.
+  await expect(count('fond')).toHaveText('6');
+  await expect(count('nombres')).toHaveText('3');
+  // Un seul geste, une seule annulation.
+  await page.locator('#btnUndo').click();
+  await expect.poll(async () => (await changeIds(page, tri)).length).toBe(30);
+  await expect(count('ponctuation')).toHaveText('7');
+
+  await page.locator('#triWho').click();
+  await page.locator('.menu .mi', {hasText: 'Marie Dupont'}).click();
+  await expect(page.locator('#triWho')).toHaveText('Suivis de Marie');
+  await expect(count('fond')).toHaveText('1');
+  await expect(page.locator('#triMinor')).toBeDisabled();
+  // Refermer rend la marge.
+  await page.locator('#btnTri').click();
+  await expect(page.locator('#tri')).toBeHidden();
+  await expect(page.locator('#cards')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+triTest('docx: revue au clavier, A et R décident et avancent, Échap ferme', async ({page, tri}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await openTri(page, tri);
+  await page.locator('.tri-g[data-g="fond"]').click();
+  const bar = page.locator('#rbar');
+  await expect(bar).toBeVisible();
+  await expect(bar.locator('.tag')).toHaveText('Fond · 1 sur 6');
+  await expect(bar).toContainText('Christophe · Remplacement');
+  await expect(page.locator('#paper .tri-on')).toHaveText(['almost all', 'most']);
+  // Le focus quitte la page : les touches ne s'écrivent pas dans le texte.
+  await expect(bar).toBeFocused();
+  await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'false');
+  await expect(page.locator('.tri-cur')).toContainText('« almost all » → « most »');
+
+  await page.keyboard.press('a');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 2 sur 6');
+  await expect(page.locator('#paper .tri-on')).toHaveText(['smoke from wildfires deposited', 'wildfire smoke deposited']);
+  await page.keyboard.press('r');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 3 sur 6');
+  await expect(bar).toContainText('Christophe · Suppression');
+  await expect.poll(() => changeIds(page, tri)).not.toEqual(expect.arrayContaining([5]));
+  const m = await disk(page, tri);
+  expect(m.paragraphs[1].text).toContain('Summer albedo declined on most glaciers');
+  expect(m.paragraphs[1].text).toContain('where smoke from wildfires deposited light-absorbing');
+  expect(m.changes.map((c) => c.id)).not.toEqual(expect.arrayContaining([1, 2, 6]));
+  // Aucune frappe n'est partie dans le document.
+  expect(m.changes.filter((c) => c.author === 'Thierry')).toEqual([]);
+
+  // ↑ ↓ naviguent sans décider ; le compte des décidés ne revient pas.
+  await page.keyboard.press('ArrowDown');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 4 sur 6');
+  await page.keyboard.press('ArrowUp');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 3 sur 6');
+  await page.keyboard.press('ArrowUp');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 6 sur 6');
+  await expect(page.locator('.tri-g[data-g="fond"] .c')).toHaveText('4');
+  // Les boutons de la barre font la même chose.
+  await bar.locator('[data-act="next"]').click();
+  await expect(bar.locator('.tag')).toHaveText('Fond · 3 sur 6');
+
+  await page.keyboard.press('Escape');
+  await expect(bar).toBeHidden();
+  await expect(page.locator('#paper .tri-on')).toHaveCount(0);
+  await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'true');
+  await expect(page.locator('.tri-g[data-g="fond"]')).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+const shownText = (page: Page, idx: number) => page.locator(`.d-p[data-idx="${idx}"]`).evaluate(p =>
+  Array.from(p.querySelectorAll(':scope > [data-off]')).filter(s => !(s as HTMLElement).dataset.del).map(s => s.textContent).join(''));
+
+/** Premier paragraphe du corps fait seulement de texte, avec un segment
+ *  d'origine (sans suivi) d'au moins `n` caractères. */
+async function plainParagraph(page: Page, project: {url: string; doc: string}, n: number) {
+  const m = await disk(page, project);
+  const idx = m.paragraphs.findIndex(p => p.segments.every(s => (s as {kind?: string}).kind === 'text')
+    && p.segments.some(s => !s.rev && [...s.text].length >= n));
+  expect(idx).toBeGreaterThanOrEqual(0);
+  const seg = m.paragraphs[idx].segments.find(s => !s.rev && [...s.text].length >= n)!;
+  return {idx, text: m.paragraphs[idx].text, seg: seg.text};
+}
+
+/** Retient les retouches envoyées au serveur ; `release()` les laisse passer. */
+async function holdOps(page: Page) {
+  let opened = false;
+  const waiting: (() => void)[] = [];
+  let count = 0;
+  await page.route('**/docx/op', async route => {
+    count++;
+    if (!opened) await new Promise<void>(r => waiting.push(r));
+    await route.continue();
+  });
+  return {release: () => { opened = true; waiting.splice(0).forEach(r => r()); }, count: () => count};
+}
+
+test('docx: retour arrière maintenu puis relâché, 40 caractères de moins et plus rien ne bouge', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  await page.locator('#btnTrack').click(); // sans suivi : le texte part vraiment
+  await expect(page.locator('#btnTrack')).toHaveAttribute('aria-pressed', 'false');
+  const {idx, text, seg} = await plainParagraph(page, project, 50);
+  const needle = [...seg].slice(0, 45).join('');
+  await caretAfter(page, idx, needle);
+  let posts = 0;
+  page.on('request', r => { if (r.url().includes('/docx/op')) posts++; });
+  // Répétition du clavier : ~30 retours arrière par seconde.
+  for (let k = 0; k < 40; k++) {
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(30);
+  }
+  const chars = [...text];
+  const at = [...text.slice(0, text.indexOf(needle) + needle.length)].length;
+  const expected = chars.slice(0, at - 40).concat(chars.slice(at)).join('');
+  // À l'écran dès le relâchement…
+  expect(await shownText(page, idx)).toBe(expected);
+  // … puis dans le fichier, en une seule retouche.
+  await expect.poll(async () => (await disk(page, project)).paragraphs[idx].text).toBe(expected);
+  await page.waitForTimeout(1000);
+  expect(await shownText(page, idx)).toBe(expected);
+  expect((await disk(page, project)).paragraphs[idx].text).toBe(expected);
+  expect(posts).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("docx: Entrée s'affiche avant la réponse du serveur, sans redessiner la page", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const n = (await disk(page, project)).paragraphs.length;
+  const domCount = await page.locator('#paper .d-p').count();
+  // Repère sur le dernier paragraphe : il doit rester le même élément.
+  await page.locator(`.d-p[data-idx="${n - 1}"]`).evaluate(el => { (el as HTMLElement).dataset.keep = '1'; });
+  const hold = await holdOps(page);
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#paper .d-p')).toHaveCount(domCount + 1);
+  expect(await shownText(page, 2)).toMatch(/retenu ici$/);
+  expect((await disk(page, project)).paragraphs.length).toBe(n);
+  // La suite a seulement changé de rang.
+  await expect(page.locator(`.d-p[data-idx="${n}"]`)).toHaveAttribute('data-keep', '1');
+  hold.release();
+  await expect.poll(async () => (await disk(page, project)).paragraphs.length).toBe(n + 1);
+  const m = await disk(page, project);
+  expect(m.paragraphs[2].text).toMatch(/retenu ici$/);
+  await expect(page.locator('#foot')).toContainText('Enregistré');
+  await expect(page.locator(`.d-p[data-idx="${n}"]`)).toHaveAttribute('data-keep', '1');
+  expect(await shownText(page, 3)).toBe(m.paragraphs[3].text);
+  expect(errors).toEqual([]);
+});
+
+test("docx: la frappe juste après Entrée et la jointure s'affichent tout de suite", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const n = (await disk(page, project)).paragraphs.length;
+  const domCount = await page.locator('#paper .d-p').count();
+  const hold = await holdOps(page);
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Ainsi');
+  // Entrée encore en vol : la frappe est déjà au début du nouveau paragraphe.
+  expect(await shownText(page, 3)).toMatch(/^Ainsi/);
+  expect(hold.count()).toBe(1);
+  hold.release();
+  await expect.poll(async () => (await disk(page, project)).paragraphs[3]?.text ?? '').toMatch(/^Ainsi/);
+  expect((await disk(page, project)).paragraphs.length).toBe(n + 1);
+  // Retour arrière au début : on défait sa propre Entrée, la jointure se voit aussitôt.
+  await caretAfter(page, 3, 'Ainsi');
+  for (let k = 0; k < 5; k++) await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Backspace');
+  await expect(page.locator('#paper .d-p')).toHaveCount(domCount);
+  expect(await shownText(page, 2)).toMatch(/retenu iciAinsi/);
+  await expect.poll(async () => (await disk(page, project)).paragraphs.length).toBe(n);
+  expect((await disk(page, project)).paragraphs[2].text).toContain('retenu iciAinsi');
+  expect(errors).toEqual([]);
+});
+
+test("docx: en suivi, effacer le texte d'origine le barre aussitôt ; effacer sa frappe non envoyée n'envoie rien", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const {idx, seg} = await plainParagraph(page, project, 12);
+  const needle = [...seg].slice(0, 10).join('');
+  const gone = [...needle].slice(-3).join('');
+  const hold = await holdOps(page);
+  await caretAfter(page, idx, needle);
+  for (let k = 0; k < 3; k++) await page.keyboard.press('Backspace');
+  // Barré tout de suite, pas retiré.
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .del.pending`)).toHaveText(gone);
+  // Sa propre frappe, effacée avant la pause : rien ne part pour elle.
+  await page.keyboard.type('ab');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .ins.pending`)).toHaveCount(0);
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .del.pending`)).toHaveText(gone);
+  await page.waitForTimeout(600);
+  hold.release();
+  await expect.poll(async () => (await disk(page, project)).changes.filter(c => c.author === 'Thierry').map(c => [c.kind, c.text])).toEqual([['del', gone]]);
+  expect(hold.count()).toBe(1);
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .del:not(.pending)`, {hasText: gone})).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test("docx: un refus du serveur (409, Word ouvert) rend la saisie et remet l'écran à l'état du fichier", async ({page, project}) => {
+  await open(page, project);
+  const before = (await disk(page, project)).paragraphs[2].text;
+  const n = (await disk(page, project)).paragraphs.length;
+  let status = 409;
+  await page.route('**/docx/op', route => route.fulfill({status, contentType: 'application/json', body: JSON.stringify({error: status === 423 ? 'Le document est ouvert dans Word' : 'révision périmée'})}));
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.type(' perdu ?');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await expect(page.locator('.d-p[data-idx="2"]')).toContainText('retenu ici perdu offre');
+  await expect(page.locator('#toast')).toContainText('« perdu »', {timeout: 6000});
+  await expect(page.locator('#toast')).toHaveClass(/err/);
+  await expect.poll(() => shownText(page, 2)).toBe(before);
+  expect((await disk(page, project)).paragraphs[2].text).toBe(before);
+  // Word ouvert (423) sur une Entrée suivie de frappe : même chose.
+  status = 423;
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Encore');
+  await expect(page.locator('#toast')).toContainText('Encore', {timeout: 6000});
+  await expect.poll(() => shownText(page, 2)).toBe(before);
+  expect((await disk(page, project)).paragraphs.length).toBe(n);
+  expect((await disk(page, project)).paragraphs[2].text).toBe(before);
+});
+
+test("docx: délai entre la touche et l'affichage (retour arrière, Entrée, gras)", async ({page, project}) => {
+  await open(page, project);
+  // Chronomètre dans la page : touche (capture) → première mutation qui
+  // montre le geste ; fin de la réponse /docx/op d'après Resource Timing.
+  await page.evaluate(() => {
+    const w = window as unknown as {__arm: (kind: string, idx: number) => void; __t: {t0: number; t1: number}};
+    w.__t = {t0: 0, t1: 0};
+    document.addEventListener('keydown', () => { if (!w.__t.t0) w.__t.t0 = performance.now(); }, true);
+    w.__arm = (kind, idx) => {
+      const p = () => document.querySelector(`.d-p[data-idx="${idx}"]`);
+      const text = () => Array.from(p()?.querySelectorAll(':scope > [data-off]') || []).filter(s => !(s as HTMLElement).dataset.del).map(s => s.textContent).join('');
+      const t0 = text(), n0 = document.querySelectorAll('#paper .d-p').length, b0 = p()?.querySelectorAll('b').length || 0;
+      w.__t = {t0: 0, t1: 0};
+      const mo = new MutationObserver(() => {
+        const ok = kind === 'Backspace' ? text().length < t0.length : kind === 'Enter' ? document.querySelectorAll('#paper .d-p').length > n0 : (p()?.querySelectorAll('b').length || 0) > b0;
+        if (ok) { w.__t.t1 = performance.now(); mo.disconnect(); }
+      });
+      mo.observe(document.getElementById('paper')!, {childList: true, subtree: true, characterData: true});
+    };
+  });
+  const measure = async (kind: string, idx: number, key: () => Promise<void>) => {
+    await page.evaluate(([k, i]) => { performance.clearResourceTimings(); (window as unknown as {__arm: (k: string, i: number) => void}).__arm(k as string, i as number); }, [kind, idx] as const);
+    await key();
+    await expect.poll(() => page.evaluate(() => (window as unknown as {__t: {t1: number}}).__t.t1)).toBeGreaterThan(0);
+    await page.waitForTimeout(900);
+    await expect(page.locator('#foot')).toContainText('Enregistré', {timeout: 8000});
+    return page.evaluate(() => {
+      const t = (window as unknown as {__t: {t0: number; t1: number}}).__t;
+      const ops = performance.getEntriesByType('resource').filter(e => e.name.includes('/docx/op')) as PerformanceResourceTiming[];
+      return {shown: Math.round(t.t1 - t.t0), saved: ops.length ? Math.round(ops[0].responseEnd - t.t0) : -1};
+    });
+  };
+  await select(page, 2, 'compromis');
+  const bold = await measure('Bold', 2, () => page.keyboard.press('Control+b'));
+  await caretAfter(page, 2, 'retenu ici');
+  const back = await measure('Backspace', 2, () => page.keyboard.press('Backspace'));
+  await caretAfter(page, 2, 'retenu ic');
+  const enter = await measure('Enter', 2, () => page.keyboard.press('Enter'));
+  const out = {back, enter, bold};
+  test.info().annotations.push({type: 'délais (ms)', description: JSON.stringify(out)});
+  console.log('délais touche → écran / → réponse (ms)', JSON.stringify(out));
+  // Montré avant la réponse du serveur, en quelques millisecondes.
+  for (const r of [back, enter, bold]) {
+    expect(r.shown).toBeLessThan(50);
+    if (r.saved > 0) expect(r.shown).toBeLessThan(r.saved);
+  }
+});
+
+type Seg = Para['segments'][number] & {latex?: string; i?: boolean; sup?: boolean; font?: string};
+
+test('docx: une équation se lit en KaTeX et se corrige en LaTeX, en suivi signé', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const idx = (await disk(page, project)).paragraphs.findIndex(p => p.text.startsWith("L'albédo large bande"));
+  expect(idx).toBeGreaterThan(0);
+  const chip = page.locator(`.d-p[data-idx="${idx}"] .chip.eq`).first();
+  // Rendu KaTeX dans la police et l'encre de la page, pas le LaTeX brut.
+  await expect(chip.locator('.katex')).toBeVisible();
+  await expect(chip).not.toHaveClass(/\braw\b/);
+  await expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
+  const latex0 = await chip.getAttribute('data-latex');
+  expect(latex0).toContain('0,356');
+
+  // Le clic ouvre la fenêtre : titre court, étiquette « en suivi », source au focus.
+  await chip.click();
+  const pop = page.locator('#eqpop');
+  await expect(pop).toHaveClass(/\bshow\b/);
+  await expect(page.locator('#eqH')).toHaveText('Équation 1 · LaTeX');
+  await expect(page.locator('#eqTag')).toBeVisible();
+  await expect(page.locator('#eqSrc')).toHaveValue(latex0!);
+  await expect(page.locator('#eqSrc')).toBeFocused();
+  await expect(page.locator('#eqPrev .katex')).toBeVisible();
+  // Rien d'autre que champ, aperçu et deux boutons.
+  await expect(pop.locator('button')).toHaveCount(2);
+
+  // Un LaTeX sans équivalent Word est refusé, message dans la fenêtre.
+  await page.locator('#eqSrc').fill('\\mathcal{L}');
+  await page.keyboard.press('Control+Enter');
+  await expect(page.locator('#eqErr')).toContainText('commande inconnue');
+  await expect(pop).toHaveClass(/\bshow\b/);
+  let m = await disk(page, project);
+  expect(m.changes.filter(c => c.author === 'Thierry')).toEqual([]);
+
+  // Échap ferme sans rien changer ; un nouveau clic rouvre.
+  await page.keyboard.press('Escape');
+  await expect(pop).not.toHaveClass(/\bshow\b/);
+  await chip.click();
+  await expect(pop).toHaveClass(/\bshow\b/);
+
+  // L'aperçu suit la frappe, Ctrl+Entrée remplace.
+  await page.locator('#eqSrc').fill('\\alpha = 0,36\\,\\rho_{1}');
+  await expect(page.locator('#eqPrev')).toContainText('0,36');
+  await page.keyboard.press('Control+Enter');
+  await expect(pop).not.toHaveClass(/\bshow\b/);
+  const p = page.locator(`.d-p[data-idx="${idx}"]`);
+  await expect(p.locator('.chip.eq.del')).toHaveCount(1);
+  await expect(p.locator('.chip.eq.ins .katex')).toBeVisible();
+  m = await disk(page, project);
+  const mine = m.changes.filter(c => c.author === 'Thierry').map(c => c.kind).sort();
+  expect(mine).toEqual(['del', 'ins']);
+  const segs = m.paragraphs[idx].segments as Seg[];
+  expect(segs.filter(s => s.latex !== undefined && s.rev === 'ins').map(s => s.latex)).toEqual([expect.stringContaining('0,36')]);
+  expect(segs.filter(s => s.latex !== undefined && s.rev === 'del').map(s => s.latex)).toEqual([latex0]);
+  expect(errors).toEqual([]);
+});
+
+test('docx: le collage garde italique, exposant et équations ; la copie met du HTML', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const paste = (data: Record<string, string>) => page.evaluate((d) => {
+    const dt = new DataTransfer();
+    for (const [k, v] of Object.entries(d)) dt.setData(k, v);
+    document.querySelector('#paper')!.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
+  }, data);
+
+  // HTML riche : la mise en forme utile suit, pas la police ni la couleur.
+  await page.locator('#paper').focus();
+  await caretAfter(page, 2, 'retenu ici');
+  await paste({
+    'text/html': '<meta charset="utf-8"><span style="font-family:Comic Sans MS;color:red"> selon <i>Hall</i> en m<sup>2</sup></span>',
+    'text/plain': ' selon Hall en m2',
+  });
+  await expect(page.locator('.d-p[data-idx="2"]')).toContainText('retenu ici selon Hall en m2');
+  await expect.poll(async () => (await disk(page, project)).paragraphs[2].text).toContain('retenu ici selon Hall en m2');
+  const segs = (await disk(page, project)).paragraphs[2].segments as Seg[];
+  expect(segs.some(s => s.text === 'Hall' && s.i && s.rev === 'ins')).toBe(true);
+  expect(segs.some(s => s.text === '2' && s.sup && s.rev === 'ins')).toBe(true);
+  expect(segs.some(s => s.rev === 'ins' && s.font === 'Comic Sans MS')).toBe(false);
+
+  // Texte avec $…$ : l'équation arrive comme une équation Word.
+  await caretAfter(page, 2, 'retenu ici');
+  await paste({'text/plain': ' soit $x^2$'});
+  await expect(page.locator('.d-p[data-idx="2"] .chip.eq.ins .katex')).toBeVisible();
+  await expect.poll(async () => ((await disk(page, project)).paragraphs[2].segments as Seg[]).filter(s => s.latex !== undefined).map(s => s.latex)).toEqual(['x^{2}']);
+  const m = await disk(page, project);
+  expect(new Set(m.changes.filter(c => c.author === 'Thierry').map(c => c.kind))).toEqual(new Set(['ins']));
+
+  // Copier : text/html garde l'italique, text/plain le texte.
+  await select(page, 1, 'MOD09GA');
+  const copied = await page.evaluate(() => {
+    const dt = new DataTransfer();
+    document.querySelector('#paper')!.dispatchEvent(new ClipboardEvent('copy', {clipboardData: dt, bubbles: true, cancelable: true}));
+    return {html: dt.getData('text/html'), text: dt.getData('text/plain')};
+  });
+  expect(copied.text).toBe('MOD09GA');
+  expect(copied.html).toContain('<i>MOD09GA</i>');
+  expect(errors).toEqual([]);
+});
+
+test('docx: en séance, les gestes reviennent en delta et le fichier s\'écrit d\'un coup', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const replies: {delta: boolean; model: boolean; bytes: number}[] = [];
+  page.on('response', async r => {
+    if (!r.url().endsWith('/docx/op') || r.request().method() !== 'POST') return;
+    const body = await r.text().catch(() => '');
+    try {
+      const v = JSON.parse(body);
+      replies.push({delta: !!v.delta, model: 'model' in v, bytes: body.length});
+    } catch { /* réponse coupée par la navigation */ }
+  });
+  await open(page, project);
+  const original = await readFile(project.doc);
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.type(', fixé a priori,');
+  await expect.poll(() => replies.length).toBeGreaterThan(0);
+  await caretAfter(page, 2, 'priori');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => replies.length).toBeGreaterThan(1);
+  await expect(page.locator('.d-p[data-idx="3"]')).toContainText(', offre');
+  // Réponses en delta (petites), sans modèle complet sur le fil.
+  expect(replies.every(r => r.delta)).toBe(true);
+  const sizes = replies.map(r => r.bytes);
+  expect(Math.max(...sizes)).toBeLessThan(20000);
+  // Le fichier s'écrit d'un coup (pause ou départ de la page), sans
+  // relecture du modèle complet ici.
+  await page.goto('about:blank');
+  await expect.poll(async () => (await readFile(project.doc)).equals(original)).toBe(false);
+  // Rouvert : le document montre ce qui avait été confirmé, sans perte.
+  await open(page, project);
+  await expect(page.locator('.d-p[data-idx="2"]')).toContainText('retenu ici, fixé a priori');
+  await expect(page.locator('.d-p[data-idx="3"]')).toContainText(', offre');
+  const m = await disk(page, project);
+  expect(m.changes.filter(c => c.author === 'Thierry').map(c => c.kind)).toContain('ins');
+  expect(errors).toEqual([]);
 });

@@ -134,6 +134,8 @@ pub struct Piece {
     pub media: Option<Media>,
     /// Équation : son LaTeX.
     pub math: Option<String>,
+    /// Équation en display (`m:oMathPara`) : centrée sur sa ligne.
+    pub math_display: bool,
     /// Saut de page (ou de colonne) forcé : `w:br w:type="page"`.
     pub page_break: bool,
 }
@@ -294,8 +296,18 @@ fn visit(node: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
         push(ctx, state, out, text, Kind::Object("équation".into()), Fmt::default(), None);
         if let Some(last) = out.pieces.last_mut() {
             last.math = Some(crate::math::to_latex(node));
+            last.math_display = name == "oMathPara";
             if ctx.revs.is_empty() && ctx.top == node.range() {
                 last.unit = Some(node.range());
+            } else if ctx.revs.len() == 1 && ctx.revs[0].0 == RevKind::Ins {
+                // Ajoutée en suivi (une correction en LaTeX, un collage) : seule
+                // dans son w:ins, l'insertion entière part avec elle ; sinon
+                // elle seule.
+                if let Some(w) = node.parent().filter(|w| is_w(*w, "ins") && w.range() == ctx.top) {
+                    let alone = w.children().filter(|n| n.is_element()).count() == 1;
+                    last.unit = Some(if alone { w.range() } else { node.range() });
+                    last.unit_ins = Some(ctx.rev_authors[0].clone());
+                }
             }
         }
         return;
@@ -560,6 +572,7 @@ fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fm
         unit_ins: None,
         media: None,
         math: None,
+        math_display: false,
         page_break: false,
     });
 }

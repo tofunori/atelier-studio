@@ -228,7 +228,7 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 11] = ["read", "edit", "insert_paragraph", "comment", "reply", "draft_reply", "format", "insert_note", "insert_figure", "insert_row", "delete_row"];
+const DOCX_ACTIONS: [&str; 13] = ["read", "edit", "insert_paragraph", "join", "split", "comment", "reply", "draft_reply", "format", "insert_note", "insert_figure", "insert_row", "delete_row"];
 
 /// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
 /// toujours des suivis de modifications signés de son nom : l'utilisateur
@@ -240,10 +240,10 @@ pub fn docx_tool_definition() -> Value {
     or rewrite it yourself). read: paragraphs p0…, then footnotes n1.p0… and header1.p0…, tracked \
     changes [+ins+]#id [-del-]#id, comments c1…. Every write is a tracked change or comment signed \
     with your name; the user accepts or rejects (you cannot). find = exact current text (add paragraph \
-    or occurrence if ambiguous). insert_note / insert_figure go right after find (text = note text or \
-    alt; figure = image path in the project). insert_row / delete_row: table row of paragraph (a cell). \
-    draft_reply: a reply draft shown in the comment's card (not written to the file) that the user \
-    reviews and sends under their own name; prefer it to reply for a reviewer's comment.",
+    or occurrence if ambiguous). insert_note / insert_figure go right after find. insert_row / delete_row: table row of paragraph (a cell). \
+    join: merge paragraph into the one before (p8 → p7). split: new paragraph right after find. \
+    draft_reply: a draft in the comment's card (not in the file) that the user reviews and sends \
+    under their own name; prefer it to reply for a reviewer's comment.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -252,12 +252,12 @@ pub fn docx_tool_definition() -> Value {
                 "path": { "type": "string", "description": "Path of the .docx, relative to the project or absolute" },
                 "from": { "type": "integer", "description": "read: first paragraph number" },
                 "to": { "type": "integer", "description": "read: last paragraph number" },
-                "paragraph": { "type": "string", "description": "p12 (from read); optional for edit/comment/format when find is unique" },
-                "find": { "type": "string", "description": "Exact current text to replace, comment or format" },
+                "paragraph": { "type": "string", "description": "p12 (from read); optional for edit/comment/format/split when find is unique; join: the second paragraph (p8 joins p7)" },
+                "find": { "type": "string", "description": "Exact current text to replace, comment or format; split: text just before the cut" },
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
                 "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
                 "after": { "type": "string", "description": "insert_paragraph: new paragraph goes after this one (p12)" },
-                "text": { "type": "string", "description": "insert_paragraph / comment / reply / draft_reply / insert_note: the text; insert_figure: alt text" },
+                "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting, signature or rewritten passage (show a correction in your chat answer first); insert_figure: alt text (figure: image path in the project)" },
                 "figure": { "type": "string", "description": "insert_figure: PNG/JPEG/GIF path in the project" },
                 "above": { "type": "boolean", "description": "insert_row: above instead of below" },
                 "comment": { "type": "integer", "description": "reply / draft_reply: comment number (c3 → 3)" },
@@ -637,7 +637,7 @@ mod tests {
         for action in ["accept", "reject", "accept_all", "resolve", "delete_comment", "send_message"] {
             assert!(bridge_call_for(DOCX_TOOL_NAME, &json!({"action": action})).is_none(), "{action}");
         }
-        assert!(docx_tool_definition()["description"].as_str().unwrap().len() < 800);
+        let d = docx_tool_definition()["description"].as_str().unwrap().len(); assert!(d < 800, "{d}");
     }
 
     #[test]

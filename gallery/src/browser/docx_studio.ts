@@ -4,9 +4,11 @@
  *
  * Le serveur (crate atelier-docx) fait foi : chaque geste devient une
  * retouche JSON (`POST /docx/op`) appliquée sur le fichier, et la réponse
- * porte le modèle à jour, d'après lequel la page se redessine. Seule la
- * frappe est montrée d'avance (« fantômes ») pour que l'écriture reste
- * fluide ; ses insertions partent groupées à la première pause.
+ * porte le modèle à jour, d'après lequel la page se redessine. Les gestes
+ * du clavier (frappe, effacement, Entrée, jointure, gras…) sont montrés
+ * d'avance sur un modèle local et partent ensuite dans l'ordre ; frappe et
+ * effacements d'un même passage partent groupés à la première pause (voir
+ * « gestes montrés d'avance »).
  *
  * Positions : en caractères Unicode (points de code) du texte COURANT d'un
  * paragraphe — insertions comprises, suppressions exclues —, comme la base.
@@ -16,13 +18,19 @@
     text: string; kind: string; label?: string; change?: number; rev?: string; editable?: boolean;
     b?: boolean; i?: boolean; u?: boolean; strike?: boolean; sup?: boolean; sub?: boolean;
     font?: string; size?: number; highlight?: string; comments?: number[]; ghost?: boolean;
+    /** Effacement en suivi montré d'avance (barré), pas encore confirmé. */
+    gdel?: boolean;
     number?: number; whole?: boolean; media?: string; width?: number; height?: number; alt?: string;
+    /** Équation : son LaTeX, et si elle est seule sur sa ligne (display). */
+    latex?: string; display?: boolean;
   };
   type Para = {
     id: string; para_id?: string; style?: string; heading?: number; list?: boolean; align?: string;
     cell?: [number, number, number]; mark_change?: number; text: string; segments: Seg[]; look?: Look;
     /** Ajouté ici : histoire du paragraphe (« » corps, n1, e1, header1…). */
     story?: string;
+    /** Ajouté ici : marque de paragraphe ajoutée ou barrée par un geste pas encore confirmé. */
+    pend_mark?: "ins" | "del";
   };
   /** Apparence résolue par la base (styles de Word), en points. */
   type Look = {
@@ -54,9 +62,6 @@
   };
   type Pos = { idx: number; off: number };
   type Sel = { a: Pos; b: Pos };
-  /** Frappe pas encore confirmée : `sent` = confiée à la file, `flying` =
-   *  requête partie, `gone` = envoyée à la fermeture du panneau. */
-  type Ghost = { idx: number; at: number; text: string; sent: boolean; flying?: boolean; gone?: boolean };
   type Op = Record<string, unknown>;
 
   const W = window as unknown as Window & {
@@ -94,7 +99,6 @@
   let tracked = true;
   let author = "";
   let page = "blanche";
-  let ghosts: Ghost[] = [];
   let idleTimer = 0;
   let chain: Promise<unknown> = Promise.resolve();
   let inflight = 0;
@@ -166,6 +170,7 @@
     circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
     bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+    sort: '<path d="M3 6h18"/><path d="M6 12h12"/><path d="M9 18h6"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
   const ic = (k: keyof typeof PATHS, size = 16) => svg(PATHS[k], size);
@@ -173,20 +178,77 @@
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
 
   // ---------------------------------------------------------------- serveur
+  /** Dernier modèle complet du serveur, tel qu'il l'a rendu (avant
+   *  `normalize`) : la base sur laquelle s'appliquent ses deltas. */
+  let serverModel: any = null;
+  /** Retouches et annulations demandent un delta (séance du serveur : le
+   *  fichier s'écrit d'un coup après quelques secondes, ou en quittant) ;
+   *  `api` le rejoue sur le dernier modèle reçu et rend `r.model` comme
+   *  avant. Base différente (autre onglet, relecture) : modèle complet. */
+  const DELTA_URLS = new Set(["/docx/op", "/docx/undo"]);
   async function api(url: string, body?: unknown): Promise<any> {
-    const res = await fetch(url, body === undefined ? undefined : {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    const delta = body !== undefined && DELTA_URLS.has(url) && serverModel !== null;
+    const sent = delta ? { ...(body as object), delta: true } : body;
+    const res = await fetch(url, sent === undefined ? undefined : {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sent),
     });
     let data: any = null;
     try { data = await res.json(); } catch { /* corps vide */ }
     if (!res.ok) {
-      const err = new Error((data && data.error) || `erreur ${res.status}`) as Error & { status?: number };
+      const msg = (data && data.error) || `erreur ${res.status}`;
+      // Écriture refusée par le garde-fou : la séance est revenue au dernier
+      // état sain, le message dit quel geste n'a pas été gardé.
+      if (res.status === 409 && msg.startsWith("séance relue")) status(msg, true);
+      const err = new Error(msg) as Error & { status?: number };
       err.status = res.status;
       throw err;
     }
+    if (data && data.delta) {
+      const m = serverModel && applyDelta(serverModel, data.delta);
+      data.model = m || await api(`/docx/model?path=${enc(PATH)}`);
+      if (m) { m.mtime = data.delta.mtime; m.openInWord = data.delta.openInWord; }
+    }
+    if (data && Array.isArray(data.paragraphs) && typeof data.revision === "string") serverModel = data;
+    else if (data && data.model && Array.isArray(data.model.paragraphs)) serverModel = data.model;
     return data;
   }
   const enc = encodeURIComponent;
+
+  /** Rejoue un delta du serveur (`{base, revision, paragraphs?: {start,
+   *  remove, insert}, changes?, comments?, notes?, headers?, …}`) sur son
+   *  modèle précédent ; `null` s'il ne part pas de cette révision. Les
+   *  listes non touchées restent partagées : rien ne modifie un modèle reçu. */
+  function applyDelta(prev: any, d: any): any | null {
+    if (!prev || !d || prev.revision !== d.base) return null;
+    const next: any = { ...prev };
+    for (const key of ["paragraphs", "changes", "comments"]) {
+      const sp = d[key];
+      if (!sp) continue;
+      const list: any[] = prev[key] || [];
+      if (sp.start + sp.remove > list.length) return null;
+      next[key] = list.slice(0, sp.start).concat(sp.insert, list.slice(sp.start + sp.remove));
+    }
+    if (d.paragraphs) {
+      next.paragraphs = next.paragraphs.map((p: any, i: number) => (p.id === `p${i}` ? p : { ...p, id: `p${i}` }));
+    }
+    for (const key of ["notes", "headers", "authors", "other_parts", "page", "styles"]) {
+      if (key in d) next[key] = d[key];
+    }
+    next.revision = d.revision;
+    return next;
+  }
+  /** Le modèle que rend une réponse de retouche (delta déjà rejoué par
+   *  `api`), normalisé ; `null` si elle n'en porte pas. */
+  function modelFromResponse(r: any, _base: Model | null): Model | null {
+    return r && r.model ? normalize(r.model) : null;
+  }
+  /** Écrit tout de suite la séance du serveur (page cachée ou quittée). */
+  function flushSession() {
+    if (!PATH) return;
+    try {
+      void fetch("/docx/flush", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: PATH }), keepalive: true }).catch(() => undefined);
+    } catch { /* page déjà déchargée */ }
+  }
 
   /** Corps, puis notes, puis en-têtes et pieds dans une seule liste : un
    *  rang (`idx`) désigne n'importe quel paragraphe modifiable. */
@@ -244,39 +306,78 @@
   const changeById = () => new Map((model?.changes || []).map((c) => [c.id, c] as const));
 
   // ------------------------------------------------- paragraphe « virtuel »
-  /** Segments du paragraphe avec la frappe pas encore confirmée insérée. */
-  function virtualSegments(idx: number): Seg[] {
-    const p = model!.paragraphs[idx];
-    let segs: Seg[] = p.segments.map((s) => ({ ...s }));
-    for (const g of ghosts) {
-      if (g.idx !== idx) continue;
-      const out: Seg[] = [];
-      let off = 0;
-      let done = false;
-      for (const s of segs) {
-        const removed = s.rev === "del" || s.rev === "moveFrom";
-        const len = removed ? 0 : cp(s.text);
-        // Premier segment de texte qui contient la position : en limite de
-        // deux segments, celui de gauche (la frappe prend sa mise en forme).
-        if (!done && !removed && s.kind === "text" && off <= g.at && g.at <= off + len) {
-          const chars = Array.from(s.text);
-          const k = g.at - off;
-          if (k > 0) out.push({ ...s, text: chars.slice(0, k).join("") });
-          out.push({ ...s, text: g.text, ghost: true, rev: "ins", change: undefined, comments: [] });
-          if (k < chars.length) out.push({ ...s, text: chars.slice(k).join("") });
-          done = true;
-        } else {
-          out.push(s);
-        }
-        off += len;
-      }
-      if (!done) out.push({ text: g.text, kind: "text", ghost: true, rev: "ins" });
-      segs = out;
-    }
-    return segs;
-  }
+  /** Segments du paragraphe affiché : les gestes en attente (frappe,
+   *  effacement) y sont déjà, voir « gestes montrés d'avance ». */
+  const virtualSegments = (idx: number): Seg[] => model!.paragraphs[idx].segments;
   const virtualLen = (idx: number) => virtualSegments(idx).reduce((n, s) => n + (s.rev === "del" || s.rev === "moveFrom" ? 0 : cp(s.text)), 0);
   const virtualText = (idx: number) => virtualSegments(idx).filter((s) => !(s.rev === "del" || s.rev === "moveFrom")).map((s) => s.text).join("");
+
+  // ------------------------------------------------------------- équations
+  // KaTeX (vendorisé avec la galerie) n'est chargé qu'une fois, et seulement
+  // pour un document qui a des équations. Jusque-là, et si KaTeX refuse une
+  // équation, la page montre son texte (puis son LaTeX) : rien ne manque.
+  type Katex = {
+    render(tex: string, el: HTMLElement, o: Record<string, unknown>): void;
+    renderToString(tex: string, o: Record<string, unknown>): string;
+  };
+  let katexLib: Katex | null = null;
+  let katexWait: Promise<Katex | null> | null = null;
+  function loadKatex(): Promise<Katex | null> {
+    if (katexWait) return katexWait;
+    katexWait = new Promise((resolve) => {
+      const ready = () => {
+        // Polices de KaTeX (symboles, grands opérateurs) avant la première
+        // mesure : une police arrivée après la coupe en pages la fausserait.
+        const fonts = document.fonts ? Promise.all(["1em KaTeX_Main", "italic 1em KaTeX_Math", "1em KaTeX_Size1", "1em KaTeX_Size2"].map((f) => document.fonts.load(f).catch(() => []))) : Promise.resolve();
+        const late = new Promise((r) => setTimeout(r, 1500));
+        Promise.race([fonts, late]).then(() => {
+          katexLib = ((window as unknown as { katex?: Katex }).katex) || null;
+          resolve(katexLib);
+        });
+      };
+      if ((window as unknown as { katex?: Katex }).katex) { ready(); return; }
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "/.fig_thumbs/katex/katex.min.css";
+      const css = new Promise((r) => { link.onload = link.onerror = () => r(0); });
+      document.head.appendChild(link);
+      const s = document.createElement("script");
+      s.src = "/.fig_thumbs/katex/katex.min.js";
+      s.onload = () => { css.then(ready); };
+      s.onerror = () => resolve(null);
+      document.head.appendChild(s);
+    });
+    return katexWait;
+  }
+  const hasMath = (m: Model) => m.paragraphs.some((p) => p.segments.some((s) => s.latex !== undefined))
+    || (m.notes || []).some((n) => n.paragraphs.some((p) => p.segments.some((s) => s.latex !== undefined)));
+  /** Virgule décimale (0,356) : à l'affichage seulement, sans l'espace de ponctuation de TeX. */
+  const decimalComma = (latex: string) => latex.replace(/(\d),(?=\d)/g, "$1{,}");
+  /** Dessine une équation dans `node` ; rend faux si KaTeX n'est pas (encore) là. */
+  function drawEq(node: HTMLElement, latex: string, display: boolean): boolean {
+    node.classList.remove("raw");
+    if (!katexLib) return false;
+    try {
+      katexLib.render(decimalComma(latex), node, { displayMode: display, throwOnError: true, output: "html", strict: "ignore" });
+    } catch {
+      node.classList.add("raw");
+      node.textContent = latex;
+    }
+    return true;
+  }
+  /** Les équations dessinées avant l'arrivée de KaTeX, redessinées ; leur
+   *  paragraphe repasse à la mise en page (hauteur mesurée après rendu). */
+  function upgradeEquations() {
+    const touched = new Set<number>();
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>(".chip.eq[data-wait]"))) {
+      delete el.dataset.wait;
+      el.textContent = "";
+      drawEq(el, el.dataset.latex || "", el.classList.contains("disp"));
+      const p = el.closest(".d-p") as HTMLElement | null;
+      if (p && p.dataset.idx !== undefined) touched.add(Number(p.dataset.idx));
+    }
+    for (const idx of touched) scheduleLines(idx);
+  }
 
   // ------------------------------------------------------------------ rendu
   /** Texte d'un segment avec sa mise en forme (gras, italique…). */
@@ -307,6 +408,11 @@
       el.classList.add(mark.kind === "paragraph-del" ? "mark-del" : "mark-ins");
       el.dataset.ch = String(mark.id);
     }
+    if (p.pend_mark) {
+      el.classList.remove("mark-del", "mark-ins");
+      el.classList.add(p.pend_mark === "del" ? "mark-del" : "mark-ins", "changed");
+      el.style.setProperty("--rev-color", authorColor(author));
+    }
     let off = 0;
     let any = false;
     for (const s of virtualSegments(idx)) {
@@ -318,8 +424,17 @@
         node = document.createElement("span");
         const label = s.label || "";
         const isNote = label === "note" || label === "note de fin";
-        node.className = "chip" + (s.kind === "object" ? (isNote ? " note" : s.media ? " fig" : " obj") : "");
-        if (s.media) {
+        node.className = "chip" + (s.kind === "object" ? (isNote ? " note" : s.media ? " fig" : s.latex !== undefined ? " eq" : " obj") : "");
+        if (s.latex !== undefined) {
+          // Équation : KaTeX d'après son LaTeX, à la taille et à l'encre de la page.
+          if (s.display) node.classList.add("disp");
+          node.dataset.latex = s.latex;
+          if (!drawEq(node, s.latex, !!s.display)) {
+            node.textContent = s.text || s.latex;
+            node.dataset.wait = "1";
+            void loadKatex().then(upgradeEquations);
+          }
+        } else if (s.media) {
           const img = document.createElement("img");
           img.src = `/docx/media?path=${enc(PATH)}&para=${enc(p.id)}&rel=${enc(s.media)}`;
           img.alt = s.alt || "Figure";
@@ -337,7 +452,11 @@
           node.textContent = isNote && s.number ? String(s.number) : s.text || (label === "image" ? "[figure]" : label === "équation" ? "[équation]" : `[${label || "objet"}]`);
         }
         node.contentEditable = "false";
-        node.title = s.kind === "field" ? (label.startsWith("zotero") ? "Citation Zotero : à modifier dans Word" : `Champ ${label}`) : (isNote ? (label === "note" ? "Note de bas de page" : "Note de fin") : s.media ? (s.alt || "Figure") : label);
+        if (s.latex !== undefined) {
+          node.setAttribute("role", "button");
+          node.setAttribute("aria-haspopup", "dialog");
+          node.setAttribute("aria-label", `Équation : ${s.latex}`);
+        } else node.title = s.kind === "field" ? (label.startsWith("zotero") ? "Citation Zotero : à modifier dans Word" : `Champ ${label}`) : (isNote ? (label === "note" ? "Note de bas de page" : "Note de fin") : s.media ? (s.alt || "Figure") : label);
       } else {
         node = document.createElement("span");
         node.appendChild(styled(s));
@@ -351,6 +470,9 @@
       if (s.kind === "field") node.dataset.field = s.label || "";
       if (s.ghost) {
         node.classList.add("ins", "pending");
+        node.style.setProperty("--rev-color", authorColor(author));
+      } else if (s.gdel) {
+        node.classList.add("del", "pending");
         node.style.setProperty("--rev-color", authorColor(author));
       } else if (s.rev && s.change !== undefined) {
         const c = changes.get(s.change);
@@ -544,7 +666,7 @@
     paneDragging = d.on === true;
     if (!paneDragging) settleStretch();
   });
-  const stretchLayers = () => [paper, sheets, lnLayer, cbars];
+  const stretchLayers = () => [paper, sheets, lnLayer];
   function stretchTo(next: number, room: number) {
     const k = next / ptPx;
     stretchPt = next;
@@ -596,14 +718,14 @@
     // Une coupe demandée pendant l'étirement (frappe, relecture) passe maintenant.
     if (dirtyAll) scheduleLines();
   }
-  // Feuilles, numéros de ligne et traits de révision sont dessinés par
+  // Feuilles et numéros de ligne sont dessinés par
   // rapport au coin de la page ; leurs calques suivent la page quand elle
   // se recentre (panneau élargi ou rétréci, marge des fiches qui apparaît,
   // retour sur la surface) sans refaire la mise en page.
   let laidOutHidden = false;
   function followPaper() {
     const x = `${paper.offsetLeft}px`, y = `${paper.offsetTop}px`;
-    for (const l of [sheets, lnLayer, cbars]) {
+    for (const l of [sheets, lnLayer]) {
       if (l.style.left !== x) l.style.left = x;
       if (l.style.top !== y) l.style.top = y;
     }
@@ -745,7 +867,6 @@
     drawSheets(pg, pages);
     drawLines(pg);
     pageCount = pages;
-    drawBars();
     placeCards();
     spy();
     if (findOpen()) runFind(false);
@@ -1029,47 +1150,7 @@
     lnLayer.replaceChildren(frag);
   }
 
-  // Vue Lecture : le texte se lit comme accepté, un trait fin dans la marge
-  // de gauche signale chaque groupe de lignes retouchées.
-  const cbars = $("cbars");
   let pageCount = 1;
-  function drawBars() {
-    const pg = model?.page;
-    if (view !== "final" || !pg) { if (cbars.firstChild) cbars.replaceChildren(); return; }
-    const o = paper.getBoundingClientRect().top;
-    const spans: [number, number][] = [];
-    const push = (r: DOMRect | undefined) => { if (r && r.height > 2 && r.height < 120) spans.push([r.top - o, r.bottom - o]); };
-    for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".ins[data-ch]"))) for (const r of Array.from(el.getClientRects())) push(r);
-    // Une suppression masquée tombe sur la ligne du texte qui l'entoure.
-    for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".del[data-ch]"))) {
-      const prev = el.previousElementSibling, next = el.nextElementSibling;
-      const pr = prev ? Array.from(prev.getClientRects()) : [];
-      push(pr.length ? pr[pr.length - 1] : next ? next.getClientRects()[0] : undefined);
-    }
-    // Mise en forme ou marque de paragraphe : tout le paragraphe.
-    for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".d-p.changed"))) {
-      if (el.querySelector(".ins[data-ch],.del[data-ch]")) continue;
-      const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-      spans.push([r.top - o + (parseFloat(cs.paddingTop) || 0), r.bottom - o - (parseFloat(cs.paddingBottom) || 0)]);
-    }
-    spans.sort((a, b) => a[0] - b[0]);
-    const merged: [number, number][] = [];
-    for (const s of spans) {
-      const last = merged[merged.length - 1];
-      if (last && s[0] <= last[1] + 6) last[1] = Math.max(last[1], s[1]);
-      else merged.push([s[0], s[1]]);
-    }
-    const x = (pg.left - 9) * ptPx;
-    const frag = document.createDocumentFragment();
-    for (const [a, b] of merged) {
-      const i = document.createElement("i");
-      i.style.left = `${x}px`;
-      i.style.top = `${a - 2}px`;
-      i.style.height = `${b - a + 4}px`;
-      frag.appendChild(i);
-    }
-    cbars.replaceChildren(frag);
-  }
 
   function repaint(idx: number) {
     const old = paper.querySelector(`.d-p[data-idx="${idx}"]`) as HTMLElement | null;
@@ -1193,9 +1274,9 @@
       && JSON.stringify((prev.notes || []).map((n) => n.number)) === JSON.stringify((next.notes || []).map((n) => n.number));
     if (sameShape) {
       next.paragraphs.forEach((p, i) => {
-        if (JSON.stringify(p) !== JSON.stringify(prev!.paragraphs[i]) || ghosts.some((g) => g.idx === i)) repaint(i);
+        if (JSON.stringify(p) !== JSON.stringify(prev!.paragraphs[i])) repaint(i);
       });
-    } else {
+    } else if (!patchParas(prev, next)) {
       renderAll();
     }
     if (caret) setCaret(caret.a, collapsed(caret) ? undefined : caret.b);
@@ -1208,6 +1289,7 @@
     if (next.openInWord) {
       notice.innerHTML = `${ICON.warn}<span>Ce document est aussi ouvert dans Word. Ferme-le dans Word avant de le retoucher ici : Word écraserait ces retouches à son prochain enregistrement.</span>`;
     }
+    triSync();
   }
 
   /** État d'enregistrement dans le pied ; tout autre message passe en toast. */
@@ -1249,60 +1331,6 @@
     }
   }
 
-  /** Après un changement venu d'ailleurs (Word, l'agent), replace la frappe
-   *  en attente dans la nouvelle version : même paragraphe s'il n'a pas
-   *  bougé, sinon le paragraphe identique, sinon le passage autour du
-   *  curseur s'il est unique. Rend le texte qu'on n'a pas su replacer. */
-  function remapGhosts(old: Model, fresh: Model): string[] {
-    const lost: string[] = [];
-    const chars = (s: string) => Array.from(s);
-    const placed: { g: Ghost; realAt: number }[] = [];
-    const keep: Ghost[] = [];
-    ghosts.forEach((g, i) => {
-      if (g.gone) return;
-      // Position dans le texte réel d'avant (sans les frappes en attente qui précèdent).
-      const earlier = ghosts.slice(0, i).filter((h) => !h.gone && h.idx === g.idx && h.at <= g.at).reduce((n, h) => n + cp(h.text), 0);
-      const realAt = g.at - earlier;
-      const oldText = old.paragraphs[g.idx] ? old.paragraphs[g.idx].text : "";
-      let idx = -1;
-      let at = realAt;
-      if (fresh.paragraphs[g.idx] && fresh.paragraphs[g.idx].text === oldText) {
-        idx = g.idx;
-      } else {
-        const same = fresh.paragraphs.map((p, k) => (p.text === oldText ? k : -1)).filter((k) => k >= 0);
-        if (same.length === 1 && oldText) {
-          idx = same[0];
-        } else {
-          const c = chars(oldText);
-          const left = c.slice(Math.max(0, realAt - 24), realAt).join("");
-          const right = c.slice(realAt, realAt + 24).join("");
-          const key = left + right;
-          if (cp(key) >= 6) {
-            const found: { k: number; at: number }[] = [];
-            fresh.paragraphs.forEach((p, k) => {
-              let from = 0;
-              for (;;) {
-                const b = p.text.indexOf(key, from);
-                if (b < 0) break;
-                found.push({ k, at: cp(p.text.slice(0, b)) + cp(left) });
-                from = b + 1;
-              }
-            });
-            if (found.length === 1) { idx = found[0].k; at = found[0].at; }
-          }
-        }
-      }
-      if (idx < 0) { lost.push(g.text); return; }
-      const before = placed.filter((x) => x.g.idx === idx && x.realAt <= at).reduce((n, x) => n + cp(x.g.text), 0);
-      g.idx = idx;
-      g.at = at + before;
-      placed.push({ g, realAt: at });
-      keep.push(g);
-    });
-    ghosts = keep;
-    return lost;
-  }
-
   /** File d'attente : une retouche à la fois, dans l'ordre des gestes. */
   function enqueue<T>(fn: () => Promise<T>): Promise<T> {
     const run = chain.then(fn, fn);
@@ -1319,7 +1347,7 @@
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             const r = await api("/docx/op", { path: PATH, revision: model!.revision, author, tracked, op });
-            const fresh = normalize(r.model);
+            const fresh = modelFromResponse(r, model)!;
             const sel = caret ? caret(fresh, r.result) : readSel();
             applyModel(fresh, sel);
             status("Enregistré dans le .docx");
@@ -1330,10 +1358,7 @@
               // geste si son paragraphe n'a pas bougé.
               const fresh: Model = normalize(await api(`/docx/model?path=${enc(PATH)}`));
               const same = expectIdx !== undefined && fresh.paragraphs[expectIdx] && fresh.paragraphs[expectIdx].text === expectText;
-              const sel = readSel();
-              const lost = remapGhosts(model!, fresh);
-              applyModel(fresh, sel);
-              if (lost.length) rescue(lost, "Le document a changé pendant la frappe.");
+              applyModel(fresh, readSel());
               if (same) continue;
               status("Le document a changé pendant ce geste : refais-le sur la version à jour.", true);
               return false;
@@ -1343,10 +1368,7 @@
         }
         return false;
       } catch (e: any) {
-        const pending = ghosts.filter((x) => !x.gone && !x.flying).map((x) => x.text);
-        ghosts = [];
-        if (pending.length) rescue(pending, sentence(e.message || String(e)));
-        else status(e.message || String(e), true);
+        status(e.message || String(e), true);
         try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message reste */ }
         return false;
       } finally {
@@ -1356,102 +1378,468 @@
   }
   const virtualTextReal = (idx: number) => model!.paragraphs[idx] ? model!.paragraphs[idx].text : "";
 
+  // ------------------------------------------- gestes montrés d'avance
+  // Frappe, effacement, Entrée, jointure et mise en forme s'affichent tout
+  // de suite : chaque geste entre dans la file `pend`, appliqué au modèle
+  // local par-dessus le dernier état confirmé du serveur (`confirmed`,
+  // étapes successives dans `stages`), puis envoyé dans l'ordre. Frappe et
+  // effacements consécutifs dans un même passage se fondent en UNE retouche
+  // (`replace_range`) qui part à la pause ; Entrée, jointure et mise en forme
+  // partent aussitôt. À chaque réponse, le geste confirmé sort de la file et
+  // les suivants sont rejoués sur le modèle du serveur. Un refus rend
+  // l'écran à l'état du serveur et la saisie perdue à l'utilisateur.
+  // Invariant : file vide ⇒ `model` est l'état du serveur.
+  type Pend = {
+    k: "text" | "split" | "join" | "fmt";
+    /** Paragraphe visé, rang dans l'état qui précède le geste (join : le second). */
+    idx: number;
+    /** Texte attendu de ce paragraphe au moment d'envoyer (garde-fou). */
+    expect: string;
+    tracked: boolean;
+    /** text : remplace [s, e) par `w` ; split : coupe en `s`. */
+    s: number; e: number; w: string;
+    /** Confié à la file d'envoi ; `flying` : requête partie ; `gone` : envoyé à la fermeture. */
+    sent?: boolean; flying?: boolean; gone?: boolean;
+    /** text : ne se fond avec aucun autre geste (objet effacé d'un bloc). */
+    seal?: boolean;
+    /** join : texte attendu du paragraphe précédent. */
+    expectPrev?: string;
+    /** fmt : plages (avec leur texte attendu) et propriétés. */
+    ranges?: { idx: number; s: number; e: number; t: string }[];
+    props?: Record<string, unknown>;
+  };
+  let pend: Pend[] = [];
+  let confirmed: Model | null = null;
+  let stages: Model[] = [];
+  /** Modèle complet du serveur d'après sa réponse à `/docx/op`. */
+  const serverModelOf = (r: any, _base: Model): Model | null => (r && r.model ? normalize(r.model) : null);
+
+  const removedSeg = (g: Seg) => g.rev === "del" || g.rev === "moveFrom";
+  const segLen = (g: Seg) => (removedSeg(g) ? 0 : cp(g.text));
+  const segsText = (segs: Seg[]) => segs.filter((g) => !removedSeg(g)).map((g) => g.text).join("");
+  /** Mise en forme d'un segment, pour la frappe qui le prolonge. */
+  function fmtOf(g: Seg | null): Seg {
+    const o: Seg = { text: "", kind: "text" };
+    if (g) for (const k of ["b", "i", "u", "strike", "sup", "sub", "font", "size", "highlight"] as const) if (g[k] !== undefined) (o as Record<string, unknown>)[k] = g[k];
+    return o;
+  }
+  /** Coupe les segments à la position `at` du texte courant ; les segments
+   *  vides (suppressions) en limite vont à droite, comme dans la base. */
+  function cutSegs(segs: Seg[], at: number): [Seg[], Seg[]] {
+    const L: Seg[] = [], R: Seg[] = [];
+    let off = 0;
+    for (const g of segs) {
+      const len = segLen(g);
+      if (!len) (off < at ? L : R).push(g);
+      else if (off + len <= at) L.push(g);
+      else if (off >= at) R.push(g);
+      else {
+        const chars = Array.from(g.text);
+        L.push({ ...g, text: chars.slice(0, at - off).join("") });
+        R.push({ ...g, text: chars.slice(at - off).join("") });
+      }
+      off += len;
+    }
+    return [L, R];
+  }
+  /** `p3` → `p4` (décalage d'un rang) ; autre forme inchangée. */
+  const bumpId = (id: string, d: number) => id.replace(/p(\d+)$/, (_, n) => `p${Number(n) + d}`);
+  function withParas(m: Model, paragraphs: Para[], from: number, d: number, story: string): Model {
+    if (d) for (let k = from; k < paragraphs.length; k++) {
+      if ((paragraphs[k].story || "") === story) paragraphs[k] = { ...paragraphs[k], id: bumpId(paragraphs[k].id, d) };
+    }
+    return { ...m, paragraphs, body: m.body !== undefined && !story ? m.body + d : m.body };
+  }
+
+  /** Frappe ou effacement : [s, e) remplacé par `w`. En suivi, le texte
+   *  d'origine effacé reste barré ; sa propre frappe s'efface sans trace. */
+  function applyText(m: Model, x: Pend): Model {
+    const p = m.paragraphs[x.idx];
+    if (!p) return m;
+    const chs = new Map(m.changes.map((c) => [c.id, c] as const));
+    const own = (g: Seg) => !!g.ghost || (g.rev === "ins" && g.change !== undefined && chs.get(g.change)?.author === author);
+    // Mise en forme de la frappe : le segment de texte qui contient la
+    // position (en limite, celui de gauche), comme la base.
+    let tpl: Seg | null = null;
+    let o = 0;
+    for (const g of p.segments) {
+      const len = segLen(g);
+      if (len && g.kind === "text" && o <= x.s && (x.s === x.e ? x.s <= o + len : x.s < o + len)) { tpl = g; break; }
+      o += len;
+    }
+    const out: Seg[] = [];
+    let placed = !x.w;
+    const put = () => { placed = true; out.push({ ...fmtOf(tpl), text: x.w, ghost: true, rev: "ins" }); };
+    let off = 0;
+    for (const g of p.segments) {
+      const len = segLen(g);
+      if (!len) { out.push(g); continue; }
+      const a = Math.max(0, Math.min(len, x.s - off));
+      const b = Math.max(0, Math.min(len, x.e - off));
+      const chars = Array.from(g.text);
+      if (a > 0) out.push(a === len ? g : { ...g, text: chars.slice(0, a).join("") });
+      if (b > a && x.tracked && !own(g)) out.push({ ...g, text: chars.slice(a, b).join(""), rev: "del", gdel: true, ghost: undefined });
+      // La frappe se pose après le passage effacé (la base écrit la
+      // suppression puis l'ajout).
+      if (!placed && g.kind === "text" && off <= x.e && x.e <= off + len) put();
+      if (b < len) out.push(b === 0 ? g : { ...g, text: chars.slice(b).join("") });
+      off += len;
+    }
+    if (!placed) put();
+    const paragraphs = m.paragraphs.slice();
+    paragraphs[x.idx] = { ...p, segments: out, text: segsText(out) };
+    return { ...m, paragraphs };
+  }
+
+  /** Entrée : la première moitié est un paragraphe neuf (paraId inconnu
+   *  jusqu'à la réponse), la seconde garde l'identité et la marque. */
+  function applySplit(m: Model, x: Pend): Model {
+    const p = m.paragraphs[x.idx];
+    if (!p) return m;
+    const [L, R] = cutSegs(p.segments, x.s);
+    const first: Para = { ...p, para_id: undefined, mark_change: undefined, pend_mark: x.tracked ? "ins" : undefined, segments: L, text: segsText(L) };
+    let second: Para = { ...p, id: bumpId(p.id, 1), segments: R, text: segsText(R) };
+    // Entrée en fin de titre : la suite prend l'allure du texte courant.
+    if (x.s >= cp(p.text) && p.heading !== undefined && p.heading !== null) {
+      const plain = m.paragraphs.find((q) => (q.story || "") === (p.story || "") && !q.cell && !q.list && (q.heading === undefined || q.heading === null));
+      if (plain) second = { ...second, style: plain.style, heading: plain.heading, look: plain.look, align: plain.align };
+    }
+    const paragraphs = m.paragraphs.slice(0, x.idx).concat([first, second], m.paragraphs.slice(x.idx + 1));
+    return withParas(m, paragraphs, x.idx + 2, 1, p.story || "");
+  }
+
+  /** Jointure du paragraphe `idx` au précédent. En suivi, la marque
+   *  précédente est barrée (les deux restent séparés) ; défaire sa propre
+   *  Entrée, ou sans suivi, les fond pour de bon. */
+  function applyJoin(m: Model, x: Pend): Model {
+    const q = m.paragraphs[x.idx];
+    const p = m.paragraphs[x.idx - 1];
+    if (!p || !q) return m;
+    const ch = p.mark_change !== undefined ? m.changes.find((c) => c.id === p.mark_change) : undefined;
+    const ownIns = p.pend_mark === "ins" || (!p.pend_mark && !!ch && ch.kind === "paragraph-ins" && ch.author === author);
+    const isDel = p.pend_mark === "del" || (!p.pend_mark && !!ch && ch.kind === "paragraph-del");
+    const paragraphs = m.paragraphs.slice();
+    if (x.tracked && isDel) return m;
+    if (x.tracked && !ownIns) {
+      paragraphs[x.idx - 1] = { ...p, pend_mark: "del" };
+      return { ...m, paragraphs };
+    }
+    const looks = ownIns && p.style !== q.style ? { style: p.style, heading: p.heading, look: p.look, align: p.align, list: p.list } : {};
+    const segments = p.segments.concat(q.segments);
+    const merged: Para = { ...q, ...looks, id: p.id, segments, text: segsText(segments) };
+    paragraphs.splice(x.idx - 1, 2, merged);
+    return withParas(m, paragraphs, x.idx, -1, q.story || "");
+  }
+
+  /** Gras, italique… sur les plages : à l'écran tout de suite. */
+  function applyFmt(m: Model, x: Pend): Model {
+    const paragraphs = m.paragraphs.slice();
+    for (const r of x.ranges || []) {
+      const p = paragraphs[r.idx];
+      if (!p) continue;
+      const [A, rest] = cutSegs(p.segments, r.s);
+      const [B, C] = cutSegs(rest, r.e - r.s);
+      const mid = B.map((g) => {
+        if (removedSeg(g) || g.kind !== "text") return g;
+        const n: Seg = { ...g };
+        for (const [k, v] of Object.entries(x.props || {})) {
+          if (v === false || v === null || v === undefined) delete (n as Record<string, unknown>)[k];
+          else (n as Record<string, unknown>)[k] = v;
+        }
+        return n;
+      });
+      const segments = A.concat(mid, C);
+      paragraphs[r.idx] = { ...p, segments, text: segsText(segments) };
+    }
+    return { ...m, paragraphs };
+  }
+
+  const applyPend = (m: Model, x: Pend): Model =>
+    x.k === "text" ? applyText(m, x) : x.k === "split" ? applySplit(m, x) : x.k === "join" ? applyJoin(m, x) : applyFmt(m, x);
+  function restage() {
+    stages = [];
+    let m = confirmed!;
+    for (const x of pend) { m = applyPend(m, x); stages.push(m); }
+  }
+  const shown = (): Model => (stages.length ? stages[stages.length - 1] : confirmed || model!);
+
+  /** Dessine un état local : seuls les paragraphes qui ont changé. */
+  function paint(next: Model) {
+    const prev = model!;
+    model = next;
+    if (prev.paragraphs.length === next.paragraphs.length) {
+      next.paragraphs.forEach((p, i) => { if (p !== prev.paragraphs[i]) repaint(i); });
+    } else if (!patchParas(prev, next)) {
+      renderAll();
+    }
+  }
+
+  /** Le nombre de paragraphes a changé (Entrée, jointure, réponse du
+   *  serveur) : insère ou retire seulement les `.d-p` concernés, renumérote
+   *  la suite et relance la mise en page à partir de là. Rend `false` quand
+   *  la forme ne s'y prête pas (tableau, note renumérotée) : il faut alors
+   *  tout redessiner. `model` vaut déjà `next`. */
+  function patchParas(prev: Model | null, next: Model): boolean {
+    if (!prev || !paper.querySelector(".d-p")) return false;
+    if (JSON.stringify((prev.notes || []).map((n) => n.number)) !== JSON.stringify((next.notes || []).map((n) => n.number))) return false;
+    const P = prev.paragraphs, N = next.paragraphs;
+    const same = (a: Para, b: Para) => a === b || JSON.stringify(a) === JSON.stringify(b);
+    // La suite garde son contenu mais pas son rang (`p12` → `p13`).
+    const sameShifted = (a: Para, b: Para) => a === b || (a.story === b.story && JSON.stringify({ ...a, id: "" }) === JSON.stringify({ ...b, id: "" }));
+    let i = 0;
+    while (i < P.length && i < N.length && same(P[i], N[i])) i++;
+    let j = 0;
+    while (j < P.length - i && j < N.length - i && sameShifted(P[P.length - 1 - j], N[N.length - 1 - j])) j++;
+    const pe = P.length - j, ne = N.length - j;
+    const plain = (p: Para) => !p.story && !p.cell;
+    for (let k = i; k < pe; k++) if (!plain(P[k])) return false;
+    for (let k = i; k < ne; k++) if (!plain(N[k])) return false;
+    const els: HTMLElement[] = [];
+    for (let k = i; k < pe; k++) {
+      const el = paper.querySelector(`.d-p[data-idx="${k}"]`) as HTMLElement | null;
+      if (!el || el.parentElement !== paper) return false;
+      els.push(el);
+    }
+    // Point d'insertion (repère posé avant de renuméroter) : à la place des
+    // retirés, sinon après le bloc qui précède, sinon avant celui qui suit.
+    const top = (el: Element | null) => { while (el && el.parentElement !== paper) el = el.parentElement; return el; };
+    const mark = document.createComment("");
+    if (els.length) paper.insertBefore(mark, els[0]);
+    else {
+      const a = i > 0 && !P[i - 1].story ? top(paper.querySelector(`.d-p[data-idx="${i - 1}"]`)) : null;
+      const b = pe < P.length && !P[pe].story ? top(paper.querySelector(`.d-p[data-idx="${pe}"]`)) : null;
+      if (a) a.after(mark);
+      else if (b) paper.insertBefore(mark, b);
+      else return false;
+    }
+    for (const el of els) el.remove();
+    const d = ne - pe;
+    if (d) for (const el of Array.from(paper.querySelectorAll(".d-p")) as HTMLElement[]) {
+      const k = Number(el.dataset.idx);
+      if (k >= pe) el.dataset.idx = String(k + d);
+    }
+    const frag = document.createDocumentFragment();
+    for (let k = i; k < ne; k++) frag.appendChild(renderPara(k));
+    mark.replaceWith(frag);
+    scheduleLines(Math.max(0, Math.min(i, N.length - 1)));
+    return true;
+  }
+
+  /** Référence d'un paragraphe pour la base, dans l'état `m` : son paraId
+   *  (stable quand une Entrée décale les rangs) s'il est unique, sinon son
+   *  rang dans son histoire. */
+  function refFor(m: Model, idx: number): string {
+    const p = m.paragraphs[idx];
+    const st = p.story || "";
+    let start = idx;
+    while (start > 0 && (m.paragraphs[start - 1].story || "") === st) start--;
+    const pid = p.para_id;
+    if (pid && m.paragraphs.filter((q) => q.para_id === pid).length === 1) return `${st ? `${st}.` : ""}id:${pid}`;
+    return refIn(st, start, idx);
+  }
+  /** Retouche à envoyer pour le geste `x`, sur l'état `m` qui le précède ;
+   *  `null` si le paragraphe visé n'est plus celui qu'on croit. */
+  function opOf(x: Pend, m: Model): Op | null {
+    const p = m.paragraphs[x.idx];
+    if (!p || p.text !== x.expect) return null;
+    if (x.k === "join") {
+      const q = m.paragraphs[x.idx - 1];
+      if (!q || q.text !== x.expectPrev || (q.story || "") !== (p.story || "")) return null;
+      return { op: "join", paragraph: refFor(m, x.idx) };
+    }
+    if (x.k === "split") return { op: "split", paragraph: refFor(m, x.idx), at: x.s };
+    if (x.k === "fmt") {
+      const rs = x.ranges || [];
+      if (rs.some((r) => !m.paragraphs[r.idx] || m.paragraphs[r.idx].text !== r.t)) return null;
+      const ops = rs.map((r) => ({ op: "format_range", paragraph: refFor(m, r.idx), start: r.s, end: r.e, props: x.props }));
+      return ops.length === 1 ? ops[0] : { op: "batch", ops };
+    }
+    return x.s === x.e
+      ? { op: "insert", paragraph: refFor(m, x.idx), at: x.s, with: x.w }
+      : { op: "replace_range", paragraph: refFor(m, x.idx), start: x.s, end: x.e, with: x.w };
+  }
+
+  function pushPend(x: Pend) {
+    if (!pend.length) { confirmed = model; stages = []; }
+    pend.push(x);
+    stages.push(applyPend(stages.length ? stages[stages.length - 1] : confirmed!, x));
+    paint(shown());
+  }
+
+  /** Remplace [a, b) du paragraphe `idx` (positions affichées) par `t`, à
+   *  l'écran tout de suite ; se fond avec le geste précédent s'il touche le
+   *  même passage et n'est pas encore parti. */
+  function textEdit(idx: number, a: number, b: number, t: string, seal = false) {
+    const n = pend.length;
+    const last = pend[n - 1];
+    if (!seal && last && last.k === "text" && !last.sent && !last.seal && last.idx === idx && last.tracked === tracked && a <= last.s + cp(last.w) && b >= last.s) {
+      const w = Array.from(last.w);
+      const left = w.slice(0, Math.max(0, Math.min(w.length, a - last.s))).join("");
+      const right = w.slice(Math.max(0, Math.min(w.length, b - last.s))).join("");
+      last.e += Math.max(0, b - (last.s + w.length));
+      last.s = Math.min(last.s, a);
+      last.w = left + t + right;
+      if (last.s === last.e && !last.w) {
+        // Sa frappe effacée avant de partir : rien à envoyer.
+        pend.pop();
+        stages.pop();
+      } else {
+        stages[n - 1] = applyPend(n > 1 ? stages[n - 2] : confirmed!, last);
+      }
+      const next = shown();
+      if (!pend.length) confirmed = null;
+      paint(next);
+    } else {
+      if (a === b && !t) return;
+      pushPend({ k: "text", idx, s: a, e: b, w: t, expect: model!.paragraphs[idx].text, tracked, seal });
+    }
+    clearTimeout(idleTimer);
+    idleTimer = window.setTimeout(ship, IDLE_MS);
+  }
+
+  /** Envoie, dans l'ordre, tout geste pas encore parti ; rend la promesse
+   *  de leur confirmation. */
+  function ship(): Promise<unknown> {
+    clearTimeout(idleTimer);
+    for (const x of pend) {
+      if (x.sent) continue;
+      x.sent = true;
+      enqueue(() => sendPend(x));
+    }
+    return chain;
+  }
+
+  /** Après un changement venu d'ailleurs (Word, l'agent) : retrouve dans
+   *  `fresh` le paragraphe du premier geste en attente (paraId, même rang
+   *  et même texte, ou texte unique) et décale toute la file d'autant. Les
+   *  gestes suivants sont revérifiés à leur envoi. */
+  function rebaseOnto(old: Model, fresh: Model): boolean {
+    const x = pend[0];
+    if (!x) return true;
+    const p = old.paragraphs[x.idx];
+    if (!p) return false;
+    let j = p.para_id ? fresh.paragraphs.findIndex((q) => q.para_id === p.para_id) : -1;
+    if (j < 0 && fresh.paragraphs[x.idx] && fresh.paragraphs[x.idx].text === p.text) j = x.idx;
+    if (j < 0) {
+      const same = fresh.paragraphs.map((q, k) => (q.text === p.text && (q.story || "") === (p.story || "") ? k : -1)).filter((k) => k >= 0);
+      if (same.length === 1) j = same[0];
+    }
+    if (j < 0 || fresh.paragraphs[j].text !== p.text) return false;
+    const d = j - x.idx;
+    if (d) for (const y of pend) { y.idx += d; for (const r of y.ranges || []) r.idx += d; }
+    return true;
+  }
+
+  async function sendPend(x: Pend) {
+    if (!pend.includes(x) || x.gone) return;
+    inflight++;
+    status(SAVING);
+    try {
+      const post = (op: Op) => { x.flying = true; return api("/docx/op", { path: PATH, revision: confirmed!.revision, author, tracked: x.tracked, op }); };
+      let op = pend[0] === x ? opOf(x, confirmed!) : null;
+      if (!op) throw Object.assign(new Error("Le document a changé pendant ce geste."), { status: 409 });
+      let r: any;
+      try {
+        r = await post(op);
+      } catch (e: any) {
+        if (e.status !== 409) throw e;
+        // Word ou l'agent a écrit entre-temps : relire, replacer les gestes
+        // en attente dans la nouvelle version, et renvoyer celui-ci.
+        x.flying = false;
+        const fresh: Model = normalize(await api(`/docx/model?path=${enc(PATH)}`));
+        if (!rebaseOnto(confirmed!, fresh)) throw e;
+        confirmed = fresh;
+        restage();
+        applyModel(shown(), readSel());
+        op = opOf(x, confirmed);
+        if (!op) throw e;
+        r = await post(op);
+      }
+      const fresh = serverModelOf(r, confirmed!) || normalize(await api(`/docx/model?path=${enc(PATH)}`));
+      pend.shift();
+      const sel = readSel();
+      if (pend.length) { confirmed = fresh; restage(); applyModel(shown(), sel); }
+      else { confirmed = null; stages = []; applyModel(fresh, sel); status(SAVED); }
+    } catch (e: any) {
+      await fail(e);
+    } finally {
+      x.flying = false;
+      inflight--;
+    }
+  }
+
+  /** Geste refusé (Word ouvert, passage intouchable, document changé) :
+   *  l'écran revient à l'état du serveur, et la frappe qui n'a pas pu être
+   *  posée est rendue à l'utilisateur, jamais perdue en silence. */
+  async function fail(e: any) {
+    const lost = pend.filter((y) => y.k === "text" && y.w && !y.gone).map((y) => y.w);
+    const truth = confirmed;
+    pend = [];
+    stages = [];
+    confirmed = null;
+    clearTimeout(idleTimer);
+    const why = e.status === 409 ? "Le document a changé pendant la frappe." : sentence(e.message || String(e));
+    if (truth) applyModel(truth, readSel());
+    if (lost.length) rescue(lost, why);
+    else status(e.message || String(e), true);
+    try {
+      const fresh: Model = normalize(await api(`/docx/model?path=${enc(PATH)}`));
+      if (!pend.length) applyModel(fresh, readSel());
+      else if (truth && rebaseOnto(truth, fresh)) { confirmed = fresh; restage(); applyModel(shown(), readSel()); }
+    } catch { /* le message reste */ }
+  }
+
   // ------------------------------------------------------------- frappe
   function typeText(text: string) {
     const sel = readSel();
     if (!sel || !model) return;
     if (!collapsed(sel)) {
+      if (sel.a.idx === sel.b.idx) {
+        // Frappe par-dessus une sélection du paragraphe : un seul geste.
+        const [s, e] = expandWhole(sel.a.idx, sel.a.off, sel.b.off);
+        textEdit(sel.a.idx, s, e, text, s !== sel.a.off || e !== sel.b.off);
+        setCaret({ idx: sel.a.idx, off: s + cp(text) });
+        return;
+      }
       structural(async () => { await replaceSel(sel, text); });
       return;
     }
-    const last = ghosts[ghosts.length - 1];
-    if (last && !last.sent && last.idx === sel.a.idx && sel.a.off === last.at + cp(last.text)) {
-      last.text += text;
-    } else {
-      ghosts.push({ idx: sel.a.idx, at: sel.a.off, text, sent: false });
-    }
-    repaint(sel.a.idx);
+    textEdit(sel.a.idx, sel.a.off, sel.a.off, text);
     setCaret({ idx: sel.a.idx, off: sel.a.off + cp(text) });
-    clearTimeout(idleTimer);
-    idleTimer = window.setTimeout(flushGhosts, IDLE_MS);
   }
 
-  /** Envoie la frappe en attente ; rend la promesse de sa confirmation. */
-  function flushGhosts(): Promise<unknown> {
-    clearTimeout(idleTimer);
-    const todo = ghosts.filter((g) => !g.sent);
-    for (const g of todo) {
-      g.sent = true;
-      enqueue(async () => {
-        if (g.gone || !ghosts.includes(g)) return;
-        inflight++;
-        status("Enregistrement…");
-        const send = () => {
-          g.flying = true;
-          return api("/docx/op", { path: PATH, revision: model!.revision, author, tracked, op: { op: "insert", paragraph: ref(g.idx), at: g.at, with: g.text } });
-        };
-        try {
-          let r: any;
-          try {
-            r = await send();
-          } catch (e: any) {
-            if (e.status !== 409) throw e;
-            // Word ou l'agent a écrit entre-temps : relire, replacer la frappe
-            // en attente dans la nouvelle version, et renvoyer celle-ci.
-            const old = model!;
-            const fresh: Model = normalize(await api(`/docx/model?path=${enc(PATH)}`));
-            const lost = remapGhosts(old, fresh);
-            applyModel(fresh, readSel());
-            if (lost.length) rescue(lost, "Le document a changé pendant la frappe.");
-            if (!ghosts.includes(g)) return;
-            r = await send();
-          }
-          const sel = readSel();
-          ghosts = ghosts.filter((x) => x !== g);
-          applyModel(r.model, sel);
-          status("Enregistré dans le .docx");
-        } catch (e: any) {
-          // Retouche refusée (Word ouvert, passage intouchable…) : la frappe
-          // en attente n'a plus de place sûre, elle est rendue à l'utilisateur.
-          const pending = ghosts.filter((x) => !x.gone).map((x) => x.text);
-          ghosts = [];
-          rescue(pending, e.status === 409 ? "Le document a changé pendant la frappe." : sentence(e.message || String(e)));
-          try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message reste */ }
-        } finally {
-          g.flying = false;
-          inflight--;
-        }
-      });
-    }
-    return chain;
-  }
-
-  /** Fermeture du panneau : la file ne tournera plus. Toute frappe qui n'est
-   *  pas déjà partie s'envoie d'un seul geste, en `keepalive` pour survivre
-   *  au déchargement de la page. */
+  /** Fermeture du panneau : la file ne tournera plus. Tout geste qui n'est
+   *  pas déjà parti s'envoie d'un seul lot, en `keepalive` pour survivre au
+   *  déchargement de la page. */
   function flushOnExit() {
     clearTimeout(idleTimer);
-    const todo = ghosts.filter((g) => !g.flying && !g.gone);
-    if (!todo.length || !model) return;
-    for (const g of todo) g.gone = true;
-    const ops = todo.map((g) => ({ op: "insert", paragraph: ref(g.idx), at: g.at, with: g.text }));
+    if (!model || !pend.length) return;
+    const ops: Op[] = [];
+    pend.forEach((x, k) => {
+      if (x.flying || x.gone) return;
+      x.gone = true;
+      const op = opOf(x, k ? stages[k - 1] : confirmed!);
+      if (op) ops.push(op);
+    });
+    if (!ops.length) return;
     const op = ops.length === 1 ? ops[0] : { op: "batch", ops };
     // Une retouche est encore en vol : sa révision n'est pas connue ici, on
     // laisse alors le serveur appliquer à la suite sans contrôle.
-    const body = JSON.stringify({ path: PATH, revision: inflight ? undefined : model.revision, author, tracked, op });
+    const body = JSON.stringify({ path: PATH, revision: inflight ? undefined : confirmed!.revision, author, tracked, op });
     try {
       void fetch("/docx/op", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60000 }).catch(() => undefined);
     } catch { /* page déjà déchargée */ }
   }
 
-  /** Un geste qui change la structure : la frappe part d'abord, et les gestes
+  /** Un geste que la page ne sait pas montrer d'avance (collage, plusieurs
+   *  paragraphes, revue…) : les gestes en attente partent d'abord, et les
    *  suivants attendent son résultat (les positions en dépendent). */
   function structural(fn: () => Promise<void>) {
     if (structBusy) { backlog.push(fn); return; }
     structBusy = true;
     (async () => {
       try {
-        await flushGhosts();
+        await ship();
         await fn();
         await chain;
       } finally {
@@ -1518,56 +1906,94 @@
     return [s, e];
   }
 
+  /** Jointure du paragraphe `idx` au précédent, montrée d'avance ; hors
+   *  d'une même histoire ou d'une même cellule, la base tranche (et
+   *  explique son refus). */
+  function joinAt(idx: number, caret: Pos) {
+    const q = model!.paragraphs[idx], p = model!.paragraphs[idx - 1];
+    if (!p || !q || (p.story || "") !== (q.story || "") || JSON.stringify(p.cell) !== JSON.stringify(q.cell)) {
+      structural(async () => { await sendOp({ op: "join", paragraph: ref(idx) }, () => ({ a: caret, b: caret })); });
+      return;
+    }
+    pushPend({ k: "join", idx, s: 0, e: 0, w: "", expect: q.text, expectPrev: p.text, tracked });
+    setCaret(caret);
+    ship();
+  }
+
   function deleteKey(kind: string) {
     const sel = readSel();
     if (!sel || !model) return;
-    structural(async () => {
-      if (!collapsed(sel)) { await replaceSel(sel, ""); return; }
-      const { idx, off } = sel.a;
-      const text = Array.from(virtualText(idx));
-      const len = text.length;
-      const back = kind.endsWith("Backward");
-      if (back && off === 0) {
-        if (idx === storySpan(idx)[0]) return;
-        const prevLen = cp(model!.paragraphs[idx - 1].text);
-        await sendOp({ op: "join", paragraph: ref(idx) }, () => ({ a: { idx: idx - 1, off: prevLen }, b: { idx: idx - 1, off: prevLen } }));
+    if (structBusy) { backlog.push(async () => deleteKey(kind)); return; }
+    if (!collapsed(sel)) {
+      if (sel.a.idx === sel.b.idx) {
+        const [s, e] = expandWhole(sel.a.idx, sel.a.off, sel.b.off);
+        textEdit(sel.a.idx, s, e, "", s !== sel.a.off || e !== sel.b.off);
+        setCaret({ idx: sel.a.idx, off: s });
         return;
       }
-      if (!back && off >= len) {
-        if (idx === storySpan(idx)[1]) return;
-        await sendOp({ op: "join", paragraph: ref(idx + 1) }, () => ({ a: { idx, off }, b: { idx, off } }));
-        return;
-      }
-      let s = off, e = off;
-      if (kind === "deleteContentBackward") s = off - 1;
-      else if (kind === "deleteContentForward") e = off + 1;
-      else if (kind === "deleteWordBackward") {
-        const before = text.slice(0, off).join("");
-        const m = before.match(/[\p{L}\p{N}'’-]*[^\p{L}\p{N}'’-]*$/u);
-        s = off - (m && m[0] ? cp(m[0]) : 1);
-      } else if (kind === "deleteWordForward") {
-        const after = text.slice(off).join("");
-        const m = after.match(/^[^\p{L}\p{N}'’-]*[\p{L}\p{N}'’-]*/u);
-        e = off + (m && m[0] ? cp(m[0]) : 1);
-      } else if (kind.includes("LineBackward")) s = 0;
-      else if (kind.includes("LineForward")) e = len;
-      s = Math.max(0, s); e = Math.min(len, e);
-      if (s === e) return;
-      [s, e] = expandWhole(idx, s, e);
-      await sendOp({ op: "replace_range", paragraph: ref(idx), start: s, end: e, with: "" }, () => ({ a: { idx, off: s }, b: { idx, off: s } }), idx);
-    });
+      structural(() => replaceSel(sel, ""));
+      return;
+    }
+    const { idx, off } = sel.a;
+    const text = Array.from(virtualText(idx));
+    const len = text.length;
+    const back = kind.endsWith("Backward");
+    if (back && off === 0) {
+      if (idx === storySpan(idx)[0]) return;
+      joinAt(idx, { idx: idx - 1, off: cp(model.paragraphs[idx - 1].text) });
+      return;
+    }
+    if (!back && off >= len) {
+      if (idx === storySpan(idx)[1]) return;
+      joinAt(idx + 1, { idx, off });
+      return;
+    }
+    let s = off, e = off;
+    if (kind === "deleteContentBackward") s = off - 1;
+    else if (kind === "deleteContentForward") e = off + 1;
+    else if (kind === "deleteWordBackward") {
+      const before = text.slice(0, off).join("");
+      const m = before.match(/[\p{L}\p{N}'’-]*[^\p{L}\p{N}'’-]*$/u);
+      s = off - (m && m[0] ? cp(m[0]) : 1);
+    } else if (kind === "deleteWordForward") {
+      const after = text.slice(off).join("");
+      const m = after.match(/^[^\p{L}\p{N}'’-]*[\p{L}\p{N}'’-]*/u);
+      e = off + (m && m[0] ? cp(m[0]) : 1);
+    } else if (kind.includes("LineBackward")) s = 0;
+    else if (kind.includes("LineForward")) e = len;
+    s = Math.max(0, s); e = Math.min(len, e);
+    if (s === e) return;
+    const [s2, e2] = expandWhole(idx, s, e);
+    // Un objet (figure, citation, équation) part seul : un refus de la base
+    // ne doit pas emporter la frappe voisine.
+    const chip = s2 !== s || e2 !== e || segsIn(idx, s2, e2).some((g) => g.kind !== "text");
+    textEdit(idx, s2, e2, "", chip);
+    setCaret({ idx, off: s2 });
+  }
+  /** Segments (non effacés) qui touchent [s, e) du paragraphe affiché. */
+  function segsIn(idx: number, s: number, e: number): Seg[] {
+    let off = 0;
+    const out: Seg[] = [];
+    for (const g of model!.paragraphs[idx].segments) {
+      const len = segLen(g);
+      if (len && off < e && s < off + len) out.push(g);
+      off += len;
+    }
+    return out;
   }
 
   function enterKey() {
     const sel = readSel();
     if (!sel || !model) return;
-    structural(async () => {
-      if (!collapsed(sel)) {
-        await replaceSel(sel, "\n");
-        return;
-      }
-      await sendOp({ op: "split", paragraph: ref(sel.a.idx), at: sel.a.off }, () => ({ a: { idx: sel.a.idx + 1, off: 0 }, b: { idx: sel.a.idx + 1, off: 0 } }), sel.a.idx);
-    });
+    if (structBusy) { backlog.push(async () => enterKey()); return; }
+    if (!collapsed(sel)) {
+      structural(() => replaceSel(sel, "\n"));
+      return;
+    }
+    const { idx, off } = sel.a;
+    pushPend({ k: "split", idx, s: off, e: off, w: "", expect: model.paragraphs[idx].text, tracked });
+    setCaret({ idx: idx + 1, off: 0 });
+    ship();
   }
 
   paper.addEventListener("beforeinput", (e: InputEvent) => {
@@ -1587,9 +2013,10 @@
       if (structBusy) { backlog.push(async () => { typeText("\n"); }); return; }
       typeText("\n");
     } else if (t === "insertFromPaste" || t === "insertFromDrop" || t === "insertFromYank") {
-      const data = e.dataTransfer?.getData("text/plain") || "";
+      // Le collage passe d'ordinaire par l'événement `paste` (plus bas) ;
+      // ici, ce qui reste (glisser, yank) avec sa mise en forme.
       const sel = readSel();
-      if (data && sel) structural(() => replaceSel(sel, data));
+      if (sel && e.dataTransfer) pasteFrom(sel, e.dataTransfer);
     } else if (t.startsWith("delete")) {
       deleteKey(t === "deleteByCut" || t === "deleteByDrag" ? "deleteContentBackward" : t);
     } else if (t === "historyUndo") {
@@ -1618,6 +2045,10 @@
 
   paper.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
+    if (e.key === "Enter" && !mod && !e.shiftKey && !e.altKey && view !== "original") {
+      const eq = selectedEq();
+      if (eq) { e.preventDefault(); openEq(eq); return; }
+    }
     if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); undo(e.shiftKey); return; }
     if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); undo(true); return; }
     if (mod && !e.altKey && ["b", "i", "u"].includes(e.key.toLowerCase())) {
@@ -1633,14 +2064,174 @@
     if (!sel || collapsed(sel) || !model) return;
     e.preventDefault();
     e.clipboardData?.setData("text/plain", selectionText(sel));
+    e.clipboardData?.setData("text/html", selectionHtml(sel));
   });
   paper.addEventListener("cut", (e: ClipboardEvent) => {
     const sel = readSel();
     if (!sel || collapsed(sel) || !model) return;
     e.preventDefault();
     e.clipboardData?.setData("text/plain", selectionText(sel));
+    e.clipboardData?.setData("text/html", selectionHtml(sel));
     if (view !== "original") structural(() => replaceSel(sel, ""));
   });
+  paper.addEventListener("paste", (e: ClipboardEvent) => {
+    e.preventDefault();
+    if (view === "original" || !model || !e.clipboardData) return;
+    const sel = readSel();
+    if (sel) pasteFrom(sel, e.clipboardData);
+  });
+
+  // ------------------------------------------------- collage et copie riches
+  // Le navigateur n'extrait que des morceaux { texte, gras, italique,
+  // souligné, exposant, indice } ou des équations (LaTeX) ; le moteur écrit
+  // le XML (`insert_runs`). Polices, couleurs et tailles ne suivent pas.
+  type RunIn = { text?: string; b?: boolean; i?: boolean; u?: boolean; sup?: boolean; sub?: boolean; latex?: string };
+  type Look5 = { b: boolean; i: boolean; u: boolean; sup: boolean; sub: boolean };
+  const PLAIN: Look5 = { b: false, i: false, u: false, sup: false, sub: false };
+  /** `$…$`, `$$…$$`, `\(…\)`, `\[…\]` : un `$` ouvrant collé à son contenu,
+   *  le fermant aussi et pas suivi d'un chiffre (« 5 $ et 10 $ » reste du texte). */
+  const MATH_RE = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?=[^\s$])([^$\n]*?[^\s$\\])\$(?!\d)/g;
+  function splitMath(text: string, f: Look5): RunIn[] {
+    const out: RunIn[] = [];
+    let last = 0;
+    for (const m of text.matchAll(MATH_RE)) {
+      if (m.index! > last) out.push({ text: text.slice(last, m.index), ...f });
+      out.push({ latex: (m[1] ?? m[2] ?? m[3] ?? m[4]).trim() });
+      last = m.index! + m[0].length;
+    }
+    if (last < text.length) out.push({ text: text.slice(last), ...f });
+    return out;
+  }
+  /** HTML du presse-papiers (Word, page web, PDF, Atelier) → paragraphes de morceaux. */
+  function runsFromHtml(html: string): RunIn[][] {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const paras: RunIn[][] = [[]];
+    let blocks = false;
+    const cur = () => paras[paras.length - 1];
+    const newPara = () => { if (cur().length) paras.push([]); };
+    const pushRun = (r: RunIn) => {
+      const c = cur();
+      const prev = c[c.length - 1];
+      if (r.latex === undefined && prev && prev.latex === undefined && !!prev.b === !!r.b && !!prev.i === !!r.i && !!prev.u === !!r.u && !!prev.sup === !!r.sup && !!prev.sub === !!r.sub) prev.text = (prev.text || "") + (r.text || "");
+      else c.push(r);
+    };
+    const texOf = (el: Element) => el.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim() || "";
+    const BLOCK = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE|PRE|TR|DT|DD|FIGCAPTION|CAPTION|SECTION|ARTICLE|HEADER|FOOTER|UL|OL|TABLE|ADDRESS)$/;
+    const SKIP = /^(STYLE|SCRIPT|META|TITLE|HEAD|TEMPLATE|NOSCRIPT|BUTTON|SVG|IMG|OBJECT|IFRAME)$/;
+    const walk = (n: Node, f: Look5, pre: boolean) => {
+      for (let c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) {
+          const t = pre ? (c as Text).data : (c as Text).data.replace(/[ \t\r\n]+/g, " ");
+          if (t) for (const r of splitMath(t, f)) pushRun(r);
+          continue;
+        }
+        if (c.nodeType !== 1) continue;
+        const el = c as HTMLElement;
+        const tag = el.tagName.toUpperCase();
+        // Équations : LaTeX gardé par KaTeX ou MathJax, MathML annoté.
+        if (tag === "SCRIPT" && /^math\/tex/.test(el.getAttribute("type") || "")) { const tex = (el.textContent || "").trim(); if (tex) pushRun({ latex: tex }); continue; }
+        if (SKIP.test(tag)) continue;
+        if (el.classList.contains("katex-html") || el.classList.contains("MathJax_Preview") || el.getAttribute("aria-hidden") === "true") continue;
+        if (tag === "MATH" || tag === "MJX-CONTAINER" || el.classList.contains("katex")) {
+          const tex = texOf(el);
+          if (tex) pushRun({ latex: tex });
+          else { const t = (el.querySelector("math") || el).textContent || ""; if (t.trim()) pushRun({ text: t.replace(/\s+/g, ""), ...f }); }
+          continue;
+        }
+        if (tag === "BR") { blocks = true; newPara(); continue; }
+        const st = el.style;
+        const w = st.fontWeight;
+        const g: Look5 = {
+          b: tag === "B" || tag === "STRONG" ? !(w === "normal" || w === "400") : w === "bold" || w === "bolder" || /^[6-9]00$/.test(w) ? true : w === "normal" || w === "400" ? false : f.b,
+          i: tag === "I" || tag === "EM" || tag === "CITE" || tag === "VAR" || tag === "DFN" ? st.fontStyle !== "normal" : st.fontStyle === "italic" || st.fontStyle === "oblique" ? true : st.fontStyle === "normal" ? false : f.i,
+          u: tag === "U" || tag === "INS" || /underline/.test(st.textDecoration || st.textDecorationLine || "") ? true : f.u,
+          sup: tag === "SUP" || st.verticalAlign === "super" ? true : tag === "SUB" || st.verticalAlign === "sub" ? false : f.sup,
+          sub: tag === "SUB" || st.verticalAlign === "sub" ? true : tag === "SUP" || st.verticalAlign === "super" ? false : f.sub,
+        };
+        const block = BLOCK.test(tag);
+        if (block) { blocks = true; newPara(); }
+        walk(el, g, pre || tag === "PRE");
+        if (block) newPara();
+      }
+    };
+    walk(doc.body, PLAIN, false);
+    // Blancs de mise en page du HTML aux bords des paragraphes.
+    const out = paras.filter((p) => p.some((r) => r.latex !== undefined || (r.text || "").trim()));
+    if (blocks) for (const p of out) {
+      const a = p[0], z = p[p.length - 1];
+      if (a.text !== undefined) a.text = a.text.replace(/^ +/, "");
+      if (z.text !== undefined) z.text = z.text.replace(/ +$/, "");
+    }
+    return out.map((p) => p.filter((r) => r.latex !== undefined || r.text));
+  }
+  const runsFromText = (text: string): RunIn[][] => text.replace(/\r\n?/g, "\n").split("\n").map((l) => splitMath(l, PLAIN).filter((r) => r.latex !== undefined || r.text));
+  const rich = (paras: RunIn[][]) => paras.some((p) => p.some((r) => r.latex !== undefined || r.b || r.i || r.u || r.sup || r.sub));
+  /** Colle le contenu de `dt` à la place de la sélection : mis en forme
+   *  ou avec des équations, par `insert_runs` ; sinon comme de la frappe. */
+  function pasteFrom(sel: Sel, dt: DataTransfer) {
+    const html = dt.getData("text/html");
+    const text = dt.getData("text/plain");
+    let paras = html ? runsFromHtml(html) : [];
+    if (!rich(paras)) paras = text ? runsFromText(text) : paras;
+    if (!paras.length) return;
+    if (!rich(paras)) {
+      const plain = text || paras.map((p) => p.map((r) => r.text || "").join("")).join("\n");
+      if (plain) structural(() => replaceSel(sel, plain));
+      return;
+    }
+    structural(async () => {
+      const ops = deleteOps(sel);
+      const story = storyAt(sel.a.idx);
+      const start = storySpan(sel.a.idx)[0];
+      ops.push({ op: "insert_runs", paragraph: refIn(story, start, sel.a.idx), at: sel.a.off, paragraphs: paras });
+      const op = ops.length === 1 ? ops[0] : { op: "batch", ops };
+      await sendOp(op, (_m, result) => {
+        const r = result && result.results ? result.results[result.results.length - 1] : result;
+        const rank = Number(String(r?.paragraph || "").split(".").pop()!.replace(/^p/, ""));
+        if (!Number.isFinite(rank) || typeof r?.at !== "number") return null;
+        const pos = { idx: start + rank, off: r.at };
+        return { a: pos, b: pos };
+      }, sel.a.idx);
+    });
+  }
+  /** La sélection en HTML : italiques, exposants… et équations en MathML
+   *  annoté de leur LaTeX (Word en fait des équations, Atelier aussi). */
+  function eqHtml(latex: string, display: boolean): string {
+    if (katexLib) {
+      try { return katexLib.renderToString(latex, { displayMode: display, output: "mathml", throwOnError: true, strict: "ignore" }); } catch { /* repli LaTeX */ }
+    }
+    return esc(display ? `\\[${latex}\\]` : `\\(${latex}\\)`);
+  }
+  function selectionHtml(sel: Sel): string {
+    const out: string[] = [];
+    for (let k = sel.a.idx; k <= sel.b.idx; k++) {
+      const s0 = k === sel.a.idx ? sel.a.off : 0;
+      const e0 = k === sel.b.idx ? sel.b.off : Infinity;
+      let off = 0;
+      let html = "";
+      for (const g of virtualSegments(k)) {
+        if (g.rev === "del" || g.rev === "moveFrom") continue;
+        const chars = Array.from(g.text);
+        const s = Math.max(s0, off), e = Math.min(e0, off + chars.length);
+        if (e > s) {
+          if (g.latex !== undefined) html += eqHtml(g.latex, !!g.display);
+          else {
+            let t = esc(chars.slice(s - off, e - off).join(""));
+            if (g.sub) t = `<sub>${t}</sub>`;
+            if (g.sup) t = `<sup>${t}</sup>`;
+            if (g.strike) t = `<s>${t}</s>`;
+            if (g.u) t = `<u>${t}</u>`;
+            if (g.i) t = `<i>${t}</i>`;
+            if (g.b) t = `<b>${t}</b>`;
+            html += t;
+          }
+        }
+        off += chars.length;
+      }
+      out.push(html);
+    }
+    return out.length === 1 ? out[0] : out.map((h) => `<p>${h}</p>`).join("");
+  }
   // Pas de glisser-déposer du texte (un dépôt accidentel déplace la thèse).
   paper.addEventListener("dragstart", (e) => e.preventDefault());
   paper.addEventListener("drop", (e) => e.preventDefault());
@@ -1706,11 +2297,27 @@
       sel = { a: { idx: sel.a.idx, off: s }, b: { idx: sel.a.idx, off: e } };
     }
     const keep = sel;
-    structural(async () => {
-      const ranges = runRanges(keep).map((r) => ({ op: "format_range", ...r, props }));
-      if (!ranges.length) return;
-      await sendOp(ranges.length === 1 ? ranges[0] : { op: "batch", ops: ranges }, () => keep);
-    });
+    if (structBusy) {
+      structural(async () => {
+        const ranges = runRanges(keep).map((r) => ({ op: "format_range", ...r, props }));
+        if (!ranges.length) return;
+        await sendOp(ranges.length === 1 ? ranges[0] : { op: "batch", ops: ranges }, () => keep);
+      });
+      return;
+    }
+    // À l'écran tout de suite, puis envoyé (positions inchangées).
+    const ranges: { idx: number; s: number; e: number; t: string }[] = [];
+    for (let k = keep.a.idx; k <= keep.b.idx; k++) {
+      const t = model.paragraphs[k].text;
+      const s = k === keep.a.idx ? keep.a.off : 0;
+      const e = k === keep.b.idx ? keep.b.off : cp(t);
+      if (e > s) ranges.push({ idx: k, s, e, t });
+    }
+    if (!ranges.length) return;
+    pushPend({ k: "fmt", idx: ranges[0].idx, s: 0, e: 0, w: "", expect: ranges[0].t, ranges, props, tracked });
+    setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
+    ship();
+    syncToolbar();
   }
 
   function toggleRun(key: string) {
@@ -1833,6 +2440,7 @@
     <button class="ib" id="btnFind" aria-label="Rechercher" data-tooltip="Rechercher et remplacer (⌘F)">${ic("search")}</button>
     <span class="seg" role="group" aria-label="Affichage"><button id="vReview" aria-pressed="true" data-tooltip="Modifications et commentaires visibles">Révision</button><button id="vRead" aria-pressed="false" data-tooltip="Le texte comme si tout était accepté">Lecture</button></span>
     <span class="navc hide2"><button class="ib" id="navPrev" aria-label="Commentaire précédent" data-tooltip="Commentaire précédent">${ic("left")}</button><span class="lbl" id="navLbl"></span><button class="ib" id="navNext" aria-label="Commentaire suivant" data-tooltip="Commentaire suivant">${ic("right")}</button></span>
+    <button class="ib tribtn" id="btnTri" aria-pressed="false" aria-label="Trier les suivis" data-tooltip="Ranger les suivis par nature et les revoir au clavier">${ic("sort")}<span class="t hide2">Trier les suivis</span></button>
     <button class="ib lanebtn" id="btnLane" aria-label="Commentaires" aria-pressed="false" data-tooltip="Afficher les commentaires (⇧⌘M)">${ic("msgText")}<span class="n" id="laneN"></span></button>
     <button class="track on" id="btnTrack" aria-pressed="true" data-tooltip="Suivi des modifications : chaque retouche reste visible dans Word"><span class="sw"><i></i></span>Suivi</button>`;
 
@@ -2704,8 +3312,9 @@
     const who = firstName(c.author);
     return `${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}\n\n`
       + `Propose-moi une réponse à ${who} : courte, en français, que je relirai et enverrai sous mon nom. `
-      + `Pose-la avec atelier_docx action=draft_reply (comment=${c.id}), jamais reply. `
-      + `Si le passage mérite une correction, pose-la aussi en suivi (action=edit).`
+      + `Pose-la avec atelier_docx action=draft_reply (comment=${c.id}), jamais reply ; la réponse ne recopie pas de texte corrigé. `
+      + `Si le passage mérite une correction, montre-la-moi ici dans le chat (avant / après) sans toucher au document : `
+      + `je te dirai si tu la poses en suivi (action=edit).`
       + (previous ? ` Une autre formulation que celle-ci : « ${previous} ».` : "");
   }
 
@@ -2975,6 +3584,8 @@
     const t = e.target as HTMLElement;
     const s = getSelection();
     if (s && !s.isCollapsed) return;
+    // Une équation s'ouvre en LaTeX (fenêtre de l'équation, plus bas).
+    if (eqChip(t)) return;
     const ch = view === "revue" ? t.closest(".ins[data-ch],.del[data-ch]") as HTMLElement | null : null;
     if (ch) changeBubble(ch); else hideBubble();
     const cm = t.closest(".cmt[data-c]") as HTMLElement | null;
@@ -2987,6 +3598,179 @@
       renderCards();
     }
   });
+
+  // ------------------------------------------------- équation en LaTeX
+  // Un clic sur une équation (ou Entrée quand elle est sélectionnée) ouvre sa
+  // source LaTeX : aperçu KaTeX pendant la frappe, Remplacer (⌘↵) écrit la
+  // nouvelle équation Word native, en suivi si le Suivi est allumé.
+  const eqChip = (t: EventTarget | null): HTMLElement | null => {
+    const el = t instanceof Element ? t.closest(".chip.eq") as HTMLElement | null : null;
+    return el && paper.contains(el) && !el.classList.contains("del") && !el.dataset.del ? el : null;
+  };
+  const eqPop = document.createElement("div");
+  eqPop.className = "pop eqpop";
+  eqPop.id = "eqpop";
+  eqPop.setAttribute("role", "dialog");
+  eqPop.setAttribute("aria-labelledby", "eqH");
+  eqPop.innerHTML = `<div class="eq-hd"><span id="eqH"></span><span class="tag" id="eqTag">en suivi</span></div>
+    <textarea class="eq-src" id="eqSrc" rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Source LaTeX" aria-describedby="eqErr"></textarea>
+    <div class="eq-prev" id="eqPrev" aria-hidden="true"></div>
+    <div class="eq-err" id="eqErr" role="alert"></div>
+    <div class="eq-ft"><button type="button" class="btn q" id="eqCancel">Annuler<span class="kbd">Échap</span></button><button type="button" class="btn" id="eqOk">Remplacer<span class="kbd">⌘↵</span></button></div>`;
+  document.body.appendChild(eqPop);
+  const eqSrc = eqPop.querySelector("#eqSrc") as HTMLTextAreaElement;
+  const eqPrev = eqPop.querySelector("#eqPrev") as HTMLElement;
+  const eqErr = eqPop.querySelector("#eqErr") as HTMLElement;
+  const eqOk = eqPop.querySelector("#eqOk") as HTMLButtonElement;
+  type EqTarget = { idx: number; index: number; latex: string; display: boolean; off: number; len: number };
+  let eqAt: EqTarget | null = null;
+  let eqFrame = 0;
+  /** L'équation `index` du paragraphe `idx` dans la page (après un redessin). */
+  const eqEl = (t: EqTarget) => (Array.from(paper.querySelectorAll(`.d-p[data-idx="${t.idx}"] > .chip.eq`)) as HTMLElement[]).filter((e) => !e.classList.contains("del"))[t.index] || null;
+  function previewEq() {
+    eqFrame = 0;
+    const tex = eqSrc.value;
+    eqPrev.classList.remove("bad");
+    if (!katexLib) { eqPrev.textContent = ""; return; }
+    try {
+      katexLib.render(decimalComma(tex) || "\\;", eqPrev, { displayMode: true, throwOnError: true, output: "html", strict: "ignore" });
+    } catch {
+      // Frappe en cours : le dernier aperçu valide reste, estompé.
+      eqPrev.classList.add("bad");
+    }
+  }
+  function placeEq() {
+    if (!eqAt) return;
+    const el = eqEl(eqAt);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const w = Math.min(460, innerWidth - 32);
+    eqPop.style.width = `${w}px`;
+    eqPop.style.left = `${Math.round(Math.max(16, Math.min(innerWidth - w - 16, r.left + r.width / 2 - w / 2)))}px`;
+    const h = eqPop.offsetHeight;
+    const below = r.bottom + 8;
+    eqPop.style.top = `${Math.round(below + h > innerHeight - 8 && r.top - 8 - h > 8 ? r.top - 8 - h : Math.min(below, innerHeight - h - 8))}px`;
+  }
+  function openEq(el: HTMLElement) {
+    if (!model || view === "original") return;
+    const p = el.closest(".d-p") as HTMLElement | null;
+    if (!p || p.dataset.idx === undefined) return;
+    const idx = Number(p.dataset.idx);
+    const mine = (Array.from(p.querySelectorAll(":scope > .chip.eq")) as HTMLElement[]).filter((e) => !e.classList.contains("del"));
+    const index = mine.indexOf(el);
+    if (index < 0) return;
+    // Numéro dans le document : comme le compte Word, à la lecture.
+    const all = (Array.from(paper.querySelectorAll(".chip.eq")) as HTMLElement[]).filter((e) => !e.classList.contains("del"));
+    const n = all.indexOf(el) + 1;
+    for (const o of Array.from(paper.querySelectorAll(".chip.eq.on"))) o.classList.remove("on");
+    el.classList.add("on");
+    hideBubble();
+    eqAt = { idx, index, latex: el.dataset.latex || "", display: el.classList.contains("disp"), off: Number(el.dataset.off), len: Number(el.dataset.len) };
+    ($("eqH") as HTMLElement).textContent = `Équation ${nf(n)} · LaTeX`;
+    ($("eqTag") as HTMLElement).hidden = !tracked;
+    eqSrc.value = eqAt.latex;
+    eqErr.textContent = "";
+    eqOk.disabled = false;
+    previewEq();
+    if (!katexLib) void loadKatex().then(() => { if (eqAt) previewEq(); });
+    eqPop.classList.add("show");
+    autoSize();
+    placeEq();
+    eqSrc.focus();
+    eqSrc.setSelectionRange(eqSrc.value.length, eqSrc.value.length);
+  }
+  function autoSize() {
+    eqSrc.style.height = "auto";
+    eqSrc.style.height = `${Math.min(eqSrc.scrollHeight, 160)}px`;
+  }
+  /** Ferme la fenêtre ; `back` remet le curseur juste après l'équation. */
+  function closeEq(back: boolean) {
+    const t = eqAt;
+    if (!t) return;
+    eqAt = null;
+    eqPop.classList.remove("show");
+    for (const o of Array.from(paper.querySelectorAll(".chip.eq.on"))) o.classList.remove("on");
+    if (back) {
+      paper.focus({ preventScroll: true });
+      setCaret({ idx: t.idx, off: t.off + t.len });
+    }
+  }
+  function submitEq() {
+    const t = eqAt;
+    if (!t || !model || eqOk.disabled) return;
+    const latex = eqSrc.value.trim();
+    if (!latex) { eqErr.textContent = "Équation vide : Annuler pour la garder."; return; }
+    if (latex === t.latex.trim()) { closeEq(true); return; }
+    eqOk.disabled = true;
+    eqErr.textContent = "";
+    structural(() => enqueue(async () => {
+      inflight++;
+      status(SAVING);
+      try {
+        const r = await api("/docx/op", { path: PATH, revision: model!.revision, author, tracked, op: { op: "replace_math", paragraph: ref(t.idx), index: t.index, latex } });
+        if (eqAt === t) closeEq(false);
+        applyModel(normalize(r.model), null);
+        // Curseur après la nouvelle équation (la dernière de ce rang).
+        const p = model!.paragraphs[t.idx];
+        let off = 0, after = t.off + t.len;
+        let k = -1;
+        for (const g of p ? p.segments : []) {
+          const removed = g.rev === "del" || g.rev === "moveFrom";
+          if (g.latex !== undefined && !removed && ++k === t.index) { after = off + cp(g.text); break; }
+          off += removed ? 0 : cp(g.text);
+        }
+        paper.focus({ preventScroll: true });
+        setCaret({ idx: t.idx, off: after });
+        status(SAVED);
+      } catch (e: any) {
+        status(SAVED);
+        if (e.status === 409) {
+          try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message suffit */ }
+          if (eqAt === t) eqErr.textContent = "Le document a changé entre-temps : vérifie l'équation, puis Remplacer.";
+        } else if (eqAt === t) {
+          eqErr.textContent = sentence(e.message || String(e));
+        } else status(e.message || String(e), true);
+        if (eqAt === t) { eqOk.disabled = false; eqSrc.focus(); }
+      } finally {
+        inflight--;
+      }
+    }) as Promise<void>);
+  }
+  eqSrc.addEventListener("input", () => {
+    eqErr.textContent = "";
+    autoSize();
+    if (!eqFrame) eqFrame = requestAnimationFrame(previewEq);
+  });
+  eqPop.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeEq(true); return; }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitEq(); return; }
+    if (e.key === "Tab") {
+      // Le focus reste dans la fenêtre : champ, Annuler, Remplacer.
+      const f = [eqSrc, $("eqCancel"), eqOk].filter((x) => !(x as HTMLButtonElement).disabled) as HTMLElement[];
+      const k = f.indexOf(document.activeElement as HTMLElement);
+      e.preventDefault();
+      f[(k + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus();
+    }
+  });
+  $("eqCancel").addEventListener("click", () => closeEq(true));
+  eqOk.addEventListener("click", submitEq);
+  paper.addEventListener("click", (e) => {
+    const el = eqChip(e.target);
+    if (el) { e.preventDefault(); openEq(el); }
+  });
+  document.addEventListener("mousedown", (e) => {
+    if (eqAt && !(e.target as HTMLElement).closest("#eqpop") && !eqChip(e.target)) closeEq(false);
+  });
+  scroller.addEventListener("scroll", () => { if (eqAt) placeEq(); }, { passive: true });
+  window.addEventListener("resize", () => { if (eqAt) placeEq(); });
+  /** Équation exactement sélectionnée (Maj+flèche) : Entrée l'ouvre. */
+  function selectedEq(): HTMLElement | null {
+    const sel = readSel();
+    if (!sel || collapsed(sel) || sel.a.idx !== sel.b.idx) return null;
+    const p = paper.querySelector(`.d-p[data-idx="${sel.a.idx}"]`);
+    const el = p ? (Array.from(p.querySelectorAll(":scope > .chip.eq")) as HTMLElement[]).find((x) => !x.classList.contains("del") && Number(x.dataset.off) === sel.a.off && Number(x.dataset.off) + Number(x.dataset.len) === sel.b.off) : null;
+    return el || null;
+  }
 
   // ------------------------------------------------- plan et commentaires
   let tab: "plan" | "com" = "plan";
@@ -3659,9 +4443,350 @@
     else if (focusKey) { focusKey = ""; renderCards(); }
   });
 
+  // ------------------------------------------- tri des suivis et revue au clavier
+  // « Trier les suivis » (chantier 4, 2026-11-12) : la marge cède la place au
+  // panneau des suivis rangés par nature (règles du moteur, `/docx/triage`).
+  // Le mineur s'accepte d'un geste (`/docx/decide-set`, une seule
+  // annulation) ; un groupe se revoit au clavier dans une barre flottante :
+  // A accepte, R refuse et la page avance au suivant, ↑ ↓ naviguent, Échap
+  // ferme. Pendant la revue, la page n'est plus éditable : aucune touche ne
+  // part dans le texte.
+  type TriItem = { ids: number[]; kind: string; author: string; paragraph?: string; before: string; after: string };
+  type TriGroup = { key: string; label: string; minor: boolean; items: TriItem[] };
+  type Triage = { revision: string; total: number; groups: TriGroup[] };
+  const triEl = $("tri");
+  const rbar = $("rbar");
+  const triBtn = $("btnTri") as HTMLButtonElement;
+  let triage: Triage | null = null;
+  let triOpen = false;
+  /** Auteur retenu (« » : tous). */
+  let triWho: string | null = null;
+  let triLoading = false;
+  let triTimer = 0;
+  /** Revue en cours : la liste figée au départ, le suivi courant. */
+  let rev: { key: string; label: string; list: TriItem[]; k: number } | null = null;
+  /** Suivis décidés ici dont la réponse n'est pas encore revenue. */
+  const triDone = new Set<number>();
+  const TRI_KIND: Record<string, string> = {
+    remplacement: "Remplacement", insertion: "Insertion", suppression: "Suppression", "déplacement": "Déplacement",
+    "mise en forme": "Mise en forme", paragraphe: "Paragraphe", tableau: "Tableau",
+  };
+  const TRI_COLOR: Record<string, string> = {
+    nombres: "var(--text-muted)", ponctuation: "var(--text-disabled, var(--text-muted))", espaces: "var(--border-strong, var(--border))",
+  };
+
+  const liveIds = () => new Set((model?.changes || []).map((c) => c.id));
+  const pending = (it: TriItem, ids: Set<number>) => it.ids.some((id) => ids.has(id)) && !it.ids.every((id) => triDone.has(id));
+  const mine = (it: TriItem) => !triWho || it.author === triWho;
+  function triAuthors(): string[] {
+    const seen = new Map<string, number>();
+    for (const g of triage?.groups || []) for (const it of g.items) seen.set(it.author, (seen.get(it.author) || 0) + 1);
+    return Array.from(seen.entries()).sort((a, b) => b[1] - a[1]).map(([a]) => a);
+  }
+  /** Fiches encore à revoir d'un groupe (ou des deux mineurs), pour l'auteur retenu. */
+  function triItems(key: string): TriItem[] {
+    const ids = liveIds();
+    const groups = (triage?.groups || []).filter((g) => (key === "mineurs" ? g.minor : g.key === key));
+    const list = groups.flatMap((g) => g.items).filter((it) => mine(it) && pending(it, ids));
+    if (key !== "mineurs") return list;
+    const order = new Map((model?.paragraphs || []).map((p, i) => [p.id, i] as const));
+    return list.map((it, n) => ({ it, n })).sort((a, b) => (order.get(a.it.paragraph || "") ?? 1e9) - (order.get(b.it.paragraph || "") ?? 1e9) || a.n - b.n).map((x) => x.it);
+  }
+
+  async function loadTri() {
+    if (triLoading) return;
+    triLoading = true;
+    try {
+      triage = await api(`/docx/triage?path=${enc(PATH)}`);
+      const names = triAuthors();
+      if (triWho === null || (triWho && !names.includes(triWho))) {
+        const who = reviewer();
+        triWho = names.includes(who) ? who : names.length === 1 ? names[0] : "";
+      }
+    } catch (e: any) {
+      status(e.message || String(e), true);
+    } finally {
+      triLoading = false;
+    }
+    renderTri();
+  }
+
+  const visible = (s: string) => (!s ? "" : /^\s+$/.test(s) ? (/[  ]/.test(s) ? "espace insécable" : "espace") : s);
+  function excerpt(it: TriItem): string {
+    const q = (s: string) => `« ${esc(clip(oneLine(visible(s)) || visible(s), 80))} »`;
+    if (it.kind === "paragraphe") return it.after ? "Paragraphe ajouté" : "Paragraphes fusionnés";
+    if (it.kind === "mise en forme") return it.after ? q(it.after) : "Mise en forme";
+    if (it.before && it.after) return `${q(it.before)} → ${q(it.after)}`;
+    if (it.after) return `+ ${q(it.after)}`;
+    if (it.before) return `− ${q(it.before)}`;
+    return esc(TRI_KIND[it.kind] || it.kind);
+  }
+
+  function renderTri() {
+    if (!triOpen) return;
+    if (!triage) { triEl.innerHTML = `<div class="tri-p"><div class="tri-hd"><h2>Suivis</h2></div><div class="tri-bar"></div></div>`; return; }
+    const groups = triage.groups.map((g) => ({ g, n: triItems(g.key).length }));
+    const total = groups.reduce((n, x) => n + x.n, 0);
+    const minors = groups.filter((x) => x.g.minor).reduce((n, x) => n + x.n, 0);
+    const names = triAuthors();
+    const title = triWho ? `Suivis de ${esc(firstName(triWho))}` : "Tous les suivis";
+    const head = names.length > 1
+      ? `<button class="tri-who" id="triWho" aria-haspopup="menu" aria-expanded="false">${title}${ic("down", 12)}</button>`
+      : `<h2>${title}</h2>`;
+    const lead = triWho || names[0] || "";
+    const color = (k: string) => (k === "fond" ? uiColor(lead) : TRI_COLOR[k]);
+    const bar = groups.filter((x) => x.n).map((x) => `<i style="width:${(100 * x.n / Math.max(1, total)).toFixed(2)}%;background:${color(x.g.key)}"></i>`).join("");
+    const label = groups.map((x) => `${nf(x.n)} ${x.g.label.toLowerCase()}`).join(", ");
+    const row = (x: { g: TriGroup; n: number }) =>
+      `<button class="tri-g${rev?.key === x.g.key ? " on" : ""}" data-g="${x.g.key}" aria-pressed="${rev?.key === x.g.key}"${x.n ? "" : " disabled"} aria-label="${esc(x.g.label)} : ${nf(x.n)}"><span class="c">${nf(x.n)}</span><span class="t">${esc(x.g.label)}</span></button>`;
+    let h = `<div class="tri-p"><div class="tri-hd">${head}<span class="tri-n">${nf(total)} en attente</span></div>
+      <div class="tri-bar" role="img" aria-label="Répartition : ${esc(label)}">${bar}</div>
+      <div class="tri-gs">${groups.filter((x) => !x.g.minor).map(row).join("")}<div class="tri-sep" role="separator"></div>${groups.filter((x) => x.g.minor).map(row).join("")}</div>
+      <div class="tri-ac"><button class="btn" id="triMinor"${minors ? "" : " disabled"}>Accepter les ${nf(minors)} mineurs</button><span class="sp"></span><button class="btn q${rev?.key === "mineurs" ? " on" : ""}" id="triSee"${minors ? "" : " disabled"}>Les voir</button></div></div>`;
+    const cur = rev ? rev.list[rev.k] : null;
+    if (cur) {
+      h += `<div class="cc tri-cur" aria-live="polite"><div class="hd">${avatar(cur.author)}<span class="nm">${esc(firstName(cur.author))}</span><span class="dt">${nf(rev!.k + 1)} sur ${nf(rev!.list.length)}</span></div><p class="tx">${excerpt(cur)}</p></div>`;
+    }
+    if (triEl.dataset.html !== h) {
+      const focused = document.activeElement && triEl.contains(document.activeElement) ? (document.activeElement as HTMLElement).id || (document.activeElement as HTMLElement).dataset.g || "" : "";
+      triEl.innerHTML = h;
+      triEl.dataset.html = h;
+      if (focused) (triEl.querySelector<HTMLElement>(`#${focused}`) || triEl.querySelector<HTMLElement>(`[data-g="${focused}"]`))?.focus({ preventScroll: true });
+    }
+    placeTri();
+  }
+
+  /** Panneau dans la colonne de la marge, barre de revue sous le milieu de la page. */
+  function placeTri() {
+    if (!triOpen) return;
+    const left = scroller.offsetLeft + Math.max(16, scroller.clientWidth - 24 - 312);
+    triEl.style.left = `${left}px`;
+    if (!rev) return;
+    const pr = paper.getBoundingClientRect(), mr = (triEl.parentElement as HTMLElement).getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+    const w = rbar.offsetWidth;
+    const mid = Math.max(sr.left + 8 + w / 2, Math.min(pr.left + pr.width / 2, sr.right - 8 - w / 2));
+    rbar.style.left = `${Math.round(mid - mr.left - w / 2)}px`;
+  }
+  new ResizeObserver(() => placeTri()).observe(scroller);
+
+  function openTri() {
+    triOpen = true;
+    document.body.classList.add("triage");
+    triEl.hidden = false;
+    triBtn.classList.add("on");
+    triBtn.setAttribute("aria-pressed", "true");
+    hideBubble();
+    renderTri();
+    layoutCards();
+    loadTri();
+  }
+  function closeTri() {
+    closeReview(false);
+    triOpen = false;
+    document.body.classList.remove("triage");
+    triEl.hidden = true;
+    triEl.innerHTML = "";
+    triEl.dataset.html = "";
+    triBtn.classList.remove("on");
+    triBtn.setAttribute("aria-pressed", "false");
+    layoutCards();
+  }
+  triBtn.addEventListener("click", () => (triOpen ? closeTri() : openTri()));
+
+  function markCurrent() {
+    paper.querySelectorAll(".tri-on").forEach((x) => x.classList.remove("tri-on"));
+    const it = rev ? rev.list[rev.k] : null;
+    if (!it) return null;
+    let els: HTMLElement[] = [];
+    for (const id of it.ids) els = els.concat(Array.from(paper.querySelectorAll<HTMLElement>(`.ins[data-ch="${id}"],.del[data-ch="${id}"],.d-p[data-ch="${id}"]`)));
+    if (!els.length && it.paragraph) {
+      const idx = model?.paragraphs.findIndex((p) => p.id === it.paragraph) ?? -1;
+      const p = idx >= 0 ? paper.querySelector<HTMLElement>(`.d-p[data-idx="${idx}"]`) : null;
+      if (p) els = [p];
+    }
+    els.forEach((x) => x.classList.add("tri-on"));
+    return els[0] || null;
+  }
+
+  function renderBar() {
+    if (!rev) return;
+    const it = rev.list[rev.k];
+    if (!it) return;
+    const kind = TRI_KIND[it.kind] || it.kind;
+    const k = `<kbd aria-hidden="true">`;
+    rbar.innerHTML = `<span class="tag">${esc(rev.label)} · <b>${nf(rev.k + 1)}</b> sur <b>${nf(rev.list.length)}</b></span>
+      ${avatar(it.author)}<span class="who">${esc(firstName(it.author))} · ${esc(kind)}</span>
+      <span class="vs"></span>
+      <button class="btn q" data-act="reject" aria-keyshortcuts="R">Refuser ${k}R</kbd></button>
+      <button class="btn" data-act="accept" aria-keyshortcuts="A">Accepter ${k}A</kbd></button>
+      <span class="vs"></span>
+      <button class="key" data-act="prev" aria-label="Suivi précédent" aria-keyshortcuts="ArrowUp">↑</button><button class="key" data-act="next" aria-label="Suivi suivant" aria-keyshortcuts="ArrowDown">↓</button>`;
+    rbar.setAttribute("aria-label", `Revue : ${rev.label}, ${rev.k + 1} sur ${rev.list.length}, ${firstName(it.author)}, ${kind}`);
+    placeTri();
+  }
+
+  /** Va au suivi `k` (ou au prochain encore à revoir dans le sens `dir`). */
+  function goTo(k: number, dir = 1, scroll = true) {
+    if (!rev) return;
+    const ids = liveIds();
+    const n = rev.list.length;
+    for (let s = 0; s < n; s++) {
+      const j = ((k + s * dir) % n + n) % n;
+      if (pending(rev.list[j], ids)) {
+        rev.k = j;
+        renderBar();
+        renderTri();
+        const el = markCurrent();
+        if (scroll) reveal(el);
+        return;
+      }
+    }
+    // Tout le groupe est revu.
+    const label = rev.label;
+    closeReview(true);
+    status(`${label} : tout est revu`);
+  }
+
+  function startReview(key: string) {
+    if (!triage) return;
+    const list = triItems(key);
+    if (!list.length) return;
+    const g = triage.groups.find((x) => x.key === key);
+    hideBubble();
+    rev = { key, label: g ? g.label : "Mineurs", list, k: 0 };
+    document.body.classList.add("reviewing");
+    rbar.hidden = false;
+    // Plus d'édition pendant la revue : A et R ne s'écrivent jamais dans la page.
+    paper.contentEditable = "false";
+    getSelection()?.removeAllRanges();
+    goTo(0);
+    rbar.focus({ preventScroll: true });
+  }
+
+  function closeReview(refocus: boolean) {
+    if (!rev) return;
+    const key = rev.key;
+    rev = null;
+    document.body.classList.remove("reviewing");
+    rbar.hidden = true;
+    rbar.innerHTML = "";
+    paper.querySelectorAll(".tri-on").forEach((x) => x.classList.remove("tri-on"));
+    paper.contentEditable = view === "original" ? "false" : "true";
+    renderTri();
+    if (refocus) (triEl.querySelector<HTMLElement>(key === "mineurs" ? "#triSee" : `[data-g="${key}"]`) || triBtn).focus({ preventScroll: true });
+  }
+
+  function reviewAct(act: "accept" | "reject") {
+    if (!rev) return;
+    const it = rev.list[rev.k];
+    if (!it || it.ids.some((id) => deciding.has(id))) return;
+    // La page avance tout de suite ; la décision suit dans la file des
+    // retouches. Refusée par le serveur, le suivi redevient à revoir.
+    it.ids.forEach((id) => { triDone.add(id); deciding.add(id); });
+    hideBubble();
+    structural(async () => {
+      try {
+        const ops = it.ids.map((id) => ({ op: act, id }));
+        const ok = await sendOp(ops.length === 1 ? ops[0] : { op: "batch", ops });
+        if (!ok) { it.ids.forEach((id) => triDone.delete(id)); renderTri(); }
+      } finally { it.ids.forEach((id) => deciding.delete(id)); }
+    });
+    goTo(rev.k + 1);
+  }
+
+  function decideSet(ids: number[], decision: "accept" | "reject", note: string) {
+    if (!ids.length || !model) return;
+    ids.forEach((id) => triDone.add(id));
+    renderTri();
+    structural(() => enqueue(async () => {
+      inflight++;
+      status(SAVING);
+      try {
+        const r = await api("/docx/decide-set", { path: PATH, revision: model!.revision, ids, decision, author });
+        applyModel(r.model, readSel());
+        status(SAVED);
+        const left: number = r.result?.skipped?.length || 0;
+        status(left ? `${note} ; ${pl(left, "laissé", "laissés")} : à traiter dans Word` : note);
+      } catch (e: any) {
+        ids.forEach((id) => triDone.delete(id));
+        if (e.status === 409) {
+          try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message reste */ }
+          status("Le document a changé entre-temps : refais le geste sur la version à jour.", true);
+        } else status(e.message || String(e), true);
+        renderTri();
+      } finally {
+        inflight--;
+      }
+    }));
+  }
+
+  triEl.addEventListener("mousedown", (e) => { if ((e.target as HTMLElement).closest("button")) e.preventDefault(); });
+  triEl.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    const g = t.closest<HTMLElement>(".tri-g");
+    if (g && !(g as HTMLButtonElement).disabled) { startReview(g.dataset.g!); return; }
+    if (t.closest("#triSee")) { startReview("mineurs"); return; }
+    if (t.closest("#triMinor")) {
+      const ids = triItems("mineurs").flatMap((it) => it.ids);
+      const n = triItems("mineurs").length;
+      closeReview(false);
+      decideSet(ids, "accept", `${pl(n, "suivi mineur accepté", "suivis mineurs acceptés")}`);
+      return;
+    }
+    const who = t.closest<HTMLElement>("#triWho");
+    if (who) {
+      const items: Item[] = [{ label: "Tous les auteurs", on: triWho === "", run: () => { triWho = ""; closeReview(false); renderTri(); } }];
+      for (const a of triAuthors()) items.push({ label: a, on: triWho === a, run: () => { triWho = a; closeReview(false); renderTri(); } });
+      showMenu(who, items);
+    }
+  });
+  rbar.addEventListener("mousedown", (e) => { if ((e.target as HTMLElement).closest("button")) e.preventDefault(); });
+  rbar.addEventListener("click", (e) => {
+    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
+    if (act === "accept" || act === "reject") reviewAct(act);
+    else if (act === "next" && rev) goTo(rev.k + 1, 1);
+    else if (act === "prev" && rev) goTo(rev.k - 1, -1);
+  });
+  // Pendant la revue, A, R, ↑, ↓ et Échap lui appartiennent, où que soit le
+  // focus (sauf dans un champ de saisie ou un menu ouvert).
+  document.addEventListener("keydown", (e) => {
+    if (!rev || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    const t = e.target as HTMLElement | null;
+    if (t && t.closest("input, textarea, .menu, .pop, #find") && t !== rbar) return;
+    if (document.querySelector(".menu.show")) return;
+    const k = e.key;
+    if (k === "a" || k === "A") reviewAct("accept");
+    else if (k === "r" || k === "R") reviewAct("reject");
+    else if (k === "ArrowDown") goTo(rev.k + 1, 1);
+    else if (k === "ArrowUp") goTo(rev.k - 1, -1);
+    else if (k === "Escape") closeReview(true);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+  window.addEventListener("resize", () => placeTri());
+
+  /** Après chaque modèle reçu : décisions confirmées, nouveaux suivis venus
+   *  d'ailleurs (Word, l'agent) relus, passage courant remis en évidence. */
+  function triSync() {
+    triBtn.disabled = !triOpen && !model?.changes.length;
+    if (!triOpen || !model) return;
+    const ids = liveIds();
+    for (const id of Array.from(triDone)) if (!ids.has(id)) triDone.delete(id);
+    if (triage) {
+      const known = new Set(triage.groups.flatMap((g) => g.items.flatMap((it) => it.ids)));
+      if (model.changes.some((c) => !known.has(c.id))) {
+        clearTimeout(triTimer);
+        triTimer = window.setTimeout(loadTri, 300);
+      }
+    }
+    renderTri();
+    if (rev) { renderBar(); markCurrent(); }
+  }
+
   // ------------------------------------------------- relecture du disque
   async function poll() {
-    if (document.hidden || !model || ghosts.length || inflight || structBusy) return;
+    if (document.hidden || !model || pend.length || inflight || structBusy) return;
     try {
       const s = await api(`/docx/stat?path=${enc(PATH)}`);
       const sig = JSON.stringify(s.drafts || {});
@@ -3669,9 +4794,13 @@
       for (const [id, since] of asking) {
         if (Date.now() - since > ASK_TIMEOUT_MS) { asking.delete(id); renderCards(); status("Aucun brouillon reçu : voir la réponse dans le chat", true); }
       }
-      if (s.mtime === model.mtime && s.openInWord === model.openInWord) return;
-      if (ghosts.length || inflight || structBusy) return;
+      // En séance, le serveur donne sa révision : le fichier réécrit d'un
+      // coup (nouvelle date) n'est pas un document changé.
+      if ((typeof s.revision === "string" ? s.revision === model.revision : s.mtime === model.mtime) && s.openInWord === model.openInWord) return;
+      if (pend.length || inflight || structBusy) return;
       const fresh: Model = await api(`/docx/model?path=${enc(PATH)}`);
+      // Un geste parti pendant la lecture : son retour fait foi, pas ce modèle.
+      if (pend.length || inflight || structBusy) return;
       if (fresh.revision === model.revision) { model.mtime = fresh.mtime; model.openInWord = fresh.openInWord; notice.classList.toggle("show", fresh.openInWord); return; }
       const sel = readSel();
       applyModel(fresh, sel);
@@ -3695,6 +4824,8 @@
         const known = (m as Model).authors.find((a) => !AGENT.test(a.name) && a.name.toLowerCase().startsWith(first));
         author = known ? known.name : sys;
       }
+      // Équations : KaTeX et ses polices avant la première coupe en pages.
+      if (hasMath(m as Model)) await loadKatex();
       applyModel(m);
       live?.schedule();
       status("Enregistré dans le .docx");
@@ -3730,7 +4861,8 @@
     document.addEventListener("selectionchange", () => live.schedule());
   }
 
-  window.addEventListener("pagehide", flushOnExit);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) flushGhosts(); });
+  window.addEventListener("pagehide", () => { flushOnExit(); flushSession(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { void ship().then(flushSession); } });
+  window.addEventListener("blur", flushSession);
   boot();
 })();

@@ -189,7 +189,11 @@ pub fn join(docx: &mut Docx, paragraph: &str, tracked: bool, sig: &Signature) ->
     xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
     let q = doc.descendants().find(|n| is_w(*n, "p") && n.range() == t.p_range).unwrap();
-    let Some(p) = q.prev_siblings().skip(1).find(|n| n.is_element()).filter(|n| is_w(*n, "p")) else {
+    // Entre deux paragraphes, Word laisse souvent des balises de plage
+    // (fin de déplacement, de commentaire, signet…) : elles ne séparent pas
+    // les paragraphes et suivent le texte dans la fusion.
+    let between: Vec<roxmltree::Node> = q.prev_siblings().skip(1).filter(|n| n.is_element()).take_while(|n| is_range_mark(*n)).collect();
+    let Some(p) = q.prev_siblings().skip(1).filter(|n| n.is_element()).find(|n| !is_range_mark(*n)).filter(|n| is_w(*n, "p")) else {
         return err("pas de paragraphe juste avant (début de cellule ou après un tableau)");
     };
     let ppr = w_child(p, "pPr");
@@ -265,6 +269,9 @@ pub fn join(docx: &mut Docx, paragraph: &str, tracked: bool, sig: &Signature) ->
     if let Some(r) = content_after_ppr(p) {
         out.push_str(&src[r]);
     }
+    for n in between.iter().rev() {
+        out.push_str(&src[n.range()]);
+    }
     if let Some(r) = content_after_ppr(q) {
         out.push_str(&src[r]);
     }
@@ -274,4 +281,15 @@ pub fn join(docx: &mut Docx, paragraph: &str, tracked: bool, sig: &Signature) ->
     let text = xml::splice(&src, vec![(range, out)])?;
     docx.set_part(&story.part, text);
     Ok(())
+}
+
+/// Balise de plage permise entre deux paragraphes comme dans un paragraphe :
+/// elle ne porte aucun texte et ne sépare pas les paragraphes.
+pub(crate) fn is_range_mark(n: roxmltree::Node) -> bool {
+    n.tag_name().namespace() == Some(crate::xml::W)
+        && matches!(
+            n.tag_name().name(),
+            "bookmarkStart" | "bookmarkEnd" | "commentRangeStart" | "commentRangeEnd" | "moveFromRangeStart" | "moveFromRangeEnd"
+                | "moveToRangeStart" | "moveToRangeEnd" | "permStart" | "permEnd" | "proofErr"
+        )
 }
