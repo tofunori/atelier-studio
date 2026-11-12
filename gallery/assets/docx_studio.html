@@ -17,15 +17,49 @@
 <body class="v-revue blanche">
 <div class="bar" id="fmtbar" role="toolbar" aria-label="Mise en forme"></div>
 <div class="notice" id="notice" role="status"></div>
-<div id="scroll" class="side-scroll">
-  <div id="sheets" aria-hidden="true"></div>
-  <div id="paper" spellcheck="true" lang="fr"><div class="loading">Ouverture du document…</div></div>
-  <div id="cards" aria-label="Modifications et commentaires"></div>
-  <div id="caret" aria-hidden="true"></div>
-  <div id="lnums" aria-hidden="true"></div>
+<div class="main">
+  <aside class="side" id="side" aria-label="Plan et commentaires">
+    <div class="rev">
+      <button class="rh" id="revMenu" aria-haspopup="menu" data-tooltip="Tout accepter, tout refuser, affichage et page"></button>
+      <div class="b"><i id="revBar"></i></div>
+      <div class="s"><span id="revDone"></span><span id="revCh"></span></div>
+    </div>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tabPlan" aria-selected="true">Plan</button>
+      <button role="tab" id="tabCom" aria-selected="false">Commentaires<i id="tabComN"></i></button>
+    </div>
+    <div class="pane side-scroll" id="pane"></div>
+  </aside>
+  <div id="scroll" class="side-scroll">
+    <div id="sheets" aria-hidden="true"></div>
+    <div id="paper" spellcheck="true" lang="fr"><div class="loading">Ouverture du document…</div></div>
+    <div id="cards" aria-label="Modifications et commentaires"></div>
+    <div id="caret" aria-hidden="true"></div>
+    <div id="lnums" aria-hidden="true"></div>
+    <div id="cbars" aria-hidden="true"></div>
+    <div id="leader" aria-hidden="true"></div>
+  </div>
 </div>
 <div id="foot"></div>
 <div id="selbar"></div>
+<div class="pop bub" id="bub" role="dialog" aria-label="Modification"></div>
+<div class="find" id="find" role="search" aria-label="Rechercher dans le document">
+  <div class="r1">
+    <button class="mini" id="fMore" aria-label="Afficher le remplacement" aria-expanded="false" data-tooltip="Remplacer"></button>
+    <input id="fQ" type="text" placeholder="Rechercher dans le document" autocomplete="off" spellcheck="false" aria-label="Rechercher">
+    <span class="n" id="fN" aria-live="polite"></span>
+    <button class="mini" id="fPrev" aria-label="Résultat précédent" data-tooltip="Précédent (⇧↩)"></button>
+    <button class="mini" id="fNext" aria-label="Résultat suivant" data-tooltip="Suivant (↩)"></button>
+    <button class="mini" id="fClose" aria-label="Fermer la recherche" data-tooltip="Fermer (Échap)"></button>
+  </div>
+  <div class="r2" id="fRow2" hidden>
+    <span class="ind"></span>
+    <input id="fR" type="text" placeholder="Remplacer par" autocomplete="off" spellcheck="false" aria-label="Remplacer par">
+    <button class="btn s" id="fOne">Remplacer</button>
+    <button class="btn q" id="fAll" data-tooltip="Tout remplacer (⌘↩)">Tout</button>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="/.fig_thumbs/docx_studio.js"></script>
 </body>
 </html>
