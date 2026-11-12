@@ -112,7 +112,9 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
 fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<Value, String> {
     let path = resolve(project_root, str_arg(req, "path").unwrap_or(""))?;
     if action == "read" {
-        let mut docx = Docx::open(&path).map_err(|e| e.0)?;
+        // Les retouches du panneau encore dans le journal de sa séance
+        // passent d'abord : l'agent lit le document tel que Thierry le voit.
+        let mut docx = atelier_docx::open_settled(&path).map_err(|e| e.0)?;
         let model = docx.model().map_err(|e| e.0)?;
         let from = usize_arg(req, "from").unwrap_or(0);
         let to = usize_arg(req, "to").map(|t| t + 1);

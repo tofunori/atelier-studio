@@ -162,20 +162,77 @@
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
 
   // ---------------------------------------------------------------- serveur
+  /** Dernier modèle complet du serveur, tel qu'il l'a rendu (avant
+   *  `normalize`) : la base sur laquelle s'appliquent ses deltas. */
+  let serverModel: any = null;
+  /** Retouches et annulations demandent un delta (séance du serveur : le
+   *  fichier s'écrit d'un coup après quelques secondes, ou en quittant) ;
+   *  `api` le rejoue sur le dernier modèle reçu et rend `r.model` comme
+   *  avant. Base différente (autre onglet, relecture) : modèle complet. */
+  const DELTA_URLS = new Set(["/docx/op", "/docx/undo"]);
   async function api(url: string, body?: unknown): Promise<any> {
-    const res = await fetch(url, body === undefined ? undefined : {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    const delta = body !== undefined && DELTA_URLS.has(url) && serverModel !== null;
+    const sent = delta ? { ...(body as object), delta: true } : body;
+    const res = await fetch(url, sent === undefined ? undefined : {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sent),
     });
     let data: any = null;
     try { data = await res.json(); } catch { /* corps vide */ }
     if (!res.ok) {
-      const err = new Error((data && data.error) || `erreur ${res.status}`) as Error & { status?: number };
+      const msg = (data && data.error) || `erreur ${res.status}`;
+      // Écriture refusée par le garde-fou : la séance est revenue au dernier
+      // état sain, le message dit quel geste n'a pas été gardé.
+      if (res.status === 409 && msg.startsWith("séance relue")) status(msg, true);
+      const err = new Error(msg) as Error & { status?: number };
       err.status = res.status;
       throw err;
     }
+    if (data && data.delta) {
+      const m = serverModel && applyDelta(serverModel, data.delta);
+      data.model = m || await api(`/docx/model?path=${enc(PATH)}`);
+      if (m) { m.mtime = data.delta.mtime; m.openInWord = data.delta.openInWord; }
+    }
+    if (data && Array.isArray(data.paragraphs) && typeof data.revision === "string") serverModel = data;
+    else if (data && data.model && Array.isArray(data.model.paragraphs)) serverModel = data.model;
     return data;
   }
   const enc = encodeURIComponent;
+
+  /** Rejoue un delta du serveur (`{base, revision, paragraphs?: {start,
+   *  remove, insert}, changes?, comments?, notes?, headers?, …}`) sur son
+   *  modèle précédent ; `null` s'il ne part pas de cette révision. Les
+   *  listes non touchées restent partagées : rien ne modifie un modèle reçu. */
+  function applyDelta(prev: any, d: any): any | null {
+    if (!prev || !d || prev.revision !== d.base) return null;
+    const next: any = { ...prev };
+    for (const key of ["paragraphs", "changes", "comments"]) {
+      const sp = d[key];
+      if (!sp) continue;
+      const list: any[] = prev[key] || [];
+      if (sp.start + sp.remove > list.length) return null;
+      next[key] = list.slice(0, sp.start).concat(sp.insert, list.slice(sp.start + sp.remove));
+    }
+    if (d.paragraphs) {
+      next.paragraphs = next.paragraphs.map((p: any, i: number) => (p.id === `p${i}` ? p : { ...p, id: `p${i}` }));
+    }
+    for (const key of ["notes", "headers", "authors", "other_parts", "page", "styles"]) {
+      if (key in d) next[key] = d[key];
+    }
+    next.revision = d.revision;
+    return next;
+  }
+  /** Le modèle que rend une réponse de retouche (delta déjà rejoué par
+   *  `api`), normalisé ; `null` si elle n'en porte pas. */
+  function modelFromResponse(r: any, _base: Model | null): Model | null {
+    return r && r.model ? normalize(r.model) : null;
+  }
+  /** Écrit tout de suite la séance du serveur (page cachée ou quittée). */
+  function flushSession() {
+    if (!PATH) return;
+    try {
+      void fetch("/docx/flush", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: PATH }), keepalive: true }).catch(() => undefined);
+    } catch { /* page déjà déchargée */ }
+  }
 
   /** Corps, puis notes, puis en-têtes et pieds dans une seule liste : un
    *  rang (`idx`) désigne n'importe quel paragraphe modifiable. */
@@ -1209,7 +1266,7 @@
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             const r = await api("/docx/op", { path: PATH, revision: model!.revision, author, tracked, op });
-            const fresh = normalize(r.model);
+            const fresh = modelFromResponse(r, model)!;
             const sel = caret ? caret(fresh, r.result) : readSel();
             applyModel(fresh, sel);
             status("Enregistré dans le .docx");
@@ -3489,7 +3546,9 @@
       for (const [id, since] of asking) {
         if (Date.now() - since > ASK_TIMEOUT_MS) { asking.delete(id); renderCards(); status("Aucun brouillon reçu : voir la réponse dans le chat", true); }
       }
-      if (s.mtime === model.mtime && s.openInWord === model.openInWord) return;
+      // En séance, le serveur donne sa révision : le fichier réécrit d'un
+      // coup (nouvelle date) n'est pas un document changé.
+      if ((typeof s.revision === "string" ? s.revision === model.revision : s.mtime === model.mtime) && s.openInWord === model.openInWord) return;
       if (ghosts.length || inflight || structBusy) return;
       const fresh: Model = await api(`/docx/model?path=${enc(PATH)}`);
       if (fresh.revision === model.revision) { model.mtime = fresh.mtime; model.openInWord = fresh.openInWord; notice.classList.toggle("show", fresh.openInWord); return; }
@@ -3550,7 +3609,8 @@
     document.addEventListener("selectionchange", () => live.schedule());
   }
 
-  window.addEventListener("pagehide", flushOnExit);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) flushGhosts(); });
+  window.addEventListener("pagehide", () => { flushOnExit(); flushSession(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { void flushGhosts().then(flushSession); } });
+  window.addEventListener("blur", flushSession);
   boot();
 })();

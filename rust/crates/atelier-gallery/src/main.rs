@@ -2833,6 +2833,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/stat", get(docx::stat))
         .route("/docx/draft/clear", post(docx::clear_draft))
         .route("/docx/op", post(docx::op))
+        .route("/docx/flush", post(docx::flush))
         .route("/docx/undo", post(docx::undo))
         .route("/docx/history", get(docx::history_status))
         .route("/docx/version", post(docx::version))
@@ -2935,6 +2936,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(state);
     let address = format!("{}:{port}", args.host);
     let listener = tokio::net::TcpListener::bind(&address).await?;
+    // Séances .docx interrompues (arrêt brutal) : rejouées en fond.
+    docx::start();
     eprintln!(
         "atelier-gallery-server listening on http://{address} root={} backend=rust",
         root.display()
