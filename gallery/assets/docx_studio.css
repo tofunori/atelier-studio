@@ -44,6 +44,11 @@ button:focus-visible,[role="button"]:focus-visible,[contenteditable]:focus-visib
 .ib:active,.ib.on,.ib.open{background:var(--press);color:var(--text-primary)}
 .ib .ic{display:flex}
 .ib .chev{display:flex;color:var(--text-muted);margin-left:-2px}
+.lanebtn{gap:4px;padding:0 6px}
+.lanebtn .n{font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-muted);transition:color 120ms ease-out}
+.lanebtn .n:empty{display:none}
+.lanebtn:hover .n,.lanebtn.on .n{color:var(--text-primary)}
+.lanebtn:disabled{opacity:.45;cursor:default;background:transparent}
 .ib .g{font:600 15px/1 'Times New Roman','Tinos',Georgia,serif}
 .ib .g.i{font-style:italic;font-weight:400}
 .ib .g.u{font-weight:400;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}
@@ -233,6 +238,18 @@ body.no-lane.lane-pop #cards{display:block;position:fixed;z-index:var(--z-popove
 body.no-lane #cards .it{display:none}
 body.no-lane #cards .it.on{display:block;position:static;transform:none!important}
 body.no-lane #cards .it.on .cc{box-shadow:var(--elev)}
+/* Bouton « Commentaires » (2026-11-12) : la marge se dévoile pendant que le
+   panneau s'élargit, se retire avant qu'il se resserre ; faute de place, elle
+   passe par-dessus le bord de la page (lane-over). */
+body.lane-in #scroll,body.lane-out #scroll{overflow-x:hidden}
+body.lane-in #cards{animation:lane-in 150ms cubic-bezier(.2,.8,.2,1) 60ms both}
+body.lane-out #cards,body.lane-out #leader{opacity:0;transform:translateX(12px);transition:opacity 120ms ease-out,transform 120ms ease-out}
+@keyframes lane-in{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
+body.lane-over #scroll{padding-right:24px}
+body.lane-over #cards{left:auto!important;right:16px;z-index:3}
+body.lane-over #cards .cc{box-shadow:var(--elev-soft)}
+body.lane-over #cards .it.on .cc{box-shadow:var(--elev)}
+body.lane-over #leader{display:none}
 .it{position:absolute;left:0;right:0;top:0;will-change:transform;transition:transform 140ms ease-out,opacity 140ms ease-out}
 .cc{padding:12px;border-radius:10px;background:var(--surface-raised,var(--card));box-shadow:var(--lift);font-size:12px;line-height:1.5;cursor:pointer;transition:box-shadow 140ms ease-out}
 .cc:hover,.it.on .cc{box-shadow:var(--elev-soft)}
@@ -248,6 +265,29 @@ body.no-lane #cards .it.on .cc{box-shadow:var(--elev)}
 .cc .ac{display:flex;align-items:center;gap:4px;margin-top:8px}
 .c-input{display:block;width:100%;min-height:36px;margin-top:12px;padding:8px;border:0;border-radius:6px;outline:0;resize:none;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px/1.5 var(--ui-font)}
 .c-input::placeholder{color:var(--text-muted)}
+/* Brouillon de réponse de l'agent (Proposer) : le geste vit dans le champ,
+   la rangée Résoudre / Répondre ne change pas. */
+.c-field{position:relative;margin-top:12px}
+.c-field .c-input{margin-top:0}
+.c-field.ask .c-input:placeholder-shown{padding-right:96px}
+.c-field.ask .c-input:not(:placeholder-shown) + .in{opacity:0;pointer-events:none}
+.cc .in{position:absolute;top:4px;right:4px;height:28px;padding:0 8px;gap:6px;font-size:12px;transition:opacity 120ms ease-out,background-color 120ms ease-out,color 120ms ease-out}
+.c-wait{position:relative;display:flex;align-items:center;gap:8px;min-height:36px;margin-top:12px;padding:0 8px;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));color:var(--text-muted);font-size:12px}
+.c-wait .in{top:4px}
+.c-wait .dots{display:inline-flex;gap:4px}
+.c-wait .dots i{width:4px;height:4px;border-radius:999px;background:currentColor;opacity:.3;animation:c-dot 1.2s ease-in-out infinite}
+.c-wait .dots i:nth-child(2){animation-delay:.2s}
+.c-wait .dots i:nth-child(3){animation-delay:.4s}
+@keyframes c-dot{0%,100%{opacity:.3}40%{opacity:.9}}
+.c-by,.c-fix{display:flex;align-items:center;gap:6px;height:20px;font-size:11px;color:var(--text-muted);white-space:nowrap}
+.c-by{margin-top:12px}
+.c-by + .c-field{margin-top:4px}
+.c-by span,.c-fix span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.c-fix{margin-top:8px}
+.c-fix b{font-weight:500;color:var(--text-secondary)}
+.cc .lk{margin-left:auto;height:20px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--text-secondary);font:500 11px/20px var(--ui-font);cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
+.cc .lk:hover{background:var(--surface-hover);color:var(--text-primary)}
+@media (prefers-reduced-motion: reduce){.c-wait .dots i{animation:none;opacity:.6}}
 /* Commentaire réglé : une ligne, coche verte. */
 .cc.dn{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;background:transparent;box-shadow:none;color:var(--text-muted)}
 .cc.dn svg{color:var(--status-success)}

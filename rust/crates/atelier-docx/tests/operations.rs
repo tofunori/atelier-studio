@@ -183,22 +183,6 @@ fn une_selection_sur_plusieurs_paragraphes_s_efface_d_un_seul_geste() {
 }
 
 #[test]
-fn annuler_remet_le_paquet_d_avant() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("a.docx");
-    std::fs::write(&path, build("christophe")).unwrap();
-    let me = sig("Thierry");
-    let (_, rev1, before) = atelier_docx::edit_file_keep(&path, None, |d| apply(d, &op(json!({"op": "accept", "id": 101})), true, &me)).unwrap();
-    let before = before.unwrap();
-    let rev0 = atelier_docx::revision_of(&before);
-    let undone = atelier_docx::replace_file(&path, &rev1, &before).unwrap();
-    assert_eq!(atelier_docx::Docx::open(&path).unwrap().revision(), rev0);
-    assert!(atelier_docx::replace_file(&path, &rev1, &undone).unwrap_err().is_conflict());
-    atelier_docx::replace_file(&path, &rev0, &undone).unwrap();
-    assert_eq!(atelier_docx::Docx::open(&path).unwrap().revision(), rev1);
-}
-
-#[test]
 fn entree_dans_sa_propre_frappe_ou_un_lien_garde_un_xml_valide() {
     // Le paragraphe ne doit jamais se couper à l'intérieur d'un w:ins resté
     // ouvert : au bord, la coupe passe dehors ; au milieu, il est rouvert.

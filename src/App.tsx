@@ -16,7 +16,8 @@ import { normalizeProjectFolders, projectWritableDirectories, resolveAssociatedF
 import { lazy } from "react";
 const ProjectFoldersDialog = lazy(() => import("./components/ProjectFoldersDialog"));
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
+import { useDocxPaneRequests } from "./hooks/useDocxPaneRequests";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -1065,6 +1066,9 @@ export default function App() {
     }
   }, [activeId, threads, wsReady]);
   const showAtelier = layout !== "chat";
+  // Bouton « Commentaires » du panneau Word : il demande la place de sa marge.
+  const atelierPanelRef = useRef<ImperativePanelHandle>(null);
+  useDocxPaneRequests(atelierPanelRef, atelierUrl, layout === "split" && !!activeProject);
   // Contexte vivant (2026-11-08) : ce que l'onglet focalisé de l'atelier
   // montre, publié par AtelierPane. L'œil du compositeur (2026-11-09) dit s'il
   // part avec les messages : coupé, il reste coupé jusqu'au prochain clic.
@@ -2665,7 +2669,9 @@ export default function App() {
         // envoyé tout de suite ; la barre du compositeur renvoie les gestes.
         const review = data.review;
         const source = e.source as Window;
-        if (review.done || !review.path || !review.id) {
+        if (review.error) {
+          setReviewSession((current) => current && { ...current, pending: false, error: review.error });
+        } else if (review.done || !review.path || !review.id) {
           setReviewSession((current) => ({
             threadId: current?.threadId ?? activeIdRef.current ?? "",
             source, origin: e.origin, nonce: atelierNonce, mode: review.mode, current: null, pending: false,
@@ -2677,11 +2683,12 @@ export default function App() {
             ...(review.quote ? { quote: review.quote } : {}),
             ...(review.now ? { now: review.now } : {}),
             ...(review.likely ? { likely: review.likely } : {}),
+            ...(review.edit ? { edit: review.edit, ready: review.ready === true } : {}),
             ...(review.note ? { note: review.note } : {}),
           };
           const first = (review.author || "").trim().split(/\s+/)[0] || t("chat.review-reviewer");
           const threadId = attachContextToChat(data.text, {
-            path: review.path, name: t("chat.review-card-name", { name: first, n: ref.n, total: ref.total }), direct: true, review: ref,
+            path: review.path, name: t(review.edit ? "chat.review-edit-card-name" : "chat.review-card-name", { name: first, n: ref.n, total: ref.total }), direct: true, review: ref,
           });
           setReviewSession({ threadId, source, origin: e.origin, nonce: atelierNonce, mode: review.mode,
             current: { ...ref, path: review.path, id: review.id }, pending: false });
@@ -4980,7 +4987,7 @@ export default function App() {
       {showAtelier && activeProject && (
         <>
           <PanelResizeHandle id="chat-atelier-divider" className="handle" onDragging={setDragging} />
-          <Panel id="atelier" order={3} defaultSize={50} minSize={20}>
+          <Panel ref={atelierPanelRef} id="atelier" order={3} defaultSize={50} minSize={20}>
             <div className="atelier-host">
             <AtelierPane
               key={activeProject}

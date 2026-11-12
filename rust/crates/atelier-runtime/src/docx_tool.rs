@@ -118,6 +118,17 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         let to = usize_arg(req, "to").map(|t| t + 1);
         return Ok(json!({"revision": model.revision, "text": ops::outline(&model, from, to, READ_MAX_CHARS)}));
     }
+    if action == "draft_reply" {
+        // Brouillon dans la carte du commentaire, hors du document :
+        // l'utilisateur le relit et l'envoie sous son nom.
+        let comment = req.get("comment").and_then(Value::as_u64).ok_or("comment manquant : numéro du commentaire (c3 → 3)")? as u32;
+        let text = str_arg(req, "text").ok_or("text manquant : le brouillon de réponse")?;
+        let draft = atelier_docx::drafts::put(&path, comment, text, author_for(provider)).map_err(|e| e.0)?;
+        return Ok(json!({
+            "ok": true, "author": draft.author, "comment": comment,
+            "note": "Brouillon posé dans la carte du commentaire, pas dans le .docx : l'utilisateur le relit, le retouche et l'envoie sous son nom. Ne le recopie pas dans ta réponse."
+        }));
+    }
     let sig = Signature::now(author_for(provider));
     let expected = str_arg(req, "revision");
     let (result, revision) = if action == "insert_note" || action == "insert_figure" {
@@ -130,7 +141,8 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
             bytes = Some(std::fs::read(&fpath).map_err(|e| format!("figure illisible : {e}"))?);
         }
         let (paragraph, occurrence) = (str_arg(req, "paragraph").map(str::to_string), usize_arg(req, "occurrence"));
-        atelier_docx::edit_file(&path, expected, |d| {
+        let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: if action == "insert_note" { "note" } else { "figure" } };
+        atelier_docx::edit_file_as(&path, expected, &origin, |d| {
             let (p, at) = ops::place_after(d, paragraph.as_deref(), &find, occurrence)?;
             let mut op = if action == "insert_note" {
                 Op::InsertNote { paragraph: p.clone(), at, text: str_arg(req, "text").unwrap_or("").to_string(), endnote: false }
@@ -145,7 +157,8 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         .map_err(|e| e.0)?
     } else {
         let op = op_of(action, req)?;
-        atelier_docx::edit_file(&path, expected, |d| ops::apply(d, &op, true, &sig)).map_err(|e| e.0)?
+        let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: op.label() };
+        atelier_docx::edit_file_as(&path, expected, &origin, |d| ops::apply(d, &op, true, &sig)).map_err(|e| e.0)?
     };
     // Le paragraphe touché, relu tel qu'il est maintenant sur le disque.
     let para = result.get("paragraph").and_then(Value::as_str).map(str::to_string).or_else(|| str_arg(req, "paragraph").map(str::to_string));
@@ -222,6 +235,16 @@ mod tests {
         // Version périmée : refusée.
         let e = run(root, "claude", "edit", &json!({"path": "article.docx", "find": "pureté", "with": "netteté", "revision": rev})).unwrap_err();
         assert!(e.contains("conflit"), "{e}");
+
+        // Brouillon de réponse : dans la carte du commentaire, pas dans le fichier.
+        let before = std::fs::read(&path).unwrap();
+        let r = run(root, "claude", "draft_reply", &json!({"path": "article.docx", "comment": 1, "text": "Le seuil est justifié en 2.3."})).unwrap();
+        assert_eq!(r["author"], "Claude");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(atelier_docx::drafts::list(&path).unwrap()[&1].text, "Le seuil est justifié en 2.3.");
+        assert!(run(root, "claude", "draft_reply", &json!({"path": "article.docx", "comment": 2, "text": "x"})).unwrap_err().contains("c1"));
+        assert!(run(root, "claude", "draft_reply", &json!({"path": "article.docx", "text": "x"})).unwrap_err().contains("comment manquant"));
+        atelier_docx::drafts::clear(&path, 1).unwrap();
 
         let r = run(root, "codex", "reply", &json!({"path": path.to_str().unwrap(), "comment": 1, "text": "Seuil justifié en 2.3."})).unwrap();
         assert_eq!(r["author"], "Codex");

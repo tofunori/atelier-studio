@@ -11,8 +11,33 @@ import { formatFileSize, useFileCards, type FileCardMeta } from "../../lib/chatF
 import { RowButton } from "../ui";
 import "./ChatReview.css";
 
-import { CircleCheckIcon, FileIcon, FolderIcon } from "lucide-react";
+import { CircleCheckIcon, FileIcon, FolderIcon, PenLineIcon, TriangleAlertIcon } from "lucide-react";
 import type { ChatReviewRef } from "../../lib/reviewSession";
+import { wordDiff } from "../../lib/wordDiff";
+
+/** Une de ses retouches passée en revue dans le chat (lot 2) : sa phrase,
+ *  mots retirés barrés en rouge, ajoutés sur fond vert. */
+function EditCard({ review, path, first, where }: { review: ChatReviewRef; path?: string; first: string; where: string }) {
+  const flat = (text?: string) => (text || "").replace(/\s+/g, " ").trim();
+  const ready = review.ready === true;
+  return (
+    <div className="review-card" title={path}>
+      <div className="review-card-head">
+        <PenLineIcon size={12} aria-hidden="true" className="review-card-ic" />
+        {first}
+        <span className="review-card-meta">{where}</span>
+      </div>
+      <div className="review-card-edit">
+        {wordDiff(flat(review.quote), flat(review.comment)).map(([op, text], index) =>
+          op === "-" ? <del key={index}>{text}</del> : op === "+" ? <ins key={index}>{text}</ins> : <span key={index}>{text}</span>)}
+      </div>
+      <div className={ready ? "review-card-likely" : "review-card-changed"}>
+        {ready ? <CircleCheckIcon size={12} aria-hidden="true" /> : <TriangleAlertIcon size={12} aria-hidden="true" />}
+        {t(ready ? "chat.review-edit-ready" : "chat.review-edit-changed")}
+      </div>
+    </div>
+  );
+}
 
 /** Commentaire d'un relecteur passé en revue dans le chat (2026-11-12) :
  *  qui, où, son commentaire, ce qu'il commentait et le passage aujourd'hui. */
@@ -24,6 +49,7 @@ function ReviewCard({ review, path }: { review: ChatReviewRef; path?: string }) 
   const clip = (text: string) => (text.length > 320 ? `${text.slice(0, 319)}…` : text);
   const where = [t("chat.review-position", { n: review.n, total: review.total }),
     review.line ? t("chat.review-line", { n: review.line }) : null].filter(Boolean).join(" · ");
+  if (review.edit) return <EditCard review={review} path={path} first={first} where={where} />;
   return (
     <div className="review-card" title={path}>
       <div className="review-card-head">

@@ -26,6 +26,8 @@ export interface ReviewerOverlayItem {
   /** Ligne du passage (base 0) : les commentaires d'une même ligne se
    *  rangent côte à côte, la marge s'élargit pour eux. */
   line: number;
+  /** Une de ses retouches (suivi des modifications) : un crayon, pas un numéro. */
+  edit?: boolean;
 }
 
 export interface ReviewerOverlayHost {
@@ -47,6 +49,7 @@ export interface ReviewerOverlay {
 }
 
 const CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.4 6.6 11.4 12.5 4.8"/></svg>';
+const PEN = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12.6h3.4M9.6 3.6l2.8 2.8-6 6H3.6V9.6z"/></svg>';
 const RING = 20;
 const quote = (id: string): string => id.replace(/["\\]/g, "\\$&");
 const STEP = 24;
@@ -116,12 +119,12 @@ export function createReviewerOverlay(doc: Document, win: Window, host: Reviewer
         layer.appendChild(ring);
         rings.set(item.id, ring);
       }
-      ring.className = `atelier-annotation-number is-reviewer texv-mk tone-${item.tone}${item.done ? " is-done" : ""}`
+      ring.className = `atelier-annotation-number is-reviewer texv-mk tone-${item.tone}${item.done ? " is-done" : ""}${item.edit ? " is-edit" : ""}`
         + `${active === item.id ? " is-on" : ""}${item.unread ? " is-unread" : ""}`;
       ring.title = item.title;
-      ring.setAttribute("aria-label", `Commentaire ${item.number}`);
+      ring.setAttribute("aria-label", `${item.edit ? "Modification" : "Commentaire"} ${item.number}`);
       ring.setAttribute("aria-expanded", String(active === item.id));
-      const content = item.done ? CHECK : String(item.number);
+      const content = item.done ? CHECK : item.edit ? PEN : String(item.number);
       if (ring.dataset.content !== content) { ring.innerHTML = content; ring.dataset.content = content; }
     }
     const bubble = active && known.has(active) ? host.bubble(active) : null;

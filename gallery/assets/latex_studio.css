@@ -888,6 +888,14 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .texv-pos{flex:1}
 @media (prefers-reduced-motion: reduce){.texv-pop{animation:none}.texv-ib[data-tip]::after,.texv-tick[data-tip]::after{transition:none}}
 
+/* Ses retouches de texte (lot 2), même modèle v8 : un crayon dans la marge,
+   sa version (barré / ajouté) dans la bulle, sa phrase en texte courant. */
+.texv-dif s{margin-right:2px;color:var(--texr-cut);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--texr-cut) 60%,transparent);
+  background:var(--texr-del-word)}
+.texv-dif b{font-weight:400;color:var(--texv-ok);background:var(--texr-add-word)}
+.texv-dif.texv-his{font-family:var(--ui-font);line-height:1.5}
+.texv-ring .texv-n{display:inline-grid;place-items:center}
+
 /* La barre appartient au document : commandes fréquentes, puis menus. */
 #fileIdentity{order:0;flex:0 1 220px}
 #fname{flex:1;min-width:0}

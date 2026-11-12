@@ -39,7 +39,7 @@ pub fn open(name: &str) -> Docx {
 }
 
 pub fn sig(author: &str) -> Signature {
-    Signature { author: author.into(), initials: atelier_docx::initials(author), date: "2026-10-19T19:00:00Z".into() }
+    Signature { author: author.into(), initials: atelier_docx::initials(author), date: "2026-10-19T15:00:00Z".into(), date_utc: "2026-10-19T19:00:00Z".into() }
 }
 
 /// Enregistre puis rouvre : vérifie que le paquet reste lisible.

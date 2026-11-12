@@ -2246,6 +2246,8 @@ async fn rebuild_locked(
     match result {
         Ok(Ok(built)) => {
             *revision.write().await += 1;
+            // Une figure réécrite garde sa version d'avant dans l'historique.
+            figure_versions::capture_catalog_in_background(root.to_path_buf());
             current.last_build_at = Some(now());
             current.error = None;
             RebuildOutcome {
@@ -2792,7 +2794,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/claude-event", post(gallery::post_agent_event))
         // Phase 3 — Git + historique de versions
         .route("/githead", get(git::githead))
-        .route("/figure-versions", post(figure_versions::snapshot))
+        .route("/figure-history", post(figure_versions::figure_history))
         .route("/figure-version", get(figure_versions::image))
         .route("/gitlog", get(git::gitlog))
         .route("/gitshow", get(git::gitshow))
@@ -2829,8 +2831,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Panneau .docx (copie corrigée du directeur, aller-retour avec Word)
         .route("/docx/model", get(docx::model))
         .route("/docx/stat", get(docx::stat))
+        .route("/docx/draft/clear", post(docx::clear_draft))
         .route("/docx/op", post(docx::op))
         .route("/docx/undo", post(docx::undo))
+        .route("/docx/history", get(docx::history_status))
         .route("/docx/prefs", get(docx::get_prefs).post(docx::post_prefs))
         .route("/docx/media", get(docx::media))
         .route("/docx/figures", get(docx::figures))
@@ -2844,6 +2848,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/review/status", get(feedback::status))
         .route("/review/next", get(feedback::next))
         .route("/review/state", post(feedback::set_review_state))
+        .route("/review/apply", post(feedback::apply))
         .route("/lint", get(documents::lint))
         .route("/tex/manuscript", post(manuscript::manuscript))
         .route("/tex/manuscript/prefs", post(manuscript::prefs))

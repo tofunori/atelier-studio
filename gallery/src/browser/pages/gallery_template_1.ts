@@ -1,4 +1,4 @@
-import type {GalleryRow, GalleryColumn, GalleryPresentation, FigureStroke, AnnotationSession, FigureHistory, GalleryExportMode, GalleryExportResult} from "../../contracts/gallery";
+import type {GalleryRow, GalleryColumn, GalleryPresentation, FigureStroke, AnnotationSession, FigureHistory, FigureVersion, GalleryExportMode, GalleryExportResult} from "../../contracts/gallery";
 
 (function(){
   try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
@@ -1339,7 +1339,6 @@ async function lbShow(i: number){
   const infoRows=[['Dossier',f.folder||'—'],['Modifié',f.mdate||'—'],['Taille',f.size?fmtSize(f.size):'—']];
   (document.getElementById('lbInfo') as HTMLDivElement).innerHTML=infoRows.map(([k,v])=>`<div class="lb-row"><b>${esc(k)}</b><span>${esc(String(v))}</span></div>`).join('')+'<div class="lb-row" id="lbDims"></div>';
   lbSheetToggle(false);
-  lbFilesPaint(f);lbFilesToggle(false);
   lbNameToast(f.name);
   (document.getElementById('lbOriginal') as HTMLAnchorElement).href=f.rel;
   (document.getElementById('lbMore') as HTMLDetailsElement).open=false;
@@ -1351,7 +1350,7 @@ async function lbShow(i: number){
   lbViewportRequest(true);
   lbLiveContext(vw||isVid?null:f);
   requestAnimationFrame(lbFitImage);
-  if(['png','jpg','jpeg'].includes(f.ext)) void lbVersionsPoll();
+  if(lbHistory.rel) void lbVersionsPoll();
 }
 // ─── Panneau Provenance ───────────────────────────────────────────────────
 // Spec docs/superpowers/specs/2026-08-27-provenance-figures-design.md (C + D).
@@ -2438,8 +2437,7 @@ const lbHead=document.createElement('div');lbHead.id='lbHead';
 lbHead.innerHTML='<button id="lbInfoBtn" aria-label="Informations sur le fichier" aria-expanded="false" aria-controls="lbSheet"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.2"/></svg></button>'
  +'<div id="lbSheet" role="dialog" aria-label="Informations sur le fichier" hidden><div id="lbInfo"></div><div id="lbSheetActs"><a id="lbOriginal" target="_blank" rel="noopener">Ouvrir l’original ↗</a><button id="lbCopyPath" type="button">Copier le chemin</button></div></div>'
  +'<span class="lb-space"></span>'
- +'<button id="lbFilesBtn" type="button" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="lbFiles"></button>'
- +'<div id="lbFiles" role="dialog" aria-label="Fichiers de cette figure" hidden></div>'
+ +'<button id="lbHistBtn" type="button" hidden aria-expanded="false" aria-controls="lbStrip"></button>'
  +'<button id="lbAdd" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button>'
  +'<details id="lbMore"><summary aria-label="Autres actions"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></summary><div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
  +'<div id="lbNameToast" aria-hidden="true"></div>';
@@ -2465,55 +2463,126 @@ for(const id of ['lbPrev','lbNext','lbZoom','lbAnnot','annotBar','annotPill'])lb
 lbHead.append((document.getElementById('lbClose') as HTMLButtonElement));
 lbHead.insertBefore((document.getElementById('lbFs') as HTMLButtonElement),(document.getElementById('lbClose') as HTMLButtonElement));
 const lbPosition=document.createElement('span');lbPosition.id='lbPosition';(document.getElementById('lbPrev') as HTMLButtonElement).after(lbPosition);
-// Figure history is separate from gallery navigation. Each snapshot is immutable
-// and stored by the project server, not in this webview's cache.
-const lbVersions=document.createElement('div');lbVersions.id='lbVersions';lbVersions.hidden=true;
-lbVersions.setAttribute('role','group');lbVersions.setAttribute('aria-label','Versions de la figure');
-lbVersions.innerHTML='<button type="button" class="lbBtn" id="lbVersionPrev" aria-label="Version précédente">‹</button><button type="button" class="lbBtn" id="lbVersionCurrent" aria-label="Version actuelle" aria-live="polite">v1</button><button type="button" class="lbBtn" id="lbVersionNext" aria-label="Version suivante">›</button>';
-(document.getElementById('lbPrev') as HTMLButtonElement).before(lbVersions);
+// Historique de la figure (bande A, Thierry 2026-11-12) : le serveur garde une
+// version à chaque écriture du fichier, pour la figure et toutes ses copies
+// (pile de la grille) ; la bande sous la figure montre l'évolution, un clic
+// affiche une version, « Comparer » met deux versions face à face.
 const lbFigureNavigation=document.createElement('div');lbFigureNavigation.id='lbFigureNavigation';
 lbFigureNavigation.setAttribute('role','group');lbFigureNavigation.setAttribute('aria-label','Parcourir les figures');
 lbFigureNavigation.append('Figures ',(document.getElementById('lbPrev') as HTMLButtonElement),lbPosition,(document.getElementById('lbNext') as HTMLButtonElement));
 lbSheet.append(lbFigureNavigation);
-const lbVersionStyle=document.createElement('style');lbVersionStyle.textContent='#lbVersions{display:flex;align-items:center;flex:none;border:1px solid var(--border);border-radius:6px;margin-right:6px}#lbVersions[hidden]{display:none}#lbVersions .lbBtn{position:static;min-width:22px;width:auto;height:26px;padding:0 5px;font-size:15px}#lbVersions #lbVersionCurrent{font-size:11px;white-space:nowrap;color:var(--muted)}#lbVersions .lbBtn:disabled{opacity:.35;cursor:default}';document.head.appendChild(lbVersionStyle);
-lbVersionStyle.textContent+='#lbFigureNavigation{display:flex;align-items:center;gap:4px;margin-top:8px;color:var(--muted);font-size:11px}#lb #lbFigureNavigation .lbBtn{position:static;display:inline-flex;align-items:center;justify-content:center}';
-let lbHistory: FigureHistory={rel:'',rows:[],selected:null,follow:true,epoch:0,busy:false};
+const lbNavStyle=document.createElement('style');
+lbNavStyle.textContent='#lbFigureNavigation{display:flex;align-items:center;gap:4px;margin-top:8px;color:var(--muted);font-size:11px}#lb #lbFigureNavigation .lbBtn{position:static;display:inline-flex;align-items:center;justify-content:center}';
+document.head.appendChild(lbNavStyle);
+const HISTORY_EXTS=['png','jpg','jpeg'];
+const HIST_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.2 12a7.8 7.8 0 1 0 2.3-5.5"/><path d="M3.9 3.9v3.9h3.9"/><path d="M12 8v4l2.7 2"/></svg>';
+const CMP_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/></svg>';
+const WARN_ICON='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14 13H2z"/><path d="M8 6.5v3M8 11.4v.1"/></svg>';
+const lbHistBtn=(document.getElementById('lbHistBtn') as HTMLButtonElement);
+const lbStrip=document.createElement('div');lbStrip.id='lbStrip';lbStrip.hidden=true;
+lbStrip.innerHTML='<div id="lbStripRow" role="listbox" aria-label="Versions de la figure" aria-orientation="horizontal"></div>'
+  +'<div id="lbStripSide"><button type="button" id="lbCompareBtn" aria-pressed="false">'+CMP_ICON+'<span>Comparer</span></button><span id="lbStripSize"></span></div>';
+(document.getElementById('lbViewport') as HTMLDivElement).after(lbStrip);
+const lbCompare=document.createElement('div');lbCompare.id='lbCompare';lbCompare.hidden=true;
+lbCompare.innerHTML='<div class="lbc-bar"><div class="lbc-seg" role="group" aria-label="Disposition"><button type="button" data-mode="slider" aria-pressed="true">Curseur</button><button type="button" data-mode="side" aria-pressed="false">Côte à côte</button></div>'
+  +'<span class="lbc-sp"></span><span class="lbc-lbl" id="lbCmpA"></span><span class="lbc-arrow" aria-hidden="true">→</span><span class="lbc-lbl" id="lbCmpB"></span><span class="lbc-sp"></span>'
+  +'<button type="button" class="lbc-done">Terminer</button></div><div class="lbc-stage"></div>';
+lbStrip.before(lbCompare);
+// La légende du nom reste au-dessus de la bande.
+new ResizeObserver(()=>lb().style.setProperty('--lb-strip-h',(lbStrip.hidden?0:lbStrip.offsetHeight)+'px')).observe(lbStrip);
+const lbStripRow=(document.getElementById('lbStripRow') as HTMLDivElement),lbCompareBtn=(document.getElementById('lbCompareBtn') as HTMLButtonElement);
+let lbStripOpen=true;try{lbStripOpen=localStorage.getItem('atelier.figureStrip')!=='0';}catch{}
+let lbHistory: FigureHistory={rel:'',rels:[],rows:[],copies:[],bytes:0,selected:null,follow:true,epoch:0,busy:false,manual:false,compare:null};
 let lbVersionReady=Promise.resolve();
-function lbVersionsReset(f: { ext: string; rel: string; }){
-  lbHistory={rel:f&&['png','jpg','jpeg'].includes(f.ext)?f.rel:'',rows:[],selected:null,follow:true,epoch:lbHistory.epoch+1,busy:false};
-  lbVersionReady=Promise.resolve();lbVersions.hidden=!lbHistory.rel;
-  (document.getElementById('lbVersionCurrent') as HTMLButtonElement).textContent='…';
-  (document.getElementById('lbVersionCurrent') as HTMLButtonElement).title='Historique des versions enregistrées à partir de l’ouverture de cette figure';
-  for(const id of ['lbVersionPrev','lbVersionNext'])(document.getElementById(id) as HTMLInputElement).disabled=true;
+const lbVersionRow=(version: number|null)=>lbHistory.rows.find(r=>r.version===version);
+/** La figure ouverte et ses copies de même nature (pas la copie annotée du chat). */
+function lbHistoryRels(f: GalleryRow){
+  if(!f||!HISTORY_EXTS.includes(f.ext))return [];
+  const copies=(figureGroups.get(f.rel)||[]).filter(m=>m.rel!==f.rel&&HISTORY_EXTS.includes(m.ext)&&!/^images-generees(\/|$)/.test(m.folder||''));
+  return [f.rel,...copies.map(m=>m.rel)];
+}
+function lbVersionsReset(f: GalleryRow|null){
+  if(lbHistory.compare)lbCompareExit();
+  const rels=f?lbHistoryRels(f):[];
+  lbHistory={rel:rels[0]||'',rels,rows:[],copies:[],bytes:0,selected:null,follow:true,epoch:lbHistory.epoch+1,busy:false,manual:false,compare:null};
+  lbVersionReady=Promise.resolve();
+  lbHistBtn.hidden=!lbHistory.rel;lbStripRow.replaceChildren();lbStripRow.dataset.sig='';
+  lbVersionsPaint();
 }
 function lbAnnotationKey(){
-  const rel=lbList[lbIdx]?.rel;
-  return lbHistory.rel===rel&&lbHistory.selected!=null?rel+'::version:'+lbHistory.selected:rel;
+  const rel=lbList[lbIdx]?.rel,row=lbHistory.rel===rel?lbVersionRow(lbHistory.selected):null;
+  return row?rel+'::version:'+row.hash:rel;
+}
+const lbWhen=(ms: number)=>{
+  const d=new Date(ms),now=new Date(),day=(x: Date)=>new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime();
+  const diff=Math.round((day(now)-day(d))/86400000),hm=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  if(diff===0)return 'aujourd’hui '+hm;
+  if(diff===1)return 'hier '+hm;
+  return d.toLocaleDateString('fr-FR',d.getFullYear()===now.getFullYear()?{day:'numeric',month:'short'}:{day:'numeric',month:'short',year:'numeric'})+' '+hm;
+};
+const lbFolderOf=(rel: string)=>rel.includes('/')?rel.slice(0,rel.lastIndexOf('/')):'racine du projet';
+/** Copies (autres dossiers) restées sur une version plus ancienne que la dernière. */
+function lbLateCopies(version: number){
+  const h=lbHistory,last=h.rows.at(-1)?.version;
+  return version===last?[]:h.copies.filter(c=>c.rel!==h.rel&&c.version===version);
+}
+function lbStripVisible(){
+  const h=lbHistory;
+  return !!h.rel&&lbStripOpen&&h.rows.length>0&&(h.rows.length>1||h.manual||!!h.compare);
 }
 function lbVersionsPaint(){
-  const h=lbHistory,idx=h.rows.findIndex(r=>r.version===h.selected),last=h.rows.at(-1);
-  const current=(document.getElementById('lbVersionCurrent') as HTMLButtonElement);
-  current.textContent=h.selected==null?'…':'v'+h.selected;
-  current.dataset.pending=String(!!last&&last.version!==h.selected);
-  current.title=last&&last.version!==h.selected?'Afficher la dernière version (v'+last.version+')':'Dernière version · mises à jour automatiques';
-  current.setAttribute('aria-label',current.title);
-  (document.getElementById('lbVersionPrev') as HTMLButtonElement).disabled=idx<=0;
-  (document.getElementById('lbVersionNext') as HTMLButtonElement).disabled=idx<0||idx>=h.rows.length-1;
+  const h=lbHistory,last=h.rows.at(-1),row=lbVersionRow(h.selected);
+  const pending=!!last&&!!row&&last.version!==row.version;
+  lbHistBtn.innerHTML=HIST_ICON+'<span class="lbh-v">'+(row?'v'+row.version:'…')+'</span>';
+  lbHistBtn.classList.toggle('pending',pending);
+  const label=!h.rows.length?'Historique des versions':'Historique : '+h.rows.length+(h.rows.length>1?' versions':' version')+(row?' · v'+row.version+' affichée':'');
+  lbHistBtn.title=label;lbHistBtn.setAttribute('aria-label',label);
+  const visible=lbStripVisible();
+  lbStrip.hidden=!visible;lbHistBtn.setAttribute('aria-expanded',String(visible));lbHistBtn.classList.toggle('on',visible);
+  lb().classList.toggle('has-strip',visible);
+  if(!visible)return;
+  const sig=h.rows.map(r=>r.hash).join(',')+'|'+h.copies.map(c=>c.rel+':'+c.version).join(',');
+  if(lbStripRow.dataset.sig!==sig){
+    lbStripRow.dataset.sig=sig;
+    lbStripRow.innerHTML=h.rows.map((r,i)=>{
+      const late=lbLateCopies(r.version),lateTitle=late.map(c=>c.rel).join('\n');
+      const note=r===last?'<span class="lbs-n">actuelle</span>'
+        :late.length?'<span class="lbs-n warn" title="'+escA('Copie restée sur cette version :\n'+lateTitle)+'">'+WARN_ICON
+          +esc(late.length>1?late.length+' copies en retard':/^manuscrit(\/|$)/.test(late[0].rel)?'copie du manuscrit':'copie dans '+lbFolderOf(late[0].rel))+'</span>'
+        :'<span class="lbs-n"></span>';
+      return (i?'<span class="lbs-link" aria-hidden="true"></span>':'')
+        +'<button type="button" class="lbs-tile" role="option" data-version="'+r.version+'" aria-selected="false" title="'+escA('v'+r.version+' · '+lbWhen(r.created)+' · '+r.rel)+'">'
+        +'<span class="lbs-th"><img loading="lazy" decoding="async" alt="" src="'+escA('/figure-version?hash='+r.hash)+'"><span class="lbs-mk" hidden></span></span>'
+        +'<span class="lbs-l"><b>v'+r.version+'</b><span>'+esc(lbWhen(r.created))+'</span></span>'+note+'</button>';
+    }).join('');
+    const total=h.bytes>1048576?(h.bytes/1048576).toFixed(1).replace('.',',')+' Mo':Math.max(1,Math.round(h.bytes/1024))+' Ko';
+    (document.getElementById('lbStripSize') as HTMLSpanElement).textContent=h.rows.length+(h.rows.length>1?' versions · ':' version · ')+total;
+    if(h.rows.length<2&&!h.compare)lbStripRow.insertAdjacentHTML('beforeend','<span class="lbs-hint">Chaque nouvelle version de cette figure s’ajoutera ici.</span>');
+  }
+  const cmp=h.compare;
+  lbStripRow.querySelectorAll<HTMLButtonElement>('.lbs-tile').forEach(b=>{
+    const v=Number(b.dataset.version),mark=cmp?(v===cmp.a?'A':v===cmp.b?'B':''):'';
+    const on=cmp?!!mark:v===h.selected;
+    b.classList.toggle('sel',on);b.setAttribute('aria-selected',String(on));b.tabIndex=(cmp?v===cmp.b:v===h.selected)?0:-1;
+    const mk=b.querySelector<HTMLSpanElement>('.lbs-mk');mk.hidden=!mark;mk.textContent=mark;
+  });
+  lbCompareBtn.disabled=h.rows.length<2||lb().classList.contains('annot');
+  lbCompareBtn.setAttribute('aria-pressed',String(!!cmp));lbCompareBtn.classList.toggle('on',!!cmp);
 }
 async function lbVersionDisplay(version: number,automatic=false){
-  const h=lbHistory;if(!h.rel||h.selected===version)return;
+  const h=lbHistory,row=lbVersionRow(version);if(!h.rel||!row||h.selected===version)return;
   const display= h.display=(h.display||0)+1;
   const blocked=()=>annotBusy||annotDrag||annotCur||(document.getElementById('annotNote') as HTMLDivElement).style.display==='block'||(automatic&&lb().classList.contains('annot')&&annotStrokes.length>0);
   if(blocked())return;
-  const url='/figure-version?path='+encodeURIComponent(h.rel)+'&version='+version;
+  const url='/figure-version?hash='+row.hash;
   const image=new Image();image.src=url;
   try{await image.decode();}catch{return;}
   if(h!==lbHistory||h.display!==display||!lb().classList.contains('show')||blocked()||(automatic&&!h.follow))return;
   if(!(await annotGuard())||h!==lbHistory)return;
   const annotating=lb().classList.contains('annot');
-  // Annotations started before the first snapshot response belong to v1.
+  // Annotations started before the first history response belong to that first version.
   if(h.selected==null&&annotSessions.has(h.rel)){
-    annotSessions.set(h.rel+'::version:'+version,annotSessions.get(h.rel));annotSessions.delete(h.rel);
+    annotSessions.set(h.rel+'::version:'+row.hash,annotSessions.get(h.rel));annotSessions.delete(h.rel);
   }
   h.selected=version;
   const img=(document.getElementById('lbImg') as HTMLImageElement);img.src=url;
@@ -2534,32 +2603,124 @@ function lbVersionsPoll(){
   h.busy=true;
   lbVersionReady=(async()=>{
     try{
-      const response=await fetch('/figure-versions?path='+encodeURIComponent(h.rel),{method:'POST',cache:'no-store'});
+      const response=await fetch('/figure-history',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:h.rels})});
       if(!response.ok)throw new Error('versions');
       const data=await response.json();if(h!==lbHistory)return;
       if(!Array.isArray(data.versions)||!data.versions.length)throw new Error('versions');
-      h.rows=data.versions;lbVersionsPaint();
+      h.rows=data.versions;h.copies=Array.isArray(data.copies)?data.copies:[];h.bytes=Number(data.bytes)||0;
+      if(h.compare&&(!lbVersionRow(h.compare.a)||!lbVersionRow(h.compare.b)))lbCompareExit();
+      lbVersionsPaint();if(h.compare)lbComparePaint();
       if(h.follow)await lbVersionDisplay(h.rows.at(-1).version,true);
     }catch{
-      if(h===lbHistory){const b=(document.getElementById('lbVersionCurrent') as HTMLButtonElement);b.title='Historique indisponible — nouvelle tentative automatique';if(h.selected==null)b.textContent='v?';}
+      if(h===lbHistory){lbHistBtn.title='Historique indisponible — nouvelle tentative automatique';if(h.selected==null)lbHistBtn.querySelector('.lbh-v').textContent='v?';}
     }finally{h.busy=false;}
   })();
   return lbVersionReady;
 }
+/** Affiche une version : `direction` ±1 depuis la version affichée, 0 = la dernière. */
 async function lbVersionNavigate(direction: number){
   const h=lbHistory,idx=h.rows.findIndex(r=>r.version===h.selected);
   const row=direction===0?h.rows.at(-1):h.rows[idx+direction];if(!row)return;
+  return lbVersionGo(row.version);
+}
+async function lbVersionGo(version: number){
+  const h=lbHistory,row=lbVersionRow(version);if(!row)return;
   if(annotBusy||annotDrag||annotCur||(document.getElementById('annotNote') as HTMLDivElement).style.display==='block')return;
   h.display=(h.display||0)+1;
   const follow=h.follow;
-  h.follow=direction===0||row===h.rows.at(-1);
+  h.follow=row===h.rows.at(-1);
   await lbVersionDisplay(row.version);
   if(h===lbHistory&&h.selected!==row.version)h.follow=follow;
   lbVersionsPaint();
 }
-(document.getElementById('lbVersionPrev') as HTMLButtonElement).onclick=e=>{e.stopPropagation();void lbVersionNavigate(-1);};
-(document.getElementById('lbVersionNext') as HTMLButtonElement).onclick=e=>{e.stopPropagation();void lbVersionNavigate(1);};
-(document.getElementById('lbVersionCurrent') as HTMLButtonElement).onclick=e=>{e.stopPropagation();void lbVersionNavigate(0);};
+lbHistBtn.onclick=e=>{
+  e.stopPropagation();const h=lbHistory;
+  lbStripOpen=!lbStripVisible();h.manual=lbStripOpen;
+  try{localStorage.setItem('atelier.figureStrip',lbStripOpen?'1':'0');}catch{}
+  if(!lbStripOpen&&h.compare)lbCompareExit();
+  lbVersionsPaint();requestAnimationFrame(lbFitImage);
+};
+lbStripRow.addEventListener('click',e=>{
+  const tile=(e.target as Element).closest<HTMLButtonElement>('.lbs-tile');if(!tile)return;
+  e.stopPropagation();const v=Number(tile.dataset.version),cmp=lbHistory.compare;
+  if(!cmp){void lbVersionGo(v);return;}
+  if(v===cmp.a||v===cmp.b)return;
+  if(v>cmp.a)cmp.b=v;else cmp.a=v;
+  lbVersionsPaint();lbComparePaint();
+});
+// ← → feuillettent les versions quand la bande a le focus (sinon : figures).
+lbStripRow.addEventListener('keydown',e=>{
+  if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight'&&e.key!=='Home'&&e.key!=='End')return;
+  e.preventDefault();e.stopPropagation();
+  const h=lbHistory;if(h.compare)return;
+  const go=e.key==='End'?lbVersionNavigate(0):e.key==='Home'?lbVersionGo(h.rows[0]?.version):lbVersionNavigate(e.key==='ArrowRight'?1:-1);
+  void Promise.resolve(go).then(()=>lbStripRow.querySelector<HTMLButtonElement>('.lbs-tile.sel')?.focus());
+});
+lbStrip.addEventListener('click',e=>e.stopPropagation());
+// ─── Comparer deux versions ──────────────────────────────────────────────
+function lbCompareEnter(){
+  const h=lbHistory;if(h.rows.length<2||lb().classList.contains('annot'))return;
+  const last=h.rows.at(-1).version,shown=h.selected??last;
+  h.compare={a:shown!==last?shown:h.rows.at(-2).version,b:last,mode:'slider',pos:.5};
+  lb().classList.add('comparing');lbCompare.hidden=false;
+  lbVersionsPaint();lbComparePaint();
+}
+function lbCompareExit(){
+  const h=lbHistory;h.compare=null;
+  lb().classList.remove('comparing');lbCompare.hidden=true;
+  lbCompare.querySelector('.lbc-stage').replaceChildren();
+  if(lbStrip.isConnected)lbVersionsPaint();
+}
+const lbCmpLabel=(slot: string,version: number)=>{const r=lbVersionRow(version);return r?slot+' · v'+r.version+' · '+lbWhen(r.created):'';};
+function lbComparePaint(){
+  const cmp=lbHistory.compare;if(!cmp)return;
+  const a=lbVersionRow(cmp.a),b=lbVersionRow(cmp.b);if(!a||!b)return;
+  (document.getElementById('lbCmpA') as HTMLSpanElement).textContent=lbCmpLabel('A',cmp.a);
+  (document.getElementById('lbCmpB') as HTMLSpanElement).textContent=lbCmpLabel('B',cmp.b);
+  lbCompare.querySelectorAll<HTMLButtonElement>('.lbc-seg button').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.mode===cmp.mode)));
+  const stage=lbCompare.querySelector<HTMLDivElement>('.lbc-stage'),src=(r: FigureVersion)=>escA('/figure-version?hash='+r.hash);
+  if(cmp.mode==='side'){
+    stage.innerHTML='<div class="lbc-side"><figure><img alt="" src="'+src(a)+'"><figcaption>A · v'+a.version+'</figcaption></figure><figure><img alt="" src="'+src(b)+'"><figcaption>B · v'+b.version+'</figcaption></figure></div>';
+    return;
+  }
+  stage.innerHTML='<div class="lbc-split"><img class="lbc-a" alt="" src="'+src(a)+'"><div class="lbc-b"><img alt="" src="'+src(b)+'"></div>'
+    +'<div class="lbc-handle" role="slider" tabindex="0" aria-label="Partage entre A et B" aria-valuemin="0" aria-valuemax="100"><span></span></div>'
+    +'<span class="lbc-tag l">A · v'+a.version+'</span><span class="lbc-tag r">B · v'+b.version+'</span></div>';
+  const split=stage.querySelector<HTMLDivElement>('.lbc-split'),imgA=split.querySelector<HTMLImageElement>('.lbc-a');
+  const fit=()=>{
+    if(!imgA.naturalWidth)return;
+    const W=stage.clientWidth-32,H=stage.clientHeight-32,s=Math.min(W/imgA.naturalWidth,H/imgA.naturalHeight,1);
+    split.style.width=Math.round(imgA.naturalWidth*s)+'px';split.style.height=Math.round(imgA.naturalHeight*s)+'px';
+  };
+  imgA.onload=fit;if(imgA.complete)fit();
+  new ResizeObserver(fit).observe(stage);
+  lbCompareSlide(cmp.pos);
+  const move=(e: PointerEvent)=>{const r=split.getBoundingClientRect();lbCompareSlide((e.clientX-r.left)/r.width);};
+  split.addEventListener('pointerdown',e=>{e.preventDefault();split.setPointerCapture(e.pointerId);move(e);split.onpointermove=move;});
+  split.addEventListener('pointerup',e=>{split.releasePointerCapture(e.pointerId);split.onpointermove=null;});
+  split.querySelector<HTMLDivElement>('.lbc-handle').addEventListener('keydown',e=>{
+    if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
+    e.preventDefault();e.stopPropagation();lbCompareSlide(lbHistory.compare.pos+(e.key==='ArrowRight'?.05:-.05));
+  });
+}
+function lbCompareSlide(pos: number){
+  const cmp=lbHistory.compare;if(!cmp)return;
+  cmp.pos=Math.min(1,Math.max(0,pos));
+  const split=lbCompare.querySelector<HTMLDivElement>('.lbc-split');if(!split)return;
+  split.style.setProperty('--lbc-pos',(cmp.pos*100).toFixed(1)+'%');
+  split.querySelector('.lbc-handle').setAttribute('aria-valuenow',String(Math.round(cmp.pos*100)));
+}
+lbCompareBtn.onclick=e=>{e.stopPropagation();if(lbHistory.compare)lbCompareExit();else lbCompareEnter();};
+lbCompare.addEventListener('click',e=>{
+  e.stopPropagation();
+  const t=e.target as Element,mode=t.closest<HTMLButtonElement>('.lbc-seg button')?.dataset.mode;
+  if(mode&&lbHistory.compare){lbHistory.compare.mode=mode as 'slider'|'side';lbComparePaint();}
+  if(t.closest('.lbc-done'))lbCompareExit();
+});
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape'||!lbHistory.compare||!lb().classList.contains('show'))return;
+  e.preventDefault();e.stopImmediatePropagation();lbCompareExit();
+},true);
 setInterval(()=>void lbVersionsPoll(),2500);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)void lbVersionsPoll();});
 // Fiche ⓘ : ouverture au clic, fermeture au clic dehors ou Échap ; le nom
@@ -2571,49 +2732,6 @@ function lbSheetToggle(open?: boolean){
 }
 lbInfoBtn.onclick=(e)=>{e.stopPropagation();lbSheetToggle();};
 lbSheet.addEventListener('click',e=>e.stopPropagation());
-// Fichiers de la même figure (pile de la grille) : chaque rangée affiche ce
-// fichier à la place de la carte, et une copie plus ancienne d'un format qui
-// existe en plus récent est marquée « en retard ».
-const lbFilesBtn=(document.getElementById('lbFilesBtn') as HTMLButtonElement);
-const lbFiles=(document.getElementById('lbFiles') as HTMLDivElement);
-function lbFilesToggle(open?: boolean){
-  const next=open===undefined?lbFiles.hidden:open;
-  lbFiles.hidden=!next||lbFilesBtn.hidden;lbFilesBtn.setAttribute('aria-expanded',String(!lbFiles.hidden));lbFilesBtn.classList.toggle('on',!lbFiles.hidden);
-}
-function lbFilesPaint(f: GalleryRow){
-  const members=f?figureGroups.get(f.rel):null;
-  lbFilesBtn.hidden=!members;
-  if(!members){ lbFiles.hidden=true; lbFiles.replaceChildren(); return; }
-  const states=members.map(m=>figureMemberState(m,members));
-  const late=states.some(st=>st.tone==='warn');
-  const label=members.length+' fichiers pour cette figure'+(late?' · une copie plus ancienne diffère':'');
-  lbFilesBtn.innerHTML=STACK_ICON+'<span>'+members.length+'</span>';
-  lbFilesBtn.title=label;lbFilesBtn.setAttribute('aria-label',label);lbFilesBtn.classList.toggle('late',late);
-  const day=members[0].mdate.slice(0,10);
-  const when=(m: GalleryRow)=>m.mdate.slice(0,10)===day?m.mdate.slice(11):m.mdate.slice(0,10);
-  const preview=(m: GalleryRow)=>rasterExt(m.ext)||m.ext==='svg'
-    ?'<img loading="lazy" src="'+escA('/thumb?path='+encodeURIComponent('__ROOT__/'+m.rel)+'&w=120&v='+m.mtime)+'" alt="">'
-    :m.thumb?'<img loading="lazy" src="'+escA(m.thumb)+'" alt="">':'<span>'+esc(m.ext.toUpperCase())+'</span>';
-  lbFiles.innerHTML='<div class="lbf-head"><span>Fichiers de cette figure</span><span class="lbf-n">'+members.length+'</span></div>'
-    +members.map((m,i)=>'<button type="button" class="lbf-row'+(m.rel===f.rel?' sel':'')+'" data-rel="'+escA(m.rel)+'" title="'+escA(m.rel)+'"'+(m.rel===f.rel?' aria-current="true"':'')+'>'
-      +'<span class="lbf-prev">'+preview(m)+'</span>'
-      +'<span class="lbf-main"><span class="lbf-fold">'+esc(m.folder==='.'?'racine du projet':m.folder)+'</span><span class="lbf-sub">'+esc(m.ext.toUpperCase())+'<span>'+esc(when(m))+'</span></span></span>'
-      +'<span class="lbf-state'+(states[i].tone?' '+states[i].tone:'')+'">'+esc(states[i].label)+'</span>'
-      +'<span class="lbf-tick">'+(m.rel===f.rel?hovIco('ok'):'')+'</span></button>').join('')
-    +(late?'<div class="lbf-note">Une copie marquée « en retard » est plus ancienne que la dernière version du même format : elle n’a pas reçu la dernière correction.</div>':'');
-  lbFiles.querySelectorAll<HTMLButtonElement>('.lbf-row').forEach(b=>b.onclick=()=>{ void lbShowMember(b.dataset.rel); });
-}
-/** Affiche un autre fichier de la pile à la place de la carte, sans quitter la position. */
-async function lbShowMember(rel: string){
-  const f=FILES.find(x=>x.rel===rel); if(!f||lbIdx<0||lbList[lbIdx]?.rel===rel) return;
-  if(!(await annotGuard())) return;
-  lbList=lbList.slice(); lbList[lbIdx]=f;
-  await lbShow(lbIdx);
-}
-lbFilesBtn.addEventListener('click',e=>{e.stopPropagation();lbSheetToggle(false);lbFilesToggle();});
-lbFiles.addEventListener('click',e=>e.stopPropagation());
-document.addEventListener('click',()=>{if(!lbFiles.hidden)lbFilesToggle(false);});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!lbFiles.hidden){e.stopPropagation();lbFilesToggle(false);}},true);
 document.addEventListener('click',()=>{if(!lbSheet.hidden)lbSheetToggle(false);});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!lbSheet.hidden){e.stopPropagation();lbSheetToggle(false);}},true);
 (document.getElementById('lbCopyPath') as HTMLButtonElement).onclick=async()=>{const f=lbList[lbIdx];if(!f)return;try{await navigator.clipboard.writeText('__ROOT__/'+f.rel);lbNameToast('Chemin copié');}catch{lbNameToast('Copie impossible');}};
@@ -2659,6 +2777,7 @@ async function annotToggle(){
   if(history!==lbHistory||index!==lbIdx||!lb().classList.contains('show'))return;
   if(annotBusy)return;
   (document.getElementById('annotNote') as HTMLDivElement).querySelector<HTMLButtonElement>('.annot-close').click();
+  if(lbHistory.compare)lbCompareExit();
   const on=lb().classList.toggle('annot');
   (document.getElementById('lbAnnot') as HTMLButtonElement).setAttribute('aria-pressed',String(on));
   if(on){
@@ -3101,10 +3220,13 @@ export type PageGlobals = {
   lbShow: typeof lbShow;
   lb: typeof lb;
   lbHistory: typeof lbHistory;
+  figureGroups: typeof figureGroups;
   lbIdx: typeof lbIdx;
   lbVersionReady: typeof lbVersionReady;
   lbVersionNavigate: typeof lbVersionNavigate;
+  lbVersionGo: typeof lbVersionGo;
   lbVersionsPoll: typeof lbVersionsPoll;
+  lbCompareSlide: typeof lbCompareSlide;
   lbAttachDisplayed: typeof lbAttachDisplayed;
   annotToggle: typeof annotToggle;
   annotRedraw: typeof annotRedraw;

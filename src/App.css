@@ -1344,6 +1344,32 @@ button.kernel-file:hover { color: var(--text-primary); }
   .consigne-pilule-nom { display: none; }
   .consigne-pilule { padding: 0 8px; }
 }
+/* 4. Barre étroite (2026-11-12) : les paliers ci-dessus ne suffisaient plus
+      sous ~400 px — chronomètre, micro et modèle se chevauchaient (chat à
+      30 % de la fenêtre). La barre MESURE sa largeur (ComposerControls) :
+      .is-compact réduit le spécialiste à son glyphe, .is-folded retire
+      l'effort du bouton modèle et range base, œil, noyau, permission,
+      contexte et chrono dans le plateau « … » (spécialiste et micro aussi
+      sous 300 px). */
+.composer-bar.is-compact :is(.specialiste-pilule-nom, .specialiste-pilule-formes) { display: none; }
+.composer-bar.is-compact .composer-context-rail .specialiste-pilule {
+  width: var(--composer-ctl-h); padding: 0; justify-content: center; }
+.composer-bar.is-compact .composer-tool-group { gap: 4px; margin-right: 2px; }
+.composer-bar.is-folded .mp-model .mp-effort-sum { display: none; }
+/* Le modèle cède en dernier, et en ellipse : jamais par-dessus ses voisins. */
+.composer-bar .mp-btn.mp-model { overflow: hidden; flex: 0 1 auto; }
+.composer-bar .composer-more.is-open { background: var(--bg-ctl); color: var(--text-primary); }
+.composer-menu.composer-tray.composer-context-rail { --composer-ctl-h: 30px; gap: 2px; padding: 4px; overflow: visible;
+  width: max-content; min-width: 0; max-width: calc(100vw - 24px); flex-wrap: wrap; }
+.composer-tray :is(.specialiste-pilule-nom, .specialiste-pilule-formes) { display: none; }
+.composer-tray .specialiste-pilule { width: var(--composer-ctl-h); padding: 0; justify-content: center; }
+.composer-tray .permission-select .custom-select-trigger {
+  width: var(--composer-ctl-h); height: var(--composer-ctl-h); min-width: 0; padding: 0; gap: 0;
+  justify-content: center; }
+.composer-tray .permission-select .custom-select-trigger-icon svg { width: 14px; height: 14px; }
+.composer-tray .ctx-ring-wrap { height: var(--composer-ctl-h); padding: 0 8px; }
+.composer-tray .composer-turn-clock { padding: 0 8px; }
+.composer-tray .composer-dictation[aria-pressed="true"] { color: var(--status-error); }
 .send { width: 30px; height: 30px; border-radius: var(--r-s); border: none;
   background: var(--bg-ctl); color: var(--text-secondary); font-size: var(--fs-xl); cursor: pointer;
   transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
@@ -5191,7 +5217,9 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .composer-menu.effort-menu[data-ending-style] { opacity: 0; transform: translateY(4px) scale(.98); }
 /* Panneau superposé du compositeur : le portal reste ancré à la barre. */
 .composer-bar .mp-btn.mp-model.mp-effort { max-width: 330px; gap: 8px; padding: 0 8px; }
-.composer-bar .mp-model .mp-effort-sum { flex: none; color: var(--text-muted); }
+/* l'effort cède avant le nom du modèle (barre étroite, 2026-11-12) */
+.composer-bar .mp-model .mp-effort-sum { flex: 0 4 auto; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; color: var(--text-muted); }
 .composer-bar .mp-model > svg { width: 12px; height: 12px; flex: none; color: var(--text-muted); }
 .effort-menu { width: 232px; max-width: calc(100vw - 24px); padding: 8px 12px 12px;
   border: 1px solid var(--border-interactive); border-radius: var(--radius-surface); }
