@@ -22,7 +22,7 @@ export default function ReviewStrip({ session }: { session: ReviewSession }) {
     return () => window.clearTimeout(timer);
   }, [session.pending]);
 
-  const act = (action: "done" | "agenda" | "next") => {
+  const act = (action: "done" | "agenda" | "next" | "accept" | "refuse") => {
     if (!current || session.pending) return;
     try {
       session.source.postMessage({ type: "atelier-review-action", nonce: session.nonce, action, id: current.id,
@@ -33,6 +33,9 @@ export default function ReviewStrip({ session }: { session: ReviewSession }) {
     }
   };
   const first = (current?.author || "").trim().split(/\s+/)[0] || t("chat.review-reviewer");
+  // Ses retouches (lot 2) : Accepter écrit sa version (ou la fusion de
+  // Claude), Refuser garde ton texte ; l'éditeur dit si ça n'a pas pu se faire.
+  const edits = session.mode === "edit";
 
   return (
     <div className="review-strip" role="group" aria-label={t("chat.review-label", { name: first })}>
@@ -40,14 +43,27 @@ export default function ReviewStrip({ session }: { session: ReviewSession }) {
         {current ? (
           <>
             <span className="review-card-ring">{current.n}</span>
-            <span>{t("chat.review-label", { name: first })} · {t("chat.review-position", { n: current.n, total: current.total })}</span>
+            <span>{t(edits ? "chat.review-edit-label" : "chat.review-label", { name: first })} · {t("chat.review-position", { n: current.n, total: current.total })}</span>
           </>
         ) : (
-          <span>{t("chat.review-finished")}</span>
+          <span>{t(edits ? "chat.review-edit-finished" : "chat.review-finished")}</span>
         )}
         {session.error && <span className="review-strip-error">{session.error}</span>}
       </span>
-      {current && (
+      {current && edits && (
+        <>
+          <Button variant="secondary" loading={session.pending} onClick={() => act("accept")}>
+            <CheckIcon size={12} aria-hidden="true" />{t("chat.review-accept")}
+          </Button>
+          <Button variant="ghost" disabled={session.pending} title={t("chat.review-refuse-title")} onClick={() => act("refuse")}>
+            {t("chat.review-refuse")}
+          </Button>
+          <Button variant="ghost" disabled={session.pending} onClick={() => act("next")}>
+            {t("chat.review-next")}<ArrowRightIcon size={12} aria-hidden="true" />
+          </Button>
+        </>
+      )}
+      {current && !edits && (
         <>
           <Button variant="secondary" loading={session.pending} onClick={() => act("done")}>
             <CheckIcon size={12} aria-hidden="true" />{t("chat.review-done")}

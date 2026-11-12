@@ -8,6 +8,11 @@
 .review-card-quote{display:grid;grid-template-columns:88px 1fr;gap:4px 8px;font-size:var(--fs-m);color:var(--text-muted)}
 .review-card-quote code{font-family:var(--code-font,ui-monospace,monospace);font-size:var(--fs-m);color:var(--text-secondary);overflow-wrap:anywhere;white-space:pre-wrap}
 .review-card-likely{display:flex;align-items:center;gap:4px;font-size:var(--fs-s);color:var(--status-success)}
+.review-card-ic{flex:none;color:var(--text-muted)}
+.review-card-edit{font-size:var(--fs-l);white-space:pre-wrap;overflow-wrap:anywhere}
+.review-card-edit del{color:var(--status-error);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--status-error) 60%,transparent)}
+.review-card-edit ins{text-decoration:none;background:color-mix(in srgb,var(--status-success) 18%,transparent)}
+.review-card-changed{display:flex;align-items:center;gap:4px;font-size:var(--fs-s);color:var(--status-warning)}
 .review-strip{display:flex;align-items:center;gap:4px;width:calc(100% - 32px);max-width:var(--chat-col,var(--chat-w,760px));margin:8px auto 0;padding:8px 8px 8px 12px;box-sizing:border-box;border-radius:var(--r-m);background:var(--surface-overlay,var(--bg-pop));box-shadow:var(--elevation-overlay,var(--elev-soft));font-size:var(--fs-m);line-height:1.3;animation:review-strip-in var(--motion-fast,120ms) ease-out}
 .review-strip+.queued-turns,.review-strip+.composer,.review-strip+.chat-notice-line{margin-top:8px}
 .review-strip-label{display:flex;align-items:center;gap:8px;min-width:0;margin-right:auto;color:var(--text-muted);font-variant-numeric:tabular-nums}

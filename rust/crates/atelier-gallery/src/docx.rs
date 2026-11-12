@@ -1,12 +1,14 @@
 //! Panneau .docx : lecture du document et retouches (crate `atelier-docx`).
 //!
 //! Chaque retouche rouvre le fichier, vérifie qu'il n'a pas changé depuis la
-//! version affichée, l'applique et enregistre à la place (écriture atomique,
-//! sous verrou partagé avec l'agent). La réponse porte le modèle à jour :
+//! version affichée et que Word ne l'a pas ouvert, l'applique, contrôle le
+//! paquet produit et enregistre à la place (écriture atomique, sous verrou
+//! partagé avec l'agent, historique sur disque). La réponse porte le modèle à jour :
 //! le panneau se redessine d'après lui, jamais d'après une prédiction.
 
 use atelier_core::{atomic_write, safe_project_path};
 use atelier_docx::ops::{self, Op};
+use atelier_docx::history::{self, Origin};
 use atelier_docx::{Docx, Signature, format};
 use axum::{
     Json,
@@ -16,9 +18,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use crate::{AppState, request_allowed};
@@ -55,35 +55,15 @@ pub struct UndoBody {
     redo: bool,
 }
 
-/// Une étape annulable : la révision qu'elle a produite et le paquet d'avant.
-struct Step {
-    after: String,
-    before: Vec<u8>,
-}
-
-#[derive(Default)]
-struct History {
-    undo: Vec<Step>,
-    redo: Vec<Step>,
-}
-
-const HISTORY_STEPS: usize = 50;
-const HISTORY_BYTES: usize = 160 * 1024 * 1024;
-
-/// Annuler / rétablir, par document, en mémoire du serveur : une retouche
-/// de Word ou de l'agent entre-temps rend la pile caduque (contrôle de
-/// révision), elle ne réécrit jamais leur travail.
-static HISTORIES: Mutex<Option<HashMap<PathBuf, History>>> = Mutex::new(None);
-
-fn with_history<T>(path: &Path, f: impl FnOnce(&mut History) -> T) -> T {
-    let mut guard = HISTORIES.lock().unwrap_or_else(|e| e.into_inner());
-    let map = guard.get_or_insert_with(HashMap::new);
-    f(map.entry(path.to_path_buf()).or_default())
-}
-
-fn trim(steps: &mut Vec<Step>) {
-    while steps.len() > HISTORY_STEPS || (steps.len() > 1 && steps.iter().map(|s| s.before.len()).sum::<usize>() > HISTORY_BYTES) {
-        steps.remove(0);
+/// Code HTTP d'un refus du moteur : conflit de révision (409), Word a le
+/// fichier ouvert (423), sinon retouche impossible (422).
+fn refusal(e: &atelier_docx::DocxError) -> StatusCode {
+    if e.is_conflict() {
+        StatusCode::CONFLICT
+    } else if e.is_open_in_word() {
+        StatusCode::LOCKED
+    } else {
+        StatusCode::UNPROCESSABLE_ENTITY
     }
 }
 
@@ -101,19 +81,6 @@ fn docx_path(state: &AppState, rel: &str) -> Result<PathBuf, axum::response::Res
     Ok(path)
 }
 
-/// Word pose `~$` + la fin du nom à côté d'un document ouvert : enregistrer
-/// dans Word écraserait alors les retouches faites ici.
-fn open_in_word(path: &Path) -> bool {
-    let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str())) else { return false };
-    let tail: String = name.chars().skip(2).collect();
-    let Ok(entries) = std::fs::read_dir(dir) else { return false };
-    entries.flatten().any(|e| {
-        let n = e.file_name();
-        let n = n.to_string_lossy();
-        n.starts_with("~$") && (n[2..] == *name || (!tail.is_empty() && n.ends_with(&tail)))
-    })
-}
-
 fn mtime_ms(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
@@ -129,7 +96,7 @@ fn model_json(path: &Path) -> Result<Value, String> {
     let mut v = serde_json::to_value(model).map_err(|e| e.to_string())?;
     v["styles"] = json!(styles);
     v["mtime"] = json!(mtime_ms(path));
-    v["openInWord"] = json!(open_in_word(path));
+    v["openInWord"] = json!(atelier_docx::open_in_word(path));
     Ok(v)
 }
 
@@ -150,14 +117,41 @@ pub async fn model(State(state): State<AppState>, headers: HeaderMap, Query(q): 
 }
 
 /// `GET /docx/stat?path=` — ce que le panneau sonde pour voir arriver les
-/// retouches de l'agent ou un enregistrement de Word.
+/// retouches de l'agent ou un enregistrement de Word, et les brouillons de
+/// réponse que l'agent pose dans la carte d'un commentaire (hors du fichier).
 pub async fn stat(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<PathQuery>) -> impl IntoResponse {
     if !request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
     }
     match docx_path(&state, &q.path) {
-        Ok(p) => (StatusCode::OK, Json(json!({"mtime": mtime_ms(&p), "openInWord": open_in_word(&p)}))).into_response(),
+        Ok(p) => {
+            let drafts = atelier_docx::drafts::list(&p).unwrap_or_default();
+            (StatusCode::OK, Json(json!({"mtime": mtime_ms(&p), "openInWord": atelier_docx::open_in_word(&p), "drafts": drafts}))).into_response()
+        }
         Err(r) => r,
+    }
+}
+
+#[derive(Deserialize)]
+pub struct DraftBody {
+    path: String,
+    comment: u32,
+}
+
+/// `POST /docx/draft/clear` — `{path, comment}` : le brouillon de l'agent a
+/// été envoyé (sous le nom de l'utilisateur) ou écarté.
+pub async fn clear_draft(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<DraftBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &body.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    match tokio::task::spawn_blocking(move || atelier_docx::drafts::clear(&path, body.comment)).await {
+        Ok(Ok(had)) => (StatusCode::OK, Json(json!({"ok": true, "cleared": had}))).into_response(),
+        Ok(Err(e)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.0),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 
@@ -179,15 +173,9 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
     let job = move || -> Result<Value, (StatusCode, String)> {
         let mut op = body.op;
         op.load_images(&mut |rel| read_figure(&root, rel)).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0))?;
-        let (result, revision, before) = atelier_docx::edit_file_keep(&path, body.revision.as_deref(), |d| ops::apply(d, &op, body.tracked, &sig))
-            .map_err(|e| (if e.is_conflict() { StatusCode::CONFLICT } else { StatusCode::UNPROCESSABLE_ENTITY }, e.0))?;
-        if let Some(before) = before {
-            with_history(&path, |h| {
-                h.undo.push(Step { after: revision.clone(), before });
-                trim(&mut h.undo);
-                h.redo.clear();
-            });
-        }
+        let origin = Origin { source: "panneau", author: &sig.author, label: op.label() };
+        let (result, revision) = atelier_docx::edit_file_as(&path, body.revision.as_deref(), &origin, |d| ops::apply(d, &op, body.tracked, &sig))
+            .map_err(|e| (refusal(&e), e.0))?;
         let model = model_json(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
         Ok(json!({"ok": true, "result": result, "revision": revision, "model": model}))
     };
@@ -350,7 +338,8 @@ pub async fn post_prefs(State(state): State<AppState>, headers: HeaderMap, Json(
 }
 
 /// `POST /docx/undo` — annule (ou rétablit, `redo`) la dernière retouche
-/// faite depuis le panneau, si le document n'a pas bougé depuis.
+/// d'Atelier (panneau ou agent), si le document n'a pas bougé depuis.
+/// L'historique est sur disque : il survit à la relance.
 pub async fn undo(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<UndoBody>) -> impl IntoResponse {
     if !request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
@@ -360,31 +349,36 @@ pub async fn undo(State(state): State<AppState>, headers: HeaderMap, Json(body):
         Err(r) => return r,
     };
     let job = move || -> Result<Value, (StatusCode, String)> {
-        let step = with_history(&path, |h| if body.redo { h.redo.pop() } else { h.undo.pop() });
-        let Some(step) = step else {
-            return Err((StatusCode::CONFLICT, if body.redo { "rien à rétablir".into() } else { "rien à annuler".into() }));
-        };
-        if step.after != body.revision {
-            // Le document a changé (Word, l'agent) : la pile ne vaut plus.
-            with_history(&path, |h| *h = History::default());
-            return Err((StatusCode::CONFLICT, "le document a changé depuis : plus rien à annuler ici".into()));
-        }
-        let replaced = atelier_docx::replace_file(&path, &step.after, &step.before).map_err(|e| {
-            with_history(&path, |h| *h = History::default());
-            (StatusCode::CONFLICT, e.0)
-        })?;
-        let revision = atelier_docx::revision_of(&step.before);
-        with_history(&path, |h| {
-            let other = if body.redo { &mut h.undo } else { &mut h.redo };
-            other.push(Step { after: revision.clone(), before: replaced });
-            trim(other);
-        });
+        let done = history::undo(&path, &body.revision, body.redo).map_err(|e| (if e.is_open_in_word() { StatusCode::LOCKED } else { StatusCode::CONFLICT }, e.0))?;
         let model = model_json(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-        Ok(json!({"ok": true, "revision": revision, "model": model}))
+        Ok(json!({"ok": true, "revision": done.revision, "label": done.label, "model": model}))
     };
     match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
         Ok(Err((status, e))) => json_error(status, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `GET /docx/history?path=` — versions reçues gardées (l'original, puis
+/// chaque nouveau tour), dossier de l'historique, et ce qu'Annuler ferait.
+pub async fn history_status(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<PathQuery>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &q.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || -> Result<Value, String> {
+        let rev = atelier_docx::revision_of(&std::fs::read(&path).map_err(|e| e.to_string())?);
+        let mut v = serde_json::to_value(history::status(&path, &rev)).map_err(|e| e.to_string())?;
+        v["revision"] = json!(rev);
+        Ok(v)
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err(e)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e),
         Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
@@ -533,7 +527,7 @@ pub async fn list(State(state): State<AppState>, headers: HeaderMap) -> impl Int
         out.into_iter()
             .map(|(m, p)| {
                 let rel = p.strip_prefix(&root).unwrap_or(&p).to_string_lossy().replace('\\', "/");
-                json!({"path": rel, "mtime": m, "changes": tracked_count(&p), "openInWord": open_in_word(&p)})
+                json!({"path": rel, "mtime": m, "changes": tracked_count(&p), "openInWord": atelier_docx::open_in_word(&p)})
             })
             .collect::<Vec<_>>()
     };
@@ -552,10 +546,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let doc = dir.path().join("Chapitre 2 corrigé CK.docx");
         std::fs::write(&doc, b"x").unwrap();
-        assert!(!open_in_word(&doc));
+        assert!(!atelier_docx::open_in_word(&doc));
         // Word garde la fin du nom pour les noms longs.
         std::fs::write(dir.path().join("~$apitre 2 corrigé CK.docx"), b"x").unwrap();
-        assert!(open_in_word(&doc));
+        assert!(atelier_docx::open_in_word(&doc));
     }
 
     #[test]

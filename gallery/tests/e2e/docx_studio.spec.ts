@@ -1,5 +1,7 @@
 import {test as base, expect, type Page} from '@playwright/test';
-import {copyFile, mkdtemp, writeFile} from 'node:fs/promises';
+import {copyFile, mkdtemp, realpath, writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -229,7 +231,7 @@ test("docx: un brouillon de commentaire suit son passage quand le fichier change
   expect(errors).toEqual([]);
 });
 
-test('docx: remplacer avance au passage suivant, ignore les ajouts des autres et un double-clic ne décide qu\'une fois', async ({page, project}) => {
+test('docx: remplacer avance au passage suivant, écrit en suivi dans les ajouts des autres et un double-clic ne décide qu\'une fois', async ({page, project}) => {
   await open(page, project);
   await page.locator('#paper').focus();
   await page.keyboard.press('ControlOrMeta+f');
@@ -245,15 +247,18 @@ test('docx: remplacer avance au passage suivant, ignore les ajouts des autres et
   expect((await disk(page, project)).paragraphs.map(p => p.text).join(' ')).not.toContain('purs purs');
   await page.keyboard.press('Escape');
 
-  // « Sentinel-2 » est un ajout de Christophe : Tout remplacer le laisse et le dit.
+  // « Sentinel-2 » est un ajout de Christophe : comme Word, Tout remplacer y
+  // efface et y écrit en suivi signé Thierry, sans lui retirer son ajout.
   await page.keyboard.press('ControlOrMeta+f');
   await page.locator('#fQ').fill('Sentinel');
   await expect(page.locator('#fN')).toHaveText(/sur/);
   if (!(await page.locator('#fRow2').isVisible())) await page.locator('#fMore').click();
   await page.locator('#fR').fill('S2');
   await page.locator('#fAll').click();
-  await expect(page.locator('#toast')).toContainText(/suivi d'un autre auteur|laissé dans un suivi/);
-  expect((await disk(page, project)).changes.some(c => c.id === 120)).toBe(true);
+  await expect.poll(async () => (await disk(page, project)).changes.some(c => c.author === 'Thierry' && c.kind === 'ins' && c.text.includes('S2'))).toBe(true);
+  const after = await disk(page, project);
+  expect(after.changes.some(c => c.id === 120 && c.author === 'Christophe')).toBe(true);
+  expect(after.changes.some(c => c.author === 'Thierry' && c.kind === 'del' && c.text.includes('Sentinel'))).toBe(true);
   await page.keyboard.press('Escape');
 
   // Double-clic sur ✓ d'une ligne : une seule décision, pas d'erreur.
@@ -357,6 +362,58 @@ test("docx: une retouche de l'agent apparaît sans recharger", async ({page, pro
   expect(agent.length).toBeGreaterThan(0);
   await expect(page.locator(`#cards .it.grp[data-ids~="${agent[0]}"]`)).toBeVisible();
   await expect(page.locator('#foot')).toContainText('de Claude en attente');
+});
+
+/** Fichier des brouillons de réponse de l'agent (atelier_docx::drafts) :
+ *  dossier temporaire, nommé d'après le chemin canonique du document. */
+async function draftsFile(doc: string): Promise<string> {
+  const canon = await realpath(doc);
+  return path.join(tmpdir(), `atelier-docx-${createHash('sha256').update(canon).digest('hex').slice(0, 16)}.drafts.json`);
+}
+
+test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et envoie sous son nom", async ({page, project}) => {
+  await open(page, project);
+  // Le chat d'Atelier, simulé : on garde ce que le panneau lui envoie.
+  await page.evaluate(() => {
+    const w = window as unknown as {__atelierPost: () => void; __sent?: Record<string, unknown>; AtelierStudioCore?: Record<string, unknown>};
+    w.__atelierPost = () => {};
+    // Le noyau d'Atelier est gelé : on le remplace par une copie.
+    w.AtelierStudioCore = {...(w.AtelierStudioCore || {}), requestChatAttachment: (o: {payload: Record<string, unknown>}) => { w.__sent = o.payload; return Promise.resolve(); }};
+  });
+  const thread = page.locator('#cards .it[data-key="c1"]');
+  await thread.locator('.cc').click();
+  await thread.locator('[data-act="propose"]').click();
+  await expect(thread.locator('.c-wait')).toBeVisible();
+  await expect(thread.locator('[data-act="reply"]')).toBeDisabled();
+  const sent = await page.evaluate(() => (window as unknown as {__sent: {text: string; direct: boolean; path: string}}).__sent);
+  expect(sent.direct).toBe(true);
+  expect(sent.path).toBe(project.doc);
+  expect(sent.text).toContain('draft_reply (comment=1)');
+  expect(sent.text).toContain('Pourquoi 0,6');
+
+  // L'agent corrige aussi la phrase, en suivi signé (un retrait + un ajout)…
+  const m0 = await disk(page, project);
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m0.revision, author: 'Claude', op: {op: 'replace', paragraph: 'p2', find: 'compromis', with: 'équilibre'}}});
+  expect(r.ok()).toBe(true);
+  // … et pose son brouillon hors du document (ce que fait atelier_docx draft_reply).
+  const before = (await disk(page, project)).revision;
+  const file = await draftsFile(project.doc);
+  await writeFile(file, JSON.stringify({1: {text: "Bonne remarque, j'ajoute l'analyse en annexe B.", author: 'Claude', at: Date.now()}}));
+  const field = thread.locator('textarea');
+  await expect(field).toHaveValue("Bonne remarque, j'ajoute l'analyse en annexe B.", {timeout: 6000});
+  await expect(thread.locator('.c-by')).toContainText('Brouillon de Claude, à relire');
+  await expect(thread.locator('.c-wait')).toHaveCount(0);
+  expect((await disk(page, project)).revision).toBe(before);
+  await expect(thread.locator('.c-fix')).toContainText('1 correction en suivi');
+
+  // Relu et retouché, il part signé Thierry ; le brouillon disparaît.
+  await field.fill("Bonne remarque, j'ajoute l'analyse en annexe B. Merci !");
+  await thread.locator('[data-act="reply"]').click();
+  await expect.poll(async () => (await disk(page, project)).comments.some(c => c.parent === 1 && c.author === 'Thierry' && c.text.endsWith('annexe B. Merci !'))).toBe(true);
+  expect((await disk(page, project)).comments.some(c => c.author === 'Claude')).toBe(false);
+  await expect.poll(() => existsSync(file)).toBe(false);
+  await expect(thread.locator('.c-by')).toHaveCount(0);
+  await expect(thread.locator('[data-act="propose"]')).toBeVisible();
 });
 
 test('docx: notes, en-tête, pied de page et figures se retouchent dans la page', async ({page, project}) => {
@@ -509,6 +566,39 @@ test('docx: le texte se coupe en pages comme dans Word, numéros de ligne repris
   expect(await layout()).toBe(typed);
 });
 
+test('docx: feuilles et numéros de ligne suivent la page quand le panneau change de taille ou revient', async ({page, project}) => {
+  await page.setViewportSize({width: 1400, height: 900});
+  await open(page, project);
+  await expect(page.locator('#lnums span').first()).toHaveText('1');
+  // Zoom fixé : la largeur de la page ne bouge plus, seule sa position change.
+  await page.locator('#foot [data-z="out"]').click();
+  const aligned = () => page.evaluate(() => {
+    const paper = document.getElementById('paper')!.getBoundingClientRect();
+    const sheet = document.querySelector('#sheets .sheet')!.getBoundingClientRect();
+    const num = document.querySelector('#lnums span')!.getBoundingClientRect();
+    const text = document.querySelector('.d-p[data-idx="0"]')!.getBoundingClientRect();
+    return {dx: Math.abs(sheet.left - paper.left), dw: Math.abs(sheet.width - paper.width), numIn: num.left >= sheet.left && num.right < text.left};
+  });
+  const ok = {dx: expect.any(Number), dw: expect.any(Number), numIn: true};
+  const check = async () => {
+    await expect.poll(async () => { const a = await aligned(); return a.dx < 1 && a.dw < 1 && a.numIn; }).toBe(true);
+    expect(await aligned()).toEqual(ok);
+  };
+  await check();
+  // Panneau rétréci puis élargi (surface partagée avec le chat, puis seule).
+  await page.setViewportSize({width: 900, height: 900});
+  await check();
+  await page.setViewportSize({width: 1600, height: 900});
+  await check();
+  // Surface masquée pendant une mise en page (autre onglet), puis ré-affichée.
+  await page.evaluate(() => { document.getElementById('scroll')!.style.display = 'none'; });
+  await page.locator('#foot [data-z="in"]').click();
+  await page.setViewportSize({width: 1100, height: 900});
+  await page.evaluate(() => { document.getElementById('scroll')!.style.display = ''; });
+  await check();
+  await expect.poll(() => page.locator('#sheets .sheet').count()).toBeGreaterThanOrEqual(1);
+});
+
 test('docx: une bibliographie Zotero passe à la ligne et se coupe en feuilles pleines', async ({page, project}) => {
   await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path.join(project.root, 'Bibliographie.docx'))}`);
   await expect(page.locator('#sheets .sheet').nth(1)).toBeAttached();
@@ -558,4 +648,99 @@ test('docx: zoom au curseur et aux touches, retour à la largeur du panneau', as
   // Le pourcentage remet la page à la largeur du panneau.
   await label.click();
   await expect(label).toHaveClass(/on/);
+});
+
+test('docx: au zoom, seule la page change de taille, la marge de revue reste en place', async ({page, project}) => {
+  await page.setViewportSize({width: 1400, height: 900});
+  await open(page, project);
+  const cards = page.locator('#cards');
+  await expect(cards).toBeVisible();
+  const box = async () => (await cards.boundingBox())!;
+  const pageWidth = () => page.locator('#paper').evaluate((el) => el.getBoundingClientRect().width);
+  await page.locator('#foot .z-pct').click();
+  await page.locator('#foot [data-z="out"]').click();
+  const before = await box();
+  const w0 = await pageWidth();
+  for (let i = 0; i < 3; i++) await page.locator('#foot [data-z="out"]').click();
+  await expect.poll(pageWidth).toBeLessThan(w0 * 0.8);
+  const after = await box();
+  // La marge garde sa largeur et sa place : le dézoom ne la fait pas grandir.
+  expect(after.width).toBeCloseTo(before.width, 0);
+  expect(after.x).toBeCloseTo(before.x, 0);
+  // Et elle reste collée au bord droit du panneau.
+  const right = await page.locator('#scroll').evaluate((el) => el.getBoundingClientRect().left + el.clientWidth);
+  expect(right - (after.x + after.width)).toBeCloseTo(24, 0);
+});
+
+test('docx: le bouton Commentaires ferme la marge, le choix tient au rechargement, et faute d\'app la rouvre par-dessus la page', async ({page, project}) => {
+  await page.setViewportSize({width: 1400, height: 900});
+  await open(page, project);
+  const btn = page.locator('#btnLane');
+  const body = page.locator('body');
+  await expect(body).not.toHaveClass(/no-lane/);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await expect(btn.locator('.n')).toHaveText(/^\d+$/);
+  await btn.click();
+  await expect(body).toHaveClass(/no-lane/);
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#cards')).toBeHidden();
+  await page.reload();
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  await expect(body).toHaveClass(/no-lane/);
+  // Panneau étroit, sans app pour l'élargir : la marge passe par-dessus la page.
+  await page.setViewportSize({width: 820, height: 900});
+  const w0 = await page.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth);
+  await page.keyboard.press('ControlOrMeta+Shift+KeyM');
+  await expect(body).toHaveClass(/lane-over/);
+  await expect(body).not.toHaveClass(/no-lane/);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#cards .it').first()).toBeVisible();
+  expect(Math.abs(await page.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth) - w0)).toBeLessThan(2);
+  const [cards, scroll] = await Promise.all([page.locator('#cards').boundingBox(), page.locator('#scroll').boundingBox()]);
+  expect(cards!.x + cards!.width).toBeLessThanOrEqual(scroll!.x + scroll!.width);
+  await btn.click();
+  await expect(body).toHaveClass(/no-lane/);
+  await expect(body).not.toHaveClass(/lane-over/);
+});
+
+test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place de la marge et le rend en la fermant', async ({page, project}) => {
+  // L'hôte joue le rôle de l'app : il élargit l'iframe de ce qu'elle demande.
+  const src = `${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(project.doc)}`;
+  await page.request.post(`${project.url}/docx/prefs`, {data: {author: 'Thierry'}});
+  await page.setViewportSize({width: 1600, height: 900});
+  await page.setContent(`<body style="margin:0"><iframe id="f" style="border:0;width:800px;height:880px"></iframe><script>
+    window.asks = [];
+    const f = document.getElementById('f');
+    addEventListener('message', (e) => {
+      if (e.data?.type !== 'atelier-docx-pane') return;
+      window.asks.push(e.data);
+      if (e.data.action === 'widen') { window.before = f.offsetWidth; f.style.width = (f.offsetWidth + e.data.px) + 'px'; }
+      else f.style.width = window.before + 'px';
+      setTimeout(() => e.source.postMessage({type: 'atelier-docx-pane-done', action: e.data.action, ok: true}, '*'), 50);
+    });
+  </script></body>`);
+  await page.locator('#f').evaluate((f: HTMLIFrameElement, url) => { f.src = url; }, src);
+  const frame = page.frameLocator('#f');
+  await expect(frame.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  const body = frame.locator('body');
+  await expect(body).toHaveClass(/no-lane/);
+  const w0 = await frame.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth);
+  await frame.locator('#btnLane').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as {asks: {action: string; px: number}[]}).asks.length)).toBe(1);
+  const ask = await page.evaluate(() => (window as unknown as {asks: {action: string; px: number}[]}).asks[0]);
+  expect(ask.action).toBe('widen');
+  expect(ask.px).toBeGreaterThan(300);
+  await expect(body).not.toHaveClass(/no-lane/);
+  await expect(body).not.toHaveClass(/lane-over|lane-in/);
+  await expect(frame.locator('#btnLane')).toHaveAttribute('aria-pressed', 'true');
+  // La page garde sa taille (ou monte aux 75 % sous lesquels la marge ne tient pas).
+  const w1 = await frame.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth);
+  expect(w1).toBeGreaterThanOrEqual(w0 - 2);
+  // Toute la marge tient dans le panneau.
+  const right = await frame.locator('#scroll').evaluate((s) => s.scrollWidth - s.clientWidth);
+  expect(right).toBeLessThanOrEqual(1);
+  await frame.locator('#btnLane').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as {asks: {action: string}[]}).asks.map((a) => a.action).join())).toBe('widen,restore');
+  await expect(body).toHaveClass(/no-lane/);
+  await expect(page.locator('#f')).toHaveCSS('width', '800px');
 });

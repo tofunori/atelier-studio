@@ -55,6 +55,8 @@
 
 
 
+  /** Frappe pas encore confirmée : `sent` = confiée à la file, `flying` =
+   *  requête partie, `gone` = envoyée à la fermeture du panneau. */
 
 
 
@@ -101,6 +103,18 @@
   let backlog                          = [];
   let focusKey = "";
   let composing             = null;
+  // Marge des commentaires à la demande (bouton « Commentaires », 2026-11-12).
+  // laneOff : marge fermée par Thierry (retenu par document) ; laneOver :
+  // panneau trop étroit et non élargi, la marge passe par-dessus la page ;
+  // holdPt : zoom tenu pendant que l'app élargit ou resserre le panneau ;
+  // widened : l'app a élargi le panneau pour la marge, à rendre en fermant.
+  const LANE_KEY = `docxLaneOff:${PATH}`;
+  let laneOff = (() => { try { return localStorage.getItem(LANE_KEY) === "1"; } catch { return false; } })();
+  let laneOver = false;
+  let holdPt = 0;
+  let widened = false;
+  let paneWait = 0;
+  let paneAction = "";
   const cp = (s        ) => Array.from(s).length;
 
   // ---------------------------------------------------------------- icônes
@@ -125,6 +139,7 @@
     right: '<path d="m9 18 6-6-6-6"/>',
     msgPlus: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>',
     chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    msgText: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/>',
     plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
     minus: '<path d="M5 12h14"/>',
     undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
@@ -139,6 +154,7 @@
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
   const ic = (k                    , size = 16) => svg(PATHS[k], size);
@@ -461,9 +477,9 @@
     if (!pg) return;
     const cs = getComputedStyle(scroller);
     const room = scroller.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const next = zoom ? PT * zoom / 100 : PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT)));
+    const next = holdPt || (zoom ? PT * zoom / 100 : PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT))));
     showZoom(next);
-    if (!force && Math.abs(next - ptPx) < 1e-3) return;
+    if (!force && Math.abs(next - ptPx) < 1e-3) { followPaper(); return; }
     ptPx = next;
     document.documentElement.style.setProperty("--pt", `${next.toFixed(4)}px`);
     scheduleLines();
@@ -477,6 +493,18 @@
     fitPage();
   }
   const zoomPct = () => Math.round(ptPx / PT * 100);
+  // Feuilles, numéros de ligne et traits de révision sont dessinés par
+  // rapport au coin de la page ; leurs calques suivent la page quand elle
+  // se recentre (panneau élargi ou rétréci, marge des fiches qui apparaît,
+  // retour sur la surface) sans refaire la mise en page.
+  let laidOutHidden = false;
+  function followPaper() {
+    const x = `${paper.offsetLeft}px`, y = `${paper.offsetTop}px`;
+    for (const l of [sheets, lnLayer, cbars]) {
+      if (l.style.left !== x) l.style.left = x;
+      if (l.style.top !== y) l.style.top = y;
+    }
+  }
   // Barre d'état : page, mots, revue, enregistrement, signature et zoom.
   foot.innerHTML = `<span id="ftPage"></span><span id="ftWords" class="hide1"></span><span id="ftOpen" class="hide2"></span>
     <span class="sp"></span>
@@ -560,6 +588,10 @@
   function layoutPages(from                = null, to = -1) {
     const pg = model?.page;
     if (!pg) return;
+    // Surface masquée (autre onglet, autre surface) : rien ne se mesure, la
+    // coupe attend que la page revienne à l'écran.
+    if (!scroller.clientWidth || !paper.offsetWidth) { laidOutHidden = true; return; }
+    laidOutHidden = false;
     const s = getSelection();
     const keep = s && s.rangeCount && paper.contains(s.anchorNode) ? readSel() : null;
     const blocks = flowBlocks();
@@ -597,6 +629,7 @@
     paper.style.minHeight = "";
     const pages = paginate(pg, blocks, start, page, until, from !== null);
     if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
+    followPaper();
     drawSheets(pg, pages);
     drawLines(pg);
     pageCount = pages;
@@ -828,8 +861,8 @@
     for (let k = 0; k < pages; k++) {
       const sh = document.createElement("div");
       sh.className = "sheet";
-      sh.style.left = `${paper.offsetLeft}px`;
-      sh.style.top = `${paper.offsetTop + k * stride}px`;
+      sh.style.left = "0";
+      sh.style.top = `${k * stride}px`;
       sh.style.width = `${paper.offsetWidth}px`;
       sh.style.height = `${pageH}px`;
       if (k > 0) {
@@ -854,7 +887,7 @@
     if (!ln) { lnLayer.replaceChildren(); return; }
     const pt = ptPx, stride = pg.height * pt + GAP;
     const o = paper.getBoundingClientRect().top;
-    const x = paper.offsetLeft + (pg.left - ln.distance) * pt;
+    const x = (pg.left - ln.distance) * pt;
     const size = (ln.size || 10) * pt;
     const frag = document.createDocumentFragment();
     let n = ln.start;
@@ -874,7 +907,7 @@
           num.textContent = String(n);
           num.style.fontSize = `${size}px`;
           num.style.left = `${x}px`;
-          num.style.top = `${paper.offsetTop + line.bottom - size * 1.15}px`;
+          num.style.top = `${line.bottom - size * 1.15}px`;
           frag.appendChild(num);
         }
         n++;
@@ -914,12 +947,12 @@
       if (last && s[0] <= last[1] + 6) last[1] = Math.max(last[1], s[1]);
       else merged.push([s[0], s[1]]);
     }
-    const x = paper.offsetLeft + (pg.left - 9) * ptPx;
+    const x = (pg.left - 9) * ptPx;
     const frag = document.createDocumentFragment();
     for (const [a, b] of merged) {
       const i = document.createElement("i");
       i.style.left = `${x}px`;
-      i.style.top = `${paper.offsetTop + a - 2}px`;
+      i.style.top = `${a - 2}px`;
       i.style.height = `${b - a + 4}px`;
       frag.appendChild(i);
     }
@@ -1081,12 +1114,81 @@
   }
   const toastEl = $("toast");
   let toastTimer = 0;
-  function toast(text        , err = false) {
+  function toast(text        , err = false, ms         ) {
     toastEl.textContent = text;
     toastEl.classList.toggle("err", err);
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), err ? 4200 : 2200);
+    toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), ms ?? (err ? 4200 : 2200));
+  }
+
+  const sentence = (m        ) => (/[.!?…]$/.test(m.trim()) ? m.trim() : `${m.trim()}.`);
+  /** Une saisie qu'on n'a pas pu poser : jamais perdue en silence. Elle
+   *  reste lisible dans le message et part dans le presse-papiers. */
+  function rescue(texts          , why        ) {
+    const text = texts.join("");
+    if (!text.trim()) return;
+    const shown = clip(oneLine(text), 120);
+    const say = (copied         ) => toast(`${why} Ta saisie « ${shown} » ${copied ? "est copiée dans le presse-papiers : colle-la où il faut." : "n'a pas été enregistrée : recopie-la."}`, true, 9000);
+    try {
+      navigator.clipboard.writeText(text).then(() => say(true), () => say(false));
+    } catch {
+      say(false);
+    }
+  }
+
+  /** Après un changement venu d'ailleurs (Word, l'agent), replace la frappe
+   *  en attente dans la nouvelle version : même paragraphe s'il n'a pas
+   *  bougé, sinon le paragraphe identique, sinon le passage autour du
+   *  curseur s'il est unique. Rend le texte qu'on n'a pas su replacer. */
+  function remapGhosts(old       , fresh       )           {
+    const lost           = [];
+    const chars = (s        ) => Array.from(s);
+    const placed                                 = [];
+    const keep          = [];
+    ghosts.forEach((g, i) => {
+      if (g.gone) return;
+      // Position dans le texte réel d'avant (sans les frappes en attente qui précèdent).
+      const earlier = ghosts.slice(0, i).filter((h) => !h.gone && h.idx === g.idx && h.at <= g.at).reduce((n, h) => n + cp(h.text), 0);
+      const realAt = g.at - earlier;
+      const oldText = old.paragraphs[g.idx] ? old.paragraphs[g.idx].text : "";
+      let idx = -1;
+      let at = realAt;
+      if (fresh.paragraphs[g.idx] && fresh.paragraphs[g.idx].text === oldText) {
+        idx = g.idx;
+      } else {
+        const same = fresh.paragraphs.map((p, k) => (p.text === oldText ? k : -1)).filter((k) => k >= 0);
+        if (same.length === 1 && oldText) {
+          idx = same[0];
+        } else {
+          const c = chars(oldText);
+          const left = c.slice(Math.max(0, realAt - 24), realAt).join("");
+          const right = c.slice(realAt, realAt + 24).join("");
+          const key = left + right;
+          if (cp(key) >= 6) {
+            const found                              = [];
+            fresh.paragraphs.forEach((p, k) => {
+              let from = 0;
+              for (;;) {
+                const b = p.text.indexOf(key, from);
+                if (b < 0) break;
+                found.push({ k, at: cp(p.text.slice(0, b)) + cp(left) });
+                from = b + 1;
+              }
+            });
+            if (found.length === 1) { idx = found[0].k; at = found[0].at; }
+          }
+        }
+      }
+      if (idx < 0) { lost.push(g.text); return; }
+      const before = placed.filter((x) => x.g.idx === idx && x.realAt <= at).reduce((n, x) => n + cp(x.g.text), 0);
+      g.idx = idx;
+      g.at = at + before;
+      placed.push({ g, realAt: at });
+      keep.push(g);
+    });
+    ghosts = keep;
+    return lost;
   }
 
   /** File d'attente : une retouche à la fois, dans l'ordre des gestes. */
@@ -1117,8 +1219,9 @@
               const fresh        = normalize(await api(`/docx/model?path=${enc(PATH)}`));
               const same = expectIdx !== undefined && fresh.paragraphs[expectIdx] && fresh.paragraphs[expectIdx].text === expectText;
               const sel = readSel();
-              ghosts = [];
+              const lost = remapGhosts(model , fresh);
               applyModel(fresh, sel);
+              if (lost.length) rescue(lost, "Le document a changé pendant la frappe.");
               if (same) continue;
               status("Le document a changé pendant ce geste : refais-le sur la version à jour.", true);
               return false;
@@ -1128,8 +1231,10 @@
         }
         return false;
       } catch (e     ) {
+        const pending = ghosts.filter((x) => !x.gone && !x.flying).map((x) => x.text);
         ghosts = [];
-        status(e.message || String(e), true);
+        if (pending.length) rescue(pending, sentence(e.message || String(e)));
+        else status(e.message || String(e), true);
         try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message reste */ }
         return false;
       } finally {
@@ -1166,24 +1271,65 @@
     for (const g of todo) {
       g.sent = true;
       enqueue(async () => {
+        if (g.gone || !ghosts.includes(g)) return;
         inflight++;
         status("Enregistrement…");
+        const send = () => {
+          g.flying = true;
+          return api("/docx/op", { path: PATH, revision: model .revision, author, tracked, op: { op: "insert", paragraph: ref(g.idx), at: g.at, with: g.text } });
+        };
         try {
-          const r = await api("/docx/op", { path: PATH, revision: model .revision, author, tracked, op: { op: "insert", paragraph: ref(g.idx), at: g.at, with: g.text } });
+          let r     ;
+          try {
+            r = await send();
+          } catch (e     ) {
+            if (e.status !== 409) throw e;
+            // Word ou l'agent a écrit entre-temps : relire, replacer la frappe
+            // en attente dans la nouvelle version, et renvoyer celle-ci.
+            const old = model ;
+            const fresh        = normalize(await api(`/docx/model?path=${enc(PATH)}`));
+            const lost = remapGhosts(old, fresh);
+            applyModel(fresh, readSel());
+            if (lost.length) rescue(lost, "Le document a changé pendant la frappe.");
+            if (!ghosts.includes(g)) return;
+            r = await send();
+          }
           const sel = readSel();
-          ghosts.shift();
+          ghosts = ghosts.filter((x) => x !== g);
           applyModel(r.model, sel);
           status("Enregistré dans le .docx");
         } catch (e     ) {
+          // Retouche refusée (Word ouvert, passage intouchable…) : la frappe
+          // en attente n'a plus de place sûre, elle est rendue à l'utilisateur.
+          const pending = ghosts.filter((x) => !x.gone).map((x) => x.text);
           ghosts = [];
-          status(e.status === 409 ? "Le document a changé pendant la frappe : la dernière saisie n'a pas été enregistrée." : (e.message || String(e)), true);
+          rescue(pending, e.status === 409 ? "Le document a changé pendant la frappe." : sentence(e.message || String(e)));
           try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message reste */ }
         } finally {
+          g.flying = false;
           inflight--;
         }
       });
     }
     return chain;
+  }
+
+  /** Fermeture du panneau : la file ne tournera plus. Toute frappe qui n'est
+   *  pas déjà partie s'envoie d'un seul geste, en `keepalive` pour survivre
+   *  au déchargement de la page. */
+  function flushOnExit() {
+    clearTimeout(idleTimer);
+    const todo = ghosts.filter((g) => !g.flying && !g.gone);
+    if (!todo.length || !model) return;
+    for (const g of todo) g.gone = true;
+    const ops = todo.map((g) => ({ op: "insert", paragraph: ref(g.idx), at: g.at, with: g.text }));
+    const op = ops.length === 1 ? ops[0] : { op: "batch", ops };
+    // Une retouche est encore en vol : sa révision n'est pas connue ici, on
+    // laisse alors le serveur appliquer à la suite sans contrôle.
+    const body = JSON.stringify({ path: PATH, revision: inflight ? undefined : model.revision, author, tracked, op });
+    try {
+      void fetch("/docx/op", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60000 }).catch(() => undefined);
+    } catch { /* page déjà déchargée */ }
   }
 
   /** Un geste qui change la structure : la frappe part d'abord, et les gestes
@@ -1402,7 +1548,7 @@
         try {
           const r = await api("/docx/undo", { path: PATH, revision: model .revision, redo });
           applyModel(r.model, readSel());
-          status(redo ? "Rétabli" : "Annulé");
+          status(r.label ? `${redo ? "Rétabli" : "Annulé"} : ${r.label}` : redo ? "Rétabli" : "Annulé");
         } catch (e     ) {
           status(e.message || String(e), true);
         }
@@ -1575,6 +1721,7 @@
     <button class="ib" id="btnFind" aria-label="Rechercher" data-tooltip="Rechercher et remplacer (⌘F)">${ic("search")}</button>
     <span class="seg" role="group" aria-label="Affichage"><button id="vReview" aria-pressed="true" data-tooltip="Modifications et commentaires visibles">Révision</button><button id="vRead" aria-pressed="false" data-tooltip="Le texte comme si tout était accepté">Lecture</button></span>
     <span class="navc hide2"><button class="ib" id="navPrev" aria-label="Commentaire précédent" data-tooltip="Commentaire précédent">${ic("left")}</button><span class="lbl" id="navLbl"></span><button class="ib" id="navNext" aria-label="Commentaire suivant" data-tooltip="Commentaire suivant">${ic("right")}</button></span>
+    <button class="ib lanebtn" id="btnLane" aria-label="Commentaires" aria-pressed="false" data-tooltip="Afficher les commentaires (⇧⌘M)">${ic("msgText")}<span class="n" id="laneN"></span></button>
     <button class="track on" id="btnTrack" aria-pressed="true" data-tooltip="Suivi des modifications : chaque retouche reste visible dans Word"><span class="sw"><i></i></span>Suivi</button>`;
 
   // Les boutons ne prennent pas le focus : la sélection reste dans la page.
@@ -1854,6 +2001,20 @@
   let draft                                                                                           = null;
   /** Réponses en cours d'écriture, par fiche : un redessin ou Échap ne les perd pas. */
   const replyDrafts = new Map                ();
+  // Brouillons de réponse de l'agent (Thierry, 2026-11-12 : « Brouillon,
+  // signé Thierry ») : « Proposer » demande au chat une réponse que l'agent
+  // pose hors du document (atelier_docx draft_reply) ; le sondage la verse
+  // dans le champ, l'utilisateur la relit et l'envoie sous son nom.
+
+  let agentDrafts                             = {};
+  let agentDraftsSig = "";
+  /** Commentaires dont on attend le brouillon, et depuis quand. */
+  const asking = new Map                ();
+  /** Brouillons écartés par « Arrêter » jusqu'à la prochaine demande. */
+  const muted = new Set        ();
+  /** Suivis connus au moment de la demande : les nouveaux de l'agent sont ses corrections. */
+  const fixBase = new Map                     ();
+  const ASK_TIMEOUT_MS = 4 * 60_000;
   /** Suivis en cours de décision : un double-clic n'envoie pas deux fois. */
   const deciding = new Set        ();
   const leader = $("leader");
@@ -1934,11 +2095,23 @@
     if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}<p class="tx">${esc(r.text.trim())}</p></div>`;
     else if (replies.length) h += `<div class="meta">${pl(replies.length, "réponse", "réponses")}</div>`;
     if (on) {
-      h += `<textarea class="c-input" rows="1" placeholder="Répondre…" aria-label="Répondre à ${esc(firstName(c.author))}"></textarea>
-        <div class="ac"><button class="btn q" data-act="resolve">${c.done ? "Rouvrir" : `${ic("check", 14)}Résoudre`}</button>
+      const field = `<textarea class="c-input" rows="1" placeholder="Répondre…" aria-label="Répondre à ${esc(firstName(c.author))}"></textarea>`;
+      const ad = c.done || muted.has(c.id) ? null : agentDrafts[String(c.id)] || null;
+      const waiting = !c.done && asking.has(c.id);
+      if (waiting) {
+        h += `<div class="c-wait" role="status">${ic("bot", 14)}<span>Rédaction du brouillon</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><button class="btn q in" data-act="stop">Arrêter</button></div>`;
+      } else if (ad) {
+        h += `<div class="c-by">${ic("bot", 12)}<span>Brouillon de ${esc(firstName(ad.author))}, à relire</span><button class="lk" data-act="redo" data-tooltip="Demander une autre formulation">Refaire</button></div><div class="c-field">${field}</div>`;
+      } else if (!c.done) {
+        h += `<div class="c-field ask">${field}<button class="btn q in" data-act="propose" data-tooltip="L'agent du chat rédige une réponse que tu relis avant d'envoyer">${ic("bot", 14)}Proposer</button></div>`;
+      } else h += field;
+      // Un remplacement = un retrait et un ajout : on compte les passages touchés.
+      const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
+      if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
+      h += `<div class="ac"><button class="btn q" data-act="resolve">${c.done ? "Rouvrir" : `${ic("check", 14)}Résoudre`}</button>
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>
-        <button class="btn p" data-act="reply">Répondre</button></div>`;
+        <button class="btn p" data-act="reply"${!c.done && asking.has(c.id) ? " disabled" : ""}>Répondre</button></div>`;
     }
     return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }
@@ -2012,6 +2185,7 @@
         const next = el.querySelector("textarea");
         const back = it.kind === "draft" ? was : replyDrafts.get(it.key) || "";
         if (next && back) next.value = back;
+        if (next) fitInput(next);
       }
       el.classList.toggle("on", on);
       el.classList.toggle("grp", it.kind === "chip");
@@ -2041,12 +2215,19 @@
     const b = document.body.classList;
     // La marge prend 360 px : si la page doit alors tomber sous 75 %, les
     // fiches passent en fenêtre et la page garde sa taille.
+    // Le bouton « Commentaires » peut la fermer (laneOff) ou, faute de place,
+    // la poser par-dessus la page (lane-over) ; pendant que l'app élargit le
+    // panneau (holdPt), elle reste ouverte et se dévoile avec lui.
     const pg = model?.page;
     const room = scroller.clientWidth - 24 - 360;
-    b.toggle("no-lane", innerWidth < 760 || (!!pg && zoom === null && room < pg.width * PT * 0.75));
+    const narrow = !holdPt && (innerWidth < 760 || (!!pg && zoom === null && room < pg.width * PT * 0.75));
+    if (!narrow) laneOver = false;
+    b.toggle("no-lane", laneOff || (narrow && !laneOver));
+    b.toggle("lane-over", !laneOff && narrow && laneOver);
     if (!b.contains("no-lane")) { b.remove("lane-pop"); cardsEl.style.removeProperty("width"); cardsEl.style.removeProperty("top"); }
     // Sans fiche à montrer, la marge disparaît : la page reprend la largeur du panneau.
     b.toggle("no-margin", !cardsEl.childElementCount || b.contains("no-lane"));
+    syncLaneBtn();
     fitPage();
     placeCards();
   }
@@ -2073,7 +2254,9 @@
     if (document.body.classList.contains("no-lane")) { placePop(); return; }
     if (document.body.classList.contains("no-margin")) { leader.classList.remove("on"); return; }
     const els = Array.from(cardsEl.children)                 ;
-    const left = `${paper.offsetLeft + paper.offsetWidth + 24}px`;
+    // La marge reste fixée au bord droit du panneau : seul le document zoome.
+    // Elle ne suit la page que si celle-ci, agrandie, déborde jusque-là.
+    const left = `${Math.max(paper.offsetLeft + paper.offsetWidth + 24, scroller.clientWidth - 24 - cardsEl.offsetWidth)}px`;
     if (cardsEl.style.left !== left) cardsEl.style.left = left;
     // Lectures d'abord, puis toutes les écritures : une seule mise en page
     // pour toute la marge (des centaines de fiches sur une copie révisée).
@@ -2152,6 +2335,92 @@
     cardsEl.style.top = `${Math.max(sr.top + 8, y)}px`;
   }
 
+  // ------------------------------------------- bouton « Commentaires »
+  // Ouvrir la marge quand le panneau est trop étroit : l'app élargit le
+  // panneau d'exactement la place qui manque (la page garde sa taille, ou
+  // atteint les 75 % sous lesquels la marge ne tient pas) ; sans app ou sans
+  // place, la marge s'ouvre par-dessus le bord de la page. La fermer rend au
+  // panneau sa largeur d'avant.
+  const LANE_NONCE = (() => {
+    try { const m = location.hash.match(/atelier_nonce=([\w-]+)/); return m ? m[1] : sessionStorage.getItem("atelier_nonce") || ""; }
+    catch { return ""; }
+  })();
+  const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function syncLaneBtn() {
+    const laneBtn = $("btnLane");
+    const any = cardsEl.childElementCount > 0;
+    const on = any && !document.body.classList.contains("no-lane");
+    laneBtn.classList.toggle("on", on);
+    laneBtn.setAttribute("aria-pressed", String(on));
+    (laneBtn                     ).disabled = !any;
+    laneBtn.dataset.tooltip = !any ? "Aucun commentaire ni modification"
+      : on ? "Masquer les commentaires (⇧⌘M)" : "Afficher les commentaires (⇧⌘M)";
+  }
+  function askPane(action                     , px        ) {
+    clearTimeout(paneWait);
+    paneAction = action;
+    parent.postMessage({ type: "atelier-docx-pane", action, px, nonce: LANE_NONCE }, "*");
+    // Sans réponse (galerie seule, banc d'essai), on n'attend pas plus.
+    paneWait = window.setTimeout(() => paneDone(action, false), 700);
+  }
+  function paneDone(action        , ok         ) {
+    clearTimeout(paneWait);
+    paneWait = 0;
+    paneAction = "";
+    holdPt = 0;
+    document.body.classList.remove("lane-in");
+    if (action === "widen") { widened = ok; laneOver = true; }
+    layoutCards();
+  }
+  window.addEventListener("message", (e) => {
+    const d = e.data                                                           ;
+    if (e.source !== parent || d?.type !== "atelier-docx-pane-done") return;
+    if (paneWait && d.action === paneAction) paneDone(d.action, d.ok === true);
+    // Réponse arrivée après l'attente : le panneau a quand même été élargi,
+    // il faudra le rendre en fermant la marge.
+    else if (!paneWait && d.action === "widen" && d.ok === true && !laneOff) { widened = true; layoutCards(); }
+  });
+  function closeLane() {
+    const b = document.body.classList;
+    const finish = () => {
+      b.remove("lane-out");
+      laneOff = true;
+      laneOver = false;
+      try { localStorage.setItem(LANE_KEY, "1"); } catch { /* choix gardé pour la session */ }
+      if (widened && parent !== window) { widened = false; holdPt = ptPx; askPane("restore", 0); }
+      layoutCards();
+    };
+    if (reduced()) { finish(); return; }
+    b.add("lane-out");
+    window.setTimeout(finish, 120);
+  }
+  function openLane() {
+    const b = document.body.classList;
+    laneOff = false;
+    try { localStorage.removeItem(LANE_KEY); } catch { /* choix gardé pour la session */ }
+    const pg = model?.page;
+    let need = Math.max(0, 760 - innerWidth);
+    if (pg && zoom === null) need = Math.max(need, Math.max(ptPx, PT * 0.75) * pg.width + 24 + 360 - scroller.clientWidth);
+    need = Math.ceil(need);
+    if (need > 0 && parent === window) laneOver = true;
+    else if (need > 0) {
+      holdPt = zoom === null ? Math.max(ptPx, PT * 0.75) : 0;
+      if (!reduced()) b.add("lane-in");
+      askPane("widen", need);
+    }
+    layoutCards();
+  }
+  const laneBtn = $("btnLane");
+  laneBtn.addEventListener("click", () => {
+    if (paneWait || document.body.classList.contains("lane-out")) return;
+    if (document.body.classList.contains("no-lane")) openLane(); else closeLane();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey || e.code !== "KeyM") return;
+    e.preventDefault();
+    if (!(laneBtn                     ).disabled) laneBtn.click();
+  });
+
   function updateNav() {
     const n = navOrder.indexOf(focusKey);
     $("navLbl").innerHTML = !navOrder.length ? "Aucun commentaire"
@@ -2195,6 +2464,75 @@
         if (ok && note) status(note);
       } finally { ids.forEach((id) => deciding.delete(id)); }
     });
+  }
+
+  /** Le champ de réponse grandit avec son texte (un brouillon tient sur plusieurs lignes). */
+  function fitInput(ta                     ) {
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight + 2, 240)}px`;
+  }
+
+  /** Suivis posés par l'agent depuis la demande de brouillon. */
+  function agentFixes(id        )           {
+    const base = fixBase.get(id);
+    if (!base || !model) return [];
+    return model.changes.filter((ch) => !base.has(ch.id) && AGENT.test(ch.author)).map((ch) => ch.id);
+  }
+
+  /** Ce que l'agent lit : le commentaire, son fil, et la consigne. */
+  function replyPrompt(c         , previous         )         {
+    const replies = model .comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
+    const who = firstName(c.author);
+    return `${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}\n\n`
+      + `Propose-moi une réponse à ${who} : courte, en français, que je relirai et enverrai sous mon nom. `
+      + `Pose-la avec atelier_docx action=draft_reply (comment=${c.id}), jamais reply. `
+      + `Si le passage mérite une correction, pose-la aussi en suivi (action=edit).`
+      + (previous ? ` Une autre formulation que celle-ci : « ${previous} ».` : "");
+  }
+
+  function proposeReply(c         , previous         ) {
+    const core = W.AtelierStudioCore;
+    if (!W.__atelierPost || !core || !core.requestChatAttachment) {
+      status("Le chat d'Atelier n'est pas joignable depuis cette page.", true);
+      return;
+    }
+    muted.delete(c.id);
+    asking.set(c.id, Date.now());
+    fixBase.set(c.id, new Set(model .changes.map((ch) => ch.id)));
+    renderCards();
+    core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: replyPrompt(c, previous), path: PATH, name: NAME, direct: true } })
+      .then(() => status("Demandé au chat : le brouillon arrive dans la carte"))
+      .catch((e       ) => { asking.delete(c.id); renderCards(); status(e.message, true); });
+  }
+
+  function clearAgentDraft(id        ) {
+    if (!agentDrafts[String(id)]) return;
+    delete agentDrafts[String(id)];
+    api("/docx/draft/clear", { path: PATH, comment: id }).catch(() => { /* il sera écrasé au prochain brouillon */ });
+  }
+
+  /** Brouillons lus au sondage : versés dans le champ s'il est vide (ou porte
+   *  encore le brouillon précédent), sans jamais écraser ce que l'utilisateur tape. */
+  function takeAgentDrafts(next                            ) {
+    let fresh = "";
+    for (const [key, d] of Object.entries(next)) {
+      const id = Number(key);
+      const prev = agentDrafts[key];
+      if (prev && prev.at === d.at) continue;
+      if (muted.has(id)) continue;
+      asking.delete(id);
+      const card = `c${id}`;
+      const ta = cardsEl.querySelector                     (`[data-key="${card}"] textarea`);
+      const typed = ta ? ta.value : replyDrafts.get(card) || "";
+      if (!typed.trim() || (prev && typed === prev.text)) {
+        replyDrafts.set(card, d.text);
+        if (ta) ta.value = d.text;
+      }
+      fresh = d.author;
+    }
+    agentDrafts = next;
+    renderCards();
+    if (fresh) status(`Brouillon de ${firstName(fresh)} prêt dans la carte`);
   }
 
   /** Montre une modification dans la page, et la sélectionne de l'œil. */
@@ -2243,6 +2581,17 @@
     const c = commentMap.get(it.ids[0]);
     if (!c) return;
     const ta = host.querySelector("textarea");
+    if (act === "propose") { proposeReply(c); return; }
+    if (act === "stop") { asking.delete(c.id); muted.add(c.id); renderCards(); status("Brouillon abandonné"); return; }
+    if (act === "redo") {
+      const previous = agentDrafts[String(c.id)]?.text;
+      if (ta && previous && ta.value === previous) ta.value = "";
+      replyDrafts.delete(it.key);
+      clearAgentDraft(c.id);
+      proposeReply(c, previous);
+      return;
+    }
+    if (act === "see-fix") { const f = agentFixes(c.id); if (f.length) showChange(f[0]); return; }
     if (act === "resolve") {
       structural(async () => {
         const ok = await sendOp({ op: "resolve", id: c.id, done: !c.done });
@@ -2255,6 +2604,7 @@
       replyDrafts.delete(it.key);
       structural(async () => {
         const ok = await sendOp({ op: "reply", parent: c.id, text });
+        if (ok) { clearAgentDraft(c.id); fixBase.delete(c.id); asking.delete(c.id); renderCards(); }
         if (!ok) { const again = cardsEl.querySelector(`[data-key="${it.key}"] textarea`)                              ; if (again && !again.value) again.value = text; }
       });
     } else if (act === "delete") {
@@ -2263,6 +2613,10 @@
       const replies = model .comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
       toChat(`${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}`);
     } else if (focusKey !== it.key) focusCard(it.key, true);
+  });
+  cardsEl.addEventListener("input", (e) => {
+    const ta = e.target               ;
+    if (ta.classList.contains("c-input")) fitInput(ta                       );
   });
   cardsEl.addEventListener("keydown", (e) => {
     const ta = e.target               ;
@@ -2275,6 +2629,19 @@
     } else if (e.key === "Escape" && host?.dataset.key === "draft") { e.preventDefault(); cancelDraft(); }
   });
   window.addEventListener("resize", () => { responsive(); layoutCards(); });
+  // Le panneau change de taille sans que la fenêtre le sache (marge des
+  // fiches, liste du document, iframe ré-affichée) : la page se recentre,
+  // les calques la suivent ; une coupe faite à l'aveugle est refaite.
+  let reflowFrame = 0;
+  new ResizeObserver(() => {
+    if (reflowFrame) return;
+    reflowFrame = requestAnimationFrame(() => {
+      reflowFrame = 0;
+      if (!scroller.clientWidth) return;
+      layoutCards();
+      if (laidOutHidden) scheduleLines();
+    });
+  }).observe(scroller);
 
   // ---------------------------------------------- commentaire en brouillon
   const HL = typeof CSS !== "undefined" && "highlights" in CSS && typeof (window                                      ).Highlight === "function";
@@ -2682,6 +3049,7 @@
     let words = 0;
     for (let k = 0; k < (model.body ?? model.paragraphs.length); k++) words += (virtualText(k).match(/\S+/g) || []).length;
     $("ftWords").textContent = pl(words, "mot", "mots");
+    $("laneN").textContent = open ? nf(open) : "";
     $("ftOpen").innerHTML = [
       pl(open, "commentaire ouvert", "commentaires ouverts"),
       pl(model.changes.length, "modification", "modifications"),
@@ -2730,12 +3098,13 @@
   function lockedAt(idx        , s        , e        )                       {
     const [a, b] = expandWhole(idx, s, e);
     if (a !== s || b !== e) return "field";
-    // Le moteur refuse de retoucher l'ajout en suivi d'un autre auteur.
+    // Le moteur retouche l'ajout d'un autre en suivi imbriqué, mais pas un
+    // passage déplacé (à accepter ou refuser d'abord).
     let off = 0;
     for (const g of model .paragraphs[idx].segments) {
       const removed = g.rev === "del" || g.rev === "moveFrom";
       const len = removed ? 0 : cp(g.text);
-      if (!removed && g.rev && g.change !== undefined && len && off < e && s < off + len && changeMap.get(g.change)?.author !== author) return "rev";
+      if (!removed && g.rev === "moveTo" && g.change !== undefined && len && off < e && s < off + len && changeMap.get(g.change)?.author !== author) return "rev";
       off += len;
     }
     return "";
@@ -2807,7 +3176,7 @@
     if (!h) return;
     if (view === "original") { status("Repasser en Révision pour remplacer."); return; }
     if (h.locked === "field") { status("Ce passage est dans une citation ou un champ : à modifier dans Word.", true); return; }
-    if (h.locked === "rev") { status("Ce passage est un ajout en suivi d'un autre auteur : l'accepter ou le refuser d'abord.", true); return; }
+    if (h.locked === "rev") { status("Ce passage est un déplacement en suivi d'un autre auteur : l'accepter ou le refuser d'abord.", true); return; }
     const w = replacement();
     structural(async () => {
       const ok = await sendOp({ op: "replace_range", paragraph: ref(h.idx), start: h.s, end: h.e, with: w }, () => null);
@@ -2825,7 +3194,7 @@
     const free = hits.filter((h) => !h.locked);
     const inField = hits.filter((h) => h.locked === "field").length;
     const inRev = hits.filter((h) => h.locked === "rev").length;
-    if (!free.length) { status("Tous ces passages sont dans des champs ou des ajouts en suivi d'un autre auteur : rien à remplacer ici.", true); return; }
+    if (!free.length) { status("Tous ces passages sont dans des champs ou des déplacements en suivi d'un autre auteur : rien à remplacer ici.", true); return; }
     const left = [inField ? pl(inField, "laissé dans un champ", "laissés dans des champs") : "", inRev ? pl(inRev, "laissé dans un suivi", "laissés dans des suivis") : ""].filter(Boolean).join(", ");
     // Du dernier au premier dans chaque paragraphe : les positions qui
     // précèdent restent justes.
@@ -2877,6 +3246,11 @@
     if (document.hidden || !model || ghosts.length || inflight || structBusy) return;
     try {
       const s = await api(`/docx/stat?path=${enc(PATH)}`);
+      const sig = JSON.stringify(s.drafts || {});
+      if (sig !== agentDraftsSig) { agentDraftsSig = sig; takeAgentDrafts(s.drafts || {}); }
+      for (const [id, since] of asking) {
+        if (Date.now() - since > ASK_TIMEOUT_MS) { asking.delete(id); renderCards(); status("Aucun brouillon reçu : voir la réponse dans le chat", true); }
+      }
       if (s.mtime === model.mtime && s.openInWord === model.openInWord) return;
       if (ghosts.length || inflight || structBusy) return;
       const fresh        = await api(`/docx/model?path=${enc(PATH)}`);
@@ -2938,7 +3312,7 @@
     document.addEventListener("selectionchange", () => live.schedule());
   }
 
-  window.addEventListener("pagehide", () => { flushGhosts(); });
+  window.addEventListener("pagehide", flushOnExit);
   document.addEventListener("visibilitychange", () => { if (document.hidden) flushGhosts(); });
   boot();
 })();

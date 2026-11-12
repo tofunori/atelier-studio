@@ -16,6 +16,11 @@ export type ChatReviewRef = {
   quote?: string;
   now?: string;
   likely?: string;
+  /** Une de ses retouches (lot 2) : `comment` = sa version, `quote` = sa
+   *  phrase d'origine ; `edit` = apply / changed / done, `ready` = sa
+   *  version s'applique telle quelle. */
+  edit?: string;
+  ready?: boolean;
 };
 
 export type ReviewSession = {
@@ -24,7 +29,7 @@ export type ReviewSession = {
   source: Window;
   origin: string;
   nonce: string;
-  mode: "open" | "likely";
+  mode: "open" | "likely" | "edit";
   /** Commentaire en cours ; null quand il n'en reste plus. */
   current: (ChatReviewRef & { path: string; id: string }) | null;
   pending: boolean;

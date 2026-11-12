@@ -57,7 +57,8 @@ const TOOL: &str = "atelier-pdf";
 
 /// L'outil `atelier-pdf` : variable `ATELIER_PDF_TOOL`, à côté de
 /// l'exécutable courant (le .app les pose ensemble, cargo aussi), un cran
-/// au-dessus (exécutables de test dans `target/<profil>/deps/`), puis dans
+/// au-dessus (exécutables de test dans `target/<profil>/deps/`), le profil
+/// au-dessus de `build/` (nouvelle disposition de cargo), puis dans
 /// Atelier installé.
 pub fn locate_tool() -> Option<PathBuf> {
     if let Some(value) = std::env::var_os("ATELIER_PDF_TOOL").filter(|v| !v.is_empty()) {
@@ -70,6 +71,12 @@ pub fn locate_tool() -> Option<PathBuf> {
             dirs.push(dir.to_path_buf());
             if let Some(parent) = dir.parent() {
                 dirs.push(parent.to_path_buf());
+            }
+            // Nouvelle disposition de cargo (build-dir) : les exécutables de
+            // test vivent dans `target/<profil>/build/<paquet>/<hash>/out/`.
+            let build = dir.ancestors().take(5).find(|a| a.file_name() == Some("build".as_ref()));
+            if let Some(profile) = build.and_then(Path::parent) {
+                dirs.push(profile.to_path_buf());
             }
         }
     }
