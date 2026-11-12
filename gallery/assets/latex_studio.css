@@ -806,6 +806,29 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .texa-block.texr-proposal .texr-acts{margin-top:8px}
 .texa-dot{display:inline-block;width:6px;height:6px;border-radius:999px;background:var(--accent)}
 
+/* Commentaires d'un relecteur importés de Word (reviewer_notes.ts) : passage
+   souligné d'un trait neutre, pastille cerclée, état à droite de l'en-tête ;
+   le bloc (fil privé avec Claude) ne s'ouvre que sous le commentaire actif. */
+.texc-hl.texc-comment.texv-mark{background:color-mix(in srgb,var(--text-primary,var(--txt)) 7%,transparent);box-shadow:inset 0 -1px 0 var(--text-muted,var(--muted))}
+.texc-hl.texc-comment.texv-mark.is-done{background:transparent;box-shadow:inset 0 -1px 0 var(--border-subtle,var(--border))}
+.atelier-annotation-number.is-reviewer{--annotation-number-bg:transparent;--annotation-number-ink:var(--text-secondary,var(--txt));box-shadow:inset 0 0 0 1px var(--text-muted,var(--muted))}
+.texv-head .texr-note{flex:1;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.texv-head.is-open .texr-note{display:block;-webkit-line-clamp:unset;white-space:pre-wrap}
+.texv-head.is-done .texr-note{color:var(--text-muted,var(--muted))}
+.texv-state{flex:none;display:inline-flex;align-items:center;gap:4px;margin-left:auto;font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-muted,var(--muted));white-space:nowrap}
+.texv-state svg{width:12px;height:12px}
+.texv-state.tone-ok .tp-ic{color:var(--status-success,#98c379)}
+.texv-state.tone-ask .tp-ic{color:var(--status-warning,#e0b74a)}
+.texv-state .tp-ic{display:inline-grid;place-items:center;width:12px;height:12px}
+.texv-block{max-width:720px}
+.texv-fit{display:flex;align-items:flex-start;gap:8px;padding:4px 0 8px;font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--text-muted,var(--muted));overflow-wrap:anywhere}
+.texv-fit svg{width:12px;height:12px;flex:none;margin-top:4px;color:var(--status-warning,#e0b74a)}
+.texv-private{display:flex;align-items:center;gap:4px;padding:4px 0;font:var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-disabled,var(--muted))}
+.texv-private svg{width:12px;height:12px;flex:none}
+.texv-word .texa-msg-who svg{width:12px;height:12px}
+.texv-concl{padding:4px 0;font:500 var(--fs-label, 11px)/1.3 var(--ui-font);color:var(--text-muted,var(--muted))}
+.texv-done svg{width:13px;height:13px}
+
 /* La barre appartient au document : commandes fréquentes, puis menus. */
 #fileIdentity{order:0;flex:0 1 220px}
 #fname{flex:1;min-width:0}

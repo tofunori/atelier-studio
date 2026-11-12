@@ -4,6 +4,7 @@ mod bibcheck;
 mod codes;
 mod docx;
 mod documents;
+mod feedback;
 mod drafts;
 mod files;
 mod gallery;
@@ -2835,6 +2836,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/figures", get(docx::figures))
         .route("/docx/new", post(docx::create))
         .route("/docx/list", get(docx::list))
+        // Retour d'un relecteur en Word posé dans le LaTeX (le .docx en corps).
+        .route(
+            "/review/import",
+            post(feedback::import).layer(axum::extract::DefaultBodyLimit::max(feedback::MAX_DOCX_BYTES)),
+        )
+        .route("/review/status", get(feedback::status))
         .route("/lint", get(documents::lint))
         .route("/tex/manuscript", post(manuscript::manuscript))
         .route("/tex/manuscript/prefs", post(manuscript::prefs))

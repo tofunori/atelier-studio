@@ -319,8 +319,9 @@ pub fn annotate_tool_definition() -> Value {
     file. note: quote = passage copied verbatim from the file (or the PDF text), comment = your note in the user's \
     language; optional text = rewritten passage (text files only, the user accepts or rejects it); several at once \
     with notes = [{quote, comment, text?, line?, page?}]. reply: answer the user in the thread of one of your notes \
-    (id from the chat message), optional suggestion = new rewrite. list: your notes in the file and which ones wait \
-    for you. remove: your own notes only.",
+    (id from the chat message), optional suggestion = new rewrite; also the private thread under a reviewer's \
+    comment imported from Word (the user debates it with you, the reviewer never sees it). list: your notes in the \
+    file, the reviewer comments under discussion, and which ones wait for you. remove: your own notes only.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],

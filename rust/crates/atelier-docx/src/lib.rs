@@ -11,6 +11,7 @@
 //! - [`review`] : accepter ou refuser un suivi.
 //! - [`edit`] : remplacer un passage, en suivi ou non.
 //! - [`comments`] : ajouter, répondre, résoudre, supprimer un commentaire.
+//! - [`feedback`] : retour d'un relecteur posé sur le .tex dont le .docx est issu.
 //! - [`structure`] : Entrée et retour arrière entre paragraphes.
 //! - [`format`] : police, taille, gras…, style et alignement.
 //! - [`ops`] : une retouche en JSON (panneau et agent), et le texte pour l'agent.
@@ -21,6 +22,7 @@
 
 pub mod comments;
 pub mod edit;
+pub mod feedback;
 pub mod layout;
 pub mod math;
 pub mod model;

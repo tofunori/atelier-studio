@@ -50,6 +50,12 @@ fn by_agent(a: &Value) -> bool {
     matches!(a.get("by").and_then(Value::as_str), Some(AGENT_BY) | Some("claude"))
 }
 
+/// Commentaire d'un relecteur importé de Word (`POST /review/import`) : son
+/// fil est la discussion privée de Thierry avec l'agent à son sujet.
+fn by_reviewer(a: &Value) -> bool {
+    a.get("by").and_then(Value::as_str) == Some("reviewer")
+}
+
 fn short(text: &str) -> String {
     let words: Vec<&str> = text.split_whitespace().collect();
     if words.len() <= 10 { words.join(" ") } else { format!("{} …", words[..10].join(" ")) }
@@ -410,7 +416,7 @@ pub fn reply(target: &Target, author: &str, id: &str, text: &str, suggestion: Op
             .iter_mut()
             .find(|a| a.get("id").and_then(Value::as_str) == Some(id))
             .ok_or_else(|| format!("note {id} introuvable dans ce fichier (résolue ou retirée ?)"))?;
-        if !by_agent(note) {
+        if !by_agent(note) && !by_reviewer(note) {
             return Err("cette note est celle de l'utilisateur : réponds-lui dans le chat, ou avec atelier_revision pendant une ronde".into());
         }
         let thread = note
@@ -438,7 +444,8 @@ pub fn list(target: &Target) -> Result<Value, String> {
     let list = store.get(&target.rel).and_then(Value::as_array).unwrap_or(&empty);
     let notes: Vec<Value> = list
         .iter()
-        .filter(|a| by_agent(a))
+        // les notes de l'agent, et les commentaires du relecteur dont on discute
+        .filter(|a| by_agent(a) || (by_reviewer(a) && a.get("thread").and_then(Value::as_array).is_some_and(|t| !t.is_empty())))
         // un marquage PDF sur plusieurs pages ne compte qu'une fois
         .filter(|a| {
             let id = a.get("id").and_then(Value::as_str).unwrap_or("");
@@ -454,6 +461,9 @@ pub fn list(target: &Target) -> Result<Value, String> {
                 "thread": thread.iter().map(|m| json!({"by": m.get("by"), "text": m.get("text")})).collect::<Vec<_>>(),
                 "waitingForYou": waiting,
             });
+            if by_reviewer(a) {
+                out["reviewer"] = a.get("author").cloned().unwrap_or(Value::Null);
+            }
             if target.kind == Kind::Text {
                 out["line"] = json!(a.pointer("/from/line").and_then(Value::as_u64).map(|l| l + 1));
             } else {
@@ -462,7 +472,7 @@ pub fn list(target: &Target) -> Result<Value, String> {
             out
         })
         .collect();
-    let mine = list.iter().filter(|a| !by_agent(a)).count();
+    let mine = list.iter().filter(|a| !by_agent(a) && !by_reviewer(a)).count();
     Ok(json!({"ok": true, "file": target.file, "notes": notes, "userNotes": mine}))
 }
 
@@ -662,6 +672,28 @@ mod tests {
         let r = f.run("remove", json!({"path": "main.tex", "id": "c1"})).unwrap();
         assert_eq!(r["removed"], 0);
         assert_eq!(f.store()[&rel].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_agent_debates_under_a_reviewer_comment_but_never_removes_it() {
+        let f = Fixture::new();
+        std::fs::write(f.project.path().join("main.tex"), TEX).unwrap();
+        let rel = format!("tex-comments:{}/main.tex", f.root());
+        pdf_annots::with_store(&f.project.path().join(".fig_thumbs"), |s| -> Result<((), bool), String> {
+            s.insert(rel.clone(), json!([{"id": "rv1-62", "text": "Data", "comment": "Pas clair", "by": "reviewer", "author": "Christophe Kinnard",
+                "thread": [{"id": "m1", "by": "user", "text": "Tu en penses quoi ?", "at": 1}]}]));
+            Ok(((), true))
+        }).unwrap();
+        let listed = f.run("list", json!({"path": "main.tex"})).unwrap();
+        assert_eq!(listed["notes"][0]["reviewer"], "Christophe Kinnard");
+        assert_eq!(listed["notes"][0]["waitingForYou"], true);
+        let r = f.run("reply", json!({"path": "main.tex", "id": "rv1-62", "text": "Il a raison."})).unwrap();
+        assert_eq!(r["ok"], true, "{r}");
+        let r = f.run("remove", json!({"path": "main.tex", "id": "rv1-62"})).unwrap();
+        assert_eq!(r["removed"], 0);
+        let store = f.store();
+        assert_eq!(store[&rel][0]["thread"][1]["text"], "Il a raison.");
+        assert_eq!(store[&rel][0]["by"], "reviewer");
     }
 
     #[test]
