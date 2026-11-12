@@ -2073,7 +2073,9 @@
     if (document.body.classList.contains("no-lane")) { placePop(); return; }
     if (document.body.classList.contains("no-margin")) { leader.classList.remove("on"); return; }
     const els = Array.from(cardsEl.children)                 ;
-    const left = `${paper.offsetLeft + paper.offsetWidth + 24}px`;
+    // La marge reste fixée au bord droit du panneau : seul le document zoome.
+    // Elle ne suit la page que si celle-ci, agrandie, déborde jusque-là.
+    const left = `${Math.max(paper.offsetLeft + paper.offsetWidth + 24, scroller.clientWidth - 24 - cardsEl.offsetWidth)}px`;
     if (cardsEl.style.left !== left) cardsEl.style.left = left;
     // Lectures d'abord, puis toutes les écritures : une seule mise en page
     // pour toute la marge (des centaines de fiches sur une copie révisée).

@@ -559,3 +559,25 @@ test('docx: zoom au curseur et aux touches, retour à la largeur du panneau', as
   await label.click();
   await expect(label).toHaveClass(/on/);
 });
+
+test('docx: au zoom, seule la page change de taille, la marge de revue reste en place', async ({page, project}) => {
+  await page.setViewportSize({width: 1400, height: 900});
+  await open(page, project);
+  const cards = page.locator('#cards');
+  await expect(cards).toBeVisible();
+  const box = async () => (await cards.boundingBox())!;
+  const pageWidth = () => page.locator('#paper').evaluate((el) => el.getBoundingClientRect().width);
+  await page.locator('#foot .z-pct').click();
+  await page.locator('#foot [data-z="out"]').click();
+  const before = await box();
+  const w0 = await pageWidth();
+  for (let i = 0; i < 3; i++) await page.locator('#foot [data-z="out"]').click();
+  await expect.poll(pageWidth).toBeLessThan(w0 * 0.8);
+  const after = await box();
+  // La marge garde sa largeur et sa place : le dézoom ne la fait pas grandir.
+  expect(after.width).toBeCloseTo(before.width, 0);
+  expect(after.x).toBeCloseTo(before.x, 0);
+  // Et elle reste collée au bord droit du panneau.
+  const right = await page.locator('#scroll').evaluate((el) => el.getBoundingClientRect().left + el.clientWidth);
+  expect(right - (after.x + after.width)).toBeCloseTo(24, 0);
+});
