@@ -449,9 +449,10 @@ impl Session {
                 if k < n {
                     let kept = &self.pending[k - 1];
                     self.error = Some(format!(
-                        "« {} » aurait laissé un défaut que Word refuserait : {} retouche(s) retirée(s), le document est revenu au dernier état sain.",
+                        "« {} » aurait laissé un défaut que Word refuserait : {} retouche(s) retirée(s), le document est revenu au dernier état sain ; elles sont gardées à part dans {}.",
                         self.pending[k].label,
-                        n - k
+                        n - k,
+                        history::dir_for(&self.path).display()
                     ));
                     self.rev = kept.rev.clone();
                     let mut model = model;
@@ -523,7 +524,9 @@ fn write_states(path: &Path, disk: &[u8], disk_rev: &str, states: &[Pending]) ->
     if let Err(e) = history::record_steps(path, disk, disk_rev, &steps) {
         eprintln!("atelier-docx : historique non tenu pour {} : {e}", path.display());
     }
-    drop_journal(path);
+    // Retouches retirées (refusées par le contrôle) : leur journal est gardé
+    // à part, jamais effacé, pour qu'aucune frappe ne se perde.
+    if k < states.len() { set_aside(path) } else { drop_journal(path) }
     Ok(Some((k, fresh, model)))
 }
 
@@ -532,6 +535,11 @@ fn write_states(path: &Path, disk: &[u8], disk_rev: &str, states: &[Pending]) ->
 /// celui sur lequel elles s'appliquent. Sinon le journal est mis de côté.
 /// Appelé sous le verrou du document.
 pub fn settle(path: &Path) -> Result<()> {
+    // Word a le document ouvert : rien n'est écrit (son prochain
+    // enregistrement l'écraserait) ; le journal attend.
+    if crate::open_in_word(path) {
+        return Ok(());
+    }
     let Some(entries) = read_journal(path) else { return Ok(()) };
     let ops: Vec<&Entry> = entries.iter().filter(|e| matches!(e, Entry::Op { .. })).collect();
     let bytes = std::fs::read(path)?;

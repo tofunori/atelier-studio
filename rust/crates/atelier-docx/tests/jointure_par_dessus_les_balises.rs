@@ -53,7 +53,15 @@ fn la_fusion_passe_une_fin_de_deplacement_ou_de_signet_entre_les_paragraphes() {
             let mut d = Docx::open(&path).unwrap();
             let m = d.model().unwrap();
             if tracked {
-                assert!(m.changes.iter().any(|c| c.kind == "paragraph-del" && c.author == "Thierry"), "{:?}", m.changes);
+                let mark = m.changes.iter().find(|c| c.kind == "paragraph-del" && c.author == "Thierry").unwrap_or_else(|| panic!("{:?}", m.changes)).id;
+                // Accepter la marque supprimée réunit vraiment les deux paragraphes.
+                edit_file(&path, None, |d| atelier_docx::review::decide(d, mark, atelier_docx::review::Decision::Accept)).unwrap_or_else(|e| panic!("{start} accepter : {}", e.0));
+                let mut d = Docx::open(&path).unwrap();
+                let m = d.model().unwrap();
+                assert_eq!(m.paragraphs.len(), before.paragraphs.len() - 1, "{start}");
+                assert_eq!(m.paragraphs[second - 1].text, format!("{first_text}{second_text}"));
+                let end_tag = end.split_whitespace().next().unwrap();
+                assert!(d.document_xml().contains(end_tag), "la fin de plage est gardée : {end_tag}");
             } else {
                 assert_eq!(m.paragraphs.len(), before.paragraphs.len() - 1);
                 assert_eq!(m.paragraphs[second - 1].text, format!("{first_text}{second_text}"));

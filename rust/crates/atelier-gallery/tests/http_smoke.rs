@@ -2805,6 +2805,42 @@ fn le_panneau_en_seance_recoit_des_deltas_et_ecrit_d_un_coup() {
     assert!(v["model"]["paragraphs"][1]["text"].as_str().unwrap().starts_with("Firn "));
 }
 
+/// L'agent écrit le fichier entre deux sondages du panneau, séance déjà
+/// écrite : la révision du panneau est périmée. Une retouche sans delta et
+/// ⌘Z sont refusés (409) au lieu de viser le mauvais paragraphe ou
+/// d'annuler la retouche de l'agent.
+#[test]
+fn une_ecriture_de_l_agent_entre_deux_sondages_rend_la_revision_du_panneau_perimee() {
+    let srv = start_server();
+    let target = srv.root.join("agent.docx");
+    fs::write(&target, christophe_docx()).unwrap();
+    let (_, body) = http(srv.port, "GET", "/docx/model?path=agent.docx", None);
+    let rev0 = json_of(&body)["revision"].as_str().unwrap().to_string();
+    let op = serde_json::json!({"path": "agent.docx", "revision": rev0, "author": "Thierry", "delta": true,
+        "op": {"op": "insert", "paragraph": "p1", "at": 0, "with": "Glace : "}}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op));
+    assert_eq!(st, 200, "{body}");
+    let rev = json_of(&body)["revision"].as_str().unwrap().to_string();
+    let (st, _) = http(srv.port, "POST", "/docx/flush", Some(r#"{"path":"agent.docx"}"#));
+    assert_eq!(st, 200);
+    // L'agent (un autre processus) insère un paragraphe plus haut.
+    let sig = atelier_docx::Signature::now("Claude");
+    let origin = atelier_docx::history::Origin { source: "agent", author: "Claude", label: "insertion" };
+    let agent: atelier_docx::ops::Op = serde_json::from_value(serde_json::json!({"op": "insert_paragraph", "after": "p0", "text": "Ajout de l'agent."})).unwrap();
+    atelier_docx::edit_file_as(&target, None, &origin, |d| atelier_docx::ops::apply(d, &agent, true, &sig)).unwrap();
+    // Sans delta, révision de séance périmée : refusé.
+    let plain = serde_json::json!({"path": "agent.docx", "revision": rev, "author": "Thierry",
+        "op": {"op": "insert", "paragraph": "p4", "at": 0, "with": "X"}}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&plain));
+    assert_eq!(st, 409, "{body}");
+    // ⌘Z non plus : la retouche de l'agent n'est pas annulée à l'aveugle.
+    let undo = serde_json::json!({"path": "agent.docx", "revision": rev, "delta": true}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/undo", Some(&undo));
+    assert_eq!(st, 409, "{body}");
+    let m = atelier_docx::Docx::open(&target).unwrap().model().unwrap();
+    assert!(m.paragraphs.iter().any(|p| p.text.contains("Ajout de l'agent.")));
+}
+
 /// Arrêt brutal du serveur pendant une séance : le journal tient les gestes
 /// confirmés, et la reprise (celle du démarrage) les écrit dans le fichier.
 #[test]

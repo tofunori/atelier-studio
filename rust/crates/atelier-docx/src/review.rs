@@ -276,7 +276,10 @@ fn kept_markers(src: &str, node: Node) -> String {
 /// qui garde ses propriétés (c'est la marque qui porte la mise en forme).
 fn merge_with_next(src: &str, marker: Node) -> Result<Vec<(Range<usize>, String)>> {
     let p = marker.ancestors().find(|n| is_w(*n, "p")).ok_or_else(|| crate::DocxError("paragraphe introuvable".into()))?;
-    let next = p.next_siblings().skip(1).find(|n| n.is_element());
+    // Word laisse parfois des balises de plage (fin de déplacement, signet)
+    // entre les deux paragraphes : on les traverse et on les garde.
+    let between: Vec<Node> = p.next_siblings().skip(1).filter(|n| n.is_element()).take_while(|n| crate::structure::is_range_mark(*n)).collect();
+    let next = p.next_siblings().skip(1).filter(|n| n.is_element()).find(|n| !crate::structure::is_range_mark(*n));
     let Some(next) = next.filter(|n| is_w(*n, "p")) else {
         // Dernier paragraphe d'une cellule ou suivi d'un tableau : Word garde
         // la marque ; on retire seulement le suivi.
@@ -291,6 +294,9 @@ fn merge_with_next(src: &str, marker: Node) -> Result<Vec<(Range<usize>, String)
     }
     if let Some(r) = content_after_ppr(p) {
         out.push_str(&src[r]);
+    }
+    for n in &between {
+        out.push_str(&src[n.range()]);
     }
     if let Some(r) = content_after_ppr(next) {
         out.push_str(&src[r]);

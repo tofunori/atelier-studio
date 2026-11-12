@@ -4620,6 +4620,8 @@
       if ((typeof s.revision === "string" ? s.revision === model.revision : s.mtime === model.mtime) && s.openInWord === model.openInWord) return;
       if (pend.length || inflight || structBusy) return;
       const fresh        = await api(`/docx/model?path=${enc(PATH)}`);
+      // Un geste parti pendant la lecture : son retour fait foi, pas ce modèle.
+      if (pend.length || inflight || structBusy) return;
       if (fresh.revision === model.revision) { model.mtime = fresh.mtime; model.openInWord = fresh.openInWord; notice.classList.toggle("show", fresh.openInWord); return; }
       const sel = readSel();
       applyModel(fresh, sel);

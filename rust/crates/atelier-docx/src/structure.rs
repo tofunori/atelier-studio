@@ -285,7 +285,7 @@ pub fn join(docx: &mut Docx, paragraph: &str, tracked: bool, sig: &Signature) ->
 
 /// Balise de plage permise entre deux paragraphes comme dans un paragraphe :
 /// elle ne porte aucun texte et ne sépare pas les paragraphes.
-fn is_range_mark(n: roxmltree::Node) -> bool {
+pub(crate) fn is_range_mark(n: roxmltree::Node) -> bool {
     n.tag_name().namespace() == Some(crate::xml::W)
         && matches!(
             n.tag_name().name(),

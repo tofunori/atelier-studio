@@ -128,7 +128,13 @@ fn start_flusher() {
                         }
                         if g.pending() == 0 && g.idle_for(now) > SESSION_IDLE {
                             drop(g);
-                            SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).remove(&k);
+                            // Sous le verrou de la table : refermée seulement si
+                            // aucune requête n'en tient une copie (sinon son
+                            // geste partirait dans une séance hors table).
+                            let mut map = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+                            if Arc::strong_count(&s) <= 2 {
+                                map.remove(&k);
+                            }
                         }
                     }
                 }
@@ -156,10 +162,13 @@ fn disk_revision(path: &Path, revision: Option<String>) -> Option<String> {
     if let Err(e) = g.flush() {
         eprintln!("[docx] séance de {} non écrite : {e}", path.display());
     }
-    if g.pending() > 0 {
+    // Relu AVANT de comparer : un fichier écrit par un autre (l'agent)
+    // depuis le dernier sondage change la révision de la séance, et la
+    // révision du panneau, périmée, est alors refusée (409).
+    let _ = g.sync();
+    if g.revision() != rev || g.pending() > 0 {
         return Some(rev);
     }
-    let _ = g.sync();
     Some(std::fs::read(path).map(|b| atelier_docx::revision_of(&b)).unwrap_or(rev))
 }
 
@@ -653,10 +662,12 @@ pub async fn undo(State(state): State<AppState>, headers: HeaderMap, Json(body):
             if let Some(e) = g.take_error() {
                 return Err((StatusCode::CONFLICT, e));
             }
+            // Relu avant de comparer : sinon ⌘Z annulerait une retouche de
+            // l'agent que le panneau n'a pas encore vue.
+            let _ = g.sync();
             if g.revision() != body.revision || g.pending() > 0 {
                 return Err((StatusCode::CONFLICT, "conflit : le document a changé depuis ; recharger puis refaire".into()));
             }
-            let _ = g.sync();
             let disk = std::fs::read(&path).map(|b| atelier_docx::revision_of(&b)).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
             let old = (g.model().clone(), g.styles().clone(), g.revision().to_string());
             let done = history::undo(&path, &disk, body.redo).map_err(|e| (status_of(&e), e.0))?;
