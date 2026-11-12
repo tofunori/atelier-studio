@@ -59,13 +59,13 @@ describe("Claude Code theme", () => {
     }
   });
 
-  it("gives chat links and inline code their own colors, and resets them for other themes", () => {
+  it("gives chat links their own color, keeps inline code secondary grey, and resets them for other themes", () => {
     const claude = themeContractVars(resolveAppearanceTheme({ themePreset: "claude-code", theme: "dark" }, true));
     expect(claude["--link"]).toBe("#7aa6e7");
-    expect(claude["--code-inline"]).toBe("#de8481");
+    expect(claude["--code-inline"]).toBe(claude["--text-secondary"]);
     const nord = themeContractVars(presetById("nord"));
     expect(nord["--link"]).toBe("currentColor");
-    expect(nord["--code-inline"]).toBe("currentColor");
+    expect(nord["--code-inline"]).toBe(nord["--text-secondary"]);
     expect(nord["--link-hover"]).toBe(presetById("nord").vars["--accent"]);
   });
 });

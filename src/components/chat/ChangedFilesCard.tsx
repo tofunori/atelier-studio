@@ -31,7 +31,7 @@ export function ChangedFilesCard({ files, onToggleFile, canDiff, openPaths, rend
           diff » faisait doublon avec le clic par fichier ; « Annuler les
           fichiers » avec l'annulation du tour, portée par la bulle user. */}
       <div className="changed-files-head">
-        <span className="changed-files-count">{t("chat.files-modified", { count: files.length })}</span>
+        <span className="changed-files-count">{(files.length === 1 ? t("chat.files-modified-one") : t("chat.files-modified", { count: files.length }))}</span>
       </div>
       <div className={`changed-files-list${anyOpen ? " is-expanded" : ""}`}>
         {files.map((f) => {

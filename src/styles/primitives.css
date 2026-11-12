@@ -321,6 +321,16 @@
   color: var(--text-muted); font-size: var(--fs-s, 11px);
   font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ui-activity.is-summary .ui-activity-meta { color: var(--text-muted); font-size: var(--fs-m, 12px); }
+/* Repli de fin de tour (variante B « colonne de lecture », 2026-11-12) : une
+   seule ligne éteinte en 12 px, sans glyphe ; la durée suit le résumé après
+   un point au lieu d'être repoussée au bord droit. */
+.ui-activity.is-summary { --activity-fs: var(--fs-m, 12px); color: var(--text-muted); }
+.ui-activity.is-summary .ui-activity-trigger { min-height: 28px; gap: 4px; padding-block: 4px; }
+.ui-activity.is-summary .ui-activity-icon { display: none; }
+.ui-activity.is-summary .ui-activity-label { flex: 0 1 auto; padding-right: 0; margin-right: 0; color: var(--text-muted); }
+.ui-activity.is-summary .ui-activity-meta { margin-left: 0; min-width: 0; text-align: left; font-size: inherit; }
+.ui-activity.is-summary .ui-activity-meta:not(:empty)::before { content: "·"; margin-right: 4px; color: var(--text-disabled); }
+.ui-activity.is-summary .ui-activity-state:empty { display: none; }
 .ui-activity.is-running .ui-activity-meta { color: var(--text-muted); }
 .ui-activity-state { flex: none; width: 12px; height: 12px; display: inline-flex;
   align-items: center; justify-content: center; color: var(--text-muted); }

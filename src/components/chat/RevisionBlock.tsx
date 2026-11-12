@@ -1,4 +1,5 @@
-// Passage révisé (variante E « diff monochrome », choisie le 2026-11-01) :
+// Passage révisé (variante E « diff monochrome », choisie le 2026-11-01 ;
+// posé dans un creux avec sa provenance, variante B du 2026-11-12) :
 // un bloc ```revision de l'agent (« --- avant » puis « +++ après ») se lit
 // comme la citation habituelle du chat, le nouveau souligné d'un trait fin,
 // le retiré barré en gris éteint. Ni couleur ni carte. Chargé à la demande
@@ -42,7 +43,10 @@ function summary(changes: number, removals: number): string {
   return `${c} · ${removals === 1 ? t("revision.removals-one") : t("revision.removals", { n: removals })}`;
 }
 
-export default function RevisionBlock({ source }: { source: string }) {
+/** `where` : la provenance du passage, donnée par l'agent après le nom du
+ * langage (```revision revCK.docx · p. 20). Sans elle, l'en-tête ne garde que
+ * le bouton copier, visible au survol. */
+export default function RevisionBlock({ source, where }: { source: string; where?: string }) {
   const [copied, setCopied] = useState(false);
   const parts = useMemo(() => parseRevision(source), [source]);
   const segments = useMemo(
@@ -51,8 +55,32 @@ export default function RevisionBlock({ source }: { source: string }) {
   );
   const stats = useMemo(() => revisionStats(segments), [segments]);
   const copyLabel = copied ? t("revision.copied") : t("revision.copy");
+  const place = where?.trim();
+  // Le compte des changements ne s'affiche plus (variante B, 2026-11-12) ;
+  // il reste annoncé aux lecteurs d'écran avec le nom du bloc.
+  const label = parts.complete ? `${t("revision.label")} · ${summary(stats.changes, stats.removals)}` : t("revision.label");
   return (
-    <div className="md-revision not-typeset" role="group" aria-label={t("revision.label")}>
+    <div className={`md-revision not-typeset${place ? " has-place" : ""}`} role="group" aria-label={label}>
+      {(place || parts.complete) && (
+        <div className="md-revision-head">
+          <span className="md-revision-place">{place}</span>
+          {parts.complete && (
+            <IconButton
+              className={`md-revision-copy${copied ? " is-confirmed" : ""}`}
+              label={copyLabel}
+              title={copyLabel}
+              onClick={() => {
+                void navigator.clipboard.writeText(parts.after).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1200);
+                });
+              }}
+            >
+              <CopyIcon size={12} />
+            </IconButton>
+          )}
+        </div>
+      )}
       <div className="md-revision-text"><p>{segments.map((seg, i) => (
         <Fragment key={i}>
           <Segment seg={seg} />
@@ -60,24 +88,6 @@ export default function RevisionBlock({ source }: { source: string }) {
           {seg.kind === "del" && segments[i + 1]?.kind === "add" ? " " : null}
         </Fragment>
       ))}</p></div>
-      {parts.complete && (
-        <div className="md-revision-meta">
-          <span>{summary(stats.changes, stats.removals)}</span>
-          <IconButton
-            className="md-revision-copy"
-            label={copyLabel}
-            title={copyLabel}
-            onClick={() => {
-              void navigator.clipboard.writeText(parts.after).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1200);
-              });
-            }}
-          >
-            <CopyIcon size={14} />
-          </IconButton>
-        </div>
-      )}
     </div>
   );
 }

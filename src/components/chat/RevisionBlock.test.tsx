@@ -17,7 +17,9 @@ describe("RevisionBlock", () => {
     expect(removed.join(" ")).toContain("aerosol optical depth");
     expect(container.querySelector("b, strong")).toBeNull();
     expect(container.querySelector(".md-revision-cite")?.textContent).toBe("(Menounos, 2025)");
-    expect(container.querySelector(".md-revision-meta span")?.textContent).toMatch(/^3 (changements|changes) · 2 (retraits|removals)$/);
+    // le compte n'est plus affiché : il reste dans le nom du bloc
+    expect(container.querySelector(".md-revision-meta")).toBeNull();
+    expect(container.querySelector(".md-revision")?.getAttribute("aria-label")).toMatch(/3 (changements|changes) · 2 (retraits|removals)$/);
     // « ancien nouveau » : une espace entre le barré et le souligné
     expect(container.querySelector(".md-revision-text")?.textContent).toContain("optical depth the share of");
   });
@@ -26,5 +28,19 @@ describe("RevisionBlock", () => {
     const { container } = render(<ReactMarkdown components={MD_COMPONENTS}>{"```revision\n" + SOURCE + "\n```"}</ReactMarkdown>);
     await waitFor(() => expect(container.querySelector(".md-revision")).not.toBeNull());
     expect(container.querySelector(".codeblock")).toBeNull();
+  });
+
+  it("la suite de la ligne d'ouverture donne la provenance du passage", async () => {
+    const { container } = render(<ReactMarkdown components={MD_COMPONENTS}>{"```revision revCK.docx · p. 20\n" + SOURCE + "\n```"}</ReactMarkdown>);
+    await waitFor(() => expect(container.querySelector(".md-revision")).not.toBeNull());
+    expect(container.querySelector(".md-revision")?.classList.contains("has-place")).toBe(true);
+    expect(container.querySelector(".md-revision-place")?.textContent).toBe("revCK.docx · p. 20");
+  });
+
+  it("sans provenance, l'en-tête ne garde que copier", () => {
+    const { container } = render(<RevisionBlock source={SOURCE} />);
+    expect(container.querySelector(".md-revision")?.classList.contains("has-place")).toBe(false);
+    expect(container.querySelector(".md-revision-place")?.textContent).toBe("");
+    expect(container.querySelector(".md-revision-copy")).not.toBeNull();
   });
 });
