@@ -480,7 +480,7 @@
   // Barre d'état : page, mots, revue, enregistrement, signature et zoom.
   foot.innerHTML = `<span id="ftPage"></span><span id="ftWords" class="hide1"></span><span id="ftOpen" class="hide2"></span>
     <span class="sp"></span>
-    <span class="sv" id="ftSave"></span>
+    <span class="sv" id="ftSave" role="status" aria-live="polite"></span>
     <button id="who" class="hide1" data-tooltip="Nom inscrit sur tes retouches et commentaires"></button>
     <span class="zoom" id="zoom" role="group" aria-label="Zoom" hidden><button class="z-step" data-z="out" aria-label="Zoom arrière" data-tooltip="Zoom arrière (⌘−)">${ic("minus", 12)}</button><button class="z-pct" data-tooltip="Ajuster à la fenêtre (⌘0)"></button><button class="z-step" data-z="in" aria-label="Zoom avant" data-tooltip="Zoom avant (⌘+)">${ic("plus", 12)}</button></span>`;
   const zoomEl = $("zoom");
@@ -1054,6 +1054,7 @@
       renderAll();
     }
     if (caret) setCaret(caret.a, collapsed(caret) ? undefined : caret.b);
+    rebaseDraft();
     renderCards();
     renderStatus();
     syncToolbar();
@@ -1478,9 +1479,15 @@
   // ------------------------------------------------------------ menus
   let openMenu                     = null;
   let openTrigger                     = null;
-  function closeMenu() {
+  /** Dernier geste au clavier : un menu ouvert ainsi prend le focus. */
+  let keyboardLast = false;
+  document.addEventListener("keydown", () => { keyboardLast = true; }, true);
+  document.addEventListener("pointerdown", () => { keyboardLast = false; }, true);
+  function closeMenu(refocus = false) {
     if (openMenu) { openMenu.classList.remove("show"); const m = openMenu; setTimeout(() => m.remove(), 150); }
     openTrigger?.classList.remove("open");
+    openTrigger?.setAttribute("aria-expanded", "false");
+    if (refocus) openTrigger?.focus();
     openMenu = null;
     openTrigger = null;
   }
@@ -1510,13 +1517,33 @@
     m.style.left = `${Math.max(8, alignRight ? r.right - w : r.left)}px`;
     requestAnimationFrame(() => m.classList.add("show"));
     trigger.classList.add("open");
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-expanded", "true");
     openMenu = m;
     openTrigger = trigger;
+    // Flèches, Début, Fin ; Échap rend le focus au bouton, Tab ferme.
+    const focusable = () => Array.from(m.querySelectorAll                   (".mi:not(:disabled)"));
+    m.addEventListener("keydown", (e) => {
+      const l = focusable();
+      const k = l.indexOf(document.activeElement                     );
+      const go = (i        ) => { e.preventDefault(); l[(i + l.length) % l.length]?.focus(); };
+      if (e.key === "ArrowDown") go(k + 1);
+      else if (e.key === "ArrowUp") go(k < 0 ? l.length - 1 : k - 1);
+      else if (e.key === "Home") go(0);
+      else if (e.key === "End") go(l.length - 1);
+      else if (e.key === "Tab") closeMenu();
+    });
+    if (keyboardLast) focusable()[0]?.focus({ preventScroll: true });
   }
   document.addEventListener("mousedown", (e) => {
     if (openMenu && !openMenu.contains(e.target        ) && !(openTrigger && openTrigger.contains(e.target        ))) closeMenu();
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeMenu(); hidePop(); } });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    // Un seul appui ferme une seule chose : le menu d'abord.
+    if (openMenu) { e.preventDefault(); closeMenu(true); return; }
+    hidePop();
+  });
 
   // ---------------------------------------------------------- barres
   const fmtbar = $("fmtbar");
@@ -1757,10 +1784,14 @@
     b.toggle("no-side", !side);
     $("btnNav").classList.toggle("on", side);
     $("btnNav").setAttribute("aria-pressed", String(side));
-    b.toggle("no-lane", w < 760);
+    // La barre se replie par paliers tant qu'elle déborde.
     b.toggle("w1", w < 1320);
     b.toggle("w2", w < 1040);
     b.toggle("w3", w < 720);
+    const over = () => fmtbar.scrollWidth > fmtbar.clientWidth + 1;
+    if (!b.contains("w1") && over()) b.add("w1");
+    if (!b.contains("w2") && over()) b.add("w2");
+    if (!b.contains("w3") && over()) b.add("w3");
   }
   $("btnNav").addEventListener("click", () => {
     sidePref = document.body.classList.contains("no-side") ? "1" : "0";
@@ -1787,10 +1818,17 @@
     const p = sel ? model.paragraphs[sel.a.idx] : null;
     const seg = currentSeg();
     const style = model.styles.find((s) => s.id === (p?.style || "Normal"));
-    ($("ddStyle").firstElementChild               ).textContent = styleLabel(style ? style.name : (p?.style || "Normal"));
-    ($("ddFont").firstElementChild               ).textContent = seg?.font || "Police du style";
-    ($("ddSize").firstElementChild               ).textContent = seg?.size ? String(seg.size).replace(".", ",") : "–";
-    fmtbar.querySelectorAll             ("[data-run]").forEach((b) => b.classList.toggle("on", !!(seg && (seg                           )[b.dataset.run ])));
+    // Police et taille du passage, sinon celles que le style donne au paragraphe.
+    const label = (id        , name        , v        ) => { ($(id).firstElementChild               ).textContent = v; $(id).setAttribute("aria-label", `${name} : ${v}`); };
+    const size = seg?.size || p?.look?.size;
+    label("ddStyle", "Style", styleLabel(style ? style.name : (p?.style || "Normal")));
+    label("ddFont", "Police", seg?.font || p?.look?.font || "Police du style");
+    label("ddSize", "Taille", size ? String(size).replace(".", ",") : "–");
+    fmtbar.querySelectorAll             ("[data-run]").forEach((b) => {
+      const on = !!(seg && (seg                           )[b.dataset.run ]);
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", String(on));
+    });
     const al = ALIGN.find(([a]) => a === (p?.align || "left")) || ALIGN[0];
     const alIcon = $("btnAlign").firstElementChild               ;
     if (alIcon.dataset.al !== al[0]) { alIcon.dataset.al = al[0]; alIcon.innerHTML = al[2]; }
@@ -1813,7 +1851,11 @@
   let commentMap = new Map                 ();
   const openChips = new Set        ();
   /** Commentaire en cours d'écriture, sur un passage d'un paragraphe. */
-  let draft                                               = null;
+  let draft                                                                                           = null;
+  /** Réponses en cours d'écriture, par fiche : un redessin ou Échap ne les perd pas. */
+  const replyDrafts = new Map                ();
+  /** Suivis en cours de décision : un double-clic n'envoie pas deux fois. */
+  const deciding = new Set        ();
   const leader = $("leader");
 
   const KIND                         = {
@@ -1883,7 +1925,7 @@
   }
 
   function commentHTML(c         , on         )         {
-    if (c.done && !on) return `<div class="cc dn">${ic("circleCheck", 14)}<span>Réglé · ${esc(oneLine(c.text))}</span></div>`;
+    if (c.done && !on) return `<div class="cc dn" role="button" tabindex="0">${ic("circleCheck", 14)}<span>Réglé · ${esc(oneLine(c.text))}</span></div>`;
     const head = (who        , ini        , d        ) =>
       `<div class="hd">${avatar(who, false, ini)}<span class="nm">${esc(firstName(who))}</span><span class="dt">${d}</span></div>`;
     const replies = model .comments.filter((r) => r.parent === c.id);
@@ -1898,18 +1940,20 @@
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>
         <button class="btn p" data-act="reply">Répondre</button></div>`;
     }
-    return `<div class="cc">${h}</div>`;
+    return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }
   function draftHTML()         {
     return `<div class="cc"><div class="hd">${avatar(author)}<span class="nm">${esc(firstName(author))}</span><span class="dt">Brouillon</span></div>
       <textarea class="c-input" rows="2" placeholder="Écrire un commentaire…" aria-label="Commentaire"></textarea>
-      <div class="ac"><button class="btn q" data-act="cancel">Annuler</button><button class="btn p" data-act="post">Commenter</button></div></div>`;
+      <div class="ac"><button class="btn q" data-act="cancel">Annuler</button><button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer le passage et la note au chat">${ic("chat", 14)}</button><button class="btn p" data-act="post">Commenter</button></div></div>`;
   }
   function chipHTML(it          , open         )         {
     const list = it.ids.map((id) => changeMap.get(id)).filter(Boolean)            ;
     const n = list.length;
-    let h = `<div class="row" data-act="toggle">${avatar(it.author, true)}<span class="lbl"><b>${nf(n)}</b> ${n > 1 ? "modifications" : "modification"}${it.key === "loose" ? " hors du texte" : ""}</span>
-      <span class="gr"><button class="mini no" data-act="rejectAll" aria-label="Tout refuser dans ce paragraphe" data-tooltip="Tout refuser ici">${ic("x", 14)}</button><button class="mini ok" data-act="acceptAll" aria-label="Tout accepter dans ce paragraphe" data-tooltip="Tout accepter ici">${ic("check", 14)}</button></span>
+    // Fermée, la rangée est un seul arrêt du clavier ; ouverte, ses boutons aussi.
+    const tab = open ? "" : ' tabindex="-1"';
+    let h = `<div class="row" data-act="toggle" role="button" tabindex="0" aria-expanded="${open}">${avatar(it.author, true)}<span class="lbl"><b>${nf(n)}</b> ${n > 1 ? "modifications" : "modification"}${it.key === "loose" ? " hors du texte" : ""}</span>
+      <span class="gr"><button class="mini no" data-act="rejectAll"${tab} aria-label="Tout refuser dans ce paragraphe" data-tooltip="Tout refuser ici">${ic("x", 14)}</button><button class="mini ok" data-act="acceptAll"${tab} aria-label="Tout accepter dans ce paragraphe" data-tooltip="Tout accepter ici">${ic("check", 14)}</button></span>
       <span class="cv">${ic("down", 14)}</span></div>`;
     if (open) {
       h += `<div class="lst">${list.map((c) => {
@@ -1917,7 +1961,7 @@
         const sign = c.kind === "ins" || c.kind === "moveTo" ? "+" : del ? "−" : "¶";
         const label = sign === "¶" ? `${KIND[c.kind] || c.kind}${c.text ? ` · ${clip(oneLine(c.text), 80)}` : ""}` : (oneLine(c.text) || (c.kind.startsWith("move") ? "Déplacement" : "Espace"));
         const tip = `${c.author} · ${kindLabel(c)}${c.date ? ` · ${dateFr(c.date)}, ${timeFr(c.date)}` : ""}`;
-        return `<div class="cr${del ? " d" : ""}" data-ch="${c.id}" data-act="show" data-tooltip="${esc(tip)}"><span class="k" style="--who:${uiColor(c.author)}">${sign}</span><span class="t">${esc(clip(label, 120))}</span><span class="gr"><button class="mini no" data-act="reject" aria-label="Refuser">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter">${ic("check", 14)}</button></span></div>`;
+        return `<div class="cr${del ? " d" : ""}" data-ch="${c.id}" data-act="show" data-tooltip="${esc(tip)}"><span class="k" style="--who:${uiColor(c.author)}">${sign}</span><span class="t">${esc(clip(label, 120))}</span><span class="gr"><button class="mini no" data-act="reject" aria-label="Refuser : ${esc(clip(label, 60))}">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter : ${esc(clip(label, 60))}">${ic("check", 14)}</button></span></div>`;
       }).join("")}</div>`;
     }
     return `<div class="ch${open ? " open" : ""}">${h}</div>`;
@@ -1939,6 +1983,16 @@
     // Les fiches inchangées gardent leur élément (et leur hauteur mesurée) :
     // une réponse du disque ne reconstruit que ce qui a bougé.
     const prev = new Map((Array.from(cardsEl.children)                 ).map((el) => [el.dataset.key , el]));
+    // Ce que la marge tient en main avant le redessin : réponses en cours,
+    // focus et sélection dans une zone de saisie, défilement des listes.
+    for (const [key, el] of prev) {
+      const ta = el.querySelector("textarea");
+      if (ta && key !== "draft") { if (ta.value) replyDrafts.set(key, ta.value); else replyDrafts.delete(key); }
+    }
+    const act = document.activeElement                      ;
+    const keep = act && cardsEl.contains(act) ? { key: (act.closest(".it")                      )?.dataset.key, ta: act.tagName === "TEXTAREA", s: (act                       ).selectionStart, e: (act                       ).selectionEnd } : null;
+    const lists = new Map                ();
+    for (const [key, el] of prev) { const l = el.querySelector(".lst"); if (l && l.scrollTop) lists.set(key, l.scrollTop); }
     const frag = document.createDocumentFragment();
     for (const it of lane) {
       if (it.kind === "chip" && view !== "revue") continue;
@@ -1951,22 +2005,26 @@
         el.dataset.key = it.key;
       }
       if (el.dataset.html !== html) {
-        // Une réponse en cours d'écriture survit au redessin de sa fiche.
         const ta = el.querySelector("textarea");
-        const keep = ta ? ta.value : "";
-        const focused = !!ta && document.activeElement === ta;
+        const was = ta ? ta.value : "";
         el.innerHTML = html;
         el.dataset.html = html;
         const next = el.querySelector("textarea");
-        if (next && keep) next.value = keep;
-        if (next && focused) next.focus();
+        const back = it.kind === "draft" ? was : replyDrafts.get(it.key) || "";
+        if (next && back) next.value = back;
       }
       el.classList.toggle("on", on);
-      el.classList.toggle("chip", it.kind === "chip");
+      el.classList.toggle("grp", it.kind === "chip");
       if (it.kind === "chip") el.dataset.ids = it.ids.join(" ");
       frag.appendChild(el);
     }
     cardsEl.replaceChildren(frag);
+    for (const [key, top] of lists) { const l = cardsEl.querySelector(`[data-key="${key}"] .lst`); if (l) l.scrollTop = top; }
+    if (keep?.key) {
+      const host = cardsEl.querySelector(`[data-key="${keep.key}"]`);
+      const t = keep.ta ? host?.querySelector("textarea") : null;
+      if (t) { t.focus({ preventScroll: true }); try { t.setSelectionRange(keep.s, keep.e); } catch { /* zone remplacée */ } }
+    }
     // Passages commentés : actif en évidence, réglés sans fond.
     const active = focusKey.startsWith("c") ? Number(focusKey.slice(1)) : -1;
     for (const el of Array.from(paper.querySelectorAll             (".cmt[data-c]"))) {
@@ -1981,14 +2039,38 @@
 
   function layoutCards() {
     const b = document.body.classList;
+    // La marge prend 360 px : si la page doit alors tomber sous 75 %, les
+    // fiches passent en fenêtre et la page garde sa taille.
+    const pg = model?.page;
+    const room = scroller.clientWidth - 24 - 360;
+    b.toggle("no-lane", innerWidth < 760 || (!!pg && zoom === null && room < pg.width * PT * 0.75));
+    if (!b.contains("no-lane")) { b.remove("lane-pop"); cardsEl.style.removeProperty("width"); cardsEl.style.removeProperty("top"); }
     // Sans fiche à montrer, la marge disparaît : la page reprend la largeur du panneau.
     b.toggle("no-margin", !cardsEl.childElementCount || b.contains("no-lane"));
     fitPage();
     placeCards();
   }
 
+  /** Rectangle du passage d'une fiche ; l'ancrage est retrouvé si la frappe a
+   *  redessiné son paragraphe, et le paragraphe sert de repli quand le passage
+   *  est masqué (Lecture, Original). */
+  function anchorRect(it          , line = false)                 {
+    let a = it.anchor;
+    if (a && !a.isConnected) {
+      a = (it.kind === "comment" ? paper.querySelector             (`.cmt[data-c~="${it.ids[0]}"]`) : null) || paper.querySelector             (`.d-p[data-idx="${it.idx}"]`);
+      it.anchor = a;
+    }
+    if (!a) return null;
+    if (!line) { const q = a.getClientRects()[0]; if (q) return q; }
+    const p = line ? a : (a.closest(".d-p")                      );
+    if (!p) return null;
+    const r = p.getBoundingClientRect();
+    return r.height ? r : null;
+  }
+
   function placeCards() {
     updateNav();
+    if (document.body.classList.contains("no-lane")) { placePop(); return; }
     if (document.body.classList.contains("no-margin")) { leader.classList.remove("on"); return; }
     const els = Array.from(cardsEl.children)                 ;
     const left = `${paper.offsetLeft + paper.offsetWidth + 24}px`;
@@ -2004,16 +2086,17 @@
       if (it.kind === "draft" && dr) {
         const q = dr.getClientRects()[0] || dr.getBoundingClientRect();
         y = q.top + q.height / 2 - base - 22;
-      } else if (it.anchor && it.anchor.isConnected) {
-        if (it.kind === "chip") {
-          // Rangée centrée sur la première ligne du paragraphe.
-          const r = it.anchor.getBoundingClientRect(), cs = getComputedStyle(it.anchor);
+      } else if (it.kind === "chip") {
+        // Rangée centrée sur la première ligne du paragraphe.
+        const r = anchorRect(it, true);
+        if (r) {
+          const cs = getComputedStyle(it.anchor );
           const line = parseFloat(cs.lineHeight) || 20;
           y = r.top + (parseFloat(cs.paddingTop) || 0) + line / 2 - base - 16;
-        } else {
-          const q = it.anchor.getClientRects()[0] || it.anchor.getBoundingClientRect();
-          y = q.top + q.height / 2 - base - 22;
         }
+      } else {
+        const q = anchorRect(it);
+        if (q) y = q.top + Math.min(q.height, 24) / 2 - base - 22;
       }
       return { el, it, y, h: el.offsetHeight, pos: 0 };
     });
@@ -2050,6 +2133,25 @@
     } else leader.classList.remove("on");
   }
 
+  /** Panneau étroit : la fiche active s'ouvre en fenêtre sous son passage. */
+  function placePop() {
+    const el = cardsEl.querySelector             (".it.on");
+    const it = el ? lane.find((c) => c.key === el.dataset.key) : null;
+    const dr = it?.kind === "draft" ? draftRange() : null;
+    const q = dr ? dr.getClientRects()[0] || dr.getBoundingClientRect() : it ? anchorRect(it) : null;
+    const sr = scroller.getBoundingClientRect();
+    const on = !!(el && q && q.bottom > sr.top && q.top < sr.bottom);
+    document.body.classList.toggle("lane-pop", on);
+    if (!on) return;
+    const w = Math.min(312, innerWidth - 32);
+    const h = cardsEl.offsetHeight;
+    let y = q .bottom + 8;
+    if (y + h > sr.bottom - 8 && q .top - h - 8 > sr.top) y = q .top - h - 8;
+    cardsEl.style.width = `${w}px`;
+    cardsEl.style.left = `${Math.max(16, Math.min(innerWidth - w - 16, q .left + q .width / 2 - w / 2))}px`;
+    cardsEl.style.top = `${Math.max(sr.top + 8, y)}px`;
+  }
+
   function updateNav() {
     const n = navOrder.indexOf(focusKey);
     $("navLbl").innerHTML = !navOrder.length ? "Aucun commentaire"
@@ -2060,6 +2162,9 @@
   /** Amène un passage dans la vue s'il en est sorti. */
   function reveal(el                        ) {
     if (!el) return;
+    // Passage masqué (Lecture, Original) : son paragraphe.
+    if (el instanceof Element && !el.getClientRects().length) el = el.closest(".d-p");
+    if (!el || !el.getClientRects().length) return;
     const q = el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
     if (q.top < sr.top + 80 || q.bottom > sr.bottom - 160) scroller.scrollBy({ top: q.top - sr.top - sr.height / 3, behavior: smooth() });
   }
@@ -2079,12 +2184,16 @@
   }
 
   function decide(ids          , act                     , note         ) {
+    ids = ids.filter((id) => !deciding.has(id));
     if (!ids.length) return;
+    ids.forEach((id) => deciding.add(id));
     hideBubble();
     structural(async () => {
-      const ops = ids.map((id) => ({ op: act, id }));
-      const ok = await sendOp(ops.length === 1 ? ops[0] : { op: "batch", ops });
-      if (ok && note) status(note);
+      try {
+        const ops = ids.map((id) => ({ op: act, id }));
+        const ok = await sendOp(ops.length === 1 ? ops[0] : { op: "batch", ops });
+        if (ok && note) status(note);
+      } finally { ids.forEach((id) => deciding.delete(id)); }
     });
   }
 
@@ -2123,6 +2232,12 @@
     if (it.kind === "draft") {
       if (act === "cancel") cancelDraft();
       else if (act === "post") postDraft();
+      else if (act === "ask" && draft) {
+        const note = (host.querySelector("textarea")                              )?.value.trim() || "";
+        const q = `${PATH} (${model .paragraphs[draft.idx]?.id ?? draft.pid}) : « ${draft.quote} »`;
+        toChat(note ? `${q}\n${note}` : q);
+        cancelDraft();
+      }
       return;
     }
     const c = commentMap.get(it.ids[0]);
@@ -2137,6 +2252,7 @@
       const text = ta ? ta.value.trim() : "";
       if (!text) { ta?.focus(); return; }
       ta .value = "";
+      replyDrafts.delete(it.key);
       structural(async () => {
         const ok = await sendOp({ op: "reply", parent: c.id, text });
         if (!ok) { const again = cardsEl.querySelector(`[data-key="${it.key}"] textarea`)                              ; if (again && !again.value) again.value = text; }
@@ -2150,6 +2266,7 @@
   });
   cardsEl.addEventListener("keydown", (e) => {
     const ta = e.target               ;
+    if ((e.key === "Enter" || e.key === " ") && ta.getAttribute("role") === "button") { e.preventDefault(); ta.click(); return; }
     if (ta.tagName !== "TEXTAREA") return;
     const host = ta.closest(".it")                      ;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -2172,7 +2289,28 @@
     try { r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset); } catch { return null; }
     return r;
   }
-  const draftRange = () => (draft ? rangeAt(draft.idx, draft.s, draft.e) : null);
+  const draftRange = () => (draft && !draft.lost ? rangeAt(draft.idx, draft.s, draft.e) : null);
+  /** Après une relecture du fichier, le brouillon retrouve son passage (le
+   *  texte a pu bouger dans le paragraphe, ou le paragraphe changer de rang). */
+  function rebaseDraft() {
+    if (!draft || !model) return;
+    const d = draft;
+    let idx = d.idx;
+    const pidOf = (q      ) => q.para_id || q.id;
+    if (!model.paragraphs[idx] || pidOf(model.paragraphs[idx]) !== d.pid) idx = model.paragraphs.findIndex((q) => pidOf(q) === d.pid);
+    if (idx < 0) { d.lost = true; return; }
+    const text = virtualText(idx);
+    const n = cp(d.quote);
+    let best = -1;
+    if (d.quote) {
+      for (let i = text.indexOf(d.quote); i >= 0; i = text.indexOf(d.quote, i + 1)) {
+        const at = cp(text.slice(0, i));
+        if (best < 0 || Math.abs(at - d.s) < Math.abs(best - d.s)) best = at;
+      }
+    }
+    if (best < 0) { d.lost = true; return; }
+    d.idx = idx; d.s = best; d.e = best + n; d.lost = false;
+  }
   function paintDraft() {
     if (!HL) return;
     const r = draftRange();
@@ -2187,6 +2325,7 @@
     const ta = cardsEl.querySelector('[data-key="draft"] textarea')                              ;
     const text = ta ? ta.value.trim() : "";
     if (!draft || !text) { ta?.focus(); return; }
+    if (draft.lost) { status("Le passage a changé : sélectionne-le de nouveau pour commenter.", true); return; }
     const d = draft;
     const before = new Set(model .comments.map((c) => c.id));
     structural(async () => {
@@ -2298,7 +2437,8 @@
     $("tabComN").textContent = String(tops.length - done);
     heads = [];
     model.paragraphs.forEach((p, idx) => {
-      if (p.story || p.heading === undefined || p.heading === null) return;
+      // Le titre du document (niveau 0) n'est pas une section du plan.
+      if (p.story || p.heading === undefined || p.heading === null || p.heading < 1) return;
       const text = oneLine(virtualText(idx));
       if (text) heads.push({ idx, text, lvl: p.heading <= 1 ? 1 : 2 });
     });
@@ -2310,7 +2450,9 @@
     if (tab === "plan") {
       const open = tops.filter((c) => !c.done).map(cIdx).sort((a, b) => a - b);
       html = heads.length ? heads.map((h, k) => {
-        const end = k + 1 < heads.length ? heads[k + 1].idx : model .body ?? 1e9;
+        // Une section compte aussi ses sous-sections.
+        const nx = heads.findIndex((x, j) => j > k && x.lvl <= h.lvl);
+        const end = nx >= 0 ? heads[nx].idx : model .body ?? 1e9;
         const n = open.filter((i) => i >= h.idx && i < end).length;
         return `<button class="ol${h.lvl === 2 ? " l2" : ""}" data-i="${h.idx}"><span>${esc(h.text)}</span>${n ? `<i>${nf(n)}</i>` : ""}</button>`;
       }).join("") : `<div class="more">Aucun titre dans ce document.</div>`;
@@ -2326,17 +2468,28 @@
       }
       if (!items.length) html = `<div class="more">Aucun commentaire dans ce document.</div>`;
     }
-    if (pane.dataset.html !== html) { pane.innerHTML = html; pane.dataset.html = html; }
+    if (pane.dataset.html !== html) { pane.innerHTML = html; pane.dataset.html = html; spyCur = -2; }
+    if (tab === "com" && focusKey !== sideKey) { sideKey = focusKey; keepInPane(pane.querySelector             (".cl.on")); }
     spy();
   }
   function setTab(next                ) {
     tab = next;
     $("tabPlan").setAttribute("aria-selected", String(tab === "plan"));
     $("tabCom").setAttribute("aria-selected", String(tab === "com"));
+    $("tabPlan").tabIndex = tab === "plan" ? 0 : -1;
+    $("tabCom").tabIndex = tab === "com" ? 0 : -1;
+    pane.setAttribute("aria-labelledby", tab === "plan" ? "tabPlan" : "tabCom");
     renderSide();
   }
   $("tabPlan").addEventListener("click", () => setTab("plan"));
   $("tabCom").addEventListener("click", () => setTab("com"));
+  // Flèches entre les deux onglets.
+  for (const id of ["tabPlan", "tabCom"]) $(id).addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    setTab(tab === "plan" ? "com" : "plan");
+    $(tab === "plan" ? "tabPlan" : "tabCom").focus();
+  });
   pane.addEventListener("click", (e) => {
     const t = e.target               ;
     const o = t.closest(".ol")                      ;
@@ -2347,6 +2500,14 @@
     } else if (c) focusCard(c.dataset.key , true);
   });
   /** Section en cours dans le plan, page en cours dans le pied. */
+  /** Garde l'entrée courante du panneau dans sa vue, sans faire défiler la page. */
+  function keepInPane(el                    ) {
+    if (!el) return;
+    const r = el.getBoundingClientRect(), pr = pane.getBoundingClientRect();
+    if (r.top < pr.top) pane.scrollTop += r.top - pr.top - 8;
+    else if (r.bottom > pr.bottom) pane.scrollTop += r.bottom - pr.bottom + 8;
+  }
+  let spyCur = -2, sideKey = "";
   function spy() {
     if (!model) return;
     const sr = scroller.getBoundingClientRect();
@@ -2356,7 +2517,11 @@
         const el = paper.querySelector(`.d-p[data-idx="${h.idx}"]`);
         if (el && el.getBoundingClientRect().top - sr.top < 140) cur = h.idx; else if (el) break;
       }
-      for (const b of Array.from(pane.querySelectorAll             (".ol"))) b.classList.toggle("cur", Number(b.dataset.i) === cur);
+      if (cur !== spyCur) {
+        spyCur = cur;
+        for (const b of Array.from(pane.querySelectorAll             (".ol"))) b.classList.toggle("cur", Number(b.dataset.i) === cur);
+        keepInPane(pane.querySelector             (".ol.cur"));
+      }
     }
     const pg = model.page;
     if (pg) {
@@ -2368,6 +2533,7 @@
   let spyFrame = 0;
   scroller.addEventListener("scroll", () => {
     if (bub.classList.contains("show")) placeBubble();
+    if (document.body.classList.contains("no-lane")) placePop();
     cancelAnimationFrame(spyFrame);
     spyFrame = requestAnimationFrame(spy);
   }, { passive: true });
@@ -2395,46 +2561,25 @@
     pop.style.left = `${Math.max(8, Math.min(innerWidth - 308, rect.left))}px`;
   }
 
-  // Bulle de note partagée avec les autres surfaces : Entrée écrit un
-  // commentaire Word sur le passage, la bulle de chat l'envoie au chat.
   const UI = W.AtelierAnnotationUI;
-  const noteHost = document.createElement("div");
-  noteHost.className = "d-note-editor";
-  document.body.appendChild(noteHost);
-  let noteSel             = null;
-  function hideNote() { noteHost.classList.remove("show"); noteSel = null; }
   function quoteOf(sel     ) {
     return `${PATH} (${model .paragraphs[sel.a.idx].id}${sel.b.idx !== sel.a.idx ? `-${model .paragraphs[sel.b.idx].id}` : ""}) : « ${selectionText(sel)} »`;
   }
-  const noteUI = UI?.createNoteEditor(noteHost, {
-    placeholder: "Commentaire dans le .docx…",
-    submitLabel: "Commenter",
-    onSubmit: (value        ) => {
-      const sel = noteSel, text = value.trim();
-      if (!sel || !text) return;
-      hideNote();
-      // Un commentaire couvre un passage d'un seul paragraphe : on borne au premier.
-      const end = sel.a.idx === sel.b.idx ? sel.b.off : cp(virtualText(sel.a.idx));
-      structural(async () => { await sendOp({ op: "comment_range", paragraph: ref(sel.a.idx), start: sel.a.off, end, text }, () => sel); });
-    },
-    onSendDirect: (value        ) => {
-      const sel = noteSel;
-      if (!sel) return;
-      hideNote();
-      toChat(value.trim() ? `${quoteOf(sel)}\n${value.trim()}` : quoteOf(sel));
-    },
-    onDelete: hideNote,
-    onDismiss: hideNote,
-  });
+  // Commenter : un brouillon s'ouvre dans la marge (ou en fenêtre sous le
+  // passage quand le panneau est étroit) ; il peut aussi partir au chat.
   function askComment() {
     const sel = readSel();
     if (!sel || collapsed(sel) || !model) { status("Sélectionne d'abord le passage à commenter."); return; }
     if (view === "original") return;
-    if (!document.body.classList.contains("no-lane")) {
+    {
       // Brouillon dans la marge, en face du passage (un seul paragraphe :
       // un commentaire Word ne couvre pas plus).
       const end = sel.a.idx === sel.b.idx ? sel.b.off : cp(virtualText(sel.a.idx));
-      draft = { idx: sel.a.idx, s: sel.a.off, e: end };
+      const p = model.paragraphs[sel.a.idx];
+      draft = { idx: sel.a.idx, s: sel.a.off, e: end, quote: Array.from(virtualText(sel.a.idx)).slice(sel.a.off, end).join(""), pid: p.para_id || p.id };
+      // Un nouveau brouillon part d'une zone vide.
+      const old = cardsEl.querySelector('[data-key="draft"] textarea')                              ;
+      if (old) old.value = "";
       selbar.classList.remove("show");
       getSelection()?.removeAllRanges();
       focusKey = "draft";
@@ -2442,19 +2587,7 @@
       requestAnimationFrame(() => (cardsEl.querySelector('[data-key="draft"] textarea')                              )?.focus());
       return;
     }
-    if (!noteUI) return;
-    const rect = getSelection() .getRangeAt(0).getBoundingClientRect();
-    noteSel = sel;
-    selbar.classList.remove("show");
-    noteUI.input.value = "";
-    noteUI.status.textContent = "";
-    noteHost.classList.add("show");
-    const h = noteHost.offsetHeight;
-    noteHost.style.left = `${Math.max(8, Math.min(innerWidth - noteHost.offsetWidth - 8, rect.left))}px`;
-    noteHost.style.top = `${rect.bottom + 8 + h < innerHeight - 8 ? rect.bottom + 8 : Math.max(8, rect.top - h - 8)}px`;
-    noteUI.focus();
   }
-  paper.addEventListener("mousedown", () => { if (noteHost.classList.contains("show")) hideNote(); });
 
   // Capsule de sélection commune à Atelier (PDF, LaTeX, Markdown, code).
   // Surligner et souligner deviennent une mise en forme Word, en suivi si actif.
@@ -2594,9 +2727,18 @@
   let hitK = 0;
   const findOpen = () => findEl.classList.contains("show");
   /** Passage pris dans un champ, une citation ou une figure : un remplacement l'emporterait en entier. */
-  function lockedAt(idx        , s        , e        ) {
+  function lockedAt(idx        , s        , e        )                       {
     const [a, b] = expandWhole(idx, s, e);
-    return a !== s || b !== e;
+    if (a !== s || b !== e) return "field";
+    // Le moteur refuse de retoucher l'ajout en suivi d'un autre auteur.
+    let off = 0;
+    for (const g of model .paragraphs[idx].segments) {
+      const removed = g.rev === "del" || g.rev === "moveFrom";
+      const len = removed ? 0 : cp(g.text);
+      if (!removed && g.rev && g.change !== undefined && len && off < e && s < off + len && changeMap.get(g.change)?.author !== author) return "rev";
+      off += len;
+    }
+    return "";
   }
   function runFind(reset         ) {
     hits = [];
@@ -2614,6 +2756,8 @@
           hits.push({ idx: k, s, e, locked: lockedAt(k, s, e) });
         }
       }
+      // En Original, les insertions sont masquées : rien à trouver dedans.
+      if (view === "original") hits = hits.filter((h) => { const r = rangeAt(h.idx, h.s, h.e); return !!r && r.getClientRects().length > 0; });
     }
     if (reset) hitK = 0;
     hitK = Math.min(hitK, Math.max(0, hits.length - 1));
@@ -2662,25 +2806,34 @@
     const h = hits[hitK];
     if (!h) return;
     if (view === "original") { status("Repasser en Révision pour remplacer."); return; }
-    if (h.locked) { status("Ce passage est dans une citation ou un champ : à modifier dans Word.", true); return; }
+    if (h.locked === "field") { status("Ce passage est dans une citation ou un champ : à modifier dans Word.", true); return; }
+    if (h.locked === "rev") { status("Ce passage est un ajout en suivi d'un autre auteur : l'accepter ou le refuser d'abord.", true); return; }
+    const w = replacement();
     structural(async () => {
-      const ok = await sendOp({ op: "replace_range", paragraph: ref(h.idx), start: h.s, end: h.e, with: replacement() }, () => null);
-      if (ok) paintFind(true);
+      const ok = await sendOp({ op: "replace_range", paragraph: ref(h.idx), start: h.s, end: h.e, with: w }, () => null);
+      if (!ok) return;
+      // Le résultat suivant vient après le texte qu'on vient d'écrire.
+      const past = h.s + cp(w);
+      const k = hits.findIndex((x) => x.idx > h.idx || (x.idx === h.idx && x.s >= past));
+      hitK = k < 0 ? 0 : k;
+      paintFind(true);
     });
   }
   function replaceAll() {
     if (!hits.length) return;
     if (view === "original") { status("Repasser en Révision pour remplacer."); return; }
     const free = hits.filter((h) => !h.locked);
-    const left = hits.length - free.length;
-    if (!free.length) { status("Tous ces passages sont dans des citations ou des champs : à modifier dans Word.", true); return; }
+    const inField = hits.filter((h) => h.locked === "field").length;
+    const inRev = hits.filter((h) => h.locked === "rev").length;
+    if (!free.length) { status("Tous ces passages sont dans des champs ou des ajouts en suivi d'un autre auteur : rien à remplacer ici.", true); return; }
+    const left = [inField ? pl(inField, "laissé dans un champ", "laissés dans des champs") : "", inRev ? pl(inRev, "laissé dans un suivi", "laissés dans des suivis") : ""].filter(Boolean).join(", ");
     // Du dernier au premier dans chaque paragraphe : les positions qui
     // précèdent restent justes.
     const ops = free.slice().sort((a, b) => a.idx - b.idx || b.s - a.s)
       .map((h) => ({ op: "replace_range", paragraph: ref(h.idx), start: h.s, end: h.e, with: replacement() }));
     structural(async () => {
       const ok = await sendOp(ops.length === 1 ? ops[0] : { op: "batch", ops }, () => null);
-      if (ok) status(`${pl(free.length, "passage remplacé", "passages remplacés")} ${tracedNote()}${left ? ` · ${pl(left, "laissé dans un champ", "laissés dans des champs")}` : ""}`);
+      if (ok) status(`${pl(free.length, "passage remplacé", "passages remplacés")} ${tracedNote()}${left ? ` · ${left}` : ""}`);
     });
   }
   fQ.addEventListener("input", () => runFind(true));

@@ -90,7 +90,7 @@ test('docx: la frappe, Entrée et le retour arrière arrivent en suivi signé da
   page.on('pageerror', e => errors.push(e.message));
   await open(page, project);
   // Marge de revue : une pastille par paragraphe modifié, une fiche par commentaire.
-  await expect(page.locator('#cards .it.chip')).toHaveCount(9);
+  await expect(page.locator('#cards .it.grp')).toHaveCount(9);
   await expect(page.locator('#cards .it[data-key="c1"]')).toContainText('Pourquoi 0,6');
   await expect(page.locator('#foot')).toContainText('11 modifications');
 
@@ -133,7 +133,7 @@ test('docx: la frappe, Entrée et le retour arrière arrivent en suivi signé da
 test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge', async ({page, project}) => {
   await open(page, project);
   // Remplacement de Christophe : une pastille, deux suivis acceptés d'un coup.
-  const repl = page.locator('#cards .it.chip[data-ids~="101"]');
+  const repl = page.locator('#cards .it.grp[data-ids~="101"]');
   await expect(repl).toHaveAttribute('data-ids', '101 102');
   await repl.locator('[data-act="acceptAll"]').click();
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 101 || c.id === 102)).toBe(false);
@@ -145,7 +145,7 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await expect.poll(async () => (await disk(page, project)).changes.filter(c => c.id === 101 || c.id === 102).length).toBe(2);
 
   // Refuser la mise en forme de « 0,04 » : la pastille s'ouvre sur ses lignes.
-  const fmt = page.locator('#cards .it.chip[data-ids~="104"]');
+  const fmt = page.locator('#cards .it.grp[data-ids~="104"]');
   await fmt.locator('.row').click();
   await fmt.locator('.cr[data-ch="104"] [data-act="reject"]').click();
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 104)).toBe(false);
@@ -205,6 +205,82 @@ test('docx: rechercher et remplacer partout, en suivi signé', async ({page, pro
   await page.keyboard.press('Escape');
   await expect(page.locator('#find')).not.toHaveClass(/\bshow\b/);
   expect(errors).toEqual([]);
+});
+
+test("docx: un brouillon de commentaire suit son passage quand le fichier change, et garde sa saisie", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  await select(page, 2, 'compromis');
+  await page.locator('#selbar [aria-label="Annoter"]').click();
+  const draft = page.locator('#cards .it[data-key="draft"] textarea');
+  await draft.fill('Trop vague');
+  // L'agent écrit plus haut dans le même paragraphe pendant qu'on rédige.
+  const m = await disk(page, project);
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: 'Claude', op: {op: 'replace', find: 'retenu ici', with: 'retenu ici, fixé a priori,'}}});
+  expect(r.ok()).toBe(true);
+  await expect(page.locator('.d-p[data-idx="2"]')).toContainText('fixé a priori', {timeout: 6000});
+  // La saisie et le focus survivent au redessin de la marge.
+  await expect(draft).toBeFocused();
+  await page.keyboard.type(' ici.');
+  await expect(draft).toHaveValue('Trop vague ici.');
+  await draft.press('ControlOrMeta+Enter');
+  await expect.poll(async () => (await disk(page, project)).comments.find(c => c.text === 'Trop vague ici.')?.quote).toBe('compromis');
+  expect(errors).toEqual([]);
+});
+
+test('docx: remplacer avance au passage suivant, ignore les ajouts des autres et un double-clic ne décide qu\'une fois', async ({page, project}) => {
+  await open(page, project);
+  await page.locator('#paper').focus();
+  await page.keyboard.press('ControlOrMeta+f');
+  await page.keyboard.type('pixels');
+  await expect(page.locator('#fN')).toHaveText(/^1 sur \d+$/);
+  await page.locator('#fMore').click();
+  await page.locator('#fR').fill('pixels purs');
+  // Le remplacement contient le terme : deux clics remplacent deux passages différents.
+  await page.locator('#fOne').click();
+  await expect.poll(async () => (await disk(page, project)).paragraphs.map(p => p.text).join(' ')).toContain('pixels purs');
+  await page.locator('#fOne').click();
+  await expect.poll(async () => ((await disk(page, project)).paragraphs.map(p => p.text).join(' ').match(/pixels purs/g) || []).length).toBe(2);
+  expect((await disk(page, project)).paragraphs.map(p => p.text).join(' ')).not.toContain('purs purs');
+  await page.keyboard.press('Escape');
+
+  // « Sentinel-2 » est un ajout de Christophe : Tout remplacer le laisse et le dit.
+  await page.keyboard.press('ControlOrMeta+f');
+  await page.locator('#fQ').fill('Sentinel');
+  await expect(page.locator('#fN')).toHaveText(/sur/);
+  if (!(await page.locator('#fRow2').isVisible())) await page.locator('#fMore').click();
+  await page.locator('#fR').fill('S2');
+  await page.locator('#fAll').click();
+  await expect(page.locator('#toast')).toContainText(/suivi d'un autre auteur|laissé dans un suivi/);
+  expect((await disk(page, project)).changes.some(c => c.id === 120)).toBe(true);
+  await page.keyboard.press('Escape');
+
+  // Double-clic sur ✓ d'une ligne : une seule décision, pas d'erreur.
+  const fmt = page.locator('#cards .it.grp[data-ids~="104"]');
+  await fmt.locator('.row').click();
+  await fmt.locator('.cr[data-ch="104"] [data-act="accept"]').dblclick();
+  await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 104)).toBe(false);
+  await page.waitForTimeout(300);
+  await expect(page.locator('#toast')).not.toContainText('introuvable');
+});
+
+test('docx: panneau étroit, la fiche s\'ouvre en fenêtre sous son passage et la page garde sa taille', async ({page, project}) => {
+  await page.setViewportSize({width: 820, height: 900});
+  await open(page, project);
+  await expect(page.locator('body')).toHaveClass(/no-lane/);
+  await expect(page.locator('#cards')).toBeHidden();
+  await page.locator('#paper .cmt').first().click();
+  const card = page.locator('#cards .it.on');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('Pourquoi 0,6');
+  const [c, q] = await Promise.all([card.boundingBox(), page.locator('#paper .cmt').first().boundingBox()]);
+  expect(Math.abs(c!.y - (q!.y + q!.height)) < 40 || c!.y + c!.height < q!.y).toBe(true);
+  await card.locator('textarea').fill('Vu.');
+  await card.locator('[data-act="reply"]').click();
+  await expect.poll(async () => (await disk(page, project)).comments.some(x => x.parent === 1 && x.text === 'Vu.')).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#cards')).toBeHidden();
 });
 
 test('docx: la capsule surligne et souligne en suivi', async ({page, project}) => {
@@ -279,7 +355,7 @@ test("docx: une retouche de l'agent apparaît sans recharger", async ({page, pro
   await expect(page.locator('.d-p[data-idx="2"] .ins', {hasText: 'équilibre'})).toBeVisible({timeout: 6000});
   const agent = (await disk(page, project)).changes.filter(c => c.author === 'Claude').map(c => c.id);
   expect(agent.length).toBeGreaterThan(0);
-  await expect(page.locator(`#cards .it.chip[data-ids~="${agent[0]}"]`)).toBeVisible();
+  await expect(page.locator(`#cards .it.grp[data-ids~="${agent[0]}"]`)).toBeVisible();
   await expect(page.locator('#foot')).toContainText('de Claude en attente');
 });
 
@@ -292,7 +368,7 @@ test('docx: notes, en-tête, pied de page et figures se retouchent dans la page'
   await expect(page.locator('.d-hdr')).toContainText('Albédo des glaciers tropicaux');
   await expect(page.locator('.d-ftr')).toContainText('Page');
   await expect(page.locator('.d-note')).toContainText('Seuil appliqué');
-  await page.locator('#cards .it.chip[data-ids~="120"] [data-act="acceptAll"]').click();
+  await page.locator('#cards .it.grp[data-ids~="120"] [data-act="acceptAll"]').click();
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 120)).toBe(false);
   // La figure du document s'affiche.
   const img = page.locator('.chip.fig img').first();
@@ -345,7 +421,7 @@ test('docx: lignes et colonnes de tableau depuis la barre', async ({page, projec
   const m = await disk(page, project);
   expect(m.changes.some(c => c.kind === 'row-ins' && c.author === 'Thierry')).toBe(true);
   const row = m.changes.find(c => c.kind === 'row-ins' && c.author === 'Thierry')!;
-  await expect(page.locator(`#cards .it.chip[data-ids~="${row.id}"]`)).toHaveCount(1);
+  await expect(page.locator(`#cards .it.grp[data-ids~="${row.id}"]`)).toHaveCount(1);
 
   await caretAfter(page, 8, 'Z4');
   await page.locator('#btnInsert').click();
