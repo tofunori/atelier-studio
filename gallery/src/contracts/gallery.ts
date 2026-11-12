@@ -51,8 +51,15 @@ export interface Point {x: number; y: number}
 export interface FigureShape {tool: 'rect' | 'ellipse' | 'arrow'; x1: number; y1: number; x2: number; y2: number}
 export type FigureStroke = FigureShape & {id?: string; color?: string; n?: number; note?: string};
 export interface AnnotationSession {strokes: FigureStroke[]; undo: FigureStroke[][]; redo: FigureStroke[][]}
-export interface FigureVersion {version: number; hash: string; created: number; [key: string]: unknown}
+export interface FigureVersion {version: number; hash: string; created: number; rel: string; bytes: number}
+/** A copy of the figure in another folder, with the history version it holds. */
+export interface FigureCopy {rel: string; version: number}
+export interface FigureCompare {a: number; b: number; mode: 'slider' | 'side'; pos: number}
 export interface FigureHistory {
-  rel: string; rows: FigureVersion[]; selected: number | null; display?: number;
+  /** Opened file, then its copies: one history for all of them. */
+  rel: string; rels: string[]; rows: FigureVersion[]; copies: FigureCopy[]; bytes: number;
+  selected: number | null; display?: number;
   follow: boolean; epoch: number; busy: boolean;
+  /** Band opened by hand while the figure has a single version. */
+  manual: boolean; compare: FigureCompare | null;
 }
