@@ -20,7 +20,10 @@
 //! - [`table`] : lignes (en suivi) et colonnes de tableau.
 //! - [`math`] : équations (OMML) ↔ LaTeX.
 //! - [`story`] : corps, notes, en-têtes et pieds de page, chacun dans sa partie.
+//! - [`check`] : contrôle à chaque écriture (ce que Word refuserait).
+//! - [`history`] : versions reçues et annuler / rétablir, sur disque.
 
+pub mod check;
 pub mod comments;
 pub mod drafts;
 pub mod edit;
@@ -33,6 +36,7 @@ pub mod objects;
 pub mod review;
 pub mod structure;
 pub mod format;
+pub mod history;
 pub mod ops;
 pub mod story;
 pub mod table;
@@ -52,7 +56,7 @@ pub use model::DocModel;
 pub const DOCUMENT: &str = "word/document.xml";
 pub const COMMENTS: &str = "word/comments.xml";
 pub const COMMENTS_EXT: &str = "word/commentsExtended.xml";
-const CONTENT_TYPES: &str = "[Content_Types].xml";
+pub(crate) const CONTENT_TYPES: &str = "[Content_Types].xml";
 
 #[derive(Debug)]
 pub struct DocxError(pub String);
@@ -88,13 +92,18 @@ pub(crate) fn err<T>(msg: impl Into<String>) -> Result<T> {
 pub struct Signature {
     pub author: String,
     pub initials: String,
-    /// ISO 8601 sans fraction, comme Word : `2026-10-19T19:00:00Z`.
+    /// Comme Word : l'heure LOCALE suivie de « Z » (`2026-10-19T14:00:00Z`
+    /// à Montréal pour 19 h UTC). Word l'affiche telle quelle : une vraie
+    /// heure UTC paraîtrait décalée de 4 ou 5 h chez le relecteur.
     pub date: String,
+    /// La vraie heure UTC, pour les parties qui la demandent
+    /// (`commentsExtensible.xml`).
+    pub date_utc: String,
 }
 
 impl Signature {
     pub fn now(author: &str) -> Self {
-        Signature { author: author.to_string(), initials: initials(author), date: iso_now() }
+        Signature { author: author.to_string(), initials: initials(author), date: word_now(), date_utc: iso_now() }
     }
 }
 
@@ -103,21 +112,14 @@ pub fn initials(name: &str) -> String {
     if s.is_empty() { "?".into() } else { s.to_uppercase() }
 }
 
-/// Date UTC courante au format de Word, sans dépendance de date.
+/// Date UTC courante, ISO 8601 sans fraction.
 pub fn iso_now() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
-    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    // Howard Hinnant, civil_from_days.
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+/// Date courante telle que Word l'écrit dans `w:date` : heure locale, « Z ».
+pub fn word_now() -> String {
+    chrono::Local::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 /// Un .docx ouvert en mémoire. Les parties lues sont gardées en cache ;
@@ -152,6 +154,11 @@ impl Docx {
     /// calculée sur une version que Word ou l'agent a remplacée depuis.
     pub fn revision(&self) -> String {
         revision_of(&self.bytes)
+    }
+
+    /// Révision qu'aurait le paquet enregistré tel qu'il est maintenant.
+    pub(crate) fn revision_of_bytes(&self) -> Result<String> {
+        if self.is_dirty() { Ok(revision_of(&self.to_bytes()?)) } else { Ok(self.revision()) }
     }
 
     pub fn has_part(&self, name: &str) -> bool {
@@ -326,13 +333,38 @@ impl Docx {
     }
 }
 
-const CONFLICT: &str = "conflit : le document a changé depuis (Word, l'agent ou un autre onglet) ; recharger puis refaire la retouche";
+pub(crate) const CONFLICT: &str = "conflit : le document a changé depuis (Word, l'agent ou un autre onglet) ; recharger puis refaire la retouche";
+const OPEN_IN_WORD: &str = "Word a ce document ouvert : ferme-le dans Word avant de le retoucher ici (Word écraserait ces retouches à son prochain enregistrement). Si Word est déjà fermé, supprime le fichier « ~$… » resté à côté du document.";
 
 impl DocxError {
     /// La retouche visait une version remplacée depuis : rien n'a été écrit.
     pub fn is_conflict(&self) -> bool {
         self.0 == CONFLICT
     }
+
+    /// Word a le fichier ouvert : rien n'a été écrit.
+    pub fn is_open_in_word(&self) -> bool {
+        self.0 == OPEN_IN_WORD
+    }
+}
+
+/// Word pose `~$` + la fin du nom à côté d'un document ouvert (il garde les
+/// derniers caractères des noms longs) ; enregistrer dans Word écraserait
+/// alors toute retouche faite ailleurs.
+pub fn open_in_word(path: &Path) -> bool {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str())) else { return false };
+    let dir = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
+    let tail: String = name.chars().skip(2).collect();
+    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    entries.flatten().any(|e| {
+        let n = e.file_name();
+        let n = n.to_string_lossy();
+        n.starts_with("~$") && (n[2..] == *name || (!tail.is_empty() && n.ends_with(&tail)))
+    })
+}
+
+pub(crate) fn refuse_if_open_in_word(path: &Path) -> Result<()> {
+    if open_in_word(path) { err(OPEN_IN_WORD) } else { Ok(()) }
 }
 
 /// Ouvre `path`, applique `f` et enregistre, sous un verrou exclusif : le
@@ -341,43 +373,41 @@ impl DocxError {
 /// fichier a changé depuis, rien n'est écrit ([`DocxError::is_conflict`]).
 /// Rend le résultat de `f` et la nouvelle révision.
 pub fn edit_file<T>(path: &Path, expected: Option<&str>, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String)> {
-    edit_file_keep(path, expected, f).map(|(v, rev, _)| (v, rev))
+    edit_file_as(path, expected, &history::Origin::UNKNOWN, f)
 }
 
-/// Comme [`edit_file`], et rend en plus le paquet d'avant quand le fichier a
-/// été réécrit (pour annuler).
-pub fn edit_file_keep<T>(path: &Path, expected: Option<&str>, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String, Option<Vec<u8>>)> {
+/// Comme [`edit_file`], en notant qui a fait la retouche dans l'historique.
+///
+/// Avant d'écrire : refus si Word a le fichier ouvert, relecture complète
+/// du paquet produit et contrôle qu'il n'introduit aucun défaut que Word
+/// refuserait ([`check`]). Après : la version d'avant rejoint l'historique
+/// sur disque ([`history`]) ; la première fois, l'original reçu y est copié.
+pub fn edit_file_as<T>(path: &Path, expected: Option<&str>, origin: &history::Origin, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String)> {
     let lock = lock_file(path)?;
     lock.lock()?;
+    refuse_if_open_in_word(path)?;
     let mut docx = Docx::open(path)?;
-    if expected.is_some_and(|e| e != docx.revision()) {
+    let before_rev = docx.revision();
+    if expected.is_some_and(|e| e != before_rev) {
         return err(CONFLICT);
     }
     let value = f(&mut docx)?;
     if !docx.is_dirty() {
-        return Ok((value, docx.revision(), None));
+        return Ok((value, before_rev));
     }
     let bytes = docx.to_bytes()?;
-    // Relire ce qu'on vient d'écrire : un paquet illisible ne remplace jamais l'original.
-    Docx::from_bytes(bytes.clone())?.model()?;
+    // Relire ce qu'on vient de produire : un paquet illisible, ou qui
+    // ajoute un défaut, ne remplace jamais l'original.
+    let mut fresh = Docx::from_bytes(bytes.clone())?;
+    fresh.model()?;
+    check::guard(&docx.bytes, &before_rev, &mut fresh)?;
     write_atomic(path, &bytes)?;
     let rev = revision_of(&bytes);
-    Ok((value, rev, Some(docx.bytes)))
-}
-
-/// Remet `bytes` à la place du fichier (annuler, rétablir), seulement s'il
-/// est encore à la révision `expected`. Rend la révision d'avant et le
-/// paquet remplacé.
-pub fn replace_file(path: &Path, expected: &str, bytes: &[u8]) -> Result<Vec<u8>> {
-    let lock = lock_file(path)?;
-    lock.lock()?;
-    let current = std::fs::read(path)?;
-    if revision_of(&current) != expected {
-        return err(CONFLICT);
+    // L'historique ne doit jamais faire échouer une retouche déjà écrite.
+    if let Err(e) = history::record(path, &docx.bytes, &before_rev, &rev, origin) {
+        eprintln!("atelier-docx : historique non tenu pour {} : {e}", path.display());
     }
-    Docx::from_bytes(bytes.to_vec())?;
-    write_atomic(path, bytes)?;
-    Ok(current)
+    Ok((value, rev))
 }
 
 /// Verrou dans le dossier temporaire, nommé d'après le chemin : rien ne
@@ -388,16 +418,51 @@ pub(crate) fn lock_file(path: &Path) -> Result<std::fs::File> {
     Ok(std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(std::env::temp_dir().join(name))?)
 }
 
+/// Écrit à côté, force l'écriture sur le disque, recopie droits et
+/// attributs étendus (étiquettes du Finder…) de l'original, puis remplace
+/// d'un seul geste : après une coupure, on retrouve l'ancien fichier ou le
+/// nouveau, jamais un fichier vide ou à moitié écrit.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let dir = path.parent().unwrap_or(Path::new("."));
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("document.docx");
     let tmp = dir.join(format!(".{name}.atelier-tmp"));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path).inspect_err(|_| {
+    let result = (|| -> Result<()> {
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        if let Ok(meta) = std::fs::metadata(path) {
+            let _ = std::fs::set_permissions(&tmp, meta.permissions());
+            copy_xattrs(path, &tmp);
+        }
+        std::fs::rename(&tmp, path)?;
+        // Le renommage lui-même doit survivre à une coupure.
+        #[cfg(unix)]
+        if let Ok(d) = std::fs::File::open(dir) {
+            let _ = d.sync_all();
+        }
+        Ok(())
+    })();
+    if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
-    })?;
-    Ok(())
+    }
+    result
 }
+
+/// Recopie les attributs étendus (étiquettes et commentaires du Finder,
+/// provenance) : un fichier neuf les perdrait au renommage.
+#[cfg(unix)]
+fn copy_xattrs(from: &Path, to: &Path) {
+    let Ok(names) = xattr::list(from) else { return };
+    for name in names {
+        if let Ok(Some(value)) = xattr::get(from, &name) {
+            let _ = xattr::set(to, &name, &value);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn copy_xattrs(_: &Path, _: &Path) {}
 
 /// `word/document.xml` → `word/_rels/document.xml.rels`.
 pub(crate) fn rels_of(part: &str) -> String {

@@ -41,8 +41,10 @@ fn refuser_de_couper_une_citation_zotero_ou_un_suivi() {
     let mut d = open("christophe");
     let e = edit::replace(&mut d, "p1", "MOD09GA (Ren", None, "x", true, &sig("Claude")).unwrap_err();
     assert!(e.0.contains("Zotero"), "{e}");
-    let e = edit::replace(&mut d, "p1", "On ne", None, "x", true, &sig("Claude")).unwrap_err();
-    assert!(e.0.contains("suivi"), "{e}");
+    // L'ajout de Christophe se retouche désormais en suivi imbriqué, sur une copie.
+    let mut copy = open("christophe");
+    edit::replace(&mut copy, "p1", "On ne", None, "x", true, &sig("Claude")).unwrap();
+    assert!(para_text(&mut copy, "p1").contains(" x conserve"));
     let e = edit::replace(&mut d, "p1", "introuvable", None, "x", true, &sig("Claude")).unwrap_err();
     assert!(e.0.contains("introuvable"));
     let e = edit::replace(&mut d, "p13", "Un texte", None, "x", true, &sig("Claude")).unwrap_err();

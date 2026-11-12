@@ -73,7 +73,8 @@ export function spawnGalleryServer({ root, port, env = {}, cwd = root, stdio = "
   if (!watch) args.push("--no-watch");
   const child = spawn(bin, args, {
     cwd,
-    env: { ...process.env, ATELIER_ASSETS_DIR: ASSETS_DIR, ...env },
+    // L'historique des .docx d'essai reste dans le dossier temporaire du test.
+    env: { ...process.env, ATELIER_ASSETS_DIR: ASSETS_DIR, ATELIER_DOCX_HISTORY: path.join(root, ".atelier-docx-historique"), ...env },
     stdio,
   }) as ChildProcess & {__spawnError?:Error};
   // Un binaire non exécutable / absent émet `error` de façon asynchrone : sans

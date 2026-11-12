@@ -212,6 +212,8 @@ fn start_server_opts(extra_env: &[(&str, String)], seed_index: bool) -> Server {
             "--no-watch",
         ])
         .env("ATELIER_ASSETS_DIR", &assets)
+        // Historique des .docx d'essai hors du dossier de l'app.
+        .env("ATELIER_DOCX_HISTORY", std::env::temp_dir().join(format!("atelier-http-smoke-historique-{}", std::process::id())))
         .env("ATELIER_STUDIO", "1")
         .env("ATELIER_APP_VERSION", "test")
         .env("ATELIER_BUNDLE_HASH", "http-smoke")
@@ -2612,9 +2614,16 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev0, serde_json::json!({"op": "accept", "id": 102}))));
     assert_eq!(st, 409, "{body}");
     // Retouche impossible : 422 avec la raison en français.
-    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev1, serde_json::json!({"op": "replace", "find": "On", "paragraph": "p1", "with": "Puis on"}))));
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev1, serde_json::json!({"op": "replace", "find": "MOD09GA (Ren", "paragraph": "p1", "with": "x"}))));
     assert_eq!(st, 422, "{body}");
-    assert!(body.contains("suivi"), "{body}");
+    assert!(body.contains("Zotero"), "{body}");
+    // Word a le document ouvert : 423, rien n'est écrit.
+    let word_lock = srv.root.join("~$apitre 2 corrigé CK.docx");
+    fs::write(&word_lock, b"x").unwrap();
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev1, serde_json::json!({"op": "accept", "id": 102}))));
+    assert_eq!(st, 423, "{body}");
+    assert!(body.contains("Word"), "{body}");
+    fs::remove_file(&word_lock).unwrap();
     // Hors du projet et autre extension : refusés.
     let (st, _) = http(srv.port, "GET", "/docx/model?path=..%2F..%2Fetc%2Fx.docx", None);
     assert!(st == 403 || st == 404, "{st}");
@@ -2651,6 +2660,14 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     assert_eq!(st, 200, "{body}");
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["revision"], rev1.as_str());
+
+    // L'historique est sur disque, hors du projet, avec l'original reçu.
+    let (st, body) = http(srv.port, "GET", &format!("/docx/history?path={rel}"), None);
+    assert_eq!(st, 200, "{body}");
+    let h: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(h["bases"][0]["revision"], rev0.as_str());
+    assert_eq!(h["can_undo"], true);
+    assert!(!h["folder"].as_str().unwrap().starts_with(srv.root.to_str().unwrap()));
 
     // Préférences gardées côté serveur.
     let (st, body) = http(srv.port, "GET", "/docx/prefs", None);

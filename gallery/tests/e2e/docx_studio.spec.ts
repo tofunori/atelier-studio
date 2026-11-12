@@ -231,7 +231,7 @@ test("docx: un brouillon de commentaire suit son passage quand le fichier change
   expect(errors).toEqual([]);
 });
 
-test('docx: remplacer avance au passage suivant, ignore les ajouts des autres et un double-clic ne décide qu\'une fois', async ({page, project}) => {
+test('docx: remplacer avance au passage suivant, écrit en suivi dans les ajouts des autres et un double-clic ne décide qu\'une fois', async ({page, project}) => {
   await open(page, project);
   await page.locator('#paper').focus();
   await page.keyboard.press('ControlOrMeta+f');
@@ -247,15 +247,18 @@ test('docx: remplacer avance au passage suivant, ignore les ajouts des autres et
   expect((await disk(page, project)).paragraphs.map(p => p.text).join(' ')).not.toContain('purs purs');
   await page.keyboard.press('Escape');
 
-  // « Sentinel-2 » est un ajout de Christophe : Tout remplacer le laisse et le dit.
+  // « Sentinel-2 » est un ajout de Christophe : comme Word, Tout remplacer y
+  // efface et y écrit en suivi signé Thierry, sans lui retirer son ajout.
   await page.keyboard.press('ControlOrMeta+f');
   await page.locator('#fQ').fill('Sentinel');
   await expect(page.locator('#fN')).toHaveText(/sur/);
   if (!(await page.locator('#fRow2').isVisible())) await page.locator('#fMore').click();
   await page.locator('#fR').fill('S2');
   await page.locator('#fAll').click();
-  await expect(page.locator('#toast')).toContainText(/suivi d'un autre auteur|laissé dans un suivi/);
-  expect((await disk(page, project)).changes.some(c => c.id === 120)).toBe(true);
+  await expect.poll(async () => (await disk(page, project)).changes.some(c => c.author === 'Thierry' && c.kind === 'ins' && c.text.includes('S2'))).toBe(true);
+  const after = await disk(page, project);
+  expect(after.changes.some(c => c.id === 120 && c.author === 'Christophe')).toBe(true);
+  expect(after.changes.some(c => c.author === 'Thierry' && c.kind === 'del' && c.text.includes('Sentinel'))).toBe(true);
   await page.keyboard.press('Escape');
 
   // Double-clic sur ✓ d'une ligne : une seule décision, pas d'erreur.
