@@ -228,25 +228,25 @@ it("le contexte vivant n'occupe plus la rangée : rien à montrer, rien de rendu
   expect(container.querySelector(".context-pills")).toBeNull();
 });
 
-it("passages annotés dans Word → rangées visibles, passage puis note, retrait unitaire et en bloc", () => {
+it("passages annotés dans Word → une puce par passage (¶ et note), détail au clic, retrait unitaire", () => {
   const doc = "/Documents/Thèse/Chapitre1 revCK.docx";
   const { onRemoveAttachment, container } = shelf([
     { name: "Chapitre1 revCK.docx", lines: null, kind: "file", path: doc, text: `${doc} (p12) : « 0.0021/summer »\nCommentaire : Par été ou par an ?` },
     { name: "plot.png", lines: null, kind: "file", text: "Fichier du projet : /p/figs/plot.png" },
     { name: "Chapitre1 revCK.docx", lines: null, kind: "file", path: doc, text: `${doc} (p16) : « 72% of the total darkening »\nCommentaire : (voir passage)` },
   ]);
-  const list = screen.getByRole("list", { name: "Chapitre1 revCK.docx" });
-  const rows = within(list).getAllByRole("listitem");
-  expect(rows.map((row) => row.textContent)).toEqual([
-    "1¶ 120.0021/summerPar été ou par an ?",
-    "2¶ 1672% of the total darkeningAnnotation sans commentaire",
+  const pills = [...container.querySelectorAll(".word-pill")];
+  // La puce montre la note, sinon le passage ; pas d'en-tête ni de numéro.
+  expect(pills.map((pill) => pill.querySelector(".context-pill-main")!.textContent)).toEqual([
+    "¶ 12Par été ou par an ?",
+    "¶ 1672% of the total darkening",
   ]);
-  expect(list).toHaveTextContent("2 passages · Chapitre1 revCK.docx");
+  expect(container.querySelector(".word-notes, .anno-pill-num")).toBeNull();
   // Les passages Word ne forment pas de pilule groupée en plus.
-  expect(container.querySelectorAll(".chip.context-pill")).toHaveLength(1);
-  fireEvent.click(within(rows[1]).getByRole("button", { name: "Retirer Chapitre1 revCK.docx 2" }));
+  expect(container.querySelectorAll(".chip.context-pill:not(.word-pill)")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Chapitre1 revCK.docx ¶ 12" }));
+  expect(screen.getByText("« 0.0021/summer »")).toBeTruthy();
+  expect(document.querySelector(".word-pill-note")!.textContent).toBe("Par été ou par an ?");
+  fireEvent.click(screen.getByRole("button", { name: "Retirer Chapitre1 revCK.docx ¶ 16" }));
   expect(onRemoveAttachment).toHaveBeenLastCalledWith(2);
-  onRemoveAttachment.mockClear();
-  fireEvent.click(within(list).getByRole("button", { name: "Tout retirer" }));
-  expect(onRemoveAttachment.mock.calls.map((call) => call[0])).toEqual([2, 0]);
 });

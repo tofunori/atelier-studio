@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · regarde · relecteur (-encours, -rien).
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · regarde · relecteur (-encours, -rien).
 import { setReviewSession } from "../lib/reviewSession";
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
@@ -484,6 +484,27 @@ const CONTEXTS_ATTACHMENTS = [
   // nom d'horodatage cède la place à un libellé parlant (2026-08-24)
   { name: "coller-1787605830634.png", lines: null, text: "ctx-7",
     imageUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAFlklEQVR42gXB0YesXAAA8P6cHnvs6dPH5eayxLLaLHMMk5iMJsMcwyTKaDLMMUxiMpoMcyyb2Kw2l3tcvvTQQ3o6T+mhP+T7/RhWqTnlP175Kyh/ROW3pHzLyhdQPjUlM5QPqLzbysNT7ki5hco1Vi5YCTPlXCgnohxr5dAqe6rsBsVhWPAfB/7y4I8AfovgWwJfMvgEINPAhwHeIXjY4O6BGwLXEFxiEGJwzsCpAEcCDjXYt2BHgTMAm2HVv5z6h1d/C+q3qH5J6qesZkD90NR3Q31A9W6rN0+9IvUSqmGsnrF6ytRjoR6Iuq/VXas6VLUHdcuw+h9O/83r34L+Jeqfkp7J+gfQ3zX9Yeh3qN9s/erpF6SHoX6O9RPWj5l+KPQ90Xe17rS6TfXtoG8Y1vzNmd+8+SWYn6KZSeaHbL4D86GZd8O8QfNqmxfPDJF5Ds1TbB6xecjMfWHuiOnUpt2aW2puBnPNsPCbg188/BRgJsIPCb7L8AHgXYM3A14hvNgw9OAZwVMIjzE8YLjP4K6ADoF2Dbct3FC4HuCKYa0vzvrkrUywPkTrXbIesnUH1k2zroZ1gVZoW2fPOiHrGFqH2Npja5dZTmHZxNrW1qa11tRaDdaSYd1Pzs1490Nw30X3Ibl32b0B96q5F8MNoXu23ZPnHpF7CN197O6w62SuXbhb4m5qd926K+ouB3fBsH7G+R+8/y74D9G/S/5N9q/Av2h+aPhn6J9s/+j5B+TvQ38X+w727czfFv6G+OvaX7X+kvqLwZ8zLPrg0DuPHgK6i+gmoauMLgCFGjob6ATR0UYHD+0R2oXIiZGN0TZDmwKtCVrVaNmiBUXzAWkMG7xzwYMP7kJwE4OrFFzkIATBWQtORnCEwcEO9l6wQ4ETBnYcbHGwyYJ1EaxIsKyDRRvMaaANwYxhowcX3fnoJkRXMbpIUShHZxCdtOhoRAcY7e1o50UOiuww2sbRBkfrLFoV0ZJEizqat5FGo9kQTRk2uXPJjU+uQnIRk1BKznJyAslRSw5GsofJzk4cL7FRsg2TTZyscbLKkmWRLEgyrxOtTWY0mQ7JhGHxjcNXHl8EHIr4LOGTjI8AHzS8N/AOYsfGtoe3CG9CvI7xCuNlhhcFnhOs1XjW4inFkwG/MWx65dILn4ZCehbTk5Qe5fQA0r2W7ozUgaltp1sv3aB0HaarOF3idJGl8yLVSDqr02mbTmj6NqSvDJtfuDzk87OQn8T8KOUHOd+DfKfljpHbMN/a+cbL1yhfhfkyzhc4n2e5VuQzkk/rfNLmbzR/HfIXhi1Drjzz5Ukoj2J5kMq9XO5A6WilbZRbWG7scu2VK1Quw3IRl3Ncalk5K8opKSd1+daWr7R8GcpnhiVnjpx4chTIQSR7iexk4gBia2RrkA0ka5usPLJEZBGSeUw0TGYZmRZkQshbTV5b8kLJ80Akhq1OXHXkq4NQ7cVqJ1WOXNmg2mrVxqjWsFrZ1dKrFqiah5UWVzNcTbNqUlRvpHqtq5e2eqaVNFRPDNscuebAN3uh2YmNIzW23GxBs9GatdGsYLO0m4XXzFGjhc0sbqa4mWTNW9G8kualbp7bRqLN09D8YtjuwHV7vtsJnSN2ttRt5W4DurXWrYxuCbuF3c29TkPdLOymcTfB3VvWvRbdC+me605quyfa/Rq6nwxL9xzd8dQRqC3SrUQ3Ml0DutLo0qALSOc21Tw6Q3Qa0klM3zB9zehLQZ8JlWr61NJflP4c6A+G7Xdc7/C9LfRbsd9I/VruV6Bfav3C6Oew1+x+5vVT1E/C/i3uX3H/kvXPRS+R/qnuf7X9T9r/GPp/GXZ0uNHmx60wbsRxLY0reVyCcaGNc2PU4Dizx6k3TtD4Fo6v8fiCx+dslIrxiYy/6vFnO/6g47/D+M//R5m1rp1APu0AAAAASUVORK5CYII=" },
+];
+
+// Passages annotés dans l'éditeur Word (2026-11-12, variante 2 « Puces ») :
+// une puce par passage, ¶ et note, sinon le passage.
+const WORD_DOC = "/Documents/These/Chapitre1_brouillon_revCK.docx";
+// « Proposer » de l'éditeur Word : le message envoyé, en citation sobre.
+const WORD_REPLY_EVENTS: AgentEvent[] = [
+  { kind: "user", text: "Fais le point sur la section 2.3.", ts: ts(300) } as AgentEvent,
+  { kind: "text", text: "… et la section 2.3 reste cohérente avec la figure 4.", ts: ts(290) } as AgentEvent,
+  { kind: "user", text: "", ts: ts(20), label: "Chapitre1_brouillon_2026-11-02_revCK.docx",
+    files: [{ name: "Chapitre1_brouillon_2026-11-02_revCK.docx", path: "/Users/bench/Doctorat/Chapitre1_brouillon_2026-11-02_revCK.docx", kind: "file",
+      reply: { author: "Christophe Kinnard", comment: "Pourquoi 0,6 et pas 0,5 ? Une courte analyse de sensibilité serait la bienvenue.", where: "¶ 17" } }],
+    liveContext: { path: "/Users/bench/Doctorat/Chapitre1_brouillon_2026-11-02_revCK.docx", name: "Chapitre1_brouillon_2026-11-02_revCK.docx", paragraph: 17 } } as AgentEvent,
+];
+
+const WORD_ATTACHMENTS: typeof CONTEXTS_ATTACHMENTS = [
+  { name: "Chapitre1_brouillon_revCK.docx", lines: null, kind: "file" as const,
+    text: `${WORD_DOC} (p7-p8) : « In North America, previous studies have reported darker surfaces and estimated additional melt from wildfire deposits. »\nCommentaire : peux tu relire l'ensemble maintenant` },
+  { name: "Chapitre1_brouillon_revCK.docx", lines: null, kind: "file" as const,
+    text: `${WORD_DOC} (p12) : « The albedo decline of 0.0021 per summer is consistent with earlier estimates. »\nCommentaire : (voir passage)` },
+  { name: "albedo_trends.csv", lines: null, text: "ctx-1", kind: "file" as const },
 ];
 
 const QUEUED_TURNS: QueuedTurn[] = [
@@ -969,6 +990,8 @@ const STATES: Record<string, BenchState> = {
   agents: { events: AGENTS, workingSince: ts(32), attachments: [], usage: { context: 22000, output: 420, cost: null, turns: 1 } },
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
+  word: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: WORD_ATTACHMENTS, usage: null },
+  proposer: { events: WORD_REPLY_EVENTS, workingSince: null, attachments: [], usage: null },
   regarde: { events: LIVE_CONTEXT_EVENTS, workingSince: null, attachments: [], usage: null, liveContext: LIVE_CONTEXT },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
   typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },

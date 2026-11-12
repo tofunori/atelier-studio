@@ -336,6 +336,8 @@ export type ChatFileRef = {
   year?: string;
   /** Commentaire d'un relecteur (kind "review") : carte du commentaire. */
   review?: import("./reviewSession").ChatReviewRef;
+  /** Demande « Proposer » de l'éditeur Word : carte « Réponse à … ». */
+  reply?: import("./docxReplyAsk").DocxReplyAsk;
 };
 
 export type Thread = {
