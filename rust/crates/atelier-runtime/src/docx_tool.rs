@@ -79,6 +79,9 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
             with: req.get("with").and_then(Value::as_str).unwrap_or("").to_string(),
         },
         "insert_paragraph" => Op::InsertParagraph { after: need("after")?, text: need("text")? },
+        // Réunit `paragraph` au paragraphe qui le précède (sa marque de fin
+        // est supprimée en suivi), comme Suppr en fin du paragraphe d'avant.
+        "join" => Op::Join { paragraph: paragraph.ok_or("paragraph manquant : le second des deux paragraphes à réunir (p8 pour réunir p7 et p8)")? },
         "insert_row" => Op::InsertRow { paragraph: paragraph.ok_or("paragraph manquant : une cellule du tableau (p7)")?, above: req.get("above").and_then(Value::as_bool).unwrap_or(false) },
         "delete_row" => Op::DeleteRow { paragraph: paragraph.ok_or("paragraph manquant : une cellule du tableau (p7)")? },
         "comment" => Op::Comment { paragraph, find: need("find")?, occurrence, text: need("text")? },
@@ -117,6 +120,25 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         let from = usize_arg(req, "from").unwrap_or(0);
         let to = usize_arg(req, "to").map(|t| t + 1);
         return Ok(json!({"revision": model.revision, "text": ops::outline(&model, from, to, READ_MAX_CHARS)}));
+    }
+    if action == "split" {
+        // Coupe juste après `find` : la fin du paragraphe devient un nouveau
+        // paragraphe, en suivi (marque de paragraphe insérée).
+        let find = str_arg(req, "find").ok_or("find manquant : le texte juste avant la coupure")?.to_string();
+        let sig = Signature::now(author_for(provider));
+        let paragraph = str_arg(req, "paragraph").map(str::to_string);
+        let occurrence = usize_arg(req, "occurrence");
+        let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: "paragraphe" };
+        let (p, revision) = atelier_docx::edit_file_as(&path, str_arg(req, "revision"), &origin, |d| {
+            let (p, at) = ops::place_after(d, paragraph.as_deref(), &find, occurrence)?;
+            ops::apply(d, &Op::Split { paragraph: p.clone(), at }, true, &sig)?;
+            Ok(p)
+        })
+        .map_err(|e| e.0)?;
+        return Ok(json!({
+            "ok": true, "author": sig.author, "revision": revision, "result": {"paragraph": p},
+            "note": "Coupure proposée en suivi des modifications : l'utilisateur l'accepte ou la refuse."
+        }));
     }
     if action == "draft_reply" {
         // Brouillon dans la carte du commentaire, hors du document :
@@ -274,6 +296,19 @@ mod tests {
         let m = Docx::open(&path).unwrap().model().unwrap();
         assert!(m.changes.iter().any(|c| c.kind == "row-ins" && c.author == "Claude"));
         assert!(m.changes.iter().any(|c| c.kind == "row-del" && c.author == "Claude"));
+
+        // Réunir deux paragraphes coupés par une marque de paragraphe, puis
+        // couper un paragraphe : toujours en suivi signé.
+        let n = Docx::open(&path).unwrap().model().unwrap().paragraphs.len();
+        run(root, "claude", "join", &json!({"path": "article.docx", "paragraph": "p2"})).unwrap();
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        assert!(m.changes.iter().any(|c| c.kind == "paragraph-del" && c.author == "Claude"), "{:?}", m.changes);
+        assert!(m.paragraphs.len() >= n, "la marque reste, supprimée en suivi");
+        let r = run(root, "claude", "split", &json!({"path": "article.docx", "find": "réflectances de surface"})).unwrap();
+        assert_eq!(r["author"], "Claude");
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        assert!(m.changes.iter().any(|c| c.kind == "paragraph-ins" && c.author == "Claude"), "{:?}", m.changes);
+        assert!(run(root, "claude", "join", &json!({"path": "article.docx"})).unwrap_err().contains("paragraph manquant"));
 
         // Les décisions ne sont pas exposées.
         for forbidden in ["accept", "reject", "accept_all", "resolve", "delete_comment"] {
