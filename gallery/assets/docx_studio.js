@@ -2528,8 +2528,9 @@
     const who = firstName(c.author);
     return `${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}\n\n`
       + `Propose-moi une réponse à ${who} : courte, en français, que je relirai et enverrai sous mon nom. `
-      + `Pose-la avec atelier_docx action=draft_reply (comment=${c.id}), jamais reply. `
-      + `Si le passage mérite une correction, pose-la aussi en suivi (action=edit).`
+      + `Pose-la avec atelier_docx action=draft_reply (comment=${c.id}), jamais reply ; la réponse ne recopie pas de texte corrigé. `
+      + `Si le passage mérite une correction, montre-la-moi ici dans le chat (avant / après) sans toucher au document : `
+      + `je te dirai si tu la poses en suivi (action=edit).`
       + (previous ? ` Une autre formulation que celle-ci : « ${previous} ».` : "");
   }
 

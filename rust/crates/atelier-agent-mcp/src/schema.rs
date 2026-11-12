@@ -257,7 +257,7 @@ pub fn docx_tool_definition() -> Value {
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
                 "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
                 "after": { "type": "string", "description": "insert_paragraph: new paragraph goes after this one (p12)" },
-                "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting or signature; insert_figure: alt text (figure: image path in the project)" },
+                "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting, signature or rewritten passage (show a correction in your chat answer first); insert_figure: alt text (figure: image path in the project)" },
                 "figure": { "type": "string", "description": "insert_figure: PNG/JPEG/GIF path in the project" },
                 "above": { "type": "boolean", "description": "insert_row: above instead of below" },
                 "comment": { "type": "integer", "description": "reply / draft_reply: comment number (c3 → 3)" },
