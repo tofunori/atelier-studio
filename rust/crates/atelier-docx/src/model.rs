@@ -133,6 +133,9 @@ pub struct Segment {
     /// Équation en LaTeX (affichée avec KaTeX, corrigée comme un .tex).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latex: Option<String>,
+    /// Équation en display (seule sur sa ligne, centrée).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub display: bool,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -264,6 +267,7 @@ fn seg_of(p: &walk::Piece) -> Segment {
         height: p.media.as_ref().filter(|m| m.cy > 0).map(|m| (m.cy / 9525) as u32),
         alt: p.media.as_ref().map(|m| m.descr.clone()).filter(|d| !d.is_empty()),
         latex: p.math.clone(),
+        display: p.math_display,
     }
 }
 

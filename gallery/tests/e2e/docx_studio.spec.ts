@@ -1199,4 +1199,106 @@ test("docx: délai entre la touche et l'affichage (retour arrière, Entrée, gra
     expect(r.shown).toBeLessThan(50);
     if (r.saved > 0) expect(r.shown).toBeLessThan(r.saved);
   }
+
+type Seg = Para['segments'][number] & {latex?: string; i?: boolean; sup?: boolean; font?: string};
+
+test('docx: une équation se lit en KaTeX et se corrige en LaTeX, en suivi signé', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const idx = (await disk(page, project)).paragraphs.findIndex(p => p.text.startsWith("L'albédo large bande"));
+  expect(idx).toBeGreaterThan(0);
+  const chip = page.locator(`.d-p[data-idx="${idx}"] .chip.eq`).first();
+  // Rendu KaTeX dans la police et l'encre de la page, pas le LaTeX brut.
+  await expect(chip.locator('.katex')).toBeVisible();
+  await expect(chip).not.toHaveClass(/\braw\b/);
+  await expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
+  const latex0 = await chip.getAttribute('data-latex');
+  expect(latex0).toContain('0,356');
+
+  // Le clic ouvre la fenêtre : titre court, étiquette « en suivi », source au focus.
+  await chip.click();
+  const pop = page.locator('#eqpop');
+  await expect(pop).toHaveClass(/\bshow\b/);
+  await expect(page.locator('#eqH')).toHaveText('Équation 1 · LaTeX');
+  await expect(page.locator('#eqTag')).toBeVisible();
+  await expect(page.locator('#eqSrc')).toHaveValue(latex0!);
+  await expect(page.locator('#eqSrc')).toBeFocused();
+  await expect(page.locator('#eqPrev .katex')).toBeVisible();
+  // Rien d'autre que champ, aperçu et deux boutons.
+  await expect(pop.locator('button')).toHaveCount(2);
+
+  // Un LaTeX sans équivalent Word est refusé, message dans la fenêtre.
+  await page.locator('#eqSrc').fill('\\mathcal{L}');
+  await page.keyboard.press('Control+Enter');
+  await expect(page.locator('#eqErr')).toContainText('commande inconnue');
+  await expect(pop).toHaveClass(/\bshow\b/);
+  let m = await disk(page, project);
+  expect(m.changes.filter(c => c.author === 'Thierry')).toEqual([]);
+
+  // Échap ferme sans rien changer ; un nouveau clic rouvre.
+  await page.keyboard.press('Escape');
+  await expect(pop).not.toHaveClass(/\bshow\b/);
+  await chip.click();
+  await expect(pop).toHaveClass(/\bshow\b/);
+
+  // L'aperçu suit la frappe, Ctrl+Entrée remplace.
+  await page.locator('#eqSrc').fill('\\alpha = 0,36\\,\\rho_{1}');
+  await expect(page.locator('#eqPrev')).toContainText('0,36');
+  await page.keyboard.press('Control+Enter');
+  await expect(pop).not.toHaveClass(/\bshow\b/);
+  const p = page.locator(`.d-p[data-idx="${idx}"]`);
+  await expect(p.locator('.chip.eq.del')).toHaveCount(1);
+  await expect(p.locator('.chip.eq.ins .katex')).toBeVisible();
+  m = await disk(page, project);
+  const mine = m.changes.filter(c => c.author === 'Thierry').map(c => c.kind).sort();
+  expect(mine).toEqual(['del', 'ins']);
+  const segs = m.paragraphs[idx].segments as Seg[];
+  expect(segs.filter(s => s.latex !== undefined && s.rev === 'ins').map(s => s.latex)).toEqual([expect.stringContaining('0,36')]);
+  expect(segs.filter(s => s.latex !== undefined && s.rev === 'del').map(s => s.latex)).toEqual([latex0]);
+  expect(errors).toEqual([]);
+});
+
+test('docx: le collage garde italique, exposant et équations ; la copie met du HTML', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const paste = (data: Record<string, string>) => page.evaluate((d) => {
+    const dt = new DataTransfer();
+    for (const [k, v] of Object.entries(d)) dt.setData(k, v);
+    document.querySelector('#paper')!.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
+  }, data);
+
+  // HTML riche : la mise en forme utile suit, pas la police ni la couleur.
+  await page.locator('#paper').focus();
+  await caretAfter(page, 2, 'retenu ici');
+  await paste({
+    'text/html': '<meta charset="utf-8"><span style="font-family:Comic Sans MS;color:red"> selon <i>Hall</i> en m<sup>2</sup></span>',
+    'text/plain': ' selon Hall en m2',
+  });
+  await expect(page.locator('.d-p[data-idx="2"]')).toContainText('retenu ici selon Hall en m2');
+  await expect.poll(async () => (await disk(page, project)).paragraphs[2].text).toContain('retenu ici selon Hall en m2');
+  const segs = (await disk(page, project)).paragraphs[2].segments as Seg[];
+  expect(segs.some(s => s.text === 'Hall' && s.i && s.rev === 'ins')).toBe(true);
+  expect(segs.some(s => s.text === '2' && s.sup && s.rev === 'ins')).toBe(true);
+  expect(segs.some(s => s.rev === 'ins' && s.font === 'Comic Sans MS')).toBe(false);
+
+  // Texte avec $…$ : l'équation arrive comme une équation Word.
+  await caretAfter(page, 2, 'retenu ici');
+  await paste({'text/plain': ' soit $x^2$'});
+  await expect(page.locator('.d-p[data-idx="2"] .chip.eq.ins .katex')).toBeVisible();
+  await expect.poll(async () => ((await disk(page, project)).paragraphs[2].segments as Seg[]).filter(s => s.latex !== undefined).map(s => s.latex)).toEqual(['x^{2}']);
+  const m = await disk(page, project);
+  expect(new Set(m.changes.filter(c => c.author === 'Thierry').map(c => c.kind))).toEqual(new Set(['ins']));
+
+  // Copier : text/html garde l'italique, text/plain le texte.
+  await select(page, 1, 'MOD09GA');
+  const copied = await page.evaluate(() => {
+    const dt = new DataTransfer();
+    document.querySelector('#paper')!.dispatchEvent(new ClipboardEvent('copy', {clipboardData: dt, bubbles: true, cancelable: true}));
+    return {html: dt.getData('text/html'), text: dt.getData('text/plain')};
+  });
+  expect(copied.text).toBe('MOD09GA');
+  expect(copied.html).toContain('<i>MOD09GA</i>');
+  expect(errors).toEqual([]);
 });

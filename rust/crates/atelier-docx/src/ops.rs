@@ -57,6 +57,12 @@ pub enum Op {
         #[serde(skip)]
         bytes: Option<Vec<u8>>,
     },
+    /// Corrige la `index`-ième équation (depuis 0) du paragraphe d'après
+    /// son LaTeX : en suivi, l'ancienne supprimée et la nouvelle insérée.
+    ReplaceMath { paragraph: String, index: usize, latex: String },
+    /// Collage riche : morceaux mis en forme et équations, un paragraphe
+    /// par élément de `paragraphs`.
+    InsertRuns { paragraph: String, at: usize, paragraphs: Vec<Vec<crate::paste::RunIn>> },
     /// Plusieurs retouches d'un seul geste (sélection sur plusieurs
     /// paragraphes, collage de plusieurs lignes) : tout ou rien, un seul
     /// enregistrement, une seule annulation.
@@ -80,6 +86,8 @@ impl Op {
             Op::InsertNote { .. } => "note",
             Op::InsertRow { .. } | Op::DeleteRow { .. } | Op::InsertColumn { .. } | Op::DeleteColumn { .. } => "tableau",
             Op::InsertImage { .. } => "figure",
+            Op::ReplaceMath { .. } => "équation",
+            Op::InsertRuns { .. } => "collage",
             Op::Batch { .. } => "retouches groupées",
         }
     }
@@ -242,6 +250,10 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
             let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("figure");
             json!(crate::objects::insert_image(docx, paragraph, *at, b.clone(), name, alt, tracked, sig)?)
         }
+        Op::ReplaceMath { paragraph, index, latex } => {
+            json!({"changes": crate::math::replace_math(docx, paragraph, *index, latex, tracked, sig)?})
+        }
+        Op::InsertRuns { paragraph, at, paragraphs } => json!(crate::paste::insert_runs(docx, paragraph, *at, paragraphs, tracked, sig)?),
         Op::Batch { ops } => {
             // Sur une copie : une étape qui échoue n'en laisse aucune à moitié.
             let mut results = Vec::with_capacity(ops.len());

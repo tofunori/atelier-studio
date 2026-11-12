@@ -335,10 +335,11 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
             let piece = t.inline.pieces.iter().find(|p| p.unit.as_ref() == Some(u)).unwrap();
             return err(format!("le passage coupe {} : le sélectionner en entier pour l'effacer", obstacle(piece)));
         }
-        if tracked && src[u.clone()].contains("<m:") {
+        let own = t.inline.pieces.iter().any(|p| p.unit.as_ref() == Some(u) && p.unit_ins.is_some());
+        // Sa propre équation ajoutée en suivi s'efface sans trace, comme sa frappe.
+        if tracked && !own && src[u.clone()].contains("<m:") {
             return err("une équation s'efface sans suivi des modifications (désactiver le suivi, ou la supprimer dans Word)");
         }
-        let own = t.inline.pieces.iter().any(|p| p.unit.as_ref() == Some(u) && p.unit_ins.is_some());
         units.push((u.clone(), own));
     }
     let starts = run_starts(t);

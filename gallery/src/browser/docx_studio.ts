@@ -21,6 +21,8 @@
     /** Effacement en suivi montré d'avance (barré), pas encore confirmé. */
     gdel?: boolean;
     number?: number; whole?: boolean; media?: string; width?: number; height?: number; alt?: string;
+    /** Équation : son LaTeX, et si elle est seule sur sa ligne (display). */
+    latex?: string; display?: boolean;
   };
   type Para = {
     id: string; para_id?: string; style?: string; heading?: number; list?: boolean; align?: string;
@@ -242,6 +244,73 @@
   const virtualLen = (idx: number) => virtualSegments(idx).reduce((n, s) => n + (s.rev === "del" || s.rev === "moveFrom" ? 0 : cp(s.text)), 0);
   const virtualText = (idx: number) => virtualSegments(idx).filter((s) => !(s.rev === "del" || s.rev === "moveFrom")).map((s) => s.text).join("");
 
+  // ------------------------------------------------------------- équations
+  // KaTeX (vendorisé avec la galerie) n'est chargé qu'une fois, et seulement
+  // pour un document qui a des équations. Jusque-là, et si KaTeX refuse une
+  // équation, la page montre son texte (puis son LaTeX) : rien ne manque.
+  type Katex = {
+    render(tex: string, el: HTMLElement, o: Record<string, unknown>): void;
+    renderToString(tex: string, o: Record<string, unknown>): string;
+  };
+  let katexLib: Katex | null = null;
+  let katexWait: Promise<Katex | null> | null = null;
+  function loadKatex(): Promise<Katex | null> {
+    if (katexWait) return katexWait;
+    katexWait = new Promise((resolve) => {
+      const ready = () => {
+        // Polices de KaTeX (symboles, grands opérateurs) avant la première
+        // mesure : une police arrivée après la coupe en pages la fausserait.
+        const fonts = document.fonts ? Promise.all(["1em KaTeX_Main", "italic 1em KaTeX_Math", "1em KaTeX_Size1", "1em KaTeX_Size2"].map((f) => document.fonts.load(f).catch(() => []))) : Promise.resolve();
+        const late = new Promise((r) => setTimeout(r, 1500));
+        Promise.race([fonts, late]).then(() => {
+          katexLib = ((window as unknown as { katex?: Katex }).katex) || null;
+          resolve(katexLib);
+        });
+      };
+      if ((window as unknown as { katex?: Katex }).katex) { ready(); return; }
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "/.fig_thumbs/katex/katex.min.css";
+      const css = new Promise((r) => { link.onload = link.onerror = () => r(0); });
+      document.head.appendChild(link);
+      const s = document.createElement("script");
+      s.src = "/.fig_thumbs/katex/katex.min.js";
+      s.onload = () => { css.then(ready); };
+      s.onerror = () => resolve(null);
+      document.head.appendChild(s);
+    });
+    return katexWait;
+  }
+  const hasMath = (m: Model) => m.paragraphs.some((p) => p.segments.some((s) => s.latex !== undefined))
+    || (m.notes || []).some((n) => n.paragraphs.some((p) => p.segments.some((s) => s.latex !== undefined)));
+  /** Virgule décimale (0,356) : à l'affichage seulement, sans l'espace de ponctuation de TeX. */
+  const decimalComma = (latex: string) => latex.replace(/(\d),(?=\d)/g, "$1{,}");
+  /** Dessine une équation dans `node` ; rend faux si KaTeX n'est pas (encore) là. */
+  function drawEq(node: HTMLElement, latex: string, display: boolean): boolean {
+    node.classList.remove("raw");
+    if (!katexLib) return false;
+    try {
+      katexLib.render(decimalComma(latex), node, { displayMode: display, throwOnError: true, output: "html", strict: "ignore" });
+    } catch {
+      node.classList.add("raw");
+      node.textContent = latex;
+    }
+    return true;
+  }
+  /** Les équations dessinées avant l'arrivée de KaTeX, redessinées ; leur
+   *  paragraphe repasse à la mise en page (hauteur mesurée après rendu). */
+  function upgradeEquations() {
+    const touched = new Set<number>();
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>(".chip.eq[data-wait]"))) {
+      delete el.dataset.wait;
+      el.textContent = "";
+      drawEq(el, el.dataset.latex || "", el.classList.contains("disp"));
+      const p = el.closest(".d-p") as HTMLElement | null;
+      if (p && p.dataset.idx !== undefined) touched.add(Number(p.dataset.idx));
+    }
+    for (const idx of touched) scheduleLines(idx);
+  }
+
   // ------------------------------------------------------------------ rendu
   /** Texte d'un segment avec sa mise en forme (gras, italique…). */
   function styled(s: Seg): Node {
@@ -287,8 +356,17 @@
         node = document.createElement("span");
         const label = s.label || "";
         const isNote = label === "note" || label === "note de fin";
-        node.className = "chip" + (s.kind === "object" ? (isNote ? " note" : s.media ? " fig" : " obj") : "");
-        if (s.media) {
+        node.className = "chip" + (s.kind === "object" ? (isNote ? " note" : s.media ? " fig" : s.latex !== undefined ? " eq" : " obj") : "");
+        if (s.latex !== undefined) {
+          // Équation : KaTeX d'après son LaTeX, à la taille et à l'encre de la page.
+          if (s.display) node.classList.add("disp");
+          node.dataset.latex = s.latex;
+          if (!drawEq(node, s.latex, !!s.display)) {
+            node.textContent = s.text || s.latex;
+            node.dataset.wait = "1";
+            void loadKatex().then(upgradeEquations);
+          }
+        } else if (s.media) {
           const img = document.createElement("img");
           img.src = `/docx/media?path=${enc(PATH)}&para=${enc(p.id)}&rel=${enc(s.media)}`;
           img.alt = s.alt || "Figure";
@@ -306,7 +384,11 @@
           node.textContent = isNote && s.number ? String(s.number) : s.text || (label === "image" ? "[figure]" : label === "équation" ? "[équation]" : `[${label || "objet"}]`);
         }
         node.contentEditable = "false";
-        node.title = s.kind === "field" ? (label.startsWith("zotero") ? "Citation Zotero : à modifier dans Word" : `Champ ${label}`) : (isNote ? (label === "note" ? "Note de bas de page" : "Note de fin") : s.media ? (s.alt || "Figure") : label);
+        if (s.latex !== undefined) {
+          node.setAttribute("role", "button");
+          node.setAttribute("aria-haspopup", "dialog");
+          node.setAttribute("aria-label", `Équation : ${s.latex}`);
+        } else node.title = s.kind === "field" ? (label.startsWith("zotero") ? "Citation Zotero : à modifier dans Word" : `Champ ${label}`) : (isNote ? (label === "note" ? "Note de bas de page" : "Note de fin") : s.media ? (s.alt || "Figure") : label);
       } else {
         node = document.createElement("span");
         node.appendChild(styled(s));
@@ -1805,9 +1887,10 @@
       if (structBusy) { backlog.push(async () => { typeText("\n"); }); return; }
       typeText("\n");
     } else if (t === "insertFromPaste" || t === "insertFromDrop" || t === "insertFromYank") {
-      const data = e.dataTransfer?.getData("text/plain") || "";
+      // Le collage passe d'ordinaire par l'événement `paste` (plus bas) ;
+      // ici, ce qui reste (glisser, yank) avec sa mise en forme.
       const sel = readSel();
-      if (data && sel) structural(() => replaceSel(sel, data));
+      if (sel && e.dataTransfer) pasteFrom(sel, e.dataTransfer);
     } else if (t.startsWith("delete")) {
       deleteKey(t === "deleteByCut" || t === "deleteByDrag" ? "deleteContentBackward" : t);
     } else if (t === "historyUndo") {
@@ -1836,6 +1919,10 @@
 
   paper.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
+    if (e.key === "Enter" && !mod && !e.shiftKey && !e.altKey && view !== "original") {
+      const eq = selectedEq();
+      if (eq) { e.preventDefault(); openEq(eq); return; }
+    }
     if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); undo(e.shiftKey); return; }
     if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); undo(true); return; }
     if (mod && !e.altKey && ["b", "i", "u"].includes(e.key.toLowerCase())) {
@@ -1851,14 +1938,174 @@
     if (!sel || collapsed(sel) || !model) return;
     e.preventDefault();
     e.clipboardData?.setData("text/plain", selectionText(sel));
+    e.clipboardData?.setData("text/html", selectionHtml(sel));
   });
   paper.addEventListener("cut", (e: ClipboardEvent) => {
     const sel = readSel();
     if (!sel || collapsed(sel) || !model) return;
     e.preventDefault();
     e.clipboardData?.setData("text/plain", selectionText(sel));
+    e.clipboardData?.setData("text/html", selectionHtml(sel));
     if (view !== "original") structural(() => replaceSel(sel, ""));
   });
+  paper.addEventListener("paste", (e: ClipboardEvent) => {
+    e.preventDefault();
+    if (view === "original" || !model || !e.clipboardData) return;
+    const sel = readSel();
+    if (sel) pasteFrom(sel, e.clipboardData);
+  });
+
+  // ------------------------------------------------- collage et copie riches
+  // Le navigateur n'extrait que des morceaux { texte, gras, italique,
+  // souligné, exposant, indice } ou des équations (LaTeX) ; le moteur écrit
+  // le XML (`insert_runs`). Polices, couleurs et tailles ne suivent pas.
+  type RunIn = { text?: string; b?: boolean; i?: boolean; u?: boolean; sup?: boolean; sub?: boolean; latex?: string };
+  type Look5 = { b: boolean; i: boolean; u: boolean; sup: boolean; sub: boolean };
+  const PLAIN: Look5 = { b: false, i: false, u: false, sup: false, sub: false };
+  /** `$…$`, `$$…$$`, `\(…\)`, `\[…\]` : un `$` ouvrant collé à son contenu,
+   *  le fermant aussi et pas suivi d'un chiffre (« 5 $ et 10 $ » reste du texte). */
+  const MATH_RE = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?=[^\s$])([^$\n]*?[^\s$\\])\$(?!\d)/g;
+  function splitMath(text: string, f: Look5): RunIn[] {
+    const out: RunIn[] = [];
+    let last = 0;
+    for (const m of text.matchAll(MATH_RE)) {
+      if (m.index! > last) out.push({ text: text.slice(last, m.index), ...f });
+      out.push({ latex: (m[1] ?? m[2] ?? m[3] ?? m[4]).trim() });
+      last = m.index! + m[0].length;
+    }
+    if (last < text.length) out.push({ text: text.slice(last), ...f });
+    return out;
+  }
+  /** HTML du presse-papiers (Word, page web, PDF, Atelier) → paragraphes de morceaux. */
+  function runsFromHtml(html: string): RunIn[][] {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const paras: RunIn[][] = [[]];
+    let blocks = false;
+    const cur = () => paras[paras.length - 1];
+    const newPara = () => { if (cur().length) paras.push([]); };
+    const pushRun = (r: RunIn) => {
+      const c = cur();
+      const prev = c[c.length - 1];
+      if (r.latex === undefined && prev && prev.latex === undefined && !!prev.b === !!r.b && !!prev.i === !!r.i && !!prev.u === !!r.u && !!prev.sup === !!r.sup && !!prev.sub === !!r.sub) prev.text = (prev.text || "") + (r.text || "");
+      else c.push(r);
+    };
+    const texOf = (el: Element) => el.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim() || "";
+    const BLOCK = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE|PRE|TR|DT|DD|FIGCAPTION|CAPTION|SECTION|ARTICLE|HEADER|FOOTER|UL|OL|TABLE|ADDRESS)$/;
+    const SKIP = /^(STYLE|SCRIPT|META|TITLE|HEAD|TEMPLATE|NOSCRIPT|BUTTON|SVG|IMG|OBJECT|IFRAME)$/;
+    const walk = (n: Node, f: Look5, pre: boolean) => {
+      for (let c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) {
+          const t = pre ? (c as Text).data : (c as Text).data.replace(/[ \t\r\n]+/g, " ");
+          if (t) for (const r of splitMath(t, f)) pushRun(r);
+          continue;
+        }
+        if (c.nodeType !== 1) continue;
+        const el = c as HTMLElement;
+        const tag = el.tagName.toUpperCase();
+        // Équations : LaTeX gardé par KaTeX ou MathJax, MathML annoté.
+        if (tag === "SCRIPT" && /^math\/tex/.test(el.getAttribute("type") || "")) { const tex = (el.textContent || "").trim(); if (tex) pushRun({ latex: tex }); continue; }
+        if (SKIP.test(tag)) continue;
+        if (el.classList.contains("katex-html") || el.classList.contains("MathJax_Preview") || el.getAttribute("aria-hidden") === "true") continue;
+        if (tag === "MATH" || tag === "MJX-CONTAINER" || el.classList.contains("katex")) {
+          const tex = texOf(el);
+          if (tex) pushRun({ latex: tex });
+          else { const t = (el.querySelector("math") || el).textContent || ""; if (t.trim()) pushRun({ text: t.replace(/\s+/g, ""), ...f }); }
+          continue;
+        }
+        if (tag === "BR") { blocks = true; newPara(); continue; }
+        const st = el.style;
+        const w = st.fontWeight;
+        const g: Look5 = {
+          b: tag === "B" || tag === "STRONG" ? !(w === "normal" || w === "400") : w === "bold" || w === "bolder" || /^[6-9]00$/.test(w) ? true : w === "normal" || w === "400" ? false : f.b,
+          i: tag === "I" || tag === "EM" || tag === "CITE" || tag === "VAR" || tag === "DFN" ? st.fontStyle !== "normal" : st.fontStyle === "italic" || st.fontStyle === "oblique" ? true : st.fontStyle === "normal" ? false : f.i,
+          u: tag === "U" || tag === "INS" || /underline/.test(st.textDecoration || st.textDecorationLine || "") ? true : f.u,
+          sup: tag === "SUP" || st.verticalAlign === "super" ? true : tag === "SUB" || st.verticalAlign === "sub" ? false : f.sup,
+          sub: tag === "SUB" || st.verticalAlign === "sub" ? true : tag === "SUP" || st.verticalAlign === "super" ? false : f.sub,
+        };
+        const block = BLOCK.test(tag);
+        if (block) { blocks = true; newPara(); }
+        walk(el, g, pre || tag === "PRE");
+        if (block) newPara();
+      }
+    };
+    walk(doc.body, PLAIN, false);
+    // Blancs de mise en page du HTML aux bords des paragraphes.
+    const out = paras.filter((p) => p.some((r) => r.latex !== undefined || (r.text || "").trim()));
+    if (blocks) for (const p of out) {
+      const a = p[0], z = p[p.length - 1];
+      if (a.text !== undefined) a.text = a.text.replace(/^ +/, "");
+      if (z.text !== undefined) z.text = z.text.replace(/ +$/, "");
+    }
+    return out.map((p) => p.filter((r) => r.latex !== undefined || r.text));
+  }
+  const runsFromText = (text: string): RunIn[][] => text.replace(/\r\n?/g, "\n").split("\n").map((l) => splitMath(l, PLAIN).filter((r) => r.latex !== undefined || r.text));
+  const rich = (paras: RunIn[][]) => paras.some((p) => p.some((r) => r.latex !== undefined || r.b || r.i || r.u || r.sup || r.sub));
+  /** Colle le contenu de `dt` à la place de la sélection : mis en forme
+   *  ou avec des équations, par `insert_runs` ; sinon comme de la frappe. */
+  function pasteFrom(sel: Sel, dt: DataTransfer) {
+    const html = dt.getData("text/html");
+    const text = dt.getData("text/plain");
+    let paras = html ? runsFromHtml(html) : [];
+    if (!rich(paras)) paras = text ? runsFromText(text) : paras;
+    if (!paras.length) return;
+    if (!rich(paras)) {
+      const plain = text || paras.map((p) => p.map((r) => r.text || "").join("")).join("\n");
+      if (plain) structural(() => replaceSel(sel, plain));
+      return;
+    }
+    structural(async () => {
+      const ops = deleteOps(sel);
+      const story = storyAt(sel.a.idx);
+      const start = storySpan(sel.a.idx)[0];
+      ops.push({ op: "insert_runs", paragraph: refIn(story, start, sel.a.idx), at: sel.a.off, paragraphs: paras });
+      const op = ops.length === 1 ? ops[0] : { op: "batch", ops };
+      await sendOp(op, (_m, result) => {
+        const r = result && result.results ? result.results[result.results.length - 1] : result;
+        const rank = Number(String(r?.paragraph || "").split(".").pop()!.replace(/^p/, ""));
+        if (!Number.isFinite(rank) || typeof r?.at !== "number") return null;
+        const pos = { idx: start + rank, off: r.at };
+        return { a: pos, b: pos };
+      }, sel.a.idx);
+    });
+  }
+  /** La sélection en HTML : italiques, exposants… et équations en MathML
+   *  annoté de leur LaTeX (Word en fait des équations, Atelier aussi). */
+  function eqHtml(latex: string, display: boolean): string {
+    if (katexLib) {
+      try { return katexLib.renderToString(latex, { displayMode: display, output: "mathml", throwOnError: true, strict: "ignore" }); } catch { /* repli LaTeX */ }
+    }
+    return esc(display ? `\\[${latex}\\]` : `\\(${latex}\\)`);
+  }
+  function selectionHtml(sel: Sel): string {
+    const out: string[] = [];
+    for (let k = sel.a.idx; k <= sel.b.idx; k++) {
+      const s0 = k === sel.a.idx ? sel.a.off : 0;
+      const e0 = k === sel.b.idx ? sel.b.off : Infinity;
+      let off = 0;
+      let html = "";
+      for (const g of virtualSegments(k)) {
+        if (g.rev === "del" || g.rev === "moveFrom") continue;
+        const chars = Array.from(g.text);
+        const s = Math.max(s0, off), e = Math.min(e0, off + chars.length);
+        if (e > s) {
+          if (g.latex !== undefined) html += eqHtml(g.latex, !!g.display);
+          else {
+            let t = esc(chars.slice(s - off, e - off).join(""));
+            if (g.sub) t = `<sub>${t}</sub>`;
+            if (g.sup) t = `<sup>${t}</sup>`;
+            if (g.strike) t = `<s>${t}</s>`;
+            if (g.u) t = `<u>${t}</u>`;
+            if (g.i) t = `<i>${t}</i>`;
+            if (g.b) t = `<b>${t}</b>`;
+            html += t;
+          }
+        }
+        off += chars.length;
+      }
+      out.push(html);
+    }
+    return out.length === 1 ? out[0] : out.map((h) => `<p>${h}</p>`).join("");
+  }
   // Pas de glisser-déposer du texte (un dépôt accidentel déplace la thèse).
   paper.addEventListener("dragstart", (e) => e.preventDefault());
   paper.addEventListener("drop", (e) => e.preventDefault());
@@ -3141,6 +3388,8 @@
     const t = e.target as HTMLElement;
     const s = getSelection();
     if (s && !s.isCollapsed) return;
+    // Une équation s'ouvre en LaTeX (fenêtre de l'équation, plus bas).
+    if (eqChip(t)) return;
     const ch = view === "revue" ? t.closest(".ins[data-ch],.del[data-ch]") as HTMLElement | null : null;
     if (ch) changeBubble(ch); else hideBubble();
     const cm = t.closest(".cmt[data-c]") as HTMLElement | null;
@@ -3153,6 +3402,179 @@
       renderCards();
     }
   });
+
+  // ------------------------------------------------- équation en LaTeX
+  // Un clic sur une équation (ou Entrée quand elle est sélectionnée) ouvre sa
+  // source LaTeX : aperçu KaTeX pendant la frappe, Remplacer (⌘↵) écrit la
+  // nouvelle équation Word native, en suivi si le Suivi est allumé.
+  const eqChip = (t: EventTarget | null): HTMLElement | null => {
+    const el = t instanceof Element ? t.closest(".chip.eq") as HTMLElement | null : null;
+    return el && paper.contains(el) && !el.classList.contains("del") && !el.dataset.del ? el : null;
+  };
+  const eqPop = document.createElement("div");
+  eqPop.className = "pop eqpop";
+  eqPop.id = "eqpop";
+  eqPop.setAttribute("role", "dialog");
+  eqPop.setAttribute("aria-labelledby", "eqH");
+  eqPop.innerHTML = `<div class="eq-hd"><span id="eqH"></span><span class="tag" id="eqTag">en suivi</span></div>
+    <textarea class="eq-src" id="eqSrc" rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Source LaTeX" aria-describedby="eqErr"></textarea>
+    <div class="eq-prev" id="eqPrev" aria-hidden="true"></div>
+    <div class="eq-err" id="eqErr" role="alert"></div>
+    <div class="eq-ft"><button type="button" class="btn q" id="eqCancel">Annuler<span class="kbd">Échap</span></button><button type="button" class="btn" id="eqOk">Remplacer<span class="kbd">⌘↵</span></button></div>`;
+  document.body.appendChild(eqPop);
+  const eqSrc = eqPop.querySelector("#eqSrc") as HTMLTextAreaElement;
+  const eqPrev = eqPop.querySelector("#eqPrev") as HTMLElement;
+  const eqErr = eqPop.querySelector("#eqErr") as HTMLElement;
+  const eqOk = eqPop.querySelector("#eqOk") as HTMLButtonElement;
+  type EqTarget = { idx: number; index: number; latex: string; display: boolean; off: number; len: number };
+  let eqAt: EqTarget | null = null;
+  let eqFrame = 0;
+  /** L'équation `index` du paragraphe `idx` dans la page (après un redessin). */
+  const eqEl = (t: EqTarget) => (Array.from(paper.querySelectorAll(`.d-p[data-idx="${t.idx}"] > .chip.eq`)) as HTMLElement[]).filter((e) => !e.classList.contains("del"))[t.index] || null;
+  function previewEq() {
+    eqFrame = 0;
+    const tex = eqSrc.value;
+    eqPrev.classList.remove("bad");
+    if (!katexLib) { eqPrev.textContent = ""; return; }
+    try {
+      katexLib.render(decimalComma(tex) || "\\;", eqPrev, { displayMode: true, throwOnError: true, output: "html", strict: "ignore" });
+    } catch {
+      // Frappe en cours : le dernier aperçu valide reste, estompé.
+      eqPrev.classList.add("bad");
+    }
+  }
+  function placeEq() {
+    if (!eqAt) return;
+    const el = eqEl(eqAt);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const w = Math.min(460, innerWidth - 32);
+    eqPop.style.width = `${w}px`;
+    eqPop.style.left = `${Math.round(Math.max(16, Math.min(innerWidth - w - 16, r.left + r.width / 2 - w / 2)))}px`;
+    const h = eqPop.offsetHeight;
+    const below = r.bottom + 8;
+    eqPop.style.top = `${Math.round(below + h > innerHeight - 8 && r.top - 8 - h > 8 ? r.top - 8 - h : Math.min(below, innerHeight - h - 8))}px`;
+  }
+  function openEq(el: HTMLElement) {
+    if (!model || view === "original") return;
+    const p = el.closest(".d-p") as HTMLElement | null;
+    if (!p || p.dataset.idx === undefined) return;
+    const idx = Number(p.dataset.idx);
+    const mine = (Array.from(p.querySelectorAll(":scope > .chip.eq")) as HTMLElement[]).filter((e) => !e.classList.contains("del"));
+    const index = mine.indexOf(el);
+    if (index < 0) return;
+    // Numéro dans le document : comme le compte Word, à la lecture.
+    const all = (Array.from(paper.querySelectorAll(".chip.eq")) as HTMLElement[]).filter((e) => !e.classList.contains("del"));
+    const n = all.indexOf(el) + 1;
+    for (const o of Array.from(paper.querySelectorAll(".chip.eq.on"))) o.classList.remove("on");
+    el.classList.add("on");
+    hideBubble();
+    eqAt = { idx, index, latex: el.dataset.latex || "", display: el.classList.contains("disp"), off: Number(el.dataset.off), len: Number(el.dataset.len) };
+    ($("eqH") as HTMLElement).textContent = `Équation ${nf(n)} · LaTeX`;
+    ($("eqTag") as HTMLElement).hidden = !tracked;
+    eqSrc.value = eqAt.latex;
+    eqErr.textContent = "";
+    eqOk.disabled = false;
+    previewEq();
+    if (!katexLib) void loadKatex().then(() => { if (eqAt) previewEq(); });
+    eqPop.classList.add("show");
+    autoSize();
+    placeEq();
+    eqSrc.focus();
+    eqSrc.setSelectionRange(eqSrc.value.length, eqSrc.value.length);
+  }
+  function autoSize() {
+    eqSrc.style.height = "auto";
+    eqSrc.style.height = `${Math.min(eqSrc.scrollHeight, 160)}px`;
+  }
+  /** Ferme la fenêtre ; `back` remet le curseur juste après l'équation. */
+  function closeEq(back: boolean) {
+    const t = eqAt;
+    if (!t) return;
+    eqAt = null;
+    eqPop.classList.remove("show");
+    for (const o of Array.from(paper.querySelectorAll(".chip.eq.on"))) o.classList.remove("on");
+    if (back) {
+      paper.focus({ preventScroll: true });
+      setCaret({ idx: t.idx, off: t.off + t.len });
+    }
+  }
+  function submitEq() {
+    const t = eqAt;
+    if (!t || !model || eqOk.disabled) return;
+    const latex = eqSrc.value.trim();
+    if (!latex) { eqErr.textContent = "Équation vide : Annuler pour la garder."; return; }
+    if (latex === t.latex.trim()) { closeEq(true); return; }
+    eqOk.disabled = true;
+    eqErr.textContent = "";
+    structural(() => enqueue(async () => {
+      inflight++;
+      status(SAVING);
+      try {
+        const r = await api("/docx/op", { path: PATH, revision: model!.revision, author, tracked, op: { op: "replace_math", paragraph: ref(t.idx), index: t.index, latex } });
+        if (eqAt === t) closeEq(false);
+        applyModel(normalize(r.model), null);
+        // Curseur après la nouvelle équation (la dernière de ce rang).
+        const p = model!.paragraphs[t.idx];
+        let off = 0, after = t.off + t.len;
+        let k = -1;
+        for (const g of p ? p.segments : []) {
+          const removed = g.rev === "del" || g.rev === "moveFrom";
+          if (g.latex !== undefined && !removed && ++k === t.index) { after = off + cp(g.text); break; }
+          off += removed ? 0 : cp(g.text);
+        }
+        paper.focus({ preventScroll: true });
+        setCaret({ idx: t.idx, off: after });
+        status(SAVED);
+      } catch (e: any) {
+        status(SAVED);
+        if (e.status === 409) {
+          try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message suffit */ }
+          if (eqAt === t) eqErr.textContent = "Le document a changé entre-temps : vérifie l'équation, puis Remplacer.";
+        } else if (eqAt === t) {
+          eqErr.textContent = sentence(e.message || String(e));
+        } else status(e.message || String(e), true);
+        if (eqAt === t) { eqOk.disabled = false; eqSrc.focus(); }
+      } finally {
+        inflight--;
+      }
+    }) as Promise<void>);
+  }
+  eqSrc.addEventListener("input", () => {
+    eqErr.textContent = "";
+    autoSize();
+    if (!eqFrame) eqFrame = requestAnimationFrame(previewEq);
+  });
+  eqPop.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeEq(true); return; }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitEq(); return; }
+    if (e.key === "Tab") {
+      // Le focus reste dans la fenêtre : champ, Annuler, Remplacer.
+      const f = [eqSrc, $("eqCancel"), eqOk].filter((x) => !(x as HTMLButtonElement).disabled) as HTMLElement[];
+      const k = f.indexOf(document.activeElement as HTMLElement);
+      e.preventDefault();
+      f[(k + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus();
+    }
+  });
+  $("eqCancel").addEventListener("click", () => closeEq(true));
+  eqOk.addEventListener("click", submitEq);
+  paper.addEventListener("click", (e) => {
+    const el = eqChip(e.target);
+    if (el) { e.preventDefault(); openEq(el); }
+  });
+  document.addEventListener("mousedown", (e) => {
+    if (eqAt && !(e.target as HTMLElement).closest("#eqpop") && !eqChip(e.target)) closeEq(false);
+  });
+  scroller.addEventListener("scroll", () => { if (eqAt) placeEq(); }, { passive: true });
+  window.addEventListener("resize", () => { if (eqAt) placeEq(); });
+  /** Équation exactement sélectionnée (Maj+flèche) : Entrée l'ouvre. */
+  function selectedEq(): HTMLElement | null {
+    const sel = readSel();
+    if (!sel || collapsed(sel) || sel.a.idx !== sel.b.idx) return null;
+    const p = paper.querySelector(`.d-p[data-idx="${sel.a.idx}"]`);
+    const el = p ? (Array.from(p.querySelectorAll(":scope > .chip.eq")) as HTMLElement[]).find((x) => !x.classList.contains("del") && Number(x.dataset.off) === sel.a.off && Number(x.dataset.off) + Number(x.dataset.len) === sel.b.off) : null;
+    return el || null;
+  }
 
   // ------------------------------------------------- plan et commentaires
   let tab: "plan" | "com" = "plan";
@@ -4202,6 +4624,8 @@
         const known = (m as Model).authors.find((a) => !AGENT.test(a.name) && a.name.toLowerCase().startsWith(first));
         author = known ? known.name : sys;
       }
+      // Équations : KaTeX et ses polices avant la première coupe en pages.
+      if (hasMath(m as Model)) await loadKatex();
       applyModel(m);
       live?.schedule();
       status("Enregistré dans le .docx");
