@@ -465,7 +465,7 @@ body.triage #scroll,body.triage.no-margin #scroll,body.triage.lane-over #scroll{
 .tri-cur{cursor:default}
 .tri-cur .tx{color:var(--text-secondary)}
 /* Passage en revue : la teinte de son auteur, comme une sélection. */
-#paper .tri-on{background:color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);box-shadow:0 0 0 2px color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);border-radius:2px;transition:background-color 120ms ease-out}
+#paper .tri-on{background:color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);box-shadow:0 0 0 2px color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);border-radius:0;transition:background-color 120ms ease-out}
 #paper .d-p.tri-on{box-shadow:none;border-radius:6px}
 .rbar{position:absolute;bottom:16px;left:0;z-index:4;display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:10px;background:var(--bg-pop,var(--surface-overlay));box-shadow:var(--elev);font-size:12px;line-height:1.3;color:var(--text-primary);white-space:nowrap;outline:none;animation:rbar-in 140ms ease-out both}
 .rbar[hidden]{display:none}
