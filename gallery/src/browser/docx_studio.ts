@@ -138,6 +138,7 @@
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
   const ic = (k: keyof typeof PATHS, size = 16) => svg(PATHS[k], size);
@@ -1853,6 +1854,20 @@
   let draft: { idx: number; s: number; e: number; quote: string; pid: string; lost?: boolean } | null = null;
   /** Réponses en cours d'écriture, par fiche : un redessin ou Échap ne les perd pas. */
   const replyDrafts = new Map<string, string>();
+  // Brouillons de réponse de l'agent (Thierry, 2026-11-12 : « Brouillon,
+  // signé Thierry ») : « Proposer » demande au chat une réponse que l'agent
+  // pose hors du document (atelier_docx draft_reply) ; le sondage la verse
+  // dans le champ, l'utilisateur la relit et l'envoie sous son nom.
+  type AgentDraft = { text: string; author: string; at: number };
+  let agentDrafts: Record<string, AgentDraft> = {};
+  let agentDraftsSig = "";
+  /** Commentaires dont on attend le brouillon, et depuis quand. */
+  const asking = new Map<number, number>();
+  /** Brouillons écartés par « Arrêter » jusqu'à la prochaine demande. */
+  const muted = new Set<number>();
+  /** Suivis connus au moment de la demande : les nouveaux de l'agent sont ses corrections. */
+  const fixBase = new Map<number, Set<number>>();
+  const ASK_TIMEOUT_MS = 4 * 60_000;
   /** Suivis en cours de décision : un double-clic n'envoie pas deux fois. */
   const deciding = new Set<number>();
   const leader = $("leader");
@@ -1933,11 +1948,23 @@
     if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}<p class="tx">${esc(r.text.trim())}</p></div>`;
     else if (replies.length) h += `<div class="meta">${pl(replies.length, "réponse", "réponses")}</div>`;
     if (on) {
-      h += `<textarea class="c-input" rows="1" placeholder="Répondre…" aria-label="Répondre à ${esc(firstName(c.author))}"></textarea>
-        <div class="ac"><button class="btn q" data-act="resolve">${c.done ? "Rouvrir" : `${ic("check", 14)}Résoudre`}</button>
+      const field = `<textarea class="c-input" rows="1" placeholder="Répondre…" aria-label="Répondre à ${esc(firstName(c.author))}"></textarea>`;
+      const ad = c.done || muted.has(c.id) ? null : agentDrafts[String(c.id)] || null;
+      const waiting = !c.done && asking.has(c.id);
+      if (waiting) {
+        h += `<div class="c-wait" role="status">${ic("bot", 14)}<span>Rédaction du brouillon</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><button class="btn q in" data-act="stop">Arrêter</button></div>`;
+      } else if (ad) {
+        h += `<div class="c-by">${ic("bot", 12)}<span>Brouillon de ${esc(firstName(ad.author))}, à relire</span><button class="lk" data-act="redo" data-tooltip="Demander une autre formulation">Refaire</button></div><div class="c-field">${field}</div>`;
+      } else if (!c.done) {
+        h += `<div class="c-field ask">${field}<button class="btn q in" data-act="propose" data-tooltip="L'agent du chat rédige une réponse que tu relis avant d'envoyer">${ic("bot", 14)}Proposer</button></div>`;
+      } else h += field;
+      // Un remplacement = un retrait et un ajout : on compte les passages touchés.
+      const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
+      if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
+      h += `<div class="ac"><button class="btn q" data-act="resolve">${c.done ? "Rouvrir" : `${ic("check", 14)}Résoudre`}</button>
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>
-        <button class="btn p" data-act="reply">Répondre</button></div>`;
+        <button class="btn p" data-act="reply"${!c.done && asking.has(c.id) ? " disabled" : ""}>Répondre</button></div>`;
     }
     return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }
@@ -2011,6 +2038,7 @@
         const next = el.querySelector("textarea");
         const back = it.kind === "draft" ? was : replyDrafts.get(it.key) || "";
         if (next && back) next.value = back;
+        if (next) fitInput(next);
       }
       el.classList.toggle("on", on);
       el.classList.toggle("grp", it.kind === "chip");
@@ -2196,6 +2224,75 @@
     });
   }
 
+  /** Le champ de réponse grandit avec son texte (un brouillon tient sur plusieurs lignes). */
+  function fitInput(ta: HTMLTextAreaElement) {
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight + 2, 240)}px`;
+  }
+
+  /** Suivis posés par l'agent depuis la demande de brouillon. */
+  function agentFixes(id: number): number[] {
+    const base = fixBase.get(id);
+    if (!base || !model) return [];
+    return model.changes.filter((ch) => !base.has(ch.id) && AGENT.test(ch.author)).map((ch) => ch.id);
+  }
+
+  /** Ce que l'agent lit : le commentaire, son fil, et la consigne. */
+  function replyPrompt(c: Comment, previous?: string): string {
+    const replies = model!.comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
+    const who = firstName(c.author);
+    return `${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}\n\n`
+      + `Propose-moi une réponse à ${who} : courte, en français, que je relirai et enverrai sous mon nom. `
+      + `Pose-la avec atelier_docx action=draft_reply (comment=${c.id}), jamais reply. `
+      + `Si le passage mérite une correction, pose-la aussi en suivi (action=edit).`
+      + (previous ? ` Une autre formulation que celle-ci : « ${previous} ».` : "");
+  }
+
+  function proposeReply(c: Comment, previous?: string) {
+    const core = W.AtelierStudioCore;
+    if (!W.__atelierPost || !core || !core.requestChatAttachment) {
+      status("Le chat d'Atelier n'est pas joignable depuis cette page.", true);
+      return;
+    }
+    muted.delete(c.id);
+    asking.set(c.id, Date.now());
+    fixBase.set(c.id, new Set(model!.changes.map((ch) => ch.id)));
+    renderCards();
+    core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: replyPrompt(c, previous), path: PATH, name: NAME, direct: true } })
+      .then(() => status("Demandé au chat : le brouillon arrive dans la carte"))
+      .catch((e: Error) => { asking.delete(c.id); renderCards(); status(e.message, true); });
+  }
+
+  function clearAgentDraft(id: number) {
+    if (!agentDrafts[String(id)]) return;
+    delete agentDrafts[String(id)];
+    api("/docx/draft/clear", { path: PATH, comment: id }).catch(() => { /* il sera écrasé au prochain brouillon */ });
+  }
+
+  /** Brouillons lus au sondage : versés dans le champ s'il est vide (ou porte
+   *  encore le brouillon précédent), sans jamais écraser ce que l'utilisateur tape. */
+  function takeAgentDrafts(next: Record<string, AgentDraft>) {
+    let fresh = "";
+    for (const [key, d] of Object.entries(next)) {
+      const id = Number(key);
+      const prev = agentDrafts[key];
+      if (prev && prev.at === d.at) continue;
+      if (muted.has(id)) continue;
+      asking.delete(id);
+      const card = `c${id}`;
+      const ta = cardsEl.querySelector<HTMLTextAreaElement>(`[data-key="${card}"] textarea`);
+      const typed = ta ? ta.value : replyDrafts.get(card) || "";
+      if (!typed.trim() || (prev && typed === prev.text)) {
+        replyDrafts.set(card, d.text);
+        if (ta) ta.value = d.text;
+      }
+      fresh = d.author;
+    }
+    agentDrafts = next;
+    renderCards();
+    if (fresh) status(`Brouillon de ${firstName(fresh)} prêt dans la carte`);
+  }
+
   /** Montre une modification dans la page, et la sélectionne de l'œil. */
   function showChange(id: number) {
     const els = Array.from(paper.querySelectorAll<HTMLElement>(`.ins[data-ch="${id}"],.del[data-ch="${id}"]`));
@@ -2242,6 +2339,17 @@
     const c = commentMap.get(it.ids[0]);
     if (!c) return;
     const ta = host.querySelector("textarea");
+    if (act === "propose") { proposeReply(c); return; }
+    if (act === "stop") { asking.delete(c.id); muted.add(c.id); renderCards(); status("Brouillon abandonné"); return; }
+    if (act === "redo") {
+      const previous = agentDrafts[String(c.id)]?.text;
+      if (ta && previous && ta.value === previous) ta.value = "";
+      replyDrafts.delete(it.key);
+      clearAgentDraft(c.id);
+      proposeReply(c, previous);
+      return;
+    }
+    if (act === "see-fix") { const f = agentFixes(c.id); if (f.length) showChange(f[0]); return; }
     if (act === "resolve") {
       structural(async () => {
         const ok = await sendOp({ op: "resolve", id: c.id, done: !c.done });
@@ -2254,6 +2362,7 @@
       replyDrafts.delete(it.key);
       structural(async () => {
         const ok = await sendOp({ op: "reply", parent: c.id, text });
+        if (ok) { clearAgentDraft(c.id); fixBase.delete(c.id); asking.delete(c.id); renderCards(); }
         if (!ok) { const again = cardsEl.querySelector(`[data-key="${it.key}"] textarea`) as HTMLTextAreaElement | null; if (again && !again.value) again.value = text; }
       });
     } else if (act === "delete") {
@@ -2262,6 +2371,10 @@
       const replies = model!.comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
       toChat(`${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}`);
     } else if (focusKey !== it.key) focusCard(it.key, true);
+  });
+  cardsEl.addEventListener("input", (e) => {
+    const ta = e.target as HTMLElement;
+    if (ta.classList.contains("c-input")) fitInput(ta as HTMLTextAreaElement);
   });
   cardsEl.addEventListener("keydown", (e) => {
     const ta = e.target as HTMLElement;
@@ -2876,6 +2989,11 @@
     if (document.hidden || !model || ghosts.length || inflight || structBusy) return;
     try {
       const s = await api(`/docx/stat?path=${enc(PATH)}`);
+      const sig = JSON.stringify(s.drafts || {});
+      if (sig !== agentDraftsSig) { agentDraftsSig = sig; takeAgentDrafts(s.drafts || {}); }
+      for (const [id, since] of asking) {
+        if (Date.now() - since > ASK_TIMEOUT_MS) { asking.delete(id); renderCards(); status("Aucun brouillon reçu : voir la réponse dans le chat", true); }
+      }
       if (s.mtime === model.mtime && s.openInWord === model.openInWord) return;
       if (ghosts.length || inflight || structBusy) return;
       const fresh: Model = await api(`/docx/model?path=${enc(PATH)}`);

@@ -11,6 +11,7 @@
 //! - [`review`] : accepter ou refuser un suivi.
 //! - [`edit`] : remplacer un passage, en suivi ou non.
 //! - [`comments`] : ajouter, répondre, résoudre, supprimer un commentaire.
+//! - [`drafts`] : brouillons de réponse de l'agent, hors du document.
 //! - [`feedback`] : retour d'un relecteur posé sur le .tex dont le .docx est issu.
 //! - [`structure`] : Entrée et retour arrière entre paragraphes.
 //! - [`format`] : police, taille, gras…, style et alignement.
@@ -21,6 +22,7 @@
 //! - [`story`] : corps, notes, en-têtes et pieds de page, chacun dans sa partie.
 
 pub mod comments;
+pub mod drafts;
 pub mod edit;
 pub mod feedback;
 pub mod layout;
@@ -380,13 +382,13 @@ pub fn replace_file(path: &Path, expected: &str, bytes: &[u8]) -> Result<Vec<u8>
 
 /// Verrou dans le dossier temporaire, nommé d'après le chemin : rien ne
 /// s'ajoute à côté du document de l'utilisateur.
-fn lock_file(path: &Path) -> Result<std::fs::File> {
+pub(crate) fn lock_file(path: &Path) -> Result<std::fs::File> {
     let canon = path.canonicalize()?;
     let name = format!("atelier-docx-{}.lock", hex::encode(&Sha256::digest(canon.to_string_lossy().as_bytes())[..8]));
     Ok(std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(std::env::temp_dir().join(name))?)
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("document.docx");
     let tmp = dir.join(format!(".{name}.atelier-tmp"));

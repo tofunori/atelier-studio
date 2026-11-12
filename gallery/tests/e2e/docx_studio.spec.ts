@@ -1,5 +1,7 @@
 import {test as base, expect, type Page} from '@playwright/test';
-import {copyFile, mkdtemp, writeFile} from 'node:fs/promises';
+import {copyFile, mkdtemp, realpath, writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -357,6 +359,58 @@ test("docx: une retouche de l'agent apparaît sans recharger", async ({page, pro
   expect(agent.length).toBeGreaterThan(0);
   await expect(page.locator(`#cards .it.grp[data-ids~="${agent[0]}"]`)).toBeVisible();
   await expect(page.locator('#foot')).toContainText('de Claude en attente');
+});
+
+/** Fichier des brouillons de réponse de l'agent (atelier_docx::drafts) :
+ *  dossier temporaire, nommé d'après le chemin canonique du document. */
+async function draftsFile(doc: string): Promise<string> {
+  const canon = await realpath(doc);
+  return path.join(tmpdir(), `atelier-docx-${createHash('sha256').update(canon).digest('hex').slice(0, 16)}.drafts.json`);
+}
+
+test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et envoie sous son nom", async ({page, project}) => {
+  await open(page, project);
+  // Le chat d'Atelier, simulé : on garde ce que le panneau lui envoie.
+  await page.evaluate(() => {
+    const w = window as unknown as {__atelierPost: () => void; __sent?: Record<string, unknown>; AtelierStudioCore?: Record<string, unknown>};
+    w.__atelierPost = () => {};
+    // Le noyau d'Atelier est gelé : on le remplace par une copie.
+    w.AtelierStudioCore = {...(w.AtelierStudioCore || {}), requestChatAttachment: (o: {payload: Record<string, unknown>}) => { w.__sent = o.payload; return Promise.resolve(); }};
+  });
+  const thread = page.locator('#cards .it[data-key="c1"]');
+  await thread.locator('.cc').click();
+  await thread.locator('[data-act="propose"]').click();
+  await expect(thread.locator('.c-wait')).toBeVisible();
+  await expect(thread.locator('[data-act="reply"]')).toBeDisabled();
+  const sent = await page.evaluate(() => (window as unknown as {__sent: {text: string; direct: boolean; path: string}}).__sent);
+  expect(sent.direct).toBe(true);
+  expect(sent.path).toBe(project.doc);
+  expect(sent.text).toContain('draft_reply (comment=1)');
+  expect(sent.text).toContain('Pourquoi 0,6');
+
+  // L'agent corrige aussi la phrase, en suivi signé (un retrait + un ajout)…
+  const m0 = await disk(page, project);
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m0.revision, author: 'Claude', op: {op: 'replace', paragraph: 'p2', find: 'compromis', with: 'équilibre'}}});
+  expect(r.ok()).toBe(true);
+  // … et pose son brouillon hors du document (ce que fait atelier_docx draft_reply).
+  const before = (await disk(page, project)).revision;
+  const file = await draftsFile(project.doc);
+  await writeFile(file, JSON.stringify({1: {text: "Bonne remarque, j'ajoute l'analyse en annexe B.", author: 'Claude', at: Date.now()}}));
+  const field = thread.locator('textarea');
+  await expect(field).toHaveValue("Bonne remarque, j'ajoute l'analyse en annexe B.", {timeout: 6000});
+  await expect(thread.locator('.c-by')).toContainText('Brouillon de Claude, à relire');
+  await expect(thread.locator('.c-wait')).toHaveCount(0);
+  expect((await disk(page, project)).revision).toBe(before);
+  await expect(thread.locator('.c-fix')).toContainText('1 correction en suivi');
+
+  // Relu et retouché, il part signé Thierry ; le brouillon disparaît.
+  await field.fill("Bonne remarque, j'ajoute l'analyse en annexe B. Merci !");
+  await thread.locator('[data-act="reply"]').click();
+  await expect.poll(async () => (await disk(page, project)).comments.some(c => c.parent === 1 && c.author === 'Thierry' && c.text.endsWith('annexe B. Merci !'))).toBe(true);
+  expect((await disk(page, project)).comments.some(c => c.author === 'Claude')).toBe(false);
+  await expect.poll(() => existsSync(file)).toBe(false);
+  await expect(thread.locator('.c-by')).toHaveCount(0);
+  await expect(thread.locator('[data-act="propose"]')).toBeVisible();
 });
 
 test('docx: notes, en-tête, pied de page et figures se retouchent dans la page', async ({page, project}) => {

@@ -2622,6 +2622,21 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     assert_eq!(st, 400);
     let (st, body) = http(srv.port, "GET", &format!("/docx/stat?path={rel}"), None);
     assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["drafts"], serde_json::json!({}), "aucun brouillon de l'agent");
+    // Brouillon de réponse posé par l'agent : visible au sondage, effacé après envoi.
+    let doc = srv.root.join("Chapitre 2 corrigé CK.docx");
+    atelier_docx::drafts::put(&doc, 1, "Le seuil est justifié en 2.3.", "Claude").unwrap();
+    let (_, body) = http(srv.port, "GET", &format!("/docx/stat?path={rel}"), None);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["drafts"]["1"]["text"], "Le seuil est justifié en 2.3.");
+    assert_eq!(v["drafts"]["1"]["author"], "Claude");
+    let clear = serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "comment": 1}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/draft/clear", Some(&clear));
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains("\"cleared\":true"), "{body}");
+    let (_, body) = http(srv.port, "GET", &format!("/docx/stat?path={rel}"), None);
+    assert!(body.contains("\"drafts\":{}"), "{body}");
 
     // Annuler puis rétablir l'acceptation.
     let undo = |revision: &str, redo: bool| serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "revision": revision, "redo": redo}).to_string();
