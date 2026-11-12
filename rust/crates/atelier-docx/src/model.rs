@@ -278,9 +278,8 @@ struct Acc {
 }
 
 /// Paragraphes d'une histoire (corps, note, en-tête), suivis compris.
-fn story_paragraphs(src: &str, scope: &Scope, prefix: &str, levels: &HashMap<String, u8>, styles: &Styles, acc: &mut Acc) -> Result<Vec<Para>> {
-    let doc = xml::parse(src)?;
-    let Some(root) = crate::story::container(&doc, scope) else { return Ok(Vec::new()) };
+fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix: &str, levels: &HashMap<String, u8>, styles: &Styles, acc: &mut Acc) -> Result<Vec<Para>> {
+    let Some(root) = crate::story::container(doc, scope) else { return Ok(Vec::new()) };
     // Le corps compte aussi les suivis de sections (sectPr hors de body).
     let scan = if *scope == Scope::Body { doc.root_element() } else { root };
     for node in scan.descendants().filter(|n| n.is_element()) {
@@ -308,7 +307,7 @@ fn story_paragraphs(src: &str, scope: &Scope, prefix: &str, levels: &HashMap<Str
         }
     }
 
-    let para_nodes = walk::paragraphs_in(&doc, scope);
+    let para_nodes = walk::paragraphs_in(doc, scope);
     let para_index: HashMap<roxmltree::NodeId, usize> = para_nodes.iter().enumerate().map(|(i, p)| (p.node.id(), i)).collect();
     // Mises en forme : rattachées à leur paragraphe, avec le texte touché.
     for node in root.descendants().filter(|n| is_w(*n, "rPrChange") || is_w(*n, "pPrChange")) {
@@ -419,8 +418,10 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
     let comments_xml = docx.part(COMMENTS)?;
     let ext_xml = docx.part(COMMENTS_EXT)?;
     let src = docx.document_xml().to_string();
+    // Chaque partie n'est analysée qu'une fois : c'est l'essentiel du coût.
+    let body_doc = xml::parse(&src)?;
     let mut acc = Acc::default();
-    let mut paragraphs = story_paragraphs(&src, &Scope::Body, "", &levels, &looks, &mut acc)?;
+    let mut paragraphs = story_paragraphs(&src, &body_doc, &Scope::Body, "", &levels, &looks, &mut acc)?;
 
     // Notes, numérotées dans l'ordre de leurs appels dans le corps.
     let mut notes = Vec::new();
@@ -445,10 +446,9 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
             .filter_map(|n| w_attr(n, "id").and_then(|v| v.trim().parse::<i64>().ok()))
             .collect();
         ids.sort_by_key(|id| order.iter().position(|x| x == id).unwrap_or(usize::MAX));
-        drop(ndoc);
         for id in ids {
             let prefix = format!("{letter}{id}.");
-            let paras = story_paragraphs(&nsrc, &Scope::Note(tag, id), &prefix, &levels, &looks, &mut acc)?;
+            let paras = story_paragraphs(&nsrc, &ndoc, &Scope::Note(tag, id), &prefix, &levels, &looks, &mut acc)?;
             let number = order.iter().position(|x| *x == id).map(|i| i + 1);
             notes.push(Note { id: format!("{letter}{id}"), kind: tag, number, paragraphs: paras });
         }
@@ -468,8 +468,7 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
         .unwrap_or_default();
     let mut seen: Vec<(String, &'static str, String)> = Vec::new();
     {
-        let doc = xml::parse(&src)?;
-        for r in doc.descendants().filter(|n| is_w(*n, "headerReference") || is_w(*n, "footerReference")) {
+        for r in body_doc.descendants().filter(|n| is_w(*n, "headerReference") || is_w(*n, "footerReference")) {
             let Some(target) = r.attribute((R, "id")).and_then(|id| targets.get(id)) else { continue };
             let Some(name) = target.strip_suffix(".xml").filter(|n| !n.contains('/')) else { continue };
             if seen.iter().any(|(n, _, _)| n == name) {
@@ -482,7 +481,8 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
     for (name, kind, which) in seen {
         let part = format!("word/{name}.xml");
         let Some(hsrc) = docx.part(&part)? else { continue };
-        let paras = story_paragraphs(&hsrc, &Scope::Root, &format!("{name}."), &levels, &looks, &mut acc)?;
+        let hdoc = xml::parse(&hsrc)?;
+        let paras = story_paragraphs(&hsrc, &hdoc, &Scope::Root, &format!("{name}."), &levels, &looks, &mut acc)?;
         headers.push(HeaderFooter { id: name, kind, which, paragraphs: paras });
     }
 
@@ -509,7 +509,7 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
         }
     }
 
-    let page = crate::layout::page(&src, &looks);
+    let page = crate::layout::page_in(&body_doc, &looks);
     Ok(DocModel {
         revision: docx.revision(),
         page,

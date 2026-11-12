@@ -384,6 +384,23 @@ pub fn edit_file<T>(path: &Path, expected: Option<&str>, f: impl FnOnce(&mut Doc
 /// refuserait ([`check`]). Après : la version d'avant rejoint l'historique
 /// sur disque ([`history`]) ; la première fois, l'original reçu y est copié.
 pub fn edit_file_as<T>(path: &Path, expected: Option<&str>, origin: &history::Origin, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String)> {
+    let (value, rev, _, _) = edit_locked(path, expected, origin, f)?;
+    Ok((value, rev))
+}
+
+/// Comme [`edit_file_as`], et rend aussi le document tel qu'enregistré et
+/// son modèle : celui que le contrôle vient de construire en relisant le
+/// paquet produit, sans rouvrir le fichier.
+pub fn edit_file_model<T>(path: &Path, expected: Option<&str>, origin: &history::Origin, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String, Docx, DocModel)> {
+    let (value, rev, mut docx, model) = edit_locked(path, expected, origin, f)?;
+    let model = match model {
+        Some(m) => m,
+        None => docx.model()?,
+    };
+    Ok((value, rev, docx, model))
+}
+
+fn edit_locked<T>(path: &Path, expected: Option<&str>, origin: &history::Origin, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String, Docx, Option<DocModel>)> {
     let lock = lock_file(path)?;
     lock.lock()?;
     refuse_if_open_in_word(path)?;
@@ -394,21 +411,31 @@ pub fn edit_file_as<T>(path: &Path, expected: Option<&str>, origin: &history::Or
     }
     let value = f(&mut docx)?;
     if !docx.is_dirty() {
-        return Ok((value, before_rev));
+        return Ok((value, before_rev, docx, None));
     }
+    let (rev, fresh, model) = commit(path, &docx, &before_rev, origin)?;
+    Ok((value, rev, fresh, Some(model)))
+}
+
+/// Enregistre `docx` (retouché depuis la révision `before_rev`, dont il
+/// garde les octets) à la place de `path`, sous le verrou déjà pris : relit
+/// le paquet produit, refuse tout défaut ajouté, écrit d'un seul geste et
+/// note le pas dans l'historique. Rend la révision, le document relu et
+/// son modèle.
+pub(crate) fn commit(path: &Path, docx: &Docx, before_rev: &str, origin: &history::Origin) -> Result<(String, Docx, DocModel)> {
     let bytes = docx.to_bytes()?;
     // Relire ce qu'on vient de produire : un paquet illisible, ou qui
     // ajoute un défaut, ne remplace jamais l'original.
-    let mut fresh = Docx::from_bytes(bytes.clone())?;
-    fresh.model()?;
-    check::guard(&docx.bytes, &before_rev, &mut fresh)?;
-    write_atomic(path, &bytes)?;
-    let rev = revision_of(&bytes);
+    let mut fresh = Docx::from_bytes(bytes)?;
+    let model = fresh.model()?;
+    check::guard(&docx.bytes, before_rev, &mut fresh)?;
+    write_atomic(path, &fresh.bytes)?;
+    let rev = fresh.revision();
     // L'historique ne doit jamais faire échouer une retouche déjà écrite.
-    if let Err(e) = history::record(path, &docx.bytes, &before_rev, &bytes, &rev, origin) {
+    if let Err(e) = history::record(path, &docx.bytes, before_rev, &fresh.bytes, &rev, origin) {
         eprintln!("atelier-docx : historique non tenu pour {} : {e}", path.display());
     }
-    Ok((value, rev))
+    Ok((rev, fresh, model))
 }
 
 /// Verrou dans le dossier temporaire, nommé d'après le chemin : rien ne
@@ -424,13 +451,26 @@ pub(crate) fn lock_file(path: &Path) -> Result<std::fs::File> {
 /// d'un seul geste : après une coupure, on retrouve l'ancien fichier ou le
 /// nouveau, jamais un fichier vide ou à moitié écrit.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_atomic_as(path, bytes, true)
+}
+
+/// `durable = false` : même remplacement d'un seul geste, sans forcer le
+/// disque (copies de l'historique qui doublent un fichier déjà forcé).
+///
+/// Un seul `sync_all` par écriture forcée : sur macOS c'est un
+/// `F_FULLFSYNC` (le cache du disque entier), et APFS valide le renommage
+/// dans une transaction : une coupure rend l'ancien fichier ou le nouveau.
+/// Ailleurs, le dossier est aussi forcé (un `fsync` y est bon marché).
+pub(crate) fn write_atomic_as(path: &Path, bytes: &[u8], durable: bool) -> Result<()> {
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("document.docx");
     let tmp = dir.join(format!(".{name}.atelier-tmp"));
     let result = (|| -> Result<()> {
         let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&tmp)?;
         f.write_all(bytes)?;
-        f.sync_all()?;
+        if durable {
+            f.sync_all()?;
+        }
         drop(f);
         if let Ok(meta) = std::fs::metadata(path) {
             let _ = std::fs::set_permissions(&tmp, meta.permissions());
@@ -438,8 +478,8 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         }
         std::fs::rename(&tmp, path)?;
         // Le renommage lui-même doit survivre à une coupure.
-        #[cfg(unix)]
-        if let Ok(d) = std::fs::File::open(dir) {
+        #[cfg(all(unix, not(target_vendor = "apple")))]
+        if durable && let Ok(d) = std::fs::File::open(dir) {
             let _ = d.sync_all();
         }
         Ok(())

@@ -100,7 +100,13 @@ fn mtime_ms(path: &Path) -> u64 {
 fn model_json(path: &Path) -> Result<Value, String> {
     let mut docx = Docx::open(path).map_err(|e| e.0)?;
     let model = docx.model().map_err(|e| e.0)?;
-    let styles = format::styles(&mut docx).map_err(|e| e.0)?;
+    model_value(&mut docx, model, path)
+}
+
+/// Le modèle pour le panneau : celui du moteur, avec les styles proposés,
+/// la date du fichier et l'état de Word.
+fn model_value(docx: &mut Docx, model: atelier_docx::DocModel, path: &Path) -> Result<Value, String> {
+    let styles = format::styles(docx).map_err(|e| e.0)?;
     let mut v = serde_json::to_value(model).map_err(|e| e.to_string())?;
     v["styles"] = json!(styles);
     v["mtime"] = json!(mtime_ms(path));
@@ -182,9 +188,11 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
         let mut op = body.op;
         op.load_images(&mut |rel| read_figure(&root, rel)).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0))?;
         let origin = Origin { source: "panneau", author: &sig.author, label: op.label() };
-        let (result, revision) = atelier_docx::edit_file_as(&path, body.revision.as_deref(), &origin, |d| ops::apply(d, &op, body.tracked, &sig))
+        // Le modèle rendu est celui que le contrôle de l'écriture vient de
+        // construire : le fichier n'est pas rouvert.
+        let (result, revision, mut docx, model) = atelier_docx::edit_file_model(&path, body.revision.as_deref(), &origin, |d| ops::apply(d, &op, body.tracked, &sig))
             .map_err(|e| (refusal(&e), e.0))?;
-        let model = model_json(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let model = model_value(&mut docx, model, &path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
         Ok(json!({"ok": true, "result": result, "revision": revision, "model": model}))
     };
     match tokio::task::spawn_blocking(job).await {

@@ -386,7 +386,11 @@ pub struct LineNumbers {
 }
 
 pub fn page(document_xml: &str, styles: &Styles) -> Option<Page> {
-    let doc = xml::parse(document_xml).ok()?;
+    page_in(&xml::parse(document_xml).ok()?, styles)
+}
+
+/// Comme [`page`], sur le corps déjà analysé.
+pub(crate) fn page_in(doc: &roxmltree::Document, styles: &Styles) -> Option<Page> {
     let body = w_child(doc.root_element(), "body")?;
     let sect = body.children().rfind(|n| is_w(*n, "sectPr"))?;
     // Lettre US par défaut, marges de 1 po, comme Word.
