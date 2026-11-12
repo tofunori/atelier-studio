@@ -78,6 +78,32 @@ export type AtelierQuickAskMessage = {
   page?: string;
 };
 
+/** Revue un par un d'un relecteur (lib/reviewSession.ts) : l'éditeur LaTeX
+ *  envoie un commentaire au chat (`text` = ce que lit l'agent), ou `done`
+ *  quand il n'en reste plus. */
+export type AtelierReviewCommentMessage = {
+  type: "atelier-review-comment";
+  nonce: string;
+  text: string;
+  review: {
+    doc: string;
+    mode: "open" | "likely";
+    done?: boolean;
+    path?: string;
+    id?: string;
+    n?: number;
+    total?: number;
+    author?: string;
+    comment?: string;
+    quote?: string;
+    now?: string;
+    line?: number;
+    fit?: string;
+    kind?: string;
+    likely?: string;
+  };
+};
+
 export type AtelierAddToChatAckMessage = {
   type: "atelier-add-to-chat-ack";
   nonce: string;
@@ -135,6 +161,7 @@ export type AtelierInboundMessage =
   | AtelierOpenThreadMessage
   | AtelierOpenFileMessage
   | AtelierQuickAskMessage
+  | AtelierReviewCommentMessage
   | BrowserAddToChatMessage
   | AtelierGalleryResultMessage;
 
@@ -191,6 +218,21 @@ function hasTrustedAtelierOrigin(origin: string): boolean {
   return Number.isInteger(port) && port >= ATELIER_PORT_MIN && port <= ATELIER_PORT_MAX;
 }
 
+const isCount = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 10_000_000;
+
+function isReviewPayload(review: Record<string, unknown>): boolean {
+  if (!hasOnlyKeys(review, ["doc", "mode", "done", "path", "id", "n", "total", "author", "comment", "quote", "now", "line", "fit", "kind", "likely"])) return false;
+  if (!isBoundedString(review.doc, MAX_URL_LENGTH) || (review.mode !== "open" && review.mode !== "likely")) return false;
+  if (review.done !== undefined) return review.done === true;
+  const text = (value: unknown) => value === undefined || (typeof value === "string" && value.length <= MAX_TEXT_LENGTH);
+  const short = (value: unknown) => value === undefined || (typeof value === "string" && value.length <= MAX_TITLE_LENGTH);
+  return isBoundedString(review.path, MAX_URL_LENGTH) && isBoundedString(review.id, MAX_TITLE_LENGTH)
+    && isCount(review.n) && isCount(review.total) && (review.line === undefined || isCount(review.line))
+    && short(review.author) && short(review.fit) && short(review.kind)
+    && text(review.comment) && text(review.quote) && text(review.now) && text(review.likely);
+}
+
 export function isTrustedAtelierMessage(
   event: MessageEvent<unknown>,
   nonce: string,
@@ -242,6 +284,9 @@ export function isTrustedAtelierMessage(
         (data.direct === undefined || typeof data.direct === "boolean") &&
         isOptionalBoundedString(data.requestId, MAX_NONCE_LENGTH)
       );
+    case "atelier-review-comment":
+      return hasOnlyKeys(data, ["type", "nonce", "text", "review"]) && typeof data.text === "string"
+        && data.text.length <= MAX_TEXT_LENGTH && isRecord(data.review) && isReviewPayload(data.review);
     case "atelier-open-thread":
       return hasOnlyKeys(data, ["type", "nonce", "threadId"]) && isBoundedString(data.threadId, MAX_TITLE_LENGTH);
     case "atelier-open-file":

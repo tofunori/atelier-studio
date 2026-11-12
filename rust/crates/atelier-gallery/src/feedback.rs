@@ -234,6 +234,10 @@ pub fn status_of(store: &Map<String, Value>, root_key: &str) -> Value {
                 "fit": review.get("fit"),
                 "rev": review.get("rev"),
                 "thread": thread,
+                "quote": review.get("quote"),
+                "likely": likely_settled(note),
+                "assessed": review.get("likely").is_some(),
+                "chat": review.get("chatAt").is_some(),
             }));
         }
     }
@@ -244,6 +248,9 @@ pub fn status_of(store: &Map<String, Value>, root_key: &str) -> Value {
         "agenda": count("agenda"),
         "done": count("done"),
         "discussing": notes.iter().filter(|n| n["state"] == "todo" && n["thread"].as_u64().unwrap_or(0) > 0).count(),
+        "likely": notes.iter().filter(|n| n["state"] == "todo" && n["likely"] == true).count(),
+        // passages retouchés depuis son retour que Claude n'a pas encore jugés
+        "unassessed": notes.iter().filter(|n| n["state"] == "todo" && n["fit"] == "changed" && n["assessed"] == false).count(),
     });
     json!({"ok": true, "rounds": rounds, "notes": notes, "counts": counts})
 }
@@ -347,6 +354,8 @@ fn run(
         "counts": counts,
         "changes": fb.changes,
         "copy": copy.strip_prefix(project).map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+        // ordre de lecture du document : « Suivant » parcourt ses commentaires dans cet ordre
+        "files": keys.iter().map(|k| k.trim_start_matches("tex-comments:")).collect::<Vec<_>>(),
     });
     let (added, known) = pdf_annots::with_store(
         &store_dir,
@@ -430,6 +439,285 @@ pub async fn import(
         }
         Ok(Err((status, message))) => json_error(status, message),
         Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "import interrompu"),
+    }
+}
+
+/// L'agent a jugé que la retouche de Thierry règle déjà ce commentaire
+/// (`atelier_annotate`, action `assess`). Thierry confirme d'un clic.
+fn likely_settled(note: &Value) -> bool {
+    note.pointer("/review/likely/settled")
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+/// Les commentaires du relecteur dans l'ordre du document : fichiers dans
+/// l'ordre de lecture du dernier import, puis ligne et colonne.
+fn ordered(store: &Map<String, Value>, root_key: &str) -> Vec<(String, Value)> {
+    let rounds = store
+        .get(root_key)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let revs: Vec<String> = rounds
+        .iter()
+        .filter_map(|r| r.get("rev").and_then(Value::as_str).map(str::to_string))
+        .collect();
+    let files: Vec<String> = rounds
+        .iter()
+        .rev()
+        .find_map(|r| r.get("files").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|f| f.as_str().map(str::to_string))
+        .collect();
+    let mut out = Vec::new();
+    for (key, list) in store {
+        let Some(path) = key.strip_prefix("tex-comments:") else {
+            continue;
+        };
+        for note in list.as_array().into_iter().flatten() {
+            let rev = note
+                .pointer("/review/rev")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if note.get("by").and_then(Value::as_str) == Some(REVIEWER_BY)
+                && revs.iter().any(|r| r == rev)
+            {
+                out.push((path.to_string(), note.clone()));
+            }
+        }
+    }
+    let rank = |path: &str| files.iter().position(|f| f == path).unwrap_or(usize::MAX);
+    let at = |note: &Value, field: &str| note.pointer(field).and_then(Value::as_u64).unwrap_or(0);
+    out.sort_by(|(pa, a), (pb, b)| {
+        (
+            rank(pa),
+            pa.as_str(),
+            at(a, "/from/line"),
+            at(a, "/from/ch"),
+        )
+            .cmp(&(
+                rank(pb),
+                pb.as_str(),
+                at(b, "/from/line"),
+                at(b, "/from/ch"),
+            ))
+    });
+    out
+}
+
+fn state_of(note: &Value) -> &str {
+    note.pointer("/review/state")
+        .and_then(Value::as_str)
+        .unwrap_or("todo")
+}
+
+/// Ce que le chat montre d'un commentaire : sa carte et ce que l'agent lit.
+fn comment_payload(path: &str, note: &Value, n: usize, total: usize) -> Value {
+    json!({
+        "path": path,
+        "id": note.get("id"),
+        "n": n,
+        "total": total,
+        "author": note.get("author"),
+        "comment": note.get("comment"),
+        "quote": note.pointer("/review/quote"),
+        "now": note.get("text"),
+        "line": note.pointer("/from/line").and_then(Value::as_u64).map(|l| l + 1),
+        "fit": note.pointer("/review/fit"),
+        "kind": note.pointer("/review/kind"),
+        "on": note.pointer("/review/on"),
+        "state": state_of(note),
+        "likely": note.pointer("/review/likely").cloned().unwrap_or(Value::Null),
+    })
+}
+
+/// Commentaire demandé (`at`), sinon le prochain à faire après `after`
+/// (en reprenant au début) : `likely` ne parcourt que ceux que l'agent juge
+/// déjà réglés, `open` saute ceux-là.
+pub fn next_of(
+    store: &Map<String, Value>,
+    root_key: &str,
+    after: &str,
+    at: &str,
+    mode: &str,
+) -> Value {
+    let list = ordered(store, root_key);
+    let total = list.len();
+    let id_of = |note: &Value| {
+        note.get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    if !at.is_empty() {
+        return match list.iter().position(|(_, note)| id_of(note) == at) {
+            Some(i) => {
+                json!({"ok": true, "note": comment_payload(&list[i].0, &list[i].1, i + 1, total)})
+            }
+            None => json!({"ok": false, "error": "commentaire introuvable"}),
+        };
+    }
+    let wanted = |note: &Value| {
+        state_of(note) == "todo"
+            && match mode {
+                "likely" => likely_settled(note),
+                "open" => !likely_settled(note),
+                _ => true,
+            }
+    };
+    let start = list
+        .iter()
+        .position(|(_, note)| id_of(note) == after)
+        .map_or(0, |i| i + 1);
+    let remaining = list
+        .iter()
+        .filter(|(_, note)| wanted(note) && id_of(note) != after)
+        .count();
+    let found = (0..total)
+        .map(|k| (start + k) % total.max(1))
+        .find(|&i| wanted(&list[i].1) && id_of(&list[i].1) != after);
+    match found {
+        Some(i) => {
+            json!({"ok": true, "note": comment_payload(&list[i].0, &list[i].1, i + 1, total), "remaining": remaining})
+        }
+        None => json!({"ok": true, "note": Value::Null, "remaining": 0, "total": total}),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NextQuery {
+    path: String,
+    #[serde(default)]
+    after: String,
+    #[serde(default)]
+    at: String,
+    #[serde(default)]
+    mode: String,
+}
+
+/// `GET /review/next?path=&after=&at=&mode=` — le commentaire à discuter
+/// ensuite (ou celui demandé), pour le chat.
+pub async fn next(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<NextQuery>,
+) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let project = state.root.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Value, (StatusCode, String)> {
+        let key = review_key(&project, &q.path).map_err(|e| (StatusCode::FORBIDDEN, e))?;
+        let store = pdf_annots::read(&project.join(".fig_thumbs"))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        Ok(next_of(&store, &key, &q.after, &q.at, &q.mode))
+    })
+    .await;
+    match result {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err((status, message))) => json_error(status, message),
+        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "lecture interrompue"),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct StateBody {
+    /// Fichier ouvert dans l'éditeur (pour retrouver le document).
+    path: String,
+    /// Fichier du commentaire (clé `tex-comments:` sans le préfixe).
+    file: String,
+    id: String,
+    #[serde(default)]
+    state: Option<String>,
+    /// Le commentaire part dans le chat : « Dans le chat » sur le texte.
+    #[serde(default)]
+    chat: bool,
+}
+
+/// Change l'état d'un commentaire du relecteur (ou le marque « dans le
+/// chat ») ; refuse toute autre note. `stateAt`/`chatAt` datent le geste :
+/// une sauvegarde plus ancienne de l'éditeur ne le défait pas.
+pub fn set_state(
+    store: &mut Map<String, Value>,
+    root_key: &str,
+    file: &str,
+    id: &str,
+    wanted: Option<&str>,
+    chat: bool,
+) -> Result<bool, String> {
+    if let Some(wanted) = wanted
+        && !matches!(wanted, "todo" | "agenda" | "done")
+    {
+        return Err(format!("état inconnu : {wanted}"));
+    }
+    if !ordered(store, root_key)
+        .iter()
+        .any(|(p, n)| p == file && n.get("id").and_then(Value::as_str) == Some(id))
+    {
+        return Err("commentaire introuvable dans ce retour".into());
+    }
+    let list = store
+        .get_mut(&format!("tex-comments:{file}"))
+        .and_then(Value::as_array_mut)
+        .ok_or("fichier introuvable")?;
+    let note = list
+        .iter_mut()
+        .find(|n| n.get("id").and_then(Value::as_str) == Some(id))
+        .ok_or("commentaire introuvable")?;
+    let review = note
+        .get_mut("review")
+        .and_then(Value::as_object_mut)
+        .ok_or("commentaire illisible")?;
+    let at = now_ms();
+    let mut changed = false;
+    if let Some(wanted) = wanted {
+        changed = review
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or("todo")
+            != wanted;
+        review.insert("state".into(), json!(wanted));
+        review.insert("stateAt".into(), json!(at));
+    }
+    if chat {
+        review.insert("chatAt".into(), json!(at));
+        changed = true;
+    }
+    Ok(changed)
+}
+
+/// `POST /review/state` — Réglé / À voir avec lui / à faire, depuis le chat
+/// ou le panneau, pour un commentaire de n'importe quel fichier du document.
+pub async fn set_review_state(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<StateBody>,
+) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let project = state.root.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Value, (StatusCode, String)> {
+        let key = review_key(&project, &body.path).map_err(|e| (StatusCode::FORBIDDEN, e))?;
+        pdf_annots::with_store(&project.join(".fig_thumbs"), |store| {
+            set_state(
+                store,
+                &key,
+                &body.file,
+                &body.id,
+                body.state.as_deref(),
+                body.chat,
+            )
+            .map(|changed| (json!({"ok": true}), changed))
+        })
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+    })
+    .await;
+    match result {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err((status, message))) => json_error(status, message),
+        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "écriture interrompue"),
     }
 }
 
@@ -554,5 +842,125 @@ mod tests {
                 .0,
             StatusCode::BAD_REQUEST
         );
+    }
+    #[test]
+    fn next_walks_the_document_and_state_only_touches_reviewer_notes() {
+        let dir = project();
+        let root = dir.path();
+        let main = root.join("main.tex").to_string_lossy().to_string();
+        let methods = root
+            .join("sections/methods.tex")
+            .to_string_lossy()
+            .to_string();
+        let done = run(root, &main, "revCK.docx", fixture_docx()).unwrap();
+        let mut store = pdf_annots::read(&root.join(".fig_thumbs")).unwrap();
+        let key = done.root_key.clone();
+        // ordre du document : fichiers dans l'ordre de lecture, puis lignes
+        let order: Vec<(String, u64)> = ordered(&store, &key)
+            .iter()
+            .map(|(p, n)| {
+                (
+                    p.clone(),
+                    n.pointer("/from/line").and_then(Value::as_u64).unwrap_or(0),
+                )
+            })
+            .collect();
+        assert_eq!(order.len(), 5);
+        let files = store[&key][0]["files"].as_array().unwrap().clone();
+        let rank = |p: &str| files.iter().position(|f| f == p).unwrap();
+        assert!(
+            order
+                .windows(2)
+                .all(|w| (rank(&w[0].0), w[0].1) <= (rank(&w[1].0), w[1].1))
+        );
+
+        let first = next_of(&store, &key, "", "", "");
+        assert_eq!(first["note"]["n"], 1);
+        assert_eq!(first["note"]["total"], 5);
+        assert_eq!(first["remaining"], 5);
+        let first_id = first["note"]["id"].as_str().unwrap().to_string();
+        let first_file = first["note"]["path"].as_str().unwrap().to_string();
+        let second = next_of(&store, &key, &first_id, "", "");
+        assert_eq!(second["note"]["n"], 2);
+        assert_eq!(second["remaining"], 4);
+        // `at` rend le commentaire demandé, quel que soit son état
+        assert_eq!(
+            next_of(&store, &key, "", &first_id, "")["note"]["id"],
+            first_id.as_str()
+        );
+
+        // Réglé : il sort du parcours ; une note de Thierry est refusée
+        assert!(
+            set_state(
+                &mut store,
+                &key,
+                &first_file,
+                &first_id,
+                Some("done"),
+                false
+            )
+            .unwrap()
+        );
+        assert!(
+            !set_state(
+                &mut store,
+                &key,
+                &first_file,
+                &first_id,
+                Some("done"),
+                false
+            )
+            .unwrap()
+        );
+        assert!(
+            set_state(
+                &mut store,
+                &key,
+                &first_file,
+                &first_id,
+                Some("fini"),
+                false
+            )
+            .is_err()
+        );
+        assert!(set_state(&mut store, &key, &first_file, &first_id, None, true).unwrap());
+        store
+            .get_mut(&format!("tex-comments:{methods}"))
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id": "c1", "by": "user", "text": "x", "comment": "à moi"}));
+        assert!(set_state(&mut store, &key, &methods, "c1", Some("done"), false).is_err());
+        assert_eq!(next_of(&store, &key, "", "", "")["note"]["n"], 2);
+        assert_eq!(next_of(&store, &key, "", "", "")["remaining"], 4);
+
+        // L'agent en juge un déjà réglé : « open » le saute, « likely » ne voit que lui
+        let likely_id = second["note"]["id"].as_str().unwrap().to_string();
+        let likely_file = second["note"]["path"].as_str().unwrap().to_string();
+        let note = store
+            .get_mut(&format!("tex-comments:{likely_file}"))
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|n| n["id"] == likely_id.as_str())
+            .unwrap();
+        note["review"]["likely"] =
+            json!({"settled": true, "reason": "la phrase dit maintenant 70°"});
+        assert_eq!(next_of(&store, &key, "", "", "open")["note"]["n"], 3);
+        let only = next_of(&store, &key, "", "", "likely");
+        assert_eq!(only["note"]["id"], likely_id.as_str());
+        assert_eq!(only["remaining"], 1);
+        assert_eq!(status_of(&store, &key)["counts"]["likely"], 1);
+        let status = status_of(&store, &key);
+        let first_status = status["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == first_id.as_str())
+            .unwrap();
+        assert_eq!(first_status["chat"], true);
+        assert_eq!(first_status["state"], "done");
+        assert!(next_of(&store, &key, &likely_id, "", "likely")["note"].is_null());
     }
 }

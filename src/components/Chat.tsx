@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { useChatHeaderHost } from "./ChatHeaderSlot";
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {groupAgentRows} from './chat/groupAgentRows';
 import type { LinkedAgentSummary } from "../lib/threadLinks";
 import { groupActivityRows } from './chat/groupActivityRows';
@@ -30,6 +30,7 @@ import { ChatHeader } from "./chat/ChatHeader";
 import { ChatNotice, type ChatNoticeData } from './chat/ChatNotice';
 import type { ResearchHomeBundle } from "./ResearchHome";
 import { ChatComposer } from "./chat/ChatComposer";
+import { useReviewSession } from "../lib/reviewSession";
 import { QueuedTurns } from "./chat/QueuedTurns";
 import {
   agentsFromActions, agentWithTranscriptState, isAgentActivityAction,
@@ -101,6 +102,9 @@ type ChatZoteroItem = {
 // de la conversation et assemble <ChatTimeline> (affichage des tours) et
 // <ChatComposer> (saisie). Décision plan 015 (correction 3) : garder le nom
 // `Chat` pour ne pas toucher les imports d'App, tout en clarifiant le rôle.
+// Barre de la revue un par un d'un relecteur : chargée seulement quand une revue est en cours.
+const ReviewStrip = lazy(() => import("./chat/ReviewStrip"));
+
 export default function Chat(p: {
   events: AgentEvent[];
   /** Child rollout transcripts kept live by ThreadChat for the parent activity group. */
@@ -664,6 +668,7 @@ export default function Chat(p: {
   // dismiss (clic extérieur, Escape, retour focus) : géré par Base UI dans
   // les Popover/DropdownMenu du composer — plus aucun listener window ici
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
+  const review = useReviewSession();
   const [toolDetails, setToolDetails] = useState<Record<string, boolean>>({});
   const [openToolGroups, setOpenToolGroups] = useState<Set<string>>(new Set());
   // plis « A travaillé Xm Ys » : tours terminés dont le détail est déplié
@@ -1213,6 +1218,9 @@ export default function Chat(p: {
       />
       {/* L'alerte se lit en une ligne au-dessus du compositeur, avec son
           action et sa croix — jamais en icône dans la barre du haut. */}
+      {review && review.threadId === p.threadId && (
+        <Suspense fallback={null}><ReviewStrip session={review} /></Suspense>
+      )}
       {p.notice && <ChatNotice key={p.notice.clientMessageId || p.notice.requestType || p.notice.kind || 'notice'} notice={p.notice} />}
       <ChatComposer
         scopeKey={`${p.projectRoot ?? ""}:${p.threadId ?? "home"}`}

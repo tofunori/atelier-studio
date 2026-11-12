@@ -134,6 +134,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { buildItems } from "./lib/palette";
 import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
+import { setReviewSession, type ChatReviewRef } from "./lib/reviewSession";
 import {
   isTrustedAtelierMessage,
   withAtelierNonce,
@@ -1392,10 +1393,12 @@ export default function App() {
 
   function attachContextToChat(
     text: string,
-    file?: { path?: string; name?: string; previewUrl?: string; pdfAnnotation?: Attachment["pdfAnnotation"]; direct?: boolean },
+    file?: { path?: string; name?: string; previewUrl?: string; pdfAnnotation?: Attachment["pdfAnnotation"]; direct?: boolean; review?: ChatReviewRef },
   ) {
     const parsed = parseAttachment(text);
-    const attachment: Attachment = file?.path
+    const attachment: Attachment = file?.review && file.path
+      ? { name: file.name || parsed.name, lines: file.review.line ? String(file.review.line) : null, text, path: file.path, kind: "review", review: file.review }
+      : file?.path
       ? {
           ...parsed,
           name: file.name || file.path.split("/").pop() || parsed.name,
@@ -2655,6 +2658,32 @@ export default function App() {
           }, e.origin);
         } else if (!receipt.ok) {
           void showError(receipt.error);
+        }
+      }
+      if (data.type === "atelier-review-comment" && e.source) {
+        // Revue un par un : un commentaire du relecteur arrive dans le chat,
+        // envoyé tout de suite ; la barre du compositeur renvoie les gestes.
+        const review = data.review;
+        const source = e.source as Window;
+        if (review.done || !review.path || !review.id) {
+          setReviewSession((current) => ({
+            threadId: current?.threadId ?? activeIdRef.current ?? "",
+            source, origin: e.origin, nonce: atelierNonce, mode: review.mode, current: null, pending: false,
+          }));
+        } else {
+          const ref: ChatReviewRef = {
+            author: review.author || "", n: review.n ?? 0, total: review.total ?? 0, comment: review.comment || "",
+            ...(review.line ? { line: review.line } : {}),
+            ...(review.quote ? { quote: review.quote } : {}),
+            ...(review.now ? { now: review.now } : {}),
+            ...(review.likely ? { likely: review.likely } : {}),
+          };
+          const first = (review.author || "").trim().split(/\s+/)[0] || t("chat.review-reviewer");
+          const threadId = attachContextToChat(data.text, {
+            path: review.path, name: t("chat.review-card-name", { name: first, n: ref.n, total: ref.total }), direct: true, review: ref,
+          });
+          setReviewSession({ threadId, source, origin: e.origin, nonce: atelierNonce, mode: review.mode,
+            current: { ...ref, path: review.path, id: review.id }, pending: false });
         }
       }
       if (data.type === "atelier-gallery-result") {

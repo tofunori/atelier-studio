@@ -9,6 +9,8 @@ import {mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSy
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {crc32} from 'node:zlib';
+import {createServer, type Server} from 'node:http';
+import type {AddressInfo} from 'node:net';
 import path from 'node:path';
 import {removeTempRoot} from './temp-root.ts';
 
@@ -113,7 +115,7 @@ test('reviewer .docx: comments land in the .tex, signed, with report, filter, st
     await expect(block).toHaveCount(1);
     await expect(block.locator('.texv-word')).toContainText('Thierry');
     await block.locator('.texv-agenda').click();
-    await expect(panel.locator('.tp-chip[data-rstate="agenda"]')).toHaveText('À discuter · 1');
+    await expect(panel.locator('.tp-chip[data-rstate="agenda"]')).toHaveText('À voir avec lui · 1');
     await panel.locator('.tp-agenda-open').click();
     await expect(panel.locator('.tp-agenda li')).toHaveCount(1);
 
@@ -128,4 +130,97 @@ test('reviewer .docx: comments land in the .tex, signed, with report, filter, st
     await expect(page.locator('.texv-report-card')).toContainText('rien n’a été ajouté');
     await expect(page.locator('.texv-head')).toHaveCount(4);
   } finally { await stop(server); await removeTempRoot(root); }
+});
+
+// Revue un par un dans le chat (maquette « chat-un-par-un », 2026-11-12) :
+// l'éditeur, dans une iframe comme dans Atelier, envoie un commentaire au
+// chat ; la barre du chat répond Réglé / Suivant et reçoit le suivant, dans
+// l'ordre du document.
+test('reviewer comments go to the chat one by one, and the chat bar drives the editor', async ({page}) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'atelier-reviewer-chat-'));
+  const appDir = path.join(root, '.app');
+  mkdirSync(appDir);
+  mkdirSync(path.join(root, 'sections'));
+  writeFileSync(path.join(root, 'main.tex'), MAIN);
+  writeFileSync(path.join(root, 'sections', 'methods.tex'), METHODS);
+  const docx = path.join(root, 'retour.docx');
+  writeFileSync(docx, zipDir(FIXTURE));
+  let server;
+  let host: Server | undefined;
+  try {
+    const port = await freePort();
+    server = spawnGalleryServer({root, port, watch: false, env: {ATELIER_APP_DIR: appDir}});
+    await expect.poll(async () => fetch(`http://127.0.0.1:${port}/ping`).then(r => r.ok).catch(() => false)).toBe(true);
+    const methods = path.join(root, 'sections', 'methods.tex');
+    const nonce = 'review-nonce';
+    const url = `http://127.0.0.1:${port}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(methods)}#atelier_nonce=${nonce}`;
+    // L'hôte, d'une autre origine comme l'app : garde ce que l'éditeur envoie
+    // au chat. Servi par un vrai serveur local (une page interceptée serait
+    // « publique » pour Chromium, qui bloquerait l'iframe locale).
+    const hostHtml = `<!doctype html><meta charset="utf-8"><body style="margin:0"><iframe id="ed" style="width:1200px;height:800px;border:0" src="${url}"></iframe>
+      <script>window.__chat=[];addEventListener('message',e=>{if(e.data&&e.data.type==='atelier-review-comment')window.__chat.push(e.data);});</script>`;
+    host = createServer((_request, response) => { response.writeHead(200, {'Content-Type': 'text/html'}); response.end(hostHtml); });
+    await new Promise<void>(resolve => host!.listen(0, '127.0.0.1', resolve));
+    await page.goto(`http://127.0.0.1:${(host.address() as AddressInfo).port}/`);
+    const editor = page.frameLocator('#ed');
+    await expect(editor.locator('.cm-editor')).toBeVisible();
+
+    await editor.locator('#moreBtn').click();
+    const chooser = page.waitForEvent('filechooser');
+    await editor.locator('#moreReviewImport').click();
+    await (await chooser).setFiles(docx);
+    await expect(editor.locator('.texv-report-card')).toContainText('Retour de Christophe importé');
+    await editor.locator('.texv-report-close').first().click();
+
+    // Le panneau lance la revue : premier commentaire du document.
+    const panel = editor.locator('#texcPanel');
+    await panel.locator('.tp-chat-review').click();
+    const sent = () => page.evaluate(() => (window as any).__chat as Array<{text: string; review: any}>);
+    await expect.poll(async () => (await sent()).length).toBe(1);
+    const first = (await sent())[0];
+    expect(first.review.n).toBe(1);
+    expect(first.review.total).toBe(5);
+    expect(first.review.author).toBe('Christophe Kinnard');
+    expect(first.text).toContain('Commentaire 1 sur 5 de Christophe Kinnard');
+    expect(first.text).toContain('atelier_annotate');
+
+    // La barre du chat : Réglé, puis le suivant arrive.
+    const act = (action: string, review: any) => page.evaluate(([a, r, n]) => {
+      (document.getElementById('ed') as HTMLIFrameElement).contentWindow!.postMessage(
+        {type: 'atelier-review-action', nonce: n, action: a, id: r.id, file: r.path, mode: r.mode}, '*');
+    }, [action, review, nonce] as const);
+    await act('done', first.review);
+    await expect.poll(async () => (await sent()).length).toBe(2);
+    const second = (await sent())[1];
+    expect(second.review.n).toBe(2);
+    const store = () => JSON.parse(readFileSync(path.join(root, '.fig_thumbs', 'pdf_annots.json'), 'utf8'));
+    const noteOf = (review: any) => store()[`tex-comments:${review.path}`].find((n: any) => n.id === review.id);
+    await expect.poll(() => noteOf(first.review).review.state).toBe('done');
+    expect(noteOf(second.review).review.chatAt).toBeGreaterThan(0);
+
+    // Un nonce faux ne fait rien ; Suivant passe sans régler.
+    await page.evaluate(r => {
+      (document.getElementById('ed') as HTMLIFrameElement).contentWindow!.postMessage(
+        {type: 'atelier-review-action', nonce: 'faux', action: 'done', id: r.id, file: r.path, mode: 'open'}, '*');
+    }, second.review);
+    await act('next', second.review);
+    await expect.poll(async () => (await sent()).length).toBe(3);
+    expect((await sent())[2].review.n).toBe(3);
+    expect(noteOf(second.review).review.state).toBe('todo');
+
+    // Sur le texte : « Dans le chat », et trois gestes sous le commentaire.
+    const inFile = (await sent()).map(m => m.review).find(r => r.path === methods);
+    if (inFile) {
+      const head = editor.locator(`.texv-head[data-texa="${inFile.id}"]`);
+      await expect(head).toContainText(/Dans le chat|Réglé/);
+    }
+    await editor.locator('.texv-head').first().click();
+    const block = editor.locator('.texv-block');
+    await expect(block.locator('.texr-acts button')).toHaveCount(1 + (await block.locator('.texv-reopen').count() ? 0 : 2));
+    await expect(block.locator('.texr-input')).toHaveCount(0);
+
+    // Réglé, il reste relisible : ce qui a changé depuis son commentaire.
+    if (await block.locator('.texv-done').count()) await block.locator('.texv-done').click();
+    await expect(editor.locator('.texv-block .texv-likely.is-done')).toContainText('Réglé');
+  } finally { host?.close(); await stop(server); await removeTempRoot(root); }
 });

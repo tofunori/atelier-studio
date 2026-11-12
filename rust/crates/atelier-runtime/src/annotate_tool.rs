@@ -437,6 +437,36 @@ pub fn reply(target: &Target, author: &str, id: &str, text: &str, suggestion: Op
     })
 }
 
+/// Avis de l'agent sur un commentaire du relecteur dont le passage a changé :
+/// « déjà réglé par la retouche » ou non. Thierry confirme d'un clic ; l'état
+/// du commentaire ne change pas ici.
+pub fn assess(target: &Target, id: &str, settled: bool, reason: &str) -> Result<Value, String> {
+    let reason = reason.trim();
+    if reason.is_empty() {
+        return Err("reason manquant : une phrase qui dit pourquoi".into());
+    }
+    if reason.chars().count() > COMMENT_MAX {
+        return Err(format!("reason trop long (plus de {COMMENT_MAX} caractères)"));
+    }
+    let at = now_ms();
+    pdf_annots::with_store(&target.store_dir, |store| -> Result<(Value, bool), String> {
+        let list = entries_mut(store, &target.rel)?;
+        let note = list
+            .iter_mut()
+            .find(|a| a.get("id").and_then(Value::as_str) == Some(id))
+            .ok_or_else(|| format!("commentaire {id} introuvable dans ce fichier"))?;
+        if !by_reviewer(note) {
+            return Err("assess ne vaut que pour un commentaire du relecteur importé de Word".into());
+        }
+        let review = note
+            .get_mut("review")
+            .and_then(Value::as_object_mut)
+            .ok_or("commentaire illisible")?;
+        review.insert("likely".into(), json!({"settled": settled, "reason": reason, "at": at}));
+        Ok((json!({"ok": true}), true))
+    })
+}
+
 /// Les notes de l'agent dans ce fichier, et celles qui attendent sa réponse.
 pub fn list(target: &Target) -> Result<Value, String> {
     let store = pdf_annots::read(&target.store_dir).map_err(|e| e.to_string())?;
@@ -533,6 +563,12 @@ fn run(project_root: &str, app_dir: &Path, zotero_storage: &Path, author: &str, 
             str_arg(req, "suggestion"),
         ),
         "list" => list(&target),
+        "assess" => assess(
+            &target,
+            str_arg(req, "id").unwrap_or("").trim(),
+            req.get("settled").and_then(Value::as_bool).ok_or("settled manquant : true ou false")?,
+            str_arg(req, "reason").unwrap_or(""),
+        ),
         "remove" => {
             let ids: Vec<String> = match req.get("ids").and_then(Value::as_array) {
                 Some(list) => list.iter().filter_map(Value::as_str).map(str::to_string).collect(),
@@ -540,12 +576,12 @@ fn run(project_root: &str, app_dir: &Path, zotero_storage: &Path, author: &str, 
             };
             remove(&target, &ids)
         }
-        other => Err(format!("action inconnue : {other} (note, reply, list, remove)")),
+        other => Err(format!("action inconnue : {other} (note, reply, list, assess, remove)")),
     }
 }
 
 /// Point d'entrée du pont : `annotate_note`, `annotate_reply`, `annotate_list`,
-/// `annotate_remove`.
+/// `annotate_assess`, `annotate_remove`.
 pub async fn action(state: &AppState, caller_id: &str, action: &str, req: &Value) -> Result<Value, String> {
     let (project_root, provider) = {
         let store = state.threads().lock().await;
@@ -694,6 +730,28 @@ mod tests {
         let store = f.store();
         assert_eq!(store[&rel][0]["thread"][1]["text"], "Il a raison.");
         assert_eq!(store[&rel][0]["by"], "reviewer");
+    }
+
+    #[test]
+    fn assess_marks_a_reviewer_comment_likely_settled_and_nothing_else() {
+        let f = Fixture::new();
+        std::fs::write(f.project.path().join("main.tex"), TEX).unwrap();
+        let rel = format!("tex-comments:{}/main.tex", f.root());
+        pdf_annots::with_store(&f.project.path().join(".fig_thumbs"), |s| -> Result<((), bool), String> {
+            s.insert(rel.clone(), json!([
+                {"id": "rv1-7", "text": "Data", "comment": "Quel angle ?", "by": "reviewer", "author": "Christophe Kinnard", "review": {"state": "todo"}},
+                {"id": "c1", "text": "Data", "comment": "à moi", "by": "user"}]));
+            Ok(((), true))
+        }).unwrap();
+        let r = f.run("assess", json!({"path": "main.tex", "id": "rv1-7", "settled": true, "reason": "La phrase donne maintenant 70°."})).unwrap();
+        assert_eq!(r["ok"], true, "{r}");
+        assert!(f.run("assess", json!({"path": "main.tex", "id": "c1", "settled": true, "reason": "x"})).is_err());
+        assert!(f.run("assess", json!({"path": "main.tex", "id": "rv1-7", "reason": "x"})).is_err());
+        assert!(f.run("assess", json!({"path": "main.tex", "id": "rv1-7", "settled": false, "reason": " "})).is_err());
+        let store = f.store();
+        assert_eq!(store[&rel][0]["review"]["likely"]["settled"], true);
+        assert_eq!(store[&rel][0]["review"]["state"], "todo");
+        assert!(store[&rel][1].get("review").is_none());
     }
 
     #[test]

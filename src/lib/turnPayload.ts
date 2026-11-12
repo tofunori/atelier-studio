@@ -53,6 +53,7 @@ function chatFileRef(a: Attachment): ChatFileRef {
     ...(a.lines ? { lines: a.lines } : {}),
     ...(a.path ? { path: a.path } : {}),
     ...(a.kind ? { kind: a.kind } : {}),
+    ...(a.kind === "review" && a.review ? { review: a.review } : {}),
   };
 }
 

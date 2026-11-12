@@ -2842,6 +2842,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post(feedback::import).layer(axum::extract::DefaultBodyLimit::max(feedback::MAX_DOCX_BYTES)),
         )
         .route("/review/status", get(feedback::status))
+        .route("/review/next", get(feedback::next))
+        .route("/review/state", post(feedback::set_review_state))
         .route("/lint", get(documents::lint))
         .route("/tex/manuscript", post(manuscript::manuscript))
         .route("/tex/manuscript/prefs", post(manuscript::prefs))

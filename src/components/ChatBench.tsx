@@ -3,6 +3,7 @@
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
 // États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · regarde · relecteur (-encours, -rien).
+import { setReviewSession } from "../lib/reviewSession";
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
 import "../styles/typeset.css";
@@ -422,6 +423,23 @@ const MARGE: AgentEvent[] = MARGE_QUESTIONS.flatMap((q, i) => [
       "Les deux zones répondent presque pareil ; l’écart de fonte tient au poids de surface.",
     ].join("\n"), ts: ts(1150 - i * 90) } as AgentEvent,
 ]);
+
+// Revue un par un d'un relecteur (2026-11-12) : carte du commentaire, avis
+// de Claude, barre Réglé / À voir avec lui / Suivant. Commentaires inventés.
+const REVUE_1 = { author: "Christophe Kinnard", n: 2, total: 135, line: 114,
+  comment: "Pas sûr de suivre. L’écart-type de quoi exactement ?",
+  quote: "exceeded the standard deviation of albedo", now: "exceeds the year-to-year variability of summer albedo" };
+const REVUE_2 = { author: "Christophe Kinnard", n: 3, total: 135, line: 121,
+  comment: "Bilan annuel de chaque année, ou bilan annuel moyen ?",
+  quote: "their average annual mass loss", now: "their mean annual mass loss" };
+const REVUE: AgentEvent[] = [
+  { kind: "user", text: "", ts: ts(300), label: "Christophe · 2 sur 135",
+    files: [{ name: "Christophe · 2 sur 135", path: "/tmp/bench/main.tex", kind: "review", lines: "114", review: REVUE_1 }] } as AgentEvent,
+  { kind: "text", text: "Ta retouche répond déjà à sa question : « year-to-year variability of summer albedo » dit de quel écart il s’agit. Rien à lui répondre.", ts: ts(290) } as AgentEvent,
+  { kind: "user", text: "", ts: ts(200), label: "Christophe · 3 sur 135",
+    files: [{ name: "Christophe · 3 sur 135", path: "/tmp/bench/main.tex", kind: "review", lines: "121", review: REVUE_2 }] } as AgentEvent,
+  { kind: "text", text: "Le bilan annuel moyen : les 231 mm sont comparés à la perte moyenne 2002–2023, pas à celle d’une année. Sa question est légitime, la phrase ne le dit pas.\n\nJ’ai proposé d’ajouter « over 2002--2023 » sur le texte : tu l’acceptes ou la refuses dans l’éditeur. Pas besoin de lui répondre, la correction suffit.", ts: ts(190) } as AgentEvent,
+];
 
 // Tableaux de prose larges (capture Thierry 2026-10-31) : ils doivent tenir
 // dans le panneau sans défilement horizontal, et s'empiler en fiches quand le
@@ -968,6 +986,7 @@ const STATES: Record<string, BenchState> = {
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },
   marge: { events: MARGE, workingSince: null, attachments: [], usage: null },
+  revue: { events: REVUE, workingSince: null, attachments: [], usage: null },
   relecteur: { events: RELECTEUR, workingSince: null, attachments: [], usage: null, pins: [] },
   tables: { events: WIDE_TABLES, workingSince: null, attachments: [], usage: null },
   queue: {
@@ -1039,6 +1058,13 @@ export function ChatBench() {
     ? { ...st, events: liveEventsAt(liveElapsed) }
     : st;
 
+  // #chatbench-revue : la barre de la revue un par un, sur le commentaire 3.
+  useEffect(() => {
+    if (key !== "revue") return;
+    setReviewSession({ threadId: "bench-thread", source: window, origin: window.location.origin, nonce: "bench", mode: "open",
+      current: { ...REVUE_2, path: "/tmp/bench/main.tex", id: "rv-bench-3" }, pending: false });
+    return () => setReviewSession(null);
+  }, [key]);
   useEffect(() => {
     if (light) document.documentElement.setAttribute("data-theme", "light");
     return () => document.documentElement.removeAttribute("data-theme");

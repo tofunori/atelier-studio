@@ -14,9 +14,9 @@ import {
 } from "./agent_notes";
 import {
   reviewIcons,
-  agendaHtml, agendaText, importReportHtml, isReviewerNote, progressHtml, reviewerBlock, reviewerChatText, reviewerHeader,
-  reviewerName, reviewerRequest, reviewerState, reviewState, fitNote,
-  type ImportReport, type ReviewInfo, type ReviewState, type ReviewStatus,
+  agendaHtml, agendaText, importReportHtml, isReviewerNote, likelySettled, mergeReview, progressHtml, reviewChatPrompt,
+  reviewerBlock, reviewerHeader, reviewerName, reviewerState, reviewerSuggestion, reviewState, triageRequest, fitNote,
+  type ImportReport, type ReviewComment, type ReviewInfo, type ReviewState, type ReviewStatus,
 } from "./reviewer_notes";
 import type {StudioEditor, StudioPosition, StudioRange, StudioTextMarker} from "../../core/editor_contract";
 
@@ -259,7 +259,7 @@ export function createLatexAnnotationsController(
   let filter: "all" | "mine" | "agent" | "reviewer" = "all";
   // Filtre « relecteur » : état et type de ses commentaires, ordre du jour,
   // bilan du dernier import, avancement tous fichiers (/review/status).
-  let reviewFilter: ReviewState | "all" = "todo";
+  let reviewFilter: ReviewState | "likely" | "all" = "todo";
   let kindFilter: "all" | "question" | "remark" = "all";
   let agendaOpen = false;
   let report: {html: string} | null = null;
@@ -315,7 +315,8 @@ export function createLatexAnnotationsController(
       const tint = `note-c-${noteColorName(annotation.color)}`;
       marks[annotation.id] = activeEditor.markText(annotation.from, annotation.to, {
         className: annotation.kind === "hl" ? `texc-hl texc-c-${annotation.color || "amber"}`
-          : annotation.rstate==="prop" || ((agent || (reviewer && activeId === annotation.id)) && currentSuggestion(annotation)) ? "texc-hl texc-comment texr-old"
+          : annotation.rstate==="prop" || (agent && currentSuggestion(annotation))
+            || (reviewer && (activeId === annotation.id || hasUnread(annotation)) && reviewState(annotation) !== "done" && reviewerSuggestion(annotation)) ? "texc-hl texc-comment texr-old"
             : reviewer ? `texc-hl texc-comment texv-mark${reviewState(annotation) === "done" ? " is-done" : ""}` : `texc-hl texc-comment ${tint}`,
         attributes: {"data-texc": annotation.id},
       });
@@ -586,7 +587,9 @@ export function createLatexAnnotationsController(
     header.onclick = () => activateReviewer(activeId === annotation.id ? null : annotation.id);
     blocks.push(activeEditor.setBookmark({line: paragraph.start, ch: 0}, {widget: header, insertLeft: true, block: true}));
     roundBlocks[annotation.id] = blocks;
-    const open = activeId === annotation.id || hasUnread(annotation) || waitsForAgent(annotation);
+    // Fermé d'office ; ouvert sous le commentaire actif, ou quand Claude
+    // vient d'y poser une correction depuis le chat.
+    const open = activeId === annotation.id || (hasUnread(annotation) && Boolean(reviewerSuggestion(annotation)));
     header.classList.toggle("is-open", open);
     if (!open) return;
     const endLine = activeEditor.getLine(annotation.to.line) || "";
@@ -596,20 +599,20 @@ export function createLatexAnnotationsController(
       lineAfter: [endLine.slice(annotation.to.ch), ...source.slice(annotation.to.line + 1, paragraph.end + 1)].join("\n"),
     }, {
       accept: () => acceptReviewer(annotation.id),
+      refuse: () => refuseReviewer(annotation.id),
       state: next => setReviewState(annotation.id, next),
-      reply: words => replyReviewer(annotation.id, words),
-      chat: () => options.postToHost({type: "atelier-add-to-chat", text: reviewerChatText(options.path, annotation)}),
+      chat: () => { void discussInChat({at: annotation.id}); },
       seen: () => markSeen(annotation.id),
     });
     block.dataset.texr = annotation.id;
     block.classList.toggle("is-active", activeId === annotation.id);
     block.addEventListener("mousedown", event => {
-      if (!(event.target as Element | null)?.closest("input")) event.preventDefault();
+      event.preventDefault();
       activeId = annotation.id;
     });
     const lastLine = activeEditor.getLine(paragraph.end) || "";
     blocks.push(activeEditor.setBookmark({line: paragraph.end, ch: lastLine.length}, {widget: block, block: true}));
-    const suggestion = currentSuggestion(annotation);
+    const suggestion = reviewerSuggestion(annotation);
     if (suggestion && reviewState(annotation) !== "done") {
       const base = activeEditor.indexFromPos(annotation.from);
       wordMarks[annotation.id] = removedRanges(annotation.text, suggestion.text).map(([from, to]) =>
@@ -628,19 +631,30 @@ export function createLatexAnnotationsController(
   function setReviewState(id: string, next: ReviewState): void {
     const annotation = all.find(a => a.id === id);
     if (!annotation) return;
-    annotation.review = {...(annotation.review || {}), state: next};
+    annotation.review = {...(annotation.review || {}), state: next, stateAt: Date.now()};
     remark(annotation);
     void save().then(() => loadReviewStatus());
+    buildPanel();
+  }
+  /** « Refuser » : la correction de Claude tombe, le commentaire reste à faire. */
+  function refuseReviewer(id: string): void {
+    const annotation = all.find(a => a.id === id);
+    if (!annotation) return;
+    annotation.review = {...(annotation.review || {}), refused: Date.now()};
+    annotation.seen = Date.now();
+    clearMark(id);
+    mark(annotation);
+    void save();
     buildPanel();
   }
   function acceptReviewer(id: string): void {
     const annotation = all.find(a => a.id === id);
     const activeEditor = editor();
-    const suggestion = annotation ? currentSuggestion(annotation) : null;
+    const suggestion = annotation ? reviewerSuggestion(annotation) : null;
     if (!annotation || !suggestion || !activeEditor || saving) return;
     const range = marks[id]?.find() || findAnnotationRange(activeEditor.getValue(), annotation, activeEditor);
     if (!range || activeEditor.getRange(range.from, range.to) !== annotation.text) {
-      roundError = "Le passage a changé depuis la correction : demande-en une autre à Claude sous le commentaire.";
+      roundError = "Le passage a changé depuis la correction : demande-en une autre à Claude dans le chat.";
       togglePanel(true);
       return;
     }
@@ -651,7 +665,8 @@ export function createLatexAnnotationsController(
     annotation.from = {...range.from};
     annotation.to = end;
     annotation.text = suggestion.text;
-    annotation.review = {...(annotation.review || {}), state: "done"};
+    annotation.review = {...(annotation.review || {}), state: "done", stateAt: Date.now()};
+    annotation.seen = Date.now();
     history.push({id, round: "", n: 0, number: numberOf(annotation), comment: annotation.comment, text: annotation.text,
       decision: "acc", proposal: suggestion.text, at: Date.now(), by: annotation.by, author: annotation.author || reviewerName(annotation)});
     roundError = "";
@@ -660,19 +675,78 @@ export function createLatexAnnotationsController(
     void saveHistory();
     buildPanel();
   }
-  function replyReviewer(id: string, words: string): void {
-    const annotation = all.find(a => a.id === id);
-    if (!annotation) return;
-    const now = Date.now();
-    annotation.thread = [...(annotation.thread || []), {id: `m${now}`, by: "user", author: "Toi", text: words, at: now}];
-    annotation.seen = now;
-    void save().then(saved => {
-      if (!saved) return;
-      post(reviewerRequest(options.path, annotation, words));
-    });
-    remark(annotation);
+  // ---- Revue un par un dans le chat (maquette « chat-un-par-un ») --------
+  // L'éditeur envoie un commentaire au chat ; la barre du chat répond par
+  // `atelier-review-action` (Réglé, À voir avec lui, Suivant) et l'éditeur
+  // envoie le suivant, dans l'ordre du document, tous fichiers confondus.
+  type ReviewMode = "open" | "likely";
+  const reviewNextUrl = (query: Record<string, string>): string =>
+    `/review/next?${new URLSearchParams({path: options.path, ...query}).toString()}`;
+  async function fetchComment(query: Record<string, string>): Promise<{note: ReviewComment | null; remaining?: number} | null> {
+    try {
+      const response = await win.fetch(reviewNextUrl(query));
+      const payload = await response.json() as {ok?: boolean; note?: ReviewComment | null; remaining?: number; error?: string};
+      if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      return {note: payload.note || null, remaining: payload.remaining};
+    } catch (error) {
+      roundError = `Commentaire introuvable : ${error instanceof Error ? error.message : String(error)}`;
+      buildPanel();
+      return null;
+    }
+  }
+  /** État d'un commentaire, dans ce fichier (copie locale) ou ailleurs. */
+  async function writeReviewState(file: string, id: string, change: {state?: ReviewState; chat?: boolean}): Promise<void> {
+    const local = file === options.path ? all.find(a => a.id === id && isReviewerNote(a)) : null;
+    if (local) {
+      const now = Date.now();
+      local.review = {...(local.review || {}), ...(change.state ? {state: change.state, stateAt: now} : {}), ...(change.chat ? {chatAt: now} : {})};
+      remark(local);
+      await save();
+    } else {
+      try {
+        await win.fetch("/review/state", {method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({path: options.path, file, id, ...change})});
+      } catch { /* l'état se reprend au prochain geste */ }
+    }
+    await loadReviewStatus();
     buildPanel();
   }
+  /** Envoie un commentaire au chat (celui demandé, ou le prochain). */
+  async function discussInChat(query: {at?: string; after?: string; mode?: ReviewMode}): Promise<void> {
+    const mode = query.mode || "open";
+    const found = await fetchComment({...(query.at ? {at: query.at} : {}), ...(query.after ? {after: query.after} : {}), mode});
+    if (!found) return;
+    if (!found.note) {
+      options.postToHost({type: "atelier-review-comment", text: "", review: {doc: options.path, mode, done: true}});
+      return;
+    }
+    const comment = found.note;
+    options.postToHost({type: "atelier-review-comment", text: reviewChatPrompt(comment), review: {
+      doc: options.path, mode, path: comment.path, id: comment.id, n: comment.n, total: comment.total,
+      author: comment.author || "", comment: comment.comment || "", quote: comment.quote || "", now: comment.now || "",
+      line: comment.line || 0, fit: comment.fit || "", kind: comment.kind || "",
+      ...(comment.likely?.settled ? {likely: comment.likely.reason || ""} : {}),
+    }});
+    if (comment.path === options.path && all.some(a => a.id === comment.id)) {
+      activateReviewer(comment.id);
+      reveal(comment.id);
+    }
+    await writeReviewState(comment.path, comment.id, {chat: true});
+  }
+  win.addEventListener("message", event => {
+    const data = event.data as {type?: string; nonce?: string; action?: string; id?: string; file?: string; mode?: string} | null;
+    if (data?.type !== "atelier-review-action" || event.source !== win.top || win.top === win) return;
+    if (!data.nonce || data.nonce !== ((win as Window & {__atelierNonce?: string}).__atelierNonce || win.sessionStorage.getItem("atelier_nonce"))) return;
+    const id = String(data.id || "");
+    const file = String(data.file || "");
+    const mode: ReviewMode = data.mode === "likely" ? "likely" : "open";
+    void (async () => {
+      if (data.action === "start") { await discussInChat({mode}); return; }
+      if (!id || !file) return;
+      if (data.action === "done" || data.action === "agenda") await writeReviewState(file, id, {state: data.action});
+      await discussInChat({after: id, mode});
+    })();
+  });
   const reviewStatusUrl = (): string => `/review/status?path=${encodeURIComponent(options.path)}`;
   async function loadReviewStatus(): Promise<void> {
     try {
@@ -884,7 +958,7 @@ export function createLatexAnnotationsController(
     if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
     const target = activeId ? all.find(a => a.id === activeId && a.rstate === "prop") : null;
     const agentTarget = activeId ? all.find(a => a.id === activeId && isAgentNote(a) && currentSuggestion(a)) : null;
-    const reviewerTarget = activeId ? all.find(a => a.id === activeId && isReviewerNote(a) && reviewState(a) !== "done" && currentSuggestion(a)) : null;
+    const reviewerTarget = activeId ? all.find(a => a.id === activeId && isReviewerNote(a) && reviewState(a) !== "done" && reviewerSuggestion(a)) : null;
     if (!target && !agentTarget && !reviewerTarget) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1101,9 +1175,12 @@ export function createLatexAnnotationsController(
     if (filter === "agent" && !fromAgent.length) filter = "all";
     if (filter === "reviewer" && !hasReview) filter = "all";
     const kindOk = (a: LatexAnnotation): boolean => kindFilter === "all" || (a.review?.kind || "remark") === kindFilter;
+    // « À faire » laisse de côté ce que Claude juge déjà réglé (son filtre à lui).
+    const inReviewFilter = (a: LatexAnnotation): boolean => reviewFilter === "all"
+      || (reviewFilter === "likely" ? likelySettled(a) : reviewFilter === "todo" ? reviewState(a) === "todo" && !likelySettled(a) : reviewState(a) === reviewFilter);
     const items = filter === "mine" ? everything.filter(a => !isAgentNote(a) && !isReviewerNote(a))
       : filter === "agent" ? fromAgent
-        : filter === "reviewer" ? fromReviewer.filter(a => (reviewFilter === "all" || reviewState(a) === reviewFilter) && kindOk(a))
+        : filter === "reviewer" ? fromReviewer.filter(a => inReviewFilter(a) && kindOk(a))
           : everything;
     const round = currentRound();
     const roundItems = everything.filter(a => a.round);
@@ -1125,7 +1202,9 @@ export function createLatexAnnotationsController(
       : "";
     let review = "";
     if (filter === "reviewer") {
-      const count = (state: ReviewState): number => fromReviewer.filter(a => reviewState(a) === state && kindOk(a)).length;
+      const count = (state: ReviewState | "likely"): number => fromReviewer.filter(a => kindOk(a)
+        && (state === "likely" ? likelySettled(a) : state === "todo" ? reviewState(a) === "todo" && !likelySettled(a) : reviewState(a) === state)).length;
+      const likelyHere = count("likely");
       const chip = (attr: string, key: string, label: string, on: boolean): string =>
         `<button type="button" class="tp-chip${on ? " on" : ""}" data-${attr}="${key}" aria-pressed="${on}">${escapeHtml(label)}</button>`;
       const questions = fromReviewer.filter(a => a.review?.kind === "question").length;
@@ -1141,7 +1220,8 @@ export function createLatexAnnotationsController(
         + (fromReviewer.length
           ? '<div class="tp-chips" role="group" aria-label="État">'
             + chip("rstate", "todo", `À faire · ${count("todo")}`, reviewFilter === "todo")
-            + chip("rstate", "agenda", `À discuter · ${count("agenda")}`, reviewFilter === "agenda")
+            + (likelyHere ? chip("rstate", "likely", `Sans doute réglés · ${likelyHere}`, reviewFilter === "likely") : "")
+            + chip("rstate", "agenda", `À voir avec lui · ${count("agenda")}`, reviewFilter === "agenda")
             + chip("rstate", "done", `Réglés · ${count("done")}`, reviewFilter === "done")
             + chip("rstate", "all", "Tous", reviewFilter === "all") + "</div>"
             + '<div class="tp-chips" role="group" aria-label="Type">'
@@ -1163,7 +1243,8 @@ export function createLatexAnnotationsController(
       if (reviewer) {
         state = reviewerState(annotation);
         const fit = fitNote(annotation);
-        if (annotation.review?.fit === "changed" && reviewState(annotation) === "todo" && !(annotation.thread || []).length)
+        if (annotation.review?.fit === "changed" && reviewState(annotation) === "todo" && !annotation.review?.chatAt
+          && !likelySettled(annotation) && !reviewerSuggestion(annotation))
           state = {icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.8 13.6 12.6H2.4z"/><path d="M8 6.6v2.6M8 11v.1"/></svg>', label: fit, tone: "ask"};
       }
       const row: ColumnNote = {
@@ -1347,7 +1428,10 @@ export function createLatexAnnotationsController(
   options.panel.addEventListener("click", (event) => {
     const target = event.target as Element | null;
     if (target?.closest(".tp-close")) { togglePanel(false); return; }
-    if (target?.closest(".tp-review")) { startRound(); return; }
+    // avant « .tp-review » : l'encart d'avancement porte aussi cette classe
+    if (target?.closest(".tp-chat-review")) { void discussInChat({mode: "open"}); return; }
+    if (target?.closest(".tp-likely-review")) { reviewFilter = "likely"; void discussInChat({mode: "likely"}); return; }
+    if (target?.closest("button.tp-review")) { startRound(); return; }
     const seg = target?.closest<HTMLElement>(".tp-seg[data-filter]");
     if (seg) { filter = (seg.dataset.filter as typeof filter) || "all"; agendaOpen = false; buildPanel(); return; }
     const stateSeg = target?.closest<HTMLElement>(".tp-chip[data-rstate]");
@@ -1373,6 +1457,12 @@ export function createLatexAnnotationsController(
     if (target?.closest(".texv-report-close")) { report = null; buildPanel(); return; }
     if (target?.closest(".texv-report-show")) { report = null; filter = "reviewer"; reviewFilter = "todo"; buildPanel(); return; }
     if (target?.closest(".tp-import")) { reviewInput.click(); return; }
+    if (target?.closest(".tp-triage") && reviewStatus) {
+      const waiting = reviewStatus.notes.filter(n => n.state === "todo" && n.fit === "changed" && !n.assessed);
+      const name = reviewerName(reviewerNotes()[0] || {author: reviewStatus.notes[0]?.author});
+      if (waiting.length) post(triageRequest(waiting, name));
+      return;
+    }
     const otherFile = target?.closest<HTMLElement>(".tp-review-file");
     if (otherFile) { options.postToHost({type: "atelier-open-file", path: otherFile.dataset.path, line: Number(otherFile.dataset.line) || 1}); return; }
     if (target?.closest(".tp-cancel")) { cancelRound(); return; }
@@ -1552,7 +1642,8 @@ export function createLatexAnnotationsController(
       }
       if (!isAgentNote(local) && !isReviewerNote(local)) continue;
       const thread = mergeThreads(local.thread, stored.thread);
-      if (thread.length !== (local.thread || []).length) {
+      const reviewMoved = isReviewerNote(local) && mergeReview(local, stored);
+      if (thread.length !== (local.thread || []).length || reviewMoved) {
         local.thread = thread;
         remark(local);
         changed = true;

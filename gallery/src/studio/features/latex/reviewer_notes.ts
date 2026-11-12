@@ -3,16 +3,18 @@
  *  pose chaque commentaire sur son passage (`POST /review/import`, Rust).
  *
  *  Ses commentaires vivent dans le panneau Annotations habituel, signés de
- *  son nom (`by: "reviewer"`). Sous chacun, Thierry discute en privé avec
- *  Claude (le fil `thread`, que le relecteur ne voit jamais) ; Claude peut y
- *  proposer une correction. Un commentaire est « à faire », « à discuter
- *  avec lui » (ordre du jour) ou « réglé ».
+ *  son nom (`by: "reviewer"`). Thierry en discute UN PAR UN DANS LE CHAT
+ *  (maquette « chat-un-par-un », 2026-11-12) : l'éditeur envoie le
+ *  commentaire au chat, la barre du chat dit Réglé / À voir avec lui /
+ *  Suivant, et la correction que Claude propose revient sur le texte à
+ *  accepter ou refuser. Claude peut aussi juger qu'une retouche règle déjà
+ *  un commentaire (« Sans doute réglé ») : Suivant le saute.
  *
  *  Ce module ne garde aucun état : reconnaissance, libellés, blocs affichés
- *  dans l'éditeur, message envoyé au chat, bilan d'import et ordre du jour. */
+ *  dans l'éditeur, messages envoyés au chat, bilan d'import et ordre du jour. */
 
-import {insertedHtml, roundIcons} from "./revision_round";
-import {agentIcon, currentSuggestion, hasUnread, waitsForAgent, type AgentFields} from "./agent_notes";
+import {insertedHtml, removedRanges, roundIcons} from "./revision_round";
+import {agentIcon, hasUnread, type AgentFields} from "./agent_notes";
 
 export type ReviewState = "todo" | "agenda" | "done";
 
@@ -31,6 +33,14 @@ export interface ReviewInfo {
   /** exact, changed, paragraph, near */
   fit?: string;
   state?: ReviewState;
+  /** Date du dernier changement d'état (le chat l'écrit aussi). */
+  stateAt?: number;
+  /** Envoyé au chat pour en discuter. */
+  chatAt?: number;
+  /** Avis de Claude : la retouche de Thierry règle-t-elle déjà ce point ? */
+  likely?: {settled?: boolean; reason?: string; at?: number};
+  /** Correction de Claude refusée (date) : les suggestions antérieures tombent. */
+  refused?: number;
   replies?: Array<{id?: number; author?: string; date?: string; text?: string}>;
 }
 
@@ -45,6 +55,36 @@ export const reviewerName = (note: {author?: string}): string => (note.author ||
 
 export const reviewState = (note: {review?: ReviewInfo}): ReviewState => note.review?.state || "todo";
 
+/** Claude juge le commentaire déjà réglé par une retouche (à confirmer). */
+export const likelySettled = (note: {review?: ReviewInfo}): boolean => reviewState(note) === "todo" && note.review?.likely?.settled === true;
+
+/** Correction proposée par Claude dans le chat, tant qu'elle n'est pas refusée. */
+export function reviewerSuggestion(note: ReviewerFields): {text: string; reason?: string} | null {
+  const thread = note.thread || [];
+  for (let index = thread.length - 1; index >= 0; index -= 1) {
+    const message = thread[index];
+    if (!message?.suggest?.text) continue;
+    if ((note.review?.refused || 0) >= (message.at || 0)) return null;
+    return {text: message.suggest.text, reason: message.text};
+  }
+  return null;
+}
+
+/** Fusion avec la copie du store : chaque champ daté garde le plus récent
+ *  (le chat change l'état, Claude donne son avis, pendant que l'éditeur
+ *  garde sa copie). Vrai si la note locale a changé. */
+export function mergeReview(local: ReviewerFields, stored: ReviewerFields): boolean {
+  const mine = local.review || {};
+  const theirs = stored.review || {};
+  const next: ReviewInfo = {...mine};
+  if ((theirs.stateAt || 0) > (mine.stateAt || 0)) { next.state = theirs.state; next.stateAt = theirs.stateAt; }
+  if ((theirs.chatAt || 0) > (mine.chatAt || 0)) next.chatAt = theirs.chatAt;
+  if ((theirs.likely?.at || 0) > (mine.likely?.at || 0)) next.likely = theirs.likely;
+  const changed = next.state !== mine.state || next.chatAt !== mine.chatAt || next.likely !== mine.likely;
+  if (changed) local.review = next;
+  return changed;
+}
+
 const escapeHtml = (value: string): string => String(value).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"})[c] || c);
 
 export const reviewIcons = {
@@ -53,6 +93,7 @@ export const reviewIcons = {
   person: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="5.6" r="2.4"/><path d="M3.4 13.2c.6-2.2 2.4-3.4 4.6-3.4s4 1.2 4.6 3.4"/></svg>',
   lock: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.6" y="7" width="8.8" height="6.2" rx="1.4"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7"/></svg>',
   warn: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.8 13.6 12.6H2.4z"/><path d="M8 6.6v2.6M8 11v.1"/></svg>',
+  likely: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.4" stroke-dasharray="2 1.6"/><path d="M5.8 8.1l1.5 1.5 2.9-3"/></svg>',
   download: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.8v7M5 7l3 3 3-3M3 12.8h10"/></svg>',
 } as const;
 
@@ -71,12 +112,10 @@ export function fitNote(note: {review?: ReviewInfo}): string {
 export function reviewerState(note: ReviewerFields): {icon: string; label: string; tone: string} {
   const state = reviewState(note);
   if (state === "done") return {icon: roundIcons.check, label: "Réglé", tone: "ok"};
-  if (state === "agenda") return {icon: reviewIcons.flag, label: "À discuter avec lui", tone: "ask"};
-  if (hasUnread(note)) return {icon: '<span class="texa-dot"></span>', label: "Nouvelle réponse de Claude", tone: "todo"};
-  if (waitsForAgent(note)) return {icon: '<span class="texr-spin"></span>', label: "Claude lit ta réponse…", tone: "busy"};
-  if (currentSuggestion(note)) return {icon: roundIcons.check, label: "Correction à valider", tone: "todo"};
-  const talk = (note.thread || []).length;
-  if (talk) return {icon: reviewIcons.talk, label: `En discussion avec Claude · ${talk}`, tone: "note"};
+  if (state === "agenda") return {icon: reviewIcons.flag, label: "À voir avec lui", tone: "ask"};
+  if (reviewerSuggestion(note)) return {icon: hasUnread(note) ? '<span class="texa-dot"></span>' : roundIcons.check, label: "Correction proposée", tone: "todo"};
+  if (likelySettled(note)) return {icon: reviewIcons.likely, label: "Sans doute réglé", tone: "likely"};
+  if (note.review?.chatAt) return {icon: reviewIcons.talk, label: "Dans le chat", tone: "note"};
   return {icon: note.review?.kind === "question" ? roundIcons.question : roundIcons.circle,
     label: note.review?.kind === "question" ? "Question · à faire" : "À faire", tone: "todo"};
 }
@@ -101,104 +140,145 @@ export interface ReviewerBlockView {
 
 export interface ReviewerBlockActions {
   accept(): void;
+  refuse(): void;
   state(next: ReviewState): void;
-  reply(words: string): void;
   chat(): void;
   seen(): void;
 }
 
-function messages(note: ReviewerFields): string {
+/** Ce que Claude disait de la dernière correction proposée (acceptée ou non). */
+function lastSuggestionReason(note: ReviewerFields): string {
+  const thread = note.thread || [];
+  for (let index = thread.length - 1; index >= 0; index -= 1) if (thread[index]?.suggest?.text) return thread[index]?.text || "";
+  return "";
+}
+
+/** Ce qu'il commentait, mots disparus depuis marqués. */
+function deletedHtml(before: string, after: string): string {
+  let html = "";
+  let at = 0;
+  for (const [from, to] of removedRanges(before, after)) {
+    html += escapeHtml(before.slice(at, from)) + `<s>${escapeHtml(before.slice(from, to))}</s>`;
+    at = to;
+  }
+  return html + escapeHtml(before.slice(at));
+}
+
+/** Ses réponses déjà écrites dans Word, sous son commentaire. */
+function wordReplies(note: ReviewerFields): string {
   const name = escapeHtml(reviewerName(note));
-  const his = (note.review?.replies || []).map(reply => `<div class="texa-msg texv-word"><div class="texa-msg-who">${reviewIcons.person}`
+  return (note.review?.replies || []).map(reply => `<div class="texa-msg texv-word"><div class="texa-msg-who">${reviewIcons.person}`
     + `${escapeHtml(reply.author || name)} · dans Word</div><div class="texa-msg-text">${escapeHtml(reply.text || "")}</div></div>`).join("");
-  const thread = (note.thread || []).map(message => {
-    const mine = message.by === "user";
-    return `<div class="texa-msg${mine ? " is-mine" : ""}"><div class="texa-msg-who">`
-      + (mine ? "Toi" : `${agentIcon}${escapeHtml(message.author || "Claude")}`)
-      + `</div><div class="texa-msg-text">${escapeHtml(message.text || (message.suggest ? "Correction proposée ci-dessous." : ""))}</div></div>`;
-  }).join("");
-  const wait = waitsForAgent(note) ? '<div class="texa-wait"><span class="texr-spin"></span>Claude lit ta réponse…</div>' : "";
-  const privacy = `<div class="texv-private">${reviewIcons.lock}Discussion privée avec Claude · ${name} ne la voit pas</div>`;
-  return his + privacy + (thread || wait ? `<div class="texa-thread">${thread}${wait}</div>` : "");
 }
 
 /** Bloc sous le paragraphe du commentaire actif : son passage d'origine si
- *  le .tex a bougé, ses réponses dans Word, le fil privé avec Claude, la
- *  correction proposée, les actions. */
+ *  le .tex a bougé, ses réponses dans Word, l'avis « sans doute réglé » de
+ *  Claude ou la correction qu'il propose, et trois gestes au plus. La
+ *  discussion elle-même a lieu dans le chat. */
 export function reviewerBlock(doc: Document, view: ReviewerBlockView, actions: ReviewerBlockActions): HTMLElement {
   const {note} = view;
-  const suggestion = currentSuggestion(note);
+  const suggestion = reviewState(note) === "done" ? null : reviewerSuggestion(note);
   const state = reviewState(note);
+  const likely = !suggestion && likelySettled(note);
   const root = doc.createElement("div");
   root.className = "texr-block texa-block texv-block" + (suggestion ? " texr-proposal" : "");
   const fit = fitNote(note);
   const quote = (note.review?.quote || "").replace(/\s+/g, " ").trim();
-  const origin = fit
+  const origin = fit && !likely && state !== "done"
     ? `<div class="texv-fit">${reviewIcons.warn}<span>${escapeHtml(fit)}${quote && note.review?.on !== "figure" ? ` · il commentait « ${escapeHtml(quote.slice(0, 200))} »` : ""}</span></div>`
     : "";
+  const now = note.text.replace(/\s+/g, " ").trim();
+  const diff = quote && quote !== now
+    ? `<div class="texv-likely-row"><span class="texv-likely-k">Il commentait</span><span class="texv-likely-old">${deletedHtml(quote, now)}</span></div>`
+      + `<div class="texv-likely-row"><span class="texv-likely-k">Maintenant</span><span class="texv-likely-now">${insertedHtml(quote, now)}</span></div>`
+    : "";
+  // Réglé : ce qui a changé depuis son commentaire, et pourquoi (la
+  // correction acceptée ou l'avis de Claude), pour relire comment c'est réglé.
+  const settledWhy = state === "done" ? (lastSuggestionReason(note) || note.review?.likely?.reason || "") : "";
+  const settled = state === "done"
+    ? `<div class="texv-likely is-done"><div class="texv-likely-head">${roundIcons.check}Réglé${diff ? "" : '<span class="texv-likely-by">· passage inchangé</span>'}</div>`
+      + diff + (settledWhy ? `<div class="texv-likely-why">${escapeHtml(settledWhy)}</div>` : "") + "</div>"
+    : "";
+  const verdict = likely
+    ? `<div class="texv-likely"><div class="texv-likely-head">${reviewIcons.likely}Sans doute déjà réglé par ta retouche<span class="texv-likely-by">· avis de Claude</span></div>`
+      + diff
+      + (note.review?.likely?.reason ? `<div class="texv-likely-why">${escapeHtml(note.review.likely.reason)}</div>` : "") + "</div>"
+    : "";
   const proposal = suggestion
-    ? '<div class="texv-concl">Correction proposée par Claude</div><div class="texr-new" role="group" aria-label="Correction proposée par Claude">'
+    ? `<div class="texv-concl">${agentIcon}Correction proposée par Claude</div>`
+      + (suggestion.reason ? `<div class="texv-reason">${escapeHtml(suggestion.reason)}</div>` : "")
+      + '<div class="texr-new" role="group" aria-label="Correction proposée par Claude">'
       + (escapeHtml(view.lineBefore) + insertedHtml(note.text, suggestion.text) + escapeHtml(view.lineAfter)).split("\n")
         .map(line => `<div class="texr-new-line">${line || "&#8203;"}</div>`).join("") + "</div>"
     : "";
-  const acts = (suggestion && state !== "done"
+  const chat = `<button type="button" class="texr-ghost texv-chat" title="Envoyer ce commentaire au chat et en discuter avec Claude">${reviewIcons.talk}Discuter dans le chat</button>`;
+  const acts = suggestion
     ? `<button type="button" class="texr-btn texr-accept" title="Accepter la correction (⌘↩)"><span class="texr-ok">${roundIcons.check}</span>Accepter la correction<span class="texr-kbd">⌘↩</span></button>`
+      + '<button type="button" class="texr-ghost texv-refuse">Refuser</button>'
     : state === "done"
       ? '<button type="button" class="texr-ghost texv-reopen">Rouvrir</button>'
-      : `<button type="button" class="texr-btn texv-done" title="Réglé : corrigé, rien à lui répondre">${roundIcons.check}Réglé</button>`)
-    + '<button type="button" class="texr-ghost texa-answer">Discuter avec Claude…</button>'
-    + (state === "agenda"
-      ? '<button type="button" class="texr-ghost texv-agenda" aria-pressed="true">Retirer de l’ordre du jour</button>'
-      : state === "done" ? "" : '<button type="button" class="texr-ghost texv-agenda" aria-pressed="false">À discuter avec lui</button>')
-    + '<button type="button" class="texr-ghost texv-chat" title="Ouvrir ce commentaire et son passage dans le chat">Ouvrir dans le chat</button>';
-  root.innerHTML = origin + messages(note) + proposal
-    + `<div class="texr-foot"><div class="texr-acts">${acts}</div><div class="texr-again-row" hidden>`
-    + '<div class="texr-field"><input type="text" class="texr-input" aria-label="Ta réponse à Claude" placeholder="Répondre à Claude…">'
-    + `<button type="button" class="texr-send" aria-label="Envoyer" title="Envoyer (Entrée)">${roundIcons.send}</button></div>`
-    + "</div></div>";
-  const row = root.querySelector<HTMLElement>(".texr-again-row")!;
-  const input = root.querySelector<HTMLInputElement>(".texr-input")!;
-  const send = () => { const words = input.value.trim(); if (words) actions.reply(words); };
+      : state === "agenda"
+        ? '<button type="button" class="texr-ghost texv-agenda" aria-pressed="true">Retirer de l’ordre du jour</button>' + chat
+        : `<button type="button" class="texr-btn texv-done" title="${likely ? "Oui, c’est réglé" : "Réglé : corrigé, rien à lui répondre"}">${roundIcons.check}Réglé</button>`
+          + `<button type="button" class="texr-ghost texv-agenda" aria-pressed="false">${reviewIcons.flag}À voir avec lui</button>` + chat;
+  root.innerHTML = origin + settled + wordReplies(note) + verdict + proposal + `<div class="texr-foot"><div class="texr-acts">${acts}</div></div>`;
   root.querySelector<HTMLButtonElement>(".texr-accept")?.addEventListener("click", () => actions.accept());
+  root.querySelector<HTMLButtonElement>(".texv-refuse")?.addEventListener("click", () => actions.refuse());
   root.querySelector<HTMLButtonElement>(".texv-done")?.addEventListener("click", () => actions.state("done"));
   root.querySelector<HTMLButtonElement>(".texv-reopen")?.addEventListener("click", () => actions.state("todo"));
   root.querySelector<HTMLButtonElement>(".texv-agenda")?.addEventListener("click", () => actions.state(state === "agenda" ? "todo" : "agenda"));
   root.querySelector<HTMLButtonElement>(".texv-chat")?.addEventListener("click", () => actions.chat());
-  root.querySelector<HTMLButtonElement>(".texa-answer")!.onclick = () => {
-    row.hidden = !row.hidden;
-    if (!row.hidden) input.focus();
-  };
-  // Le fil déjà commencé : le champ est ouvert d'emblée.
-  if ((note.thread || []).length && state !== "done") row.hidden = false;
-  root.querySelector<HTMLButtonElement>(".texr-send")!.onclick = send;
-  input.addEventListener("keydown", event => {
-    event.stopPropagation();
-    if (event.key === "Enter") { event.preventDefault(); send(); }
-    if (event.key === "Escape") { event.preventDefault(); row.hidden = true; }
-  });
   root.addEventListener("pointerdown", () => { if (hasUnread(note)) actions.seen(); });
   return root;
 }
 
 const fileName = (path: string): string => path.split(/[\\/]/).pop() || path;
-const lines = (note: AgentFields): string => note.from.line === note.to.line ? `ligne ${note.from.line + 1}` : `lignes ${note.from.line + 1}-${note.to.line + 1}`;
 
-/** Message au chat quand Thierry discute d'un commentaire du relecteur. */
-export function reviewerRequest(path: string, note: ReviewerFields, words: string): string {
-  const name = reviewerName(note);
-  const quote = note.review?.quote && note.review.quote.trim() !== note.text.trim() ? `\nCe qu'il commentait dans Word : « ${note.review.quote.trim()} »` : "";
-  return `Discussion sur le commentaire de ${name} [${note.id}] dans ${fileName(path)} (${lines(note)}) : ${words}\n\n`
-    + `Passage : « ${note.text} »${quote}\nSon commentaire : ${note.comment}\n\n`
-    + `Cette discussion est privée : ${name} ne la verra pas. Lis le manuscrit (et au besoin les articles et données) pour juger s'il a raison. `
-    + `Réponds sous son commentaire avec l'outil atelier_annotate, action reply (path « ${path} », id « ${note.id} ») ; `
-    + "quand vous êtes d'accord sur une correction, donne-la en suggestion (le passage réécrit en LaTeX). Ne modifie pas le fichier toi-même.";
+/** Un commentaire tel que le serveur le donne pour le chat (`/review/next`). */
+export interface ReviewComment {
+  path: string;
+  id: string;
+  n: number;
+  total: number;
+  author?: string;
+  comment?: string;
+  quote?: string;
+  now?: string;
+  line?: number;
+  fit?: string;
+  kind?: string;
+  on?: string;
+  state?: ReviewState;
+  likely?: {settled?: boolean; reason?: string} | null;
 }
 
-/** « Ouvrir dans le chat » : le commentaire et son passage, pour un gros point. */
-export function reviewerChatText(path: string, note: ReviewerFields): string {
-  return `Commentaire de ${note.author || reviewerName(note)} sur ${fileName(path)} (${lines(note)}) : ${note.comment}\n`
-    + `Passage : « ${note.text} »\n`
-    + `(Pour conclure, réponds sous son commentaire avec atelier_annotate reply, path « ${path} », id « ${note.id} », avec la correction en suggestion.)`;
+const clip = (text: string | undefined, max: number): string => {
+  const flat = (text || "").replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+};
+
+/** Ce que Claude lit quand un commentaire arrive dans le chat. */
+export function reviewChatPrompt(comment: ReviewComment): string {
+  const name = (comment.author || "Le relecteur").trim();
+  const first = name.split(/\s+/)[0] || name;
+  const before = comment.quote && clip(comment.quote, 4000) !== clip(comment.now, 4000) ? `\nCe qu'il commentait dans Word : « ${clip(comment.quote, 4000)} »` : "";
+  return `Commentaire ${comment.n} sur ${comment.total} de ${name} (${fileName(comment.path)}, ligne ${comment.line || "?"}) : ${comment.comment || ""}\n`
+    + `Passage aujourd'hui : « ${clip(comment.now, 4000)} »${before}\n\n`
+    + `On en discute un par un. Donne ton avis en quelques phrases : ${first} a-t-il raison, et que faire ? Lis le manuscrit au besoin. `
+    + `Si une correction s'impose, propose-la avec atelier_annotate action reply (path « ${comment.path} », id « ${comment.id} », `
+    + "text = une phrase, suggestion = le passage réécrit en LaTeX) : elle s'affiche sur le texte, à accepter ou refuser. "
+    + `Ne modifie jamais le fichier toi-même. ${first} ne voit pas cette discussion.`;
+}
+
+/** Demande à Claude de trier les commentaires dont le passage a changé. */
+export function triageRequest(notes: ReviewStatusNote[], name: string): string {
+  const list = notes.map(note => `- [${note.id}] ${note.path}, ligne ${note.line || "?"} : ${clip(note.comment, 300)}\n`
+    + `  il commentait « ${clip(note.quote, 600)} »\n  maintenant « ${clip(note.text, 600)} »`).join("\n");
+  return `Tri des commentaires de ${name} : depuis son retour, j'ai retouché les passages de ces ${notes.length} commentaires. `
+    + "Pour chacun, juge si ma retouche règle déjà son point et appelle atelier_annotate action assess "
+    + "(path = le fichier, id, settled = true ou false, reason = une phrase en français). "
+    + `Ne réponds pas à ${name}, ne propose pas de correction et ne modifie rien : je confirmerai moi-même. `
+    + "À la fin, dis seulement combien sont sans doute réglés.\n\n" + list;
 }
 
 // ---------------------------------------------------------------------------
@@ -224,16 +304,21 @@ export interface ReviewStatusNote {
   line?: number;
   comment?: string;
   author?: string;
+  text?: string;
+  quote?: string;
   state: ReviewState;
   kind?: string;
   fit?: string;
   thread?: number;
+  likely?: boolean;
+  assessed?: boolean;
+  chat?: boolean;
 }
 
 export interface ReviewStatus {
   rounds: Array<{id?: string; source?: string; reviewer?: string; date?: string; imported?: number}>;
   notes: ReviewStatusNote[];
-  counts: {total: number; todo: number; agenda: number; done: number; discussing: number};
+  counts: {total: number; todo: number; agenda: number; done: number; discussing: number; likely?: number; unassessed?: number};
 }
 
 const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
@@ -277,14 +362,34 @@ export function importReportHtml(report: ImportReport, source: string): string {
     + '<button type="button" class="texr-ghost texv-report-close">Fermer</button></div>';
 }
 
-/** Encart d'avancement sous le filtre : date du retour, réglés sur le total. */
+/** Encart d'avancement sous le filtre : date du retour, réglés sur le
+ *  total, et l'entrée de la revue un par un dans le chat. */
 export function progressHtml(status: ReviewStatus, name: string): string {
   const {counts} = status;
   const round = status.rounds.at(-1);
   const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0;
+  const open = counts.todo - (counts.likely || 0);
+  const go = open > 0
+    ? `<button type="button" class="texr-btn tp-chat-review">${reviewIcons.talk}En discuter un par un dans le chat</button>`
+    : "";
   return `<div class="tp-review"><div class="tp-review-top"><span>Son retour${round?.date ? ` du ${escapeHtml(shortDate(round.date))}` : ""}</span>`
     + `<span class="tp-review-n">${counts.done} sur ${counts.total} réglés</span></div>`
-    + `<div class="tp-bar" role="progressbar" aria-label="Commentaires de ${escapeHtml(name)} réglés" aria-valuemin="0" aria-valuemax="${counts.total}" aria-valuenow="${counts.done}"><i style="width:${pct}%"></i></div></div>`;
+    + `<div class="tp-bar" role="progressbar" aria-label="Commentaires de ${escapeHtml(name)} réglés" aria-valuemin="0" aria-valuemax="${counts.total}" aria-valuenow="${counts.done}"><i style="width:${pct}%"></i></div>`
+    + go + "</div>" + likelyHtml(status, name);
+}
+
+/** Tri de Claude : combien de commentaires sa retouche règle sans doute,
+ *  et combien de passages retouchés il n'a pas encore jugés. */
+export function likelyHtml(status: ReviewStatus, name: string): string {
+  const likely = status.counts.likely || 0;
+  const unassessed = status.counts.unassessed || 0;
+  if (!likely && !unassessed) return "";
+  const said = likely
+    ? `Claude juge ${plural(likely, "commentaire", "commentaires")} de ${escapeHtml(name)} sans doute déjà ${likely > 1 ? "réglés" : "réglé"} par tes retouches.`
+    : `${plural(unassessed, "passage commenté a", "passages commentés ont")} changé depuis son retour.`;
+  const acts = (likely ? `<button type="button" class="texr-ghost tp-likely-review">Les passer en revue · ${likely}</button>` : "")
+    + (unassessed ? `<button type="button" class="tp-link tp-triage">${likely ? "Faire juger les autres" : "Demander à Claude lesquels sont déjà réglés"} · ${unassessed}</button>` : "");
+  return `<div class="tp-likely"><div class="tp-likely-t">${reviewIcons.likely}<span>${said}</span></div><div class="tp-likely-acts">${acts}</div></div>`;
 }
 
 /** Ordre du jour : les commentaires « à discuter avec lui », tous fichiers. */
