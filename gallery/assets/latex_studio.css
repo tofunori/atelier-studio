@@ -849,6 +849,23 @@ header button.on:not(:disabled){background:var(--toolbar-active);color:var(--too
 .texv-likely-now b{font-weight:400;background:var(--texr-add-word)}
 .texv-likely-why{margin:8px 0 4px;color:var(--text-secondary,var(--txt))}
 
+/* Ses retouches de texte (lot 2) : un en-tête par paragraphe, sa version
+   barrée/verte, puis la fusion par Claude ou ton texte gardé. */
+.texv-edit-ic{display:inline-grid;place-items:center;width:18px;height:18px;flex:none;color:var(--text-muted,var(--muted))}
+.texv-edit-ic svg{width:12px;height:12px}
+.texv-head.is-edit .texr-note{color:var(--text-secondary,var(--txt))}
+.texv-his{margin:4px 0 8px;padding:12px;border-radius:10px;background:var(--surface-hover,var(--card2));font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--text-primary,var(--txt))}
+.texv-his-k{margin-bottom:4px;font-weight:500}
+.texv-his-k span{font-weight:400;color:var(--text-muted,var(--muted))}
+.texv-his-t{overflow-wrap:anywhere}
+.texv-his-t s{color:var(--status-error,#e06c75);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--status-error,#e06c75) 60%,transparent)}
+.texv-his-t b{font-weight:400;background:var(--texr-add-word);border-radius:2px}
+.texv-since{margin:0 0 8px;padding:8px 12px;border-radius:10px;background:var(--surface-hover,var(--card2))}
+.texv-since-t{margin-bottom:8px;font:var(--fs-body-s, 12px)/1.5 var(--ui-font);color:var(--text-muted,var(--muted))}
+.texv-since .texr-acts{margin-top:0}
+.texv-merge,.texv-keep{display:inline-flex;align-items:center;gap:4px}
+.texv-merge svg{width:12px;height:12px;flex:none}
+
 /* La barre appartient au document : commandes fréquentes, puis menus. */
 #fileIdentity{order:0;flex:0 1 220px}
 #fname{flex:1;min-width:0}

@@ -24,6 +24,9 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+mod edits;
+pub use edits::Edit;
+
 // ---------------------------------------------------------------------------
 // Le .tex en jetons
 // ---------------------------------------------------------------------------
@@ -692,6 +695,8 @@ pub struct Feedback {
     pub changes: usize,
     pub moves: usize,
     pub formats: usize,
+    /// Ses retouches de texte, phrase par phrase (lot 2).
+    pub edits: Vec<Edit>,
     /// Date du dernier commentaire (ISO 8601).
     pub last_date: String,
 }
@@ -1013,7 +1018,9 @@ pub fn place(model: &DocModel, marks: &Marks, tex: &TexText) -> Feedback {
     }
     // Réponse dont le parent manque : traitée comme un commentaire.
     counts.placed = comments.len() + counts.replies;
+    let edits = edits::edits(model, tex, &reviewer);
     Feedback {
+        edits,
         reviewer,
         files: tex.files.iter().map(|f| f.path.clone()).collect(),
         comments,

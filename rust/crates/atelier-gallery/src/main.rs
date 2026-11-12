@@ -2844,6 +2844,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/review/status", get(feedback::status))
         .route("/review/next", get(feedback::next))
         .route("/review/state", post(feedback::set_review_state))
+        .route("/review/apply", post(feedback::apply))
         .route("/lint", get(documents::lint))
         .route("/tex/manuscript", post(manuscript::manuscript))
         .route("/tex/manuscript/prefs", post(manuscript::prefs))

@@ -237,6 +237,24 @@
   font:var(--fs-label,11px)/1 var(--ui-font);font-variant-numeric:tabular-nums;cursor:pointer;white-space:nowrap;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
 .atelier-notes-col .tp-chip:hover{color:var(--text-primary,var(--txt))}
 .atelier-notes-col .tp-chip.on{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt));font-weight:500}
+/* « Ses modifications » : ses retouches de texte, trois sorts qui filtrent
+   la liste, et la revue une par une dans le chat (lot 2, maquette 2026-11-12). */
+.atelier-notes-col .tp-edits{margin:0 16px 8px;padding:8px 4px 4px;border-radius:6px;background:var(--surface-hover,var(--card2))}
+.atelier-notes-col .tp-edits>.tp-review-top{padding:0 8px 4px}
+.atelier-notes-col .tp-edit-rows{display:flex;flex-direction:column}
+.atelier-notes-col .tp-edit-row{display:flex;align-items:center;gap:8px;width:100%;min-height:28px;padding:4px 8px;box-sizing:border-box;border:0;border-radius:6px;
+  background:transparent;color:var(--text-secondary,var(--txt));font:var(--fs-body-s,12px)/1.3 var(--ui-font);text-align:left;cursor:pointer;
+  transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
+.atelier-notes-col .tp-edit-row:hover{background:var(--bg-ctl,var(--card));color:var(--text-primary,var(--txt))}
+.atelier-notes-col .tp-edit-row.on{background:var(--bg-ctl,var(--card));color:var(--text-primary,var(--txt));font-weight:500}
+.atelier-notes-col .tp-edit-row svg{width:12px;height:12px;flex:none}
+.atelier-notes-col .tp-edit-row .tp-ic{display:inline-grid;place-items:center;width:12px;height:12px;color:var(--text-muted,var(--muted))}
+.atelier-notes-col .tp-edit-row.tone-changed .tp-ic{color:var(--status-warning,#e0b74a)}
+.atelier-notes-col .tp-edit-row.tone-done .tp-ic{color:var(--status-success,#98c379)}
+.atelier-notes-col .tp-edit-l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.atelier-notes-col .tp-edit-n{color:var(--text-muted,var(--muted));font-variant-numeric:tabular-nums}
+.atelier-notes-col .tp-edit-walk{margin-top:4px;color:var(--text-primary,var(--txt))}
+@media (prefers-reduced-motion: reduce){.atelier-notes-col .tp-edit-row{transition:none}}
 .atelier-notes-col .tp-sec-file{display:flex;align-items:center;gap:8px;padding-top:16px;color:var(--text-secondary,var(--txt));font-weight:500}
 .atelier-notes-col .tp-sec-file:first-child{padding-top:8px}
 .atelier-notes-col .tp-sec-here{font-weight:400;color:var(--text-disabled,var(--muted))}
