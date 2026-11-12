@@ -22,6 +22,7 @@
 //! - [`story`] : corps, notes, en-têtes et pieds de page, chacun dans sa partie.
 //! - [`check`] : contrôle à chaque écriture (ce que Word refuserait).
 //! - [`history`] : versions reçues et annuler / rétablir, sur disque.
+//! - [`triage`] : tri des suivis par nature (fond, nombres, ponctuation, espaces).
 
 pub mod check;
 pub mod comments;
@@ -40,6 +41,7 @@ pub mod history;
 pub mod ops;
 pub mod story;
 pub mod table;
+pub mod triage;
 mod walk;
 mod xml;
 

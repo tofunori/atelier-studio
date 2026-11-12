@@ -2563,7 +2563,12 @@ fn a_stale_tab_applies_only_its_own_changes_since_state_base() {
 
 /// La copie corrigée de la fixture d'atelier-docx, zippée comme Word.
 fn christophe_docx() -> Vec<u8> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../atelier-docx/tests/fixtures/christophe");
+    fixture_docx("christophe")
+}
+
+/// Un dossier de fixture d'atelier-docx, zippé comme Word.
+fn fixture_docx(name: &str) -> Vec<u8> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../atelier-docx/tests/fixtures").join(name);
     fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(String, PathBuf)>) {
         for e in fs::read_dir(dir).unwrap() {
             let p = e.unwrap().path();
@@ -2680,6 +2685,54 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     let (_, body) = http(srv.port, "GET", "/docx/prefs", None);
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!((v["author"].as_str(), v["page"].as_str()), (Some("Thierry"), Some("theme")));
+}
+
+#[test]
+fn le_panneau_docx_trie_les_suivis_et_accepte_les_mineurs_d_un_geste() {
+    let srv = start_server();
+    fs::write(srv.root.join("tri.docx"), fixture_docx("tri")).unwrap();
+    let (st, body) = http(srv.port, "GET", "/docx/triage?path=tri.docx", None);
+    assert_eq!(st, 200, "{body}");
+    let t: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(t["total"], 30);
+    let groups = t["groups"].as_array().unwrap();
+    let count = |key: &str| groups.iter().find(|g| g["key"] == key).unwrap()["items"].as_array().unwrap().len();
+    assert_eq!((count("fond"), count("nombres"), count("ponctuation"), count("espaces")), (7, 3, 7, 3));
+    let smoke = groups[0]["items"].as_array().unwrap().iter().find(|i| i["ids"] == serde_json::json!([5, 6])).unwrap().clone();
+    assert_eq!((smoke["kind"].as_str(), smoke["before"].as_str(), smoke["after"].as_str()), (Some("remplacement"), Some("smoke from wildfires deposited"), Some("wildfire smoke deposited")));
+    assert_eq!((smoke["author"].as_str(), smoke["paragraph"].as_str()), (Some("Christophe"), Some("p1")));
+    let rev0 = t["revision"].as_str().unwrap().to_string();
+    let minors: Vec<u64> = groups.iter().filter(|g| g["minor"] == true).flat_map(|g| g["items"].as_array().unwrap().iter().flat_map(|i| i["ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()))).collect();
+    assert_eq!(minors.len(), 13);
+
+    let set = |revision: &str, ids: &[u64], decision: &str| serde_json::json!({"path": "tri.docx", "revision": revision, "ids": ids, "decision": decision, "author": "Thierry"}).to_string();
+    // Mauvaise décision, liste vide, autre origine : refusés.
+    assert_eq!(http(srv.port, "POST", "/docx/decide-set", Some(&set(&rev0, &minors, "maybe"))).0, 400);
+    assert_eq!(http(srv.port, "POST", "/docx/decide-set", Some(&set(&rev0, &[], "accept"))).0, 400);
+    assert_eq!(http_with_origin(srv.port, "POST", "/docx/decide-set", Some(&set(&rev0, &minors, "accept")), Some("https://evil.example")).0, 403);
+
+    let (st, body) = http(srv.port, "POST", "/docx/decide-set", Some(&set(&rev0, &minors, "accept")));
+    assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["result"]["done"], 13);
+    let rev1 = v["revision"].as_str().unwrap().to_string();
+    assert_eq!(v["model"]["revision"], rev1.as_str());
+    let left: Vec<u64> = v["model"]["changes"].as_array().unwrap().iter().map(|c| c["id"].as_u64().unwrap()).collect();
+    assert_eq!(left.len(), 17);
+    assert!(minors.iter().all(|id| !left.contains(id)));
+    assert!(v["model"]["paragraphs"][1]["text"].as_str().unwrap().contains("Coast Range, where"));
+    // Le tri suivant n'a plus de mineurs ; une version périmée est refusée.
+    let t: serde_json::Value = serde_json::from_str(&http(srv.port, "GET", "/docx/triage?path=tri.docx", None).1).unwrap();
+    assert_eq!(t["total"], 17);
+    let (st, _) = http(srv.port, "POST", "/docx/decide-set", Some(&set(&rev0, &[5, 6], "reject")));
+    assert_eq!(st, 409);
+    // Un seul geste, une seule annulation.
+    let undo = serde_json::json!({"path": "tri.docx", "revision": rev1, "redo": false}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/undo", Some(&undo));
+    assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["revision"], rev0.as_str());
+    assert_eq!(v["model"]["changes"].as_array().unwrap().len(), 30);
 }
 
 #[test]

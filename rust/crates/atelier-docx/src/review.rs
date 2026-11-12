@@ -208,3 +208,24 @@ fn reject_format(src: &str, change: Node) -> Result<Vec<(Range<usize>, String)>>
     };
     Ok(vec![(parent_inner, new_inner)])
 }
+
+/// Accepte ou refuse les suivis `ids` d'un seul geste (un enregistrement,
+/// une annulation). Les suivis introuvables ou que le panneau ne sait pas
+/// traiter (cellules, sections) restent en place, rendus dans `skipped`.
+///
+/// Version simple (une passe par suivi), remplacée par la version en une
+/// passe du chantier 1 : l'intégrateur garde l'autre.
+pub fn decide_set(docx: &mut Docx, ids: &[u32], decision: Decision) -> Result<Batch> {
+    let mut batch = Batch::default();
+    let mut seen = BTreeSet::new();
+    for &id in ids {
+        if !seen.insert(id) {
+            continue;
+        }
+        match decide(docx, id, decision) {
+            Ok(()) => batch.done += 1,
+            Err(_) => batch.skipped.push(id),
+        }
+    }
+    Ok(batch)
+}
