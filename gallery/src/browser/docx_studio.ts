@@ -154,6 +154,7 @@
     circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
     bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+    sort: '<path d="M3 6h18"/><path d="M6 12h12"/><path d="M9 18h6"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
   const ic = (k: keyof typeof PATHS, size = 16) => svg(PATHS[k], size);
@@ -1095,6 +1096,7 @@
     if (next.openInWord) {
       notice.innerHTML = `${ICON.warn}<span>Ce document est aussi ouvert dans Word. Ferme-le dans Word avant de le retoucher ici : Word écraserait ces retouches à son prochain enregistrement.</span>`;
     }
+    triSync();
   }
 
   /** État d'enregistrement dans le pied ; tout autre message passe en toast. */
@@ -1720,6 +1722,7 @@
     <button class="ib" id="btnFind" aria-label="Rechercher" data-tooltip="Rechercher et remplacer (⌘F)">${ic("search")}</button>
     <span class="seg" role="group" aria-label="Affichage"><button id="vReview" aria-pressed="true" data-tooltip="Modifications et commentaires visibles">Révision</button><button id="vRead" aria-pressed="false" data-tooltip="Le texte comme si tout était accepté">Lecture</button></span>
     <span class="navc hide2"><button class="ib" id="navPrev" aria-label="Commentaire précédent" data-tooltip="Commentaire précédent">${ic("left")}</button><span class="lbl" id="navLbl"></span><button class="ib" id="navNext" aria-label="Commentaire suivant" data-tooltip="Commentaire suivant">${ic("right")}</button></span>
+    <button class="ib tribtn" id="btnTri" aria-pressed="false" aria-label="Trier les suivis" data-tooltip="Ranger les suivis par nature et les revoir au clavier">${ic("sort")}<span class="t hide2">Trier les suivis</span></button>
     <button class="ib lanebtn" id="btnLane" aria-label="Commentaires" aria-pressed="false" data-tooltip="Afficher les commentaires (⇧⌘M)">${ic("msgText")}<span class="n" id="laneN"></span></button>
     <button class="track on" id="btnTrack" aria-pressed="true" data-tooltip="Suivi des modifications : chaque retouche reste visible dans Word"><span class="sw"><i></i></span>Suivi</button>`;
 
@@ -3239,6 +3242,347 @@
     else if (focusKey === "draft") cancelDraft();
     else if (focusKey) { focusKey = ""; renderCards(); }
   });
+
+  // ------------------------------------------- tri des suivis et revue au clavier
+  // « Trier les suivis » (chantier 4, 2026-11-12) : la marge cède la place au
+  // panneau des suivis rangés par nature (règles du moteur, `/docx/triage`).
+  // Le mineur s'accepte d'un geste (`/docx/decide-set`, une seule
+  // annulation) ; un groupe se revoit au clavier dans une barre flottante :
+  // A accepte, R refuse et la page avance au suivant, ↑ ↓ naviguent, Échap
+  // ferme. Pendant la revue, la page n'est plus éditable : aucune touche ne
+  // part dans le texte.
+  type TriItem = { ids: number[]; kind: string; author: string; paragraph?: string; before: string; after: string };
+  type TriGroup = { key: string; label: string; minor: boolean; items: TriItem[] };
+  type Triage = { revision: string; total: number; groups: TriGroup[] };
+  const triEl = $("tri");
+  const rbar = $("rbar");
+  const triBtn = $("btnTri") as HTMLButtonElement;
+  let triage: Triage | null = null;
+  let triOpen = false;
+  /** Auteur retenu (« » : tous). */
+  let triWho: string | null = null;
+  let triLoading = false;
+  let triTimer = 0;
+  /** Revue en cours : la liste figée au départ, le suivi courant. */
+  let rev: { key: string; label: string; list: TriItem[]; k: number } | null = null;
+  /** Suivis décidés ici dont la réponse n'est pas encore revenue. */
+  const triDone = new Set<number>();
+  const TRI_KIND: Record<string, string> = {
+    remplacement: "Remplacement", insertion: "Insertion", suppression: "Suppression", "déplacement": "Déplacement",
+    "mise en forme": "Mise en forme", paragraphe: "Paragraphe", tableau: "Tableau",
+  };
+  const TRI_COLOR: Record<string, string> = {
+    nombres: "var(--text-muted)", ponctuation: "var(--text-disabled, var(--text-muted))", espaces: "var(--border-strong, var(--border))",
+  };
+
+  const liveIds = () => new Set((model?.changes || []).map((c) => c.id));
+  const pending = (it: TriItem, ids: Set<number>) => it.ids.some((id) => ids.has(id)) && !it.ids.every((id) => triDone.has(id));
+  const mine = (it: TriItem) => !triWho || it.author === triWho;
+  function triAuthors(): string[] {
+    const seen = new Map<string, number>();
+    for (const g of triage?.groups || []) for (const it of g.items) seen.set(it.author, (seen.get(it.author) || 0) + 1);
+    return Array.from(seen.entries()).sort((a, b) => b[1] - a[1]).map(([a]) => a);
+  }
+  /** Fiches encore à revoir d'un groupe (ou des deux mineurs), pour l'auteur retenu. */
+  function triItems(key: string): TriItem[] {
+    const ids = liveIds();
+    const groups = (triage?.groups || []).filter((g) => (key === "mineurs" ? g.minor : g.key === key));
+    const list = groups.flatMap((g) => g.items).filter((it) => mine(it) && pending(it, ids));
+    if (key !== "mineurs") return list;
+    const order = new Map((model?.paragraphs || []).map((p, i) => [p.id, i] as const));
+    return list.map((it, n) => ({ it, n })).sort((a, b) => (order.get(a.it.paragraph || "") ?? 1e9) - (order.get(b.it.paragraph || "") ?? 1e9) || a.n - b.n).map((x) => x.it);
+  }
+
+  async function loadTri() {
+    if (triLoading) return;
+    triLoading = true;
+    try {
+      triage = await api(`/docx/triage?path=${enc(PATH)}`);
+      const names = triAuthors();
+      if (triWho === null || (triWho && !names.includes(triWho))) {
+        const who = reviewer();
+        triWho = names.includes(who) ? who : names.length === 1 ? names[0] : "";
+      }
+    } catch (e: any) {
+      status(e.message || String(e), true);
+    } finally {
+      triLoading = false;
+    }
+    renderTri();
+  }
+
+  const visible = (s: string) => (!s ? "" : /^\s+$/.test(s) ? (/[  ]/.test(s) ? "espace insécable" : "espace") : s);
+  function excerpt(it: TriItem): string {
+    const q = (s: string) => `« ${esc(clip(oneLine(visible(s)) || visible(s), 80))} »`;
+    if (it.kind === "paragraphe") return it.after ? "Paragraphe ajouté" : "Paragraphes fusionnés";
+    if (it.kind === "mise en forme") return it.after ? q(it.after) : "Mise en forme";
+    if (it.before && it.after) return `${q(it.before)} → ${q(it.after)}`;
+    if (it.after) return `+ ${q(it.after)}`;
+    if (it.before) return `− ${q(it.before)}`;
+    return esc(TRI_KIND[it.kind] || it.kind);
+  }
+
+  function renderTri() {
+    if (!triOpen) return;
+    if (!triage) { triEl.innerHTML = `<div class="tri-p"><div class="tri-hd"><h2>Suivis</h2></div><div class="tri-bar"></div></div>`; return; }
+    const groups = triage.groups.map((g) => ({ g, n: triItems(g.key).length }));
+    const total = groups.reduce((n, x) => n + x.n, 0);
+    const minors = groups.filter((x) => x.g.minor).reduce((n, x) => n + x.n, 0);
+    const names = triAuthors();
+    const title = triWho ? `Suivis de ${esc(firstName(triWho))}` : "Tous les suivis";
+    const head = names.length > 1
+      ? `<button class="tri-who" id="triWho" aria-haspopup="menu" aria-expanded="false">${title}${ic("down", 12)}</button>`
+      : `<h2>${title}</h2>`;
+    const lead = triWho || names[0] || "";
+    const color = (k: string) => (k === "fond" ? uiColor(lead) : TRI_COLOR[k]);
+    const bar = groups.filter((x) => x.n).map((x) => `<i style="width:${(100 * x.n / Math.max(1, total)).toFixed(2)}%;background:${color(x.g.key)}"></i>`).join("");
+    const label = groups.map((x) => `${nf(x.n)} ${x.g.label.toLowerCase()}`).join(", ");
+    const row = (x: { g: TriGroup; n: number }) =>
+      `<button class="tri-g${rev?.key === x.g.key ? " on" : ""}" data-g="${x.g.key}" aria-pressed="${rev?.key === x.g.key}"${x.n ? "" : " disabled"} aria-label="${esc(x.g.label)} : ${nf(x.n)}"><span class="c">${nf(x.n)}</span><span class="t">${esc(x.g.label)}</span></button>`;
+    let h = `<div class="tri-p"><div class="tri-hd">${head}<span class="tri-n">${nf(total)} en attente</span></div>
+      <div class="tri-bar" role="img" aria-label="Répartition : ${esc(label)}">${bar}</div>
+      <div class="tri-gs">${groups.filter((x) => !x.g.minor).map(row).join("")}<div class="tri-sep" role="separator"></div>${groups.filter((x) => x.g.minor).map(row).join("")}</div>
+      <div class="tri-ac"><button class="btn" id="triMinor"${minors ? "" : " disabled"}>Accepter les ${nf(minors)} mineurs</button><span class="sp"></span><button class="btn q${rev?.key === "mineurs" ? " on" : ""}" id="triSee"${minors ? "" : " disabled"}>Les voir</button></div></div>`;
+    const cur = rev ? rev.list[rev.k] : null;
+    if (cur) {
+      h += `<div class="cc tri-cur" aria-live="polite"><div class="hd">${avatar(cur.author)}<span class="nm">${esc(firstName(cur.author))}</span><span class="dt">${nf(rev!.k + 1)} sur ${nf(rev!.list.length)}</span></div><p class="tx">${excerpt(cur)}</p></div>`;
+    }
+    if (triEl.dataset.html !== h) {
+      const focused = document.activeElement && triEl.contains(document.activeElement) ? (document.activeElement as HTMLElement).id || (document.activeElement as HTMLElement).dataset.g || "" : "";
+      triEl.innerHTML = h;
+      triEl.dataset.html = h;
+      if (focused) (triEl.querySelector<HTMLElement>(`#${focused}`) || triEl.querySelector<HTMLElement>(`[data-g="${focused}"]`))?.focus({ preventScroll: true });
+    }
+    placeTri();
+  }
+
+  /** Panneau dans la colonne de la marge, barre de revue sous le milieu de la page. */
+  function placeTri() {
+    if (!triOpen) return;
+    const left = scroller.offsetLeft + Math.max(16, scroller.clientWidth - 24 - 312);
+    triEl.style.left = `${left}px`;
+    if (!rev) return;
+    const pr = paper.getBoundingClientRect(), mr = (triEl.parentElement as HTMLElement).getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+    const w = rbar.offsetWidth;
+    const mid = Math.max(sr.left + 8 + w / 2, Math.min(pr.left + pr.width / 2, sr.right - 8 - w / 2));
+    rbar.style.left = `${Math.round(mid - mr.left - w / 2)}px`;
+  }
+  new ResizeObserver(() => placeTri()).observe(scroller);
+
+  function openTri() {
+    triOpen = true;
+    document.body.classList.add("triage");
+    triEl.hidden = false;
+    triBtn.classList.add("on");
+    triBtn.setAttribute("aria-pressed", "true");
+    hideBubble();
+    renderTri();
+    layoutCards();
+    loadTri();
+  }
+  function closeTri() {
+    closeReview(false);
+    triOpen = false;
+    document.body.classList.remove("triage");
+    triEl.hidden = true;
+    triEl.innerHTML = "";
+    triEl.dataset.html = "";
+    triBtn.classList.remove("on");
+    triBtn.setAttribute("aria-pressed", "false");
+    layoutCards();
+  }
+  triBtn.addEventListener("click", () => (triOpen ? closeTri() : openTri()));
+
+  function markCurrent() {
+    paper.querySelectorAll(".tri-on").forEach((x) => x.classList.remove("tri-on"));
+    const it = rev ? rev.list[rev.k] : null;
+    if (!it) return null;
+    let els: HTMLElement[] = [];
+    for (const id of it.ids) els = els.concat(Array.from(paper.querySelectorAll<HTMLElement>(`.ins[data-ch="${id}"],.del[data-ch="${id}"],.d-p[data-ch="${id}"]`)));
+    if (!els.length && it.paragraph) {
+      const idx = model?.paragraphs.findIndex((p) => p.id === it.paragraph) ?? -1;
+      const p = idx >= 0 ? paper.querySelector<HTMLElement>(`.d-p[data-idx="${idx}"]`) : null;
+      if (p) els = [p];
+    }
+    els.forEach((x) => x.classList.add("tri-on"));
+    return els[0] || null;
+  }
+
+  function renderBar() {
+    if (!rev) return;
+    const it = rev.list[rev.k];
+    if (!it) return;
+    const kind = TRI_KIND[it.kind] || it.kind;
+    const k = `<kbd aria-hidden="true">`;
+    rbar.innerHTML = `<span class="tag">${esc(rev.label)} · <b>${nf(rev.k + 1)}</b> sur <b>${nf(rev.list.length)}</b></span>
+      ${avatar(it.author)}<span class="who">${esc(firstName(it.author))} · ${esc(kind)}</span>
+      <span class="vs"></span>
+      <button class="btn q" data-act="reject" aria-keyshortcuts="R">Refuser ${k}R</kbd></button>
+      <button class="btn" data-act="accept" aria-keyshortcuts="A">Accepter ${k}A</kbd></button>
+      <span class="vs"></span>
+      <button class="key" data-act="prev" aria-label="Suivi précédent" aria-keyshortcuts="ArrowUp">↑</button><button class="key" data-act="next" aria-label="Suivi suivant" aria-keyshortcuts="ArrowDown">↓</button>`;
+    rbar.setAttribute("aria-label", `Revue : ${rev.label}, ${rev.k + 1} sur ${rev.list.length}, ${firstName(it.author)}, ${kind}`);
+    placeTri();
+  }
+
+  /** Va au suivi `k` (ou au prochain encore à revoir dans le sens `dir`). */
+  function goTo(k: number, dir = 1, scroll = true) {
+    if (!rev) return;
+    const ids = liveIds();
+    const n = rev.list.length;
+    for (let s = 0; s < n; s++) {
+      const j = ((k + s * dir) % n + n) % n;
+      if (pending(rev.list[j], ids)) {
+        rev.k = j;
+        renderBar();
+        renderTri();
+        const el = markCurrent();
+        if (scroll) reveal(el);
+        return;
+      }
+    }
+    // Tout le groupe est revu.
+    const label = rev.label;
+    closeReview(true);
+    status(`${label} : tout est revu`);
+  }
+
+  function startReview(key: string) {
+    if (!triage) return;
+    const list = triItems(key);
+    if (!list.length) return;
+    const g = triage.groups.find((x) => x.key === key);
+    hideBubble();
+    rev = { key, label: g ? g.label : "Mineurs", list, k: 0 };
+    document.body.classList.add("reviewing");
+    rbar.hidden = false;
+    // Plus d'édition pendant la revue : A et R ne s'écrivent jamais dans la page.
+    paper.contentEditable = "false";
+    getSelection()?.removeAllRanges();
+    goTo(0);
+    rbar.focus({ preventScroll: true });
+  }
+
+  function closeReview(refocus: boolean) {
+    if (!rev) return;
+    const key = rev.key;
+    rev = null;
+    document.body.classList.remove("reviewing");
+    rbar.hidden = true;
+    rbar.innerHTML = "";
+    paper.querySelectorAll(".tri-on").forEach((x) => x.classList.remove("tri-on"));
+    paper.contentEditable = view === "original" ? "false" : "true";
+    renderTri();
+    if (refocus) (triEl.querySelector<HTMLElement>(key === "mineurs" ? "#triSee" : `[data-g="${key}"]`) || triBtn).focus({ preventScroll: true });
+  }
+
+  function reviewAct(act: "accept" | "reject") {
+    if (!rev) return;
+    const it = rev.list[rev.k];
+    if (!it || it.ids.some((id) => deciding.has(id))) return;
+    // La page avance tout de suite ; la décision suit dans la file des
+    // retouches. Refusée par le serveur, le suivi redevient à revoir.
+    it.ids.forEach((id) => { triDone.add(id); deciding.add(id); });
+    hideBubble();
+    structural(async () => {
+      try {
+        const ops = it.ids.map((id) => ({ op: act, id }));
+        const ok = await sendOp(ops.length === 1 ? ops[0] : { op: "batch", ops });
+        if (!ok) { it.ids.forEach((id) => triDone.delete(id)); renderTri(); }
+      } finally { it.ids.forEach((id) => deciding.delete(id)); }
+    });
+    goTo(rev.k + 1);
+  }
+
+  function decideSet(ids: number[], decision: "accept" | "reject", note: string) {
+    if (!ids.length || !model) return;
+    ids.forEach((id) => triDone.add(id));
+    renderTri();
+    structural(() => enqueue(async () => {
+      inflight++;
+      status(SAVING);
+      try {
+        const r = await api("/docx/decide-set", { path: PATH, revision: model!.revision, ids, decision, author });
+        applyModel(r.model, readSel());
+        status(SAVED);
+        const left: number = r.result?.skipped?.length || 0;
+        status(left ? `${note} ; ${pl(left, "laissé", "laissés")} : à traiter dans Word` : note);
+      } catch (e: any) {
+        ids.forEach((id) => triDone.delete(id));
+        if (e.status === 409) {
+          try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message reste */ }
+          status("Le document a changé entre-temps : refais le geste sur la version à jour.", true);
+        } else status(e.message || String(e), true);
+        renderTri();
+      } finally {
+        inflight--;
+      }
+    }));
+  }
+
+  triEl.addEventListener("mousedown", (e) => { if ((e.target as HTMLElement).closest("button")) e.preventDefault(); });
+  triEl.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    const g = t.closest<HTMLElement>(".tri-g");
+    if (g && !(g as HTMLButtonElement).disabled) { startReview(g.dataset.g!); return; }
+    if (t.closest("#triSee")) { startReview("mineurs"); return; }
+    if (t.closest("#triMinor")) {
+      const ids = triItems("mineurs").flatMap((it) => it.ids);
+      const n = triItems("mineurs").length;
+      closeReview(false);
+      decideSet(ids, "accept", `${pl(n, "suivi mineur accepté", "suivis mineurs acceptés")}`);
+      return;
+    }
+    const who = t.closest<HTMLElement>("#triWho");
+    if (who) {
+      const items: Item[] = [{ label: "Tous les auteurs", on: triWho === "", run: () => { triWho = ""; closeReview(false); renderTri(); } }];
+      for (const a of triAuthors()) items.push({ label: a, on: triWho === a, run: () => { triWho = a; closeReview(false); renderTri(); } });
+      showMenu(who, items);
+    }
+  });
+  rbar.addEventListener("mousedown", (e) => { if ((e.target as HTMLElement).closest("button")) e.preventDefault(); });
+  rbar.addEventListener("click", (e) => {
+    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
+    if (act === "accept" || act === "reject") reviewAct(act);
+    else if (act === "next" && rev) goTo(rev.k + 1, 1);
+    else if (act === "prev" && rev) goTo(rev.k - 1, -1);
+  });
+  // Pendant la revue, A, R, ↑, ↓ et Échap lui appartiennent, où que soit le
+  // focus (sauf dans un champ de saisie ou un menu ouvert).
+  document.addEventListener("keydown", (e) => {
+    if (!rev || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    const t = e.target as HTMLElement | null;
+    if (t && t.closest("input, textarea, .menu, .pop, #find") && t !== rbar) return;
+    if (document.querySelector(".menu.show")) return;
+    const k = e.key;
+    if (k === "a" || k === "A") reviewAct("accept");
+    else if (k === "r" || k === "R") reviewAct("reject");
+    else if (k === "ArrowDown") goTo(rev.k + 1, 1);
+    else if (k === "ArrowUp") goTo(rev.k - 1, -1);
+    else if (k === "Escape") closeReview(true);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+  window.addEventListener("resize", () => placeTri());
+
+  /** Après chaque modèle reçu : décisions confirmées, nouveaux suivis venus
+   *  d'ailleurs (Word, l'agent) relus, passage courant remis en évidence. */
+  function triSync() {
+    triBtn.disabled = !triOpen && !model?.changes.length;
+    if (!triOpen || !model) return;
+    const ids = liveIds();
+    for (const id of Array.from(triDone)) if (!ids.has(id)) triDone.delete(id);
+    if (triage) {
+      const known = new Set(triage.groups.flatMap((g) => g.items.flatMap((it) => it.ids)));
+      if (model.changes.some((c) => !known.has(c.id))) {
+        clearTimeout(triTimer);
+        triTimer = window.setTimeout(loadTri, 300);
+      }
+    }
+    renderTri();
+    if (rev) { renderBar(); markCurrent(); }
+  }
 
   // ------------------------------------------------- relecture du disque
   async function poll() {

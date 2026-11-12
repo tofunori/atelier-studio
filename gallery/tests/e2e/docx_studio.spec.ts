@@ -744,3 +744,131 @@ test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place 
   await expect(body).toHaveClass(/no-lane/);
   await expect(page.locator('#f')).toHaveCSS('width', '800px');
 });
+
+// ---------------------------------------------------------------- tri des suivis
+// Document synthétique (fixture `tri` d'atelier-docx, anglais et français) :
+// 29 suivis de Christophe et un de Marie Dupont.
+const TRI = path.join(path.dirname(FIXTURE), 'tri.docx');
+const triTest = base.extend<{tri: {url: string; doc: string}}>({
+  tri: async ({}, use) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'atelier-docx-tri-'));
+    await copyFile(TRI, path.join(root, 'Résultats CK.docx'));
+    const port = await freePort();
+    const server = spawnGalleryServer({root, port, watch: false});
+    try {
+      await waitForServer(port, {child: server});
+      await use({url: `http://127.0.0.1:${port}`, doc: path.join(root, 'Résultats CK.docx')});
+    } finally {
+      await stopGalleryServer(server);
+      await removeTempRoot(root);
+    }
+  },
+});
+
+async function openTri(page: Page, tri: {url: string; doc: string}) {
+  await page.request.post(`${tri.url}/docx/prefs`, {data: {author: 'Thierry'}});
+  await page.setViewportSize({width: 1440, height: 900});
+  await page.goto(`${tri.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(tri.doc)}`);
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('4 Results');
+  await page.locator('#btnTri').click();
+  await expect(page.locator('#tri')).toBeVisible();
+  await expect(page.locator('.tri-g[data-g="fond"] .c')).toHaveText('6');
+}
+
+const changeIds = async (page: Page, tri: {url: string; doc: string}) =>
+  (await disk(page, tri)).changes.map((c) => c.id).sort((a, b) => a - b);
+
+triTest('docx: le tri range les suivis et « Accepter les mineurs » n’accepte que les mineurs', async ({page, tri}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await openTri(page, tri);
+  await expect(page.locator('#btnTri')).toHaveAttribute('aria-pressed', 'true');
+  // La marge cède la place au panneau.
+  await expect(page.locator('#cards')).toBeHidden();
+  // Relecteur principal par défaut ; Marie Dupont se choisit dans le titre.
+  await expect(page.locator('#triWho')).toHaveText('Suivis de Christophe');
+  const count = (g: string) => page.locator(`.tri-g[data-g="${g}"] .c`);
+  await expect(count('nombres')).toHaveText('3');
+  await expect(count('ponctuation')).toHaveText('7');
+  await expect(count('espaces')).toHaveText('3');
+  await expect(page.locator('.tri-n')).toHaveText('19 en attente');
+  await expect(page.locator('#triMinor')).toHaveText('Accepter les 10 mineurs');
+  await expect(page.locator('.tri-bar i')).toHaveCount(4);
+
+  await page.locator('#triMinor').click();
+  await expect(count('ponctuation')).toHaveText('0');
+  await expect(count('espaces')).toHaveText('0');
+  await expect(page.locator('#triMinor')).toBeDisabled();
+  await expect.poll(() => changeIds(page, tri)).toEqual([1, 2, 5, 6, 7, 8, 11, 12, 13, 14, 17, 18, 22, 23, 27, 28, 30]);
+  const m = await disk(page, tri);
+  expect(m.paragraphs[1].text).toContain('largest decline in the Coast Range, where');
+  expect(m.paragraphs[1].text).toContain('uniform: glaciers above 2400 m');
+  expect(m.paragraphs[3].text).toContain('L’albédo');
+  // Fond et nombres intacts, le compte du fond aussi.
+  await expect(count('fond')).toHaveText('6');
+  await expect(count('nombres')).toHaveText('3');
+  // Un seul geste, une seule annulation.
+  await page.locator('#btnUndo').click();
+  await expect.poll(async () => (await changeIds(page, tri)).length).toBe(30);
+  await expect(count('ponctuation')).toHaveText('7');
+
+  await page.locator('#triWho').click();
+  await page.locator('.menu .mi', {hasText: 'Marie Dupont'}).click();
+  await expect(page.locator('#triWho')).toHaveText('Suivis de Marie');
+  await expect(count('fond')).toHaveText('1');
+  await expect(page.locator('#triMinor')).toBeDisabled();
+  // Refermer rend la marge.
+  await page.locator('#btnTri').click();
+  await expect(page.locator('#tri')).toBeHidden();
+  await expect(page.locator('#cards')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+triTest('docx: revue au clavier, A et R décident et avancent, Échap ferme', async ({page, tri}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await openTri(page, tri);
+  await page.locator('.tri-g[data-g="fond"]').click();
+  const bar = page.locator('#rbar');
+  await expect(bar).toBeVisible();
+  await expect(bar.locator('.tag')).toHaveText('Fond · 1 sur 6');
+  await expect(bar).toContainText('Christophe · Remplacement');
+  await expect(page.locator('#paper .tri-on')).toHaveText(['almost all', 'most']);
+  // Le focus quitte la page : les touches ne s'écrivent pas dans le texte.
+  await expect(bar).toBeFocused();
+  await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'false');
+  await expect(page.locator('.tri-cur')).toContainText('« almost all » → « most »');
+
+  await page.keyboard.press('a');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 2 sur 6');
+  await expect(page.locator('#paper .tri-on')).toHaveText(['smoke from wildfires deposited', 'wildfire smoke deposited']);
+  await page.keyboard.press('r');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 3 sur 6');
+  await expect(bar).toContainText('Christophe · Suppression');
+  await expect.poll(() => changeIds(page, tri)).not.toEqual(expect.arrayContaining([5]));
+  const m = await disk(page, tri);
+  expect(m.paragraphs[1].text).toContain('Summer albedo declined on most glaciers');
+  expect(m.paragraphs[1].text).toContain('where smoke from wildfires deposited light-absorbing');
+  expect(m.changes.map((c) => c.id)).not.toEqual(expect.arrayContaining([1, 2, 6]));
+  // Aucune frappe n'est partie dans le document.
+  expect(m.changes.filter((c) => c.author === 'Thierry')).toEqual([]);
+
+  // ↑ ↓ naviguent sans décider ; le compte des décidés ne revient pas.
+  await page.keyboard.press('ArrowDown');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 4 sur 6');
+  await page.keyboard.press('ArrowUp');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 3 sur 6');
+  await page.keyboard.press('ArrowUp');
+  await expect(bar.locator('.tag')).toHaveText('Fond · 6 sur 6');
+  await expect(page.locator('.tri-g[data-g="fond"] .c')).toHaveText('4');
+  // Les boutons de la barre font la même chose.
+  await bar.locator('[data-act="next"]').click();
+  await expect(bar.locator('.tag')).toHaveText('Fond · 3 sur 6');
+
+  await page.keyboard.press('Escape');
+  await expect(bar).toBeHidden();
+  await expect(page.locator('#paper .tri-on')).toHaveCount(0);
+  await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'true');
+  await expect(page.locator('.tri-g[data-g="fond"]')).toBeFocused();
+  expect(errors).toEqual([]);
+});
