@@ -121,5 +121,7 @@ test('document tabs shrink together, then overflow into a counter instead of bei
   // atelier seul : la place revient, les onglets aussi
   await page.locator('.topbar-layout-controls [role=radio]').nth(2).click();
   await expect.poll(() => tabs.count()).toBeGreaterThan(split);
-  await check();
+  // l'ajustement (nombre d'onglets, puis troncs abrégés) se fait en plusieurs
+  // rendus : on vérifie l'état final, pas un rendu intermédiaire
+  await expect(async () => { await check(); }).toPass({ timeout: 5000 });
 });
