@@ -14,7 +14,8 @@ export function annotationCards(text: string): { prompt: string; cards: Annotati
   // Gallery annotations are appended after the typed prompt. Requiring a source,
   // quoted passage and comment marker avoids interpreting ordinary prose.
   // Markdown may omit the location when its source line cannot be recovered.
-  const header = /^([^\n]+\.(?:tex|pdf|md|markdown))(?: \(((?:p\.)?L\d+(?:[-–]\d+)?|p\.\s*\d+)\))? : « /gm;
+  // Word (.docx) : le repère est le paragraphe (`p12`, `p12-p14`), montré « ¶ 12 ».
+  const header = /^([^\n]+\.(?:tex|pdf|md|markdown|docx))(?: \(((?:p\.)?L\d+(?:[-–]\d+)?|p\.\s*\d+|[a-z]*p\d+(?:-[a-z]*p\d+)?)\))? : « /gm;
   const matches = [...text.matchAll(header)];
   if (!matches.length) return { prompt: text, cards };
   for (let i = 0; i < matches.length; i++) {
@@ -23,7 +24,9 @@ export function annotationCards(text: string): { prompt: string; cards: Annotati
     const separator = body.lastIndexOf(' »\nCommentaire : ');
     // All-or-nothing: malformed envelopes remain visible verbatim.
     if (separator < 0 || body.indexOf(' »\nCommentaire : ') !== separator) return { prompt: text, cards: [] };
-    const location = (match[2] ?? '').replace(/^p\.L/, 'L');
+    const raw = match[2] ?? '';
+    const paragraphs = /^[a-z]*p\d+/.test(raw) ? raw.match(/\d+/g)! : null;
+    const location = paragraphs ? `¶ ${paragraphs.join('–')}` : raw.replace(/^p\.L/, 'L');
     const comment = body.slice(separator + ' »\nCommentaire : '.length).trim();
     cards.push({
       path: match[1], name: match[1].split('/').pop()!,

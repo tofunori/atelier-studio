@@ -59,3 +59,16 @@ it('handles Markdown without a recovered source line alongside LaTeX', () => {
   expect(document.querySelectorAll('.chat-annotation-location')).toHaveLength(1);
   expect(document.querySelector('.user-file-attachment')).toBeNull();
 });
+
+it('decodes Word annotations by paragraph and renders them like the others', () => {
+  const docx = 'Revoir ces deux points.\n\n/Documents/Thèse/Chapitre1 revCK.docx (p12) : « 0.0021/summer »\nCommentaire : Par été ou par an ?\n\n/Documents/Thèse/Chapitre1 revCK.docx (p14-p15) : « seven summers »\nCommentaire : (voir passage)';
+  const parsed = annotationCards(docx);
+  expect(parsed.prompt).toBe('Revoir ces deux points.');
+  expect(parsed.cards.map(card => [card.name, card.location, card.quote, card.comment, card.line, card.page])).toEqual([
+    ['Chapitre1 revCK.docx', '¶ 12', '0.0021/summer', 'Par été ou par an ?', null, null],
+    ['Chapitre1 revCK.docx', '¶ 14–15', 'seven summers', '', null, null],
+  ]);
+  renderTurn(docx, 'Chapitre1 revCK.docx');
+  expect(document.querySelectorAll('.chat-annotation-card')).toHaveLength(2);
+  expect(screen.getByText('· ¶ 12')).toBeTruthy();
+});

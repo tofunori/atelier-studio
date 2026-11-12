@@ -7,6 +7,13 @@
 //! `~/Library/Application Support/atelier-studio/docx-historique/<empreinte
 //! du chemin>/`, avec `chemin.txt`, `journal.json` et un fichier par version
 //! (`<révision>.docx`). Les écritures se font sous le verrou du document.
+//!
+//! Rien de ce qui compte ne se perd : chaque version reçue et chaque fin de
+//! séance dans Atelier restent pour toujours (jalons) ; un journal illisible
+//! est mis de côté, jamais remplacé à vide ; aucun historique n'est jeté
+//! parce que son document a disparu ; un document déplacé retrouve le sien
+//! par son contenu. Seuls les pas fins d'annulation au-delà de la fenêtre
+//! (`MAX_STEPS`) cèdent leur place.
 
 use crate::{DocxError, Result, err, revision_of, write_atomic};
 use serde::{Deserialize, Serialize};
@@ -17,10 +24,6 @@ use std::sync::RwLock;
 /// Pas d'annulation gardés par document, et leur poids maximal.
 const MAX_STEPS: usize = 60;
 const MAX_STEP_BYTES: u64 = 600 * 1024 * 1024;
-/// Versions reçues gardées : la toute première, puis les plus récentes.
-const MAX_BASES: usize = 12;
-/// Un historique dont le document a disparu depuis tout ce temps est jeté.
-const ORPHAN_DAYS: u64 = 7;
 
 static ROOT: RwLock<Option<PathBuf>> = RwLock::new(None);
 
@@ -84,12 +87,29 @@ pub struct Base {
     pub bytes: u64,
 }
 
+/// Un état du document gardé pour toujours (fin d'une séance dans Atelier,
+/// avant que Word ou un nouveau tour ne le remplace).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Milestone {
+    pub revision: String,
+    pub at: String,
+    /// `seance` : dernier état laissé par Atelier.
+    pub kind: String,
+    #[serde(default)]
+    pub label: String,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Journal {
     #[serde(default)]
     pub path: String,
     #[serde(default)]
     pub bases: Vec<Base>,
+    #[serde(default)]
+    pub milestones: Vec<Milestone>,
+    /// Dernière révision écrite par Atelier (retouche, annuler, rétablir).
+    #[serde(default)]
+    pub last: String,
     #[serde(default)]
     pub undo: Vec<Step>,
     #[serde(default)]
@@ -106,9 +126,75 @@ fn blob(dir: &Path, rev: &str) -> PathBuf {
     dir.join(format!("{rev}.docx"))
 }
 
+/// Lecture seule du journal (vide s'il manque ou ne se lit pas).
 pub fn load(path: &Path) -> Journal {
+    read_journal(&dir_for(path)).unwrap_or_default()
+}
+
+/// `None` si le journal existe mais ne se lit pas.
+fn read_journal(dir: &Path) -> Option<Journal> {
+    match std::fs::read(dir.join("journal.json")) {
+        Err(_) => Some(Journal::default()),
+        Ok(b) => serde_json::from_slice(&b).ok(),
+    }
+}
+
+/// Journal à mettre à jour. Illisible, il est mis de côté
+/// (`journal-illisible-<date>.json`) et rien de ce qu'il citait n'est
+/// effacé : on repart d'un journal vide, à côté des anciennes versions.
+fn open_journal(dir: &Path) -> Journal {
+    if let Some(j) = read_journal(dir) {
+        return j;
+    }
+    let stamp = crate::iso_now().replace([':', '-'], "");
+    let _ = std::fs::rename(dir.join("journal.json"), dir.join(format!("journal-illisible-{stamp}.json")));
+    Journal::default()
+}
+
+/// Dossier de l'historique du document, en reprenant celui d'un document
+/// déplacé ou renommé : un historique dont le chemin n'existe plus et dont
+/// le dernier état connu a exactement le contenu actuel (`rev`) est le sien.
+pub fn attach(path: &Path, rev: &str) -> PathBuf {
     let dir = dir_for(path);
-    std::fs::read(dir.join("journal.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    if dir.join("journal.json").is_file() || rev.is_empty() {
+        return dir;
+    }
+    let Ok(entries) = std::fs::read_dir(root()) else { return dir };
+    for e in entries.flatten() {
+        let old = e.path();
+        if old == dir || !old.is_dir() {
+            continue;
+        }
+        let Some(mut j) = std::fs::read(old.join("journal.json")).ok().and_then(|b| serde_json::from_slice::<Journal>(&b).ok()) else { continue };
+        if j.path.is_empty() || Path::new(&j.path).exists() || !latest(&j).contains(&rev) {
+            continue;
+        }
+        if dir.exists() || std::fs::rename(&old, &dir).is_err() {
+            return dir;
+        }
+        j.path = canonical(path);
+        let _ = store(&dir, &j);
+        return dir;
+    }
+    dir
+}
+
+/// Les révisions où le document a pu être laissé en dernier : celle
+/// qu'Atelier a écrite en dernier (journaux d'avant ce champ : le haut des
+/// piles, ou la dernière version reçue).
+fn latest(j: &Journal) -> Vec<&str> {
+    if !j.last.is_empty() {
+        return vec![j.last.as_str()];
+    }
+    let mut v: Vec<&str> = Vec::new();
+    v.extend(j.undo.last().map(|s| s.after.as_str()));
+    v.extend(j.redo.last().map(|s| s.after.as_str()));
+    v.extend(j.bases.last().map(|b| b.revision.as_str()));
+    v
+}
+
+fn canonical(path: &Path) -> String {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().into_owned()
 }
 
 fn store(dir: &Path, j: &Journal) -> Result<()> {
@@ -127,22 +213,27 @@ fn keep_blob(dir: &Path, rev: &str, bytes: &[u8]) -> Result<()> {
 }
 
 /// Note une écriture d'Atelier : `before` (octets d'avant, révision
-/// `before_rev`) remplacés par la révision `after`. Si le fichier d'avant
-/// ne vient pas d'Atelier (premier passage, ou Word / un nouveau tour l'a
-/// remplacé), il est d'abord copié comme version reçue, et la pile
-/// d'annulation repart de zéro. Appelé sous le verrou du document.
-pub(crate) fn record(path: &Path, before: &[u8], before_rev: &str, after: &str, origin: &Origin) -> Result<()> {
-    let dir = dir_for(path);
-    let mut j = load(path);
-    j.path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().into_owned();
+/// `before_rev`) remplacés par `after_bytes` (révision `after`). Si le
+/// fichier d'avant ne vient pas d'Atelier (premier passage, ou Word / un
+/// nouveau tour l'a remplacé), il est d'abord copié comme version reçue ;
+/// le dernier état laissé par Atelier devient un jalon gardé pour toujours,
+/// et la pile d'annulation repart de là. Appelé sous le verrou du document.
+pub(crate) fn record(path: &Path, before: &[u8], before_rev: &str, after_bytes: &[u8], after: &str, origin: &Origin) -> Result<()> {
+    let dir = attach(path, before_rev);
+    let mut j = open_journal(&dir);
+    j.path = canonical(path);
+    let mut dropped = Vec::new();
     if !is_ours(&j, before_rev) {
         if !j.bases.iter().any(|b| b.revision == before_rev) {
             j.bases.push(Base { revision: before_rev.to_string(), at: crate::iso_now(), bytes: before.len() as u64 });
         }
-        j.undo.clear();
-        j.redo.clear();
+        close_session(&dir, &mut j);
+        dropped.extend(j.undo.drain(..).chain(j.redo.drain(..)));
     }
     keep_blob(&dir, before_rev, before)?;
+    // L'état d'après est gardé aussi : si Word le remplace ensuite, la fin
+    // de séance reste récupérable.
+    keep_blob(&dir, after, after_bytes)?;
     j.undo.push(Step {
         after: after.to_string(),
         before: before_rev.to_string(),
@@ -151,62 +242,56 @@ pub(crate) fn record(path: &Path, before: &[u8], before_rev: &str, after: &str, 
         label: origin.label.to_string(),
         at: crate::iso_now(),
     });
-    j.redo.clear();
-    trim(&dir, &mut j);
+    dropped.append(&mut j.redo);
+    j.last = after.to_string();
+    dropped.extend(trim(&dir, &mut j));
     store(&dir, &j)?;
-    collect(&dir, &j);
-    if j.undo.len() == 1 {
-        // Premier pas de cette session : l'occasion de ranger les autres.
-        prune_orphans(&dir);
-    }
+    forget(&dir, &j, &dropped);
     Ok(())
+}
+
+/// Le document a quitté Atelier (Word, un nouveau tour) : son dernier état
+/// connu d'Atelier devient un jalon permanent, s'il est bien gardé.
+fn close_session(dir: &Path, j: &mut Journal) {
+    let last = if j.last.is_empty() { j.undo.last().map(|s| s.after.clone()).unwrap_or_default() } else { j.last.clone() };
+    if last.is_empty() || j.bases.iter().any(|b| b.revision == last) || j.milestones.iter().any(|m| m.revision == last) || !blob(dir, &last).is_file() {
+        return;
+    }
+    j.milestones.push(Milestone { revision: last, at: crate::iso_now(), kind: "seance".into(), label: "Fin de séance dans Atelier".into() });
 }
 
 /// La révision `rev` est-elle le résultat connu d'une écriture d'Atelier ?
 fn is_ours(j: &Journal, rev: &str) -> bool {
-    j.undo.last().is_some_and(|s| s.after == rev) || j.redo.last().is_some_and(|s| s.after == rev)
+    j.last == rev || j.undo.last().is_some_and(|s| s.after == rev) || j.redo.last().is_some_and(|s| s.after == rev)
 }
 
-fn trim(dir: &Path, j: &mut Journal) {
+/// Garde la fenêtre d'annulation ; rend les pas sortis.
+fn trim(dir: &Path, j: &mut Journal) -> Vec<Step> {
     let size = |s: &Step| std::fs::metadata(blob(dir, &s.before)).map(|m| m.len()).unwrap_or(0);
+    let mut out = Vec::new();
     while j.undo.len() > MAX_STEPS || (j.undo.len() > 1 && j.undo.iter().map(size).sum::<u64>() > MAX_STEP_BYTES) {
-        j.undo.remove(0);
+        out.push(j.undo.remove(0));
     }
-    while j.bases.len() > MAX_BASES {
-        j.bases.remove(1);
-    }
+    out
 }
 
-/// Efface les versions que plus rien ne cite.
-fn collect(dir: &Path, j: &Journal) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    let live = |rev: &str| j.bases.iter().any(|b| b.revision == rev) || j.undo.iter().chain(&j.redo).any(|s| s.before == rev);
-    for e in entries.flatten() {
-        let name = e.file_name().to_string_lossy().into_owned();
-        if let Some(rev) = name.strip_suffix(".docx")
-            && !live(rev)
-        {
-            let _ = std::fs::remove_file(e.path());
-        }
-    }
+/// Une révision encore citée par le journal (version reçue, jalon, pas).
+fn live(j: &Journal, rev: &str) -> bool {
+    j.last == rev
+        || j.bases.iter().any(|b| b.revision == rev)
+        || j.milestones.iter().any(|m| m.revision == rev)
+        || j.undo.iter().chain(&j.redo).any(|s| s.before == rev || s.after == rev)
 }
 
-/// Jette les historiques des documents disparus depuis longtemps (fichiers
-/// d'essai, documents supprimés).
-fn prune_orphans(current: &Path) {
-    let Some(parent) = current.parent() else { return };
-    let Ok(entries) = std::fs::read_dir(parent) else { return };
-    let old = std::time::Duration::from_secs(ORPHAN_DAYS * 86_400);
-    for e in entries.flatten() {
-        let dir = e.path();
-        if dir == current || !dir.is_dir() {
-            continue;
-        }
-        let Some(j) = std::fs::read(dir.join("journal.json")).ok().and_then(|b| serde_json::from_slice::<Journal>(&b).ok()) else { continue };
-        let gone = !j.path.is_empty() && !Path::new(&j.path).exists();
-        let stale = std::fs::metadata(dir.join("journal.json")).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|d| d > old);
-        if gone && stale {
-            let _ = std::fs::remove_dir_all(&dir);
+/// Efface seulement les versions des pas qui viennent de sortir et que
+/// plus rien ne cite. Un fichier que le journal ne connaît pas (par exemple
+/// cité par un journal mis de côté) n'est jamais touché.
+fn forget(dir: &Path, j: &Journal, dropped: &[Step]) {
+    for s in dropped {
+        for rev in [&s.before, &s.after] {
+            if !live(j, rev) {
+                let _ = std::fs::remove_file(blob(dir, rev));
+            }
         }
     }
 }
@@ -216,6 +301,7 @@ fn prune_orphans(current: &Path) {
 pub struct Status {
     pub folder: String,
     pub bases: Vec<Base>,
+    pub milestones: Vec<Milestone>,
     pub can_undo: bool,
     pub can_redo: bool,
     pub undo_label: Option<String>,
@@ -223,12 +309,14 @@ pub struct Status {
 }
 
 pub fn status(path: &Path, current_rev: &str) -> Status {
-    let j = load(path);
+    let dir = attach(path, current_rev);
+    let j = read_journal(&dir).unwrap_or_default();
     let undo = j.undo.last().filter(|s| s.after == current_rev);
     let redo = j.redo.last().filter(|s| s.after == current_rev);
     Status {
-        folder: dir_for(path).to_string_lossy().into_owned(),
+        folder: dir.to_string_lossy().into_owned(),
         bases: j.bases.clone(),
+        milestones: j.milestones.clone(),
         can_undo: undo.is_some(),
         can_redo: redo.is_some(),
         undo_label: undo.map(describe),
@@ -262,8 +350,8 @@ pub fn undo(path: &Path, expected: &str, redo: bool) -> Result<Undone> {
     if current_rev != expected {
         return err(crate::CONFLICT);
     }
-    let dir = dir_for(path);
-    let mut j = load(path);
+    let dir = attach(path, &current_rev);
+    let mut j = open_journal(&dir);
     let stack = if redo { &mut j.redo } else { &mut j.undo };
     let Some(step) = stack.last().cloned() else {
         return err(if redo { "rien à rétablir" } else { "rien à annuler" });
@@ -281,17 +369,19 @@ pub fn undo(path: &Path, expected: &str, redo: bool) -> Result<Undone> {
     stack.pop();
     let back = Step { after: step.before.clone(), before: current_rev, ..step.clone() };
     if redo { j.undo.push(back) } else { j.redo.push(back) }
-    trim(&dir, &mut j);
+    j.last = step.before.clone();
+    let dropped = trim(&dir, &mut j);
     store(&dir, &j)?;
-    collect(&dir, &j);
+    forget(&dir, &j, &dropped);
     let label = describe(&step);
     Ok(Undone { revision: step.before, label })
 }
 
-/// Octets d'une version reçue gardée (pour la rouvrir ou la comparer).
+/// Octets d'une version reçue ou d'un jalon gardés (pour les rouvrir ou
+/// les comparer).
 pub fn base_bytes(path: &Path, revision: &str) -> Result<Vec<u8>> {
     let j = load(path);
-    if !j.bases.iter().any(|b| b.revision == revision) {
+    if !j.bases.iter().any(|b| b.revision == revision) && !j.milestones.iter().any(|m| m.revision == revision) {
         return err("version introuvable dans l'historique");
     }
     Ok(std::fs::read(blob(&dir_for(path), revision))?)

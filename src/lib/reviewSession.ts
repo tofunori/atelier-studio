@@ -21,6 +21,8 @@ export type ChatReviewRef = {
    *  version s'applique telle quelle. */
   edit?: string;
   ready?: boolean;
+  /** Note de Thierry envoyée avec le commentaire (bulle de l'éditeur). */
+  note?: string;
 };
 
 export type ReviewSession = {
