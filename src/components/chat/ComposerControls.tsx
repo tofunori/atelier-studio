@@ -33,7 +33,7 @@ function KernelGlyph() {
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import type { Specialiste } from "../../lib/specialistes";
 import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
-import { ArrowUpIcon, BracketsIcon, ChevronDownIcon, CircleQuestionMarkIcon, FileTextIcon, ListIcon, LockOpenIcon, MicIcon, PaperclipIcon, PencilIcon, RotateCcwIcon, SearchIcon, ShieldCheckIcon, SquareIcon, TargetIcon } from "lucide-react";
+import { ArrowUpIcon, BracketsIcon, ChevronDownIcon, CircleQuestionMarkIcon, EllipsisIcon, FileTextIcon, ListIcon, LockOpenIcon, MicIcon, PaperclipIcon, PencilIcon, RotateCcwIcon, SearchIcon, ShieldCheckIcon, SquareIcon, TargetIcon } from "lucide-react";
 import type { DictationPhase } from "./useComposerDictation";
 import { modeApresPlan } from "./modeApresPlan";
 import { MenuChevron, MenuRadio, MenuStar, MenuSwitch, MenuTitle } from "./composerMenuParts";
@@ -83,6 +83,36 @@ export function contextRingStroke(pct: number): string {
   if (pct > 92) return "var(--status-error)";
   if (pct > 80) return "color-mix(in srgb, var(--status-warning) 55%, var(--mark-neutral-strong))";
   return "var(--mark-neutral-strong)";
+}
+
+/** Largeur de barre sous laquelle la pilule du spécialiste tombe au glyphe
+ *  (l'effort, lui, quitte le bouton modèle quand la barre se replie). */
+export const COMPOSER_COMPACT_AT = 600;
+/** Largeur de barre sous laquelle les contrôles secondaires passent dans le
+ *  plateau « … » (base, œil, noyau, permission, contexte, chrono). */
+export const COMPOSER_FOLD_AT = 420;
+/** Largeur de barre sous laquelle le spécialiste rejoint aussi le plateau :
+ *  le nom du modèle garde de quoi se lire. */
+export const COMPOSER_TINY_AT = 300;
+
+/** Largeur de la barre, suivie au redimensionnement. `null` avant la
+ *  première mesure, sans ResizeObserver, ou quand la barre n'a pas de
+ *  boîte (masquée, jsdom) : rien ne se replie sur une largeur inconnue. */
+function useBarWidth(ref: React.RefObject<HTMLElement | null>): number | null {
+  const [width, setWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const width = Math.round(el.getBoundingClientRect().width);
+      setWidth(width > 0 ? width : null);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
 }
 
 export function ComposerControls(p: {
@@ -304,6 +334,18 @@ export function ComposerControls(p: {
     };
   }
   const [ctxPopOpen, setCtxPopOpen] = useState(false);
+  // Barre étroite (2026-11-12) : sous COMPOSER_FOLD_AT px, les contrôles
+  // d'état secondaires (base, œil, noyau, permission, contexte, chrono)
+  // passent dans un plateau « … » au lieu de se chevaucher ; sous
+  // COMPOSER_TINY_AT, le spécialiste et le micro les rejoignent. Mesuré sur la
+  // barre elle-même : le chat peut être étroit dans une fenêtre large.
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const barWidth = useBarWidth(barRef);
+  const folded = barWidth != null && barWidth < COMPOSER_FOLD_AT;
+  const compact = barWidth != null && barWidth < COMPOSER_COMPACT_AT;
+  const tiny = barWidth != null && barWidth < COMPOSER_TINY_AT;
+  const [trayOpen, setTrayOpen] = useState(false);
+  useEffect(() => { if (!folded) setTrayOpen(false); }, [folded]);
   const contextWindow = p.usage
     ? p.usage.window
       ?? (model.includes("[1m]") ? 1_000_000
@@ -320,9 +362,114 @@ export function ComposerControls(p: {
   const contextWindowLabel = contextWindow >= 1_000_000
     ? `${(contextWindow / 1_000_000).toFixed(contextWindow % 1_000_000 === 0 ? 0 : 1)}M`
     : `${Math.round(contextWindow / 1000)}k`;
+  const consigneNode = (
+    <ConsigneMenu
+      consignes={p.defaults.consignes ?? []}
+      actif={p.consigneDuFil}
+      provider={provider}
+      onChoisir={p.onChoisirConsigne}
+      onOuvrirReglages={() => p.onOuvrirReglagesConsignes()}
+      specialistes={p.defaults.specialistes ?? []}
+      onGererSpecialistes={() => p.onOuvrirReglagesConsignes("specialistes")}
+    />
+  );
+  const kbNode = p.kb ? <KbPicker binding={p.kb} /> : null;
+  const eyeNode = p.liveContext ? <LiveContextEye binding={p.liveContext} /> : null;
+  const kernelNode = p.kernel?.on ? (
+    <RowButton
+      className="consigne-trigger kernel-trigger"
+      aria-label={t("kernel.open-panel")}
+      title={t("kernel.open-panel")}
+      onClick={() => window.dispatchEvent(new CustomEvent("kernel-panel-toggle"))}
+    >
+      <KernelGlyph />
+    </RowButton>
+  ) : null;
+  const permissionNode = permissionOptions.length > 0 ? (
+    <Select
+      compact
+      className="permission-select"
+      menuClassName="composer-menu cm-panel composer-permission-menu"
+      menuLabel={<MenuTitle value={t((PERMISSION_MODES.find((m) => m.id === permissionMode)?.labelKey ?? "action.ask-default") as any)}>{t("permission.menu-title")}</MenuTitle>}
+      triggerIcon={<PermissionIcon mode={permissionMode} />}
+      title={`${t("settings.permission-default")} — ${t(
+        (PERMISSION_MODES.find((m) => m.id === permissionMode)?.labelKey ?? "action.ask-default") as any,
+      )}`}
+      value={permissionMode}
+      onChange={setPermissionMode}
+      options={permissionOptions.map((m) => ({
+        value: m.id,
+        label: t(m.labelKey as any),
+        // variante C (2026-11-09) : tuiles 2 × 2, chacune dit ce
+        // que le mode autorise
+        description: t(m.descKey),
+        // l'icône est portée par l'option : même signe dans le
+        // déclencheur et dans le menu (App.css, .perm-icon)
+        icon: <span className="perm-icon"><PermissionIcon mode={m.id} /></span>,
+      }))}
+    />
+  ) : null;
+  const ringNode = p.usage ? (
+    <Popover open={ctxPopOpen} onOpenChange={setCtxPopOpen}>
+      <PopoverTrigger
+        render={
+          <RowButton
+            className={`ctx-ring-wrap${ctxPopOpen ? " is-open" : ""}`}
+            aria-label={t("chat.context-window")}
+            aria-expanded={ctxPopOpen}
+            aria-haspopup="dialog"
+          >
+            <svg className="ctx-ring" data-icon-stroke="keep" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+              <circle cx="7" cy="7" r="6.25" fill="none" stroke="var(--border-default)" strokeWidth="1.5" />
+              <circle cx="7" cy="7" r={contextRadius} fill="none"
+                stroke={contextRingStroke(contextPct)}
+                strokeWidth={contextRadius * 2}
+                strokeDasharray={`${(Math.max(contextPct, 4) / 100) * contextCircumference} ${contextCircumference}`}
+                transform="rotate(-90 7 7)" />
+            </svg>
+          </RowButton>
+        }
+      />
+      <PopoverContent plain side="top" align="end" sideOffset={8} className="composer-menu cm-panel ctx-pop">
+        {/* Variante C (2026-11-09) : titre + pourcentage, jauge et
+            chiffres alignés dans un encart. */}
+        <PopoverTitle aria-label={t("chat.context-window")}><MenuTitle value={`${contextPct} %`}>{t("chat.context-window")}</MenuTitle></PopoverTitle>
+        <div className="cm-card ctx-card">
+          <span className="ctx-meter" aria-hidden="true"><i style={{ width: `${Math.max(contextPct, 1)}%` }} /></span>
+          <dl className="ctx-kv">
+            <dt>{t("chat.ctx-used")}</dt><dd>{Math.round(p.usage.context / 1000)}k / {contextWindowLabel}</dd>
+            <dt>{t("chat.ctx-last-output")}</dt><dd>{Math.round(p.usage.output / 1000 * 10) / 10}k</dd>
+            {p.usage.turns != null && <><dt>{t("chat.ctx-turns")}</dt><dd>{p.usage.turns}</dd></>}
+            {p.usage.cost != null && <><dt>{t("chat.ctx-cost")}</dt><dd>${p.usage.cost.toFixed(2)}</dd></>}
+          </dl>
+        </div>
+      </PopoverContent>
+    </Popover>
+  ) : null;
+  const micNode = p.dictation?.available ? (
+    <IconButton
+      size="s"
+      className="ghost composer-dictation"
+      label={t(p.dictation.phase === "idle" ? "dictation.start" : "dictation.stop")}
+      title={t(p.dictation.phase === "idle" ? "dictation.start" : "dictation.stop")}
+      aria-pressed={p.dictation.phase !== "idle"}
+      disabled={p.disabled || p.dictation.phase === "finishing"}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={p.dictation.toggle}
+    >
+      {p.dictation.phase === "idle"
+        ? <MicIcon data-icon="inline-start" aria-hidden="true" />
+        : <SquareIcon data-icon="inline-start" aria-hidden="true" />}
+    </IconButton>
+  ) : null;
+  // Temps du TOUR : une seule place, à côté du bouton qui l'arrête (ou dans
+  // le plateau quand la barre est repliée).
+  const clockNode = p.workingSince != null
+    ? <LiveClock since={p.workingSince} className="composer-turn-clock" label={t("chat.turn-elapsed")} />
+    : null;
   return (
     <>
-        <div className="composer-bar">
+        <div ref={barRef} className={`composer-bar${compact ? " is-compact" : ""}${folded ? " is-folded" : ""}`}>
           <ButtonGroup className="composer-tool-group">
             {/* Menu.Root ne rend AUCUN élément DOM lui-même (contexte pur) — le
                 borner au trigger+content laisse KbPicker et ConsigneMenu, qui
@@ -404,93 +551,36 @@ export function ComposerControls(p: {
             />
           </ButtonGroup>
           <ButtonGroup className="composer-context-rail">
-            {p.kb && <KbPicker binding={p.kb} />}
-            <ConsigneMenu
-              consignes={p.defaults.consignes ?? []}
-              actif={p.consigneDuFil}
-              provider={provider}
-              onChoisir={p.onChoisirConsigne}
-              onOuvrirReglages={() => p.onOuvrirReglagesConsignes()}
-              specialistes={p.defaults.specialistes ?? []}
-              onGererSpecialistes={() => p.onOuvrirReglagesConsignes("specialistes")}
-            />
-            {p.liveContext && <LiveContextEye binding={p.liveContext} />}
-            {p.kernel?.on ? (
-              <RowButton
-                className="consigne-trigger kernel-trigger"
-                aria-label={t("kernel.open-panel")}
-                title={t("kernel.open-panel")}
-                onClick={() => window.dispatchEvent(new CustomEvent("kernel-panel-toggle"))}
-              >
-                <KernelGlyph />
-              </RowButton>
-            ) : null}
-          {permissionOptions.length > 0 && (
-            <>
-              <ButtonGroupSeparator />
-              <Select
-                compact
-                className="permission-select"
-                menuClassName="composer-menu cm-panel composer-permission-menu"
-                menuLabel={<MenuTitle value={t((PERMISSION_MODES.find((m) => m.id === permissionMode)?.labelKey ?? "action.ask-default") as any)}>{t("permission.menu-title")}</MenuTitle>}
-                triggerIcon={<PermissionIcon mode={permissionMode} />}
-                title={`${t("settings.permission-default")} — ${t(
-                  (PERMISSION_MODES.find((m) => m.id === permissionMode)?.labelKey ?? "action.ask-default") as any,
-                )}`}
-                value={permissionMode}
-                onChange={setPermissionMode}
-                options={permissionOptions.map((m) => ({
-                  value: m.id,
-                  label: t(m.labelKey as any),
-                  // variante C (2026-11-09) : tuiles 2 × 2, chacune dit ce
-                  // que le mode autorise
-                  description: t(m.descKey),
-                  // l'icône est portée par l'option : même signe dans le
-                  // déclencheur et dans le menu (App.css, .perm-icon)
-                  icon: <span className="perm-icon"><PermissionIcon mode={m.id} /></span>,
-                }))}
-              />
-            </>
-          )}
+            {!folded && kbNode}
+            {!tiny && consigneNode}
+            {!folded && <>{eyeNode}{kernelNode}{permissionNode && <><ButtonGroupSeparator />{permissionNode}</>}</>}
+            {folded && (
+              <Popover open={trayOpen} onOpenChange={setTrayOpen}>
+                <PopoverTrigger
+                  render={
+                    <IconButton
+                      size="s"
+                      className={`ghost composer-more${trayOpen ? " is-open" : ""}`}
+                      label={t("composer.more-controls")}
+                      title={t("composer.more-controls")}
+                    >
+                      <EllipsisIcon />
+                    </IconButton>
+                  }
+                />
+                <PopoverContent plain side="top" align="start" sideOffset={8} className="composer-menu cm-panel composer-tray composer-context-rail"
+                  aria-label={t("composer.more-controls")}>
+                  {tiny && consigneNode}{kbNode}{eyeNode}{kernelNode}
+                  {permissionNode && <><ButtonGroupSeparator />{permissionNode}</>}
+                  {ringNode && <><ButtonGroupSeparator />{ringNode}</>}
+                  {tiny && micNode}
+                  {clockNode && <><ButtonGroupSeparator />{clockNode}</>}
+                </PopoverContent>
+              </Popover>
+            )}
           </ButtonGroup>
           <span className="flex" />
-          {p.usage && (
-            <Popover open={ctxPopOpen} onOpenChange={setCtxPopOpen}>
-              <PopoverTrigger
-                render={
-                  <RowButton
-                    className={`ctx-ring-wrap${ctxPopOpen ? " is-open" : ""}`}
-                    aria-label={t("chat.context-window")}
-                    aria-expanded={ctxPopOpen}
-                    aria-haspopup="dialog"
-                  >
-                    <svg className="ctx-ring" data-icon-stroke="keep" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-                      <circle cx="7" cy="7" r="6.25" fill="none" stroke="var(--border-default)" strokeWidth="1.5" />
-                      <circle cx="7" cy="7" r={contextRadius} fill="none"
-                        stroke={contextRingStroke(contextPct)}
-                        strokeWidth={contextRadius * 2}
-                        strokeDasharray={`${(Math.max(contextPct, 4) / 100) * contextCircumference} ${contextCircumference}`}
-                        transform="rotate(-90 7 7)" />
-                    </svg>
-                  </RowButton>
-                }
-              />
-              <PopoverContent plain side="top" align="end" sideOffset={8} className="composer-menu cm-panel ctx-pop">
-                {/* Variante C (2026-11-09) : titre + pourcentage, jauge et
-                    chiffres alignés dans un encart. */}
-                <PopoverTitle aria-label={t("chat.context-window")}><MenuTitle value={`${contextPct} %`}>{t("chat.context-window")}</MenuTitle></PopoverTitle>
-                <div className="cm-card ctx-card">
-                  <span className="ctx-meter" aria-hidden="true"><i style={{ width: `${Math.max(contextPct, 1)}%` }} /></span>
-                  <dl className="ctx-kv">
-                    <dt>{t("chat.ctx-used")}</dt><dd>{Math.round(p.usage.context / 1000)}k / {contextWindowLabel}</dd>
-                    <dt>{t("chat.ctx-last-output")}</dt><dd>{Math.round(p.usage.output / 1000 * 10) / 10}k</dd>
-                    {p.usage.turns != null && <><dt>{t("chat.ctx-turns")}</dt><dd>{p.usage.turns}</dd></>}
-                    {p.usage.cost != null && <><dt>{t("chat.ctx-cost")}</dt><dd>${p.usage.cost.toFixed(2)}</dd></>}
-                  </dl>
-                </div>
-              </PopoverContent>
-            </Popover>
-          )}
+          {!folded && ringNode}
           <span className="model-pick effort-pick">
             <Popover
               open={menuOpen || effortOpen}
@@ -854,27 +944,10 @@ export function ComposerControls(p: {
               )}
               </Popover>
           </span>
-          {p.dictation?.available && (
-            <IconButton
-              size="s"
-              className="ghost composer-dictation"
-              label={t(p.dictation.phase === "idle" ? "dictation.start" : "dictation.stop")}
-              title={t(p.dictation.phase === "idle" ? "dictation.start" : "dictation.stop")}
-              aria-pressed={p.dictation.phase !== "idle"}
-              disabled={p.disabled || p.dictation.phase === "finishing"}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={p.dictation.toggle}
-            >
-              {p.dictation.phase === "idle"
-                ? <MicIcon data-icon="inline-start" aria-hidden="true" />
-                : <SquareIcon data-icon="inline-start" aria-hidden="true" />}
-            </IconButton>
-          )}
+          {!tiny && micNode}
           {/* Temps du TOUR : une seule place, à côté du bouton qui l'arrête.
               Les rangées du fil ne portent que la durée de leur action. */}
-          {p.workingSince != null ? (
-            <LiveClock since={p.workingSince} className="composer-turn-clock" label={t("chat.turn-elapsed")} />
-          ) : null}
+          {!folded && clockNode}
           {p.workingSince != null ? (
             p.hasContent ? (
               <Tooltip
