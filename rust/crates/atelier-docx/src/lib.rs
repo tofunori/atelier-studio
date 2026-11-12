@@ -405,7 +405,7 @@ pub fn edit_file_as<T>(path: &Path, expected: Option<&str>, origin: &history::Or
     write_atomic(path, &bytes)?;
     let rev = revision_of(&bytes);
     // L'historique ne doit jamais faire échouer une retouche déjà écrite.
-    if let Err(e) = history::record(path, &docx.bytes, &before_rev, &rev, origin) {
+    if let Err(e) = history::record(path, &docx.bytes, &before_rev, &bytes, &rev, origin) {
         eprintln!("atelier-docx : historique non tenu pour {} : {e}", path.display());
     }
     Ok((value, rev))
