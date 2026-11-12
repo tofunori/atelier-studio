@@ -652,6 +652,86 @@ test('docx: feuilles et numéros de ligne suivent la page quand le panneau chang
   await expect.poll(() => page.locator('#sheets .sheet').count()).toBeGreaterThanOrEqual(1);
 });
 
+test('docx: pendant que le panneau change de taille, la page s\'étire sans se recouper, puis se recoupe une fois à la même place', async ({page, project}) => {
+  await page.setViewportSize({width: 1400, height: 900});
+  await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path.join(project.root, 'Bibliographie.docx'))}`);
+  await expect(page.locator('#sheets .sheet').nth(1)).toBeAttached();
+  await page.waitForTimeout(300);
+  const state = () => page.evaluate(() => {
+    const sc = document.getElementById('scroll')!;
+    const top = sc.getBoundingClientRect().top;
+    const p = Array.from(document.querySelectorAll<HTMLElement>('#paper .d-p')).find((b) => b.getBoundingClientRect().bottom > top)!;
+    const paper = document.getElementById('paper')!;
+    const sheet = document.querySelector('#sheets .sheet')!.getBoundingClientRect();
+    const pr = paper.getBoundingClientRect();
+    return {
+      pt: getComputedStyle(document.documentElement).getPropertyValue('--pt').trim(),
+      stretching: document.body.classList.contains('stretching'),
+      transform: paper.style.transform,
+      gaps: document.querySelectorAll('#paper .d-gap').length,
+      top: p.textContent!.slice(0, 40),
+      y: p.getBoundingClientRect().top - top,
+      aligned: Math.abs(sheet.left - pr.left) < 1 && Math.abs(sheet.width - pr.width) < 1,
+    };
+  });
+  await page.evaluate(() => { const sc = document.getElementById('scroll')!; sc.scrollTop = sc.scrollHeight / 2; });
+  await page.waitForTimeout(100);
+  const before = await state();
+  // L'app signale qu'on tire un séparateur ; plusieurs largeurs de suite.
+  const drag = (on: boolean) => page.evaluate((v) => postMessage({type: 'atelier-pane-resize', on: v}, '*'), on);
+  await drag(true);
+  for (const width of [1300, 1180, 1060, 960]) await page.setViewportSize({width, height: 900});
+  const during = await state();
+  expect(during.stretching).toBe(true);
+  expect(during.transform).toContain('scale(');
+  expect(during.pt).toBe(before.pt);
+  // Lâcher : une seule vraie mise à l'échelle, le passage lu reste en haut.
+  await drag(false);
+  await expect.poll(async () => (await state()).stretching).toBe(false);
+  await expect.poll(async () => (await state()).aligned).toBe(true);
+  const after = await state();
+  expect(after.transform).toBe('');
+  expect(after.pt).not.toBe(before.pt);
+  expect(after.top).toBe(before.top);
+  expect(Math.abs(after.y - before.y)).toBeLessThan(6);
+  // Un changement de taille isolé (sans séparateur tiré) se met en page tout de suite.
+  await page.waitForTimeout(300);
+  await page.setViewportSize({width: 1200, height: 900});
+  await expect.poll(async () => (await state()).pt).not.toBe(after.pt);
+  expect((await state()).stretching).toBe(false);
+});
+
+test('docx: la marge des commentaires se resserre à la poignée, la page en profite et la largeur tient au rechargement', async ({page, project}) => {
+  await page.setViewportSize({width: 1440, height: 900});
+  await open(page, project);
+  await expect(page.locator('#cards .it').first()).toBeVisible();
+  const state = () => page.evaluate(() => ({
+    cards: document.getElementById('cards')!.offsetWidth,
+    paper: document.getElementById('paper')!.offsetWidth,
+    stored: localStorage.getItem('docxLaneW'),
+  }));
+  const before = await state();
+  expect(before.cards).toBe(312);
+  const grip = (await page.locator('#laneGrip').boundingBox())!;
+  const x = grip.x + grip.width / 2, y = grip.y + 200;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(x + i * 10, y);
+  await page.mouse.up();
+  await expect.poll(async () => (await state()).cards).toBe(252);
+  await expect.poll(async () => (await state()).paper).toBeGreaterThan(before.paper);
+  expect((await state()).stored).toBe('252');
+  // La poignée suit le bord des fiches.
+  const moved = (await page.locator('#laneGrip').boundingBox())!;
+  expect(moved.x).toBeCloseTo(grip.x + 60, 0);
+  await page.reload();
+  await expect(page.locator('#cards .it').first()).toBeVisible();
+  expect((await state()).cards).toBe(252);
+  // Double-clic : largeur d'origine.
+  await page.locator('#laneGrip').dblclick();
+  await expect.poll(async () => (await state()).cards).toBe(312);
+});
+
 test('docx: une bibliographie Zotero passe à la ligne et se coupe en feuilles pleines', async ({page, project}) => {
   await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path.join(project.root, 'Bibliographie.docx'))}`);
   await expect(page.locator('#sheets .sheet').nth(1)).toBeAttached();

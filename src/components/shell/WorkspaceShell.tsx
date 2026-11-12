@@ -53,10 +53,16 @@ export default function WorkspaceShell(p: {
               const startX = e.clientX;
               const startW = sideW;
               p.onDraggingChange(true);
+              // Une largeur par image : la souris peut envoyer 120 évènements/s.
+              let frame = 0;
+              let x = startX;
+              const apply = () => setSideW(Math.min(420, Math.max(240, startW + x - startX)));
               const move = (ev: MouseEvent) => {
-                setSideW(Math.min(420, Math.max(240, startW + ev.clientX - startX)));
+                x = ev.clientX;
+                if (!frame) frame = requestAnimationFrame(() => { frame = 0; apply(); });
               };
               const up = () => {
+                if (frame) { cancelAnimationFrame(frame); frame = 0; apply(); }
                 p.onDraggingChange(false);
                 window.removeEventListener("mousemove", move);
                 window.removeEventListener("mouseup", up);

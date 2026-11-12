@@ -112,6 +112,17 @@
   let laneOver = false;
   let holdPt = 0;
   let widened = false;
+  // Largeur des fiches de la marge, réglable à la poignée (retenue pour tous
+  // les documents) : 312 px par défaut, 240 à 480.
+  const LANE_W = 312, LANE_MIN = 240, LANE_MAX = 480;
+  let laneW = (() => {
+    try {
+      const v = Number(localStorage.getItem("docxLaneW"));
+      return v >= LANE_MIN && v <= LANE_MAX ? Math.round(v) : LANE_W;
+    } catch { return LANE_W; }
+  })();
+  document.documentElement.style.setProperty("--lane", `${laneW}px`);
+  let laneGrip: HTMLElement | null = null;
   let paneWait = 0;
   let paneAction = "";
   const cp = (s: string) => Array.from(s).length;
@@ -479,7 +490,19 @@
     const room = scroller.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const next = holdPt || (zoom ? PT * zoom / 100 : PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT))));
     showZoom(next);
-    if (!force && Math.abs(next - ptPx) < 1e-3) { followPaper(); return; }
+    const cw = scroller.clientWidth;
+    if (!force && Math.abs(next - ptPx) < 1e-3) { endStretch(); fitW = cw ? room : 0; fitCW = cw; followPaper(); return; }
+    // Panneau tiré par l'app (séparateur) : la page s'étire au compositeur,
+    // la vraie mise en page attend la fin du geste (comme le PDF).
+    // Étirement : panneau qui bouge (séparateur tiré ou changements en
+    // rafale) ou marge des fiches tirée ; une marge qui s'ouvre ou se ferme
+    // (même largeur de panneau) se met en page tout de suite.
+    const w = cw ? room : 0;
+    if (!force && zoom === null && !holdPt && fitW && w && w !== fitW && !laidOutHidden
+      && (paneDragging || (cw !== fitCW && liveWidth()))) { stretchTo(next, room); return; }
+    endStretch();
+    fitW = w;
+    fitCW = cw;
     ptPx = next;
     document.documentElement.style.setProperty("--pt", `${next.toFixed(4)}px`);
     scheduleLines();
@@ -492,7 +515,87 @@
     } catch { /* stockage indisponible : le zoom vaut pour cette session */ }
     fitPage();
   }
-  const zoomPct = () => Math.round(ptPx / PT * 100);
+  const zoomPct = () => Math.round((stretchPt || ptPx) / PT * 100);
+  // Redimensionnement en direct. Refaire la coupe d'un long manuscrit à
+  // chaque image coûte des centaines de ms (6 images/s sur 65 pages) : tant
+  // que la largeur du panneau bouge, la page et ses calques gardent leur mise
+  // en page et suivent par une transformation (zoom autour du haut visible),
+  // puis la page se recoupe une fois, au lâcher du séparateur (l'app le
+  // signale) ou 160 ms après le dernier changement. Un changement isolé
+  // (ouverture, panneau qui apparaît) se met en page tout de suite.
+  // `fitW` : largeur utile du panneau (sans la marge des fiches) à la
+  // dernière mise à l'échelle réelle.
+  let fitW = 0;
+  let fitCW = 0;
+  let stretchTimer = 0;
+  let stretchY = -1;
+  let stretchPt = 0;
+  let paneDragging = false;
+  let widthChangedAt = -1e9;
+  function liveWidth() {
+    const now = performance.now();
+    const burst = now - widthChangedAt < 250;
+    widthChangedAt = now;
+    return paneDragging || burst || stretchY >= 0;
+  }
+  window.addEventListener("message", (e) => {
+    const d = e.data as { type?: string; on?: boolean } | null;
+    if (e.source !== parent || d?.type !== "atelier-pane-resize") return;
+    paneDragging = d.on === true;
+    if (!paneDragging) settleStretch();
+  });
+  const stretchLayers = () => [paper, sheets, lnLayer, cbars];
+  function stretchTo(next: number, room: number) {
+    const k = next / ptPx;
+    stretchPt = next;
+    followPaper();
+    // La page se centre dans le panneau, comme après la mise en page réelle.
+    const left = parseFloat(getComputedStyle(scroller).paddingLeft) + Math.max(0, (room - paper.offsetWidth * k) / 2);
+    const dx = left - paper.offsetLeft;
+    if (stretchY < 0) {
+      stretchY = Math.max(0, scroller.scrollTop - paper.offsetTop);
+      document.body.classList.add("stretching");
+    }
+    for (const l of stretchLayers()) {
+      l.style.transformOrigin = `0 ${stretchY}px`;
+      l.style.transform = `translateX(${dx.toFixed(1)}px) scale(${k.toFixed(4)})`;
+    }
+    clearTimeout(stretchTimer);
+    // Fin du geste : la page reprend sa taille réelle, à la largeur atteinte.
+    // Le bloc en haut de l'écran y reste : la coupe refaite ne fait pas sauter la lecture.
+    stretchTimer = window.setTimeout(settleStretch, paneDragging ? 1000 : 160);
+  }
+  function settleStretch() {
+    if (stretchY < 0) return;
+    fitW = 0;
+    keepTop = topBlock();
+    endStretch();
+    layoutCards();
+    if (!linesFrame) keepTop = null;
+  }
+  let keepTop: { el: HTMLElement; y: number } | null = null;
+  function topBlock() {
+    const blocks = flowBlocks();
+    const top = scroller.getBoundingClientRect().top;
+    let lo = 0, hi = blocks.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (blocks[mid].getBoundingClientRect().bottom <= top) lo = mid + 1; else hi = mid;
+    }
+    const el = blocks[lo];
+    return el ? { el, y: el.getBoundingClientRect().top - top } : null;
+  }
+  function endStretch() {
+    if (stretchY < 0) return;
+    clearTimeout(stretchTimer);
+    stretchTimer = 0;
+    stretchY = -1;
+    stretchPt = 0;
+    document.body.classList.remove("stretching");
+    for (const l of stretchLayers()) { l.style.removeProperty("transform"); l.style.removeProperty("transform-origin"); }
+    // Une coupe demandée pendant l'étirement (frappe, relecture) passe maintenant.
+    if (dirtyAll) scheduleLines();
+  }
   // Feuilles, numéros de ligne et traits de révision sont dessinés par
   // rapport au coin de la page ; leurs calques suivent la page quand elle
   // se recentre (panneau élargi ou rétréci, marge des fiches qui apparaît,
@@ -566,6 +669,8 @@
     if (linesFrame) return;
     linesFrame = requestAnimationFrame(() => {
       linesFrame = 0;
+      // Page étirée : ses mesures sont faussées, la coupe attend la fin du geste.
+      if (stretchY >= 0) { dirtyAll = true; return; }
       const from = dirtyAll ? null : dirtyFrom;
       const to = dirtyTo;
       dirtyAll = false;
@@ -632,6 +737,11 @@
     const pages = paginate(pg, blocks, start, page, until, from !== null);
     if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
     followPaper();
+    if (keepTop && from === null) {
+      const k = keepTop;
+      keepTop = null;
+      if (k.el.isConnected) scroller.scrollTop += k.el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - k.y;
+    }
     drawSheets(pg, pages);
     drawLines(pg);
     pageCount = pages;
@@ -2252,13 +2362,13 @@
 
   function layoutCards() {
     const b = document.body.classList;
-    // La marge prend 360 px : si la page doit alors tomber sous 75 %, les
+    // La marge prend sa largeur (fiches + 48 px) : si la page doit alors tomber sous 75 %, les
     // fiches passent en fenêtre et la page garde sa taille.
     // Le bouton « Commentaires » peut la fermer (laneOff) ou, faute de place,
     // la poser par-dessus la page (lane-over) ; pendant que l'app élargit le
     // panneau (holdPt), elle reste ouverte et se dévoile avec lui.
     const pg = model?.page;
-    const room = scroller.clientWidth - 24 - 360;
+    const room = scroller.clientWidth - 24 - laneW - 48;
     const narrow = !holdPt && (innerWidth < 760 || (!!pg && zoom === null && room < pg.width * PT * 0.75));
     if (!narrow) laneOver = false;
     b.toggle("no-lane", laneOff || (narrow && !laneOver));
@@ -2288,6 +2398,73 @@
     return r.height ? r : null;
   }
 
+  // Poignée de la marge : au repos rien, au survol la pastille des
+  // séparateurs d'Atelier. Tirer vers la gauche élargit les fiches, vers la
+  // droite les resserre ; la page suit comme pour un panneau (étirée pendant
+  // le geste, remise en page au lâcher).
+  laneGrip = document.createElement("div");
+  laneGrip.id = "laneGrip";
+  laneGrip.setAttribute("role", "separator");
+  laneGrip.setAttribute("aria-orientation", "vertical");
+  laneGrip.setAttribute("aria-label", "Largeur de la marge des commentaires");
+  laneGrip.setAttribute("aria-valuemin", String(LANE_MIN));
+  laneGrip.setAttribute("aria-valuemax", String(LANE_MAX));
+  laneGrip.tabIndex = 0;
+  scroller.parentElement!.appendChild(laneGrip);
+  function placeLaneGrip() {
+    if (!laneGrip) return;
+    const x = `${scroller.offsetLeft + cardsEl.offsetLeft - scroller.scrollLeft - 12}px`;
+    if (laneGrip.style.left !== x) laneGrip.style.left = x;
+    laneGrip.setAttribute("aria-valuenow", String(laneW));
+  }
+  function setLaneW(w: number, save: boolean) {
+    laneW = Math.max(LANE_MIN, Math.min(LANE_MAX, Math.round(w)));
+    document.documentElement.style.setProperty("--lane", `${laneW}px`);
+    if (save) { try { localStorage.setItem("docxLaneW", String(laneW)); } catch { /* largeur gardée pour la session */ } }
+    layoutCards();
+  }
+  laneGrip.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const grip = laneGrip!;
+    grip.setPointerCapture(e.pointerId);
+    const startX = e.clientX, startW = laneW;
+    let x = startX, frame = 0;
+    paneDragging = true;
+    document.body.classList.add("lane-drag");
+    const move = (ev: PointerEvent) => {
+      x = ev.clientX;
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; setLaneW(startW - (x - startX), false); });
+    };
+    const up = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
+      document.body.classList.remove("lane-drag");
+      paneDragging = false;
+      setLaneW(startW - (x - startX), true);
+      settleStretch();
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+  });
+  // Double-clic : largeur d'origine ; flèches : 16 px par pas.
+  laneGrip.addEventListener("dblclick", () => setLaneW(LANE_W, true));
+  laneGrip.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    setLaneW(laneW + (e.key === "ArrowLeft" ? 16 : -16), true);
+  });
+  // Défilement horizontal seulement (page plus large que le panneau) : une
+  // mise en place par image, et rien quand seul le défilement vertical bouge.
+  let gripScrollX = scroller.scrollLeft, gripFrame = 0;
+  scroller.addEventListener("scroll", () => {
+    if (gripFrame || scroller.scrollLeft === gripScrollX) return;
+    gripFrame = requestAnimationFrame(() => { gripFrame = 0; gripScrollX = scroller.scrollLeft; placeLaneGrip(); });
+  }, { passive: true });
+
   function placeCards() {
     updateNav();
     if (document.body.classList.contains("no-lane")) { placePop(); return; }
@@ -2297,6 +2474,7 @@
     // Elle ne suit la page que si celle-ci, agrandie, déborde jusque-là.
     const left = `${Math.max(paper.offsetLeft + paper.offsetWidth + 24, scroller.clientWidth - 24 - cardsEl.offsetWidth)}px`;
     if (cardsEl.style.left !== left) cardsEl.style.left = left;
+    placeLaneGrip();
     // Lectures d'abord, puis toutes les écritures : une seule mise en page
     // pour toute la marge (des centaines de fiches sur une copie révisée).
     const base = cardsEl.getBoundingClientRect().top;
@@ -2420,6 +2598,7 @@
     else if (!paneWait && d.action === "widen" && d.ok === true && !laneOff) { widened = true; layoutCards(); }
   });
   function closeLane() {
+    settleStretch();
     const b = document.body.classList;
     const finish = () => {
       b.remove("lane-out");
@@ -2434,12 +2613,13 @@
     window.setTimeout(finish, 120);
   }
   function openLane() {
+    settleStretch();
     const b = document.body.classList;
     laneOff = false;
     try { localStorage.removeItem(LANE_KEY); } catch { /* choix gardé pour la session */ }
     const pg = model?.page;
     let need = Math.max(0, 760 - innerWidth);
-    if (pg && zoom === null) need = Math.max(need, Math.max(ptPx, PT * 0.75) * pg.width + 24 + 360 - scroller.clientWidth);
+    if (pg && zoom === null) need = Math.max(need, Math.max(ptPx, PT * 0.75) * pg.width + 24 + laneW + 48 - scroller.clientWidth);
     need = Math.ceil(need);
     if (need > 0 && parent === window) laneOver = true;
     else if (need > 0) {
