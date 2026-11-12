@@ -377,6 +377,8 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     applyVisualEditor();
     options.getEditor()?.focus();
   };
+  const reviewImport = doc.getElementById("moreReviewImport");
+  if (reviewImport) reviewImport.style.display = options.extension === "tex" ? "flex" : "none";
   if (toolbarVisual) {
     toolbarVisual.style.display = options.extension === "tex" ? "" : "none";
     toolbarVisual.onclick = (event) => {
@@ -413,6 +415,8 @@ export function createStudioStatusBar(options: StudioStatusBarOptions): StudioSt
     if (action === "poppdf") doc.getElementById("popPdf")?.click();
     if (action === "save") doc.getElementById("saveBtn")?.click();
     if (action === "open") doc.getElementById("openFile")?.click();
+    // Retour d'un relecteur en Word : annotations.ts ouvre le sélecteur.
+    if (action === "reviewimport") doc.dispatchEvent(new CustomEvent("atelier-review-import"));
     if (action === "rewrap") doc.getElementById("rewrapBtn")?.click();
     if (action === "rewrapall") {
       options.rewrapAll?.();

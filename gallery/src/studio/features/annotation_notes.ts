@@ -360,6 +360,10 @@ export interface ColumnNote {
   active?: boolean;
   state?: {tone: string; icon: string; label: string} | null;
   src: "tex" | "pdf";
+  /** Commentaire d'un relecteur importé de Word (reviewer_notes.ts). */
+  reviewer?: boolean;
+  /** Faux : pas de croix (un commentaire du relecteur ne se supprime pas). */
+  removable?: boolean;
 }
 
 const escapeHtml = (value: string): string => String(value).replace(/[&<>"]/g, character => ({
@@ -384,7 +388,7 @@ export function noteLocation(note: Pick<ColumnNote, "page" | "line" | "lineEnd">
 /** Rangée de la colonne : pastille de la couleur de la note, passage cité
  *  (deux lignes au plus, filet de la couleur), note, puis où la lire. */
 export function columnItemHtml(note: ColumnNote): string {
-  const ring = `atelier-annotation-number tp-ring note-c-${note.color}${note.agent ? " is-agent" : ""}${note.unread ? " is-unread" : ""}`;
+  const ring = `atelier-annotation-number tp-ring note-c-${note.color}${note.reviewer ? " is-reviewer" : note.agent ? " is-agent" : ""}${note.unread ? " is-unread" : ""}`;
   const quote = note.quote.trim() ? `<span class="tp-quote">${escapeHtml(note.quote.replace(/\s+/g, " ").trim().slice(0, 240))}</span>` : "";
   const text = note.note.trim() ? `<span class="tp-note">${escapeHtml(note.note)}</span>` : "";
   const state = note.state
@@ -396,7 +400,7 @@ export function columnItemHtml(note: ColumnNote): string {
   return `<div class="tp-item note-c-${note.color}${note.active ? " is-active" : ""}" data-id="${escapeHtml(note.id)}" data-src="${note.src}" role="button" tabindex="0">`
     + `<span class="${ring}">${note.number}</span>`
     + `<span class="tp-body">${quote}${text}${meta ? `<span class="tp-meta">${meta}</span>` : ""}</span>`
-    + `<button type="button" class="tp-x" data-x="${escapeHtml(note.id)}" title="Supprimer la note" aria-label="Supprimer la note">${CLOSE_ICON}</button></div>`;
+    + (note.removable === false ? "" : `<button type="button" class="tp-x" data-x="${escapeHtml(note.id)}" title="Supprimer la note" aria-label="Supprimer la note">${CLOSE_ICON}</button>`) + "</div>";
 }
 
 /** Ordre du document : ligne de la source, puis colonne ; une note sans

@@ -32,6 +32,23 @@ describe("isTrustedAtelierMessage", () => {
     expect(isTrustedAtelierMessage(e, nonce)).toBe(false);
   });
 
+  it("revue un par un : un commentaire du relecteur, ou la fin, et rien d'autre", () => {
+    const origin = "http://127.0.0.1:18790";
+    const review = { doc: "/p/main.tex", mode: "open", path: "/p/s.tex", id: "rv1-2", n: 2, total: 5,
+      author: "Christophe Kinnard", comment: "Quel angle ?", quote: "solar zenith angle", now: "solar zenith angle", line: 4 };
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "Commentaire 2 sur 5", review }), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "",
+      review: { doc: "/p/main.tex", mode: "likely", done: true } }), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "x",
+      review: { ...review, n: -1 } }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "x",
+      review: { ...review, mode: "all" } }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "x",
+      review: { ...review, extra: true } }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "x",
+      review: { doc: "/p/main.tex", mode: "open", done: false } }), nonce)).toBe(false);
+  });
+
   it("accepte atelier-open-tab avec url bornée et refuse sans url", () => {
     const ok = msg("http://127.0.0.1:19789", { type: "atelier-open-tab", nonce, url: "/fichier.pdf" });
     const ko = msg("http://127.0.0.1:19789", { type: "atelier-open-tab", nonce });

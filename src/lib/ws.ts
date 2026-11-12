@@ -334,6 +334,8 @@ export type ChatFileRef = {
   title?: string;
   journal?: string;
   year?: string;
+  /** Commentaire d'un relecteur (kind "review") : carte du commentaire. */
+  review?: import("./reviewSession").ChatReviewRef;
 };
 
 export type Thread = {

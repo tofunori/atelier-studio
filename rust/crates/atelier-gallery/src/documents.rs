@@ -995,6 +995,51 @@ fn keep_stored_thread_messages(stored: Option<&Value>, mut annots: Value) -> Val
     annots
 }
 
+/// Commentaire d'un relecteur importé de Word : son état et l'avis de l'agent
+/// s'écrivent aussi hors de l'éditeur (le chat, `atelier_annotate assess`).
+/// Chaque champ daté garde la version la plus récente, pour qu'une copie
+/// ancienne de l'éditeur ne défasse pas un geste fait ailleurs.
+fn keep_stored_review(stored: Option<&Value>, mut annots: Value) -> Value {
+    let Some(stored) = stored.and_then(Value::as_array) else {
+        return annots;
+    };
+    let Some(list) = annots.as_array_mut() else {
+        return annots;
+    };
+    let stamp = |review: Option<&Value>, pointer: &str| {
+        review.and_then(|r| r.pointer(pointer)).and_then(Value::as_u64).unwrap_or(0)
+    };
+    for annot in list.iter_mut() {
+        if annot.get("by").and_then(Value::as_str) != Some("reviewer") {
+            continue;
+        }
+        let Some(id) = annotation_id(annot) else { continue };
+        let Some(old) = stored
+            .iter()
+            .find(|a| annotation_id(a).as_deref() == Some(id.as_str()))
+            .and_then(|a| a.get("review"))
+        else {
+            continue;
+        };
+        let Some(review) = annot.get_mut("review").and_then(Value::as_object_mut) else { continue };
+        let mine = Value::Object(review.clone());
+        if stamp(Some(old), "/stateAt") > stamp(Some(&mine), "/stateAt") {
+            for key in ["state", "stateAt"] {
+                if let Some(v) = old.get(key) {
+                    review.insert(key.into(), v.clone());
+                }
+            }
+        }
+        if stamp(Some(old), "/chatAt") > stamp(Some(&mine), "/chatAt") {
+            review.insert("chatAt".into(), old["chatAt"].clone());
+        }
+        if stamp(Some(old), "/likely/at") > stamp(Some(&mine), "/likely/at") {
+            review.insert("likely".into(), old["likely"].clone());
+        }
+    }
+    annots
+}
+
 fn updated_annotations(store: &Value, rel: &str, body: &Value) -> Result<Value, String> {
     if let Some(ids) = body.get("removeIds") {
         let Some(ids) = ids
@@ -1020,6 +1065,7 @@ fn updated_annotations(store: &Value, rel: &str, body: &Value) -> Result<Value, 
         ));
     }
     let annots = keep_stored_thread_messages(store.get(rel), body.get("annots").cloned().unwrap_or_else(|| json!([])));
+    let annots = keep_stored_review(store.get(rel), annots);
     let Some(known) = body.get("known") else {
         return Ok(annots);
     };
@@ -1673,6 +1719,25 @@ mod tests {
         // même si `./` seul lèverait déjà l'ambiguïté.
         let err = safe_argv_basename("-evil.tex").unwrap_err();
         assert!(err.contains("-evil.tex"));
+    }
+
+    #[test]
+    fn a_reviewer_state_set_from_the_chat_survives_an_older_editor_save() {
+        let store = json!({"tex-comments:/p/main.tex": [{"id": "rv1-1", "by": "reviewer", "review": {
+            "state": "done", "stateAt": 20, "chatAt": 15, "likely": {"settled": true, "reason": "r", "at": 12}}}]});
+        // copie de l'éditeur prise avant : état et avis plus anciens
+        let body = json!({"annots": [{"id": "rv1-1", "by": "reviewer", "review": {"state": "todo", "stateAt": 10, "refused": 30}}],
+            "known": ["rv1-1"]});
+        let merged = updated_annotations(&store, "tex-comments:/p/main.tex", &body).unwrap();
+        let review = &merged[0]["review"];
+        assert_eq!(review["state"], "done");
+        assert_eq!(review["chatAt"], 15);
+        assert_eq!(review["likely"]["settled"], true);
+        assert_eq!(review["refused"], 30);
+        // un geste plus récent de l'éditeur gagne
+        let body = json!({"annots": [{"id": "rv1-1", "by": "reviewer", "review": {"state": "agenda", "stateAt": 25}}], "known": ["rv1-1"]});
+        let merged = updated_annotations(&store, "tex-comments:/p/main.tex", &body).unwrap();
+        assert_eq!(merged[0]["review"]["state"], "agenda");
     }
 
     #[test]

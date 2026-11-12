@@ -305,7 +305,7 @@ pub fn revision_tool_definition() -> Value {
 }
 
 pub const ANNOTATE_TOOL_NAME: &str = "atelier_annotate";
-const ANNOTATE_ACTIONS: [&str; 4] = ["note", "reply", "list", "remove"];
+const ANNOTATE_ACTIONS: [&str; 5] = ["note", "reply", "list", "assess", "remove"];
 
 /// L'agent pose ses propres notes, comme un relecteur dans les commentaires
 /// d'un document partagé : dans un fichier texte (.tex) ou un PDF. Il ne
@@ -313,14 +313,15 @@ const ANNOTATE_ACTIONS: [&str; 4] = ["note", "reply", "list", "remove"];
 pub fn annotate_tool_definition() -> Value {
     json!({
         "name": ANNOTATE_TOOL_NAME,
-        "description": "Leave your own review notes or explanations on a passage, shown in place in Atelier like comments \
-    in a shared document: in a text file opened in the LaTeX editor (.tex) or in a PDF (compiled thesis, project PDF, \
+        "description": "Leave your own review notes on a passage, shown in place in Atelier like comments in a \
+    shared document: in a text file opened in the LaTeX editor (.tex) or in a PDF (compiled thesis, project PDF, \
     Zotero article). Use it when the user asks you to annotate, comment, review or explain passages. NEVER edits the \
-    file. note: quote = passage copied verbatim from the file (or the PDF text), comment = your note in the user's \
-    language; optional text = rewritten passage (text files only, the user accepts or rejects it); several at once \
-    with notes = [{quote, comment, text?, line?, page?}]. reply: answer the user in the thread of one of your notes \
-    (id from the chat message), optional suggestion = new rewrite. list: your notes in the file and which ones wait \
-    for you. remove: your own notes only.",
+    file. note: quote = passage copied verbatim, comment = your note in the user's language; optional text = \
+    rewritten passage (text files, the user accepts or rejects it); several at once with notes = [{quote, comment, \
+    text?, line?, page?}]. reply: answer in the thread of one of your notes or of a reviewer comment imported from \
+    Word (id), optional suggestion = rewrite. assess: on a reviewer comment whose passage changed, settled = true \
+    if the user's edit already answers it, reason = one sentence; the user confirms. list: your notes and the \
+    reviewer comments under discussion. remove: your own notes only.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -330,15 +331,16 @@ pub fn annotate_tool_definition() -> Value {
                 "quote": { "type": "string", "description": "note: exact passage to anchor the note on" },
                 "comment": { "type": "string", "description": "note: what you want to say, short" },
                 "text": { "type": "string", "description": "note: rewritten passage (text files); reply: your answer" },
-                "reason": { "type": "string", "description": "note: why the rewrite, one sentence" },
+                "reason": { "type": "string", "description": "note: why the rewrite; assess: why settled or not; one sentence" },
                 "line": { "type": "integer", "description": "note: line hint (1-based) when the quote occurs several times" },
                 "page": { "type": "integer", "description": "note: PDF page hint when the quote occurs several times" },
                 "style": { "type": "string", "enum": ["surligner", "souligner"], "description": "note in a PDF" },
                 "color": { "type": "string", "enum": ["jaune", "vert", "bleu", "rose", "orange", "violet"], "description": "note in a PDF" },
                 "notes": { "type": "array", "items": { "type": "object" }, "description": "note: several notes, each {quote, comment, text?, reason?, line?, page?}" },
-                "id": { "type": "string", "description": "reply/remove: id of one of your notes" },
+                "id": { "type": "string", "description": "reply/assess/remove: id of a note" },
                 "ids": { "type": "array", "items": { "type": "string" }, "description": "remove: several ids" },
-                "suggestion": { "type": "string", "description": "reply: new rewrite of the passage (text files)" }
+                "suggestion": { "type": "string", "description": "reply: new rewrite of the passage (text files)" },
+                "settled": { "type": "boolean", "description": "assess: the reviewer's point is already settled by the current text" }
             },
             "additionalProperties": false
         }
@@ -649,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn annotate_routes_its_four_actions_and_nothing_that_decides() {
+    fn annotate_routes_its_five_actions_and_nothing_that_decides() {
         for action in ANNOTATE_ACTIONS {
             let (bridge, _) = bridge_call_for(ANNOTATE_TOOL_NAME, &json!({"action": action, "path": "main.tex"})).unwrap();
             assert_eq!(bridge, format!("annotate_{action}"));

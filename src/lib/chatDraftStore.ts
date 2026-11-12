@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { parseLiveContext, type LiveContext } from "./liveContext";
+import type { ChatReviewRef } from "./reviewSession";
 
 const STORAGE_KEY = "atelier-studio.chat-drafts:v1";
 const SCHEMA_VERSION = 1;
@@ -12,7 +13,9 @@ export type DraftAttachment = {
   imageUrl?: string;
   pdfAnnotation?: { origin: string; rel: string; id: string };
   path?: string;
-  kind?: "file" | "folder" | "zotero" | "quote" | "paste" | "appsnap";
+  kind?: "file" | "folder" | "zotero" | "quote" | "paste" | "appsnap" | "review";
+  /** Commentaire d'un relecteur passé en revue dans le chat (kind "review"). */
+  review?: ChatReviewRef;
   /** Figure annotée depuis la galerie : badges numérotés de l'image. */
   notes?: { n: number; text: string }[];
   preview?: { title: string; rows: { label: string; value: string }[] };

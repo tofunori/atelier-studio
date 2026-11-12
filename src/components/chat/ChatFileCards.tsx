@@ -9,8 +9,41 @@ import type { ChatFileRef } from "../../lib/ws";
 import { getResolvedLanguage, t } from "../../lib/i18n";
 import { formatFileSize, useFileCards, type FileCardMeta } from "../../lib/chatFileCards";
 import { RowButton } from "../ui";
+import "./ChatReview.css";
 
-import { FileIcon, FolderIcon } from "lucide-react";
+import { CircleCheckIcon, FileIcon, FolderIcon } from "lucide-react";
+import type { ChatReviewRef } from "../../lib/reviewSession";
+
+/** Commentaire d'un relecteur passé en revue dans le chat (2026-11-12) :
+ *  qui, où, son commentaire, ce qu'il commentait et le passage aujourd'hui. */
+function ReviewCard({ review, path }: { review: ChatReviewRef; path?: string }) {
+  const first = review.author.trim().split(/\s+/)[0] || t("chat.review-reviewer");
+  const flat = (text?: string) => (text || "").replace(/\s+/g, " ").trim();
+  const quote = flat(review.quote);
+  const now = flat(review.now);
+  const clip = (text: string) => (text.length > 320 ? `${text.slice(0, 319)}…` : text);
+  const where = [t("chat.review-position", { n: review.n, total: review.total }),
+    review.line ? t("chat.review-line", { n: review.line }) : null].filter(Boolean).join(" · ");
+  return (
+    <div className="review-card" title={path}>
+      <div className="review-card-head">
+        <span className="review-card-ring">{review.n}</span>
+        {first}
+        <span className="review-card-meta">{where}</span>
+      </div>
+      <div className="review-card-comment">{review.comment}</div>
+      {(quote || now) && (
+        <div className="review-card-quote">
+          {quote && quote !== now && <><span>{t("chat.review-was")}</span><code>{clip(quote)}</code></>}
+          {now && <><span>{t("chat.review-now")}</span><code>{clip(now)}</code></>}
+        </div>
+      )}
+      {review.likely && (
+        <div className="review-card-likely"><CircleCheckIcon size={12} aria-hidden="true" />{t("chat.review-likely")}</div>
+      )}
+    </div>
+  );
+}
 /** Ancien message (sans `files`) : « nom (lines X) » redevient une carte. */
 function fromLabel(label: string): ChatFileRef {
   const m = /^(.*?) \(lines ([^)]+)\)$/.exec(label);
@@ -57,6 +90,9 @@ export function ChatFileCards({ items }: { items: (ChatFileRef | string)[] }) {
   return (
     <div className="user-file-attachments">
       {refs.map((ref) => {
+        if (ref.kind === "review" && ref.review) {
+          return <ReviewCard key={`review:${ref.path ?? ""}:${ref.review.n}`} review={ref.review} path={ref.path} />;
+        }
         const meta = cardFor(ref.path);
         const tag = typeTag(ref);
         const folder = ref.kind === "folder" || ref.name.endsWith("/");
