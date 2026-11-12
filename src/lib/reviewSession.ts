@@ -16,6 +16,8 @@ export type ChatReviewRef = {
   quote?: string;
   now?: string;
   likely?: string;
+  /** Note de Thierry envoyée avec le commentaire (bulle de l'éditeur). */
+  note?: string;
 };
 
 export type ReviewSession = {

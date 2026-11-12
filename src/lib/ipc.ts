@@ -101,6 +101,8 @@ export type AtelierReviewCommentMessage = {
     fit?: string;
     kind?: string;
     likely?: string;
+    /** Note de Thierry partie au chat avec le commentaire. */
+    note?: string;
   };
 };
 
@@ -222,7 +224,7 @@ const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 10_000_000;
 
 function isReviewPayload(review: Record<string, unknown>): boolean {
-  if (!hasOnlyKeys(review, ["doc", "mode", "done", "path", "id", "n", "total", "author", "comment", "quote", "now", "line", "fit", "kind", "likely"])) return false;
+  if (!hasOnlyKeys(review, ["doc", "mode", "done", "path", "id", "n", "total", "author", "comment", "quote", "now", "line", "fit", "kind", "likely", "note"])) return false;
   if (!isBoundedString(review.doc, MAX_URL_LENGTH) || (review.mode !== "open" && review.mode !== "likely")) return false;
   if (review.done !== undefined) return review.done === true;
   const text = (value: unknown) => value === undefined || (typeof value === "string" && value.length <= MAX_TEXT_LENGTH);
@@ -230,7 +232,7 @@ function isReviewPayload(review: Record<string, unknown>): boolean {
   return isBoundedString(review.path, MAX_URL_LENGTH) && isBoundedString(review.id, MAX_TITLE_LENGTH)
     && isCount(review.n) && isCount(review.total) && (review.line === undefined || isCount(review.line))
     && short(review.author) && short(review.fit) && short(review.kind)
-    && text(review.comment) && text(review.quote) && text(review.now) && text(review.likely);
+    && text(review.comment) && text(review.quote) && text(review.now) && text(review.likely) && text(review.note);
 }
 
 export function isTrustedAtelierMessage(

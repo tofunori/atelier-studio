@@ -32,6 +32,7 @@ function ReviewCard({ review, path }: { review: ChatReviewRef; path?: string }) 
         <span className="review-card-meta">{where}</span>
       </div>
       <div className="review-card-comment">{review.comment}</div>
+      {review.note && <div className="review-card-note">{review.note}</div>}
       {(quote || now) && (
         <div className="review-card-quote">
           {quote && quote !== now && <><span>{t("chat.review-was")}</span><code>{clip(quote)}</code></>}

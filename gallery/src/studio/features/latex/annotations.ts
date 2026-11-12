@@ -15,9 +15,10 @@ import {
 import {
   reviewIcons,
   agendaHtml, agendaText, importReportHtml, isReviewerNote, likelySettled, mergeReview, progressHtml, reviewChatPrompt,
-  reviewerBlock, reviewerHeader, reviewerName, reviewerState, reviewerSuggestion, reviewState, triageRequest, fitNote,
+  reviewerBubble, reviewerName, reviewerState, reviewerSuggestion, reviewerTone, reviewState, triageRequest, fitNote,
   type ImportReport, type ReviewComment, type ReviewInfo, type ReviewState, type ReviewStatus,
 } from "./reviewer_notes";
+import {createReviewerOverlay} from "./reviewer_overlay";
 import type {StudioEditor, StudioPosition, StudioRange, StudioTextMarker} from "../../core/editor_contract";
 
 interface AnnotationEditor extends StudioEditor {
@@ -316,12 +317,13 @@ export function createLatexAnnotationsController(
       marks[annotation.id] = activeEditor.markText(annotation.from, annotation.to, {
         className: annotation.kind === "hl" ? `texc-hl texc-c-${annotation.color || "amber"}`
           : annotation.rstate==="prop" || (agent && currentSuggestion(annotation))
-            || (reviewer && (activeId === annotation.id || hasUnread(annotation)) && reviewState(annotation) !== "done" && reviewerSuggestion(annotation)) ? "texc-hl texc-comment texr-old"
-            : reviewer ? `texc-hl texc-comment texv-mark${reviewState(annotation) === "done" ? " is-done" : ""}` : `texc-hl texc-comment ${tint}`,
+            ? "texc-hl texc-comment texr-old"
+            : reviewer ? `texc-hl texc-comment texv-mark tone-${reviewerTone(annotation)}${reviewState(annotation) === "done" ? " is-done" : ""}`
+              + (activeId === annotation.id ? " is-active" : "") : `texc-hl texc-comment ${tint}`,
         attributes: {"data-texc": annotation.id},
       });
       if (agent) { markAgent(annotation, activeEditor); return; }
-      if (reviewer) { markReviewer(annotation, activeEditor); return; }
+      if (reviewer) { syncReviewer(); return; }
       if (answered) { markRound(annotation, activeEditor); return; }
       if(annotation.kind!=="hl" && typeof activeEditor.setBookmark==="function") {
         const badge=doc.createElement("button");badge.type="button";
@@ -572,56 +574,69 @@ export function createLatexAnnotationsController(
     void save();
     buildPanel();
   }
-  // ---- Commentaires du relecteur (reviewer_notes.ts) ----------------------
-  // En-tête toujours ; le bloc (fil privé avec Claude, correction, actions)
-  // seulement sous le commentaire actif ou quand Claude a répondu.
-  function markReviewer(annotation: LatexAnnotation, activeEditor: AnnotationEditor): void {
-    if (typeof activeEditor.setBookmark !== "function") return;
-    const blocks: Array<{clear(): void}> = [];
-    const source = activeEditor.getValue().split("\n");
-    const paragraph = paragraphOf(source, annotation.from.line, annotation.to.line);
-    const header = reviewerHeader(doc, numberOf(annotation), annotation);
-    numberRoots[annotation.id]?.push(header);
-    header.dataset.texa = annotation.id;
-    header.addEventListener("mousedown", event => event.preventDefault());
-    header.onclick = () => activateReviewer(activeId === annotation.id ? null : annotation.id);
-    blocks.push(activeEditor.setBookmark({line: paragraph.start, ch: 0}, {widget: header, insertLeft: true, block: true}));
-    roundBlocks[annotation.id] = blocks;
-    // Fermé d'office ; ouvert sous le commentaire actif, ou quand Claude
-    // vient d'y poser une correction depuis le chat.
-    const open = activeId === annotation.id || (hasUnread(annotation) && Boolean(reviewerSuggestion(annotation)));
-    header.classList.toggle("is-open", open);
-    if (!open) return;
-    const endLine = activeEditor.getLine(annotation.to.line) || "";
-    const block = reviewerBlock(doc, {
-      note: annotation,
-      lineBefore: [...source.slice(paragraph.start, annotation.from.line), (source[annotation.from.line] || "").slice(0, annotation.from.ch)].join("\n"),
-      lineAfter: [endLine.slice(annotation.to.ch), ...source.slice(annotation.to.line + 1, paragraph.end + 1)].join("\n"),
-    }, {
-      accept: () => acceptReviewer(annotation.id),
-      refuse: () => refuseReviewer(annotation.id),
-      state: next => setReviewState(annotation.id, next),
-      chat: () => { void discussInChat({at: annotation.id}); },
-      seen: () => markSeen(annotation.id),
-    });
-    block.dataset.texr = annotation.id;
-    block.classList.toggle("is-active", activeId === annotation.id);
-    block.addEventListener("mousedown", event => {
-      event.preventDefault();
-      activeId = annotation.id;
-    });
-    const lastLine = activeEditor.getLine(paragraph.end) || "";
-    blocks.push(activeEditor.setBookmark({line: paragraph.end, ch: lastLine.length}, {widget: block, block: true}));
-    const suggestion = reviewerSuggestion(annotation);
-    if (suggestion && reviewState(annotation) !== "done") {
-      const base = activeEditor.indexFromPos(annotation.from);
-      wordMarks[annotation.id] = removedRanges(annotation.text, suggestion.text).map(([from, to]) =>
-        activeEditor.markText(activeEditor.posFromIndex(base + from), activeEditor.posFromIndex(base + to), {className: "texr-del-word"}));
-    }
+  // ---- Commentaires du relecteur (reviewer_notes.ts, reviewer_overlay.ts) --
+  // Maquette « annotations épurées » v8 (Thierry 2026-11-12) : rien n'est
+  // inséré dans le texte. Un numéro dans la marge, la couleur seule pour
+  // l'état ; la bulle du commentaire ouvert flotte sous son passage.
+  let composing: string | null = null;
+  const drafts: Record<string, string> = {};
+  /** Notes de Thierry parties au chat, le temps de la séance. */
+  const sentNotes: Record<string, string> = {};
+  const placedReviewer = (): LatexAnnotation[] => reviewerNotes().filter(a => !a.loose);
+  const overlay = createReviewerOverlay(doc, win, {
+    wrapper: () => editor()?.getWrapperElement() || null,
+    items: () => placedReviewer().map(a => ({
+      id: a.id, number: numberOf(a), tone: reviewerTone(a), done: reviewState(a) === "done", unread: hasUnread(a), line: a.from.line,
+      title: `${reviewerState(a).label} · ${(a.comment || "").replace(/\s+/g, " ").trim().slice(0, 160)}`,
+    })),
+    activeId: () => activeId && placedReviewer().some(a => a.id === activeId) ? activeId : null,
+    open: id => activateReviewer(id),
+    bubble: id => {
+      const list = placedReviewer();
+      const index = list.findIndex(a => a.id === id);
+      const note = list[index];
+      if (!note) return null;
+      const suggestion = reviewerSuggestion(note);
+      const view = {note, number: numberOf(note), index: index + 1, total: list.length,
+        composing: composing === id, draft: drafts[id] || "", said: sentNotes[id] || ""};
+      const key = JSON.stringify([id, view.number, view.index, view.total, view.composing, view.said, reviewState(note),
+        reviewerTone(note), note.comment, note.text, suggestion?.text || "", suggestion?.reason || "", note.review?.chatAt || 0,
+        note.review?.refused || 0, note.review?.likely?.reason || "", (note.thread || []).length]);
+      return {key, build: () => reviewerBubble(doc, view, {
+        tick: () => setReviewState(id, reviewState(note) === "done" ? "todo" : "done"),
+        chat: () => { composing = id; syncReviewer(); },
+        send: text => {
+          composing = null;
+          delete drafts[id];
+          if (text.trim()) sentNotes[id] = text.trim();
+          void discussInChat({at: id, note: text.trim()});
+          syncReviewer();
+        },
+        cancel: () => { composing = null; syncReviewer(); },
+        draft: text => { drafts[id] = text; },
+        accept: () => acceptReviewer(id),
+        refuse: () => refuseReviewer(id),
+        nav: delta => {
+          const target = placedReviewer()[index + delta];
+          if (!target) return;
+          activateReviewer(target.id);
+          reveal(target.id);
+        },
+        seen: () => markSeen(id),
+      })};
+    },
+  });
+  let overlayFrame = 0;
+  /** Numéros et bulle repris au prochain rendu (une fois par lot de marques). */
+  function syncReviewer(): void {
+    if (overlayFrame || (!placedReviewer().length && !overlay.bubble() && !doc.querySelector(".texv-layer"))) return;
+    if (typeof win.requestAnimationFrame !== "function") { overlay.sync(); return; }
+    overlayFrame = win.requestAnimationFrame(() => { overlayFrame = 0; overlay.sync(); });
   }
-  /** Ouvre le bloc d'un commentaire du relecteur (un seul à la fois). */
+  /** Ouvre la bulle d'un commentaire du relecteur (un seul à la fois). */
   function activateReviewer(id: string | null): void {
     const before = activeId ? all.find(a => a.id === activeId) : null;
+    if (composing !== id) composing = null;
     activeId = id;
     if (before && isReviewerNote(before)) remark(before);
     const next = id ? all.find(a => a.id === id) : null;
@@ -712,7 +727,7 @@ export function createLatexAnnotationsController(
     buildPanel();
   }
   /** Envoie un commentaire au chat (celui demandé, ou le prochain). */
-  async function discussInChat(query: {at?: string; after?: string; mode?: ReviewMode}): Promise<void> {
+  async function discussInChat(query: {at?: string; after?: string; mode?: ReviewMode; note?: string}): Promise<void> {
     const mode = query.mode || "open";
     const found = await fetchComment({...(query.at ? {at: query.at} : {}), ...(query.after ? {after: query.after} : {}), mode});
     if (!found) return;
@@ -721,11 +736,13 @@ export function createLatexAnnotationsController(
       return;
     }
     const comment = found.note;
-    options.postToHost({type: "atelier-review-comment", text: reviewChatPrompt(comment), review: {
+    const note = query.at === comment.id ? query.note || "" : "";
+    options.postToHost({type: "atelier-review-comment", text: reviewChatPrompt(comment, note), review: {
       doc: options.path, mode, path: comment.path, id: comment.id, n: comment.n, total: comment.total,
       author: comment.author || "", comment: comment.comment || "", quote: comment.quote || "", now: comment.now || "",
       line: comment.line || 0, fit: comment.fit || "", kind: comment.kind || "",
       ...(comment.likely?.settled ? {likely: comment.likely.reason || ""} : {}),
+      ...(note ? {note} : {}),
     }});
     if (comment.path === options.path && all.some(a => a.id === comment.id)) {
       activateReviewer(comment.id);
@@ -1241,11 +1258,10 @@ export function createLatexAnnotationsController(
       const inRound = Boolean(annotation.round && annotation.rstate);
       let state = agent && annotation.src !== "pdf" ? agentState(annotation) : inRound ? stateLabel(annotation.rstate || "note") : null;
       if (reviewer) {
-        state = reviewerState(annotation);
-        const fit = fitNote(annotation);
-        if (annotation.review?.fit === "changed" && reviewState(annotation) === "todo" && !annotation.review?.chatAt
-          && !likelySettled(annotation) && !reviewerSuggestion(annotation))
-          state = {icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.8 13.6 12.6H2.4z"/><path d="M8 6.6v2.6M8 11v.1"/></svg>', label: fit, tone: "ask"};
+        // Couleur seule (maquette v8) : le nom de l'état reste au survol.
+        const changed = annotation.review?.fit === "changed" && reviewState(annotation) === "todo" && !annotation.review?.chatAt
+          && !likelySettled(annotation) && !reviewerSuggestion(annotation);
+        state = {icon: "", label: changed ? fitNote(annotation) : reviewerState(annotation).label, tone: reviewerTone(annotation)};
       }
       const row: ColumnNote = {
         id: annotation.id, number: numberOf(annotation), color: noteColorName(annotation.color),
@@ -1295,6 +1311,7 @@ export function createLatexAnnotationsController(
       + (roundError ? `<div class="tp-error" role="status">${escapeHtml(roundError)}</div>` : "")
       + (foot || tools || past ? `<div class="tp-foot">${foot}${tools}${past}</div>` : "");
     doc.body.classList.toggle("has-texc", everything.length > 0);
+    syncReviewer();
   };
   const togglePanel = (force?: boolean): void => {
     if (deleteArmTimer !== null) win.clearTimeout(deleteArmTimer);
@@ -1421,6 +1438,9 @@ export function createLatexAnnotationsController(
         return;
       }
     }
+    // Clic ailleurs dans l'éditeur : la bulle du relecteur se referme.
+    const reviewerOpen = activeId ? all.find(a => a.id === activeId && isReviewerNote(a)) : null;
+    if (reviewerOpen && target && !target.closest(".texv-pop, .texv-mk") && editor()?.getWrapperElement().contains(target)) activateReviewer(null);
     if (Date.now() - openedAt < 350) return;
     if (target && !options.popover.contains(target) && !target.closest("#selPill") && current) leave();
   });

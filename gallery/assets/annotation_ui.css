@@ -194,6 +194,11 @@
 .atelier-notes-col .tone-todo .tp-ic{color:var(--text-secondary,var(--txt))}
 .atelier-notes-col .tone-ok .tp-ic,.atelier-notes-col .tone-likely .tp-ic{color:var(--status-success,#98c379)}
 .atelier-notes-col .tone-ask .tp-ic{color:var(--status-warning,#e0b74a)}
+/* Commentaire du relecteur : l'état en un point de couleur, son nom au survol. */
+.atelier-notes-col .tp-sdot{flex:none;width:6px;height:6px;margin:8px 4px 0;border-radius:999px;background:var(--text-disabled,var(--muted))}
+.atelier-notes-col .tp-sdot.tone-info{background:var(--status-info,var(--accent))}
+.atelier-notes-col .tp-sdot.tone-ok{background:var(--status-success,#98c379)}
+.atelier-notes-col .tp-sdot.tone-warn{background:var(--status-warning,#e0b74a)}
 .atelier-notes-col .tp-x{display:inline-grid;place-items:center;width:20px;height:20px;padding:0;background:transparent;border:0;border-radius:6px;
   color:var(--text-disabled,var(--muted));cursor:pointer;flex:none;opacity:0;transition:opacity var(--motion-fast,120ms),color var(--motion-fast,120ms)}
 .atelier-notes-col .tp-x svg{width:12px;height:12px}
