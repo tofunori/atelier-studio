@@ -137,6 +137,7 @@ import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
 import { setReviewSession, type ChatReviewRef } from "./lib/reviewSession";
 import {
+  atelierTargetOrigin,
   isTrustedAtelierMessage,
   withAtelierNonce,
   withAtelierToken,
@@ -812,6 +813,19 @@ export default function App() {
     restoreQueuedTurn,
   } = useChatDraftStore(activeComposerKey);
   const attachments = activeComposerDraft.attachments;
+  // Passages Word en attente dans la boîte du chat (2026-11-12) : l'éditeur
+  // .docx garde leur pointillé et leur numéro tant qu'ils y sont.
+  const wordNotesPending = useMemo(() => JSON.stringify(
+    [attachments, ...Object.entries(composerDrafts).filter(([key]) => key !== activeComposerKey).map(([, draft]) => draft.attachments)]
+      .flat().filter((a) => /\.docx$/i.test(a.name) && a.text.includes(" »\nCommentaire : ")).map((a) => a.text),
+  ), [attachments, composerDrafts, activeComposerKey]);
+  useEffect(() => {
+    const texts = JSON.parse(wordNotesPending) as string[];
+    document.querySelectorAll<HTMLIFrameElement>("iframe.atelier").forEach((frame) => {
+      const origin = atelierTargetOrigin(frame.src);
+      if (origin) frame.contentWindow?.postMessage({ type: "atelier-chat-pending", texts }, origin);
+    });
+  }, [wordNotesPending]);
   // Transient intent: never persist an automatic send in a restored draft.
   const [gallerySend, setGallerySend] = useState<{ threadId: string; attachment: Attachment } | null>(null);
   const galleryRequests = useRef(new Set<string>());
