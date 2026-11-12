@@ -16,7 +16,7 @@ import {
   reviewIcons,
   agendaHtml, agendaText, importReportHtml, isReviewerNote, likelySettled, mergeReview, progressHtml, reviewChatPrompt,
   reviewerBlock, reviewerHeader, reviewerName, reviewerState, reviewerSuggestion, reviewState, triageRequest, fitNote,
-  type ImportReport, type ReviewComment, type ReviewInfo, type ReviewState, type ReviewStatus,
+  type ImportReport, type ReviewComment, type ReviewerFields, type ReviewInfo, type ReviewState, type ReviewStatus, type ReviewStatusNote,
 } from "./reviewer_notes";
 import type {StudioEditor, StudioPosition, StudioRange, StudioTextMarker} from "../../core/editor_contract";
 
@@ -730,6 +730,9 @@ export function createLatexAnnotationsController(
     if (comment.path === options.path && all.some(a => a.id === comment.id)) {
       activateReviewer(comment.id);
       reveal(comment.id);
+    } else if (comment.path !== options.path) {
+      // son passage est dans un autre .tex : on l'y montre
+      openReviewerElsewhere(comment.path, comment.id, comment.line);
     }
     await writeReviewState(comment.path, comment.id, {chat: true});
   }
@@ -1164,6 +1167,53 @@ export function createLatexAnnotationsController(
   };
 
   const reviewIconFlag = reviewIcons.flag;
+  // ---- Ses commentaires dans les autres fichiers du document -------------
+  // Le panneau les liste tous, fichier par fichier ; un clic ouvre le .tex où
+  // est son passage, et l'éditeur de ce fichier ouvre le commentaire.
+  const elsewhereKind = (n: ReviewStatusNote): boolean => kindFilter === "all" || (n.kind || "remark") === kindFilter;
+  const elsewhereIn = (n: ReviewStatusNote, state: ReviewState | "likely" | "all"): boolean => state === "all"
+    || (state === "likely" ? n.state === "todo" && Boolean(n.likely) : state === "todo" ? n.state === "todo" && !n.likely : n.state === state);
+  const asReviewer = (n: ReviewStatusNote): ReviewerFields => ({text: n.text || "", comment: n.comment || "",
+    review: {state: n.state, kind: n.kind, fit: n.fit, ...(n.likely ? {likely: {settled: true}} : {}), ...(n.chat ? {chatAt: 1} : {})}} as ReviewerFields);
+  const fileLabel = (path: string): string => path.split(/[\\/]/).pop() || path;
+  function reviewerFiles(local: string, elsewhere: ReviewStatusNote[]): string {
+    const order = reviewStatus?.rounds.at(-1)?.files || [];
+    const paths = [...new Set([...order, options.path, ...elsewhere.map(n => n.path)])];
+    const head = (path: string): string => `<div class="tp-sec tp-sec-file">${escapeHtml(fileLabel(path))}${path === options.path ? '<span class="tp-sec-here">ouvert</span>' : ""}</div>`;
+    return paths.map(path => {
+      if (path === options.path) return local ? head(path) + local : "";
+      const rows = elsewhere.filter(n => n.path === path && elsewhereKind(n) && elsewhereIn(n, reviewFilter))
+        .sort((a, b) => (a.line || 0) - (b.line || 0));
+      if (!rows.length) return "";
+      return head(path) + rows.map((n, index) => columnItemHtml({
+        id: n.id, number: n.number || index + 1, color: noteColorName(undefined), quote: "", note: n.comment || "",
+        line: n.line ?? null, lineEnd: null, state: reviewerState(asReviewer(n)), src: "tex", reviewer: true, removable: false, path: n.path,
+      })).join("");
+    }).join("");
+  }
+  const focusKey = "atelier.reviewFocus";
+  /** Ouvre le fichier d'un commentaire et demande à son éditeur de l'ouvrir. */
+  function openReviewerElsewhere(path: string, id: string, line?: number): void {
+    try { win.localStorage.setItem(focusKey, JSON.stringify({path, id, at: Date.now()})); } catch { /* l'éditeur s'ouvrira à la ligne */ }
+    options.postToHost({type: "atelier-open-file", path, line: Math.max(1, line || 1)});
+  }
+  /** Un autre éditeur a demandé d'ouvrir un commentaire de ce fichier. */
+  function takeReviewerFocus(): void {
+    let wanted: {path?: string; id?: string; at?: number} | null = null;
+    try { wanted = JSON.parse(win.localStorage.getItem(focusKey) || "null"); } catch { return; }
+    if (!wanted?.id || wanted.path !== options.path || Date.now() - (wanted.at || 0) > 120000) return;
+    const annotation = all.find(a => a.id === wanted?.id && isReviewerNote(a));
+    if (!annotation) return;
+    try { win.localStorage.removeItem(focusKey); } catch { /* lu une fois */ }
+    filter = "reviewer";
+    const shown = reviewFilter === "all" || (reviewFilter === "likely" ? likelySettled(annotation)
+      : reviewFilter === "todo" ? reviewState(annotation) === "todo" && !likelySettled(annotation) : reviewState(annotation) === reviewFilter);
+    if (!shown) reviewFilter = "all";
+    togglePanel(true);
+    activateReviewer(annotation.id);
+    reveal(annotation.id);
+  }
+  win.addEventListener("storage", event => { if (event.key === focusKey && loaded) takeReviewerFocus(); });
   const buildPanel = (): void => {
     const everything = notes();
     const fromAgent = everything.filter(a => isAgentNote(a));
@@ -1203,21 +1253,16 @@ export function createLatexAnnotationsController(
     let review = "";
     if (filter === "reviewer") {
       const count = (state: ReviewState | "likely"): number => fromReviewer.filter(a => kindOk(a)
-        && (state === "likely" ? likelySettled(a) : state === "todo" ? reviewState(a) === "todo" && !likelySettled(a) : reviewState(a) === state)).length;
+        && (state === "likely" ? likelySettled(a) : state === "todo" ? reviewState(a) === "todo" && !likelySettled(a) : reviewState(a) === state)).length
+        + elsewhere.filter(n => elsewhereKind(n) && elsewhereIn(n, state)).length;
       const likelyHere = count("likely");
       const chip = (attr: string, key: string, label: string, on: boolean): string =>
         `<button type="button" class="tp-chip${on ? " on" : ""}" data-${attr}="${key}" aria-pressed="${on}">${escapeHtml(label)}</button>`;
-      const questions = fromReviewer.filter(a => a.review?.kind === "question").length;
-      const others = elsewhere.length
-        ? '<div class="tp-review-files">' + [...new Map(elsewhere.map(n => [n.path, 0])).keys()].map(path => {
-          const list = elsewhere.filter(n => n.path === path);
-          const open = list.filter(n => n.state !== "done").length;
-          return `<button type="button" class="tp-link tp-review-file" data-path="${escapeHtml(path)}" data-line="${list[0]?.line || 1}">`
-            + `${escapeHtml(path.split(/[\\/]/).pop() || path)} · ${open} à faire${open < list.length ? ` sur ${list.length}` : ""}</button>`;
-        }).join("") + "</div>"
-        : "";
+      const questions = fromReviewer.filter(a => a.review?.kind === "question").length
+        + elsewhere.filter(n => n.kind === "question").length;
+      const reviewTotal = fromReviewer.length + elsewhere.length;
       review = (reviewStatus?.rounds.length ? progressHtml(reviewStatus, reviewName) : "")
-        + (fromReviewer.length
+        + (reviewTotal
           ? '<div class="tp-chips" role="group" aria-label="État">'
             + chip("rstate", "todo", `À faire · ${count("todo")}`, reviewFilter === "todo")
             + (likelyHere ? chip("rstate", "likely", `Sans doute réglés · ${likelyHere}`, reviewFilter === "likely") : "")
@@ -1227,9 +1272,8 @@ export function createLatexAnnotationsController(
             + '<div class="tp-chips" role="group" aria-label="Type">'
             + chip("kind", "all", "Tous les types", kindFilter === "all")
             + chip("kind", "question", `Questions · ${questions}`, kindFilter === "question")
-            + chip("kind", "remark", `Remarques · ${fromReviewer.length - questions}`, kindFilter === "remark") + "</div>"
-          : "")
-        + others;
+            + chip("kind", "remark", `Remarques · ${reviewTotal - questions}`, kindFilter === "remark") + "</div>"
+          : "");
     }
     const sections = sectionsFor(items);
     let lastSection = "";
@@ -1261,6 +1305,9 @@ export function createLatexAnnotationsController(
       };
       return head + columnItemHtml(row);
     }).join("");
+    // Ses commentaires de tous les fichiers du document, fichier par fichier
+    // dans l'ordre de lecture ; un clic ouvre le fichier sur le commentaire.
+    const grouped = filter === "reviewer" && elsewhere.length ? reviewerFiles(list, elsewhere) : "";
     const past = [...new Set(history.filter(record => record.n > 0).map(record => record.n))].sort((a, b) => b - a).slice(0, 3).map(n => {
       const records = history.filter(record => record.n === n);
       const accepted = records.filter(record => record.decision === "acc").length;
@@ -1283,11 +1330,11 @@ export function createLatexAnnotationsController(
         + '<button type="button" class="tp-link tp-delall" title="Supprimer toutes tes notes et celles de Claude">Tout supprimer</button></div>'
       : "";
     const empty = filter === "reviewer"
-      ? `<div class="tp-empty">${fromReviewer.length ? "Aucun commentaire dans ce filtre." : `Aucun commentaire de ${escapeHtml(reviewName)} dans ce fichier.`}</div>`
+      ? `<div class="tp-empty">${fromReviewer.length || elsewhere.length ? "Aucun commentaire dans ce filtre." : `Aucun commentaire de ${escapeHtml(reviewName)} dans ce fichier.`}</div>`
       : '<div class="tp-empty">Sélectionne un passage puis « Annoter ». Tes notes s’ajoutent ici ; « Réviser avec l’agent » les lui envoie toutes ensemble.</div>';
     const body = agendaOpen && reviewStatus
       ? `<div class="tp-list">${agendaHtml(reviewStatus, reviewName)}</div>`
-      : (report ? `<div class="texv-report-card">${report.html}</div>` : "") + review + `<div class="tp-list">${list || empty}</div>`;
+      : (report ? `<div class="texv-report-card">${report.html}</div>` : "") + review + `<div class="tp-list">${grouped || list || empty}</div>`;
     options.panel.innerHTML = `<div class="tp-head"><span class="tp-title">${title}</span><span class="tp-sub">${escapeHtml(sub)}</span><span class="tp-gap"></span>`
       + `<button type="button" class="tp-close" aria-label="Fermer le panneau" title="Fermer">${roundIcons.close}</button></div>`
       + filters
@@ -1463,8 +1510,12 @@ export function createLatexAnnotationsController(
       if (waiting.length) post(triageRequest(waiting, name));
       return;
     }
-    const otherFile = target?.closest<HTMLElement>(".tp-review-file");
-    if (otherFile) { options.postToHost({type: "atelier-open-file", path: otherFile.dataset.path, line: Number(otherFile.dataset.line) || 1}); return; }
+    const elsewhereItem = target?.closest<HTMLElement>(".tp-item[data-path]");
+    if (elsewhereItem?.dataset.path && elsewhereItem.dataset.id) {
+      const found = reviewStatus?.notes.find(n => n.id === elsewhereItem.dataset.id && n.path === elsewhereItem.dataset.path);
+      openReviewerElsewhere(elsewhereItem.dataset.path, elsewhereItem.dataset.id, found?.line);
+      return;
+    }
     if (target?.closest(".tp-cancel")) { cancelRound(); return; }
     const removeButton = target?.closest<HTMLElement>(".tp-x");
     if (removeButton?.dataset.x) {
@@ -1571,6 +1622,7 @@ export function createLatexAnnotationsController(
     // hors du try : un ancrage qui échoue n'annule pas un chargement réussi
     try { anchorAll(); } catch { /* ancrage repris au prochain passage */ }
     options.onMutated?.();
+    takeReviewerFocus();
     // Une ronde lancée avant un rechargement reprend où elle en était.
     if (all.some(a => a.rstate === "busy")) poll();
     if (currentRound()) togglePanel(true);

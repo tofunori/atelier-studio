@@ -301,6 +301,7 @@ export interface ImportReport {
 export interface ReviewStatusNote {
   path: string;
   id: string;
+  number?: number;
   line?: number;
   comment?: string;
   author?: string;
@@ -316,7 +317,8 @@ export interface ReviewStatusNote {
 }
 
 export interface ReviewStatus {
-  rounds: Array<{id?: string; source?: string; reviewer?: string; date?: string; imported?: number}>;
+  /** files : les fichiers du document dans l'ordre de lecture. */
+  rounds: Array<{id?: string; source?: string; reviewer?: string; date?: string; imported?: number; files?: string[]}>;
   notes: ReviewStatusNote[];
   counts: {total: number; todo: number; agenda: number; done: number; discussing: number; likely?: number; unassessed?: number};
 }

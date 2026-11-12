@@ -237,8 +237,9 @@
   font:var(--fs-label,11px)/1 var(--ui-font);font-variant-numeric:tabular-nums;cursor:pointer;white-space:nowrap;transition:background var(--motion-fast,120ms),color var(--motion-fast,120ms)}
 .atelier-notes-col .tp-chip:hover{color:var(--text-primary,var(--txt))}
 .atelier-notes-col .tp-chip.on{background:var(--surface-hover,var(--card2));color:var(--text-primary,var(--txt));font-weight:500}
-.atelier-notes-col .tp-review-files{display:flex;flex-wrap:wrap;gap:4px;margin:0 8px 4px}
-.atelier-notes-col .tp-review-file{font-variant-numeric:tabular-nums}
+.atelier-notes-col .tp-sec-file{display:flex;align-items:center;gap:8px;padding-top:16px;color:var(--text-secondary,var(--txt));font-weight:500}
+.atelier-notes-col .tp-sec-file:first-child{padding-top:8px}
+.atelier-notes-col .tp-sec-here{font-weight:400;color:var(--text-disabled,var(--muted))}
 .atelier-notes-col .tp-agenda-open{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;margin-left:-8px}
 .atelier-notes-col .tp-agenda-open svg,.atelier-notes-col .tp-agenda-head svg{width:12px;height:12px;flex:none}
 .atelier-notes-col .tp-import{align-self:flex-start;margin-left:-8px}

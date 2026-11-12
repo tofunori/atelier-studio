@@ -100,12 +100,15 @@ test('reviewer .docx: comments land in the .tex, signed, with report, filter, st
     expect(notes.every((n: any) => n.by === 'reviewer' && n.author === 'Christophe Kinnard' && n.review.state === 'todo')).toBe(true);
     expect(readdirSync(path.join(root, '.fig_thumbs', 'retours'))).toHaveLength(1);
 
-    // Panneau : filtre au prénom, états, l'autre fichier signalé.
+    // Panneau : filtre au prénom, états ; ses commentaires de tous les
+    // fichiers, fichier par fichier dans l'ordre de lecture.
     await report.locator('.texv-report-close').first().click();
     const panel = page.locator('#texcPanel');
     await expect(panel.locator('.tp-filter').getByRole('button')).toHaveText(['Toutes', 'Les miennes', 'Christophe']);
-    await expect(panel.locator('.tp-chip[data-rstate="todo"]')).toHaveText('À faire · 4');
-    await expect(panel.locator('.tp-review-file')).toHaveText(/main\.tex · 1 à faire/);
+    await expect(panel.locator('.tp-chip[data-rstate="todo"]')).toHaveText('À faire · 5');
+    await expect(panel.locator('.tp-sec-file')).toHaveText(['main.tex', 'methods.texouvert']);
+    await expect(panel.locator('.tp-item[data-path]')).toHaveCount(1);
+    await expect(panel.locator('.tp-item:not([data-path])')).toHaveCount(4);
     await expect(page.locator('.texv-head')).toHaveCount(4);
     await expect(page.locator('.texv-head').first()).toContainText('Christophe');
 
@@ -129,6 +132,17 @@ test('reviewer .docx: comments land in the .tex, signed, with report, filter, st
     expect((await second).ok()).toBe(true);
     await expect(page.locator('.texv-report-card')).toContainText('rien n’a été ajouté');
     await expect(page.locator('.texv-head')).toHaveCount(4);
+
+    // Un commentaire d'un autre fichier : le clic demande d'ouvrir ce fichier,
+    // et son éditeur ouvre le commentaire.
+    await page.locator('.texv-report-close').first().click();
+    await panel.locator('.tp-item[data-path]').click();
+    const focus = await page.evaluate(() => JSON.parse(localStorage.getItem('atelier.reviewFocus') || 'null'));
+    expect(focus?.path).toBe(main);
+    await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/latex_studio.html?path=${encodeURIComponent(main)}`);
+    await expect(page.locator('.texv-block')).toHaveCount(1);
+    await expect(page.locator('#texcPanel .tp-item.is-active')).toHaveCount(1);
+    expect(await page.evaluate(() => localStorage.getItem('atelier.reviewFocus'))).toBeNull();
   } finally { await stop(server); await removeTempRoot(root); }
 });
 

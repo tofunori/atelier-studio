@@ -225,6 +225,7 @@ pub fn status_of(store: &Map<String, Value>, root_key: &str) -> Value {
             notes.push(json!({
                 "path": path,
                 "id": note.get("id"),
+                "number": note.get("number"),
                 "line": note.pointer("/from/line").and_then(Value::as_u64).map(|l| l + 1),
                 "comment": note.get("comment"),
                 "author": note.get("author"),
