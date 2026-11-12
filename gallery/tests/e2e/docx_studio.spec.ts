@@ -822,6 +822,10 @@ test('docx: le bouton Commentaires ferme la marge, le choix tient au rechargemen
   await expect(body).toHaveClass(/no-lane/);
   // Panneau étroit, sans app pour l'élargir : la marge passe par-dessus la page.
   await page.setViewportSize({width: 820, height: 900});
+  // Un redimensionnement juste après le chargement peut passer pour une
+  // rafale (page étirée puis remise en page) : on mesure la page posée.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await expect(body).not.toHaveClass(/stretching/);
   const w0 = await page.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth);
   await page.keyboard.press('ControlOrMeta+Shift+KeyM');
   await expect(body).toHaveClass(/lane-over/);
