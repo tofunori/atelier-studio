@@ -139,6 +139,7 @@
     right: '<path d="m9 18 6-6-6-6"/>',
     msgPlus: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>',
     chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    note: '<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/>',
     msgText: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/>',
     plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
     minus: '<path d="M5 12h14"/>',
@@ -572,6 +573,7 @@
       dirtyFrom = null;
       dirtyTo = -1;
       layoutPages(from, to);
+      paintNotes();
     });
   }
   /** Blocs du flux, dans l'ordre : paragraphes, lignes de tableau, notes,
@@ -2209,6 +2211,7 @@
     paintDraft();
     layoutCards();
     renderSide();
+    paintNotes();
   }
 
   function layoutCards() {
@@ -2961,13 +2964,9 @@
   const selbar = $("selbar");
   const WORD_COLOR                         = { amber: "yellow", green: "green", blue: "cyan", red: "magenta" };
   UI?.createSelectionActions(selbar, {
-    onAdd: () => {
-      const sel = readSel();
-      if (!sel || collapsed(sel)) return;
-      selbar.classList.remove("show");
-      toChat(quoteOf(sel));
-    },
-    onAnnotate: askComment,
+    // Les deux gestes ouvrent la même boîte de note (variante A, 2026-11-12).
+    onAdd: openNote,
+    onAnnotate: openNote,
     onAsk: W.__atelierPost ? () => {
       const sel = readSel();
       if (!sel || collapsed(sel)) return;
@@ -2986,6 +2985,160 @@
     onMark: () => toggleRun("u"),
     marks: ["ul"],
   });
+  // ------------------------------------- note sur un passage (variante A)
+  // Annoter et Ajouter au chat ouvrent la même boîte sous la sélection : un
+  // champ, deux sorties. « Annotation » (⌘↵) pose un commentaire Word signé
+  // de l'auteur, dans la marge avec ceux des relecteurs ; « Au chat » (↵)
+  // empile le passage et la note dans la boîte du chat. Le passage envoyé
+  // garde un pointillé et son numéro tant qu'il attend dans la boîte.
+
+  const nbox = document.createElement("div");
+  nbox.className = "pop nbox";
+  nbox.setAttribute("role", "dialog");
+  nbox.setAttribute("aria-label", "Note sur le passage");
+  document.body.appendChild(nbox);
+  const chatNums = document.createElement("div");
+  chatNums.id = "chatnums";
+  chatNums.setAttribute("aria-hidden", "true");
+  scroller.appendChild(chatNums);
+  let noting                                    = null;
+  let toChatList                                   = [];
+  const pidOfIdx = (idx        ) => model .paragraphs[idx].para_id || model .paragraphs[idx].id;
+  function segsOf(sel     )         {
+    const out         = [];
+    for (let k = sel.a.idx; k <= sel.b.idx; k++) {
+      const chars = Array.from(virtualText(k));
+      const s = k === sel.a.idx ? sel.a.off : 0, e = k === sel.b.idx ? sel.b.off : chars.length;
+      if (e > s) out.push({ idx: k, s, e, pid: pidOfIdx(k), quote: chars.slice(s, e).join("") });
+    }
+    return out;
+  }
+  /** Après une relecture du fichier, le passage retrouve sa place. */
+  function rebaseSeg(d      ) {
+    if (!model) return;
+    let idx = d.idx;
+    if (!model.paragraphs[idx] || pidOfIdx(idx) !== d.pid) idx = model.paragraphs.findIndex((_, i) => pidOfIdx(i) === d.pid);
+    if (idx < 0) { d.lost = true; return; }
+    const text = virtualText(idx);
+    let best = -1;
+    for (let i = text.indexOf(d.quote); d.quote && i >= 0; i = text.indexOf(d.quote, i + 1)) {
+      const at = cp(text.slice(0, i));
+      if (best < 0 || Math.abs(at - d.s) < Math.abs(best - d.s)) best = at;
+    }
+    if (best < 0) { d.lost = true; return; }
+    d.idx = idx; d.s = best; d.e = best + cp(d.quote); d.lost = false;
+  }
+  const segRanges = (segs        ) => segs.filter((g) => !g.lost).map((g) => rangeAt(g.idx, g.s, g.e)).filter(Boolean)           ;
+  function paintNotes() {
+    for (const g of noting ? noting.segs : []) rebaseSeg(g);
+    for (const it of toChatList) for (const g of it.segs) rebaseSeg(g);
+    if (HL) {
+      const pending = noting ? segRanges(noting.segs) : [];
+      if (pending.length) highlights().set("docx-note", makeHighlight(pending)); else highlights().delete("docx-note");
+      const sent = toChatList.flatMap((it) => segRanges(it.segs));
+      if (sent.length) highlights().set("docx-tochat", makeHighlight(sent)); else highlights().delete("docx-tochat");
+    }
+    // Numéro de la rangée du chat, en exposant au bout du passage.
+    const host = scroller.getBoundingClientRect();
+    const frag = document.createDocumentFragment();
+    toChatList.forEach((it, i) => {
+      const rs = segRanges(it.segs);
+      const rects = rs.length ? rs[rs.length - 1].getClientRects() : null;
+      const r = rects && rects.length ? rects[rects.length - 1] : null;
+      if (!r) return;
+      const n = document.createElement("i");
+      n.textContent = String(i + 1);
+      n.style.transform = `translate(${Math.round(r.right - host.left + scroller.scrollLeft)}px, ${Math.round(r.top - host.top + scroller.scrollTop - 6)}px)`;
+      frag.appendChild(n);
+    });
+    chatNums.replaceChildren(frag);
+  }
+  function closeNote() {
+    if (!noting) return;
+    noting = null;
+    nbox.classList.remove("show");
+    paintNotes();
+  }
+  function openNote() {
+    const s = getSelection();
+    const sel = readSel();
+    if (!s || !s.rangeCount || !sel || collapsed(sel) || !model) return;
+    const segs = segsOf(sel);
+    if (!segs.length) return;
+    const rect = s.getRangeAt(0).getBoundingClientRect();
+    selbar.classList.remove("show");
+    s.removeAllRanges();
+    noting = { sel, segs };
+    // Même repère que dans la boîte du chat : le numéro du paragraphe.
+    const n = /p(\d+)$/.exec(model.paragraphs[segs[0].idx].id)?.[1] ?? String(segs[0].idx + 1);
+    const word = view !== "original";
+    nbox.innerHTML = `<div class="nb-src">${ic("note", 12)}<span>¶ ${n} · « ${esc(clip(oneLine(selectionText(sel)), 90))} »</span></div>
+      <textarea class="c-input" rows="2" placeholder="Ta note…" aria-label="Ta note"></textarea>
+      <div class="ac"><button class="btn q" data-act="doc"${word ? "" : " disabled"} data-tooltip="${word ? "Garder comme commentaire Word, avec ceux des relecteurs" : "Passe en vue Révision pour commenter"}">${ic("note", 14)}Annotation<kbd>⌘↵</kbd></button>
+      <button class="btn p" data-act="chat" data-tooltip="Ajouter le passage et ta note à la boîte du chat">${ic("chat", 14)}Au chat<kbd>↵</kbd></button></div>`;
+    nbox.classList.add("show");
+    const h = nbox.offsetHeight, w = nbox.offsetWidth;
+    const below = rect.bottom + 8;
+    nbox.style.top = `${below + h + 8 <= innerHeight ? below : Math.max(8, rect.top - h - 8)}px`;
+    nbox.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, rect.left))}px`;
+    paintNotes();
+    requestAnimationFrame(() => (nbox.querySelector("textarea")                              )?.focus({ preventScroll: true }));
+  }
+  function commitNote(dest                ) {
+    if (!noting || !model) return;
+    const ta = nbox.querySelector("textarea")                       ;
+    const note = ta.value.trim();
+    const { sel, segs } = noting;
+    if (dest === "doc") {
+      if (view === "original") return;
+      if (!note) { ta.focus(); status("Écris ta note pour l'annotation."); return; }
+      // Un commentaire Word couvre un seul paragraphe : le premier.
+      const g = segs[0];
+      if (g.lost) { status("Le passage a changé : sélectionne-le de nouveau.", true); return; }
+      closeNote();
+      const before = new Set(model.comments.map((c) => c.id));
+      structural(async () => {
+        const ok = await sendOp({ op: "comment_range", paragraph: ref(g.idx), start: g.s, end: g.e, text: note }, () => null);
+        if (!ok) return;
+        const made = model .comments.find((c) => !before.has(c.id) && isTop(c));
+        focusKey = made ? `c${made.id}` : "";
+        renderCards();
+        status("Annotation ajoutée");
+      });
+      return;
+    }
+    const text = `${quoteOf(sel)}\nCommentaire : ${note || "(voir passage)"}`;
+    closeNote();
+    if (!toChatList.some((it) => it.text === text)) toChatList.push({ text, segs: segs.map((g) => ({ ...g })) });
+    paintNotes();
+    toChat(text);
+  }
+  nbox.addEventListener("mousedown", (e) => e.stopPropagation());
+  nbox.addEventListener("click", (e) => {
+    const act = (e.target               ).closest             ("[data-act]")?.dataset.act;
+    if (act === "doc" || act === "chat") commitNote(act);
+  });
+  nbox.addEventListener("input", (e) => {
+    const ta = e.target               ;
+    if (ta.classList.contains("c-input")) fitInput(ta                       );
+  });
+  nbox.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeNote(); paper.focus({ preventScroll: true }); return; }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); commitNote(e.metaKey || e.ctrlKey ? "doc" : "chat"); }
+  });
+  document.addEventListener("mousedown", (e) => { if (noting && !nbox.contains(e.target        )) closeNote(); });
+  // La boîte du chat dit quels passages y attendent encore : envoyés ou
+  // retirés, ils perdent leur pointillé ; l'ordre suit ses rangées.
+  window.addEventListener("message", (e) => {
+    const d = e.data                                             ;
+    if (e.source !== parent || d?.type !== "atelier-chat-pending" || !Array.isArray(d.texts)) return;
+    const texts = d.texts.filter((t)              => typeof t === "string");
+    const next = toChatList.filter((it) => texts.includes(it.text)).sort((x, y) => texts.indexOf(x.text) - texts.indexOf(y.text));
+    if (next.length === toChatList.length && next.every((it, i) => it === toChatList[i])) return;
+    toChatList = next;
+    paintNotes();
+  });
+
   // Curseur dessiné à la place du natif : WebKit lui donne toute la hauteur
   // de ligne (1,7), Word le garde à la hauteur des lettres.
   const caret = $("caret");

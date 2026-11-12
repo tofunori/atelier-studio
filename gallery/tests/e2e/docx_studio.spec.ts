@@ -165,17 +165,18 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await expect.poll(async () => (await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(true);
   await expect(page.locator('#navLbl')).toContainText('Aucun commentaire');
 
-  // Commenter une sélection depuis la capsule commune d'Atelier : un
-  // brouillon s'ouvre dans la marge, ⌘Entrée le publie.
+  // Annoter depuis la capsule commune d'Atelier : une boîte s'ouvre sous le
+  // passage, ⌘Entrée en fait un commentaire Word signé dans la marge.
   await select(page, 4, "fin d'été");
   await expect(page.locator('#selbar.atelier-selection')).toBeVisible();
   await page.locator('#selbar [aria-label="Annoter"]').click();
-  const draft = page.locator('#cards .it[data-key="draft"] textarea');
-  await expect(draft).toBeFocused();
-  await draft.fill('Préciser la date.');
-  await draft.press('ControlOrMeta+Enter');
-  await expect.poll(async () => (await disk(page, project)).comments.some(c => c.quote === "fin d'été" && c.text === 'Préciser la date.')).toBe(true);
-  await expect(page.locator('#cards .it[data-key="draft"]')).toHaveCount(0);
+  const note = page.locator('.nbox.show textarea');
+  await expect(note).toBeFocused();
+  await expect(page.locator('.nbox .nb-src')).toContainText("fin d'été");
+  await note.fill('Préciser la date.');
+  await note.press('ControlOrMeta+Enter');
+  await expect.poll(async () => (await disk(page, project)).comments.some(c => c.quote === "fin d'été" && c.text === 'Préciser la date.' && c.author === 'Thierry')).toBe(true);
+  await expect(page.locator('.nbox.show')).toHaveCount(0);
 
   // La bulle d'une modification dans la page accepte sur place.
   await page.locator('#paper .ins[data-ch="120"]').click();
@@ -214,7 +215,8 @@ test("docx: un brouillon de commentaire suit son passage quand le fichier change
   page.on('pageerror', e => errors.push(e.message));
   await open(page, project);
   await select(page, 2, 'compromis');
-  await page.locator('#selbar [aria-label="Annoter"]').click();
+  // Le bouton Commenter de la barre ouvre un brouillon dans la marge.
+  await page.locator('#btnComment').click();
   const draft = page.locator('#cards .it[data-key="draft"] textarea');
   await draft.fill('Trop vague');
   // L'agent écrit plus haut dans le même paragraphe pendant qu'on rédige.
@@ -268,6 +270,57 @@ test('docx: remplacer avance au passage suivant, écrit en suivi dans les ajouts
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 104)).toBe(false);
   await page.waitForTimeout(300);
   await expect(page.locator('#toast')).not.toContainText('introuvable');
+});
+
+test("docx: une note sur un passage part dans la boîte du chat, le passage garde son pointillé et son numéro jusqu'à l'envoi", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  await page.evaluate(() => {
+    const w = window as unknown as {__atelierPost: () => void; __sent?: Record<string, unknown>[]; AtelierStudioCore?: Record<string, unknown>};
+    w.__atelierPost = () => {};
+    w.__sent = [];
+    w.AtelierStudioCore = {...(w.AtelierStudioCore || {}), requestChatAttachment: (o: {payload: Record<string, unknown>}) => { w.__sent!.push(o.payload); return Promise.resolve(); }};
+  });
+  const before = (await disk(page, project)).comments.length;
+  // Ajouter au chat ouvre la même boîte ; Entrée envoie au chat.
+  await select(page, 2, 'compromis');
+  await page.locator('#selbar [aria-label="Ajouter au chat"]').click();
+  const note = page.locator('.nbox.show textarea');
+  await expect(note).toBeFocused();
+  await note.fill('Trop vague, lequel ?');
+  await note.press('Enter');
+  await expect(page.locator('.nbox.show')).toHaveCount(0);
+  // Une deuxième, sans note.
+  await select(page, 4, "fin d'été");
+  await page.locator('#selbar [aria-label="Annoter"]').click();
+  await page.locator('.nbox.show [data-act="chat"]').click();
+  const sent = await page.evaluate(() => (window as unknown as {__sent: {text: string; path: string; type: string}[]}).__sent);
+  expect(sent).toHaveLength(2);
+  expect(sent[0].type).toBe('atelier-add-to-chat');
+  expect(sent[0].path).toBe(project.doc);
+  expect(sent[0].text).toMatch(/\(p\d+\) : « compromis »\nCommentaire : Trop vague, lequel \?$/);
+  expect(sent[1].text).toMatch(/« fin d'été »\nCommentaire : \(voir passage\)$/);
+  // Rien n'est écrit dans le document.
+  expect((await disk(page, project)).comments.length).toBe(before);
+  // Les deux passages sont numérotés dans la page, dans l'ordre de la boîte.
+  await expect(page.locator('#chatnums i')).toHaveText(['1', '2']);
+  // La boîte du chat dit ce qui y attend encore : envoyé, retiré.
+  await page.evaluate((texts) => window.postMessage({type: 'atelier-chat-pending', texts}, '*'), [sent[1].text, sent[0].text]);
+  await expect(page.locator('#chatnums i')).toHaveText(['1', '2']);
+  const pos = await page.locator('#chatnums i').evaluateAll(els => els.map(e => (e as HTMLElement).style.transform));
+  expect(pos[0]).not.toBe(pos[1]);
+  await page.evaluate((texts) => window.postMessage({type: 'atelier-chat-pending', texts}, '*'), [sent[0].text]);
+  await expect(page.locator('#chatnums i')).toHaveCount(1);
+  await page.evaluate(() => window.postMessage({type: 'atelier-chat-pending', texts: []}, '*'));
+  await expect(page.locator('#chatnums i')).toHaveCount(0);
+  // Échap referme la boîte sans rien envoyer.
+  await select(page, 2, 'compromis');
+  await page.locator('#selbar [aria-label="Annoter"]').click();
+  await page.locator('.nbox.show textarea').press('Escape');
+  await expect(page.locator('.nbox.show')).toHaveCount(0);
+  expect((await page.evaluate(() => (window as unknown as {__sent: unknown[]}).__sent)).length).toBe(2);
+  expect(errors).toEqual([]);
 });
 
 test('docx: panneau étroit, la fiche s\'ouvre en fenêtre sous son passage et la page garde sa taille', async ({page, project}) => {

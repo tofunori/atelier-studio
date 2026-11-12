@@ -35,6 +35,7 @@ import {
 import { citeLabel } from "./turnParts";
 import { useFileCards } from "../../lib/chatFileCards";
 import type { Mark } from "../../lib/annotations";
+import { annotationCards, type AnnotationCard } from "../../lib/annotationCards";
 import { Button, IconButton, RowButton } from "../ui";
 
 export type ShelfAttachment = import("../../lib/chatDraftStore").DraftAttachment;
@@ -124,12 +125,54 @@ export function ContextShelf(p: {
 
   const annotations = p.annotations ?? [];
   if (p.attachments.length === 0 && annotations.length === 0) return null;
+  // Passages annotés depuis l'éditeur Word (2026-11-12) : rangées visibles,
+  // numérotées comme dans la page, le passage puis la note.
+  const wordNotes = p.attachments.flatMap((attachment, index) => {
+    if (attachment.imageUrl || !/\.docx$/i.test(attachment.name)) return [];
+    const { prompt, cards } = annotationCards(attachment.text);
+    return !prompt && cards.length === 1 ? [{ index, card: cards[0] as AnnotationCard }] : [];
+  });
+  const wordIndexes = new Set(wordNotes.map((note) => note.index));
 
   const removeLabel = (name: string, suffix = "") =>
     `${t("action.remove")} ${name}${suffix}`;
 
   return (
     <div className="chips-row context-pills" aria-label={t("context.attachments")}>
+      {wordNotes.length > 0 && (
+        <div className="word-notes" role="list" aria-label={wordNotes[0].card.name}>
+          <span className="word-notes-head">
+            <FileTextIcon className="anno-pill-glyph" aria-hidden="true" />
+            <span className="anno-pill-sub">
+              {wordNotes.length} {wordNotes.length > 1 ? "passages" : "passage"} · {wordNotes[0].card.name}
+            </span>
+            {wordNotes.length > 1 && (
+              <Button variant="ghost" size="xs" className="anno-pill-clear"
+                onClick={() => [...wordNotes].reverse().forEach((note) => p.onRemoveAttachment(note.index))}>
+                {t("chat.annotations-clear")}
+              </Button>
+            )}
+          </span>
+          {wordNotes.map(({ index, card }, n) => (
+            <span key={index} className="anno-pill-row" role="listitem">
+              <span className="anno-pill-num">{n + 1}</span>
+              <span className="anno-pill-body">
+                <span className="anno-pill-quote">
+                  {card.location && <span className="word-notes-where">{card.location}</span>}
+                  {card.quote.replace(/\s+/g, " ").trim()}
+                </span>
+                <span className={`anno-pill-note${card.comment ? "" : " is-empty"}`}>
+                  {card.comment || t("chat.annotation-no-note")}
+                </span>
+              </span>
+              <IconButton size="s" className="ghost anno-pill-remove" label={removeLabel(card.name, ` ${n + 1}`)}
+                title={removeLabel(card.name, ` ${n + 1}`)} onClick={() => p.onRemoveAttachment(index)}>
+                <XIcon className="context-pill-glyph" />
+              </IconButton>
+            </span>
+          ))}
+        </div>
+      )}
       {annotations.length > 0 && (() => {
         const count = annotations.length === 1
           ? t("chat.annotations-one") : t("chat.annotations-count", { n: annotations.length });
@@ -302,7 +345,7 @@ export function ContextShelf(p: {
       {(() => {
         const groups: { name: string; indexes: number[]; first: ShelfAttachment }[] = [];
         p.attachments.forEach((attachment, index) => {
-          if (attachment.imageUrl || isLatex(attachment)) return;
+          if (attachment.imageUrl || isLatex(attachment) || wordIndexes.has(index)) return;
           const group = groups.find((candidate) => candidate.name === attachment.name);
           if (group) group.indexes.push(index);
           else groups.push({ name: attachment.name, indexes: [index], first: attachment });
