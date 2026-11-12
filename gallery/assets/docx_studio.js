@@ -1907,9 +1907,9 @@
     }
     for (const [idx, ids] of per) {
       const p = m.paragraphs[idx];
-      items.push({ key: `p${p.para_id || p.id}`, kind: "chip", idx, anchor: nodes.get(idx) || null, ids, author: changeMap.get(ids[0]) .author });
+      items.push({ key: `p${p.para_id || p.id}`, kind: "chip", idx, anchor: nodes.get(idx) || null, ids, author: changeMap.get(ids[0])?.author ?? "" });
     }
-    if (loose.length) items.push({ key: "loose", kind: "chip", idx: 1e9, anchor: null, ids: loose, author: changeMap.get(loose[0]) .author });
+    if (loose.length) items.push({ key: "loose", kind: "chip", idx: 1e9, anchor: null, ids: loose, author: changeMap.get(loose[0])?.author ?? "" });
     // Fiches de commentaire : ancrées au premier passage surligné.
     const first = new Map                     ();
     for (const el of Array.from(paper.querySelectorAll             (".cmt[data-c]"))) {
@@ -2394,7 +2394,7 @@
     const cm = t.closest(".cmt[data-c]")                      ;
     if (cm) {
       const ids = cm.dataset.c .split(" ").map(Number);
-      const id = ids.find((x) => commentMap.get(x) && !commentMap.get(x) .done) ?? ids[0];
+      const id = ids.find((x) => commentMap.get(x)?.done === false) ?? ids[0];
       if (focusKey !== `c${id}`) focusCard(`c${id}`, false);
     } else if (!ch && focusKey && focusKey !== "draft") {
       focusKey = "";
