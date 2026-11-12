@@ -272,9 +272,11 @@ fn with_revision_instruction(prompt: String) -> String {
 user's text (a sentence or paragraph of a .tex, .md or .docx, or text they pasted), do not mark the \
 changes yourself: no bold, italics or strike-through for what changed. Put the passage in a fenced \
 block with the language `revision`: a line `--- avant`, the passage exactly as it is now (verbatim, \
-LaTeX included), then a line `+++ après`, your new version. The chat shows the differences word by \
-word and copies the new version for the user. One block per passage; keep explanations outside the \
-block. Text with no previous version is written normally.\n</atelier-revision>"
+LaTeX included), then a line `+++ après`, your new version. After `revision` on the opening fence, \
+name where the passage lives in a few words, e.g. ```revision intro.tex · l. 42 or \
+```revision revCK.docx · p. 20; the chat shows it above the passage. The chat shows the differences \
+word by word and copies the new version for the user. One block per passage; keep explanations \
+outside the block. Text with no previous version is written normally.\n</atelier-revision>"
     )
 }
 
@@ -3958,6 +3960,7 @@ mod tests {
         assert!(enriched.contains("language `revision`"));
         assert!(enriched.contains("`--- avant`") && enriched.contains("`+++ après`"));
         assert!(enriched.contains("no bold"));
+        assert!(enriched.contains("```revision revCK.docx · p. 20"));
     }
 
     #[test]

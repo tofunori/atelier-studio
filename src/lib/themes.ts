@@ -129,7 +129,9 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
     "--link": link ?? "currentColor",
     "--link-hover": link ? `color-mix(in srgb, ${link} 78%, ${fg})` : accent,
     "--link-underline": `color-mix(in srgb, ${link ?? accent} ${link ? 45 : 50}%, transparent)`,
-    "--code-inline": raw["--code-inline"] ?? "currentColor",
+    // Code en ligne du chat en gris secondaire, sans couleur propre (variante B
+    // « colonne de lecture », 2026-11-12 : le rouge se lisait comme une erreur).
+    "--code-inline": fg2,
 
     "--control-height": "28px",
     "--control-height-compact": "24px",
@@ -185,7 +187,7 @@ export const THEME_PRESETS: ThemePreset[] = [
     "#1a1a19", "#121211", "#262625", "#20201f", "#2a2a28",
     "#2b2b29", "#3b3b39", "#f0efec", "#c3c2b8", "#95938d", "#5a5955", "#d97757",
     ["#121211", "#e0736b", "#98c379", "#efb444", "#7aa6e7", "#c79bd6", "#6fbfb3", "#c3c2b8", "#5a5955", "#f08a82", "#aed48f", "#f5c867", "#95bbf0", "#d8b1e3", "#8bd3c7", "#f0efec"]),
-    { "--link": "#7aa6e7", "--code-inline": "#de8481" }),
+    { "--link": "#7aa6e7" }),
   T("graphite", "Graphite", true,
     "#202123", "#1a1b1d", "#292a2d", "#252628", "#303134",
     "#303134", "#494b4e", "#dfdfdc", "#c3c3bf", "#a0a19e", "#7f817e", "#ca926b",
@@ -278,7 +280,7 @@ const LIGHT_VARIANTS: Record<string, () => Pick<ThemePreset, "vars" | "ansi">> =
       "--bg": "#faf9f5", "--bg-side": "#f0eee6", "--bg-pop": "#ffffff", "--bg-card": "#ffffff",
       "--bg-ctl": "#e8e6dc", "--border": "#e6e3d9", "--border2": "#cfcbbf", "--fg": "#141413",
       "--fg2": "#3d3d3a", "--muted": "#64635e", "--muted2": "#9c9a92", "--accent": "#c6613f",
-      "--link": "#2f62c2", "--code-inline": "#b0413e",
+      "--link": "#2f62c2",
     },
   }),
 };

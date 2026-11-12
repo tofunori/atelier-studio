@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · regarde · relecteur (-encours, -rien).
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · epure · regarde · relecteur (-encours, -rien).
 import { setReviewSession } from "../lib/reviewSession";
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
@@ -615,6 +615,60 @@ const REVISION: AgentEvent[] = [
   { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 12000, output: 640, cost: 0.02, turns: 1 }, ts: ts(290) } as AgentEvent,
 ];
 
+// #chatbench-epure : la réponse de la capture de Thierry (2026-11-12), pour
+// juger la « colonne de lecture » (variante B) sur un vrai cas dense.
+const EPURE: AgentEvent[] = [
+  { kind: "user", text: "Que veut dire l'écart-type dans c244 ? Corrige le chiffre si besoin.", ts: ts(340) } as AgentEvent,
+  tool("e1", "mcp__atelier__atelier_docx", "revCK.docx", "136 commentaires", 900, 335),
+  tool("e2", "mcp__corpuscribe__search", "year-to-year variability", "6 articles", 700, 330),
+  tool("e3", "mcp__corpuscribe__search", "interannual variability", "31 articles", 700, 326),
+  tool("e4", "Bash", "python -c 'import pandas as pd; …'", "0.0349", 2100, 322),
+  tool("e5", "Bash", "rg -n 'standard deviation' manuscrit/", "2 lignes", 300, 318),
+  tool("e6", "Bash", "python scripts/phrase_p90.py", "47 mots, p90 42", 900, 314),
+  tool("e7", "Bash", "latexmk -pdf main.tex", "ok", 6100, 306),
+  { kind: "edit", projectRoot: "/tmp/bench", files: [{ path: "revCK.docx", add: 2, del: 2 }], ts: ts(300) } as AgentEvent,
+  {
+    kind: "text",
+    text: [
+      "J'ai posé le brouillon de réponse dans la carte de c244.",
+      "",
+      "**Ce que veut dire l'écart-type.** Oui, c'est l'écart-type temporel : celui des 22 étés de 2002–2023, dans la zone de transition de la région. Il dit qu'en 2023, le feu seul a baissé l'albédo de cette région plus que la variation normale d'un été à l'autre. Le `.tex` le dit déjà avec « year-to-year variability ».",
+      "",
+      "**La correction dans le `.docx`** est en suivi, p20 :",
+      "",
+      "```revision revCK.docx · p. 20",
+      "--- avant",
+      "above the standard deviation of summer albedo in this region (0.03; Extended Data Fig. 5a).",
+      "+++ après",
+      "above the year-to-year variability of summer albedo in this region (standard deviation of 0.035 over 2002–2023; Extended Data Fig. 5a).",
+      "```",
+      "",
+      "**Le chiffre.** J'ai recalculé l'écart-type à partir de `analysis/fitted_vs_counterfactual.csv`. Pour la Mackenzie et Selwyn (02-01), il vaut 0,0349. C'est la même valeur que la bande grise de l'ED Fig. 5a. Le texte disait 0,03, arrondi trop bas. J'ai donc mis 0,035 dans le `.docx`, ce qui règle aussi le point ouvert « 0,03 contre 0,035 ». La conclusion ne change pas : 0,046 reste au-dessus de 0,035.",
+      "",
+      "### Contrôles",
+      "",
+      "- **Corpuscribe.**",
+      "  - « year-to-year variability » se trouve dans 6 articles ;",
+      "  - « interannual variability » dans 31 ;",
+      "  - « standard deviation of » dans 34.",
+      "- **redaction-article.** La phrase entière fait 47 mots, au-dessus du p90 (42). C'est le seul point de tension.",
+      "",
+      "**Le `.tex`.** Je propose de mettre 0,035 et de couper la phrase en deux. La deuxième phrase commence par l'information déjà donnée (« This value »). Elle finit sur le point nouveau, la variabilité d'une année à l'autre.",
+      "",
+      "```revision results.tex · proposition",
+      "--- avant",
+      "For a single region in a single summer, the darkening is highest in the Mackenzie and Selwyn Mountains in 2023, at 0.046 (0.020 to 0.071; Fig.~\\ref{fig:heatmap}b), above the year-to-year variability of summer albedo in this region (standard deviation of 0.03; Extended Data Fig.~\\ref{fig:observed}a).",
+      "+++ après",
+      "For a single region in a single summer, the darkening is highest in the Mackenzie and Selwyn Mountains in 2023, at 0.046 (0.020 to 0.071; Fig.~\\ref{fig:heatmap}b). This value exceeds the year-to-year variability of summer albedo in this region (standard deviation of 0.035 over 2002--2023; Extended Data Fig.~\\ref{fig:observed}a).",
+      "```",
+      "",
+      "Je l'applique dans le `.tex`, avec les phrases de c238 et c243 ? Si oui, je fais la même coupure dans le `.docx`.",
+    ].join("\n"),
+    ts: ts(298),
+  } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: ["revCK.docx"], usage: { context: 12000, output: 640, cost: 0.02, turns: 1 }, ts: ts(296) } as AgentEvent,
+];
+
 const PROPOSAL: AgentEvent[] = [
   { kind: "user", text: "Je voudrais un spécialiste pour le glacier Peyto, tu peux le partir avec moi ?", ts: ts(40) },
   { kind: "text", text: "Voici une première fiche. Garde-la telle quelle ou ajuste-la dans les réglages.", ts: ts(30) },
@@ -974,6 +1028,7 @@ const STATES: Record<string, BenchState> = {
   typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },
   proposal: { events: PROPOSAL, workingSince: null, attachments: [], usage: null },
   revision: { events: REVISION, workingSince: null, attachments: [], usage: null },
+  epure: { events: EPURE, workingSince: null, attachments: [], usage: null },
   actionsclaude: { events: ACTIONS_CLAUDE, workingSince: ts(58), attachments: [], usage: { context: 31000, output: 640, cost: null, turns: 1 } },
   actionscodex: { events: ACTIONS_CODEX, workingSince: ts(40), attachments: [], usage: { context: 19000, output: 220, cost: null, turns: 1 } },
   claudeagents: { events: AGENTS_CLAUDE, workingSince: ts(70), attachments: [], usage: { context: 26000, output: 300, cost: null, turns: 1 } },

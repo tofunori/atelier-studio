@@ -578,7 +578,10 @@ export function PreBlock(props: any) {
     return <MermaidBlock source={mdText(child.children)} highlight={highlightCode} />;
   }
   if (lang === "revision") {
-    return <Suspense fallback={<MarkdownCodeBlock {...props} />}><RevisionBlock source={mdText(child.children)} /></Suspense>;
+    // ```revision revCK.docx · p. 20 : la suite de la ligne d'ouverture
+    // (meta du bloc) dit où vit le passage.
+    const where = typeof child.node?.data?.meta === "string" ? child.node.data.meta : undefined;
+    return <Suspense fallback={<MarkdownCodeBlock {...props} />}><RevisionBlock source={mdText(child.children)} where={where} /></Suspense>;
   }
   return <MarkdownCodeBlock {...props} />;
 }
