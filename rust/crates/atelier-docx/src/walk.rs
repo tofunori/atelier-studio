@@ -78,13 +78,16 @@ pub enum Tok {
     Cr,
     NoBreakHyphen,
     SoftHyphen,
+    /// Tabulation de position (`w:ptab`) : recopiée telle quelle, jamais
+    /// changée en tabulation ordinaire quand le run est découpé.
+    Ptab(String),
 }
 
 impl Tok {
     pub fn text(&self) -> String {
         match self {
             Tok::Text(s) => s.clone(),
-            Tok::Tab => "\t".into(),
+            Tok::Tab | Tok::Ptab(_) => "\t".into(),
             Tok::Br | Tok::Cr => "\n".into(),
             Tok::NoBreakHyphen => "\u{2011}".into(),
             Tok::SoftHyphen => String::new(),
@@ -100,9 +103,13 @@ pub struct RunInfo {
     pub start_tag: String,
     pub rpr: String,
     pub toks: Vec<Tok>,
-    /// Run d'une insertion en suivi (id, auteur) : retouchable par son auteur
-    /// seulement, qui modifie alors son propre ajout sans nouveau suivi.
+    /// Run d'une insertion en suivi (id, auteur) : son auteur la modifie
+    /// sans nouveau suivi ; un autre y ajoute ou y efface en suivi signé
+    /// de son nom, comme dans Word.
     pub ins: Option<(u32, String)>,
+    /// Balise ouvrante du `w:ins` quand il est le parent direct du run :
+    /// sert à couper l'insertion d'un autre pour y glisser la sienne.
+    pub ins_tag: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -375,7 +382,8 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
         let tok = match name {
             "rPr" => continue,
             "t" | "delText" => Some(Tok::Text(c.text().unwrap_or("").to_string())),
-            "tab" | "ptab" => Some(Tok::Tab),
+            "tab" => Some(Tok::Tab),
+            "ptab" => Some(Tok::Ptab(ctx.src[c.range()].to_string())),
             "br" => match w_attr(c, "type") {
                 Some("page") | Some("column") => {
                     simple = false;
@@ -464,7 +472,7 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
         };
         if let Some(tok) = tok {
             let kind = match tok {
-                Tok::Tab => Kind::Tab,
+                Tok::Tab | Tok::Ptab(_) => Kind::Tab,
                 Tok::Br | Tok::Cr => Kind::Break,
                 _ => Kind::Text,
             };
@@ -479,6 +487,7 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
             rpr: rpr.map(|n| ctx.src[n.range()].to_string()).unwrap_or_default(),
             toks,
             ins: in_ins.then(|| (ctx.revs[0].1, ctx.rev_authors[0].clone())),
+            ins_tag: r.parent().filter(|p| in_ins && is_w(*p, "ins")).map(|p| start_tag(ctx.src, p).to_string()),
         });
         Some(out.runs.len() - 1)
     } else {

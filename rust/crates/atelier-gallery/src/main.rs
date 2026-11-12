@@ -2833,6 +2833,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/stat", get(docx::stat))
         .route("/docx/op", post(docx::op))
         .route("/docx/undo", post(docx::undo))
+        .route("/docx/history", get(docx::history_status))
         .route("/docx/prefs", get(docx::get_prefs).post(docx::post_prefs))
         .route("/docx/media", get(docx::media))
         .route("/docx/figures", get(docx::figures))

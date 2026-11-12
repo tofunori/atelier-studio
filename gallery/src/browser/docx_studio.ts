@@ -54,7 +54,9 @@
   };
   type Pos = { idx: number; off: number };
   type Sel = { a: Pos; b: Pos };
-  type Ghost = { idx: number; at: number; text: string; sent: boolean };
+  /** Frappe pas encore confirmée : `sent` = confiée à la file, `flying` =
+   *  requête partie, `gone` = envoyée à la fermeture du panneau. */
+  type Ghost = { idx: number; at: number; text: string; sent: boolean; flying?: boolean; gone?: boolean };
   type Op = Record<string, unknown>;
 
   const W = window as unknown as Window & {
@@ -1097,12 +1099,81 @@
   }
   const toastEl = $("toast");
   let toastTimer = 0;
-  function toast(text: string, err = false) {
+  function toast(text: string, err = false, ms?: number) {
     toastEl.textContent = text;
     toastEl.classList.toggle("err", err);
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), err ? 4200 : 2200);
+    toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), ms ?? (err ? 4200 : 2200));
+  }
+
+  const sentence = (m: string) => (/[.!?…]$/.test(m.trim()) ? m.trim() : `${m.trim()}.`);
+  /** Une saisie qu'on n'a pas pu poser : jamais perdue en silence. Elle
+   *  reste lisible dans le message et part dans le presse-papiers. */
+  function rescue(texts: string[], why: string) {
+    const text = texts.join("");
+    if (!text.trim()) return;
+    const shown = clip(oneLine(text), 120);
+    const say = (copied: boolean) => toast(`${why} Ta saisie « ${shown} » ${copied ? "est copiée dans le presse-papiers : colle-la où il faut." : "n'a pas été enregistrée : recopie-la."}`, true, 9000);
+    try {
+      navigator.clipboard.writeText(text).then(() => say(true), () => say(false));
+    } catch {
+      say(false);
+    }
+  }
+
+  /** Après un changement venu d'ailleurs (Word, l'agent), replace la frappe
+   *  en attente dans la nouvelle version : même paragraphe s'il n'a pas
+   *  bougé, sinon le paragraphe identique, sinon le passage autour du
+   *  curseur s'il est unique. Rend le texte qu'on n'a pas su replacer. */
+  function remapGhosts(old: Model, fresh: Model): string[] {
+    const lost: string[] = [];
+    const chars = (s: string) => Array.from(s);
+    const placed: { g: Ghost; realAt: number }[] = [];
+    const keep: Ghost[] = [];
+    ghosts.forEach((g, i) => {
+      if (g.gone) return;
+      // Position dans le texte réel d'avant (sans les frappes en attente qui précèdent).
+      const earlier = ghosts.slice(0, i).filter((h) => !h.gone && h.idx === g.idx && h.at <= g.at).reduce((n, h) => n + cp(h.text), 0);
+      const realAt = g.at - earlier;
+      const oldText = old.paragraphs[g.idx] ? old.paragraphs[g.idx].text : "";
+      let idx = -1;
+      let at = realAt;
+      if (fresh.paragraphs[g.idx] && fresh.paragraphs[g.idx].text === oldText) {
+        idx = g.idx;
+      } else {
+        const same = fresh.paragraphs.map((p, k) => (p.text === oldText ? k : -1)).filter((k) => k >= 0);
+        if (same.length === 1 && oldText) {
+          idx = same[0];
+        } else {
+          const c = chars(oldText);
+          const left = c.slice(Math.max(0, realAt - 24), realAt).join("");
+          const right = c.slice(realAt, realAt + 24).join("");
+          const key = left + right;
+          if (cp(key) >= 6) {
+            const found: { k: number; at: number }[] = [];
+            fresh.paragraphs.forEach((p, k) => {
+              let from = 0;
+              for (;;) {
+                const b = p.text.indexOf(key, from);
+                if (b < 0) break;
+                found.push({ k, at: cp(p.text.slice(0, b)) + cp(left) });
+                from = b + 1;
+              }
+            });
+            if (found.length === 1) { idx = found[0].k; at = found[0].at; }
+          }
+        }
+      }
+      if (idx < 0) { lost.push(g.text); return; }
+      const before = placed.filter((x) => x.g.idx === idx && x.realAt <= at).reduce((n, x) => n + cp(x.g.text), 0);
+      g.idx = idx;
+      g.at = at + before;
+      placed.push({ g, realAt: at });
+      keep.push(g);
+    });
+    ghosts = keep;
+    return lost;
   }
 
   /** File d'attente : une retouche à la fois, dans l'ordre des gestes. */
@@ -1133,8 +1204,9 @@
               const fresh: Model = normalize(await api(`/docx/model?path=${enc(PATH)}`));
               const same = expectIdx !== undefined && fresh.paragraphs[expectIdx] && fresh.paragraphs[expectIdx].text === expectText;
               const sel = readSel();
-              ghosts = [];
+              const lost = remapGhosts(model!, fresh);
               applyModel(fresh, sel);
+              if (lost.length) rescue(lost, "Le document a changé pendant la frappe.");
               if (same) continue;
               status("Le document a changé pendant ce geste : refais-le sur la version à jour.", true);
               return false;
@@ -1144,8 +1216,10 @@
         }
         return false;
       } catch (e: any) {
+        const pending = ghosts.filter((x) => !x.gone && !x.flying).map((x) => x.text);
         ghosts = [];
-        status(e.message || String(e), true);
+        if (pending.length) rescue(pending, sentence(e.message || String(e)));
+        else status(e.message || String(e), true);
         try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message reste */ }
         return false;
       } finally {
@@ -1182,24 +1256,65 @@
     for (const g of todo) {
       g.sent = true;
       enqueue(async () => {
+        if (g.gone || !ghosts.includes(g)) return;
         inflight++;
         status("Enregistrement…");
+        const send = () => {
+          g.flying = true;
+          return api("/docx/op", { path: PATH, revision: model!.revision, author, tracked, op: { op: "insert", paragraph: ref(g.idx), at: g.at, with: g.text } });
+        };
         try {
-          const r = await api("/docx/op", { path: PATH, revision: model!.revision, author, tracked, op: { op: "insert", paragraph: ref(g.idx), at: g.at, with: g.text } });
+          let r: any;
+          try {
+            r = await send();
+          } catch (e: any) {
+            if (e.status !== 409) throw e;
+            // Word ou l'agent a écrit entre-temps : relire, replacer la frappe
+            // en attente dans la nouvelle version, et renvoyer celle-ci.
+            const old = model!;
+            const fresh: Model = normalize(await api(`/docx/model?path=${enc(PATH)}`));
+            const lost = remapGhosts(old, fresh);
+            applyModel(fresh, readSel());
+            if (lost.length) rescue(lost, "Le document a changé pendant la frappe.");
+            if (!ghosts.includes(g)) return;
+            r = await send();
+          }
           const sel = readSel();
-          ghosts.shift();
+          ghosts = ghosts.filter((x) => x !== g);
           applyModel(r.model, sel);
           status("Enregistré dans le .docx");
         } catch (e: any) {
+          // Retouche refusée (Word ouvert, passage intouchable…) : la frappe
+          // en attente n'a plus de place sûre, elle est rendue à l'utilisateur.
+          const pending = ghosts.filter((x) => !x.gone).map((x) => x.text);
           ghosts = [];
-          status(e.status === 409 ? "Le document a changé pendant la frappe : la dernière saisie n'a pas été enregistrée." : (e.message || String(e)), true);
+          rescue(pending, e.status === 409 ? "Le document a changé pendant la frappe." : sentence(e.message || String(e)));
           try { applyModel(await api(`/docx/model?path=${enc(PATH)}`), readSel()); } catch { /* le message reste */ }
         } finally {
+          g.flying = false;
           inflight--;
         }
       });
     }
     return chain;
+  }
+
+  /** Fermeture du panneau : la file ne tournera plus. Toute frappe qui n'est
+   *  pas déjà partie s'envoie d'un seul geste, en `keepalive` pour survivre
+   *  au déchargement de la page. */
+  function flushOnExit() {
+    clearTimeout(idleTimer);
+    const todo = ghosts.filter((g) => !g.flying && !g.gone);
+    if (!todo.length || !model) return;
+    for (const g of todo) g.gone = true;
+    const ops = todo.map((g) => ({ op: "insert", paragraph: ref(g.idx), at: g.at, with: g.text }));
+    const op = ops.length === 1 ? ops[0] : { op: "batch", ops };
+    // Une retouche est encore en vol : sa révision n'est pas connue ici, on
+    // laisse alors le serveur appliquer à la suite sans contrôle.
+    const body = JSON.stringify({ path: PATH, revision: inflight ? undefined : model.revision, author, tracked, op });
+    try {
+      void fetch("/docx/op", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60000 }).catch(() => undefined);
+    } catch { /* page déjà déchargée */ }
   }
 
   /** Un geste qui change la structure : la frappe part d'abord, et les gestes
@@ -1418,7 +1533,7 @@
         try {
           const r = await api("/docx/undo", { path: PATH, revision: model!.revision, redo });
           applyModel(r.model, readSel());
-          status(redo ? "Rétabli" : "Annulé");
+          status(r.label ? `${redo ? "Rétabli" : "Annulé"} : ${r.label}` : redo ? "Rétabli" : "Annulé");
         } catch (e: any) {
           status(e.message || String(e), true);
         }
@@ -2761,12 +2876,13 @@
   function lockedAt(idx: number, s: number, e: number): "" | "field" | "rev" {
     const [a, b] = expandWhole(idx, s, e);
     if (a !== s || b !== e) return "field";
-    // Le moteur refuse de retoucher l'ajout en suivi d'un autre auteur.
+    // Le moteur retouche l'ajout d'un autre en suivi imbriqué, mais pas un
+    // passage déplacé (à accepter ou refuser d'abord).
     let off = 0;
     for (const g of model!.paragraphs[idx].segments) {
       const removed = g.rev === "del" || g.rev === "moveFrom";
       const len = removed ? 0 : cp(g.text);
-      if (!removed && g.rev && g.change !== undefined && len && off < e && s < off + len && changeMap.get(g.change)?.author !== author) return "rev";
+      if (!removed && g.rev === "moveTo" && g.change !== undefined && len && off < e && s < off + len && changeMap.get(g.change)?.author !== author) return "rev";
       off += len;
     }
     return "";
@@ -2838,7 +2954,7 @@
     if (!h) return;
     if (view === "original") { status("Repasser en Révision pour remplacer."); return; }
     if (h.locked === "field") { status("Ce passage est dans une citation ou un champ : à modifier dans Word.", true); return; }
-    if (h.locked === "rev") { status("Ce passage est un ajout en suivi d'un autre auteur : l'accepter ou le refuser d'abord.", true); return; }
+    if (h.locked === "rev") { status("Ce passage est un déplacement en suivi d'un autre auteur : l'accepter ou le refuser d'abord.", true); return; }
     const w = replacement();
     structural(async () => {
       const ok = await sendOp({ op: "replace_range", paragraph: ref(h.idx), start: h.s, end: h.e, with: w }, () => null);
@@ -2856,7 +2972,7 @@
     const free = hits.filter((h) => !h.locked);
     const inField = hits.filter((h) => h.locked === "field").length;
     const inRev = hits.filter((h) => h.locked === "rev").length;
-    if (!free.length) { status("Tous ces passages sont dans des champs ou des ajouts en suivi d'un autre auteur : rien à remplacer ici.", true); return; }
+    if (!free.length) { status("Tous ces passages sont dans des champs ou des déplacements en suivi d'un autre auteur : rien à remplacer ici.", true); return; }
     const left = [inField ? pl(inField, "laissé dans un champ", "laissés dans des champs") : "", inRev ? pl(inRev, "laissé dans un suivi", "laissés dans des suivis") : ""].filter(Boolean).join(", ");
     // Du dernier au premier dans chaque paragraphe : les positions qui
     // précèdent restent justes.
@@ -2969,7 +3085,7 @@
     document.addEventListener("selectionchange", () => live.schedule());
   }
 
-  window.addEventListener("pagehide", () => { flushGhosts(); });
+  window.addEventListener("pagehide", flushOnExit);
   document.addEventListener("visibilitychange", () => { if (document.hidden) flushGhosts(); });
   boot();
 })();

@@ -53,6 +53,9 @@ pub fn decide(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
         drop(doc);
         out = next;
     }
+    // Un suivi imbriqué traité (effacement d'un autre dans un ajout) peut
+    // laisser l'ajout vide.
+    let out = crate::edit::drop_empty_revisions(&out)?;
     docx.set_part(&part, out);
     crate::story::drop_orphan_notes(docx)
 }
@@ -85,6 +88,10 @@ pub fn decide_all(docx: &mut Docx, decision: Decision, author: Option<&str>) -> 
         if done.len() + skipped.len() > 100_000 {
             break;
         }
+    }
+    if let Some(src) = docx.part(&part)? {
+        let out = crate::edit::drop_empty_revisions(&src)?;
+        docx.set_part(&part, out);
     }
     }
     crate::story::drop_orphan_notes(docx)?;
