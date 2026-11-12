@@ -99,13 +99,13 @@
   let structBusy = false;
   let backlog: (() => Promise<void>)[] = [];
   let focusKey = "";
-  let lastStatus = "";
   let composing: Pos | null = null;
   const cp = (s: string) => Array.from(s).length;
 
   // ---------------------------------------------------------------- icônes
-  const svg = (d: string, w = 1.4) =>
-    `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  // Famille Lucide, trait 1,5, comme le reste d'Atelier.
+  const svg = (d: string, size = 16) =>
+    `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
   // Teintes de surlignage de Word, rendues avec celles des annotations
   // d'Atelier pour les quatre que la capsule propose.
   const HIGHLIGHT: Record<string, string> = {
@@ -115,32 +115,33 @@
     darkBlue: "color-mix(in srgb, navy 40%, transparent)", darkRed: "color-mix(in srgb, maroon 40%, transparent)",
     darkGray: "color-mix(in srgb, gray 40%, transparent)", lightGray: "color-mix(in srgb, silver 40%, transparent)",
   };
-  const ICON = {
-    chev: svg('<path d="M8 10l4 4 4-4"/>'),
-    more: svg('<circle cx="6" cy="12" r=".9"/><circle cx="12" cy="12" r=".9"/><circle cx="18" cy="12" r=".9"/>'),
-    plus: svg('<path d="M12 6v12M6 12h12"/>'),
-    left: svg('<path d="M14 7l-5 5 5 5"/>'),
-    right: svg('<path d="M10 7l5 5-5 5"/>'),
-    check: svg('<path d="M6 12.5l4 4 8-9"/>'),
-    x: svg('<path d="M7 7l10 10M17 7L7 17"/>'),
-    alLeft: svg('<path d="M5 6h14M5 10h9M5 14h14M5 18h9"/>'),
-    alCenter: svg('<path d="M5 6h14M7.5 10h9M5 14h14M7.5 18h9"/>'),
-    alRight: svg('<path d="M5 6h14M10 10h9M5 14h14M10 18h9"/>'),
-    alBoth: svg('<path d="M5 6h14M5 10h14M5 14h14M5 18h14"/>'),
-    bullets: svg('<circle cx="6" cy="7" r=".9"/><circle cx="6" cy="12" r=".9"/><circle cx="6" cy="17" r=".9"/><path d="M10 7h9M10 12h9M10 17h9"/>'),
-    numbers: svg('<path d="M10 7h9M10 12h9M10 17h9"/><path d="M5 5.5l1-.5v4M4.8 13.5c.3-.6 1.9-.9 1.9.3 0 .8-1.9 1.7-1.9 2.4h2"/>', 1.3),
-    comment: svg('<path d="M5 6.5h14v9H10l-4 3v-3H5z"/><path d="M12 9v4M10 11h4"/>'),
-    undo: svg('<path d="M9 7L5 11l4 4"/><path d="M5.5 11H14a5 5 0 0 1 0 10h-2"/>'),
-    redo: svg('<path d="M15 7l4 4-4 4"/><path d="M18.5 11H10a5 5 0 0 0 0 10h2"/>'),
-    warn: svg('<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/>'),
-    saved: svg('<path d="M6 12.5l4 4 8-9"/>', 1.5),
-    chat: svg('<path d="M5 6h14v10H9l-4 3z"/>'),
-    trash: svg('<path d="M6 7h12M10 7V5h4v2M8 7l1 12h6l1-12"/>'),
-    reply: svg('<path d="M10 8L5 12l5 4"/><path d="M5.5 12H14a5 5 0 0 1 5 5v1"/>'),
-    note: svg('<path d="M4 18h10M4 13h10M4 8h7"/><path d="M16.5 6.5l1.5-1v5"/>'),
-    table: svg('<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10h16M4 14.5h16M10 5v14"/>'),
-    figure: svg('<rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M5 17l5-4 3 3 2-2 4 3"/>'),
+  const PATHS = {
+    panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    down: '<path d="m6 9 6 6 6-6"/>',
+    up: '<path d="m18 15-6-6-6 6"/>',
+    left: '<path d="m15 18-6-6 6-6"/>',
+    right: '<path d="m9 18 6-6-6-6"/>',
+    msgPlus: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>',
+    chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    minus: '<path d="M5 12h14"/>',
+    undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
+    redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/>',
+    alLeft: '<path d="M15 12H3"/><path d="M17 18H3"/><path d="M21 6H3"/>',
+    alCenter: '<path d="M17 12H7"/><path d="M19 18H5"/><path d="M21 6H3"/>',
+    alRight: '<path d="M21 12H9"/><path d="M21 18H7"/><path d="M21 6H3"/>',
+    alBoth: '<path d="M3 12h18"/><path d="M3 18h18"/><path d="M3 6h18"/>',
+    list: '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>',
+    more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
+  const ic = (k: keyof typeof PATHS, size = 16) => svg(PATHS[k], size);
+  const ICON = { check: ic("check", 14), warn: ic("warn", 14) };
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
 
   // ---------------------------------------------------------------- serveur
@@ -199,14 +200,19 @@
   }
 
   // --------------------------------------------------------------- couleurs
+  // Une teinte par auteur : soi, l'agent, puis trois teintes calmes pour les
+  // relecteurs. Deux jeux : sur la page (--doc-*, papier blanc ou thème) et
+  // dans la marge (--ui-*, toujours au thème de l'app).
   const colorCache = new Map<string, string>();
-  function authorColor(name: string): string {
-    if (!name) return "var(--text-muted)";
-    if (AGENT.test(name)) return "var(--accent)";
-    if (name === author) return "var(--text-muted)";
-    if (!colorCache.has(name)) colorCache.set(name, `var(--doc-author-${(colorCache.size % 3) + 1})`);
+  function authorKey(name: string): string {
+    if (!name) return "none";
+    if (AGENT.test(name)) return "agent";
+    if (name === author) return "me";
+    if (!colorCache.has(name)) colorCache.set(name, `a${(colorCache.size % 3) + 1}`);
     return colorCache.get(name) as string;
   }
+  const authorColor = (name: string) => `var(--doc-${authorKey(name)})`;
+  const uiColor = (name: string) => `var(--ui-${authorKey(name)})`;
   const changeById = () => new Map((model?.changes || []).map((c) => [c.id, c] as const));
 
   // ------------------------------------------------- paragraphe « virtuel »
@@ -470,23 +476,19 @@
     fitPage();
   }
   const zoomPct = () => Math.round(ptPx / PT * 100);
-  const zoomEl = document.createElement("span");
-  zoomEl.className = "zoom";
-  zoomEl.setAttribute("role", "group");
-  zoomEl.setAttribute("aria-label", "Zoom");
-  zoomEl.innerHTML = `<button class="z-step" data-z="out" aria-label="Zoom arrière" data-tooltip="Zoom arrière (⌘−)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 8h9"/></svg></button>
-    <input type="range" min="${ZOOM_MIN}" max="${ZOOM_MAX}" step="5" aria-label="Zoom">
-    <button class="z-step" data-z="in" aria-label="Zoom avant" data-tooltip="Zoom avant (⌘+)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 8h9M8 3.5v9"/></svg></button>
-    <button class="z-pct" data-tooltip="Ajuster à la largeur (⌘0)"></button>`;
-  const zoomRange = zoomEl.querySelector("input") as HTMLInputElement;
+  // Barre d'état : page, mots, revue, enregistrement, signature et zoom.
+  foot.innerHTML = `<span id="ftPage"></span><span id="ftWords" class="hide1"></span><span id="ftOpen" class="hide2"></span>
+    <span class="sp"></span>
+    <span class="sv" id="ftSave" role="status" aria-live="polite"></span>
+    <button id="who" class="hide1" data-tooltip="Nom inscrit sur tes retouches et commentaires"></button>
+    <span class="zoom" id="zoom" role="group" aria-label="Zoom" hidden><button class="z-step" data-z="out" aria-label="Zoom arrière" data-tooltip="Zoom arrière (⌘−)">${ic("minus", 12)}</button><button class="z-pct" data-tooltip="Ajuster à la fenêtre (⌘0)"></button><button class="z-step" data-z="in" aria-label="Zoom avant" data-tooltip="Zoom avant (⌘+)">${ic("plus", 12)}</button></span>`;
+  const zoomEl = $("zoom");
   const zoomLabel = zoomEl.querySelector(".z-pct") as HTMLElement;
   function showZoom(px: number) {
     const pct = Math.round(px / PT * 100);
-    zoomRange.value = String(pct);
     zoomLabel.textContent = `${pct} %`;
     zoomLabel.classList.toggle("on", zoom === null);
   }
-  zoomRange.addEventListener("input", () => setZoom(Number(zoomRange.value)));
   zoomEl.querySelector('[data-z="out"]')!.addEventListener("click", () => setZoom(zoomPct() - ZOOM_STEP));
   zoomEl.querySelector('[data-z="in"]')!.addEventListener("click", () => setZoom(zoomPct() + ZOOM_STEP));
   zoomLabel.addEventListener("click", () => setZoom(null));
@@ -527,17 +529,20 @@
   // document garde ses coupures (la frappe ne refait pas tout le manuscrit).
   let linesFrame = 0;
   let dirtyFrom: number | null = null;
+  let dirtyTo = -1;
   let dirtyAll = false;
   function scheduleLines(from?: number) {
-    if (typeof from === "number") dirtyFrom = dirtyFrom === null ? from : Math.min(dirtyFrom, from);
+    if (typeof from === "number") { dirtyFrom = dirtyFrom === null ? from : Math.min(dirtyFrom, from); dirtyTo = Math.max(dirtyTo, from); }
     else dirtyAll = true;
     if (linesFrame) return;
     linesFrame = requestAnimationFrame(() => {
       linesFrame = 0;
       const from = dirtyAll ? null : dirtyFrom;
+      const to = dirtyTo;
       dirtyAll = false;
       dirtyFrom = null;
-      layoutPages(from);
+      dirtyTo = -1;
+      layoutPages(from, to);
     });
   }
   /** Blocs du flux, dans l'ordre : paragraphes, lignes de tableau, notes,
@@ -551,7 +556,7 @@
     }
     return blocks;
   }
-  function layoutPages(from: number | null = null) {
+  function layoutPages(from: number | null = null, to = -1) {
     const pg = model?.page;
     if (!pg) return;
     const s = getSelection();
@@ -570,20 +575,34 @@
       start = blocks.findIndex((b) => b.getBoundingClientRect().top - o >= limit);
       if (start <= 0) { start = 0; page = 0; }
     }
-    const first = blocks[start];
-    for (const g of Array.from(paper.querySelectorAll(".d-gap"))) {
-      // Les coupures avant le premier bloc recoupé restent en place.
-      if (start > 0 && first && !(first.compareDocumentPosition(g) & (Node.DOCUMENT_POSITION_FOLLOWING | Node.DOCUMENT_POSITION_CONTAINED_BY))) continue;
-      const parent = g.parentNode;
-      g.remove();
-      parent?.normalize();
+    // Mise en page complète : toutes les coupures repartent de zéro. Sinon
+    // chaque bloc retire ses propres coupures au moment d'être recoupé, et la
+    // coupe s'arrête dès qu'un bloc après la retouche retombe à sa place
+    // d'avant (la suite du manuscrit est alors identique).
+    if (from === null) {
+      for (const g of Array.from(paper.querySelectorAll(".d-gap"))) {
+        const parent = g.parentNode;
+        g.remove();
+        parent?.normalize();
+      }
+      blockTops = new WeakMap();
+    }
+    let until = Infinity;
+    if (from !== null) {
+      const last = paper.querySelector(`.d-p[data-idx="${Math.max(from, to)}"]`);
+      const k = last ? blocks.findIndex((b) => b === last || b.contains(last)) : -1;
+      until = k >= 0 ? k : Infinity;
     }
     paper.style.minHeight = "";
-    const pages = paginate(pg, blocks, start, page);
+    const pages = paginate(pg, blocks, start, page, until, from !== null);
     if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
     drawSheets(pg, pages);
     drawLines(pg);
+    pageCount = pages;
+    drawBars();
     placeCards();
+    spy();
+    if (findOpen()) runFind(false);
   }
 
   type Line = { top: number; bottom: number; atom: Node; frag: number };
@@ -634,13 +653,28 @@
   function gapEl(inline: boolean, h: number) {
     const g = document.createElement(inline ? "span" : "div");
     g.className = "d-gap";
+    g.dataset.run = String(gapRun);
     g.contentEditable = "false";
     g.style.height = `${Math.max(0, h)}px`;
     return g;
   }
 
-  /** Coupe le flux en feuilles ; rend le nombre de feuilles. */
-  function paginate(pg: Page, blocks: HTMLElement[], start = 0, page0 = 0): number {
+  /** Haut de chaque bloc (par rapport à la page) à la dernière coupe. */
+  let blockTops = new WeakMap<Element, number>();
+  let gapRun = 0;
+  /** Coupures laissées par une coupe précédente : avant le bloc (ou sa note) et dedans. */
+  function staleGaps(el: HTMLElement, withBefore: boolean): Element[] {
+    const out: Element[] = Array.from(el.querySelectorAll(".d-gap")).filter((g) => (g as HTMLElement).dataset.run !== String(gapRun));
+    if (withBefore) {
+      const host = el.closest(".d-note") && !el.previousElementSibling ? el.closest(".d-note") as HTMLElement : el;
+      for (let p = host.previousElementSibling; p && p.classList.contains("d-gap") && (p as HTMLElement).dataset.run !== String(gapRun); p = p.previousElementSibling) out.push(p);
+    }
+    return out;
+  }
+  /** Coupe le flux en feuilles ; rend le nombre de feuilles. `until` : dernier
+   *  bloc retouché ; passé lui, la coupe s'arrête au premier bloc resté en place. */
+  function paginate(pg: Page, blocks: HTMLElement[], start = 0, page0 = 0, until = Infinity, partial = false): number {
+    gapRun++;
     const pt = ptPx, pageH = pg.height * pt, stride = pageH + GAP;
     // Positions relues par rapport à la page à chaque mesure : WebKit
     // ancre le défilement pendant qu'on insère les intervalles (le panneau
@@ -658,14 +692,27 @@
       if (host.tagName === "TR") {
         const tr = document.createElement("tr");
         tr.className = "d-gap";
+        tr.dataset.run = String(gapRun);
         tr.innerHTML = `<td colspan="99" style="padding:0;border:0"><div style="height:${Math.max(0, h)}px"></div></td>`;
         host.before(tr);
       } else host.before(gapEl(false, h));
     };
     let page = page0;
     let forceNext = false;
+    let done = blocks.length;
     for (let b = start; b < blocks.length; b++) {
       const el = blocks[b];
+      if (partial) {
+        // Passé la retouche, un bloc qui n'a pas bougé clôt la coupe.
+        if (b > until && !forceNext) {
+          const was = blockTops.get(el);
+          if (was !== undefined && Math.abs(topOfEl(el) - was) < 0.5) { done = b; break; }
+        }
+        const stale = staleGaps(el, b > start);
+        if (stale.length) {
+          for (const g of stale) { const parent = g.parentNode; g.remove(); parent?.normalize(); }
+        }
+      }
       if (el.tagName === "TR") {
         const r = el.getBoundingClientRect();
         const top = r.top - O(), bottom = r.bottom - O();
@@ -751,6 +798,9 @@
       const lastLine = lines[lines.length - 1];
       if (forced.some((y) => y >= lastLine.top - 1)) forceNext = true;
     }
+    // Positions retenues pour la prochaine coupe (lectures seules, une mise en page).
+    const o = O();
+    for (let b = start; b < done; b++) blockTops.set(blocks[b], blocks[b].getBoundingClientRect().top - o);
     const end = paper.scrollHeight;
     return Math.max(1, pageAt(Math.max(0, end - pg.bottom * pt - 1)) + 1);
   }
@@ -831,6 +881,48 @@
     }
     if (ln.font) lnLayer.style.fontFamily = `"${ln.font}", "Times New Roman", serif`;
     lnLayer.replaceChildren(frag);
+  }
+
+  // Vue Lecture : le texte se lit comme accepté, un trait fin dans la marge
+  // de gauche signale chaque groupe de lignes retouchées.
+  const cbars = $("cbars");
+  let pageCount = 1;
+  function drawBars() {
+    const pg = model?.page;
+    if (view !== "final" || !pg) { if (cbars.firstChild) cbars.replaceChildren(); return; }
+    const o = paper.getBoundingClientRect().top;
+    const spans: [number, number][] = [];
+    const push = (r: DOMRect | undefined) => { if (r && r.height > 2 && r.height < 120) spans.push([r.top - o, r.bottom - o]); };
+    for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".ins[data-ch]"))) for (const r of Array.from(el.getClientRects())) push(r);
+    // Une suppression masquée tombe sur la ligne du texte qui l'entoure.
+    for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".del[data-ch]"))) {
+      const prev = el.previousElementSibling, next = el.nextElementSibling;
+      const pr = prev ? Array.from(prev.getClientRects()) : [];
+      push(pr.length ? pr[pr.length - 1] : next ? next.getClientRects()[0] : undefined);
+    }
+    // Mise en forme ou marque de paragraphe : tout le paragraphe.
+    for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".d-p.changed"))) {
+      if (el.querySelector(".ins[data-ch],.del[data-ch]")) continue;
+      const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+      spans.push([r.top - o + (parseFloat(cs.paddingTop) || 0), r.bottom - o - (parseFloat(cs.paddingBottom) || 0)]);
+    }
+    spans.sort((a, b) => a[0] - b[0]);
+    const merged: [number, number][] = [];
+    for (const s of spans) {
+      const last = merged[merged.length - 1];
+      if (last && s[0] <= last[1] + 6) last[1] = Math.max(last[1], s[1]);
+      else merged.push([s[0], s[1]]);
+    }
+    const x = paper.offsetLeft + (pg.left - 9) * ptPx;
+    const frag = document.createDocumentFragment();
+    for (const [a, b] of merged) {
+      const i = document.createElement("i");
+      i.style.left = `${x}px`;
+      i.style.top = `${paper.offsetTop + a - 2}px`;
+      i.style.height = `${b - a + 4}px`;
+      frag.appendChild(i);
+    }
+    cbars.replaceChildren(frag);
   }
 
   function repaint(idx: number) {
@@ -961,19 +1053,39 @@
       renderAll();
     }
     if (caret) setCaret(caret.a, collapsed(caret) ? undefined : caret.b);
+    rebaseDraft();
     renderCards();
     renderStatus();
     syncToolbar();
+    if (findOpen()) runFind(false);
     notice.classList.toggle("show", next.openInWord);
     if (next.openInWord) {
       notice.innerHTML = `${ICON.warn}<span>Ce document est aussi ouvert dans Word. Ferme-le dans Word avant de le retoucher ici : Word écraserait ces retouches à son prochain enregistrement.</span>`;
     }
   }
 
+  /** État d'enregistrement dans le pied ; tout autre message passe en toast. */
+  const SAVING = "Enregistrement…";
+  const SAVED = "Enregistré dans le .docx";
   function status(text: string, err = false) {
-    lastStatus = text;
-    const s = foot.querySelector(".st") as HTMLElement | null;
-    if (s) { s.textContent = text; s.classList.toggle("err", err); }
+    const sv = $("ftSave");
+    if (text === SAVING || text === SAVED) {
+      const busy = text === SAVING;
+      sv.classList.toggle("busy", busy);
+      sv.innerHTML = busy ? "Enregistrement…" : `${ic("check", 12)}Enregistré`;
+      sv.dataset.tooltip = busy ? "Écriture dans le .docx" : SAVED;
+      return;
+    }
+    toast(text, err);
+  }
+  const toastEl = $("toast");
+  let toastTimer = 0;
+  function toast(text: string, err = false) {
+    toastEl.textContent = text;
+    toastEl.classList.toggle("err", err);
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), err ? 4200 : 2200);
   }
 
   /** File d'attente : une retouche à la fois, dans l'ordre des gestes. */
@@ -1366,9 +1478,15 @@
   // ------------------------------------------------------------ menus
   let openMenu: HTMLElement | null = null;
   let openTrigger: HTMLElement | null = null;
-  function closeMenu() {
+  /** Dernier geste au clavier : un menu ouvert ainsi prend le focus. */
+  let keyboardLast = false;
+  document.addEventListener("keydown", () => { keyboardLast = true; }, true);
+  document.addEventListener("pointerdown", () => { keyboardLast = false; }, true);
+  function closeMenu(refocus = false) {
     if (openMenu) { openMenu.classList.remove("show"); const m = openMenu; setTimeout(() => m.remove(), 150); }
     openTrigger?.classList.remove("open");
+    openTrigger?.setAttribute("aria-expanded", "false");
+    if (refocus) openTrigger?.focus();
     openMenu = null;
     openTrigger = null;
   }
@@ -1398,13 +1516,33 @@
     m.style.left = `${Math.max(8, alignRight ? r.right - w : r.left)}px`;
     requestAnimationFrame(() => m.classList.add("show"));
     trigger.classList.add("open");
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-expanded", "true");
     openMenu = m;
     openTrigger = trigger;
+    // Flèches, Début, Fin ; Échap rend le focus au bouton, Tab ferme.
+    const focusable = () => Array.from(m.querySelectorAll<HTMLButtonElement>(".mi:not(:disabled)"));
+    m.addEventListener("keydown", (e) => {
+      const l = focusable();
+      const k = l.indexOf(document.activeElement as HTMLButtonElement);
+      const go = (i: number) => { e.preventDefault(); l[(i + l.length) % l.length]?.focus(); };
+      if (e.key === "ArrowDown") go(k + 1);
+      else if (e.key === "ArrowUp") go(k < 0 ? l.length - 1 : k - 1);
+      else if (e.key === "Home") go(0);
+      else if (e.key === "End") go(l.length - 1);
+      else if (e.key === "Tab") closeMenu();
+    });
+    if (keyboardLast) focusable()[0]?.focus({ preventScroll: true });
   }
   document.addEventListener("mousedown", (e) => {
     if (openMenu && !openMenu.contains(e.target as Node) && !(openTrigger && openTrigger.contains(e.target as Node))) closeMenu();
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeMenu(); hidePop(); } });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    // Un seul appui ferme une seule chose : le menu d'abord.
+    if (openMenu) { e.preventDefault(); closeMenu(true); return; }
+    hidePop();
+  });
 
   // ---------------------------------------------------------- barres
   const fmtbar = $("fmtbar");
@@ -1413,29 +1551,30 @@
   // Une seule barre (piste A choisie par Thierry le 2026-10-20) : mise en
   // forme à gauche, revue et suivi à droite ; le reste vit dans des menus.
   fmtbar.innerHTML = `
-    <button class="dd w-style" id="ddStyle" data-tooltip="Style du paragraphe"><span>Normal</span>${ICON.chev}</button>
-    <button class="dd w-font" id="ddFont" data-tooltip="Police"><span>Police</span>${ICON.chev}</button>
-    <button class="dd w-size" id="ddSize" data-tooltip="Taille"><span>12</span>${ICON.chev}</button>
-    <span class="gp"></span>
-    <button class="tb" data-run="b" data-tooltip="Gras (⌘B)"><span class="glyph b">G</span></button>
-    <button class="tb" data-run="i" data-tooltip="Italique (⌘I)"><span class="glyph i">I</span></button>
-    <button class="tb" data-run="u" data-tooltip="Souligné (⌘U)"><span class="glyph u">S</span></button>
-    <button class="tb" id="btnMore" aria-label="Autres mises en forme" data-tooltip="Barré, exposant, indice">${ICON.more}</button>
-    <span class="gp"></span>
-    <button class="tb wide" id="btnAlign" aria-label="Alignement" data-tooltip="Alignement"><span class="ic">${ICON.alLeft}</span>${ICON.chev}</button>
-    <button class="tb wide" id="btnList" aria-label="Listes" data-tooltip="Listes">${ICON.bullets}${ICON.chev}</button>
-    <span class="gp"></span>
-    <button class="tb" id="btnComment" aria-label="Commenter" data-tooltip="Commenter la sélection">${ICON.comment}</button>
-    <button class="tb wide" id="btnInsert" aria-label="Insérer" data-tooltip="Insérer une note, une figure ou une ligne de tableau">${ICON.plus}${ICON.chev}</button>
-    <span class="gp"></span>
-    <button class="tb" id="btnUndo" aria-label="Annuler" data-tooltip="Annuler (⌘Z)">${ICON.undo}</button>
-    <button class="tb" id="btnRedo" aria-label="Rétablir" data-tooltip="Rétablir (⌘⇧Z)">${ICON.redo}</button>
+    <button class="ib on" id="btnNav" aria-label="Plan et commentaires" aria-pressed="true" data-tooltip="Plan et commentaires">${ic("panel")}</button>
+    <span class="vs"></span>
+    <button class="dd w-style hide3" id="ddStyle" data-tooltip="Style du paragraphe"><span>Normal</span>${ic("down", 12)}</button>
+    <button class="dd w-font hide1" id="ddFont" data-tooltip="Police"><span>Police</span>${ic("down", 12)}</button>
+    <button class="dd w-size hide1" id="ddSize" data-tooltip="Taille"><span>12</span>${ic("down", 12)}</button>
+    <span class="vs hide3"></span>
+    <button class="ib hide3" data-run="b" aria-label="Gras" data-tooltip="Gras (⌘B)"><span class="g">G</span></button>
+    <button class="ib hide3" data-run="i" aria-label="Italique" data-tooltip="Italique (⌘I)"><span class="g i">I</span></button>
+    <button class="ib hide3" data-run="u" aria-label="Souligné" data-tooltip="Souligné (⌘U)"><span class="g u">S</span></button>
+    <button class="ib hide2" id="btnMore" aria-label="Autres mises en forme" data-tooltip="Barré, exposant, indice">${ic("more")}</button>
+    <span class="vs hide2"></span>
+    <button class="ib hide2" id="btnAlign" aria-label="Alignement" data-tooltip="Alignement"><span class="ic">${ic("alLeft")}</span><span class="chev">${ic("down", 12)}</span></button>
+    <button class="ib hide2" id="btnList" aria-label="Listes" data-tooltip="Listes">${ic("list")}<span class="chev">${ic("down", 12)}</span></button>
+    <span class="vs hide2"></span>
+    <button class="ib hide3" id="btnComment" aria-label="Commenter" data-tooltip="Commenter la sélection">${ic("msgPlus")}</button>
+    <button class="ib hide2" id="btnInsert" aria-label="Insérer" data-tooltip="Insérer une note, une figure ou une ligne de tableau">${ic("plus")}<span class="chev">${ic("down", 12)}</span></button>
+    <span class="vs hide2"></span>
+    <button class="ib" id="btnUndo" aria-label="Annuler" data-tooltip="Annuler (⌘Z)">${ic("undo")}</button>
+    <button class="ib hide3" id="btnRedo" aria-label="Rétablir" data-tooltip="Rétablir (⌘⇧Z)">${ic("redo")}</button>
     <span class="sp"></span>
-    <button class="dd" id="ddView" data-tooltip="Affichage et page"><span>Revue</span>${ICON.chev}</button>
-    <span class="nav"><button class="tb" id="navPrev" aria-label="Précédent" data-tooltip="Précédent">${ICON.left}</button><span class="num" id="navNum">0 / 0</span><button class="tb" id="navNext" aria-label="Suivant" data-tooltip="Suivant">${ICON.right}</button></span>
-    <button class="dd" id="btnAll"><span>Tout accepter</span>${ICON.chev}</button>
-    <span class="gp"></span>
-    <button class="track on" id="btnTrack" data-tooltip="Suivi des modifications : Christophe verra chaque retouche dans Word"><span class="sw"><i></i></span>Suivi</button>`;
+    <button class="ib" id="btnFind" aria-label="Rechercher" data-tooltip="Rechercher et remplacer (⌘F)">${ic("search")}</button>
+    <span class="seg" role="group" aria-label="Affichage"><button id="vReview" aria-pressed="true" data-tooltip="Modifications et commentaires visibles">Révision</button><button id="vRead" aria-pressed="false" data-tooltip="Le texte comme si tout était accepté">Lecture</button></span>
+    <span class="navc hide2"><button class="ib" id="navPrev" aria-label="Commentaire précédent" data-tooltip="Commentaire précédent">${ic("left")}</button><span class="lbl" id="navLbl"></span><button class="ib" id="navNext" aria-label="Commentaire suivant" data-tooltip="Commentaire suivant">${ic("right")}</button></span>
+    <button class="track on" id="btnTrack" aria-pressed="true" data-tooltip="Suivi des modifications : chaque retouche reste visible dans Word"><span class="sw"><i></i></span>Suivi</button>`;
 
   // Les boutons ne prennent pas le focus : la sélection reste dans la page.
   for (const b of Array.from(document.querySelectorAll("#fmtbar button"))) {
@@ -1467,7 +1606,8 @@
   $("btnTrack").addEventListener("click", () => {
     tracked = !tracked;
     $("btnTrack").classList.toggle("on", tracked);
-    status(tracked ? "Suivi des modifications activé" : "Suivi désactivé : tes retouches s'écrivent directement");
+    $("btnTrack").setAttribute("aria-pressed", String(tracked));
+    status(tracked ? "Suivi activé : tes retouches sont signées" : "Suivi désactivé : tes retouches s'écrivent sans trace");
   });
   $("ddStyle").addEventListener("click", (e) => {
     const cur = currentPara();
@@ -1502,7 +1642,7 @@
       { label: "Liste numérotée", disabled: !numbers, on: !!numbers && style === numbers.id, run: () => numbers && applyPara({ style: numbers.id }) },
     ]);
   });
-  const ALIGN: [string, string, string][] = [["left", "Aligner à gauche", ICON.alLeft], ["center", "Centrer", ICON.alCenter], ["right", "Aligner à droite", ICON.alRight], ["both", "Justifier", ICON.alBoth]];
+  const ALIGN: [string, string, string][] = [["left", "Aligner à gauche", ic("alLeft")], ["center", "Centrer", ic("alCenter")], ["right", "Aligner à droite", ic("alRight")], ["both", "Justifier", ic("alBoth")]];
   $("btnAlign").addEventListener("click", (e) => {
     const cur = currentPara()?.align || "left";
     showMenu(e.currentTarget as HTMLElement, ALIGN.map(([a, label]) => ({ label, on: cur === a, run: () => applyPara({ align: a }) })));
@@ -1583,14 +1723,15 @@
   });
 
   type View = "revue" | "final" | "original";
-  const VIEWS: [View, string][] = [["revue", "Revue"], ["final", "Final"], ["original", "Original"]];
   function setView(next: View) {
     view = next;
     document.body.classList.remove("v-revue", "v-final", "v-original");
     document.body.classList.add(`v-${view}`);
-    ($("ddView").firstElementChild as HTMLElement).textContent = (VIEWS.find(([v]) => v === view) ?? VIEWS[0])[1];
+    $("vReview").setAttribute("aria-pressed", String(view === "revue"));
+    $("vRead").setAttribute("aria-pressed", String(view === "final"));
     paper.contentEditable = view === "original" ? "false" : "true";
-    layoutCards();
+    hideBubble();
+    renderCards();
     scheduleLines();
   }
   function setPage(next: string, save: boolean) {
@@ -1598,17 +1739,10 @@
     document.body.classList.toggle("blanche", page === "blanche");
     if (save) api("/docx/prefs", { page }).catch(() => undefined);
   }
-  $("ddView").addEventListener("click", (e) => {
-    showMenu(e.currentTarget as HTMLElement, [
-      { label: "Affichage", head: true },
-      ...VIEWS.map(([v, label]) => ({ label, on: view === v, run: () => setView(v) })),
-      { label: "", sep: true },
-      { label: "Page", head: true },
-      { label: "Blanche", on: page === "blanche", run: () => setPage("blanche", true) },
-      { label: "Thème de l'app", on: page !== "blanche", run: () => setPage("theme", true) },
-    ]);
-  });
-  $("btnAll").addEventListener("click", (e) => {
+  $("vReview").addEventListener("click", () => setView("revue"));
+  $("vRead").addEventListener("click", () => setView("final"));
+  /** Menu de la révision : décisions d'ensemble, affichage et page. */
+  function reviewMenu(trigger: HTMLElement) {
     if (!model) return;
     const items: Item[] = [
       { label: "Tout accepter", run: () => decideAll("accept_all") },
@@ -1622,10 +1756,50 @@
         items.push({ label: `Refuser celles de ${a.name}`, run: () => decideAll("reject_all", a.name) });
       }
     }
-    showMenu(e.currentTarget as HTMLElement, items, true);
-  });
+    items.push(
+      { label: "", sep: true },
+      { label: "Affichage", head: true },
+      { label: "Révision", on: view === "revue", run: () => setView("revue") },
+      { label: "Lecture", on: view === "final", run: () => setView("final") },
+      { label: "Original", on: view === "original", run: () => setView("original") },
+      { label: "", sep: true },
+      { label: "Page", head: true },
+      { label: "Blanche", on: page === "blanche", run: () => setPage("blanche", true) },
+      { label: "Thème de l'app", on: page !== "blanche", run: () => setPage("theme", true) },
+    );
+    showMenu(trigger, items);
+  }
+  $("revMenu").addEventListener("click", (e) => reviewMenu(e.currentTarget as HTMLElement));
   $("navPrev").addEventListener("click", () => step(-1));
   $("navNext").addEventListener("click", () => step(1));
+
+  // Plan et commentaires à gauche, marge de revue à droite : ils se replient
+  // quand le panneau rétrécit ; le bouton de la barre garde le choix.
+  let sidePref: string | null = (() => { try { return localStorage.getItem("docxSide"); } catch { return null; } })();
+  function responsive() {
+    const w = innerWidth;
+    const b = document.body.classList;
+    const side = sidePref === "1" ? true : sidePref === "0" ? false : w >= 1280;
+    b.toggle("no-side", !side);
+    $("btnNav").classList.toggle("on", side);
+    $("btnNav").setAttribute("aria-pressed", String(side));
+    // La barre se replie par paliers tant qu'elle déborde.
+    b.toggle("w1", w < 1320);
+    b.toggle("w2", w < 1040);
+    b.toggle("w3", w < 720);
+    const over = () => fmtbar.scrollWidth > fmtbar.clientWidth + 1;
+    if (!b.contains("w1") && over()) b.add("w1");
+    if (!b.contains("w2") && over()) b.add("w2");
+    if (!b.contains("w3") && over()) b.add("w3");
+  }
+  $("btnNav").addEventListener("click", () => {
+    sidePref = document.body.classList.contains("no-side") ? "1" : "0";
+    try { localStorage.setItem("docxSide", sidePref); } catch { /* choix gardé pour la session */ }
+    responsive();
+    renderSide();
+    layoutCards();
+  });
+  responsive();
 
   function currentPara(): Para | null {
     const sel = readSel();
@@ -1643,14 +1817,20 @@
     const p = sel ? model.paragraphs[sel.a.idx] : null;
     const seg = currentSeg();
     const style = model.styles.find((s) => s.id === (p?.style || "Normal"));
-    ($("ddStyle").firstElementChild as HTMLElement).textContent = styleLabel(style ? style.name : (p?.style || "Normal"));
-    ($("ddFont").firstElementChild as HTMLElement).textContent = seg?.font || "Police du style";
-    ($("ddSize").firstElementChild as HTMLElement).textContent = seg?.size ? String(seg.size).replace(".", ",") : "–";
-    fmtbar.querySelectorAll<HTMLElement>("[data-run]").forEach((b) => b.classList.toggle("on", !!(seg && (seg as Record<string, unknown>)[b.dataset.run!])));
+    // Police et taille du passage, sinon celles que le style donne au paragraphe.
+    const label = (id: string, name: string, v: string) => { ($(id).firstElementChild as HTMLElement).textContent = v; $(id).setAttribute("aria-label", `${name} : ${v}`); };
+    const size = seg?.size || p?.look?.size;
+    label("ddStyle", "Style", styleLabel(style ? style.name : (p?.style || "Normal")));
+    label("ddFont", "Police", seg?.font || p?.look?.font || "Police du style");
+    label("ddSize", "Taille", size ? String(size).replace(".", ",") : "–");
+    fmtbar.querySelectorAll<HTMLElement>("[data-run]").forEach((b) => {
+      const on = !!(seg && (seg as Record<string, unknown>)[b.dataset.run!]);
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", String(on));
+    });
     const al = ALIGN.find(([a]) => a === (p?.align || "left")) || ALIGN[0];
     const alIcon = $("btnAlign").firstElementChild as HTMLElement;
     if (alIcon.dataset.al !== al[0]) { alIcon.dataset.al = al[0]; alIcon.innerHTML = al[2]; }
-    ($("btnComment") as HTMLButtonElement).disabled = !sel || collapsed(sel);
   }
 
   async function decideAll(op: string, who?: string) {
@@ -1660,203 +1840,702 @@
     });
   }
 
-  // ------------------------------------------------------- cartes de marge
-  type CardItem = { key: string; kind: "change" | "comment"; ids: number[]; author: string; anchor: HTMLElement | null; idx: number; head: string; body: string; done?: boolean };
-  let cardItems: CardItem[] = [];
+  // ------------------------------------------------------- marge de revue
+  // À droite de la page : une fiche par commentaire, alignée sur son passage,
+  // et une rangée par paragraphe retouché, qui s'ouvre sur ses modifications.
+  type LaneItem = { key: string; kind: "chip" | "comment" | "draft"; idx: number; anchor: HTMLElement | null; ids: number[]; author: string; done?: boolean };
+  let lane: LaneItem[] = [];
+  let navOrder: string[] = [];
+  let changeMap = new Map<number, Change>();
+  let commentMap = new Map<number, Comment>();
+  const openChips = new Set<string>();
+  /** Commentaire en cours d'écriture, sur un passage d'un paragraphe. */
+  let draft: { idx: number; s: number; e: number; quote: string; pid: string; lost?: boolean } | null = null;
+  /** Réponses en cours d'écriture, par fiche : un redessin ou Échap ne les perd pas. */
+  const replyDrafts = new Map<string, string>();
+  /** Suivis en cours de décision : un double-clic n'envoie pas deux fois. */
+  const deciding = new Set<number>();
+  const leader = $("leader");
 
   const KIND: Record<string, string> = {
-    ins: "Ajout", del: "Suppression", moveTo: "Déplacé ici", moveFrom: "Déplacé", "paragraph-ins": "Paragraphe ajouté",
+    ins: "Insertion", del: "Suppression", moveTo: "Déplacé ici", moveFrom: "Déplacement", "paragraph-ins": "Paragraphe ajouté",
     "paragraph-del": "Paragraphes fusionnés", "row-ins": "Ligne ajoutée", "row-del": "Ligne supprimée", format: "Mise en forme", cell: "Cellule",
   };
-  const shortDate = (d?: string) => (d ? new Date(d).toLocaleDateString("fr-CA", { day: "numeric", month: "short" }) : "");
+  const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juill.", "août", "sept.", "oct.", "nov.", "déc."];
+  // Word inscrit l'heure locale suivie de « Z » : on la lit telle quelle.
+  const when = (d?: string) => { const x = d ? new Date(d) : null; return x && !isNaN(+x) ? x : null; };
+  const dateFr = (d?: string) => { const x = when(d); return x ? `${x.getUTCDate()} ${MONTHS[x.getUTCMonth()]}` : ""; };
+  const timeFr = (d?: string) => { const x = when(d); return x ? `${x.getUTCHours()} h ${String(x.getUTCMinutes()).padStart(2, "0")}` : ""; };
+  const nf = (n: number) => n.toLocaleString("fr-CA");
+  const pl = (n: number, one: string, many: string) => `${nf(n)} ${n > 1 ? many : one}`;
+  const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
   const clip = (s: string, n = 140) => (cp(s) > n ? Array.from(s).slice(0, n).join("") + "…" : s);
+  const firstName = (s: string) => (s || "Inconnu").split(/\s+/)[0];
+  const initialsOf = (s: string) => s.split(/\s+/).map((w) => w[0] || "").join("").slice(0, 2).toUpperCase() || "?";
+  const isTop = (c: Comment) => c.parent === undefined || c.parent === null;
+  const avatar = (name: string, small = false, initials?: string) =>
+    `<span class="av${small ? " s" : ""}" style="--who:${uiColor(name)}">${esc(initials || initialsOf(name || "?"))}</span>`;
+  const kindLabel = (c: Change) => (c.kind === "ins" ? "Insertion" : c.kind === "del" ? "Suppression" : c.kind.startsWith("move") ? "Déplacement" : KIND[c.kind] || c.kind);
 
-  function collectCards(): CardItem[] {
+  function collectLane(): LaneItem[] {
     if (!model) return [];
-    const items: CardItem[] = [];
-    const byId = changeById();
+    const m = model;
+    const items: LaneItem[] = [];
+    const nodes = new Map((Array.from(paper.querySelectorAll<HTMLElement>(".d-p[data-idx]"))).map((el) => [Number(el.dataset.idx), el] as const));
+    const idxOf = new Map<string, number>();
+    m.paragraphs.forEach((p, i) => { if (!idxOf.has(p.id)) idxOf.set(p.id, i); });
+    // Modifications groupées par paragraphe, dans l'ordre du texte.
+    const per = new Map<number, number[]>();
     const seen = new Set<number>();
-    const anchorOf = (sel: string) => paper.querySelector(sel) as HTMLElement | null;
-    const paraIdx = (pid?: string) => (pid ? model!.paragraphs.findIndex((p) => p.id === pid) : -1);
-    // Suivis dans l'ordre du document : une suppression suivie d'un ajout du
-    // même auteur forme un remplacement, avec une seule carte.
-    model.paragraphs.forEach((p, idx) => {
-      const segs = p.segments.filter((s) => s.change !== undefined);
-      for (let k = 0; k < segs.length; k++) {
-        const s = segs[k];
-        if (seen.has(s.change!)) continue;
-        const c = byId.get(s.change!);
-        if (!c) continue;
-        seen.add(c.id);
-        const ids = [c.id];
-        let head = "";
-        let body = "";
-        const next = segs[k + 1];
-        const nc = next ? byId.get(next.change!) : undefined;
-        if ((c.kind === "del" || c.kind === "moveFrom") && nc && nc.kind === "ins" && nc.author === c.author && !seen.has(nc.id)) {
-          seen.add(nc.id);
-          ids.push(nc.id);
-          head = "Remplacement";
-          body = `<s>${esc(clip(c.text, 80))}</s> → ${esc(clip(nc.text, 80))}`;
-        } else {
-          head = KIND[c.kind] || c.kind;
-          body = c.kind === "del" || c.kind === "moveFrom" ? `<s>${esc(clip(c.text))}</s>` : esc(clip(c.text));
-        }
-        items.push({ key: `ch${c.id}`, kind: "change", ids, author: c.author, anchor: anchorOf(`[data-ch="${c.id}"]`), idx, head: `<span class="c-kind">${head}</span>`, body: `<div class="c-body">${body}</div>` });
-      }
+    const add = (idx: number, id: number) => {
+      if (seen.has(id) || !changeMap.has(id)) return;
+      seen.add(id);
+      const l = per.get(idx);
+      if (l) l.push(id); else per.set(idx, [id]);
+    };
+    m.paragraphs.forEach((p, idx) => {
+      if (p.mark_change !== undefined) add(idx, p.mark_change);
+      for (const s of p.segments) if (s.change !== undefined) add(idx, s.change);
     });
-    for (const c of model.changes) {
+    const loose: number[] = [];
+    for (const c of m.changes) {
       if (seen.has(c.id)) continue;
-      const idx = paraIdx(c.paragraph);
-      const body = c.kind === "format" && c.text ? `<div class="c-body">${esc(clip(c.text))}</div>` : "";
-      items.push({ key: `ch${c.id}`, kind: "change", ids: [c.id], author: c.author, anchor: idx >= 0 ? anchorOf(`.d-p[data-idx="${idx}"]`) : null, idx: idx >= 0 ? idx : 1e9, head: `<span class="c-kind">${KIND[c.kind] || c.kind}</span>`, body });
+      const idx = c.paragraph ? idxOf.get(c.paragraph) : undefined;
+      if (idx !== undefined) add(idx, c.id);
+      else { seen.add(c.id); loose.push(c.id); }
     }
-    for (const c of model.comments.filter((x) => x.parent === undefined || x.parent === null)) {
-      const idx = paraIdx(c.paragraph);
-      const replies = model.comments.filter((r) => r.parent === c.id);
-      const span = Array.from(paper.querySelectorAll<HTMLElement>("[data-c]")).find((el) => el.dataset.c!.split(" ").includes(String(c.id))) || null;
-      const head = `<span class="c-date">${c.done ? "résolu · " : ""}${shortDate(c.date)}</span>`;
-      const body = `${c.quote ? `<div class="c-body"><q>${esc(clip(c.quote, 80))}</q></div>` : ""}
-        <div class="c-body">${esc(c.text)}</div>
-        ${replies.map((r) => `<div class="c-reply" style="--rev-color:${authorColor(r.author)}"><span class="av">${esc(r.initials || "?")}</span><div><div class="c-name">${esc(r.author)}</div><div class="c-body">${esc(r.text)}</div></div></div>`).join("")}
-        <div class="c-foot">
-          <button class="btn" data-act="reply">${ICON.reply}Répondre</button>
-          <button class="btn" data-act="resolve">${c.done ? "Rouvrir" : "Résoudre"}</button>
-          <button class="btn" data-act="ask">${ICON.chat}Agent</button>
-          <span class="sp"></span>
-          <button class="tb" data-act="delete" data-tooltip="Supprimer le commentaire et ses réponses">${ICON.trash}</button>
-        </div>`;
-      items.push({ key: `c${c.id}`, kind: "comment", ids: [c.id], author: c.author, anchor: span || (idx >= 0 ? anchorOf(`.d-p[data-idx="${idx}"]`) : null), idx: idx >= 0 ? idx : 1e9, head, body, done: c.done });
+    for (const [idx, ids] of per) {
+      const p = m.paragraphs[idx];
+      items.push({ key: `p${p.para_id || p.id}`, kind: "chip", idx, anchor: nodes.get(idx) || null, ids, author: changeMap.get(ids[0])?.author ?? "" });
     }
+    if (loose.length) items.push({ key: "loose", kind: "chip", idx: 1e9, anchor: null, ids: loose, author: changeMap.get(loose[0])?.author ?? "" });
+    // Fiches de commentaire : ancrées au premier passage surligné.
+    const first = new Map<number, HTMLElement>();
+    for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".cmt[data-c]"))) {
+      for (const id of el.dataset.c!.split(" ")) if (!first.has(Number(id))) first.set(Number(id), el);
+    }
+    for (const c of m.comments) {
+      if (!isTop(c)) continue;
+      const idx = c.paragraph ? idxOf.get(c.paragraph) ?? -1 : -1;
+      items.push({ key: `c${c.id}`, kind: "comment", idx: idx >= 0 ? idx : 1e9, anchor: first.get(c.id) || (idx >= 0 ? nodes.get(idx) || null : null), ids: [c.id], author: c.author, done: c.done });
+    }
+    if (draft) items.push({ key: "draft", kind: "draft", idx: draft.idx, anchor: nodes.get(draft.idx) || null, ids: [], author });
     return items;
   }
 
+  function commentHTML(c: Comment, on: boolean): string {
+    if (c.done && !on) return `<div class="cc dn" role="button" tabindex="0">${ic("circleCheck", 14)}<span>Réglé · ${esc(oneLine(c.text))}</span></div>`;
+    const head = (who: string, ini: string, d: string) =>
+      `<div class="hd">${avatar(who, false, ini)}<span class="nm">${esc(firstName(who))}</span><span class="dt">${d}</span></div>`;
+    const replies = model!.comments.filter((r) => r.parent === c.id);
+    let h = head(c.author, c.initials, dateFr(c.date));
+    h += `<p class="tx">${esc(c.text.trim())}</p>`;
+    if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}<p class="tx">${esc(r.text.trim())}</p></div>`;
+    else if (replies.length) h += `<div class="meta">${pl(replies.length, "réponse", "réponses")}</div>`;
+    if (on) {
+      h += `<textarea class="c-input" rows="1" placeholder="Répondre…" aria-label="Répondre à ${esc(firstName(c.author))}"></textarea>
+        <div class="ac"><button class="btn q" data-act="resolve">${c.done ? "Rouvrir" : `${ic("check", 14)}Résoudre`}</button>
+        <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
+        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>
+        <button class="btn p" data-act="reply">Répondre</button></div>`;
+    }
+    return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
+  }
+  function draftHTML(): string {
+    return `<div class="cc"><div class="hd">${avatar(author)}<span class="nm">${esc(firstName(author))}</span><span class="dt">Brouillon</span></div>
+      <textarea class="c-input" rows="2" placeholder="Écrire un commentaire…" aria-label="Commentaire"></textarea>
+      <div class="ac"><button class="btn q" data-act="cancel">Annuler</button><button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer le passage et la note au chat">${ic("chat", 14)}</button><button class="btn p" data-act="post">Commenter</button></div></div>`;
+  }
+  function chipHTML(it: LaneItem, open: boolean): string {
+    const list = it.ids.map((id) => changeMap.get(id)).filter(Boolean) as Change[];
+    const n = list.length;
+    // Fermée, la rangée est un seul arrêt du clavier ; ouverte, ses boutons aussi.
+    const tab = open ? "" : ' tabindex="-1"';
+    let h = `<div class="row" data-act="toggle" role="button" tabindex="0" aria-expanded="${open}">${avatar(it.author, true)}<span class="lbl"><b>${nf(n)}</b> ${n > 1 ? "modifications" : "modification"}${it.key === "loose" ? " hors du texte" : ""}</span>
+      <span class="gr"><button class="mini no" data-act="rejectAll"${tab} aria-label="Tout refuser dans ce paragraphe" data-tooltip="Tout refuser ici">${ic("x", 14)}</button><button class="mini ok" data-act="acceptAll"${tab} aria-label="Tout accepter dans ce paragraphe" data-tooltip="Tout accepter ici">${ic("check", 14)}</button></span>
+      <span class="cv">${ic("down", 14)}</span></div>`;
+    if (open) {
+      h += `<div class="lst">${list.map((c) => {
+        const del = c.kind === "del" || c.kind === "moveFrom";
+        const sign = c.kind === "ins" || c.kind === "moveTo" ? "+" : del ? "−" : "¶";
+        const label = sign === "¶" ? `${KIND[c.kind] || c.kind}${c.text ? ` · ${clip(oneLine(c.text), 80)}` : ""}` : (oneLine(c.text) || (c.kind.startsWith("move") ? "Déplacement" : "Espace"));
+        const tip = `${c.author} · ${kindLabel(c)}${c.date ? ` · ${dateFr(c.date)}, ${timeFr(c.date)}` : ""}`;
+        return `<div class="cr${del ? " d" : ""}" data-ch="${c.id}" data-act="show" data-tooltip="${esc(tip)}"><span class="k" style="--who:${uiColor(c.author)}">${sign}</span><span class="t">${esc(clip(label, 120))}</span><span class="gr"><button class="mini no" data-act="reject" aria-label="Refuser : ${esc(clip(label, 60))}">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter : ${esc(clip(label, 60))}">${ic("check", 14)}</button></span></div>`;
+      }).join("")}</div>`;
+    }
+    return `<div class="ch${open ? " open" : ""}">${h}</div>`;
+  }
+
+  /** Avant/après dans le document, pour ordonner fiches et navigation. */
+  function byPosition(a: LaneItem, b: LaneItem) {
+    if (a.anchor && b.anchor && a.anchor !== b.anchor) return a.anchor.compareDocumentPosition(b.anchor) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    return a.idx - b.idx || (a.ids[0] ?? 0) - (b.ids[0] ?? 0);
+  }
+
   function renderCards() {
-    cardItems = collectCards();
+    if (!model) return;
+    changeMap = changeById();
+    commentMap = new Map(model.comments.map((c) => [c.id, c] as const));
+    lane = collectLane();
+    navOrder = lane.filter((it) => it.kind === "comment" && !it.done).sort(byPosition).map((it) => it.key);
+    if (focusKey && !lane.some((it) => it.key === focusKey)) focusKey = "";
+    // Les fiches inchangées gardent leur élément (et leur hauteur mesurée) :
+    // une réponse du disque ne reconstruit que ce qui a bougé.
+    const prev = new Map((Array.from(cardsEl.children) as HTMLElement[]).map((el) => [el.dataset.key!, el]));
+    // Ce que la marge tient en main avant le redessin : réponses en cours,
+    // focus et sélection dans une zone de saisie, défilement des listes.
+    for (const [key, el] of prev) {
+      const ta = el.querySelector("textarea");
+      if (ta && key !== "draft") { if (ta.value) replyDrafts.set(key, ta.value); else replyDrafts.delete(key); }
+    }
+    const act = document.activeElement as HTMLElement | null;
+    const keep = act && cardsEl.contains(act) ? { key: (act.closest(".it") as HTMLElement | null)?.dataset.key, ta: act.tagName === "TEXTAREA", s: (act as HTMLTextAreaElement).selectionStart, e: (act as HTMLTextAreaElement).selectionEnd } : null;
+    const lists = new Map<string, number>();
+    for (const [key, el] of prev) { const l = el.querySelector(".lst"); if (l && l.scrollTop) lists.set(key, l.scrollTop); }
     const frag = document.createDocumentFragment();
-    for (const it of cardItems) {
-      const el = document.createElement("div");
-      el.className = "card" + (it.done ? " done" : "") + (it.key === focusKey ? " focus" : "");
-      el.dataset.key = it.key;
-      el.style.setProperty("--rev-color", authorColor(it.author));
-      const initials = it.author.split(/\s+/).map((w) => w[0] || "").join("").slice(0, 2).toUpperCase() || "?";
-      const acts = it.kind === "change"
-        ? `<span class="c-acts"><button class="tb no" data-act="reject" data-tooltip="Refuser">${ICON.x}</button><button class="tb ok" data-act="accept" data-tooltip="Accepter">${ICON.check}</button></span>`
-        : "";
-      el.innerHTML = `<div class="c-head"><span class="av">${esc(initials)}</span><span class="c-name">${esc(it.author || "Inconnu")}</span>${it.head}${acts}</div>${it.body}`;
+    for (const it of lane) {
+      if (it.kind === "chip" && view !== "revue") continue;
+      const on = it.key === focusKey;
+      const html = it.kind === "chip" ? chipHTML(it, openChips.has(it.key)) : it.kind === "draft" ? draftHTML() : commentHTML(commentMap.get(it.ids[0])!, on);
+      let el = prev.get(it.key);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "it";
+        el.dataset.key = it.key;
+      }
+      if (el.dataset.html !== html) {
+        const ta = el.querySelector("textarea");
+        const was = ta ? ta.value : "";
+        el.innerHTML = html;
+        el.dataset.html = html;
+        const next = el.querySelector("textarea");
+        const back = it.kind === "draft" ? was : replyDrafts.get(it.key) || "";
+        if (next && back) next.value = back;
+      }
+      el.classList.toggle("on", on);
+      el.classList.toggle("grp", it.kind === "chip");
+      if (it.kind === "chip") el.dataset.ids = it.ids.join(" ");
       frag.appendChild(el);
     }
     cardsEl.replaceChildren(frag);
+    for (const [key, top] of lists) { const l = cardsEl.querySelector(`[data-key="${key}"] .lst`); if (l) l.scrollTop = top; }
+    if (keep?.key) {
+      const host = cardsEl.querySelector(`[data-key="${keep.key}"]`);
+      const t = keep.ta ? host?.querySelector("textarea") : null;
+      if (t) { t.focus({ preventScroll: true }); try { t.setSelectionRange(keep.s, keep.e); } catch { /* zone remplacée */ } }
+    }
+    // Passages commentés : actif en évidence, réglés sans fond.
+    const active = focusKey.startsWith("c") ? Number(focusKey.slice(1)) : -1;
+    for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".cmt[data-c]"))) {
+      const ids = el.dataset.c!.split(" ").map(Number);
+      el.classList.toggle("done", ids.every((id) => commentMap.get(id)?.done !== false));
+      el.classList.toggle("on", ids.includes(active));
+    }
+    paintDraft();
     layoutCards();
+    renderSide();
   }
 
   function layoutCards() {
-    const visible = view === "revue";
-    // Sans fiche à montrer, la marge de revue disparaît : la page reprend la largeur du panneau.
-    document.body.classList.toggle("no-margin", !visible || !cardItems.length);
+    const b = document.body.classList;
+    // La marge prend 360 px : si la page doit alors tomber sous 75 %, les
+    // fiches passent en fenêtre et la page garde sa taille.
+    const pg = model?.page;
+    const room = scroller.clientWidth - 24 - 360;
+    b.toggle("no-lane", innerWidth < 760 || (!!pg && zoom === null && room < pg.width * PT * 0.75));
+    if (!b.contains("no-lane")) { b.remove("lane-pop"); cardsEl.style.removeProperty("width"); cardsEl.style.removeProperty("top"); }
+    // Sans fiche à montrer, la marge disparaît : la page reprend la largeur du panneau.
+    b.toggle("no-margin", !cardsEl.childElementCount || b.contains("no-lane"));
     fitPage();
     placeCards();
   }
 
+  /** Rectangle du passage d'une fiche ; l'ancrage est retrouvé si la frappe a
+   *  redessiné son paragraphe, et le paragraphe sert de repli quand le passage
+   *  est masqué (Lecture, Original). */
+  function anchorRect(it: LaneItem, line = false): DOMRect | null {
+    let a = it.anchor;
+    if (a && !a.isConnected) {
+      a = (it.kind === "comment" ? paper.querySelector<HTMLElement>(`.cmt[data-c~="${it.ids[0]}"]`) : null) || paper.querySelector<HTMLElement>(`.d-p[data-idx="${it.idx}"]`);
+      it.anchor = a;
+    }
+    if (!a) return null;
+    if (!line) { const q = a.getClientRects()[0]; if (q) return q; }
+    const p = line ? a : (a.closest(".d-p") as HTMLElement | null);
+    if (!p) return null;
+    const r = p.getBoundingClientRect();
+    return r.height ? r : null;
+  }
+
   function placeCards() {
-    const visible = view === "revue";
+    updateNav();
+    if (document.body.classList.contains("no-lane")) { placePop(); return; }
+    if (document.body.classList.contains("no-margin")) { leader.classList.remove("on"); return; }
+    const els = Array.from(cardsEl.children) as HTMLElement[];
+    const left = `${paper.offsetLeft + paper.offsetWidth + 24}px`;
+    if (cardsEl.style.left !== left) cardsEl.style.left = left;
+    // Lectures d'abord, puis toutes les écritures : une seule mise en page
+    // pour toute la marge (des centaines de fiches sur une copie révisée).
     const base = cardsEl.getBoundingClientRect().top;
-    let bottom = 0;
-    const order: { el: HTMLElement; y: number }[] = [];
-    const byKey = new Map(cardItems.map((c) => [c.key, c]));
-    for (const el of Array.from(cardsEl.children) as HTMLElement[]) {
+    const byKey = new Map(lane.map((c) => [c.key, c]));
+    const dr = draft ? draftRange() : null;
+    const rows = els.map((el) => {
       const it = byKey.get(el.dataset.key!)!;
-      el.style.display = visible ? "block" : "none";
-      const a = it.anchor && it.anchor.isConnected ? it.anchor : null;
-      const want = a ? a.getBoundingClientRect().top - base : 1e6;
-      order.push({ el, y: want });
+      let y = 1e6;
+      if (it.kind === "draft" && dr) {
+        const q = dr.getClientRects()[0] || dr.getBoundingClientRect();
+        y = q.top + q.height / 2 - base - 22;
+      } else if (it.kind === "chip") {
+        // Rangée centrée sur la première ligne du paragraphe.
+        const r = anchorRect(it, true);
+        if (r) {
+          const cs = getComputedStyle(it.anchor!);
+          const line = parseFloat(cs.lineHeight) || 20;
+          y = r.top + (parseFloat(cs.paddingTop) || 0) + line / 2 - base - 16;
+        }
+      } else {
+        const q = anchorRect(it);
+        if (q) y = q.top + Math.min(q.height, 24) / 2 - base - 22;
+      }
+      return { el, it, y, h: el.offsetHeight, pos: 0 };
+    });
+    rows.sort((a, b) => a.y - b.y || (a.it.kind === "chip" ? -1 : 1) - (b.it.kind === "chip" ? -1 : 1));
+    const GAP_Y = 8;
+    const k = rows.findIndex((r) => r.it.key === focusKey);
+    if (k < 0) {
+      let bottom = 0;
+      for (const r of rows) { r.pos = Math.max(r.y === 1e6 ? bottom : r.y, bottom); bottom = r.pos + r.h + GAP_Y; }
+    } else {
+      // La fiche active reste en face de son passage ; les autres s'écartent.
+      rows[k].pos = Math.max(0, rows[k].y === 1e6 ? 0 : rows[k].y);
+      let bottom = rows[k].pos + rows[k].h + GAP_Y;
+      for (let i = k + 1; i < rows.length; i++) { rows[i].pos = Math.max(rows[i].y === 1e6 ? bottom : rows[i].y, bottom); bottom = rows[i].pos + rows[i].h + GAP_Y; }
+      let top = rows[k].pos - GAP_Y;
+      for (let i = k - 1; i >= 0; i--) { rows[i].pos = Math.min(rows[i].y, top - rows[i].h); top = rows[i].pos - GAP_Y; }
     }
-    order.sort((x, y) => x.y - y.y);
-    for (const o of order) {
-      const y = Math.max(o.y === 1e6 ? bottom : o.y, bottom);
-      o.el.style.top = `${y}px`;
-      bottom = y + o.el.offsetHeight + 8;
-    }
-    cardsEl.style.height = `${bottom}px`;
-    const ordered = order.map((o) => o.el.dataset.key!);
-    cardItems.sort((a, b) => ordered.indexOf(a.key) - ordered.indexOf(b.key));
-    const n = cardItems.findIndex((c) => c.key === focusKey);
-    $("navNum").textContent = `${n >= 0 ? n + 1 : 0} / ${cardItems.filter((c) => !c.done).length}`;
+    let end = 0;
+    rows.forEach((r, i) => {
+      const t = `translate(${i === k && r.it.kind !== "chip" ? -8 : 0}px, ${Math.round(r.pos)}px)`;
+      if (r.el.style.transform !== t) r.el.style.transform = t;
+      end = Math.max(end, r.pos + r.h);
+    });
+    cardsEl.style.height = `${Math.max(0, end)}px`;
+    // Trait de rappel entre le passage et la fiche active.
+    const pg = model?.page;
+    if (k >= 0 && rows[k].it.kind !== "chip" && rows[k].y !== 1e6) {
+      const x0 = paper.offsetLeft + paper.offsetWidth - (pg ? pg.right * ptPx : 64) + 8;
+      const x1 = cardsEl.offsetLeft - 12;
+      leader.style.left = `${x0}px`;
+      leader.style.width = `${Math.max(0, x1 - x0)}px`;
+      leader.style.top = `${cardsEl.offsetTop + rows[k].pos + 22}px`;
+      leader.classList.add("on");
+    } else leader.classList.remove("on");
+  }
+
+  /** Panneau étroit : la fiche active s'ouvre en fenêtre sous son passage. */
+  function placePop() {
+    const el = cardsEl.querySelector<HTMLElement>(".it.on");
+    const it = el ? lane.find((c) => c.key === el.dataset.key) : null;
+    const dr = it?.kind === "draft" ? draftRange() : null;
+    const q = dr ? dr.getClientRects()[0] || dr.getBoundingClientRect() : it ? anchorRect(it) : null;
+    const sr = scroller.getBoundingClientRect();
+    const on = !!(el && q && q.bottom > sr.top && q.top < sr.bottom);
+    document.body.classList.toggle("lane-pop", on);
+    if (!on) return;
+    const w = Math.min(312, innerWidth - 32);
+    const h = cardsEl.offsetHeight;
+    let y = q!.bottom + 8;
+    if (y + h > sr.bottom - 8 && q!.top - h - 8 > sr.top) y = q!.top - h - 8;
+    cardsEl.style.width = `${w}px`;
+    cardsEl.style.left = `${Math.max(16, Math.min(innerWidth - w - 16, q!.left + q!.width / 2 - w / 2))}px`;
+    cardsEl.style.top = `${Math.max(sr.top + 8, y)}px`;
+  }
+
+  function updateNav() {
+    const n = navOrder.indexOf(focusKey);
+    $("navLbl").innerHTML = !navOrder.length ? "Aucun commentaire"
+      : n >= 0 ? `Commentaire <b>${n + 1}</b> sur ${nf(navOrder.length)}` : pl(navOrder.length, "commentaire", "commentaires");
+  }
+
+  const smooth = (): ScrollBehavior => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+  /** Amène un passage dans la vue s'il en est sorti. */
+  function reveal(el: Element | Range | null) {
+    if (!el) return;
+    // Passage masqué (Lecture, Original) : son paragraphe.
+    if (el instanceof Element && !el.getClientRects().length) el = el.closest(".d-p");
+    if (!el || !el.getClientRects().length) return;
+    const q = el.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+    if (q.top < sr.top + 80 || q.bottom > sr.bottom - 160) scroller.scrollBy({ top: q.top - sr.top - sr.height / 3, behavior: smooth() });
   }
 
   function focusCard(key: string, scroll: boolean) {
     focusKey = key;
-    cardsEl.querySelectorAll(".card").forEach((c) => c.classList.toggle("focus", (c as HTMLElement).dataset.key === key));
-    paper.querySelectorAll(".cmt.on").forEach((x) => x.classList.remove("on"));
-    const it = cardItems.find((c) => c.key === key);
-    if (it && it.kind === "comment") {
-      paper.querySelectorAll<HTMLElement>("[data-c]").forEach((el) => { if (el.dataset.c!.split(" ").includes(String(it.ids[0]))) el.classList.add("on"); });
-    }
-    if (it && scroll && it.anchor) it.anchor.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    layoutCards();
+    hideBubble();
+    renderCards();
+    const it = lane.find((c) => c.key === key);
+    if (it && scroll) reveal(it.anchor);
   }
 
   function step(dir: number) {
-    const open = cardItems.filter((c) => !c.done);
-    if (!open.length) return;
-    const n = open.findIndex((c) => c.key === focusKey);
-    const next = open[(n + dir + open.length) % open.length];
-    focusCard(next.key, true);
+    if (!navOrder.length) return;
+    const n = navOrder.indexOf(focusKey);
+    focusCard(navOrder[n < 0 ? (dir > 0 ? 0 : navOrder.length - 1) : (n + dir + navOrder.length) % navOrder.length], true);
   }
 
+  function decide(ids: number[], act: "accept" | "reject", note?: string) {
+    ids = ids.filter((id) => !deciding.has(id));
+    if (!ids.length) return;
+    ids.forEach((id) => deciding.add(id));
+    hideBubble();
+    structural(async () => {
+      try {
+        const ops = ids.map((id) => ({ op: act, id }));
+        const ok = await sendOp(ops.length === 1 ? ops[0] : { op: "batch", ops });
+        if (ok && note) status(note);
+      } finally { ids.forEach((id) => deciding.delete(id)); }
+    });
+  }
+
+  /** Montre une modification dans la page, et la sélectionne de l'œil. */
+  function showChange(id: number) {
+    const els = Array.from(paper.querySelectorAll<HTMLElement>(`.ins[data-ch="${id}"],.del[data-ch="${id}"]`));
+    paper.querySelectorAll(".ins.sel,.del.sel").forEach((x) => x.classList.remove("sel"));
+    els.forEach((x) => x.classList.add("sel"));
+    reveal(els[0] || paper.querySelector(`.d-p[data-ch="${id}"]`));
+  }
+
+  // Les boutons de la marge ne volent pas la sélection de la page.
   cardsEl.addEventListener("mousedown", (e) => {
-    if ((e.target as HTMLElement).closest("textarea")) return;
-    if ((e.target as HTMLElement).closest("button")) e.preventDefault();
+    if (!(e.target as HTMLElement).closest("textarea")) e.preventDefault();
   });
   cardsEl.addEventListener("click", (e) => {
-    const card = (e.target as HTMLElement).closest(".card") as HTMLElement | null;
-    if (!card) return;
-    const it = cardItems.find((c) => c.key === card.dataset.key);
+    const t = e.target as HTMLElement;
+    const host = t.closest(".it") as HTMLElement | null;
+    if (!host) return;
+    const it = lane.find((c) => c.key === host.dataset.key);
     if (!it) return;
-    const act = ((e.target as HTMLElement).closest("[data-act]") as HTMLElement | null)?.dataset.act;
-    if (!act) { focusCard(it.key, true); return; }
-    if (act === "accept" || act === "reject") {
+    const act = (t.closest("[data-act]") as HTMLElement | null)?.dataset.act;
+    if (it.kind === "chip") {
+      const row = t.closest(".cr") as HTMLElement | null;
+      if (act === "acceptAll" || act === "rejectAll") {
+        openChips.delete(it.key);
+        decide(it.ids, act === "acceptAll" ? "accept" : "reject", act === "acceptAll" ? "Paragraphe accepté" : "Paragraphe refusé");
+      } else if ((act === "accept" || act === "reject") && row) decide([Number(row.dataset.ch)], act);
+      else if (act === "show" && row) showChange(Number(row.dataset.ch));
+      else {
+        if (openChips.has(it.key)) openChips.delete(it.key); else openChips.add(it.key);
+        renderCards();
+      }
+      return;
+    }
+    if (it.kind === "draft") {
+      if (act === "cancel") cancelDraft();
+      else if (act === "post") postDraft();
+      else if (act === "ask" && draft) {
+        const note = (host.querySelector("textarea") as HTMLTextAreaElement | null)?.value.trim() || "";
+        const q = `${PATH} (${model!.paragraphs[draft.idx]?.id ?? draft.pid}) : « ${draft.quote} »`;
+        toChat(note ? `${q}\n${note}` : q);
+        cancelDraft();
+      }
+      return;
+    }
+    const c = commentMap.get(it.ids[0]);
+    if (!c) return;
+    const ta = host.querySelector("textarea");
+    if (act === "resolve") {
       structural(async () => {
-        const ops = it.ids.map((id) => ({ op: act, id }));
-        await sendOp(ops.length === 1 ? ops[0] : { op: "batch", ops });
+        const ok = await sendOp({ op: "resolve", id: c.id, done: !c.done });
+        if (ok && !c.done) { if (focusKey === it.key) { focusKey = ""; renderCards(); } status("Commentaire réglé"); }
       });
-    } else if (act === "resolve") {
-      const c = model!.comments.find((x) => x.id === it.ids[0]);
-      structural(async () => { await sendOp({ op: "resolve", id: it.ids[0], done: !(c && c.done) }); });
-    } else if (act === "delete") {
-      structural(async () => { await sendOp({ op: "delete_comment", id: it.ids[0] }); });
     } else if (act === "reply") {
-      if (card.querySelector("textarea")) return;
-      const box = document.createElement("div");
-      box.innerHTML = `<textarea class="c-input" placeholder="Répondre à ${esc(it.author)}…"></textarea><div class="c-foot"><span class="sp"></span><button class="btn" data-x="cancel">Annuler</button><button class="btn primary" data-x="send">Répondre</button></div>`;
-      card.appendChild(box);
-      const ta = box.querySelector("textarea")!;
-      ta.focus();
-      layoutCards();
-      const send = () => {
-        const text = ta.value.trim();
-        if (!text) return;
-        structural(async () => { await sendOp({ op: "reply", parent: it.ids[0], text }); });
-      };
-      box.querySelector('[data-x="send"]')!.addEventListener("click", (ev) => { ev.stopPropagation(); send(); });
-      box.querySelector('[data-x="cancel"]')!.addEventListener("click", (ev) => { ev.stopPropagation(); box.remove(); layoutCards(); });
-      ta.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); send(); } });
+      const text = ta ? ta.value.trim() : "";
+      if (!text) { ta?.focus(); return; }
+      ta!.value = "";
+      replyDrafts.delete(it.key);
+      structural(async () => {
+        const ok = await sendOp({ op: "reply", parent: c.id, text });
+        if (!ok) { const again = cardsEl.querySelector(`[data-key="${it.key}"] textarea`) as HTMLTextAreaElement | null; if (again && !again.value) again.value = text; }
+      });
+    } else if (act === "delete") {
+      structural(async () => { await sendOp({ op: "delete_comment", id: c.id }); });
     } else if (act === "ask") {
-      const c = model!.comments.find((x) => x.id === it.ids[0])!;
       const replies = model!.comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
       toChat(`${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}`);
-    }
+    } else if (focusKey !== it.key) focusCard(it.key, true);
   });
-  window.addEventListener("resize", () => layoutCards());
+  cardsEl.addEventListener("keydown", (e) => {
+    const ta = e.target as HTMLElement;
+    if ((e.key === "Enter" || e.key === " ") && ta.getAttribute("role") === "button") { e.preventDefault(); ta.click(); return; }
+    if (ta.tagName !== "TEXTAREA") return;
+    const host = ta.closest(".it") as HTMLElement | null;
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      host?.querySelector<HTMLElement>(host.dataset.key === "draft" ? '[data-act="post"]' : '[data-act="reply"]')?.click();
+    } else if (e.key === "Escape" && host?.dataset.key === "draft") { e.preventDefault(); cancelDraft(); }
+  });
+  window.addEventListener("resize", () => { responsive(); layoutCards(); });
+
+  // ---------------------------------------------- commentaire en brouillon
+  const HL = typeof CSS !== "undefined" && "highlights" in CSS && typeof (window as unknown as { Highlight?: unknown }).Highlight === "function";
+  type Highlights = { set(name: string, h: unknown): void; delete(name: string): void };
+  const highlights = () => (CSS as unknown as { highlights: Highlights }).highlights;
+  const makeHighlight = (ranges: Range[]) => new (window as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight(...ranges);
+  /** Plage DOM d'un passage (paragraphe, début, fin en caractères). */
+  function rangeAt(idx: number, s: number, e: number): Range | null {
+    const a = domOf({ idx, off: s }), b = domOf({ idx, off: e });
+    if (!a || !b) return null;
+    const r = document.createRange();
+    try { r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset); } catch { return null; }
+    return r;
+  }
+  const draftRange = () => (draft && !draft.lost ? rangeAt(draft.idx, draft.s, draft.e) : null);
+  /** Après une relecture du fichier, le brouillon retrouve son passage (le
+   *  texte a pu bouger dans le paragraphe, ou le paragraphe changer de rang). */
+  function rebaseDraft() {
+    if (!draft || !model) return;
+    const d = draft;
+    let idx = d.idx;
+    const pidOf = (q: Para) => q.para_id || q.id;
+    if (!model.paragraphs[idx] || pidOf(model.paragraphs[idx]) !== d.pid) idx = model.paragraphs.findIndex((q) => pidOf(q) === d.pid);
+    if (idx < 0) { d.lost = true; return; }
+    const text = virtualText(idx);
+    const n = cp(d.quote);
+    let best = -1;
+    if (d.quote) {
+      for (let i = text.indexOf(d.quote); i >= 0; i = text.indexOf(d.quote, i + 1)) {
+        const at = cp(text.slice(0, i));
+        if (best < 0 || Math.abs(at - d.s) < Math.abs(best - d.s)) best = at;
+      }
+    }
+    if (best < 0) { d.lost = true; return; }
+    d.idx = idx; d.s = best; d.e = best + n; d.lost = false;
+  }
+  function paintDraft() {
+    if (!HL) return;
+    const r = draftRange();
+    if (r) highlights().set("docx-draft", makeHighlight([r])); else highlights().delete("docx-draft");
+  }
+  function cancelDraft() {
+    draft = null;
+    if (focusKey === "draft") focusKey = "";
+    renderCards();
+  }
+  function postDraft() {
+    const ta = cardsEl.querySelector('[data-key="draft"] textarea') as HTMLTextAreaElement | null;
+    const text = ta ? ta.value.trim() : "";
+    if (!draft || !text) { ta?.focus(); return; }
+    if (draft.lost) { status("Le passage a changé : sélectionne-le de nouveau pour commenter.", true); return; }
+    const d = draft;
+    const before = new Set(model!.comments.map((c) => c.id));
+    structural(async () => {
+      const ok = await sendOp({ op: "comment_range", paragraph: ref(d.idx), start: d.s, end: d.e, text }, () => null);
+      if (!ok) return;
+      draft = null;
+      const made = model!.comments.find((c) => !before.has(c.id) && isTop(c));
+      focusKey = made ? `c${made.id}` : "";
+      renderCards();
+    });
+  }
+
+  // ------------------------------------------------- bulle d'une modification
+  const bub = $("bub");
+  function hideBubble() {
+    bubAnchor = null;
+    bub.classList.remove("show");
+    paper.querySelectorAll(".ins.sel,.del.sel").forEach((x) => x.classList.remove("sel"));
+  }
+  function changeBubble(el: HTMLElement) {
+    const id = Number(el.dataset.ch);
+    const c = changeMap.get(id);
+    if (!c) return;
+    const mine = c.author === author;
+    showChange(id);
+    const at = c.date ? `${dateFr(c.date)}, ${timeFr(c.date)}` : "";
+    const acts = mine
+      ? `<button class="mini no" data-act="reject" aria-label="Retirer ma retouche" data-tooltip="Retirer">${ic("x", 14)}</button>`
+      : `<button class="mini no" data-act="reject" aria-label="Refuser" data-tooltip="Refuser">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter" data-tooltip="Accepter">${ic("check", 14)}</button>`;
+    bub.innerHTML = `${avatar(c.author, true)}<span class="w"><b>${esc(mine ? "Toi" : firstName(c.author))}</b> · ${kindLabel(c)}${at ? `<small>${at}</small>` : ""}</span>${acts}`;
+    bub.dataset.ch = String(id);
+    bubAnchor = el;
+    bub.classList.add("show");
+    placeBubble();
+  }
+  /** La bulle suit son passage quand la page défile ; elle part quand il sort. */
+  let bubAnchor: HTMLElement | null = null;
+  function placeBubble() {
+    const el = bubAnchor;
+    if (!el || !el.isConnected) { hideBubble(); return; }
+    const q = el.getClientRects()[0] || el.getBoundingClientRect();
+    const sr = scroller.getBoundingClientRect();
+    if (q.bottom < sr.top || q.top > sr.bottom) { hideBubble(); return; }
+    const w = bub.offsetWidth, h = bub.offsetHeight;
+    let y = q.top - h - 6;
+    if (y < sr.top + 8) y = q.bottom + 6;
+    bub.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, q.left + q.width / 2 - w / 2))}px`;
+    bub.style.top = `${y}px`;
+  }
+  bub.addEventListener("mousedown", (e) => e.preventDefault());
+  bub.addEventListener("click", (e) => {
+    const act = ((e.target as HTMLElement).closest("[data-act]") as HTMLElement | null)?.dataset.act;
+    if (act === "accept" || act === "reject") decide([Number(bub.dataset.ch)], act);
+  });
+  document.addEventListener("mousedown", (e) => {
+    const t = e.target as HTMLElement;
+    if (bub.classList.contains("show") && !t.closest("#bub") && !t.closest(".ins[data-ch],.del[data-ch]")) hideBubble();
+  });
+
   paper.addEventListener("click", (e) => {
-    const el = (e.target as HTMLElement).closest("[data-ch],[data-c]") as HTMLElement | null;
-    if (!el) return;
-    if (el.dataset.c) focusCard(`c${el.dataset.c.split(" ")[0]}`, false);
-    else if (el.dataset.ch) {
-      const it = cardItems.find((c) => c.ids.includes(Number(el.dataset.ch)));
-      if (it) focusCard(it.key, false);
+    const t = e.target as HTMLElement;
+    const s = getSelection();
+    if (s && !s.isCollapsed) return;
+    const ch = view === "revue" ? t.closest(".ins[data-ch],.del[data-ch]") as HTMLElement | null : null;
+    if (ch) changeBubble(ch); else hideBubble();
+    const cm = t.closest(".cmt[data-c]") as HTMLElement | null;
+    if (cm) {
+      const ids = cm.dataset.c!.split(" ").map(Number);
+      const id = ids.find((x) => commentMap.get(x)?.done === false) ?? ids[0];
+      if (focusKey !== `c${id}`) focusCard(`c${id}`, false);
+    } else if (!ch && focusKey && focusKey !== "draft") {
+      focusKey = "";
+      renderCards();
     }
   });
+
+  // ------------------------------------------------- plan et commentaires
+  let tab: "plan" | "com" = "plan";
+  const pane = $("pane");
+  type Head = { idx: number; text: string; lvl: number };
+  let heads: Head[] = [];
+  /** Relecteur principal : l'auteur qui a le plus retouché ou commenté. */
+  function reviewer(): string {
+    if (!model) return "";
+    let best = "", score = 0;
+    for (const a of model.authors) {
+      if (a.name === author || AGENT.test(a.name)) continue;
+      if (a.changes + a.comments > score) { score = a.changes + a.comments; best = a.name; }
+    }
+    return best;
+  }
+  /** Section (titre de niveau 1) d'un paragraphe du corps. */
+  function sectionOf(idx: number): string {
+    let s = "";
+    for (const h of heads) { if (h.idx > idx) break; if (h.lvl === 1) s = h.text; }
+    return s;
+  }
+  function renderSide() {
+    if (!model) return;
+    const tops = model.comments.filter(isTop);
+    const done = tops.filter((c) => c.done).length;
+    const who = reviewer();
+    const head = `${who ? avatar(who) : ""}<span>${who ? `Révision de ${esc(firstName(who))}` : "Révision"}</span>${ic("down", 12)}`;
+    const rm = $("revMenu");
+    if (rm.dataset.html !== head) { rm.innerHTML = head; rm.dataset.html = head; }
+    ($("revBar") as HTMLElement).style.width = `${tops.length ? (100 * done / tops.length).toFixed(1) : 0}%`;
+    $("revDone").textContent = tops.length ? `${nf(done)} réglé${done > 1 ? "s" : ""} sur ${nf(tops.length)}` : "Aucun commentaire";
+    $("revCh").textContent = pl(model.changes.length, "modif", "modifs");
+    $("tabComN").textContent = String(tops.length - done);
+    heads = [];
+    model.paragraphs.forEach((p, idx) => {
+      // Le titre du document (niveau 0) n'est pas une section du plan.
+      if (p.story || p.heading === undefined || p.heading === null || p.heading < 1) return;
+      const text = oneLine(virtualText(idx));
+      if (text) heads.push({ idx, text, lvl: p.heading <= 1 ? 1 : 2 });
+    });
+    if (document.body.classList.contains("no-side")) return;
+    const idxOf = new Map<string, number>();
+    model.paragraphs.forEach((p, i) => { if (!idxOf.has(p.id)) idxOf.set(p.id, i); });
+    const cIdx = (c: Comment) => (c.paragraph ? idxOf.get(c.paragraph) ?? 1e9 : 1e9);
+    let html = "";
+    if (tab === "plan") {
+      const open = tops.filter((c) => !c.done).map(cIdx).sort((a, b) => a - b);
+      html = heads.length ? heads.map((h, k) => {
+        // Une section compte aussi ses sous-sections.
+        const nx = heads.findIndex((x, j) => j > k && x.lvl <= h.lvl);
+        const end = nx >= 0 ? heads[nx].idx : model!.body ?? 1e9;
+        const n = open.filter((i) => i >= h.idx && i < end).length;
+        return `<button class="ol${h.lvl === 2 ? " l2" : ""}" data-i="${h.idx}"><span>${esc(h.text)}</span>${n ? `<i>${nf(n)}</i>` : ""}</button>`;
+      }).join("") : `<div class="more">Aucun titre dans ce document.</div>`;
+    } else {
+      let sec: string | null = null;
+      const items = lane.filter((it) => it.kind === "comment").sort(byPosition);
+      for (const it of items) {
+        const c = commentMap.get(it.ids[0])!;
+        const s = it.idx < 1e9 ? sectionOf(it.idx) : "Hors du texte";
+        if (s !== sec) { sec = s; if (s) html += `<div class="sect">${esc(s)}</div>`; }
+        const replies = model.comments.filter((r) => r.parent === c.id).length;
+        html += `<button class="cl${c.done ? " done" : ""}${focusKey === it.key ? " on" : ""}" data-key="${it.key}">${avatar(c.author, true, c.initials)}<span class="x"><p>${esc(oneLine(c.text))}</p><small>${dateFr(c.date)}${replies ? ` · ${pl(replies, "réponse", "réponses")}` : ""}</small></span></button>`;
+      }
+      if (!items.length) html = `<div class="more">Aucun commentaire dans ce document.</div>`;
+    }
+    if (pane.dataset.html !== html) { pane.innerHTML = html; pane.dataset.html = html; spyCur = -2; }
+    if (tab === "com" && focusKey !== sideKey) { sideKey = focusKey; keepInPane(pane.querySelector<HTMLElement>(".cl.on")); }
+    spy();
+  }
+  function setTab(next: "plan" | "com") {
+    tab = next;
+    $("tabPlan").setAttribute("aria-selected", String(tab === "plan"));
+    $("tabCom").setAttribute("aria-selected", String(tab === "com"));
+    $("tabPlan").tabIndex = tab === "plan" ? 0 : -1;
+    $("tabCom").tabIndex = tab === "com" ? 0 : -1;
+    pane.setAttribute("aria-labelledby", tab === "plan" ? "tabPlan" : "tabCom");
+    renderSide();
+  }
+  $("tabPlan").addEventListener("click", () => setTab("plan"));
+  $("tabCom").addEventListener("click", () => setTab("com"));
+  // Flèches entre les deux onglets.
+  for (const id of ["tabPlan", "tabCom"]) $(id).addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    setTab(tab === "plan" ? "com" : "plan");
+    $(tab === "plan" ? "tabPlan" : "tabCom").focus();
+  });
+  pane.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    const o = t.closest(".ol") as HTMLElement | null;
+    const c = t.closest(".cl") as HTMLElement | null;
+    if (o) {
+      const el = paper.querySelector(`.d-p[data-idx="${o.dataset.i}"]`);
+      if (el) scroller.scrollBy({ top: el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 32, behavior: smooth() });
+    } else if (c) focusCard(c.dataset.key!, true);
+  });
+  /** Section en cours dans le plan, page en cours dans le pied. */
+  /** Garde l'entrée courante du panneau dans sa vue, sans faire défiler la page. */
+  function keepInPane(el: HTMLElement | null) {
+    if (!el) return;
+    const r = el.getBoundingClientRect(), pr = pane.getBoundingClientRect();
+    if (r.top < pr.top) pane.scrollTop += r.top - pr.top - 8;
+    else if (r.bottom > pr.bottom) pane.scrollTop += r.bottom - pr.bottom + 8;
+  }
+  let spyCur = -2, sideKey = "";
+  function spy() {
+    if (!model) return;
+    const sr = scroller.getBoundingClientRect();
+    if (tab === "plan" && !document.body.classList.contains("no-side")) {
+      let cur = -1;
+      for (const h of heads) {
+        const el = paper.querySelector(`.d-p[data-idx="${h.idx}"]`);
+        if (el && el.getBoundingClientRect().top - sr.top < 140) cur = h.idx; else if (el) break;
+      }
+      if (cur !== spyCur) {
+        spyCur = cur;
+        for (const b of Array.from(pane.querySelectorAll<HTMLElement>(".ol"))) b.classList.toggle("cur", Number(b.dataset.i) === cur);
+        keepInPane(pane.querySelector<HTMLElement>(".ol.cur"));
+      }
+    }
+    const pg = model.page;
+    if (pg) {
+      const stride = pg.height * ptPx + GAP;
+      const y = sr.top + sr.height / 2 - paper.getBoundingClientRect().top;
+      $("ftPage").textContent = `Page ${nf(Math.min(pageCount, Math.max(1, Math.floor(y / stride) + 1)))} sur ${nf(pageCount)}`;
+    } else $("ftPage").textContent = "";
+  }
+  let spyFrame = 0;
+  scroller.addEventListener("scroll", () => {
+    if (bub.classList.contains("show")) placeBubble();
+    if (document.body.classList.contains("no-lane")) placePop();
+    cancelAnimationFrame(spyFrame);
+    spyFrame = requestAnimationFrame(spy);
+  }, { passive: true });
 
   // ---------------------------------------------- chat, commentaire, signature
   function toChat(text: string) {
@@ -1881,52 +2560,33 @@
     pop.style.left = `${Math.max(8, Math.min(innerWidth - 308, rect.left))}px`;
   }
 
-  // Bulle de note partagée avec les autres surfaces : Entrée écrit un
-  // commentaire Word sur le passage, la bulle de chat l'envoie au chat.
   const UI = W.AtelierAnnotationUI;
-  const noteHost = document.createElement("div");
-  noteHost.className = "d-note-editor";
-  document.body.appendChild(noteHost);
-  let noteSel: Sel | null = null;
-  function hideNote() { noteHost.classList.remove("show"); noteSel = null; }
   function quoteOf(sel: Sel) {
     return `${PATH} (${model!.paragraphs[sel.a.idx].id}${sel.b.idx !== sel.a.idx ? `-${model!.paragraphs[sel.b.idx].id}` : ""}) : « ${selectionText(sel)} »`;
   }
-  const noteUI = UI?.createNoteEditor(noteHost, {
-    placeholder: "Commentaire dans le .docx…",
-    submitLabel: "Commenter",
-    onSubmit: (value: string) => {
-      const sel = noteSel, text = value.trim();
-      if (!sel || !text) return;
-      hideNote();
-      // Un commentaire couvre un passage d'un seul paragraphe : on borne au premier.
-      const end = sel.a.idx === sel.b.idx ? sel.b.off : cp(virtualText(sel.a.idx));
-      structural(async () => { await sendOp({ op: "comment_range", paragraph: ref(sel.a.idx), start: sel.a.off, end, text }, () => sel); });
-    },
-    onSendDirect: (value: string) => {
-      const sel = noteSel;
-      if (!sel) return;
-      hideNote();
-      toChat(value.trim() ? `${quoteOf(sel)}\n${value.trim()}` : quoteOf(sel));
-    },
-    onDelete: hideNote,
-    onDismiss: hideNote,
-  });
+  // Commenter : un brouillon s'ouvre dans la marge (ou en fenêtre sous le
+  // passage quand le panneau est étroit) ; il peut aussi partir au chat.
   function askComment() {
     const sel = readSel();
-    if (!sel || collapsed(sel) || !model || !noteUI) return;
-    const rect = getSelection()!.getRangeAt(0).getBoundingClientRect();
-    noteSel = sel;
-    selbar.classList.remove("show");
-    noteUI.input.value = "";
-    noteUI.status.textContent = "";
-    noteHost.classList.add("show");
-    const h = noteHost.offsetHeight;
-    noteHost.style.left = `${Math.max(8, Math.min(innerWidth - noteHost.offsetWidth - 8, rect.left))}px`;
-    noteHost.style.top = `${rect.bottom + 8 + h < innerHeight - 8 ? rect.bottom + 8 : Math.max(8, rect.top - h - 8)}px`;
-    noteUI.focus();
+    if (!sel || collapsed(sel) || !model) { status("Sélectionne d'abord le passage à commenter."); return; }
+    if (view === "original") return;
+    {
+      // Brouillon dans la marge, en face du passage (un seul paragraphe :
+      // un commentaire Word ne couvre pas plus).
+      const end = sel.a.idx === sel.b.idx ? sel.b.off : cp(virtualText(sel.a.idx));
+      const p = model.paragraphs[sel.a.idx];
+      draft = { idx: sel.a.idx, s: sel.a.off, e: end, quote: Array.from(virtualText(sel.a.idx)).slice(sel.a.off, end).join(""), pid: p.para_id || p.id };
+      // Un nouveau brouillon part d'une zone vide.
+      const old = cardsEl.querySelector('[data-key="draft"] textarea') as HTMLTextAreaElement | null;
+      if (old) old.value = "";
+      selbar.classList.remove("show");
+      getSelection()?.removeAllRanges();
+      focusKey = "draft";
+      renderCards();
+      requestAnimationFrame(() => (cardsEl.querySelector('[data-key="draft"] textarea') as HTMLTextAreaElement | null)?.focus());
+      return;
+    }
   }
-  paper.addEventListener("mousedown", () => { if (noteHost.classList.contains("show")) hideNote(); });
 
   // Capsule de sélection commune à Atelier (PDF, LaTeX, Markdown, code).
   // Surligner et souligner deviennent une mise en forme Word, en suivi si actif.
@@ -1984,7 +2644,10 @@
     caret.classList.add("on");
   }
   paper.addEventListener("focus", placeCaret);
-  paper.addEventListener("input", () => scheduleLines());
+  paper.addEventListener("input", () => {
+    const sel = readSel();
+    scheduleLines(sel ? sel.a.idx : undefined);
+  });
   // Une image qui arrive après la mise en page déplace la suite : on recoupe.
   const imageArrived = (e: Event) => {
     const img = e.target as HTMLElement;
@@ -2014,35 +2677,199 @@
     const pending = model.changes.filter((c) => AGENT.test(c.author));
     const agentNames = Array.from(new Set(pending.map((c) => c.author)));
     const other = model.other_parts.reduce((n, o) => n + o.changes, 0);
-    foot.innerHTML = `<span>${model.changes.length} modification${model.changes.length > 1 ? "s" : ""}</span>
-      ${pending.length ? `<span>·</span><span>${pending.length} de ${esc(agentNames.join(", "))} en attente</span>` : ""}
-      <span>·</span><span>${model.comments.filter((c) => !c.done && (c.parent === undefined || c.parent === null)).length} commentaire(s) ouvert(s)</span>
-      ${other ? `<span>·</span><span data-tooltip="Notes de bas de page, en-têtes ou pieds de page : à traiter dans Word">${other} hors du texte</span>` : ""}
-      <span class="sp"></span>
-      <span class="st"></span>
-      <span>·</span><button id="who" data-tooltip="Nom inscrit sur tes retouches et commentaires">Signé ${esc(author)}</button>`;
-    if (model.page) foot.appendChild(zoomEl);
-    status(lastStatus || "Enregistré dans le .docx", false);
-    $("who").addEventListener("click", (e) => {
-      showPopAt((e.currentTarget as HTMLElement).getBoundingClientRect(), `<label>Nom sur tes retouches (celui que Christophe voit dans Word)<input value="${esc(author)}"></label><div class="c-foot"><button class="btn" data-x="cancel">Annuler</button><button class="btn primary" data-x="send">Enregistrer</button></div>`);
-      pop.style.top = `${(e.currentTarget as HTMLElement).getBoundingClientRect().top - pop.offsetHeight - 8}px`;
-      const input = pop.querySelector("input")!;
-      input.focus();
-      const save = () => {
-        const v = input.value.trim();
-        if (!v) return;
-        author = v;
-        hidePop();
-        api("/docx/prefs", { author: v }).catch(() => undefined);
-        renderAll();
-        renderCards();
-        renderStatus();
-      };
-      pop.querySelector('[data-x="send"]')!.addEventListener("click", save);
-      pop.querySelector('[data-x="cancel"]')!.addEventListener("click", hidePop);
-      input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") save(); });
+    const open = model.comments.filter((c) => !c.done && isTop(c)).length;
+    let words = 0;
+    for (let k = 0; k < (model.body ?? model.paragraphs.length); k++) words += (virtualText(k).match(/\S+/g) || []).length;
+    $("ftWords").textContent = pl(words, "mot", "mots");
+    $("ftOpen").innerHTML = [
+      pl(open, "commentaire ouvert", "commentaires ouverts"),
+      pl(model.changes.length, "modification", "modifications"),
+      ...(pending.length ? [`${nf(pending.length)} de ${esc(agentNames.join(", "))} en attente`] : []),
+      ...(other ? [`<span data-tooltip="Notes de bas de page, en-têtes ou pieds de page : à traiter dans Word">${nf(other)} hors du texte</span>`] : []),
+    ].join(" · ");
+    $("who").textContent = `Signé ${author}`;
+    zoomEl.hidden = !model.page;
+    if (!inflight) status(SAVED);
+    spy();
+  }
+  $("who").addEventListener("click", (e) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    showPopAt(r, `<label>Nom sur tes retouches (celui que tes relecteurs voient dans Word)<input value="${esc(author)}"></label><div class="c-foot"><button class="btn" data-x="cancel">Annuler</button><button class="btn primary" data-x="send">Enregistrer</button></div>`);
+    pop.style.top = `${r.top - pop.offsetHeight - 8}px`;
+    const input = pop.querySelector("input")!;
+    input.focus();
+    const save = () => {
+      const v = input.value.trim();
+      if (!v) return;
+      author = v;
+      hidePop();
+      api("/docx/prefs", { author: v }).catch(() => undefined);
+      renderAll();
+      renderCards();
+      renderStatus();
+    };
+    pop.querySelector('[data-x="send"]')!.addEventListener("click", save);
+    pop.querySelector('[data-x="cancel"]')!.addEventListener("click", hidePop);
+    input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") save(); });
+  });
+
+  // ------------------------------------------------ rechercher, remplacer
+  // Sur le texte courant (suppressions exclues), surligné par l'API des
+  // surlignages du navigateur, sans toucher au DOM de la page. Remplacer
+  // passe par le moteur, en suivi quand le suivi est actif.
+  type Hit = { idx: number; s: number; e: number; locked: "" | "field" | "rev" };
+  const findEl = $("find");
+  const fQ = $("fQ") as HTMLInputElement;
+  const fR = $("fR") as HTMLInputElement;
+  const fN = $("fN");
+  let hits: Hit[] = [];
+  let hitK = 0;
+  const findOpen = () => findEl.classList.contains("show");
+  /** Passage pris dans un champ, une citation ou une figure : un remplacement l'emporterait en entier. */
+  function lockedAt(idx: number, s: number, e: number): "" | "field" | "rev" {
+    const [a, b] = expandWhole(idx, s, e);
+    if (a !== s || b !== e) return "field";
+    // Le moteur refuse de retoucher l'ajout en suivi d'un autre auteur.
+    let off = 0;
+    for (const g of model!.paragraphs[idx].segments) {
+      const removed = g.rev === "del" || g.rev === "moveFrom";
+      const len = removed ? 0 : cp(g.text);
+      if (!removed && g.rev && g.change !== undefined && len && off < e && s < off + len && changeMap.get(g.change)?.author !== author) return "rev";
+      off += len;
+    }
+    return "";
+  }
+  function runFind(reset: boolean) {
+    hits = [];
+    const q = fQ.value;
+    if (q && model) {
+      const lq = q.toLowerCase();
+      for (let k = 0; k < model.paragraphs.length; k++) {
+        const text = virtualText(k);
+        const lt = text.toLowerCase();
+        const fold = lt.length === text.length && lq.length === q.length;
+        const hay = fold ? lt : text, needle = fold ? lq : q;
+        for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + needle.length)) {
+          const s = cp(text.slice(0, i));
+          const e = s + cp(text.slice(i, i + needle.length));
+          hits.push({ idx: k, s, e, locked: lockedAt(k, s, e) });
+        }
+      }
+      // En Original, les insertions sont masquées : rien à trouver dedans.
+      if (view === "original") hits = hits.filter((h) => { const r = rangeAt(h.idx, h.s, h.e); return !!r && r.getClientRects().length > 0; });
+    }
+    if (reset) hitK = 0;
+    hitK = Math.min(hitK, Math.max(0, hits.length - 1));
+    paintFind(reset);
+  }
+  function paintFind(scroll: boolean) {
+    const q = fQ.value;
+    fN.textContent = !q ? "" : hits.length ? `${nf(hitK + 1)} sur ${nf(hits.length)}` : "Aucun";
+    const cur = hits[hitK] ? rangeAt(hits[hitK].idx, hits[hitK].s, hits[hitK].e) : null;
+    if (HL) {
+      const all = hits.slice(0, 2000).map((h) => rangeAt(h.idx, h.s, h.e)).filter(Boolean) as Range[];
+      if (all.length) highlights().set("docx-find", makeHighlight(all)); else highlights().delete("docx-find");
+      if (cur) highlights().set("docx-findcur", makeHighlight([cur])); else highlights().delete("docx-findcur");
+    }
+    if (scroll && cur) reveal(cur);
+  }
+  function openFind() {
+    hideBubble();
+    closeMenu();
+    const r = fmtbar.getBoundingClientRect();
+    findEl.style.top = `${r.bottom + 8}px`;
+    findEl.classList.add("show");
+    $("btnFind").classList.add("on");
+    const s = getSelection();
+    const sel = readSel();
+    if (s && sel && !collapsed(sel) && sel.a.idx === sel.b.idx && paper.contains(s.anchorNode)) fQ.value = selectionText(sel);
+    fQ.focus();
+    fQ.select();
+    runFind(true);
+  }
+  function closeFind() {
+    findEl.classList.remove("show");
+    $("btnFind").classList.remove("on");
+    hits = [];
+    fN.textContent = "";
+    if (HL) { highlights().delete("docx-find"); highlights().delete("docx-findcur"); }
+  }
+  function stepFind(d: number) {
+    if (!hits.length) return;
+    hitK = (hitK + d + hits.length) % hits.length;
+    paintFind(true);
+  }
+  const replacement = () => fR.value.replace(/[\r\n]+/g, " ");
+  const tracedNote = () => (tracked ? "en suivi" : "sans suivi");
+  function replaceOne() {
+    const h = hits[hitK];
+    if (!h) return;
+    if (view === "original") { status("Repasser en Révision pour remplacer."); return; }
+    if (h.locked === "field") { status("Ce passage est dans une citation ou un champ : à modifier dans Word.", true); return; }
+    if (h.locked === "rev") { status("Ce passage est un ajout en suivi d'un autre auteur : l'accepter ou le refuser d'abord.", true); return; }
+    const w = replacement();
+    structural(async () => {
+      const ok = await sendOp({ op: "replace_range", paragraph: ref(h.idx), start: h.s, end: h.e, with: w }, () => null);
+      if (!ok) return;
+      // Le résultat suivant vient après le texte qu'on vient d'écrire.
+      const past = h.s + cp(w);
+      const k = hits.findIndex((x) => x.idx > h.idx || (x.idx === h.idx && x.s >= past));
+      hitK = k < 0 ? 0 : k;
+      paintFind(true);
     });
   }
+  function replaceAll() {
+    if (!hits.length) return;
+    if (view === "original") { status("Repasser en Révision pour remplacer."); return; }
+    const free = hits.filter((h) => !h.locked);
+    const inField = hits.filter((h) => h.locked === "field").length;
+    const inRev = hits.filter((h) => h.locked === "rev").length;
+    if (!free.length) { status("Tous ces passages sont dans des champs ou des ajouts en suivi d'un autre auteur : rien à remplacer ici.", true); return; }
+    const left = [inField ? pl(inField, "laissé dans un champ", "laissés dans des champs") : "", inRev ? pl(inRev, "laissé dans un suivi", "laissés dans des suivis") : ""].filter(Boolean).join(", ");
+    // Du dernier au premier dans chaque paragraphe : les positions qui
+    // précèdent restent justes.
+    const ops = free.slice().sort((a, b) => a.idx - b.idx || b.s - a.s)
+      .map((h) => ({ op: "replace_range", paragraph: ref(h.idx), start: h.s, end: h.e, with: replacement() }));
+    structural(async () => {
+      const ok = await sendOp(ops.length === 1 ? ops[0] : { op: "batch", ops }, () => null);
+      if (ok) status(`${pl(free.length, "passage remplacé", "passages remplacés")} ${tracedNote()}${left ? ` · ${left}` : ""}`);
+    });
+  }
+  fQ.addEventListener("input", () => runFind(true));
+  fQ.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1); }
+    else if (e.key === "Escape") { e.preventDefault(); closeFind(); paper.focus(); }
+  });
+  fR.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); if (e.metaKey || e.ctrlKey) replaceAll(); else replaceOne(); }
+    else if (e.key === "Escape") { e.preventDefault(); closeFind(); paper.focus(); }
+  });
+  $("fPrev").innerHTML = ic("up", 14);
+  $("fNext").innerHTML = ic("down", 14);
+  $("fClose").innerHTML = ic("x", 14);
+  $("fMore").innerHTML = ic("right", 14);
+  $("fPrev").addEventListener("click", () => stepFind(-1));
+  $("fNext").addEventListener("click", () => stepFind(1));
+  $("fClose").addEventListener("click", closeFind);
+  $("fMore").addEventListener("click", () => {
+    const row = $("fRow2");
+    row.hidden = !row.hidden;
+    $("fMore").innerHTML = ic(row.hidden ? "right" : "down", 14);
+    $("fMore").setAttribute("aria-expanded", String(!row.hidden));
+    if (!row.hidden) fR.focus();
+  });
+  $("fOne").addEventListener("click", replaceOne);
+  $("fAll").addEventListener("click", replaceAll);
+  $("btnFind").addEventListener("click", () => (findOpen() ? closeFind() : openFind()));
+  document.addEventListener("keydown", (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && !e.altKey && e.key.toLowerCase() === "f") { e.preventDefault(); openFind(); return; }
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    if (bub.classList.contains("show")) hideBubble();
+    else if (findOpen()) closeFind();
+    else if (focusKey === "draft") cancelDraft();
+    else if (focusKey) { focusKey = ""; renderCards(); }
+  });
 
   // ------------------------------------------------- relecture du disque
   async function poll() {
