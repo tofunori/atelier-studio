@@ -11,7 +11,8 @@ import { formatFileSize, useFileCards, type FileCardMeta } from "../../lib/chatF
 import { RowButton } from "../ui";
 import "./ChatReview.css";
 
-import { CircleCheckIcon, FileIcon, FolderIcon, PenLineIcon, TriangleAlertIcon } from "lucide-react";
+import { CircleCheckIcon, FileIcon, FolderIcon, MessageSquareIcon, PenLineIcon, TriangleAlertIcon } from "lucide-react";
+import type { DocxReplyAsk } from "../../lib/docxReplyAsk";
 import type { ChatReviewRef } from "../../lib/reviewSession";
 import { wordDiff } from "../../lib/wordDiff";
 
@@ -35,6 +36,22 @@ function EditCard({ review, path, first, where }: { review: ChatReviewRef; path?
         {ready ? <CircleCheckIcon size={12} aria-hidden="true" /> : <TriangleAlertIcon size={12} aria-hidden="true" />}
         {t(ready ? "chat.review-edit-ready" : "chat.review-edit-changed")}
       </div>
+    </div>
+  );
+}
+
+/** « Proposer » de l'éditeur Word (2026-11-12, variante C « Citation ») :
+ *  à qui l'on répond, où, et son commentaire ; ni carte de fichier ni taille. */
+function ReplyCard({ reply, path }: { reply: DocxReplyAsk; path?: string }) {
+  const first = reply.author.trim().split(/\s+/)[0] || reply.author;
+  return (
+    <div className="reply-card" title={path}>
+      <div className="reply-card-head">
+        <MessageSquareIcon className="reply-card-ic" size={12} strokeWidth={1.5} aria-hidden="true" />
+        <span>{t("chat.reply-ask", { name: first })}</span>
+        {reply.where && <span className="reply-card-where">{` · ${reply.where}`}</span>}
+      </div>
+      <div className="reply-card-comment">{reply.comment}</div>
     </div>
   );
 }
@@ -117,6 +134,7 @@ export function ChatFileCards({ items }: { items: (ChatFileRef | string)[] }) {
   return (
     <div className="user-file-attachments">
       {refs.map((ref) => {
+        if (ref.reply) return <ReplyCard key={`reply:${ref.path ?? ref.name}`} reply={ref.reply} path={ref.path} />;
         if (ref.kind === "review" && ref.review) {
           return <ReviewCard key={`review:${ref.path ?? ""}:${ref.review.n}`} review={ref.review} path={ref.path} />;
         }

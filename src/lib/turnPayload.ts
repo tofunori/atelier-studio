@@ -6,6 +6,7 @@ import type { DraftAttachment } from "./chatDraftStore";
 import type { ProviderCapabilities } from "./providers";
 import type { PluginSkill } from "./plugins";
 import { skillAttachInstruction, type CatalogSkill } from "./skills";
+import { docxReplyAsk } from "./docxReplyAsk";
 import type { ChatFileRef, SendOptions, UserDisplayEvent } from "./ws";
 
 type Attachment = DraftAttachment;
@@ -48,8 +49,10 @@ function chatFileRef(a: Attachment): ChatFileRef {
       ...(year ? { year } : {}),
     };
   }
+  const reply = a.kind === "file" && /\.docx$/i.test(a.name) ? docxReplyAsk(a.text) : null;
   return {
     name: a.name,
+    ...(reply ? { reply } : {}),
     ...(a.lines ? { lines: a.lines } : {}),
     ...(a.path ? { path: a.path } : {}),
     ...(a.kind ? { kind: a.kind } : {}),

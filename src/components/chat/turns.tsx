@@ -310,7 +310,7 @@ export const UserTurn = memo(function UserTurn(p: {
           </BubbleContent>
         </Bubble>
       ) : null /* pièces jointes seules : leurs cartes, pas de bulle vide */}
-      {p.editingText == null && e.liveContext?.name && (() => {
+      {p.editingText == null && e.liveContext?.name && !e.files?.some((file) => file.reply) && (() => {
         // Contexte vivant parti avec ce message : trace grise, sans le texte.
         const where = liveContextWhere(e.liveContext);
         return (

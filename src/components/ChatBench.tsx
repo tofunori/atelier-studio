@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · regarde · relecteur (-encours, -rien).
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · regarde · relecteur (-encours, -rien).
 import { setReviewSession } from "../lib/reviewSession";
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
@@ -489,6 +489,16 @@ const CONTEXTS_ATTACHMENTS = [
 // Passages annotés dans l'éditeur Word (2026-11-12, variante 2 « Puces ») :
 // une puce par passage, ¶ et note, sinon le passage.
 const WORD_DOC = "/Documents/These/Chapitre1_brouillon_revCK.docx";
+// « Proposer » de l'éditeur Word : le message envoyé, en citation sobre.
+const WORD_REPLY_EVENTS: AgentEvent[] = [
+  { kind: "user", text: "Fais le point sur la section 2.3.", ts: ts(300) } as AgentEvent,
+  { kind: "text", text: "… et la section 2.3 reste cohérente avec la figure 4.", ts: ts(290) } as AgentEvent,
+  { kind: "user", text: "", ts: ts(20), label: "Chapitre1_brouillon_2026-11-02_revCK.docx",
+    files: [{ name: "Chapitre1_brouillon_2026-11-02_revCK.docx", path: "/Users/bench/Doctorat/Chapitre1_brouillon_2026-11-02_revCK.docx", kind: "file",
+      reply: { author: "Christophe Kinnard", comment: "Pourquoi 0,6 et pas 0,5 ? Une courte analyse de sensibilité serait la bienvenue.", where: "¶ 17" } }],
+    liveContext: { path: "/Users/bench/Doctorat/Chapitre1_brouillon_2026-11-02_revCK.docx", name: "Chapitre1_brouillon_2026-11-02_revCK.docx", paragraph: 17 } } as AgentEvent,
+];
+
 const WORD_ATTACHMENTS: typeof CONTEXTS_ATTACHMENTS = [
   { name: "Chapitre1_brouillon_revCK.docx", lines: null, kind: "file" as const,
     text: `${WORD_DOC} (p7-p8) : « In North America, previous studies have reported darker surfaces and estimated additional melt from wildfire deposits. »\nCommentaire : peux tu relire l'ensemble maintenant` },
@@ -981,6 +991,7 @@ const STATES: Record<string, BenchState> = {
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   word: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: WORD_ATTACHMENTS, usage: null },
+  proposer: { events: WORD_REPLY_EVENTS, workingSince: null, attachments: [], usage: null },
   regarde: { events: LIVE_CONTEXT_EVENTS, workingSince: null, attachments: [], usage: null, liveContext: LIVE_CONTEXT },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
   typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },
