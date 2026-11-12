@@ -44,6 +44,11 @@ button:focus-visible,[role="button"]:focus-visible,[contenteditable]:focus-visib
 .ib:active,.ib.on,.ib.open{background:var(--press);color:var(--text-primary)}
 .ib .ic{display:flex}
 .ib .chev{display:flex;color:var(--text-muted);margin-left:-2px}
+.lanebtn{gap:4px;padding:0 6px}
+.lanebtn .n{font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-muted);transition:color 120ms ease-out}
+.lanebtn .n:empty{display:none}
+.lanebtn:hover .n,.lanebtn.on .n{color:var(--text-primary)}
+.lanebtn:disabled{opacity:.45;cursor:default;background:transparent}
 .ib .g{font:600 15px/1 'Times New Roman','Tinos',Georgia,serif}
 .ib .g.i{font-style:italic;font-weight:400}
 .ib .g.u{font-weight:400;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}
@@ -233,6 +238,18 @@ body.no-lane.lane-pop #cards{display:block;position:fixed;z-index:var(--z-popove
 body.no-lane #cards .it{display:none}
 body.no-lane #cards .it.on{display:block;position:static;transform:none!important}
 body.no-lane #cards .it.on .cc{box-shadow:var(--elev)}
+/* Bouton « Commentaires » (2026-11-12) : la marge se dévoile pendant que le
+   panneau s'élargit, se retire avant qu'il se resserre ; faute de place, elle
+   passe par-dessus le bord de la page (lane-over). */
+body.lane-in #scroll,body.lane-out #scroll{overflow-x:hidden}
+body.lane-in #cards{animation:lane-in 150ms cubic-bezier(.2,.8,.2,1) 60ms both}
+body.lane-out #cards,body.lane-out #leader{opacity:0;transform:translateX(12px);transition:opacity 120ms ease-out,transform 120ms ease-out}
+@keyframes lane-in{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
+body.lane-over #scroll{padding-right:24px}
+body.lane-over #cards{left:auto!important;right:16px;z-index:3}
+body.lane-over #cards .cc{box-shadow:var(--elev-soft)}
+body.lane-over #cards .it.on .cc{box-shadow:var(--elev)}
+body.lane-over #leader{display:none}
 .it{position:absolute;left:0;right:0;top:0;will-change:transform;transition:transform 140ms ease-out,opacity 140ms ease-out}
 .cc{padding:12px;border-radius:10px;background:var(--surface-raised,var(--card));box-shadow:var(--lift);font-size:12px;line-height:1.5;cursor:pointer;transition:box-shadow 140ms ease-out}
 .cc:hover,.it.on .cc{box-shadow:var(--elev-soft)}

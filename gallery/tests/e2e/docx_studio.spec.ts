@@ -559,3 +559,76 @@ test('docx: zoom au curseur et aux touches, retour à la largeur du panneau', as
   await label.click();
   await expect(label).toHaveClass(/on/);
 });
+
+test('docx: le bouton Commentaires ferme la marge, le choix tient au rechargement, et faute d\'app la rouvre par-dessus la page', async ({page, project}) => {
+  await page.setViewportSize({width: 1400, height: 900});
+  await open(page, project);
+  const btn = page.locator('#btnLane');
+  const body = page.locator('body');
+  await expect(body).not.toHaveClass(/no-lane/);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await expect(btn.locator('.n')).toHaveText(/^\d+$/);
+  await btn.click();
+  await expect(body).toHaveClass(/no-lane/);
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#cards')).toBeHidden();
+  await page.reload();
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  await expect(body).toHaveClass(/no-lane/);
+  // Panneau étroit, sans app pour l'élargir : la marge passe par-dessus la page.
+  await page.setViewportSize({width: 820, height: 900});
+  const w0 = await page.locator('#paper').evaluate((p) => p.offsetWidth);
+  await page.keyboard.press('ControlOrMeta+Shift+KeyM');
+  await expect(body).toHaveClass(/lane-over/);
+  await expect(body).not.toHaveClass(/no-lane/);
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#cards .it').first()).toBeVisible();
+  expect(Math.abs(await page.locator('#paper').evaluate((p) => p.offsetWidth) - w0)).toBeLessThan(2);
+  const [cards, scroll] = await Promise.all([page.locator('#cards').boundingBox(), page.locator('#scroll').boundingBox()]);
+  expect(cards!.x + cards!.width).toBeLessThanOrEqual(scroll!.x + scroll!.width);
+  await btn.click();
+  await expect(body).toHaveClass(/no-lane/);
+  await expect(body).not.toHaveClass(/lane-over/);
+});
+
+test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place de la marge et le rend en la fermant', async ({page, project}) => {
+  // L'hôte joue le rôle de l'app : il élargit l'iframe de ce qu'elle demande.
+  const src = `${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(project.doc)}`;
+  await page.request.post(`${project.url}/docx/prefs`, {data: {author: 'Thierry'}});
+  await page.setViewportSize({width: 1600, height: 900});
+  await page.setContent(`<body style="margin:0"><iframe id="f" style="border:0;width:800px;height:880px"></iframe><script>
+    window.asks = [];
+    const f = document.getElementById('f');
+    addEventListener('message', (e) => {
+      if (e.data?.type !== 'atelier-docx-pane') return;
+      window.asks.push(e.data);
+      if (e.data.action === 'widen') { window.before = f.offsetWidth; f.style.width = (f.offsetWidth + e.data.px) + 'px'; }
+      else f.style.width = window.before + 'px';
+      setTimeout(() => e.source.postMessage({type: 'atelier-docx-pane-done', action: e.data.action, ok: true}, '*'), 50);
+    });
+  </script></body>`);
+  await page.locator('#f').evaluate((f: HTMLIFrameElement, url) => { f.src = url; }, src);
+  const frame = page.frameLocator('#f');
+  await expect(frame.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  const body = frame.locator('body');
+  await expect(body).toHaveClass(/no-lane/);
+  const w0 = await frame.locator('#paper').evaluate((p) => p.offsetWidth);
+  await frame.locator('#btnLane').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as {asks: {action: string; px: number}[]}).asks.length)).toBe(1);
+  const ask = await page.evaluate(() => (window as unknown as {asks: {action: string; px: number}[]}).asks[0]);
+  expect(ask.action).toBe('widen');
+  expect(ask.px).toBeGreaterThan(300);
+  await expect(body).not.toHaveClass(/no-lane/);
+  await expect(body).not.toHaveClass(/lane-over|lane-in/);
+  await expect(frame.locator('#btnLane')).toHaveAttribute('aria-pressed', 'true');
+  // La page garde sa taille (ou monte aux 75 % sous lesquels la marge ne tient pas).
+  const w1 = await frame.locator('#paper').evaluate((p) => p.offsetWidth);
+  expect(w1).toBeGreaterThanOrEqual(w0 - 2);
+  // Toute la marge tient dans le panneau.
+  const right = await frame.locator('#scroll').evaluate((s) => s.scrollWidth - s.clientWidth);
+  expect(right).toBeLessThanOrEqual(1);
+  await frame.locator('#btnLane').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as {asks: {action: string}[]}).asks.map((a) => a.action).join())).toBe('widen,restore');
+  await expect(body).toHaveClass(/no-lane/);
+  await expect(page.locator('#f')).toHaveCSS('width', '800px');
+});
