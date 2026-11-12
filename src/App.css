@@ -6783,6 +6783,53 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 /* Infobulle d'un projet du rail : nom, puis signaux sur leurs lignes (SHELL-13). */
 .rail-tip { display: flex; flex-direction: column; gap: 2px; }
 .rail-tip > span:first-child { color: var(--text-primary); }
+/* Fils récents du projet actif sous sa puce (2026-11-12, option A, relu par
+   Fable) : marques plus petites que les puces, rattachées au projet par un
+   filet qui reste hors des cases ; la sélection n'y prend que le fond, la
+   pilule reste au projet. Cible de 38×28 (comme les puces), fond peint en
+   retrait par ::before pour garder la marque petite. */
+.rail-threads { position: relative; width: 100%; flex: none; display: flex; flex-direction: column;
+  align-items: center; gap: 0; margin: 0 0 4px; }
+.rail-threads::before { content: ""; position: absolute; left: 8px; top: 0; bottom: 0; width: 1px;
+  background: var(--border); pointer-events: none; }
+.rail-clean .rail-thread { position: relative; width: 38px; height: 28px; min-width: 0; padding: 0; flex: none;
+  border-radius: var(--r-s); color: var(--text-muted); background: transparent !important;
+  transition: color var(--motion-fast) var(--ease-out); }
+.rail-clean .rail-thread::before { content: ""; position: absolute; inset: 1px 5px; border-radius: var(--r-s);
+  transition: background-color var(--motion-fast) var(--ease-out); }
+.rail-clean .rail-thread > .chat-seal { position: relative; width: 14px; height: 14px; flex: none; }
+.rail-clean .rail-thread:hover { color: var(--text-primary); }
+.rail-clean .rail-thread:hover::before { background: var(--surface-hover); }
+.rail-clean .rail-thread.on { color: var(--text-primary); }
+.rail-clean .rail-thread.on::before { background: var(--bg-ctl); }
+.rail-clean .rail-thread:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); }
+.rail-clean .rail-thread > .rail-signal.sig-dot { top: 1px; right: 6px; width: 8px; height: 8px; border-width: 1px;
+  background-clip: padding-box; }
+.rail-clean .rail-thread:hover > .rail-signal.sig-dot { border-color: var(--surface-hover); }
+.rail-clean .rail-thread > .rail-signal.sig-run { top: 1px; right: 5px; width: 10px; height: 10px; }
+/* Jauge du quota au-dessus des Réglages : un trait qui se remplit par le bas
+   (translateY, jamais de géométrie animée). Piste = celle de l'anneau. */
+.rail-clean .rail-usage { width: 38px; height: 38px; flex: none; display: flex; align-items: center;
+  justify-content: center; border-radius: var(--r-m); background: transparent; cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out); }
+.rail-clean .rail-usage:hover { background: var(--surface-hover); }
+.rail-clean .rail-usage:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); }
+.rail-usage-track { position: relative; width: 4px; height: 28px; border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent); overflow: hidden; }
+.rail-usage-track > i { position: absolute; inset: 0; border-radius: var(--r-pill);
+  background: var(--text-muted); transition: transform var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+.rail-clean .rail-usage:hover .rail-usage-track > i { background: var(--text-secondary); }
+.rail-clean .rail-usage.high .rail-usage-track > i { background: var(--status-warning); }
+/* menu du vide (clic droit sous les projets) : ancre invisible, rangées
+   icône 14 + libellé + raccourci */
+.rail-clean .rail-void-anchor { position: absolute; right: 0; width: 1px; height: 1px; padding: 0;
+  opacity: 0; pointer-events: none; }
+.rail-void-item { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.rail-void-item > svg { flex: none; color: var(--text-muted); }
+.rail-void-kbd { margin-left: auto; padding-left: 12px; font: inherit; font-size: var(--fs-s);
+  color: var(--text-muted); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .rail-clean .rail-thread, .rail-clean .rail-thread::before,
+  .rail-clean .rail-usage, .rail-usage-track > i { transition: none; } }
 /* Compact navigation: global chat favorites, then project identities. */
 .rail-clean .rail-favorites { display:flex; flex-direction:column; align-items:center; gap:4px; width:100%; flex:0 1 auto; max-height:28vh; overflow-y:auto; min-height:36px; margin-bottom:8px; scrollbar-width:none; }
 .rail-clean .rail-favorite { display:flex; flex-direction:column; gap:2px; width:34px; height:34px; flex:none; position:relative; border-radius:var(--r-m); color:var(--text-secondary); }

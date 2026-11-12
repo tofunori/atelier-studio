@@ -1,5 +1,5 @@
 import { isDiscussionContext } from "../lib/discussions";
-import { useState, useSyncExternalStore } from "react";
+import { Fragment, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
 import { t } from "../lib/i18n";
 import { ChatsIcon, PlusIcon, SettingsIcon, SidebarIcon, MoreIcon } from "./icons";
 import { ProjIcon } from "./sidebar/projectIcons";
@@ -17,6 +17,12 @@ import type { RailSignal } from "../lib/railSignals";
 import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 import { articleImportSnapshot, subscribeArticleImport } from "../lib/articleImports";
 import { useIntegrations } from "../lib/integrations";
+import { readUsageSnapshot, subscribeUsage, worstOf } from "../lib/usageSummary";
+import type { Thread } from "../lib/ws";
+import { RailProjectThreads } from "./sidebar/RailProjectThreads";
+import { railProjectThreads } from "../lib/railProjectThreads";
+import { strongest } from "../lib/railSignals";
+import { FolderPlus, MessageSquarePlus, PanelLeft } from "lucide-react";
 
 // Hors de l'entrée (budget JS plein) : la boîte se charge au démarrage, la
 // zone d'activité seulement quand une conversion existe.
@@ -85,6 +91,10 @@ type RailProjectsProps = {
   onAddProject: () => void;
   onReorder: (from: string, to: string) => void;
   onMenu: (root: string, y: number) => void;
+  /** ce qui suit la puce d'un projet (fils récents du projet actif) */
+  after?: (root: string) => ReactNode;
+  /** coin d'une puce dont une partie des fils est déjà montrée dessous */
+  signalOverride?: { root: string; signal: RailSignal | null };
 };
 
 /** Puces de projets : signal au coin, glisser pour réordonner, clic droit
@@ -99,12 +109,14 @@ function RailProjects(p: RailProjectsProps) {
         const active = root === p.activeRoot;
         // l'ancien point « agent au travail » reste la source quand App ne
         // fournit pas encore de signaux (tests, bancs)
-        const signal = p.signals ? p.signals.projects[root] ?? null : (p.running.has(root) ? "run" : null);
+        const signal = p.signalOverride?.root === root ? p.signalOverride.signal
+          : p.signals ? p.signals.projects[root] ?? null : (p.running.has(root) ? "run" : null);
         const name = root.split("/").pop() ?? root;
         const notes = p.signals?.notes[root] ?? [];
         const tip = [name, ...(notes.length ? notes : signal ? [SIGNAL_LABEL[signal]] : [])];
         return (
-          <Tooltip key={root} placement="right"
+          <Fragment key={root}>
+          <Tooltip placement="right"
             label={<span className="rail-tip">{tip.map((line) => <span key={line}>{line}</span>)}</span>}>
           <RowButton
             className={`rail-proj ${m?.color ? "tinted" : ""} ${active ? "on" : ""} ${dragOver === root && dragRoot !== root ? "drag-over" : ""}`}
@@ -148,6 +160,8 @@ function RailProjects(p: RailProjectsProps) {
             <RailSignalMark signal={signal} />
           </RowButton>
           </Tooltip>
+          {p.after?.(root)}
+          </Fragment>
         );
       })}
       <Tooltip label={t("action.add-project")} placement="right">
@@ -177,6 +191,27 @@ function RailDiscussions({ active, count, onOpen }: { active: boolean; count: nu
   );
 }
 
+/** Jauge du quota au-dessus des Réglages (2026-11-12) : dans la colonne
+ * dépliée, l'usage a sa ligne en bas ; replié, il n'était qu'une entrée du
+ * menu de l'engrenage. Un trait vertical qui se remplit, plus ambre passé
+ * 80 % ; rien tant qu'aucun fournisseur n'a donné de limite. */
+function RailUsage() {
+  const worst = worstOf(useSyncExternalStore(subscribeUsage, readUsageSnapshot));
+  if (worst == null) return null;
+  const pct = Math.max(0, Math.min(100, worst));
+  const label = `${t("usage.title")} ${Math.round(pct)} %`;
+  return (
+    <Tooltip label={label} placement="right">
+      <RowButton className={`rail-usage ${pct >= 80 ? "high" : ""}`} aria-label={label}
+        onClick={() => window.dispatchEvent(new CustomEvent("usage-toggle"))}>
+        <span className="rail-usage-track" aria-hidden="true">
+          <i style={{ transform: `translateY(${100 - Math.max(8, pct)}%)` }} />
+        </span>
+      </RowButton>
+    </Tooltip>
+  );
+}
+
 /** Zone épinglée : tâches de fond (conversions) puis Réglages, toujours
  * visibles en bas, jamais scrollés. */
 function RailPinned(p: { meta: Record<string, ProjMeta>; onSelectProject: (root: string) => void; onSettings: () => void }) {
@@ -185,6 +220,7 @@ function RailPinned(p: { meta: Record<string, ProjMeta>; onSelectProject: (root:
   const ragdocOn = useIntegrations().effective.ragdoc;
   return (
     <div className="rail-pinned">
+      <RailUsage />
       {ragdocOn && articleJobs > 0 && (
         <LazyBoundary fallback={null}>
           <RailActivity running={NO_AGENTS} meta={p.meta} onSelectProject={p.onSelectProject} />
@@ -204,6 +240,10 @@ export default function Rail(p: {
   favorites?: RailFavoritesProps;
   signals?: RailSignals;
   inbox?: RailInboxProps;
+  /** tous les fils (WebSocket) : ceux du projet actif passent sous sa puce */
+  threads?: Thread[];
+  /** fil affiché dans le chat */
+  activeId?: string | null;
   projects: string[];
   activeProject: string | null;
   meta: Record<string, ProjMeta>;
@@ -226,13 +266,39 @@ export default function Rail(p: {
 }) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [menu, setMenu] = useState<{ root: string; y: number } | null>(null);
+  // menu du vide : clic droit sous les projets (y du clic, ancre invisible)
+  const [voidMenu, setVoidMenu] = useState<number | null>(null);
+  const threadsRoot = p.threads && p.favorites && p.activeProject && p.projects.includes(p.activeProject)
+    ? p.activeProject : null;
+  const threadRows = threadsRoot ? railProjectThreads(p.threads!, threadsRoot, {
+    activeId: p.activeId, pinned: new Set(p.favorites?.threads.map(th => th.id)),
+  }) : [];
+  // Les fils montrés sous la puce portent leur signal : la puce ne garde que
+  // celui des fils qui n'y sont pas (sinon deux anneaux tournent à 8 px).
+  const shownIds = new Set(threadRows.flatMap(row => [row.thread.id, ...row.children.map(child => child.id)]));
+  const signalOverride = threadsRoot && threadRows.length && p.signals ? {
+    root: threadsRoot,
+    signal: strongest((p.threads ?? []).filter(th => th.projectRoot === threadsRoot && !shownIds.has(th.id))
+      .map(th => p.favorites?.signals?.[th.id])),
+  } : undefined;
+  // Le vide (2026-11-12) : double-clic déplie la colonne, clic droit ouvre
+  // Nouveau chat / Ajouter un projet. Seulement sur le fond, jamais sur un
+  // bouton, et sans rien dessiner : le geste reste à portée sans un pixel.
+  const isVoid = (e: MouseEvent) => e.target instanceof HTMLElement && e.target.matches(".rail, .rail-scroll, .rail-projects, .rail-threads, .rail-pinned");
 
   const favoriteActive = p.activeView === "chats" && Boolean(
     p.favorites?.threads.some(th => th.id === p.favorites?.activeId),
   );
 
   return (
-    <nav className="rail rail-clean" aria-label="Navigation principale">
+    <nav className="rail rail-clean" aria-label="Navigation principale"
+      onDoubleClick={e => { if (isVoid(e)) p.onExpand(); }}
+      onContextMenu={e => {
+        if (!isVoid(e)) return;
+        e.preventDefault();
+        const top = e.currentTarget.getBoundingClientRect().top;
+        setVoidMenu(e.clientY - top);
+      }}>
       <div className="rail-scroll">
         <div className="rail-top" role="group" aria-label="Commandes">
           <Tooltip label={p.compact ? t("action.expand-sidebar") : t("action.collapse-sidebar")} placement="right">
@@ -286,8 +352,26 @@ export default function Rail(p: {
           onAddProject={p.onAddProject}
           onReorder={p.onReorder}
           onMenu={(root, y) => setMenu({ root, y })}
+          signalOverride={signalOverride}
+          after={root => root === threadsRoot && p.favorites ? (
+            <RailProjectThreads root={root} rows={threadRows}
+              activeId={p.activeView === "chats" ? p.activeId ?? null : null}
+              signals={p.favorites.signals}
+              seals={p.favorites.seals}
+              onOpen={p.favorites.onOpen} />
+          ) : null}
         />
       </div>{/* fin rail-scroll */}
+      <LazyDropdownMenu open={voidMenu != null} onOpenChange={open => { if (!open) setVoidMenu(null); }}
+        side="right" align="start" label="Barre"
+        trigger={<RowButton className="rail-void-anchor" tabIndex={-1} aria-label="Actions de la barre"
+          style={{ top: voidMenu ?? 0 }} />}
+        items={[
+          { key: "new", label: <span className="rail-void-item"><MessageSquarePlus size={14} aria-hidden="true" />{t("action.new-chat")}</span>, onSelect: p.onNewChat },
+          { key: "project", label: <span className="rail-void-item"><FolderPlus size={14} aria-hidden="true" />{t("action.add-project")}</span>, onSelect: p.onAddProject },
+          { key: "expand", separatorBefore: true, onSelect: p.onExpand,
+            label: <span className="rail-void-item"><PanelLeft size={14} aria-hidden="true" />Déplier la barre<kbd className="rail-void-kbd">⌘\</kbd></span> },
+        ]} />
       <RailPinned meta={p.meta} onSelectProject={p.onSelectProject} onSettings={p.onSettings} />
       {menu && (
         <ProjectStyleMenu

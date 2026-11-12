@@ -4523,6 +4523,8 @@ export default function App() {
         <RailMemo
           signals={railView?.signals}
           inbox={railInbox}
+          threads={allThreads}
+          activeId={activeId}
           favorites={{
             unread,
             signals: railView?.signals.threads,
