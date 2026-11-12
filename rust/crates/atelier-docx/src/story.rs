@@ -3,7 +3,9 @@
 //! partie XML et a ses propres paragraphes, numérotés à partir de zéro.
 //!
 //! Désignation d'un paragraphe :
-//! - `p12` (ou un `w14:paraId`) : corps du document ;
+//! - `p12`, `id:1A2B3C4D` ou un `w14:paraId` nu : corps du document (le
+//!   paraId ne bouge pas quand une Entrée décale les rangs ; le panneau
+//!   vise ainsi un paragraphe sans dépendre des gestes en vol) ;
 //! - `n3.p0` : premier paragraphe de la note de bas de page `w:id="3"` ;
 //! - `e3.p0` : note de fin ;
 //! - `header1.p0`, `footer2.p0` : en-tête ou pied de page (`word/header1.xml`…).
@@ -28,7 +30,7 @@ pub(crate) enum Scope {
 pub(crate) struct StoryRef {
     pub part: String,
     pub scope: Scope,
-    /// `p<i>` ou un `w14:paraId`.
+    /// `p<i>`, `id:<paraId>` ou un `w14:paraId` nu.
     pub local: String,
 }
 
@@ -48,6 +50,20 @@ pub(crate) fn parse_ref(r: &str) -> Result<StoryRef> {
         return err(format!("paragraphe {r} introuvable"));
     };
     Ok(StoryRef { part, scope, local: local.to_string() })
+}
+
+/// Rang, dans `paras`, du paragraphe désigné par `local` : `p<i>`,
+/// `id:<paraId>` ou un `w14:paraId` nu (sans tenir compte de la casse, Word
+/// écrit l'hexadécimal en majuscules mais le lit dans les deux).
+pub(crate) fn local_index(paras: &[crate::walk::ParaRef], local: &str) -> Option<usize> {
+    if let Some(i) = local.strip_prefix('p').and_then(|n| n.parse::<usize>().ok()) {
+        return (i < paras.len()).then_some(i);
+    }
+    let pid = local.strip_prefix("id:").unwrap_or(local);
+    if pid.is_empty() {
+        return None;
+    }
+    paras.iter().position(|p| p.node.attribute((crate::xml::W14, "paraId")).is_some_and(|v| v.eq_ignore_ascii_case(pid)))
 }
 
 /// Conteneur des paragraphes d'une histoire dans sa partie.

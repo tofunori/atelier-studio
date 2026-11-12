@@ -363,9 +363,10 @@ test('docx: barre de mise en forme, vues et page blanche', async ({page, project
   await open(page, project);
   await select(page, 2, 'compromis');
   await page.locator('[data-run="b"]').click();
+  // Le gras se voit tout de suite, puis arrive dans le fichier en suivi.
   await expect(page.locator('.d-p[data-idx="2"] b', {hasText: 'compromis'})).toHaveCount(1);
+  await expect.poll(async () => (await disk(page, project)).changes.some(c => c.author === 'Thierry' && c.kind === 'format')).toBe(true);
   let m = await disk(page, project);
-  expect(m.changes.some(c => c.author === 'Thierry' && c.kind === 'format')).toBe(true);
 
   await caretAfter(page, 2, 'pureté');
   await page.locator('#btnAlign').click();
@@ -983,4 +984,219 @@ triTest('docx: revue au clavier, A et R décident et avancent, Échap ferme', as
   await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'true');
   await expect(page.locator('.tri-g[data-g="fond"]')).toBeFocused();
   expect(errors).toEqual([]);
+});
+
+// ------------------------------------------------ gestes montrés d'avance
+// Effacer, Entrée, jointure et gras s'affichent avant la réponse du serveur ;
+// effacements et frappe consécutifs partent en une seule retouche.
+
+/** Texte affiché d'un paragraphe : sans les suppressions barrées. */
+const shownText = (page: Page, idx: number) => page.locator(`.d-p[data-idx="${idx}"]`).evaluate(p =>
+  Array.from(p.querySelectorAll(':scope > [data-off]')).filter(s => !(s as HTMLElement).dataset.del).map(s => s.textContent).join(''));
+
+/** Premier paragraphe du corps fait seulement de texte, avec un segment
+ *  d'origine (sans suivi) d'au moins `n` caractères. */
+async function plainParagraph(page: Page, project: {url: string; doc: string}, n: number) {
+  const m = await disk(page, project);
+  const idx = m.paragraphs.findIndex(p => p.segments.every(s => (s as {kind?: string}).kind === 'text')
+    && p.segments.some(s => !s.rev && [...s.text].length >= n));
+  expect(idx).toBeGreaterThanOrEqual(0);
+  const seg = m.paragraphs[idx].segments.find(s => !s.rev && [...s.text].length >= n)!;
+  return {idx, text: m.paragraphs[idx].text, seg: seg.text};
+}
+
+/** Retient les retouches envoyées au serveur ; `release()` les laisse passer. */
+async function holdOps(page: Page) {
+  let opened = false;
+  const waiting: (() => void)[] = [];
+  let count = 0;
+  await page.route('**/docx/op', async route => {
+    count++;
+    if (!opened) await new Promise<void>(r => waiting.push(r));
+    await route.continue();
+  });
+  return {release: () => { opened = true; waiting.splice(0).forEach(r => r()); }, count: () => count};
+}
+
+test('docx: retour arrière maintenu puis relâché, 40 caractères de moins et plus rien ne bouge', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  await page.locator('#btnTrack').click(); // sans suivi : le texte part vraiment
+  await expect(page.locator('#btnTrack')).toHaveAttribute('aria-pressed', 'false');
+  const {idx, text, seg} = await plainParagraph(page, project, 50);
+  const needle = [...seg].slice(0, 45).join('');
+  await caretAfter(page, idx, needle);
+  let posts = 0;
+  page.on('request', r => { if (r.url().includes('/docx/op')) posts++; });
+  // Répétition du clavier : ~30 retours arrière par seconde.
+  for (let k = 0; k < 40; k++) {
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(30);
+  }
+  const chars = [...text];
+  const at = [...text.slice(0, text.indexOf(needle) + needle.length)].length;
+  const expected = chars.slice(0, at - 40).concat(chars.slice(at)).join('');
+  // À l'écran dès le relâchement…
+  expect(await shownText(page, idx)).toBe(expected);
+  // … puis dans le fichier, en une seule retouche.
+  await expect.poll(async () => (await disk(page, project)).paragraphs[idx].text).toBe(expected);
+  await page.waitForTimeout(1000);
+  expect(await shownText(page, idx)).toBe(expected);
+  expect((await disk(page, project)).paragraphs[idx].text).toBe(expected);
+  expect(posts).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("docx: Entrée s'affiche avant la réponse du serveur, sans redessiner la page", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const n = (await disk(page, project)).paragraphs.length;
+  const domCount = await page.locator('#paper .d-p').count();
+  // Repère sur le dernier paragraphe : il doit rester le même élément.
+  await page.locator(`.d-p[data-idx="${n - 1}"]`).evaluate(el => { (el as HTMLElement).dataset.keep = '1'; });
+  const hold = await holdOps(page);
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#paper .d-p')).toHaveCount(domCount + 1);
+  expect(await shownText(page, 2)).toMatch(/retenu ici$/);
+  expect((await disk(page, project)).paragraphs.length).toBe(n);
+  // La suite a seulement changé de rang.
+  await expect(page.locator(`.d-p[data-idx="${n}"]`)).toHaveAttribute('data-keep', '1');
+  hold.release();
+  await expect.poll(async () => (await disk(page, project)).paragraphs.length).toBe(n + 1);
+  const m = await disk(page, project);
+  expect(m.paragraphs[2].text).toMatch(/retenu ici$/);
+  await expect(page.locator('#foot')).toContainText('Enregistré');
+  await expect(page.locator(`.d-p[data-idx="${n}"]`)).toHaveAttribute('data-keep', '1');
+  expect(await shownText(page, 3)).toBe(m.paragraphs[3].text);
+  expect(errors).toEqual([]);
+});
+
+test("docx: la frappe juste après Entrée et la jointure s'affichent tout de suite", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const n = (await disk(page, project)).paragraphs.length;
+  const domCount = await page.locator('#paper .d-p').count();
+  const hold = await holdOps(page);
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Ainsi');
+  // Entrée encore en vol : la frappe est déjà au début du nouveau paragraphe.
+  expect(await shownText(page, 3)).toMatch(/^Ainsi/);
+  expect(hold.count()).toBe(1);
+  hold.release();
+  await expect.poll(async () => (await disk(page, project)).paragraphs[3]?.text ?? '').toMatch(/^Ainsi/);
+  expect((await disk(page, project)).paragraphs.length).toBe(n + 1);
+  // Retour arrière au début : on défait sa propre Entrée, la jointure se voit aussitôt.
+  await caretAfter(page, 3, 'Ainsi');
+  for (let k = 0; k < 5; k++) await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Backspace');
+  await expect(page.locator('#paper .d-p')).toHaveCount(domCount);
+  expect(await shownText(page, 2)).toMatch(/retenu iciAinsi/);
+  await expect.poll(async () => (await disk(page, project)).paragraphs.length).toBe(n);
+  expect((await disk(page, project)).paragraphs[2].text).toContain('retenu iciAinsi');
+  expect(errors).toEqual([]);
+});
+
+test("docx: en suivi, effacer le texte d'origine le barre aussitôt ; effacer sa frappe non envoyée n'envoie rien", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  const {idx, seg} = await plainParagraph(page, project, 12);
+  const needle = [...seg].slice(0, 10).join('');
+  const gone = [...needle].slice(-3).join('');
+  const hold = await holdOps(page);
+  await caretAfter(page, idx, needle);
+  for (let k = 0; k < 3; k++) await page.keyboard.press('Backspace');
+  // Barré tout de suite, pas retiré.
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .del.pending`)).toHaveText(gone);
+  // Sa propre frappe, effacée avant la pause : rien ne part pour elle.
+  await page.keyboard.type('ab');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .ins.pending`)).toHaveCount(0);
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .del.pending`)).toHaveText(gone);
+  await page.waitForTimeout(600);
+  hold.release();
+  await expect.poll(async () => (await disk(page, project)).changes.filter(c => c.author === 'Thierry').map(c => [c.kind, c.text])).toEqual([['del', gone]]);
+  expect(hold.count()).toBe(1);
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .del:not(.pending)`, {hasText: gone})).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test("docx: un refus du serveur (409, Word ouvert) rend la saisie et remet l'écran à l'état du fichier", async ({page, project}) => {
+  await open(page, project);
+  const before = (await disk(page, project)).paragraphs[2].text;
+  const n = (await disk(page, project)).paragraphs.length;
+  let status = 409;
+  await page.route('**/docx/op', route => route.fulfill({status, contentType: 'application/json', body: JSON.stringify({error: status === 423 ? 'Le document est ouvert dans Word' : 'révision périmée'})}));
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.type(' perdu ?');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await expect(page.locator('.d-p[data-idx="2"]')).toContainText('retenu ici perdu offre');
+  await expect(page.locator('#toast')).toContainText('« perdu »', {timeout: 6000});
+  await expect(page.locator('#toast')).toHaveClass(/err/);
+  await expect.poll(() => shownText(page, 2)).toBe(before);
+  expect((await disk(page, project)).paragraphs[2].text).toBe(before);
+  // Word ouvert (423) sur une Entrée suivie de frappe : même chose.
+  status = 423;
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Encore');
+  await expect(page.locator('#toast')).toContainText('Encore', {timeout: 6000});
+  await expect.poll(() => shownText(page, 2)).toBe(before);
+  expect((await disk(page, project)).paragraphs.length).toBe(n);
+  expect((await disk(page, project)).paragraphs[2].text).toBe(before);
+});
+
+test("docx: délai entre la touche et l'affichage (retour arrière, Entrée, gras)", async ({page, project}) => {
+  await open(page, project);
+  // Chronomètre dans la page : touche (capture) → première mutation qui
+  // montre le geste ; fin de la réponse /docx/op d'après Resource Timing.
+  await page.evaluate(() => {
+    const w = window as unknown as {__arm: (kind: string, idx: number) => void; __t: {t0: number; t1: number}};
+    w.__t = {t0: 0, t1: 0};
+    document.addEventListener('keydown', () => { if (!w.__t.t0) w.__t.t0 = performance.now(); }, true);
+    w.__arm = (kind, idx) => {
+      const p = () => document.querySelector(`.d-p[data-idx="${idx}"]`);
+      const text = () => Array.from(p()?.querySelectorAll(':scope > [data-off]') || []).filter(s => !(s as HTMLElement).dataset.del).map(s => s.textContent).join('');
+      const t0 = text(), n0 = document.querySelectorAll('#paper .d-p').length, b0 = p()?.querySelectorAll('b').length || 0;
+      w.__t = {t0: 0, t1: 0};
+      const mo = new MutationObserver(() => {
+        const ok = kind === 'Backspace' ? text().length < t0.length : kind === 'Enter' ? document.querySelectorAll('#paper .d-p').length > n0 : (p()?.querySelectorAll('b').length || 0) > b0;
+        if (ok) { w.__t.t1 = performance.now(); mo.disconnect(); }
+      });
+      mo.observe(document.getElementById('paper')!, {childList: true, subtree: true, characterData: true});
+    };
+  });
+  const measure = async (kind: string, idx: number, key: () => Promise<void>) => {
+    await page.evaluate(([k, i]) => { performance.clearResourceTimings(); (window as unknown as {__arm: (k: string, i: number) => void}).__arm(k as string, i as number); }, [kind, idx] as const);
+    await key();
+    await expect.poll(() => page.evaluate(() => (window as unknown as {__t: {t1: number}}).__t.t1)).toBeGreaterThan(0);
+    await page.waitForTimeout(900);
+    await expect(page.locator('#foot')).toContainText('Enregistré', {timeout: 8000});
+    return page.evaluate(() => {
+      const t = (window as unknown as {__t: {t0: number; t1: number}}).__t;
+      const ops = performance.getEntriesByType('resource').filter(e => e.name.includes('/docx/op')) as PerformanceResourceTiming[];
+      return {shown: Math.round(t.t1 - t.t0), saved: ops.length ? Math.round(ops[0].responseEnd - t.t0) : -1};
+    });
+  };
+  await select(page, 2, 'compromis');
+  const bold = await measure('Bold', 2, () => page.keyboard.press('Control+b'));
+  await caretAfter(page, 2, 'retenu ici');
+  const back = await measure('Backspace', 2, () => page.keyboard.press('Backspace'));
+  await caretAfter(page, 2, 'retenu ic');
+  const enter = await measure('Enter', 2, () => page.keyboard.press('Enter'));
+  const out = {back, enter, bold};
+  test.info().annotations.push({type: 'délais (ms)', description: JSON.stringify(out)});
+  console.log('délais touche → écran / → réponse (ms)', JSON.stringify(out));
+  // Montré avant la réponse du serveur, en quelques millisecondes.
+  for (const r of [back, enter, bold]) {
+    expect(r.shown).toBeLessThan(50);
+    if (r.saved > 0) expect(r.shown).toBeLessThan(r.saved);
+  }
 });
