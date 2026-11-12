@@ -353,7 +353,7 @@ impl Styles {
 }
 
 /// Format de la page et numérotation des lignes (dernière section du corps).
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Page {
     /// Dimensions et marges, en points.
     pub width: f32,
@@ -369,7 +369,7 @@ pub struct Page {
     pub line_numbers: Option<LineNumbers>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct LineNumbers {
     /// Un numéro toutes les `count_by` lignes.
     pub count_by: u32,

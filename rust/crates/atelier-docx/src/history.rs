@@ -244,6 +244,22 @@ fn keep_clone(dir: &Path, rev: &str, path: &Path, bytes: &[u8]) -> Result<()> {
 /// le dernier état laissé par Atelier devient un jalon gardé pour toujours,
 /// et la pile d'annulation repart de là. Appelé sous le verrou du document.
 pub(crate) fn record(path: &Path, before: &[u8], before_rev: &str, after_bytes: &[u8], after: &str, origin: &Origin) -> Result<()> {
+    record_steps(path, before, before_rev, &[Chained { bytes: after_bytes, rev: after.to_string(), origin: origin.clone() }])
+}
+
+/// Un état d'une suite de retouches écrite d'un coup (séance du panneau).
+pub(crate) struct Chained<'a> {
+    pub bytes: &'a [u8],
+    pub rev: String,
+    pub origin: Origin<'a>,
+}
+
+/// Note plusieurs pas d'un coup : `before`, puis chaque état de `steps`,
+/// dont le dernier est le document qu'on vient d'écrire ; chacun s'annule
+/// à part. Les états intermédiaires ne sont jamais allés sur le disque :
+/// gardés depuis la mémoire, sans attendre le disque.
+pub(crate) fn record_steps(path: &Path, before: &[u8], before_rev: &str, steps: &[Chained]) -> Result<()> {
+    let Some(last) = steps.last() else { return Ok(()) };
     let dir = attach(path, before_rev);
     let mut j = open_journal(&dir);
     j.path = canonical(path);
@@ -259,20 +275,29 @@ pub(crate) fn record(path: &Path, before: &[u8], before_rev: &str, after_bytes: 
     // Une version reçue n'existe nulle part ailleurs : forcée sur le disque.
     // Sinon c'est l'état d'après du pas précédent, en général déjà gardé.
     keep_blob(&dir, before_rev, before, received)?;
-    // L'état d'après est gardé aussi : si Word le remplace ensuite, la fin
-    // de séance reste récupérable. Il double le document qu'on vient
-    // d'écrire : cloné, sans recopie des données ni attente du disque.
-    keep_clone(&dir, after, path, after_bytes)?;
-    j.undo.push(Step {
-        after: after.to_string(),
-        before: before_rev.to_string(),
-        source: origin.source.to_string(),
-        author: origin.author.to_string(),
-        label: origin.label.to_string(),
-        at: crate::iso_now(),
-    });
+    let mut prev = before_rev.to_string();
+    for (i, st) in steps.iter().enumerate() {
+        if i + 1 == steps.len() {
+            // L'état d'après est gardé aussi : si Word le remplace ensuite, la
+            // fin de séance reste récupérable. Il double le document qu'on
+            // vient d'écrire : cloné, sans recopie des données ni attente du
+            // disque.
+            keep_clone(&dir, &st.rev, path, st.bytes)?;
+        } else {
+            keep_blob(&dir, &st.rev, st.bytes, false)?;
+        }
+        j.undo.push(Step {
+            after: st.rev.clone(),
+            before: prev.clone(),
+            source: st.origin.source.to_string(),
+            author: st.origin.author.to_string(),
+            label: st.origin.label.to_string(),
+            at: crate::iso_now(),
+        });
+        prev = st.rev.clone();
+    }
     dropped.append(&mut j.redo);
-    j.last = after.to_string();
+    j.last = last.rev.clone();
     dropped.extend(trim(&dir, &mut j));
     store(&dir, &j)?;
     forget(&dir, &j, &dropped);

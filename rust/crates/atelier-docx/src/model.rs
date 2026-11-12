@@ -8,7 +8,7 @@ use crate::{COMMENTS, COMMENTS_EXT, Docx, Result};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct DocModel {
     pub revision: String,
     /// Format de la page et numéros de ligne de la dernière section.
@@ -26,7 +26,7 @@ pub struct DocModel {
     pub other_parts: Vec<OtherPart>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Note {
     /// `n3` (note de bas de page `w:id="3"`) ou `e3` (note de fin) : ses
     /// paragraphes sont `n3.p0`, `n3.p1`…
@@ -39,7 +39,7 @@ pub struct Note {
     pub paragraphs: Vec<Para>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct HeaderFooter {
     /// `header1`, `footer2`… : ses paragraphes sont `header1.p0`…
     pub id: String,
@@ -50,7 +50,7 @@ pub struct HeaderFooter {
     pub paragraphs: Vec<Para>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Para {
     /// `p<indice>` dans l'ordre de lecture.
     pub id: String,
@@ -135,7 +135,7 @@ pub struct Segment {
     pub latex: Option<String>,
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Change {
     pub id: u32,
     /// ins, del, moveTo, moveFrom, paragraph-ins, paragraph-del, row-ins,
@@ -149,7 +149,7 @@ pub struct Change {
     pub text: String,
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Comment {
     pub id: u32,
     pub author: String,
@@ -166,14 +166,14 @@ pub struct Comment {
     pub quote: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Author {
     pub name: String,
     pub changes: usize,
     pub comments: usize,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct OtherPart {
     pub part: String,
     pub changes: usize,
