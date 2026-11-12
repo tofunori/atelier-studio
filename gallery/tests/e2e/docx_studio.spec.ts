@@ -577,13 +577,13 @@ test('docx: le bouton Commentaires ferme la marge, le choix tient au rechargemen
   await expect(body).toHaveClass(/no-lane/);
   // Panneau étroit, sans app pour l'élargir : la marge passe par-dessus la page.
   await page.setViewportSize({width: 820, height: 900});
-  const w0 = await page.locator('#paper').evaluate((p) => p.offsetWidth);
+  const w0 = await page.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth);
   await page.keyboard.press('ControlOrMeta+Shift+KeyM');
   await expect(body).toHaveClass(/lane-over/);
   await expect(body).not.toHaveClass(/no-lane/);
   await expect(btn).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#cards .it').first()).toBeVisible();
-  expect(Math.abs(await page.locator('#paper').evaluate((p) => p.offsetWidth) - w0)).toBeLessThan(2);
+  expect(Math.abs(await page.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth) - w0)).toBeLessThan(2);
   const [cards, scroll] = await Promise.all([page.locator('#cards').boundingBox(), page.locator('#scroll').boundingBox()]);
   expect(cards!.x + cards!.width).toBeLessThanOrEqual(scroll!.x + scroll!.width);
   await btn.click();
@@ -612,7 +612,7 @@ test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place 
   await expect(frame.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
   const body = frame.locator('body');
   await expect(body).toHaveClass(/no-lane/);
-  const w0 = await frame.locator('#paper').evaluate((p) => p.offsetWidth);
+  const w0 = await frame.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth);
   await frame.locator('#btnLane').click();
   await expect.poll(() => page.evaluate(() => (window as unknown as {asks: {action: string; px: number}[]}).asks.length)).toBe(1);
   const ask = await page.evaluate(() => (window as unknown as {asks: {action: string; px: number}[]}).asks[0]);
@@ -622,7 +622,7 @@ test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place 
   await expect(body).not.toHaveClass(/lane-over|lane-in/);
   await expect(frame.locator('#btnLane')).toHaveAttribute('aria-pressed', 'true');
   // La page garde sa taille (ou monte aux 75 % sous lesquels la marge ne tient pas).
-  const w1 = await frame.locator('#paper').evaluate((p) => p.offsetWidth);
+  const w1 = await frame.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth);
   expect(w1).toBeGreaterThanOrEqual(w0 - 2);
   // Toute la marge tient dans le panneau.
   const right = await frame.locator('#scroll').evaluate((s) => s.scrollWidth - s.clientWidth);
