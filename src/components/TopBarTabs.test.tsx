@@ -59,6 +59,12 @@ describe("libellé d'onglet", () => {
     expect(new Set(noms.map(tabLabel)).size).toBe(3);
   });
 
+  it("nomme le PDF d'un .tex comme un PDF, sans fausse extension « .tex — PDF »", () => {
+    expect(tabLabel("supplementary.tex — PDF")).toBe("supplementary.pdf");
+    expect(tabLabel("main.pdf — PDF")).toBe("main.pdf");
+    expect(kindOf({ id: "a", title: "supplementary.tex — PDF", url: "file:///p/supplementary.tex" })).toBe("pdf");
+  });
+
   it("ne rend jamais une pastille vide", () => {
     expect(tabLabel("")).toBe(t("tabs.untitled"));
     expect(tabLabel("   ")).toBe(t("tabs.untitled"));
@@ -70,7 +76,8 @@ describe("type de fichier", () => {
     expect(kindOf({ id: "a", title: "x.tex" })).toBe("tex");
     expect(kindOf({ id: "a", title: "x.py" })).toBe("code");
     expect(kindOf({ id: "a", title: "x.md" })).toBe("note");
-    expect(kindOf({ id: "a", title: "x.pdf" })).toBe("image");
+    expect(kindOf({ id: "a", title: "x.pdf" })).toBe("pdf");
+    expect(kindOf({ id: "a", title: "x.png" })).toBe("image");
     expect(kindOf({ id: "a", title: "Makefile" })).toBe("doc");
   });
 
@@ -165,6 +172,7 @@ describe("TopBarTabs", () => {
     const onSelectTab = vi.fn();
     const { container } = renderUi(<TopBarTabs {...props({ tabs: many, onSelectTab })} />);
     expect(container.querySelectorAll(".topbar-tab").length).toBe(MAX_TABS);
+    expect(screen.getByRole("button", {name:t("tabs.open-files")}).textContent).toBe("+3");
     fireEvent.click(screen.getByRole("button", {name:t("tabs.open-files")}));
     await act(async () => { await vi.dynamicImportSettled(); });
     fireEvent.click(screen.getByText("fichier_10.tex"));

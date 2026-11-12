@@ -1675,16 +1675,24 @@ button.kernel-file:hover { color: var(--text-primary); }
 .topbar-tabs { display: flex; align-items: center; gap: 4px; min-width: 0;
   flex: 0 1 auto; padding-left: 4px; overflow: hidden; }
 /* Keep the whole filename in one flex child so its extension never separates. */
-.topbar-tab { position: relative; display: inline-flex; align-items: center;
-  flex: 0 1 auto; }
+/* Comme un navigateur : tous les onglets partent de la même largeur et
+   rétrécissent ensemble à mesure qu'on en ouvre ; sous leur minimum, les
+   derniers passent dans le menu ⌄ (TopBarTabs), jamais coupés au bord. */
+/* Largeur DÉCLARÉE (pas déduite du texte) : le nom abrégé ne doit jamais
+   faire rétrécir l'onglet, sinon abréger et rétrécir s'entraîneraient. */
+.topbar-tabs { --topbar-tab-flex: 0 1 auto; }
+.topbar-tab { position: relative; display: inline-flex; align-items: center; }
+.topbar-tabs .topbar-tab { flex: var(--topbar-tab-flex); width: 168px; min-width: 112px; }
 .topbar-tab-main { display: inline-flex; align-items: center; gap: 6px; height: 100%;
   width: 100%; min-width: 0; padding: 0 26px 0 8px; border-radius: inherit;
   background: transparent; color: inherit; font: inherit;
   transition: background-color var(--ease), color var(--ease); }
 /* le tronc s'abrège, l'extension NON : elle sépare memoire.tex de memoire.pdf */
-.topbar-tab-name { display: inline-flex; align-items: center; min-width: 0; }
-.topbar-tab-stem { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-tab-ext { flex: none; white-space: nowrap; }
+/* Le nom remplit l'onglet ; TopBarTabs abrège le tronc au caractère près
+   (« supplem….tex ») : l'ellipse CSS laissait un trou avant l'extension.
+   L'ellipse de fin ne sert que de filet si la mesure manque. */
+.topbar-tab-name { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 /* dossier parent, montré seulement quand deux fichiers portent le même nom */
 .topbar-tab-folder { flex: none; color: var(--text-muted); }
 .topbar-tab-kind { flex: none; display: inline-flex; color: var(--text-muted); }

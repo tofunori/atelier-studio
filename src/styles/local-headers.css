@@ -67,7 +67,9 @@
 .chat-surface-header.chat-header-in-topbar { display: contents; }
 .chat-surface-header.chat-header-in-topbar > .titles, .chat-surface-header.chat-header-in-topbar > .spacer { display: none; }
 .topbar-right { overflow: hidden; }
-.topbar-right > :not(.topbar-tabs):not(.flex) { flex-shrink: 0; }
+/* la rangée d'onglets de l'atelier (surfaces + documents) est la SEULE à
+   céder de la place : sans elle, les onglets débordaient au lieu de rétrécir */
+.topbar-right > :not(.topbar-tabs):not(.topbar-atelier-tabs):not(.flex) { flex-shrink: 0; }
 .topbar-right { container-type: inline-size; container-name: topbar-documents; }
 .topbar-window-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .topbar-window-overflow { display: none; }
@@ -146,7 +148,7 @@
   position: relative; height: 30px; flex: none; border: 0; border-radius: var(--r-m) var(--r-m) 0 0;
   background: transparent; font-weight: 400; transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell { flex: 0 1 auto; }
-.topbar[data-atelier-attached] .topbar-right .topbar-tab.document-tab-shell { flex: 0 1 auto; }
+.topbar[data-atelier-attached] .topbar-right .topbar-tab.document-tab-shell { flex: var(--topbar-tab-flex); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell:hover,
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell:hover { background: var(--surface-hover); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"],
