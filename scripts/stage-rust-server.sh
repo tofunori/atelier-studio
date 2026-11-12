@@ -4,7 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DIST=src-tauri/rust-server-dist
-BIN_NAMES=(atelier-studio-server atelier-remote-gateway atelier-gallery-server atelier-gallery-tool atelier-agent-mcp atelier-pdf)
+# atelier-annots-mcp : connecteur Claude (--http), lancé par l'app
+# (src-tauri/src/claude_connector.rs) pour l'éditeur LaTeX de claude.ai.
+BIN_NAMES=(atelier-studio-server atelier-remote-gateway atelier-gallery-server atelier-gallery-tool atelier-agent-mcp atelier-pdf atelier-annots-mcp)
 # Wrappers agents KB (plan 065 phase C) : binaires Rust invoqués par les
 # prompts (kb_block.rs, send.rs). Le suffixe `-rs` est un héritage : ils ont
 # cohabité avec les wrappers shell `sidecar/atelier-kb` /
@@ -20,8 +22,8 @@ find "$DIST" -maxdepth 1 -name '*.mjs' -delete
 rm -f "$DIST/atelier-kb" "$DIST/atelier-zotero-passages"
 
 if [[ "${ATELIER_SKIP_RUST_BUILD:-}" != "1" ]]; then
-  echo "[stage-rust-server] cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb -p atelier-pdf --release"
-  cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb -p atelier-pdf --release --manifest-path rust/Cargo.toml --bins
+  echo "[stage-rust-server] cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb -p atelier-pdf -p atelier-annots-mcp --release"
+  cargo build -p atelier-server -p atelier-remote -p atelier-gallery -p atelier-agent-mcp -p atelier-kb -p atelier-pdf -p atelier-annots-mcp --release --manifest-path rust/Cargo.toml --bins
 fi
 
 for BIN_NAME in "${BIN_NAMES[@]}"; do

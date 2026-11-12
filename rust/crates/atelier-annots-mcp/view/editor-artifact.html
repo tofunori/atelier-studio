@@ -1,0 +1,3077 @@
+<title>Éditeur LaTeX Atelier</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Éditeur du projet LaTeX du Mac, par le connecteur Atelier : volet
+   (fichiers, plan), onglets, source, barre d'état. Palette graphite
+   d'Atelier, tailles 10/11/12/13, poids 400/500/600, rayons 6/10,
+   pas de 4, transitions 130 ms. */
+:root {
+  --bg: #f1f4f7; --side: #e3e7ec; --pop: #fafcfe; --ctl: #dadee4; --ctl-2: #cdd2d9;
+  --line: #dde0e5; --row-sel: #f1f4f7;
+  --fg: #1a1d22; --fg2: #32363b; --muted: #595e64; --muted2: #82878c;
+  --accent: #cf630d; --info: #3f6fd1; --ok: #2f6b41; --warn: #7a5a09; --hot: #a8322a;
+  --tok-math: #1c7566; --ins-fg: #1f5230; --del-fg: #8f2a23;
+  --canvas: #e3e7ec; --paper: #ffffff; --ann: #3f6fd1; --on-ann: #ffffff; --paper-ink: #595e64;
+  --elev: 0 4px 18px rgba(20,28,38,.12), 0 1px 4px rgba(20,28,38,.08);
+  --elev-soft: 0 0 0 .5px rgba(20,28,38,.08), 0 1px 3px rgba(20,28,38,.09);
+  --ui: -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --t: 130ms;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1e2124; --side: #161a1e; --pop: #24282d; --ctl: #2c2f34; --ctl-2: #373b41;
+  --line: #2a2d31; --row-sel: #2c2f34;
+  --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
+  --accent: #e77f3e; --info: #7aa2f7; --ok: #98c379; --warn: #e0b74a; --hot: #e06c75;
+  --tok-math: #7cc9b4; --ins-fg: #b9dea3; --del-fg: #f0a7a2;
+  --canvas: #161a1e; --paper: #f4f4f2; --ann: #3f6fd1; --on-ann: #ffffff; --paper-ink: #595e64;
+  --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
+  --elev-soft: 0 0 0 .5px rgba(255,255,255,.06), 0 1px 3px rgba(0,0,0,.3);
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #1e2124; --side: #161a1e; --pop: #24282d; --ctl: #2c2f34; --ctl-2: #373b41;
+  --line: #2a2d31; --row-sel: #2c2f34;
+  --fg: #dadee3; --fg2: #b9bec4; --muted: #90969d; --muted2: #62666c;
+  --accent: #e77f3e; --info: #7aa2f7; --ok: #98c379; --warn: #e0b74a; --hot: #e06c75;
+  --tok-math: #7cc9b4; --ins-fg: #b9dea3; --del-fg: #f0a7a2;
+  --canvas: #161a1e; --paper: #f4f4f2; --ann: #3f6fd1; --on-ann: #ffffff; --paper-ink: #595e64;
+  --elev: 0 4px 18px rgba(0,0,0,.28), 0 1px 4px rgba(0,0,0,.18);
+  --elev-soft: 0 0 0 .5px rgba(255,255,255,.06), 0 1px 3px rgba(0,0,0,.3);
+  color-scheme: dark; }
+
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 400 12px/1.5 var(--ui); display: flex; flex-direction: column;
+  -webkit-font-smoothing: antialiased; }
+svg.i { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.s { width: 12px; height: 12px; }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0; }
+button:disabled { cursor: default; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+.gut { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* Barre du haut. */
+.top { display: flex; align-items: center; gap: 8px; height: 44px; flex: none; border-bottom: 1px solid var(--line); }
+.crumb { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.crumb svg { color: var(--muted2); }
+.crumb b { color: var(--fg); font-weight: 600; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; }
+.state { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.state.dirty::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--warn); }
+.ib { width: 28px; height: 28px; flex: none; border-radius: 6px; display: grid; place-items: center; color: var(--muted); transition: background-color var(--t), color var(--t), opacity var(--t); }
+.ib:hover:not(:disabled) { background: var(--ctl); color: var(--fg); }
+.ib[aria-pressed="true"] { background: var(--ctl); color: var(--fg); }
+.ib:disabled { opacity: .45; }
+.ur { display: flex; gap: 0; flex: none; }
+.tb { height: 28px; flex: none; padding: 0 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; font-weight: 500; color: var(--fg2); background: var(--ctl); white-space: nowrap; transition: background-color var(--t), color var(--t), opacity var(--t); }
+.tb:hover:not(:disabled) { background: var(--ctl-2); }
+.tb:disabled { opacity: .45; }
+.tb.quiet { background: none; color: var(--muted); }
+.tb.quiet:hover:not(:disabled), .tb.quiet[aria-pressed="true"] { background: var(--ctl); color: var(--fg); }
+.tb.primary:not(:disabled) { background: color-mix(in srgb, var(--accent) 18%, var(--ctl)); color: var(--fg); }
+.tb.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 28%, var(--ctl)); }
+.tb .n { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ins-fg); }
+.tb .n:empty { display: none; }
+.sep { width: 1px; height: 16px; background: var(--line); flex: none; }
+
+/* Bandeau d'information (conflit, erreur, autorisation). */
+.note { margin: 0; padding-block: 8px; font-size: 12px; display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; flex: none; }
+.note.warn { background: color-mix(in srgb, var(--warn) 16%, var(--bg)); color: var(--fg); }
+.note.err { background: color-mix(in srgb, var(--hot) 16%, var(--bg)); color: var(--fg); }
+.note .tb { height: 24px; padding: 0 8px; }
+
+/* Corps : volet et source. */
+.body { flex: 1; min-height: 0; display: flex; position: relative; }
+.side { width: 256px; flex: none; background: var(--side); display: flex; flex-direction: column; min-height: 0; }
+body[data-side="off"] .side { display: none; }
+.seg { display: flex; gap: 4px; margin: 12px 12px 8px; padding: 2px; border-radius: 6px; background: color-mix(in srgb, var(--fg) 7%, transparent); flex: none; }
+.seg button { flex: 1; height: 24px; border-radius: 4px; font-size: 11px; font-weight: 500; color: var(--muted); transition: background-color var(--t), color var(--t); }
+.seg button[aria-selected="true"] { background: var(--row-sel); color: var(--fg); box-shadow: var(--elev-soft); }
+.list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; }
+.row { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 6px; color: var(--fg2); white-space: nowrap; text-align: left; width: 100%; transition: background-color var(--t); }
+.row:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.row.sel { background: var(--row-sel); color: var(--fg); font-weight: 500; }
+.row svg { color: var(--muted2); transition: transform var(--t); }
+.row.shut > svg.s { transform: rotate(-90deg); }
+.row .nm { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.row .tag { font-size: 10px; color: var(--muted2); font-weight: 400; font-variant-numeric: tabular-nums; }
+.row .tag.acc { color: var(--accent); font-weight: 500; }
+.row .dot, .tab .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--warn); flex: none; }
+.row .num { min-width: 24px; flex: none; font-size: 11px; color: var(--muted2); font-variant-numeric: tabular-nums; font-weight: 400; }
+.row.dim { color: var(--muted); }
+.row.off { color: var(--muted); cursor: default; }
+.row.off:hover { background: none; }
+.hint { padding: 8px 8px 12px; color: var(--muted); font-size: 11px; }
+.open { display: flex; gap: 8px; padding: 0 12px 8px; flex: none; }
+.open input, .find input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--ctl); color: var(--fg); font: 12px/1 var(--ui); }
+.open input { font-family: var(--mono); font-size: 11px; }
+.open input::placeholder, .find input::placeholder { color: var(--muted2); }
+.side { position: relative; }
+.proj { display: flex; align-items: center; gap: 8px; margin: 12px 12px 0; width: calc(100% - 24px); padding: 4px 8px; border-radius: 6px; text-align: left; transition: background-color var(--t); flex: none; }
+.proj:hover, .proj[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.proj .pt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.proj .pn { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj .ps { font-size: 11px; color: var(--muted); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.proj > svg { color: var(--muted2); flex: none; }
+.pmenu { position: absolute; z-index: 12; top: 56px; left: 12px; right: 12px; padding: 4px; border-radius: 10px; background: var(--pop); box-shadow: var(--elev); opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity var(--t), transform var(--t); }
+.pmenu.on { opacity: 1; transform: none; pointer-events: auto; }
+.pmenu .mi { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 8px; border-radius: 6px; text-align: left; transition: background-color var(--t); }
+.pmenu .mi:hover { background: var(--ctl); }
+.pmenu .mi .pt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pmenu .mi .pn { font-size: 12px; color: var(--fg); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmenu .mi .ps { font: 10px/1.5 var(--mono); color: var(--muted2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmenu .mi > svg { color: var(--fg2); flex: none; }
+.pmenu .mi > svg.no { visibility: hidden; }
+.pmenu .pnote { margin: 4px 0 0; padding: 8px 8px 4px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.5; color: var(--muted); }
+.side-foot { padding: 8px 16px 12px; font: 10px/1.5 var(--mono); color: var(--muted2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+
+/* Onglets : la languette active est du ton de la feuille. */
+.tabs { display: flex; align-items: flex-end; gap: 4px; height: 36px; flex: none; padding: 0 12px; background: var(--side); overflow-x: auto; scrollbar-width: none; }
+.tabs:empty { display: none; }
+.tab { display: flex; align-items: center; gap: 8px; height: 28px; flex: none; padding: 0 8px 0 12px; border-radius: 6px 6px 0 0; color: var(--muted); white-space: nowrap; cursor: pointer; transition: background-color var(--t), color var(--t); }
+.tab:hover { color: var(--fg); }
+.tab.on { background: var(--bg); color: var(--fg); font-weight: 500; }
+.tab em { font-style: normal; font-weight: 400; color: var(--muted2); }
+.tab .x { width: 16px; height: 16px; border-radius: 4px; display: grid; place-items: center; color: var(--muted2); opacity: 0; transition: opacity var(--t), background-color var(--t); }
+.tab:hover .x, .tab.on .x, .tab .x:focus-visible { opacity: 1; }
+.tab .x:hover { background: var(--ctl); color: var(--fg); }
+
+.wrap { flex: 1; min-height: 0; position: relative; }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; }
+.empty b { display: block; color: var(--fg2); font-size: 13px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 4px; }
+
+/* Recherche. */
+.find { position: absolute; top: 44px; right: max(16px, env(safe-area-inset-right, 0px)); z-index: 8; width: min(336px, calc(100% - 32px)); padding: 8px; border-radius: 10px; background: var(--pop); box-shadow: var(--elev); display: grid; gap: 8px; }
+.find .r1 { display: flex; align-items: center; gap: 4px; }
+.find .ct { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; padding: 0 4px; white-space: nowrap; min-width: 48px; text-align: right; }
+
+/* CodeMirror 5 : l'essentiel de sa feuille, aux couleurs de la page. */
+.CodeMirror { position: relative; overflow: hidden; height: 100%; font: 400 13px/20px var(--mono); background: var(--bg); color: var(--fg); direction: ltr; }
+.CodeMirror-scroll { overflow: scroll !important; margin-bottom: -50px; margin-right: -50px; padding-bottom: 50px; height: 100%; outline: none; position: relative; z-index: 0; }
+.CodeMirror-sizer { position: relative; border-right: 50px solid transparent; }
+.CodeMirror-vscrollbar, .CodeMirror-hscrollbar, .CodeMirror-scrollbar-filler, .CodeMirror-gutter-filler { position: absolute; z-index: 6; display: none; outline: none; }
+.CodeMirror-vscrollbar { right: 0; top: 0; overflow-x: hidden; overflow-y: scroll; }
+.CodeMirror-hscrollbar { bottom: 0; left: 0; overflow-y: hidden; overflow-x: scroll; }
+.CodeMirror-gutters { position: absolute; left: 0; top: 0; min-height: 100%; z-index: 3; background: var(--bg); }
+.CodeMirror-gutter { white-space: normal; height: 100%; display: inline-block; vertical-align: top; margin-bottom: -50px; }
+.CodeMirror-gutter-wrapper { position: absolute; z-index: 4; top: 0; bottom: 0; background: none !important; border: none !important; }
+.CodeMirror-gutter-elt { position: absolute; top: 0; bottom: 0; cursor: default; z-index: 4; }
+.CodeMirror-gutter-background { position: absolute; top: 0; bottom: 0; z-index: 4; }
+.CodeMirror-linenumber { padding: 0 12px 0 0; min-width: 24px; text-align: right; color: var(--muted2); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; box-sizing: content-box; }
+.CodeMirror-lines { cursor: text; min-height: 1px; padding: 12px 0 48px; }
+.CodeMirror pre.CodeMirror-line, .CodeMirror pre.CodeMirror-line-like { border-radius: 0; border-width: 0; background: transparent; font: inherit; margin: 0; white-space: pre-wrap; word-wrap: break-word; word-break: normal; color: inherit; z-index: 2; position: relative; overflow: visible; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 4px; }
+.CodeMirror-linebackground { position: absolute; inset: 0; z-index: 0; }
+.CodeMirror-linewidget { position: relative; z-index: 2; padding: .1px; }
+.CodeMirror-code { outline: none; }
+.CodeMirror-measure { position: absolute; width: 100%; height: 0; overflow: hidden; visibility: hidden; }
+.CodeMirror-measure pre { position: static; }
+div.CodeMirror-cursors { visibility: hidden; position: relative; z-index: 3; }
+div.CodeMirror-dragcursors, .CodeMirror-focused div.CodeMirror-cursors { visibility: visible; }
+.CodeMirror-cursor { position: absolute; pointer-events: none; border-left: 1.5px solid var(--fg); border-right: none; width: 0; }
+.CodeMirror-selected { background: var(--ctl); }
+.CodeMirror-line::selection, .CodeMirror-line > span::selection, .CodeMirror-line > span > span::selection { background: color-mix(in srgb, var(--info) 28%, transparent); }
+.CodeMirror-widget { display: inline; }
+.CodeMirror-activeline-background { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.CodeMirror-activeline .CodeMirror-linenumber { color: var(--fg2); }
+.CodeMirror-matchingbracket { background: color-mix(in srgb, var(--info) 22%, transparent); border-radius: 2px; }
+.CodeMirror-hiddentextarea, .CodeMirror textarea { position: absolute; bottom: -1em; padding: 0; width: 1px; height: 1em; outline: none; opacity: 0; }
+.cm-tab { display: inline-block; text-decoration: inherit; }
+.cm-tag, .cm-builtin { color: var(--info); }
+.cm-bracket { color: var(--muted); }
+.cm-atom { color: var(--fg); }
+.cm-keyword, .cm-number, .cm-variable-2, .cm-string { color: var(--tok-math); }
+.cm-comment { color: var(--muted2); font-style: italic; }
+.cm-error { color: var(--hot); }
+.cm-key.cm-key { color: var(--accent); }
+.cm-hit { background: color-mix(in srgb, var(--warn) 30%, transparent); border-radius: 2px; }
+.hit-at { background: color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 2px; }
+/* Marge : changements et repli. */
+.chg { width: 4px; }
+.cb { position: absolute; inset: 0; }
+.cb.add { background: var(--ok); } .cb.mod { background: var(--warn); }
+.CodeMirror-foldgutter { width: 20px; }
+.fm { display: grid; place-items: center; height: 20px; color: var(--muted2); cursor: pointer; transition: opacity var(--t), color var(--t); }
+.fm:hover { color: var(--fg); }
+.fm.open { opacity: 0; }
+.CodeMirror:hover .fm.open { opacity: 1; }
+.fm.shut svg { transform: rotate(-90deg); }
+.CodeMirror-foldmarker { color: var(--muted); background: var(--ctl); border-radius: 6px; padding: 0 4px; font: 11px/1 var(--ui); cursor: pointer; margin: 0 4px; }
+/* Changements depuis l'ouverture. */
+.ins { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ins-fg); border-radius: 2px; padding: 2px 0; }
+.del { background: color-mix(in srgb, var(--hot) 16%, transparent); color: var(--del-fg); text-decoration: line-through; border-radius: 2px; padding: 2px 0; margin-right: 4px; }
+/* Proposition de Claude, dans le texte. */
+.prop-src { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 2px; }
+.prop { margin: 8px max(16px, env(safe-area-inset-right, 0px)) 8px 4px; padding: 12px 16px; border-radius: 10px; background: var(--pop); box-shadow: var(--elev-soft); font: 400 12px/1.5 var(--ui); cursor: default; }
+.prop-h { display: flex; align-items: baseline; gap: 8px; }
+.prop-h b { font-size: 11px; font-weight: 600; color: var(--fg2); }
+.prop-h span { font-size: 11px; color: var(--muted2); font-variant-numeric: tabular-nums; }
+.prop p { margin: 4px 0 8px; color: var(--muted); }
+.prop p:empty { margin: 4px 0 0; }
+.prop .tx2 { font: 400 13px/20px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }
+.prop-a { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.prop-a .yes { background: color-mix(in srgb, var(--ok) 22%, var(--ctl)); color: var(--fg); }
+.prop-a .yes:hover:not(:disabled) { background: color-mix(in srgb, var(--ok) 32%, var(--ctl)); }
+.prop-a kbd { font: 10px/1 var(--ui); color: var(--muted2); margin-left: auto; }
+/* Complétion : un menu d'Atelier (fond, ombre, sans bordure). */
+.CodeMirror-hints { position: absolute; z-index: 20; list-style: none; margin: 0; padding: 4px; background: var(--pop); box-shadow: var(--elev); border-radius: 10px; max-height: 232px; overflow-y: auto; font: 400 12px/20px var(--mono); }
+.CodeMirror-hint { display: flex; gap: 12px; padding: 4px 8px; border-radius: 6px; color: var(--fg2); cursor: pointer; white-space: nowrap; }
+li.CodeMirror-hint-active { background: var(--ctl); color: var(--fg); }
+.CodeMirror-hint .d { color: var(--muted2); font-family: var(--ui); overflow: hidden; text-overflow: ellipsis; max-width: 280px; margin-left: auto; }
+
+/* Erreurs de compilation, dans la source. */
+.err-bg { background: color-mix(in srgb, var(--hot) 12%, transparent); }
+.warn-bg { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+
+/* Aperçu PDF. */
+.pdf { flex: 1; min-width: 0; background: var(--canvas); display: flex; flex-direction: column; position: relative; }
+body[data-pdf="off"] .pdf { display: none; }
+.pdf-h { display: flex; align-items: center; gap: 12px; height: 36px; flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pdf-h .cs { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pdf-h .cs::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--muted2); flex: none; transition: background-color var(--t); }
+.pdf-h .cs.ok::before { background: var(--ok); }
+.pdf-h .cs.warn::before { background: var(--warn); }
+.pdf-h .cs.err::before { background: var(--hot); }
+.pdf-h .cs.run::before { background: var(--info); animation: pulse 1s ease-in-out infinite alternate; }
+.pdf-h .cs { color: inherit; height: 24px; padding: 0 6px; margin-right: -6px; border-radius: 6px; transition: background-color var(--t), color var(--t); }
+.pdf-h .cs .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pdf-h .cs .i { flex: none; display: none; }
+.pdf-h .cs:not(:disabled) .i { display: block; }
+.pdf-h .cs:not(:disabled):hover { background: var(--ctl); color: var(--fg); }
+@keyframes pulse { from { opacity: .35; } to { opacity: 1; } }
+.pdf-h .zm { display: flex; align-items: center; gap: 4px; }
+.pdf-h .zm .ib { width: 24px; height: 24px; }
+.pdf-h .zm span { min-width: 36px; text-align: center; }
+.issues { flex: none; max-height: 40%; overflow-y: auto; padding: 0 8px 8px; display: grid; gap: 0; }
+.issues .row { height: auto; min-height: 28px; align-items: flex-start; padding-block: 4px; white-space: normal; }
+.issues .row .dot { margin-top: 7px; background: var(--hot); }
+.issues .row.w .dot { background: var(--warn); }
+.issues .row .loc { flex: none; color: var(--muted); font: 11px/20px var(--mono); }
+.issues .row .msg { flex: 1; min-width: 0; line-height: 20px; overflow-wrap: anywhere; }
+.issues .more { color: var(--muted); font-size: 11px; padding: 4px 8px; text-align: left; }
+.issues .more:hover { color: var(--fg); }
+.pdf-s { flex: 1; min-height: 0; overflow: auto; padding: 4px 16px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.pg { position: relative; width: 100%; max-width: var(--pg-max, 100%); background: var(--paper); box-shadow: var(--elev-soft); flex: none; transition: opacity var(--t); }
+.pg img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.pg.old img { opacity: .6; }
+.pdf-e { margin: auto; max-width: 320px; text-align: center; color: var(--muted); display: grid; gap: 12px; justify-items: center; padding: 24px 0; }
+.pdf-e b { color: var(--fg2); font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.log { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 12px 16px 24px; font: 11px/1.5 var(--mono); color: var(--fg2); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Barre d'état. */
+.status { display: flex; align-items: center; gap: 16px; height: 24px; flex: none; background: var(--side); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+.status .sp { flex: 1; }
+.status .cn { display: flex; align-items: center; gap: 8px; }
+.status .cn::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--ok); transition: background-color var(--t); }
+.status .cn.down::before { background: var(--hot); }
+.status .chg-n { color: var(--ins-fg); }
+.status .chg-n:hover { text-decoration: underline; }
+
+/* Historique du fichier et retour en arrière. */
+.day { padding: 12px 8px 4px; font-size: 10px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--muted2); }
+.ver { display: grid; grid-template-columns: 16px 1fr; column-gap: 8px; align-items: start; width: 100%; padding: 8px; border-radius: 6px; color: var(--fg2); text-align: left; transition: background-color var(--t); }
+.ver:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.ver.sel { background: var(--row-sel); color: var(--fg); }
+.ver svg { margin-top: 3px; color: var(--muted2); }
+.ver .t { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.ver .w { font-size: 11px; color: var(--muted); }
+.ver .k { font-size: 11px; color: var(--ins-fg); font-variant-numeric: tabular-nums; }
+.hfoot { padding: 8px 8px 4px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+.cmp { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding-block: 8px; flex: none; font-size: 12px; background: color-mix(in srgb, var(--info) 12%, var(--bg)); }
+.cmp b { font-weight: 500; }
+.cmp .m { color: var(--muted); }
+.cmp .sp { flex: 1; }
+.cmp .tb { height: 24px; padding: 0 8px; }
+.cb { cursor: pointer; }
+.hpop { position: absolute; z-index: 10; width: min(360px, calc(100% - 32px)); padding: 12px 16px; border-radius: 10px; background: var(--pop); box-shadow: var(--elev); font: 400 12px/1.5 var(--ui); opacity: 0; transform: translateY(-4px); transition: opacity var(--t), transform var(--t); }
+.hpop.on { opacity: 1; transform: none; }
+.hpop .h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.hpop .h b { font-size: 11px; font-weight: 600; color: var(--fg2); }
+.hpop .h span { font-size: 11px; color: var(--muted2); font-variant-numeric: tabular-nums; }
+.hpop .tx2 { font: 400 13px/20px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; }
+.hpop .a { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.status .rw { color: var(--muted); transition: color var(--t); }
+.status .rw:hover, .status .rw.on { color: var(--fg); }
+.status .rw-msg { color: var(--muted); }
+.status .undo-all { color: var(--muted); }
+.status .undo-all:hover { color: var(--fg); }
+
+/* Figures : liste du volet, galerie et visionneuse dans le panneau de droite. */
+.chips { display: flex; gap: 4px; flex-wrap: wrap; padding: 0 4px 8px; }
+.chip { height: 24px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--muted); transition: background-color var(--t), color var(--t); }
+.chip:hover { color: var(--fg); }
+.chip[aria-pressed="true"] { background: var(--ctl); color: var(--fg); }
+.grp { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 6px; width: 100%; color: var(--muted); font-size: 11px; font-weight: 500; text-align: left; transition: background-color var(--t); }
+.grp:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.grp svg { color: var(--muted2); transition: transform var(--t); }
+.grp.shut svg { transform: rotate(-90deg); }
+.grp .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.grp .n { font-variant-numeric: tabular-nums; color: var(--muted2); font-weight: 400; }
+.row .nb, .card .nb { height: 16px; min-width: 16px; padding: 0 4px; border-radius: 999px; background: var(--ann); color: var(--on-ann); font-size: 10px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; flex: none; }
+.pdf:not([data-mode="pdf"]) > .pp { display: none !important; }
+.pdf[data-mode="pdf"] > .fg { display: none; }
+.fg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fg-h { display: flex; align-items: center; gap: 8px; height: 36px; flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.fg-h .tb { height: 24px; padding: 0 8px; }
+.fg-h .ib { width: 24px; height: 24px; }
+.fg-h .ttl { min-width: 0; flex: 1; display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.fg-h .ttl b { color: var(--fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.fg-h .ttl span { overflow: hidden; text-overflow: ellipsis; }
+.fg-h .ttl svg { color: var(--muted2); }
+.fg-h .ct { font-variant-numeric: tabular-nums; color: var(--muted2); }
+.fg-s { flex: 1; min-height: 0; overflow: auto; padding: 4px 16px 24px; display: flex; flex-direction: column; gap: 16px; }
+.fsec { display: grid; gap: 8px; }
+.fsec h4 { margin: 0; font-size: 11px; font-weight: 500; color: var(--muted); display: flex; gap: 8px; min-width: 0; }
+.fsec h4 b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.fsec h4 span { font-variant-numeric: tabular-nums; color: var(--muted2); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 12px; }
+.card { border-radius: 10px; background: var(--pop); box-shadow: var(--elev-soft); overflow: hidden; text-align: left; display: grid; min-width: 0; transition: box-shadow var(--t), transform var(--t); }
+.card:hover { box-shadow: var(--elev); transform: translateY(-1px); }
+.card .th { aspect-ratio: 4 / 3; background: var(--paper); display: grid; place-items: center; position: relative; overflow: hidden; }
+.card .th img { width: 100%; height: 100%; object-fit: contain; padding: 8px; display: block; }
+.card .th .ph { color: var(--paper-ink); font-size: 11px; padding: 8px; text-align: center; }
+.card .nb { position: absolute; top: 8px; right: 8px; height: 20px; min-width: 20px; padding: 0 4px; font-size: 11px; }
+.card .meta { padding: 8px 12px; display: grid; min-width: 0; }
+.card .meta b { font-weight: 500; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .meta span { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .meta span.un { color: var(--muted2); }
+.fempty { margin: auto; max-width: 320px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; padding: 24px 0; }
+.fempty b { color: var(--fg2); font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.stage { position: relative; display: grid; justify-items: center; padding-top: 4px; }
+.paper { position: relative; width: 100%; background: var(--paper); border-radius: 6px; box-shadow: var(--elev-soft); overflow: hidden; touch-action: none; }
+.paper img { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
+.paper .ld { padding: 48px 16px; text-align: center; color: var(--paper-ink); font-size: 11px; }
+.paper[data-tool="box"], .paper[data-tool="point"] { cursor: crosshair; }
+.ov { position: absolute; inset: 0; }
+/* Figure agrandie : elle prend aussi la place de la source. */
+body[data-wide="on"] .main { display: none; }
+body[data-wide="on"] .stage { display: flex; justify-content: center; }
+body[data-wide="on"] .paper { width: fit-content; max-width: 100%; }
+body[data-wide="on"] .paper img { width: auto; max-width: 100%; max-height: calc(100vh - 120px); }
+.abox { position: absolute; border: 1.5px solid var(--ann); border-radius: 4px; background: color-mix(in srgb, var(--ann) 8%, transparent); transition: background-color var(--t); }
+.abox.sel { background: color-mix(in srgb, var(--ann) 16%, transparent); }
+.pin { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 999px; background: var(--ann); color: var(--on-ann); font-size: 11px; font-weight: 600; display: grid; place-items: center; box-shadow: 0 1px 3px rgba(0,0,0,.25); font-variant-numeric: tabular-nums; transition: transform var(--t); }
+.pin:hover, .pin.sel { transform: scale(1.12); }
+.pin.draft { background: color-mix(in srgb, var(--ann) 70%, var(--on-ann)); }
+.npop { position: absolute; z-index: 6; width: min(296px, calc(100% - 8px)); border-radius: 10px; background: var(--pop); box-shadow: var(--elev); padding: 12px; display: grid; gap: 8px; opacity: 0; transform: translateY(-4px); transition: opacity var(--t), transform var(--t); }
+.npop.on { opacity: 1; transform: none; }
+.npop .h { display: flex; align-items: center; gap: 8px; font-weight: 500; color: var(--fg); }
+.npop .h .pin { position: static; margin: 0; }
+.npop .h .m { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: auto; }
+.npop textarea { width: 100%; min-height: 64px; resize: vertical; border: 0; border-radius: 6px; background: var(--ctl); color: var(--fg); font: 400 12px/1.5 var(--ui); padding: 8px; box-sizing: border-box; }
+.npop textarea:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+.npop .a { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.npop .a .tb { height: 24px; padding: 0 8px; }
+.npop .a .rm { color: var(--hot); }
+.npop .a .sp { flex: 1; }
+.fblk { display: grid; gap: 4px; }
+.fblk > .lb { font-size: 11px; font-weight: 500; color: var(--muted); padding: 0 8px; }
+.fblk .row .tag { font-family: var(--mono); font-size: 11px; }
+.fblk .hint { padding: 4px 8px; }
+.nrow { display: grid; grid-template-columns: 20px 1fr; gap: 4px 8px; padding: 8px; border-radius: 6px; text-align: left; width: 100%; transition: background-color var(--t); }
+.nrow:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.nrow.sel { background: var(--row-sel); }
+.nrow .pin { position: static; margin: 0; }
+.nrow p { margin: 0; color: var(--fg2); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.nrow p.em { color: var(--muted2); font-style: italic; }
+.nrow small { grid-column: 2; color: var(--muted2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.nrow small.st { color: var(--ok); }
+.fsent { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--ok) 12%, var(--bg)); color: var(--fg); font-size: 12px; }
+.fsent .tb { height: 24px; padding: 0 8px; }
+
+/* Panneau étroit (à côté de la conversation) : le volet passe par-dessus
+   la source, les boutons gardent leur icône. */
+@media (max-width: 759px) {
+  .side { position: absolute; z-index: 9; inset: 0 auto 0 0; box-shadow: var(--elev); }
+  .pdf { position: absolute; z-index: 7; inset: 0; }
+  .lbl, .crumb .opt, .status .opt { display: none; }
+  .tb { padding: 0 8px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-diff" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6"/><path d="M12 13V7"/><path d="M9 17h6"/></symbol>
+  <symbol id="i-reload" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+  <symbol id="i-cr" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-cd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-cols" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-ud" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"/></symbol>
+  <symbol id="i-hist" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c4.66 0 8.64 2.89 9.94 6.65a1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49"/><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"/><path d="M17.48 17.5A10.75 10.75 0 0 1 2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14"/><path d="m2 2 20 20"/></symbol>
+  <symbol id="i-log" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></symbol>
+  <symbol id="i-sq" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1.5" stroke-dasharray="3 2.5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0-.03.94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/></symbol>
+  <symbol id="i-max" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></symbol>
+  <symbol id="i-min" viewBox="0 0 24 24"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+</svg>
+
+<header class="top gut">
+  <button class="ib" id="sideBtn" type="button" aria-pressed="true" aria-label="Volet du projet" title="Volet du projet"><svg class="i"><use href="#i-panel"/></svg></button>
+  <div class="crumb" id="crumb"><b>Éditeur LaTeX</b></div>
+  <span class="state" id="state"></span>
+  <span class="ur"><button class="ib" id="undoBtn" type="button" aria-label="Annuler" title="Annuler (Cmd-Z)" disabled><svg class="i"><use href="#i-undo"/></svg></button><button class="ib" id="redoBtn" type="button" aria-label="Rétablir" title="Rétablir (Cmd-Maj-Z)" disabled><svg class="i"><use href="#i-redo"/></svg></button></span>
+  <button class="ib" id="findBtn" type="button" aria-pressed="false" aria-label="Rechercher" title="Rechercher (Cmd-F)" disabled><svg class="i"><use href="#i-search"/></svg></button>
+  <button class="tb quiet" id="diffBtn" type="button" aria-pressed="true" title="Mots changés depuis l'ouverture"><svg class="i"><use href="#i-diff"/></svg><span class="lbl">Changements</span><span class="n" id="diffN"></span></button>
+  <button class="ib" id="reloadBtn" type="button" aria-label="Recharger depuis le Mac" title="Recharger depuis le Mac" disabled><svg class="i"><use href="#i-reload"/></svg></button>
+  <button class="tb quiet" id="pdfBtn" type="button" aria-pressed="false" title="Aperçu PDF"><svg class="i"><use href="#i-cols"/></svg><span class="lbl">PDF</span></button>
+  <button class="tb" id="compileBtn" type="button" title="Compiler (Cmd-Entrée)" disabled><svg class="i"><use href="#i-play"/></svg><span class="lbl" id="compileLbl">Compiler</span></button>
+  <span class="sep"></span>
+  <button class="tb primary" id="saveBtn" type="button" title="Enregistrer (Cmd-S)" disabled><svg class="i"><use href="#i-save"/></svg><span class="lbl">Enregistrer</span></button>
+</header>
+<p class="note gut" id="note" hidden></p>
+
+<div class="body">
+  <aside class="side" id="side" aria-label="Projet">
+    <button class="proj" id="projBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Changer de projet" hidden><span class="pt"><span class="pn" id="projName"></span><span class="ps" id="projSub"></span></span><svg class="i s"><use href="#i-ud"/></svg></button>
+    <div class="pmenu" id="projMenu" role="menu" aria-label="Projets"></div>
+    <div class="seg" role="tablist">
+      <button type="button" role="tab" id="segFiles" aria-selected="true">Fichiers</button>
+      <button type="button" role="tab" id="segPlan" aria-selected="false">Plan</button>
+      <button type="button" role="tab" id="segFigs" aria-selected="false">Figures</button>
+      <button type="button" role="tab" id="segHist" aria-selected="false">Historique</button>
+    </div>
+    <div class="list" id="files"><p class="hint">Connexion au connecteur Atelier…</p></div>
+    <div class="list" id="plan" hidden></div>
+    <div class="list" id="hist" hidden></div>
+    <div class="list" id="figs" hidden></div>
+    <form class="open" id="openForm" hidden>
+      <input id="pathInput" type="text" spellcheck="false" autocomplete="off" placeholder="~/Documents/…/chapitre.tex" aria-label="Chemin du fichier">
+      <button class="tb" type="submit">Ouvrir</button>
+    </form>
+    <div class="side-foot" id="sideFoot"></div>
+  </aside>
+  <section class="main">
+    <div class="tabs" id="tabs"></div>
+    <div class="find" id="find" role="search" hidden>
+      <div class="r1">
+        <input id="findIn" type="text" placeholder="Rechercher" aria-label="Rechercher" spellcheck="false" autocomplete="off">
+        <span class="ct" id="findCt"></span>
+        <button class="ib" id="findPrev" type="button" aria-label="Précédent" title="Précédent (Maj-Entrée)"><svg class="i"><use href="#i-up"/></svg></button>
+        <button class="ib" id="findNext" type="button" aria-label="Suivant" title="Suivant (Entrée)"><svg class="i"><use href="#i-cd"/></svg></button>
+        <button class="ib" id="findX" type="button" aria-label="Fermer la recherche" title="Fermer (Échap)"><svg class="i"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="r1">
+        <input id="replIn" type="text" placeholder="Remplacer par" aria-label="Remplacer par" spellcheck="false" autocomplete="off">
+        <button class="tb" id="replOne" type="button">Remplacer</button>
+        <button class="tb" id="replAll" type="button">Tout</button>
+      </div>
+    </div>
+    <div class="cmp gut" id="cmp" hidden>
+      <span id="cmpTxt"></span><span class="sp"></span>
+      <button class="tb quiet" id="cmpClose" type="button">Fermer</button>
+      <button class="tb" id="cmpRestore" type="button"><svg class="i s"><use href="#i-undo"/></svg>Restaurer cette version</button>
+    </div>
+    <div class="wrap" id="wrap">
+      <div class="empty" id="empty"><div><b>Éditeur LaTeX d'Atelier</b>Ton projet s'ouvre ici : tu modifies les fichiers à la main, Claude les révise dans la conversation.</div></div>
+    </div>
+  </section>
+  <section class="pdf" id="pdf" aria-label="Aperçu PDF" data-mode="pdf">
+    <div class="pdf-h pp gut">
+      <span id="pdfPage"></span>
+      <span class="zm" id="pdfZoom" hidden>
+        <button class="ib" id="zoomOut" type="button" aria-label="Réduire" title="Réduire"><svg class="i s"><use href="#i-minus"/></svg></button>
+        <span id="zoomN">100 %</span>
+        <button class="ib" id="zoomIn" type="button" aria-label="Agrandir" title="Agrandir"><svg class="i s"><use href="#i-plus"/></svg></button>
+      </span>
+      <button class="cs" id="pdfState" type="button" disabled><span class="t" id="pdfStateT">Pas encore compilé</span><svg class="i s"><use id="pdfStateI" href="#i-eye-off"/></svg></button>
+      <button class="ib" id="logBtn" type="button" aria-pressed="false" aria-label="Journal de compilation" title="Journal de compilation" hidden><svg class="i"><use href="#i-log"/></svg></button>
+    </div>
+    <div class="issues pp" id="issues" hidden></div>
+    <pre class="log pp" id="log" hidden></pre>
+    <div class="pdf-s pp" id="pages">
+      <div class="pdf-e" id="pdfEmpty"><b>Aperçu du PDF</b><span>Compile le projet pour voir le document ici. Les erreurs s'affichent avec leur fichier et leur ligne.</span></div>
+    </div>
+    <div class="fg" id="fg">
+      <div class="fg-h gut" id="fgHead"></div>
+      <div class="fg-s" id="fgBody"></div>
+    </div>
+  </section>
+</div>
+
+<footer class="status gut">
+  <span id="stPos"></span><span class="opt" id="stWords"></span><span class="opt" id="stLang"></span>
+  <span class="sp"></span>
+  <span class="rw-msg" id="stRewrapMsg" hidden></span>
+  <button class="rw opt" id="stRewrap" type="button" aria-pressed="false">Reformatage : auto</button>
+  <button class="chg-n" id="stChg" type="button" title="Aller au changement suivant" hidden></button>
+  <button class="undo-all opt" id="stUndoAll" type="button" title="Revenir au texte de l'ouverture (Cmd-Z pour refaire)" hidden>Tout annuler</button>
+  <span class="cn" id="stConn">Atelier</span>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/stex/stex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/comment/comment.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  var SERVER = "Atelier";
+  var POLL_MS = 7000;
+  var MAX_PLAN_FILES = 80;
+  var $ = function (id) { return document.getElementById(id); };
+  var store = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+  var Pos = window.CodeMirror ? CodeMirror.Pos : null;
+
+  var mcp = null, cm = null;
+  var project = null;            // { projects: [{path, name, main, files}] } ou null (ancien connecteur)
+  var fileIndex = {};            // chemin → fiche du projet
+  var docs = {}, tabs = [], active = null, loading = {};
+  var sources = {};              // chemin → dernier texte connu (pour le plan et la complétion)
+  var revs = [];                 // propositions en attente
+  var plan = [], planTimer = 0, planBusy = false;
+  var bibKeys = [], shut = {};
+  var showDiff = true, busy = 0, diffTimer = 0, wordsTimer = 0, drafts = {};
+  var find = { q: "", overlay: null, at: null };
+  var legacy = false;            // connecteur d'avant la liste du projet
+  var polling = false;
+  // Historique du fichier actif : versions gardées par le connecteur.
+  var hist = { path: null, list: [], loaded: false, off: false, sel: null };
+  var hunkPop = null;
+  // Compilation et aperçu : dernier résultat, PDF affiché, pages rendues.
+  var build = { running: false, result: null, issues: [], showAll: false, hideWarn: store.get("atelier-editor-hidewarn") === "1", nWarn: 0, okText: "" };
+  var curProj = store.get("atelier-editor-project") || null;
+  var pdfView = { path: null, mtime: null, pages: 0, ratio: 1.294, zoom: 1, inflight: 0, nodes: [], widthKey: 0 };
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function icon(id, small) {
+    var s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    s.setAttribute("class", small ? "i s" : "i");
+    var u = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    u.setAttribute("href", "#i-" + id);
+    s.appendChild(u);
+    return s;
+  }
+  function base(path) { return path.split("/").pop(); }
+  function dirOf(path) { return path.slice(0, path.lastIndexOf("/")); }
+  function narrow() { return window.innerWidth < 760; }
+
+  // ——— Bandeau d'information ———
+  function setNote(kind, text, buttons) {
+    var n = $("note");
+    n.textContent = "";
+    if (!text) { n.hidden = true; return; }
+    n.className = "note gut " + kind;
+    n.appendChild(el("span", "", text));
+    (buttons || []).forEach(function (b) {
+      var btn = el("button", "tb", b.label);
+      btn.type = "button"; btn.onclick = b.run;
+      n.appendChild(btn);
+    });
+    n.hidden = false;
+  }
+  function payloadOf(result) { return (result && (result.structuredContent || result.payload)) || {}; }
+  function toolText(e) {
+    var r = (e && e.result) || {};
+    var c = (r.content || []).filter(function (x) { return x.type === "text"; })[0];
+    return c ? c.text : "";
+  }
+  function errorText(e) {
+    if (!e) return "Erreur inconnue.";
+    if (e.code === "tool_error") return toolText(e) || e.message || "Le connecteur a refusé.";
+    if (e.code === "server_not_connected" || e.code === "not_connected")
+      return "Le connecteur Atelier n'est pas connecté : vérifie qu'il tourne sur ton Mac.";
+    if (e.code === "not_granted" || e.code === "denied")
+      return "L'accès au connecteur Atelier n'est pas autorisé pour cette page.";
+    if (e.code === "blocked_by_policy")
+      return "Claude ne connaît pas encore cet outil du connecteur Atelier : la version qui tourne sur ton Mac est ancienne, ou Claude n'a pas actualisé sa liste d'outils (Paramètres, Connecteurs, Atelier).";
+    return (e.message || "Erreur") + (e.code ? " (" + e.code + ")" : "");
+  }
+  // Accès au connecteur pas encore accordé à la page : on le demande sur un
+  // clic, puis on refait l'appel.
+  function accessButtons(retry) {
+    return [
+      { label: "Autoriser le connecteur", run: function () {
+        setNote("warn", "Autorisation demandée…");
+        claude.use("permissions").then(function (perm) { return perm ? perm.request() : null; })
+          .catch(function () {}).then(retry);
+      } },
+      { label: "Autorisations", run: function () {
+        claude.use("permissions").then(function (perm) { return perm && perm.manage(); })
+          .catch(function () { setNote("err", "Ouvre le menu Autorisations de l'artefact et active le connecteur Atelier."); })
+          .then(retry);
+      } }
+    ];
+  }
+  function accessNote(e, retry) {
+    if (e && e.code === "tool_error") setNote("err", errorText(e));
+    else setNote("err", "Claude n'a pas encore autorisé cette page à utiliser le connecteur Atelier. " + errorText(e), accessButtons(retry));
+  }
+  function online(up) {
+    var c = $("stConn");
+    c.className = up ? "cn" : "cn down";
+    c.textContent = up ? "Atelier" : "Connecteur injoignable";
+  }
+  function call(tool, input) {
+    return mcp.callTool(SERVER, tool, input || {}, { cache: false }).then(function (r) {
+      online(true);
+      return payloadOf(r);
+    }, function (e) {
+      if (e && (e.code === "server_not_connected" || e.code === "not_connected" || e.code === "upstream_error" || e.code === "timeout")) online(false);
+      throw e;
+    });
+  }
+
+  // ——— Différence mot à mot ———
+  function tokens(text) {
+    var re = /[0-9A-Za-zÀ-ÖØ-öø-ÿ_]+|[^\s0-9A-Za-zÀ-ÖØ-öø-ÿ_]/g, out = [], m;
+    while ((m = re.exec(text))) out.push({ t: m[0], at: m.index, end: m.index + m[0].length });
+    return out;
+  }
+  // Préfixe et suffixe communs, puis plus longue sous-suite commune sur le
+  // milieu (au-delà d'une taille raisonnable, le milieu entier est marqué
+  // changé). Chaque bloc retiré est donné juste avant le bloc qui le remplace.
+  function wordDiff(oldText, newText) {
+    var a = tokens(oldText), b = tokens(newText);
+    var p = 0;
+    while (p < a.length && p < b.length && a[p].t === b[p].t) p++;
+    var ea = a.length, eb = b.length;
+    while (ea > p && eb > p && a[ea - 1].t === b[eb - 1].t) { ea--; eb--; }
+    var A = a.slice(p, ea), B = b.slice(p, eb), ops = [];
+    var anchor = function (j) { return j < B.length ? B[j].at : (eb < b.length ? b[eb].at : (B.length ? B[B.length - 1].end : (p > 0 ? b[p - 1].end : 0))); };
+    function push(i0, i1, j0, j1) {
+      if (i1 > i0) ops.push({ kind: "del", at: j1 > j0 ? B[j0].at : anchor(j0), text: oldText.slice(A[i0].at, A[i1 - 1].end) });
+      if (j1 > j0) ops.push({ kind: "ins", from: B[j0].at, to: B[j1 - 1].end });
+    }
+    if (!A.length && !B.length) return ops;
+    var n = A.length, m = B.length;
+    if (n * m > 2500000) { push(0, n, 0, m); return ops; }
+    var w = m + 1, L = new Uint32Array((n + 1) * (m + 1));
+    for (var i = n - 1; i >= 0; i--)
+      for (var j = m - 1; j >= 0; j--)
+        L[i * w + j] = A[i].t === B[j].t ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
+    i = 0; j = 0;
+    var i0 = 0, j0 = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && A[i].t === B[j].t) { push(i0, i, j0, j); i++; j++; i0 = i; j0 = j; }
+      else if (j < m && (i >= n || L[i * w + j + 1] >= L[(i + 1) * w + j])) j++;
+      else i++;
+    }
+    push(i0, n, j0, m);
+    return ops;
+  }
+  function delSpan(text) {
+    var s = el("span", "del", text.length > 400 ? text.slice(0, 400) + "…" : text);
+    return s;
+  }
+  // Avant / après d'une proposition, en un seul texte.
+  function diffNodes(oldText, newText) {
+    var frag = document.createDocumentFragment(), at = 0;
+    wordDiff(oldText, newText).forEach(function (o) {
+      var pos = o.kind === "ins" ? o.from : o.at;
+      if (pos > at) { frag.appendChild(document.createTextNode(newText.slice(at, pos))); at = pos; }
+      if (o.kind === "del") frag.appendChild(delSpan(o.text));
+      else { frag.appendChild(el("span", "ins", newText.slice(o.from, o.to))); at = o.to; }
+    });
+    frag.appendChild(document.createTextNode(newText.slice(at)));
+    return frag;
+  }
+
+  // ——— Documents ouverts ———
+  function cur() { return active ? docs[active] : null; }
+  function isDirty(d) { return !!d && d.doc.getValue() !== d.saved; }
+  function anyDirty() { return tabs.some(function (p) { return isDirty(docs[p]); }); }
+  function modeFor(path) { return /\.bib$/i.test(path) ? "bibtex-lite" : "stex"; }
+  function baselineKey(path) { return "atelier-editor-baseline:" + path; }
+  function persist() {
+    store.set("atelier-editor-tabs", JSON.stringify({ tabs: tabs, active: active }));
+  }
+
+  function refreshState() {
+    var d = cur(), s = $("state");
+    $("saveBtn").disabled = !d || !isDirty(d) || busy > 0;
+    $("reloadBtn").disabled = !d || busy > 0;
+    $("findBtn").disabled = !d;
+    var hs = d && cm ? cm.historySize() : { undo: 0, redo: 0 };
+    $("undoBtn").disabled = !hs.undo; $("redoBtn").disabled = !hs.redo;
+    $("compileBtn").disabled = build.running || !mainPath();
+    if (!d) { s.textContent = ""; s.className = "state"; return; }
+    var dirty = isDirty(d);
+    s.className = "state" + (dirty ? " dirty" : "");
+    s.textContent = dirty ? "Modifié" : (d.savedAt ? "Enregistré · " + d.savedAt : "À jour");
+    var tab = document.querySelector('.tab[data-path="' + cssq(d.path) + '"] .dot');
+    if ((!!tab) !== dirty) { renderTabs(); renderTree(); }
+  }
+  function cssq(s) { return s.replace(/["\\]/g, "\\$&"); }
+
+  function renderCrumb() {
+    var c = $("crumb"), d = cur();
+    c.textContent = "";
+    if (!d) { c.appendChild(el("b", "", proj() ? proj().name : "Éditeur LaTeX")); return; }
+    var f = fileIndex[d.path], parts = f ? [f.project.name].concat(f.rel.split("/")) : [d.file];
+    parts.forEach(function (part, i) {
+      var last = i === parts.length - 1;
+      if (i) { var sv = icon("cr", true); sv.classList.add("opt"); c.appendChild(sv); }
+      c.appendChild(last ? el("b", "", part) : el("span", "opt", part));
+    });
+    c.title = d.path;
+  }
+
+  function renderTabs() {
+    var t = $("tabs");
+    t.textContent = "";
+    var names = {};
+    tabs.forEach(function (p) { var n = base(p); names[n] = (names[n] || 0) + 1; });
+    tabs.forEach(function (p) {
+      var d = docs[p], tab = el("div", "tab" + (p === active ? " on" : ""));
+      tab.setAttribute("data-path", p);
+      tab.setAttribute("role", "tab");
+      tab.tabIndex = 0;
+      tab.onkeydown = function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); activate(p); } };
+      tab.title = p;
+      if (names[base(p)] > 1) tab.appendChild(el("em", "", base(dirOf(p)) + "/"));
+      tab.appendChild(document.createTextNode(base(p)));
+      if (isDirty(d)) { var dot = el("span", "dot"); dot.title = "Modifié"; tab.appendChild(dot); }
+      var x = el("button", "x");
+      x.type = "button"; x.setAttribute("aria-label", "Fermer " + base(p));
+      x.appendChild(icon("x", true));
+      x.onclick = function (ev) { ev.stopPropagation(); closeTab(p); };
+      tab.appendChild(x);
+      tab.onclick = function () { activate(p); };
+      t.appendChild(tab);
+    });
+    var on = t.querySelector(".tab.on");
+    if (on && on.scrollIntoView) on.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  function closeTab(path, force) {
+    var d = docs[path];
+    if (!d) return;
+    if (isDirty(d) && !force) {
+      setNote("warn", base(path) + " a des modifications non enregistrées.", [
+        { label: "Enregistrer et fermer", run: function () { saveDoc(d).then(function (ok) { if (ok) closeTab(path, true); }); } },
+        { label: "Fermer sans enregistrer", run: function () { setNote("", ""); closeTab(path, true); } }
+      ]);
+      return;
+    }
+    var i = tabs.indexOf(path);
+    tabs.splice(i, 1);
+    delete docs[path];
+    if (active === path) {
+      active = null;
+      var next = tabs[Math.min(i, tabs.length - 1)];
+      if (next) activate(next);
+      else { cm.swapDoc(CodeMirror.Doc("", "stex")); cm.getWrapperElement().hidden = true; $("empty").hidden = false; afterSwitch(); }
+    } else { renderTabs(); persist(); }
+  }
+
+  function ensureEditor() {
+    if (cm) { $("empty").hidden = true; cm.getWrapperElement().hidden = false; return; }
+    $("empty").hidden = true;
+    var open = el("div", "fm open"), folded = el("div", "fm shut");
+    open.appendChild(icon("cd", true)); folded.appendChild(icon("cd", true));
+    cm = CodeMirror(function (node) { $("wrap").insertBefore(node, $("wrap").firstChild); }, {
+      value: "", mode: "stex", lineNumbers: true, lineWrapping: true,
+      indentUnit: 2, tabSize: 2, inputStyle: "contenteditable", spellcheck: true,
+      styleActiveLine: true, matchBrackets: true, autoCloseBrackets: "()[]{}",
+      gutters: ["chg", "CodeMirror-foldgutter", "CodeMirror-linenumbers"],
+      foldGutter: { rangeFinder: latexFold, indicatorOpen: open, indicatorFolded: folded },
+      foldOptions: { widget: "…" },
+      extraKeys: {
+        "Cmd-S": function () { save(); }, "Ctrl-S": function () { save(); },
+        "Cmd-F": openFind, "Ctrl-F": openFind,
+        "Cmd-/": "toggleComment", "Ctrl-/": "toggleComment",
+        "Cmd-B": wrapWith("textbf"), "Ctrl-B": wrapWith("textbf"),
+        "Cmd-I": wrapWith("emph"), "Ctrl-I": wrapWith("emph"),
+        "Alt-Enter": function () { nearestProposal(true); },
+        "Alt-Backspace": function () { return nearestProposal(false) ? undefined : CodeMirror.Pass; },
+        "Enter": closeEnvironment,
+        "Tab": function (c) { if (c.somethingSelected()) c.indentSelection("add"); else c.replaceSelection("  ", "end"); },
+        "Ctrl-Space": function () { complete(true); },
+        "Cmd-Enter": function () { compile(); }, "Ctrl-Enter": function () { compile(); }
+      }
+    });
+    cm.addOverlay(keyOverlay);
+    cm.on("change", function () { refreshState(); schedulePaint(); scheduleWords(); schedulePlan(1200); });
+    cm.on("cursorActivity", onCursor);
+    cm.on("mousedown", function (c, ev) { setTimeout(function () { onEditorClick(c, ev); }, 0); });
+    cm.on("gutterClick", function (c, line, gutter) { if (gutter === "chg") openHunk(line); });
+    cm.on("change", function () { if (hunkPop) closeHunk(); });
+    cm.on("scroll", function () { if (hunkPop) closeHunk(); });
+    cm.on("inputRead", function (c, change) {
+      if (change.origin === "+input" && change.text.length === 1 && /^[\\a-zA-Z{,:_-]$/.test(change.text[0])) complete(false);
+    });
+  }
+
+  function wrapWith(cmd) {
+    return function (c) {
+      var s = c.getSelection();
+      c.replaceSelection("\\" + cmd + "{" + s + "}");
+      if (!s) { var p = c.getCursor(); c.setCursor(p.line, p.ch - 1); }
+    };
+  }
+  // Entrée après \begin{env} resté ouvert : pose le \end{env} correspondant.
+  function closeEnvironment(c) {
+    var p = c.getCursor(), line = c.getLine(p.line);
+    var m = /\\begin\{([^}]+)\}(\[[^\]]*\])?(\{[^}]*\})*\s*$/.exec(line.slice(0, p.ch));
+    if (!m || p.ch !== line.length || /^\s*%/.test(line)) return CodeMirror.Pass;
+    var text = c.getValue(), name = m[1];
+    if (text.split("\\begin{" + name + "}").length <= text.split("\\end{" + name + "}").length) return CodeMirror.Pass;
+    var indent = /^\s*/.exec(line)[0];
+    c.replaceRange("\n" + indent + "  \n" + indent + "\\end{" + name + "}", p);
+    c.setCursor(p.line + 1, indent.length + 2);
+  }
+
+  var LEVEL = { part: -1, chapter: 0, section: 1, subsection: 2, subsubsection: 3, paragraph: 4 };
+  var SEC_RE = /^\s*\\(part|chapter|section|subsection|subsubsection|paragraph)\*?\s*[\[{]/;
+  function latexFold(c, start) {
+    var line = c.getLine(start.line), last = c.lastLine(), i, t;
+    if (/^\s*%/.test(line)) return;
+    var m = /\\begin\{([^}]+)\}/.exec(line);
+    if (m) {
+      var open = "\\begin{" + m[1] + "}", close = "\\end{" + m[1] + "}", depth = 0;
+      for (i = start.line; i <= last; i++) {
+        t = c.getLine(i);
+        var at = i === start.line ? m.index : 0;
+        for (;;) {
+          var a = t.indexOf(open, at), b = t.indexOf(close, at);
+          if (a < 0 && b < 0) break;
+          if (a >= 0 && (b < 0 || a < b)) { depth++; at = a + open.length; }
+          else {
+            depth--; at = b + close.length;
+            if (depth === 0) return i > start.line ? { from: Pos(start.line, line.length), to: Pos(i, b) } : undefined;
+          }
+        }
+      }
+      return;
+    }
+    var s = SEC_RE.exec(line);
+    if (!s) return;
+    for (i = start.line + 1; i <= last; i++) {
+      t = c.getLine(i);
+      var s2 = SEC_RE.exec(t);
+      if ((s2 && LEVEL[s2[1]] <= LEVEL[s[1]]) || /^\s*\\(end\{document\}|appendix\b|bibliography\b|printbibliography\b)/.test(t)) break;
+    }
+    var end = i - 1;
+    while (end > start.line && !c.getLine(end).trim()) end--;
+    if (end > start.line) return { from: Pos(start.line, line.length), to: Pos(end, c.getLine(end).length) };
+  }
+
+  // Clés de \ref, \label, \cite, \includegraphics, \input : couleur d'accent.
+  var KEY_RE = /\\(?:[a-zA-Z]*ref|label|[a-zA-Z]*cite[a-zA-Z]*|includegraphics|input|include|subfile|bibliography|addbibresource)\*?(?:\[[^\]]*\])*\{/g;
+  var keyOverlay = {
+    token: function (stream) {
+      var s = stream.string, m;
+      KEY_RE.lastIndex = 0;
+      while ((m = KEY_RE.exec(s))) {
+        var from = m.index + m[0].length, to = s.indexOf("}", from);
+        if (to < 0) to = s.length;
+        if (to <= stream.pos || to === from) continue;
+        if (from <= stream.pos) { stream.pos = to; return "key"; }
+        stream.pos = from;
+        return null;
+      }
+      stream.skipToEnd();
+      return null;
+    }
+  };
+  if (window.CodeMirror) {
+    CodeMirror.defineMode("bibtex-lite", function () {
+      return {
+        token: function (stream) {
+          if (stream.match(/^%.*/)) return "comment";
+          if (stream.match(/^@[a-zA-Z]+/)) return "tag";
+          if (stream.sol() && stream.match(/^\s*[a-zA-Z_-]+(?=\s*=)/)) return "atom";
+          if (stream.match(/^[{}]/)) return "bracket";
+          if (stream.match(/^\d+/)) return "number";
+          stream.next();
+          return null;
+        },
+        lineComment: "%"
+      };
+    });
+  }
+
+  function setText(d, text) {
+    if (d.path === active && cm) {
+      var info = cm.getScrollInfo(), c = cm.getCursor();
+      d.doc.setValue(text);
+      d.doc.clearHistory();
+      cm.setCursor(c);
+      cm.scrollTo(info.left, info.top);
+    } else { d.doc.setValue(text); d.doc.clearHistory(); }
+    sources[d.path] = text;
+  }
+
+  function afterSwitch() {
+    var fa = cur() && fileIndex[cur().path];
+    if (fa && fa.project.path !== curProj) { curProj = fa.project.path; store.set("atelier-editor-project", curProj); renderProj(); }
+    renderTabs(); renderCrumb(); renderTree(); renderPlan(); refreshState();
+    closeHunk(); showCompare(); paintDiff(); paintProposals(); paintIssues(); updateStatus(); countWords(); persist();
+    if (find.q) applyQuery();
+    if (!$("hist").hidden) loadHist(false);
+  }
+
+  function activate(path, line) {
+    var d = docs[path];
+    if (!d) return;
+    ensureEditor();
+    if (active !== path) { active = path; cm.swapDoc(d.doc); }
+    afterSwitch();
+    if (line != null) jump(line);
+    if (narrow()) setSide(false);
+    cm.refresh();
+  }
+  function jump(line) {
+    cm.setCursor(line, 0);
+    var top = cm.charCoords(Pos(line, 0), "local").top;
+    cm.scrollTo(null, Math.max(0, top - 60));
+    cm.focus();
+  }
+
+  function openFile(path, line) {
+    if (docs[path]) { activate(path, line); return Promise.resolve(docs[path]); }
+    if (loading[path]) return loading[path];
+    if (!mcp) return Promise.resolve(null);
+    busy++; refreshState();
+    loading[path] = call("load_tex_file", { path: path }).then(function (p) {
+      var real = p.path || path, kept = null;
+      if (docs[real]) { activate(real, line); return docs[real]; }
+      try { kept = sessionStorage.getItem(baselineKey(real)); } catch (e) {}
+      var d = {
+        path: real, file: p.file || base(real), sha: p.sha256, saved: p.text,
+        baseline: kept != null ? kept : p.text, doc: CodeMirror.Doc(p.text, modeFor(real)),
+        marks: [], widgets: [], remoteChanged: false, savedAt: "", openedAt: Date.now(), cmp: null
+      };
+      try { sessionStorage.setItem(baselineKey(real), d.baseline); } catch (e) {}
+      docs[real] = d; sources[real] = p.text;
+      if (tabs.indexOf(real) < 0) tabs.push(real);
+      if (drafts[real] != null && drafts[real] !== p.text) d.doc.setValue(drafts[real]);
+      delete drafts[real];
+      setNote("", "");
+      activate(real, line);
+      return d;
+    }).catch(function (e) {
+      accessNote(e, function () { openFile(path, line); });
+      return null;
+    }).then(function (d) { delete loading[path]; busy--; refreshState(); return d; });
+    return loading[path];
+  }
+
+  // Enregistre un document ; résout à true si le disque porte son texte.
+  // ——— Retours à la ligne (repris d'Atelier, gallery/src/studio/features/latex/rewrap.ts) ———
+  // Vrais retours à la ligne à la largeur du panneau : ⌥Q pour le
+  // paragraphe, ⇧⌥Q pour tout le fichier, et tout le fichier avant chaque
+  // enregistrement quand « Reformatage : auto » est actif. Règle absolue
+  // (docs/PIEGES_CONNUS.md §5) : un bloc LaTeX qui contient un % non échappé
+  // n'est jamais touché, et les lignes faites d'une seule commande restent
+  // des frontières. La différence mot à mot ignore les blancs : un
+  // reformatage n'apparaît pas dans les changements.
+  var NO_WRAP_ENV = /^(verbatim|lstlisting|minted|equation|align|alignat|eqnarray|gather|multline|displaymath|math|tabular|tabularx|array|table|figure|itemize|enumerate|description|thebibliography|tikzpicture|verse|quote|quotation)\*?$/;
+  function autoRewrap() { return store.get("atelier-editor-autorewrap") !== "0"; }
+  function rewrapColumn() {
+    if (!cm) return 80;
+    var cw = Math.max(1, cm.defaultCharWidth());
+    var code = cm.getWrapperElement().querySelector(".CodeMirror-code");
+    var line = cm.getWrapperElement().querySelector("pre.CodeMirror-line");
+    var cs = line ? getComputedStyle(line) : null;
+    var pad = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0;
+    var width = (code && code.clientWidth) || Math.max(0, cm.getWrapperElement().clientWidth - cm.getGutterElement().offsetWidth - 16);
+    return Math.max(40, Math.min(120, Math.floor(Math.max(0, width - pad - cw * 2) / cw)));
+  }
+  function rwPrefix(line) { var m = /^\s*(%+)\s?/.exec(line); return m ? m[1] : ""; }
+  function rwLines(lines, col) {
+    var first = lines[0] || "", indent = (/^\s*/.exec(first) || [""])[0], fp = rwPrefix(first);
+    var allComment = !!fp && lines.every(function (l) { return !l.trim() || l.trim().indexOf(fp) === 0; });
+    var prefix = allComment ? indent + fp + " " : indent;
+    var stripRe = new RegExp("^\\s*" + fp + "\\s?");
+    var words = [];
+    lines.forEach(function (l) { (allComment ? l.replace(stripRe, "").trim() : l.trim()).split(/\s+/).forEach(function (w) { if (w) words.push(w); }); });
+    var out = [], curLine = "";
+    words.forEach(function (w) {
+      if (!curLine) curLine = prefix + w;
+      else if ((curLine + " " + w).length <= col) curLine += " " + w;
+      else { out.push(curLine); curLine = prefix + w; }
+    });
+    if (curLine) out.push(curLine);
+    return out;
+  }
+  function rwReflowable(block) {
+    var fp = rwPrefix(block[0] || "");
+    if (fp && block.every(function (l) { return !l.trim() || l.trim().indexOf(fp) === 0; })) return true;
+    return !block.some(function (l) { return l.replace(/\\./g, "  ").indexOf("%") >= 0; });
+  }
+  function rwCommandOnly(v) {
+    return v.trim() !== "" && !/[a-zà-ÿ]/i.test(v.replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*/g, ""));
+  }
+  function rewrapParagraph() {
+    var d = cur();
+    if (!cm || !d || !/\.tex$/i.test(d.path)) return;
+    var from, to;
+    if (cm.somethingSelected()) { from = cm.getCursor("from").line; to = cm.getCursor("to").line; }
+    else {
+      var c = cm.getCursor().line, last = cm.lineCount() - 1;
+      from = c; while (from > 0 && cm.getLine(from - 1).trim() !== "") from--;
+      to = c; while (to < last && cm.getLine(to + 1).trim() !== "") to++;
+    }
+    var lines = [];
+    for (var l = from; l <= to; l++) lines.push(cm.getLine(l));
+    if (!rwReflowable(lines)) { flashStatus("Non reformaté : commentaire % au milieu du paragraphe"); return; }
+    // Une ligne faite d'une seule commande (\section{…}) reste une frontière.
+    var col = rewrapColumn(), outL = [], run = [];
+    var flush = function () { if (run.length) outL.push.apply(outL, rwLines(run, col)); run = []; };
+    lines.forEach(function (v) { if (rwCommandOnly(v) || !v.trim()) { flush(); outL.push(v); } else run.push(v); });
+    flush();
+    var out = outL.join("\n");
+    if (out !== lines.join("\n")) cm.replaceRange(out, Pos(from, 0), Pos(to, cm.getLine(to).length), "+rewrap");
+  }
+  // Tout le document `doc` (un CodeMirror.Doc) ; rend le nombre de paragraphes reformatés.
+  function rewrapAll(doc) {
+    var col = rewrapColumn(), last = doc.lineCount() - 1, paras = [], line = 0, depth = 0;
+    while (line <= last) {
+      var raw = doc.getLine(line), re = /\\(begin|end)\{([^}]*)\}/g, mm;
+      while ((mm = re.exec(raw))) if (NO_WRAP_ENV.test(mm[2] || "")) depth += mm[1] === "begin" ? 1 : -1;
+      if (depth > 0 || raw.trim() === "") { line++; continue; }
+      var end = line, block = [raw];
+      while (end < last) {
+        var next = doc.getLine(end + 1), open = /\\begin\{([^}]*)\}/.exec(next);
+        if (next.trim() === "" || (open && NO_WRAP_ENV.test(open[1] || ""))) break;
+        block.push(next); end++;
+      }
+      var prose = block.some(function (v) { return !rwCommandOnly(v) && v.trim() !== ""; });
+      if (prose && rwReflowable(block)) {
+        var out = [], run = [];
+        var flush = function () { if (run.length) out.push.apply(out, rwLines(run, col)); run = []; };
+        block.forEach(function (v) { if (rwCommandOnly(v)) { flush(); out.push(v); } else run.push(v); });
+        flush();
+        if (out.join("\n") !== block.join("\n")) paras.push({ from: line, to: end, out: out });
+      }
+      line = end + 1;
+    }
+    if (paras.length) {
+      var c = doc.getCursor();
+      var apply = function () {
+        for (var i = paras.length - 1; i >= 0; i--) doc.replaceRange(paras[i].out.join("\n"), Pos(paras[i].from, 0), Pos(paras[i].to, doc.getLine(paras[i].to).length), "+rewrap");
+      };
+      if (cm && cm.getDoc() === doc) cm.operation(apply); else apply();
+      doc.setCursor(Pos(Math.min(c.line, doc.lineCount() - 1), c.ch));
+    }
+    return paras.length;
+  }
+  function flashStatus(text) {
+    var n = $("stRewrapMsg");
+    n.textContent = text;
+    n.hidden = false;
+    clearTimeout(flashStatus.t);
+    flashStatus.t = setTimeout(function () { n.hidden = true; }, 3000);
+  }
+  function renderRewrap() {
+    var on = autoRewrap(), b = $("stRewrap");
+    b.textContent = on ? "Reformatage : auto" : "Reformatage : manuel";
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+    b.title = (on ? "Les lignes sont remises à la largeur du panneau à chaque enregistrement. " : "Les lignes ne sont reformatées qu'à la demande. ") + "⌥Q : paragraphe, ⇧⌥Q : tout le fichier.";
+  }
+  function toggleRewrap() {
+    var on = !autoRewrap();
+    store.set("atelier-editor-autorewrap", on ? "1" : "0");
+    renderRewrap();
+    var d = cur();
+    if (on && d && /\.tex$/i.test(d.path)) { var n = rewrapAll(d.doc); if (n) flashStatus(plural(n, "paragraphe reformaté", "paragraphes reformatés")); }
+    if (cm) cm.focus();
+  }
+  // ⌥Q donne « œ » sur un clavier Mac : on lit la touche physique.
+  document.addEventListener("keydown", function (ev) {
+    if (!ev.altKey || ev.metaKey || ev.ctrlKey || ev.code !== "KeyQ") return;
+    var d = cur();
+    if (!cm || !d || !/\.tex$/i.test(d.path)) return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (ev.shiftKey) { var n = rewrapAll(d.doc); flashStatus(n ? plural(n, "paragraphe reformaté", "paragraphes reformatés") : "Rien à reformater"); }
+    else rewrapParagraph();
+    cm.focus();
+  }, true);
+
+  function saveDoc(d, force, origin) {
+    if (!mcp || !d) return Promise.resolve(false);
+    if (!isDirty(d)) return Promise.resolve(true);
+    if (autoRewrap() && /\.tex$/i.test(d.path) && origin !== "restore") { try { rewrapAll(d.doc); } catch (e) { /* on enregistre le texte tel quel */ } }
+    var text = d.doc.getValue();
+    busy++; refreshState();
+    var send = function (b) {
+      var args = { path: d.path, text: text, base_sha256: b };
+      if (origin) args.origin = origin;
+      return call("save_tex_file", args);
+    };
+    var run = force === true
+      ? call("load_tex_file", { path: d.path }).then(function (p) { return send(p.sha256); })
+      : send(d.sha);
+    return run.then(function (p) {
+      d.sha = p.sha256; d.saved = text; d.remoteChanged = false; sources[d.path] = text;
+      d.savedAt = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
+      setNote("", "");
+      schedulePlan(200);
+      if (/\.bib$/i.test(d.path)) readBibKeys();
+      loadHist(true);
+      if (figs.loaded) { clearTimeout(figs.timer); figs.timer = setTimeout(function () { loadFigures(true); }, 800); }
+      return true;
+    }).catch(function (e) {
+      var sc = e && e.result && e.result.structuredContent;
+      if (sc && sc.conflict) {
+        setNote("warn", "Le fichier a changé sur le Mac depuis son ouverture (une révision acceptée ?). Rien n'est écrit.", [
+          { label: "Recharger le fichier", run: function () { reload(d); } },
+          { label: "Garder mes modifications", run: function () { saveDoc(d, true); } }
+        ]);
+      } else setNote("err", errorText(e));
+      return false;
+    }).then(function (ok) { busy--; refreshState(); return ok; });
+  }
+  function save() { return saveDoc(cur()); }
+
+  function reload(d) {
+    if (!mcp || !d) return Promise.resolve();
+    busy++; refreshState();
+    return call("load_tex_file", { path: d.path }).then(function (p) {
+      d.sha = p.sha256; d.saved = p.text; d.remoteChanged = false;
+      setText(d, p.text);
+      setNote("", "");
+    }).catch(function (e) { setNote("err", errorText(e)); })
+      .then(function () { busy--; refreshState(); if (d.path === active) { paintDiff(); paintProposals(); } schedulePlan(200); });
+  }
+
+  // ——— Changements depuis l'ouverture ———
+  function paintDiff() {
+    var d = cur();
+    if (!cm) return;
+    cm.operation(function () {
+      if (d) { d.marks.forEach(function (mk) { mk.clear(); }); d.marks = []; }
+      cm.clearGutter("chg");
+      var groups = 0;
+      var ref = d && (d.cmp ? d.cmp.text : d.baseline), show = showDiff || !!(d && d.cmp);
+      if (d && ref != null) {
+        var text = d.doc.getValue();
+        if (text !== ref) {
+          var ops = wordDiff(ref, text), lines = {};
+          ops.forEach(function (o, i) {
+            var prev = ops[i - 1];
+            if (!(o.kind === "ins" && prev && prev.kind === "del" && prev.at === o.from)) groups++;
+            if (o.kind === "ins") {
+              var from = cm.posFromIndex(o.from), to = cm.posFromIndex(o.to);
+              if (show) d.marks.push(cm.markText(from, to, { className: "ins" }));
+              for (var l = from.line; l <= to.line; l++) {
+                var whole = (l > from.line || !cm.getLine(l).slice(0, from.ch).trim()) && (l < to.line || !cm.getLine(l).slice(to.ch).trim());
+                if (lines[l] !== "mod") lines[l] = whole && !(prev && prev.kind === "del" && prev.at === o.from) ? "add" : "mod";
+              }
+            } else {
+              var at = cm.posFromIndex(o.at);
+              if (show) d.marks.push(cm.setBookmark(at, { widget: delSpan(o.text), insertLeft: true }));
+              lines[at.line] = "mod";
+            }
+          });
+          if (show) Object.keys(lines).forEach(function (l) {
+            var mk = el("div", "cb " + lines[l]);
+            mk.title = "Annuler ce changement";
+            cm.setGutterMarker(+l, "chg", mk);
+          });
+        }
+      }
+      d && (d.changes = groups);
+      $("diffN").textContent = groups ? String(groups) : "";
+      var st = $("stChg");
+      st.hidden = !groups;
+      st.textContent = groups + (groups > 1 ? " changements" : " changement");
+      $("stUndoAll").hidden = !groups || !d || !!d.cmp;
+      if (hist.path && !$("hist").hidden) renderHist();
+    });
+  }
+  function schedulePaint() { clearTimeout(diffTimer); diffTimer = setTimeout(paintDiff, 300); }
+  function nextChange() {
+    var d = cur();
+    if (!d || !d.marks.length) return;
+    var here = cm.indexFromPos(cm.getCursor()), spots = d.marks.map(function (mk) {
+      var f = mk.find();
+      return f ? cm.indexFromPos(f.from || f) : -1;
+    }).filter(function (x) { return x >= 0; }).sort(function (a, b) { return a - b; });
+    if (!spots.length) return;
+    var next = spots.filter(function (x) { return x > here; })[0];
+    if (next == null) next = spots[0];
+    var p = cm.posFromIndex(next);
+    cm.setCursor(p);
+    cm.scrollIntoView(p, 120);
+    cm.focus();
+  }
+
+  // ——— Historique et retour en arrière ———
+  var ORIGINS = {
+    save: ["pen", "Avant ton enregistrement"],
+    claude: ["spark", "Avant une proposition de Claude"],
+    undo: ["undo", "Avant une annulation"],
+    restore: ["hist", "Avant une restauration"],
+    open: ["open", "À l'ouverture dans l'éditeur"]
+  };
+  function hhmm(ms) { return new Date(ms).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" }); }
+  function dayOf(ms) {
+    var d = new Date(ms), now = new Date(), y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (d.toDateString() === now.toDateString()) return "Aujourd'hui";
+    if (d.toDateString() === y.toDateString()) return "Hier";
+    return d.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" });
+  }
+  function loadHist(force) {
+    var d = cur();
+    if (!d) { hist.path = null; hist.list = []; renderHist(); return; }
+    if (!force && hist.path === d.path && hist.loaded) { renderHist(); return; }
+    if (hist.path !== d.path) { hist.path = d.path; hist.list = []; hist.loaded = false; renderHist(); }
+    if (hist.off || !mcp || !project) { hist.loaded = true; renderHist(); return; }
+    var path = d.path;
+    call("list_tex_versions", { path: path }).then(function (p) {
+      if (hist.path !== path) return;
+      hist.list = p.versions || []; hist.loaded = true; renderHist();
+    }, function (e) {
+      if (hist.path !== path) return;
+      // Connecteur d'une version d'avant : pas d'historique, le reste marche.
+      if (e && (e.code === "blocked_by_policy" || e.code === "not_in_manifest" || (e.code === "tool_error" && /inconnu|indisponible|unknown/i.test(toolText(e))))) hist.off = true;
+      hist.loaded = true; renderHist();
+    });
+  }
+  function renderHist() {
+    var box = $("hist");
+    if (box.hidden) return;
+    box.textContent = "";
+    var d = cur();
+    if (!d) { box.appendChild(el("p", "hint", "Ouvre un fichier pour voir ses versions.")); return; }
+    box.appendChild(el("div", "day", d.file));
+    var now = verRow("pen", "Maintenant", isDirty(d) ? "Pas enregistré" + (d.changes ? " · " + d.changes + (d.changes > 1 ? " changements" : " changement") : "") : (d.savedAt ? "Enregistré à " + d.savedAt : "Comme sur le Mac"), !d.cmp, true);
+    now.onclick = function () { closeCompare(); };
+    box.appendChild(now);
+    var items = hist.list.map(function (v) { return { id: v.id, time: v.time, origin: v.origin }; });
+    items.push({ id: "open", time: d.openedAt, origin: "open" });
+    items.sort(function (a, b) { return b.time - a.time; });
+    var lastDay = null;
+    items.forEach(function (v) {
+      var day = dayOf(v.time);
+      if (day !== lastDay) { box.appendChild(el("div", "day", day)); lastDay = day; }
+      var o = ORIGINS[v.origin] || ORIGINS.save;
+      var row = verRow(o[0], hhmm(v.time), o[1], !!(d.cmp && d.cmp.id === v.id), false);
+      row.onclick = function () { openCompare(v); };
+      box.appendChild(row);
+    });
+    if (!hist.loaded) box.appendChild(el("p", "hint", "Chargement des versions…"));
+    else if (hist.off) box.appendChild(el("p", "hint", "Le connecteur qui tourne sur ton Mac ne garde pas encore d'historique : relance-le (double-clic sur « Relancer le connecteur Atelier ») pour voir les versions enregistrées."));
+    box.appendChild(el("p", "hfoot", "Chaque enregistrement et chaque proposition acceptée garde une version. Restaurer en garde une aussi\u00a0: rien ne se perd."));
+  }
+  function verRow(ic, title, sub, sel, isNow) {
+    var b = el("button", "ver" + (sel ? " sel" : ""));
+    b.type = "button";
+    b.appendChild(icon(ic, true));
+    var t = el("div");
+    t.appendChild(el("div", "t", title));
+    t.appendChild(el("div", isNow && isDirty(cur()) ? "k" : "w", sub));
+    b.appendChild(t);
+    return b;
+  }
+  function openCompare(v) {
+    var d = cur();
+    if (!d) return;
+    var label = "Version de " + hhmm(v.time) + (dayOf(v.time) === "Aujourd'hui" ? "" : " (" + dayOf(v.time).toLowerCase() + ")");
+    var got = v.id === "open" ? Promise.resolve({ text: d.baseline })
+      : call("load_tex_version", { path: d.path, id: v.id });
+    got.then(function (p) {
+      if (cur() !== d) return;
+      d.cmp = { id: v.id, text: p.text, label: v.id === "open" ? "Texte à l'ouverture (" + hhmm(v.time) + ")" : label };
+      showCompare(); paintDiff(); renderHist(); closeHunk();
+      if (narrow()) setSide(false);
+    }).catch(function (e) { setNote("err", errorText(e)); });
+  }
+  function showCompare() {
+    var d = cur(), box = $("cmp");
+    if (!d || !d.cmp) { box.hidden = true; return; }
+    var t = $("cmpTxt");
+    t.textContent = "";
+    t.appendChild(el("b", "", d.cmp.label));
+    t.appendChild(document.createTextNode(" "));
+    t.appendChild(el("span", "m", d.doc.getValue() === d.cmp.text ? "identique au texte actuel" : "comparée à maintenant : en rouge ce qu'elle avait, en vert ce qui a été ajouté depuis"));
+    $("cmpRestore").disabled = d.doc.getValue() === d.cmp.text;
+    box.hidden = false;
+  }
+  function closeCompare() {
+    var d = cur();
+    if (d) d.cmp = null;
+    showCompare(); paintDiff(); renderHist();
+  }
+  // Restaurer : le texte de la version devient le texte du fichier. Les
+  // modifications pas encore enregistrées le sont d'abord, puis la
+  // restauration est enregistrée : les deux états restent dans l'historique.
+  function restoreVersion() {
+    var d = cur();
+    if (!d || !d.cmp) return;
+    var text = d.cmp.text, label = d.cmp.label;
+    $("cmpRestore").disabled = true;
+    (isDirty(d) ? saveDoc(d) : Promise.resolve(true)).then(function (ok) {
+      if (!ok) return false;
+      if (d.doc.getValue() === text) return true;
+      setWhole(d, text);
+      return saveDoc(d, false, "restore");
+    }).then(function (ok) {
+      if (!ok) { showCompare(); return; }
+      d.cmp = null;
+      showCompare(); paintDiff(); schedulePlan(200);
+      setNote("", "");
+      $("state").textContent = "Version restaurée · " + d.savedAt;
+    });
+  }
+  // Annuler un seul changement : le passage revient au texte de référence
+  // (l'ouverture, ou la version comparée), sans toucher aux autres.
+  function opsOnLine(line) {
+    var d = cur(), ref = d && (d.cmp ? d.cmp.text : d.baseline);
+    if (!d || ref == null) return [];
+    var text = d.doc.getValue();
+    return wordDiff(ref, text).filter(function (o) {
+      if (o.kind === "del") return cm.posFromIndex(o.at).line === line;
+      return cm.posFromIndex(o.from).line <= line && cm.posFromIndex(o.to).line >= line;
+    });
+  }
+  function revertOps(ops) {
+    var sorted = ops.slice().sort(function (a, b) {
+      var pa = a.kind === "ins" ? a.from : a.at, pb = b.kind === "ins" ? b.from : b.at;
+      if (pa !== pb) return pb - pa;
+      return a.kind === "ins" ? -1 : 1;
+    });
+    cm.operation(function () {
+      sorted.forEach(function (o) {
+        if (o.kind === "ins") cm.replaceRange("", cm.posFromIndex(o.from), cm.posFromIndex(o.to), "+revert");
+        else cm.replaceRange(o.text, cm.posFromIndex(o.at), null, "+revert");
+      });
+    });
+  }
+  function openHunk(line) {
+    closeHunk();
+    var d = cur(), ops = opsOnLine(line);
+    if (!d || !ops.length) return;
+    var text = d.doc.getValue(), card = el("div", "hpop"), head = el("div", "h");
+    head.appendChild(el("b", "", "Changement"));
+    head.appendChild(el("span", "", "ligne " + (line + 1) + " · " + (d.cmp ? "par rapport à " + d.cmp.label.charAt(0).toLowerCase() + d.cmp.label.slice(1) : "depuis l'ouverture")));
+    card.appendChild(head);
+    var prev = el("div", "tx2");
+    ops.forEach(function (o, i) {
+      if (i) prev.appendChild(document.createTextNode(" … "));
+      if (o.kind === "del") prev.appendChild(delSpan(o.text));
+      else prev.appendChild(el("span", "ins", text.slice(o.from, o.to)));
+    });
+    card.appendChild(prev);
+    var acts = el("div", "a"), undo = el("button", "tb"), no = el("button", "tb quiet", "Fermer");
+    undo.type = no.type = "button";
+    undo.appendChild(icon("undo", true));
+    undo.appendChild(document.createTextNode("Annuler ce changement"));
+    undo.onclick = function () { closeHunk(); revertOps(ops); cm.focus(); };
+    no.onclick = function () { closeHunk(); cm.focus(); };
+    acts.appendChild(undo); acts.appendChild(no);
+    card.appendChild(acts);
+    var wrap = $("wrap"), r = cm.charCoords(Pos(line, 0), "window"), w = wrap.getBoundingClientRect();
+    var top = r.bottom - w.top + 4;
+    if (top + 160 > w.height) top = Math.max(8, r.top - w.top - 168);
+    card.style.top = top + "px";
+    card.style.left = "48px";
+    wrap.appendChild(card);
+    hunkPop = card;
+    requestAnimationFrame(function () { card.classList.add("on"); });
+    setTimeout(function () { undo.focus(); }, 0);
+  }
+  // Remplace tout le texte en une seule étape d'annulation (Cmd-Z la défait),
+  // sans ramener la vue en haut du fichier.
+  function setWhole(d, text) {
+    var last = d.doc.lastLine();
+    d.doc.replaceRange(text, Pos(0, 0), Pos(last, d.doc.getLine(last).length), "+revert");
+  }
+  function closeHunk() {
+    if (hunkPop) { hunkPop.remove(); hunkPop = null; }
+  }
+  function undoAll() {
+    var d = cur();
+    if (!d || d.baseline == null || d.doc.getValue() === d.baseline) return;
+    closeHunk();
+    setWhole(d, d.baseline);
+    cm.focus();
+  }
+  document.addEventListener("mousedown", function (ev) {
+    if ($("projMenu").classList.contains("on") && !ev.target.closest("#projMenu, #projBtn")) closeProjMenu();
+    if (hunkPop && !hunkPop.contains(ev.target) && !(ev.target.closest && ev.target.closest(".cb"))) closeHunk();
+  });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && $("projMenu").classList.contains("on")) { ev.preventDefault(); closeProjMenu(); $("projBtn").focus(); } });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && hunkPop) { ev.preventDefault(); closeHunk(); if (cm) cm.focus(); } });
+
+  // ——— Propositions de Claude ———
+  function proposalsFor(path) { return revs.filter(function (r) { return r.path === path; }); }
+  function paintProposals() {
+    var d = cur();
+    if (!cm || !d) return;
+    cm.operation(function () {
+      d.widgets.forEach(function (w) { w.clear(); });
+      d.widgets = [];
+      var text = d.doc.getValue();
+      proposalsFor(d.path).forEach(function (r) {
+        var at = text.indexOf(r.quote);
+        if (at < 0 || text.indexOf(r.quote, at + 1) >= 0) return;
+        var from = cm.posFromIndex(at), to = cm.posFromIndex(at + r.quote.length);
+        d.widgets.push(cm.markText(from, to, { className: "prop-src" }));
+        var card = el("div", "prop"), head = el("div", "prop-h");
+        head.appendChild(el("b", "", "Proposition de Claude"));
+        head.appendChild(el("span", "", from.line === to.line ? "ligne " + (from.line + 1) : "lignes " + (from.line + 1) + " à " + (to.line + 1)));
+        card.appendChild(head);
+        card.appendChild(el("p", "", r.reason || ""));
+        var body = el("div", "tx2");
+        body.appendChild(diffNodes(r.quote, r.text));
+        card.appendChild(body);
+        var acts = el("div", "prop-a"), yes = el("button", "tb yes", "Accepter"), no = el("button", "tb", "Refuser");
+        yes.type = no.type = "button";
+        yes.onclick = function () { yes.disabled = no.disabled = true; resolveProposal(r, true); };
+        no.onclick = function () { yes.disabled = no.disabled = true; resolveProposal(r, false); };
+        acts.appendChild(yes); acts.appendChild(no);
+        acts.appendChild(el("kbd", "", "⌥↵ accepter · ⌥⌫ refuser"));
+        card.appendChild(acts);
+        var w = cm.addLineWidget(to.line, card, { noHScroll: true });
+        w.rev = r; w.line = to.line;
+        d.widgets.push(w);
+      });
+    });
+  }
+  function resolveProposal(r, accept) {
+    var d = docs[r.path];
+    var ready = accept && d && isDirty(d) ? saveDoc(d) : Promise.resolve(true);
+    return ready.then(function (ok) {
+      if (!ok) { paintProposals(); return; }
+      return call("resolve_revision", { id: r.id, accept: accept }).then(function () {
+        revs = revs.filter(function (x) { return x.id !== r.id; });
+        return accept && d ? reload(d) : null;
+      }).then(function () { paintProposals(); renderTree(); if (accept) loadHist(true); });
+    }).catch(function (e) { setNote("err", errorText(e)); paintProposals(); });
+  }
+  function nearestProposal(accept) {
+    var d = cur();
+    if (!d) return false;
+    var cards = d.widgets.filter(function (w) { return w.rev; });
+    if (!cards.length) return false;
+    var line = cm.getCursor().line;
+    var pick = cards.filter(function (w) { return w.line >= line; })[0] || cards[cards.length - 1];
+    resolveProposal(pick.rev, accept);
+    return true;
+  }
+  function fetchProposals() {
+    if (!mcp || !project) return Promise.resolve();
+    return call("list_revisions", {}).then(function (p) {
+      var next = p.revisions || [], same = next.length === revs.length && next.every(function (r, i) { return r.id === revs[i].id; });
+      revs = next;
+      if (!same) { paintProposals(); renderTree(); }
+    }).catch(function () {});
+  }
+
+  // ——— Fichiers du projet ———
+  function setSide(on) {
+    document.body.setAttribute("data-side", on ? "on" : "off");
+    $("sideBtn").setAttribute("aria-pressed", String(on));
+    if (!narrow()) store.set("atelier-editor-side", on ? "on" : "off");
+    if (cm) cm.refresh();
+  }
+  function seg(which) {
+    if (which !== "plan" && which !== "hist" && which !== "figs") which = "files";
+    var files = which === "files";
+    $("segFiles").setAttribute("aria-selected", String(files));
+    $("segPlan").setAttribute("aria-selected", String(which === "plan"));
+    $("segFigs").setAttribute("aria-selected", String(which === "figs"));
+    $("segHist").setAttribute("aria-selected", String(which === "hist"));
+    $("files").hidden = !files; $("plan").hidden = which !== "plan"; $("hist").hidden = which !== "hist"; $("figs").hidden = which !== "figs";
+    $("openForm").hidden = !files || !legacy;
+    store.set("atelier-editor-seg", which);
+    if (which === "plan") renderPlan();
+    if (which === "hist") loadHist(false);
+    if (which === "figs") {
+      renderFigList();
+      loadFigures(false);
+      if (rightMode() === "pdf" && !narrow()) setRight("grid");
+    }
+  }
+  function fileIcon(kind) { return kind === "figure" ? "img" : kind === "bib" ? "book" : "file"; }
+
+  function renderTree() {
+    var box = $("files");
+    if (!project) return;
+    box.textContent = "";
+    if (!project.projects.length) {
+      box.appendChild(el("p", "hint", "Aucun dossier de ton Mac n'est encore ouvert à Claude. Ajoute ton projet dans le réglage du connecteur d'Atelier, puis recharge cette page."));
+      return;
+    }
+    var count = 0;
+    [proj()].forEach(function (pr) {
+      var root = { dirs: {}, files: [], editable: false };
+      pr.files.forEach(function (f) {
+        var parts = f.rel.split("/"), node = root;
+        parts.slice(0, -1).forEach(function (part) {
+          node = node.dirs[part] = node.dirs[part] || { dirs: {}, files: [], editable: false, name: part };
+        });
+        node.files.push(f);
+        count++;
+      });
+      (function mark(node) {
+        node.editable = node.files.some(function (f) { return f.editable; });
+        Object.keys(node.dirs).forEach(function (k) { if (mark(node.dirs[k])) node.editable = true; });
+        return node.editable;
+      })(root);
+      function draw(node, depth, prefix) {
+        Object.keys(node.dirs).sort(function (a, b) { return a.localeCompare(b); }).forEach(function (name) {
+          var key = pr.path + "/" + prefix + name, dir = node.dirs[name];
+          if (shut[key] == null) shut[key] = !dir.editable;
+          var row = el("button", "row" + (shut[key] ? " shut" : ""));
+          row.type = "button"; row.style.paddingLeft = (8 + depth * 16) + "px";
+          row.setAttribute("aria-expanded", String(!shut[key]));
+          row.appendChild(icon("cd", true)); row.appendChild(icon("folder"));
+          row.appendChild(el("span", "nm", name));
+          row.onclick = function () { shut[key] = !shut[key]; renderTree(); };
+          box.appendChild(row);
+          if (!shut[key]) draw(dir, depth + 1, prefix + name + "/");
+        });
+        node.files.forEach(function (f) {
+          var n = proposalsFor(f.path).length;
+          var isFig = f.kind === "figure" && !legacy;
+          var row = el("button", "row" + (f.path === active ? " sel" : "") + (f.editable || isFig ? "" : " off"));
+          row.type = "button"; row.style.paddingLeft = (8 + depth * 16 + (depth ? 4 : 0)) + "px";
+          row.title = f.editable ? f.rel : isFig ? f.rel + " · ouvrir la figure" : f.rel + " (pas ouvert dans l'éditeur)";
+          row.appendChild(icon(fileIcon(f.kind)));
+          row.appendChild(el("span", "nm", base(f.rel)));
+          if (n) { var t = el("span", "tag acc", String(n)); t.title = n > 1 ? n + " propositions de Claude" : "1 proposition de Claude"; row.appendChild(t); }
+          else if (f.path === pr.main) row.appendChild(el("span", "tag", "principal"));
+          if (docs[f.path] && isDirty(docs[f.path])) { var dot = el("span", "dot"); dot.title = "Modifié"; row.appendChild(dot); }
+          if (f.editable) row.onclick = function () { openFile(f.path); };
+          else if (isFig) row.onclick = function () { loadFigures(false).then(function () { openFigure(f.path); }); };
+          else row.setAttribute("aria-disabled", "true");
+          box.appendChild(row);
+        });
+      }
+      draw(root, 0, "");
+    });
+    if (!count) box.appendChild(el("p", "hint", "Aucun fichier .tex ou .bib dans le dossier ouvert au connecteur."));
+    var first = proj();
+    $("sideFoot").textContent = first ? first.path.replace(/^\/Users\/[^/]+/, "~") : "";
+    $("sideFoot").title = first ? first.path : "";
+  }
+
+  // ——— Projets : un dossier ouvert au connecteur = un projet ———
+  function proj() {
+    if (!project || !project.projects.length) return null;
+    return project.projects.filter(function (p) { return p.path === curProj; })[0] || project.projects[0];
+  }
+  function home(path) { return path.replace(/^\/Users\/[^/]+/, "~"); }
+  function projSub(pr) {
+    var n = pr.files.filter(function (f) { return f.editable; }).length;
+    return (pr.main ? base(pr.main) + " · " : "") + n + (n > 1 ? " fichiers" : " fichier");
+  }
+  function renderProj() {
+    var pr = proj(), b = $("projBtn");
+    b.hidden = !pr;
+    if (!pr) return;
+    $("projName").textContent = pr.name;
+    $("projSub").textContent = projSub(pr);
+    b.title = pr.path;
+  }
+  function openProjMenu() {
+    var m = $("projMenu"), pr = proj();
+    m.textContent = "";
+    project.projects.forEach(function (p) {
+      var row = el("button", "mi");
+      row.type = "button"; row.setAttribute("role", "menuitemradio");
+      row.setAttribute("aria-checked", String(p === pr));
+      var t = el("span", "pt");
+      t.appendChild(el("span", "pn", p.name));
+      t.appendChild(el("span", "ps", home(p.path)));
+      row.appendChild(t);
+      var ck = icon("check", true);
+      if (p !== pr) ck.classList.add("no");
+      row.appendChild(ck);
+      row.onclick = function () { closeProjMenu(); switchProject(p.path); };
+      m.appendChild(row);
+    });
+    m.appendChild(el("p", "pnote", "Les dossiers ouverts à Claude s'ajoutent dans Atelier : Réglages, Claude."));
+    m.classList.add("on");
+    $("projBtn").setAttribute("aria-expanded", "true");
+  }
+  function closeProjMenu() {
+    $("projMenu").classList.remove("on");
+    $("projBtn").setAttribute("aria-expanded", "false");
+  }
+  function resetPdf() {
+    pdfView.nodes.forEach(function (n) { n.remove(); });
+    pdfView.nodes = []; pdfView.pages = 0; pdfView.path = null; pdfView.mtime = null;
+    $("pdfEmpty").hidden = false;
+  }
+  function switchProject(path) {
+    if (!project || path === (proj() && proj().path)) return;
+    curProj = path; store.set("atelier-editor-project", path);
+    var pr = proj();
+    renderProj(); renderTree();
+    // Un onglet déjà ouvert dans ce projet, sinon son fichier principal.
+    var open = tabs.filter(function (t) { return t.indexOf(pr.path + "/") === 0; })[0];
+    var target = open || pr.main || (pr.files.filter(function (f) { return f.kind === "tex"; })[0] || {}).path;
+    resetPdf();
+    resetFigures();
+    if (!$("figs").hidden) loadFigures(false);
+    var go = target ? openFile(target) : Promise.resolve();
+    return Promise.resolve(go).then(function () { schedulePlan(100); restorePdf(); renderCrumb(); });
+  }
+
+  function loadProject() {
+    return call("list_tex_project", {}).then(function (p) {
+      project = { projects: p.projects || [] };
+      fileIndex = {};
+      project.projects.forEach(function (pr) {
+        pr.files.forEach(function (f) { f.project = pr; fileIndex[f.path] = f; });
+      });
+      $("openForm").hidden = true;
+      renderProj(); renderTree(); renderCrumb();
+      return true;
+    });
+  }
+
+  // ——— Plan du document ———
+  function textOf(path) {
+    if (docs[path]) return Promise.resolve(docs[path].doc.getValue());
+    if (sources[path] != null) return Promise.resolve(sources[path]);
+    if (!mcp) return Promise.resolve(null);
+    return call("load_tex_file", { path: path }).then(function (p) { sources[path] = p.text; return p.text; }, function () { sources[path] = ""; return ""; });
+  }
+  function noComment(line) { return line.replace(/(^|[^\\])%.*$/, "$1"); }
+  function braced(s, open) {
+    var depth = 0, i = open;
+    for (; i < s.length; i++) {
+      if (s[i] === "\\") { i++; continue; }
+      if (s[i] === "{") depth++;
+      else if (s[i] === "}" && --depth === 0) return s.slice(open + 1, i);
+    }
+    return s.slice(open + 1);
+  }
+  function plain(title) {
+    return title.replace(/\\label\{[^}]*\}/g, "").replace(/\\texorpdfstring\{([^}]*)\}\{[^}]*\}/g, "$1")
+      .replace(/\\[a-zA-Z@]+\*?/g, "").replace(/[{}$]/g, "").replace(/~/g, " ").replace(/\s+/g, " ").trim();
+  }
+  function resolveInput(fromMain, name) {
+    var p = name.trim();
+    if (!/\.[a-zA-Z]+$/.test(p)) p += ".tex";
+    var parts = (p[0] === "/" ? p : dirOf(fromMain) + "/" + p).split("/"), out = [];
+    parts.forEach(function (part) { if (part === "..") out.pop(); else if (part !== ".") out.push(part); });
+    return out.join("/");
+  }
+  function scanPlan(path, mainPath, seen, out) {
+    if (seen[path] || Object.keys(seen).length >= MAX_PLAN_FILES) return Promise.resolve();
+    seen[path] = true;
+    return textOf(path).then(function (text) {
+      if (text == null) return;
+      var lines = text.split("\n"), chain = Promise.resolve(), float = null;
+      lines.forEach(function (raw, i) {
+        var l = noComment(raw), m;
+        if ((m = /\\(part|chapter|section|subsection|subsubsection)(\*?)\s*(?:\[[^\]]*\])?\{/.exec(l))) {
+          var sec = { type: "sec", level: LEVEL[m[1]], star: !!m[2], title: plain(braced(l, m.index + m[0].length - 1)), path: path, line: i };
+          chain = chain.then(function () { out.push(sec); });
+        }
+        if ((m = /\\begin\{(figure|table)\*?\}/.exec(l))) float = { type: "float", kind: m[1], title: "", path: path, line: i };
+        if (float && (m = /\\caption(?:\[[^\]]*\])?\{/.exec(l))) float.title = plain(braced(l, m.index + m[0].length - 1));
+        if (float && /\\end\{(figure|table)\*?\}/.test(l)) { var done = float; float = null; chain = chain.then(function () { out.push(done); }); }
+        if (/\\appendix\b/.test(l)) chain = chain.then(function () { out.push({ type: "appendix" }); });
+        var re = /\\(?:input|include|subfile)\{([^}]+)\}/g;
+        while ((m = re.exec(l))) (function (target) {
+          chain = chain.then(function () { return fileIndex[target] || docs[target] ? scanPlan(target, mainPath, seen, out) : null; });
+        })(resolveInput(mainPath, m[1]));
+      });
+      return chain;
+    });
+  }
+  function buildPlan() {
+    if (planBusy) { schedulePlan(600); return; }
+    var mainPath = null, d = cur();
+    if (project) {
+      var f = d && fileIndex[d.path];
+      mainPath = (f && f.project.main) || (proj() && proj().main);
+    }
+    var start = mainPath || (d && /\.(tex|ltx)$/i.test(d.path) ? d.path : null);
+    if (!start) { plan = []; renderPlan(); return; }
+    planBusy = true;
+    var out = [], seen = {};
+    scanPlan(start, start, seen, out).then(function () {
+      // Le fichier actif hors du document principal garde son propre plan.
+      if (d && !seen[d.path] && /\.(tex|ltx)$/i.test(d.path)) return scanPlan(d.path, d.path, seen, out);
+    }).catch(function () {}).then(function () {
+      var secs = out.filter(function (e) { return e.type === "sec"; });
+      var min = secs.reduce(function (a, e) { return Math.min(a, e.level); }, 9);
+      var counters = [0, 0, 0, 0, 0, 0], fig = 0, tab = 0, letters = false, depth = 0;
+      plan = [];
+      out.forEach(function (e) {
+        if (e.type === "appendix") { letters = true; counters[0] = 0; return; }
+        if (e.type === "sec") {
+          var k = e.level - min;
+          depth = k;
+          if (!e.star) {
+            counters[k]++;
+            for (var j = k + 1; j < counters.length; j++) counters[j] = 0;
+            e.num = counters.slice(0, k + 1).map(function (n, idx) { return idx === 0 && letters ? String.fromCharCode(64 + n) : n; }).join(".");
+          } else e.num = "";
+          e.depth = k;
+        } else {
+          e.num = "";
+          e.depth = depth + 1;
+          e.label = e.kind === "figure" ? "Figure " + (++fig) : "Tableau " + (++tab);
+        }
+        plan.push(e);
+      });
+      planBusy = false;
+      renderPlan();
+      readBibKeys();
+    });
+  }
+  function schedulePlan(ms) { clearTimeout(planTimer); planTimer = setTimeout(buildPlan, ms); }
+  function activePlanIndex() {
+    if (!cm || !active) return -1;
+    var line = cm.getCursor().line, best = -1;
+    plan.forEach(function (e, i) { if (e.path === active && e.type === "sec" && e.line <= line) best = i; });
+    return best;
+  }
+  function renderPlan() {
+    var box = $("plan");
+    if (box.hidden) return;
+    box.textContent = "";
+    if (!plan.length) { box.appendChild(el("p", "hint", planBusy ? "Lecture du document…" : "Aucune section dans ce document.")); return; }
+    var on = activePlanIndex();
+    plan.forEach(function (e, i) {
+      var row = el("button", "row" + (i === on ? " sel" : "") + (e.type === "float" ? " dim" : ""));
+      row.type = "button";
+      row.style.paddingLeft = (8 + Math.min(e.depth, 4) * 16) + "px";
+      if (e.type === "float") { row.appendChild(icon(e.kind === "figure" ? "img" : "file")); row.appendChild(el("span", "nm", e.label + (e.title ? " · " + e.title : ""))); }
+      else { if (e.num) row.appendChild(el("span", "num", e.num)); row.appendChild(el("span", "nm", e.title || "(sans titre)")); }
+      row.title = (e.title || e.label || "") + " — " + base(e.path) + ", ligne " + (e.line + 1);
+      row.onclick = function () { openFile(e.path, e.line); };
+      box.appendChild(row);
+    });
+    var sel = box.querySelector(".row.sel");
+    if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: "nearest" });
+  }
+
+  // ——— Complétion : commandes, environnements, \ref, \cite ———
+  var COMMANDS = ("section subsection subsubsection paragraph chapter label ref eqref autoref cref pageref cite citep citet textbf textit emph underline texttt " +
+    "begin end item caption centering includegraphics input include footnote url href usepackage documentclass newcommand renewcommand " +
+    "frac sqrt sum int prod partial alpha beta gamma delta epsilon varepsilon theta lambda mu sigma rho tau phi omega Delta Sigma Omega " +
+    "mathrm mathbf mathcal mathbb left right cdot times pm approx leq geq neq infty log exp textsuperscript textsubscript " +
+    "toprule midrule bottomrule hline multicolumn linewidth textwidth vspace hspace noindent newpage clearpage bibliography bibliographystyle printbibliography")
+    .split(" ");
+  var ENVS = "figure table equation align itemize enumerate description tabular abstract center quote verbatim subfigure cases matrix pmatrix bmatrix split gather multline minipage frame document".split(" ");
+  function labels() {
+    var seen = {}, out = [];
+    Object.keys(sources).forEach(function (p) {
+      var text = docs[p] ? docs[p].doc.getValue() : sources[p], re = /\\label\{([^}]+)\}/g, m;
+      while ((m = re.exec(text))) if (!seen[m[1]]) { seen[m[1]] = true; out.push({ text: m[1], detail: base(p) }); }
+    });
+    return out;
+  }
+  function readBibKeys() {
+    if (!project) return;
+    var bibs = [];
+    project.projects.forEach(function (pr) { pr.files.forEach(function (f) { if (f.kind === "bib" && f.size < 2000000) bibs.push(f.path); }); });
+    Promise.all(bibs.slice(0, 6).map(textOf)).then(function (texts) {
+      var out = [];
+      texts.forEach(function (text) {
+        var re = /@([a-zA-Z]+)\s*\{\s*([^,\s]+)\s*,/g, m;
+        while ((m = re.exec(text || ""))) {
+          if (/^(comment|string|preamble)$/i.test(m[1])) continue;
+          var chunk = text.slice(m.index, m.index + 1500);
+          var au = /author\s*=\s*[{"]\s*([^,}"]+)/i.exec(chunk), yr = /(?:year|date)\s*=\s*[{"]?\s*(\d{4})/i.exec(chunk);
+          out.push({ text: m[2], detail: [au ? au[1].replace(/[{}]/g, "").trim().split(/\s+and\s+/)[0] : "", yr ? yr[1] : ""].filter(Boolean).join(" ") });
+        }
+      });
+      bibKeys = out;
+    }).catch(function () {});
+  }
+  function hintItem(item) {
+    return { text: item.text, render: function (li) {
+      li.appendChild(el("span", "", item.shown || item.text));
+      if (item.detail) li.appendChild(el("span", "d", item.detail));
+    } };
+  }
+  function latexHint(c) {
+    var p = c.getCursor(), before = c.getLine(p.line).slice(0, p.ch), m, list = [], word = "";
+    if ((m = /\\(?!href)[a-zA-Z]*ref\*?\{([^}]*)$/.exec(before))) { word = m[1]; list = labels(); }
+    else if ((m = /\\[a-zA-Z]*cite[a-zA-Z]*\*?(?:\[[^\]]*\])*\{([^}]*)$/.exec(before))) { word = m[1].split(",").pop().replace(/^\s+/, ""); list = bibKeys; }
+    else if ((m = /\\(?:begin|end)\{([a-zA-Z*]*)$/.exec(before))) { word = m[1]; list = ENVS.map(function (e) { return { text: e }; }); }
+    else if ((m = /\\([a-zA-Z]+)$/.exec(before))) { word = m[1]; list = COMMANDS.map(function (k) { return { text: k, shown: "\\" + k }; }); }
+    else return null;
+    var low = word.toLowerCase();
+    var starts = list.filter(function (x) { return x.text.toLowerCase().indexOf(low) === 0 && x.text !== word; });
+    var inside = list.filter(function (x) { var i = x.text.toLowerCase().indexOf(low); return i > 0 || (i < 0 && low && (x.detail || "").toLowerCase().indexOf(low) >= 0); });
+    var found = starts.concat(inside).slice(0, 40);
+    if (!found.length) return null;
+    return { list: found.map(hintItem), from: Pos(p.line, p.ch - word.length), to: p };
+  }
+  function complete(asked) {
+    if (!cm || (!asked && cm.state.completionActive)) return;
+    if (!latexHint(cm)) return;
+    cm.showHint({ hint: latexHint, completeSingle: false, alignWithWord: true });
+  }
+
+  // ——— Recherche ———
+  function clearAt() { if (find.at) { find.at.clear(); find.at = null; } }
+  function applyQuery() {
+    if (!cm) return;
+    if (find.overlay) cm.removeOverlay(find.overlay);
+    find.overlay = null; clearAt();
+    var q = find.q.toLowerCase();
+    if (q) {
+      find.overlay = { token: function (stream) {
+        var s = stream.string.toLowerCase();
+        if (s.startsWith(q, stream.pos)) { stream.pos += q.length; return "hit"; }
+        var i = s.indexOf(q, stream.pos + 1);
+        if (i < 0) stream.skipToEnd(); else stream.pos = i;
+        return null;
+      } };
+      cm.addOverlay(find.overlay);
+    }
+    countMatches();
+  }
+  function countMatches(curFrom) {
+    var ct = $("findCt");
+    if (!cm || !find.q) { ct.textContent = ""; return; }
+    var c = cm.getSearchCursor(find.q, Pos(0, 0), { caseFold: true }), n = 0, at = 0;
+    while (c.findNext() && n < 9999) {
+      n++;
+      if (curFrom && CodeMirror.cmpPos(c.from(), curFrom) === 0) at = n;
+    }
+    ct.textContent = !n ? "Aucun" : at ? at + " sur " + n : String(n);
+  }
+  function step(dir) {
+    if (!cm || !find.q) return;
+    var back = dir < 0, startPos = find.at && find.at.find() ? (back ? find.at.find().from : find.at.find().to) : cm.getCursor(back ? "from" : "to");
+    var c = cm.getSearchCursor(find.q, startPos, { caseFold: true });
+    if (!c.find(back)) {
+      c = cm.getSearchCursor(find.q, back ? Pos(cm.lastLine(), cm.getLine(cm.lastLine()).length) : Pos(0, 0), { caseFold: true });
+      if (!c.find(back)) { clearAt(); countMatches(); return; }
+    }
+    clearAt();
+    find.at = cm.markText(c.from(), c.to(), { className: "hit-at" });
+    cm.scrollIntoView({ from: c.from(), to: c.to() }, 120);
+    countMatches(c.from());
+  }
+  function openFind() {
+    if (!cm || !cur()) return;
+    var sel = cm.getSelection();
+    $("find").hidden = false;
+    $("findBtn").setAttribute("aria-pressed", "true");
+    if (sel && sel.indexOf("\n") < 0) $("findIn").value = sel;
+    find.q = $("findIn").value;
+    applyQuery();
+    $("findIn").focus(); $("findIn").select();
+  }
+  function closeFind() {
+    $("find").hidden = true;
+    $("findBtn").setAttribute("aria-pressed", "false");
+    var spot = find.at && find.at.find();
+    find.q = ""; applyQuery();
+    if (cm) { if (spot) cm.setSelection(spot.from, spot.to); cm.focus(); }
+  }
+  function replaceOne() {
+    var spot = find.at && find.at.find();
+    if (!spot) { step(1); return; }
+    cm.replaceRange($("replIn").value, spot.from, spot.to);
+    clearAt();
+    step(1);
+  }
+  function replaceAll() {
+    if (!cm || !find.q) return;
+    var repl = $("replIn").value;
+    cm.operation(function () {
+      var c = cm.getSearchCursor(find.q, Pos(0, 0), { caseFold: true });
+      while (c.findNext()) c.replace(repl);
+    });
+    clearAt(); countMatches();
+  }
+
+  // ——— Barre d'état ———
+  function updateStatus() {
+    var d = cur();
+    if (!cm || !d) { $("stPos").textContent = ""; $("stLang").textContent = ""; $("stWords").textContent = ""; return; }
+    var p = cm.getCursor();
+    $("stPos").textContent = "Ligne " + (p.line + 1) + ", col. " + (p.ch + 1);
+    $("stLang").textContent = /\.bib$/i.test(d.path) ? "BibTeX" : "LaTeX";
+  }
+  function countWords() {
+    var d = cur();
+    if (!d) return;
+    var t = d.doc.getValue().replace(/(^|[^\\])%.*$/gm, "$1")
+      .replace(/\\(?:begin|end|label|[a-zA-Z]*ref|[a-zA-Z]*cite[a-zA-Z]*|includegraphics|input|include|usepackage|documentclass|bibliography[a-z]*)\*?(?:\[[^\]]*\])*\{[^}]*\}/g, " ")
+      .replace(/\$[^$]*\$/g, " ").replace(/\\[a-zA-Z@]+\*?/g, " ");
+    var m = t.match(/[0-9A-Za-zÀ-ÖØ-öø-ÿ][0-9A-Za-zÀ-ÖØ-öø-ÿ'’-]*/g), n = m ? m.length : 0;
+    $("stWords").textContent = n.toLocaleString("fr-CA") + (n > 1 ? " mots" : " mot");
+  }
+  function scheduleWords() { clearTimeout(wordsTimer); wordsTimer = setTimeout(countWords, 400); }
+  var cursorFrame = 0, lastPlanOn = -1;
+  function onCursor() {
+    if (cursorFrame) return;
+    cursorFrame = requestAnimationFrame(function () {
+      cursorFrame = 0;
+      updateStatus();
+      var on = activePlanIndex();
+      if (on !== lastPlanOn) { lastPlanOn = on; renderPlan(); }
+    });
+  }
+
+  // Le fichier change aussi quand Claude fait accepter une révision dans la
+  // conversation : on recharge sans bruit si rien n'est en cours ici.
+  function poll() {
+    if (!mcp || busy > 0 || document.hidden) return;
+    var d = cur();
+    if (d) call("load_tex_file", { path: d.path }).then(function (p) {
+      if (!p.sha256 || p.sha256 === d.sha || busy > 0 || !docs[d.path]) return;
+      if (!isDirty(d)) { d.sha = p.sha256; d.saved = p.text; setText(d, p.text); refreshState(); if (d.path === active) { paintDiff(); paintProposals(); } schedulePlan(200); }
+      else if (!d.remoteChanged) {
+        d.remoteChanged = true;
+        setNote("warn", d.file + " a changé sur le Mac pendant que tu le modifiais.", [
+          { label: "Recharger le fichier", run: function () { reload(d); } }
+        ]);
+      }
+    }).catch(function () {});
+    fetchProposals();
+  }
+
+
+  // ——— Compilation ———
+  // Fichier à compiler : la racine désignée par « % !TEX root = … » dans le
+  // fichier actif, sinon le principal du projet, sinon le fichier actif.
+  function mainPath() {
+    var d = cur();
+    if (d && /\.tex$/i.test(d.path)) {
+      var head = d.doc.getRange(Pos(0, 0), Pos(Math.min(d.doc.lineCount(), 8), 0));
+      var m = /^%\s*!TEX\s+root\s*=\s*(.+?)\s*$/im.exec(head);
+      if (m) {
+        var parts = (dirOf(d.path) + "/" + m[1]).split("/"), out = [];
+        parts.forEach(function (x) { if (x === "..") out.pop(); else if (x !== "." && x !== "") out.push(x); });
+        var root = "/" + out.join("/");
+        // Une copie archivée garde souvent un « !TEX root » qui ne mène plus
+        // nulle part : on ne le suit que s'il désigne un fichier du projet.
+        if (fileIndex[root] || !Object.keys(fileIndex).length) return root;
+      }
+    }
+    var pr = project && project.projects.filter(function (p) { return !d || d.path.indexOf(p.path + "/") === 0; })[0];
+    pr = pr || proj();
+    if (pr && pr.main) return pr.main;
+    return d && /\.tex$/i.test(d.path) ? d.path : null;
+  }
+  function relName(path) {
+    var pr = project && project.projects.filter(function (p) { return path.indexOf(p.path + "/") === 0; })[0];
+    return pr ? path.slice(pr.path.length + 1) : base(path);
+  }
+  function plural(n, one, many) { return n + " " + (n > 1 ? many : one); }
+  function secondsText(s) { return String(s).replace(".", ","); }
+
+  function compile() {
+    var main = mainPath();
+    if (!mcp || !main || build.running) return;
+    build.running = true;
+    if (rightMode() !== "pdf") setRight("pdf");
+    $("compileLbl").textContent = "Compilation…";
+    setBuildState("run", "Compilation de " + base(main) + "…");
+    refreshState();
+    // Tout ce qui est modifié est enregistré d'abord : latexmk lit le disque.
+    var dirty = tabs.map(function (p) { return docs[p]; }).filter(isDirty);
+    var chain = Promise.resolve(true);
+    dirty.forEach(function (d) { chain = chain.then(function (ok) { return ok && saveDoc(d); }); });
+    chain.then(function (ok) {
+      if (!ok) { setBuildState("err", "Enregistrement impossible : compilation annulée"); return null; }
+      return call("compile_tex", { path: main }).then(function (r) {
+        if (r.busy) { setBuildState("run", "Une compilation est déjà en cours sur le Mac"); return; }
+        build.result = r;
+        showBuild(r, main);
+      }, function (e) {
+        setBuildState("err", "Compilation impossible");
+        setNote("err", errorText(e), accessIfNeeded(e, compile));
+      });
+    }).then(function () {
+      build.running = false;
+      $("compileLbl").textContent = "Compiler";
+      refreshState();
+    });
+  }
+  function accessIfNeeded(e, retry) {
+    return e && e.code !== "tool_error" ? accessButtons(retry) : undefined;
+  }
+  function setBuildState(kind, text) {
+    var n = $("pdfState");
+    n.className = "cs " + kind;
+    $("pdfStateT").textContent = text;
+    n.disabled = true;
+    n.removeAttribute("title");
+    n.removeAttribute("aria-pressed");
+  }
+  // « Compilé · N avertissements » : un clic masque ou montre les
+  // avertissements (liste et surlignage) ; les erreurs restent toujours.
+  function renderWarnToggle() {
+    var n = $("pdfState"), k = build.nWarn;
+    if (!k) return;
+    var label = build.hideWarn ? "Afficher les avertissements" : "Masquer les avertissements";
+    // Le compte d'abord : si la place manque, c'est la durée qui est coupée.
+    $("pdfStateT").textContent = plural(k, "avertissement", "avertissements") + (build.hideWarn ? (k > 1 ? " masqués" : " masqué") : "") + " · " + build.okText.charAt(0).toLowerCase() + build.okText.slice(1);
+    $("pdfStateI").setAttribute("href", build.hideWarn ? "#i-eye" : "#i-eye-off");
+    n.disabled = false;
+    n.title = label;
+    n.setAttribute("aria-label", label);
+    n.setAttribute("aria-pressed", String(build.hideWarn));
+  }
+  function toggleWarnings() {
+    if (!build.nWarn) return;
+    build.hideWarn = !build.hideWarn;
+    store.set("atelier-editor-hidewarn", build.hideWarn ? "1" : "0");
+    renderWarnToggle();
+    renderIssues();
+    paintIssues();
+  }
+  function shownIssues() {
+    return build.hideWarn ? build.issues.filter(function (x) { return x.kind !== "w"; }) : build.issues;
+  }
+
+  function showBuild(r, main) {
+    var errs = (r.errors || []).map(function (x) { x.kind = "e"; return x; });
+    // Le shell-escape est coupé exprès : son avertissement n'apprend rien.
+    var warns = (r.warnings || []).filter(function (x) { return !/shell escape feature is not enabled/i.test(x.message || ""); })
+      .map(function (x) { x.kind = "w"; return x; });
+    build.issues = errs.concat(warns);
+    build.showAll = false;
+    build.nWarn = 0;
+    if (r.ok) {
+      build.okText = "Compilé en " + secondsText(r.seconds) + " s";
+      setBuildState(warns.length ? "warn" : "ok", build.okText);
+      build.nWarn = warns.length;
+      renderWarnToggle();
+    } else {
+      setBuildState("err", errs.length > 1 ? plural(errs.length, "erreur", "erreurs") : "Échec de la compilation");
+    }
+    $("log").textContent = r.log || "";
+    $("logBtn").hidden = !r.log;
+    renderIssues();
+    paintIssues();
+    if (!r.pdf && !pdfView.path) {
+      var empty = $("pdfEmpty");
+      empty.textContent = "";
+      empty.appendChild(el("b", "", "Pas encore de PDF"));
+      empty.appendChild(el("span", "", "Corrige l'erreur indiquée puis recompile (Cmd-Entrée)."));
+    }
+    if (r.pdf) {
+      store.set("atelier-editor-pdf:" + main, r.pdf);
+      if (r.fresh || r.pdf !== pdfView.path) showPdf(r.pdf, r.pdfMtime);
+    }
+    // Panneau étroit : l'aperçu remplace la source le temps de voir le
+    // résultat ; une erreur cliquée ramène à la source.
+    if (narrow() || errs.length) setPdf(true);
+    if (errs.length && errs[0].path && !narrow()) goToIssue(errs[0]);
+  }
+
+  function renderIssues() {
+    var box = $("issues");
+    box.textContent = "";
+    var list = shownIssues(), limit = build.showAll ? list.length : 6;
+    box.hidden = !list.length;
+    list.slice(0, limit).forEach(function (x) {
+      var row = el("button", "row" + (x.kind === "w" ? " w" : ""));
+      row.type = "button";
+      row.appendChild(el("span", "dot"));
+      if (x.path) row.appendChild(el("span", "loc", relName(x.path) + (x.line ? ":" + x.line : "")));
+      row.appendChild(el("span", "msg", x.message + (x.context ? "  " + x.context : "")));
+      var openable = x.path && (fileIndex[x.path] || docs[x.path] || legacy);
+      row.title = openable ? "Aller à la ligne" : "";
+      if (openable) row.onclick = function () { goToIssue(x); };
+      else row.classList.add("off");
+      box.appendChild(row);
+    });
+    if (list.length > limit) {
+      var more = el("button", "more", "Afficher les " + list.length + " messages");
+      more.type = "button";
+      more.onclick = function () { build.showAll = true; renderIssues(); };
+      box.appendChild(more);
+    }
+  }
+  function goToIssue(x) {
+    if (!x.path) return;
+    if (narrow()) setPdf(false);
+    var line = Math.max(0, (x.line || 1) - 1);
+    if (fileIndex[x.path] || docs[x.path] || legacy) openFile(x.path, line);
+  }
+  // Lignes des erreurs et avertissements, surlignées dans la source.
+  function paintIssues() {
+    tabs.forEach(function (p) {
+      var d = docs[p];
+      (d.issueMarks || []).forEach(function (m) { d.doc.removeLineClass(m.h, "background", m.c); });
+      d.issueMarks = [];
+      shownIssues().forEach(function (x) {
+        if (x.path !== p || !x.line || x.line > d.doc.lineCount()) return;
+        var c = x.kind === "w" ? "warn-bg" : "err-bg";
+        d.issueMarks.push({ h: d.doc.addLineClass(x.line - 1, "background", c), c: c });
+      });
+    });
+  }
+
+  // ——— Aperçu PDF ———
+  function setPdf(on) {
+    document.body.setAttribute("data-pdf", on ? "on" : "off");
+    $("pdfBtn").setAttribute("aria-pressed", String(on));
+    if (!narrow()) store.set("atelier-editor-pdfpane", on ? "on" : "off");
+    if (cm) cm.refresh();
+    if (on) { layoutPages(); pump(); }
+  }
+  function pdfOn() { return document.body.getAttribute("data-pdf") === "on"; }
+  function renderWidth() {
+    var box = $("pages"), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var css = Math.max(240, box.clientWidth - 32) * pdfView.zoom;
+    return Math.min(2400, Math.max(400, Math.ceil(css * dpr / 200) * 200));
+  }
+  function callImage(tool, input) {
+    return mcp.callTool(SERVER, tool, input, { cache: false }).then(function (r) {
+      online(true);
+      var img = (r.content || []).filter(function (c) { return c.type === "image"; })[0];
+      return { info: payloadOf(r), src: img ? "data:" + (img.mimeType || "image/png") + ";base64," + img.data : null };
+    });
+  }
+  function showPdf(path, mtime) {
+    var fresh = path !== pdfView.path;
+    pdfView.path = path; pdfView.mtime = mtime;
+    $("pdfEmpty").hidden = true;
+    if (fresh) { pdfView.nodes.forEach(function (n) { n.remove(); }); pdfView.nodes = []; pdfView.pages = 0; }
+    pdfView.nodes.forEach(function (n) { n.classList.add("old"); n.dataset.want = "1"; });
+    // La page 1 donne le nombre de pages et le format ; les autres viennent
+    // à mesure qu'elles approchent de la vue.
+    return render(1, true).then(function () { layoutPages(); pump(); });
+  }
+  function layoutPages() {
+    var box = $("pages");
+    if (!pdfView.pages) return;
+    while (pdfView.nodes.length < pdfView.pages) {
+      var n = el("div", "pg");
+      n.dataset.page = String(pdfView.nodes.length + 1);
+      n.dataset.want = "1";
+      box.appendChild(n);
+      pdfView.nodes.push(n);
+    }
+    while (pdfView.nodes.length > pdfView.pages) pdfView.nodes.pop().remove();
+    var css = Math.max(240, box.clientWidth - 32) * pdfView.zoom;
+    box.style.setProperty("--pg-max", Math.round(css) + "px");
+    pdfView.nodes.forEach(function (n) { n.style.aspectRatio = "1 / " + pdfView.ratio; n.style.width = Math.round(css) + "px"; });
+    $("pdfZoom").hidden = false;
+    $("zoomN").textContent = Math.round(pdfView.zoom * 100) + " %";
+    var key = renderWidth();
+    if (key !== pdfView.widthKey) {
+      pdfView.widthKey = key;
+      pdfView.nodes.forEach(function (n) { n.dataset.want = "1"; });
+    }
+    trackPage();
+  }
+  function render(page, first) {
+    var path = pdfView.path, mtime = pdfView.mtime, width = renderWidth();
+    pdfView.inflight++;
+    return callImage("render_pdf_page", { path: path, page: page, width: width }).then(function (out) {
+      if (path !== pdfView.path) return;
+      var info = out.info || {};
+      if (info.pages) pdfView.pages = info.pages;
+      if (first && info.width && info.height) pdfView.ratio = info.height / info.width;
+      if (info.pdfMtime && info.pdfMtime !== mtime) pdfView.mtime = info.pdfMtime;
+      if (first) layoutPages();
+      var n = pdfView.nodes[page - 1];
+      if (!n || !out.src) return;
+      var img = n.querySelector("img") || n.appendChild(el("img"));
+      img.alt = "Page " + page;
+      img.src = out.src;
+      n.classList.remove("old");
+      n.dataset.want = "";
+      n.dataset.width = String(width);
+    }, function (e) {
+      if (first) {
+        setNote("err", "Aperçu impossible : " + errorText(e), accessIfNeeded(e, function () { showPdf(path, mtime); }));
+        $("pdfEmpty").hidden = pdfView.nodes.length > 0;
+      }
+    }).then(function () { pdfView.inflight--; pump(); });
+  }
+  // Rend les pages visibles (et leurs voisines), deux à la fois.
+  function pump() {
+    if (!pdfView.path || !pdfOn() || document.hidden) return;
+    var box = $("pages"), top = box.scrollTop - box.clientHeight, bottom = box.scrollTop + box.clientHeight * 2;
+    var wanted = pdfView.nodes.filter(function (n) {
+      return n.dataset.want === "1" && !n.dataset.busy && n.offsetTop + n.offsetHeight >= top && n.offsetTop <= bottom;
+    });
+    while (pdfView.inflight < 2 && wanted.length) {
+      var n = wanted.shift();
+      n.dataset.busy = "1";
+      (function (n) { render(Number(n.dataset.page)).then(function () { delete n.dataset.busy; }); })(n);
+    }
+  }
+  function trackPage() {
+    var box = $("pages"), mid = box.scrollTop + box.clientHeight / 2, at = 1;
+    pdfView.nodes.forEach(function (n, i) { if (n.offsetTop <= mid) at = i + 1; });
+    $("pdfPage").textContent = pdfView.pages ? "Page " + at + " sur " + pdfView.pages : "";
+  }
+  function zoom(step) {
+    var levels = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2], i = levels.indexOf(pdfView.zoom);
+    if (i < 0) i = 3;
+    var next = levels[Math.max(0, Math.min(levels.length - 1, i + step))];
+    if (next === pdfView.zoom) return;
+    var box = $("pages"), ratio = box.scrollTop / Math.max(1, box.scrollHeight);
+    pdfView.zoom = next;
+    layoutPages();
+    box.scrollTop = ratio * box.scrollHeight;
+    pump();
+  }
+  // Au démarrage : le dernier PDF compilé de ce projet, s'il existe.
+  function restorePdf() {
+    var main = mainPath(), last = main && store.get("atelier-editor-pdf:" + main);
+    if (last && !pdfView.path) showPdf(last, null).then(function () {
+      if (pdfView.pages) setBuildState("", "Dernier PDF compilé");
+    });
+  }
+
+  // ——— Figures ———
+  // Onglet Figures du volet (liste par dossier), galerie et visionneuse dans
+  // le panneau de droite, à la place du PDF. Les notes (cadre ou point) sont
+  // gardées par le connecteur dans le dossier d'Atelier, jamais dans le
+  // projet ; « Envoyer à Claude » joint la figure annotée telle qu'on la voit.
+  var figs = { dir: null, list: [], byPath: {}, loaded: false, loading: null, off: false, err: null,
+    chip: store.get("atelier-editor-figchip") || "all", open: null, notes: [], tool: null, sel: null,
+    thumbs: {}, full: {}, queue: [], inflight: 0, shut: {}, sent: null, drag: null };
+  var FIG_SNAP_MAX = 1600;
+
+  function figDir(f) { var i = f.rel.lastIndexOf("/"); return i < 0 ? "" : f.rel.slice(0, i); }
+  function figStem(rel) { return rel.replace(/\.[a-z0-9]+$/i, ""); }
+  function figUsed(f) { return f.uses && f.uses.length > 0; }
+  // La même figure sous une autre extension (fig.png à côté de fig.pdf), celle que LaTeX cite.
+  function twinUsed(f) {
+    var stem = f.path.replace(/\.[^./]+$/, ""), hit = null;
+    figs.list.forEach(function (g) { if (!hit && g !== f && figUsed(g) && g.path.replace(/\.[^./]+$/, "") === stem) hit = g; });
+    return hit;
+  }
+  function figNoteCount(f) { return (f.notes || []).filter(function (n) { return n.text; }).length; }
+  function figShown(f) {
+    if (figs.chip === "used") return figUsed(f);
+    if (figs.chip === "notes") return figNoteCount(f) > 0;
+    return true;
+  }
+  function useText(u) { return base(u.rel) + ":" + u.line; }
+
+  function loadFigures(force) {
+    var pr = proj();
+    if (!pr || !mcp || figs.off) return Promise.resolve(false);
+    if (figs.loading) return figs.loading;
+    if (figs.loaded && !force && figs.dir === pr.path) return Promise.resolve(true);
+    figs.loading = call("list_tex_figures", { dir: pr.path }).then(function (p) {
+      if (proj() !== pr) return false;
+      figs.dir = pr.path; figs.list = p.figures || []; figs.byPath = {}; figs.loaded = true; figs.err = null;
+      figs.list.forEach(function (f) { figs.byPath[f.path] = f; });
+      if (figs.open && figs.byPath[figs.open] && !figs.drag && !figs.sel) figs.notes = cloneNotes(figs.byPath[figs.open].notes);
+      return true;
+    }, function (e) {
+      var stale = e && (e.code === "blocked_by_policy" || e.code === "not_in_manifest" || (e.code === "tool_error" && /inconnu|indisponible|unknown/i.test(toolText(e))));
+      if (stale) figs.off = true; else figs.err = errorText(e);
+      return false;
+    }).then(function (ok) { figs.loading = null; renderFigList(); if (!(figs.sel && rightMode() === "fig")) renderFigPane(); return ok; });
+    renderFigList();
+    return figs.loading;
+  }
+  function resetFigures() {
+    figs.dir = null; figs.list = []; figs.byPath = {}; figs.loaded = false; figs.err = null;
+    figs.open = null; figs.notes = []; figs.sel = null; figs.sent = null; figs.thumbs = {}; figs.full = {}; figs.queue = [];
+    if (rightMode() !== "pdf") setRight("pdf");
+  }
+  function figGroups() {
+    var groups = {}, order = [];
+    figs.list.forEach(function (f) {
+      if (!figShown(f)) return;
+      var d = figDir(f);
+      if (!groups[d]) { groups[d] = []; order.push(d); }
+      groups[d].push(f);
+    });
+    order.sort(function (a, b) {
+      var ua = groups[a].some(figUsed) ? 0 : 1, ub = groups[b].some(figUsed) ? 0 : 1;
+      return ua - ub || a.localeCompare(b);
+    });
+    return order.map(function (d) {
+      groups[d].sort(function (x, y) { return base(x.rel).localeCompare(base(y.rel), "fr", { numeric: true }); });
+      return { dir: d, items: groups[d] };
+    });
+  }
+  function chipRow(onPick) {
+    var row = el("div", "chips");
+    [["all", "Toutes"], ["used", "Citées"], ["notes", "Avec notes"]].forEach(function (c) {
+      var b = el("button", "chip", c[1]);
+      b.type = "button"; b.setAttribute("aria-pressed", String(figs.chip === c[0]));
+      b.onclick = function () { figs.chip = c[0]; store.set("atelier-editor-figchip", c[0]); renderFigList(); renderFigPane(); if (onPick) onPick(); };
+      row.appendChild(b);
+    });
+    return row;
+  }
+  function staleFigNote(box) {
+    box.appendChild(el("p", "hint", "Le connecteur qui tourne sur ton Mac ne connaît pas encore les figures. Relance Atelier, puis actualise les outils du connecteur dans Claude (Paramètres, Connecteurs, Atelier)."));
+  }
+
+  function renderFigList() {
+    var box = $("figs");
+    if (box.hidden) return;
+    box.textContent = "";
+    if (figs.off) { staleFigNote(box); return; }
+    if (figs.err) { box.appendChild(el("p", "hint", "Figures introuvables : " + figs.err)); return; }
+    if (!figs.loaded) { box.appendChild(el("p", "hint", "Recherche des figures du projet…")); return; }
+    box.appendChild(chipRow());
+    var groups = figGroups();
+    if (!groups.length) {
+      box.appendChild(el("p", "hint", figs.list.length ? "Aucune figure pour ce filtre." : "Aucune figure (PDF, PNG, JPEG, SVG) dans le dossier du projet."));
+      return;
+    }
+    groups.forEach(function (g) {
+      var key = figs.dir + "/" + g.dir;
+      if (figs.shut[key] == null) figs.shut[key] = figs.chip === "all" && !g.items.some(function (f) { return figUsed(f) || figNoteCount(f); });
+      var head = el("button", "grp" + (figs.shut[key] ? " shut" : ""));
+      head.type = "button"; head.setAttribute("aria-expanded", String(!figs.shut[key]));
+      head.title = g.dir || "Dossier du projet";
+      head.appendChild(icon("cd", true));
+      head.appendChild(el("span", "nm", g.dir ? "‎" + g.dir : "Dossier du projet"));
+      head.appendChild(el("span", "n", String(g.items.length)));
+      head.onclick = function () { figs.shut[key] = !figs.shut[key]; renderFigList(); };
+      box.appendChild(head);
+      if (figs.shut[key]) return;
+      g.items.forEach(function (f) {
+        var n = figNoteCount(f);
+        var row = el("button", "row" + (f.path === figs.open && rightMode() === "fig" ? " sel" : "") + (figUsed(f) ? "" : " dim"));
+        row.type = "button"; row.style.paddingLeft = "20px";
+        row.title = f.rel + (figUsed(f) ? " · citée dans " + f.uses.map(useText).join(", ") : " · pas citée dans le texte");
+        row.appendChild(icon("img"));
+        row.appendChild(el("span", "nm", base(f.rel)));
+        if (n) { var b = el("span", "nb", String(n)); b.title = n > 1 ? n + " notes" : "1 note"; row.appendChild(b); }
+        else if (!figUsed(f)) row.appendChild(el("span", "tag", "pas citée"));
+        row.onclick = function () { openFigure(f.path); };
+        box.appendChild(row);
+      });
+    });
+  }
+
+  // ——— Panneau de droite : PDF, galerie, figure ———
+  function rightMode() { return $("pdf").getAttribute("data-mode") || "pdf"; }
+  function setRight(mode) {
+    $("pdf").setAttribute("data-mode", mode);
+    $("pdf").setAttribute("aria-label", mode === "pdf" ? "Aperçu PDF" : "Figures");
+    if (mode === "pdf") setWide(false, true);
+    if (mode !== "fig") closeNotePop();
+    if (mode !== "pdf" && !pdfOn()) setPdf(true);
+    renderFigPane();
+    renderFigList();
+    if (mode === "pdf") { layoutPages(); pump(); }
+  }
+  function headBtn(cls, iconId, label, run, title) {
+    var b = el("button", cls);
+    b.type = "button";
+    if (iconId) b.appendChild(icon(iconId, cls.indexOf("ib") >= 0 ? false : true));
+    if (label) b.appendChild(el("span", "", label));
+    if (title) { b.title = title; b.setAttribute("aria-label", title); }
+    b.onclick = run;
+    return b;
+  }
+  function isWide() { return document.body.getAttribute("data-wide") === "on"; }
+  function setWide(on, quiet) {
+    if (on === isWide()) return;
+    if (on) document.body.setAttribute("data-wide", "on"); else document.body.removeAttribute("data-wide");
+    if (quiet) return;
+    renderFigPane();
+    if (!on && cm) cm.refresh();
+  }
+  function wideBtn() {
+    var w = isWide();
+    var b = headBtn("ib", w ? "min" : "max", "", function () { setWide(!isWide()); }, w ? "Réduire : revenir au texte (Échap)" : "Agrandir : la figure prend aussi la place du texte");
+    b.id = "fgWide"; b.setAttribute("aria-pressed", String(w));
+    return b;
+  }
+  function renderFigPane() {
+    var mode = rightMode();
+    if (mode === "pdf") return;
+    var head = $("fgHead"), body = $("fgBody");
+    head.textContent = ""; body.textContent = "";
+    if (mode === "grid") renderGrid(head, body);
+    else renderViewer(head, body);
+  }
+
+  function renderGrid(head, body) {
+    head.appendChild(headBtn("tb quiet", "left", "PDF", function () { setRight("pdf"); }, "Revenir au PDF"));
+    var t = el("span", "ttl");
+    t.appendChild(el("b", "", "Figures"));
+    if (figs.loaded) t.appendChild(el("span", "ct", String(figs.list.length)));
+    head.appendChild(t);
+    head.appendChild(wideBtn());
+    if (figs.off) { var e0 = el("div", "fempty"); staleFigNote(e0); body.appendChild(e0); return; }
+    if (!figs.loaded) { body.appendChild(el("div", "fempty", figs.err ? "Figures introuvables : " + figs.err : "Recherche des figures du projet…")); return; }
+    body.appendChild(chipRow());
+    var groups = figGroups();
+    if (!groups.length) {
+      var e = el("div", "fempty");
+      e.appendChild(el("b", "", figs.list.length ? "Aucune figure pour ce filtre" : "Aucune figure"));
+      e.appendChild(el("span", "", figs.list.length ? "Choisis « Toutes » pour les voir toutes." : "Le dossier du projet ne contient ni PDF, ni PNG, ni JPEG, ni SVG."));
+      body.appendChild(e);
+      return;
+    }
+    groups.forEach(function (g) {
+      var sec = el("section", "fsec"), h = el("h4");
+      h.appendChild(el("b", "", g.dir ? "‎" + g.dir : "Dossier du projet"));
+      h.appendChild(el("span", "", String(g.items.length)));
+      sec.appendChild(h);
+      var grid = el("div", "cards");
+      g.items.forEach(function (f) { grid.appendChild(card(f)); });
+      sec.appendChild(grid);
+      body.appendChild(sec);
+    });
+    observeThumbs();
+  }
+  function card(f) {
+    var c = el("button", "card");
+    c.type = "button"; c.title = f.rel;
+    var th = el("div", "th");
+    th.dataset.path = f.path;
+    paintThumb(th, f);
+    var n = figNoteCount(f);
+    if (n) { var b = el("span", "nb", String(n)); b.title = n > 1 ? n + " notes" : "1 note"; th.appendChild(b); }
+    c.appendChild(th);
+    var m = el("div", "meta");
+    m.appendChild(el("b", "", base(f.rel)));
+    if (figUsed(f)) m.appendChild(el("span", "", useText(f.uses[0]) + (f.uses.length > 1 ? " · +" + (f.uses.length - 1) : "")));
+    else m.appendChild(el("span", "un", "Pas citée"));
+    c.appendChild(m);
+    c.onclick = function () { openFigure(f.path); };
+    return c;
+  }
+  function paintThumb(th, f) {
+    var t = figs.thumbs[f.path];
+    var old = th.querySelector("img, .ph");
+    if (old) old.remove();
+    if (t && t.src && t.mtime === f.mtime) {
+      var img = el("img"); img.alt = ""; img.src = t.src; img.loading = "lazy";
+      th.insertBefore(img, th.firstChild);
+    } else if (t && t.err) th.insertBefore(el("span", "ph", t.err), th.firstChild);
+    else th.insertBefore(el("span", "ph", ""), th.firstChild);
+  }
+  var thumbObserver = null;
+  function observeThumbs() {
+    if (thumbObserver) thumbObserver.disconnect();
+    var nodes = Array.prototype.slice.call($("fgBody").querySelectorAll(".th"));
+    var want = function (th) {
+      var f = figs.byPath[th.dataset.path], t = f && figs.thumbs[f.path];
+      if (f && !(t && (t.src || t.err) && t.mtime === f.mtime) && figs.queue.indexOf(f.path) < 0) { figs.queue.push(f.path); pumpThumbs(); }
+    };
+    if (!window.IntersectionObserver) { nodes.forEach(want); return; }
+    thumbObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { want(en.target); thumbObserver.unobserve(en.target); } });
+    }, { root: $("fgBody"), rootMargin: "240px" });
+    nodes.forEach(function (n) { thumbObserver.observe(n); });
+  }
+  function pumpThumbs() {
+    while (figs.inflight < 3 && figs.queue.length) {
+      var path = figs.queue.shift(), f = figs.byPath[path];
+      if (!f) continue;
+      figs.inflight++;
+      (function (f) {
+        callImage("render_figure", { path: f.path, width: 400 }).then(function (out) {
+          figs.thumbs[f.path] = { src: out.src, mtime: f.mtime };
+        }, function (e) {
+          figs.thumbs[f.path] = { err: /pas d'aperçu/i.test(toolText(e)) ? "Pas d'aperçu (." + f.ext + ")" : "Aperçu impossible", mtime: f.mtime };
+        }).then(function () {
+          figs.inflight--;
+          var th = $("fgBody").querySelector('.th[data-path="' + cssq(f.path) + '"]');
+          if (th) paintThumb(th, f);
+          pumpThumbs();
+        });
+      })(f);
+    }
+  }
+
+  // ——— Visionneuse et notes ———
+  function cloneNotes(list) { return (list || []).map(function (n) { var o = {}; for (var k in n) o[k] = n[k]; return o; }); }
+  function openFigure(path) {
+    if (!figs.byPath[path]) return;
+    if (figs.open !== path) { figs.open = path; figs.notes = cloneNotes(figs.byPath[path].notes); figs.sel = null; figs.tool = null; figs.sent = null; }
+    if (narrow()) setSide(false);
+    setRight("fig");
+  }
+  function figWidth() {
+    var w = $("fgBody").clientWidth || 600, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    return Math.min(2000, Math.max(400, Math.ceil((w - 32) * dpr / 200) * 200));
+  }
+  function unsentCount() { return figs.notes.filter(function (n) { return n.text && n.status !== "sent"; }).length; }
+  function renderViewer(head, body) {
+    var f = figs.byPath[figs.open];
+    if (!f) { setRight("grid"); return; }
+    head.appendChild(headBtn("ib", "left", "", function () { setRight("grid"); }, "Toutes les figures"));
+    var t = el("span", "ttl");
+    if (figDir(f)) { t.appendChild(el("span", "", "‎" + figDir(f).split("/").pop())); t.appendChild(icon("cr", true)); }
+    t.appendChild(el("b", "", base(f.rel)));
+    t.title = f.rel;
+    head.appendChild(t);
+    var box = headBtn("ib", "sq", "", function () { setTool("box"); }, "Cadre : tire un rectangle sur la figure");
+    var pt = headBtn("ib", "pin", "", function () { setTool("point"); }, "Point : clique sur la figure");
+    box.setAttribute("aria-pressed", String(figs.tool === "box")); pt.setAttribute("aria-pressed", String(figs.tool === "point"));
+    box.id = "fgBox"; pt.id = "fgPoint";
+    var cpy = headBtn("ib", "copy", "", function () { copyFigure(f); }, "Copier la figure : colle-la dans ton message à Claude pour dessiner dessus");
+    cpy.id = "fgCopy";
+    head.appendChild(box); head.appendChild(pt); head.appendChild(cpy); head.appendChild(wideBtn());
+    head.appendChild(el("span", "sep"));
+    var send = headBtn("tb primary", "send", "Envoyer à Claude", function () { sendNotes(); }, "");
+    send.id = "fgSend"; send.disabled = !unsentCount();
+    send.title = unsentCount() ? "Envoyer les notes et la figure annotée à Claude" : "Aucune nouvelle note à envoyer";
+    head.appendChild(send);
+
+    var stage = el("div", "stage"), paper = el("div", "paper");
+    paper.id = "fgPaper";
+    if (figs.tool) paper.setAttribute("data-tool", figs.tool);
+    var full = figs.full[f.path];
+    if (full && full.src && full.mtime === f.mtime) {
+      var img = el("img"); img.id = "fgImg"; img.alt = base(f.rel); img.src = full.src; img.draggable = false;
+      paper.appendChild(img);
+      var ov = el("div", "ov"); ov.id = "fgOv";
+      paper.appendChild(ov);
+      paintNotes(ov);
+      bindDraw(paper);
+    } else {
+      paper.appendChild(el("div", "ld", full && full.err ? full.err : "Chargement de la figure…"));
+      if (!full || full.mtime !== f.mtime) loadFull(f);
+    }
+    stage.appendChild(paper);
+    body.appendChild(stage);
+
+    if (figs.sent) {
+      var ok = el("div", "fsent");
+      ok.appendChild(el("span", "", figs.sent));
+      var cp = headBtn("tb", "copy", "Copier la demande", function () { copyAsk(f); }, "");
+      ok.appendChild(cp);
+      body.appendChild(ok);
+    }
+
+    var uses = el("div", "fblk");
+    uses.appendChild(el("div", "lb", "Citée dans"));
+    if (figUsed(f)) f.uses.forEach(function (u) {
+      var r = el("button", "row");
+      r.type = "button"; r.title = "Voir dans le texte";
+      r.appendChild(icon("file"));
+      r.appendChild(el("span", "nm", u.rel));
+      r.appendChild(el("span", "tag", "l. " + u.line));
+      r.onclick = function () { setWide(false); openFile(u.path, u.line - 1); };
+      uses.appendChild(r);
+    });
+    else {
+      var twin = twinUsed(f);
+      if (twin) {
+        uses.appendChild(el("p", "hint", "Pas ce fichier-ci, mais sa version " + twin.ext.toUpperCase() + " (même nom), que LaTeX utilise :"));
+        twin.uses.forEach(function (u) {
+          var r = el("button", "row");
+          r.type = "button"; r.title = "Voir dans le texte";
+          r.appendChild(icon("file"));
+          r.appendChild(el("span", "nm", u.rel));
+          r.appendChild(el("span", "tag", "l. " + u.line));
+          r.onclick = function () { setWide(false); openFile(u.path, u.line - 1); };
+          uses.appendChild(r);
+        });
+      } else uses.appendChild(el("p", "hint", "Aucun \\includegraphics ne la cite dans les fichiers du projet."));
+    }
+    body.appendChild(uses);
+
+    var list = el("div", "fblk");
+    list.appendChild(el("div", "lb", figs.notes.length ? "Notes" : "Notes : aucune"));
+    if (!figs.notes.length) list.appendChild(el("p", "hint", "Choisis Cadre ou Point dans la barre, pose-le sur la figure et écris ta note. « Envoyer à Claude » lui transmet la figure annotée."));
+    figs.notes.forEach(function (n) {
+      var r = el("button", "nrow" + (figs.sel === n.id ? " sel" : ""));
+      r.type = "button";
+      r.appendChild(pinNode(n));
+      r.appendChild(el("p", n.text ? "" : "em", n.text || "Sans texte"));
+      var st = n.status === "sent" ? "envoyée à Claude" : "brouillon";
+      r.appendChild(el("small", n.status === "sent" ? "st" : "", (n.kind === "box" ? "Cadre" : "Point") + " · " + st));
+      r.onclick = function () { selectNote(n.id); };
+      list.appendChild(r);
+    });
+    body.appendChild(list);
+    if (figs.sel) placeNotePop();
+  }
+  function pinNode(n) {
+    var p = el("span", "pin" + (n.status === "sent" ? "" : " draft") + (figs.sel === n.id ? " sel" : ""), String(n.n));
+    return p;
+  }
+  function loadFull(f) {
+    var w = figWidth();
+    figs.full[f.path] = { mtime: f.mtime, busy: true };
+    callImage("render_figure", { path: f.path, width: w }).then(function (out) {
+      figs.full[f.path] = { src: out.src, mtime: f.mtime };
+    }, function (e) {
+      figs.full[f.path] = { err: /pas d'aperçu/i.test(toolText(e)) ? "Pas d'aperçu pour un fichier ." + f.ext + " : ouvre la version PDF ou PNG de la figure." : "Aperçu impossible : " + errorText(e), mtime: f.mtime };
+    }).then(function () { if (figs.open === f.path && rightMode() === "fig") renderFigPane(); });
+  }
+  function renumber() { figs.notes.forEach(function (n, i) { n.n = i + 1; }); }
+  function paintNotes(ov) {
+    ov.textContent = "";
+    figs.notes.forEach(function (n) {
+      if (n.kind === "box") {
+        var b = el("div", "abox" + (figs.sel === n.id ? " sel" : ""));
+        b.style.left = (n.x * 100) + "%"; b.style.top = (n.y * 100) + "%";
+        b.style.width = (n.w * 100) + "%"; b.style.height = (n.h * 100) + "%";
+        b.onclick = function (ev) { if (figs.tool) return; ev.stopPropagation(); selectNote(n.id); };
+        ov.appendChild(b);
+      }
+      var p = pinNode(n);
+      p.style.left = (n.x * 100) + "%"; p.style.top = (n.y * 100) + "%";
+      p.setAttribute("role", "button"); p.tabIndex = 0;
+      p.title = n.text || "Note " + n.n;
+      p.onclick = function (ev) { ev.stopPropagation(); selectNote(n.id); };
+      p.onkeydown = function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); selectNote(n.id); } };
+      ov.appendChild(p);
+    });
+  }
+  function setTool(tool) {
+    figs.tool = figs.tool === tool ? null : tool;
+    closeNotePop();
+    var paper = $("fgPaper");
+    if (paper) { if (figs.tool) paper.setAttribute("data-tool", figs.tool); else paper.removeAttribute("data-tool"); }
+    if ($("fgBox")) $("fgBox").setAttribute("aria-pressed", String(figs.tool === "box"));
+    if ($("fgPoint")) $("fgPoint").setAttribute("aria-pressed", String(figs.tool === "point"));
+  }
+  function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+  function bindDraw(paper) {
+    var at = function (ev) {
+      var r = paper.getBoundingClientRect();
+      return { x: clamp01((ev.clientX - r.left) / r.width), y: clamp01((ev.clientY - r.top) / r.height) };
+    };
+    paper.addEventListener("pointerdown", function (ev) {
+      if (!figs.tool || ev.button !== 0) return;
+      ev.preventDefault();
+      var p = at(ev);
+      if (figs.tool === "point") { addNote({ kind: "point", x: p.x, y: p.y, w: 0, h: 0 }); return; }
+      try { paper.setPointerCapture(ev.pointerId); } catch (e) {}
+      var b = el("div", "abox sel");
+      $("fgOv").appendChild(b);
+      figs.drag = { x0: p.x, y0: p.y, el: b, x: p.x, y: p.y, w: 0, h: 0 };
+      place(b, figs.drag);
+    });
+    paper.addEventListener("pointermove", function (ev) {
+      var d = figs.drag;
+      if (!d) return;
+      var p = at(ev);
+      d.x = Math.min(d.x0, p.x); d.y = Math.min(d.y0, p.y); d.w = Math.abs(p.x - d.x0); d.h = Math.abs(p.y - d.y0);
+      place(d.el, d);
+    });
+    var end = function () {
+      var d = figs.drag;
+      if (!d) return;
+      figs.drag = null;
+      d.el.remove();
+      if (d.w < 0.012 && d.h < 0.012) addNote({ kind: "point", x: d.x0, y: d.y0, w: 0, h: 0 });
+      else addNote({ kind: "box", x: d.x, y: d.y, w: d.w, h: d.h });
+    };
+    paper.addEventListener("pointerup", end);
+    paper.addEventListener("click", function (ev) {
+      if (figs.tool || !figs.sel || (ev.target !== $("fgImg") && ev.target !== $("fgOv"))) return;
+      commitPop(); dropEmpty(); figs.sel = null; renderFigPane();
+    });
+    paper.addEventListener("pointercancel", function () { if (figs.drag) { figs.drag.el.remove(); figs.drag = null; } });
+    function place(b, d) {
+      b.style.left = (d.x * 100) + "%"; b.style.top = (d.y * 100) + "%";
+      b.style.width = (d.w * 100) + "%"; b.style.height = (d.h * 100) + "%";
+    }
+  }
+  function addNote(geo) {
+    var n = { id: "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), kind: geo.kind,
+      x: geo.x, y: geo.y, w: geo.w, h: geo.h, text: "", status: "draft", t: Date.now(), fresh: true };
+    commitPop(); dropEmpty();
+    figs.notes.push(n);
+    renumber();
+    figs.sent = null;
+    figs.tool = null;
+    figs.sel = n.id;
+    renderFigPane();
+  }
+  function noteById(id) { return figs.notes.filter(function (n) { return n.id === id; })[0] || null; }
+  // Le texte tapé dans la bulle ouverte est gardé avant de passer ailleurs.
+  function commitPop() {
+    var n = noteById(figs.sel), ta = notePop && notePop.querySelector("textarea");
+    if (!n || !ta) return;
+    var v = ta.value.trim();
+    if (v && v !== n.text) { n.text = v; n.status = "draft"; delete n.fresh; persistNotes(false); }
+  }
+  function selectNote(id) {
+    if (figs.sel && figs.sel !== id) { commitPop(); dropEmpty(); }
+    figs.sel = id;
+    renderFigPane();
+  }
+  // Une note neuve laissée vide disparaît quand on passe à autre chose.
+  function dropEmpty() {
+    var n = noteById(figs.sel);
+    if (n && n.fresh && !n.text) { figs.notes.splice(figs.notes.indexOf(n), 1); renumber(); }
+  }
+  var notePop = null;
+  function closeNotePop() {
+    if (notePop) { notePop.remove(); notePop = null; }
+  }
+  function placeNotePop() {
+    closeNotePop();
+    var n = noteById(figs.sel), paper = $("fgPaper");
+    if (!n || !paper || !$("fgImg")) return;
+    var pop = el("div", "npop");
+    var h = el("div", "h");
+    h.appendChild(pinNode(n));
+    h.appendChild(el("span", "", n.fresh && !n.text ? "Nouvelle note" : "Note " + n.n));
+    h.appendChild(el("span", "m", n.kind === "box" ? "Cadre" : "Point"));
+    pop.appendChild(h);
+    var ta = el("textarea");
+    ta.value = n.text || ""; ta.placeholder = "Ce qu'il faut changer ici…"; ta.setAttribute("aria-label", "Note " + n.n);
+    pop.appendChild(ta);
+    var a = el("div", "a");
+    var del = headBtn("tb quiet rm", "", n.fresh && !n.text ? "Annuler" : "Supprimer", function () { removeNote(n.id); }, "");
+    a.appendChild(del);
+    a.appendChild(el("span", "sp"));
+    a.appendChild(headBtn("tb", "", "Garder", function () { keepNote(n, ta.value); }, ""));
+    a.appendChild(headBtn("tb primary", "send", "Envoyer à Claude", function () { keepNote(n, ta.value, true); }, ""));
+    pop.appendChild(a);
+    ta.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); dropEmpty(); figs.sel = null; renderFigPane(); }
+      else if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); ev.stopPropagation(); keepNote(n, ta.value); }
+    });
+    var stage = paper.parentNode;
+    stage.appendChild(pop);
+    // Sous le cadre ou le point, dans la largeur de la figure.
+    var pw = paper.clientWidth, ph = paper.clientHeight, popW = pop.offsetWidth;
+    var left = Math.max(4, Math.min(pw - popW - 4, n.x * pw + (n.kind === "box" ? 0 : -16)));
+    var top = (n.y + (n.kind === "box" ? n.h : 0)) * ph + 16;
+    if (top + pop.offsetHeight > ph + 120 && n.y * ph > pop.offsetHeight + 16) top = n.y * ph - pop.offsetHeight - 16;
+    pop.style.left = (paper.offsetLeft + left) + "px"; pop.style.top = (paper.offsetTop + top) + "px";
+    notePop = pop;
+    requestAnimationFrame(function () { pop.classList.add("on"); });
+    ta.focus({ preventScroll: true });
+    pop.scrollIntoView({ block: "nearest" });
+  }
+  function payloadNotes() {
+    return figs.notes.map(function (n) { return { id: n.id, kind: n.kind, x: n.x, y: n.y, w: n.w, h: n.h, text: n.text, status: n.status, t: n.t }; });
+  }
+  function persistNotes(send, image) {
+    var f = figs.byPath[figs.open];
+    if (!f) return Promise.resolve(false);
+    var args = { path: f.path, notes: payloadNotes() };
+    if (send) { args.send = true; args.image = image; args.uses = (f.uses || []).map(function (u) { return { rel: u.rel, line: u.line }; }); }
+    busy++; refreshState();
+    return call("save_figure_notes", args).then(function (p) {
+      f.notes = p.notes || []; f.sentAt = p.sentAt;
+      if (figs.open === f.path) { figs.notes = cloneNotes(f.notes); }
+      return true;
+    }, function (e) {
+      if (e && (e.code === "blocked_by_policy" || e.code === "not_in_manifest")) figs.off = true;
+      setNote("err", "Notes non gardées : " + errorText(e), accessIfNeeded(e, function () { persistNotes(send, image); }));
+      return false;
+    }).then(function (ok) { busy--; refreshState(); renderFigList(); renderFigPane(); return ok; });
+  }
+  function keepNote(n, text, send) {
+    text = (text || "").trim();
+    if (!text) { removeNote(n.id); return; }
+    if (text !== n.text) { n.text = text; n.status = "draft"; }
+    delete n.fresh;
+    figs.sel = null;
+    if (send) sendNotes(); else persistNotes(false);
+  }
+  function removeNote(id) {
+    var n = noteById(id);
+    if (!n) return;
+    figs.notes.splice(figs.notes.indexOf(n), 1);
+    renumber();
+    figs.sel = null;
+    if (n.fresh && !n.text) { renderFigPane(); return; }
+    persistNotes(false);
+  }
+  // La figure telle qu'on la voit, cadres et pastilles compris.
+  // La figure telle qu'on la voit ; `label` ajoute dessous une ligne avec
+  // son chemin, pour que Claude la retrouve dans le projet.
+  function drawFigure(label) {
+    var img = $("fgImg");
+    if (!img || !img.naturalWidth) return null;
+    var W = Math.min(img.naturalWidth, FIG_SNAP_MAX), H = Math.round(img.naturalHeight * W / img.naturalWidth);
+    var k = Math.max(1, W / 720), r = 11 * k, band = label ? Math.round(28 * k) : 0;
+    var c = document.createElement("canvas");
+    c.width = W; c.height = H + band;
+    var g = c.getContext("2d"), css = getComputedStyle(document.documentElement);
+    var ann = css.getPropertyValue("--ann").trim() || "#3f6fd1", on = css.getPropertyValue("--on-ann").trim() || "#ffffff";
+    var paper = css.getPropertyValue("--paper").trim() || "#ffffff";
+    var ink = css.getPropertyValue("--paper-ink").trim() || "#595e64";
+    g.fillStyle = paper; g.fillRect(0, 0, W, H + band);
+    if (label) {
+      g.fillStyle = ink; g.font = "400 " + Math.round(12 * k) + "px -apple-system, system-ui, sans-serif";
+      g.textAlign = "left"; g.textBaseline = "middle";
+      g.fillText(label, 12 * k, H + band / 2, W - 24 * k);
+    }
+    g.drawImage(img, 0, 0, W, H);
+    figs.notes.forEach(function (n) {
+      if (!n.text || n.kind !== "box") return;
+      g.save();
+      g.globalAlpha = 0.1; g.fillStyle = ann; g.fillRect(n.x * W, n.y * H, n.w * W, n.h * H);
+      g.globalAlpha = 1; g.strokeStyle = ann; g.lineWidth = 2 * k; g.strokeRect(n.x * W, n.y * H, n.w * W, n.h * H);
+      g.restore();
+    });
+    figs.notes.forEach(function (n) {
+      if (!n.text) return;
+      var x = Math.max(r, Math.min(W - r, n.x * W)), y = Math.max(r, Math.min(H - r, n.y * H));
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = ann; g.fill();
+      g.lineWidth = 1.5 * k; g.strokeStyle = on; g.stroke();
+      g.fillStyle = on; g.font = "600 " + Math.round(12 * k) + "px -apple-system, system-ui, sans-serif";
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(String(n.n), x, y + 0.5 * k);
+    });
+    return c;
+  }
+  function snapshot() {
+    var c = drawFigure(null);
+    if (!c) return null;
+    try {
+      var png = c.toDataURL("image/png");
+      return png.length > 7000000 ? c.toDataURL("image/jpeg", 0.9) : png;
+    } catch (e) { return null; }
+  }
+  // La phrase à coller dans la conversation ; une page ne peut pas écrire elle-même dans le chat.
+  function copyAsk(f, quiet) {
+    var ask = "Regarde mes notes sur la figure " + base(f.rel) + " (get_figure_notes).";
+    try {
+      navigator.clipboard.writeText(ask).then(function () {
+        if (!quiet) flashStatus("Demande copiée : colle-la dans la conversation");
+      }, function () {});
+      return true;
+    } catch (e) { return false; }
+  }
+  // Copiée en image (notes comprises, chemin dessous) : on la colle dans le
+  // message de Claude, on dessine dessus avec son outil, on envoie.
+  function copyFigure(f) {
+    var c = drawFigure(f.rel);
+    var hint = "Copie d'image refusée ici : clic droit sur la figure, puis Copier l'image.";
+    if (!c) { setNote("err", "La figure n'est pas encore affichée : attends son chargement, puis réessaie."); return; }
+    if (!navigator.clipboard || !navigator.clipboard.write || typeof ClipboardItem === "undefined") { flashStatus(hint); return; }
+    var blob = new Promise(function (ok, ko) { c.toBlob(function (b) { if (b) ok(b); else ko(new Error("toBlob")); }, "image/png"); });
+    try {
+      navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(function () {
+        flashStatus("Figure copiée : colle-la (⌘V) dans ton message à Claude, dessine dessus, puis envoie.");
+      }, function () { flashStatus(hint); });
+    } catch (e) { flashStatus(hint); }
+  }
+  function sendNotes() {
+    var f = figs.byPath[figs.open];
+    if (!f || !unsentCount()) return Promise.resolve(false);
+    closeNotePop();
+    var image = snapshot();
+    if (!image) { setNote("err", "La figure n'est pas encore affichée : attends son chargement, puis réessaie."); return Promise.resolve(false); }
+    // Copié pendant le clic (le presse-papiers l'exige) : il ne reste qu'à coller dans la conversation.
+    var copied = copyAsk(f, true);
+    return persistNotes(true, image).then(function (ok) {
+      if (ok) figs.sent = copied
+        ? "Envoyé. La demande est copiée : colle-la dans la conversation (⌘V puis Entrée), Claude lira tes notes avec la figure annotée."
+        : "Envoyé à Claude. Dans la conversation, demande-lui de regarder tes notes sur la figure : il les lit avec la figure annotée.";
+      renderFigPane();
+      return ok;
+    });
+  }
+
+  // Un clic sur le nom d'une figure dans \includegraphics{…} l'ouvre à droite.
+  var INC_RE = /\\includegraphics\*?\s*(?:\[[^\]]*\]\s*)*\{([^}]*)\}/g;
+  function figureAt(path, line, ch) {
+    var text = cm.getLine(line) || "", m, hit = null;
+    INC_RE.lastIndex = 0;
+    while ((m = INC_RE.exec(text))) {
+      var from = m.index + m[0].length - 1 - m[1].length, to = m.index + m[0].length;
+      if (ch >= from && ch <= to) { hit = m[1].trim(); break; }
+    }
+    if (!hit) return null;
+    var stem = figStem(hit.replace(/^\.\//, "")), byLine = figs.list.filter(function (f) {
+      return (f.uses || []).some(function (u) { return u.path === path && u.line === line + 1; });
+    });
+    var tail = function (f) { var s = figStem(f.rel); return s === stem || s.slice(-stem.length - 1) === "/" + stem; };
+    var exact = byLine.filter(tail)[0] || (byLine.length === 1 ? byLine[0] : null);
+    if (exact) return exact;
+    var named = figs.list.filter(tail);
+    return named.length === 1 || (named.length > 1 && named.every(function (f) { return figStem(f.rel) === figStem(named[0].rel); }))
+      ? named.sort(function (a, b) { return extRank(a.ext) - extRank(b.ext); })[0] : null;
+  }
+  function extRank(ext) { var i = ["pdf", "png", "jpg", "jpeg", "eps", "svg"].indexOf(ext); return i < 0 ? 9 : i; }
+  function onEditorClick(c, ev) {
+    if (narrow() || ev.button !== 0 || ev.shiftKey || ev.altKey) return;
+    var pos = c.coordsChar({ left: ev.clientX, top: ev.clientY }, "window"), path = active;
+    if (!/\\includegraphics/.test(c.getLine(pos.line) || "")) return;
+    var go = function () {
+      var f = figureAt(path, pos.line, pos.ch);
+      if (f) openFigure(f.path);
+    };
+    if (figs.loaded) go(); else loadFigures(false).then(go);
+  }
+
+  // ——— Branchements ———
+  $("sideBtn").onclick = function () { setSide(document.body.getAttribute("data-side") === "off"); };
+  $("segFiles").onclick = function () { seg("files"); };
+  $("projBtn").onclick = function () { if ($("projMenu").classList.contains("on")) closeProjMenu(); else openProjMenu(); };
+  $("segPlan").onclick = function () { seg("plan"); };
+  $("segHist").onclick = function () { seg("hist"); };
+  $("segFigs").onclick = function () { seg("figs"); };
+  $("cmpClose").onclick = function () { closeCompare(); };
+  $("cmpRestore").onclick = function () { restoreVersion(); };
+  $("stUndoAll").onclick = function () { undoAll(); };
+  $("stRewrap").onclick = toggleRewrap;
+  renderRewrap();
+  $("pdfState").onclick = toggleWarnings;
+  $("undoBtn").onclick = function () { if (cm) { cm.undo(); cm.focus(); refreshState(); } };
+  $("redoBtn").onclick = function () { if (cm) { cm.redo(); cm.focus(); refreshState(); } };
+  $("saveBtn").onclick = function () { save(); };
+  $("reloadBtn").onclick = function () {
+    var d = cur();
+    if (!d) return;
+    if (isDirty(d)) setNote("warn", "Recharger efface tes modifications non enregistrées de " + d.file + ".", [
+      { label: "Recharger quand même", run: function () { reload(d); } }
+    ]);
+    else reload(d);
+  };
+  $("diffBtn").onclick = function () {
+    showDiff = !showDiff;
+    this.setAttribute("aria-pressed", String(showDiff));
+    paintDiff();
+  };
+  $("stChg").onclick = nextChange;
+  $("compileBtn").onclick = function () { compile(); };
+  $("pdfBtn").onclick = function () { setPdf(!pdfOn()); };
+  $("zoomIn").onclick = function () { zoom(1); };
+  $("zoomOut").onclick = function () { zoom(-1); };
+  $("logBtn").onclick = function () {
+    var on = this.getAttribute("aria-pressed") !== "true";
+    this.setAttribute("aria-pressed", String(on));
+    $("log").hidden = !on; $("pages").hidden = on;
+  };
+  var scrollTimer = 0;
+  $("pages").addEventListener("scroll", function () {
+    trackPage();
+    clearTimeout(scrollTimer); scrollTimer = setTimeout(pump, 120);
+  }, { passive: true });
+  $("findBtn").onclick = function () { if ($("find").hidden) openFind(); else closeFind(); };
+  $("findX").onclick = closeFind;
+  $("findNext").onclick = function () { step(1); };
+  $("findPrev").onclick = function () { step(-1); };
+  $("replOne").onclick = replaceOne;
+  $("replAll").onclick = replaceAll;
+  $("findIn").addEventListener("input", function () { find.q = this.value; applyQuery(); if (find.q) step(1); });
+  $("findIn").addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { ev.preventDefault(); step(ev.shiftKey ? -1 : 1); }
+    else if (ev.key === "Escape") { ev.preventDefault(); closeFind(); }
+  });
+  $("replIn").addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { ev.preventDefault(); replaceOne(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); closeFind(); }
+  });
+  $("openForm").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var path = $("pathInput").value.trim();
+    if (path) { store.set("atelier-editor-path", path); openFile(path); }
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (!(ev.metaKey || ev.ctrlKey) || ev.altKey) return;
+    var k = ev.key.toLowerCase();
+    if (k === "s") { ev.preventDefault(); save(); }
+    else if (k === "enter") { ev.preventDefault(); compile(); }
+    else if (k === "f" && cur()) { ev.preventDefault(); openFind(); }
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key !== "Escape" || ev.defaultPrevented) return;
+    if (figs.tool && rightMode() === "fig") { ev.preventDefault(); setTool(figs.tool); }
+    else if (isWide() && rightMode() !== "pdf") { ev.preventDefault(); setWide(false); }
+  });
+  window.addEventListener("beforeunload", function (ev) { if (anyDirty()) { ev.preventDefault(); ev.returnValue = ""; } });
+  var resizeTimer = 0;
+  window.addEventListener("resize", function () {
+    if (cm) cm.refresh();
+    clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { layoutPages(); pump(); if (figs.sel && rightMode() === "fig") placeNotePop(); }, 150);
+  });
+
+  setSide(narrow() ? false : store.get("atelier-editor-side") !== "off");
+  seg(store.get("atelier-editor-seg"));
+  setPdf(!narrow() && window.innerWidth >= 1100 && store.get("atelier-editor-pdfpane") !== "off");
+
+  function start(data) {
+    drafts = (data && data.drafts) || {};
+    if (!window.CodeMirror) { setNote("err", "L'éditeur n'a pas pu se charger. Recharge la page."); return; }
+    if (!window.claude || !window.claude.use) {
+      $("files").textContent = "";
+      setNote("err", "Ouvre cette page dans Claude : elle passe par ton connecteur Atelier.");
+      return;
+    }
+    window.claude.use("mcp").then(function (m) {
+      mcp = m;
+      if (!mcp) {
+        $("files").textContent = "";
+        setNote("err", "Le connecteur n'est pas disponible ici. Ouvre cette page dans Claude, avec le connecteur Atelier connecté.");
+        return;
+      }
+      connect();
+    });
+  }
+  function connect() {
+    var saved = null;
+    try { saved = JSON.parse(store.get("atelier-editor-tabs") || "null"); } catch (e) {}
+    loadProject().then(function () {
+      setNote("", "");
+      var wanted = ((saved && saved.tabs) || []).filter(function (p) { return fileIndex[p] && fileIndex[p].editable; });
+      var first = saved && wanted.indexOf(saved.active) >= 0 ? saved.active : wanted[0];
+      if (!wanted.length) {
+        var pr = proj(), f = pr && (pr.main || (pr.files.filter(function (x) { return x.kind === "tex"; })[0] || {}).path);
+        if (f) { wanted = [f]; first = f; }
+      }
+      var chain = Promise.resolve();
+      wanted.forEach(function (p) { if (p !== first) chain = chain.then(function () { return openFile(p); }); });
+      return chain.then(function () { return first ? openFile(first) : null; });
+    }, function (e) {
+      // Connecteur d'avant la liste du projet : on ouvre par le chemin.
+      // « blocked_by_policy » : Claude ne connaît pas cet outil sur le
+      // connecteur, donc le connecteur qui tourne est d'une version d'avant.
+      var stale = e && e.code === "blocked_by_policy";
+      var unknown = stale || (e && (e.code === "not_in_manifest" || (e.code === "tool_error" && /inconnu|indisponible|unknown/i.test(toolText(e)))));
+      if (!unknown) { $("files").textContent = ""; accessNote(e, connect); throw e; }
+      project = null; legacy = true;
+      $("files").textContent = "";
+      if (stale) setNote("warn", "Claude ne voit pas encore les outils de cette version. Redémarre le connecteur sur ton Mac (Ctrl-C, ↑, Entrée), actualise sa liste d'outils dans Paramètres, Connecteurs, Atelier, puis réessaie.",
+        [{ label: "Réessayer", run: function () { setNote("", ""); legacy = false; connect(); } }]);
+      $("files").appendChild(el("p", "hint", "Ce connecteur ne liste pas encore le projet. Ouvre un fichier par son chemin."));
+      $("openForm").hidden = false;
+      var last = store.get("atelier-editor-path");
+      if (last) { $("pathInput").value = last; return openFile(last); }
+    }).then(function () {
+      schedulePlan(100);
+      fetchProposals();
+      refreshState();
+      restorePdf();
+      if (!$("figs").hidden || rightMode() !== "pdf") loadFigures(false);
+      if (polling) return;
+      polling = true;
+      setInterval(poll, POLL_MS);
+      document.addEventListener("visibilitychange", function () { if (!document.hidden) poll(); });
+    }).catch(function () {});
+  }
+
+  var hot = window.claude && window.claude.hot;
+  if (hot && hot.snapshot) hot.snapshot(function () {
+    var out = {};
+    tabs.forEach(function (p) { if (isDirty(docs[p])) out[p] = docs[p].doc.getValue(); });
+    return { drafts: out };
+  });
+  if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
+})();
+</script>

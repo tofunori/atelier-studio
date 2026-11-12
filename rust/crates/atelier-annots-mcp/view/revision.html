@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>Atelier · proposition</title>
+<style>
+/* Vue « proposition LaTeX » d'Atelier dans une conversation Claude.
+   Couleurs : variables de l'hôte (Claude), avec des valeurs de repli.
+   Système d'Atelier : tailles 11/12/13, poids 400/500/600, rayons 6/10,
+   espacements multiples de 4, transitions 120-150 ms, icônes SVG fines. */
+:root {
+  --a-bg: var(--color-background-primary, light-dark(#FFFFFF, #30302E));
+  --a-sunk: var(--color-background-secondary, light-dark(#F5F4ED, #262624));
+  --a-ctl: var(--color-background-tertiary, light-dark(#FAF9F5, #141413));
+  --a-fg: var(--color-text-primary, light-dark(#141413, #FAF9F5));
+  --a-fg2: var(--color-text-secondary, light-dark(#3D3D3A, #C2C0B6));
+  --a-muted: var(--color-text-tertiary, light-dark(#73726C, #9C9A92));
+  --a-line: var(--color-border-tertiary, light-dark(rgba(31,30,29,.15), rgba(222,220,209,.15)));
+  --a-ok-bg: var(--color-background-success, light-dark(#E9F1DC, #1B4614));
+  --a-ok-fg: var(--color-text-success, light-dark(#265B19, #7AB948));
+  --a-del-bg: var(--color-background-danger, light-dark(#F7ECEC, #602A28));
+  --a-del-fg: var(--color-text-danger, light-dark(#7F2C28, #EE8884));
+  --a-info: var(--color-text-info, light-dark(#3266AD, #80AADD));
+  --a-sans: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif);
+  --a-mono: var(--font-mono, ui-monospace, Menlo, monospace);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; }
+body { font-family: var(--a-sans); font-size: 13px; line-height: 1.5; color: var(--a-fg); }
+.card { background: var(--a-bg); border-radius: 10px; }
+.hd { display: flex; align-items: center; gap: 8px; padding: 12px 16px 8px; }
+.mark { width: 20px; height: 20px; border-radius: 6px; background: var(--a-sunk); display: grid; place-items: center; color: var(--a-fg); flex: none; }
+.ttl { font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.sub { color: var(--a-muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-left: auto; }
+.bd { padding: 4px 16px 8px; }
+.tex { font-family: var(--a-mono); font-size: 12px; line-height: 1.6; color: var(--a-fg2); background: var(--a-sunk); border-radius: 6px; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.tex del { text-decoration: line-through; background: var(--a-del-bg); color: var(--a-del-fg); border-radius: 3px; }
+.tex ins { text-decoration: none; background: var(--a-ok-bg); color: var(--a-ok-fg); border-radius: 3px; }
+.tex del + ins { margin-left: 4px; }
+.tex.final del { display: none; }
+.tex.final ins { background: transparent; color: inherit; }
+.reason { color: var(--a-muted); font-size: 12px; margin-top: 8px; }
+.ft { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 16px 12px; }
+.note { color: var(--a-muted); font-size: 12px; }
+.btn { border: 0; font: inherit; font-size: 12px; font-weight: 500; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: background-color .14s, opacity .14s, transform .12s; }
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn:focus-visible { outline: 2px solid var(--a-info); outline-offset: 2px; }
+.pri { background: var(--a-ok-bg); color: var(--a-ok-fg); }
+.sec { background: var(--a-sunk); color: var(--a-fg2); }
+.done { display: inline-flex; align-items: center; gap: 4px; color: var(--a-ok-fg); font-size: 12px; font-weight: 500; }
+.err { color: var(--a-del-fg); font-size: 12px; }
+.skel { height: 12px; border-radius: 6px; background: var(--a-sunk); margin: 8px 0; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="hd">
+    <span class="mark"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M5.5 10.5l5-5"/></svg></span>
+    <span class="ttl" id="file">Proposition d’Atelier</span>
+    <span class="sub" id="line"></span>
+  </div>
+  <div class="bd" id="body"><div class="skel" style="width:92%"></div><div class="skel" style="width:80%"></div><div class="skel" style="width:56%"></div></div>
+  <div class="ft" id="foot"></div>
+</div>
+<script type="module">/*__EXT_APPS__*/</script>
+<script type="module">
+const { App, applyDocumentTheme, applyHostStyleVariables, applyHostFonts } = globalThis.AtelierExtApps;
+const $ = (id) => document.getElementById(id);
+const CHECK = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// Différence mot à mot (plus longue sous-suite commune), blancs compris.
+function diff(a, b) {
+  const x = a.split(/(\s+)/).filter(Boolean), y = b.split(/(\s+)/).filter(Boolean);
+  if (x.length * y.length > 400000) return "<del>" + esc(a) + "</del>\n<ins>" + esc(b) + "</ins>";
+  const n = x.length, m = y.length, t = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    t[i][j] = x[i] === y[j] ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+  let out = "", i = 0, j = 0, del = "", ins = "";
+  const flush = () => { if (del) out += "<del>" + esc(del) + "</del>"; if (ins) out += "<ins>" + esc(ins) + "</ins>"; del = ins = ""; };
+  while (i < n || j < m) {
+    if (i < n && j < m && x[i] === y[j]) { flush(); out += esc(x[i]); i++; j++; }
+    else if (j < m && (i === n || t[i][j + 1] >= t[i + 1][j])) ins += y[j++];
+    else del += x[i++];
+  }
+  flush();
+  return out;
+}
+
+let proposal = null, busy = false;
+const app = new App({ name: "Atelier", version: "0.1.0" }, { availableDisplayModes: ["inline"] });
+
+function theme(ctx) {
+  if (!ctx) return;
+  if (ctx.theme) applyDocumentTheme(ctx.theme);
+  if (ctx.styles?.variables) applyHostStyleVariables(ctx.styles.variables);
+  if (ctx.styles?.css?.fonts) applyHostFonts(ctx.styles.css.fonts);
+}
+app.onhostcontextchanged = theme;
+
+function foot(html) { $("foot").innerHTML = html; }
+function error(msg) { foot('<span class="err">' + esc(msg) + '</span>'); }
+
+function showProposal() {
+  const p = proposal;
+  $("file").textContent = p.file;
+  $("line").textContent = "ligne " + p.line;
+  $("body").innerHTML = '<pre class="tex" id="tex">' + diff(p.quote, p.text) + "</pre>" +
+    (p.reason ? '<div class="reason">' + esc(p.reason) + "</div>" : "");
+  foot('<button class="btn pri" id="accept">Accepter</button><button class="btn sec" id="refuse">Refuser</button>' +
+    '<span class="note">Rien n’est écrit dans ton fichier avant ton clic.</span>');
+  $("accept").onclick = () => write(false);
+  $("refuse").onclick = refuse;
+}
+
+async function write(undo) {
+  if (busy || !proposal) return;
+  busy = true;
+  document.querySelectorAll(".ft .btn").forEach((b) => (b.disabled = true));
+  try {
+    const res = await app.callServerTool({
+      name: undo ? "undo_revision" : "apply_revision",
+      arguments: { path: proposal.path, quote: proposal.quote, text: proposal.text },
+    });
+    const msg = res?.content?.find((c) => c.type === "text")?.text || "";
+    if (res?.isError) { error(msg || "L’écriture a échoué."); if (!undo) showProposalButtonsAgain(); return; }
+    if (undo) { $("tex").classList.remove("final"); showProposal(); return; }
+    $("tex").classList.add("final");
+    foot('<span class="done">' + CHECK + esc(msg) + '</span><button class="btn sec" id="undo">Annuler</button>');
+    $("undo").onclick = () => write(true);
+  } catch (e) {
+    error("Atelier ne répond pas : " + (e?.message || e));
+    showProposalButtonsAgain();
+  } finally {
+    busy = false;
+    document.querySelectorAll(".ft .btn").forEach((b) => (b.disabled = false));
+  }
+}
+function showProposalButtonsAgain() {
+  const f = $("foot");
+  f.insertAdjacentHTML("beforeend", '<button class="btn sec" id="retry">Réessayer</button>');
+  $("retry").onclick = () => showProposal();
+}
+
+function refuse() {
+  $("tex").classList.add("final");
+  $("tex").innerHTML = esc(proposal.quote);
+  foot('<span class="note">Proposition refusée : ton texte reste tel quel.</span><button class="btn sec" id="other">Demander une autre version</button>');
+  $("other").onclick = async () => {
+    const text = "Propose une autre version de ce passage de " + proposal.file + " (ligne " + proposal.line + ") ; j’ai refusé la précédente.";
+    try {
+      const r = await app.sendMessage({ role: "user", content: [{ type: "text", text }] });
+      if (r?.isError) error("Claude n’a pas accepté le message ; écris-le dans la conversation.");
+    } catch { /* Claude peut l’avoir reçu après le délai : ne rien affirmer. */ }
+  };
+}
+
+app.ontoolresult = (result) => {
+  const sc = result?.structuredContent;
+  if (result?.isError || !sc?.path) {
+    $("body").innerHTML = "";
+    error(result?.content?.find((c) => c.type === "text")?.text || "Pas de proposition à afficher.");
+    return;
+  }
+  proposal = sc;
+  showProposal();
+};
+
+await app.connect();
+theme(app.getHostContext());
+</script>
+</body>
+</html>

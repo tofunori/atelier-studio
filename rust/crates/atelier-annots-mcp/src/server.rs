@@ -11,7 +11,34 @@ const DEFAULT_LIMIT: usize = 100;
 const DEFAULT_PER_ARTICLE: usize = 5;
 const MAX_LIMIT: usize = 1000;
 
+/// État d'une connexion : ce que le client a annoncé à `initialize`.
+#[derive(Default, Clone)]
+pub struct Session {
+    /// Le client affiche les vues « MCP App » (Claude Desktop, claude.ai) :
+    /// les outils de révision LaTeX, qui passent par la carte d'Atelier, ne
+    /// sont offerts qu'à lui. `ATELIER_MCP_UI=1` le force.
+    pub ui: bool,
+    /// Connecteur distant (`--http`) : seuls les outils LaTeX, et seulement
+    /// sur des fichiers sous ces dossiers. `None` : serveur local (stdio).
+    pub remote_roots: Option<Vec<std::path::PathBuf>>,
+}
+
+impl Session {
+    /// Session d'un client du connecteur distant (claude.ai) : il affiche les
+    /// vues, et n'atteint que les fichiers sous `roots`.
+    pub fn remote(roots: Vec<std::path::PathBuf>) -> Self {
+        Session {
+            ui: true,
+            remote_roots: Some(roots),
+        }
+    }
+}
+
 pub fn run(config: &Config) -> Result<(), String> {
+    let mut session = Session {
+        ui: std::env::var("ATELIER_MCP_UI").as_deref() == Ok("1"),
+        remote_roots: None,
+    };
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -20,7 +47,7 @@ pub fn run(config: &Config) -> Result<(), String> {
             continue;
         }
         let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(msg) => handle(config, &msg),
+            Ok(msg) => handle_in(&mut session, config, &msg),
             Err(e) => Some(json!({"jsonrpc": "2.0", "id": null,
                 "error": {"code": -32700, "message": format!("JSON invalide : {e}")}})),
         };
@@ -33,20 +60,60 @@ pub fn run(config: &Config) -> Result<(), String> {
 }
 
 /// Une requête → sa réponse ; une notification (sans `id`) → rien.
+#[cfg(test)]
 pub fn handle(config: &Config, msg: &Value) -> Option<Value> {
+    handle_in(&mut Session::default(), config, msg)
+}
+
+pub fn handle_in(session: &mut Session, config: &Config, msg: &Value) -> Option<Value> {
     let id = msg.get("id")?.clone();
     let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
     let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
     let result = match method {
-        "initialize" => json!({
+        "initialize" => {
+            if crate::app_view::client_supports_ui(&params) {
+                session.ui = true;
+            }
+            eprintln!(
+                "atelier-annots-mcp: vues MCP App {}",
+                if session.ui {
+                    "actives"
+                } else {
+                    "absentes (client sans l'extension ui)"
+                }
+            );
+            json!({
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
-            "capabilities": {"tools": {}},
+            "capabilities": {"tools": {}, "resources": {}},
             "serverInfo": {"name": "atelier-annotations", "version": env!("CARGO_PKG_VERSION")},
-            "instructions": if config.read_only { INSTRUCTIONS_LECTURE } else { INSTRUCTIONS },
-        }),
+            "instructions": if session.remote_roots.is_some() {
+                INSTRUCTIONS_REVISION.to_string()
+            } else if config.read_only {
+                INSTRUCTIONS_LECTURE.to_string()
+            } else if revisions_offered(session, config) {
+                format!("{INSTRUCTIONS}\n{INSTRUCTIONS_REVISION}")
+            } else {
+                INSTRUCTIONS.to_string()
+            },
+            })
+        }
         "ping" => json!({}),
-        "tools/list" => json!({"tools": offered_tools(config)}),
-        "resources/list" => json!({"resources": []}),
+        "tools/list" => json!({"tools": offered_tools(session, config)}),
+        "resources/list" => json!({"resources": if revisions_offered(session, config) {
+            crate::app_view::resources()
+        } else {
+            json!([])
+        }}),
+        "resources/read" => {
+            let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+            match crate::app_view::read(uri) {
+                Some(found) => found,
+                None => {
+                    return Some(json!({"jsonrpc": "2.0", "id": id,
+                        "error": {"code": -32002, "message": format!("ressource inconnue : {uri}")}}))
+                }
+            }
+        }
         "prompts/list" => json!({"prompts": []}),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
@@ -54,6 +121,33 @@ pub fn handle(config: &Config, msg: &Value) -> Option<Value> {
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
+            if let Some(roots) = &session.remote_roots {
+                if !REVISION_TOOLS.contains(&name) {
+                    let text = format!("{name} : outil indisponible dans le connecteur distant.");
+                    return Some(json!({"jsonrpc": "2.0", "id": id, "result":
+                        {"content": [{"type": "text", "text": text}], "isError": true}}));
+                }
+                if let Some(path) = args.get("path").and_then(Value::as_str) {
+                    if let Err(text) = crate::revision::within_roots(path, roots) {
+                        return Some(json!({"jsonrpc": "2.0", "id": id, "result":
+                            {"content": [{"type": "text", "text": text}], "isError": true}}));
+                    }
+                }
+            }
+            if REVISION_TOOLS.contains(&name) {
+                let outcome = if revisions_offered(session, config) {
+                    call_revision(config, session, name, &args)
+                } else {
+                    Err(format!("{name} : outil réservé aux clients qui affichent les vues d'Atelier (Claude Desktop)."))
+                };
+                let result = match outcome {
+                    Ok(full) => full,
+                    Err(text) => {
+                        json!({"content": [{"type": "text", "text": text}], "isError": true})
+                    }
+                };
+                return Some(json!({"jsonrpc": "2.0", "id": id, "result": result}));
+            }
             let outcome = if config.read_only && !is_read_only_tool(name) {
                 Err(format!(
                     "{name} : outil indisponible, ce serveur est en lecture seule (ATELIER_ANNOTS_READONLY)."
@@ -114,6 +208,294 @@ list_codes donne l'arbre, les effectifs et le mémo de chaque code (ce que le co
 et des passages recopiés mot pour mot (read_article d'abord). Ce sont des propositions : l'utilisateur les garde \
 ou les retire dans Atelier. create_code : seulement sur demande.";
 
+const INSTRUCTIONS_REVISION: &str =
+    "Révision de fichiers LaTeX (.tex) de l'utilisateur, avec la carte d'Atelier :\n\
+- open_tex_file : quand l'utilisateur veut ouvrir, voir, relire ou annoter un .tex dans la conversation. \
+La carte lui permet de sélectionner et noter des passages ; il te les envoie ensuite dans un message, \
+passage recopié mot pour mot : réponds par propose_revision pour chacun (quote = ce passage), en suivant sa note.\n\
+- get_selection : le passage que l'utilisateur a sélectionné dans l'éditeur LaTeX d'Atelier (fichier, lignes, texte \
+exact). L'appeler dès qu'il parle de « ma sélection » ou de « ce passage » ; son texte sert tel quel de quote pour \
+propose_revision avec le fichier indiqué.\n\
+- read_tex_file : lire un .tex (chemin absolu), lignes numérotées, par tranches (from_line, lines).\n\
+- propose_revision : SEULEMENT quand l'utilisateur demande de réécrire, resserrer ou corriger un passage. \
+Ne jamais écrire dans le fichier autrement. quote = le passage actuel recopié mot pour mot (read_tex_file d'abord), \
+text = le passage réécrit en LaTeX, reason = une phrase en français. Une proposition par paragraphe ; plusieurs \
+paragraphes = plusieurs appels. La carte montre l'avant / après à l'utilisateur, qui accepte ou refuse : \
+ne pas recopier la proposition en texte dans la réponse, ne pas annoncer qu'elle est appliquée.\n\
+- get_figure_notes : les notes que l'utilisateur a posées sur une figure (cadre ou point numéroté) et t'a envoyées \
+depuis l'éditeur, avec la figure annotée. L'appeler dès qu'il parle de ses notes ou annotations sur une figure ; \
+répondre à chaque note par son numéro.";
+
+const REVISION_TOOLS: [&str; 19] = [
+    "open_tex_file",
+    "get_selection",
+    "read_tex_file",
+    "propose_revision",
+    "apply_revision",
+    "undo_revision",
+    "load_tex_file",
+    "save_tex_file",
+    "list_tex_project",
+    "list_revisions",
+    "resolve_revision",
+    "compile_tex",
+    "render_pdf_page",
+    "list_tex_versions",
+    "load_tex_version",
+    "list_tex_figures",
+    "render_figure",
+    "save_figure_notes",
+    "get_figure_notes",
+];
+
+fn revisions_offered(session: &Session, config: &Config) -> bool {
+    session.ui && !config.read_only
+}
+
+fn call_revision(
+    config: &Config,
+    session: &Session,
+    name: &str,
+    args: &Value,
+) -> Result<Value, String> {
+    let roots = session.remote_roots.as_deref();
+    match name {
+        "open_tex_file" => crate::revision::open_tex(args),
+        "get_selection" => {
+            let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            crate::revision::get_selection(&home, now)
+                .map(|text| json!({"content": [{"type": "text", "text": text}], "isError": false}))
+        }
+        "read_tex_file" => crate::revision::read_tex_file(args)
+            .map(|text| json!({"content": [{"type": "text", "text": text}], "isError": false})),
+        "propose_revision" => crate::project::propose(&config.app_dir, args),
+        "apply_revision" => crate::project::apply(&config.app_dir, args, false),
+        "undo_revision" => crate::project::apply(&config.app_dir, args, true),
+        "load_tex_file" => crate::revision::load_for_edit(args),
+        "save_tex_file" => crate::revision::save_from_editor(&config.app_dir, args),
+        "list_tex_project" => crate::project::list(args, roots),
+        "list_revisions" => crate::project::list_revisions(&config.app_dir, args, roots),
+        "resolve_revision" => crate::project::resolve(&config.app_dir, args, roots),
+        "compile_tex" => crate::compile::compile(args),
+        "render_pdf_page" => crate::compile::render_page(args),
+        "list_tex_versions" => crate::revision::list_versions(&config.app_dir, args),
+        "load_tex_version" => crate::revision::load_version(&config.app_dir, args),
+        "list_tex_figures" => crate::figures::list(&config.app_dir, args, roots),
+        "render_figure" => crate::figures::render(args),
+        "save_figure_notes" => crate::figures::save(&config.app_dir, args),
+        "get_figure_notes" => crate::figures::get(&config.app_dir, args, roots),
+        _ => Err(format!("outil inconnu : {name}")),
+    }
+}
+
+fn revision_tools() -> Value {
+    let path = json!({"type": "string", "description": "Chemin absolu du fichier .tex."});
+    let app_args = json!({
+        "type": "object",
+        "properties": {"path": path, "quote": {"type": "string"}, "text": {"type": "string"}},
+        "required": ["path", "quote", "text"],
+    });
+    let app_only = json!({"ui": {"visibility": ["app"]}});
+    json!([
+        {
+            "name": "open_tex_file",
+            "title": "Ouvrir un .tex dans Atelier",
+            "description": "Ouvre un fichier .tex (chemin absolu) dans une carte d'Atelier où l'utilisateur le lit, sélectionne et note des passages, puis te les envoie. À appeler quand il veut ouvrir, voir, relire ou annoter un .tex dans la conversation. N'écrit rien.",
+            "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": {"ui": {"resourceUri": crate::app_view::READER_URI}, "ui/resourceUri": crate::app_view::READER_URI},
+        },
+        {
+            "name": "get_selection",
+            "title": "Lire ma sélection dans Atelier",
+            "description": "Le passage que l'utilisateur a sélectionné dans l'éditeur LaTeX d'Atelier : fichier (chemin absolu), lignes, texte exact. À appeler quand il parle de « ma sélection », « ce passage », « ce que j'ai sélectionné ».",
+            "inputSchema": {"type": "object", "properties": {}},
+            "annotations": {"readOnlyHint": true},
+        },
+        {
+            "name": "read_tex_file",
+            "title": "Lire un fichier LaTeX",
+            "description": "Lit un fichier .tex (chemin absolu), lignes numérotées. 400 lignes par défaut ; from_line et lines (2000 au plus) pour une autre tranche.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": path,
+                "from_line": {"type": "integer", "minimum": 1},
+                "lines": {"type": "integer", "minimum": 1, "maximum": 2000},
+            }, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+        },
+        {
+            "name": "propose_revision",
+            "title": "Proposer une révision LaTeX",
+            "description": "Montre à l'utilisateur, dans une carte d'Atelier, une réécriture d'un passage d'un fichier .tex (avant / après, raison), avec Accepter et Refuser. Le fichier n'est modifié que s'il clique sur Accepter.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": path,
+                "quote": {"type": "string", "description": "Le passage actuel, recopié mot pour mot du fichier (une phrase ou un paragraphe)."},
+                "text": {"type": "string", "description": "Le passage réécrit, en LaTeX, qui remplacerait quote."},
+                "reason": {"type": "string", "description": "Pourquoi, en une phrase, en français."},
+            }, "required": ["path", "quote", "text", "reason"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": false},
+            "_meta": {"ui": {"resourceUri": crate::app_view::REVISION_URI}, "ui/resourceUri": crate::app_view::REVISION_URI},
+        },
+        {
+            "name": "apply_revision",
+            "title": "Écrire la révision acceptée",
+            "description": "Réservé à la carte d'Atelier : écrit la révision après le clic de l'utilisateur sur Accepter.",
+            "inputSchema": app_args,
+            "annotations": {"readOnlyHint": false, "destructiveHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "undo_revision",
+            "title": "Annuler la révision",
+            "description": "Réservé à la carte d'Atelier : remet le texte d'origine après un clic sur Annuler.",
+            "inputSchema": app_args,
+            "annotations": {"readOnlyHint": false, "destructiveHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "load_tex_file",
+            "title": "Charger un .tex dans l'éditeur",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : texte exact du fichier et son empreinte sha256.",
+            "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "save_tex_file",
+            "title": "Enregistrer le .tex modifié à la main",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : enregistre le texte tapé par l'utilisateur après son clic sur Enregistrer. Refusé si le fichier a changé depuis le chargement.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": path,
+                "text": {"type": "string", "description": "Contenu complet du fichier."},
+                "base_sha256": {"type": "string", "description": "Empreinte reçue de load_tex_file."},
+                "origin": {"type": "string", "enum": ["save", "restore"], "description": "restore : le texte vient d'une version de l'historique."},
+            }, "required": ["path", "text", "base_sha256"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "list_tex_project",
+            "title": "Lister les fichiers du projet",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : fichiers .tex, .bib, styles et figures du projet, et son fichier principal.",
+            "inputSchema": {"type": "object", "properties": {
+                "dir": {"type": "string", "description": "Chemin absolu du dossier ; absent : les dossiers ouverts au connecteur."},
+            }},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "list_revisions",
+            "title": "Propositions en attente",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : propositions de révision pas encore acceptées ni refusées.",
+            "inputSchema": {"type": "object", "properties": {"path": path}},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "resolve_revision",
+            "title": "Accepter ou refuser une proposition",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : écrit la proposition après le clic de l'utilisateur sur Accepter, ou la retire après Refuser.",
+            "inputSchema": {"type": "object", "properties": {
+                "id": {"type": "string", "description": "Identifiant reçu de list_revisions."},
+                "accept": {"type": "boolean", "description": "true : écrire la révision ; false : la retirer."},
+            }, "required": ["id", "accept"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "compile_tex",
+            "title": "Compiler le projet LaTeX",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : compile le fichier principal avec latexmk (sans shell-escape) et rend les erreurs et avertissements avec fichier et ligne.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu du .tex principal."},
+                "force": {"type": "boolean", "description": "true : tout recompiler (latexmk -g)."},
+            }, "required": ["path"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "render_pdf_page",
+            "title": "Page du PDF compilé",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : une page du PDF en image PNG pour l'aperçu.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu du PDF."},
+                "page": {"type": "integer", "minimum": 1},
+                "width": {"type": "integer", "minimum": 200, "maximum": 2400},
+            }, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "list_tex_versions",
+            "title": "Historique d'un fichier",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : les versions gardées d'un fichier (avant chaque enregistrement et chaque proposition acceptée), les plus récentes d'abord.",
+            "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "load_tex_version",
+            "title": "Texte d'une version gardée",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : le texte d'une version de l'historique, pour la comparer ou la restaurer.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": path,
+                "id": {"type": "string", "description": "Identifiant reçu de list_tex_versions."},
+            }, "required": ["path", "id"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "list_tex_figures",
+            "title": "Figures du projet",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : les figures d'un dossier de projet, le fichier et la ligne où chacune est citée (\\includegraphics), et les notes posées dessus.",
+            "inputSchema": {"type": "object", "properties": {
+                "dir": {"type": "string", "description": "Chemin absolu du dossier du projet."},
+            }, "required": ["dir"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "render_figure",
+            "title": "Aperçu d'une figure",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : une figure du projet (PDF, PNG, JPEG, SVG) en image, réduite à width pixels.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu de la figure."},
+                "width": {"type": "integer", "minimum": 80, "maximum": 2400},
+                "page": {"type": "integer", "minimum": 1},
+            }, "required": ["path"]},
+            "annotations": {"readOnlyHint": true},
+            "_meta": app_only,
+        },
+        {
+            "name": "save_figure_notes",
+            "title": "Garder les notes d'une figure",
+            "description": "Réservé à l'éditeur d'Atelier (artefact) : remplace les notes (cadre ou point, texte) posées sur une figure ; send les envoie à Claude avec l'image annotée. Rangées dans le dossier d'Atelier, jamais dans le projet.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu de la figure."},
+                "notes": {"type": "array", "items": {"type": "object"}},
+                "send": {"type": "boolean"},
+                "image": {"type": "string", "description": "La figure annotée, PNG ou JPEG en base64."},
+                "uses": {"type": "array", "items": {"type": "object"}},
+            }, "required": ["path", "notes"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": false},
+            "_meta": app_only,
+        },
+        {
+            "name": "get_figure_notes",
+            "title": "Lire mes notes sur une figure",
+            "description": "Les notes que l'utilisateur a posées sur une figure de son projet LaTeX (onglet Figures de l'éditeur) et t'a envoyées : la figure annotée en image, chaque note numérotée avec sa place, et où la figure est citée. À appeler quand il parle de ses notes sur une figure, de « la figure que je t'ai envoyée » ou de « mes annotations ». Sans path : les derniers envois.",
+            "inputSchema": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "Chemin absolu d'une figure précise (facultatif)."},
+            }},
+            "annotations": {"readOnlyHint": true},
+        },
+    ])
+}
+
 /// Consigne du mode lecture seule (relecteur d'Atelier) : rien sur le
 /// surlignage ni le codage, que le serveur n'annonce pas dans ce mode.
 const INSTRUCTIONS_LECTURE: &str =
@@ -137,9 +519,22 @@ fn is_read_only_tool(name: &str) -> bool {
     })
 }
 
-/// Outils annoncés au client : tous, ou seulement ceux qui lisent.
-fn offered_tools(config: &Config) -> Value {
-    let all = tools();
+/// Outils annoncés au client : tous, ou seulement ceux qui lisent. Les
+/// outils de révision LaTeX s'ajoutent pour un client qui affiche les vues.
+fn offered_tools(session: &Session, config: &Config) -> Value {
+    if session.remote_roots.is_some() {
+        return if revisions_offered(session, config) {
+            revision_tools()
+        } else {
+            json!([])
+        };
+    }
+    let mut all = tools();
+    if revisions_offered(session, config) {
+        if let (Some(list), Some(extra)) = (all.as_array_mut(), revision_tools().as_array()) {
+            list.extend(extra.iter().cloned());
+        }
+    }
     if !config.read_only {
         return all;
     }
@@ -1579,5 +1974,131 @@ mod tests {
             json!({"article": "ABCD1234", "all": true}),
         );
         assert!(is_error && text.contains("Rien à changer"), "{text}");
+    }
+    #[test]
+    fn revision_tools_need_a_ui_client() {
+        let (dir, config) = setup();
+        // Client sans vues (Claude Code, relecteur) : ni outils ni ressource.
+        let mut plain = Session::default();
+        let init = handle_in(
+            &mut plain,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {}}}),
+        )
+        .unwrap();
+        assert_eq!(init["result"]["capabilities"]["resources"], json!({}));
+        let list = handle_in(
+            &mut plain,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        )
+        .unwrap();
+        let names: Vec<&str> = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert!(!names.contains(&"propose_revision"));
+        let res = handle_in(
+            &mut plain,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 3, "method": "resources/list"}),
+        )
+        .unwrap();
+        assert_eq!(res["result"]["resources"], json!([]));
+        let tex = dir.path().join("ch.tex");
+        std::fs::write(&tex, "Old sentence here.\n").unwrap();
+        let apply = handle_in(&mut plain, &config, &json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+            "params": {"name": "apply_revision", "arguments": {"path": tex, "quote": "Old sentence here.", "text": "New."}}})).unwrap();
+        assert_eq!(apply["result"]["isError"], true);
+        assert_eq!(
+            std::fs::read_to_string(&tex).unwrap(),
+            "Old sentence here.\n"
+        );
+
+        // Claude Desktop : annonce l'extension ui.
+        let mut ui = Session::default();
+        let init = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {"extensions":
+                {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}}}}),
+        )
+        .unwrap();
+        assert!(init["result"]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("propose_revision"));
+        let list = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        )
+        .unwrap();
+        let tools = list["result"]["tools"].as_array().unwrap();
+        let propose = tools
+            .iter()
+            .find(|t| t["name"] == "propose_revision")
+            .unwrap();
+        assert_eq!(
+            propose["_meta"]["ui"]["resourceUri"],
+            "ui://atelier/revision"
+        );
+        let apply_tool = tools
+            .iter()
+            .find(|t| t["name"] == "apply_revision")
+            .unwrap();
+        assert_eq!(apply_tool["_meta"]["ui"]["visibility"], json!(["app"]));
+        let res = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 3, "method": "resources/read",
+            "params": {"uri": "ui://atelier/revision"}}),
+        )
+        .unwrap();
+        let content = &res["result"]["contents"][0];
+        assert_eq!(content["mimeType"], "text/html;profile=mcp-app");
+        assert!(content["text"].as_str().unwrap().contains("AtelierExtApps"));
+        let missing = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 4, "method": "resources/read",
+            "params": {"uri": "ui://atelier/autre"}}),
+        )
+        .unwrap();
+        assert!(missing["error"].is_object());
+
+        let proposed = handle_in(&mut ui, &config, &json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+            "params": {"name": "propose_revision", "arguments": {"path": tex, "quote": "Old sentence here.", "text": "New.", "reason": "Plus court."}}})).unwrap();
+        assert_eq!(proposed["result"]["structuredContent"]["line"], 1);
+        assert_eq!(
+            std::fs::read_to_string(&tex).unwrap(),
+            "Old sentence here.\n"
+        );
+        let applied = handle_in(&mut ui, &config, &json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+            "params": {"name": "apply_revision", "arguments": {"path": tex, "quote": "Old sentence here.", "text": "New."}}})).unwrap();
+        assert_eq!(applied["result"]["isError"], false);
+        assert_eq!(std::fs::read_to_string(&tex).unwrap(), "New.\n");
+    }
+
+    #[test]
+    fn read_only_mode_never_offers_revisions() {
+        let (_dir, mut config) = setup();
+        config.read_only = true;
+        let mut ui = Session { ui: true, remote_roots: None };
+        let list = handle_in(
+            &mut ui,
+            &config,
+            &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        )
+        .unwrap();
+        assert!(!list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["name"] == "propose_revision"));
     }
 }

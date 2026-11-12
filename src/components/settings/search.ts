@@ -25,6 +25,17 @@ export const SEARCH_LABELS: Record<SectionId, readonly I18nKey[]> = {
     "settings.pasted-images",
     "settings.remote-devices",
   ],
+  claude: [
+    "settings.claude-connector",
+    "settings.claude-access",
+    "settings.claude-url",
+    "settings.claude-folders",
+    "settings.claude-add-folder",
+    "settings.claude-security",
+    "settings.claude-code",
+    "settings.claude-disconnect",
+    "settings.claude-activity",
+  ],
   environnement: [
     "settings.group.agents",
     "settings.group.tools",

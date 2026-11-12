@@ -236,7 +236,7 @@ fn tailscale_ip() -> Result<IpAddr, String> {
     Err("Tailscale n'est pas connecté sur ce Mac".into())
 }
 
-fn tailscale_dns_name() -> Option<String> {
+pub(crate) fn tailscale_dns_name() -> Option<String> {
     let candidates = [
         "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
         "/opt/homebrew/bin/tailscale",
@@ -311,7 +311,7 @@ fn parse_listener_pids(output: &str, bind: &str) -> Vec<u32> {
     }
     found
 }
-fn listener_pids(bind: &str) -> Result<Vec<u32>, String> {
+pub(crate) fn listener_pids(bind: &str) -> Result<Vec<u32>, String> {
     let addr: SocketAddr = bind.parse().map_err(|_| "Adresse de passerelle invalide")?;
     let output = Command::new("/usr/sbin/lsof")
         .args(["-nP", "-a", &format!("-iTCP:{}", addr.port()), "-sTCP:LISTEN", "-Fpn"])

@@ -145,3 +145,95 @@ une citation contre son PDF ; il n'autorise en plus que `read_article` et
 déclarée ci-dessus pour Claude Desktop, puis `rust/target/` du dépôt. Sans
 binaire trouvé, la relecture se fait sans les articles et une citation reste
 « non concluante ».
+
+## Révisions LaTeX dans la conversation (prototype « MCP App »)
+
+Quand le client sait afficher les vues « MCP App » (Claude Desktop annonce
+l'extension `io.modelcontextprotocol/ui` à `initialize` ; `ATELIER_MCP_UI=1`
+le force), le serveur offre en plus :
+
+| Outil | Usage |
+| --- | --- |
+| `open_tex_file` | ouvre un .tex dans la carte « lecteur » d'Atelier (`ui://atelier/reader`) : l'utilisateur y sélectionne et note des passages, puis « Envoyer à Claude » remplit la barre de message avec chaque passage recopié mot pour mot et sa note ; Claude répond par `propose_revision`. N'écrit rien |
+| `get_selection` | le passage sélectionné dans l'éditeur LaTeX d'Atelier (`~/.claude/fig-selection.json`, publié par la galerie via `/selinfo`) : fichier, lignes, texte exact. Geste : sélectionner dans Atelier, puis écrire « révise ma sélection » dans Claude Desktop |
+| `read_tex_file` | lit un .tex (chemin absolu), lignes numérotées, par tranches |
+| `propose_revision` | `path`, `quote` (passage actuel, mot pour mot), `text` (réécriture), `reason` : n'écrit **rien** ; Claude Desktop affiche la carte d'Atelier (`ui://atelier/revision`) avec l'avant / après et Accepter / Refuser |
+| `apply_revision`, `undo_revision` | réservés à la carte (`_meta.ui.visibility: ["app"]`) : écrivent seulement après un clic sur Accepter ou Annuler |
+
+Sécurité : le passage doit exister une seule fois (les blancs et retours à
+la ligne peuvent différer) ; il est revérifié au clic, et une copie du
+fichier d'avant est gardée dans `$ATELIER_APP_DIR/mcp-revisions/` (les 100
+dernières). Un client sans vues (Claude Code, relecteur d'Atelier en lecture
+seule) ne voit ni ces outils ni la ressource.
+
+La page de la carte est `rust/crates/atelier-annots-mcp/view/revision.html` ;
+son script client (SDK navigateur des MCP Apps) est vendorisé dans
+`vendor/ext-apps/` et inclus dans la page : rien n'est chargé du réseau.
+Refuser propose « Demander une autre version », qui met une demande dans la
+barre de message de Claude (jamais envoyée sans l'utilisateur).
+
+## Connecteur distant pour claude.ai (`--http`, prototype)
+
+Dans les conversations « unifiées » de Claude Desktop (chat et Cowork), les
+serveurs MCP locaux passent par un relais vers claude.ai qui ne transmet pas
+les cartes (`_meta.ui`). Pour avoir les cartes d'Atelier et le panneau
+latéral, le même binaire sert aussi de **connecteur distant** :
+
+```sh
+atelier-annots-mcp --set-code          # une fois : le code tapé pour connecter Claude (8 caractères au moins)
+tailscale funnel --bg 8791             # une fois : adresse publique https → 127.0.0.1:8791
+```
+
+**Atelier lance lui-même le connecteur** (`src-tauri/src/claude_connector.rs`)
+à chaque démarrage, sur 127.0.0.1:8791, avec l'adresse Tailscale du Mac ; il
+remplace un connecteur d'une version précédente (ou lancé à la main) et
+survit à la fermeture de l'app. Réglage :
+`$ATELIER_APP_DIR/claude-connector/config.json`,
+`{"enabled": true, "roots": ["~/Documents/These"]}`. Sans réglage, il est
+lancé seulement si Claude a déjà été relié (`state.json` présent).
+`roots` est relu à chaque requête : aucun fichier n'est servi tant qu'aucun
+dossier n'y figure. Journal : `claude-connector/connector.log`. À la main,
+pour essayer : `ATELIER_CONNECTOR_URL=https://<mac>.<tailnet>.ts.net
+ATELIER_CONNECTOR_ROOTS=<dossier> atelier-annots-mcp --http 8791`.
+
+Puis, dans Claude : Réglages, Connecteurs, « Ajouter un connecteur
+personnalisé », adresse `https://<mac>.<tailnet>.ts.net/mcp`. Claude ouvre la
+page d'Atelier où l'on tape son code.
+
+- Écoute seulement sur 127.0.0.1 ; Streamable HTTP (réponses JSON, pas de flux SSE).
+- OAuth 2.1 minimal (`src/oauth.rs`) : enregistrement dynamique limité aux
+  adresses de retour de Claude, PKCE S256, code d'autorisation à usage unique
+  (2 min), jeton d'accès 1 h, renouvellement 60 jours remplacé à chaque usage ;
+  seules les empreintes SHA-256 sont gardées
+  (`$ATELIER_APP_DIR/claude-connector/state.json`, droits 600). Cinq codes
+  faux bloquent la page quinze minutes. `--set-code` retire les connexions accordées.
+- Seuls les outils LaTeX (`open_tex_file`, `get_selection`, `read_tex_file`,
+  `propose_revision`, `apply_revision`, `undo_revision`, et ceux réservés à
+  l'éditeur de l'artefact ci-dessous), sur des fichiers sous les dossiers du
+  réglage (ou `ATELIER_CONNECTOR_ROOTS`, chemins séparés par `:`).
+- Les appels de Claude (`/mcp`, `/token`, `/register`) doivent venir des
+  adresses d'Anthropic (`ATELIER_CONNECTOR_ALLOW`, défaut `160.79.104.0/21`)
+  quand le tunnel transmet `X-Forwarded-For`.
+- Le Mac doit être allumé.
+
+### Éditeur LaTeX dans un artefact claude.ai
+
+`view/editor-artifact.html` est un artefact publié (capacité `mcp`, serveur
+« Atelier ») : le projet LaTeX du Mac s'ouvre à droite de la conversation,
+avec arbre des fichiers, plan, onglets, recherche, changements mot à mot,
+propositions de Claude dans le texte (Accepter / Refuser), compilation et
+aperçu PDF. Il appelle des outils réservés aux vues (`_meta.ui.visibility
+["app"]`), invisibles du modèle :
+
+| Outil | Rôle |
+| --- | --- |
+| `load_tex_file` / `save_tex_file` | lire et écrire un .tex, .bib, .sty, .cls, .bst, .ltx, .tikz (écriture refusée si le fichier a changé) |
+| `list_tex_project` | fichiers des dossiers ouverts et fichier principal (celui qui inclut les autres) |
+| `list_revisions` / `resolve_revision` | propositions de Claude en attente ; accepter ou refuser |
+| `compile_tex` | latexmk dans le dossier du principal, sans `\write18` (`-no-shell-escape` même si un latexmkrc le demande), 180 s au plus ; erreurs et avertissements avec fichier et ligne, lus dans le `.log` (`-file-line-error`) |
+| `render_pdf_page` | une page du PDF en PNG (gris si la page n'a pas de couleur), rendue par PDFium dans un processus enfant (`--render-page`) |
+
+Après une version qui ajoute des outils : relancer le connecteur (Atelier le
+fait à son démarrage), puis actualiser la liste d'outils du connecteur dans
+claude.ai (Réglages, Connecteurs, Atelier). Sinon l'artefact reçoit
+`blocked_by_policy`.
