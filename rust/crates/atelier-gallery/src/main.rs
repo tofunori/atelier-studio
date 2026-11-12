@@ -2246,6 +2246,8 @@ async fn rebuild_locked(
     match result {
         Ok(Ok(built)) => {
             *revision.write().await += 1;
+            // Une figure réécrite garde sa version d'avant dans l'historique.
+            figure_versions::capture_catalog_in_background(root.to_path_buf());
             current.last_build_at = Some(now());
             current.error = None;
             RebuildOutcome {
@@ -2792,7 +2794,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/claude-event", post(gallery::post_agent_event))
         // Phase 3 — Git + historique de versions
         .route("/githead", get(git::githead))
-        .route("/figure-versions", post(figure_versions::snapshot))
+        .route("/figure-history", post(figure_versions::figure_history))
         .route("/figure-version", get(figure_versions::image))
         .route("/gitlog", get(git::gitlog))
         .route("/gitshow", get(git::gitshow))

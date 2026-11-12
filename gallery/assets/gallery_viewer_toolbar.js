@@ -21,8 +21,6 @@
   get('lbAdd').innerHTML = chat + '<span class="viewer-label">Joindre</span>';
   get('lbAnnot').insertAdjacentHTML('beforeend', '<span class="viewer-label">Annoter</span>');
   get('lbClose').innerHTML = svg('<path d="m6 6 12 12M6 18 18 6"/>');
-  get('lbVersionPrev').innerHTML = svg('<path d="m14 6-6 6 6 6"/>');
-  get('lbVersionNext').innerHTML = svg('<path d="m10 6 6 6-6 6"/>');
   const palette = get('annotBar');
   viewer.append(palette);
   const caption=document.createElement('div');caption.id='lbFigureCaption';viewer.append(caption);
@@ -58,14 +56,6 @@
   get('lbOverflowInfo').insertAdjacentText('beforeend', 'Informations');
   const syncAdd = () => (get('lbOverflowAdd')                    ).disabled = (get('lbAdd')                    ).disabled;
   new MutationObserver(syncAdd).observe(get('lbAdd'), {attributes:true,attributeFilter:['disabled']}); syncAdd();
-  // At very narrow widths the arrows move into the menu; version remains visible.
-  const versionActions = document.createElement('div'); versionActions.id = 'lbOverflowVersions';
-  more.querySelector                ('div').prepend(versionActions);
-  versionActions.append(proxy('lbOverflowPrev','lbVersionPrev','Version précédente'), proxy('lbOverflowNext','lbVersionNext','Version suivante'));
-  get('lbOverflowPrev').insertAdjacentText('beforeend','Version précédente');
-  get('lbOverflowNext').insertAdjacentText('beforeend','Version suivante');
-  const syncVersions = () => {for(const [a,b] of [['lbOverflowPrev','lbVersionPrev'],['lbOverflowNext','lbVersionNext']])(get(a)                    ).disabled=(get(b)                    ).disabled;};
-  for(const id of ['lbVersionPrev','lbVersionNext'])new MutationObserver(syncVersions).observe(get(id),{attributes:true,attributeFilter:['disabled']});syncVersions();
   more.querySelector                ('div').append(button('lbResetView','Réinitialiser la vue','Réinitialiser la vue',()=>{lbSetZoom(1);more.open=false;}));
   for(const details of [zoom,more,(get('annotShapes')                      )])details.addEventListener('toggle',()=>{
     if(details.open)for(const other of [zoom,more,(get('annotShapes')                      )])if(other!==details)other.open=false;

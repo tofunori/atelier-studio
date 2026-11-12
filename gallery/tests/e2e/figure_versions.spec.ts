@@ -31,7 +31,7 @@ test('responsive toolbar keeps real actions reachable and fullscreen icons after
     await page.locator('#lb').evaluate((el,w)=>el.style.setProperty('--lb-width',w+'px'),width);
     await expect.poll(()=>page.locator('#lbHead').evaluate(el=>{
       const bounds=el.getBoundingClientRect();
-      return el.scrollWidth<=el.clientWidth && [...el.querySelectorAll(':scope > button, :scope > #lbVersions > button, :scope > details > summary')].filter(b=>b.getBoundingClientRect().width).every(b=>{const r=b.getBoundingClientRect();return r.left>=bounds.left&&r.right<=bounds.right;});
+      return el.scrollWidth<=el.clientWidth && [...el.querySelectorAll(':scope > button, :scope > details > summary')].filter(b=>b.getBoundingClientRect().width).every(b=>{const r=b.getBoundingClientRect();return r.left>=bounds.left&&r.right<=bounds.right;});
     })).toBe(true);
     await expect(page.locator('#lbFs')).toBeVisible();
     await expect(page.locator('#lbClose')).toBeVisible();
@@ -59,7 +59,7 @@ test('responsive toolbar keeps real actions reachable and fullscreen icons after
     await page.locator('#lb').evaluate(el=>el.classList.remove('fs-ui'));
     await expect(page.locator('#lbHead')).toBeVisible();
     expect(await page.locator('#lbHead').evaluate(el=>{
-      const first=el.querySelector(':scope > button, :scope > #lbVersions');
+      const first=el.querySelector(':scope > button');
       return first.getBoundingClientRect().left-el.getBoundingClientRect().left;
     })).toBeGreaterThanOrEqual(104);
     await page.setViewportSize({width:280,height:700});
@@ -85,21 +85,29 @@ test('responsive toolbar keeps real actions reachable and fullscreen icons after
   expect(errors).toEqual([]);
 });
 
+const ver=(page)=>page.locator('#lbHistBtn .lbh-v');
+const tile=(page,version: number)=>page.locator('#lbStrip .lbs-tile[data-version="'+version+'"]');
 test('open figure updates from disk, keeps immutable versions and version-specific annotations',async({page,request},testInfo)=>{
   await page.goto(origin);
   const png=async(color: string)=>Buffer.from(await page.evaluate(color=>{const c=document.createElement('canvas');c.width=800;c.height=500;const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,800,500);return c.toDataURL('image/png').split(',')[1];},color),'base64');
   const first=await png('#bcdfeb'),second=await png('#e8caaa'),third=await png('#bce5bc');
   const file=path.join(root,'figure.png');fs.writeFileSync(file,first);
   await page.evaluate(async()=>{lbList=([{rel:'figure.png',name:'figure.png',ext:'png'}] as unknown as typeof lbList);await lbShow(0);await lbVersionReady;});
-  await expect(page.locator('#lbVersionCurrent')).toHaveText('v1');
+  await expect(ver(page)).toHaveText('v1');
+  // One version only: the band waits for a second one.
+  await expect(page.locator('#lbStrip')).toBeHidden();
   await page.evaluate(()=>lbSetZoom(1.5));
   // No rescan, gallery refresh or explicit polling call: the open viewer follows disk changes.
   fs.writeFileSync(file,second);
-  await expect(page.locator('#lbVersionCurrent')).toHaveText('v2',{timeout:8000});
+  await expect(ver(page)).toHaveText('v2',{timeout:8000});
+  await expect(page.locator('#lbStrip')).toBeVisible();
+  await expect(page.locator('#lbStrip .lbs-tile')).toHaveCount(2);
   expect(await page.evaluate(()=>lbZoomLevel)).toBe(1.5);
   expect(Buffer.from(await (await request.get(origin+'/figure-version?path=figure.png&version=1')).body())).toEqual(first);
-  await page.locator('#lbVersionPrev').click();
-  await expect(page.locator('#lbVersionCurrent')).toHaveText('v1');
+  const hash=await page.evaluate(()=>lbHistory.rows[0].hash);
+  expect(Buffer.from(await (await request.get(origin+'/figure-version?hash='+hash)).body())).toEqual(first);
+  await tile(page,1).click();
+  await expect(ver(page)).toHaveText('v1');
   const attached=await page.evaluate(async()=>{const send=postChatPayload;let payload;postChatPayload=async (value)=>{payload=value;};try{await lbAttachDisplayed();return payload;}finally{postChatPayload=send;}});
   expect(attached.text).toContain('Version affichée : v1');
   expect(attached.path).not.toBe('figure.png');
@@ -108,37 +116,92 @@ test('open figure updates from disk, keeps immutable versions and version-specif
   await page.evaluate(async()=>{await annotToggle();annotStrokes.push({id:'test-note',tool:'rect',x1:40,y1:40,x2:180,y2:100,n:1,note:'Ancienne version'});annotRemember();annotRedraw();});
   fs.writeFileSync(file,third);
   await expect.poll(()=>page.evaluate(()=>lbHistory.rows.at(-1)?.version),{timeout:8000}).toBe(3);
-  await expect(page.locator('#lbVersionCurrent')).toHaveText('v1');
-  await page.locator('#lbVersionCurrent').click();
-  await expect(page.locator('#lbVersionCurrent')).toHaveText('v3');
+  await expect(ver(page)).toHaveText('v1');
+  await tile(page,3).click();
+  await expect(ver(page)).toHaveText('v3');
   expect(await page.evaluate(()=>annotStrokes.length)).toBe(0);
-  await page.locator('#lbVersionPrev').click();await expect(page.locator('#lbVersionCurrent')).toHaveText('v2');
-  await page.locator('#lbVersionPrev').click();await expect(page.locator('#lbVersionCurrent')).toHaveText('v1');
+  // ← → walk the versions while the band has the focus.
+  await tile(page,3).focus();
+  await page.keyboard.press('ArrowLeft');await expect(ver(page)).toHaveText('v2');
+  await page.keyboard.press('ArrowLeft');await expect(ver(page)).toHaveText('v1');
+  await expect(tile(page,1)).toBeFocused();
   expect(await page.evaluate(()=>annotStrokes[0].note)).toBe('Ancienne version');
-  await page.locator('#lbVersionCurrent').click();await expect(page.locator('#lbVersionCurrent')).toHaveText('v3');
+  await page.keyboard.press('End');await expect(ver(page)).toHaveText('v3');
   // An unsent annotation pauses automatic switching; sending/clearing resumes it.
   await page.evaluate(()=>{annotStrokes.push({id:'pending',tool:'rect',x1:40,y1:40,x2:180,y2:100,n:1,note:'En cours'});annotRemember();annotRedraw();});
   fs.writeFileSync(file,second);
   await expect.poll(()=>page.evaluate(()=>lbHistory.rows.at(-1)?.version),{timeout:8000}).toBe(4);
-  await expect(page.locator('#lbVersionCurrent')).toHaveText('v3');
+  await expect(ver(page)).toHaveText('v3');
   await page.evaluate(()=>{annotStrokes=[];annotRemember();});
-  await expect(page.locator('#lbVersionCurrent')).toHaveText('v4',{timeout:8000});
+  await expect(ver(page)).toHaveText('v4',{timeout:8000});
+  await page.evaluate(()=>annotToggle());
   // Interrupted saves never replace the last valid image.
   fs.writeFileSync(file,first.subarray(0,20));
   await page.evaluate(()=>lbVersionsPoll());
-  await expect(page.locator('#lbVersionCurrent')).toHaveText('v4');
+  await expect(ver(page)).toHaveText('v4');
   await page.evaluate(()=>{annotBusy=true;return lbVersionNavigate(-1);});
   expect(await page.evaluate(()=>lbHistory.follow)).toBe(true);
   await page.evaluate(()=>annotBusy=false);
   fs.writeFileSync(file,second);
+  // Compare: A = an older version, B = the latest, slider then side by side.
+  await page.locator('#lbCompareBtn').click();
+  await expect(page.locator('#lbCompare')).toBeVisible();
+  await expect(page.locator('#lbViewport')).toBeHidden();
+  await expect(page.locator('#lbCmpB')).toContainText('B · v4');
+  await expect(page.locator('#lbCmpA')).toContainText('A · v3');
+  await tile(page,1).click();
+  await expect(page.locator('#lbCmpA')).toContainText('A · v1');
+  await expect(tile(page,1).locator('.lbs-mk')).toHaveText('A');
+  await expect(tile(page,4).locator('.lbs-mk')).toHaveText('B');
+  const split=page.locator('#lbCompare .lbc-split');
+  await expect.poll(()=>split.evaluate(el=>el.getBoundingClientRect().width)).toBeGreaterThan(100);
+  const box=await split.boundingBox();
+  await page.mouse.move(box.x+box.width*.25,box.y+box.height/2);await page.mouse.down();await page.mouse.up();
+  await expect(split.locator('.lbc-handle')).toHaveAttribute('aria-valuenow','25');
+  // Left of the handle shows A (first colour), right shows B (second colour).
+  await page.locator('#lbCompare .lbc-seg button[data-mode="side"]').click();
+  await expect(page.locator('#lbCompare .lbc-side figure')).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#lbCompare')).toBeHidden();
+  await expect(page.locator('#lb')).toHaveClass(/\bshow\b/);
   await page.reload();
   await page.evaluate(async()=>{lbList=([{rel:'figure.png',name:'figure.png',ext:'png'}] as unknown as typeof lbList);await lbShow(0);await lbVersionReady;});
-  await expect(page.locator('#lbVersionCurrent')).toHaveText('v4');
+  await expect(ver(page)).toHaveText('v4');
+  // The band can be closed and stays closed.
+  await page.locator('#lbHistBtn').click();
+  await expect(page.locator('#lbStrip')).toBeHidden();
+  await page.locator('#lbHistBtn').click();
+  await expect(page.locator('#lbStrip')).toBeVisible();
   await page.setViewportSize({width:734,height:797});
   expect(await page.locator('#lbHead').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath('figure-versions.png')});
-  expect((await request.post(origin+'/figure-versions?path=figure.png',{headers:{Origin:'https://untrusted.example'}})).status()).toBe(403);
-  expect((await request.post(origin+'/figure-versions?path='+encodeURIComponent('/etc/passwd'),{headers:{Origin:origin}})).status()).toBe(409);
+  const post=(paths: string[],from: string)=>request.post(origin+'/figure-history',{headers:{Origin:from},data:{paths}});
+  expect((await post(['figure.png'],'https://untrusted.example')).status()).toBe(403);
+  expect((await post(['/etc/passwd'],origin)).status()).toBe(409);
+});
+
+test('versions written while the viewer is closed are kept, copies share the history',async({page,request})=>{
+  await page.goto(origin);
+  const png=async(color: string)=>Buffer.from(await page.evaluate(color=>{const c=document.createElement('canvas');c.width=400;c.height=300;const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,400,300);return c.toDataURL('image/png').split(',')[1];},color),'base64');
+  const colors=['#bcdfeb','#e8caaa','#bce5bc'];
+  fs.mkdirSync(path.join(root,'manuscrit'),{recursive:true});
+  const lead=path.join(root,'plot.png'),copy=path.join(root,'manuscrit','plot.png');
+  const rescan=async()=>expect((await request.post(origin+'/rescan',{headers:{Origin:origin}})).ok()).toBe(true);
+  const stored=()=>page.evaluate(async()=>(await (await fetch('/figure-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:['plot.png']})})).json()).versions.length);
+  for(const [i,color] of colors.entries()){
+    fs.writeFileSync(lead,await png(color));
+    if(i===0)fs.copyFileSync(lead,copy);
+    await rescan();
+    // capture runs after the rebuild, off the request path
+    // (only the stored-image route is read here: asking for the history would capture)
+    await expect.poll(async()=>(await request.get(origin+'/figure-version?path=plot.png&version='+(i+1))).status(),{timeout:8000}).toBe(200);
+    await page.waitForTimeout(50);
+  }
+  expect(await stored()).toBe(3);
+  await page.evaluate(async()=>{lbList=([{rel:'plot.png',name:'plot.png',ext:'png',folder:'.'},{rel:'manuscrit/plot.png',name:'plot.png',ext:'png',folder:'manuscrit'}] as unknown as typeof lbList);figureGroups.set('plot.png',lbList);figureGroups.set('manuscrit/plot.png',lbList);await lbShow(0);await lbVersionReady;});
+  await expect(page.locator('#lbStrip .lbs-tile')).toHaveCount(3);
+  await expect(page.locator('#lbStrip .lbs-tile').nth(0).locator('.lbs-n')).toHaveText('copie du manuscrit');
+  await expect(page.locator('#lbStripSize')).toContainText('3 versions');
 });
 
 test('top-bar Gallery icon closes the open figure and returns to the grid',async({page})=>{

@@ -556,7 +556,7 @@ test('filters: archive copies stay hidden until the « Archives » switch is on'
   });
 });
 
-test('figure versions: one card per figure, the viewer lists the other files', async ({ page }) => {
+test('figure versions: one card per figure, the viewer shows its history with late copies', async ({ page }) => {
   // Vécu 2026-10-21 : figS_…pdf/.png dans figures/supp (ici .svg/.png, le PDF
   // étant masqué par défaut), leur copie pour LaTeX
   // dans manuscrit/figures/supp (une correction de retard) et la copie du
@@ -574,19 +574,22 @@ test('figure versions: one card per figure, the viewer lists the other files', a
 
     await pile.locator('[data-act="lb"]').click();
     await expect(page.locator('#lb')).toHaveClass(/show/);
-    await expect(page.locator('#lbImg')).toHaveAttribute('src', /(^|path=)figures(\/|%2F)supp(\/|%2F)figS_burn\.png/);
-    await page.locator('#lbFilesBtn').click();
-    const rows = page.locator('#lbFiles .lbf-row');
-    await expect(rows).toHaveCount(4);
-    await expect(rows.nth(0)).toContainText('la plus récente');
-    await expect(rows.nth(1)).toContainText('même version');
-    const late = page.locator('#lbFiles .lbf-row', { hasText: 'manuscrit/figures/supp' });
-    await expect(late.locator('.lbf-state')).toHaveText('en retard');
-    await expect(page.locator('#lbFiles .lbf-row', { hasText: 'images-generees' }).locator('.lbf-state')).toHaveText('copie du chat');
+    await expect.poll(() => page.evaluate(() => lbList[lbIdx].rel)).toBe('figures/supp/figS_burn.png');
+    // Une seule histoire pour la figure et sa copie du manuscrit (pas la copie
+    // annotée du chat) : la copie restée sur l'ancienne version le dit.
+    await expect(page.locator('#lbHistBtn')).toBeVisible();
+    const tiles = page.locator('#lbStrip .lbs-tile');
+    await expect(tiles).toHaveCount(2);
+    await expect(tiles.nth(1).locator('.lbs-n')).toHaveText('actuelle');
+    await expect(tiles.nth(1)).toHaveClass(/sel/);
+    await expect(tiles.nth(0).locator('.lbs-n')).toHaveText('copie du manuscrit');
+    await expect(tiles.nth(0).locator('.lbs-n')).toHaveClass(/warn/);
+    await expect(page.locator('#lbHistBtn .lbh-v')).toHaveText('v2');
     const position = await page.locator('#lbPosition').textContent();
-    await late.click();
-    await expect(page.locator('#lbImg')).toHaveAttribute('src', /(^|path=)manuscrit(\/|%2F)figures(\/|%2F)supp(\/|%2F)figS_burn\.png/);
-    // même place dans la navigation : on regarde un autre fichier de la même figure
+    await tiles.nth(0).click();
+    await expect(page.locator('#lbHistBtn .lbh-v')).toHaveText('v1');
+    await expect(page.locator('#lbImg')).toHaveAttribute('src', /^\/figure-version\?hash=[0-9a-f]{64}$/);
+    // même place dans la navigation : on regarde une autre version de la même figure
     await expect(page.locator('#lbPosition')).toHaveText(position);
     await page.keyboard.press('Escape');
     await page.keyboard.press('Escape');

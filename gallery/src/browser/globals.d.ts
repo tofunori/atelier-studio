@@ -26,6 +26,9 @@ declare global {
   var lbVersionReady: import('./pages/gallery_template_1').PageGlobals['lbVersionReady'];
   var lbVersionNavigate: import('./pages/gallery_template_1').PageGlobals['lbVersionNavigate'];
   var lbVersionsPoll: import('./pages/gallery_template_1').PageGlobals['lbVersionsPoll'];
+  var figureGroups: import('./pages/gallery_template_1').PageGlobals['figureGroups'];
+  var lbVersionGo: import('./pages/gallery_template_1').PageGlobals['lbVersionGo'];
+  var lbCompareSlide: import('./pages/gallery_template_1').PageGlobals['lbCompareSlide'];
   var lbAttachDisplayed: import('./pages/gallery_template_1').PageGlobals['lbAttachDisplayed'];
   var annotToggle: import('./pages/gallery_template_1').PageGlobals['annotToggle'];
   var annotRedraw: import('./pages/gallery_template_1').PageGlobals['annotRedraw'];
