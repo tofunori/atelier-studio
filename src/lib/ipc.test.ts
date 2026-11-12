@@ -47,6 +47,15 @@ describe("isTrustedAtelierMessage", () => {
       review: { ...review, extra: true } }), nonce)).toBe(false);
     expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "x",
       review: { doc: "/p/main.tex", mode: "open", done: false } }), nonce)).toBe(false);
+    // ses retouches : sa phrase avant/après, si elle s'applique, ou l'échec d'un geste
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "Modification 1 sur 64",
+      review: { ...review, mode: "edit", kind: "edit", edit: "apply", ready: true } }), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "",
+      review: { doc: "/p/main.tex", mode: "edit", error: "Le passage a changé depuis." } }), nonce)).toBe(true);
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "x",
+      review: { ...review, mode: "edit", ready: "oui" } }), nonce)).toBe(false);
+    expect(isTrustedAtelierMessage(msg(origin, { type: "atelier-review-comment", nonce, text: "",
+      review: { doc: "/p/main.tex", mode: "edit", error: "x", done: true } }), nonce)).toBe(false);
   });
 
   it("accepte atelier-open-tab avec url bornée et refuse sans url", () => {

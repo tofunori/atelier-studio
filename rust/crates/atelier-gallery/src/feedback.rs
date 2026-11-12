@@ -127,6 +127,61 @@ pub fn notes_of(
         });
         out.entry(key.clone()).or_default().push(note);
     }
+    // Ses modifications suivies, phrase par phrase (lot 2) : `kind: edit`,
+    // sa version en LaTeX prête à accepter quand le .tex n'a pas bougé ; ce
+    // qu'il a tapé en français devient un commentaire.
+    let short = &rev[..rev.len().min(8)];
+    for e in &feedback.edits {
+        let Some(key) = keys.get(e.place.file) else {
+            continue;
+        };
+        let initials = feedback
+            .comments
+            .iter()
+            .find(|c| c.author == e.author)
+            .map(|c| c.initials.clone())
+            .unwrap_or_else(|| {
+                e.author
+                    .split_whitespace()
+                    .filter_map(|w| w.chars().next())
+                    .collect()
+            });
+        let note_only = e.status == "note";
+        let mut review = json!({
+            "source": source,
+            "rev": rev,
+            "eid": e.n,
+            "date": e.date,
+            "initials": initials,
+            "quote": e.before,
+            "on": if note_only { "inserted" } else { "text" },
+            "kind": if note_only { "remark" } else { "edit" },
+            "fit": fit_name(e.place.fit),
+            "state": if e.status == "done" { "done" } else { "todo" },
+            "replies": [],
+        });
+        if !note_only {
+            review["edit"] = json!({
+                "status": e.status,
+                "before": e.before,
+                "after": e.after,
+                "diff": e.diff.iter().map(|(op, t)| json!([op, t])).collect::<Vec<_>>(),
+                "latex": e.latex,
+            });
+        }
+        let note = json!({
+            "id": format!("rv{short}-e{}", e.n),
+            "from": {"line": e.place.from.0, "ch": e.place.from.1},
+            "to": {"line": e.place.to.0, "ch": e.place.to.1},
+            "text": e.place.text,
+            "comment": e.after,
+            "by": REVIEWER_BY,
+            "author": e.author,
+            "at": imported,
+            "review": review,
+        });
+        out.entry(key.clone()).or_default().push(note);
+    }
     out
 }
 
@@ -225,12 +280,16 @@ pub fn status_of(store: &Map<String, Value>, root_key: &str) -> Value {
             notes.push(json!({
                 "path": path,
                 "id": note.get("id"),
+                "number": note.get("number"),
                 "line": note.pointer("/from/line").and_then(Value::as_u64).map(|l| l + 1),
                 "comment": note.get("comment"),
                 "author": note.get("author"),
                 "text": note.get("text"),
                 "state": review.get("state").and_then(Value::as_str).unwrap_or("todo"),
                 "kind": review.get("kind"),
+                "edit": review.pointer("/edit/status"),
+                "refused": review.get("refused").is_some_and(|v| v.as_u64().unwrap_or(0) > 0),
+                "accepted": review.get("accepted").is_some_and(|v| v.as_u64().unwrap_or(0) > 0),
                 "fit": review.get("fit"),
                 "rev": review.get("rev"),
                 "thread": thread,
@@ -241,8 +300,27 @@ pub fn status_of(store: &Map<String, Value>, root_key: &str) -> Value {
             }));
         }
     }
+    // Ses retouches de texte se comptent à part (« Ses modifications »).
+    let (edits, comments): (Vec<&Value>, Vec<&Value>) =
+        notes.iter().partition(|n| n["kind"] == "edit");
+    let edit_count = |status: &str| {
+        edits
+            .iter()
+            .filter(|n| n["state"] == "todo" && n["edit"] == status)
+            .count()
+    };
+    let edit_counts = json!({
+        "total": edits.len(),
+        "apply": edit_count("apply"),
+        "changed": edit_count("changed"),
+        "done": edits.iter().filter(|n| n["state"] == "done").count(),
+        "todo": edits.iter().filter(|n| n["state"] == "todo").count(),
+    });
+    let notes_all = notes.clone();
+    let notes: Vec<Value> = comments.into_iter().cloned().collect();
     let count = |state: &str| notes.iter().filter(|n| n["state"] == state).count();
     let counts = json!({
+        "edits": edit_counts,
         "total": notes.len(),
         "todo": count("todo"),
         "agenda": count("agenda"),
@@ -252,7 +330,7 @@ pub fn status_of(store: &Map<String, Value>, root_key: &str) -> Value {
         // passages retouchés depuis son retour que Claude n'a pas encore jugés
         "unassessed": notes.iter().filter(|n| n["state"] == "todo" && n["fit"] == "changed" && n["assessed"] == false).count(),
     });
-    json!({"ok": true, "rounds": rounds, "notes": notes, "counts": counts})
+    json!({"ok": true, "rounds": rounds, "notes": notes_all, "counts": counts})
 }
 
 #[derive(Deserialize)]
@@ -430,6 +508,12 @@ pub async fn import(
                     "changes": fb.changes,
                     "moves": fb.moves,
                     "formats": fb.formats,
+                    "edits": {
+                        "apply": fb.edits.iter().filter(|e| e.status == "apply").count(),
+                        "changed": fb.edits.iter().filter(|e| e.status == "changed").count(),
+                        "done": fb.edits.iter().filter(|e| e.status == "done").count(),
+                        "notes": fb.edits.iter().filter(|e| e.status == "note").count(),
+                    },
                     "on": {"equation": kinds("equation"), "figure": kinds("figure"), "inserted": kinds("inserted"), "point": kinds("point")},
                     "files": per_file.into_iter().map(|(path, notes)| json!({"path": path, "notes": notes})).collect::<Vec<_>>(),
                     "rounds": done.root_key,
@@ -529,7 +613,17 @@ fn comment_payload(path: &str, note: &Value, n: usize, total: usize) -> Value {
         "on": note.pointer("/review/on"),
         "state": state_of(note),
         "likely": note.pointer("/review/likely").cloned().unwrap_or(Value::Null),
+        "edit": note.pointer("/review/edit").map(|e| json!({
+            "status": e.get("status"),
+            "before": e.get("before"),
+            "after": e.get("after"),
+            "ready": e.get("latex").is_some_and(|l| !l.is_null()),
+        })),
     })
+}
+
+fn is_edit(note: &Value) -> bool {
+    note.pointer("/review/kind").and_then(Value::as_str) == Some("edit")
 }
 
 /// Commentaire demandé (`at`), sinon le prochain à faire après `after`
@@ -542,7 +636,19 @@ pub fn next_of(
     at: &str,
     mode: &str,
 ) -> Value {
-    let list = ordered(store, root_key);
+    // Ses retouches (`edit`) et ses commentaires se parcourent séparément.
+    let all = ordered(store, root_key);
+    let edits = match all
+        .iter()
+        .find(|(_, n)| !at.is_empty() && n.get("id").and_then(Value::as_str) == Some(at))
+    {
+        Some((_, n)) => is_edit(n),
+        None => mode == "edit",
+    };
+    let list: Vec<(String, Value)> = all
+        .into_iter()
+        .filter(|(_, n)| is_edit(n) == edits)
+        .collect();
     let total = list.len();
     let id_of = |note: &Value| {
         note.get("id")
@@ -633,6 +739,9 @@ pub struct StateBody {
     /// Le commentaire part dans le chat : « Dans le chat » sur le texte.
     #[serde(default)]
     chat: bool,
+    /// « Garder mon texte » sur une de ses retouches : sa version tombe.
+    #[serde(default)]
+    refused: bool,
 }
 
 /// Change l'état d'un commentaire du relecteur (ou le marque « dans le
@@ -709,9 +818,176 @@ pub async fn set_review_state(
                 body.state.as_deref(),
                 body.chat,
             )
-            .map(|changed| (json!({"ok": true}), changed))
+            .map(|changed| {
+                if body.refused {
+                    stamp(store, &body.file, &body.id, "refused");
+                }
+                (json!({"ok": true}), changed || body.refused)
+            })
         })
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
+    })
+    .await;
+    match result {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err((status, message))) => json_error(status, message),
+        Err(_) => json_error(StatusCode::INTERNAL_SERVER_ERROR, "écriture interrompue"),
+    }
+}
+
+/// Octet de (ligne, colonne UTF-16) dans `text`.
+fn offset_of(text: &str, line: usize, ch: usize) -> Option<usize> {
+    let start = if line == 0 {
+        0
+    } else {
+        text.match_indices('\n').nth(line - 1)?.0 + 1
+    };
+    let rest = &text[start..];
+    let mut units = 0;
+    for (i, c) in rest.char_indices() {
+        if units >= ch || c == '\n' {
+            return (units == ch).then_some(start + i);
+        }
+        units += c.len_utf16();
+    }
+    (units == ch).then_some(start + rest.len())
+}
+
+fn position_of(text: &str, byte: usize) -> (usize, usize) {
+    let before = &text[..byte];
+    let line = before.matches('\n').count();
+    let start = before.rfind('\n').map_or(0, |i| i + 1);
+    (line, text[start..byte].chars().map(char::len_utf16).sum())
+}
+
+/// Date un geste (`refused`, `accepted`) dans le `review` d'une note.
+fn stamp(store: &mut Map<String, Value>, file: &str, id: &str, field: &str) {
+    if let Some(review) = store
+        .get_mut(&format!("tex-comments:{file}"))
+        .and_then(Value::as_array_mut)
+        .and_then(|l| l.iter_mut().find(|n| n.get("id").and_then(Value::as_str) == Some(id)))
+        .and_then(|n| n.get_mut("review"))
+        .and_then(Value::as_object_mut)
+    {
+        review.insert(field.into(), json!(now_ms()));
+    }
+}
+
+/// Ce qu'« Accepter » écrit, comme l'éditeur (`reviewerSuggestion`) : la
+/// dernière correction de Claude non refusée (une fusion), sinon sa version
+/// prête à appliquer, sauf si elle a été refusée.
+fn edit_text(note: &Value) -> Option<String> {
+    let refused = note.pointer("/review/refused").and_then(Value::as_u64).unwrap_or(0);
+    let thread = note.get("thread").and_then(Value::as_array);
+    if let Some(message) = thread.and_then(|t| t.iter().rev().find(|m| m.pointer("/suggest/text").and_then(Value::as_str).is_some())) {
+        if refused >= message.get("at").and_then(Value::as_u64).unwrap_or(0) {
+            return None;
+        }
+        return message.pointer("/suggest/text").and_then(Value::as_str).map(str::to_string);
+    }
+    if refused > 0 {
+        return None;
+    }
+    note.pointer("/review/edit/latex").and_then(Value::as_str).map(str::to_string)
+}
+
+/// Accepte une de ses retouches dans un fichier que l'éditeur n'a pas
+/// ouvert : son passage, s'il n'a pas changé, devient sa version ; la note
+/// reste, réglée, sur le passage réécrit. Renvoie le nouveau texte du fichier.
+pub fn apply_edit(
+    store: &mut Map<String, Value>,
+    root_key: &str,
+    file: &str,
+    id: &str,
+    text: &str,
+) -> Result<String, String> {
+    if !ordered(store, root_key)
+        .iter()
+        .any(|(p, n)| p == file && n.get("id").and_then(Value::as_str) == Some(id) && is_edit(n))
+    {
+        return Err("retouche introuvable dans ce retour".into());
+    }
+    let note = store
+        .get_mut(&format!("tex-comments:{file}"))
+        .and_then(Value::as_array_mut)
+        .and_then(|l| {
+            l.iter_mut()
+                .find(|n| n.get("id").and_then(Value::as_str) == Some(id))
+        })
+        .ok_or("retouche introuvable")?;
+    let latex = edit_text(note).ok_or("cette retouche demande une fusion : rien à appliquer tel quel")?;
+    let quoted = note
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let at = |field: &str| {
+        note.pointer(field)
+            .and_then(Value::as_u64)
+            .map(|v| v as usize)
+    };
+    let start = match (at("/from/line"), at("/from/ch")) {
+        (Some(l), Some(c)) => offset_of(text, l, c),
+        _ => None,
+    };
+    let start = match start {
+        Some(s) if text[s..].starts_with(&quoted) => s,
+        // le passage a glissé (lignes ajoutées plus haut) : le retrouver seul
+        _ if !quoted.trim().is_empty() && text.matches(&quoted).count() == 1 => {
+            text.find(&quoted).unwrap_or(0)
+        }
+        _ => return Err("le passage a changé depuis son retour".into()),
+    };
+    let mut out = String::with_capacity(text.len() + latex.len());
+    out.push_str(&text[..start]);
+    out.push_str(&latex);
+    out.push_str(&text[start + quoted.len()..]);
+    let from = position_of(&out, start);
+    let to = position_of(&out, start + latex.len());
+    note["from"] = json!({"line": from.0, "ch": from.1});
+    note["to"] = json!({"line": to.0, "ch": to.1});
+    note["text"] = json!(latex);
+    if let Some(review) = note.get_mut("review").and_then(Value::as_object_mut) {
+        review.insert("state".into(), json!("done"));
+        review.insert("stateAt".into(), json!(now_ms()));
+        review.insert("accepted".into(), json!(now_ms()));
+    }
+    Ok(out)
+}
+
+#[derive(Deserialize)]
+pub struct ApplyBody {
+    path: String,
+    file: String,
+    id: String,
+}
+
+/// `POST /review/apply` — « Accepter » une retouche du relecteur depuis le
+/// chat, quand son fichier n'est pas celui de l'éditeur qui la porte.
+pub async fn apply(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ApplyBody>,
+) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let project = state.root.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<Value, (StatusCode, String)> {
+        let key = review_key(&project, &body.path).map_err(|e| (StatusCode::FORBIDDEN, e))?;
+        let target = safe_project_path(&project, &body.file)
+            .map_err(|_| (StatusCode::FORBIDDEN, "outside the project".to_string()))?;
+        let text =
+            std::fs::read_to_string(&target).map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+        let mut written = String::new();
+        pdf_annots::with_store(&project.join(".fig_thumbs"), |store| {
+            written = apply_edit(store, &key, &body.file, &body.id, &text)?;
+            Ok((json!({"ok": true}), true))
+        })
+        .map_err(|e| (StatusCode::CONFLICT, e))?;
+        std::fs::write(&target, &written)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        Ok(json!({"ok": true}))
     })
     .await;
     match result {
@@ -751,7 +1027,7 @@ mod tests {
         files.sort_by_key(|(rel, _)| (rel != "[Content_Types].xml", rel.clone()));
         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         for (rel, path) in files {
-            zip.start_file(rel, zip::write::SimpleFileOptions::default())
+            zip.start_file(rel, zip::write::SimpleFileOptions::default().last_modified_time(zip::DateTime::default()))
                 .unwrap();
             zip.write_all(&std::fs::read(path).unwrap()).unwrap();
         }
@@ -781,7 +1057,8 @@ mod tests {
         let root = dir.path();
         let main = root.join("main.tex").to_string_lossy().to_string();
         let done = run(root, &main, "revCK.docx", fixture_docx()).unwrap();
-        assert_eq!(done.added, 5);
+        // 5 commentaires + 2 de ses retouches, changées depuis dans le .tex
+        assert_eq!(done.added, 7);
         assert_eq!(done.known, 0);
         let store = pdf_annots::read(&root.join(".fig_thumbs")).unwrap();
         let section = format!(
@@ -789,7 +1066,28 @@ mod tests {
             root.join("sections/methods.tex").to_string_lossy()
         );
         let notes = store[&section].as_array().unwrap();
-        assert_eq!(notes.len(), 4);
+        assert_eq!(notes.len(), 6);
+        let edits: Vec<&Value> = notes
+            .iter()
+            .filter(|n| n["review"]["kind"] == "edit")
+            .collect();
+        assert_eq!(edits.len(), 2);
+        // ses mots autour d'une équation Word : prêt à accepter, l'équation
+        // du .tex gardée telle quelle ; « 70° » contre `$70^\circ$` : à fusionner
+        assert_eq!(edits[0]["review"]["edit"]["status"], "changed");
+        assert!(edits[0]["review"]["edit"]["latex"].is_null());
+        assert_eq!(edits[1]["review"]["edit"]["status"], "apply");
+        assert_eq!(
+            edits[1]["review"]["edit"]["latex"],
+            "The model is $x = a + b$ with care fitted to all zones."
+        );
+        assert_eq!(
+            edits[0]["id"],
+            format!(
+                "{}-e1",
+                notes[0]["id"].as_str().unwrap().split('-').next().unwrap()
+            )
+        );
         let first = notes.iter().find(|n| n["review"]["cid"] == 1).unwrap();
         assert_eq!(first["by"], REVIEWER_BY);
         assert_eq!(first["author"], "Christophe Kinnard");
@@ -813,14 +1111,102 @@ mod tests {
         let status = status_of(&store, &done.root_key);
         assert_eq!(status["counts"]["total"], 5);
         assert_eq!(status["counts"]["todo"], 5);
-        assert_eq!(status["notes"].as_array().unwrap().len(), 5);
+        assert_eq!(status["notes"].as_array().unwrap().len(), 7);
+        assert_eq!(status["counts"]["edits"]["apply"], 1);
+        assert_eq!(status["counts"]["edits"]["changed"], 1);
         assert_eq!(review_key(root, &main).unwrap(), done.root_key);
         // réimporter n'ajoute rien
         let again = run(root, &main, "revCK.docx", fixture_docx()).unwrap();
-        assert_eq!((again.added, again.known), (0, 5));
+        assert_eq!((again.added, again.known), (0, 7));
         let store = pdf_annots::read(&root.join(".fig_thumbs")).unwrap();
-        assert_eq!(store[&section].as_array().unwrap().len(), 4);
+        assert_eq!(store[&section].as_array().unwrap().len(), 6);
         assert_eq!(store[&done.root_key].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn his_edits_walk_apart_and_accept_writes_the_file() {
+        let dir = project();
+        let root = dir.path();
+        let main = root.join("main.tex").to_string_lossy().to_string();
+        let methods = root
+            .join("sections/methods.tex")
+            .to_string_lossy()
+            .to_string();
+        let done = run(root, &main, "revCK.docx", fixture_docx()).unwrap();
+        let mut store = pdf_annots::read(&root.join(".fig_thumbs")).unwrap();
+        let key = done.root_key.clone();
+        // le parcours des retouches ne montre qu'elles, numérotées entre elles
+        let first = next_of(&store, &key, "", "", "edit");
+        assert_eq!(first["note"]["total"], 2);
+        assert_eq!(first["note"]["edit"]["status"], "changed");
+        let second = next_of(
+            &store,
+            &key,
+            first["note"]["id"].as_str().unwrap(),
+            "",
+            "edit",
+        );
+        assert_eq!(second["note"]["n"], 2);
+        assert_eq!(second["note"]["edit"]["ready"], true);
+        let id = second["note"]["id"].as_str().unwrap().to_string();
+        // une retouche à fusionner ne s'applique pas telle quelle
+        let text = std::fs::read_to_string(&methods).unwrap();
+        assert!(
+            apply_edit(
+                &mut store,
+                &key,
+                &methods,
+                first["note"]["id"].as_str().unwrap(),
+                &text
+            )
+            .is_err()
+        );
+        // le passage a glissé de deux lignes : retrouvé quand même
+        let shifted = format!("% a\n% b\n{text}");
+        let out = apply_edit(&mut store, &key, &methods, &id, &shifted).unwrap();
+        assert!(
+            out.contains("The model is $x = a + b$ with care fitted to all zones.\n"),
+            "{out}"
+        );
+        assert!(out.starts_with("% a\n% b\nValues below"));
+        let note = store[&format!("tex-comments:{methods}")]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == id.as_str())
+            .unwrap()
+            .clone();
+        assert_eq!(note["review"]["state"], "done");
+        assert_eq!(note["from"]["line"], 7);
+        // une seconde fois : le passage n'est plus le sien
+        assert!(apply_edit(&mut store, &key, &methods, &id, &shifted).is_err());
+        // à fusionner : la correction de Claude s'applique, pas sa version
+        let merge = first["note"]["id"].as_str().unwrap().to_string();
+        if let Some(n) = store
+            .get_mut(&format!("tex-comments:{methods}"))
+            .and_then(Value::as_array_mut)
+            .and_then(|l| l.iter_mut().find(|n| n["id"] == merge.as_str()))
+        {
+            n["thread"] = json!([{"text": "Fusion.", "at": 5, "suggest": {"text": "Following \\citet{stroeve2006}, we remove images with a solar zenith angle above $70^\\circ$."}}]);
+        }
+        let merged = apply_edit(&mut store, &key, &methods, &merge, &out).unwrap();
+        assert!(merged.contains("angle above $70^\\circ$."), "{merged}");
+        // un commentaire n'est pas une retouche
+        let comment = next_of(&store, &key, "", "", "")["note"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(apply_edit(&mut store, &key, &methods, &comment, &text).is_err());
+    }
+
+    #[test]
+    fn utf16_positions_round_trip() {
+        let text = "ab\nçé😀x\n";
+        let at = offset_of(text, 1, 4).unwrap();
+        assert_eq!(&text[at..], "x\n");
+        assert_eq!(position_of(text, at), (1, 4));
+        assert_eq!(offset_of(text, 1, 3), None);
+        assert_eq!(offset_of(text, 2, 0), Some(text.len()));
     }
 
     #[test]
@@ -865,7 +1251,7 @@ mod tests {
                 )
             })
             .collect();
-        assert_eq!(order.len(), 5);
+        assert_eq!(order.len(), 7);
         let files = store[&key][0]["files"].as_array().unwrap().clone();
         let rank = |p: &str| files.iter().position(|f| f == p).unwrap();
         assert!(

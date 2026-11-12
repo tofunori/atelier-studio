@@ -87,8 +87,10 @@ export type AtelierReviewCommentMessage = {
   text: string;
   review: {
     doc: string;
-    mode: "open" | "likely";
+    mode: "open" | "likely" | "edit";
     done?: boolean;
+    /** Le geste n'a pas pu se faire (accepter une retouche…) : la barre le dit. */
+    error?: string;
     path?: string;
     id?: string;
     n?: number;
@@ -101,6 +103,9 @@ export type AtelierReviewCommentMessage = {
     fit?: string;
     kind?: string;
     likely?: string;
+    /** Une de ses retouches : apply, changed ou done ; `ready` = s'applique. */
+    edit?: string;
+    ready?: boolean;
   };
 };
 
@@ -222,15 +227,17 @@ const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 10_000_000;
 
 function isReviewPayload(review: Record<string, unknown>): boolean {
-  if (!hasOnlyKeys(review, ["doc", "mode", "done", "path", "id", "n", "total", "author", "comment", "quote", "now", "line", "fit", "kind", "likely"])) return false;
-  if (!isBoundedString(review.doc, MAX_URL_LENGTH) || (review.mode !== "open" && review.mode !== "likely")) return false;
+  if (!hasOnlyKeys(review, ["doc", "mode", "done", "error", "path", "id", "n", "total", "author", "comment", "quote", "now", "line", "fit", "kind", "likely", "edit", "ready"])) return false;
+  if (!isBoundedString(review.doc, MAX_URL_LENGTH) || (review.mode !== "open" && review.mode !== "likely" && review.mode !== "edit")) return false;
+  if (review.error !== undefined) return review.done === undefined && isBoundedString(review.error, MAX_TITLE_LENGTH);
   if (review.done !== undefined) return review.done === true;
   const text = (value: unknown) => value === undefined || (typeof value === "string" && value.length <= MAX_TEXT_LENGTH);
   const short = (value: unknown) => value === undefined || (typeof value === "string" && value.length <= MAX_TITLE_LENGTH);
   return isBoundedString(review.path, MAX_URL_LENGTH) && isBoundedString(review.id, MAX_TITLE_LENGTH)
     && isCount(review.n) && isCount(review.total) && (review.line === undefined || isCount(review.line))
     && short(review.author) && short(review.fit) && short(review.kind)
-    && text(review.comment) && text(review.quote) && text(review.now) && text(review.likely);
+    && text(review.comment) && text(review.quote) && text(review.now) && text(review.likely)
+    && short(review.edit) && (review.ready === undefined || typeof review.ready === "boolean");
 }
 
 export function isTrustedAtelierMessage(

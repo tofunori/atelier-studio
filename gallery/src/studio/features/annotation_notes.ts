@@ -364,6 +364,8 @@ export interface ColumnNote {
   reviewer?: boolean;
   /** Faux : pas de croix (un commentaire du relecteur ne se supprime pas). */
   removable?: boolean;
+  /** Commentaire posé dans un autre fichier du document : un clic l'y ouvre. */
+  path?: string;
 }
 
 const escapeHtml = (value: string): string => String(value).replace(/[&<>"]/g, character => ({
@@ -397,7 +399,7 @@ export function columnItemHtml(note: ColumnNote): string {
   const who = note.agent ? `<span class="tp-who">${escapeHtml(note.agent)}</span>` : "";
   const where = noteLocation(note);
   const meta = [who, state, where ? `<span class="tp-loc">${where}</span>` : ""].filter(Boolean).join('<span class="tp-dot">·</span>');
-  return `<div class="tp-item note-c-${note.color}${note.active ? " is-active" : ""}" data-id="${escapeHtml(note.id)}" data-src="${note.src}" role="button" tabindex="0">`
+  return `<div class="tp-item note-c-${note.color}${note.active ? " is-active" : ""}" data-id="${escapeHtml(note.id)}" data-src="${note.src}"${note.path ? ` data-path="${escapeHtml(note.path)}"` : ""} role="button" tabindex="0">`
     + `<span class="${ring}">${note.number}</span>`
     + `<span class="tp-body">${quote}${text}${meta ? `<span class="tp-meta">${meta}</span>` : ""}</span>`
     + (note.removable === false ? "" : `<button type="button" class="tp-x" data-x="${escapeHtml(note.id)}" title="Supprimer la note" aria-label="Supprimer la note">${CLOSE_ICON}</button>`) + "</div>";

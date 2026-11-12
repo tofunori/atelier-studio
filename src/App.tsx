@@ -2665,7 +2665,9 @@ export default function App() {
         // envoyé tout de suite ; la barre du compositeur renvoie les gestes.
         const review = data.review;
         const source = e.source as Window;
-        if (review.done || !review.path || !review.id) {
+        if (review.error) {
+          setReviewSession((current) => current && { ...current, pending: false, error: review.error });
+        } else if (review.done || !review.path || !review.id) {
           setReviewSession((current) => ({
             threadId: current?.threadId ?? activeIdRef.current ?? "",
             source, origin: e.origin, nonce: atelierNonce, mode: review.mode, current: null, pending: false,
@@ -2677,10 +2679,11 @@ export default function App() {
             ...(review.quote ? { quote: review.quote } : {}),
             ...(review.now ? { now: review.now } : {}),
             ...(review.likely ? { likely: review.likely } : {}),
+            ...(review.edit ? { edit: review.edit, ready: review.ready === true } : {}),
           };
           const first = (review.author || "").trim().split(/\s+/)[0] || t("chat.review-reviewer");
           const threadId = attachContextToChat(data.text, {
-            path: review.path, name: t("chat.review-card-name", { name: first, n: ref.n, total: ref.total }), direct: true, review: ref,
+            path: review.path, name: t(review.edit ? "chat.review-edit-card-name" : "chat.review-card-name", { name: first, n: ref.n, total: ref.total }), direct: true, review: ref,
           });
           setReviewSession({ threadId, source, origin: e.origin, nonce: atelierNonce, mode: review.mode,
             current: { ...ref, path: review.path, id: review.id }, pending: false });
