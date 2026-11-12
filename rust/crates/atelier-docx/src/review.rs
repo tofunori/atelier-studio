@@ -5,7 +5,7 @@ use crate::walk::content_after_ppr;
 use crate::xml::{self, W, id_of, inner_range, is_w, open_tag, w_attr, w_child};
 use crate::{Docx, Result, err};
 use roxmltree::Node;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,7 +61,114 @@ pub fn decide(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
 }
 
 /// Tous les suivis (d'un auteur, si précisé).
+///
+/// En quelques passes sur le XML, pas une par suivi : chaque passe relit la
+/// partie une fois et traite d'un coup tous les suivis dont les retouches
+/// ne se chevauchent pas ; ceux qu'une autre retouche englobe (suivi
+/// imbriqué, paragraphes fusionnés à la suite) attendent la passe suivante,
+/// qui les voit dans le XML déjà retouché, comme un traitement un par un.
 pub fn decide_all(docx: &mut Docx, decision: Decision, author: Option<&str>) -> Result<Batch> {
+    decide_where(docx, decision, &|n: Node| author.is_none_or(|a| w_attr(n, "author") == Some(a)))
+}
+
+/// Les suivis `ids` d'un coup (« accepter les retouches mineures ») : même
+/// traitement que [`decide`] pour chacun (tous les éléments qui portent cet
+/// identifiant et le genre de son premier élément), en quelques passes.
+/// Un identifiant introuvable est rendu dans `skipped`.
+pub fn decide_set(docx: &mut Docx, ids: &[u32], decision: Decision) -> Result<Batch> {
+    let wanted: BTreeSet<u32> = ids.iter().copied().collect();
+    // Genre du premier élément de chaque suivi (LibreOffice réutilise des
+    // identifiants d'un genre à l'autre).
+    let mut kinds: BTreeMap<u32, String> = BTreeMap::new();
+    for part in docx.story_parts() {
+        let Some(src) = docx.part(&part)? else { continue };
+        let doc = xml::parse(&src)?;
+        for n in doc.descendants().filter(|n| n.is_element()) {
+            if let (Some(id), Some(kind)) = (id_of(n), change_kind(n))
+                && wanted.contains(&id)
+            {
+                kinds.entry(id).or_insert(kind);
+            }
+        }
+    }
+    let mut batch = decide_where(docx, decision, &|n: Node| id_of(n).is_some_and(|id| kinds.get(&id).is_some_and(|k| change_kind(n).as_ref() == Some(k))))?;
+    batch.skipped.extend(wanted.iter().filter(|id| !kinds.contains_key(id)));
+    batch.skipped.sort_unstable();
+    batch.skipped.dedup();
+    Ok(batch)
+}
+
+fn decide_where(docx: &mut Docx, decision: Decision, keep: &dyn Fn(Node) -> bool) -> Result<Batch> {
+    let mut skipped: BTreeSet<u32> = BTreeSet::new();
+    let mut done: BTreeSet<u32> = BTreeSet::new();
+    for part in docx.story_parts() {
+        let Some(mut src) = docx.part(&part)? else { continue };
+        // Chaque passe traite au moins un suivi ; une longue suite de
+        // paragraphes fusionnés se règle en log(n) passes.
+        for _ in 0..10_000 {
+            let doc = xml::parse(&src)?;
+            let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+            let mut taken: Vec<Range<usize>> = Vec::new();
+            let mut deferred = false;
+            for node in doc.descendants() {
+                if !node.is_element() || change_kind(node).is_none() || id_of(node).is_some_and(|i| skipped.contains(&i)) || !keep(node) {
+                    continue;
+                }
+                let r = node.range();
+                if overlaps(&taken, &r) {
+                    deferred = true;
+                    continue;
+                }
+                let id = id_of(node).unwrap_or(0);
+                match plan(&src, node, decision) {
+                    Ok(plan) => {
+                        if plan.iter().any(|(pr, _)| overlaps(&taken, pr)) {
+                            deferred = true;
+                            continue;
+                        }
+                        for (pr, text) in plan {
+                            insert_sorted(&mut taken, pr.clone());
+                            edits.push((pr, text));
+                        }
+                        done.insert(id);
+                    }
+                    Err(_) => {
+                        skipped.insert(id);
+                    }
+                }
+            }
+            drop(doc);
+            if edits.is_empty() {
+                break;
+            }
+            src = xml::splice(&src, edits)?;
+            if !deferred {
+                break;
+            }
+        }
+        let out = crate::edit::drop_empty_revisions(&src)?;
+        docx.set_part(&part, out);
+    }
+    crate::story::drop_orphan_notes(docx)?;
+    Ok(Batch { done: done.len(), skipped: skipped.into_iter().collect() })
+}
+
+/// `r` chevauche-t-il l'une des plages (triées, disjointes) de `taken` ?
+/// Deux plages qui se touchent ne se chevauchent pas.
+fn overlaps(taken: &[Range<usize>], r: &Range<usize>) -> bool {
+    let i = taken.partition_point(|t| t.end <= r.start);
+    taken.get(i).is_some_and(|t| t.start < r.end)
+}
+
+fn insert_sorted(taken: &mut Vec<Range<usize>>, r: Range<usize>) {
+    let i = taken.partition_point(|t| t.start < r.start);
+    taken.insert(i, r);
+}
+
+/// Ancien traitement, un suivi après l'autre (une relecture du XML par
+/// suivi) : gardé comme référence pour les tests de [`decide_all`].
+#[doc(hidden)]
+pub fn decide_all_one_by_one(docx: &mut Docx, decision: Decision, author: Option<&str>) -> Result<Batch> {
     let mut batch = Batch::default();
     let mut skipped: BTreeSet<u32> = BTreeSet::new();
     let mut done: BTreeSet<u32> = BTreeSet::new();
@@ -207,25 +314,4 @@ fn reject_format(src: &str, change: Node) -> Result<Vec<(Range<usize>, String)>>
         _ => return err("cette mise en forme se traite dans Word (tableau ou section)"),
     };
     Ok(vec![(parent_inner, new_inner)])
-}
-
-/// Accepte ou refuse les suivis `ids` d'un seul geste (un enregistrement,
-/// une annulation). Les suivis introuvables ou que le panneau ne sait pas
-/// traiter (cellules, sections) restent en place, rendus dans `skipped`.
-///
-/// Version simple (une passe par suivi), remplacée par la version en une
-/// passe du chantier 1 : l'intégrateur garde l'autre.
-pub fn decide_set(docx: &mut Docx, ids: &[u32], decision: Decision) -> Result<Batch> {
-    let mut batch = Batch::default();
-    let mut seen = BTreeSet::new();
-    for &id in ids {
-        if !seen.insert(id) {
-            continue;
-        }
-        match decide(docx, id, decision) {
-            Ok(()) => batch.done += 1,
-            Err(_) => batch.skipped.push(id),
-        }
-    }
-    Ok(batch)
 }

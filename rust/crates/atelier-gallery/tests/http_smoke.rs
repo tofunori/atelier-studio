@@ -2687,6 +2687,147 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     assert_eq!((v["author"].as_str(), v["page"].as_str()), (Some("Thierry"), Some("theme")));
 }
 
+fn json_of(body: &str) -> serde_json::Value {
+    serde_json::from_str(body).unwrap_or_else(|e| panic!("{e} : {body}"))
+}
+
+/// Le panneau en séance : retouches confirmées en delta sans écrire le
+/// fichier, delta appliqué = modèle complet, écriture coalescée sur
+/// `/docx/flush` et avant toute lecture, révision de séance au sondage,
+/// annulation, conflit avec un écrivain extérieur, Word ouvert.
+#[test]
+fn le_panneau_en_seance_recoit_des_deltas_et_ecrit_d_un_coup() {
+    let srv = start_server();
+    let target = srv.root.join("seance.docx");
+    fs::write(&target, christophe_docx()).unwrap();
+    let original = fs::read(&target).unwrap();
+    let (st, body) = http(srv.port, "GET", "/docx/model?path=seance.docx", None);
+    assert_eq!(st, 200, "{body}");
+    let mut shown = json_of(&body);
+    let rev0 = shown["revision"].as_str().unwrap().to_string();
+    let op = |revision: &str, op: serde_json::Value| {
+        serde_json::json!({"path": "seance.docx", "revision": revision, "author": "Thierry", "op": op, "delta": true}).to_string()
+    };
+    // Trois gestes : réponses en delta, fichier intact.
+    let mut rev = rev0.clone();
+    for g in [
+        serde_json::json!({"op": "insert", "paragraph": "p1", "at": 0, "with": "Glace : "}),
+        serde_json::json!({"op": "split", "paragraph": "p1", "at": 4}),
+        serde_json::json!({"op": "accept", "id": 101}),
+    ] {
+        let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev, g.clone())));
+        assert_eq!(st, 200, "{g} : {body}");
+        let v = json_of(&body);
+        assert!(v.get("model").is_none(), "pas de modèle complet en séance");
+        let d = &v["delta"];
+        assert_eq!(d["base"], rev.as_str());
+        rev = v["revision"].as_str().unwrap().to_string();
+        assert_eq!(d["revision"], rev.as_str());
+        shown = atelier_docx::session::apply_delta(&shown, d).expect("delta applicable");
+    }
+    assert_eq!(fs::read(&target).unwrap(), original, "rien n'est encore écrit");
+    // Le sondage voit la révision de la séance et les retouches en attente.
+    let (_, body) = http(srv.port, "GET", "/docx/stat?path=seance.docx", None);
+    let v = json_of(&body);
+    assert_eq!(v["revision"], rev.as_str());
+    assert_eq!(v["pending"], 3);
+    // Une révision périmée : 409.
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev0, serde_json::json!({"op": "accept", "id": 102}))));
+    assert_eq!(st, 409, "{body}");
+    // Le modèle complet (qui écrit d'abord) est celui qu'ont reconstruit les deltas.
+    let (st, body) = http(srv.port, "GET", "/docx/model?path=seance.docx", None);
+    assert_eq!(st, 200, "{body}");
+    let mut full = json_of(&body);
+    assert_ne!(fs::read(&target).unwrap(), original, "la lecture a écrit la séance");
+    assert_eq!(full["revision"], rev.as_str());
+    for m in [&mut full, &mut shown] {
+        m.as_object_mut().unwrap().remove("mtime");
+        m.as_object_mut().unwrap().remove("openInWord");
+    }
+    assert_eq!(full, shown, "delta appliqué = modèle complet");
+    let on_disk = atelier_docx::Docx::open(&target).unwrap().model().unwrap();
+    assert!(on_disk.paragraphs[1].text.starts_with("Glac"), "{}", on_disk.paragraphs[1].text);
+
+    // Un geste de plus, puis /docx/flush l'écrit tout de suite.
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev, serde_json::json!({"op": "accept", "id": 102}))));
+    assert_eq!(st, 200, "{body}");
+    rev = json_of(&body)["revision"].as_str().unwrap().to_string();
+    let before = fs::read(&target).unwrap();
+    let (st, body) = http(srv.port, "POST", "/docx/flush", Some(r#"{"path":"seance.docx"}"#));
+    assert_eq!(st, 200, "{body}");
+    assert_eq!(json_of(&body)["pending"], 0);
+    assert_ne!(fs::read(&target).unwrap(), before);
+    // Annuler en séance : delta, et la séance montre l'état d'avant.
+    let undo = serde_json::json!({"path": "seance.docx", "revision": rev, "delta": true}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/undo", Some(&undo));
+    assert_eq!(st, 200, "{body}");
+    let v = json_of(&body);
+    assert_eq!(v["delta"]["base"], rev.as_str());
+    rev = v["revision"].as_str().unwrap().to_string();
+    let (_, body) = http(srv.port, "GET", "/docx/model?path=seance.docx", None);
+    let m = json_of(&body);
+    assert_eq!(m["revision"], rev.as_str());
+    assert!(m["changes"].as_array().unwrap().iter().any(|c| c["id"] == 102), "l'acceptation est annulée");
+
+    // Écriture coalescée par le fil de fond après l'inactivité.
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev, serde_json::json!({"op": "insert", "paragraph": "p1", "at": 0, "with": "Névé "}))));
+    assert_eq!(st, 200, "{body}");
+    rev = json_of(&body)["revision"].as_str().unwrap().to_string();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !atelier_docx::Docx::open(&target).unwrap().model().unwrap().paragraphs[1].text.starts_with("Névé ") {
+        assert!(Instant::now() < deadline, "le fil de fond n'a pas écrit la séance");
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    // Un autre programme remplace le fichier : la séance relit, l'ancienne
+    // révision est en conflit, la nouvelle se voit au sondage.
+    fs::write(&target, christophe_docx()).unwrap();
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&rev, serde_json::json!({"op": "accept", "id": 103}))));
+    assert_eq!(st, 409, "{body}");
+    let (_, body) = http(srv.port, "GET", "/docx/stat?path=seance.docx", None);
+    let fresh = json_of(&body)["revision"].as_str().unwrap().to_string();
+    assert_ne!(fresh, rev);
+    // Word ouvert : 423.
+    let word_lock = srv.root.join("~$seance.docx");
+    fs::write(&word_lock, b"x").unwrap();
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&fresh, serde_json::json!({"op": "accept", "id": 101}))));
+    assert_eq!(st, 423, "{body}");
+    fs::remove_file(&word_lock).unwrap();
+    // Le chemin d'origine (sans delta) reçoit une révision de séance : il
+    // écrit d'abord la séance, puis retouche le fichier.
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op(&fresh, serde_json::json!({"op": "insert", "paragraph": "p1", "at": 0, "with": "Firn "}))));
+    assert_eq!(st, 200, "{body}");
+    let vrev = json_of(&body)["revision"].as_str().unwrap().to_string();
+    let plain = serde_json::json!({"path": "seance.docx", "revision": vrev, "author": "Thierry", "op": {"op": "accept", "id": 101}}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&plain));
+    assert_eq!(st, 200, "{body}");
+    let v = json_of(&body);
+    assert!(v["model"]["paragraphs"][1]["text"].as_str().unwrap().starts_with("Firn "));
+}
+
+/// Arrêt brutal du serveur pendant une séance : le journal tient les gestes
+/// confirmés, et la reprise (celle du démarrage) les écrit dans le fichier.
+#[test]
+fn une_seance_coupee_par_un_arret_brutal_est_rejouee() {
+    let mut srv = start_server();
+    let target = srv.root.join("coupure.docx");
+    fs::write(&target, christophe_docx()).unwrap();
+    let original = fs::read(&target).unwrap();
+    let rev0 = atelier_docx::revision_of(&original);
+    let body = serde_json::json!({"path": "coupure.docx", "revision": rev0, "author": "Thierry", "delta": true,
+        "op": {"op": "insert", "paragraph": "p1", "at": 0, "with": "Sérac "}}).to_string();
+    let (st, text) = http(srv.port, "POST", "/docx/op", Some(&body));
+    assert_eq!(st, 200, "{text}");
+    // SIGKILL avant l'écriture coalescée.
+    srv.child.kill().unwrap();
+    let _ = srv.child.wait();
+    assert_eq!(fs::read(&target).unwrap(), original, "le geste n'était pas encore écrit");
+    atelier_docx::history::set_root(std::env::temp_dir().join(format!("atelier-http-smoke-historique-{}", std::process::id())));
+    atelier_docx::session::recover_all();
+    let m = atelier_docx::Docx::open(&target).unwrap().model().unwrap();
+    assert!(m.paragraphs[1].text.starts_with("Sérac "), "{}", m.paragraphs[1].text);
+}
+
 #[test]
 fn le_panneau_docx_trie_les_suivis_et_accepte_les_mineurs_d_un_geste() {
     let srv = start_server();

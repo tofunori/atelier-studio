@@ -1309,3 +1309,41 @@ test('docx: le collage garde italique, exposant et équations ; la copie met du 
   expect(copied.html).toContain('<i>MOD09GA</i>');
   expect(errors).toEqual([]);
 });
+
+test('docx: en séance, les gestes reviennent en delta et le fichier s\'écrit d\'un coup', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const replies: {delta: boolean; model: boolean; bytes: number}[] = [];
+  page.on('response', async r => {
+    if (!r.url().endsWith('/docx/op') || r.request().method() !== 'POST') return;
+    const body = await r.text().catch(() => '');
+    try {
+      const v = JSON.parse(body);
+      replies.push({delta: !!v.delta, model: 'model' in v, bytes: body.length});
+    } catch { /* réponse coupée par la navigation */ }
+  });
+  await open(page, project);
+  const original = await readFile(project.doc);
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.type(', fixé a priori,');
+  await expect.poll(() => replies.length).toBeGreaterThan(0);
+  await caretAfter(page, 2, 'priori');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => replies.length).toBeGreaterThan(1);
+  await expect(page.locator('.d-p[data-idx="3"]')).toContainText(', offre');
+  // Réponses en delta (petites), sans modèle complet sur le fil.
+  expect(replies.every(r => r.delta)).toBe(true);
+  const sizes = replies.map(r => r.bytes);
+  expect(Math.max(...sizes)).toBeLessThan(20000);
+  // Le fichier s'écrit d'un coup (pause ou départ de la page), sans
+  // relecture du modèle complet ici.
+  await page.goto('about:blank');
+  await expect.poll(async () => (await readFile(project.doc)).equals(original)).toBe(false);
+  // Rouvert : le document montre ce qui avait été confirmé, sans perte.
+  await open(page, project);
+  await expect(page.locator('.d-p[data-idx="2"]')).toContainText('retenu ici, fixé a priori');
+  await expect(page.locator('.d-p[data-idx="3"]')).toContainText(', offre');
+  const m = await disk(page, project);
+  expect(m.changes.filter(c => c.author === 'Thierry').map(c => c.kind)).toContain('ins');
+  expect(errors).toEqual([]);
+});

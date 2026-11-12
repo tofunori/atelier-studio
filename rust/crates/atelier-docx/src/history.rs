@@ -15,7 +15,7 @@
 //! par son contenu. Seuls les pas fins d'annulation au-delà de la fenêtre
 //! (`MAX_STEPS`) cèdent leur place.
 
-use crate::{DocxError, Result, err, revision_of, write_atomic};
+use crate::{DocxError, Result, err, revision_of, write_atomic, write_atomic_as};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -197,17 +197,42 @@ fn canonical(path: &Path) -> String {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().into_owned()
 }
 
+/// Le journal n'est pas forcé sur le disque : l'écriture du document l'a
+/// déjà été, et un journal perdu ou illisible après une coupure est mis de
+/// côté sans rien effacer ([`open_journal`]).
 fn store(dir: &Path, j: &Journal) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     let text = serde_json::to_vec_pretty(j).map_err(|e| DocxError(format!("historique : {e}")))?;
-    write_atomic(&dir.join("journal.json"), &text)
+    write_atomic_as(&dir.join("journal.json"), &text, false)
 }
 
-fn keep_blob(dir: &Path, rev: &str, bytes: &[u8]) -> Result<()> {
+/// Garde une version. `durable` : forcée sur le disque (version reçue de
+/// l'extérieur, qui n'existe nulle part ailleurs) ; sinon elle double le
+/// document, déjà forcé.
+fn keep_blob(dir: &Path, rev: &str, bytes: &[u8], durable: bool) -> Result<()> {
     let p = blob(dir, rev);
     if !p.is_file() {
         std::fs::create_dir_all(dir)?;
-        write_atomic(&p, bytes)?;
+        write_atomic_as(&p, bytes, durable)?;
+    }
+    Ok(())
+}
+
+/// Garde l'état que `path` vient de recevoir (`bytes`, révision `rev`) en le
+/// clonant : sur APFS (`clonefile`) les données ne sont pas recopiées, ni
+/// forcées sur le disque (le document l'a été). Sinon, copie ordinaire.
+fn keep_clone(dir: &Path, rev: &str, path: &Path, bytes: &[u8]) -> Result<()> {
+    let p = blob(dir, rev);
+    if p.is_file() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(dir)?;
+    let tmp = dir.join(format!(".{rev}.clone-tmp"));
+    let _ = std::fs::remove_file(&tmp);
+    let cloned = std::fs::copy(path, &tmp).ok().is_some_and(|n| n == bytes.len() as u64) && std::fs::rename(&tmp, &p).is_ok();
+    if !cloned {
+        let _ = std::fs::remove_file(&tmp);
+        write_atomic_as(&p, bytes, false)?;
     }
     Ok(())
 }
@@ -219,31 +244,60 @@ fn keep_blob(dir: &Path, rev: &str, bytes: &[u8]) -> Result<()> {
 /// le dernier état laissé par Atelier devient un jalon gardé pour toujours,
 /// et la pile d'annulation repart de là. Appelé sous le verrou du document.
 pub(crate) fn record(path: &Path, before: &[u8], before_rev: &str, after_bytes: &[u8], after: &str, origin: &Origin) -> Result<()> {
+    record_steps(path, before, before_rev, &[Chained { bytes: after_bytes, rev: after.to_string(), origin: origin.clone() }])
+}
+
+/// Un état d'une suite de retouches écrite d'un coup (séance du panneau).
+pub(crate) struct Chained<'a> {
+    pub bytes: &'a [u8],
+    pub rev: String,
+    pub origin: Origin<'a>,
+}
+
+/// Note plusieurs pas d'un coup : `before`, puis chaque état de `steps`,
+/// dont le dernier est le document qu'on vient d'écrire ; chacun s'annule
+/// à part. Les états intermédiaires ne sont jamais allés sur le disque :
+/// gardés depuis la mémoire, sans attendre le disque.
+pub(crate) fn record_steps(path: &Path, before: &[u8], before_rev: &str, steps: &[Chained]) -> Result<()> {
+    let Some(last) = steps.last() else { return Ok(()) };
     let dir = attach(path, before_rev);
     let mut j = open_journal(&dir);
     j.path = canonical(path);
     let mut dropped = Vec::new();
-    if !is_ours(&j, before_rev) {
+    let received = !is_ours(&j, before_rev);
+    if received {
         if !j.bases.iter().any(|b| b.revision == before_rev) {
             j.bases.push(Base { revision: before_rev.to_string(), at: crate::iso_now(), bytes: before.len() as u64 });
         }
         close_session(&dir, &mut j);
         dropped.extend(j.undo.drain(..).chain(j.redo.drain(..)));
     }
-    keep_blob(&dir, before_rev, before)?;
-    // L'état d'après est gardé aussi : si Word le remplace ensuite, la fin
-    // de séance reste récupérable.
-    keep_blob(&dir, after, after_bytes)?;
-    j.undo.push(Step {
-        after: after.to_string(),
-        before: before_rev.to_string(),
-        source: origin.source.to_string(),
-        author: origin.author.to_string(),
-        label: origin.label.to_string(),
-        at: crate::iso_now(),
-    });
+    // Une version reçue n'existe nulle part ailleurs : forcée sur le disque.
+    // Sinon c'est l'état d'après du pas précédent, en général déjà gardé.
+    keep_blob(&dir, before_rev, before, received)?;
+    let mut prev = before_rev.to_string();
+    for (i, st) in steps.iter().enumerate() {
+        if i + 1 == steps.len() {
+            // L'état d'après est gardé aussi : si Word le remplace ensuite, la
+            // fin de séance reste récupérable. Il double le document qu'on
+            // vient d'écrire : cloné, sans recopie des données ni attente du
+            // disque.
+            keep_clone(&dir, &st.rev, path, st.bytes)?;
+        } else {
+            keep_blob(&dir, &st.rev, st.bytes, false)?;
+        }
+        j.undo.push(Step {
+            after: st.rev.clone(),
+            before: prev.clone(),
+            source: st.origin.source.to_string(),
+            author: st.origin.author.to_string(),
+            label: st.origin.label.to_string(),
+            at: crate::iso_now(),
+        });
+        prev = st.rev.clone();
+    }
     dropped.append(&mut j.redo);
-    j.last = after.to_string();
+    j.last = last.rev.clone();
     dropped.extend(trim(&dir, &mut j));
     store(&dir, &j)?;
     forget(&dir, &j, &dropped);
@@ -364,7 +418,8 @@ pub fn undo(path: &Path, expected: &str, redo: bool) -> Result<Undone> {
         return err("la version d'avant est abîmée dans l'historique : rien n'a été changé");
     }
     crate::Docx::from_bytes(bytes.clone())?;
-    keep_blob(&dir, &current_rev, &current)?;
+    // Le document va être remplacé : sa copie doit tenir seule.
+    keep_blob(&dir, &current_rev, &current, true)?;
     write_atomic(path, &bytes)?;
     stack.pop();
     let back = Step { after: step.before.clone(), before: current_rev, ..step.clone() };

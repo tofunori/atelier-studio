@@ -198,6 +198,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "hex",
+ "libc",
  "roxmltree",
  "serde",
  "serde_json",

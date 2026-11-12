@@ -36,6 +36,7 @@ pub mod model;
 pub mod new;
 pub mod objects;
 pub mod review;
+pub mod session;
 pub mod structure;
 pub mod format;
 pub mod history;
@@ -131,7 +132,11 @@ pub fn word_now() -> String {
 /// seules les parties modifiées sont réécrites à l'enregistrement.
 #[derive(Clone)]
 pub struct Docx {
-    bytes: Vec<u8>,
+    /// Le paquet tel qu'ouvert, partagé entre les copies (états gardés
+    /// pour annuler dans une séance du panneau).
+    bytes: std::sync::Arc<Vec<u8>>,
+    /// Compteur de retouches effectives (une partie qui change vraiment).
+    edits: u64,
     names: Vec<String>,
     parts: BTreeMap<String, String>,
     dirty: BTreeSet<String>,
@@ -150,7 +155,7 @@ impl Docx {
         if !names.iter().any(|n| n == DOCUMENT) {
             return err("ce fichier n'est pas un document Word (.docx) : word/document.xml manque");
         }
-        let mut docx = Docx { bytes, names, parts: BTreeMap::new(), dirty: BTreeSet::new(), binaries: BTreeMap::new() };
+        let mut docx = Docx { bytes: std::sync::Arc::new(bytes), edits: 0, names, parts: BTreeMap::new(), dirty: BTreeSet::new(), binaries: BTreeMap::new() };
         docx.load(DOCUMENT)?;
         Ok(docx)
     }
@@ -186,6 +191,7 @@ impl Docx {
     }
 
     pub(crate) fn add_binary(&mut self, name: &str, bytes: Vec<u8>) {
+        self.edits += 1;
         self.binaries.insert(name.to_string(), bytes);
     }
 
@@ -269,9 +275,21 @@ impl Docx {
 
     pub(crate) fn set_part(&mut self, name: &str, text: String) {
         if self.parts.get(name) != Some(&text) {
+            self.edits += 1;
             self.parts.insert(name.to_string(), text);
             self.dirty.insert(name.to_string());
         }
+    }
+
+    /// Nombre de retouches effectives depuis l'ouverture : deux valeurs
+    /// égales = rien n'a changé entre-temps.
+    pub fn edits(&self) -> u64 {
+        self.edits
+    }
+
+    /// Octets du paquet tel qu'ouvert.
+    pub fn original_bytes(&self) -> &[u8] {
+        &self.bytes
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -388,9 +406,30 @@ pub fn edit_file<T>(path: &Path, expected: Option<&str>, f: impl FnOnce(&mut Doc
 /// refuserait ([`check`]). Après : la version d'avant rejoint l'historique
 /// sur disque ([`history`]) ; la première fois, l'original reçu y est copié.
 pub fn edit_file_as<T>(path: &Path, expected: Option<&str>, origin: &history::Origin, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String)> {
+    let (value, rev, _, _) = edit_locked(path, expected, origin, f)?;
+    Ok((value, rev))
+}
+
+/// Comme [`edit_file_as`], et rend aussi le document tel qu'enregistré et
+/// son modèle : celui que le contrôle vient de construire en relisant le
+/// paquet produit, sans rouvrir le fichier.
+pub fn edit_file_model<T>(path: &Path, expected: Option<&str>, origin: &history::Origin, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String, Docx, DocModel)> {
+    let (value, rev, mut docx, model) = edit_locked(path, expected, origin, f)?;
+    let model = match model {
+        Some(m) => m,
+        None => docx.model()?,
+    };
+    Ok((value, rev, docx, model))
+}
+
+fn edit_locked<T>(path: &Path, expected: Option<&str>, origin: &history::Origin, f: impl FnOnce(&mut Docx) -> Result<T>) -> Result<(T, String, Docx, Option<DocModel>)> {
     let lock = lock_file(path)?;
     lock.lock()?;
     refuse_if_open_in_word(path)?;
+    // Une séance du panneau a peut-être des retouches pas encore écrites
+    // (dans un autre processus, ou laissées par un arrêt brutal) : elles
+    // passent d'abord.
+    session::settle(path)?;
     let mut docx = Docx::open(path)?;
     let before_rev = docx.revision();
     if expected.is_some_and(|e| e != before_rev) {
@@ -398,21 +437,47 @@ pub fn edit_file_as<T>(path: &Path, expected: Option<&str>, origin: &history::Or
     }
     let value = f(&mut docx)?;
     if !docx.is_dirty() {
-        return Ok((value, before_rev));
+        return Ok((value, before_rev, docx, None));
     }
-    let bytes = docx.to_bytes()?;
-    // Relire ce qu'on vient de produire : un paquet illisible, ou qui
-    // ajoute un défaut, ne remplace jamais l'original.
-    let mut fresh = Docx::from_bytes(bytes.clone())?;
-    fresh.model()?;
-    check::guard(&docx.bytes, &before_rev, &mut fresh)?;
-    write_atomic(path, &bytes)?;
-    let rev = revision_of(&bytes);
+    let before = docx.bytes.clone();
+    let (rev, fresh, model) = commit(path, &docx, &before, &before_rev, origin)?;
+    Ok((value, rev, fresh, Some(model)))
+}
+
+/// Le document tel qu'il est vraiment : les retouches d'une séance du
+/// panneau pas encore écrites passent d'abord (lecture par l'agent).
+pub fn open_settled(path: &Path) -> Result<Docx> {
+    let lock = lock_file(path)?;
+    lock.lock()?;
+    session::settle(path)?;
+    Docx::open(path)
+}
+
+/// Enregistre `docx` (retouché depuis la révision `before_rev`, dont il
+/// garde les octets) à la place de `path`, sous le verrou déjà pris : relit
+/// le paquet produit, refuse tout défaut ajouté, écrit d'un seul geste et
+/// note le pas dans l'historique. Rend la révision, le document relu et
+/// son modèle.
+pub(crate) fn commit(path: &Path, docx: &Docx, before: &[u8], before_rev: &str, origin: &history::Origin) -> Result<(String, Docx, DocModel)> {
+    let (fresh, model) = prepare(docx, before, before_rev)?;
+    write_atomic(path, &fresh.bytes)?;
+    let rev = fresh.revision();
     // L'historique ne doit jamais faire échouer une retouche déjà écrite.
-    if let Err(e) = history::record(path, &docx.bytes, &before_rev, &bytes, &rev, origin) {
+    if let Err(e) = history::record(path, before, before_rev, &fresh.bytes, &rev, origin) {
         eprintln!("atelier-docx : historique non tenu pour {} : {e}", path.display());
     }
-    Ok((value, rev))
+    Ok((rev, fresh, model))
+}
+
+/// Le paquet de `docx`, relu et contrôlé contre la version `before`
+/// (révision `before_rev`) qu'il doit remplacer : un paquet illisible, ou
+/// qui ajoute un défaut, ne remplace jamais l'original.
+pub(crate) fn prepare(docx: &Docx, before: &[u8], before_rev: &str) -> Result<(Docx, DocModel)> {
+    let bytes = docx.to_bytes()?;
+    let mut fresh = Docx::from_bytes(bytes)?;
+    let model = fresh.model()?;
+    check::guard(before, before_rev, &mut fresh)?;
+    Ok((fresh, model))
 }
 
 /// Verrou dans le dossier temporaire, nommé d'après le chemin : rien ne
@@ -428,13 +493,26 @@ pub(crate) fn lock_file(path: &Path) -> Result<std::fs::File> {
 /// d'un seul geste : après une coupure, on retrouve l'ancien fichier ou le
 /// nouveau, jamais un fichier vide ou à moitié écrit.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_atomic_as(path, bytes, true)
+}
+
+/// `durable = false` : même remplacement d'un seul geste, sans forcer le
+/// disque (copies de l'historique qui doublent un fichier déjà forcé).
+///
+/// Un seul `sync_all` par écriture forcée : sur macOS c'est un
+/// `F_FULLFSYNC` (le cache du disque entier), et APFS valide le renommage
+/// dans une transaction : une coupure rend l'ancien fichier ou le nouveau.
+/// Ailleurs, le dossier est aussi forcé (un `fsync` y est bon marché).
+pub(crate) fn write_atomic_as(path: &Path, bytes: &[u8], durable: bool) -> Result<()> {
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("document.docx");
     let tmp = dir.join(format!(".{name}.atelier-tmp"));
     let result = (|| -> Result<()> {
         let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&tmp)?;
         f.write_all(bytes)?;
-        f.sync_all()?;
+        if durable {
+            f.sync_all()?;
+        }
         drop(f);
         if let Ok(meta) = std::fs::metadata(path) {
             let _ = std::fs::set_permissions(&tmp, meta.permissions());
@@ -442,8 +520,8 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         }
         std::fs::rename(&tmp, path)?;
         // Le renommage lui-même doit survivre à une coupure.
-        #[cfg(unix)]
-        if let Ok(d) = std::fs::File::open(dir) {
+        #[cfg(all(unix, not(target_vendor = "apple")))]
+        if durable && let Ok(d) = std::fs::File::open(dir) {
             let _ = d.sync_all();
         }
         Ok(())

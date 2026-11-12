@@ -1,5 +1,13 @@
 //! Panneau .docx : lecture du document et retouches (crate `atelier-docx`).
 //!
+//! Séance en mémoire (`atelier_docx::session`) : une retouche qui demande
+//! `delta: true` (le panneau) s'applique au document gardé ouvert, se note
+//! dans le journal de la séance et rend seulement ce qui change ; le fichier
+//! est réécrit par un fil de fond (inactivité, attente maximale) ou sur
+//! `POST /docx/flush`, et avant toute lecture par un autre client. Sans
+//! `delta` (agent, tests, anciens panneaux), comportement d'origine ci-dessous,
+//! après avoir vidé la séance. `ATELIER_DOCX_SESSION=0` coupe les séances.
+//!
 //! Chaque retouche rouvre le fichier, vérifie qu'il n'a pas changé depuis la
 //! version affichée et que Word ne l'a pas ouvert, l'applique, contrôle le
 //! paquet produit et enregistre à la place (écriture atomique, sous verrou
@@ -16,10 +24,13 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use atelier_docx::session::Session;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::sync::{Arc, LazyLock, Mutex, Once};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::{AppState, request_allowed};
 
@@ -40,7 +51,125 @@ pub struct OpBody {
     author: String,
     #[serde(default = "yes")]
     tracked: bool,
-    op: Op,
+    op: Value,
+    /// Réponse en delta (séance en mémoire) plutôt qu'avec tout le modèle.
+    #[serde(default)]
+    delta: bool,
+}
+
+// ------------------------------------------------------------ séances
+
+type Shared = Arc<Mutex<Session>>;
+
+/// Séances ouvertes, par chemin canonique du document.
+static SESSIONS: LazyLock<Mutex<HashMap<PathBuf, Shared>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Une séance sans appel depuis tout ce temps (panneau fermé) est refermée.
+const SESSION_IDLE: Duration = Duration::from_secs(30 * 60);
+
+fn sessions_enabled() -> bool {
+    std::env::var("ATELIER_DOCX_SESSION").map(|v| v != "0").unwrap_or(true)
+}
+
+fn lock_session(s: &Shared) -> std::sync::MutexGuard<'_, Session> {
+    s.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn key(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// La séance ouverte sur ce document, s'il y en a une.
+fn existing(path: &Path) -> Option<Shared> {
+    SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).get(&key(path)).cloned()
+}
+
+/// La séance du document, ouverte au besoin (journal d'une séance
+/// interrompue rejoué d'abord).
+fn session_for(path: &Path) -> Result<Shared, atelier_docx::DocxError> {
+    start_flusher();
+    if let Some(s) = existing(path) {
+        return Ok(s);
+    }
+    let opened = Arc::new(Mutex::new(Session::open(path)?));
+    let mut map = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    Ok(map.entry(key(path)).or_insert(opened).clone())
+}
+
+/// Écrit tout de suite les retouches en attente de la séance du document
+/// (avant qu'un autre ne le lise ou ne l'écrive).
+fn flush_session(path: &Path) {
+    if let Some(s) = existing(path)
+        && let Err(e) = lock_session(&s).flush()
+    {
+        eprintln!("[docx] séance de {} non écrite : {e}", path.display());
+    }
+}
+
+/// Fil de fond : écrit les séances arrivées à échéance, referme celles
+/// qu'aucun panneau n'utilise plus. Au premier passage, rejoue les séances
+/// interrompues (arrêt brutal) de tous les documents.
+fn start_flusher() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        std::thread::Builder::new()
+            .name("docx-seances".into())
+            .spawn(|| {
+                atelier_docx::session::recover_all();
+                loop {
+                    std::thread::sleep(Duration::from_millis(250));
+                    let all: Vec<(PathBuf, Shared)> = SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                    let now = Instant::now();
+                    for (k, s) in all {
+                        let Ok(mut g) = s.try_lock() else { continue };
+                        if g.due(now)
+                            && let Err(e) = g.flush()
+                        {
+                            eprintln!("[docx] séance de {} non écrite : {e}", k.display());
+                        }
+                        if g.pending() == 0 && g.idle_for(now) > SESSION_IDLE {
+                            drop(g);
+                            SESSIONS.lock().unwrap_or_else(|e| e.into_inner()).remove(&k);
+                        }
+                    }
+                }
+            })
+            .ok();
+    });
+}
+
+/// Au démarrage du serveur : séances interrompues rejouées, fil de fond prêt.
+pub fn start() {
+    if sessions_enabled() {
+        start_flusher();
+    }
+}
+
+/// Une révision de séance (montrée au panneau) traduite en révision du
+/// fichier, une fois la séance écrite : pour les appels sans séance.
+fn disk_revision(path: &Path, revision: Option<String>) -> Option<String> {
+    let rev = revision?;
+    let Some(s) = existing(path) else { return Some(rev) };
+    let mut g = lock_session(&s);
+    if g.revision() != rev {
+        return Some(rev);
+    }
+    if let Err(e) = g.flush() {
+        eprintln!("[docx] séance de {} non écrite : {e}", path.display());
+    }
+    if g.pending() > 0 {
+        return Some(rev);
+    }
+    let _ = g.sync();
+    Some(std::fs::read(path).map(|b| atelier_docx::revision_of(&b)).unwrap_or(rev))
+}
+
+/// Modèle complet servi depuis la séance (révision de la séance).
+fn session_model_json(g: &mut Session) -> Result<Value, String> {
+    let mut v = serde_json::to_value(g.model()).map_err(|e| e.to_string())?;
+    v["styles"] = g.styles().clone();
+    v["mtime"] = json!(mtime_ms(g.path()));
+    v["openInWord"] = json!(atelier_docx::open_in_word(g.path()));
+    Ok(v)
 }
 
 fn yes() -> bool {
@@ -61,12 +190,14 @@ pub struct UndoBody {
     revision: String,
     #[serde(default)]
     redo: bool,
+    #[serde(default)]
+    delta: bool,
 }
 
-/// Code HTTP d'un refus du moteur : conflit de révision (409), Word a le
-/// fichier ouvert (423), sinon retouche impossible (422).
+/// Code HTTP d'un refus du moteur : conflit de révision ou séance relue
+/// (409), Word a le fichier ouvert (423), sinon retouche impossible (422).
 fn refusal(e: &atelier_docx::DocxError) -> StatusCode {
-    if e.is_conflict() {
+    if e.is_conflict() || e.is_reset() {
         StatusCode::CONFLICT
     } else if e.is_open_in_word() {
         StatusCode::LOCKED
@@ -100,7 +231,13 @@ fn mtime_ms(path: &Path) -> u64 {
 fn model_json(path: &Path) -> Result<Value, String> {
     let mut docx = Docx::open(path).map_err(|e| e.0)?;
     let model = docx.model().map_err(|e| e.0)?;
-    let styles = format::styles(&mut docx).map_err(|e| e.0)?;
+    model_value(&mut docx, model, path)
+}
+
+/// Le modèle pour le panneau : celui du moteur, avec les styles proposés,
+/// la date du fichier et l'état de Word.
+fn model_value(docx: &mut Docx, model: atelier_docx::DocModel, path: &Path) -> Result<Value, String> {
+    let styles = format::styles(docx).map_err(|e| e.0)?;
     let mut v = serde_json::to_value(model).map_err(|e| e.to_string())?;
     v["styles"] = json!(styles);
     v["mtime"] = json!(mtime_ms(path));
@@ -117,9 +254,48 @@ pub async fn model(State(state): State<AppState>, headers: HeaderMap, Query(q): 
         Ok(p) => p,
         Err(r) => return r,
     };
-    match tokio::task::spawn_blocking(move || model_json(&path)).await {
+    let job = move || match existing(&path) {
+        // Une séance ouverte : écrite d'abord (un autre client lit peut-être
+        // le fichier), puis servie depuis la mémoire.
+        Some(s) => {
+            let mut g = lock_session(&s);
+            g.flush().map_err(|e| e.0)?;
+            g.sync().map_err(|e| e.0)?;
+            session_model_json(&mut g)
+        }
+        None => model_json(&path),
+    };
+    match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
         Ok(Err(e)) => json_error(StatusCode::UNPROCESSABLE_ENTITY, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct FlushBody {
+    path: String,
+}
+
+/// `POST /docx/flush` — `{path}` : écrit tout de suite les retouches en
+/// attente de la séance (le panneau l'appelle en se cachant ou en se fermant).
+pub async fn flush(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<FlushBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &body.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || -> Result<Value, (StatusCode, String)> {
+        let Some(s) = existing(&path) else { return Ok(json!({"ok": true, "pending": 0})) };
+        let mut g = lock_session(&s);
+        g.flush().map_err(|e| (refusal(&e), e.0))?;
+        Ok(json!({"ok": true, "revision": g.revision(), "pending": g.pending()}))
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err((status, e))) => json_error(status, e),
         Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
@@ -131,12 +307,27 @@ pub async fn stat(State(state): State<AppState>, headers: HeaderMap, Query(q): Q
     if !request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
     }
-    match docx_path(&state, &q.path) {
-        Ok(p) => {
-            let drafts = atelier_docx::drafts::list(&p).unwrap_or_default();
-            (StatusCode::OK, Json(json!({"mtime": mtime_ms(&p), "openInWord": atelier_docx::open_in_word(&p), "drafts": drafts}))).into_response()
+    let p = match docx_path(&state, &q.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || {
+        let drafts = atelier_docx::drafts::list(&p).unwrap_or_default();
+        let mut v = json!({"mtime": mtime_ms(&p), "openInWord": atelier_docx::open_in_word(&p), "drafts": drafts});
+        // Séance ouverte : sa révision (le fichier change à chaque écriture
+        // coalescée sans que le document montré change) ; un fichier changé
+        // par un autre est relu ici, et la révision change.
+        if let Some(s) = existing(&p) {
+            let mut g = lock_session(&s);
+            let _ = g.sync();
+            v["revision"] = json!(g.revision());
+            v["pending"] = json!(g.pending());
         }
-        Err(r) => r,
+        v
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 
@@ -179,12 +370,27 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
     let sig = Signature::now(&author);
     let root = state.root.clone();
     let job = move || -> Result<Value, (StatusCode, String)> {
-        let mut op = body.op;
+        // Les figures se lisent dans le projet : chemin d'origine.
+        let images = body.op.to_string().contains("\"insert_image\"");
+        if body.delta && sessions_enabled() && !images {
+            let s = session_for(&path).map_err(|e| (refusal(&e), e.0))?;
+            let mut g = lock_session(&s);
+            let a = g.apply(body.revision.as_deref(), &body.op, body.tracked, &sig).map_err(|e| (refusal(&e), e.0))?;
+            let mut delta = a.delta;
+            delta["mtime"] = json!(mtime_ms(&path));
+            delta["openInWord"] = json!(false);
+            return Ok(json!({"ok": true, "result": a.result, "revision": a.revision, "delta": delta}));
+        }
+        let revision = disk_revision(&path, body.revision.clone());
+        let mut op: Op = serde_json::from_value(body.op.clone()).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("retouche illisible : {e}")))?;
         op.load_images(&mut |rel| read_figure(&root, rel)).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0))?;
         let origin = Origin { source: "panneau", author: &sig.author, label: op.label() };
-        let (result, revision) = atelier_docx::edit_file_as(&path, body.revision.as_deref(), &origin, |d| ops::apply(d, &op, body.tracked, &sig))
+        // Le modèle rendu est celui que le contrôle de l'écriture vient de
+        // construire : le fichier n'est pas rouvert.
+        let (result, revision, mut docx, model) = atelier_docx::edit_file_model(&path, revision.as_deref(), &origin, |d| ops::apply(d, &op, body.tracked, &sig))
             .map_err(|e| (refusal(&e), e.0))?;
-        let model = model_json(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let model = model_value(&mut docx, model, &path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        // La séance ouverte relira le fichier à son prochain appel.
         Ok(json!({"ok": true, "result": result, "revision": revision, "model": model}))
     };
     match tokio::task::spawn_blocking(job).await {
@@ -206,6 +412,8 @@ pub async fn triage(State(state): State<AppState>, headers: HeaderMap, Query(q):
         Err(r) => return r,
     };
     let job = move || -> Result<Value, String> {
+        // Séance ouverte : ses retouches en attente d'abord sur le disque.
+        flush_session(&path);
         let mut docx = Docx::open(&path).map_err(|e| e.0)?;
         let model = docx.model().map_err(|e| e.0)?;
         serde_json::to_value(atelier_docx::triage::triage(&model)).map_err(|e| e.to_string())
@@ -252,9 +460,13 @@ pub async fn decide_set(State(state): State<AppState>, headers: HeaderMap, Json(
     let author = body.author.trim().chars().take(80).collect::<String>();
     let job = move || -> Result<Value, (StatusCode, String)> {
         let origin = Origin { source: "panneau", author: &author, label };
-        let (result, revision) = atelier_docx::edit_file_as(&path, body.revision.as_deref(), &origin, |d| atelier_docx::review::decide_set(d, &body.ids, decision))
+        // Séance ouverte : écrite d'abord ; elle relira le fichier à son
+        // prochain appel, comme après une retouche sans delta.
+        flush_session(&path);
+        let revision = disk_revision(&path, body.revision.clone());
+        let (result, revision, mut docx, model) = atelier_docx::edit_file_model(&path, revision.as_deref(), &origin, |d| atelier_docx::review::decide_set(d, &body.ids, decision))
             .map_err(|e| (refusal(&e), e.0))?;
-        let model = model_json(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let model = model_value(&mut docx, model, &path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
         Ok(json!({"ok": true, "result": result, "revision": revision, "model": model}))
     };
     match tokio::task::spawn_blocking(job).await {
@@ -302,6 +514,11 @@ pub async fn media(State(state): State<AppState>, headers: HeaderMap, Query(q): 
         Err(r) => return r,
     };
     let job = move || -> Result<Option<(Vec<u8>, &'static str)>, String> {
+        // Les paragraphes de la séance (pas encore écrits) font foi.
+        if let Some(s) = existing(&path) {
+            let mut g = lock_session(&s);
+            return atelier_docx::objects::media(g.docx_mut(), &q.para, &q.rel).map_err(|e| e.0);
+        }
         let mut d = Docx::open(&path).map_err(|e| e.0)?;
         atelier_docx::objects::media(&mut d, &q.para, &q.rel).map_err(|e| e.0)
     };
@@ -427,7 +644,35 @@ pub async fn undo(State(state): State<AppState>, headers: HeaderMap, Json(body):
         Err(r) => return r,
     };
     let job = move || -> Result<Value, (StatusCode, String)> {
-        let done = history::undo(&path, &body.revision, body.redo).map_err(|e| (if e.is_open_in_word() { StatusCode::LOCKED } else { StatusCode::CONFLICT }, e.0))?;
+        let status_of = |e: &atelier_docx::DocxError| if e.is_open_in_word() { StatusCode::LOCKED } else { StatusCode::CONFLICT };
+        if let Some(s) = existing(&path) {
+            // Séance ouverte : chaque retouche est un pas de l'historique une
+            // fois écrite ; on écrit, on annule sur le disque, la séance relit.
+            let mut g = lock_session(&s);
+            g.flush().map_err(|e| (status_of(&e), e.0))?;
+            if let Some(e) = g.take_error() {
+                return Err((StatusCode::CONFLICT, e));
+            }
+            if g.revision() != body.revision || g.pending() > 0 {
+                return Err((StatusCode::CONFLICT, "conflit : le document a changé depuis ; recharger puis refaire".into()));
+            }
+            let _ = g.sync();
+            let disk = std::fs::read(&path).map(|b| atelier_docx::revision_of(&b)).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let old = (g.model().clone(), g.styles().clone(), g.revision().to_string());
+            let done = history::undo(&path, &disk, body.redo).map_err(|e| (status_of(&e), e.0))?;
+            g.sync().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.0))?;
+            let mut out = json!({"ok": true, "revision": g.revision(), "label": done.label});
+            if body.delta {
+                let mut d = atelier_docx::session::delta(&old.0, g.model(), &old.1, g.styles(), &old.2);
+                d["mtime"] = json!(mtime_ms(&path));
+                d["openInWord"] = json!(atelier_docx::open_in_word(&path));
+                out["delta"] = d;
+            } else {
+                out["model"] = session_model_json(&mut g).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            }
+            return Ok(out);
+        }
+        let done = history::undo(&path, &body.revision, body.redo).map_err(|e| (status_of(&e), e.0))?;
         let model = model_json(&path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
         Ok(json!({"ok": true, "revision": done.revision, "label": done.label, "model": model}))
     };
@@ -449,6 +694,7 @@ pub async fn history_status(State(state): State<AppState>, headers: HeaderMap, Q
         Err(r) => return r,
     };
     let job = move || -> Result<Value, String> {
+        flush_session(&path);
         let rev = atelier_docx::revision_of(&std::fs::read(&path).map_err(|e| e.to_string())?);
         let mut v = serde_json::to_value(history::status(&path, &rev)).map_err(|e| e.to_string())?;
         v["revision"] = json!(rev);
@@ -477,7 +723,7 @@ pub async fn version(State(state): State<AppState>, headers: HeaderMap, Json(bod
         Ok(p) => p,
         Err(r) => return r,
     };
-    let job = move || match body.kind.as_str() {
+    let job = move || match { flush_session(&path); body.kind.as_str() } {
         "new" => atelier_docx::versions::save_version(&path).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0)),
         "received" => atelier_docx::versions::open_received(&path).map_err(|e| (StatusCode::NOT_FOUND, e.0)),
         _ => Err((StatusCode::BAD_REQUEST, "kind : new ou received".to_string())),
@@ -558,6 +804,9 @@ pub async fn create(State(state): State<AppState>, headers: HeaderMap, Json(body
     let root = state.root.clone();
     let template = body.template.clone();
     let job = move || -> Result<Value, (StatusCode, String)> {
+        if let Some(f) = from.as_deref() {
+            flush_session(f);
+        }
         let src = from.as_deref().map(std::fs::read).transpose().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         let t = match (template.as_str(), &src) {
             ("article", _) => atelier_docx::new::Template::Article,

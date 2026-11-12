@@ -21,6 +21,9 @@ pub(crate) struct Target {
     pub p_open: String,
     pub ppr_end: Option<usize>,
     pub p_inner_end: Option<usize>,
+    /// Balise ouvrante de la racine (espaces de noms) : pour relire le seul
+    /// paragraphe retouché.
+    pub root_open: String,
 }
 
 pub(crate) fn target(src: &str, doc: &Document, paragraph: &str) -> Result<Target> {
@@ -57,6 +60,7 @@ pub(crate) fn target(src: &str, doc: &Document, paragraph: &str) -> Result<Targe
         p_open: xml::open_tag(src, p),
         ppr_end: xml::w_child(p, "pPr").map(|n| n.range().end),
         p_inner_end: xml::inner_range(p).map(|r| r.end),
+        root_open: xml::open_tag(src, doc.root_element()),
     })
 }
 
@@ -246,6 +250,7 @@ pub struct EditResult {
 pub fn replace(docx: &mut Docx, paragraph: &str, find: &str, occurrence: Option<usize>, with: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
     let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
+    xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
     let (s, e) = find_in(&t.text, find, occurrence, paragraph)?;
     drop(doc);
@@ -256,6 +261,7 @@ pub fn replace(docx: &mut Docx, paragraph: &str, find: &str, occurrence: Option<
 pub fn insert(docx: &mut Docx, paragraph: &str, at: usize, with: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
     let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
+    xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
     if at > t.text.chars().count() {
         return err("position au-delà de la fin du paragraphe");
@@ -270,6 +276,7 @@ pub fn insert(docx: &mut Docx, paragraph: &str, at: usize, with: &str, tracked: 
 pub fn replace_range(docx: &mut Docx, paragraph: &str, start: usize, end: usize, with: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
     let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
+    xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
     if start > end || end > t.text.chars().count() {
         return err("passage au-delà de la fin du paragraphe");
@@ -282,6 +289,7 @@ pub fn replace_range(docx: &mut Docx, paragraph: &str, start: usize, end: usize,
 pub(crate) fn insert_raw(docx: &mut Docx, paragraph: &str, at: usize, raw: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
     let (story, src) = docx.story_src(paragraph)?;
     let doc = xml::parse(&src)?;
+    xml::require_w_prefix(&doc)?;
     let t = target(&src, &doc, paragraph)?;
     if at > t.text.chars().count() {
         return err("position au-delà de la fin du paragraphe");
@@ -296,7 +304,6 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
     if s == e && !inserting {
         return Ok(EditResult { changes: Vec::new() });
     }
-    xml::require_w_prefix(&xml::parse(src)?)?;
     // Tout ce qui est couvert doit être retouchable par cet auteur, ou un
     // objet entier (figure, note, citation, équation) qu'on efface d'un bloc.
     // Son propre ajout se retouche sans trace ; dans l'ajout d'un autre, on
@@ -479,7 +486,11 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
             made.push(ins_id);
         }
     }
-    let out = drop_empty_revisions(&xml::splice(src, edits)?)?;
+    // Toutes les épissures tombent dans le paragraphe : seul lui peut
+    // garder une enveloppe de suivi vidée.
+    let grow: isize = edits.iter().map(|(r, t)| t.len() as isize - r.len() as isize).sum();
+    let p_after = t.p_range.start..(t.p_range.end as isize + grow) as usize;
+    let out = drop_empty_revisions_in(xml::splice(src, edits)?, p_after, &t.root_open)?;
     docx.set_part(part, out);
     if units.iter().any(|(_, own)| !tracked || *own) {
         crate::story::drop_orphan_notes(docx)?;
@@ -506,6 +517,36 @@ pub(crate) fn drop_empty_revisions(text: &str) -> Result<String> {
         return Ok(text.to_string());
     }
     xml::splice(text, edits)
+}
+
+/// Comme [`drop_empty_revisions`], en ne relisant que `range` (un
+/// paragraphe) sous la balise racine `root_open`, qui déclare les espaces de
+/// noms ; relit tout le texte si ce fragment ne s'analyse pas seul.
+pub(crate) fn drop_empty_revisions_in(text: String, range: Range<usize>, root_open: &str) -> Result<String> {
+    let Some(slice) = text.get(range.clone()) else { return drop_empty_revisions(&text) };
+    if !slice.contains("<w:ins") && !slice.contains("<w:del") {
+        return Ok(text);
+    }
+    let close = root_open.trim_start_matches('<').split(|c: char| c.is_whitespace() || c == '>' || c == '/').next().unwrap_or("");
+    let wrapped = format!("{root_open}{slice}</{close}>");
+    let shift = root_open.len();
+    let edits: Vec<(Range<usize>, String)> = match xml::parse(&wrapped) {
+        Ok(doc) => doc
+            .descendants()
+            .filter(|n| {
+                (xml::is_w(*n, "ins") || xml::is_w(*n, "del"))
+                    && n.parent().is_some_and(|p| xml::is_w(p, "p") || xml::is_w(p, "hyperlink"))
+                    && !n.children().any(|c| c.is_element())
+            })
+            .filter(|n| n.range().start >= shift && n.range().end <= shift + slice.len())
+            .map(|n| (n.range().start - shift + range.start..n.range().end - shift + range.start, String::new()))
+            .collect(),
+        Err(_) => return drop_empty_revisions(&text),
+    };
+    if edits.is_empty() {
+        return Ok(text);
+    }
+    xml::splice(&text, edits)
 }
 
 impl From<std::fmt::Error> for DocxError {
