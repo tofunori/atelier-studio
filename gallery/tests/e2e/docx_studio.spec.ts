@@ -804,6 +804,9 @@ test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place 
   await expect(page.locator('#f')).toHaveCSS('width', '800px');
 });
 
+// ---------------------------------------------------------------- tri des suivis
+// Document synthétique (fixture `tri` d'atelier-docx, anglais et français) :
+// 29 suivis de Christophe et un de Marie Dupont.
 test('docx: la sélection est peinte à la hauteur des lettres, et la fiche rappelle le passage commenté', async ({page, project}) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -862,10 +865,13 @@ test('docx: nouvelle version et version reçue s\'ouvrent en copies à côté, s
   await expect(page).toHaveURL(/CK_recu\.docx/);
   expect((await readFile(path.join(project.root, 'Chapitre 2 corrigé CK_recu.docx'))).equals(original)).toBe(true);
   expect((await readFile(project.doc)).equals(original)).toBe(false);
+});
 
-// ---------------------------------------------------------------- tri des suivis
-// Document synthétique (fixture `tri` d'atelier-docx, anglais et français) :
-// 29 suivis de Christophe et un de Marie Dupont.
+// ------------------------------------------------ gestes montrés d'avance
+// Effacer, Entrée, jointure et gras s'affichent avant la réponse du serveur ;
+// effacements et frappe consécutifs partent en une seule retouche.
+
+/** Texte affiché d'un paragraphe : sans les suppressions barrées. */
 const TRI = path.join(path.dirname(FIXTURE), 'tri.docx');
 const triTest = base.extend<{tri: {url: string; doc: string}}>({
   tri: async ({}, use) => {
@@ -991,11 +997,6 @@ triTest('docx: revue au clavier, A et R décident et avancent, Échap ferme', as
   expect(errors).toEqual([]);
 });
 
-// ------------------------------------------------ gestes montrés d'avance
-// Effacer, Entrée, jointure et gras s'affichent avant la réponse du serveur ;
-// effacements et frappe consécutifs partent en une seule retouche.
-
-/** Texte affiché d'un paragraphe : sans les suppressions barrées. */
 const shownText = (page: Page, idx: number) => page.locator(`.d-p[data-idx="${idx}"]`).evaluate(p =>
   Array.from(p.querySelectorAll(':scope > [data-off]')).filter(s => !(s as HTMLElement).dataset.del).map(s => s.textContent).join(''));
 
@@ -1204,6 +1205,7 @@ test("docx: délai entre la touche et l'affichage (retour arrière, Entrée, gra
     expect(r.shown).toBeLessThan(50);
     if (r.saved > 0) expect(r.shown).toBeLessThan(r.saved);
   }
+});
 
 type Seg = Para['segments'][number] & {latex?: string; i?: boolean; sup?: boolean; font?: string};
 
