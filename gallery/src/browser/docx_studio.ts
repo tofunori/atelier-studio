@@ -102,6 +102,18 @@
   let backlog: (() => Promise<void>)[] = [];
   let focusKey = "";
   let composing: Pos | null = null;
+  // Marge des commentaires à la demande (bouton « Commentaires », 2026-11-12).
+  // laneOff : marge fermée par Thierry (retenu par document) ; laneOver :
+  // panneau trop étroit et non élargi, la marge passe par-dessus la page ;
+  // holdPt : zoom tenu pendant que l'app élargit ou resserre le panneau ;
+  // widened : l'app a élargi le panneau pour la marge, à rendre en fermant.
+  const LANE_KEY = `docxLaneOff:${PATH}`;
+  let laneOff = (() => { try { return localStorage.getItem(LANE_KEY) === "1"; } catch { return false; } })();
+  let laneOver = false;
+  let holdPt = 0;
+  let widened = false;
+  let paneWait = 0;
+  let paneAction = "";
   const cp = (s: string) => Array.from(s).length;
 
   // ---------------------------------------------------------------- icônes
@@ -126,6 +138,7 @@
     right: '<path d="m9 18 6-6-6-6"/>',
     msgPlus: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>',
     chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    msgText: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/>',
     plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
     minus: '<path d="M5 12h14"/>',
     undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
@@ -463,7 +476,7 @@
     if (!pg) return;
     const cs = getComputedStyle(scroller);
     const room = scroller.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const next = zoom ? PT * zoom / 100 : PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT)));
+    const next = holdPt || (zoom ? PT * zoom / 100 : PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT))));
     showZoom(next);
     if (!force && Math.abs(next - ptPx) < 1e-3) { followPaper(); return; }
     ptPx = next;
@@ -1707,6 +1720,7 @@
     <button class="ib" id="btnFind" aria-label="Rechercher" data-tooltip="Rechercher et remplacer (⌘F)">${ic("search")}</button>
     <span class="seg" role="group" aria-label="Affichage"><button id="vReview" aria-pressed="true" data-tooltip="Modifications et commentaires visibles">Révision</button><button id="vRead" aria-pressed="false" data-tooltip="Le texte comme si tout était accepté">Lecture</button></span>
     <span class="navc hide2"><button class="ib" id="navPrev" aria-label="Commentaire précédent" data-tooltip="Commentaire précédent">${ic("left")}</button><span class="lbl" id="navLbl"></span><button class="ib" id="navNext" aria-label="Commentaire suivant" data-tooltip="Commentaire suivant">${ic("right")}</button></span>
+    <button class="ib lanebtn" id="btnLane" aria-label="Commentaires" aria-pressed="false" data-tooltip="Afficher les commentaires (⇧⌘M)">${ic("msgText")}<span class="n" id="laneN"></span></button>
     <button class="track on" id="btnTrack" aria-pressed="true" data-tooltip="Suivi des modifications : chaque retouche reste visible dans Word"><span class="sw"><i></i></span>Suivi</button>`;
 
   // Les boutons ne prennent pas le focus : la sélection reste dans la page.
@@ -2200,12 +2214,19 @@
     const b = document.body.classList;
     // La marge prend 360 px : si la page doit alors tomber sous 75 %, les
     // fiches passent en fenêtre et la page garde sa taille.
+    // Le bouton « Commentaires » peut la fermer (laneOff) ou, faute de place,
+    // la poser par-dessus la page (lane-over) ; pendant que l'app élargit le
+    // panneau (holdPt), elle reste ouverte et se dévoile avec lui.
     const pg = model?.page;
     const room = scroller.clientWidth - 24 - 360;
-    b.toggle("no-lane", innerWidth < 760 || (!!pg && zoom === null && room < pg.width * PT * 0.75));
+    const narrow = !holdPt && (innerWidth < 760 || (!!pg && zoom === null && room < pg.width * PT * 0.75));
+    if (!narrow) laneOver = false;
+    b.toggle("no-lane", laneOff || (narrow && !laneOver));
+    b.toggle("lane-over", !laneOff && narrow && laneOver);
     if (!b.contains("no-lane")) { b.remove("lane-pop"); cardsEl.style.removeProperty("width"); cardsEl.style.removeProperty("top"); }
     // Sans fiche à montrer, la marge disparaît : la page reprend la largeur du panneau.
     b.toggle("no-margin", !cardsEl.childElementCount || b.contains("no-lane"));
+    syncLaneBtn();
     fitPage();
     placeCards();
   }
@@ -2312,6 +2333,92 @@
     cardsEl.style.left = `${Math.max(16, Math.min(innerWidth - w - 16, q!.left + q!.width / 2 - w / 2))}px`;
     cardsEl.style.top = `${Math.max(sr.top + 8, y)}px`;
   }
+
+  // ------------------------------------------- bouton « Commentaires »
+  // Ouvrir la marge quand le panneau est trop étroit : l'app élargit le
+  // panneau d'exactement la place qui manque (la page garde sa taille, ou
+  // atteint les 75 % sous lesquels la marge ne tient pas) ; sans app ou sans
+  // place, la marge s'ouvre par-dessus le bord de la page. La fermer rend au
+  // panneau sa largeur d'avant.
+  const LANE_NONCE = (() => {
+    try { const m = location.hash.match(/atelier_nonce=([\w-]+)/); return m ? m[1] : sessionStorage.getItem("atelier_nonce") || ""; }
+    catch { return ""; }
+  })();
+  const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function syncLaneBtn() {
+    const laneBtn = $("btnLane");
+    const any = cardsEl.childElementCount > 0;
+    const on = any && !document.body.classList.contains("no-lane");
+    laneBtn.classList.toggle("on", on);
+    laneBtn.setAttribute("aria-pressed", String(on));
+    (laneBtn as HTMLButtonElement).disabled = !any;
+    laneBtn.dataset.tooltip = !any ? "Aucun commentaire ni modification"
+      : on ? "Masquer les commentaires (⇧⌘M)" : "Afficher les commentaires (⇧⌘M)";
+  }
+  function askPane(action: "widen" | "restore", px: number) {
+    clearTimeout(paneWait);
+    paneAction = action;
+    parent.postMessage({ type: "atelier-docx-pane", action, px, nonce: LANE_NONCE }, "*");
+    // Sans réponse (galerie seule, banc d'essai), on n'attend pas plus.
+    paneWait = window.setTimeout(() => paneDone(action, false), 700);
+  }
+  function paneDone(action: string, ok: boolean) {
+    clearTimeout(paneWait);
+    paneWait = 0;
+    paneAction = "";
+    holdPt = 0;
+    document.body.classList.remove("lane-in");
+    if (action === "widen") { widened = ok; laneOver = true; }
+    layoutCards();
+  }
+  window.addEventListener("message", (e) => {
+    const d = e.data as { type?: string; action?: string; ok?: boolean } | null;
+    if (e.source !== parent || d?.type !== "atelier-docx-pane-done") return;
+    if (paneWait && d.action === paneAction) paneDone(d.action, d.ok === true);
+    // Réponse arrivée après l'attente : le panneau a quand même été élargi,
+    // il faudra le rendre en fermant la marge.
+    else if (!paneWait && d.action === "widen" && d.ok === true && !laneOff) { widened = true; layoutCards(); }
+  });
+  function closeLane() {
+    const b = document.body.classList;
+    const finish = () => {
+      b.remove("lane-out");
+      laneOff = true;
+      laneOver = false;
+      try { localStorage.setItem(LANE_KEY, "1"); } catch { /* choix gardé pour la session */ }
+      if (widened && parent !== window) { widened = false; holdPt = ptPx; askPane("restore", 0); }
+      layoutCards();
+    };
+    if (reduced()) { finish(); return; }
+    b.add("lane-out");
+    window.setTimeout(finish, 120);
+  }
+  function openLane() {
+    const b = document.body.classList;
+    laneOff = false;
+    try { localStorage.removeItem(LANE_KEY); } catch { /* choix gardé pour la session */ }
+    const pg = model?.page;
+    let need = Math.max(0, 760 - innerWidth);
+    if (pg && zoom === null) need = Math.max(need, Math.max(ptPx, PT * 0.75) * pg.width + 24 + 360 - scroller.clientWidth);
+    need = Math.ceil(need);
+    if (need > 0 && parent === window) laneOver = true;
+    else if (need > 0) {
+      holdPt = zoom === null ? Math.max(ptPx, PT * 0.75) : 0;
+      if (!reduced()) b.add("lane-in");
+      askPane("widen", need);
+    }
+    layoutCards();
+  }
+  const laneBtn = $("btnLane");
+  laneBtn.addEventListener("click", () => {
+    if (paneWait || document.body.classList.contains("lane-out")) return;
+    if (document.body.classList.contains("no-lane")) openLane(); else closeLane();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey || e.code !== "KeyM") return;
+    e.preventDefault();
+    if (!(laneBtn as HTMLButtonElement).disabled) laneBtn.click();
+  });
 
   function updateNav() {
     const n = navOrder.indexOf(focusKey);
@@ -2941,6 +3048,7 @@
     let words = 0;
     for (let k = 0; k < (model.body ?? model.paragraphs.length); k++) words += (virtualText(k).match(/\S+/g) || []).length;
     $("ftWords").textContent = pl(words, "mot", "mots");
+    $("laneN").textContent = open ? nf(open) : "";
     $("ftOpen").innerHTML = [
       pl(open, "commentaire ouvert", "commentaires ouverts"),
       pl(model.changes.length, "modification", "modifications"),
