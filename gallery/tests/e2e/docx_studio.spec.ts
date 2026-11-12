@@ -677,13 +677,16 @@ test('docx: pendant que le panneau change de taille, la page s\'étire sans se r
   await page.evaluate(() => { const sc = document.getElementById('scroll')!; sc.scrollTop = sc.scrollHeight / 2; });
   await page.waitForTimeout(100);
   const before = await state();
-  // Le séparateur glisse : plusieurs largeurs de suite, sans pause.
+  // L'app signale qu'on tire un séparateur ; plusieurs largeurs de suite.
+  const drag = (on: boolean) => page.evaluate((v) => postMessage({type: 'atelier-pane-resize', on: v}, '*'), on);
+  await drag(true);
   for (const width of [1300, 1180, 1060, 960]) await page.setViewportSize({width, height: 900});
   const during = await state();
   expect(during.stretching).toBe(true);
   expect(during.transform).toContain('scale(');
   expect(during.pt).toBe(before.pt);
-  // Fin du geste : une seule vraie mise à l'échelle, le passage lu reste en haut.
+  // Lâcher : une seule vraie mise à l'échelle, le passage lu reste en haut.
+  await drag(false);
   await expect.poll(async () => (await state()).stretching).toBe(false);
   await expect.poll(async () => (await state()).aligned).toBe(true);
   const after = await state();
@@ -691,6 +694,11 @@ test('docx: pendant que le panneau change de taille, la page s\'étire sans se r
   expect(after.pt).not.toBe(before.pt);
   expect(after.top).toBe(before.top);
   expect(Math.abs(after.y - before.y)).toBeLessThan(6);
+  // Un changement de taille isolé (sans séparateur tiré) se met en page tout de suite.
+  await page.waitForTimeout(300);
+  await page.setViewportSize({width: 1200, height: 900});
+  await expect.poll(async () => (await state()).pt).not.toBe(after.pt);
+  expect((await state()).stretching).toBe(false);
 });
 
 test('docx: une bibliographie Zotero passe à la ligne et se coupe en feuilles pleines', async ({page, project}) => {

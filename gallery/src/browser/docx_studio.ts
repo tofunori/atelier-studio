@@ -483,7 +483,7 @@
     // Panneau tiré par l'app (séparateur) : la page s'étire au compositeur,
     // la vraie mise en page attend la fin du geste (comme le PDF).
     const w = scroller.clientWidth;
-    if (!force && zoom === null && !holdPt && fitW && w && w !== fitW && !laidOutHidden) { stretchTo(next, room); return; }
+    if (!force && zoom === null && !holdPt && fitW && w && w !== fitW && !laidOutHidden && liveWidth()) { stretchTo(next, room); return; }
     endStretch();
     fitW = w;
     ptPx = next;
@@ -498,19 +498,37 @@
     } catch { /* stockage indisponible : le zoom vaut pour cette session */ }
     fitPage();
   }
-  const zoomPct = () => Math.round(ptPx / PT * 100);
+  const zoomPct = () => Math.round((stretchPt || ptPx) / PT * 100);
   // Redimensionnement en direct. Refaire la coupe d'un long manuscrit à
   // chaque image coûte des centaines de ms (6 images/s sur 65 pages) : tant
   // que la largeur du panneau bouge, la page et ses calques gardent leur mise
   // en page et suivent par une transformation (zoom autour du haut visible),
-  // puis la page se recoupe une fois, 160 ms après le dernier changement.
+  // puis la page se recoupe une fois, au lâcher du séparateur (l'app le
+  // signale) ou 160 ms après le dernier changement. Un changement isolé
+  // (ouverture, panneau qui apparaît) se met en page tout de suite.
   // `fitW` : largeur du panneau à la dernière mise à l'échelle réelle.
   let fitW = 0;
   let stretchTimer = 0;
   let stretchY = -1;
+  let stretchPt = 0;
+  let paneDragging = false;
+  let widthChangedAt = -1e9;
+  function liveWidth() {
+    const now = performance.now();
+    const burst = now - widthChangedAt < 250;
+    widthChangedAt = now;
+    return paneDragging || burst || stretchY >= 0;
+  }
+  window.addEventListener("message", (e) => {
+    const d = e.data as { type?: string; on?: boolean } | null;
+    if (e.source !== parent || d?.type !== "atelier-pane-resize") return;
+    paneDragging = d.on === true;
+    if (!paneDragging) settleStretch();
+  });
   const stretchLayers = () => [paper, sheets, lnLayer, cbars];
   function stretchTo(next: number, room: number) {
     const k = next / ptPx;
+    stretchPt = next;
     followPaper();
     // La page se centre dans le panneau, comme après la mise en page réelle.
     const left = parseFloat(getComputedStyle(scroller).paddingLeft) + Math.max(0, (room - paper.offsetWidth * k) / 2);
@@ -526,7 +544,15 @@
     clearTimeout(stretchTimer);
     // Fin du geste : la page reprend sa taille réelle, à la largeur atteinte.
     // Le bloc en haut de l'écran y reste : la coupe refaite ne fait pas sauter la lecture.
-    stretchTimer = window.setTimeout(() => { stretchTimer = 0; fitW = 0; keepTop = topBlock(); endStretch(); layoutCards(); if (!linesFrame) keepTop = null; }, 160);
+    stretchTimer = window.setTimeout(settleStretch, paneDragging ? 1000 : 160);
+  }
+  function settleStretch() {
+    if (stretchY < 0) return;
+    fitW = 0;
+    keepTop = topBlock();
+    endStretch();
+    layoutCards();
+    if (!linesFrame) keepTop = null;
   }
   let keepTop: { el: HTMLElement; y: number } | null = null;
   function topBlock() {
@@ -545,6 +571,7 @@
     clearTimeout(stretchTimer);
     stretchTimer = 0;
     stretchY = -1;
+    stretchPt = 0;
     document.body.classList.remove("stretching");
     for (const l of stretchLayers()) { l.style.removeProperty("transform"); l.style.removeProperty("transform-origin"); }
     // Une coupe demandée pendant l'étirement (frappe, relecture) passe maintenant.
@@ -2484,6 +2511,7 @@
     else if (!paneWait && d.action === "widen" && d.ok === true && !laneOff) { widened = true; layoutCards(); }
   });
   function closeLane() {
+    settleStretch();
     const b = document.body.classList;
     const finish = () => {
       b.remove("lane-out");
@@ -2498,6 +2526,7 @@
     window.setTimeout(finish, 120);
   }
   function openLane() {
+    settleStretch();
     const b = document.body.classList;
     laneOff = false;
     try { localStorage.removeItem(LANE_KEY); } catch { /* choix gardé pour la session */ }

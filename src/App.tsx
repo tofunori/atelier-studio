@@ -17,6 +17,7 @@ import { lazy } from "react";
 const ProjectFoldersDialog = lazy(() => import("./components/ProjectFoldersDialog"));
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
+import { announcePaneResize } from "./lib/paneResizeSignal";
 import { useDocxPaneRequests } from "./hooks/useDocxPaneRequests";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -512,6 +513,12 @@ export default function App() {
   usageOpenRef.current = usageOpen;
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const draggedRef = useRef(false);
+  useEffect(() => {
+    if (!dragging && !draggedRef.current) return;
+    draggedRef.current = dragging;
+    announcePaneResize(dragging);
+  }, [dragging]);
   useEffect(() => { initNotify().catch(() => {}); }, []);
   useEffect(() => {
     setDockBadge(unread.size).catch(() => {});

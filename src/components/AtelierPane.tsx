@@ -1,5 +1,6 @@
 import ProjectGallery from "./ProjectGallery";
 import type { ProjectFolders } from "../lib/projectFolders";
+import { announcePaneResize } from "../lib/paneResizeSignal";
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { openPath } from "@tauri-apps/plugin-opener";
@@ -1466,6 +1467,7 @@ export default function AtelierPane({
     const splitElement = event.currentTarget.parentElement as HTMLElement;
     const bounds = splitElement.getBoundingClientRect();
     document.body.classList.add("dragging");
+    announcePaneResize(true);
     // Une mise à jour par image : la souris peut envoyer 120 évènements/s.
     let frame = 0;
     let raw = node.ratio;
@@ -1486,6 +1488,7 @@ export default function AtelierPane({
         setWorkspace((current) => resizeWorkspaceSplit(current, node.id, raw));
       }
       document.body.classList.remove("dragging");
+      announcePaneResize(false);
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
     };
