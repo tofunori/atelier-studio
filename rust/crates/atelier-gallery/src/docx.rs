@@ -48,6 +48,14 @@ fn yes() -> bool {
 }
 
 #[derive(Deserialize)]
+pub struct VersionBody {
+    path: String,
+    /// `new` : nouvelle version (`nom_v2.docx`) ; `received` : la dernière
+    /// version reçue, rouverte comme copie (`nom_recu.docx`).
+    kind: String,
+}
+
+#[derive(Deserialize)]
 pub struct UndoBody {
     path: String,
     revision: String,
@@ -374,11 +382,39 @@ pub async fn history_status(State(state): State<AppState>, headers: HeaderMap, Q
         let rev = atelier_docx::revision_of(&std::fs::read(&path).map_err(|e| e.to_string())?);
         let mut v = serde_json::to_value(history::status(&path, &rev)).map_err(|e| e.to_string())?;
         v["revision"] = json!(rev);
+        v["received"] = match atelier_docx::versions::received(&path) {
+            Some((revision, at)) => json!({"revision": revision, "at": at}),
+            None => Value::Null,
+        };
+        v["nextVersion"] = json!(atelier_docx::versions::next_version_name(&path));
         Ok(v)
     };
     match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
         Ok(Err(e)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `POST /docx/version` — copie à côté du document, sans rien écraser :
+/// nouvelle version (`nom_v2.docx`…) ou dernière version reçue
+/// (`nom_recu.docx`). Rend le chemin de la copie, à ouvrir.
+pub async fn version(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<VersionBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &body.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || match body.kind.as_str() {
+        "new" => atelier_docx::versions::save_version(&path).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0)),
+        "received" => atelier_docx::versions::open_received(&path).map_err(|e| (StatusCode::NOT_FOUND, e.0)),
+        _ => Err((StatusCode::BAD_REQUEST, "kind : new ou received".to_string())),
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(copy)) => (StatusCode::OK, Json(json!({"ok": true, "path": copy.to_string_lossy()}))).into_response(),
+        Ok(Err((status, e))) => json_error(status, e),
         Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }

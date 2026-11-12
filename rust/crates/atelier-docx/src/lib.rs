@@ -37,6 +37,7 @@ pub mod review;
 pub mod structure;
 pub mod format;
 pub mod history;
+pub mod versions;
 pub mod ops;
 pub mod story;
 pub mod table;
