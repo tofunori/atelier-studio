@@ -480,7 +480,13 @@
     const room = scroller.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const next = holdPt || (zoom ? PT * zoom / 100 : PT * Math.max(0.4, Math.min(1.5, room / (pg.width * PT))));
     showZoom(next);
-    if (!force && Math.abs(next - ptPx) < 1e-3) { followPaper(); return; }
+    if (!force && Math.abs(next - ptPx) < 1e-3) { endStretch(); fitW = scroller.clientWidth; followPaper(); return; }
+    // Panneau tiré par l'app (séparateur) : la page s'étire au compositeur,
+    // la vraie mise en page attend la fin du geste (comme le PDF).
+    const w = scroller.clientWidth;
+    if (!force && zoom === null && !holdPt && fitW && w && w !== fitW && !laidOutHidden) { stretchTo(next, room); return; }
+    endStretch();
+    fitW = w;
     ptPx = next;
     document.documentElement.style.setProperty("--pt", `${next.toFixed(4)}px`);
     scheduleLines();
@@ -494,6 +500,57 @@
     fitPage();
   }
   const zoomPct = () => Math.round(ptPx / PT * 100);
+  // Redimensionnement en direct. Refaire la coupe d'un long manuscrit à
+  // chaque image coûte des centaines de ms (6 images/s sur 65 pages) : tant
+  // que la largeur du panneau bouge, la page et ses calques gardent leur mise
+  // en page et suivent par une transformation (zoom autour du haut visible),
+  // puis la page se recoupe une fois, 160 ms après le dernier changement.
+  // `fitW` : largeur du panneau à la dernière mise à l'échelle réelle.
+  let fitW = 0;
+  let stretchTimer = 0;
+  let stretchY = -1;
+  const stretchLayers = () => [paper, sheets, lnLayer, cbars];
+  function stretchTo(next        , room        ) {
+    const k = next / ptPx;
+    followPaper();
+    // La page se centre dans le panneau, comme après la mise en page réelle.
+    const left = parseFloat(getComputedStyle(scroller).paddingLeft) + Math.max(0, (room - paper.offsetWidth * k) / 2);
+    const dx = left - paper.offsetLeft;
+    if (stretchY < 0) {
+      stretchY = Math.max(0, scroller.scrollTop - paper.offsetTop);
+      document.body.classList.add("stretching");
+    }
+    for (const l of stretchLayers()) {
+      l.style.transformOrigin = `0 ${stretchY}px`;
+      l.style.transform = `translateX(${dx.toFixed(1)}px) scale(${k.toFixed(4)})`;
+    }
+    clearTimeout(stretchTimer);
+    // Fin du geste : la page reprend sa taille réelle, à la largeur atteinte.
+    // Le bloc en haut de l'écran y reste : la coupe refaite ne fait pas sauter la lecture.
+    stretchTimer = window.setTimeout(() => { stretchTimer = 0; fitW = 0; keepTop = topBlock(); endStretch(); layoutCards(); if (!linesFrame) keepTop = null; }, 160);
+  }
+  let keepTop                                        = null;
+  function topBlock() {
+    const blocks = flowBlocks();
+    const top = scroller.getBoundingClientRect().top;
+    let lo = 0, hi = blocks.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (blocks[mid].getBoundingClientRect().bottom <= top) lo = mid + 1; else hi = mid;
+    }
+    const el = blocks[lo];
+    return el ? { el, y: el.getBoundingClientRect().top - top } : null;
+  }
+  function endStretch() {
+    if (stretchY < 0) return;
+    clearTimeout(stretchTimer);
+    stretchTimer = 0;
+    stretchY = -1;
+    document.body.classList.remove("stretching");
+    for (const l of stretchLayers()) { l.style.removeProperty("transform"); l.style.removeProperty("transform-origin"); }
+    // Une coupe demandée pendant l'étirement (frappe, relecture) passe maintenant.
+    if (dirtyAll) scheduleLines();
+  }
   // Feuilles, numéros de ligne et traits de révision sont dessinés par
   // rapport au coin de la page ; leurs calques suivent la page quand elle
   // se recentre (panneau élargi ou rétréci, marge des fiches qui apparaît,
@@ -567,6 +624,8 @@
     if (linesFrame) return;
     linesFrame = requestAnimationFrame(() => {
       linesFrame = 0;
+      // Page étirée : ses mesures sont faussées, la coupe attend la fin du geste.
+      if (stretchY >= 0) { dirtyAll = true; return; }
       const from = dirtyAll ? null : dirtyFrom;
       const to = dirtyTo;
       dirtyAll = false;
@@ -633,6 +692,11 @@
     const pages = paginate(pg, blocks, start, page, until, from !== null);
     if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
     followPaper();
+    if (keepTop && from === null) {
+      const k = keepTop;
+      keepTop = null;
+      if (k.el.isConnected) scroller.scrollTop += k.el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - k.y;
+    }
     drawSheets(pg, pages);
     drawLines(pg);
     pageCount = pages;

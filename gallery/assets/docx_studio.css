@@ -180,6 +180,8 @@ body.blanche #caret{background:var(--doc-ink)}
 @keyframes caret-blink{50%{opacity:0}}
 body.blanche #paper{background:var(--doc-paper);color:var(--doc-ink);--text-primary:var(--doc-ink);--text-muted:var(--doc-ink-muted);--text-secondary:var(--doc-ink-muted)}
 #cbars{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:1}
+/* Panneau redimensionné : la page et ses calques s’étirent au compositeur (docx_studio.ts, stretchTo). */
+body.stretching #paper,body.stretching #sheets,body.stretching #lnums,body.stretching #cbars{will-change:transform}
 #cbars>i{position:absolute;width:2px;border-radius:999px;background:color-mix(in srgb,var(--doc-a1) 55%,transparent)}
 #paper .loading{font:400 13px/1.5 var(--ui-font);color:var(--text-muted)}
 .d-p{position:relative;margin:0 0 12px;white-space:pre-wrap;min-height:1.7em}

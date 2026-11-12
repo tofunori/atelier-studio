@@ -1,6 +1,6 @@
 import ProjectGallery from "./ProjectGallery";
 import type { ProjectFolders } from "../lib/projectFolders";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useWorkspacePaneMenuHost } from "./WorkspacePaneMenuSlot";
@@ -350,6 +350,8 @@ export default function AtelierPane({
   // localStorage du WebView — celui-ci ne survit pas à une relance.
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set());
   const [paneBounds, setPaneBounds] = useState<Record<string, PaneBounds>>({});
+  const paneBoundsRef = useRef(paneBounds);
+  paneBoundsRef.current = paneBounds;
   const workspaceRootRef = useRef<HTMLDivElement | null>(null);
   const pointerDragRef = useRef<PointerDragSession | null>(null);
   const pointerFrameRef = useRef<number | null>(null);
@@ -373,7 +375,21 @@ export default function AtelierPane({
         height: rect.height,
       };
     }
-    setPaneBounds((current) => {
+    // Les surfaces suivent le séparateur DANS la même image : l'observateur
+    // passe avant la peinture, alors que l'état React ne serait rendu qu'après
+    // (une image de retard, la surface « traîne » derrière le séparateur).
+    // L'état suit sans urgence (il retombe sur les mêmes valeurs), sauf pour
+    // un panneau neuf, qui n'a encore aucune géométrie à afficher.
+    for (const layer of rootElement.querySelectorAll<HTMLElement>(".workspace-content-layer")) {
+      const bounds = layer.dataset.ownerPane ? next[layer.dataset.ownerPane] : undefined;
+      if (!bounds) continue;
+      layer.style.left = `${bounds.left}px`;
+      layer.style.top = `${bounds.top}px`;
+      layer.style.width = `${bounds.width}px`;
+      layer.style.height = `${bounds.height}px`;
+    }
+    const fresh = Object.keys(next).some((id) => !paneBoundsRef.current[id]);
+    const commit = () => setPaneBounds((current) => {
       const currentIds = Object.keys(current);
       const nextIds = Object.keys(next);
       if (
@@ -390,6 +406,7 @@ export default function AtelierPane({
       ) return current;
       return next;
     });
+    if (fresh) commit(); else startTransition(commit);
   }, []);
 
   useLayoutEffect(() => {
@@ -1449,13 +1466,25 @@ export default function AtelierPane({
     const splitElement = event.currentTarget.parentElement as HTMLElement;
     const bounds = splitElement.getBoundingClientRect();
     document.body.classList.add("dragging");
+    // Une mise à jour par image : la souris peut envoyer 120 évènements/s.
+    let frame = 0;
+    let raw = node.ratio;
     const move = (mouseEvent: MouseEvent) => {
-      const raw = node.direction === "horizontal"
+      raw = node.direction === "horizontal"
         ? ((mouseEvent.clientX - bounds.left) / bounds.width) * 100
         : ((mouseEvent.clientY - bounds.top) / bounds.height) * 100;
-      setWorkspace((current) => resizeWorkspaceSplit(current, node.id, raw));
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        setWorkspace((current) => resizeWorkspaceSplit(current, node.id, raw));
+      });
     };
     const up = () => {
+      if (frame) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        setWorkspace((current) => resizeWorkspaceSplit(current, node.id, raw));
+      }
       document.body.classList.remove("dragging");
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
