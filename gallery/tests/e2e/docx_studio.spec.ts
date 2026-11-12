@@ -744,3 +744,32 @@ test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place 
   await expect(body).toHaveClass(/no-lane/);
   await expect(page.locator('#f')).toHaveCSS('width', '800px');
 });
+
+test('docx: la sélection est peinte à la hauteur des lettres, et la fiche rappelle le passage commenté', async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  await expect(page.locator('#paper')).toHaveClass(/\bpg\b/);
+  // Fiche de commentaire : le passage commenté, sur une ligne, avant l'auteur.
+  const m = await disk(page, project);
+  const c = m.comments.find(x => x.parent === undefined && !x.done && x.quote.trim())!;
+  const qt = page.locator(`#cards .it[data-key="c${c.id}"] .qt`);
+  await expect(qt).toContainText(c.quote.trim().split(/\s+/).slice(0, 2).join(' '));
+  // Sélection : un rectangle par ligne, à la hauteur du texte (pas de la ligne).
+  await page.locator('#paper').focus();
+  await select(page, 0, 'Fraction de glace');
+  const rects = page.locator('#selpaint > i');
+  await expect(rects).toHaveCount(1);
+  const g = await page.evaluate(() => {
+    const r = document.querySelector('#selpaint > i')!.getBoundingClientRect();
+    const t = getSelection()!.getRangeAt(0).getClientRects()[0];
+    return {top: r.top, h: r.height, w: r.width, ttop: t.top, th: t.height, tw: t.width};
+  });
+  expect(Math.abs(g.top - g.ttop)).toBeLessThan(1.5);
+  expect(Math.abs(g.h - g.th)).toBeLessThan(1.5);
+  expect(Math.abs(g.w - g.tw)).toBeLessThan(2);
+  // Curseur replié : plus rien de peint.
+  await caretAfter(page, 0, 'Fraction');
+  await expect(rects).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
