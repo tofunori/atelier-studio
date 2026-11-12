@@ -20,9 +20,13 @@ fn la_frappe_prolonge_son_propre_ajout_sans_nouveau_suivi() {
     let mine: Vec<_> = m.changes.iter().filter(|c| c.author == "Thierry").collect();
     assert_eq!(mine.len(), 1, "un seul ajout : {mine:?}");
     assert_eq!((mine[0].kind.as_str(), mine[0].text.as_str()), ("ins", "Enfin, "));
-    // L'ajout de Christophe, lui, reste intouchable par Thierry.
-    let e = edit::replace(&mut d, "p1", "On", None, "Puis on", true, &me).unwrap_err();
-    assert!(e.0.contains("suivi"));
+    // Dans l'ajout de Christophe, Thierry retouche en suivi signé de son nom,
+    // comme Word : effacement imbriqué dans l'ajout, puis son propre ajout.
+    edit::replace(&mut d, "p1", "On", None, "Puis on", true, &me).unwrap();
+    let m = d.model().unwrap();
+    assert!(m.paragraphs[1].text.contains("Puis on ne conserve"), "{}", m.paragraphs[1].text);
+    assert!(m.changes.iter().any(|c| c.author == "Thierry" && c.kind == "del" && c.text == "On"));
+    assert!(m.changes.iter().any(|c| c.author == "Christophe" && c.kind == "ins" && c.id == 102), "l'ajout de Christophe reste à lui");
 }
 
 #[test]

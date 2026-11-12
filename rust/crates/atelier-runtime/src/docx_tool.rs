@@ -130,7 +130,8 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
             bytes = Some(std::fs::read(&fpath).map_err(|e| format!("figure illisible : {e}"))?);
         }
         let (paragraph, occurrence) = (str_arg(req, "paragraph").map(str::to_string), usize_arg(req, "occurrence"));
-        atelier_docx::edit_file(&path, expected, |d| {
+        let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: if action == "insert_note" { "note" } else { "figure" } };
+        atelier_docx::edit_file_as(&path, expected, &origin, |d| {
             let (p, at) = ops::place_after(d, paragraph.as_deref(), &find, occurrence)?;
             let mut op = if action == "insert_note" {
                 Op::InsertNote { paragraph: p.clone(), at, text: str_arg(req, "text").unwrap_or("").to_string(), endnote: false }
@@ -145,7 +146,8 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         .map_err(|e| e.0)?
     } else {
         let op = op_of(action, req)?;
-        atelier_docx::edit_file(&path, expected, |d| ops::apply(d, &op, true, &sig)).map_err(|e| e.0)?
+        let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: op.label() };
+        atelier_docx::edit_file_as(&path, expected, &origin, |d| ops::apply(d, &op, true, &sig)).map_err(|e| e.0)?
     };
     // Le paragraphe touché, relu tel qu'il est maintenant sur le disque.
     let para = result.get("paragraph").and_then(Value::as_str).map(str::to_string).or_else(|| str_arg(req, "paragraph").map(str::to_string));

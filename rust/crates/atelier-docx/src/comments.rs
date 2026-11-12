@@ -16,6 +16,11 @@ const REL_COMMENTS: &str = "http://schemas.openxmlformats.org/officeDocument/200
 const CT_COMMENTS_EXT: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml";
 const REL_COMMENTS_EXT: &str = "http://schemas.microsoft.com/office/2011/relationships/commentsExtended";
 const NS_W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const COMMENTS_IDS: &str = "word/commentsIds.xml";
+const COMMENTS_EXTENSIBLE: &str = "word/commentsExtensible.xml";
+const PEOPLE: &str = "word/people.xml";
+const W16CID: &str = "http://schemas.microsoft.com/office/word/2016/wordml/cid";
+const W16CEX: &str = "http://schemas.microsoft.com/office/word/2018/wordml/cex";
 
 fn reference_run(id: u32) -> String {
     format!("<w:commentRangeEnd w:id=\"{id}\"/><w:r><w:commentReference w:id=\"{id}\"/></w:r>")
@@ -25,7 +30,7 @@ fn reference_run(id: u32) -> String {
 /// le paraId de son paragraphe.
 fn append_comment(docx: &mut Docx, id: u32, text: &str, sig: &Signature) -> Result<String> {
     let existing = docx.part(COMMENTS)?;
-    let para_id = xml::new_para_id(&format!("{id}{text}{}", sig.date), id);
+    let para_id = crate::edit::fresh_para_id(docx, &format!("{id}{text}{}", sig.date))?;
     let paras: String = text
         .split('\n')
         .enumerate()
@@ -55,7 +60,93 @@ fn append_comment(docx: &mut Docx, id: u32, text: &str, sig: &Signature) -> Resu
             docx.create_part(COMMENTS, CT_COMMENTS, REL_COMMENTS, body)?;
         }
     }
+    add_companions(docx, &para_id, sig)?;
     Ok(para_id)
+}
+
+/// Ajoute `entry` à la fin de l'élément racine (refermé au besoin).
+fn append_child(text: &str, entry: &str) -> Result<String> {
+    let doc = xml::parse(text)?;
+    let root = doc.root_element().range();
+    let raw = &text[root.clone()];
+    Ok(if raw.ends_with("/>") {
+        let at = root.end - 2;
+        let name = raw[1..].split(|c: char| c.is_whitespace() || c == '/').next().unwrap_or("root");
+        format!("{}>{entry}</{name}>{}", &text[..at], &text[root.end..])
+    } else {
+        let close = root.start + raw.rfind("</").unwrap_or(raw.len());
+        format!("{}{entry}{}", &text[..close], &text[close..])
+    })
+}
+
+/// Parties que Word 2016+ tient à jour à côté de comments.xml : identifiant
+/// durable (commentsIds), vraie date UTC (commentsExtensible) et auteurs
+/// (people). On ne les crée pas ; quand elles existent, chaque commentaire
+/// ajouté y a son entrée, sinon Word les juge incohérentes.
+fn add_companions(docx: &mut Docx, para_id: &str, sig: &Signature) -> Result<()> {
+    if let Some(ids) = docx.part(COMMENTS_IDS)? {
+        let doc = xml::parse(&ids)?;
+        let p = doc.root_element().lookup_prefix(W16CID).unwrap_or("w16cid").to_string();
+        let taken: Vec<String> = doc.descendants().filter_map(|n| n.attribute((W16CID, "durableId")).map(str::to_string)).collect();
+        let mut salt = 0;
+        let durable = loop {
+            let d = xml::new_para_id(&format!("durable{para_id}"), salt);
+            if !taken.contains(&d) {
+                break d;
+            }
+            salt += 1;
+        };
+        drop(doc);
+        let entry = format!("<{p}:commentId {p}:paraId=\"{para_id}\" {p}:durableId=\"{durable}\"/>");
+        docx.set_part(COMMENTS_IDS, append_child(&ids, &entry)?);
+        if let Some(cex) = docx.part(COMMENTS_EXTENSIBLE)? {
+            let p = xml::parse(&cex)?.root_element().lookup_prefix(W16CEX).unwrap_or("w16cex").to_string();
+            let entry = format!("<{p}:commentExtensible {p}:durableId=\"{durable}\" {p}:dateUtc=\"{}\"/>", escape_attr(&sig.date_utc));
+            docx.set_part(COMMENTS_EXTENSIBLE, append_child(&cex, &entry)?);
+        }
+    }
+    if let Some(people) = docx.part(PEOPLE)? {
+        let doc = xml::parse(&people)?;
+        let known = doc.descendants().any(|n| n.tag_name().name() == "person" && n.attribute((W15, "author")) == Some(sig.author.as_str()));
+        if !known {
+            let p = doc.root_element().lookup_prefix(W15).unwrap_or("w15").to_string();
+            drop(doc);
+            let a = escape_attr(&sig.author);
+            let entry = format!("<{p}:person {p}:author=\"{a}\"><{p}:presenceInfo {p}:providerId=\"None\" {p}:userId=\"{a}\"/></{p}:person>");
+            docx.set_part(PEOPLE, append_child(&people, &entry)?);
+        }
+    }
+    Ok(())
+}
+
+/// Retire des parties de Word 2016+ les entrées des commentaires supprimés.
+fn drop_companions(docx: &mut Docx, pids: &[String]) -> Result<()> {
+    let Some(ids) = docx.part(COMMENTS_IDS)? else { return Ok(()) };
+    let doc = xml::parse(&ids)?;
+    let mut durables = Vec::new();
+    let mut edits = Vec::new();
+    for n in doc.descendants().filter(|n| n.tag_name().name() == "commentId") {
+        if n.attribute((W16CID, "paraId")).is_some_and(|p| pids.iter().any(|x| x == p)) {
+            durables.extend(n.attribute((W16CID, "durableId")).map(str::to_string));
+            edits.push((n.range(), String::new()));
+        }
+    }
+    drop(doc);
+    if edits.is_empty() {
+        return Ok(());
+    }
+    docx.set_part(COMMENTS_IDS, xml::splice(&ids, edits)?);
+    if let Some(cex) = docx.part(COMMENTS_EXTENSIBLE)? {
+        let doc = xml::parse(&cex)?;
+        let edits: Vec<_> = doc
+            .descendants()
+            .filter(|n| n.tag_name().name() == "commentExtensible" && n.attribute((W16CEX, "durableId")).is_some_and(|d| durables.iter().any(|x| x == d)))
+            .map(|n| (n.range(), String::new()))
+            .collect();
+        drop(doc);
+        docx.set_part(COMMENTS_EXTENSIBLE, xml::splice(&cex, edits)?);
+    }
+    Ok(())
 }
 
 /// Ajoute `xmlns:<prefix>` à l'élément racine s'il manque.
@@ -81,7 +172,7 @@ fn comment_para_id(docx: &mut Docx, id: u32) -> Result<String> {
     if let Some(pid) = last.attribute((W14, "paraId")) {
         return Ok(pid.to_string());
     }
-    let pid = xml::new_para_id(&format!("comment{id}"), id);
+    let pid = crate::edit::fresh_para_id(docx, &format!("comment{id}"))?;
     let at = last.range().start + "<w:p".len();
     drop(doc);
     let text = format!("{} w14:paraId=\"{pid}\"{}", &text[..at], &text[at..]);
@@ -128,16 +219,7 @@ fn set_ext(docx: &mut Docx, para_id: &str, parent: Option<&str>, done: Option<bo
             let parent_attr = parent.map(|p| format!(" {prefix}:paraIdParent=\"{p}\"")).unwrap_or_default();
             let done_v = if done == Some(true) { "1" } else { "0" };
             let entry = format!("<{prefix}:commentEx {prefix}:paraId=\"{para_id}\"{parent_attr} {prefix}:done=\"{done_v}\"/>");
-            let root = doc.root_element().range();
-            let raw = &text[root.clone()];
-            if raw.ends_with("/>") {
-                let at = root.end - 2;
-                let name = raw[1..].split(|c: char| c.is_whitespace() || c == '/').next().unwrap_or("w15:commentsEx");
-                format!("{}>{entry}</{name}>{}", &text[..at], &text[root.end..])
-            } else {
-                let close = root.start + raw.rfind("</").unwrap_or(raw.len());
-                format!("{}{entry}{}", &text[..close], &text[close..])
-            }
+            append_child(&text, &entry)?
         }
     };
     docx.set_part(COMMENTS_EXT, new_text);
@@ -348,5 +430,5 @@ pub fn delete(docx: &mut Docx, id: u32) -> Result<()> {
         let out = xml::splice(&ext, edits)?;
         docx.set_part(COMMENTS_EXT, out);
     }
-    Ok(())
+    drop_companions(docx, &pids)
 }

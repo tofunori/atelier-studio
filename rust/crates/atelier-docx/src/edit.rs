@@ -82,7 +82,7 @@ pub(crate) fn find_in(text: &str, find: &str, occurrence: Option<usize>, paragra
 
 fn obstacle(p: &Piece) -> String {
     if p.rev.is_some() {
-        return "une modification en suivi d'un autre auteur (l'accepter ou la refuser d'abord)".into();
+        return "un passage déplacé ou un ajout imbriqué en suivi d'un autre auteur (l'accepter ou le refuser d'abord)".into();
     }
     match &p.kind {
         Kind::Field(k) if k.starts_with("zotero") => "une citation Zotero".into(),
@@ -125,6 +125,7 @@ pub(crate) fn run_xml(start_tag: &str, rpr: &str, toks: &[Tok], deleted: bool) -
             Tok::Text(s) if deleted => out.push_str(&format!("<w:delText xml:space=\"preserve\">{}</w:delText>", escape_text(s))),
             Tok::Text(s) => out.push_str(&format!("<w:t xml:space=\"preserve\">{}</w:t>", escape_text(s))),
             Tok::Tab => out.push_str("<w:tab/>"),
+            Tok::Ptab(raw) => out.push_str(raw),
             Tok::Br => out.push_str("<w:br/>"),
             Tok::Cr => out.push_str("<w:cr/>"),
             Tok::NoBreakHyphen => out.push_str("<w:noBreakHyphen/>"),
@@ -184,6 +185,19 @@ pub(crate) fn run_len(t: &Target, ri: usize) -> usize {
     t.inline.runs[ri].toks.iter().map(|k| k.text().chars().count()).sum()
 }
 
+/// La balise ouvrante `tag` (`<w:ins w:id="7" …>`) avec un autre identifiant.
+fn with_id(tag: &str, id: u32) -> String {
+    let tag = tag.find('>').map_or(tag, |i| &tag[..=i]);
+    match tag.find(" w:id=\"") {
+        Some(i) => {
+            let v = i + " w:id=\"".len();
+            let end = tag[v..].find('"').map_or(tag.len(), |j| v + j);
+            format!("{}{id}{}", &tag[..v], &tag[end..])
+        }
+        None => tag.replacen("<w:ins", &format!("<w:ins w:id=\"{id}\""), 1),
+    }
+}
+
 fn attrs(id: u32, sig: &Signature) -> String {
     format!("w:id=\"{id}\" w:author=\"{}\" w:date=\"{}\"", escape_attr(&sig.author), escape_attr(&sig.date))
 }
@@ -195,6 +209,34 @@ pub(crate) fn next_ids(docx: &mut Docx, n: u32) -> Result<Vec<u32>> {
         base = base.max(xml::max_w_id(&docx.part(&part)?.unwrap_or_default()));
     }
     Ok((1..=n).map(|k| base + k).collect())
+}
+
+/// `w14:paraId` neuf, absent de toutes les histoires et des commentaires :
+/// deux paragraphes coupés dans le même geste (même texte, même date)
+/// auraient sinon reçu le même, ce que Word répare à l'ouverture.
+pub(crate) fn fresh_para_id(docx: &mut Docx, seed: &str) -> Result<String> {
+    let mut taken = std::collections::BTreeSet::new();
+    let mut parts = docx.story_parts();
+    parts.push(COMMENTS.to_string());
+    for part in parts {
+        let src = docx.part(&part)?.unwrap_or_default();
+        let mut rest = src.as_str();
+        while let Some(k) = rest.find("w14:paraId=\"") {
+            rest = &rest[k + 12..];
+            if let Some(e) = rest.find('"') {
+                taken.insert(rest[..e].to_ascii_uppercase());
+                rest = &rest[e..];
+            }
+        }
+    }
+    let mut salt = 0;
+    loop {
+        let pid = xml::new_para_id(seed, salt);
+        if !taken.contains(&pid) {
+            return Ok(pid);
+        }
+        salt += 1;
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -261,7 +303,12 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
     xml::require_w_prefix(&xml::parse(src)?)?;
     // Tout ce qui est couvert doit être retouchable par cet auteur, ou un
     // objet entier (figure, note, citation, équation) qu'on efface d'un bloc.
-    let allowed = |ri: usize| t.inline.runs[ri].ins.as_ref().is_none_or(|(_, a)| *a == sig.author);
+    // Son propre ajout se retouche sans trace ; dans l'ajout d'un autre, on
+    // efface en suivi imbriqué (`w:ins` > `w:del`) et on ajoute en coupant
+    // son insertion, comme Word.
+    let own = |ri: usize| t.inline.runs[ri].ins.as_ref().is_some_and(|(_, a)| *a == sig.author);
+    let foreign = |ri: usize| t.inline.runs[ri].ins.as_ref().is_some_and(|(_, a)| *a != sig.author);
+    let allowed = |ri: usize| !foreign(ri) || t.inline.runs[ri].ins_tag.is_some();
     // (position XML, effacé sans trace : ajout de l'auteur lui-même)
     let mut units: Vec<(Range<usize>, bool)> = Vec::new();
     let mut unit_spans: Vec<(Range<usize>, usize, usize)> = Vec::new();
@@ -313,23 +360,31 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
     if touched.is_empty() && s == e {
         // Une insertion de l'auteur au même endroit passe devant : la frappe
         // prolonge son propre ajout.
+        // Hors de l'ajout d'un autre si possible : texte ordinaire d'abord.
         let ends_here = |ri: &usize| allowed(*ri) && starts[*ri].is_some_and(|rs| rs + run_len(t, *ri) == s);
-        let own_end = (0..t.inline.runs.len()).rev().filter(ends_here).find(|ri| t.inline.runs[*ri].ins.is_some());
-        let own_start = (0..t.inline.runs.len()).find(|&ri| allowed(ri) && t.inline.runs[ri].ins.is_some() && starts[ri] == Some(s));
+        let starts_here = |ri: &usize| allowed(*ri) && starts[*ri] == Some(s);
+        let n = t.inline.runs.len();
+        let own_end = (0..n).rev().filter(ends_here).find(|ri| own(*ri));
+        let own_start = (0..n).filter(starts_here).find(|ri| own(*ri));
         if let Some(ri) = own_end {
             touched.push(ri);
         } else if let Some(ri) = own_start {
             touched.push(ri);
             anchor_after = false;
-        } else if let Some(ri) = (0..t.inline.runs.len()).rev().find(ends_here) {
+        } else if let Some(ri) = (0..n).rev().filter(ends_here).find(|ri| !foreign(*ri)) {
             touched.push(ri);
-        } else if let Some(ri) = (0..t.inline.runs.len()).find(|&ri| allowed(ri) && starts[ri] == Some(s)) {
+        } else if let Some(ri) = (0..n).filter(starts_here).find(|ri| !foreign(*ri)) {
+            touched.push(ri);
+            anchor_after = false;
+        } else if let Some(ri) = (0..n).rev().find(ends_here) {
+            touched.push(ri);
+        } else if let Some(ri) = (0..n).find(starts_here) {
             touched.push(ri);
             anchor_after = false;
         }
     }
-    let ids = next_ids(docx, 2)?;
-    let (del_id, ins_id) = (ids[0], ids[1]);
+    let ids = next_ids(docx, 3)?;
+    let (del_id, ins_id, reopen_id) = (ids[0], ids[1], ids[2]);
     let mut made = Vec::new();
     let mut edits: Vec<(Range<usize>, String)> = Vec::new();
     for (u, own) in &units {
@@ -397,14 +452,19 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
                 out.push_str(&run_xml(&run.start_tag, &run.rpr, &before, false));
             }
             // Dans son propre ajout, l'auteur efface et ajoute sans suivi.
-            let own = run.ins.is_some();
-            if !mid.is_empty() && tracked && !own {
+            let mine = own(ri);
+            if !mid.is_empty() && tracked && !mine {
                 deleted_any = true;
                 out.push_str(&format!("<w:del {}>{}</w:del>", attrs(del_id, sig), run_xml(&run.start_tag, &run.rpr, &mid, true)));
             }
             if ri == last && inserting {
-                if own {
+                if mine || (foreign(ri) && !tracked) {
                     out.push_str(&plain_run(&first_rpr));
+                } else if foreign(ri) {
+                    // Couper l'ajout de l'autre : le sien, puis la suite du sien.
+                    let reopen = run.ins_tag.as_deref().map(|tag| with_id(tag, reopen_id)).unwrap_or_default();
+                    out.push_str(&format!("</w:ins>{}{reopen}", new_run(&first_rpr)));
+                    inserted = true;
                 } else {
                     out.push_str(&new_run(&first_rpr));
                     inserted = tracked;

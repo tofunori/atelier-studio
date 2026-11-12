@@ -154,7 +154,7 @@ pub fn split(docx: &mut Docx, paragraph: &str, at: usize, tracked: bool, sig: &S
     };
     let mark = tracked.then(|| marker("ins", id, sig));
     // Première moitié : nouveau paragraphe (paraId neuf), mêmes propriétés.
-    let pid = xml::new_para_id(&format!("{}{at}{}", t.text, sig.date), id);
+    let pid = crate::edit::fresh_para_id(docx, &format!("{}{at}{}{id}", t.text, sig.date))?;
     let first_open = match p.attribute((W14, "paraId")) {
         Some(old) => open_tag(&src, p).replace(&format!("w14:paraId=\"{old}\""), &format!("w14:paraId=\"{pid}\"")),
         None => open_tag(&src, p),
