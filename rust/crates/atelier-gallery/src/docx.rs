@@ -117,14 +117,41 @@ pub async fn model(State(state): State<AppState>, headers: HeaderMap, Query(q): 
 }
 
 /// `GET /docx/stat?path=` — ce que le panneau sonde pour voir arriver les
-/// retouches de l'agent ou un enregistrement de Word.
+/// retouches de l'agent ou un enregistrement de Word, et les brouillons de
+/// réponse que l'agent pose dans la carte d'un commentaire (hors du fichier).
 pub async fn stat(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<PathQuery>) -> impl IntoResponse {
     if !request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
     }
     match docx_path(&state, &q.path) {
-        Ok(p) => (StatusCode::OK, Json(json!({"mtime": mtime_ms(&p), "openInWord": atelier_docx::open_in_word(&p)}))).into_response(),
+        Ok(p) => {
+            let drafts = atelier_docx::drafts::list(&p).unwrap_or_default();
+            (StatusCode::OK, Json(json!({"mtime": mtime_ms(&p), "openInWord": atelier_docx::open_in_word(&p), "drafts": drafts}))).into_response()
+        }
         Err(r) => r,
+    }
+}
+
+#[derive(Deserialize)]
+pub struct DraftBody {
+    path: String,
+    comment: u32,
+}
+
+/// `POST /docx/draft/clear` — `{path, comment}` : le brouillon de l'agent a
+/// été envoyé (sous le nom de l'utilisateur) ou écarté.
+pub async fn clear_draft(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<DraftBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &body.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    match tokio::task::spawn_blocking(move || atelier_docx::drafts::clear(&path, body.comment)).await {
+        Ok(Ok(had)) => (StatusCode::OK, Json(json!({"ok": true, "cleared": had}))).into_response(),
+        Ok(Err(e)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.0),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 

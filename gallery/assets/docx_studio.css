@@ -248,6 +248,29 @@ body.no-lane #cards .it.on .cc{box-shadow:var(--elev)}
 .cc .ac{display:flex;align-items:center;gap:4px;margin-top:8px}
 .c-input{display:block;width:100%;min-height:36px;margin-top:12px;padding:8px;border:0;border-radius:6px;outline:0;resize:none;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px/1.5 var(--ui-font)}
 .c-input::placeholder{color:var(--text-muted)}
+/* Brouillon de réponse de l'agent (Proposer) : le geste vit dans le champ,
+   la rangée Résoudre / Répondre ne change pas. */
+.c-field{position:relative;margin-top:12px}
+.c-field .c-input{margin-top:0}
+.c-field.ask .c-input:placeholder-shown{padding-right:96px}
+.c-field.ask .c-input:not(:placeholder-shown) + .in{opacity:0;pointer-events:none}
+.cc .in{position:absolute;top:4px;right:4px;height:28px;padding:0 8px;gap:6px;font-size:12px;transition:opacity 120ms ease-out,background-color 120ms ease-out,color 120ms ease-out}
+.c-wait{position:relative;display:flex;align-items:center;gap:8px;min-height:36px;margin-top:12px;padding:0 8px;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));color:var(--text-muted);font-size:12px}
+.c-wait .in{top:4px}
+.c-wait .dots{display:inline-flex;gap:4px}
+.c-wait .dots i{width:4px;height:4px;border-radius:999px;background:currentColor;opacity:.3;animation:c-dot 1.2s ease-in-out infinite}
+.c-wait .dots i:nth-child(2){animation-delay:.2s}
+.c-wait .dots i:nth-child(3){animation-delay:.4s}
+@keyframes c-dot{0%,100%{opacity:.3}40%{opacity:.9}}
+.c-by,.c-fix{display:flex;align-items:center;gap:6px;height:20px;font-size:11px;color:var(--text-muted);white-space:nowrap}
+.c-by{margin-top:12px}
+.c-by + .c-field{margin-top:4px}
+.c-by span,.c-fix span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.c-fix{margin-top:8px}
+.c-fix b{font-weight:500;color:var(--text-secondary)}
+.cc .lk{margin-left:auto;height:20px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--text-secondary);font:500 11px/20px var(--ui-font);cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
+.cc .lk:hover{background:var(--surface-hover);color:var(--text-primary)}
+@media (prefers-reduced-motion: reduce){.c-wait .dots i{animation:none;opacity:.6}}
 /* Commentaire réglé : une ligne, coche verte. */
 .cc.dn{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;background:transparent;box-shadow:none;color:var(--text-muted)}
 .cc.dn svg{color:var(--status-success)}

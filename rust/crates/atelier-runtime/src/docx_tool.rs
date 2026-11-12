@@ -118,6 +118,17 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         let to = usize_arg(req, "to").map(|t| t + 1);
         return Ok(json!({"revision": model.revision, "text": ops::outline(&model, from, to, READ_MAX_CHARS)}));
     }
+    if action == "draft_reply" {
+        // Brouillon dans la carte du commentaire, hors du document :
+        // l'utilisateur le relit et l'envoie sous son nom.
+        let comment = req.get("comment").and_then(Value::as_u64).ok_or("comment manquant : numéro du commentaire (c3 → 3)")? as u32;
+        let text = str_arg(req, "text").ok_or("text manquant : le brouillon de réponse")?;
+        let draft = atelier_docx::drafts::put(&path, comment, text, author_for(provider)).map_err(|e| e.0)?;
+        return Ok(json!({
+            "ok": true, "author": draft.author, "comment": comment,
+            "note": "Brouillon posé dans la carte du commentaire, pas dans le .docx : l'utilisateur le relit, le retouche et l'envoie sous son nom. Ne le recopie pas dans ta réponse."
+        }));
+    }
     let sig = Signature::now(author_for(provider));
     let expected = str_arg(req, "revision");
     let (result, revision) = if action == "insert_note" || action == "insert_figure" {
@@ -224,6 +235,16 @@ mod tests {
         // Version périmée : refusée.
         let e = run(root, "claude", "edit", &json!({"path": "article.docx", "find": "pureté", "with": "netteté", "revision": rev})).unwrap_err();
         assert!(e.contains("conflit"), "{e}");
+
+        // Brouillon de réponse : dans la carte du commentaire, pas dans le fichier.
+        let before = std::fs::read(&path).unwrap();
+        let r = run(root, "claude", "draft_reply", &json!({"path": "article.docx", "comment": 1, "text": "Le seuil est justifié en 2.3."})).unwrap();
+        assert_eq!(r["author"], "Claude");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(atelier_docx::drafts::list(&path).unwrap()[&1].text, "Le seuil est justifié en 2.3.");
+        assert!(run(root, "claude", "draft_reply", &json!({"path": "article.docx", "comment": 2, "text": "x"})).unwrap_err().contains("c1"));
+        assert!(run(root, "claude", "draft_reply", &json!({"path": "article.docx", "text": "x"})).unwrap_err().contains("comment manquant"));
+        atelier_docx::drafts::clear(&path, 1).unwrap();
 
         let r = run(root, "codex", "reply", &json!({"path": path.to_str().unwrap(), "comment": 1, "text": "Seuil justifié en 2.3."})).unwrap();
         assert_eq!(r["author"], "Codex");

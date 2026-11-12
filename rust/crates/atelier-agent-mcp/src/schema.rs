@@ -228,7 +228,7 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 10] = ["read", "edit", "insert_paragraph", "comment", "reply", "format", "insert_note", "insert_figure", "insert_row", "delete_row"];
+const DOCX_ACTIONS: [&str; 11] = ["read", "edit", "insert_paragraph", "comment", "reply", "draft_reply", "format", "insert_note", "insert_figure", "insert_row", "delete_row"];
 
 /// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
 /// toujours des suivis de modifications signés de son nom : l'utilisateur
@@ -241,7 +241,9 @@ pub fn docx_tool_definition() -> Value {
     changes [+ins+]#id [-del-]#id, comments c1…. Every write is a tracked change or comment signed \
     with your name; the user accepts or rejects (you cannot). find = exact current text (add paragraph \
     or occurrence if ambiguous). insert_note / insert_figure go right after find (text = note text or \
-    alt; figure = image path in the project). insert_row / delete_row: table row of paragraph (a cell).",
+    alt; figure = image path in the project). insert_row / delete_row: table row of paragraph (a cell). \
+    draft_reply: a reply draft shown in the comment's card (not written to the file) that the user \
+    reviews and sends under their own name; prefer it to reply for a reviewer's comment.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -255,10 +257,10 @@ pub fn docx_tool_definition() -> Value {
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
                 "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
                 "after": { "type": "string", "description": "insert_paragraph: new paragraph goes after this one (p12)" },
-                "text": { "type": "string", "description": "insert_paragraph / comment / reply / insert_note: the text; insert_figure: alt text" },
+                "text": { "type": "string", "description": "insert_paragraph / comment / reply / draft_reply / insert_note: the text; insert_figure: alt text" },
                 "figure": { "type": "string", "description": "insert_figure: PNG/JPEG/GIF path in the project" },
                 "above": { "type": "boolean", "description": "insert_row: above instead of below" },
-                "comment": { "type": "integer", "description": "reply: comment number (c3 → 3)" },
+                "comment": { "type": "integer", "description": "reply / draft_reply: comment number (c3 → 3)" },
                 "bold": { "type": "boolean" }, "italic": { "type": "boolean" }, "underline": { "type": "boolean" },
                 "strike": { "type": "boolean" }, "superscript": { "type": "boolean" }, "subscript": { "type": "boolean" },
                 "font": { "type": "string" },
