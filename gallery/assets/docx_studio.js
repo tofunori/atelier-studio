@@ -2458,7 +2458,13 @@
     e.preventDefault();
     setLaneW(laneW + (e.key === "ArrowLeft" ? 16 : -16), true);
   });
-  scroller.addEventListener("scroll", placeLaneGrip, { passive: true });
+  // Défilement horizontal seulement (page plus large que le panneau) : une
+  // mise en place par image, et rien quand seul le défilement vertical bouge.
+  let gripScrollX = scroller.scrollLeft, gripFrame = 0;
+  scroller.addEventListener("scroll", () => {
+    if (gripFrame || scroller.scrollLeft === gripScrollX) return;
+    gripFrame = requestAnimationFrame(() => { gripFrame = 0; gripScrollX = scroller.scrollLeft; placeLaneGrip(); });
+  }, { passive: true });
 
   function placeCards() {
     updateNav();
