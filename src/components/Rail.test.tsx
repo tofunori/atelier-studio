@@ -2,7 +2,8 @@
 // plus que l'identité (projets), les vues, et ce qui tourne. Les surfaces se
 // testent désormais dans TopBarSurfaces.test.tsx.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, screen, cleanup } from "@testing-library/react";
+import { act, fireEvent, screen, cleanup } from "@testing-library/react";
+import { writeUsageSnapshot } from "../lib/usageSummary";
 import Rail from "./Rail";
 import { chatSealFor } from "./sidebar/ChatSeal";
 import { renderUi, resetTestState } from "../test/render";
@@ -316,5 +317,66 @@ describe("Rail — signaux et boîte « À traiter »", () => {
     const { container } = renderUi(<Rail {...makeProps({ favorites: { threads: [thread], activeId: null, signals: { pin: "fail" }, onOpen: vi.fn(), onToggle: vi.fn(), onReorder: vi.fn() } })} />);
     expect(container.querySelector(".rail-favorite .rail-signal.sig-fail")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mon chat — albedo — Échec" })).toBeTruthy();
+  });
+});
+
+describe("vide de la barre compacte (option A, 2026-11-12)", () => {
+  const root = "/Users/t/thèse";
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  const th = (id: string, title: string, min: number) =>
+    ({ id, title, projectRoot: root, provider: "claude", sessionId: "s", status: "idle", updatedAt: ago(min) }) as any;
+  const threads = [th("a", "Analyse", 1), th("b", "Commentaires", 5), th("c", "Figure", 30), th("d", "Intro", 90), th("e", "Vieux", 3000)];
+  const favorites = (over: Record<string, unknown> = {}) => ({
+    threads: [] as any[], activeId: null, signals: { a: "run", b: "wait", e: "fail" } as any,
+    onOpen: vi.fn(), onToggle: vi.fn(), onReorder: vi.fn(), ...over,
+  });
+
+  it("montre les fils récents du projet actif sous sa puce et les ouvre", () => {
+    const fav = favorites();
+    const { container } = renderUi(<Rail {...makeProps({ threads, activeId: "a", favorites: fav })} />);
+    const marks = container.querySelectorAll(".rail-threads .rail-thread");
+    expect(marks.length).toBe(4);
+    expect(container.querySelector(".rail-thread.on")?.getAttribute("aria-current")).toBe("page");
+    fireEvent.click(screen.getByRole("button", { name: /^Commentaires — Attend ta réponse/ }));
+    expect(fav.onOpen).toHaveBeenCalledWith(threads[1]);
+  });
+
+  it("ne répète pas un fil épinglé, et la puce ne garde que le signal des fils absents", () => {
+    const { container } = renderUi(<Rail {...makeProps({ threads, activeId: "a", signals: { projects: { [root]: "wait" }, notes: {}, discussions: 0 }, favorites: favorites({ threads: [threads[1]] }) })} />);
+    const names = [...container.querySelectorAll(".rail-threads .rail-thread")].map(el => el.getAttribute("aria-label"));
+    expect(names.some(n => n?.startsWith("Commentaires"))).toBe(false);
+    // b (épinglé, en attente) n'est pas sous la puce : son signal y reste
+    expect(container.querySelector(".rail-proj.on")?.getAttribute("data-signal")).toBe("wait");
+  });
+
+  it("le clic droit dans le vide ouvre Nouveau chat / Ajouter un projet, le double-clic déplie", async () => {
+    const props = makeProps({ threads, favorites: favorites() });
+    const { container } = renderUi(<Rail {...props} />);
+    const projects = container.querySelector(".rail-projects")!;
+    fireEvent.doubleClick(projects);
+    expect(props.onExpand).toHaveBeenCalledTimes(1);
+    fireEvent.contextMenu(projects, { clientY: 400 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Ajouter un projet/ }));
+    expect(props.onAddProject).toHaveBeenCalled();
+    // sur un bouton, le geste reste celui du bouton
+    fireEvent.doubleClick(container.querySelector(".rail-add-project")!);
+    expect(props.onExpand).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("jauge du quota dans la barre compacte", () => {
+  afterEach(() => writeUsageSnapshot({ providers: {}, models: {} }));
+
+  it("n'apparaît qu'avec une limite connue, passe en ambre à 80 % et ouvre le détail", () => {
+    const { container } = renderUi(<Rail {...makeProps()} />);
+    expect(container.querySelector(".rail-usage")).toBeNull();
+    act(() => writeUsageSnapshot({ providers: { claude: { kind: "limits", ts: 0, data: { primary: { used_percent: 86 } } } }, models: {} }));
+    const gauge = screen.getByRole("button", { name: "Usage 86 %" });
+    expect(gauge.classList.contains("high")).toBe(true);
+    const seen = vi.fn();
+    window.addEventListener("usage-toggle", seen);
+    fireEvent.click(gauge);
+    window.removeEventListener("usage-toggle", seen);
+    expect(seen).toHaveBeenCalledTimes(1);
   });
 });

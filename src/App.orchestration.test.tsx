@@ -822,6 +822,12 @@ describe("orchestration App — caractérisation", () => {
     localStorage.setItem("atelier-studio.compact", "1");
     await mountApp();
     expect(document.querySelector(".side-fixed")).toBeNull();
+    // le rail compact est un chunk paresseux (fils du projet, jauge du quota
+    // depuis 2026-11-12) : attendre qu'il soit résolu avant de cliquer
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await flushMicrotasks(4);
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Autres actions" }));
     await act(async () => {
