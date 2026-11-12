@@ -149,6 +149,21 @@ fn apply_run(kids: &mut Vec<Child>, p: &RunProps) {
     }
 }
 
+/// `w:rPr` d'un texte collé : celui du run voisin (police, taille, style),
+/// gras, italique, souligné, exposant et indice remplacés par ceux du
+/// collage. Une mise en forme suivie du voisin ne le suit pas.
+pub(crate) fn paste_rpr(root_open: &str, rpr: &str, b: bool, i: bool, u: bool, sup: bool, sub: bool) -> Result<String> {
+    let (mut kids, _change) = children_of(root_open, rpr)?;
+    for (name, on) in [("b", b), ("bCs", b), ("i", i), ("iCs", i)] {
+        set(&mut kids, name, on.then(|| format!("<w:{name}/>")));
+    }
+    set(&mut kids, "u", u.then(|| "<w:u w:val=\"single\"/>".to_string()));
+    let va = if sup { Some("superscript") } else if sub { Some("subscript") } else { None };
+    set(&mut kids, "vertAlign", va.map(|v| format!("<w:vertAlign w:val=\"{v}\"/>")));
+    let inner = ordered(kids, RPR_ORDER);
+    Ok(if inner.is_empty() { String::new() } else { format!("<w:rPr>{inner}</w:rPr>") })
+}
+
 fn change_attrs(id: u32, sig: &Signature) -> String {
     format!("w:id=\"{id}\" w:author=\"{}\" w:date=\"{}\"", escape_attr(&sig.author), escape_attr(&sig.date))
 }

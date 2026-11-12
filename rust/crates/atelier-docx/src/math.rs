@@ -28,6 +28,22 @@ const SYMBOLS: &[(&str, &str)] = &[
 
 const NARY: &[(&str, &str)] = &[("∑", "sum"), ("∏", "prod"), ("∫", "int"), ("∬", "iint"), ("∭", "iiint"), ("∮", "oint"), ("⋃", "bigcup"), ("⋂", "bigcap")];
 const ACCENTS: &[(&str, &str)] = &[("\u{302}", "hat"), ("\u{303}", "tilde"), ("\u{304}", "bar"), ("\u{305}", "bar"), ("\u{307}", "dot"), ("\u{308}", "ddot"), ("\u{20D7}", "vec")];
+/// Commandes de saisie reconnues en plus des symboles (LaTeX → OMML seulement).
+const ALIASES: &[(&str, &str)] = &[
+    ("≤", "le"), ("≥", "ge"), ("≠", "ne"), ("|", "vert"), ("‖", "Vert"), ("{", "lbrace"), ("}", "rbrace"), ("…", "dots"),
+    ("⟨", "langle"), ("⟩", "rangle"), ("⌊", "lfloor"), ("⌋", "rfloor"), ("⌈", "lceil"), ("⌉", "rceil"), ("′", "prime"),
+    ("∗", "ast"), ("≪", "ll"), ("≫", "gg"), ("≃", "simeq"), ("∖", "setminus"), ("∘", "circ"), ("ℏ", "hbar"), ("↦", "mapsto"),
+];
+/// Commandes de mise en page sans équivalent dans l'OMML : ignorées.
+const IGNORED: &[&str] = &["displaystyle", "textstyle", "scriptstyle", "limits", "nolimits", "mathstrut"];
+/// Commandes dont l'argument est du texte brut.
+const RAW_ARG: &[&str] = &["mathrm", "operatorname", "mathit", "mathbf", "text", "textrm", "mbox", "mathbb"];
+/// Commandes traitées par le lecteur, hors tables ci-dessus.
+const COMMANDS: &[&str] = &[
+    "frac", "dfrac", "tfrac", "sqrt", "left", "right", "overline", "underline", "overbrace", "underbrace", "underset", "overset", "quad", "qquad",
+    "begin", "end",
+];
+const ENVS: &[&str] = &["matrix", "pmatrix", "bmatrix", "vmatrix", "aligned", "align", "gathered", "cases"];
 const FUNCS: &[&str] = &["sin", "cos", "tan", "cot", "sec", "csc", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "log", "ln", "exp", "lim", "max", "min", "sup", "inf", "det", "arg"];
 
 // ------------------------------------------------------------ OMML → LaTeX
@@ -437,8 +453,11 @@ impl Parser {
     }
 
     fn command(&mut self, c: &str) -> String {
-        if let Some((u, _)) = SYMBOLS.iter().find(|(_, cmd)| *cmd == c) {
+        if let Some((u, _)) = SYMBOLS.iter().chain(ALIASES).find(|(_, cmd)| *cmd == c) {
             return r(u);
+        }
+        if IGNORED.contains(&c) {
+            return String::new();
         }
         if let Some((u, _)) = NARY.iter().find(|(_, cmd)| *cmd == c) {
             let (mut sub, mut sup) = (None, None);
@@ -593,6 +612,196 @@ pub fn from_latex(latex: &str) -> String {
         p.next();
     }
     format!(r#"<m:oMath xmlns:m="{M}">{body}</m:oMath>"#)
+}
+
+/// Argument brut entre accolades à partir du jeton `i` : (texte, jeton suivant).
+fn raw_arg(toks: &[Tok], i: usize, cmd: &str) -> std::result::Result<(String, usize), String> {
+    if toks.get(i) != Some(&Tok::Open) {
+        return Err(format!("\\{cmd} attend son argument entre accolades"));
+    }
+    let mut depth = 0;
+    let mut s = String::new();
+    for (k, t) in toks.iter().enumerate().skip(i + 1) {
+        match t {
+            Tok::Open => depth += 1,
+            Tok::Close if depth == 0 => return Ok((s, k + 1)),
+            Tok::Close => depth -= 1,
+            Tok::Ch(c) => s.push(*c),
+            Tok::Cmd(c) => s.push_str(c),
+            _ => {}
+        }
+    }
+    Err(format!("il manque l'accolade fermante de \\{cmd}"))
+}
+
+/// Vérifie qu'un LaTeX se convertit fidèlement en équation Word : accolades
+/// équilibrées, `\left`/`\right` et environnements appariés, commandes
+/// connues. Le message dit quoi corriger.
+pub fn check_latex(latex: &str) -> std::result::Result<(), String> {
+    if latex.trim().is_empty() {
+        return Err("équation vide".into());
+    }
+    let toks = tokenize(latex);
+    let (mut depth, mut lefts) = (0i32, 0i32);
+    let mut envs: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < toks.len() {
+        match &toks[i] {
+            Tok::Open => depth += 1,
+            Tok::Close => {
+                depth -= 1;
+                if depth < 0 {
+                    return Err("une accolade « } » ferme un groupe qui n'est pas ouvert".into());
+                }
+            }
+            Tok::Sub | Tok::Sup => {
+                if matches!(toks.get(i + 1), None | Some(Tok::Close) | Some(Tok::Sub) | Some(Tok::Sup) | Some(Tok::Amp) | Some(Tok::Row)) {
+                    return Err("indice ou exposant sans argument (« _ » ou « ^ » seul)".into());
+                }
+            }
+            Tok::Cmd(c) => {
+                let c = c.as_str();
+                match c {
+                    "left" => lefts += 1,
+                    "right" => {
+                        lefts -= 1;
+                        if lefts < 0 {
+                            return Err("\\right sans \\left".into());
+                        }
+                    }
+                    "begin" | "end" => {
+                        let (name, next) = raw_arg(&toks, i + 1, c)?;
+                        if !ENVS.contains(&name.as_str()) {
+                            return Err(format!("environnement non pris en charge : {name}"));
+                        }
+                        if c == "begin" {
+                            envs.push(name);
+                        } else if envs.pop().as_deref() != Some(name.as_str()) {
+                            return Err(format!("\\end{{{name}}} sans \\begin{{{name}}}"));
+                        }
+                        i = next;
+                        continue;
+                    }
+                    _ if RAW_ARG.contains(&c) => {
+                        i = raw_arg(&toks, i + 1, c)?.1;
+                        continue;
+                    }
+                    _ => {
+                        let known = SYMBOLS.iter().chain(ALIASES).any(|(_, k)| *k == c)
+                            || NARY.iter().any(|(_, k)| *k == c)
+                            || ACCENTS.iter().any(|(_, k)| *k == c)
+                            || FUNCS.contains(&c)
+                            || IGNORED.contains(&c)
+                            || COMMANDS.contains(&c);
+                        if !known {
+                            return Err(format!("commande inconnue : \\{c} (sans équivalent dans une équation Word)"));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if depth > 0 {
+        return Err("il manque une accolade fermante « } »".into());
+    }
+    if lefts > 0 {
+        return Err("\\left sans \\right".into());
+    }
+    if let Some(e) = envs.pop() {
+        return Err(format!("\\begin{{{e}}} sans \\end{{{e}}}"));
+    }
+    Ok(())
+}
+
+/// [`from_latex`] après [`check_latex`] : refuse plutôt que d'écrire une
+/// équation fausse.
+pub fn try_from_latex(latex: &str) -> crate::Result<String> {
+    check_latex(latex).map_err(|e| crate::DocxError(format!("LaTeX non converti : {e}")))?;
+    Ok(from_latex(latex))
+}
+
+// ------------------------------------------------- retouche dans le document
+
+/// Équations de premier niveau d'un paragraphe, dans l'ordre de lecture du
+/// panneau : celles d'une suppression en suivi ne comptent pas (on ne les
+/// retouche plus), ni celles des zones de texte (hors du flux lu).
+fn equations_of<'a, 'i>(p: Node<'a, 'i>) -> Vec<Node<'a, 'i>> {
+    p.descendants()
+        .filter(|n| is_m(*n, "oMath") || is_m(*n, "oMathPara"))
+        .filter(|n| {
+            let mut up = n.ancestors().skip(1).take_while(|a| *a != p);
+            !up.any(|a| {
+                is_m(a, "oMath")
+                    || is_m(a, "oMathPara")
+                    || crate::xml::is_w(a, "del")
+                    || crate::xml::is_w(a, "moveFrom")
+                    || a.tag_name().name() == "txbxContent"
+                    || a.tag_name().name() == "AlternateContent"
+            })
+        })
+        .collect()
+}
+
+/// Remplace la `index`-ième équation (depuis 0) du paragraphe par celle
+/// écrite en `latex`. En suivi : l'ancienne passe dans un `w:del`, la
+/// nouvelle dans un `w:ins`, signés `sig` ; une équation que l'auteur a
+/// lui-même ajoutée se réécrit sans nouvelle trace. Rend les suivis créés.
+pub fn replace_math(docx: &mut crate::Docx, paragraph: &str, index: usize, latex: &str, tracked: bool, sig: &crate::Signature) -> crate::Result<Vec<u32>> {
+    use crate::xml::{escape_attr, is_w, w_attr};
+    let omml = try_from_latex(latex)?;
+    let (story, src) = docx.story_src(paragraph)?;
+    let doc = crate::xml::parse(&src)?;
+    crate::xml::require_w_prefix(&doc)?;
+    let t = crate::edit::target(&src, &doc, paragraph)?;
+    let p = doc.descendants().find(|n| is_w(*n, "p") && n.range() == t.p_range).unwrap();
+    let eqs = equations_of(p);
+    let Some(node) = eqs.get(index).copied() else {
+        return crate::err(format!("équation {} introuvable dans {paragraph} ({} équation(s))", index + 1, eqs.len()));
+    };
+    let old = &src[node.range()];
+    if !old.starts_with("<m:") {
+        return crate::err("équation écrite avec un préfixe inhabituel : à corriger dans Word");
+    }
+    // Équation en display : la nouvelle garde son cadre et ses réglages (alignement).
+    let new = if is_m(node, "oMathPara") {
+        let pr = child(node, "oMathParaPr").map(|n| &src[n.range()]).unwrap_or("");
+        format!(r#"<m:oMathPara xmlns:m="{M}">{pr}{omml}</m:oMathPara>"#)
+    } else {
+        omml
+    };
+    let rev = node.ancestors().skip(1).take_while(|a| *a != p).find(|a| is_w(*a, "ins") || is_w(*a, "moveTo"));
+    let attrs = |id: u32| format!(r#"w:id="{id}" w:author="{}" w:date="{}""#, escape_attr(&sig.author), escape_attr(&sig.date));
+    let mut changes = Vec::new();
+    let out = match rev {
+        // Son propre ajout : se réécrit sur place.
+        Some(r) if is_w(r, "ins") && w_attr(r, "author") == Some(sig.author.as_str()) => new,
+        Some(r) if tracked => {
+            let who = w_attr(r, "author").unwrap_or("un autre auteur");
+            return crate::err(format!("équation ajoutée ou déplacée en suivi par {who} : accepter ou refuser ce suivi d'abord"));
+        }
+        _ if !tracked => new,
+        _ => {
+            let parent = node.parent().filter(|a| is_w(*a, "p") || is_w(*a, "hyperlink") || is_w(*a, "smartTag") || is_w(*a, "customXml"));
+            if parent.is_none() {
+                return crate::err("équation dans un champ ou un contrôle de contenu : à corriger dans Word, ou sans suivi");
+            }
+            let ids = crate::edit::next_ids(docx, 2)?;
+            changes = ids.clone();
+            let gone = old
+                .replace("<w:t>", "<w:delText>")
+                .replace("<w:t ", "<w:delText ")
+                .replace("</w:t>", "</w:delText>")
+                .replace("<w:instrText", "<w:delInstrText")
+                .replace("</w:instrText>", "</w:delInstrText>");
+            format!("<w:del {}>{gone}</w:del><w:ins {}>{new}</w:ins>", attrs(ids[0]), attrs(ids[1]))
+        }
+    };
+    let text = crate::xml::splice(&src, vec![(node.range(), out)])?;
+    drop(doc);
+    docx.set_part(&story.part, text);
+    Ok(changes)
 }
 
 /// Texte affiché d'une équation (positions du panneau) : celui des `m:t`.

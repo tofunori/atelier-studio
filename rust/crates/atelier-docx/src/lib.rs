@@ -18,7 +18,8 @@
 //! - [`ops`] : une retouche en JSON (panneau et agent), et le texte pour l'agent.
 //! - [`objects`] : appels de note et figures insérés.
 //! - [`table`] : lignes (en suivi) et colonnes de tableau.
-//! - [`math`] : équations (OMML) ↔ LaTeX.
+//! - [`math`] : équations (OMML) ↔ LaTeX, et leur correction dans le document.
+//! - [`paste`] : collage riche (mise en forme de base, équations).
 //! - [`story`] : corps, notes, en-têtes et pieds de page, chacun dans sa partie.
 //! - [`check`] : contrôle à chaque écriture (ce que Word refuserait).
 //! - [`history`] : versions reçues et annuler / rétablir, sur disque.
@@ -38,6 +39,7 @@ pub mod structure;
 pub mod format;
 pub mod history;
 pub mod ops;
+pub mod paste;
 pub mod story;
 pub mod table;
 mod walk;
