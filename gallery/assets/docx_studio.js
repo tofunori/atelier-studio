@@ -572,6 +572,7 @@
       dirtyFrom = null;
       dirtyTo = -1;
       layoutPages(from, to);
+      paintSel();
     });
   }
   /** Blocs du flux, dans l'ordre : paragraphes, lignes de tableau, notes,
@@ -2090,7 +2091,10 @@
     const head = (who        , ini        , d        ) =>
       `<div class="hd">${avatar(who, false, ini)}<span class="nm">${esc(firstName(who))}</span><span class="dt">${d}</span></div>`;
     const replies = model .comments.filter((r) => r.parent === c.id);
-    let h = head(c.author, c.initials, dateFr(c.date));
+    // Rappel du passage commenté : la fiche se rattache au texte d'un coup d'œil.
+    const q = oneLine(c.quote || "");
+    let h = q ? `<div class="qt" style="--who:${uiColor(c.author)}"><i></i><span>« ${esc(clip(q, 120))} »</span></div>` : "";
+    h += head(c.author, c.initials, dateFr(c.date));
     h += `<p class="tx">${esc(c.text.trim())}</p>`;
     if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}<p class="tx">${esc(r.text.trim())}</p></div>`;
     else if (replies.length) h += `<div class="meta">${pl(replies.length, "réponse", "réponses")}</div>`;
@@ -3011,6 +3015,54 @@
     void caret.offsetWidth;
     caret.classList.add("on");
   }
+  // Sélection dessinée (2026-11-12) : sur la page à l'échelle, la sélection
+  // native est transparente (CSS, --sel-bg) et #selpaint peint dessous les
+  // rectangles des seuls nœuds texte, à la hauteur des lettres comme le
+  // surlignage des commentaires. Seule la partie à l'écran est peinte, une
+  // fois par image, en réutilisant les rectangles déjà posés.
+  const selLayer = $("selpaint");
+  let selFrame = 0;
+  function paintSel() { if (!selFrame) selFrame = requestAnimationFrame(drawSel); }
+  function drawSel() {
+    selFrame = 0;
+    const s = getSelection();
+    const rects           = [];
+    if (paper.classList.contains("pg") && s && s.rangeCount && !s.isCollapsed && (paper.contains(s.anchorNode) || paper.contains(s.focusNode))) {
+      const range = s.getRangeAt(0);
+      const host = scroller.getBoundingClientRect();
+      const top = host.top - 64, bottom = host.bottom + 64;
+      const dx = scroller.scrollLeft - host.left, dy = scroller.scrollTop - host.top;
+      const sub = document.createRange();
+      for (const block of Array.from(paper.children)) {
+        if (!range.intersectsNode(block)) continue;
+        const b = block.getBoundingClientRect();
+        if (b.bottom < top || b.top > bottom) continue;
+        const walk = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        for (let t = walk.nextNode()               ; t; t = walk.nextNode()               ) {
+          if (!t.data || !range.intersectsNode(t) || t.parentElement?.closest(".d-gap,.d-note-n")) continue;
+          sub.selectNodeContents(t);
+          if (t === range.startContainer) sub.setStart(t, range.startOffset);
+          if (t === range.endContainer) sub.setEnd(t, range.endOffset);
+          for (const r of Array.from(sub.getClientRects())) {
+            if (r.width < 0.5 || r.bottom < top || r.top > bottom) continue;
+            const x = Math.floor(r.left + dx), y = Math.round(r.top + dy);
+            rects.push(x, y, Math.ceil(r.right + dx) - x, Math.round(r.bottom + dy) - y);
+          }
+        }
+      }
+    }
+    const n = rects.length / 4;
+    while (selLayer.childElementCount > n) selLayer.lastElementChild .remove();
+    while (selLayer.childElementCount < n) selLayer.appendChild(document.createElement("i"));
+    for (let i = 0; i < n; i++) {
+      const st = (selLayer.children[i]               ).style;
+      st.transform = `translate(${rects[4 * i]}px, ${rects[4 * i + 1]}px)`;
+      st.width = `${rects[4 * i + 2]}px`;
+      st.height = `${rects[4 * i + 3]}px`;
+    }
+  }
+  scroller.addEventListener("scroll", paintSel, { passive: true });
+  addEventListener("resize", paintSel);
   paper.addEventListener("focus", placeCaret);
   paper.addEventListener("input", () => {
     const sel = readSel();
@@ -3030,6 +3082,7 @@
   addEventListener("resize", placeCaret);
   document.addEventListener("selectionchange", () => {
     placeCaret();
+    paintSel();
     syncToolbar();
     const s = getSelection();
     const sel = readSel();
