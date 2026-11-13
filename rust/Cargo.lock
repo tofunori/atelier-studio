@@ -239,6 +239,7 @@ dependencies = [
  "md-5",
  "mime_guess",
  "notify",
+ "percent-encoding",
  "rand 0.8.7",
  "regex",
  "reqwest",

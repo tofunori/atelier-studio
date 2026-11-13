@@ -134,6 +134,15 @@
   --status-success: var(--u-ok, #98c379);
   --status-warning: var(--u-warn, #e0b74a);
   --status-error: var(--u-hot, #e06c75);
+  /* teintes de type de fichier (variante C « forme + teinte discrète »,
+     2026-11-13) : cinq types de travail seulement, jetons d'état mêlés à
+     15 % de --text-muted pour rester sourds ; lues par .file-glyph
+     (primitives.css). Contraste suivi par le thème, comme --u-*. */
+  --file-tint-pdf: color-mix(in srgb, var(--status-error) 85%, var(--text-muted));
+  --file-tint-word: color-mix(in srgb, var(--info) 85%, var(--text-muted));
+  --file-tint-tex: color-mix(in srgb, var(--accent) 85%, var(--text-muted));
+  --file-tint-sheet: color-mix(in srgb, var(--status-success) 85%, var(--text-muted));
+  --file-tint-data: color-mix(in srgb, var(--status-warning) 85%, var(--text-muted));
 
   /* -- typographie (rôles ; tailles héritées 10/11/12/13/15) --------------- */
   --font-chrome: var(--ui-font);
