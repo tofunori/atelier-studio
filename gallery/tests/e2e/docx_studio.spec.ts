@@ -37,7 +37,7 @@ const test = base.extend<{project: {root: string; url: string; doc: string}}>({
 });
 
 type Para = {text: string; align?: string; heading?: number; segments: {text: string; media?: string; rev?: string; highlight?: string; u?: boolean}[]};
-type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string}[]; comments: {id: number; author: string; text: string; parent?: number; done: boolean; quote: string}[]};
+type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string; date: string}[]; comments: {id: number; author: string; text: string; parent?: number; done: boolean; quote: string}[]};
 
 async function open(page: Page, project: {url: string; doc: string}) {
   await page.request.post(`${project.url}/docx/prefs`, {data: {author: 'Thierry'}});
@@ -487,7 +487,7 @@ test("docx: une retouche de Claude signée Thierry reste marquée « proposé pa
   // Ce que fait l'outil de l'agent : suivi au nom de Thierry, signature notée à part.
   const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: 'Thierry', op: {op: 'replace', find: 'compromis', with: 'équilibre'}}});
   expect(r.ok()).toBe(true);
-  const after = await disk(page, project) as Model & {changes: {id: number; author: string; date: string}[]};
+  const after = await disk(page, project);
   const known = new Set(m.changes.map(c => c.id));
   const mine = after.changes.filter(c => !known.has(c.id));
   expect(mine.length).toBeGreaterThan(0);
