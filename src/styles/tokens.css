@@ -41,6 +41,10 @@
   --text-muted: var(--muted);
   --text-disabled: var(--muted2);
   --text-inverse: #1a1408; /* lisible sur l'accent orange, deux thèmes */
+  /* papier d'un document (page Word des cartes de l'accueil) : blanc dans les
+     deux thèmes, atténué en sombre par un filtre comme les pages PDF */
+  --paper: #ffffff;
+  --paper-ink: #1d1f23;
 
   /* -- marques (aplats et traits NON textuels) ------------------------------
    * Un point d'état, un pouce de scrollbar, un knob d'interrupteur ou un

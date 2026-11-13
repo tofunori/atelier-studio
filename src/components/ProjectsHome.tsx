@@ -1,33 +1,44 @@
-// Accueil des projets — variante A « Reprendre » (maquette choisie par Thierry
-// le 2026-11-09, après le « bureau » du 2026-11-08). Le dernier projet ouvert
-// en grand : première page du PDF compilé, revue, échéance, agents en cours et
-// ses trois derniers fils ; les autres projets en liste compacte, toujours
-// visible. ⌘1 reprend le projet, ⌘2 à ⌘9 ouvrent les suivants, Échap revient
-// au projet courant. Chargé à la demande (budget de l'entrée) ; les vignettes
-// viennent du serveur Rust (`projectCards`, atelier-runtime/src/project_home.rs).
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+// Accueil des projets — variante A « Grille égale » (maquette choisie par
+// Thierry le 2026-11-13, après « Reprendre » du 2026-11-09 qui ne montrait
+// que le dernier projet en grand). Tous les projets en cartes carrées de même
+// taille, du plus récent au plus ancien : première page du PDF compilé ou du
+// document le plus récent (Word comme dans la galerie), sinon les premiers
+// fichiers du dossier. ⌘1 à ⌘9 ouvrent les neuf premiers, Échap revient au
+// projet courant, « ⋯ » (au clic) donne réglages, Finder et retrait. Chargé à
+// la demande (budget de l'entrée) ; les cartes viennent du serveur Rust
+// (`projectCards`, atelier-runtime/src/project_home.rs).
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { t } from "../lib/i18n";
 import { wsSend } from "../lib/wsBus";
 import { projectActivity, projectName, type ProjectDue } from "../lib/projectsHome";
 import { activityText, dueText } from "../lib/projectsHomeText";
-import { Button, InlineNotice, RowButton, Select } from "./ui";
+import { Button, IconButton, InlineNotice, RowButton, Select } from "./ui";
 import { LazyDialog } from "./ui/LazyDialog";
+import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { Input } from "./shadcn/input";
 import { Field, FieldGroup, FieldLabel } from "./shadcn/field";
 import type { ProjMeta } from "./Rail";
 import "../styles/projects-home.css";
 
-import { ClockIcon, FolderIcon, MessageSquareIcon, PlusIcon } from "lucide-react";
+import { EllipsisIcon, FileIcon, FolderIcon, PlusIcon } from "lucide-react";
 type ThreadLike = {
   id?: string;
-  title?: string;
   projectRoot: string;
   updatedAt?: string | null;
   status?: string;
-  /** fil d'un sous-agent : jamais listé dans « Fils récents » */
-  agentLink?: unknown;
 };
+
+/** Première page d'un .docx, telle que `/docx/peek` de la galerie la sert
+ *  (atelier_docx::preview) : tailles en points du document. */
+type DocxLook = { align?: string; before?: number; after?: number; line?: number; line_exact?: number;
+  left?: number; right?: number; first?: number; b?: boolean; i?: boolean; caps?: boolean; size?: number; font?: string; color?: string };
+type DocxSeg = { text: string; kind: string; b?: boolean; i?: boolean; u?: boolean; strike?: boolean; sup?: boolean; sub?: boolean;
+  font?: string; size?: number; color?: string; media?: string; width?: number; height?: number };
+type DocxPara = { id?: string; list?: boolean; cell?: [number, number, number]; segments: DocxSeg[]; look?: DocxLook };
+export type DocxPeek = { page: { width: number; height: number; top: number; right: number; bottom: number; left: number };
+  paragraphs: DocxPara[] };
 
 /** Réponse du serveur pour une carte (voir project_home.rs). */
 export type ProjectCard = {
@@ -36,36 +47,151 @@ export type ProjectCard = {
   tex?: string | null;
   pdf?: string | null;
   thumb?: string | null;
+  /** document montré quand il n'y a pas de PDF compilé (relatif au projet) */
+  doc?: string | null;
+  docx?: DocxPeek | null;
+  /** premiers éléments du dossier, quand il n'a aucun document */
+  files?: { name: string; dir: boolean }[];
   journal?: string | null;
   modifiedAt?: number | null;
 };
 
-/** projets dont on demande la vignette : le grand + les premiers de la liste */
-const CARD_REQUESTS = 6;
-/** ⌘1 (le grand) à ⌘9 */
+/** cartes demandées au serveur (MAX_CARDS de project_home.rs) */
+const CARD_REQUESTS = 24;
+/** ⌘1 à ⌘9 */
 const SHORTCUTS = 9;
-const RECENT_CHATS = 3;
 
 const folderGlyph = (size = 14) => <FolderIcon size={size} />;
 const PlusGlyph = () => <PlusIcon size={14} />;
-const ClockGlyph = () => <ClockIcon size={12} />;
-const ChatGlyph = () => <MessageSquareIcon size={12} />;
 
-function Sheet(p: { card?: ProjectCard; small?: boolean }) {
-  const size = p.small ? " is-mini" : "";
-  if (p.card?.thumb) {
-    return (
-      <div className={`ph-sheet${size}`}>
-        <img src={p.card.thumb} alt="" draggable={false} />
-      </div>
-    );
-  }
-  return <div className={`ph-sheet is-empty${size}`}>{folderGlyph(p.small ? 12 : 20)}</div>;
+const PT = 4 / 3;
+const pt = (v: number) => `${(v * PT).toFixed(2)}px`;
+const docFont = (name?: string) => (name ? `"${name.replace(/["\\]/g, "")}", Georgia, serif` : undefined);
+const docColor = (c?: string) => (c && /^[0-9a-f]{6}$/i.test(c) ? `#${c}` : undefined);
+
+function runStyle(r: { b?: boolean; i?: boolean; caps?: boolean; size?: number; font?: string; color?: string }): CSSProperties {
+  return {
+    fontSize: r.size ? pt(r.size) : undefined,
+    fontFamily: docFont(r.font),
+    fontWeight: r.b ? 600 : undefined,
+    fontStyle: r.i ? "italic" : undefined,
+    textTransform: r.caps ? "uppercase" : undefined,
+    color: docColor(r.color),
+  };
 }
 
-/** Chemin lisible : le dossier personnel devient « ~ ». */
-function shortPath(root: string): string {
-  return root.replace(/^\/Users\/[^/]+(?=\/|$)/, "~");
+function DocxSegment({ seg }: { seg: DocxSeg }) {
+  // les images ne sont pas servies ici : une réserve grise à leur taille
+  if (seg.media) return <span className="ph-dx-media" style={{ width: seg.width ?? 0, height: seg.height ?? 0 }} />;
+  if (seg.kind === "tab") return <span className="ph-dx-tab" />;
+  if (seg.kind === "break") return <br />;
+  if (seg.kind === "object" && seg.text === "\uFFFC") return null;
+  const style = runStyle(seg);
+  if (seg.u || seg.strike) style.textDecoration = seg.u ? "underline" : "line-through";
+  const body = seg.sup ? <sup>{seg.text}</sup> : seg.sub ? <sub>{seg.text}</sub> : seg.text;
+  return <span style={style}>{body}</span>;
+}
+
+function DocxParagraph({ para }: { para: DocxPara }) {
+  const l = para.look ?? {};
+  const style: CSSProperties = {
+    ...runStyle({ ...l, size: l.size || 11 }),
+    textAlign: l.align === "both" ? "justify" : (l.align as CSSProperties["textAlign"]) || undefined,
+    marginTop: l.before ? pt(l.before) : undefined,
+    marginBottom: l.after ? pt(l.after) : undefined,
+    paddingLeft: l.left ? pt(l.left) : undefined,
+    paddingRight: l.right ? pt(l.right) : undefined,
+    textIndent: l.first ? pt(l.first) : undefined,
+    lineHeight: l.line_exact ? pt(l.line_exact) : ((l.line || 1) * 1.2).toFixed(3),
+  };
+  return (
+    <p style={style}>
+      {para.list && <span className="ph-dx-bullet">•</span>}
+      {para.segments.length ? para.segments.map((seg, i) => <DocxSegment key={i} seg={seg} />) : "\u200B"}
+    </p>
+  );
+}
+
+/** Première page Word dessinée à l'échelle, le haut à pleine largeur et coupé
+ *  en bas, comme la vignette Word de la galerie (#212). */
+function DocxPage({ peek }: { peek: DocxPeek }) {
+  const box = useRef<HTMLDivElement | null>(null);
+  const [transform, setTransform] = useState<string | undefined>(undefined);
+  const width = peek.page.width * PT;
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => {
+      if (!el.clientWidth) return;
+      // la feuille de la carte est le papier : la page la remplit en largeur
+      setTransform(`scale(${(el.clientWidth / width).toFixed(4)})`);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [width]);
+  // paragraphes de tableau regroupés en cellules, comme dans la galerie
+  const blocks: ReactElement[] = [];
+  let rows: DocxPara[][][] = [];
+  let table = -1;
+  const flush = (key: string) => {
+    if (table < 0) return;
+    blocks.push(
+      <table key={key} className="ph-dx-table"><tbody>
+        {rows.map((cells, r) => <tr key={r}>{cells.map((paras, c) => <td key={c}>{paras.map((q, i) => <DocxParagraph key={i} para={q} />)}</td>)}</tr>)}
+      </tbody></table>,
+    );
+    rows = [];
+    table = -1;
+  };
+  peek.paragraphs.forEach((para, index) => {
+    if (para.cell) {
+      const [t, r, c] = para.cell;
+      if (t !== table) { flush(`t${index}`); table = t; }
+      rows[r] ??= [];
+      rows[r][c] ??= [];
+      rows[r][c].push(para);
+      return;
+    }
+    flush(`t${index}`);
+    blocks.push(<DocxParagraph key={index} para={para} />);
+  });
+  flush("end");
+  const pg = peek.page;
+  return (
+    <div ref={box} className="ph-docx">
+      <div className="ph-dx-page" style={{ width: pt(pg.width), height: pt(pg.height),
+        padding: `${pt(pg.top)} ${pt(pg.right)} 0 ${pt(pg.left)}`, transform, opacity: transform ? 1 : 0 }}>
+        {blocks}
+      </div>
+    </div>
+  );
+}
+
+/** Aperçu de la carte : page PDF, page Word, premiers fichiers, ou rien. */
+function Preview({ card }: { card?: ProjectCard }) {
+  if (card?.thumb) {
+    return (
+      <span className="ph-preview">
+        <span className="ph-page"><img src={card.thumb} alt="" draggable={false} /></span>
+      </span>
+    );
+  }
+  if (card?.docx) return <span className="ph-preview is-docx"><DocxPage peek={card.docx} /></span>;
+  if (card?.files?.length) {
+    return (
+      <span className="ph-preview is-files">
+        {card.files.map((f) => (
+          <span key={f.name} className="ph-file">
+            {f.dir ? <FolderIcon size={12} aria-hidden="true" /> : <FileIcon size={12} aria-hidden="true" />}
+            <span className="ph-file-name">{f.name}</span>
+          </span>
+        ))}
+      </span>
+    );
+  }
+  return <span className={`ph-preview is-empty${card ? "" : " is-loading"}`}>{card && folderGlyph(20)}</span>;
 }
 
 function useProjectCards(roots: string[], connected: boolean) {
@@ -197,37 +323,37 @@ export default function ProjectsHome(p: {
   /** ouvre la boîte « Nouveau projet » dès l'affichage */
   startWithNewProject?: boolean;
   onOpen: (root: string) => void;
-  /** ouvre un fil du projet mis en avant */
-  onOpenThread?: (threadId: string, root: string) => void;
   onProjectSettings?: (root: string) => void;
+  /** retire le projet de la liste (le dossier reste où il est) */
+  onRemoveProject?: (root: string) => void;
   onOpenFolder: () => void;
   onCreated: (root: string, due: ProjectDue | null, label: string | null) => void;
   onClose: () => void;
 }) {
-  const lead = p.projects[0] ?? null;
-  const others = p.projects.slice(1);
   const cards = useProjectCards(p.projects.slice(0, CARD_REQUESTS), p.connected);
   const [creating, setCreating] = useState(!!p.startWithNewProject);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
   const screenRef = useRef<HTMLElement | null>(null);
   const now = useMemo(() => new Date(), []);
   // valeurs lues par l'écouteur clavier (posé une seule fois)
   const handlers = useRef(p);
-  const creatingRef = useRef(creating);
+  const blockedRef = useRef(creating);
   useLayoutEffect(() => {
     handlers.current = p;
-    creatingRef.current = creating;
+    blockedRef.current = creating || menuFor != null;
   });
 
   useEffect(() => {
-    // le focus va à l'écran (Tab mène au projet) : aucun anneau d'emblée
+    // le focus va à l'écran (Tab mène à la première carte) : aucun anneau d'emblée
     if (!creating) screenRef.current?.focus({ preventScroll: true });
   }, [creating]);
 
   // Capture sur window : passe AVANT le raccourci global ⌘1/⌘2 (disposition
   // chat/atelier d'App, écouté en bulle) et l'arrête tant que l'écran est là.
+  // Un menu « ⋯ » ouvert garde Échap pour lui.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (creatingRef.current) return;
+      if (blockedRef.current) return;
       const digit = /^Digit([1-9])$/.exec(e.code);
       if (e.metaKey && !e.shiftKey && !e.altKey && digit) {
         e.preventDefault();
@@ -250,13 +376,6 @@ export default function ProjectsHome(p: {
     p.threads.filter((th) => th.projectRoot === root && th.status === "running").length;
   const lastActivity = (root: string) =>
     activityText(Math.max(projectActivity(root, p.meta[root], p.threads), cards[root]?.modifiedAt ?? 0), now);
-  const recentChats = lead
-    ? p.threads
-      .filter((th) => th.projectRoot === lead && th.id && !th.agentLink)
-      .map((th) => ({ th, at: th.updatedAt ? Date.parse(th.updatedAt) || 0 : 0 }))
-      .sort((a, b) => b.at - a.at)
-      .slice(0, RECENT_CHATS)
-    : [];
 
   return (
     <section ref={screenRef} tabIndex={-1} className="ph-screen" aria-label={t("projects.title")}>
@@ -264,7 +383,7 @@ export default function ProjectsHome(p: {
         <header className="ph-head">
           <div className="ph-head-text">
             <h1 className="ph-title">{t("projects.title")}</h1>
-            {lead && <p className="ph-sub">{t("projects.subtitle")}</p>}
+            {p.projects.length > 0 && <p className="ph-sub">{t("projects.subtitle")}</p>}
           </div>
           <span className="ph-spacer" />
           <Button onClick={p.onOpenFolder}>
@@ -277,89 +396,61 @@ export default function ProjectsHome(p: {
           </Button>
         </header>
 
-        {!lead ? (
+        {p.projects.length === 0 ? (
           <p className="ph-empty">{t("projects.none")}</p>
-        ) : (() => {
-          const meta = p.meta[lead];
-          const card = cards[lead];
-          const activity = lastActivity(lead);
-          const journal = meta?.journal?.trim() || card?.journal;
-          const first = [journal, activity && t("projects.modified", { when: activity })].filter(Boolean).join(" · ");
-          const due = dueText(meta?.due, now);
-          const running = runningCount(lead);
-          return (
-            <article className="ph-hero" aria-label={projectName(lead, meta?.label)}>
-              <RowButton className="ph-hero-sheet" tabIndex={-1} aria-hidden="true" onClick={() => p.onOpen(lead)}>
-                <Sheet card={card} />
-              </RowButton>
-              <div className="ph-hero-body">
-                <span className="ph-eyebrow">{t("projects.last-opened")}</span>
-                <h2 className="ph-hero-name">{projectName(lead, meta?.label)}</h2>
-                <span className="ph-hero-path" title={lead}>{"\u200E" + shortPath(lead)}</span>
-                {card?.missing ? (
-                  <div className="ph-facts"><span>{t("projects.missing")}</span></div>
-                ) : (
-                  <div className="ph-facts">
-                    {first && <span>{first}</span>}
-                    {due && <span><ClockGlyph />{due}</span>}
-                    {running > 0 && <span><span className="ph-dot" aria-hidden="true" />{t("projects.running", { n: running })}</span>}
-                  </div>
-                )}
-                {recentChats.length > 0 && (
-                  <div className="ph-chats" role="group" aria-label={t("projects.recent-chats")}>
-                    <span className="ph-cap">{t("projects.recent-chats")}</span>
-                    {recentChats.map(({ th, at }) => (
-                      <RowButton key={th.id} className="ph-chat" title={th.title}
-                        onClick={() => (p.onOpenThread ? p.onOpenThread(th.id!, lead) : p.onOpen(lead))}>
-                        <span className="ph-chat-ico" aria-hidden="true"><ChatGlyph /></span>
-                        <span className="ph-chat-title">{th.title || t("projects.untitled-chat")}</span>
-                        {th.status === "running" && <span className="ph-dot" aria-hidden="true" />}
-                        <span className="ph-chat-when">{activityText(at, now) ?? ""}</span>
-                      </RowButton>
-                    ))}
-                  </div>
-                )}
-                <div className="ph-hero-actions">
-                  <Button aria-keyshortcuts="Meta+1" onClick={() => p.onOpen(lead)}>{t("projects.resume")}</Button>
-                  <span className="ph-kbd is-shown" aria-hidden="true">⌘1</span>
-                  <span className="ph-spacer" />
-                  {p.onProjectSettings && (
-                    <Button variant="ghost" className="ph-quiet" onClick={() => p.onProjectSettings!(lead)}>{t("projects.settings")}</Button>
-                  )}
-                </div>
-              </div>
-            </article>
-          );
-        })()}
-
-        {others.length > 0 && (
-          <>
-            <div className="ph-cap ph-list-cap">
-              {t("projects.others")} <span className="ph-num">{others.length}</span>
-            </div>
-            <div className="ph-list" role="group" aria-label={t("projects.others")}>
-              {others.map((root, index) => {
-                const meta = p.meta[root];
-                const card = cards[root];
-                const detail = card?.missing
-                  ? t("projects.missing")
-                  : dueText(meta?.due, now) ?? meta?.journal?.trim() ?? card?.journal ?? "";
-                const shortcut = index + 2 <= SHORTCUTS ? index + 2 : null;
-                return (
-                  <RowButton key={root} className="ph-row" title={root}
+        ) : (
+          <ul className="ph-grid" aria-label={t("projects.title")}>
+            {p.projects.map((root, index) => {
+              const meta = p.meta[root];
+              const card = cards[root];
+              const name = projectName(root, meta?.label);
+              const kind = card?.thumb ? "PDF" : card?.docx ? "Word" : null;
+              const detail = card?.missing
+                ? t("projects.missing")
+                : dueText(meta?.due, now) ?? (meta?.journal?.trim() || card?.journal || kind);
+              const line = [index === 0 ? t("projects.last-opened") : null, detail, lastActivity(root)]
+                .filter(Boolean).join(" · ");
+              const shortcut = index + 1 <= SHORTCUTS ? index + 1 : null;
+              const running = runningCount(root);
+              const menuOpen = menuFor === root;
+              return (
+                <li key={root} className={`ph-card${menuOpen ? " is-menu" : ""}`}>
+                  <RowButton className="ph-card-open" title={root}
                     aria-keyshortcuts={shortcut ? `Meta+${shortcut}` : undefined}
                     onClick={() => p.onOpen(root)}>
-                    <Sheet card={card} small />
-                    <span className="ph-row-name">{projectName(root, meta?.label)}</span>
-                    <span className="ph-row-detail">{detail}</span>
-                    {runningCount(root) > 0 && <span className="ph-dot" aria-hidden="true" />}
-                    <span className="ph-row-when">{lastActivity(root) ?? ""}</span>
-                    <span className="ph-kbd" aria-hidden="true">{shortcut ? `⌘${shortcut}` : ""}</span>
+                    <Preview card={card} />
+                    <span className="ph-card-body">
+                      <span className="ph-card-name">{name}</span>
+                      <span className="ph-card-meta">
+                        {running > 0 && <span className="ph-dot" title={t("projects.running", { n: running })} />}
+                        <span className="ph-card-line">{line}</span>
+                      </span>
+                    </span>
                   </RowButton>
-                );
-              })}
-            </div>
-          </>
+                  <span className="ph-card-tools">
+                    {shortcut && <span className={`ph-kbd${index === 0 ? " is-shown" : ""}`} aria-hidden="true">⌘{shortcut}</span>}
+                    <LazyDropdownMenu
+                      open={menuOpen}
+                      onOpenChange={(v) => setMenuFor(v ? root : null)}
+                      align="end"
+                      label={name}
+                      trigger={
+                        <IconButton label={t("action.more")} size="s" className="ph-card-more"
+                          aria-haspopup="menu" aria-expanded={menuOpen}>
+                          <EllipsisIcon size={14} aria-hidden="true" />
+                        </IconButton>
+                      }
+                      items={[
+                        ...(p.onProjectSettings ? [{ key: "settings", label: t("projects.settings"), onSelect: () => p.onProjectSettings!(root) }] : []),
+                        ...(card?.missing ? [] : [{ key: "finder", label: t("project.reveal-finder"), onSelect: () => { void revealItemInDir(root).catch(() => {}); } }]),
+                        ...(p.onRemoveProject ? [{ key: "remove", label: t("project.remove"), destructive: true, separatorBefore: true, onSelect: () => p.onRemoveProject!(root) }] : []),
+                      ]}
+                    />
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
       {creating && (
