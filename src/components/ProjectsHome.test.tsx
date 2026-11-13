@@ -127,19 +127,35 @@ describe("écran d'ouverture", () => {
     window.removeEventListener("keydown", bubble);
   });
 
-  it("crée un nouveau projet à l'emplacement choisi", async () => {
+  it("le dossier choisi devient le projet, le nom tapé sert d'étiquette", async () => {
     const { open } = await import("@tauri-apps/plugin-dialog");
-    vi.mocked(open).mockResolvedValue("/Users/t/Documents");
+    vi.mocked(open).mockResolvedValue("/Users/t/Documents/GEO1063/2026");
     const props = setup({ startWithNewProject: true });
     const name = await screen.findByLabelText("Nom");
-    fireEvent.change(name, { target: { value: "Chapitre3" } });
-    fireEvent.click(screen.getByRole("button", { name: "Choisir l’emplacement…" }));
+    fireEvent.change(name, { target: { value: "GEO1113" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choisir le dossier…" }));
     await waitFor(() => expect(sent.some((m) => m.type === "createProject")).toBe(true));
     const request = sent.find((m) => m.type === "createProject");
-    expect(request).toMatchObject({ parent: "/Users/t/Documents", name: "Chapitre3", template: null });
+    expect(request).toMatchObject({ folder: "/Users/t/Documents/GEO1063/2026", template: null });
+    expect(request).not.toHaveProperty("name");
+    act(() => {
+      window.dispatchEvent(new CustomEvent("project-created", { detail: { requestId: request.requestId, root: "/Users/t/Documents/GEO1063/2026" } }));
+    });
+    await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("/Users/t/Documents/GEO1063/2026", null, "GEO1113"));
+  });
+
+  it("sans nom, le projet porte celui du dossier", async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockResolvedValue("/Users/t/Documents/Chapitre3");
+    const props = setup({ startWithNewProject: true });
+    const button = await screen.findByRole("button", { name: "Choisir le dossier…" });
+    expect(button).not.toBeDisabled();
+    fireEvent.click(button);
+    await waitFor(() => expect(sent.some((m) => m.type === "createProject")).toBe(true));
+    const request = sent.find((m) => m.type === "createProject");
     act(() => {
       window.dispatchEvent(new CustomEvent("project-created", { detail: { requestId: request.requestId, root: "/Users/t/Documents/Chapitre3" } }));
     });
-    await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("/Users/t/Documents/Chapitre3", null));
+    await waitFor(() => expect(props.onCreated).toHaveBeenCalledWith("/Users/t/Documents/Chapitre3", null, null));
   });
 });

@@ -781,12 +781,12 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             vec![json_msg(json!({"type":"projectCards","requestId":request_id,"cards":cards}))]
         }
         "createProject" => {
-            let parent = msg["parent"].as_str().unwrap_or("").to_string();
-            let name = msg["name"].as_str().unwrap_or("").to_string();
+            // le dossier choisi devient le projet : aucun sous-dossier n'est créé
+            let folder = msg["folder"].as_str().unwrap_or("").to_string();
             let template = msg["template"].as_str().map(str::to_string);
             let request_id = msg["requestId"].clone();
             let result = crate::ws_dispatch::blocking(move || {
-                crate::project_home::create(&parent, &name, template.as_deref())
+                crate::project_home::create(&folder, template.as_deref())
             })
             .await
             .unwrap_or_else(|_| Err("Création impossible".into()));
