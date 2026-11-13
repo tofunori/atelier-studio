@@ -307,14 +307,29 @@ body.lane-over #leader{display:none}
 .cc .meta{margin-top:8px;font-size:11px;color:var(--text-muted)}
 .cc .rp{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-subtle,var(--border))}
 .cc .ac{display:flex;align-items:center;gap:4px;margin-top:8px}
+/* Colonne resserrée (240 px) : « Résoudre » garde son icône, « Répondre » reste dans la fiche. */
+.it.on .cc{container-type:inline-size}
+@container (max-width:240px){.cc .ac .btn{padding:0 8px}.cc .ac [data-act="resolve"] .lb{display:none}}
+/* Ses propres messages s'ouvrent d'un clic pour être modifiés. */
+.cc .tx.mine{margin-left:-4px;margin-right:-4px;padding:0 4px;border-radius:6px;cursor:text;transition:background-color 120ms ease-out}
+.cc .tx.mine:hover{background:var(--surface-hover)}
+.c-edit{margin-top:8px;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text-primary) 24%,transparent)}
 .c-input{display:block;width:100%;min-height:36px;margin-top:12px;padding:8px;border:0;border-radius:6px;outline:0;resize:none;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px/1.5 var(--ui-font)}
 .c-input::placeholder{color:var(--text-muted)}
 /* Brouillon de réponse de l'agent (Proposer) : le geste vit dans le champ,
    la rangée Résoudre / Répondre ne change pas. */
 .c-field{position:relative;margin-top:12px}
 .c-field .c-input{margin-top:0}
-.c-field.ask .c-input:placeholder-shown{padding-right:96px}
-.c-field.ask .c-input:not(:placeholder-shown) + .in{opacity:0;pointer-events:none}
+.c-field .c-input{padding-right:44px}
+.c-field.ask .c-input:not(:placeholder-shown){padding-right:76px}
+/* Envoyer et Proposer : icônes seules, accolées au bord du champ derrière un filet.
+   La flèche n'apparaît qu'avec du texte ; le robot reste et prend ce texte pour consigne. */
+.cc .in.ic{display:flex;align-items:center;gap:4px;padding:0}
+.cc .in.ic::before{content:"";position:absolute;left:-6px;top:6px;bottom:6px;width:1px;background:color-mix(in srgb,var(--text-primary) 14%,transparent)}
+.cc .in.ic .mini{width:28px;height:28px;color:var(--text-primary)}
+.cc .in.ic .up{background:var(--press)}
+.c-field .c-input:placeholder-shown + .ic .up{display:none}
+.c-field:not(.ask) .c-input:placeholder-shown + .ic{display:none}
 .cc .in{position:absolute;top:4px;right:4px;height:28px;padding:0 8px;gap:6px;font-size:12px;transition:opacity 120ms ease-out,background-color 120ms ease-out,color 120ms ease-out}
 .c-wait{position:relative;display:flex;align-items:center;gap:8px;min-height:36px;margin-top:12px;padding:0 8px;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));color:var(--text-muted);font-size:12px}
 .c-wait .in{top:4px}
