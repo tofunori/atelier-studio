@@ -255,16 +255,8 @@ pub fn remember(doc: &Path, add: &[Stamp]) -> Result<()> {
 /// dossier parent du document), sinon le nom que Word a déjà inscrit dans le
 /// document et qui ressemble à celui du Mac, sinon celui du Mac.
 pub fn signer(doc: &Path, project_root: &Path, model: &DocModel) -> String {
-    let mut dirs: Vec<&Path> = doc.ancestors().skip(1).take_while(|d| d.starts_with(project_root)).collect();
-    if !dirs.contains(&project_root) {
-        dirs.push(project_root);
-    }
-    for d in dirs {
-        let prefs = d.join(".fig_thumbs").join("docx_prefs.json");
-        let stored: Option<serde_json::Value> = std::fs::read(&prefs).ok().and_then(|b| serde_json::from_slice(&b).ok());
-        if let Some(a) = stored.as_ref().and_then(|v| v.get("author")).and_then(|a| a.as_str()).map(str::trim).filter(|a| !a.is_empty()) {
-            return a.to_string();
-        }
+    if let Some(name) = preferred_author(doc, project_root) {
+        return name;
     }
     let sys = system_user_name();
     let first = sys.split_whitespace().next().unwrap_or("").to_lowercase();
@@ -274,6 +266,27 @@ pub fn signer(doc: &Path, project_root: &Path, model: &DocModel) -> String {
         .find(|a| !is_agent(&a.name) && !first.is_empty() && a.name.to_lowercase().starts_with(&first))
         .map(|a| a.name.clone())
         .unwrap_or(sys)
+}
+
+/// Le nom choisi dans le panneau Word (`author` de `.fig_thumbs/docx_prefs.json`),
+/// cherché du dossier du document jusqu'à la racine du projet.
+pub fn preferred_author(doc: &Path, project_root: &Path) -> Option<String> {
+    let mut dirs: Vec<&Path> = doc.ancestors().skip(1).take_while(|d| d.starts_with(project_root)).collect();
+    if !dirs.contains(&project_root) {
+        dirs.push(project_root);
+    }
+    dirs.into_iter().find_map(|d| {
+        let prefs = d.join(".fig_thumbs").join("docx_prefs.json");
+        let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(prefs).ok()?).ok()?;
+        stored.get("author")?.as_str().map(str::trim).filter(|a| !a.is_empty()).map(str::to_string)
+    })
+}
+
+/// Signature des commentaires d'un PDF du projet : le nom du panneau Word,
+/// sinon celui du Mac. Ce que Claude y écrit est signé de ce nom, comme dans
+/// Word.
+pub fn pdf_signer(doc: &Path, project_root: &Path) -> String {
+    preferred_author(doc, project_root).unwrap_or_else(system_user_name)
 }
 
 /// Nom d'un agent (même liste que le panneau).
