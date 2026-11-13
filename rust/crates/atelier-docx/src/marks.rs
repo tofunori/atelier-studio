@@ -73,6 +73,72 @@ pub fn record(doc: &Path, after: &DocModel, sig: &Signature, agent: &str) -> Res
     Ok(mine)
 }
 
+/// Éléments de suivi qui portent un auteur (`w:author`).
+const TRACKED: &[&str] = &[
+    "ins", "del", "moveFrom", "moveTo", "moveFromRangeStart", "moveToRangeStart", "rPrChange", "pPrChange", "sectPrChange",
+    "tblPrChange", "tblGridChange", "trPrChange", "tcPrChange", "numberingChange", "cellIns", "cellDel", "cellMerge",
+];
+
+/// Reprend sous le nom `to` les suivis qu'un agent avait signés de son nom
+/// (fichiers retouchés avant la signature au nom de l'utilisateur) : Word
+/// n'affiche plus que `to`, et les signatures rendues permettent à Atelier
+/// de les montrer encore « proposés par Claude ». Les commentaires gardent
+/// leur auteur. Rend les signatures à noter avec [`remember`].
+pub fn adopt(docx: &mut crate::Docx, to: &str) -> Result<Vec<Stamp>> {
+    let to = to.trim();
+    if to.is_empty() || is_agent(to) {
+        return crate::err("nom de l'utilisateur manquant");
+    }
+    let mut stamps: Vec<Stamp> = Vec::new();
+    for part in docx.story_parts() {
+        let Some(src) = docx.part(&part)? else { continue };
+        let doc = crate::xml::parse(&src)?;
+        let mut edits = Vec::new();
+        for n in doc.descendants().filter(|n| n.is_element() && n.tag_name().namespace() == Some(crate::xml::W) && TRACKED.contains(&n.tag_name().name())) {
+            let Some(a) = n.attributes().find(|a| a.namespace() == Some(crate::xml::W) && a.name() == "author") else { continue };
+            if !is_agent(a.value()) {
+                continue;
+            }
+            let stamp = Stamp { agent: canonical(a.value()), author: to.to_string(), date: crate::xml::w_attr(n, "date").unwrap_or("").to_string() };
+            if !stamps.contains(&stamp) {
+                stamps.push(stamp);
+            }
+            edits.push((a.range_value(), crate::xml::escape_attr(to)));
+        }
+        drop(doc);
+        if !edits.is_empty() {
+            let out = crate::xml::splice(&src, edits)?;
+            docx.set_part(&part, out);
+        }
+    }
+    Ok(stamps)
+}
+
+/// « claude » → « Claude » : le nom d'agent tel que le panneau l'affiche.
+fn canonical(name: &str) -> String {
+    let n = name.trim();
+    let mut c = n.chars();
+    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+}
+
+/// Ajoute des signatures à celles du document (sans doublon).
+pub fn remember(doc: &Path, add: &[Stamp]) -> Result<()> {
+    if add.is_empty() {
+        return Ok(());
+    }
+    let store = store_for(doc)?;
+    let lock = crate::lock_file(doc)?;
+    lock.lock()?;
+    let mut stamps = read(&store);
+    for s in add {
+        if !stamps.contains(s) {
+            stamps.push(s.clone());
+        }
+    }
+    let bytes = serde_json::to_vec(&stamps).map_err(|e| crate::DocxError(format!("retouches de l'agent : {e}")))?;
+    crate::write_atomic(&store, &bytes)
+}
+
 /// Nom de l'utilisateur sous lequel l'agent signe dans ce document : celui
 /// choisi dans le panneau (`.fig_thumbs/docx_prefs.json` du projet ou d'un
 /// dossier parent du document), sinon le nom que Word a déjà inscrit dans le
