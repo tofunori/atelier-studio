@@ -457,3 +457,34 @@ fn entree_en_fin_de_legende_laisse_le_champ_entier_dans_la_legende() {
         assert!(m2.paragraphs[cap + 1].segments.iter().all(|s| s.kind != "field"), "{:?}", m2.paragraphs[cap + 1].segments);
     }
 }
+
+#[test]
+fn on_modifie_sa_reponse_jamais_le_commentaire_d_un_autre() {
+    let me = sig("Thierry");
+    let mut d = open("christophe");
+    let r = apply(&mut d, &op(json!({"op": "reply", "parent": 1, "text": "Oui, c'est ça…"})), true, &me).unwrap();
+    let id = r["id"].as_u64().unwrap();
+    apply(&mut d, &op(json!({"op": "resolve", "id": id, "done": false})), true, &me).unwrap();
+    let before = d.model().unwrap();
+    let mine = before.comments.iter().find(|c| c.id as u64 == id).unwrap().clone();
+
+    apply(&mut d, &op(json!({"op": "edit_comment", "id": id, "text": "Oui, c'est ça… clair dans les 3 zones.\nJe le reformule."})), true, &me).unwrap();
+    let mut d = reopen(&d);
+    let m = d.model().unwrap();
+    let c = m.comments.iter().find(|c| c.id as u64 == id).unwrap();
+    assert_eq!(c.text.trim(), "Oui, c'est ça… clair dans les 3 zones.\nJe le reformule.");
+    // Même fil, même auteur, même date : seul le texte change.
+    assert_eq!(c.parent, Some(1));
+    assert_eq!((c.author.as_str(), c.date.as_str()), (mine.author.as_str(), mine.date.as_str()));
+    assert_eq!(m.comments.len(), before.comments.len());
+    assert!(libreoffice_text(&d.to_bytes().unwrap()).is_none_or(|t| !t.is_empty()));
+
+    // Le commentaire de Christophe ne se modifie pas, ni un texte vide.
+    let theirs = m.comments.iter().find(|c| c.id == 1).unwrap();
+    assert_ne!(theirs.author, "Thierry");
+    let e = apply(&mut d, &op(json!({"op": "edit_comment", "id": 1, "text": "Autre chose"})), true, &me).unwrap_err();
+    assert!(e.0.contains("on ne modifie que les siens"), "{e}");
+    let e = apply(&mut d, &op(json!({"op": "edit_comment", "id": id, "text": "  "})), true, &me).unwrap_err();
+    assert!(e.0.contains("texte vide"), "{e}");
+    assert_eq!(d.model().unwrap().comments.iter().find(|c| c.id == 1).unwrap().text, theirs.text);
+}

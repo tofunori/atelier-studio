@@ -1,4 +1,4 @@
-//! Commentaires : ajouter, répondre, résoudre, supprimer.
+//! Commentaires : ajouter, répondre, modifier, résoudre, supprimer.
 //!
 //! Le texte est dans word/comments.xml, l'ancrage dans document.xml
 //! (`commentRangeStart`, `commentRangeEnd`, appel `commentReference`), le fil
@@ -364,6 +364,51 @@ pub fn reply(docx: &mut Docx, parent: u32, text: &str, sig: &Signature) -> Resul
     set_ext(docx, &parent_pid, None, None)?;
     set_ext(docx, &pid, Some(&parent_pid), Some(false))?;
     Ok(CommentResult { id })
+}
+
+/// Réécrit le texte d'un commentaire (ou d'une réponse) de `sig.author` :
+/// le commentaire garde son identifiant, sa date, son fil et son état ;
+/// ceux des autres ne se modifient jamais.
+pub fn edit(docx: &mut Docx, id: u32, text: &str, sig: &Signature) -> Result<()> {
+    let text = text.trim_end();
+    if text.trim().is_empty() {
+        return err("texte vide : supprimer le commentaire plutôt");
+    }
+    // Le paraId du dernier paragraphe relie le commentaire à son fil : on le garde.
+    let pid = comment_para_id(docx, id)?;
+    let src = docx.part(COMMENTS)?.ok_or_else(|| crate::DocxError("aucun commentaire dans ce document".into()))?;
+    let doc = xml::parse(&src)?;
+    let Some(c) = doc.root_element().children().find(|n| is_w(*n, "comment") && id_of(*n) == Some(id)) else {
+        return err(format!("commentaire {id} introuvable"));
+    };
+    let who = c.attribute((xml::W, "author")).unwrap_or("");
+    if who != sig.author {
+        return err(format!("commentaire de {who} : on ne modifie que les siens"));
+    }
+    let paras: Vec<_> = c.children().filter(|n| is_w(*n, "p")).collect();
+    let (Some(first), Some(last)) = (paras.first(), paras.last()) else { return err("commentaire sans paragraphe") };
+    let ppr = first.children().find(|n| is_w(*n, "pPr")).map(|n| src[n.range()].to_string()).unwrap_or_default();
+    let mark = first
+        .children()
+        .find(|r| is_w(*r, "r") && r.children().any(|k| is_w(k, "annotationRef")))
+        .map(|r| src[r.range()].to_string())
+        .unwrap_or_else(|| "<w:r><w:annotationRef/></w:r>".into());
+    let tid = last.attribute((W14, "textId")).unwrap_or("77777777").to_string();
+    let lines: Vec<&str> = text.split('\n').collect();
+    let body: String = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let attrs = if i + 1 == lines.len() { format!(" w14:paraId=\"{pid}\" w14:textId=\"{tid}\"") } else { String::new() };
+            let m = if i == 0 { mark.as_str() } else { "" };
+            format!("<w:p{attrs}>{ppr}{m}<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>", escape_text(line))
+        })
+        .collect();
+    let range = first.range().start..last.range().end;
+    drop(doc);
+    let out = xml::splice(&src, vec![(range, body)])?;
+    docx.set_part(COMMENTS, ensure_root_ns(&out, "w14", W14)?);
+    Ok(())
 }
 
 /// Marque le commentaire (et son fil) comme résolu, ou le rouvre.

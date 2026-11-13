@@ -1,0 +1,133 @@
+//! Retouches de l'agent signées au nom de l'utilisateur.
+//!
+//! Dans le .docx, les suivis que l'agent propose portent le nom de
+//! l'utilisateur (Thierry, 2026-11-13 : « Oui », les retouches de Claude
+//! sont signées Thierry) : Christophe ne voit qu'un auteur. Atelier, lui,
+//! se souvient de ceux qui viennent de l'agent pour les montrer comme
+//! « proposés par Claude » : leur signature (nom et heure) vit dans le dossier
+//! temporaire, sous un nom tiré du chemin du document comme les brouillons
+//! (rien ne s'ajoute à côté du fichier de l'utilisateur).
+
+use crate::model::DocModel;
+use crate::{Result, Signature};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+/// Une retouche de l'agent : le nom et l'heure inscrits dans ses suivis.
+/// On les reconnaît par cette signature et non par leur numéro, que Word
+/// renumérote à chaque enregistrement (il garde `w:author` et `w:date`).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Stamp {
+    /// Agent qui a proposé (« Claude », « Codex »…).
+    pub agent: String,
+    /// Nom inscrit dans le .docx (l'utilisateur).
+    pub author: String,
+    pub date: String,
+}
+
+fn store_for(doc: &Path) -> Result<PathBuf> {
+    let canon = doc.canonicalize()?;
+    let name = format!("atelier-docx-{}.agent.json", hex::encode(&Sha256::digest(canon.to_string_lossy().as_bytes())[..8]));
+    Ok(std::env::temp_dir().join(name))
+}
+
+fn read(store: &Path) -> Vec<Stamp> {
+    std::fs::read(store).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn owner<'a>(stamps: &'a [Stamp], author: &str, date: &str) -> Option<&'a Stamp> {
+    stamps.iter().find(|s| s.author == author && s.date == date)
+}
+
+/// Numéro de suivi → agent qui l'a proposé, pour les suivis encore présents.
+pub fn list(doc: &Path, model: &DocModel) -> Result<BTreeMap<u32, String>> {
+    let stamps = read(&store_for(doc)?);
+    Ok(model.changes.iter().filter_map(|c| owner(&stamps, &c.author, &c.date).map(|s| (c.id, s.agent.clone()))).collect())
+}
+
+/// Note la retouche que l'agent vient de poser sous `sig`, si elle a laissé
+/// des suivis ; oublie celles dont plus aucun suivi ne reste (acceptés,
+/// refusés). Rend les numéros des suivis de cette retouche.
+pub fn record(doc: &Path, after: &DocModel, sig: &Signature, agent: &str) -> Result<Vec<u32>> {
+    let store = store_for(doc)?;
+    let lock = crate::lock_file(doc)?;
+    lock.lock()?;
+    let mut stamps = read(&store);
+    let stamp = Stamp { agent: agent.trim().to_string(), author: sig.author.clone(), date: sig.date.clone() };
+    let mine: Vec<u32> = after.changes.iter().filter(|c| c.author == stamp.author && c.date == stamp.date).map(|c| c.id).collect();
+    if !mine.is_empty() && !stamps.contains(&stamp) {
+        stamps.push(stamp);
+    }
+    stamps.retain(|s| after.changes.iter().any(|c| c.author == s.author && c.date == s.date));
+    if stamps.is_empty() {
+        match std::fs::remove_file(&store) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        }
+    } else {
+        let bytes = serde_json::to_vec(&stamps).map_err(|e| crate::DocxError(format!("retouches de l'agent : {e}")))?;
+        crate::write_atomic(&store, &bytes)?;
+    }
+    Ok(mine)
+}
+
+/// Nom de l'utilisateur sous lequel l'agent signe dans ce document : celui
+/// choisi dans le panneau (`.fig_thumbs/docx_prefs.json` du projet ou d'un
+/// dossier parent du document), sinon le nom que Word a déjà inscrit dans le
+/// document et qui ressemble à celui du Mac, sinon celui du Mac.
+pub fn signer(doc: &Path, project_root: &Path, model: &DocModel) -> String {
+    let mut dirs: Vec<&Path> = doc.ancestors().skip(1).take_while(|d| d.starts_with(project_root)).collect();
+    if !dirs.contains(&project_root) {
+        dirs.push(project_root);
+    }
+    for d in dirs {
+        let prefs = d.join(".fig_thumbs").join("docx_prefs.json");
+        let stored: Option<serde_json::Value> = std::fs::read(&prefs).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        if let Some(a) = stored.as_ref().and_then(|v| v.get("author")).and_then(|a| a.as_str()).map(str::trim).filter(|a| !a.is_empty()) {
+            return a.to_string();
+        }
+    }
+    let sys = system_user_name();
+    let first = sys.split_whitespace().next().unwrap_or("").to_lowercase();
+    model
+        .authors
+        .iter()
+        .find(|a| !is_agent(&a.name) && !first.is_empty() && a.name.to_lowercase().starts_with(&first))
+        .map(|a| a.name.clone())
+        .unwrap_or(sys)
+}
+
+/// Nom d'un agent (même liste que le panneau).
+pub fn is_agent(name: &str) -> bool {
+    let n = name.trim().to_lowercase();
+    ["claude", "codex", "kimi", "grok", "opencode", "agent"].iter().any(|a| n == *a || n.strip_prefix(a).is_some_and(|r| r.starts_with(|c: char| !c.is_alphanumeric())))
+}
+
+/// Nom complet de l'utilisateur du Mac (celui que Word propose par défaut).
+pub fn system_user_name() -> String {
+    let full = std::process::Command::new("id")
+        .arg("-F")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty());
+    full.or_else(|| std::env::var("USER").ok()).unwrap_or_else(|| "Moi".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_agent;
+
+    #[test]
+    fn un_agent_se_reconnait_a_son_nom_seulement() {
+        for a in ["Claude", "codex", "Claude (Opus)", "Agent"] {
+            assert!(is_agent(a), "{a}");
+        }
+        for h in ["Thierry", "Christophe Kinnard", "Claudette", "Agentine"] {
+            assert!(!is_agent(h), "{h}");
+        }
+    }
+}

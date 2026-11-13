@@ -28,6 +28,7 @@
 pub mod check;
 pub mod comments;
 pub mod drafts;
+pub mod marks;
 pub mod edit;
 pub mod feedback;
 pub mod layout;

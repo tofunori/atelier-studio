@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderUi, resetTestState } from "../test/render";
 import { setLanguage } from "../lib/i18n";
+import { invoke } from "@tauri-apps/api/core";
 import DocumentsSurface from "./DocumentsSurface";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue("http://127.0.0.1:18791/figures_index.html") }));
 import { shortDate } from "./documentsDate";
 
 const GALLERY = "http://127.0.0.1:8765/figures_index.html#atelier_nonce=abc";
@@ -17,6 +20,11 @@ beforeEach(() => {
     if (url.endsWith("/docx/new")) {
       posted.push(JSON.parse(String(init?.body)));
       return new Response(JSON.stringify({ path: "documents/Chapitre 3.docx" }), { status: 200 });
+    }
+    if (url.startsWith("http://127.0.0.1:18791/")) {
+      return new Response(JSON.stringify({ documents: [
+        { path: "03_TP/TP6_K_puits.docx", mtime: NOW - 60_000, changes: 0 },
+      ] }), { status: 200 });
     }
     return new Response(JSON.stringify({ documents: [
       { path: "manuscrit/Chapitre1_brouillon.docx", mtime: NOW, changes: 3 },
@@ -43,6 +51,21 @@ describe("DocumentsSurface", () => {
     cleanup();
     renderUi(<DocumentsSurface galleryUrl={GALLERY} projectRoot="/p" visible />);
     expect(screen.getByRole("tab", { name: "Chapitre1_brouillon.docx" })).toBeTruthy();
+  });
+
+  it("liste aussi les .docx des dossiers rattachés au projet et les ouvre par leur serveur", async () => {
+    const folders = [{ path: "/Cours/GEO1063/2026", name: "2026", access: "read" as const, gallery: true }];
+    renderUi(<DocumentsSurface galleryUrl={GALLERY} projectRoot="/p" folders={folders} galleryDir="" galleryExts="" visible />);
+    const row = await screen.findByText("TP6_K_puits.docx");
+    expect(invoke).toHaveBeenCalledWith("start_atelier", expect.objectContaining({ root: "/Cours/GEO1063/2026" }));
+    expect(screen.getByText("Chapitre1_brouillon.docx")).toBeTruthy();
+    expect(screen.getByText(/^2026\/03_TP/)).toBeTruthy();
+    fireEvent.click(row);
+    const frame = document.querySelector("iframe.docs-frame") as HTMLIFrameElement;
+    const url = new URL(frame.src);
+    expect(url.origin).toBe("http://127.0.0.1:18791");
+    expect(url.searchParams.get("path")).toBe("/Cours/GEO1063/2026/03_TP/TP6_K_puits.docx");
+    expect(url.hash).toBe("#atelier_nonce=abc");
   });
 
   it("crée un article dans documents/ et l'ouvre", async () => {

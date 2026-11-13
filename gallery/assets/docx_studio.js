@@ -65,6 +65,8 @@
 
 
 
+
+
   const W = window
 
 
@@ -150,6 +152,7 @@
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     down: '<path d="m6 9 6 6 6-6"/>',
     up: '<path d="m18 15-6-6-6 6"/>',
+    send: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
     left: '<path d="m15 18-6-6 6-6"/>',
     right: '<path d="m9 18 6-6-6-6"/>',
     msgPlus: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>',
@@ -251,9 +254,14 @@
     } catch { /* page déjà déchargée */ }
   }
 
+  /** Retouches de l'agent : le .docx porte le nom de l'utilisateur (Thierry,
+   *  2026-11-13), Atelier se souvient de l'agent qui les a proposées. */
+  let agentMarks                         = {};
   /** Corps, puis notes, puis en-têtes et pieds dans une seule liste : un
    *  rang (`idx`) désigne n'importe quel paragraphe modifiable. */
   function normalize(m       )        {
+    // Tout modèle complet du serveur porte la liste ; un modèle recalculé ici n'y touche pas.
+    if (m.agentChanges) agentMarks = m.agentChanges;
     if (m.body !== undefined) return m;
     const body         = m.paragraphs.map((p) => ({ ...p, story: "" }));
     const rest         = [];
@@ -302,6 +310,11 @@
     if (!colorCache.has(name)) colorCache.set(name, `a${(colorCache.size % 3) + 1}`);
     return colorCache.get(name)          ;
   }
+  /** Retouches de l'agent : le .docx porte le nom de l'utilisateur (voir `agentMarks`). */
+  const proposer = (c        ) => agentMarks[c.id] || "";
+  const byAgent = (c        ) => !!proposer(c) || AGENT.test(c.author);
+  /** Qui montrer pour un suivi : l'agent qui l'a proposé, sinon son auteur. */
+  const shownAuthor = (c        ) => proposer(c) || c.author;
   const authorColor = (name        ) => `var(--doc-${authorKey(name)})`;
   const uiColor = (name        ) => `var(--ui-${authorKey(name)})`;
   const changeById = () => new Map((model?.changes || []).map((c) => [c.id, c]         ));
@@ -479,7 +492,7 @@
         const c = changes.get(s.change);
         node.classList.add(removed ? "del" : "ins");
         node.dataset.ch = String(s.change);
-        node.style.setProperty("--rev-color", authorColor(c ? c.author : ""));
+        node.style.setProperty("--rev-color", authorColor(c ? shownAuthor(c) : ""));
         changed = changed || c;
       }
       if (s.kind === "break" && s.label === "page") node.classList.add("pbr");
@@ -499,7 +512,7 @@
     }
     if (changed) {
       el.classList.add("changed");
-      el.style.setProperty("--rev-color", authorColor(changed.author));
+      el.style.setProperty("--rev-color", authorColor(shownAuthor(changed)));
     }
     if (!any) el.appendChild(document.createElement("br"));
     el.dataset.len = String(off);
@@ -2749,12 +2762,17 @@
   let lane             = [];
   let navOrder           = [];
   let changeMap = new Map                ();
+  /** Qui montrer en tête d'une rangée de suivis. */
+  const lead = (ids          ) => { const c = changeMap.get(ids[0]); return c ? shownAuthor(c) : ""; };
   let commentMap = new Map                 ();
   const openChips = new Set        ();
   /** Commentaire en cours d'écriture, sur un passage d'un paragraphe. */
   let draft                                                                                           = null;
   /** Réponses en cours d'écriture, par fiche : un redessin ou Échap ne les perd pas. */
   const replyDrafts = new Map                ();
+  /** Message de l'utilisateur rouvert pour être modifié en place (le sien
+   *  seulement : ce qu'un autre a écrit ne se modifie jamais). */
+  let editing                                      = null;
   // Brouillons de réponse de l'agent (Thierry, 2026-11-12 : « Brouillon,
   // signé Thierry ») : « Proposer » demande au chat une réponse que l'agent
   // pose hors du document (atelier_docx draft_reply) ; le sondage la verse
@@ -2822,9 +2840,9 @@
     }
     for (const [idx, ids] of per) {
       const p = m.paragraphs[idx];
-      items.push({ key: `p${p.para_id || p.id}`, kind: "chip", idx, anchor: nodes.get(idx) || null, ids, author: changeMap.get(ids[0])?.author ?? "" });
+      items.push({ key: `p${p.para_id || p.id}`, kind: "chip", idx, anchor: nodes.get(idx) || null, ids, author: lead(ids) });
     }
-    if (loose.length) items.push({ key: "loose", kind: "chip", idx: 1e9, anchor: null, ids: loose, author: changeMap.get(loose[0])?.author ?? "" });
+    if (loose.length) items.push({ key: "loose", kind: "chip", idx: 1e9, anchor: null, ids: loose, author: lead(loose) });
     // Fiches de commentaire : ancrées au premier passage surligné.
     const first = new Map                     ();
     for (const el of Array.from(paper.querySelectorAll             (".cmt[data-c]"))) {
@@ -2847,28 +2865,41 @@
     // Rappel du passage commenté : la fiche se rattache au texte d'un coup d'œil.
     const q = oneLine(c.quote || "");
     let h = q ? `<div class="qt" style="--who:${uiColor(c.author)}"><i></i><span>« ${esc(clip(q, 120))} »</span></div>` : "";
+    // Ses propres messages s'ouvrent d'un clic pour être modifiés en place.
+    const text = (x         ) => {
+      if (on && editing?.id === x.id) {
+        return `<textarea class="c-input c-edit" rows="2" aria-label="Modifier ton message">${esc(x.text.trim())}</textarea>
+          <div class="ac"><button class="btn q" data-act="edit-cancel">Annuler</button><button class="btn p" data-act="edit-save">Enregistrer</button></div>`;
+      }
+      if (on && !c.done && x.author === author) return `<p class="tx mine" data-act="edit" data-cid="${x.id}" role="button" tabindex="0" aria-label="Modifier ton message">${esc(x.text.trim())}</p>`;
+      return `<p class="tx">${esc(x.text.trim())}</p>`;
+    };
     h += head(c.author, c.initials, dateFr(c.date));
-    h += `<p class="tx">${esc(c.text.trim())}</p>`;
-    if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}<p class="tx">${esc(r.text.trim())}</p></div>`;
+    h += text(c);
+    if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}${text(r)}</div>`;
     else if (replies.length) h += `<div class="meta">${pl(replies.length, "réponse", "réponses")}</div>`;
-    if (on) {
+    const inEdit = on && editing !== null && (editing.id === c.id || replies.some((r) => r.id === editing .id));
+    if (on && !inEdit) {
       const field = `<textarea class="c-input" rows="1" placeholder="Répondre…" aria-label="Répondre à ${esc(firstName(c.author))}"></textarea>`;
+      // Dans le champ : la flèche envoie la réponse (dès qu'il y a du texte) ;
+      // le robot demande un brouillon à l'agent, ce qui est tapé lui servant de consigne.
+      const send = `<button class="mini up" data-act="reply" aria-label="Envoyer la réponse" data-tooltip="Envoyer (⌘↵)">${ic("send", 16)}</button>`;
+      const bot = `<button class="mini pb" data-act="propose" aria-label="Proposer une réponse" data-tooltip="Proposer une réponse">${ic("bot", 16)}</button>`;
       const ad = c.done || muted.has(c.id) ? null : agentDrafts[String(c.id)] || null;
       const waiting = !c.done && asking.has(c.id);
       if (waiting) {
         h += `<div class="c-wait" role="status">${ic("bot", 14)}<span>Rédaction du brouillon</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><button class="btn q in" data-act="stop">Arrêter</button></div>`;
       } else if (ad) {
-        h += `<div class="c-by">${ic("bot", 12)}<span>Brouillon de ${esc(firstName(ad.author))}, à relire</span><button class="lk" data-act="redo" data-tooltip="Demander une autre formulation">Refaire</button></div><div class="c-field">${field}</div>`;
-      } else if (!c.done) {
-        h += `<div class="c-field ask">${field}<button class="btn q in" data-act="propose" data-tooltip="L'agent du chat rédige une réponse que tu relis avant d'envoyer">${ic("bot", 14)}Proposer</button></div>`;
-      } else h += field;
+        h += `<div class="c-by">${ic("bot", 12)}<span>Brouillon de ${esc(firstName(ad.author))}, à relire</span><button class="lk" data-act="redo" data-tooltip="Demander une autre formulation">Refaire</button></div><div class="c-field">${field}<span class="in ic">${send}</span></div>`;
+      } else {
+        h += `<div class="c-field${c.done ? "" : " ask"}">${field}<span class="in ic">${send}${c.done ? "" : bot}</span></div>`;
+      }
       // Un remplacement = un retrait et un ajout : on compte les passages touchés.
       const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
       if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
-      h += `<div class="ac"><button class="btn q" data-act="resolve">${c.done ? "Rouvrir" : `${ic("check", 14)}Résoudre`}</button>
+      h += `<div class="ac"><button class="btn q" data-act="resolve"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
-        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>
-        <button class="btn p" data-act="reply"${!c.done && asking.has(c.id) ? " disabled" : ""}>Répondre</button></div>`;
+        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
     }
     return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }
@@ -2890,8 +2921,8 @@
         const del = c.kind === "del" || c.kind === "moveFrom";
         const sign = c.kind === "ins" || c.kind === "moveTo" ? "+" : del ? "−" : "¶";
         const label = sign === "¶" ? `${KIND[c.kind] || c.kind}${c.text ? ` · ${clip(oneLine(c.text), 80)}` : ""}` : (oneLine(c.text) || (c.kind.startsWith("move") ? "Déplacement" : "Espace"));
-        const tip = `${c.author} · ${kindLabel(c)}${c.date ? ` · ${dateFr(c.date)}, ${timeFr(c.date)}` : ""}`;
-        return `<div class="cr${del ? " d" : ""}" data-ch="${c.id}" data-act="show" data-tooltip="${esc(tip)}"><span class="k" style="--who:${uiColor(c.author)}">${sign}</span><span class="t">${esc(clip(label, 120))}</span><span class="gr"><button class="mini no" data-act="reject" aria-label="Refuser : ${esc(clip(label, 60))}">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter : ${esc(clip(label, 60))}">${ic("check", 14)}</button></span></div>`;
+        const tip = `${c.author}${proposer(c) ? ` · proposé par ${proposer(c)}` : ""} · ${kindLabel(c)}${c.date ? ` · ${dateFr(c.date)}, ${timeFr(c.date)}` : ""}`;
+        return `<div class="cr${del ? " d" : ""}" data-ch="${c.id}" data-act="show" data-tooltip="${esc(tip)}"><span class="k" style="--who:${uiColor(shownAuthor(c))}">${sign}</span><span class="t">${esc(clip(label, 120))}</span><span class="gr"><button class="mini no" data-act="reject" aria-label="Refuser : ${esc(clip(label, 60))}">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter : ${esc(clip(label, 60))}">${ic("check", 14)}</button></span></div>`;
       }).join("")}</div>`;
     }
     return `<div class="ch${open ? " open" : ""}">${h}</div>`;
@@ -2903,6 +2934,17 @@
     return a.idx - b.idx || (a.ids[0] ?? 0) - (b.ids[0] ?? 0);
   }
 
+  /** Commentaire de tête du fil : une réponse a son propre ancrage dans la
+   *  page, mais c'est la tête qui porte l'état « résolu » (Word comme nous). */
+  function threadOf(id        )                      {
+    let c = commentMap.get(id);
+    for (let n = 0; c && c.parent != null && n < 32; n++) {
+      const up = commentMap.get(c.parent);
+      if (!up) break;
+      c = up;
+    }
+    return c;
+  }
   function renderCards() {
     if (!model) return;
     changeMap = changeById();
@@ -2916,8 +2958,10 @@
     // Ce que la marge tient en main avant le redessin : réponses en cours,
     // focus et sélection dans une zone de saisie, défilement des listes.
     for (const [key, el] of prev) {
-      const ta = el.querySelector("textarea");
+      const ta = el.querySelector                     ("textarea:not(.c-edit)");
       if (ta && key !== "draft") { if (ta.value) replyDrafts.set(key, ta.value); else replyDrafts.delete(key); }
+      const ed = el.querySelector                     ("textarea.c-edit");
+      if (ed && editing) editing.text = ed.value;
     }
     const act = document.activeElement                      ;
     const keep = act && cardsEl.contains(act) ? { key: (act.closest(".it")                      )?.dataset.key, ta: act.tagName === "TEXTAREA", s: (act                       ).selectionStart, e: (act                       ).selectionEnd } : null;
@@ -2939,10 +2983,12 @@
         const was = ta ? ta.value : "";
         el.innerHTML = html;
         el.dataset.html = html;
-        const next = el.querySelector("textarea");
+        const next = el.querySelector                     ("textarea:not(.c-edit)");
         const back = it.kind === "draft" ? was : replyDrafts.get(it.key) || "";
         if (next && back) next.value = back;
         if (next) fitInput(next);
+        const ed = el.querySelector                     ("textarea.c-edit");
+        if (ed && editing) { ed.value = editing.text; fitInput(ed); }
       }
       el.classList.toggle("on", on);
       el.classList.toggle("grp", it.kind === "chip");
@@ -2960,8 +3006,8 @@
     const active = focusKey.startsWith("c") ? Number(focusKey.slice(1)) : -1;
     for (const el of Array.from(paper.querySelectorAll             (".cmt[data-c]"))) {
       const ids = el.dataset.c .split(" ").map(Number);
-      el.classList.toggle("done", ids.every((id) => commentMap.get(id)?.done !== false));
-      el.classList.toggle("on", ids.includes(active));
+      el.classList.toggle("done", ids.every((id) => threadOf(id)?.done !== false));
+      el.classList.toggle("on", ids.some((id) => threadOf(id)?.id === active));
     }
     paintDraft();
     layoutCards();
@@ -3304,11 +3350,11 @@
   function agentFixes(id        )           {
     const base = fixBase.get(id);
     if (!base || !model) return [];
-    return model.changes.filter((ch) => !base.has(ch.id) && AGENT.test(ch.author)).map((ch) => ch.id);
+    return model.changes.filter((ch) => !base.has(ch.id) && byAgent(ch)).map((ch) => ch.id);
   }
 
   /** Ce que l'agent lit : le commentaire, son fil, et la consigne. */
-  function replyPrompt(c         , previous         )         {
+  function replyPrompt(c         , previous         , note         )         {
     const replies = model .comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
     const who = firstName(c.author);
     return `${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}\n\n`
@@ -3316,10 +3362,11 @@
       + `Pose-la avec atelier_docx action=draft_reply (comment=${c.id}), jamais reply ; la réponse ne recopie pas de texte corrigé. `
       + `Si le passage mérite une correction, montre-la-moi ici dans le chat (avant / après) sans toucher au document : `
       + `je te dirai si tu la poses en suivi (action=edit).`
+      + (note ? ` Ma consigne pour cette réponse : « ${note} ».` : "")
       + (previous ? ` Une autre formulation que celle-ci : « ${previous} ».` : "");
   }
 
-  function proposeReply(c         , previous         ) {
+  function proposeReply(c         , previous         , note         ) {
     const core = W.AtelierStudioCore;
     if (!W.__atelierPost || !core || !core.requestChatAttachment) {
       status("Le chat d'Atelier n'est pas joignable depuis cette page.", true);
@@ -3329,7 +3376,7 @@
     asking.set(c.id, Date.now());
     fixBase.set(c.id, new Set(model .changes.map((ch) => ch.id)));
     renderCards();
-    core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: replyPrompt(c, previous), path: PATH, name: NAME, direct: true } })
+    core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: replyPrompt(c, previous, note), path: PATH, name: NAME, direct: true } })
       .then(() => status("Demandé au chat : le brouillon arrive dans la carte"))
       .catch((e       ) => { asking.delete(c.id); renderCards(); status(e.message, true); });
   }
@@ -3410,7 +3457,35 @@
     const c = commentMap.get(it.ids[0]);
     if (!c) return;
     const ta = host.querySelector("textarea");
-    if (act === "propose") { proposeReply(c); return; }
+    if (act === "propose") {
+      // Ce qui est tapé sert de consigne à l'agent, puis s'efface : le brouillon prend sa place.
+      const note = ta ? ta.value.trim() : "";
+      if (ta) ta.value = "";
+      replyDrafts.delete(it.key);
+      proposeReply(c, undefined, note);
+      return;
+    }
+    if (act === "edit") {
+      const mine = commentMap.get(Number((t.closest("[data-cid]")               ).dataset.cid));
+      if (!mine) return;
+      editing = { id: mine.id, text: mine.text.trim() };
+      renderCards();
+      const ed = host.querySelector                     ("textarea.c-edit");
+      if (ed) { ed.focus({ preventScroll: true }); ed.setSelectionRange(ed.value.length, ed.value.length); }
+      return;
+    }
+    if (act === "edit-cancel") { editing = null; renderCards(); return; }
+    if (act === "edit-save" && editing) {
+      const id = editing.id;
+      const text = (host.querySelector                     ("textarea.c-edit")?.value ?? editing.text).trim();
+      if (!text) { host.querySelector                     ("textarea.c-edit")?.focus(); return; }
+      if (text === commentMap.get(id)?.text.trim()) { editing = null; renderCards(); return; }
+      structural(async () => {
+        const ok = await sendOp({ op: "edit_comment", id, text });
+        if (ok) { editing = null; renderCards(); status("Message modifié"); }
+      });
+      return;
+    }
     if (act === "stop") { asking.delete(c.id); muted.add(c.id); renderCards(); status("Brouillon abandonné"); return; }
     if (act === "redo") {
       const previous = agentDrafts[String(c.id)]?.text;
@@ -3452,6 +3527,11 @@
     if ((e.key === "Enter" || e.key === " ") && ta.getAttribute("role") === "button") { e.preventDefault(); ta.click(); return; }
     if (ta.tagName !== "TEXTAREA") return;
     const host = ta.closest(".it")                      ;
+    if (ta.classList.contains("c-edit")) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); host?.querySelector             ('[data-act="edit-save"]')?.click(); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); host?.querySelector             ('[data-act="edit-cancel"]')?.click(); }
+      return;
+    }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       host?.querySelector             (host.dataset.key === "draft" ? '[data-act="post"]' : '[data-act="reply"]')?.click();
@@ -3592,7 +3672,7 @@
     const cm = t.closest(".cmt[data-c]")                      ;
     if (cm) {
       const ids = cm.dataset.c .split(" ").map(Number);
-      const id = ids.find((x) => commentMap.get(x)?.done === false) ?? ids[0];
+      const id = (ids.map(threadOf).find((x) => x?.done === false) ?? threadOf(ids[0]))?.id ?? ids[0];
       if (focusKey !== `c${id}`) focusCard(`c${id}`, false);
     } else if (!ch && focusKey && focusKey !== "draft") {
       focusKey = "";
@@ -4245,8 +4325,8 @@
 
   function renderStatus() {
     if (!model) return;
-    const pending = model.changes.filter((c) => AGENT.test(c.author));
-    const agentNames = Array.from(new Set(pending.map((c) => c.author)));
+    const pending = model.changes.filter(byAgent);
+    const agentNames = Array.from(new Set(pending.map(shownAuthor)));
     const other = model.other_parts.reduce((n, o) => n + o.changes, 0);
     const open = model.comments.filter((c) => !c.done && isTop(c)).length;
     let words = 0;

@@ -65,6 +65,20 @@ describe("useDocxPaneRequests", () => {
     expect(replies[replies.length - 1]).toMatchObject({ action: "restore", ok: false });
   });
 
+  it("admet le serveur d'un dossier rattaché au projet, nonce de l'app compris", () => {
+    renderHook(() => useDocxPaneRequests({ current: handle }, `${ORIGIN}/`, true));
+    const other = "http://127.0.0.1:18791";
+    frame.src = `${other}/.fig_thumbs/docx_studio.html?path=%2Fd%2Fa.docx#atelier_nonce=n1`;
+    send({ action: "widen", px: 150 }, other);
+    // (les crochets des tests précédents écoutent encore : seul le sens compte)
+    expect(size).toBeGreaterThan(40);
+    // même serveur sans nonce dans l'iframe : refusé
+    size = 40;
+    frame.src = `${other}/.fig_thumbs/docx_studio.html?path=%2Fd%2Fa.docx`;
+    send({ action: "widen", px: 150 }, other);
+    expect(size).toBe(40);
+  });
+
   it("ignore une autre origine ou un mauvais nonce", () => {
     renderHook(() => useDocxPaneRequests({ current: handle }, `${ORIGIN}/`, true));
     send({ action: "widen", px: 100 }, "http://evil.test");

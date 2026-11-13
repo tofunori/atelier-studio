@@ -37,7 +37,7 @@ const test = base.extend<{project: {root: string; url: string; doc: string}}>({
 });
 
 type Para = {text: string; align?: string; heading?: number; segments: {text: string; media?: string; rev?: string; highlight?: string; u?: boolean}[]};
-type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string}[]; comments: {id: number; author: string; text: string; parent?: number; done: boolean; quote: string}[]};
+type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string; date: string}[]; comments: {id: number; author: string; text: string; parent?: number; done: boolean; quote: string}[]};
 
 async function open(page: Page, project: {url: string; doc: string}) {
   await page.request.post(`${project.url}/docx/prefs`, {data: {author: 'Thierry'}});
@@ -164,6 +164,9 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await thread.locator('[data-act="resolve"]').click();
   await expect.poll(async () => (await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(true);
   await expect(page.locator('#navLbl')).toContainText('Aucun commentaire');
+  // Fil résolu : son passage perd son fond, réponses comprises (elles ont leur propre ancrage).
+  await expect(page.locator('#paper .cmt[data-c~="1"]').first()).toHaveClass(/\bdone\b/);
+  await expect(page.locator('#paper .cmt:not(.done)')).toHaveCount(0);
 
   // Annoter depuis la capsule commune d'Atelier : une boîte s'ouvre sous le
   // passage, ⌘Entrée en fait un commentaire Word signé dans la marge.
@@ -183,6 +186,54 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await expect(page.locator('#bub')).toContainText('Christophe');
   await page.locator('#bub [data-act="accept"]').click();
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 120)).toBe(false);
+});
+
+test("docx: sa réponse se modifie d'un clic, celle de Christophe jamais, et la rangée tient dans une fiche de 240 px", async ({page, project}) => {
+  await page.setViewportSize({width: 1440, height: 900});
+  await page.addInitScript(() => { try { localStorage.setItem('docxLaneW', '240'); } catch { /* sans stockage */ } });
+  await open(page, project);
+  const thread = page.locator('#cards .it[data-key="c1"]');
+  await thread.locator('.cc').click();
+  await expect(thread).toHaveClass(/\bon\b/);
+  await thread.locator('textarea').fill('Oui, c\'est ça…');
+  await thread.locator('[data-act="reply"]').click();
+  await expect(thread.locator('.rp')).toHaveCount(2);
+
+  // À 240 px, toute la rangée d'actions reste dans la fiche.
+  const inside = await thread.evaluate((el) => {
+    const card = el.querySelector('.cc')!.getBoundingClientRect();
+    return Array.from(el.querySelectorAll('.ac > *')).every((b) => { const r = b.getBoundingClientRect(); return r.left >= card.left && r.right <= card.right; });
+  });
+  expect(inside).toBe(true);
+  await expect(thread.locator('[data-act="resolve"]')).toHaveAttribute('aria-label', 'Résoudre');
+
+  // Seuls ses propres messages s'ouvrent : celui de Christophe, jamais.
+  await expect(thread.locator('.cc > .tx')).not.toHaveClass(/mine/);
+  await expect(thread.locator('.tx.mine')).toHaveCount(2);
+  const mine = thread.locator('.tx.mine').last();
+  await expect(mine).toHaveText('Oui, c\'est ça…');
+  await mine.click();
+  const edit = thread.locator('textarea.c-edit');
+  await expect(edit).toBeFocused();
+  await expect(edit).toHaveValue('Oui, c\'est ça…');
+  await edit.press('Escape');
+  await expect(edit).toHaveCount(0);
+  await expect(thread.locator('textarea')).toBeVisible();
+
+  await mine.click();
+  await thread.locator('textarea.c-edit').fill('Oui, c\'est ça… clair dans les 3 zones.');
+  await thread.locator('textarea.c-edit').press('ControlOrMeta+Enter');
+  const replies = async () => (await disk(page, project)).comments.filter(c => c.parent === 1 && c.author === 'Thierry').map(c => c.text.trim()).sort();
+  await expect.poll(replies).toEqual(['D\'accord, je l\'ajoute en annexe.', 'Oui, c\'est ça… clair dans les 3 zones.']);
+  await expect(thread.locator('.tx.mine').last()).toHaveText('Oui, c\'est ça… clair dans les 3 zones.');
+  const christophe = (await disk(page, project)).comments.find(c => c.id === 1)!;
+  expect(christophe.author).not.toBe('Thierry');
+  expect(christophe.text).toContain('Pourquoi 0,6');
+
+  // ⌘Z rend le texte d'avant.
+  await page.locator('#paper').focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(replies).toEqual(['D\'accord, je l\'ajoute en annexe.', 'Oui, c\'est ça…']);
 });
 
 test('docx: rechercher et remplacer partout, en suivi signé', async ({page, project}) => {
@@ -423,6 +474,40 @@ test("docx: une retouche de l'agent apparaît sans recharger", async ({page, pro
   await expect(page.locator('#foot')).toContainText('de Claude en attente');
 });
 
+/** Fichier des retouches de l'agent signées du nom de l'utilisateur
+ *  (atelier_docx::marks) : même dossier et même nom que les brouillons. */
+async function marksFile(doc: string): Promise<string> {
+  const canon = await realpath(doc);
+  return path.join(tmpdir(), `atelier-docx-${createHash('sha256').update(canon).digest('hex').slice(0, 16)}.agent.json`);
+}
+
+test("docx: une retouche de Claude signée Thierry reste marquée « proposé par Claude » dans le panneau", async ({page, project}) => {
+  await open(page, project);
+  const m = await disk(page, project);
+  // Ce que fait l'outil de l'agent : suivi au nom de Thierry, signature notée à part.
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: 'Thierry', op: {op: 'replace', find: 'compromis', with: 'équilibre'}}});
+  expect(r.ok()).toBe(true);
+  const after = await disk(page, project);
+  const known = new Set(m.changes.map(c => c.id));
+  const mine = after.changes.filter(c => !known.has(c.id));
+  expect(mine.length).toBeGreaterThan(0);
+  expect(mine.every(c => c.author === 'Thierry')).toBe(true);
+  await writeFile(await marksFile(project.doc), JSON.stringify([{agent: 'Claude', author: 'Thierry', date: mine[0].date}]));
+  try {
+    await page.reload();
+    await expect(page.locator('.d-p[data-idx="2"] .ins', {hasText: 'équilibre'})).toBeVisible();
+    await expect(page.locator('#foot')).toContainText('de Claude en attente');
+    // La teinte de l'agent, pas celle de Thierry ; l'infobulle dit les deux.
+    const tint = await page.locator('.d-p[data-idx="2"] .ins', {hasText: 'équilibre'}).evaluate(el => (el as HTMLElement).style.getPropertyValue('--rev-color'));
+    expect(tint).toContain('--doc-agent');
+    const row = page.locator(`#cards .it.grp[data-ids~="${mine[0].id}"]`);
+    await row.locator('.row').click();
+    await expect(row.locator(`.cr[data-ch="${mine[0].id}"]`)).toHaveAttribute('data-tooltip', /^Thierry · proposé par Claude · /);
+  } finally {
+    await writeFile(await marksFile(project.doc), '[]');
+  }
+});
+
 /** Fichier des brouillons de réponse de l'agent (atelier_docx::drafts) :
  *  dossier temporaire, nommé d'après le chemin canonique du document. */
 async function draftsFile(doc: string): Promise<string> {
@@ -441,10 +526,17 @@ test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et
   });
   const thread = page.locator('#cards .it[data-key="c1"]');
   await thread.locator('.cc').click();
+  // Champ vide : le robot seul ; du texte : la flèche d'envoi apparaît, le robot reste.
+  await expect(thread.locator('[data-act="reply"]')).toBeHidden();
+  await thread.locator('textarea').fill('réponds que le seuil vient de la littérature');
+  await expect(thread.locator('[data-act="reply"]')).toBeVisible();
+  await expect(thread.locator('[data-act="propose"]')).toBeVisible();
+  // Le texte tapé part comme consigne, puis s'efface.
   await thread.locator('[data-act="propose"]').click();
   await expect(thread.locator('.c-wait')).toBeVisible();
-  await expect(thread.locator('[data-act="reply"]')).toBeDisabled();
+  await expect(thread.locator('[data-act="reply"]')).toHaveCount(0);
   const sent = await page.evaluate(() => (window as unknown as {__sent: {text: string; direct: boolean; path: string}}).__sent);
+  expect(sent.text).toContain('Ma consigne pour cette réponse : « réponds que le seuil vient de la littérature »');
   expect(sent.direct).toBe(true);
   expect(sent.path).toBe(project.doc);
   expect(sent.text).toContain('draft_reply (comment=1)');
