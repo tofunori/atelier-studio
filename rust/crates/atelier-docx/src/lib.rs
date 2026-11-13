@@ -44,6 +44,7 @@ pub mod history;
 pub mod versions;
 pub mod ops;
 pub mod paste;
+pub mod preview;
 pub mod story;
 pub mod table;
 pub mod triage;

@@ -2143,6 +2143,100 @@ const snipObserver = new IntersectionObserver((entries,obs)=>{
       .then(r=>r.ok?r.text():'').then(t=>{el.textContent=t;}).catch(()=>{});
   }
 },{rootMargin:'250px'});
+// Word : la première page dessinée à l'échelle (format, marges, tailles en
+// points du document), servie allégée par /docx/peek et chargée seulement
+// quand la carte entre dans la vue. La page suit la taille de la vignette.
+type DocxLook = {align?: string; before?: number; after?: number; line?: number; line_exact?: number; left?: number; right?: number; first?: number; b?: boolean; i?: boolean; caps?: boolean; size?: number; font?: string; color?: string};
+type DocxSeg = {text: string; kind: string; label?: string; b?: boolean; i?: boolean; u?: boolean; strike?: boolean; sup?: boolean; sub?: boolean; font?: string; size?: number; media?: string; width?: number; height?: number; crop?: number[]; display?: boolean};
+type DocxPara = {id: string; heading?: number; list?: boolean; cell?: [number, number, number]; segments: DocxSeg[]; look: DocxLook};
+type DocxPeek = {page: {width: number; height: number; top: number; right: number; bottom: number; left: number}; paragraphs: DocxPara[]};
+const DOCX_PT = 4/3;
+const docxPt = (v: number) => (v*DOCX_PT).toFixed(2)+'px';
+const docxFont = (name?: string) => name ? `"${name.replace(/["\\]/g,'')}",var(--doc-serif)` : '';
+function docxRunCss(r: {b?: boolean; i?: boolean; caps?: boolean; size?: number; font?: string; color?: string}){
+  let css='';
+  if(r.size) css+=`font-size:${docxPt(r.size)};`;
+  if(r.font) css+=`font-family:${docxFont(r.font)};`;
+  if(r.b) css+='font-weight:600;';
+  if(r.i) css+='font-style:italic;';
+  if(r.caps) css+='text-transform:uppercase;';
+  if(r.color && /^[0-9a-f]{6}$/i.test(r.color)) css+=`color:#${r.color};`;
+  return css;
+}
+function docxSegHtml(seg: DocxSeg, para: DocxPara, path: string){
+  if(seg.media){
+    const w=seg.width||0, h=seg.height||0;
+    const crop=seg.crop&&seg.crop.length===4?'&crop='+seg.crop.join(','):'';
+    return `<img alt="" decoding="async" style="width:${w}px;height:${h}px" src="/docx/media?path=${encodeURIComponent(path)}&para=${encodeURIComponent(para.id)}&rel=${encodeURIComponent(seg.media)}${crop}">`;
+  }
+  if(seg.kind==='tab') return '<span class="dp-tab"></span>';
+  if(seg.kind==='break') return '<br>';
+  if(seg.kind==='object' && seg.text==='\uFFFC') return '';
+  let css=docxRunCss(seg);
+  if(seg.u) css+='text-decoration:underline;';
+  if(seg.strike) css+='text-decoration:line-through;';
+  const text=esc(seg.text);
+  const body=seg.sup?`<sup>${text}</sup>`:seg.sub?`<sub>${text}</sub>`:text;
+  return css?`<span style="${css}">${body}</span>`:body;
+}
+function docxParaHtml(para: DocxPara, path: string){
+  const l=para.look||{};
+  let css=docxRunCss({...l, size: l.size||11});
+  if(l.align) css+=`text-align:${l.align==='both'?'justify':l.align};`;
+  if(l.before) css+=`margin-top:${docxPt(l.before)};`;
+  if(l.after) css+=`margin-bottom:${docxPt(l.after)};`;
+  if(l.left) css+=`padding-left:${docxPt(l.left)};`;
+  if(l.right) css+=`padding-right:${docxPt(l.right)};`;
+  if(l.first) css+=`text-indent:${docxPt(l.first)};`;
+  css+=l.line_exact?`line-height:${docxPt(l.line_exact)};`:`line-height:${((l.line||1)*1.2).toFixed(3)};`;
+  const bullet=para.list?'<span class="dp-bullet">•</span>':'';
+  const body=para.segments.map(seg=>docxSegHtml(seg,para,path)).join('');
+  return `<p style="${css}">${bullet}${body||'&#8203;'}</p>`;
+}
+function docxPageHtml(peek: DocxPeek, path: string){
+  const pg=peek.page;
+  let html='', table=-1, row=-1, col=-1;
+  for(const para of peek.paragraphs){
+    if(para.cell){
+      const [t,r,c]=para.cell;
+      if(t!==table){ html+=(table>=0?'</td></tr></table>':'')+'<table class="dp-t"><tr><td>'; table=t; row=r; col=c; }
+      else if(r!==row){ html+='</td></tr><tr><td>'; row=r; col=c; }
+      else if(c!==col){ html+='</td><td>'; col=c; }
+    }else if(table>=0){ html+='</td></tr></table>'; table=-1; }
+    html+=docxParaHtml(para,path);
+  }
+  if(table>=0) html+='</td></tr></table>';
+  return `<div class="dp" data-w="${pg.width*DOCX_PT}" style="width:${docxPt(pg.width)};height:${docxPt(pg.height)};padding:${docxPt(pg.top)} ${docxPt(pg.right)} 0 ${docxPt(pg.left)}">${html}</div>`;
+}
+function fitDocxPage(box: HTMLElement){
+  const page=box.querySelector<HTMLElement>('.dp');
+  if(!page||!box.clientWidth) return;
+  // Le haut de la page à pleine largeur, coupé en bas : le titre et le nom
+  // se lisent (choix de Thierry, 2026-11-13, plutôt que la page entière).
+  const w=Number(page.dataset.w), pad=12;
+  const k=(box.clientWidth-2*pad)/w;
+  page.style.transform=`translate(${((box.clientWidth-w*k)/2).toFixed(1)}px,${pad}px) scale(${k.toFixed(4)})`;
+}
+const docxFit = new ResizeObserver((entries)=>{ for(const e of entries) fitDocxPage(e.target as HTMLElement); });
+const docxObserver = new IntersectionObserver((entries,obs)=>{
+  for(const e of entries){
+    if(!e.isIntersecting) continue;
+    const box=e.target as HTMLElement; obs.unobserve(box);
+    const path='__ROOT__/'+box.dataset.docx;
+    fetch('/docx/peek?path='+encodeURIComponent(path)+'&v='+box.dataset.v)
+      .then(r=>r.ok?r.json():Promise.reject(r.status))
+      .then((peek: DocxPeek)=>{
+        if(!box.isConnected) return;
+        box.innerHTML=docxPageHtml(peek,path);
+        box.classList.add('ready');
+        fitDocxPage(box); docxFit.observe(box);
+      })
+      .catch(()=>{
+        if(!box.isConnected) return;
+        box.outerHTML=`<div class="ph"><span class="ext">DOCX</span><span style="font-size:11px">pas d’aperçu</span></div>`;
+      });
+  }
+},{rootMargin:'250px'});
 // Both presentations consume the same filtered files and selection model.
 let presentationTouched=false;
 const presentationKey=galleryProjectStorageKey('galleryPresentationV1');
@@ -2208,6 +2302,7 @@ function render(){
   // entrées dans le viewport; après beaucoup de recherches/rescans, ces cibles
   // mortes finissent par faire grossir la page et peuvent bloquer les clics.
   snipObserver.disconnect();
+  docxObserver.disconnect(); docxFit.disconnect();
   if(typeof renderActiveChips==='function') renderActiveChips();  // plan 019 : chips de filtres actifs
   const normalizeSearch = (value) => String(value||'').normalize('NFKD')
     .replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -2294,6 +2389,8 @@ function render(){
       : `<img loading="lazy" decoding="async" src="${escA(tsrc)}" alt="">`;
     const thumb = f.code
       ? `<div class="snip" data-snip="${escA(f.rel)}"></div>`
+      : f.ext === 'docx'
+      ? `<div class="thumb docx-page" data-docx="${escA(f.rel)}" data-v="${f.mtime}"></div>`
       : tsrc
       ? `<div class="thumb">${imgTag}</div>`
       : `<div class="ph"><span class="ext">${esc(f.ext.toUpperCase())}</span><span style="font-size:11px">pas d’aperçu</span></div>`;
@@ -2329,6 +2426,7 @@ function render(){
   }).join('') + (list.length>MAX?`<div class="empty">… and ${list.length-MAX} more. Refine your search to see them.</div>`:'');
   if(galleryPresentation.mode==='list') bindDetailHeader(grid);
   grid.querySelectorAll<HTMLDivElement>('.snip[data-snip]').forEach(el=>snipObserver.observe(el));
+  grid.querySelectorAll<HTMLDivElement>('.docx-page[data-docx]').forEach(el=>docxObserver.observe(el));
   // plan 019 : la sélection survit au rerender si la carte reste visible ;
   // sinon l'inspecteur se ferme sans voler le focus
   if(selectedRel){
