@@ -116,10 +116,132 @@ pub fn for_browser((bytes, mime): (Vec<u8>, &'static str)) -> (Vec<u8>, &'static
     if !(emf || wmf || matches!(mime, "image/x-emf" | "image/x-wmf")) {
         return (bytes, mime);
     }
-    match metafile::to_svg(&bytes, metafile::RenderOptions::default()) {
+    let fixed = if emf { repair_emf(&bytes) } else { None };
+    match metafile::to_svg(fixed.as_deref().unwrap_or(&bytes), metafile::RenderOptions::default()) {
         Ok(r) => (r.svg.into_bytes(), "image/svg+xml"),
         Err(_) => (bytes, mime),
     }
+}
+
+/// Recadrage de Word (`a:srcRect`, fractions l, t, r, b de l'image retirées
+/// de chaque bord) : l'image part dans un SVG qui n'en montre que la zone
+/// gardée, étirée à la taille du cadre comme dans Word. Sans recadrage
+/// utile, l'image ne change pas.
+pub fn cropped((bytes, mime): (Vec<u8>, &'static str), [l, t, r, b]: [f64; 4]) -> (Vec<u8>, &'static str) {
+    use base64::Engine as _;
+    let (w, h) = (1.0 - l - r, 1.0 - t - b);
+    let finite = [l, t, r, b].iter().all(|v| v.is_finite() && v.abs() < 10.0);
+    if !finite || w < 0.01 || h < 0.01 || [l, t, r, b].iter().all(|v| v.abs() < 1e-4) {
+        return (bytes, mime);
+    }
+    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let svg = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" preserveAspectRatio="none"><image href="data:{mime};base64,{data}" x="{:.3}" y="{:.3}" width="{:.3}" height="{:.3}" preserveAspectRatio="none"/></svg>"#,
+        -l / w * 1000.0,
+        -t / h * 1000.0,
+        1000.0 / w,
+        1000.0 / h,
+    );
+    (svg.into_bytes(), "image/svg+xml")
+}
+
+/// Deux écarts de metafile 1.0.1 face aux EMF de Word, corrigés dans une
+/// copie avant le rendu (`None` : rien à corriger).
+/// - EMR_STRETCHDIBITS qui demande un pixel de plus que sa bitmap (formule
+///   collée : 304 × 85 sur une image de 303 × 85) : Windows le tolère,
+///   metafile refuse toute l'image ; la zone est ramenée à la bitmap.
+/// - Bitmap brute d'un objet image EMF+ : GDI+ range les lignes de haut en
+///   bas quand le pas (stride) est positif, metafile lit l'inverse et la
+///   capture sortait à l'envers ; le signe du pas est inversé pour lui.
+fn repair_emf(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut out = bytes.to_vec();
+    let mut changed = false;
+    let mut continuing = false;
+    let mut off = 0usize;
+    while let (Some(kind), Some(size)) = (u32_at(&out, off), u32_at(&out, off + 4)) {
+        let size = size as usize;
+        if size < 8 || off + size > out.len() {
+            break;
+        }
+        match kind {
+            81 => changed |= clamp_stretchdibits(&mut out[off..off + size]),
+            70 if out.get(off + 12..off + 16) == Some(b"EMF+") => {
+                let len = (u32_at(&out, off + 8).unwrap_or(0) as usize).min(size - 12);
+                if len >= 4 {
+                    changed |= emf_plus_strides(&mut out[off + 16..off + 12 + len], &mut continuing);
+                }
+            }
+            14 => break, // EMR_EOF
+            _ => {}
+        }
+        off += size;
+    }
+    changed.then_some(out)
+}
+
+fn u32_at(b: &[u8], o: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(b.get(o..o.checked_add(4)?)?.try_into().ok()?))
+}
+
+fn i32_at(b: &[u8], o: usize) -> Option<i32> {
+    u32_at(b, o).map(|v| v as i32)
+}
+
+/// EMR_STRETCHDIBITS : xSrc 32, ySrc 36, cxSrc 40, cySrc 44, offBmiSrc 48
+/// (depuis le début de l'enregistrement), puis BITMAPINFOHEADER.
+fn clamp_stretchdibits(rec: &mut [u8]) -> bool {
+    let (Some(x), Some(y), Some(cx), Some(cy), Some(bmi)) = (i32_at(rec, 32), i32_at(rec, 36), i32_at(rec, 40), i32_at(rec, 44), u32_at(rec, 48)) else { return false };
+    let bmi = bmi as usize;
+    let (Some(header), Some(w), Some(h)) = (u32_at(rec, bmi), i32_at(rec, bmi + 4), i32_at(rec, bmi + 8)) else { return false };
+    if header < 40 || w <= 0 {
+        return false;
+    }
+    let h = i32::try_from(h.unsigned_abs()).unwrap_or(i32::MAX);
+    let fit = |origin: i32, extent: i32, max: i32| (extent > 0 && origin >= 0 && origin < max && origin.saturating_add(extent) > max).then(|| max - origin);
+    let mut changed = false;
+    if let Some(v) = fit(x, cx, w) {
+        rec[40..44].copy_from_slice(&v.to_le_bytes());
+        changed = true;
+    }
+    if let Some(v) = fit(y, cy, h) {
+        rec[44..48].copy_from_slice(&v.to_le_bytes());
+        changed = true;
+    }
+    changed
+}
+
+/// Enregistrements EMF+ d'un commentaire : objets image (EmfPlusObject,
+/// type d'objet 5) à bitmap brute ; seul le premier morceau d'un objet en
+/// plusieurs porte l'en-tête (chaque morceau commence par la taille totale).
+fn emf_plus_strides(recs: &mut [u8], continuing: &mut bool) -> bool {
+    let mut changed = false;
+    let mut off = 0usize;
+    while off + 12 <= recs.len() {
+        let kind = u16::from_le_bytes([recs[off], recs[off + 1]]);
+        let flags = u16::from_le_bytes([recs[off + 2], recs[off + 3]]);
+        let size = u32_at(recs, off + 4).unwrap_or(0) as usize;
+        if size < 12 || off + size > recs.len() {
+            break;
+        }
+        if kind == 0x4008 {
+            let len = (u32_at(recs, off + 8).unwrap_or(0) as usize).min(size - 12);
+            let data = &mut recs[off + 12..off + 12 + len];
+            let continued = flags & 0x8000 != 0;
+            let first = !*continuing;
+            let image = data.get_mut(if continued || *continuing { 4 } else { 0 }..).filter(|_| first && (flags >> 8) & 0x7f == 5);
+            if let Some(img) = image {
+                // EmfPlusImage : version, type (1 = bitmap) ; EmfPlusBitmap :
+                // largeur 8, hauteur 12, pas 16, format 20, données 24 (0 = brutes).
+                if let Some(stride) = i32_at(img, 16).filter(|s| *s != 0 && u32_at(img, 4) == Some(1) && u32_at(img, 24) == Some(0)) {
+                    img[16..20].copy_from_slice(&stride.wrapping_neg().to_le_bytes());
+                    changed = true;
+                }
+            }
+            *continuing = continued;
+        }
+        off += size;
+    }
+    changed
 }
 
 fn mime_of(name: &str, bytes: &[u8]) -> &'static str {

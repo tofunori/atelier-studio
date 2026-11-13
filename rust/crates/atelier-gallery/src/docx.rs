@@ -516,9 +516,12 @@ pub struct MediaQuery {
     path: String,
     para: String,
     rel: String,
+    /// Recadrage de Word, « l,t,r,b » en fractions (champ `crop` du modèle).
+    #[serde(default)]
+    crop: Option<String>,
 }
 
-/// `GET /docx/media?path=&para=&rel=` — une image du document.
+/// `GET /docx/media?path=&para=&rel=[&crop=l,t,r,b]` — une image du document.
 pub async fn media(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<MediaQuery>) -> impl IntoResponse {
     if !request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
@@ -527,17 +530,23 @@ pub async fn media(State(state): State<AppState>, headers: HeaderMap, Query(q): 
         Ok(p) => p,
         Err(r) => return r,
     };
+    let crop = q.crop.as_deref().and_then(|c| {
+        let v: Vec<f64> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        <[f64; 4]>::try_from(v).ok()
+    });
     let job = move || -> Result<Option<(Vec<u8>, &'static str)>, String> {
         // Les paragraphes de la séance (pas encore écrits) font foi.
-        if let Some(s) = existing(&path) {
+        let raw = if let Some(s) = existing(&path) {
             let mut g = lock_session(&s);
-            let raw = atelier_docx::objects::media_raw(g.docx_mut(), &q.para, &q.rel).map_err(|e| e.0)?;
-            drop(g);
-            // EMF/WMF → SVG hors du verrou : la frappe n'attend pas l'image.
-            return Ok(raw.map(atelier_docx::objects::for_browser));
-        }
-        let mut d = Docx::open(&path).map_err(|e| e.0)?;
-        atelier_docx::objects::media(&mut d, &q.para, &q.rel).map_err(|e| e.0)
+            atelier_docx::objects::media_raw(g.docx_mut(), &q.para, &q.rel).map_err(|e| e.0)?
+        } else {
+            atelier_docx::objects::media_raw(&mut Docx::open(&path).map_err(|e| e.0)?, &q.para, &q.rel).map_err(|e| e.0)?
+        };
+        // EMF/WMF → SVG et recadrage hors du verrou : la frappe n'attend pas l'image.
+        Ok(raw.map(atelier_docx::objects::for_browser).map(|img| match crop {
+            Some(c) => atelier_docx::objects::cropped(img, c),
+            None => img,
+        }))
     };
     match tokio::task::spawn_blocking(job).await {
         Ok(Ok(Some((bytes, mime)))) => {

@@ -196,10 +196,12 @@ dependencies = [
 name = "atelier-docx"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "chrono",
  "hex",
  "libc",
  "metafile",
+ "png",
  "roxmltree",
  "serde",
  "serde_json",
