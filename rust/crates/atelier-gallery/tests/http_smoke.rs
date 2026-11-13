@@ -533,6 +533,52 @@ fn path_escape_rejected() {
     assert_eq!(st, 404);
 }
 
+/// Un PDF ouvert depuis l'explorateur arrive sur la route statique avec son
+/// chemin encodé (`%20` pour les espaces). Le nom vient d'une remise du
+/// portail : espaces, crochets, parenthèses, et un dièse qui ne survit qu'encodé.
+#[test]
+fn un_pdf_au_nom_a_crochets_parentheses_et_espaces_s_ouvre() {
+    let srv = start_server();
+    let dir = srv.root.join("03_TP/Remises portail");
+    fs::create_dir_all(&dir).unwrap();
+    let pdf = b"%PDF-1.4\n%remise\n";
+    fs::write(dir.join("tp6_VAIS79540407 [1] (06 nov 2026 00h49).pdf"), pdf).unwrap();
+    fs::write(dir.join("note #2 50%.pdf"), pdf).unwrap();
+    // Forme envoyée par WebKit pour `"/" + rel` : seules les espaces encodées.
+    let (st, body) = http(
+        srv.port,
+        "GET",
+        "/03_TP/Remises%20portail/tp6_VAIS79540407%20[1]%20(06%20nov%202026%2000h49).pdf",
+        None,
+    );
+    assert_eq!(st, 200, "{body}");
+    assert!(body.starts_with("%PDF-1.4"), "{body}");
+    // Forme encodée segment par segment (encodeURIComponent).
+    let (st, body) = http(
+        srv.port,
+        "GET",
+        "/03_TP/Remises%20portail/tp6_VAIS79540407%20%5B1%5D%20%2806%20nov%202026%2000h49%29.pdf",
+        None,
+    );
+    assert_eq!(st, 200, "{body}");
+    assert!(body.starts_with("%PDF-1.4"), "{body}");
+    let (st, body) = http(
+        srv.port,
+        "GET",
+        "/03_TP/Remises%20portail/note%20%232%2050%25.pdf",
+        None,
+    );
+    assert_eq!(st, 200, "{body}");
+    assert!(body.starts_with("%PDF-1.4"), "{body}");
+    // Le décodage ne rouvre pas la sortie du projet.
+    fs::write(srv.root.parent().unwrap().join("dehors.pdf"), pdf).ok();
+    let (st, _) = http(srv.port, "GET", "/%2e%2e/dehors.pdf", None);
+    assert_eq!(st, 404);
+    let (st, _) = http(srv.port, "GET", "/03_TP/%00.pdf", None);
+    assert_eq!(st, 404);
+    let _ = fs::remove_file(srv.root.parent().unwrap().join("dehors.pdf"));
+}
+
 #[test]
 fn un_brouillon_d_editeur_survit_puis_s_efface_sans_toucher_au_fichier() {
     // Problème 1 de l'audit du 2026-10-18 : un tampon non enregistré doit

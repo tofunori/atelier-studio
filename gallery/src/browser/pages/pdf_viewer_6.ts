@@ -342,6 +342,9 @@ async function main(){
     if (event.persisted) return;
     closed = true; void loader.destroy();
   });
+  // Chaque segment encodé : un nom de remise comme `tp6 [1] (06 nov).pdf`
+  // garde ses crochets, et un `#` ou un `?` ne coupe plus l'URL.
+  const fileUrl = (path: string) => "/" + path.split("/").map(encodeURIComponent).join("/");
   const options = (url) => ({url, standardFontDataUrl: "/.fig_thumbs/pdfjs/standard_fonts/",
     wasmUrl: "/.fig_thumbs/pdfjs/wasm/", iccUrl: "/.fig_thumbs/pdfjs/iccs/",
     cMapUrl: "/.fig_thumbs/pdfjs/cmaps/", cMapPacked: true});
@@ -360,7 +363,7 @@ async function main(){
   try {
     await window.__pdfjsReady;   // shim module (voir en tête de page)
     if (closed) return;
-    const loaded = await loader.load(options("/" + rel));
+    const loaded = await loader.load(options(fileUrl(rel)));
     if (!loaded) return;
     if (!await loaded.commit((doc) => { pdf = doc; textCache = newTextCache(doc); })) return;
     if (hasTargetPage) targetPage = Math.min(targetPage, pdf.numPages);
@@ -652,7 +655,7 @@ async function main(){
   // jeton anti-course : deux getDocument() concurrents peuvent deadlocker le worker
   __reloadPdf = async function(){
     try {
-      const loaded = await loader.load(options("/" + rel + "?t=" + Date.now()));
+      const loaded = await loader.load(options(fileUrl(rel) + "?t=" + Date.now()));
       if (!loaded) return;
       const oldSlots = _slots.slice(), oldCrops = [...window.__readingMode.crops.values()];
       const oldCache = textCache;
