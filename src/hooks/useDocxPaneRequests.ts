@@ -44,16 +44,20 @@ export function useDocxPaneRequests(
 
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: unknown; action?: unknown; px?: unknown; nonce?: unknown } | null;
-      if (data?.type !== "atelier-docx-pane" || event.origin !== origin) return;
+      if (data?.type !== "atelier-docx-pane") return;
       const frame = Array.from(document.querySelectorAll("iframe")).find((f) => f.contentWindow === event.source);
       if (!frame) return;
       try {
-        const nonce = new URLSearchParams(new URL(frame.src).hash.slice(1)).get("atelier_nonce");
+        const src = new URL(frame.src);
+        const nonce = new URLSearchParams(src.hash.slice(1)).get("atelier_nonce");
         if (nonce && data.nonce !== nonce) return;
+        // Un dossier rattaché au projet a son propre serveur (autre port) :
+        // admis seulement avec le nonce de l'app, vérifié ci-dessus.
+        if (event.origin !== origin && !(nonce && event.origin === src.origin)) return;
       } catch { return; }
       const action = data.action === "restore" ? "restore" : data.action === "widen" ? "widen" : null;
       if (!action) return;
-      const reply = (ok: boolean) => (event.source as Window | null)?.postMessage({ type: "atelier-docx-pane-done", action, ok }, origin);
+      const reply = (ok: boolean) => (event.source as Window | null)?.postMessage({ type: "atelier-docx-pane-done", action, ok }, event.origin);
       const handle = panel.current;
       const host = document.querySelector<HTMLElement>('[data-panel-id="atelier"]');
       const chat = document.querySelector<HTMLElement>('[data-panel-id="chat"]');

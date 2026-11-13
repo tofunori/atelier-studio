@@ -1,5 +1,5 @@
 import ProjectGallery from "./ProjectGallery";
-import type { ProjectFolders } from "../lib/projectFolders";
+import { normalizeProjectFolders, type ProjectFolders } from "../lib/projectFolders";
 import { announcePaneResize } from "../lib/paneResizeSignal";
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
@@ -287,6 +287,8 @@ export default function AtelierPane({
   onProjectSettings?: () => void;
   onOpenSourceFile?: (root: string, rel: string) => Promise<void>;
 }) {
+  // Dossiers rattachés au projet : la surface Documents liste aussi leurs .docx.
+  const linkedFolders = useMemo(() => normalizeProjectFolders(projectRoot, projectFolders).folders, [projectRoot, projectFolders]);
   const documentTabs = useMemo(() => tabs.filter((tab) => tab.kind !== "term"), [tabs]);
   const documentIdsKey = useMemo(() => documentTabs.map((tab) => tab.id).join("\u0000"), [documentTabs]);
   const documentIds = useMemo(
@@ -1407,7 +1409,7 @@ export default function AtelierPane({
       return (
         <div key="surface:documents" className="workspace-tab-content surface-body" style={{ display }}>
           <LazyBoundary fallback={<div className="pane-slot" />}>
-            <DocumentsSurface galleryUrl={url} projectRoot={projectRoot} visible={active && layout !== "chat" && !overlayOpen} />
+            <DocumentsSurface galleryUrl={url} projectRoot={projectRoot} folders={linkedFolders} galleryDir={galleryDir} galleryExts={galleryExts} visible={active && layout !== "chat" && !overlayOpen} />
           </LazyBoundary>
         </div>
       );

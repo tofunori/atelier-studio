@@ -3,8 +3,13 @@
 // documents ouverts en onglets, chacun dans le panneau .docx de la galerie
 // (docx_studio.html : suivis signés, commentaires, pages comme dans Word).
 // Les fichiers sont créés par le serveur galerie (POST /docx/new, en Rust).
+// Les dossiers rattachés au projet (réglages du projet) sont listés aussi :
+// chacun a son serveur galerie, démarré comme pour sa galerie, et ses
+// documents s'y ouvrent par chemin absolu (comme openSourceFile d'App).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { t } from "../lib/i18n";
+import type { ProjectFolder } from "../lib/projectFolders";
 import { shortDate } from "./documentsDate";
 import { CloseIcon, PlusIcon, SearchIcon, SidebarIcon } from "./icons";
 import { Input } from "./shadcn/input";
@@ -13,9 +18,12 @@ import "./DocumentsSurface.css";
 
 import { FileIcon } from "lucide-react";
 type DocEntry = { path: string; mtime: number; changes: number };
+/** Un serveur galerie : celui du projet (`root` absent) ou d'un dossier rattaché. */
+type Source = { root?: string; name?: string; url: string };
 type Template = "blank" | "article" | "copy";
 
 const MAX_RECENT = 6;
+const NO_FOLDERS: ProjectFolder[] = [];
 const LIST_HIDDEN_KEY = "atelier-studio.documents.list-hidden";
 
 function storageKey(kind: "recent" | "tabs", projectRoot: string) {
@@ -46,6 +54,22 @@ function folderOf(path: string) {
   return parts.length > 1 ? parts.slice(0, -1).join("/") : "";
 }
 
+/** Dossier rattaché qui contient `path` (chemin absolu), le plus profond d'abord. */
+export function sourceOf(path: string, sources: Source[]): Source | null {
+  if (!path.startsWith("/")) return sources.find((s) => !s.root) ?? null;
+  return sources
+    .filter((s) => s.root && path.startsWith(s.root === "/" ? "/" : `${s.root}/`))
+    .sort((a, b) => (b.root?.length ?? 0) - (a.root?.length ?? 0))[0] ?? null;
+}
+
+/** Dossier affiché sous le nom : relatif au projet, ou « dossier rattaché/… ». */
+function whereOf(path: string, sources: Source[]) {
+  const source = path.startsWith("/") ? sourceOf(path, sources) : null;
+  if (!source?.root) return folderOf(path);
+  const rel = path.slice(source.root === "/" ? 1 : source.root.length + 1);
+  return [source.name || baseName(source.root), folderOf(rel)].filter(Boolean).join("/");
+}
+
 function frameUrl(galleryUrl: string, path: string): string | null {
   try {
     const base = new URL(galleryUrl);
@@ -66,15 +90,48 @@ const FILE_ICON = (
 export default function DocumentsSurface({
   galleryUrl,
   projectRoot,
+  folders = NO_FOLDERS,
+  galleryDir,
+  galleryExts,
   visible = true,
 }: {
   galleryUrl?: string;
   projectRoot: string;
+  /** dossiers rattachés au projet (normalizeProjectFolders) */
+  folders?: ProjectFolder[];
+  galleryDir?: string;
+  galleryExts?: string;
   visible?: boolean;
 }) {
   const origin = useMemo(() => {
     try { return galleryUrl ? new URL(galleryUrl).origin : null; } catch { return null; }
   }, [galleryUrl]);
+  // Serveur de chaque dossier rattaché, démarré quand la surface se montre.
+  // App rend un nouveau tableau `folders` à chaque rendu : la clé JSON le
+  // stabilise.
+  const foldersJson = JSON.stringify(folders.filter((f) => f.path !== projectRoot).map((f) => ({ path: f.path, name: f.name })));
+  const linked = useMemo(() => JSON.parse(foldersJson) as { path: string; name: string }[], [foldersJson]);
+  const [folderUrls, setFolderUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!visible || !linked.length) return;
+    let alive = true;
+    for (const folder of linked) {
+      void invoke<string>("start_atelier", { root: folder.path, galleryDir: galleryDir || "", galleryExts: galleryExts || "" })
+        .then((url) => { if (alive) setFolderUrls((cur) => (cur[folder.path] === url ? cur : { ...cur, [folder.path]: url })); })
+        .catch(() => { /* dossier absent ou serveur en échec : ses documents ne sont pas listés */ });
+    }
+    return () => { alive = false; };
+  }, [visible, linked, galleryDir, galleryExts]);
+  const sources = useMemo<Source[]>(() => {
+    // Le nonce de l'app (fragment de l'URL du projet) vaut pour tous ses serveurs.
+    const nonce = (() => { try { return galleryUrl ? new URL(galleryUrl).hash : ""; } catch { return ""; } })();
+    const withNonce = (url: string) => { try { const u = new URL(url); u.hash = nonce; return u.toString(); } catch { return url; } };
+    return [
+      ...(galleryUrl ? [{ url: galleryUrl }] : []),
+      ...linked.filter((f) => folderUrls[f.path]).map((f) => ({ root: f.path, name: f.name, url: withNonce(folderUrls[f.path]) })),
+    ];
+  }, [galleryUrl, linked, folderUrls]);
+  const origins = useMemo(() => new Set(sources.map((s) => { try { return new URL(s.url).origin; } catch { return ""; } })), [sources]);
   const [docs, setDocs] = useState<DocEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState("");
@@ -99,14 +156,14 @@ export default function DocumentsSurface({
     };
     // Le raccourci tapé dans un document arrive de son iframe.
     const onMessage = (e: MessageEvent) => {
-      if (e.origin !== origin || e.data?.type !== "atelier-docs-toggle-list") return;
+      if (!origins.has(e.origin) || e.data?.type !== "atelier-docs-toggle-list") return;
       const frames = Array.from(framesRef.current?.querySelectorAll("iframe") ?? []);
       if (frames.some((f) => f.contentWindow === e.source)) toggleList();
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("message", onMessage);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("message", onMessage); };
-  }, [visible, origin, toggleList]);
+  }, [visible, origins, toggleList]);
 
   // Changement de projet : ses propres récents et onglets.
   const lastRoot = useRef(projectRoot);
@@ -120,15 +177,28 @@ export default function DocumentsSurface({
   }, [projectRoot]);
 
   const refresh = useCallback(async () => {
-    if (!origin) return;
-    try {
-      const res = await fetch(`${origin}/docx/list`);
-      if (!res.ok) throw new Error(`docx/list ${res.status}`);
-      const data = await res.json() as { documents?: DocEntry[] };
-      setDocs(Array.isArray(data.documents) ? data.documents : []);
-    } catch { /* serveur galerie pas encore prêt : la liste reste vide */ }
+    if (!sources.length) return;
+    const lists = await Promise.all(sources.map(async (source) => {
+      try {
+        const res = await fetch(`${new URL(source.url).origin}/docx/list`);
+        if (!res.ok) throw new Error(`docx/list ${res.status}`);
+        const data = await res.json() as { documents?: DocEntry[] };
+        const found = Array.isArray(data.documents) ? data.documents : [];
+        // Documents d'un dossier rattaché : chemin absolu, ouvert par son serveur.
+        return source.root ? found.map((d) => ({ ...d, path: `${source.root === "/" ? "" : source.root}/${d.path}` })) : found;
+      } catch { return null; /* serveur pas encore prêt : liste précédente gardée */ }
+    }));
+    if (lists.every((list) => list === null)) { setLoaded(true); return; }
+    setDocs((previous) => {
+      const merged: DocEntry[] = [];
+      lists.forEach((list, i) => {
+        const source = sources[i];
+        merged.push(...(list ?? previous.filter((d) => sourceOf(d.path, sources) === source)));
+      });
+      return merged.sort((a, b) => b.mtime - a.mtime);
+    });
     setLoaded(true);
-  }, [origin]);
+  }, [sources]);
 
   useEffect(() => { if (visible) void refresh(); }, [visible, refresh]);
   useEffect(() => {
@@ -169,7 +239,7 @@ export default function DocumentsSurface({
       <span className="docs-row-text">
         <span className="docs-row-name">{baseName(d.path)}</span>
         <span className="docs-row-meta">
-          <span className="docs-row-where">{[folderOf(d.path), shortDate(d.mtime)].filter(Boolean).join(" · ")}</span>
+          <span className="docs-row-where">{[whereOf(d.path, sources), shortDate(d.mtime)].filter(Boolean).join(" · ")}</span>
           {d.changes > 0 && <span className="docs-pill">{t("docs.changes", { count: d.changes })}</span>}
         </span>
       </span>
@@ -216,8 +286,9 @@ export default function DocumentsSurface({
         </div>
         <div className="docs-frames" ref={framesRef}>
           {tabs.length === 0 && <EmptyState title={t("docs.empty-title")} description={t("docs.empty")} />}
-          {galleryUrl && tabs.map((path) => {
-            const src = frameUrl(galleryUrl, path);
+          {tabs.map((path) => {
+            const source = sourceOf(path, sources);
+            const src = source && frameUrl(source.url, path);
             return src && (
               <iframe key={path} className="docs-frame atelier" data-atelier-role="docx" src={src} hidden={active !== path} title={baseName(path)} />
             );
