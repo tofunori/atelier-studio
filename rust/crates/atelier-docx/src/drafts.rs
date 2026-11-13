@@ -30,9 +30,45 @@ pub struct Draft {
 pub type Drafts = BTreeMap<u32, Draft>;
 
 fn store_for(doc: &Path) -> Result<PathBuf> {
+    store_named(doc, "drafts")
+}
+
+fn store_named(doc: &Path, kind: &str) -> Result<PathBuf> {
     let canon = doc.canonicalize()?;
-    let name = format!("atelier-docx-{}.drafts.json", hex::encode(&Sha256::digest(canon.to_string_lossy().as_bytes())[..8]));
+    let name = format!("atelier-docx-{}.{kind}.json", hex::encode(&Sha256::digest(canon.to_string_lossy().as_bytes())[..8]));
     Ok(std::env::temp_dir().join(name))
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// Vérifications terminées (2026-11-13) : quand l'utilisateur fait vérifier
+/// son commentaire dans le chat, l'agent signale qu'il a fini, qu'il l'ait
+/// corrigé ou non ; l'icône de la carte quitte alors ses trois points.
+/// Commentaire → heure de fin (millisecondes Unix), même dossier temporaire.
+pub type Checks = BTreeMap<u32, u64>;
+
+pub fn checks(doc: &Path) -> Result<Checks> {
+    let store = store_named(doc, "checks")?;
+    Ok(std::fs::read(&store).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default())
+}
+
+/// Note la fin de la vérification du commentaire `comment`.
+pub fn checked(doc: &Path, comment: u32) -> Result<u64> {
+    let model = Docx::open(doc)?.model()?;
+    if !model.comments.iter().any(|c| c.id == comment) {
+        return err(format!("commentaire c{comment} introuvable"));
+    }
+    let store = store_named(doc, "checks")?;
+    let lock = crate::lock_file(doc)?;
+    lock.lock()?;
+    let mut all: Checks = std::fs::read(&store).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let at = now_ms();
+    all.insert(comment, at);
+    let bytes = serde_json::to_vec(&all).map_err(|e| crate::DocxError(format!("vérifications : {e}")))?;
+    crate::write_atomic(&store, &bytes)?;
+    Ok(at)
 }
 
 fn read(store: &Path) -> Drafts {
@@ -77,7 +113,7 @@ pub fn put(doc: &Path, comment: u32, text: &str, author: &str) -> Result<Draft> 
     let lock = crate::lock_file(doc)?;
     lock.lock()?;
     let mut drafts = read(&store);
-    let at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let at = now_ms();
     let draft = Draft { text: text.to_string(), author: author.trim().to_string(), at };
     drafts.insert(comment, draft.clone());
     write(&store, &drafts)?;

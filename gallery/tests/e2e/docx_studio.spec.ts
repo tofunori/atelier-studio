@@ -1,5 +1,5 @@
 import {test as base, expect, type Page} from '@playwright/test';
-import {copyFile, mkdtemp, readFile, realpath, writeFile} from 'node:fs/promises';
+import {copyFile, mkdtemp, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -508,11 +508,12 @@ test("docx: une retouche de Claude signée Thierry reste marquée « proposé pa
   }
 });
 
-/** Fichier des brouillons de réponse de l'agent (atelier_docx::drafts) :
- *  dossier temporaire, nommé d'après le chemin canonique du document. */
-async function draftsFile(doc: string): Promise<string> {
+/** Fichier des brouillons de réponse de l'agent (atelier_docx::drafts), ou de
+ *  ses vérifications finies (`checks`) : dossier temporaire, nommé d'après le
+ *  chemin canonique du document. */
+async function draftsFile(doc: string, kind = 'drafts'): Promise<string> {
   const canon = await realpath(doc);
-  return path.join(tmpdir(), `atelier-docx-${createHash('sha256').update(canon).digest('hex').slice(0, 16)}.drafts.json`);
+  return path.join(tmpdir(), `atelier-docx-${createHash('sha256').update(canon).digest('hex').slice(0, 16)}.${kind}.json`);
 }
 
 test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et envoie sous son nom", async ({page, project}) => {
@@ -565,6 +566,54 @@ test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et
   await expect.poll(() => existsSync(file)).toBe(false);
   await expect(thread.locator('.c-by')).toHaveCount(0);
   await expect(thread.locator('[data-act="propose"]')).toBeVisible();
+});
+
+test("docx: l'icône à côté de son commentaire le fait vérifier dans le chat, et l'agent le corrige à son nom", async ({page, project}) => {
+  await open(page, project);
+  await page.evaluate(() => {
+    const w = window as unknown as {__atelierPost: () => void; __sent?: Record<string, unknown>; AtelierStudioCore?: Record<string, unknown>};
+    w.__atelierPost = () => {};
+    w.AtelierStudioCore = {...(w.AtelierStudioCore || {}), requestChatAttachment: (o: {payload: Record<string, unknown>}) => { w.__sent = o.payload; return Promise.resolve(); }};
+  });
+  // Un commentaire de Thierry sur un chiffre du texte.
+  const m0 = await disk(page, project);
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m0.revision, author: 'Thierry', op: {op: 'comment', paragraph: 'p2', find: 'compromis', text: 'Ici tu écris 0,000697 mais en haut 0,00618'}}});
+  expect(r.ok()).toBe(true);
+  const id = (await disk(page, project)).comments.find(c => c.text === 'Ici tu écris 0,000697 mais en haut 0,00618')!.id;
+  const card = page.locator(`#cards .it[data-key="c${id}"]`);
+  await expect(card).toBeVisible({timeout: 6000});
+  await card.locator('.cc').click();
+  // Sur le sien, une icône à côté du texte le fait vérifier dans le chat.
+  const vf = card.locator('.c-line > .vf[data-act="check"]');
+  await expect(vf).toHaveAttribute('aria-label', 'Vérifier dans le chat');
+  await vf.click();
+  await expect(vf.locator('.dots')).toBeVisible();
+  const sent = await page.evaluate(() => (window as unknown as {__sent: {text: string; direct: boolean; path: string}}).__sent);
+  expect(sent.direct).toBe(true);
+  expect(sent.path).toBe(project.doc);
+  expect(sent.text).toContain('mon commentaire sur « compromis » : Ici tu écris 0,000697 mais en haut 0,00618');
+  expect(sent.text).toContain(`edit_comment (comment=${id})`);
+  expect(sent.text).toContain(`checked (comment=${id})`);
+  // Juste : l'agent dit avoir fini (atelier_docx checked) et l'icône revient.
+  await writeFile(await draftsFile(project.doc, 'checks'), JSON.stringify({[id]: Date.now()}));
+  await expect(vf.locator('.dots')).toHaveCount(0, {timeout: 6000});
+  await expect(vf).toHaveAttribute('aria-label', 'Vérifier dans le chat');
+  // À revoir : l'agent le corrige (atelier_docx edit_comment), toujours signé Thierry ;
+  // le chiffre changé luit, l'icône revient.
+  await vf.click();
+  await expect(vf.locator('.dots')).toBeVisible();
+  const m1 = await disk(page, project);
+  const e = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m1.revision, author: 'Thierry', op: {op: 'edit_comment', id, text: 'Ici tu écris 0,0000697 mais en haut 0,00618'}}});
+  expect(e.ok()).toBe(true);
+  await expect(card.locator('.c-line > .tx')).toHaveText('Ici tu écris 0,0000697 mais en haut 0,00618', {timeout: 6000});
+  await expect(card.locator('.c-line > .tx .chg')).toHaveText('0,0000697');
+  await expect(vf.locator('.dots')).toHaveCount(0);
+  await expect(card.locator('.c-line > .tx .chg')).toHaveCount(0, {timeout: 4000});
+  const c1 = page.locator('#cards .it[data-key="c1"]');
+  await c1.locator('.cc').click();
+  await expect(c1.locator('[data-act="ask"]')).toBeVisible();
+  await expect(c1.locator('[data-act="check"]')).toHaveCount(0);
+  await rm(await draftsFile(project.doc, 'checks'), {force: true});
 });
 
 test('docx: notes, en-tête, pied de page et figures se retouchent dans la page', async ({page, project}) => {
