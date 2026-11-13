@@ -3,6 +3,9 @@
 // documents ouverts en onglets, chacun dans le panneau .docx de la galerie
 // (docx_studio.html : suivis signés, commentaires, pages comme dans Word).
 // Les fichiers sont créés par le serveur galerie (POST /docx/new, en Rust).
+// Un seul panneau à gauche, sous l'icône des onglets (⌘\) : Documents (ici),
+// Plan et Commentaires (dessinés par le document ouvert, même place, même
+// largeur), comme un seul panneau à trois onglets.
 // Les dossiers rattachés au projet (réglages du projet) sont listés aussi :
 // chacun a son serveur galerie, démarré comme pour sa galerie, et ses
 // documents s'y ouvrent par chemin absolu (comme openSourceFile d'App).
@@ -13,7 +16,7 @@ import type { ProjectFolder } from "../lib/projectFolders";
 import { shortDate } from "./documentsDate";
 import { CloseIcon, PlusIcon, SearchIcon, SidebarIcon } from "./icons";
 import { Input } from "./shadcn/input";
-import { Button, EmptyState, IconButton, Popover, PopoverContent, PopoverTitle, PopoverTrigger, RowButton, Select, showError } from "./ui";
+import { Button, EmptyState, IconButton, Popover, PopoverContent, PopoverTitle, PopoverTrigger, RowButton, SegmentedControl, Select, showError } from "./ui";
 import "./DocumentsSurface.css";
 
 import { FileIcon } from "lucide-react";
@@ -21,10 +24,13 @@ type DocEntry = { path: string; mtime: number; changes: number };
 /** Un serveur galerie : celui du projet (`root` absent) ou d'un dossier rattaché. */
 type Source = { root?: string; name?: string; url: string };
 type Template = "blank" | "article" | "copy";
+/** Onglet du panneau de gauche. */
+type PanelTab = "docs" | "plan" | "com";
 
 const MAX_RECENT = 6;
 const NO_FOLDERS: ProjectFolder[] = [];
 const LIST_HIDDEN_KEY = "atelier-studio.documents.list-hidden";
+const PANEL_TAB_KEY = "atelier-studio.documents.panel-tab";
 
 function storageKey(kind: "recent" | "tabs", projectRoot: string) {
   return `atelier-studio.documents.${kind}:${projectRoot}`;
@@ -75,6 +81,8 @@ function frameUrl(galleryUrl: string, path: string): string | null {
     const base = new URL(galleryUrl);
     const url = new URL(`${base.origin}/.fig_thumbs/docx_studio.html`);
     url.searchParams.set("path", path);
+    // Plan et commentaires suivent le panneau de la surface (un seul panneau).
+    url.searchParams.set("panel", "host");
     // Le nonce (dans le fragment) authentifie les messages de l'iframe.
     url.hash = base.hash;
     return url.toString();
@@ -139,7 +147,8 @@ export default function DocumentsSurface({
   const [tabs, setTabs] = useState<string[]>(() => readList(storageKey("tabs", projectRoot)));
   const [active, setActive] = useState<string | null>(() => readList(storageKey("tabs", projectRoot))[0] ?? null);
 
-  // Liste masquable (bouton à gauche des onglets, ⌘\ ici comme dans le panneau).
+  // Panneau masquable (bouton à gauche des onglets, ⌘\ ici comme dans le
+  // document), à trois onglets : Documents, Plan, Commentaires.
   const [listHidden, setListHidden] = useState(() => {
     try { return localStorage.getItem(LIST_HIDDEN_KEY) === "1"; } catch { return false; }
   });
@@ -148,22 +157,41 @@ export default function DocumentsSurface({
     setListHidden(next);
     try { localStorage.setItem(LIST_HIDDEN_KEY, next ? "1" : "0"); } catch { /* vaut pour cette session */ }
   }, [listHidden]);
+  const [panelTab, setPanelTabState] = useState<PanelTab>(() => {
+    try { const v = localStorage.getItem(PANEL_TAB_KEY); return v === "plan" || v === "com" ? v : "docs"; } catch { return "docs"; }
+  });
+  const setPanelTab = useCallback((next: PanelTab) => {
+    setPanelTabState(next);
+    try { localStorage.setItem(PANEL_TAB_KEY, next); } catch { /* vaut pour cette session */ }
+  }, []);
+  // Commentaires ouverts du document actif (compte envoyé par son iframe).
+  const [comments, setComments] = useState<Record<string, number>>({});
   const framesRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!visible) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key === "\\") { e.preventDefault(); toggleList(); }
     };
-    // Le raccourci tapé dans un document arrive de son iframe.
+    // Le raccourci tapé dans un document arrive de son iframe, comme ses
+    // choix d'onglet et son compte de commentaires.
     const onMessage = (e: MessageEvent) => {
-      if (!origins.has(e.origin) || e.data?.type !== "atelier-docs-toggle-list") return;
-      const frames = Array.from(framesRef.current?.querySelectorAll("iframe") ?? []);
-      if (frames.some((f) => f.contentWindow === e.source)) toggleList();
+      const type = e.data?.type;
+      if (!origins.has(e.origin) || typeof type !== "string" || !type.startsWith("atelier-docs-")) return;
+      const frame = Array.from(framesRef.current?.querySelectorAll("iframe") ?? []).find((f) => f.contentWindow === e.source);
+      if (!frame) return;
+      if (type === "atelier-docs-toggle-list") toggleList();
+      else if (type === "atelier-docs-panel-tab") {
+        const tab = e.data.tab;
+        if (tab === "docs" || tab === "plan" || tab === "com") setPanelTab(tab);
+      } else if (type === "atelier-docs-panel-count" && typeof e.data.comments === "number") {
+        const path = frame.dataset.path || "";
+        setComments((cur) => (cur[path] === e.data.comments ? cur : { ...cur, [path]: e.data.comments }));
+      }
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("message", onMessage);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("message", onMessage); };
-  }, [visible, origins, toggleList]);
+  }, [visible, origins, toggleList, setPanelTab]);
 
   // Changement de projet : ses propres récents et onglets.
   const lastRoot = useRef(projectRoot);
@@ -226,6 +254,20 @@ export default function DocumentsSurface({
     if (active === path) setActive(next[Math.min(at, next.length - 1)] ?? null);
   }, [projectRoot, tabs, active]);
 
+  // Sans document ouvert, Plan et Commentaires n'ont rien à montrer.
+  const shownTab: PanelTab = active ? panelTab : "docs";
+  const panelOpen = !listHidden;
+  const tellFrame = useCallback((frame: HTMLIFrameElement) => {
+    try {
+      const origin = new URL(frame.src).origin;
+      frame.contentWindow?.postMessage({ type: "atelier-docs-panel", open: panelOpen, tab: shownTab }, origin);
+    } catch { /* iframe sans adresse valide : rien à piloter */ }
+  }, [panelOpen, shownTab]);
+  useEffect(() => {
+    // Seulement les documents chargés : avant, l'iframe est encore about:blank.
+    framesRef.current?.querySelectorAll<HTMLIFrameElement>("iframe[data-ready]").forEach(tellFrame);
+  }, [tellFrame, tabs]);
+
   const byPath = useMemo(() => new Map(docs.map((d) => [d.path, d])), [docs]);
   const needle = query.trim().toLowerCase();
   const matches = (p: string) => !needle || p.toLowerCase().includes(needle);
@@ -246,55 +288,71 @@ export default function DocumentsSurface({
     </RowButton>
   );
 
+  const openComments = active ? comments[active] : undefined;
+  const panelTabs = (
+    <SegmentedControl
+      className="docs-panel-tabs"
+      label={t("docs.panel")}
+      value={shownTab}
+      onChange={(v) => setPanelTab(v as PanelTab)}
+      options={[
+        { value: "docs", label: t("atelier.documents") },
+        { value: "plan", label: t("docs.plan"), disabled: !active },
+        { value: "com", label: <>{t("docs.comments")}{openComments ? <i className="docs-panel-count">{openComments}</i> : null}</>, ariaLabel: t("docs.comments"), disabled: !active },
+      ]}
+    />
+  );
+
   return (
-    <div className="docs-surface" data-list={listHidden ? "hidden" : undefined}>
-      <aside className="docs-side" hidden={listHidden}>
-        <div className="docs-side-head">
-          <span className="docs-side-title">{t("atelier.documents")}</span>
-          <NewDocument origin={origin} docs={docs} onCreated={(path) => { open(path); void refresh(); }} />
+    <div className="docs-surface" data-list={listHidden ? "hidden" : undefined} data-panel={panelOpen ? shownTab : "closed"}>
+      <div className="docs-tabs">
+        <IconButton size="s" className="docs-list-toggle" label={t(listHidden ? "docs.show-list" : "docs.hide-list")} title={t(listHidden ? "docs.show-list" : "docs.hide-list")}
+          aria-expanded={!listHidden} onClick={toggleList}><SidebarIcon size={14} /></IconButton>
+        <div className="docs-tablist" role="tablist" aria-label={t("atelier.documents")}>
+          {tabs.map((path) => (
+            <div key={path} className="docs-tab document-tab-shell" data-active={active === path}>
+              <RowButton role="tab" aria-selected={active === path} className="docs-tab-label" title={path} onClick={() => setActive(path)}>
+                <span>{baseName(path)}</span>
+              </RowButton>
+              <IconButton size="s" className="document-tab-close" label={t("docs.close", { name: baseName(path) })} onClick={() => close(path)}><CloseIcon /></IconButton>
+            </div>
+          ))}
         </div>
-        <label className="docs-search">
-          <span className="docs-search-icon"><SearchIcon /></span>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("docs.search")} aria-label={t("docs.search")} />
-        </label>
-        <div className="docs-lists">
-          {recentDocs.length > 0 && <>
-            <div className="docs-heading">{t("docs.recent")}</div>
-            {recentDocs.map(row)}
-          </>}
-          {otherDocs.length > 0 && <>
-            <div className="docs-heading">{t("docs.in-project")}</div>
-            {otherDocs.map(row)}
-          </>}
-          {loaded && docs.length === 0 && <div className="docs-none">{t("docs.empty-list")}</div>}
-        </div>
-      </aside>
-      <section className="docs-main">
-        <div className="docs-tabs">
-          <IconButton size="s" className="docs-list-toggle" label={t(listHidden ? "docs.show-list" : "docs.hide-list")} title={t(listHidden ? "docs.show-list" : "docs.hide-list")}
-            aria-expanded={!listHidden} onClick={toggleList}><SidebarIcon size={14} /></IconButton>
-          <div className="docs-tablist" role="tablist" aria-label={t("atelier.documents")}>
-            {tabs.map((path) => (
-              <div key={path} className="docs-tab document-tab-shell" data-active={active === path}>
-                <RowButton role="tab" aria-selected={active === path} className="docs-tab-label" title={path} onClick={() => setActive(path)}>
-                  <span>{baseName(path)}</span>
-                </RowButton>
-                <IconButton size="s" className="document-tab-close" label={t("docs.close", { name: baseName(path) })} onClick={() => close(path)}><CloseIcon /></IconButton>
-              </div>
-            ))}
+      </div>
+      <div className="docs-body">
+        <aside className="docs-side" hidden={listHidden || shownTab !== "docs"} aria-label={t("docs.panel")}>
+          {panelTabs}
+          <div className="docs-side-head">
+            <label className="docs-search">
+              <span className="docs-search-icon"><SearchIcon /></span>
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("docs.search")} aria-label={t("docs.search")} />
+            </label>
+            <NewDocument origin={origin} docs={docs} onCreated={(path) => { open(path); void refresh(); }} />
           </div>
-        </div>
+          <div className="docs-lists">
+            {recentDocs.length > 0 && <>
+              <div className="docs-heading">{t("docs.recent")}</div>
+              {recentDocs.map(row)}
+            </>}
+            {otherDocs.length > 0 && <>
+              <div className="docs-heading">{t("docs.in-project")}</div>
+              {otherDocs.map(row)}
+            </>}
+            {loaded && docs.length === 0 && <div className="docs-none">{t("docs.empty-list")}</div>}
+          </div>
+        </aside>
         <div className="docs-frames" ref={framesRef}>
           {tabs.length === 0 && <EmptyState title={t("docs.empty-title")} description={t("docs.empty")} />}
           {tabs.map((path) => {
             const source = sourceOf(path, sources);
             const src = source && frameUrl(source.url, path);
             return src && (
-              <iframe key={path} className="docs-frame atelier" data-atelier-role="docx" src={src} hidden={active !== path} title={baseName(path)} />
+              <iframe key={path} className="docs-frame atelier" data-atelier-role="docx" data-path={path} src={src} hidden={active !== path} title={baseName(path)}
+                onLoad={(e) => { e.currentTarget.dataset.ready = "1"; tellFrame(e.currentTarget); }} />
             );
           })}
         </div>
-      </section>
+      </div>
     </div>
   );
 }
@@ -338,8 +396,8 @@ function NewDocument({ origin, docs, onCreated }: { origin: string | null; docs:
 
   return (
     <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) window.setTimeout(() => nameRef.current?.focus(), 0); }}>
-      <PopoverTrigger render={<Button variant="primary" className="docs-new" disabled={!origin} />}>
-        <PlusIcon size={12} /><span>{t("docs.new")}</span>
+      <PopoverTrigger render={<Button variant="secondary" className="docs-new" aria-label={t("docs.new-title")} title={t("docs.new-title")} disabled={!origin} />}>
+        <PlusIcon size={14} />
       </PopoverTrigger>
       <PopoverContent side="bottom" align="start" plain className="docs-pop">
         <PopoverTitle className="docs-pop-title">{t("docs.new-title")}</PopoverTitle>

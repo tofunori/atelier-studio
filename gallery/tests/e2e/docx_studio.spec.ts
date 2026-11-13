@@ -163,7 +163,7 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await expect(thread.locator('.rp')).toHaveCount(2);
   await thread.locator('[data-act="resolve"]').click();
   await expect.poll(async () => (await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(true);
-  await expect(page.locator('#navLbl')).toContainText('Aucun commentaire');
+  await expect(page.locator('#tabComN')).toHaveText('');
   // Fil résolu : son passage perd son fond, réponses comprises (elles ont leur propre ancrage).
   await expect(page.locator('#paper .cmt[data-c~="1"]').first()).toHaveClass(/\bdone\b/);
   await expect(page.locator('#paper .cmt:not(.done)')).toHaveCount(0);
@@ -431,9 +431,9 @@ test('docx: barre de mise en forme, vues et page blanche', async ({page, project
   await expect.poll(async () => (await disk(page, project)).paragraphs[2].heading).toBe(2);
 
   // Lecture : les suppressions disparaissent ; Original : lecture seule.
-  const view = async (label: string) => { await page.locator('#revMenu').click(); await page.locator('.menu.show .mi', {hasText: label}).click(); };
-  await page.locator('#vRead').click();
-  await expect(page.locator('#vRead')).toHaveAttribute('aria-pressed', 'true');
+  const view = async (label: string) => { await page.locator('#ddView').click(); await page.locator('.menu.show .mi', {hasText: label}).click(); };
+  await view('Lecture');
+  await expect(page.locator('#ddView')).toContainText('Lecture');
   await expect(page.locator('.d-p[data-idx="1"] .del').first()).toBeHidden();
   // Le texte nu : ni trait dans la marge, ni passage commenté peint ; les fiches restent.
   await expect(page.locator('#cbars')).toHaveCount(0);
@@ -442,7 +442,7 @@ test('docx: barre de mise en forme, vues et page blanche', async ({page, project
   await expect(page.locator('#cards .it').first()).toBeAttached();
   await view('Original');
   await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'false');
-  await page.locator('#vReview').click();
+  await view('Révision');
   await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'true');
 
   // Page Thème, gardée côté serveur.
@@ -980,6 +980,38 @@ test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place 
   await expect(page.locator('#f')).toHaveCSS('width', '800px');
 });
 
+test('docx: dans l\'app, un seul panneau : Plan et Commentaires suivent la surface Documents', async ({page, project}) => {
+  const src = `${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(project.doc)}&panel=host`;
+  await page.setViewportSize({width: 1440, height: 900});
+  await page.setContent(`<body style="margin:0"><iframe id="f" style="border:0;width:1200px;height:880px"></iframe><script>
+    window.got = [];
+    addEventListener('message', (e) => { if (String(e.data?.type).startsWith('atelier-docs-')) window.got.push(e.data); });
+  </script></body>`);
+  await page.locator('#f').evaluate((f: HTMLIFrameElement, url) => { f.src = url; }, src);
+  const frame = page.frameLocator('#f');
+  await expect(frame.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  const body = frame.locator('body');
+  await expect(body).toHaveClass(/\bhosted\b/);
+  // Pas de seconde icône de panneau dans la barre ; panneau fermé tant que l'hôte n'a rien dit.
+  await expect(frame.locator('#btnNav')).toBeHidden();
+  await expect(body).toHaveClass(/\bno-side\b/);
+  const tell = (open: boolean, tab: string) => page.locator('#f').evaluate((f: HTMLIFrameElement, d) => f.contentWindow!.postMessage({type: 'atelier-docs-panel', ...d}, '*'), {open, tab});
+  await tell(true, 'docs');
+  await expect(body).toHaveClass(/\bno-side\b/);
+  await tell(true, 'com');
+  await expect(body).not.toHaveClass(/\bno-side\b/);
+  await expect(frame.locator('#tabCom')).toHaveAttribute('aria-selected', 'true');
+  await expect(frame.locator('#tabDocs')).toBeVisible();
+  // Le panneau a la largeur de la liste des documents (264 px).
+  expect((await frame.locator('#side').boundingBox())!.width).toBe(264);
+  // Documents, choisi ici, revient à la surface ; le compte des commentaires aussi.
+  await frame.locator('#tabDocs').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as {got: {type: string; tab?: string}[]}).got.some((m) => m.type === 'atelier-docs-panel-tab' && m.tab === 'docs'))).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as {got: {type: string}[]}).got.some((m) => m.type === 'atelier-docs-panel-count'))).toBe(true);
+  await tell(false, 'plan');
+  await expect(body).toHaveClass(/\bno-side\b/);
+});
+
 // ---------------------------------------------------------------- tri des suivis
 // Document synthétique (fixture `tri` d'atelier-docx, anglais et français) :
 // 29 suivis de Christophe et un de Marie Dupont.
@@ -1070,7 +1102,9 @@ async function openTri(page: Page, tri: {url: string; doc: string}) {
   await page.setViewportSize({width: 1440, height: 900});
   await page.goto(`${tri.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(tri.doc)}`);
   await expect(page.locator('.d-p[data-idx="0"]')).toContainText('4 Results');
-  await page.locator('#btnTri').click();
+  // Le tri s'ouvre depuis le menu du compteur de révision.
+  await page.locator('#revMenu').click();
+  await page.locator('.menu.show .mi', {hasText: 'Trier les suivis'}).click();
   await expect(page.locator('#tri')).toBeVisible();
   await expect(page.locator('.tri-g[data-g="fond"] .c')).toHaveText('6');
 }
@@ -1082,7 +1116,7 @@ triTest('docx: le tri range les suivis et « Accepter les mineurs » n’accepte
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await openTri(page, tri);
-  await expect(page.locator('#btnTri')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('body')).toHaveClass(/\btriage\b/);
   // La marge cède la place au panneau.
   await expect(page.locator('#cards')).toBeHidden();
   // Relecteur principal par défaut ; Marie Dupont se choisit dans le titre.
@@ -1118,9 +1152,48 @@ triTest('docx: le tri range les suivis et « Accepter les mineurs » n’accepte
   await expect(count('fond')).toHaveText('1');
   await expect(page.locator('#triMinor')).toBeDisabled();
   // Refermer rend la marge.
-  await page.locator('#btnTri').click();
+  await page.locator('#triClose').click();
   await expect(page.locator('#tri')).toBeHidden();
   await expect(page.locator('#cards')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+triTest('docx: la barre parcourt les modifications, accepte et refuse en passant à la suivante', async ({page, tri}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.request.post(`${tri.url}/docx/prefs`, {data: {author: 'Thierry'}});
+  await page.setViewportSize({width: 1440, height: 900});
+  await page.goto(`${tri.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(tri.doc)}`);
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('4 Results');
+  const counter = page.locator('#revMenu');
+  // Rien de courant : « – » sur le total, comme Word avant la première.
+  await expect(counter).toHaveText(/^– \/ \d+$/);
+  const total = Number((await counter.textContent())!.split('/')[1].trim());
+  expect(total).toBeGreaterThan(20);
+  await page.locator('#navNext').click();
+  await expect(counter).toHaveText(`1 / ${total}`);
+  await expect(page.locator('#paper .nav-on').first()).toBeVisible();
+  await page.locator('#navNext').click();
+  await expect(counter).toHaveText(`2 / ${total}`);
+  // ⌥⌘↑ revient d'un cran.
+  await page.keyboard.press('Meta+Alt+ArrowUp');
+  await expect(counter).toHaveText(`1 / ${total}`);
+  const first = Number(await page.locator('#paper .nav-on').first().getAttribute('data-ch'));
+  // ✓ accepte la courante et passe à la suivante.
+  await page.locator('#btnAccept').click();
+  await expect.poll(async () => (await changeIds(page, tri)).includes(first)).toBe(false);
+  await expect(counter).toHaveText(`1 / ${total - 1}`);
+  const second = Number(await page.locator('#paper .nav-on').first().getAttribute('data-ch'));
+  expect(second).not.toBe(first);
+  // ✕ refuse.
+  await page.locator('#btnReject').click();
+  await expect.poll(async () => (await changeIds(page, tri)).includes(second)).toBe(false);
+  await expect(counter).toHaveText(`1 / ${total - 2}`);
+  // Parcourir les commentaires : ✕ n'a plus de sens, ✓ règle.
+  await counter.click();
+  await page.locator('.menu.show .mi', {hasText: 'Commentaires'}).click();
+  await expect(page.locator('#btnReject')).toBeDisabled();
+  await expect(page.locator('#btnAccept')).toHaveAttribute('aria-label', 'Régler le commentaire');
   expect(errors).toEqual([]);
 });
 
