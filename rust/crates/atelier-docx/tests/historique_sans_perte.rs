@@ -109,7 +109,11 @@ fn un_journal_illisible_est_mis_de_cote_sans_rien_effacer() {
 
 #[test]
 fn un_document_deplace_retrouve_son_historique() {
-    let original = build("christophe");
+    // Un contenu propre à ce test : les journaux orphelins des autres tests
+    // (même racine, dossiers temporaires effacés) peuvent finir sur la même
+    // révision que `build("christophe")` après 101 et 102 (celui de
+    // `un_journal_illisible…`), et `attach` reprendrait alors le leur.
+    let original = word_round(99);
     let (d, path) = temp_doc(&original);
     edit(&path, json!({"op": "accept", "id": 101}));
     let rev2 = edit(&path, json!({"op": "accept", "id": 102}));
