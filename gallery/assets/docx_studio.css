@@ -337,7 +337,7 @@ body.lane-over #leader{display:none}
 .cc .vf .dots i:nth-child(2){animation-delay:.2s}
 .cc .vf .dots i:nth-child(3){animation-delay:.4s}
 /* Le passage corrigé par l'agent luit un instant. */
-.cc .tx .chg{border-radius:2px;animation:c-glow 1.5s ease-out}
+.cc .tx .chg{animation:c-glow 1.5s ease-out}
 @keyframes c-glow{0%{background:transparent}10%,85%{background:color-mix(in srgb,var(--text-primary) 12%,transparent)}100%{background:transparent}}
 @media (prefers-reduced-motion: reduce){.cc .vf .dots i{animation:none;opacity:.6}.cc .tx .chg{animation:none}}
 /* Ses propres messages s'ouvrent d'un clic pour être modifiés. */
