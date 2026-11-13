@@ -34,6 +34,8 @@ pub enum Op {
     Comment { paragraph: Option<String>, find: String, occurrence: Option<usize>, text: String },
     CommentRange { paragraph: String, start: usize, end: usize, text: String },
     Reply { parent: u32, text: String },
+    /// Réécrit un commentaire ou une réponse de l'auteur qui signe.
+    EditComment { id: u32, text: String },
     Resolve { id: u32, done: Option<bool> },
     DeleteComment { id: u32 },
     FormatRange { paragraph: String, start: usize, end: usize, props: RunProps },
@@ -79,7 +81,7 @@ impl Op {
             Op::RejectAll { .. } => "tout refuser",
             Op::Replace { .. } | Op::ReplaceRange { .. } | Op::Insert { .. } => "retouche",
             Op::Split { .. } | Op::Join { .. } | Op::InsertParagraph { .. } => "paragraphe",
-            Op::Comment { .. } | Op::CommentRange { .. } | Op::Reply { .. } => "commentaire",
+            Op::Comment { .. } | Op::CommentRange { .. } | Op::Reply { .. } | Op::EditComment { .. } => "commentaire",
             Op::Resolve { .. } => "résolution",
             Op::DeleteComment { .. } => "suppression de commentaire",
             Op::FormatRange { .. } | Op::FormatText { .. } | Op::FormatParagraph { .. } => "mise en forme",
@@ -209,6 +211,10 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
         }
         Op::CommentRange { paragraph, start, end, text } => json!(comments::add_range(docx, paragraph, *start, *end, text, sig)?),
         Op::Reply { parent, text } => json!(comments::reply(docx, *parent, text, sig)?),
+        Op::EditComment { id, text } => {
+            comments::edit(docx, *id, text, sig)?;
+            json!({})
+        }
         Op::Resolve { id, done } => {
             comments::resolve(docx, *id, done.unwrap_or(true))?;
             json!({})

@@ -2754,6 +2754,9 @@
   let draft: { idx: number; s: number; e: number; quote: string; pid: string; lost?: boolean } | null = null;
   /** Réponses en cours d'écriture, par fiche : un redessin ou Échap ne les perd pas. */
   const replyDrafts = new Map<string, string>();
+  /** Message de l'utilisateur rouvert pour être modifié en place (le sien
+   *  seulement : ce qu'un autre a écrit ne se modifie jamais). */
+  let editing: { id: number; text: string } | null = null;
   // Brouillons de réponse de l'agent (Thierry, 2026-11-12 : « Brouillon,
   // signé Thierry ») : « Proposer » demande au chat une réponse que l'agent
   // pose hors du document (atelier_docx draft_reply) ; le sondage la verse
@@ -2846,11 +2849,21 @@
     // Rappel du passage commenté : la fiche se rattache au texte d'un coup d'œil.
     const q = oneLine(c.quote || "");
     let h = q ? `<div class="qt" style="--who:${uiColor(c.author)}"><i></i><span>« ${esc(clip(q, 120))} »</span></div>` : "";
+    // Ses propres messages s'ouvrent d'un clic pour être modifiés en place.
+    const text = (x: Comment) => {
+      if (on && editing?.id === x.id) {
+        return `<textarea class="c-input c-edit" rows="2" aria-label="Modifier ton message">${esc(x.text.trim())}</textarea>
+          <div class="ac"><button class="btn q" data-act="edit-cancel">Annuler</button><button class="btn p" data-act="edit-save">Enregistrer</button></div>`;
+      }
+      if (on && !c.done && x.author === author) return `<p class="tx mine" data-act="edit" data-cid="${x.id}" role="button" tabindex="0" aria-label="Modifier ton message">${esc(x.text.trim())}</p>`;
+      return `<p class="tx">${esc(x.text.trim())}</p>`;
+    };
     h += head(c.author, c.initials, dateFr(c.date));
-    h += `<p class="tx">${esc(c.text.trim())}</p>`;
-    if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}<p class="tx">${esc(r.text.trim())}</p></div>`;
+    h += text(c);
+    if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}${text(r)}</div>`;
     else if (replies.length) h += `<div class="meta">${pl(replies.length, "réponse", "réponses")}</div>`;
-    if (on) {
+    const inEdit = on && editing !== null && (editing.id === c.id || replies.some((r) => r.id === editing!.id));
+    if (on && !inEdit) {
       const field = `<textarea class="c-input" rows="1" placeholder="Répondre…" aria-label="Répondre à ${esc(firstName(c.author))}"></textarea>`;
       const ad = c.done || muted.has(c.id) ? null : agentDrafts[String(c.id)] || null;
       const waiting = !c.done && asking.has(c.id);
@@ -2859,12 +2872,12 @@
       } else if (ad) {
         h += `<div class="c-by">${ic("bot", 12)}<span>Brouillon de ${esc(firstName(ad.author))}, à relire</span><button class="lk" data-act="redo" data-tooltip="Demander une autre formulation">Refaire</button></div><div class="c-field">${field}</div>`;
       } else if (!c.done) {
-        h += `<div class="c-field ask">${field}<button class="btn q in" data-act="propose" data-tooltip="L'agent du chat rédige une réponse que tu relis avant d'envoyer">${ic("bot", 14)}Proposer</button></div>`;
+        h += `<div class="c-field ask">${field}<button class="mini in pb" data-act="propose" aria-label="Proposer une réponse" data-tooltip="Proposer une réponse">${ic("bot", 16)}</button></div>`;
       } else h += field;
       // Un remplacement = un retrait et un ajout : on compte les passages touchés.
       const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
       if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
-      h += `<div class="ac"><button class="btn q" data-act="resolve">${c.done ? "Rouvrir" : `${ic("check", 14)}Résoudre`}</button>
+      h += `<div class="ac"><button class="btn q" data-act="resolve"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>
         <button class="btn p" data-act="reply"${!c.done && asking.has(c.id) ? " disabled" : ""}>Répondre</button></div>`;
@@ -2915,8 +2928,10 @@
     // Ce que la marge tient en main avant le redessin : réponses en cours,
     // focus et sélection dans une zone de saisie, défilement des listes.
     for (const [key, el] of prev) {
-      const ta = el.querySelector("textarea");
+      const ta = el.querySelector<HTMLTextAreaElement>("textarea:not(.c-edit)");
       if (ta && key !== "draft") { if (ta.value) replyDrafts.set(key, ta.value); else replyDrafts.delete(key); }
+      const ed = el.querySelector<HTMLTextAreaElement>("textarea.c-edit");
+      if (ed && editing) editing.text = ed.value;
     }
     const act = document.activeElement as HTMLElement | null;
     const keep = act && cardsEl.contains(act) ? { key: (act.closest(".it") as HTMLElement | null)?.dataset.key, ta: act.tagName === "TEXTAREA", s: (act as HTMLTextAreaElement).selectionStart, e: (act as HTMLTextAreaElement).selectionEnd } : null;
@@ -2938,10 +2953,12 @@
         const was = ta ? ta.value : "";
         el.innerHTML = html;
         el.dataset.html = html;
-        const next = el.querySelector("textarea");
+        const next = el.querySelector<HTMLTextAreaElement>("textarea:not(.c-edit)");
         const back = it.kind === "draft" ? was : replyDrafts.get(it.key) || "";
         if (next && back) next.value = back;
         if (next) fitInput(next);
+        const ed = el.querySelector<HTMLTextAreaElement>("textarea.c-edit");
+        if (ed && editing) { ed.value = editing.text; fitInput(ed); }
       }
       el.classList.toggle("on", on);
       el.classList.toggle("grp", it.kind === "chip");
@@ -3410,6 +3427,27 @@
     if (!c) return;
     const ta = host.querySelector("textarea");
     if (act === "propose") { proposeReply(c); return; }
+    if (act === "edit") {
+      const mine = commentMap.get(Number((t.closest("[data-cid]") as HTMLElement).dataset.cid));
+      if (!mine) return;
+      editing = { id: mine.id, text: mine.text.trim() };
+      renderCards();
+      const ed = host.querySelector<HTMLTextAreaElement>("textarea.c-edit");
+      if (ed) { ed.focus({ preventScroll: true }); ed.setSelectionRange(ed.value.length, ed.value.length); }
+      return;
+    }
+    if (act === "edit-cancel") { editing = null; renderCards(); return; }
+    if (act === "edit-save" && editing) {
+      const id = editing.id;
+      const text = (host.querySelector<HTMLTextAreaElement>("textarea.c-edit")?.value ?? editing.text).trim();
+      if (!text) { host.querySelector<HTMLTextAreaElement>("textarea.c-edit")?.focus(); return; }
+      if (text === commentMap.get(id)?.text.trim()) { editing = null; renderCards(); return; }
+      structural(async () => {
+        const ok = await sendOp({ op: "edit_comment", id, text });
+        if (ok) { editing = null; renderCards(); status("Message modifié"); }
+      });
+      return;
+    }
     if (act === "stop") { asking.delete(c.id); muted.add(c.id); renderCards(); status("Brouillon abandonné"); return; }
     if (act === "redo") {
       const previous = agentDrafts[String(c.id)]?.text;
@@ -3451,6 +3489,11 @@
     if ((e.key === "Enter" || e.key === " ") && ta.getAttribute("role") === "button") { e.preventDefault(); ta.click(); return; }
     if (ta.tagName !== "TEXTAREA") return;
     const host = ta.closest(".it") as HTMLElement | null;
+    if (ta.classList.contains("c-edit")) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); host?.querySelector<HTMLElement>('[data-act="edit-save"]')?.click(); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); host?.querySelector<HTMLElement>('[data-act="edit-cancel"]')?.click(); }
+      return;
+    }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       host?.querySelector<HTMLElement>(host.dataset.key === "draft" ? '[data-act="post"]' : '[data-act="reply"]')?.click();

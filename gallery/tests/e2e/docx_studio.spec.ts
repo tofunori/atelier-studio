@@ -185,6 +185,54 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 120)).toBe(false);
 });
 
+test("docx: sa réponse se modifie d'un clic, celle de Christophe jamais, et la rangée tient dans une fiche de 240 px", async ({page, project}) => {
+  await page.setViewportSize({width: 1440, height: 900});
+  await page.addInitScript(() => { try { localStorage.setItem('docxLaneW', '240'); } catch { /* sans stockage */ } });
+  await open(page, project);
+  const thread = page.locator('#cards .it[data-key="c1"]');
+  await thread.locator('.cc').click();
+  await expect(thread).toHaveClass(/\bon\b/);
+  await thread.locator('textarea').fill('Oui, c\'est ça…');
+  await thread.locator('[data-act="reply"]').click();
+  await expect(thread.locator('.rp')).toHaveCount(2);
+
+  // À 240 px, toute la rangée d'actions reste dans la fiche.
+  const inside = await thread.evaluate((el) => {
+    const card = el.querySelector('.cc')!.getBoundingClientRect();
+    return Array.from(el.querySelectorAll('.ac > *')).every((b) => { const r = b.getBoundingClientRect(); return r.left >= card.left && r.right <= card.right; });
+  });
+  expect(inside).toBe(true);
+  await expect(thread.locator('[data-act="resolve"]')).toHaveAttribute('aria-label', 'Résoudre');
+
+  // Seuls ses propres messages s'ouvrent : celui de Christophe, jamais.
+  await expect(thread.locator('.cc > .tx')).not.toHaveClass(/mine/);
+  await expect(thread.locator('.tx.mine')).toHaveCount(2);
+  const mine = thread.locator('.tx.mine').last();
+  await expect(mine).toHaveText('Oui, c\'est ça…');
+  await mine.click();
+  const edit = thread.locator('textarea.c-edit');
+  await expect(edit).toBeFocused();
+  await expect(edit).toHaveValue('Oui, c\'est ça…');
+  await edit.press('Escape');
+  await expect(edit).toHaveCount(0);
+  await expect(thread.locator('[data-act="reply"]')).toBeVisible();
+
+  await mine.click();
+  await thread.locator('textarea.c-edit').fill('Oui, c\'est ça… clair dans les 3 zones.');
+  await thread.locator('textarea.c-edit').press('ControlOrMeta+Enter');
+  const replies = async () => (await disk(page, project)).comments.filter(c => c.parent === 1 && c.author === 'Thierry').map(c => c.text.trim()).sort();
+  await expect.poll(replies).toEqual(['D\'accord, je l\'ajoute en annexe.', 'Oui, c\'est ça… clair dans les 3 zones.']);
+  await expect(thread.locator('.tx.mine').last()).toHaveText('Oui, c\'est ça… clair dans les 3 zones.');
+  const christophe = (await disk(page, project)).comments.find(c => c.id === 1)!;
+  expect(christophe.author).not.toBe('Thierry');
+  expect(christophe.text).toContain('Pourquoi 0,6');
+
+  // ⌘Z rend le texte d'avant.
+  await page.locator('#paper').focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(replies).toEqual(['D\'accord, je l\'ajoute en annexe.', 'Oui, c\'est ça…']);
+});
+
 test('docx: rechercher et remplacer partout, en suivi signé', async ({page, project}) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
