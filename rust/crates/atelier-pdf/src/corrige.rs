@@ -54,6 +54,14 @@ pub struct Comment {
     /// Date (ms depuis 1970).
     #[serde(default)]
     pub at: Option<f64>,
+    /// Zone de texte écrite sur la page : imprimée à sa place, sans numéro
+    /// ni marge (`size` en points, `ink` couleur du texte).
+    #[serde(default)]
+    pub inline: bool,
+    #[serde(default)]
+    pub size: Option<f32>,
+    #[serde(default)]
+    pub ink: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -300,7 +308,9 @@ pub fn write(src: &Path, out: &Path, request: &Request) -> Result<Report, String
         }
         e => format!("PDF illisible : {e}"),
     })?;
-    let mut comments: Vec<(usize, &Comment)> = request.comments.iter().filter(|c| !c.text.trim().is_empty() || !c.replies.is_empty()).enumerate().collect();
+    let written = |c: &&Comment| !c.text.trim().is_empty() || !c.replies.is_empty();
+    let inline: Vec<&Comment> = request.comments.iter().filter(|c| c.inline).filter(written).collect();
+    let mut comments: Vec<(usize, &Comment)> = request.comments.iter().filter(|c| !c.inline).filter(written).enumerate().collect();
     // ordre de lecture : page, puis haut du passage
     comments.sort_by(|(_, a), (_, b)| {
         let top = |c: &Comment| c.rects.first().map(|r| r[1]).or(c.pin.map(|p| p[1])).unwrap_or(0.0);
@@ -310,7 +320,7 @@ pub fn write(src: &Path, out: &Path, request: &Request) -> Result<Report, String
 
     // police chargée seulement s'il y a quelque chose à écrire
     let font_data: Option<&'static [u8]> =
-        if numbered.is_empty() { None } else { font_bytes().map(|b| &*Box::leak(b.into_boxed_slice())) };
+        if numbered.is_empty() && inline.is_empty() { None } else { font_bytes().map(|b| &*Box::leak(b.into_boxed_slice())) };
     let metrics = Metrics::new(font_data);
     let font = {
         let fonts = document.fonts_mut();
@@ -347,10 +357,10 @@ pub fn write(src: &Path, out: &Path, request: &Request) -> Result<Report, String
         }
 
         let here: Vec<&(usize, &Comment)> = numbered.iter().filter(|(_, c)| c.page == page_no).collect();
-        if here.is_empty() {
+        let typed: Vec<&&Comment> = inline.iter().filter(|c| c.page == page_no).collect();
+        if here.is_empty() && typed.is_empty() {
             continue;
         }
-        report.pages += 1;
         let crop = page
             .boundaries()
             .crop()
@@ -365,6 +375,23 @@ pub fn write(src: &Path, out: &Path, request: &Request) -> Result<Report, String
         };
         let frame = Frame { left: crop.left().value, bottom: crop.bottom().value, right: crop.right().value, top: crop.top().value, rotation };
         let (dw, dh) = (frame.width(), frame.height());
+
+        // zones de texte écrites sur la page : à leur place, à leur taille
+        for c in &typed {
+            let Some(r) = c.rects.first().copied().or(c.pin.map(|p| [p[0], p[1], 0.0, 0.0])) else { continue };
+            let size = c.size.unwrap_or(13.0).clamp(6.0, 36.0);
+            let (ir, ig, ib) = rgb(c.ink.as_deref().unwrap_or("#2b2f35"));
+            let width = if r[2] > 0.0 { r[2] * dw } else { dw - r[0] * dw - 12.0 };
+            let mut y = r[1] * dh;
+            for line in metrics.wrap(&metrics.clean(c.text.trim()), size, width.max(size * 4.0)) {
+                y += size * 1.2;
+                draw_text(&mut page, &frame, font, &line, r[0] * dw, y - size * 0.25, size, PdfColor::new(ir, ig, ib, 255))?;
+            }
+        }
+        if here.is_empty() {
+            continue;
+        }
+        report.pages += 1;
 
         // 2. la page s'élargit d'une marge à droite (boîte visible et média)
         let wide = frame.widened(MARGIN);

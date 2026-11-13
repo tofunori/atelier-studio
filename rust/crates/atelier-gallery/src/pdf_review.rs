@@ -80,6 +80,8 @@ pub async fn review(State(state): State<AppState>, headers: HeaderMap, Query(q):
             "author": atelier_docx::marks::pdf_signer(&path, &root),
             "corrected": corrige::is_corrected(&path),
             "copy": copy.is_file().then(|| rel_of(&root, &copy)),
+            "path": path.to_string_lossy(),
+            "copyPath": copy.to_string_lossy(),
         })
     };
     match tokio::task::spawn_blocking(job).await {
@@ -164,7 +166,10 @@ pub(crate) fn comments_for(annots: &Value, signer: &str) -> corrige::Request {
             page: page as u32,
             rects,
             pin,
-            kind: if kind == "text" { "note".into() } else { kind },
+            inline: kind == "text",
+            size: a.get("size").and_then(Value::as_f64).map(|v| v as f32),
+            ink: a.get("ink").and_then(Value::as_str).map(str::to_string),
+            kind,
             color: a.get("color").and_then(Value::as_str).unwrap_or("").to_string(),
             author: author_of(a.get("by").and_then(Value::as_str), a.get("author").and_then(Value::as_str)),
             text,
@@ -249,6 +254,7 @@ pub async fn corrected(State(state): State<AppState>, headers: HeaderMap, Json(b
         Json(json!({
             "ok": true,
             "rel": rel_of(&state.root, &out),
+            "path": out.to_string_lossy(),
             "name": out.file_name().map(|n| n.to_string_lossy().to_string()),
             "comments": report.get("comments").cloned().unwrap_or(json!(count)),
             "pages": report.get("pages").cloned().unwrap_or(Value::Null),
@@ -276,6 +282,9 @@ fn comment_json(c: &corrige::Comment) -> Value {
         "text": c.text,
         "replies": c.replies.iter().map(|r| json!({"author": r.author, "text": r.text})).collect::<Vec<_>>(),
         "at": c.at,
+        "inline": c.inline,
+        "size": c.size,
+        "ink": c.ink,
     })
 }
 
@@ -302,6 +311,6 @@ mod tests {
         assert_eq!(replies, [("Thierry Laurent", "Merci"), ("Christophe", "OK")]);
         assert_eq!(req.comments[0].at, Some(1763000000000.0));
         assert_eq!(req.comments[2].pin, Some([0.5, 0.5]));
-        assert_eq!(req.comments[3].kind, "note");
+        assert!(req.comments[3].inline && !req.comments[0].inline);
     }
 }
