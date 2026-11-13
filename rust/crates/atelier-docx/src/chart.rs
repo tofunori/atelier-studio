@@ -311,7 +311,12 @@ struct Stroke {
     color: Option<String>,
     width: f64,
     dash: Option<&'static str>,
+    /// Bouts ronds (`a:ln cap="rnd"`) : les pointillés d'Excel sont des points ronds.
+    round: bool,
 }
+
+/// Pointillé « points » : un point rond d'une largeur de trait tous les deux traits.
+const DOTS: &str = "0.01 2";
 
 fn stroke(sp: Option<Node>, default: Stroke) -> Stroke {
     let Some(ln) = sp.and_then(|s| child(s, "ln")) else { return default };
@@ -322,19 +327,27 @@ fn stroke(sp: Option<Node>, default: Stroke) -> Stroke {
     let width = ln.attribute("w").and_then(|w| w.parse::<f64>().ok()).map(|w| w / 9525.0).unwrap_or(default.width);
     let dash = match val(ln, "prstDash") {
         Some("dash" | "sysDash") => Some("4 3"),
-        Some("dot" | "sysDot") => Some("1.2 2"),
+        Some("dot" | "sysDot") => Some(DOTS),
         Some("dashDot" | "sysDashDot") => Some("4 2 1.2 2"),
         Some("lgDash") => Some("8 3"),
         Some("lgDashDot" | "lgDashDotDot" | "sysDashDotDot") => Some("8 3 1.2 3"),
         Some(_) => None,
         None => default.dash,
     };
-    Stroke { color, width, dash }
+    let round = match ln.attribute("cap") {
+        Some("rnd") => true,
+        Some(_) => false,
+        None => default.round,
+    };
+    Stroke { color, width, dash, round }
 }
 
 fn stroke_attrs(s: &Stroke) -> String {
     let Some(c) = &s.color else { return r#"stroke="none""#.into() };
     let mut a = format!(r##"stroke="#{c}" stroke-width="{:.2}""##, s.width.max(0.5));
+    if s.round || s.dash == Some(DOTS) {
+        a.push_str(r#" stroke-linecap="round""#);
+    }
     if let Some(d) = s.dash {
         let scale = s.width.max(1.0);
         let d: Vec<String> = d.split(' ').map(|v| format!("{:.2}", v.parse::<f64>().unwrap_or(1.0) * scale)).collect();
@@ -371,8 +384,28 @@ impl TextStyle {
 
     /// Largeur approchée (Calibri : environ un demi-cadratin par signe).
     fn width(&self, s: &str) -> f64 {
-        s.chars().count() as f64 * self.size * if self.bold { 0.55 } else { 0.5 }
+        // Calibri n'est pas toujours installée : on compte large (Helvetica).
+        s.chars().count() as f64 * self.size * if self.bold { 0.6 } else { 0.55 }
     }
+}
+
+/// Coupe un texte en lignes qui tiennent dans `max` px, aux espaces.
+fn wrap(text: &str, st: &TextStyle, max: f64) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in text.split_whitespace() {
+        let next = if cur.is_empty() { word.to_string() } else { format!("{cur} {word}") };
+        if st.width(&next) > max && !cur.is_empty() {
+            lines.push(std::mem::take(&mut cur));
+            cur = word.to_string();
+        } else {
+            cur = next;
+        }
+    }
+    if !cur.is_empty() || lines.is_empty() {
+        lines.push(cur);
+    }
+    lines
 }
 
 fn esc(s: &str) -> String {
@@ -566,8 +599,12 @@ struct Axis {
     max: Option<f64>,
     reverse: bool,
     major: Option<f64>,
+    minor_unit: Option<f64>,
     grid: Option<Stroke>,
     title: Option<(String, TextStyle)>,
+    /// Coin haut-gauche du titre placé à la main (fractions du graphique).
+    title_at: Option<(f64, f64)>,
+    minor: &'static str,
     code: Option<String>,
     linked: bool,
     style: TextStyle,
@@ -605,7 +642,7 @@ impl Chart {
             let idx = num(ser, "idx").map(|v| v as usize).unwrap_or(i);
             let accent = accent(idx);
             let sp = child(ser, "spPr");
-            let color = fill(sp).flatten().or_else(|| stroke(sp, Stroke { color: None, width: 0.0, dash: None }).color).unwrap_or_else(|| accent.clone());
+            let color = fill(sp).flatten().or_else(|| stroke(sp, Stroke { color: None, width: 0.0, dash: None, round: false }).color).unwrap_or_else(|| accent.clone());
             let (yv, xv) = if kind == Kind::Scatter { (child(ser, "yVal"), child(ser, "xVal")) } else { (child(ser, "val"), child(ser, "cat")) };
             let (ys, code) = yv.map(numbers).unwrap_or_default();
             let numeric_x = xv.is_some_and(|x| x.descendants().any(|d| matches!(d.tag_name().name(), "numCache" | "numLit")));
@@ -614,9 +651,9 @@ impl Chart {
             let (xs, xcode) = if kind == Kind::Scatter && numeric_x { xv.map(numbers).unwrap_or_default() } else { ((1..=ys.len()).map(|i| Some(i as f64)).collect(), None) };
             let cats = xv.map(labels).unwrap_or_default();
             let default_line = match kind {
-                Kind::Scatter if matches!(style, "marker" | "none") => Stroke { color: None, width: 2.0, dash: None },
-                Kind::Scatter | Kind::Line => Stroke { color: Some(color.clone()), width: 2.0, dash: None },
-                _ => Stroke { color: None, width: 1.0, dash: None },
+                Kind::Scatter if matches!(style, "marker" | "none") => Stroke { color: None, width: 2.0, dash: None, round: true },
+                Kind::Scatter | Kind::Line => Stroke { color: Some(color.clone()), width: 2.0, dash: None, round: true },
+                _ => Stroke { color: None, width: 1.0, dash: None, round: false },
             };
             let line = stroke(sp, default_line);
             let marker = if matches!(kind, Kind::Scatter | Kind::Line) {
@@ -633,7 +670,7 @@ impl Chart {
                         Some(f) => f,
                         None => Some(color.clone()),
                     };
-                    let mline = stroke(msp, Stroke { color: Some(color.clone()), width: 1.0, dash: None }).color;
+                    let mline = stroke(msp, Stroke { color: Some(color.clone()), width: 1.0, dash: None, round: false }).color;
                     Some((symbol.to_string(), size, mfill, mline))
                 }
             } else {
@@ -655,7 +692,7 @@ impl Chart {
                     Some(Trend {
                         fit,
                         name: child(t, "name").and_then(|n| n.text()).map(str::to_string),
-                        stroke: stroke(child(t, "spPr"), Stroke { color: Some(color.clone()), width: 2.0, dash: Some("1.2 2") }),
+                        stroke: stroke(child(t, "spPr"), Stroke { color: Some(color.clone()), width: 2.0, dash: Some(DOTS), round: true }),
                         show_eq: flag(t, "dispEq").unwrap_or(false),
                         show_r2: flag(t, "dispRSqr").unwrap_or(false),
                         forward: num(t, "forward").unwrap_or(0.0),
@@ -719,13 +756,19 @@ impl Chart {
                 max: scaling.and_then(|s| num(s, "max")),
                 reverse: scaling.and_then(|s| val(s, "orientation")) == Some("maxMin"),
                 major: num(ax, "majorUnit").filter(|u| *u > 0.0),
-                grid: child(ax, "majorGridlines").map(|g| stroke(child(g, "spPr"), Stroke { color: Some("D9D9D9".into()), width: 1.0, dash: None })),
+                minor_unit: num(ax, "minorUnit").filter(|u| *u > 0.0),
+                grid: child(ax, "majorGridlines").map(|g| stroke(child(g, "spPr"), Stroke { color: Some("D9D9D9".into()), width: 1.0, dash: None, round: false })),
                 title,
                 code: child(ax, "numFmt").and_then(|f| f.attribute("formatCode")).map(str::to_string),
                 linked: child(ax, "numFmt").and_then(|f| f.attribute("sourceLinked")).is_none_or(|v| v == "1"),
                 style,
-                line: stroke(child(ax, "spPr"), Stroke { color: Some("BFBFBF".into()), width: 1.0, dash: None }),
+                line: stroke(child(ax, "spPr"), Stroke { color: Some("BFBFBF".into()), width: 1.0, dash: None, round: false }),
                 ticks: if child(ax, "majorTickMark").is_some() { tick("majorTickMark") } else { "out" },
+                minor: tick("minorTickMark"),
+                title_at: path(ax, &["title", "layout", "manualLayout"])
+                    .filter(|m| val(*m, "xMode") == Some("edge") && val(*m, "yMode") == Some("edge"))
+                    .and_then(|m| Some((num(m, "x")?, num(m, "y")?)))
+                    .filter(|(x, y)| (0.0..1.0).contains(x) && (0.0..1.0).contains(y)),
                 labels: match val(ax, "tickLblPos") {
                     Some("none") => "none",
                     Some("low") => "low",
@@ -763,7 +806,7 @@ impl Chart {
         // Zone du graphique : fond et cadre.
         let sp = child(space, "spPr");
         let bg = fill(sp).unwrap_or(Some("FFFFFF".into()));
-        let border = stroke(sp, Stroke { color: Some("D9D9D9".into()), width: 1.0, dash: None });
+        let border = stroke(sp, Stroke { color: Some("D9D9D9".into()), width: 1.0, dash: None, round: false });
         let rounded = flag(space, "roundedCorners").unwrap_or(false);
         let _ = write!(
             svg,
@@ -785,9 +828,9 @@ impl Chart {
         if let Some(t) = child(chart, "title") {
             let st = TextStyle::of(path(t, &["tx", "rich"]).or(child(t, "txPr")), TextStyle { size: base.size * 1.4, bold: false, ..base.clone() });
             let text = tx_text(t).unwrap_or_else(|| if self.series.len() == 1 { self.series[0].name.clone() } else { "Titre du graphique".into() });
-            for line in text.lines() {
+            for line in text.lines().flat_map(|l| wrap(l, &st, w * 0.8)) {
                 top += st.size;
-                let _ = write!(svg, r#"<text x="{:.2}" y="{:.2}" text-anchor="middle" {}>{}</text>"#, w / 2.0, top, st.attrs(), esc(line));
+                let _ = write!(svg, r#"<text x="{:.2}" y="{:.2}" text-anchor="middle" {}>{}</text>"#, w / 2.0, top, st.attrs(), esc(&line));
                 top += st.size * 0.25;
             }
             top += 6.0;
@@ -806,7 +849,7 @@ impl Chart {
             if self.kind == Kind::Pie {
                 let s = &self.series[0];
                 for (i, c) in s.cats.iter().enumerate() {
-                    entries.push((c.clone(), Some(accent(i)), Stroke { color: None, width: 0.0, dash: None }, None));
+                    entries.push((c.clone(), Some(accent(i)), Stroke { color: None, width: 0.0, dash: None, round: false }, None));
                 }
             } else {
                 for s in &self.series {
@@ -940,24 +983,61 @@ impl Chart {
         let vlabels = tick_labels(&self.axes[vi], if vi == cat_i { &cats } else { &[] }, vcode);
         let _ = val_i;
         let (hax, vax) = (self.axes[hi].clone(), self.axes[vi].clone());
-        // Titres d'axe.
+        // Titres d'axe : à leur place automatique, ou là où l'auteur les a posés.
         if let Some((t, st)) = &hax.title {
-            let y = bottom - st.size * 0.25;
-            let _ = write!(svg, r#"<text x="__HX__" y="{:.2}" text-anchor="middle" {}>{}</text>"#, y, st.attrs(), esc(t));
+            if let Some((x, y)) = hax.title_at {
+                let _ = write!(svg, r#"<text x="{:.2}" y="{:.2}" {}>{}</text>"#, x * w + 4.0, y * h + st.size * 1.05, st.attrs(), esc(t));
+            } else {
+                let y = bottom - st.size * 0.25;
+                let _ = write!(svg, r#"<text x="__HX__" y="{:.2}" text-anchor="middle" {}>{}</text>"#, y, st.attrs(), esc(t));
+            }
             bottom -= st.size * 1.3 + 4.0;
         }
         if let Some((t, st)) = &vax.title {
-            let x = left + st.size;
-            let _ = write!(svg, r#"<text transform="translate({:.2} __VY__) rotate(-90)" text-anchor="middle" {}>{}</text>"#, x, st.attrs(), esc(t));
+            if let Some((x, y)) = vax.title_at {
+                // Cadre déjà tourné : sa hauteur est la longueur du texte.
+                let cy = y * h + 4.0 + st.width(t) / 2.0;
+                let _ = write!(svg, r#"<text transform="translate({:.2} {:.2}) rotate(-90)" text-anchor="middle" {}>{}</text>"#, x * w + st.size * 1.05, cy, st.attrs(), esc(t));
+            } else {
+                let x = left + st.size;
+                let _ = write!(svg, r#"<text transform="translate({:.2} __VY__) rotate(-90)" text-anchor="middle" {}>{}</text>"#, x, st.attrs(), esc(t));
+            }
             left += st.size * 1.3 + 4.0;
         }
+        // Libellés hors de la zone de traçage seulement s'ils sont à son bord :
+        // « bas »/« haut », ou l'axe croise au bord ; sinon ils restent dans la
+        // zone, près de l'axe (comme Excel), et ne prennent pas de place.
+        let at_edge = |a: &Axis, other: &Axis| -> (bool, bool) {
+            match a.labels {
+                "low" => (true, false),
+                "high" => (false, true),
+                _ => {
+                    let t = frac(other, cross_of(self.kind, other));
+                    (t <= 1e-6, t >= 1.0 - 1e-6)
+                }
+            }
+        };
         let vlab_w = vlabels.iter().map(|(_, s)| vax.style.width(s)).fold(0.0, f64::max);
         let hlab_h = if hlabels.is_empty() { 0.0 } else { hax.style.size * 1.3 };
-        // Libellés en dehors de la zone : seulement s'ils sont « bas » ou si
-        // l'axe croise à son bord ; sinon ils restent dans la zone (comme Excel).
-        left += if vlabels.is_empty() { 0.0 } else { vlab_w + 8.0 };
-        bottom -= if hlabels.is_empty() { 0.0 } else { hlab_h + 4.0 };
-        right -= 6.0;
+        let (h_low, h_high) = at_edge(&hax, &vax);
+        let (v_low, v_high) = at_edge(&vax, &hax);
+        if !hlabels.is_empty() {
+            if h_low {
+                bottom -= hlab_h + 4.0;
+            } else if h_high && hax.labels == "high" {
+                top += hlab_h + 4.0;
+            }
+        }
+        if !vlabels.is_empty() {
+            if v_low {
+                left += vlab_w + 8.0;
+            } else if v_high && vax.labels == "high" {
+                right -= vlab_w + 8.0;
+            }
+        }
+        // Le dernier libellé des x déborde de la moitié de sa largeur.
+        let last = hlabels.last().map(|(_, s)| hax.style.width(s) / 2.0).unwrap_or(0.0);
+        right -= last.max(6.0);
         top += 4.0;
         if let Some(ml) = plot_layout {
             // Disposition manuelle de la zone de traçage (fractions du graphique).
@@ -1004,38 +1084,24 @@ impl Chart {
                 }
             }
         }
-        // Où chaque axe croise l'autre.
-        let cross_of = |a: &Axis, other: &Axis| -> f64 {
-            if let Some(v) = other.crosses_at {
-                return v;
-            }
-            match other.crosses {
-                "min" => other.lo,
-                "max" => other.hi,
-                _ if other.category && self.kind != Kind::Scatter => other.lo,
-                _ => {
-                    let zero = if other.log.is_some() { 1.0 } else { 0.0 };
-                    let _ = a;
-                    if other.log.is_some() {
-                        other.lo
-                    } else if zero >= other.lo.min(other.hi) && zero <= other.lo.max(other.hi) {
-                        zero
-                    } else if other.lo.abs() < other.hi.abs() {
-                        other.lo
-                    } else {
-                        other.hi
-                    }
-                }
-            }
-        };
         // L'axe horizontal est tracé à la hauteur où il croise l'axe vertical.
-        let h_at = py(&vax, cross_of(&hax, &vax)).clamp(top, bottom);
-        let v_at = px(&hax, cross_of(&vax, &hax)).clamp(left, right);
+        let h_at = py(&vax, cross_of(self.kind, &vax)).clamp(top, bottom);
+        let v_at = px(&hax, cross_of(self.kind, &hax)).clamp(left, right);
 
         // Séries.
-        let clip = format!(r#"<clipPath id="pa"><rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}"/></clipPath>"#, left - 4.0, top - 4.0, right - left + 8.0, bottom - top + 8.0);
-        svg.push_str(&clip);
-        svg.push_str(r#"<g clip-path="url(#pa)">"#);
+        // Les traits s'arrêtent au bord de la zone ; les marqueurs peuvent déborder.
+        let _ = write!(
+            svg,
+            r#"<clipPath id="pl"><rect x="{left:.2}" y="{top:.2}" width="{:.2}" height="{:.2}"/></clipPath><clipPath id="pm"><rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}"/></clipPath>"#,
+            right - left,
+            bottom - top,
+            left - 8.0,
+            top - 8.0,
+            right - left + 16.0,
+            bottom - top + 16.0
+        );
+        let mut marks = String::new();
+        svg.push_str(r#"<g clip-path="url(#pl)">"#);
         let n_series = self.series.len();
         for (si, s) in self.series.iter().enumerate() {
             match self.kind {
@@ -1090,25 +1156,26 @@ impl Chart {
                     }
                     if s.line.color.is_some() && screen.len() > 1 && self.kind != Kind::Area {
                         let d = if s.smooth { smooth_path(&screen) } else { poly_path(&screen) };
-                        let _ = write!(svg, r#"<path d="{d}" fill="none" stroke-linejoin="round" stroke-linecap="round" {}/>"#, stroke_attrs(&s.line));
+                        let _ = write!(svg, r#"<path d="{d}" fill="none" stroke-linejoin="round" {}/>"#, stroke_attrs(&s.line));
                     }
                     for t in &s.trends {
                         draw_trend(&mut svg, t, &pts, &hax, &vax, (left, top, right, bottom), self.kind == Kind::Scatter);
                     }
                     if let Some((sym, size, mfill, mline)) = &s.marker {
                         for (x, y) in &screen {
-                            marker(&mut svg, sym, *x, *y, *size, mfill.as_deref(), mline.as_deref());
+                            marker(&mut marks, sym, *x, *y, *size, mfill.as_deref(), mline.as_deref());
                         }
                     }
                     if s.values_shown {
                         for ((x, y), (_, v)) in screen.iter().zip(&pts) {
-                            let _ = write!(svg, r#"<text x="{x:.2}" y="{:.2}" text-anchor="middle" {}>{}</text>"#, y - 6.0, TextStyle { size: base.size * 0.9, ..base.clone() }.attrs(), esc(&fmt_num(*v, s.code.as_deref().unwrap_or("General"))));
+                            let _ = write!(marks, r#"<text x="{x:.2}" y="{:.2}" text-anchor="middle" {}>{}</text>"#, y - 6.0, TextStyle { size: base.size * 0.9, ..base.clone() }.attrs(), esc(&fmt_num(*v, s.code.as_deref().unwrap_or("General"))));
                         }
                     }
                 }
             }
         }
         svg.push_str("</g>");
+        let _ = write!(svg, r#"<g clip-path="url(#pm)">{marks}</g>"#);
 
         // Axes et graduations.
         for (a, horizontal) in [(&hax, true), (&vax, false)] {
@@ -1131,6 +1198,23 @@ impl Chart {
                     _ => (4.0, 0.0),
                 };
                 for v in vals {
+                    if horizontal {
+                        let x = px(a, v);
+                        let _ = write!(svg, r#"<line x1="{x:.2}" y1="{:.2}" x2="{x:.2}" y2="{:.2}" {}/>"#, at - i, at + o, stroke_attrs(&a.line));
+                    } else {
+                        let y = py(a, v);
+                        let _ = write!(svg, r#"<line x1="{:.2}" y1="{y:.2}" x2="{:.2}" y2="{y:.2}" {}/>"#, at - o, at + i, stroke_attrs(&a.line));
+                    }
+                }
+            }
+            // Petites graduations, plus courtes, entre les grandes.
+            if a.minor != "none" && a.line.color.is_some() && !(a.category && self.kind != Kind::Scatter) {
+                let (o, i) = match a.minor {
+                    "in" => (0.0, 2.5),
+                    "cross" => (2.5, 2.5),
+                    _ => (2.5, 0.0),
+                };
+                for v in minor_ticks(a) {
                     if horizontal {
                         let x = px(a, v);
                         let _ = write!(svg, r#"<line x1="{x:.2}" y1="{:.2}" x2="{x:.2}" y2="{:.2}" {}/>"#, at - i, at + o, stroke_attrs(&a.line));
@@ -1354,7 +1438,9 @@ fn scale(a: &mut Axis, data: &[f64], len: f64) {
             lo = hi - d;
         }
     }
-    let max_ticks = (len / 40.0).clamp(3.0, 10.0);
+    // Excel serre davantage les graduations verticales (une ligne de texte)
+    // que les horizontales (la largeur d'un libellé).
+    let max_ticks = (len / if a.horizontal { 40.0 } else { 27.0 }).clamp(3.0, 10.0);
     let step = a.major.unwrap_or_else(|| nice((hi - lo) / max_ticks));
     // Excel laisse un peu d'air (5 % de l'étendue) au-delà des points
     // extrêmes, sauf au zéro, puis arrondit au pas.
@@ -1378,8 +1464,6 @@ fn nice(raw: f64) -> f64 {
         1.0
     } else if f <= 2.0 {
         2.0
-    } else if f <= 2.5 {
-        2.5
     } else if f <= 5.0 {
         5.0
     } else {
@@ -1410,6 +1494,55 @@ fn ticks(a: &Axis) -> Vec<f64> {
         }
     }
     out
+}
+
+/// Petites graduations : 2..9 × 10ⁿ en log, un cinquième du pas sinon.
+fn minor_ticks(a: &Axis) -> Vec<f64> {
+    let major = ticks(a);
+    let mut out = Vec::new();
+    if let Some(b) = a.log {
+        let n = b.round() as i64;
+        for w in major.windows(2) {
+            for k in 2..n.max(2) {
+                out.push(w[0] * k as f64);
+            }
+        }
+        return out;
+    }
+    let unit = a.minor_unit.unwrap_or(a.step / 5.0);
+    if unit <= 0.0 || (a.hi - a.lo) / unit > 400.0 {
+        return out;
+    }
+    let mut v = (a.lo / unit).ceil() * unit;
+    while v <= a.hi + unit * 1e-9 {
+        let on_major = ((v - a.lo) / a.step - ((v - a.lo) / a.step).round()).abs() < 1e-6;
+        if !on_major {
+            out.push(v);
+        }
+        v += unit;
+    }
+    out
+}
+
+/// Valeur où l'autre axe croise `other` (`crosses`, `crossesAt`).
+fn cross_of(kind: Kind, other: &Axis) -> f64 {
+    if let Some(v) = other.crosses_at {
+        return v;
+    }
+    match other.crosses {
+        "min" => other.lo,
+        "max" => other.hi,
+        _ if other.category && kind != Kind::Scatter => other.lo,
+        _ if other.log.is_some() => other.lo,
+        _ if 0.0 >= other.lo.min(other.hi) && 0.0 <= other.lo.max(other.hi) => 0.0,
+        _ if other.lo.abs() < other.hi.abs() => other.lo,
+        _ => other.hi,
+    }
+}
+
+/// Fraction (0 au début, 1 à la fin de l'axe) d'une valeur.
+fn frac(a: &Axis, v: f64) -> f64 {
+    pos(a, v, 0.0, 1.0)
 }
 
 /// Position à l'écran d'une valeur sur un axe (de `from` à `to`).
@@ -1579,7 +1712,7 @@ fn draw_trend(svg: &mut String, t: &Trend, pts: &[(f64, f64)], hax: &Axis, vax: 
         .filter(|(x, y)| x.is_finite() && y.is_finite() && *y > top - 2000.0 && *y < bottom + 2000.0)
         .collect();
     if line.len() > 1 && t.stroke.color.is_some() {
-        let _ = write!(svg, r#"<path d="{}" fill="none" stroke-linecap="round" {}/>"#, poly_path(&line), stroke_attrs(&t.stroke));
+        let _ = write!(svg, r#"<path d="{}" fill="none" {}/>"#, poly_path(&line), stroke_attrs(&t.stroke));
     }
     if !(t.show_eq || t.show_r2) {
         return;
@@ -1647,12 +1780,15 @@ mod tests {
             max: None,
             reverse: false,
             major: None,
+            minor_unit: None,
             grid: None,
             title: None,
+            title_at: None,
+            minor: "none",
             code: None,
             linked: true,
             style: TextStyle { size: 12.0, bold: false, color: "000000".into() },
-            line: Stroke { color: None, width: 1.0, dash: None },
+            line: Stroke { color: None, width: 1.0, dash: None, round: false },
             ticks: "none",
             labels: "nextTo",
             crosses: "autoZero",
@@ -1668,5 +1804,9 @@ mod tests {
         scale(&mut a, &[0.038, 1.0], 300.0);
         assert!((a.lo - 0.01).abs() < 1e-12 && (a.hi - 1.0).abs() < 1e-12);
         assert_eq!(ticks(&a).len(), 3);
+        // Pas d'Excel : 1, 2 ou 5 × 10ⁿ, jamais 2,5.
+        a.log = None;
+        scale(&mut a, &[1.0, 21.0], 400.0);
+        assert!(a.step == 2.0 || a.step == 5.0, "pas {}", a.step);
     }
 }

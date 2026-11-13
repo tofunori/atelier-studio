@@ -138,7 +138,13 @@ fn numeric_x() -> String {
 fn svg(mut d: Docx) -> String {
     let (bytes, mime) = atelier_docx::objects::media(&mut d, "p11", "rId5").unwrap().unwrap();
     assert_eq!(mime, "image/svg+xml");
-    String::from_utf8(bytes).unwrap()
+    let s = String::from_utf8(bytes).unwrap();
+    // CHART_DUMP=<dossier> : garde chaque rendu pour le regarder.
+    if let Ok(dir) = std::env::var("CHART_DUMP") {
+        let name = std::thread::current().name().unwrap_or("rendu").replace("::", "-");
+        std::fs::write(format!("{dir}/{name}.svg"), &s).unwrap();
+    }
+    s
 }
 
 /// Centres des marqueurs ronds (x, y), dans l'ordre du dessin.
@@ -268,4 +274,97 @@ fn le_rendu_suit_la_taille_du_cadre() {
     let (bytes, _) = atelier_docx::objects::render(raw, None, Some((624.0, 345.0)));
     let s = String::from_utf8(bytes).unwrap();
     assert!(s.contains(r#"viewBox="0 0 624.00 345.00""#), "{}", &s[..120]);
+}
+
+/// Abscisse et ordonnée d'un `<text>` (x, y, ou le translate d'un texte tourné).
+fn text_at(s: &str, label: &str) -> (f64, f64) {
+    let i = s.find(&format!(">{label}</text>")).unwrap_or_else(|| panic!("{label} absent"));
+    let t = &s[s[..i].rfind("<text ").unwrap()..i];
+    if let Some(k) = t.find("translate(") {
+        let inner = &t[k + 10..k + 10 + t[k + 10..].find(')').unwrap()];
+        let mut it = inner.split(' ').map(|v| v.parse::<f64>().unwrap());
+        return (it.next().unwrap(), it.next().unwrap());
+    }
+    let get = |key: &str| {
+        let k = t.find(&format!(" {key}=\"")).unwrap() + key.len() + 3;
+        t[k..k + t[k..].find('"').unwrap()].parse::<f64>().unwrap()
+    };
+    (get("x"), get("y"))
+}
+
+/// Haut et bas d'une découpe (`clipPath`).
+fn clip(s: &str, id: &str) -> (f64, f64) {
+    let i = s.find(&format!(r#"<clipPath id="{id}"><rect "#)).unwrap();
+    let r = &s[i..i + s[i..].find("/>").unwrap()];
+    let get = |k: &str| {
+        let k0 = r.find(&format!(" {k}=\"")).unwrap() + k.len() + 3;
+        r[k0..k0 + r[k0..].find('"').unwrap()].parse::<f64>().unwrap()
+    };
+    (get("y"), get("y") + get("height"))
+}
+
+#[test]
+fn un_long_titre_passe_a_la_ligne_au_lieu_d_etre_coupe() {
+    let long = "Figure 2 : rapport H/Ho en fonction du temps pour l'essai à charge variable du puits P3";
+    let s = svg(with_chart(&scatter(&numeric_x(), &ratios(), false, false, "nextTo").replace("Figure H/Ho en fonction du temps", long), None));
+    let t = texts(&s);
+    assert!(!t.iter().any(|x| x == long), "le titre tient sur plusieurs lignes : {t:?}");
+    let lines: Vec<&String> = t.iter().filter(|x| long.contains(x.as_str()) && x.len() > 10).collect();
+    assert!(lines.len() >= 2, "{t:?}");
+    assert_eq!(lines.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(" "), long);
+    // Les points restent sous le titre.
+    let (_, last_line) = text_at(&s, lines.last().unwrap());
+    assert!(dots(&s).iter().all(|p| p.1 > last_line), "zone de traçage repoussée sous le titre");
+}
+
+#[test]
+fn le_titre_d_axe_place_a_la_main_reste_a_sa_place() {
+    let layout = r#"<c:layout><c:manualLayout><c:xMode val="edge"/><c:yMode val="edge"/><c:x val="0.25"/><c:y val="0.9"/></c:manualLayout></c:layout>"#;
+    let chart = scatter(&numeric_x(), &ratios(), false, false, "nextTo").replacen("Temps (s)</a:t></a:r></a:p></c:rich></c:tx>", &format!("Temps (s)</a:t></a:r></a:p></c:rich></c:tx>{layout}"), 1);
+    let s = svg(with_chart(&chart, None));
+    let (x, y) = text_at(&s, "Temps (s)");
+    // Rendu par défaut 480 × 288 : 0,25 × 480 = 120 (bord gauche du cadre
+    // du titre, plus sa marge) ; 0,9 × 288 ≈ 259 (haut du cadre).
+    assert!((x - 124.0).abs() < 2.0, "x = {x}");
+    assert!(y > 259.0 && y < 276.0, "y = {y}");
+}
+
+#[test]
+fn les_petites_graduations_s_ajoutent_aux_grandes() {
+    let base = scatter(&numeric_x(), &ratios(), false, false, "nextTo").replacen(r#"<c:majorTickMark val="none"/>"#, r#"<c:majorTickMark val="out"/>"#, 1);
+    let with_minor = base.replacen(r#"<c:minorTickMark val="none"/>"#, r#"<c:minorTickMark val="cross"/>"#, 1);
+    let n = |s: &str| s.matches("<line ").count();
+    let (a, b) = (svg(with_chart(&base, None)), svg(with_chart(&with_minor, None)));
+    // 0 à 4000 par 500 : 4 petites graduations entre deux grandes.
+    assert_eq!(n(&b) - n(&a), 8 * 4, "{} → {}", n(&a), n(&b));
+}
+
+#[test]
+fn l_axe_qui_croise_en_haut_ne_laisse_pas_de_bande_vide_en_bas() {
+    // Valeurs négatives, libellés « à côté de l'axe » : l'axe des x et ses
+    // libellés sont en haut ; la zone de traçage descend jusqu'au titre d'axe.
+    let logs: Vec<Option<f64>> = ratios().iter().map(|v| v.map(f64::log10)).collect();
+    let s = svg(with_chart(&scatter(&numeric_x(), &logs, false, false, "nextTo"), None));
+    let (_, plot_bottom) = clip(&s, "pl");
+    let (_, title_y) = text_at(&s, "Temps (s)");
+    assert!(title_y - plot_bottom < 20.0, "bande vide entre la zone ({plot_bottom}) et le titre d'axe ({title_y})");
+    // Libellés des x en haut, près de l'axe y = 0.
+    let (_, label_y) = text_at(&s, "4000");
+    assert!(label_y < plot_bottom / 2.0, "libellés des x en haut : {label_y}");
+}
+
+#[test]
+fn les_traits_s_arretent_au_bord_de_la_zone_et_les_points_peuvent_deborder() {
+    let s = svg(with_chart(&scatter(&numeric_x(), &ratios(), false, true, "nextTo"), None));
+    let attr = |id: &str, k: &str| {
+        let i = s.find(&format!(r#"<clipPath id="{id}"><rect "#)).unwrap();
+        let r = &s[i..i + s[i..].find("/>").unwrap()];
+        let k0 = r.find(&format!(" {k}=\"")).unwrap() + k.len() + 3;
+        r[k0..k0 + r[k0..].find('"').unwrap()].parse::<f64>().unwrap()
+    };
+    let (lx, lw) = (attr("pl", "x"), attr("pl", "width"));
+    let (mx, mw) = (attr("pm", "x"), attr("pm", "width"));
+    assert!(mx < lx && mw > lw, "les marqueurs ont une marge, pas les traits");
+    let trend = s.find("stroke-dasharray").unwrap();
+    assert!(s[..trend].rfind(r#"clip-path="url(#pl)""#).is_some(), "la tendance est coupée au bord exact");
 }
