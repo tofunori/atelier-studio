@@ -450,7 +450,9 @@
           }
         } else if (s.media) {
           const img = document.createElement("img");
-          img.src = `/docx/media?path=${enc(PATH)}&para=${enc(p.id)}&rel=${enc(s.media)}`;
+          // Recadrage de Word : le serveur ne renvoie que la zone gardée (sans taille, l'image entière).
+          const crop = s.crop && s.width && s.height ? `&crop=${s.crop.join(",")}` : "";
+          img.src = `/docx/media?path=${enc(PATH)}&para=${enc(p.id)}&rel=${enc(s.media)}${crop}`;
           img.alt = s.alt || "Figure";
           img.draggable = false;
           if (s.width) img.style.width = model .page ? `calc(var(--pt) * ${s.width * 0.75})` : `${s.width}px`;
