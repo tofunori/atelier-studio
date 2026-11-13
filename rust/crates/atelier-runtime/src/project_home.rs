@@ -7,8 +7,10 @@
 //! l'app (`{app_dir}/project-thumbs/`), rendues par `atelier-pdf thumb`
 //! (PDFium ; `qlmanage` seulement si l'outil manque, sur macOS).
 //!
-//! `create` fabrique le dossier d'un nouveau projet, en recopiant au besoin
-//! l'arborescence (dossiers seulement, aucun fichier) d'un projet existant.
+//! `create` fait d'un dossier choisi un nouveau projet, sans créer de
+//! sous-dossier (Thierry, 2026-11-13 : « le dossier choisi devient le
+//! projet ») ; il y ajoute au besoin l'arborescence (dossiers seulement,
+//! aucun fichier) d'un projet existant, sans toucher à ce qui s'y trouve.
 use base64::Engine as _;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -264,20 +266,10 @@ pub fn cards(roots: &[String], app_dir: &Path) -> Vec<Value> {
     })
 }
 
-/// Nom de dossier acceptable pour un nouveau projet.
-fn valid_name(name: &str) -> bool {
-    let trimmed = name.trim();
-    !trimmed.is_empty()
-        && trimmed == name
-        && trimmed.chars().count() <= 120
-        && trimmed != "."
-        && trimmed != ".."
-        && !trimmed.starts_with('.')
-        && !trimmed.contains(['/', '\\', ':', '\0'])
-}
-
 /// Recopie l'arborescence de `from` dans `to` : dossiers seulement, sans
-/// dossiers cachés ni lourds, sans suivre les liens, bornée.
+/// dossiers cachés ni lourds, sans suivre les liens, bornée. Un dossier qui
+/// existe déjà dans `to` est gardé tel quel ; un fichier du même nom n'est
+/// jamais remplacé (la branche est sautée).
 fn copy_structure(from: &Path, to: &Path) -> std::io::Result<usize> {
     let mut pending = vec![(from.to_path_buf(), to.to_path_buf(), 0usize)];
     let mut created = 0usize;
@@ -295,33 +287,33 @@ fn copy_structure(from: &Path, to: &Path) -> std::io::Result<usize> {
                 return Ok(created);
             }
             let next = dst.join(&name);
-            fs::create_dir(&next)?;
-            created += 1;
+            match fs::symlink_metadata(&next) {
+                Ok(existing) if existing.is_dir() => {}
+                Ok(_) => continue,
+                Err(_) => {
+                    fs::create_dir(&next)?;
+                    created += 1;
+                }
+            }
             pending.push((path, next, depth + 1));
         }
     }
     Ok(created)
 }
 
-/// Crée `{parent}/{name}` (refusé s'il existe déjà) ; `template`, s'il est
-/// donné, prête son arborescence. Renvoie le chemin du nouveau projet.
-pub fn create(parent: &str, name: &str, template: Option<&str>) -> Result<String, String> {
-    if !valid_name(name) {
-        return Err("Nom de projet invalide".into());
+/// Fait de `folder` (dossier existant, chemin absolu) un projet : rien n'y
+/// est créé ni déplacé, sauf l'arborescence de `template` s'il est donné.
+/// Renvoie le chemin du projet, c'est-à-dire `folder`.
+pub fn create(folder: &str, template: Option<&str>) -> Result<String, String> {
+    let trimmed = folder.trim_end_matches(['/', '\\']);
+    let root = Path::new(if trimmed.is_empty() { folder } else { trimmed });
+    if !root.is_absolute() || !root.is_dir() {
+        return Err("Dossier introuvable".into());
     }
-    let parent = Path::new(parent);
-    if !parent.is_absolute() || !parent.is_dir() {
-        return Err("Emplacement introuvable".into());
-    }
-    let root = parent.join(name);
-    if fs::symlink_metadata(&root).is_ok() {
-        return Err("Un dossier de ce nom existe déjà à cet emplacement".into());
-    }
-    fs::create_dir(&root).map_err(|e| format!("Création impossible : {e}"))?;
     if let Some(template) = template.filter(|t| !t.is_empty()) {
         let template = Path::new(template);
-        if template.is_absolute() && template.is_dir() {
-            copy_structure(template, &root).map_err(|e| format!("Copie de la structure impossible : {e}"))?;
+        if template.is_absolute() && template.is_dir() && template != root {
+            copy_structure(template, root).map_err(|e| format!("Copie de la structure impossible : {e}"))?;
         }
     }
     Ok(root.to_string_lossy().into_owned())
@@ -408,26 +400,48 @@ mod tests {
     }
 
     #[test]
-    fn creates_a_project_with_the_structure_of_another() {
+    fn the_chosen_folder_becomes_the_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("2026");
+        fs::create_dir_all(folder.join("cours")).unwrap();
+        fs::write(folder.join("plan.docx"), "x").unwrap();
+        let path = folder.to_str().unwrap();
+        // aucun sous-dossier, rien de touché : le projet est le dossier choisi
+        assert_eq!(create(path, None).unwrap(), path);
+        assert_eq!(create(&format!("{path}/"), None).unwrap(), path);
+        let mut names: Vec<_> = fs::read_dir(&folder).unwrap().flatten().map(|e| e.file_name()).collect();
+        names.sort();
+        assert_eq!(names, vec!["cours", "plan.docx"]);
+        assert!(create(dir.path().join("absent").to_str().unwrap(), None).is_err());
+        assert!(create("relative", None).is_err());
+        assert!(create(folder.join("plan.docx").to_str().unwrap(), None).is_err());
+    }
+
+    #[test]
+    fn adds_the_structure_of_another_project_without_touching_what_is_there() {
         let dir = tempfile::tempdir().unwrap();
         let model = dir.path().join("Chapitre1");
         fs::create_dir_all(model.join("figures/brutes")).unwrap();
         fs::create_dir_all(model.join(".git")).unwrap();
         fs::create_dir_all(model.join("sections")).unwrap();
+        fs::create_dir_all(model.join("notes")).unwrap();
         fs::write(model.join("main.tex"), "x").unwrap();
         fs::write(model.join("sections/intro.tex"), "x").unwrap();
-        let parent = dir.path().to_str().unwrap();
-        let root = create(parent, "Chapitre3", Some(model.to_str().unwrap())).unwrap();
+        let folder = dir.path().join("Chapitre3");
+        fs::create_dir_all(folder.join("figures")).unwrap();
+        fs::write(folder.join("figures/fig1.pdf"), "garde").unwrap();
+        fs::write(folder.join("notes"), "un fichier, pas un dossier").unwrap();
+        let root = create(folder.to_str().unwrap(), Some(model.to_str().unwrap())).unwrap();
         let root = Path::new(&root);
+        assert_eq!(root, folder);
         assert!(root.join("figures/brutes").is_dir());
+        assert_eq!(fs::read_to_string(root.join("figures/fig1.pdf")).unwrap(), "garde");
         assert!(root.join("sections").is_dir());
+        assert_eq!(fs::read_to_string(root.join("notes")).unwrap(), "un fichier, pas un dossier");
         assert!(!root.join(".git").exists());
         assert!(!root.join("main.tex").exists());
         assert!(!root.join("sections/intro.tex").exists());
-        assert!(create(parent, "Chapitre3", None).unwrap_err().contains("existe déjà"));
-        for bad in ["", " x", "a/b", "..", ".cache"] {
-            assert!(create(parent, bad, None).is_err(), "{bad:?}");
-        }
-        assert!(create("relative", "x", None).is_err());
+        // une seconde fois ne change rien et ne bute pas sur l'existant
+        assert!(create(folder.to_str().unwrap(), Some(model.to_str().unwrap())).is_ok());
     }
 }

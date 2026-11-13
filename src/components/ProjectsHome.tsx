@@ -95,7 +95,7 @@ function NewProjectDialog(p: {
   projects: string[];
   meta: Record<string, ProjMeta>;
   onClose: () => void;
-  onCreated: (root: string, due: ProjectDue | null) => void;
+  onCreated: (root: string, due: ProjectDue | null, label: string | null) => void;
 }) {
   const [name, setName] = useState("");
   const [template, setTemplate] = useState("");
@@ -105,13 +105,15 @@ function NewProjectDialog(p: {
   const portal = useRef<HTMLElement | null>(null);
   const cleanName = name.trim();
 
+  // Le dossier choisi devient le projet (Thierry, 2026-11-13) : aucun
+  // sous-dossier n'est créé ; le nom tapé, facultatif, sert d'étiquette.
   async function choose() {
-    if (!cleanName || busy) return;
+    if (busy) return;
     setError("");
     setBusy(true);
     try {
-      const parent = await open({ directory: true, multiple: false, title: t("projects.choose-location") });
-      if (typeof parent !== "string") return;
+      const folder = await open({ directory: true, multiple: false, title: t("projects.choose-folder") });
+      if (typeof folder !== "string") return;
       const requestId = `create-${Math.random().toString(36).slice(2)}`;
       const reply = await new Promise<{ root?: string; error?: string }>((resolve) => {
         const timer = window.setTimeout(() => finish({ error: t("projects.create-timeout") }), 20_000);
@@ -125,11 +127,14 @@ function NewProjectDialog(p: {
           if (msg?.requestId === requestId) finish(msg);
         }
         window.addEventListener("project-created", onReply);
-        if (!wsSend({ type: "createProject", parent, name: cleanName, template: template || null, requestId })) {
+        if (!wsSend({ type: "createProject", folder, template: template || null, requestId })) {
           finish({ error: t("projects.create-offline") });
         }
       });
-      if (reply.root) p.onCreated(reply.root, due ? { date: due } : null);
+      if (reply.root) {
+        const label = cleanName && cleanName !== projectName(reply.root) ? cleanName : null;
+        p.onCreated(reply.root, due ? { date: due } : null, label);
+      }
       else setError(reply.error || t("projects.create-failed"));
     } catch (e) {
       setError(String(e));
@@ -148,7 +153,7 @@ function NewProjectDialog(p: {
         <FieldGroup className="ph-fields">
           <Field orientation="horizontal">
             <FieldLabel htmlFor="ph-name">{t("projects.name")}</FieldLabel>
-            <Input id="ph-name" autoFocus value={name} placeholder="Chapitre3" onChange={(e) => setName(e.target.value)} />
+            <Input id="ph-name" autoFocus value={name} placeholder={t("projects.name-placeholder")} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field orientation="horizontal">
             <FieldLabel>{t("projects.from")}</FieldLabel>
@@ -172,10 +177,11 @@ function NewProjectDialog(p: {
             <Input id="ph-due" type="date" value={due} onChange={(e) => setDue(e.target.value)} />
           </Field>
         </FieldGroup>
+        <p className="ph-dialog-hint">{t("projects.folder-hint")}</p>
         {error && <InlineNotice tone="error">{error}</InlineNotice>}
         <div className="ph-dialog-actions">
           <Button variant="ghost" onClick={p.onClose}>{t("action.cancel")}</Button>
-          <Button type="submit" disabled={!cleanName} loading={busy}>{t("projects.choose-location")}</Button>
+          <Button type="submit" loading={busy}>{t("projects.choose-folder")}</Button>
         </div>
       </form>
     </LazyDialog>
@@ -195,7 +201,7 @@ export default function ProjectsHome(p: {
   onOpenThread?: (threadId: string, root: string) => void;
   onProjectSettings?: (root: string) => void;
   onOpenFolder: () => void;
-  onCreated: (root: string, due: ProjectDue | null) => void;
+  onCreated: (root: string, due: ProjectDue | null, label: string | null) => void;
   onClose: () => void;
 }) {
   const lead = p.projects[0] ?? null;
@@ -361,7 +367,7 @@ export default function ProjectsHome(p: {
           projects={p.projects}
           meta={p.meta}
           onClose={() => setCreating(false)}
-          onCreated={(root, due) => { setCreating(false); p.onCreated(root, due); }}
+          onCreated={(root, due, label) => { setCreating(false); p.onCreated(root, due, label); }}
         />
       )}
     </section>

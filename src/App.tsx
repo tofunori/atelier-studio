@@ -4767,9 +4767,9 @@ export default function App() {
             }}
             onProjectSettings={(root) => { setProjectsHome(null); setProjectSettingsRoot(root); }}
             onOpenFolder={() => { void addProject().then((added) => { if (added) setProjectsHome(null); }); }}
-            onCreated={(root, due) => {
+            onCreated={(root, due, label) => {
               setProjects((prev) => (prev.includes(root) ? prev : [...prev, root]));
-              setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now(), ...(due ? { due } : {}) } }));
+              setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now(), ...(due ? { due } : {}), ...(label ? { label } : {}) } }));
               discussionNavigation.current = false;
               setActiveView("chats");
               setActiveProject(root);

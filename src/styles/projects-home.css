@@ -115,6 +115,7 @@
 /* Boîte « Nouveau projet » */
 .ph-fields { gap: var(--sp-2); }
 .ph-fields [data-slot="field-label"] { flex: 0 0 88px; font-size: var(--fs-body-s); color: var(--text-muted); font-weight: 400; }
+.ph-dialog-hint { margin: var(--sp-3) 0 0; font-size: var(--fs-body-s); line-height: 1.5; color: var(--text-muted); }
 .ph-dialog-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-4); }
 
 @media (prefers-reduced-motion: reduce) { .ph-screen { animation: none; } }
