@@ -2,7 +2,8 @@
 //! retouches, toujours en suivi des modifications. Elles sont signées du nom
 //! de l'utilisateur, comme s'il les avait tapées (Thierry, 2026-11-13), et
 //! Atelier se souvient qu'elles viennent de l'agent (`atelier_docx::marks`) ;
-//! ses commentaires gardent le nom de l'agent. Il n'accepte ni ne refuse aucun suivi et ne
+//! ses commentaires et réponses aussi (« je veux que ça soit mon nom »,
+//! 2026-11-13). Il n'accepte ni ne refuse aucun suivi et ne
 //! résout aucun commentaire : ces décisions restent à l'utilisateur, dans le
 //! panneau .docx ou dans Word.
 
@@ -170,11 +171,10 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
             "note": "Brouillon posé dans la carte du commentaire, pas dans le .docx : l'utilisateur le relit, le retouche et l'envoie sous son nom. Ne le recopie pas dans ta réponse."
         }));
     }
-    // Les retouches en suivi portent le nom de l'utilisateur (Thierry,
-    // 2026-11-13) ; un commentaire ou une réponse garde celui de l'agent,
-    // car rien ne s'y accepte ni ne s'y refuse.
+    // Retouches, commentaires et réponses portent le nom de l'utilisateur
+    // (Thierry, 2026-11-13) : l'étudiant ou le relecteur ne voit que lui.
     let speaks = matches!(action, "comment" | "reply");
-    let sig = Signature::now(&if speaks { author_for(provider).to_string() } else { signer(project_root, &path)? });
+    let sig = Signature::now(&signer(project_root, &path)?);
     let expected = str_arg(req, "revision");
     let (result, revision) = if action == "insert_note" || action == "insert_figure" {
         // Placé juste après `find` ; la figure vient du projet.
@@ -305,7 +305,7 @@ mod tests {
         atelier_docx::drafts::clear(&path, 1).unwrap();
 
         let r = run(root, "codex", "reply", &json!({"path": path.to_str().unwrap(), "comment": 1, "text": "Seuil justifié en 2.3."})).unwrap();
-        assert_eq!(r["author"], "Codex");
+        assert_eq!((r["author"].as_str(), r["proposed_by"].as_str()), (Some("Thierry"), Some("Codex")));
         run(root, "claude", "format", &json!({"path": "article.docx", "find": "MOD09GA", "bold": true})).unwrap();
         run(root, "claude", "format", &json!({"path": "article.docx", "paragraph": "p2", "align": "both"})).unwrap();
         run(root, "claude", "insert_paragraph", &json!({"path": "article.docx", "after": "p2", "text": "Nouveau."})).unwrap();
@@ -314,8 +314,9 @@ mod tests {
         let m = d.model().unwrap();
         assert!(m.changes.iter().filter(|c| c.author == "Thierry").count() >= 4);
         assert!(atelier_docx::marks::list(&path, &m).unwrap().len() >= 4);
-        // Une réponse à Christophe garde le nom de l'agent.
-        assert!(m.comments.iter().any(|c| c.author == "Codex" && c.parent == Some(1)));
+        // Une réponse à Christophe porte aussi le nom de l'utilisateur.
+        assert!(m.comments.iter().any(|c| c.author == "Thierry" && c.parent == Some(1) && c.text == "Seuil justifié en 2.3."));
+        assert!(!m.comments.iter().any(|c| atelier_docx::marks::is_agent(&c.author)));
         // Notes et figures, en suivi signé ; la note de Christophe se retouche.
         let r = run(root, "claude", "insert_note", &json!({"path": "article.docx", "find": "réflectances de surface", "text": "Bandes 1 à 7."})).unwrap();
         assert_eq!(r["result"]["id"], "n2", "{r}");

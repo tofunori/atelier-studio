@@ -4,7 +4,8 @@
 //!     cargo run -p atelier-docx --example signer_retouches_agent -- <fichier.docx> "<Nom>" [--rouvrir] [--brouillons] [--essai]
 //!
 //! - toujours : les suivis signés « Claude », « Codex »… passent au nom
-//!   donné ; Atelier garde en mémoire qu'ils viennent de l'agent ;
+//!   donné ; Atelier garde en mémoire qu'ils viennent de l'agent ; leurs
+//!   commentaires et réponses aussi (auteur et initiales) ;
 //! - `--rouvrir` : rouvre les fils où `<Nom>` a répondu (Word replie les
 //!   fils résolus, et leurs réponses avec) ;
 //! - `--brouillons` : les brouillons de réponse restés dans la carte
@@ -35,10 +36,12 @@ fn main() {
     let run = || -> atelier_docx::Result<()> {
         if dry {
             let mut d = Docx::open(&path)?;
-            let agent = d.model()?.changes.iter().filter(|c| marks::is_agent(&c.author)).count();
+            let m = d.model()?;
+            let agent = m.changes.iter().filter(|c| marks::is_agent(&c.author)).count();
+            let notes = m.comments.iter().filter(|c| marks::is_agent(&c.author)).count();
             let done = repair(&mut d)?;
             println!(
-                "essai : {agent} suivis signés par un agent passeraient à {name} ; {} fils rouverts ; {} brouillons envoyés ; rien d'écrit",
+                "essai : {agent} suivis et {notes} commentaires signés par un agent passeraient à {name} ; {} fils rouverts ; {} brouillons envoyés ; rien d'écrit",
                 done.reopened,
                 done.replied.len()
             );
@@ -51,7 +54,7 @@ fn main() {
             drafts::clear(&path, *id)?;
         }
         let model = Docx::open(&path)?.model()?;
-        let left = model.changes.iter().filter(|c| marks::is_agent(&c.author)).count();
+        let left = model.changes.iter().filter(|c| marks::is_agent(&c.author)).count() + model.comments.iter().filter(|c| marks::is_agent(&c.author)).count();
         let kept = marks::list(&path, &model)?.len();
         let mine = model.comments.iter().filter(|c| c.author == name && c.parent.is_some()).count();
         let hidden = model
@@ -62,7 +65,7 @@ fn main() {
             .filter(|p| model.comments.iter().any(|x| x.id == *p && x.done))
             .count();
         println!(
-            "écrit (révision {rev}) : {kept} suivis à ton nom marqués « proposé par l'agent », {left} encore signés par un agent ; {} fils rouverts ; {} brouillons envoyés ; {mine} réponses à ton nom, dont {hidden} sous un fil résolu",
+            "écrit (révision {rev}) : {kept} suivis à ton nom marqués « proposé par l'agent », {left} suivis ou commentaires encore signés par un agent ; {} fils rouverts ; {} brouillons envoyés ; {mine} réponses à ton nom, dont {hidden} sous un fil résolu",
             done.reopened,
             done.replied.len()
         );
