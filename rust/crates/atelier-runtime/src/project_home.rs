@@ -2,7 +2,10 @@
 //!
 //! `cards` décrit chaque dossier de projet pour sa carte : la première page
 //! du PDF compilé (vignette PNG en data URL), la revue lue dans la source
-//! LaTeX et la date de la dernière modification de cette source. Rien n'est
+//! LaTeX et la date de la dernière modification de cette source. Un projet
+//! sans PDF compilé montre son document le plus récent (première page d'un
+//! .docx, comme la vignette Word de la galerie, ou d'un .pdf), sinon ses
+//! premiers fichiers (grille de l'accueil, 2026-11-13). Rien n'est
 //! écrit dans le dossier du projet : les vignettes vivent dans le cache de
 //! l'app (`{app_dir}/project-thumbs/`), rendues par `atelier-pdf thumb`
 //! (PDFium ; `qlmanage` seulement si l'outil manque, sur macOS).
@@ -21,8 +24,11 @@ use atelier_pdf::tool::Thumbnailer;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-/// Au plus autant de cartes par demande : le bureau en montre trois.
-pub const MAX_CARDS: usize = 12;
+/// Au plus autant de cartes par demande (la grille de l'accueil).
+pub const MAX_CARDS: usize = 24;
+/// Fichiers montrés sur la carte d'un dossier sans document.
+const MAX_FILES: usize = 6;
+const MAX_PREVIEW_BYTES: u64 = 1024 * 1024;
 const THUMB_SIZE: u16 = 480;
 const MAX_THUMB_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TEX_BYTES: u64 = 512 * 1024;
@@ -46,9 +52,9 @@ fn visible_dir_entries(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Racines LaTeX du projet : fichiers `.tex` qui déclarent `\documentclass`,
-/// à la racine ou un niveau en dessous. Les plus probables d'abord.
-fn main_tex_candidates(root: &Path) -> Vec<(PathBuf, String)> {
+/// La racine du projet et ses sous-dossiers directs (ni cachés, ni lourds,
+/// ni liens symboliques).
+fn project_dirs(root: &Path) -> Vec<PathBuf> {
     let mut dirs = vec![root.to_path_buf()];
     for path in visible_dir_entries(root) {
         let skipped = path.file_name().and_then(OsStr::to_str).is_some_and(|n| SKIPPED_DIRS.contains(&n));
@@ -56,8 +62,14 @@ fn main_tex_candidates(root: &Path) -> Vec<(PathBuf, String)> {
             dirs.push(path);
         }
     }
+    dirs
+}
+
+/// Racines LaTeX du projet : fichiers `.tex` qui déclarent `\documentclass`,
+/// à la racine ou un niveau en dessous. Les plus probables d'abord.
+fn main_tex_candidates(root: &Path) -> Vec<(PathBuf, String)> {
     let mut found = Vec::new();
-    for dir in dirs {
+    for dir in project_dirs(root) {
         for path in visible_dir_entries(&dir) {
             if path.extension().and_then(OsStr::to_str) != Some("tex") || path.is_symlink() {
                 continue;
@@ -212,6 +224,82 @@ fn thumbnail(pdf: &Path, cache: &Path, program: Option<&Thumbnailer>) -> Option<
     bytes
 }
 
+/// Document le plus récent du projet (`.docx` ou `.pdf`, à la racine ou un
+/// niveau en dessous), pour un projet sans PDF compilé. Les fichiers de
+/// verrou de Word (`~$…`) sont ignorés.
+fn latest_document(root: &Path) -> Option<PathBuf> {
+    let mut best: Option<(u64, PathBuf)> = None;
+    for dir in project_dirs(root) {
+        for path in visible_dir_entries(&dir) {
+            let ext = path.extension().and_then(OsStr::to_str).map(str::to_ascii_lowercase);
+            if !matches!(ext.as_deref(), Some("docx" | "pdf")) || path.is_symlink() {
+                continue;
+            }
+            if path.file_name().and_then(OsStr::to_str).is_some_and(|n| n.starts_with("~$")) {
+                continue;
+            }
+            let Ok(meta) = fs::metadata(&path) else { continue };
+            if !meta.is_file() {
+                continue;
+            }
+            let at = mtime(&path).unwrap_or(0);
+            if best.as_ref().is_none_or(|(t, _)| at > *t) {
+                best = Some((at, path));
+            }
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
+/// Première page d'un `.docx` (format, marges, paragraphes allégés : la même
+/// donnée que `/docx/peek` de la galerie), gardée dans le cache tant que le
+/// fichier ne change pas. Un échec laisse un marqueur `.fail`.
+fn docx_preview(docx: &Path, cache: &Path) -> Option<Value> {
+    let key = cache_key(docx)?;
+    let target = cache.join(format!("{key}.docx.json"));
+    if fs::metadata(&target).is_ok_and(|m| m.is_file() && m.len() <= MAX_PREVIEW_BYTES) {
+        if let Some(value) = fs::read_to_string(&target).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+            return Some(value);
+        }
+    }
+    let failed = cache.join(format!("{key}.fail"));
+    if failed.exists() {
+        return None;
+    }
+    fs::create_dir_all(cache).ok()?;
+    let value = atelier_docx::Docx::open(docx)
+        .and_then(|mut d| d.model())
+        .ok()
+        .and_then(|model| serde_json::to_value(atelier_docx::preview::first_page(&model)).ok());
+    match &value {
+        Some(v) => {
+            let text = v.to_string();
+            if text.len() as u64 <= MAX_PREVIEW_BYTES {
+                let _ = fs::write(&target, text);
+            }
+        }
+        None => {
+            let _ = fs::write(&failed, []);
+        }
+    }
+    value
+}
+
+/// Premiers éléments du dossier (sous-dossiers d'abord), pour la carte
+/// d'un projet sans document.
+fn first_entries(root: &Path) -> Vec<Value> {
+    let mut entries: Vec<(bool, String)> = visible_dir_entries(root)
+        .into_iter()
+        .filter_map(|p| Some((!p.is_dir(), p.file_name()?.to_string_lossy().into_owned())))
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())));
+    entries
+        .into_iter()
+        .take(MAX_FILES)
+        .map(|(file, name)| json!({"name": name, "dir": !file}))
+        .collect()
+}
+
 fn renderer() -> Option<Thumbnailer> {
     Thumbnailer::locate()
 }
@@ -229,18 +317,33 @@ pub fn card(root: &str, cache: &Path, program: Option<&Thumbnailer>) -> Value {
         .iter()
         .filter_map(|(tex, _)| compiled_pdf(tex))
         .max_by_key(|pdf| mtime(pdf).unwrap_or(0));
-    let thumb = pdf.as_deref().and_then(|pdf| thumbnail(pdf, cache, program)).map(|png| {
+    let as_data_url = |png: Vec<u8>| {
         format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))
-    });
+    };
+    let mut thumb = pdf.as_deref().and_then(|pdf| thumbnail(pdf, cache, program)).map(as_data_url);
+    // Sans PDF compilé : le document le plus récent du dossier.
+    let document = if pdf.is_none() { latest_document(path) } else { None };
+    let mut docx = None;
+    if let Some(doc) = &document {
+        if doc.extension().and_then(OsStr::to_str).is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
+            thumb = thumbnail(doc, cache, program).map(as_data_url);
+        } else {
+            docx = docx_preview(doc, cache);
+        }
+    }
+    let files = if thumb.is_none() && docx.is_none() { first_entries(path) } else { Vec::new() };
     let rel = |p: &Path| p.strip_prefix(path).unwrap_or(p).to_string_lossy().replace('\\', "/");
     json!({
         "root": root,
         "missing": false,
         "tex": main.map(|(tex, _)| rel(tex)),
         "pdf": pdf.as_deref().map(rel),
+        "doc": document.as_deref().map(rel),
         "thumb": thumb,
+        "docx": docx,
+        "files": files,
         "journal": main.and_then(|(_, text)| journal(text)),
-        "modifiedAt": main.and_then(|(tex, _)| mtime(tex)),
+        "modifiedAt": main.and_then(|(tex, _)| mtime(tex)).or_else(|| document.as_deref().and_then(mtime)),
     })
 }
 
@@ -331,6 +434,62 @@ mod tests {
         assert_eq!(journal("\\documentclass{elsarticle}\n\\journal{Remote Sensing of Environment}\n").as_deref(), Some("Remote Sensing of Environment"));
         assert_eq!(journal("\\documentclass{agujournal2019}\n\\journalname{JGR: Earth Surface}\n").as_deref(), Some("JGR: Earth Surface"));
         assert_eq!(journal("\\documentclass{article}\n% \\journal{Ignored}\n"), None);
+    }
+
+    #[test]
+    fn a_project_without_compiled_pdf_shows_its_latest_word_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("2026");
+        fs::create_dir_all(root.join("TP6")).unwrap();
+        let docx = atelier_docx::new::create(atelier_docx::new::Template::Blank).unwrap();
+        fs::write(root.join("TP6/commentaires.docx"), &docx).unwrap();
+        fs::write(root.join("TP6/~$commentaires.docx"), b"lock").unwrap();
+        let cache = dir.path().join("cache");
+        let found = card(root.to_str().unwrap(), &cache, None);
+        assert_eq!(found["doc"], "TP6/commentaires.docx");
+        assert!(found["pdf"].is_null());
+        assert_eq!(found["docx"]["page"]["width"], 612.0);
+        assert!(found["docx"]["paragraphs"].is_array());
+        assert_eq!(found["files"], json!([]));
+        assert!(found["modifiedAt"].is_u64());
+        // relu du cache ensuite
+        let cached: Vec<_> = fs::read_dir(&cache).unwrap().flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".docx.json")).collect();
+        assert_eq!(cached.len(), 1);
+        assert_eq!(card(root.to_str().unwrap(), &cache, None)["docx"], found["docx"]);
+    }
+
+    #[test]
+    fn an_unreadable_word_document_is_not_retried() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("p");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("abime.docx"), b"pas un zip").unwrap();
+        let cache = dir.path().join("cache");
+        let found = card(root.to_str().unwrap(), &cache, None);
+        assert_eq!(found["doc"], "abime.docx");
+        assert!(found["docx"].is_null());
+        // pas d'aperçu : la carte montre les fichiers du dossier
+        assert_eq!(found["files"], json!([{"name": "abime.docx", "dir": false}]));
+        assert!(fs::read_dir(&cache).unwrap().flatten().any(|e| e.file_name().to_string_lossy().ends_with(".fail")));
+    }
+
+    #[test]
+    fn a_folder_without_document_lists_its_first_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("atelier");
+        for d in ["src", "docs", ".git"] {
+            fs::create_dir_all(root.join(d)).unwrap();
+        }
+        for f in ["README.md", "b.txt", ".env"] {
+            fs::write(root.join(f), "x").unwrap();
+        }
+        let found = card(root.to_str().unwrap(), &dir.path().join("cache"), None);
+        assert!(found["doc"].is_null() && found["thumb"].is_null() && found["docx"].is_null());
+        assert_eq!(found["files"], json!([
+            {"name": "docs", "dir": true}, {"name": "src", "dir": true},
+            {"name": "b.txt", "dir": false}, {"name": "README.md", "dir": false},
+        ]));
     }
 
     #[test]

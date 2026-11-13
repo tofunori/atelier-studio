@@ -9,6 +9,7 @@ import { activityText, dueText } from "../lib/projectsHomeText";
 const sent: any[] = [];
 vi.mock("../lib/wsBus", () => ({ wsSend: (msg: unknown) => { sent.push(msg); return true; } }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ revealItemInDir: vi.fn(() => Promise.resolve()) }));
 
 beforeEach(() => { setLanguage("fr"); sent.length = 0; });
 afterEach(cleanup);
@@ -64,55 +65,71 @@ describe("écran d'ouverture", () => {
     return props;
   }
 
-  it("met le dernier projet en avant avec ses fils récents, les autres en liste", async () => {
-    const props = setup({
-      onOpenThread: vi.fn(),
-      onProjectSettings: vi.fn(),
-      threads: [
-        { id: "t1", title: "Révision de la figure 3", projectRoot: "/p/Chapitre1-Albedo", status: "running", updatedAt: "2026-11-08T11:50:00Z" },
-        { id: "t2", title: "Vérifier la .bib", projectRoot: "/p/Chapitre1-Albedo", status: "running", updatedAt: "2026-11-07T10:00:00Z" },
-        { id: "t3", title: "Plus ancien", projectRoot: "/p/Chapitre1-Albedo", status: "idle", updatedAt: "2026-11-01T10:00:00Z" },
-        { id: "t4", title: "Le plus ancien", projectRoot: "/p/Chapitre1-Albedo", status: "idle", updatedAt: "2026-10-01T10:00:00Z" },
-        { id: "sub", title: "Sous-agent", projectRoot: "/p/Chapitre1-Albedo", status: "idle", updatedAt: "2026-11-08T11:59:00Z", agentLink: {} },
-        { id: "o1", title: "Ailleurs", projectRoot: "/p/GEO1063", status: "idle", updatedAt: "2026-11-08T11:00:00Z" },
-      ],
-    });
-    expect(screen.getByRole("heading", { level: 2, name: "Chapitre1-Albedo" })).toBeInTheDocument();
-    expect(screen.getByText("2 agents en cours")).toBeInTheDocument();
-    expect(screen.getByText(/^Soumission /)).toBeInTheDocument();
-    // trois fils, du plus récent au plus ancien, sans sous-agent ni autre projet
-    const chats = [...document.querySelectorAll(".ph-chat-title")].map((el) => el.textContent);
-    expect(chats).toEqual(["Révision de la figure 3", "Vérifier la .bib", "Plus ancien"]);
-    fireEvent.click(screen.getByRole("button", { name: /Vérifier la \.bib/ }));
-    expect(props.onOpenThread).toHaveBeenCalledWith("t2", "/p/Chapitre1-Albedo");
-    fireEvent.click(screen.getByRole("button", { name: "Réglages du projet" }));
-    expect(props.onProjectSettings).toHaveBeenCalledWith("/p/Chapitre1-Albedo");
-    fireEvent.click(screen.getByRole("button", { name: "Reprendre" }));
-    expect(props.onOpen).toHaveBeenCalledWith("/p/Chapitre1-Albedo");
-    // tous les autres projets, toujours visibles
-    const rows = [...document.querySelectorAll(".ph-row .ph-row-name")].map((el) => el.textContent);
-    expect(rows).toEqual(["Chapitre2-Feux", "GEO1063", "atelier-studio"]);
-    expect(screen.getByText("Autres projets")).toBeInTheDocument();
-    // vignettes demandées pour le projet en avant et les premiers de la liste
+  it("montre tous les projets en cartes, du plus récent au plus ancien", () => {
+    const props = setup({ onProjectSettings: vi.fn(), onRemoveProject: vi.fn() });
+    const names = [...document.querySelectorAll(".ph-card .ph-card-name")].map((el) => el.textContent);
+    expect(names).toEqual(["Chapitre1-Albedo", "Chapitre2-Feux", "GEO1063", "atelier-studio"]);
+    // le plus récent porte « Dernier ouvert », son échéance et ses agents en cours
+    const first = document.querySelector(".ph-card")!;
+    expect(first.querySelector(".ph-card-line")?.textContent).toMatch(/^Dernier ouvert · Soumission /);
+    expect(first.querySelector(".ph-dot")?.getAttribute("title")).toBe("2 agents en cours");
+    expect(document.querySelectorAll(".ph-card .ph-dot")).toHaveLength(1);
+    // ⌘1 à ⌘4, le premier toujours visible
+    expect([...document.querySelectorAll(".ph-kbd")].map((el) => el.textContent)).toEqual(["⌘1", "⌘2", "⌘3", "⌘4"]);
+    fireEvent.click(screen.getByRole("button", { name: /GEO1063/ }));
+    expect(props.onOpen).toHaveBeenCalledWith("/p/GEO1063");
+    // cartes demandées pour tous les projets
     expect(sent[0]).toMatchObject({ type: "projectCards", roots: props.projects });
+  });
+
+  it("dessine la première page : PDF, Word, premiers fichiers, ou dossier introuvable", () => {
+    setup();
     act(() => {
       window.dispatchEvent(new CustomEvent("project-cards", { detail: { requestId: sent[0].requestId, cards: [
         { root: "/p/Chapitre1-Albedo", thumb: "data:image/png;base64,AAAA", journal: "The Cryosphere" },
+        { root: "/p/Chapitre2-Feux", doc: "TP6/commentaires.docx", docx: {
+          page: { width: 612, height: 792, top: 72, right: 72, bottom: 72, left: 72 },
+          paragraphs: [
+            { segments: [{ text: "TP6 — Commentaires", kind: "text", b: true }], look: { size: 16 } },
+            { segments: [{ text: "Équipe 1", kind: "text" }], look: { color: "C0504D" } },
+            { cell: [0, 0, 0], segments: [{ text: "Critère", kind: "text" }] },
+            { cell: [0, 0, 1], segments: [{ text: "Note", kind: "text" }] },
+          ] } },
         { root: "/p/GEO1063", missing: true },
+        { root: "/p/atelier-studio", files: [{ name: "docs", dir: true }, { name: "README.md", dir: false }] },
       ] } }));
     });
-    expect(document.querySelector(".ph-hero img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
-    expect(screen.getByText(/^The Cryosphere/)).toBeInTheDocument();
-    expect(screen.getByText("Dossier introuvable")).toBeInTheDocument();
+    const cards = [...document.querySelectorAll(".ph-card")];
+    expect(cards[0].querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(cards[0].querySelector(".ph-card-line")?.textContent).toMatch(/^Dernier ouvert · Soumission/);
+    const page = cards[1].querySelector<HTMLElement>(".ph-dx-page")!;
+    expect(page.textContent).toContain("TP6 — Commentaires");
+    expect(page.style.width).toBe("816px");
+    expect(page.querySelectorAll(".ph-dx-table td")).toHaveLength(2);
+    expect(cards[1].querySelector(".ph-card-line")?.textContent).toBe("Word");
+    expect(cards[2].querySelector(".ph-card-line")?.textContent).toBe("Dossier introuvable");
+    expect([...cards[3].querySelectorAll(".ph-file-name")].map((el) => el.textContent)).toEqual(["docs", "README.md"]);
+  });
+
+  it("« ⋯ » ouvre au clic les réglages, le Finder et le retrait du projet", async () => {
+    const props = setup({ onProjectSettings: vi.fn(), onRemoveProject: vi.fn() });
+    const more = screen.getAllByRole("button", { name: "Plus d’actions" });
+    expect(more).toHaveLength(4);
+    fireEvent.click(more[1]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Réglages du projet" }));
+    expect(props.onProjectSettings).toHaveBeenCalledWith("/p/Chapitre2-Feux");
+    fireEvent.click(more[2]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Retirer le projet" }));
+    expect(props.onRemoveProject).toHaveBeenCalledWith("/p/GEO1063");
   });
 
   it("dit qu'il n'y a aucun projet", () => {
     setup({ projects: [] });
     expect(screen.getByText(/Aucun projet pour l’instant/)).toBeInTheDocument();
-    expect(document.querySelector(".ph-hero")).toBeNull();
+    expect(document.querySelector(".ph-grid")).toBeNull();
   });
 
-  it("⌘1 reprend le projet, ⌘2 et suivants ouvrent la liste, sans changer la disposition ; Échap ferme", () => {
+  it("⌘1 à ⌘9 ouvrent les premières cartes, sans changer la disposition ; Échap ferme", () => {
     const props = setup();
     const layout = vi.fn();
     const bubble = (e: KeyboardEvent) => { if (e.metaKey) layout(e.code); };
