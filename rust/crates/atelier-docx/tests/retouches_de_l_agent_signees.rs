@@ -49,3 +49,43 @@ fn les_suivis_signes_claude_passent_au_nom_de_l_utilisateur_et_restent_reconnus(
     let (again, _) = atelier_docx::edit_file_as(&path, None, &origin, |d| marks::adopt(d, "Thierry")).unwrap();
     assert!(again.is_empty());
 }
+
+#[test]
+fn la_reparation_rouvre_les_fils_repondus_et_envoie_les_brouillons() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("revCK.docx");
+    let mut d = open("christophe");
+    apply(&mut d, &op(json!({"op": "replace", "find": "compromis", "with": "équilibre"})), true, &sig("Claude")).unwrap();
+    apply(&mut d, &op(json!({"op": "comment", "paragraph": "p2", "find": "pureté", "text": "Source ?"})), true, &sig("Christophe Kinnard")).unwrap();
+    let tops: Vec<u32> = d.model().unwrap().comments.iter().filter(|c| c.parent.is_none()).map(|c| c.id).collect();
+    assert!(tops.len() >= 2);
+    // Une réponse sous un fil ensuite résolu, et un brouillon resté dans la carte.
+    apply(&mut d, &op(json!({"op": "reply", "parent": tops[0], "text": "Je l'ajoute."})), true, &sig("Thierry Laurent")).unwrap();
+    apply(&mut d, &op(json!({"op": "resolve", "id": tops[0], "done": true})), true, &sig("Thierry Laurent")).unwrap();
+    std::fs::write(&path, d.to_bytes().unwrap()).unwrap();
+    atelier_docx::drafts::put(&path, tops[1], "Précisé dans la légende.", "Claude").unwrap();
+
+    let before = Docx::open(&path).unwrap().model().unwrap();
+    let mine = |m: &atelier_docx::DocModel| m.comments.iter().filter(|c| c.author == "Thierry Laurent").count();
+    assert_eq!(mine(&before), 1);
+
+    let pending = atelier_docx::drafts::list(&path).unwrap();
+    let origin = Origin { source: "atelier", author: "Thierry Laurent", label: "réparation" };
+    let (r, _) = atelier_docx::edit_file_as(&path, None, &origin, |d| marks::repair(d, "Thierry Laurent", &pending, true)).unwrap();
+    marks::remember(&path, &r.stamps).unwrap();
+    for id in &r.replied {
+        atelier_docx::drafts::clear(&path, *id).unwrap();
+    }
+    assert_eq!(r.replied, vec![tops[1]]);
+
+    let after = Docx::open(&path).unwrap().model().unwrap();
+    assert!(!after.changes.iter().any(|c| c.author == "Claude"));
+    assert_eq!(mine(&after), 2);
+    let sent = after.comments.iter().find(|c| c.text == "Précisé dans la légende.").unwrap();
+    assert_eq!((sent.author.as_str(), sent.parent), ("Thierry Laurent", Some(tops[1])));
+    // Les deux fils où Thierry répond sont ouverts : Word les montre.
+    for id in [tops[0], tops[1]] {
+        assert!(!after.comments.iter().find(|c| c.id == id).unwrap().done, "fil {id}");
+    }
+    assert!(atelier_docx::drafts::list(&path).unwrap().is_empty());
+}

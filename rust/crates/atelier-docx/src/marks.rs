@@ -114,6 +114,52 @@ pub fn adopt(docx: &mut crate::Docx, to: &str) -> Result<Vec<Stamp>> {
     Ok(stamps)
 }
 
+/// Bilan d'une [`repair`].
+#[derive(Debug, Default)]
+pub struct Repair {
+    /// Signatures des suivis repris au nom de l'utilisateur (pour [`remember`]).
+    pub stamps: Vec<Stamp>,
+    /// Fils rouverts.
+    pub reopened: usize,
+    /// Commentaires qui ont reçu leur brouillon comme réponse.
+    pub replied: Vec<u32>,
+}
+
+/// Remet d'aplomb un .docx retouché avant la signature au nom de
+/// l'utilisateur : suivis de l'agent repris sous `name` ([`adopt`]) ;
+/// brouillons de réponse (`drafts`) envoyés comme réponses de `name` ; avec
+/// `reopen`, fils rouverts là où `name` a répondu (Word replie les fils
+/// résolus et leurs réponses). Les brouillons envoyés restent à effacer.
+pub fn repair(docx: &mut crate::Docx, name: &str, drafts: &crate::drafts::Drafts, reopen: bool) -> Result<Repair> {
+    let stamps = adopt(docx, name)?;
+    let sig = Signature::now(name);
+    let mut parents = Vec::new();
+    let mut replied = Vec::new();
+    for (id, draft) in drafts {
+        let text = draft.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        crate::comments::reply(docx, *id, text, &sig)?;
+        replied.push(*id);
+        parents.push(*id);
+    }
+    let m = docx.model()?;
+    if reopen {
+        parents.extend(m.comments.iter().filter(|c| c.author == name).filter_map(|c| c.parent));
+    }
+    parents.sort_unstable();
+    parents.dedup();
+    let mut reopened = 0;
+    for id in parents {
+        if m.comments.iter().any(|c| c.id == id && c.done) {
+            crate::comments::resolve(docx, id, false)?;
+            reopened += 1;
+        }
+    }
+    Ok(Repair { stamps, reopened, replied })
+}
+
 /// « claude » → « Claude » : le nom d'agent tel que le panneau l'affiche.
 fn canonical(name: &str) -> String {
     let n = name.trim();
