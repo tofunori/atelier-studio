@@ -19,7 +19,8 @@ import { dispatchWorkspacePointerDragStart, shouldSuppressWorkspaceSourceClick }
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
 import { IconButton, RowButton } from "./ui";
 import "../styles/document-tabs.css";
-import { FileGlyph } from "./fileGlyphs";
+import { FileGlyph, type FileKind } from "./fileGlyphs";
+import { fileKind } from "../lib/fileKind";
 
 /** Au-delà, les onglets passent dans le menu de débordement, qui affiche les
  *  noms complets. Huit tiennent sur 1440 px une fois la recherche réduite à
@@ -89,21 +90,14 @@ export function extensionOf(tab: PaneTab): string {
   return (/\.([a-z0-9]+)(?:[?#].*)?$/i.exec(String(source ?? ""))?.[1] ?? "").toLowerCase();
 }
 
-/** Famille de glyphe — on en montre cinq, le reste tombe sur « document ». */
-export function kindOf(tab: PaneTab): "tex" | "code" | "note" | "image" | "pdf" | "doc" {
-  const ext = extensionOf(tab);
-  if (ext === "tex" || ext === "bib") return "tex";
-  if (["py", "r", "js", "ts", "tsx", "mjs", "jl", "sh", "json", "toml", "yml", "yaml"].includes(ext)) return "code";
-  if (["md", "txt", "org"].includes(ext)) return "note";
-  if (ext === "pdf") return "pdf";
-  if (["png", "jpg", "jpeg", "svg", "webp", "gif"].includes(ext)) return "image";
-  return "doc";
+/** Type de glyphe : le même classement que l'explorateur (fileKind), pour
+ *  qu'un fichier porte la même forme et la même teinte partout. */
+export function kindOf(tab: PaneTab): FileKind {
+  return fileKind(extensionOf(tab));
 }
 
-const KIND_TO_GLYPH = { code: "code", note: "note", image: "image", pdf: "pdf", tex: "tex", doc: "file" } as const;
-
-function KindGlyph({ kind }: { kind: ReturnType<typeof kindOf> }) {
-  return <FileGlyph className="topbar-tab-kind" kind={KIND_TO_GLYPH[kind]} size={14} />;
+function KindGlyph({ kind }: { kind: FileKind }) {
+  return <FileGlyph className="topbar-tab-kind" kind={kind} size={14} />;
 }
 
 /** Icône de tête : un fil d'agent porte sa bulle, un fichier son type. Les

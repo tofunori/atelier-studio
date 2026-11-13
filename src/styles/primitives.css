@@ -406,6 +406,15 @@ svg:is(.lucide, [stroke="currentColor"]):not([data-slot="spinner"], [data-icon-s
   stroke-width: var(--icon-stroke);
 }
 
+/* Glyphe de type de fichier (fileGlyphs.tsx, variante C 2026-11-13) : cinq
+ * types portent leur teinte sourde, quel que soit le gris posé par le parent
+ * (rangée d'explorateur, onglet actif, carte « fichiers modifiés »). */
+svg.file-glyph[data-file-tint="pdf"] { color: var(--file-tint-pdf); }
+svg.file-glyph[data-file-tint="word"] { color: var(--file-tint-word); }
+svg.file-glyph[data-file-tint="tex"] { color: var(--file-tint-tex); }
+svg.file-glyph[data-file-tint="sheet"] { color: var(--file-tint-sheet); }
+svg.file-glyph[data-file-tint="data"] { color: var(--file-tint-data); }
+
 /* UNE convention de dépliage (SURF-27, SET-27) : chevron qui pointe à
  * droite, tourne de 90° vers le bas à l'ouverture, en 140 ms. */
 .ui-disclosure-chevron { flex: none; color: var(--text-muted);
