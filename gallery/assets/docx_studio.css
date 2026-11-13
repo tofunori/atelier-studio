@@ -320,11 +320,16 @@ body.lane-over #leader{display:none}
    la rangée Résoudre / Répondre ne change pas. */
 .c-field{position:relative;margin-top:12px}
 .c-field .c-input{margin-top:0}
-.c-field.ask .c-input:placeholder-shown{padding-right:48px}
-/* Proposer : l'icône seule, accolée au bord du champ derrière un filet. */
-.cc .in.pb{width:28px;padding:0;gap:0;color:var(--text-primary)}
-.cc .in.pb::before{content:"";position:absolute;left:-6px;top:6px;bottom:6px;width:1px;background:color-mix(in srgb,var(--text-primary) 14%,transparent)}
-.c-field.ask .c-input:not(:placeholder-shown) + .in{opacity:0;pointer-events:none}
+.c-field .c-input{padding-right:44px}
+.c-field.ask .c-input:not(:placeholder-shown){padding-right:76px}
+/* Envoyer et Proposer : icônes seules, accolées au bord du champ derrière un filet.
+   La flèche n'apparaît qu'avec du texte ; le robot reste et prend ce texte pour consigne. */
+.cc .in.ic{display:flex;align-items:center;gap:4px;padding:0}
+.cc .in.ic::before{content:"";position:absolute;left:-6px;top:6px;bottom:6px;width:1px;background:color-mix(in srgb,var(--text-primary) 14%,transparent)}
+.cc .in.ic .mini{width:28px;height:28px;color:var(--text-primary)}
+.cc .in.ic .up{background:var(--press)}
+.c-field .c-input:placeholder-shown + .ic .up{display:none}
+.c-field:not(.ask) .c-input:placeholder-shown + .ic{display:none}
 .cc .in{position:absolute;top:4px;right:4px;height:28px;padding:0 8px;gap:6px;font-size:12px;transition:opacity 120ms ease-out,background-color 120ms ease-out,color 120ms ease-out}
 .c-wait{position:relative;display:flex;align-items:center;gap:8px;min-height:36px;margin-top:12px;padding:0 8px;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));color:var(--text-muted);font-size:12px}
 .c-wait .in{top:4px}

@@ -215,7 +215,7 @@ test("docx: sa réponse se modifie d'un clic, celle de Christophe jamais, et la 
   await expect(edit).toHaveValue('Oui, c\'est ça…');
   await edit.press('Escape');
   await expect(edit).toHaveCount(0);
-  await expect(thread.locator('[data-act="reply"]')).toBeVisible();
+  await expect(thread.locator('textarea')).toBeVisible();
 
   await mine.click();
   await thread.locator('textarea.c-edit').fill('Oui, c\'est ça… clair dans les 3 zones.');
@@ -489,10 +489,17 @@ test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et
   });
   const thread = page.locator('#cards .it[data-key="c1"]');
   await thread.locator('.cc').click();
+  // Champ vide : le robot seul ; du texte : la flèche d'envoi apparaît, le robot reste.
+  await expect(thread.locator('[data-act="reply"]')).toBeHidden();
+  await thread.locator('textarea').fill('réponds que le seuil vient de la littérature');
+  await expect(thread.locator('[data-act="reply"]')).toBeVisible();
+  await expect(thread.locator('[data-act="propose"]')).toBeVisible();
+  // Le texte tapé part comme consigne, puis s'efface.
   await thread.locator('[data-act="propose"]').click();
   await expect(thread.locator('.c-wait')).toBeVisible();
-  await expect(thread.locator('[data-act="reply"]')).toBeDisabled();
+  await expect(thread.locator('[data-act="reply"]')).toHaveCount(0);
   const sent = await page.evaluate(() => (window as unknown as {__sent: {text: string; direct: boolean; path: string}}).__sent);
+  expect(sent.text).toContain('Ma consigne pour cette réponse : « réponds que le seuil vient de la littérature »');
   expect(sent.direct).toBe(true);
   expect(sent.path).toBe(project.doc);
   expect(sent.text).toContain('draft_reply (comment=1)');

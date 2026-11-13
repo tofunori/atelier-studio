@@ -150,6 +150,7 @@
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     down: '<path d="m6 9 6 6 6-6"/>',
     up: '<path d="m18 15-6-6-6 6"/>',
+    send: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
     left: '<path d="m15 18-6-6 6-6"/>',
     right: '<path d="m9 18 6-6-6-6"/>',
     msgPlus: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>',
@@ -2866,22 +2867,25 @@
     const inEdit = on && editing !== null && (editing.id === c.id || replies.some((r) => r.id === editing .id));
     if (on && !inEdit) {
       const field = `<textarea class="c-input" rows="1" placeholder="Répondre…" aria-label="Répondre à ${esc(firstName(c.author))}"></textarea>`;
+      // Dans le champ : la flèche envoie la réponse (dès qu'il y a du texte) ;
+      // le robot demande un brouillon à l'agent, ce qui est tapé lui servant de consigne.
+      const send = `<button class="mini up" data-act="reply" aria-label="Envoyer la réponse" data-tooltip="Envoyer (⌘↵)">${ic("send", 16)}</button>`;
+      const bot = `<button class="mini pb" data-act="propose" aria-label="Proposer une réponse" data-tooltip="Proposer une réponse">${ic("bot", 16)}</button>`;
       const ad = c.done || muted.has(c.id) ? null : agentDrafts[String(c.id)] || null;
       const waiting = !c.done && asking.has(c.id);
       if (waiting) {
         h += `<div class="c-wait" role="status">${ic("bot", 14)}<span>Rédaction du brouillon</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><button class="btn q in" data-act="stop">Arrêter</button></div>`;
       } else if (ad) {
-        h += `<div class="c-by">${ic("bot", 12)}<span>Brouillon de ${esc(firstName(ad.author))}, à relire</span><button class="lk" data-act="redo" data-tooltip="Demander une autre formulation">Refaire</button></div><div class="c-field">${field}</div>`;
-      } else if (!c.done) {
-        h += `<div class="c-field ask">${field}<button class="mini in pb" data-act="propose" aria-label="Proposer une réponse" data-tooltip="Proposer une réponse">${ic("bot", 16)}</button></div>`;
-      } else h += field;
+        h += `<div class="c-by">${ic("bot", 12)}<span>Brouillon de ${esc(firstName(ad.author))}, à relire</span><button class="lk" data-act="redo" data-tooltip="Demander une autre formulation">Refaire</button></div><div class="c-field">${field}<span class="in ic">${send}</span></div>`;
+      } else {
+        h += `<div class="c-field${c.done ? "" : " ask"}">${field}<span class="in ic">${send}${c.done ? "" : bot}</span></div>`;
+      }
       // Un remplacement = un retrait et un ajout : on compte les passages touchés.
       const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
       if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
       h += `<div class="ac"><button class="btn q" data-act="resolve"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
-        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>
-        <button class="btn p" data-act="reply"${!c.done && asking.has(c.id) ? " disabled" : ""}>Répondre</button></div>`;
+        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
     }
     return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }
@@ -3325,7 +3329,7 @@
   }
 
   /** Ce que l'agent lit : le commentaire, son fil, et la consigne. */
-  function replyPrompt(c         , previous         )         {
+  function replyPrompt(c         , previous         , note         )         {
     const replies = model .comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
     const who = firstName(c.author);
     return `${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}\n\n`
@@ -3333,10 +3337,11 @@
       + `Pose-la avec atelier_docx action=draft_reply (comment=${c.id}), jamais reply ; la réponse ne recopie pas de texte corrigé. `
       + `Si le passage mérite une correction, montre-la-moi ici dans le chat (avant / après) sans toucher au document : `
       + `je te dirai si tu la poses en suivi (action=edit).`
+      + (note ? ` Ma consigne pour cette réponse : « ${note} ».` : "")
       + (previous ? ` Une autre formulation que celle-ci : « ${previous} ».` : "");
   }
 
-  function proposeReply(c         , previous         ) {
+  function proposeReply(c         , previous         , note         ) {
     const core = W.AtelierStudioCore;
     if (!W.__atelierPost || !core || !core.requestChatAttachment) {
       status("Le chat d'Atelier n'est pas joignable depuis cette page.", true);
@@ -3346,7 +3351,7 @@
     asking.set(c.id, Date.now());
     fixBase.set(c.id, new Set(model .changes.map((ch) => ch.id)));
     renderCards();
-    core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: replyPrompt(c, previous), path: PATH, name: NAME, direct: true } })
+    core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: replyPrompt(c, previous, note), path: PATH, name: NAME, direct: true } })
       .then(() => status("Demandé au chat : le brouillon arrive dans la carte"))
       .catch((e       ) => { asking.delete(c.id); renderCards(); status(e.message, true); });
   }
@@ -3427,7 +3432,14 @@
     const c = commentMap.get(it.ids[0]);
     if (!c) return;
     const ta = host.querySelector("textarea");
-    if (act === "propose") { proposeReply(c); return; }
+    if (act === "propose") {
+      // Ce qui est tapé sert de consigne à l'agent, puis s'efface : le brouillon prend sa place.
+      const note = ta ? ta.value.trim() : "";
+      if (ta) ta.value = "";
+      replyDrafts.delete(it.key);
+      proposeReply(c, undefined, note);
+      return;
+    }
     if (act === "edit") {
       const mine = commentMap.get(Number((t.closest("[data-cid]")               ).dataset.cid));
       if (!mine) return;
