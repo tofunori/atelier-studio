@@ -59,6 +59,8 @@
     notes?: Note[]; headers?: HeaderFooter[]; page?: Page;
     /** Ajouté ici : nombre de paragraphes du corps, en tête de `paragraphs`. */
     body?: number;
+    /** Suivis signés du nom de l'utilisateur mais proposés par l'agent : numéro → « Claude ». */
+    agentChanges?: Record<string, string>;
   };
   type Pos = { idx: number; off: number };
   type Sel = { a: Pos; b: Pos };
@@ -251,9 +253,14 @@
     } catch { /* page déjà déchargée */ }
   }
 
+  /** Retouches de l'agent : le .docx porte le nom de l'utilisateur (Thierry,
+   *  2026-11-13), Atelier se souvient de l'agent qui les a proposées. */
+  let agentMarks: Record<string, string> = {};
   /** Corps, puis notes, puis en-têtes et pieds dans une seule liste : un
    *  rang (`idx`) désigne n'importe quel paragraphe modifiable. */
   function normalize(m: Model): Model {
+    // Tout modèle complet du serveur porte la liste ; un modèle recalculé ici n'y touche pas.
+    if (m.agentChanges) agentMarks = m.agentChanges;
     if (m.body !== undefined) return m;
     const body: Para[] = m.paragraphs.map((p) => ({ ...p, story: "" }));
     const rest: Para[] = [];
@@ -302,6 +309,11 @@
     if (!colorCache.has(name)) colorCache.set(name, `a${(colorCache.size % 3) + 1}`);
     return colorCache.get(name) as string;
   }
+  /** Retouches de l'agent : le .docx porte le nom de l'utilisateur (voir `agentMarks`). */
+  const proposer = (c: Change) => agentMarks[c.id] || "";
+  const byAgent = (c: Change) => !!proposer(c) || AGENT.test(c.author);
+  /** Qui montrer pour un suivi : l'agent qui l'a proposé, sinon son auteur. */
+  const shownAuthor = (c: Change) => proposer(c) || c.author;
   const authorColor = (name: string) => `var(--doc-${authorKey(name)})`;
   const uiColor = (name: string) => `var(--ui-${authorKey(name)})`;
   const changeById = () => new Map((model?.changes || []).map((c) => [c.id, c] as const));
@@ -479,7 +491,7 @@
         const c = changes.get(s.change);
         node.classList.add(removed ? "del" : "ins");
         node.dataset.ch = String(s.change);
-        node.style.setProperty("--rev-color", authorColor(c ? c.author : ""));
+        node.style.setProperty("--rev-color", authorColor(c ? shownAuthor(c) : ""));
         changed = changed || c;
       }
       if (s.kind === "break" && s.label === "page") node.classList.add("pbr");
@@ -499,7 +511,7 @@
     }
     if (changed) {
       el.classList.add("changed");
-      el.style.setProperty("--rev-color", authorColor(changed.author));
+      el.style.setProperty("--rev-color", authorColor(shownAuthor(changed)));
     }
     if (!any) el.appendChild(document.createElement("br"));
     el.dataset.len = String(off);
@@ -2749,6 +2761,8 @@
   let lane: LaneItem[] = [];
   let navOrder: string[] = [];
   let changeMap = new Map<number, Change>();
+  /** Qui montrer en tête d'une rangée de suivis. */
+  const lead = (ids: number[]) => { const c = changeMap.get(ids[0]); return c ? shownAuthor(c) : ""; };
   let commentMap = new Map<number, Comment>();
   const openChips = new Set<string>();
   /** Commentaire en cours d'écriture, sur un passage d'un paragraphe. */
@@ -2825,9 +2839,9 @@
     }
     for (const [idx, ids] of per) {
       const p = m.paragraphs[idx];
-      items.push({ key: `p${p.para_id || p.id}`, kind: "chip", idx, anchor: nodes.get(idx) || null, ids, author: changeMap.get(ids[0])?.author ?? "" });
+      items.push({ key: `p${p.para_id || p.id}`, kind: "chip", idx, anchor: nodes.get(idx) || null, ids, author: lead(ids) });
     }
-    if (loose.length) items.push({ key: "loose", kind: "chip", idx: 1e9, anchor: null, ids: loose, author: changeMap.get(loose[0])?.author ?? "" });
+    if (loose.length) items.push({ key: "loose", kind: "chip", idx: 1e9, anchor: null, ids: loose, author: lead(loose) });
     // Fiches de commentaire : ancrées au premier passage surligné.
     const first = new Map<number, HTMLElement>();
     for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".cmt[data-c]"))) {
@@ -2906,8 +2920,8 @@
         const del = c.kind === "del" || c.kind === "moveFrom";
         const sign = c.kind === "ins" || c.kind === "moveTo" ? "+" : del ? "−" : "¶";
         const label = sign === "¶" ? `${KIND[c.kind] || c.kind}${c.text ? ` · ${clip(oneLine(c.text), 80)}` : ""}` : (oneLine(c.text) || (c.kind.startsWith("move") ? "Déplacement" : "Espace"));
-        const tip = `${c.author} · ${kindLabel(c)}${c.date ? ` · ${dateFr(c.date)}, ${timeFr(c.date)}` : ""}`;
-        return `<div class="cr${del ? " d" : ""}" data-ch="${c.id}" data-act="show" data-tooltip="${esc(tip)}"><span class="k" style="--who:${uiColor(c.author)}">${sign}</span><span class="t">${esc(clip(label, 120))}</span><span class="gr"><button class="mini no" data-act="reject" aria-label="Refuser : ${esc(clip(label, 60))}">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter : ${esc(clip(label, 60))}">${ic("check", 14)}</button></span></div>`;
+        const tip = `${c.author}${proposer(c) ? ` · proposé par ${proposer(c)}` : ""} · ${kindLabel(c)}${c.date ? ` · ${dateFr(c.date)}, ${timeFr(c.date)}` : ""}`;
+        return `<div class="cr${del ? " d" : ""}" data-ch="${c.id}" data-act="show" data-tooltip="${esc(tip)}"><span class="k" style="--who:${uiColor(shownAuthor(c))}">${sign}</span><span class="t">${esc(clip(label, 120))}</span><span class="gr"><button class="mini no" data-act="reject" aria-label="Refuser : ${esc(clip(label, 60))}">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter : ${esc(clip(label, 60))}">${ic("check", 14)}</button></span></div>`;
       }).join("")}</div>`;
     }
     return `<div class="ch${open ? " open" : ""}">${h}</div>`;
@@ -3335,7 +3349,7 @@
   function agentFixes(id: number): number[] {
     const base = fixBase.get(id);
     if (!base || !model) return [];
-    return model.changes.filter((ch) => !base.has(ch.id) && AGENT.test(ch.author)).map((ch) => ch.id);
+    return model.changes.filter((ch) => !base.has(ch.id) && byAgent(ch)).map((ch) => ch.id);
   }
 
   /** Ce que l'agent lit : le commentaire, son fil, et la consigne. */
@@ -4310,8 +4324,8 @@
 
   function renderStatus() {
     if (!model) return;
-    const pending = model.changes.filter((c) => AGENT.test(c.author));
-    const agentNames = Array.from(new Set(pending.map((c) => c.author)));
+    const pending = model.changes.filter(byAgent);
+    const agentNames = Array.from(new Set(pending.map(shownAuthor)));
     const other = model.other_parts.reduce((n, o) => n + o.changes, 0);
     const open = model.comments.filter((c) => !c.done && isTop(c)).length;
     let words = 0;

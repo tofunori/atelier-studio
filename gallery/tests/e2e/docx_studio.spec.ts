@@ -474,6 +474,40 @@ test("docx: une retouche de l'agent apparaît sans recharger", async ({page, pro
   await expect(page.locator('#foot')).toContainText('de Claude en attente');
 });
 
+/** Fichier des retouches de l'agent signées du nom de l'utilisateur
+ *  (atelier_docx::marks) : même dossier et même nom que les brouillons. */
+async function marksFile(doc: string): Promise<string> {
+  const canon = await realpath(doc);
+  return path.join(tmpdir(), `atelier-docx-${createHash('sha256').update(canon).digest('hex').slice(0, 16)}.agent.json`);
+}
+
+test("docx: une retouche de Claude signée Thierry reste marquée « proposé par Claude » dans le panneau", async ({page, project}) => {
+  await open(page, project);
+  const m = await disk(page, project);
+  // Ce que fait l'outil de l'agent : suivi au nom de Thierry, signature notée à part.
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: 'Thierry', op: {op: 'replace', find: 'compromis', with: 'équilibre'}}});
+  expect(r.ok()).toBe(true);
+  const after = await disk(page, project) as Model & {changes: {id: number; author: string; date: string}[]};
+  const known = new Set(m.changes.map(c => c.id));
+  const mine = after.changes.filter(c => !known.has(c.id));
+  expect(mine.length).toBeGreaterThan(0);
+  expect(mine.every(c => c.author === 'Thierry')).toBe(true);
+  await writeFile(await marksFile(project.doc), JSON.stringify([{agent: 'Claude', author: 'Thierry', date: mine[0].date}]));
+  try {
+    await page.reload();
+    await expect(page.locator('.d-p[data-idx="2"] .ins', {hasText: 'équilibre'})).toBeVisible();
+    await expect(page.locator('#foot')).toContainText('de Claude en attente');
+    // La teinte de l'agent, pas celle de Thierry ; l'infobulle dit les deux.
+    const tint = await page.locator('.d-p[data-idx="2"] .ins', {hasText: 'équilibre'}).evaluate(el => (el as HTMLElement).style.getPropertyValue('--rev-color'));
+    expect(tint).toContain('--doc-agent');
+    const row = page.locator(`#cards .it.grp[data-ids~="${mine[0].id}"]`);
+    await row.locator('.row').click();
+    await expect(row.locator(`.cr[data-ch="${mine[0].id}"]`)).toHaveAttribute('data-tooltip', /^Thierry · proposé par Claude · /);
+  } finally {
+    await writeFile(await marksFile(project.doc), '[]');
+  }
+});
+
 /** Fichier des brouillons de réponse de l'agent (atelier_docx::drafts) :
  *  dossier temporaire, nommé d'après le chemin canonique du document. */
 async function draftsFile(doc: string): Promise<string> {

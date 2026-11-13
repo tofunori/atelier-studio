@@ -174,7 +174,10 @@ fn disk_revision(path: &Path, revision: Option<String>) -> Option<String> {
 
 /// Modèle complet servi depuis la séance (révision de la séance).
 fn session_model_json(g: &mut Session) -> Result<Value, String> {
+    let agent = atelier_docx::marks::list(g.path(), g.model()).unwrap_or_default();
     let mut v = serde_json::to_value(g.model()).map_err(|e| e.to_string())?;
+    // Suivis signés du nom de l'utilisateur mais proposés par l'agent.
+    v["agentChanges"] = json!(agent);
     v["styles"] = g.styles().clone();
     v["mtime"] = json!(mtime_ms(g.path()));
     v["openInWord"] = json!(atelier_docx::open_in_word(g.path()));
@@ -244,10 +247,12 @@ fn model_json(path: &Path) -> Result<Value, String> {
 }
 
 /// Le modèle pour le panneau : celui du moteur, avec les styles proposés,
-/// la date du fichier et l'état de Word.
+/// la date du fichier, l'état de Word et les suivis venus de l'agent.
 fn model_value(docx: &mut Docx, model: atelier_docx::DocModel, path: &Path) -> Result<Value, String> {
     let styles = format::styles(docx).map_err(|e| e.0)?;
+    let agent = atelier_docx::marks::list(path, &model).unwrap_or_default();
     let mut v = serde_json::to_value(model).map_err(|e| e.to_string())?;
+    v["agentChanges"] = json!(agent);
     v["styles"] = json!(styles);
     v["mtime"] = json!(mtime_ms(path));
     v["openInWord"] = json!(atelier_docx::open_in_word(path));

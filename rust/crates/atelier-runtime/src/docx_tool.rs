@@ -1,6 +1,8 @@
 //! Outil `atelier_docx` : l'agent lit un .docx du projet et y propose des
-//! retouches, toujours en suivi des modifications et signées de son nom
-//! (« Claude », « Codex »…). Il n'accepte ni ne refuse aucun suivi et ne
+//! retouches, toujours en suivi des modifications. Elles sont signées du nom
+//! de l'utilisateur, comme s'il les avait tapées (Thierry, 2026-11-13), et
+//! Atelier se souvient qu'elles viennent de l'agent (`atelier_docx::marks`) ;
+//! ses commentaires gardent le nom de l'agent. Il n'accepte ni ne refuse aucun suivi et ne
 //! résout aucun commentaire : ces décisions restent à l'utilisateur, dans le
 //! panneau .docx ou dans Word.
 
@@ -112,6 +114,20 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
     })
 }
 
+/// Nom sous lequel l'agent signe ses retouches en suivi : celui de
+/// l'utilisateur (voir `atelier_docx::marks::signer`).
+fn signer(project_root: &str, path: &Path) -> Result<String, String> {
+    let model = Docx::open(path).and_then(|mut d| d.model()).map_err(|e| e.0)?;
+    Ok(atelier_docx::marks::signer(path, Path::new(project_root), &model))
+}
+
+/// Atelier se souvient que ces suivis viennent de l'agent : le panneau les
+/// montre « proposés par Claude » alors que le fichier dit « Thierry ».
+fn remember(path: &Path, sig: &Signature, provider: &str) -> Result<(), String> {
+    let model = Docx::open(path).and_then(|mut d| d.model()).map_err(|e| e.0)?;
+    atelier_docx::marks::record(path, &model, sig, author_for(provider)).map(|_| ()).map_err(|e| e.0)
+}
+
 fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<Value, String> {
     let path = resolve(project_root, str_arg(req, "path").unwrap_or(""))?;
     if action == "read" {
@@ -127,7 +143,7 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         // Coupe juste après `find` : la fin du paragraphe devient un nouveau
         // paragraphe, en suivi (marque de paragraphe insérée).
         let find = str_arg(req, "find").ok_or("find manquant : le texte juste avant la coupure")?.to_string();
-        let sig = Signature::now(author_for(provider));
+        let sig = Signature::now(&signer(project_root, &path)?);
         let paragraph = str_arg(req, "paragraph").map(str::to_string);
         let occurrence = usize_arg(req, "occurrence");
         let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: "paragraphe" };
@@ -137,8 +153,9 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
             Ok(p)
         })
         .map_err(|e| e.0)?;
+        remember(&path, &sig, provider)?;
         return Ok(json!({
-            "ok": true, "author": sig.author, "revision": revision, "result": {"paragraph": p},
+            "ok": true, "author": sig.author, "proposed_by": author_for(provider), "revision": revision, "result": {"paragraph": p},
             "note": "Coupure proposée en suivi des modifications : l'utilisateur l'accepte ou la refuse."
         }));
     }
@@ -153,7 +170,11 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
             "note": "Brouillon posé dans la carte du commentaire, pas dans le .docx : l'utilisateur le relit, le retouche et l'envoie sous son nom. Ne le recopie pas dans ta réponse."
         }));
     }
-    let sig = Signature::now(author_for(provider));
+    // Les retouches en suivi portent le nom de l'utilisateur (Thierry,
+    // 2026-11-13) ; un commentaire ou une réponse garde celui de l'agent,
+    // car rien ne s'y accepte ni ne s'y refuse.
+    let speaks = matches!(action, "comment" | "reply");
+    let sig = Signature::now(&if speaks { author_for(provider).to_string() } else { signer(project_root, &path)? });
     let expected = str_arg(req, "revision");
     let (result, revision) = if action == "insert_note" || action == "insert_figure" {
         // Placé juste après `find` ; la figure vient du projet.
@@ -184,9 +205,12 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: op.label() };
         atelier_docx::edit_file_as(&path, expected, &origin, |d| ops::apply(d, &op, true, &sig)).map_err(|e| e.0)?
     };
+    if !speaks {
+        remember(&path, &sig, provider)?;
+    }
     // Le paragraphe touché, relu tel qu'il est maintenant sur le disque.
     let para = result.get("paragraph").and_then(Value::as_str).map(str::to_string).or_else(|| str_arg(req, "paragraph").map(str::to_string));
-    let mut out = json!({"ok": true, "author": sig.author, "revision": revision, "result": result});
+    let mut out = json!({"ok": true, "author": sig.author, "proposed_by": author_for(provider), "revision": revision, "result": result});
     if let Some(p) = para.and_then(|p| p.strip_prefix('p').and_then(|n| n.parse::<usize>().ok())) {
         let mut docx = Docx::open(&path).map_err(|e| e.0)?;
         let model = docx.model().map_err(|e| e.0)?;
@@ -245,16 +269,26 @@ mod tests {
     }
 
     #[test]
-    fn l_agent_lit_puis_propose_en_suivi_signe_de_son_nom() {
+    fn l_agent_lit_puis_propose_en_suivi_signe_du_nom_de_l_utilisateur() {
         let dir = tempfile::tempdir().unwrap();
         let path = fixture(dir.path());
+        // Le nom choisi dans le panneau : l'agent signe sous celui-là.
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry"}"#).unwrap();
         let root = dir.path().to_str().unwrap();
         let read = run(root, "codex", "read", &json!({"path": "article.docx"})).unwrap();
         assert!(read["text"].as_str().unwrap().contains("c1 Christophe"));
         let rev = read["revision"].as_str().unwrap();
 
         let r = run(root, "claude", "edit", &json!({"path": "article.docx", "find": "compromis", "with": "équilibre", "revision": rev})).unwrap();
-        assert_eq!(r["author"], "Claude");
+        assert_eq!(r["author"], "Thierry");
+        assert_eq!(r["proposed_by"], "Claude");
+        // Le fichier ne dit que « Thierry » ; Atelier sait que c'est Claude.
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        let marks = atelier_docx::marks::list(&path, &m).unwrap();
+        assert!(!marks.is_empty() && marks.values().all(|a| a == "Claude"), "{marks:?}");
+        assert!(m.changes.iter().filter(|c| marks.contains_key(&c.id)).all(|c| c.author == "Thierry"));
+        assert!(!m.changes.iter().any(|c| c.author == "Claude"));
         assert!(r["now"].as_str().unwrap().contains("[+équilibre+]"), "{r}");
         // Version périmée : refusée.
         let e = run(root, "claude", "edit", &json!({"path": "article.docx", "find": "pureté", "with": "netteté", "revision": rev})).unwrap_err();
@@ -278,7 +312,9 @@ mod tests {
 
         let mut d = Docx::open(&path).unwrap();
         let m = d.model().unwrap();
-        assert!(m.changes.iter().filter(|c| c.author == "Claude").count() >= 4);
+        assert!(m.changes.iter().filter(|c| c.author == "Thierry").count() >= 4);
+        assert!(atelier_docx::marks::list(&path, &m).unwrap().len() >= 4);
+        // Une réponse à Christophe garde le nom de l'agent.
         assert!(m.comments.iter().any(|c| c.author == "Codex" && c.parent == Some(1)));
         // Notes et figures, en suivi signé ; la note de Christophe se retouche.
         let r = run(root, "claude", "insert_note", &json!({"path": "article.docx", "find": "réflectances de surface", "text": "Bandes 1 à 7."})).unwrap();
@@ -296,20 +332,20 @@ mod tests {
         run(root, "claude", "insert_row", &json!({"path": "article.docx", "paragraph": cell})).unwrap();
         run(root, "claude", "delete_row", &json!({"path": "article.docx", "paragraph": cell})).unwrap();
         let m = Docx::open(&path).unwrap().model().unwrap();
-        assert!(m.changes.iter().any(|c| c.kind == "row-ins" && c.author == "Claude"));
-        assert!(m.changes.iter().any(|c| c.kind == "row-del" && c.author == "Claude"));
+        assert!(m.changes.iter().any(|c| c.kind == "row-ins" && c.author == "Thierry"));
+        assert!(m.changes.iter().any(|c| c.kind == "row-del" && c.author == "Thierry"));
 
         // Réunir deux paragraphes coupés par une marque de paragraphe, puis
         // couper un paragraphe : toujours en suivi signé.
         let n = Docx::open(&path).unwrap().model().unwrap().paragraphs.len();
         run(root, "claude", "join", &json!({"path": "article.docx", "paragraph": "p2"})).unwrap();
         let m = Docx::open(&path).unwrap().model().unwrap();
-        assert!(m.changes.iter().any(|c| c.kind == "paragraph-del" && c.author == "Claude"), "{:?}", m.changes);
+        assert!(m.changes.iter().any(|c| c.kind == "paragraph-del" && c.author == "Thierry"), "{:?}", m.changes);
         assert!(m.paragraphs.len() >= n, "la marque reste, supprimée en suivi");
         let r = run(root, "claude", "split", &json!({"path": "article.docx", "find": "réflectances de surface"})).unwrap();
-        assert_eq!(r["author"], "Claude");
+        assert_eq!(r["author"], "Thierry");
         let m = Docx::open(&path).unwrap().model().unwrap();
-        assert!(m.changes.iter().any(|c| c.kind == "paragraph-ins" && c.author == "Claude"), "{:?}", m.changes);
+        assert!(m.changes.iter().any(|c| c.kind == "paragraph-ins" && c.author == "Thierry"), "{:?}", m.changes);
         assert!(run(root, "claude", "join", &json!({"path": "article.docx"})).unwrap_err().contains("paragraph manquant"));
 
         // Les décisions ne sont pas exposées.
