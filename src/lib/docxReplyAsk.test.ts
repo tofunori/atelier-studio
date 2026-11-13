@@ -27,6 +27,14 @@ describe("docxReplyAsk", () => {
     expect(docxReplyAsk(ask("commentaire c7, n3.p0"))?.where).toBeUndefined();
   });
 
+  it("« Vérifier dans le chat » sur son propre commentaire : check, sans les réponses", () => {
+    const check = `${PATH} (commentaire c121, p2) — mon commentaire sur « compromis » : Seuil justifié en 2.3.\n  ↳ Thierry : vu\n\n`
+      + "Vérifie mon commentaire contre le document (atelier_docx action=read) : chiffres, unités, renvois et ce qu'il dit du texte. "
+      + "Termine toujours par atelier_docx action=checked (comment=121), corrigé ou non.";
+    expect(docxReplyAsk(check)).toEqual({ check: true, author: "mon commentaire", comment: "Seuil justifié en 2.3.", where: "¶ 2" });
+    expect(docxReplyAsk(ask("commentaire c7, p17"))?.check).toBeUndefined();
+  });
+
   it("toute autre pièce jointe : null", () => {
     expect(docxReplyAsk(`${PATH} (p12) : « passage »\nCommentaire : note`)).toBeNull();
     expect(docxReplyAsk("/a/chapitre1.tex (L3-5) : « x »")).toBeNull();

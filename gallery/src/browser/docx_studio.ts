@@ -175,6 +175,8 @@
     circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
     bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+    // Vérifier son commentaire dans le chat : loupe et coche.
+    verif: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="m8.5 11 1.8 1.8 3.2-3.4"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
   const ic = (k: keyof typeof PATHS, size = 16) => svg(PATHS[k], size);
@@ -2847,6 +2849,13 @@
   let agentDraftsSig = "";
   /** Commentaires dont on attend le brouillon, et depuis quand. */
   const asking = new Map<number, number>();
+  /** Ses commentaires partis au chat pour vérification : depuis quand, le
+   *  texte d'alors, et l'heure à laquelle l'agent a dit avoir fini. */
+  const checking = new Map<number, { at: number; text: string; done?: number }>();
+  /** Commentaires que l'agent vient de corriger : leur ancien texte, le
+   *  temps que le passage changé luise. */
+  const glowing = new Map<number, string>();
+  const CHECK_TIMEOUT_MS = 10 * 60 * 1000;
   /** Brouillons écartés par « Arrêter » jusqu'à la prochaine demande. */
   const muted = new Set<number>();
   /** Suivis connus au moment de la demande : les nouveaux de l'agent sont ses corrections. */
@@ -2936,11 +2945,21 @@
         return `<textarea class="c-input c-edit" rows="2" aria-label="Modifier ton message">${esc(x.text.trim())}</textarea>
           <div class="ac"><button class="btn q" data-act="edit-cancel">Annuler</button><button class="btn p" data-act="edit-save">Enregistrer</button></div>`;
       }
-      if (on && !c.done && x.author === author) return `<p class="tx mine" data-act="edit" data-cid="${x.id}" role="button" tabindex="0" aria-label="Modifier ton message">${esc(x.text.trim())}</p>`;
-      return `<p class="tx">${esc(x.text.trim())}</p>`;
+      const body = glowing.has(x.id) ? marked(glowing.get(x.id)!, x.text.trim()) : esc(x.text.trim());
+      if (on && !c.done && x.author === author) return `<p class="tx mine" data-act="edit" data-cid="${x.id}" role="button" tabindex="0" aria-label="Modifier ton message">${body}</p>`;
+      return `<p class="tx">${body}</p>`;
     };
     h += head(c.author, c.initials, dateFr(c.date));
-    h += text(c);
+    // Son propre commentaire : une icône à côté du texte le fait vérifier
+    // dans le chat ; trois points tant que l'agent n'a pas fini.
+    const mineTop = on && !c.done && c.author === author && editing?.id !== c.id;
+    if (mineTop) {
+      const busy = checking.has(c.id) && !checking.get(c.id)!.done;
+      const vf = busy
+        ? `<button class="vf busy" data-act="check" aria-label="Vérification en cours dans le chat" data-tooltip="Vérification en cours"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></button>`
+        : `<button class="vf" data-act="check" aria-label="Vérifier dans le chat" data-tooltip="Vérifier dans le chat">${ic("verif", 14)}</button>`;
+      h += `<div class="c-line">${text(c)}${vf}</div>`;
+    } else h += text(c);
     if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}${text(r)}</div>`;
     else if (replies.length) h += `<div class="meta">${pl(replies.length, "réponse", "réponses")}</div>`;
     const inEdit = on && editing !== null && (editing.id === c.id || replies.some((r) => r.id === editing!.id));
@@ -2963,9 +2982,7 @@
       const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
       if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
       h += `<div class="ac"><button class="btn q" data-act="resolve"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
-        ${c.author === author && !c.done
-          ? `<button class="mini" data-act="check" aria-label="Faire vérifier par Claude" data-tooltip="Faire vérifier et corriger dans le chat">${ic("chat", 14)}</button>`
-          : `<button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>`}
+        <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
     }
     return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
@@ -3016,6 +3033,7 @@
     if (!model) return;
     changeMap = changeById();
     commentMap = new Map(model.comments.map((c) => [c.id, c] as const));
+    settleChecks();
     lane = collectLane();
     navOrder = lane.filter((it) => it.kind === "comment" && !it.done).sort(byPosition).map((it) => it.key);
     if (focusKey && !lane.some((it) => it.key === focusKey)) focusKey = "";
@@ -3582,6 +3600,32 @@
       + (previous ? ` Une autre formulation que celle-ci : « ${previous} ».` : "");
   }
 
+  /** Ce qui a changé d'un texte à l'autre, entouré pour luire un instant. */
+  function marked(old: string, now: string): string {
+    const a = old.trim().split(/(\s+)/), b = now.split(/(\s+)/);
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    let j = 0;
+    while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
+    const mid = b.slice(i, b.length - j).join("");
+    if (!mid.trim()) return esc(now);
+    return `${esc(b.slice(0, i).join(""))}<span class="chg">${esc(mid)}</span>${esc(b.slice(b.length - j).join(""))}`;
+  }
+
+  /** Vérifications en cours : le texte corrigé luit, puis tout s'efface ;
+   *  juste et fini, ou sans nouvelles, l'icône revient. */
+  function settleChecks() {
+    for (const [id, st] of checking) {
+      const c = commentMap.get(id);
+      if (!c) { checking.delete(id); continue; }
+      if (c.text.trim() !== st.text) {
+        checking.delete(id);
+        glowing.set(id, st.text);
+        setTimeout(() => { glowing.delete(id); renderCards(); }, 1600);
+      } else if ((st.done && Date.now() - st.done > 8000) || Date.now() - st.at > CHECK_TIMEOUT_MS) checking.delete(id);
+    }
+  }
+
   /** Son propre commentaire, envoyé au chat pour vérification : l'agent le
    *  confronte au document puis le corrige lui-même s'il le faut (edit_comment). */
   function checkPrompt(c: Comment): string {
@@ -3589,7 +3633,8 @@
     return `${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — mon commentaire sur « ${c.quote} » : ${c.text}${replies}\n\n`
       + `Vérifie mon commentaire contre le document (atelier_docx action=read) : chiffres, unités, renvois et ce qu'il dit du texte. `
       + `Réponds-moi en une ou deux phrases : juste, ou ce qui cloche. `
-      + `S'il y a une erreur, corrige-le toi-même avec atelier_docx action=edit_comment (comment=${c.id}), en gardant mon ton et sa longueur ; ne touche pas au texte du document.`;
+      + `S'il y a une erreur, corrige-le toi-même avec atelier_docx action=edit_comment (comment=${c.id}), en gardant mon ton et sa longueur ; ne touche pas au texte du document. `
+      + `Termine toujours par atelier_docx action=checked (comment=${c.id}), corrigé ou non.`;
   }
 
   function checkComment(c: Comment) {
@@ -3598,9 +3643,11 @@
       status("Le chat d'Atelier n'est pas joignable depuis cette page.", true);
       return;
     }
+    checking.set(c.id, { at: Date.now(), text: c.text.trim() });
+    renderCards();
     core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: checkPrompt(c), path: PATH, name: NAME, direct: true } })
-      .then(() => status("Envoyé au chat : Claude vérifie ton commentaire"))
-      .catch((e: Error) => status(e.message, true));
+      .then(() => status("Envoyé au chat pour vérification"))
+      .catch((e: Error) => { checking.delete(c.id); renderCards(); status(e.message, true); });
   }
 
   function proposeReply(c: Comment, previous?: string, note?: string) {
@@ -3751,7 +3798,7 @@
     } else if (act === "delete") {
       structural(async () => { await sendOp({ op: "delete_comment", id: c.id }); });
     } else if (act === "check") {
-      checkComment(c);
+      if (!checking.has(c.id) || checking.get(c.id)!.done) checkComment(c);
     } else if (act === "ask") {
       const replies = model!.comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
       toChat(`${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}`);
@@ -5139,6 +5186,14 @@
       const s = await api(`/docx/stat?path=${enc(PATH)}`);
       const sig = JSON.stringify(s.drafts || {});
       if (sig !== agentDraftsSig) { agentDraftsSig = sig; takeAgentDrafts(s.drafts || {}); }
+      // L'agent a fini une vérification (atelier_docx checked).
+      const done: Record<string, number> = s.checks || {};
+      let ended = false;
+      for (const [id, st] of checking) {
+        const at = done[String(id)];
+        if (!st.done && typeof at === "number" && at >= st.at - 1000) { st.done = Date.now(); ended = true; }
+      }
+      if (ended) renderCards();
       for (const [id, since] of asking) {
         if (Date.now() - since > ASK_TIMEOUT_MS) { asking.delete(id); renderCards(); status("Aucun brouillon reçu : voir la réponse dans le chat", true); }
       }

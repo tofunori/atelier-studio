@@ -353,7 +353,8 @@ pub async fn stat(State(state): State<AppState>, headers: HeaderMap, Query(q): Q
     };
     let job = move || {
         let drafts = atelier_docx::drafts::list(&p).unwrap_or_default();
-        let mut v = json!({"mtime": mtime_ms(&p), "openInWord": atelier_docx::open_in_word(&p), "drafts": drafts});
+        let checks = atelier_docx::drafts::checks(&p).unwrap_or_default();
+        let mut v = json!({"mtime": mtime_ms(&p), "openInWord": atelier_docx::open_in_word(&p), "drafts": drafts, "checks": checks});
         // Séance ouverte : sa révision (le fichier change à chaque écriture
         // coalescée sans que le document montré change) ; un fichier changé
         // par un autre est relu ici, et la révision change.
