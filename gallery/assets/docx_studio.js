@@ -2920,6 +2920,17 @@
     return a.idx - b.idx || (a.ids[0] ?? 0) - (b.ids[0] ?? 0);
   }
 
+  /** Commentaire de tête du fil : une réponse a son propre ancrage dans la
+   *  page, mais c'est la tête qui porte l'état « résolu » (Word comme nous). */
+  function threadOf(id        )                      {
+    let c = commentMap.get(id);
+    for (let n = 0; c && c.parent != null && n < 32; n++) {
+      const up = commentMap.get(c.parent);
+      if (!up) break;
+      c = up;
+    }
+    return c;
+  }
   function renderCards() {
     if (!model) return;
     changeMap = changeById();
@@ -2981,8 +2992,8 @@
     const active = focusKey.startsWith("c") ? Number(focusKey.slice(1)) : -1;
     for (const el of Array.from(paper.querySelectorAll             (".cmt[data-c]"))) {
       const ids = el.dataset.c .split(" ").map(Number);
-      el.classList.toggle("done", ids.every((id) => commentMap.get(id)?.done !== false));
-      el.classList.toggle("on", ids.includes(active));
+      el.classList.toggle("done", ids.every((id) => threadOf(id)?.done !== false));
+      el.classList.toggle("on", ids.some((id) => threadOf(id)?.id === active));
     }
     paintDraft();
     layoutCards();
@@ -3647,7 +3658,7 @@
     const cm = t.closest(".cmt[data-c]")                      ;
     if (cm) {
       const ids = cm.dataset.c .split(" ").map(Number);
-      const id = ids.find((x) => commentMap.get(x)?.done === false) ?? ids[0];
+      const id = (ids.map(threadOf).find((x) => x?.done === false) ?? threadOf(ids[0]))?.id ?? ids[0];
       if (focusKey !== `c${id}`) focusCard(`c${id}`, false);
     } else if (!ch && focusKey && focusKey !== "draft") {
       focusKey = "";

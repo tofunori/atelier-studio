@@ -164,6 +164,9 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await thread.locator('[data-act="resolve"]').click();
   await expect.poll(async () => (await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(true);
   await expect(page.locator('#navLbl')).toContainText('Aucun commentaire');
+  // Fil résolu : son passage perd son fond, réponses comprises (elles ont leur propre ancrage).
+  await expect(page.locator('#paper .cmt[data-c~="1"]').first()).toHaveClass(/\bdone\b/);
+  await expect(page.locator('#paper .cmt:not(.done)')).toHaveCount(0);
 
   // Annoter depuis la capsule commune d'Atelier : une boîte s'ouvre sous le
   // passage, ⌘Entrée en fait un commentaire Word signé dans la marge.
