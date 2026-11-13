@@ -47,9 +47,22 @@ pub fn list(doc: &Path, model: &DocModel) -> Result<BTreeMap<u32, String>> {
     Ok(model.changes.iter().filter_map(|c| owner(&stamps, &c.author, &c.date).map(|s| (c.id, s.agent.clone()))).collect())
 }
 
+/// Commentaire (ou réponse) → agent qui l'a écrit, pour ceux encore présents.
+/// Seuls ceux-là, l'agent peut les corriger ou les retirer.
+pub fn comments(doc: &Path, model: &DocModel) -> Result<BTreeMap<u32, String>> {
+    let stamps = read(&store_for(doc)?);
+    Ok(model.comments.iter().filter_map(|c| owner(&stamps, &c.author, &c.date).map(|s| (c.id, s.agent.clone()))).collect())
+}
+
+/// Une signature est-elle encore portée par un suivi ou un commentaire ?
+fn alive(after: &DocModel, author: &str, date: &str) -> bool {
+    after.changes.iter().any(|c| c.author == author && c.date == date) || after.comments.iter().any(|c| c.author == author && c.date == date)
+}
+
 /// Note la retouche que l'agent vient de poser sous `sig`, si elle a laissé
-/// des suivis ; oublie celles dont plus aucun suivi ne reste (acceptés,
-/// refusés). Rend les numéros des suivis de cette retouche.
+/// des suivis ou des commentaires ; oublie celles dont plus rien ne reste
+/// (suivis acceptés ou refusés, commentaires supprimés). Rend les numéros
+/// des suivis de cette retouche.
 pub fn record(doc: &Path, after: &DocModel, sig: &Signature, agent: &str) -> Result<Vec<u32>> {
     let store = store_for(doc)?;
     let lock = crate::lock_file(doc)?;
@@ -57,10 +70,10 @@ pub fn record(doc: &Path, after: &DocModel, sig: &Signature, agent: &str) -> Res
     let mut stamps = read(&store);
     let stamp = Stamp { agent: agent.trim().to_string(), author: sig.author.clone(), date: sig.date.clone() };
     let mine: Vec<u32> = after.changes.iter().filter(|c| c.author == stamp.author && c.date == stamp.date).map(|c| c.id).collect();
-    if !mine.is_empty() && !stamps.contains(&stamp) {
+    if alive(after, &stamp.author, &stamp.date) && !stamps.contains(&stamp) {
         stamps.push(stamp);
     }
-    stamps.retain(|s| after.changes.iter().any(|c| c.author == s.author && c.date == s.date));
+    stamps.retain(|s| alive(after, &s.author, &s.date));
     if stamps.is_empty() {
         match std::fs::remove_file(&store) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),

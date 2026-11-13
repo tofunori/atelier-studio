@@ -68,6 +68,40 @@ fn usize_arg(req: &Value, key: &str) -> Option<usize> {
     req.get(key).and_then(Value::as_u64).map(|n| n as usize)
 }
 
+fn comment_id(req: &Value) -> Result<u32, String> {
+    req.get("comment").and_then(Value::as_u64).map(|n| n as u32).ok_or_else(|| "comment manquant : numéro du commentaire (c3 → 3)".to_string())
+}
+
+fn norm(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Avant d'ajouter un commentaire : le même, au même endroit, est déjà là
+/// (rend son numéro, rien n'est écrit) ; ou l'agent en a déjà posé un sur
+/// ce passage (refus : le corriger avec `edit_comment`, sauf `again`).
+fn duplicate_of(path: &Path, d: &mut Docx, paragraph: Option<&str>, find: &str, text: &str, again: bool) -> atelier_docx::Result<Option<u32>> {
+    let model = d.model()?;
+    let mine = atelier_docx::marks::comments(path, &model).unwrap_or_default();
+    let (find, text) = (norm(find), norm(text));
+    for c in model.comments.iter().filter(|c| c.parent.is_none() && !c.done) {
+        let quote = norm(&c.quote);
+        let here = paragraph.is_none_or(|p| c.paragraph.as_deref() == Some(p));
+        if !here || quote.is_empty() || !(quote.contains(&find) || find.contains(&quote)) {
+            continue;
+        }
+        if norm(&c.text) == text {
+            return Ok(Some(c.id));
+        }
+        if mine.contains_key(&c.id) && !again {
+            return Err(atelier_docx::DocxError(format!(
+                "tu as déjà commenté ce passage (c{}) : pour le corriger, action edit_comment avec comment={} et le nouveau text (ou withdraw_comment pour le retirer) ; again=true seulement pour un second commentaire distinct",
+                c.id, c.id
+            )));
+        }
+    }
+    Ok(None)
+}
+
 /// Traduit l'appel de l'agent en retouche. Seules les retouches proposables
 /// sont exposées : jamais accepter, refuser, résoudre ni supprimer.
 fn op_of(action: &str, req: &Value) -> Result<Op, String> {
@@ -88,14 +122,12 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
         "insert_row" => Op::InsertRow { paragraph: paragraph.ok_or("paragraph manquant : une cellule du tableau (p7)")?, above: req.get("above").and_then(Value::as_bool).unwrap_or(false) },
         "delete_row" => Op::DeleteRow { paragraph: paragraph.ok_or("paragraph manquant : une cellule du tableau (p7)")? },
         "comment" => Op::Comment { paragraph, find: need("find")?, occurrence, text: need("text")? },
+        // Ses propres commentaires seulement (contrôlé dans `run`) : corriger
+        // plutôt qu'en poser un second au même endroit (Thierry, 2026-11-13).
+        "edit_comment" => Op::EditComment { id: comment_id(req)?, text: need("text")? },
+        "withdraw_comment" => Op::DeleteComment { id: comment_id(req)? },
         "reply" => Op::Reply {
             parent: req.get("comment").and_then(Value::as_u64).ok_or("comment manquant : numéro du commentaire (c3 → 3)")? as u32,
-            text: need("text")?,
-        },
-        // Le commentaire de l'utilisateur, corrigé à sa demande (« vérifie
-        // mon commentaire et corrige-le », 2026-11-13) ; jamais celui d'un autre.
-        "edit_comment" => Op::EditComment {
-            id: req.get("comment").and_then(Value::as_u64).ok_or("comment manquant : numéro du commentaire (c3 → 3)")? as u32,
             text: need("text")?,
         },
         "format" => {
@@ -186,7 +218,6 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
     }
     // Retouches, commentaires et réponses portent le nom de l'utilisateur
     // (Thierry, 2026-11-13) : l'étudiant ou le relecteur ne voit que lui.
-    let speaks = matches!(action, "comment" | "reply" | "edit_comment");
     let sig = Signature::now(&signer(project_root, &path)?);
     let expected = str_arg(req, "revision");
     let (result, revision) = if action == "insert_note" || action == "insert_figure" {
@@ -215,12 +246,38 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         .map_err(|e| e.0)?
     } else {
         let op = op_of(action, req)?;
+        if let Op::EditComment { id, .. } | Op::DeleteComment { id } = &op {
+            // Ceux de l'agent et ceux de l'utilisateur (Thierry, 2026-11-13 :
+            // « les miennes oui ») ; jamais ceux du relecteur ni d'un autre auteur.
+            let model = Docx::open(&path).and_then(|mut d| d.model()).map_err(|e| e.0)?;
+            let Some(c) = model.comments.iter().find(|c| c.id == *id) else {
+                return Err(format!("commentaire c{id} introuvable (relis le document : read)"));
+            };
+            let mine = atelier_docx::marks::comments(&path, &model).map_err(|e| e.0)?;
+            if !mine.contains_key(id) && c.author != sig.author && !atelier_docx::marks::is_agent(&c.author) {
+                return Err(format!(
+                    "c{id} est de {} : tu ne corriges ou ne retires que les commentaires de l'utilisateur et les tiens (pour lui répondre : reply ou draft_reply)",
+                    c.author
+                ));
+            }
+        }
         let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: op.label() };
-        atelier_docx::edit_file_as(&path, expected, &origin, |d| ops::apply(d, &op, true, &sig)).map_err(|e| e.0)?
+        let again = req.get("again").and_then(Value::as_bool).unwrap_or(false);
+        atelier_docx::edit_file_as(&path, expected, &origin, |d| {
+            if let Op::Comment { paragraph, find, text, .. } = &op {
+                if let Some(id) = duplicate_of(&path, d, paragraph.as_deref(), find, text, again)? {
+                    return Ok(json!({"comment": id, "already": true}));
+                }
+            }
+            ops::apply(d, &op, true, &sig)
+        })
+        .map_err(|e| e.0)?
     };
-    if !speaks {
-        remember(&path, &sig, provider)?;
+    if result.get("already").is_some() {
+        return Ok(json!({"ok": true, "result": result, "note": "Ce commentaire est déjà dans le document : rien n'a été ajouté."}));
     }
+    // Suivis et commentaires : Atelier se souvient qu'ils viennent de l'agent.
+    remember(&path, &sig, provider)?;
     // Le paragraphe touché, relu tel qu'il est maintenant sur le disque.
     let para = result.get("paragraph").and_then(Value::as_str).map(str::to_string).or_else(|| str_arg(req, "paragraph").map(str::to_string));
     let mut out = json!({"ok": true, "author": sig.author, "proposed_by": author_for(provider), "revision": revision, "result": result});
@@ -385,6 +442,59 @@ mod tests {
         for forbidden in ["accept", "reject", "accept_all", "resolve", "delete_comment"] {
             assert!(op_of(forbidden, &json!({})).is_err());
         }
+    }
+
+    #[test]
+    fn l_agent_corrige_son_commentaire_au_lieu_d_en_poser_un_second() {
+        // 2026-11-13, copies de TP : pour corriger une bulle, l'agent en
+        // ajoutait une nouvelle au même endroit ; l'ancienne restait.
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry"}"#).unwrap();
+        let root = dir.path().to_str().unwrap();
+        let count = || Docx::open(&path).unwrap().model().unwrap().comments.len();
+        let n0 = count();
+        let r = run(root, "claude", "comment", &json!({"path": "article.docx", "find": "réflectances de surface", "text": "Calcul juste."})).unwrap();
+        let id = r["result"]["id"].as_u64().unwrap_or_else(|| panic!("{r}"));
+        assert_eq!(count(), n0 + 1);
+        // Le même commentaire une seconde fois (nouvelle tentative) : rien n'est ajouté.
+        let before = std::fs::read(&path).unwrap();
+        let r = run(root, "claude", "comment", &json!({"path": "article.docx", "find": "réflectances de surface", "text": "Calcul  juste."})).unwrap();
+        assert_eq!((r["result"]["already"].as_bool(), r["result"]["comment"].as_u64()), (Some(true), Some(id)), "{r}");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        // Une autre version au même endroit : refusée, avec le moyen de corriger.
+        let e = run(root, "claude", "comment", &json!({"path": "article.docx", "find": "réflectances de surface", "text": "Calcul juste (h2 = 0,11 m)."})).unwrap_err();
+        assert!(e.contains(&format!("c{id}")) && e.contains("edit_comment"), "{e}");
+        assert_eq!(count(), n0 + 1);
+        // Corriger : le même commentaire, nouveau texte, même signature.
+        run(root, "claude", "edit_comment", &json!({"path": "article.docx", "comment": id, "text": "Calcul juste (h2 = 0,11 m)."})).unwrap();
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        let c = m.comments.iter().find(|c| c.id == id as u32).unwrap();
+        assert_eq!((c.text.as_str(), c.author.as_str()), ("Calcul juste (h2 = 0,11 m).", "Thierry"));
+        assert_eq!(m.comments.len(), n0 + 1);
+        // Un second commentaire distinct, demandé explicitement.
+        run(root, "claude", "comment", &json!({"path": "article.docx", "find": "réflectances de surface", "text": "Unités ?", "again": true})).unwrap();
+        assert_eq!(count(), n0 + 2);
+        // Jamais ceux du relecteur.
+        let e = run(root, "claude", "edit_comment", &json!({"path": "article.docx", "comment": 1, "text": "x"})).unwrap_err();
+        assert!(e.contains("c1 est de Christophe"), "{e}");
+        assert!(run(root, "claude", "withdraw_comment", &json!({"path": "article.docx", "comment": 1})).unwrap_err().contains("est de Christophe"));
+        // Ceux de l'utilisateur, oui (« les miennes oui »).
+        let (r, _) = atelier_docx::edit_file_as(&path, None, &atelier_docx::history::Origin { source: "panneau", author: "Thierry", label: "commentaire" }, |d| {
+            ops::apply(d, &Op::Comment { paragraph: None, find: "MOD09GA".into(), occurrence: None, text: "À vérifier".into() }, true, &Signature::now("Thierry"))
+        })
+        .unwrap();
+        let his = r["id"].as_u64().unwrap();
+        run(root, "claude", "edit_comment", &json!({"path": "article.docx", "comment": his, "text": "À vérifier (bande 1)."})).unwrap();
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        assert_eq!(m.comments.iter().find(|c| c.id == his as u32).unwrap().text, "À vérifier (bande 1).");
+        run(root, "claude", "withdraw_comment", &json!({"path": "article.docx", "comment": his})).unwrap();
+        // Retirer le sien.
+        run(root, "claude", "withdraw_comment", &json!({"path": "article.docx", "comment": id})).unwrap();
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        assert!(!m.comments.iter().any(|c| c.id == id as u32));
+        assert_eq!(m.comments.len(), n0 + 1);
     }
 
     #[test]
