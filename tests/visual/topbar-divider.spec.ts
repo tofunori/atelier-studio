@@ -115,8 +115,10 @@ test('document tabs shrink together, then overflow into a counter instead of bei
     }
     return boxes.length;
   };
-  // côte à côte : peu de place, des onglets passent dans le compteur
-  const split = await check();
+  // côte à côte : peu de place, des onglets passent dans le compteur. Même
+  // ajustement en plusieurs rendus qu'en bas : on attend l'état final.
+  let split = 0;
+  await expect(async () => { split = await check(); }).toPass({ timeout: 5000 });
   expect(split).toBeLessThan(7);
   // atelier seul : la place revient, les onglets aussi
   await page.locator('.topbar-layout-controls [role=radio]').nth(2).click();

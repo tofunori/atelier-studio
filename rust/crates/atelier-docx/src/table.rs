@@ -5,7 +5,7 @@
 //! directement : Word ne les suit pas de façon fiable d'une version à l'autre.
 
 use crate::story::parse_ref;
-use crate::xml::{self, W14, escape_attr, is_w, w_attr, w_child};
+use crate::xml::{self, escape_attr, is_w, w_attr, w_child};
 use crate::{Docx, Result, Signature, err, walk};
 use roxmltree::{Document, Node};
 use std::ops::Range;
@@ -16,11 +16,7 @@ fn cell_of<'a, 'i>(doc: &'a Document<'i>, paragraph: &str) -> Result<(Node<'a, '
     let story = parse_ref(paragraph)?;
     let paras = walk::paragraphs_in(doc, &story.scope);
     let local = story.local.as_str();
-    let index = match local.strip_prefix('p').and_then(|n| n.parse::<usize>().ok()) {
-        Some(i) => Some(i),
-        None => paras.iter().position(|p| p.node.attribute((W14, "paraId")) == Some(local)),
-    };
-    let Some(p) = index.and_then(|i| paras.get(i)) else {
+    let Some(p) = crate::story::local_index(&paras, local).and_then(|i| paras.get(i)) else {
         return err(format!("paragraphe {paragraph} introuvable"));
     };
     let tc = p.node.ancestors().find(|n| is_w(*n, "tc"));

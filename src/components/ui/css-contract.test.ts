@@ -1247,9 +1247,11 @@ describe("contrat lot 2 (socle)", () => {
   it("A4 : la méta lisible est en --text-muted ; --text-disabled reste aux marques et au désactivé", () => {
     const all = sourceSheets().map(([, css]) => css).join("\n");
     // budget gelé : chevrons, séparateurs, puces, coches, poignées,
-    // placeholders, :disabled, étoiles non posées (ne peut que rétrécir)
+    // placeholders, :disabled, étoiles non posées (ne peut que rétrécir ;
+    // 47 depuis le lot #199-#202 : note vide des puces Word, heure et
+    // séparateur des réponses en colonne, chacune admise seule à 46)
     const disabledText = [...all.matchAll(/(^|[^-\w])color:\s*var\(--text-disabled\)/g)].length;
-    expect(disabledText).toBeLessThanOrEqual(46);
+    expect(disabledText).toBeLessThanOrEqual(47);
     for (const sel of [
       ".row-time", ".sidebar li.thread-recency-label", ".sidebar button.pnav-more", ".pnav-row .prov-ico",
       ".cmdk-footer", ".resume-date", ".tool-duration", ".timeline-stamp", ".msg-actions", ".msg-actions button",

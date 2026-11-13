@@ -353,7 +353,7 @@ impl Styles {
 }
 
 /// Format de la page et numérotation des lignes (dernière section du corps).
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Page {
     /// Dimensions et marges, en points.
     pub width: f32,
@@ -369,7 +369,7 @@ pub struct Page {
     pub line_numbers: Option<LineNumbers>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct LineNumbers {
     /// Un numéro toutes les `count_by` lignes.
     pub count_by: u32,
@@ -386,7 +386,11 @@ pub struct LineNumbers {
 }
 
 pub fn page(document_xml: &str, styles: &Styles) -> Option<Page> {
-    let doc = xml::parse(document_xml).ok()?;
+    page_in(&xml::parse(document_xml).ok()?, styles)
+}
+
+/// Comme [`page`], sur le corps déjà analysé.
+pub(crate) fn page_in(doc: &roxmltree::Document, styles: &Styles) -> Option<Page> {
     let body = w_child(doc.root_element(), "body")?;
     let sect = body.children().rfind(|n| is_w(*n, "sectPr"))?;
     // Lettre US par défaut, marges de 1 po, comme Word.

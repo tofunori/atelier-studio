@@ -57,6 +57,12 @@ pub enum Op {
         #[serde(skip)]
         bytes: Option<Vec<u8>>,
     },
+    /// Corrige la `index`-ième équation (depuis 0) du paragraphe d'après
+    /// son LaTeX : en suivi, l'ancienne supprimée et la nouvelle insérée.
+    ReplaceMath { paragraph: String, index: usize, latex: String },
+    /// Collage riche : morceaux mis en forme et équations, un paragraphe
+    /// par élément de `paragraphs`.
+    InsertRuns { paragraph: String, at: usize, paragraphs: Vec<Vec<crate::paste::RunIn>> },
     /// Plusieurs retouches d'un seul geste (sélection sur plusieurs
     /// paragraphes, collage de plusieurs lignes) : tout ou rien, un seul
     /// enregistrement, une seule annulation.
@@ -80,6 +86,8 @@ impl Op {
             Op::InsertNote { .. } => "note",
             Op::InsertRow { .. } | Op::DeleteRow { .. } | Op::InsertColumn { .. } | Op::DeleteColumn { .. } => "tableau",
             Op::InsertImage { .. } => "figure",
+            Op::ReplaceMath { .. } => "équation",
+            Op::InsertRuns { .. } => "collage",
             Op::Batch { .. } => "retouches groupées",
         }
     }
@@ -129,11 +137,18 @@ fn locate(docx: &mut Docx, paragraph: Option<&str>, find: &str, occurrence: Opti
     }
 }
 
+/// `r` désigne-t-il ce paragraphe ? Par son identifiant (`p3`, `n1.p0`), son
+/// `w14:paraId` nu ou la forme `id:<paraId>` du panneau.
+fn designates(p: &crate::model::Para, r: &str) -> bool {
+    let pid = r.strip_prefix("id:").unwrap_or(r);
+    p.id == r || (!pid.is_empty() && p.para_id.as_deref().is_some_and(|v| v.eq_ignore_ascii_case(pid)))
+}
+
 /// Position juste après `find` (agent : « appel de note après tel mot »).
 pub fn place_after(docx: &mut Docx, paragraph: Option<&str>, find: &str, occurrence: Option<usize>) -> Result<(String, usize)> {
     let (p, occ) = locate(docx, paragraph, find, occurrence)?;
     let model = docx.model()?;
-    let Some(para) = model.all_paragraphs().find(|x| x.id == p || x.para_id.as_deref() == Some(p.as_str())) else {
+    let Some(para) = model.all_paragraphs().find(|x| designates(x, &p)) else {
         return err(format!("paragraphe {p} introuvable"));
     };
     let k = occ.unwrap_or(1);
@@ -174,7 +189,7 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
         }
         Op::InsertParagraph { after, text } => {
             let model = docx.model()?;
-            let Some(p) = model.all_paragraphs().find(|p| p.id == *after || p.para_id.as_deref() == Some(after.as_str())) else {
+            let Some(p) = model.all_paragraphs().find(|p| designates(p, after)) else {
                 return err(format!("paragraphe {after} introuvable"));
             };
             let end = p.text.chars().count();
@@ -235,6 +250,10 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
             let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("figure");
             json!(crate::objects::insert_image(docx, paragraph, *at, b.clone(), name, alt, tracked, sig)?)
         }
+        Op::ReplaceMath { paragraph, index, latex } => {
+            json!({"changes": crate::math::replace_math(docx, paragraph, *index, latex, tracked, sig)?})
+        }
+        Op::InsertRuns { paragraph, at, paragraphs } => json!(crate::paste::insert_runs(docx, paragraph, *at, paragraphs, tracked, sig)?),
         Op::Batch { ops } => {
             // Sur une copie : une étape qui échoue n'en laisse aucune à moitié.
             let mut results = Vec::with_capacity(ops.len());

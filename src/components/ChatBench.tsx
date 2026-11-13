@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · regarde · relecteur (-encours, -rien).
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · epure · regarde · relecteur (-encours, -rien).
 import { setReviewSession } from "../lib/reviewSession";
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
@@ -486,6 +486,27 @@ const CONTEXTS_ATTACHMENTS = [
     imageUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAFlklEQVR42gXB0YesXAAA8P6cHnvs6dPH5eayxLLaLHMMk5iMJsMcwyTKaDLMMUxiMpoMcyyb2Kw2l3tcvvTQQ3o6T+mhP+T7/RhWqTnlP175Kyh/ROW3pHzLyhdQPjUlM5QPqLzbysNT7ki5hco1Vi5YCTPlXCgnohxr5dAqe6rsBsVhWPAfB/7y4I8AfovgWwJfMvgEINPAhwHeIXjY4O6BGwLXEFxiEGJwzsCpAEcCDjXYt2BHgTMAm2HVv5z6h1d/C+q3qH5J6qesZkD90NR3Q31A9W6rN0+9IvUSqmGsnrF6ytRjoR6Iuq/VXas6VLUHdcuw+h9O/83r34L+Jeqfkp7J+gfQ3zX9Yeh3qN9s/erpF6SHoX6O9RPWj5l+KPQ90Xe17rS6TfXtoG8Y1vzNmd+8+SWYn6KZSeaHbL4D86GZd8O8QfNqmxfPDJF5Ds1TbB6xecjMfWHuiOnUpt2aW2puBnPNsPCbg188/BRgJsIPCb7L8AHgXYM3A14hvNgw9OAZwVMIjzE8YLjP4K6ADoF2Dbct3FC4HuCKYa0vzvrkrUywPkTrXbIesnUH1k2zroZ1gVZoW2fPOiHrGFqH2Npja5dZTmHZxNrW1qa11tRaDdaSYd1Pzs1490Nw30X3Ibl32b0B96q5F8MNoXu23ZPnHpF7CN197O6w62SuXbhb4m5qd926K+ouB3fBsH7G+R+8/y74D9G/S/5N9q/Av2h+aPhn6J9s/+j5B+TvQ38X+w727czfFv6G+OvaX7X+kvqLwZ8zLPrg0DuPHgK6i+gmoauMLgCFGjob6ATR0UYHD+0R2oXIiZGN0TZDmwKtCVrVaNmiBUXzAWkMG7xzwYMP7kJwE4OrFFzkIATBWQtORnCEwcEO9l6wQ4ETBnYcbHGwyYJ1EaxIsKyDRRvMaaANwYxhowcX3fnoJkRXMbpIUShHZxCdtOhoRAcY7e1o50UOiuww2sbRBkfrLFoV0ZJEizqat5FGo9kQTRk2uXPJjU+uQnIRk1BKznJyAslRSw5GsofJzk4cL7FRsg2TTZyscbLKkmWRLEgyrxOtTWY0mQ7JhGHxjcNXHl8EHIr4LOGTjI8AHzS8N/AOYsfGtoe3CG9CvI7xCuNlhhcFnhOs1XjW4inFkwG/MWx65dILn4ZCehbTk5Qe5fQA0r2W7ozUgaltp1sv3aB0HaarOF3idJGl8yLVSDqr02mbTmj6NqSvDJtfuDzk87OQn8T8KOUHOd+DfKfljpHbMN/a+cbL1yhfhfkyzhc4n2e5VuQzkk/rfNLmbzR/HfIXhi1Drjzz5Ukoj2J5kMq9XO5A6WilbZRbWG7scu2VK1Quw3IRl3Ncalk5K8opKSd1+daWr7R8GcpnhiVnjpx4chTIQSR7iexk4gBia2RrkA0ka5usPLJEZBGSeUw0TGYZmRZkQshbTV5b8kLJ80Akhq1OXHXkq4NQ7cVqJ1WOXNmg2mrVxqjWsFrZ1dKrFqiah5UWVzNcTbNqUlRvpHqtq5e2eqaVNFRPDNscuebAN3uh2YmNIzW23GxBs9GatdGsYLO0m4XXzFGjhc0sbqa4mWTNW9G8kualbp7bRqLN09D8YtjuwHV7vtsJnSN2ttRt5W4DurXWrYxuCbuF3c29TkPdLOymcTfB3VvWvRbdC+me605quyfa/Rq6nwxL9xzd8dQRqC3SrUQ3Ml0DutLo0qALSOc21Tw6Q3Qa0klM3zB9zehLQZ8JlWr61NJflP4c6A+G7Xdc7/C9LfRbsd9I/VruV6Bfav3C6Oew1+x+5vVT1E/C/i3uX3H/kvXPRS+R/qnuf7X9T9r/GPp/GXZ0uNHmx60wbsRxLY0reVyCcaGNc2PU4Dizx6k3TtD4Fo6v8fiCx+dslIrxiYy/6vFnO/6g47/D+M//R5m1rp1APu0AAAAASUVORK5CYII=" },
 ];
 
+// Passages annotés dans l'éditeur Word (2026-11-12, variante 2 « Puces ») :
+// une puce par passage, ¶ et note, sinon le passage.
+const WORD_DOC = "/Documents/These/Chapitre1_brouillon_revCK.docx";
+// « Proposer » de l'éditeur Word : le message envoyé, en citation sobre.
+const WORD_REPLY_EVENTS: AgentEvent[] = [
+  { kind: "user", text: "Fais le point sur la section 2.3.", ts: ts(300) } as AgentEvent,
+  { kind: "text", text: "… et la section 2.3 reste cohérente avec la figure 4.", ts: ts(290) } as AgentEvent,
+  { kind: "user", text: "", ts: ts(20), label: "Chapitre1_brouillon_2026-11-02_revCK.docx",
+    files: [{ name: "Chapitre1_brouillon_2026-11-02_revCK.docx", path: "/Users/bench/Doctorat/Chapitre1_brouillon_2026-11-02_revCK.docx", kind: "file",
+      reply: { author: "Christophe Kinnard", comment: "Pourquoi 0,6 et pas 0,5 ? Une courte analyse de sensibilité serait la bienvenue.", where: "¶ 17" } }],
+    liveContext: { path: "/Users/bench/Doctorat/Chapitre1_brouillon_2026-11-02_revCK.docx", name: "Chapitre1_brouillon_2026-11-02_revCK.docx", paragraph: 17 } } as AgentEvent,
+];
+
+const WORD_ATTACHMENTS: typeof CONTEXTS_ATTACHMENTS = [
+  { name: "Chapitre1_brouillon_revCK.docx", lines: null, kind: "file" as const,
+    text: `${WORD_DOC} (p7-p8) : « In North America, previous studies have reported darker surfaces and estimated additional melt from wildfire deposits. »\nCommentaire : peux tu relire l'ensemble maintenant` },
+  { name: "Chapitre1_brouillon_revCK.docx", lines: null, kind: "file" as const,
+    text: `${WORD_DOC} (p12) : « The albedo decline of 0.0021 per summer is consistent with earlier estimates. »\nCommentaire : (voir passage)` },
+  { name: "albedo_trends.csv", lines: null, text: "ctx-1", kind: "file" as const },
+];
+
 const QUEUED_TURNS: QueuedTurn[] = [
   {
     id: "queue-1", prompt: "Compare ensuite les résultats avec la version précédente.",
@@ -613,6 +634,60 @@ const REVISION: AgentEvent[] = [
     ts: ts(295),
   } as AgentEvent,
   { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 12000, output: 640, cost: 0.02, turns: 1 }, ts: ts(290) } as AgentEvent,
+];
+
+// #chatbench-epure : la réponse de la capture de Thierry (2026-11-12), pour
+// juger la « colonne de lecture » (variante B) sur un vrai cas dense.
+const EPURE: AgentEvent[] = [
+  { kind: "user", text: "Que veut dire l'écart-type dans c244 ? Corrige le chiffre si besoin.", ts: ts(340) } as AgentEvent,
+  tool("e1", "mcp__atelier__atelier_docx", "revCK.docx", "136 commentaires", 900, 335),
+  tool("e2", "mcp__corpuscribe__search", "year-to-year variability", "6 articles", 700, 330),
+  tool("e3", "mcp__corpuscribe__search", "interannual variability", "31 articles", 700, 326),
+  tool("e4", "Bash", "python -c 'import pandas as pd; …'", "0.0349", 2100, 322),
+  tool("e5", "Bash", "rg -n 'standard deviation' manuscrit/", "2 lignes", 300, 318),
+  tool("e6", "Bash", "python scripts/phrase_p90.py", "47 mots, p90 42", 900, 314),
+  tool("e7", "Bash", "latexmk -pdf main.tex", "ok", 6100, 306),
+  { kind: "edit", projectRoot: "/tmp/bench", files: [{ path: "revCK.docx", add: 2, del: 2 }], ts: ts(300) } as AgentEvent,
+  {
+    kind: "text",
+    text: [
+      "J'ai posé le brouillon de réponse dans la carte de c244.",
+      "",
+      "**Ce que veut dire l'écart-type.** Oui, c'est l'écart-type temporel : celui des 22 étés de 2002–2023, dans la zone de transition de la région. Il dit qu'en 2023, le feu seul a baissé l'albédo de cette région plus que la variation normale d'un été à l'autre. Le `.tex` le dit déjà avec « year-to-year variability ».",
+      "",
+      "**La correction dans le `.docx`** est en suivi, p20 :",
+      "",
+      "```revision revCK.docx · p. 20",
+      "--- avant",
+      "above the standard deviation of summer albedo in this region (0.03; Extended Data Fig. 5a).",
+      "+++ après",
+      "above the year-to-year variability of summer albedo in this region (standard deviation of 0.035 over 2002–2023; Extended Data Fig. 5a).",
+      "```",
+      "",
+      "**Le chiffre.** J'ai recalculé l'écart-type à partir de `analysis/fitted_vs_counterfactual.csv`. Pour la Mackenzie et Selwyn (02-01), il vaut 0,0349. C'est la même valeur que la bande grise de l'ED Fig. 5a. Le texte disait 0,03, arrondi trop bas. J'ai donc mis 0,035 dans le `.docx`, ce qui règle aussi le point ouvert « 0,03 contre 0,035 ». La conclusion ne change pas : 0,046 reste au-dessus de 0,035.",
+      "",
+      "### Contrôles",
+      "",
+      "- **Corpuscribe.**",
+      "  - « year-to-year variability » se trouve dans 6 articles ;",
+      "  - « interannual variability » dans 31 ;",
+      "  - « standard deviation of » dans 34.",
+      "- **redaction-article.** La phrase entière fait 47 mots, au-dessus du p90 (42). C'est le seul point de tension.",
+      "",
+      "**Le `.tex`.** Je propose de mettre 0,035 et de couper la phrase en deux. La deuxième phrase commence par l'information déjà donnée (« This value »). Elle finit sur le point nouveau, la variabilité d'une année à l'autre.",
+      "",
+      "```revision results.tex · proposition",
+      "--- avant",
+      "For a single region in a single summer, the darkening is highest in the Mackenzie and Selwyn Mountains in 2023, at 0.046 (0.020 to 0.071; Fig.~\\ref{fig:heatmap}b), above the year-to-year variability of summer albedo in this region (standard deviation of 0.03; Extended Data Fig.~\\ref{fig:observed}a).",
+      "+++ après",
+      "For a single region in a single summer, the darkening is highest in the Mackenzie and Selwyn Mountains in 2023, at 0.046 (0.020 to 0.071; Fig.~\\ref{fig:heatmap}b). This value exceeds the year-to-year variability of summer albedo in this region (standard deviation of 0.035 over 2002--2023; Extended Data Fig.~\\ref{fig:observed}a).",
+      "```",
+      "",
+      "Je l'applique dans le `.tex`, avec les phrases de c238 et c243 ? Si oui, je fais la même coupure dans le `.docx`.",
+    ].join("\n"),
+    ts: ts(298),
+  } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: ["revCK.docx"], usage: { context: 12000, output: 640, cost: 0.02, turns: 1 }, ts: ts(296) } as AgentEvent,
 ];
 
 const PROPOSAL: AgentEvent[] = [
@@ -969,11 +1044,14 @@ const STATES: Record<string, BenchState> = {
   agents: { events: AGENTS, workingSince: ts(32), attachments: [], usage: { context: 22000, output: 420, cost: null, turns: 1 } },
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
+  word: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: WORD_ATTACHMENTS, usage: null },
+  proposer: { events: WORD_REPLY_EVENTS, workingSince: null, attachments: [], usage: null },
   regarde: { events: LIVE_CONTEXT_EVENTS, workingSince: null, attachments: [], usage: null, liveContext: LIVE_CONTEXT },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },
   typeset: { events: TYPESET, workingSince: null, attachments: [], usage: null },
   proposal: { events: PROPOSAL, workingSince: null, attachments: [], usage: null },
   revision: { events: REVISION, workingSince: null, attachments: [], usage: null },
+  epure: { events: EPURE, workingSince: null, attachments: [], usage: null },
   actionsclaude: { events: ACTIONS_CLAUDE, workingSince: ts(58), attachments: [], usage: { context: 31000, output: 640, cost: null, turns: 1 } },
   actionscodex: { events: ACTIONS_CODEX, workingSince: ts(40), attachments: [], usage: { context: 19000, output: 220, cost: null, turns: 1 } },
   claudeagents: { events: AGENTS_CLAUDE, workingSince: ts(70), attachments: [], usage: { context: 26000, output: 300, cost: null, turns: 1 } },

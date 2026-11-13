@@ -1,6 +1,6 @@
 // Trace du contexte vivant sous la bulle user : « chapitre1.tex · lignes 23-25 ».
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import { renderUi } from "../../test/render";
 import { UserTurn } from "./turns";
 import { setLanguage, t } from "../../lib/i18n";
@@ -36,5 +36,19 @@ it("page de PDF ; rien sans contexte ; rien pendant l'édition", () => {
   expect(document.querySelector(".user-live-context")).toBeNull();
   plain.unmount();
   renderTurn({ kind: "user", text: "q", liveContext: { path: "/a.pdf", name: "a.pdf", page: 7 } }, "q");
+  expect(document.querySelector(".user-live-context")).toBeNull();
+});
+
+it("« Proposer » de Word : citation sobre, ni carte de fichier ni trace de l'œil", async () => {
+  setLanguage("fr");
+  renderTurn({ kind: "user", text: "", ts: 1, label: "revCK.docx",
+    files: [{ name: "revCK.docx", path: "/p/revCK.docx", kind: "file",
+      reply: { author: "Christophe Kinnard", comment: "Pourquoi 0,6 et pas 0,5 ?", where: "¶ 17" } }],
+    liveContext: { path: "/p/revCK.docx", name: "revCK.docx", paragraph: 17 } });
+  const card = await screen.findByText("Pourquoi 0,6 et pas 0,5 ?");
+  const reply = card.closest(".reply-card")!;
+  expect(reply.querySelector(".reply-card-head")).toHaveTextContent("Réponse à Christophe · ¶ 17");
+  expect(reply.getAttribute("title")).toBe("/p/revCK.docx");
+  expect(document.querySelector(".file-card")).toBeNull();
   expect(document.querySelector(".user-live-context")).toBeNull();
 });

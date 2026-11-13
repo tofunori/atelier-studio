@@ -125,8 +125,8 @@ export function ContextShelf(p: {
 
   const annotations = p.annotations ?? [];
   if (p.attachments.length === 0 && annotations.length === 0) return null;
-  // Passages annotés depuis l'éditeur Word (2026-11-12) : rangées visibles,
-  // numérotées comme dans la page, le passage puis la note.
+  // Passages annotés depuis l'éditeur Word : une puce par passage (¶ et
+  // note, sinon le passage), le détail s'ouvre au clic (variante 2, 2026-11-12).
   const wordNotes = p.attachments.flatMap((attachment, index) => {
     if (attachment.imageUrl || !/\.docx$/i.test(attachment.name)) return [];
     const { prompt, cards } = annotationCards(attachment.text);
@@ -139,40 +139,35 @@ export function ContextShelf(p: {
 
   return (
     <div className="chips-row context-pills" aria-label={t("context.attachments")}>
-      {wordNotes.length > 0 && (
-        <div className="word-notes" role="list" aria-label={wordNotes[0].card.name}>
-          <span className="word-notes-head">
-            <FileTextIcon className="anno-pill-glyph" aria-hidden="true" />
-            <span className="anno-pill-sub">
-              {wordNotes.length} {wordNotes.length > 1 ? "passages" : "passage"} · {wordNotes[0].card.name}
-            </span>
-            {wordNotes.length > 1 && (
-              <Button variant="ghost" size="xs" className="anno-pill-clear"
-                onClick={() => [...wordNotes].reverse().forEach((note) => p.onRemoveAttachment(note.index))}>
-                {t("chat.annotations-clear")}
-              </Button>
-            )}
-          </span>
-          {wordNotes.map(({ index, card }, n) => (
-            <span key={index} className="anno-pill-row" role="listitem">
-              <span className="anno-pill-num">{n + 1}</span>
-              <span className="anno-pill-body">
-                <span className="anno-pill-quote">
-                  {card.location && <span className="word-notes-where">{card.location}</span>}
-                  {card.quote.replace(/\s+/g, " ").trim()}
-                </span>
-                <span className={`anno-pill-note${card.comment ? "" : " is-empty"}`}>
-                  {card.comment || t("chat.annotation-no-note")}
-                </span>
-              </span>
-              <IconButton size="s" className="ghost anno-pill-remove" label={removeLabel(card.name, ` ${n + 1}`)}
-                title={removeLabel(card.name, ` ${n + 1}`)} onClick={() => p.onRemoveAttachment(index)}>
+      {wordNotes.map(({ index, card }) => {
+        const quote = card.quote.replace(/\s+/g, " ").trim();
+        const key = `word-${index}`;
+        const where = card.location ?? card.name;
+        return (
+          <Popover key={key} open={openGroup === key} onOpenChange={(next) => setOpenGroup(next ? key : null)}>
+            <span className="chip context-pill word-pill" title={card.name}>
+              <PopoverTrigger
+                render={<RowButton className="context-pill-main" aria-label={`${card.name} ${where}`} />}
+              >
+                <FileTextIcon className="context-pill-glyph" aria-hidden="true" />
+                <span className="chip-lines">{where}</span>
+                <span className="chip-label">{card.comment || quote}</span>
+              </PopoverTrigger>
+              <IconButton size="s" className="ghost" label={removeLabel(card.name, ` ${where}`)}
+                title={removeLabel(card.name, ` ${where}`)}
+                onClick={() => { setOpenGroup(null); p.onRemoveAttachment(index); }}>
                 <XIcon className="context-pill-glyph" />
               </IconButton>
             </span>
-          ))}
-        </div>
-      )}
+            <PopoverContent className="word-pill-pop" side="top" align="start">
+              <span className="word-pill-quote">« {quote} »</span>
+              <span className={`word-pill-note${card.comment ? "" : " is-empty"}`}>
+                {card.comment || t("chat.annotation-no-note")}
+              </span>
+            </PopoverContent>
+          </Popover>
+        );
+      })}
       {annotations.length > 0 && (() => {
         const count = annotations.length === 1
           ? t("chat.annotations-one") : t("chat.annotations-count", { n: annotations.length });

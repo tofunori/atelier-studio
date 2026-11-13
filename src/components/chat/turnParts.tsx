@@ -166,7 +166,7 @@ export function DoneDiffToggle({ event, threadId, changedFiles }: {
             openDiffs();
           }}
         >
-          <span>{t("chat.files-modified", { count: files.length })}</span>
+          <span>{(files.length === 1 ? t("chat.files-modified-one") : t("chat.files-modified", { count: files.length }))}</span>
           <Tick open={open} />
         </RowButton>
       )}

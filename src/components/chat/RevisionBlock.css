@@ -1,16 +1,25 @@
-/* Passage révisé (variante E, 2026-11-01) : la citation du chat, sans carte
-   ni couleur. Nouveau = souligné fin, retiré = barré éteint. */
-.md-revision { margin: 0; }
-.md-revision-text { border-left: 2px solid var(--border2); padding-left: 12px; color: var(--text-primary); }
+/* Passage révisé (variante E 2026-11-01, posée dans un creux par la variante B
+   « colonne de lecture » du 2026-11-12) : le texte du manuscrit se détache de
+   la prose de Claude par un fond très léger, sans barre ni bordure. En tête,
+   la provenance du passage ; copier s'allume au survol. Nouveau = souligné
+   fin au premier plan, retiré = barré gris, encore lisible. */
+.chat-md > * + .md-revision { margin-top: 8px; }
+.md-revision { position: relative; margin: 0; padding: 12px 16px; border-radius: var(--r-m);
+  background: color-mix(in srgb, var(--text-primary) 3.5%, transparent); }
+.md-revision-head { display: flex; align-items: center; gap: 8px; min-height: 16px; margin-bottom: 4px;
+  font-size: var(--fs-s); line-height: 1.5; color: var(--text-muted); }
+.md-revision:not(.has-place) .md-revision-head { position: absolute; top: 8px; right: 8px; margin: 0; }
+.md-revision-place { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-revision-copy { color: var(--text-muted); opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.md-revision:hover .md-revision-copy, .md-revision:focus-within .md-revision-copy,
+.md-revision-copy.is-confirmed { opacity: 1; }
+.md-revision-text { color: var(--text-secondary); line-height: 1.65; }
 .md-revision-text p { margin: 0; }
-.md-revision-add { text-decoration: underline; text-decoration-color: var(--text-muted);
-  text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.md-revision-add { color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--text-muted);
+  text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .md-revision-del { color: var(--text-muted); text-decoration: line-through;
   text-decoration-color: var(--text-muted); text-decoration-thickness: 1px; }
-.md-revision-cite { color: var(--text-muted); }
-.md-revision-del .md-revision-cite { color: inherit; }
+.md-revision-cite { color: inherit; }
 .md-revision-break { display: block; height: 8px; }
-.md-revision-meta { display: flex; align-items: center; gap: 8px; margin: 4px 0 0 2px; padding-left: 12px;
-  font-size: var(--fs-m); line-height: 1.5; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.md-revision-meta > span { flex: 1; min-width: 0; }
-.md-revision-copy { color: var(--text-muted); }
+@media (prefers-reduced-motion: reduce) { .md-revision-copy { transition: none; } }
