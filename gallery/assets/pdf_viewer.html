@@ -6103,8 +6103,9 @@ if (window.self !== window.top) {
     writing = true; footMsg = "Écriture de la copie corrigée…"; paintFoot();
     try {
       const r = await fetch("/pdf/corrected", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({rel})});
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || "copie corrigée impossible");
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || "copie corrigée impossible");
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "copie corrigée impossible");
       copyRel = j.rel; copyPath = j.path || copyPath;
       footMsg = "Copie corrigée écrite : " + j.name;
     } catch (error) { footMsg = (error         ).message; }

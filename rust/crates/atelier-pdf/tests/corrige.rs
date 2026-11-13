@@ -7,6 +7,15 @@ use atelier_pdf::corrige::MARGIN;
 use pdfium_render::prelude::*;
 use std::path::Path;
 use std::process::Command;
+use unicode_normalization::UnicodeNormalization;
+
+/** Texte relu par PDFium, sans accents ni espaces doubles : selon la police
+ *  de la machine (Arial sur macOS, DejaVu sous Linux), « é » peut revenir
+ *  décomposé ou en glyphe de base suivi de l'accent. */
+fn fold(text: &str) -> String {
+    let bare: String = text.nfd().filter(|c| !('\u{300}'..='\u{36f}').contains(c) && *c != '\u{b4}' && *c != '`').collect();
+    bare.split_whitespace().collect::<Vec<_>>().join(" ")
+}
 
 fn pdfium() -> Option<Pdfium> {
     if !atelier_pdf::engine::library_candidates().iter().any(|p| p.is_file()) {
@@ -85,9 +94,9 @@ fn corrected_copy_prints_comments_in_a_margin_and_keeps_signed_annotations() {
         std::fs::copy(&out, keep).unwrap();
     }
     let first = copy.pages().get(0).unwrap();
-    let text = first.text().unwrap().all();
-    assert!(text.contains("Unité manquante"), "texte de la marge absent : {text}");
-    assert!(text.contains("Corrigé, merci."));
+    let text = fold(&first.text().unwrap().all());
+    assert!(text.contains(&fold("Unité manquante")), "texte de la marge absent : {text:?}");
+    assert!(text.contains(&fold("Corrigé, merci.")), "{text:?}");
     assert!(text.contains("Thierry Laurent"));
     // l'ancien commentaire caché est remplacé, pas doublé
     let notes: Vec<_> = first.annotations().iter().filter(|a| a.annotation_type() == PdfPageAnnotationType::Highlight).collect();
@@ -99,7 +108,7 @@ fn corrected_copy_prints_comments_in_a_margin_and_keeps_signed_annotations() {
     let second = copy.pages().get(1).unwrap();
     // (`all()` borne au format non tourné : on lit les caractères un à un)
     let all: String = second.text().unwrap().chars().iter().filter_map(|c| c.unicode_char()).collect();
-    assert!(all.contains("Arrondir à 10"), "{all:?}");
+    assert!(fold(&all).contains(&fold("Arrondir à 10")), "{all:?}");
     let under: Vec<_> = second.annotations().iter().filter(|a| a.annotation_type() == PdfPageAnnotationType::Underline).collect();
     assert_eq!(under.len(), 1);
     // le texte de la marge est horizontal à l'écran : sur la page tournée de
