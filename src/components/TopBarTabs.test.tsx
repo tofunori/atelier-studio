@@ -72,13 +72,16 @@ describe("libellé d'onglet", () => {
 });
 
 describe("type de fichier", () => {
-  it("range les extensions en quatre familles", () => {
+  it("range les extensions comme l'explorateur", () => {
     expect(kindOf({ id: "a", title: "x.tex" })).toBe("tex");
     expect(kindOf({ id: "a", title: "x.py" })).toBe("code");
     expect(kindOf({ id: "a", title: "x.md" })).toBe("note");
     expect(kindOf({ id: "a", title: "x.pdf" })).toBe("pdf");
     expect(kindOf({ id: "a", title: "x.png" })).toBe("image");
-    expect(kindOf({ id: "a", title: "Makefile" })).toBe("doc");
+    expect(kindOf({ id: "a", title: "x.docx" })).toBe("word");
+    expect(kindOf({ id: "a", title: "x.json" })).toBe("json");
+    expect(kindOf({ id: "a", title: "x.xlsx" })).toBe("sheet");
+    expect(kindOf({ id: "a", title: "Makefile" })).toBe("file");
   });
 
   it("lit l'extension de l'URL quand le titre n'en a pas", () => {

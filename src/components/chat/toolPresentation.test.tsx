@@ -23,7 +23,7 @@ import {
   turnProgressSignature,
   truncateToolOutput,
 } from "./toolPresentation";
-import { fileKind } from "../../lib/fileKind";
+import { fileKind, fileTint } from "../../lib/fileKind";
 
 type ToolAction = Extract<AgentEvent, { kind: "tool" | "tool_update" }>;
 
@@ -121,14 +121,20 @@ describe("Codex-style activity presentation", () => {
     setLanguage("en");
   });
 
-  // Lot 3 (TRANS-04) : un seul jeu de glyphes monochromes, plus de logos en
-  // couleur — le type se lit à la forme.
-  it("dessine les types de fichier en glyphes monochromes", () => {
+  // Lot 3 (TRANS-04) puis variante C (2026-11-13) : un seul jeu de glyphes,
+  // pas de logos de marque — une forme par type, teinte sourde pour cinq.
+  it("classe les types de fichier, une forme par type", () => {
     expect(fileKind("tex")).toBe("tex");
-    expect(fileKind("json")).toBe("data");
+    expect(fileKind("json")).toBe("json");
+    expect(fileKind("nc")).toBe("data");
+    expect(fileKind("rapport.docx")).toBe("word");
+    expect(fileKind("notes.md")).toBe("note");
     expect(fileKind("pdf")).toBe("pdf");
     expect(fileKind("analyse.py")).toBe("code");
     expect(fileKind("inconnu-xyz")).toBe("file");
+    expect(fileTint(fileKind("article.pdf"))).toBe("pdf");
+    expect(fileTint(fileKind("references.bib"))).toBe("tex");
+    expect(fileTint(fileKind("notes.md"))).toBeUndefined();
   });
 
   it("formate les durées d'outil du ms à la minute", () => {
