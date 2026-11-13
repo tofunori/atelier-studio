@@ -139,7 +139,7 @@ test('agent proposal in LaTeX: accept replaces only the passage', async ({page})
   });
 });
 
-test('agent note in a PDF: signed card, reply kept in the thread even when the agent writes meanwhile', async ({page}) => {
+test('agent note in a project PDF: a Word card signed by the user, reply kept in the thread even when the agent writes meanwhile', async ({page}) => {
   await withProject(async ({root, port}) => {
     await withChatHost(page);
     writeStore(root, {...readStore(root), 'paper.pdf': [{id: 'a2-0p1', page: 1, kind: 'hl', color: 'rgba(255,213,74,.40)',
@@ -148,24 +148,24 @@ test('agent note in a PDF: signed card, reply kept in the thread even when the a
     await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=paper.pdf`);
     await expect.poll(() => page.locator('.pg[data-page="1"] canvas').evaluate(c => (c as HTMLCanvasElement).width).catch(() => 0),
       {timeout: 15_000}).toBeGreaterThan(0);
-    const pin = page.locator('.pg[data-page="1"] .pdfmemo.is-agent');
-    await expect(pin).toHaveCount(1);
-    await pin.click();
-    const card = page.locator('#annotPop');
-    await expect(card).toHaveClass(/is-agent/);
-    await expect(card.locator('.atelier-agent-note')).toHaveText('Ce passage définit l’albédo large bande.');
-    await expect(card.locator('.atelier-agent-keep')).toHaveText('Garder comme ma note');
+    // copie du projet (TP) : la note de Claude est la sienne, sans marque de l'agent
+    const card = page.locator('#annPane .pc-list .cc').first();
+    await expect(card).toBeVisible();
+    await expect(card.locator('.tx')).toHaveText('Ce passage définit l’albédo large bande.');
+    await expect(card.locator('.nm')).not.toHaveText(/Claude/);
+    await page.locator('.pg[data-page="1"] .pdfmemo').click();
+    const open = page.locator('#annPane .pc-list .cc.on');
+    await expect(open).toBeVisible();
+    await expect(page.locator('#annotPop')).toBeHidden();
 
-    // L'agent écrit dans le fil pendant que Thierry tape : les deux messages restent.
+    // L'agent écrit dans le fil pendant que Thierry répond : les deux messages restent.
     const store = readStore(root);
     store['paper.pdf'][0].thread = [{id: 'm1', by: 'agent', author: 'Claude', text: 'Voir aussi la section 2.', at: 5}];
     writeStore(root, store);
     const saved = page.waitForResponse(r => r.url().includes('/pdfannot') && r.request().method() === 'POST');
-    await card.locator('textarea.atelier-note-input').fill('Quelle bande spectrale ?');
-    await card.locator('textarea.atelier-note-input').press('Enter');
+    await open.locator('.c-field textarea').fill('Quelle bande spectrale ?');
+    await open.locator('[data-act=reply]').click();
     expect((await saved).ok()).toBe(true);
     await expect.poll(() => readStore(root)['paper.pdf'][0].thread?.map(m => m.by)).toEqual(['agent', 'user']);
-    await expect.poll(() => page.evaluate(() => (window as any).__chat.length)).toBe(1);
-    expect((await page.evaluate(() => (window as any).__chat[0])).text).toContain('Réponse sur ta note [a2-0p1] dans paper.pdf (p. 1) : Quelle bande spectrale ?');
   });
 });

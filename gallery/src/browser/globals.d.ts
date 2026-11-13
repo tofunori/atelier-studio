@@ -113,6 +113,10 @@ declare global {
     __texNoteMarks?: (page: number) => Array<{id: string; rects: number[][]; color: string; agent: boolean; title: string; __number: number; open(): void}>;
     /** Onglet PDF d'un studio LaTeX : la colonne Annotations commune. */
     __texNotes?: {render(pane: HTMLElement, list: HTMLElement, count: HTMLElement): void};
+    /** PDF du projet (copies de TP) : la colonne de commentaires façon Word. */
+    __pdfComments?: {render(pane: HTMLElement, list: HTMLElement, count: HTMLElement): void; open(a: any): boolean};
+    /** Reprend en cartes les commentaires écrits dans le fichier et les masque au rendu. */
+    __pdfEmbedded?: (pdf: any) => Promise<void>;
   }
   interface Navigator {
     userAgentData?: {platform?: string;brands?: {brand:string;version:string}[]}; virtualKeyboard?: {overlaysContent: boolean} }

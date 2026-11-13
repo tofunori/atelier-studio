@@ -120,16 +120,15 @@ test('mode lecture : colonne, découpe, taille, recherche, annotation aller-reto
   await expect(page.locator('#readBody mark.pdfhl')).toHaveCount(1);
   await expect(page.locator('#readBody mark.pdfhl')).toHaveText(picked);
 
-  // Une annotation `comment` toute fraîche ouvre l'éditeur de note et serait
-  // ABANDONNÉE si elle se fermait sans note (annotMenu, branche `a.fresh`) :
-  // on la valide comme le ferait l'utilisateur.
-  await expect(page.locator('#annotPop textarea.atelier-note-input')).toBeVisible();
-  await page.fill('#annotPop textarea.atelier-note-input', 'note e2e');
-  await page.keyboard.press('Enter');
-  // Hors de l'app, l'ajout au chat échoue toujours (window.self === window.top,
-  // pas de parent Tauri) : la note est enregistrée mais le menu reste ouvert.
-  await expect(page.locator('#annotPop .annotation-status')).toHaveText(/enregistrée/, {timeout: 10_000});
-  await page.evaluate(() => { document.getElementById('annotPop').style.display = 'none'; });
+  // PDF du projet : un commentaire tout frais s'ouvre en carte façon Word dans
+  // la colonne, prête à écrire ; Entrée l'enregistre (vide, il disparaîtrait).
+  const draft = page.locator('#annPane .pc-list .cc.on textarea.c-edit');
+  await expect(draft).toBeVisible();
+  await draft.fill('note e2e');
+  const posted = page.waitForResponse(r => r.url().includes('/pdfannot') && r.request().method() === 'POST');
+  await draft.press('Enter');
+  expect((await posted).ok()).toBe(true);
+  await expect(page.locator('#annPane .pc-list .cc.on .tx')).toHaveText('note e2e');
 
   // --- retour en vue pages : le surlignage est au bon endroit ------------
   await page.click('#readBtn');
