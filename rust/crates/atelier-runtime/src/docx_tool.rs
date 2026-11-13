@@ -396,7 +396,7 @@ mod tests {
         let r = run(root, "claude", "edit_comment", &json!({"path": "article.docx", "comment": mine, "text": "Seuil justifié en 2.4."})).unwrap();
         assert_eq!(r["author"], "Thierry");
         assert!(r["note"].as_str().unwrap().contains("corrigé"), "{r}");
-        assert!(run(root, "claude", "edit_comment", &json!({"path": "article.docx", "comment": 1, "text": "x"})).unwrap_err().contains("que les siens"));
+        assert!(run(root, "claude", "edit_comment", &json!({"path": "article.docx", "comment": 1, "text": "x"})).unwrap_err().contains("est de Christophe"));
         let m = Docx::open(&path).unwrap().model().unwrap();
         assert!(m.comments.iter().any(|c| c.id == mine && c.author == "Thierry" && c.text == "Seuil justifié en 2.4."));
         assert!(atelier_docx::marks::list(&path, &m).unwrap().len() >= 4);

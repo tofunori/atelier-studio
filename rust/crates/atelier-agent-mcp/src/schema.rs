@@ -246,8 +246,8 @@ pub fn docx_tool_definition() -> Value {
     or occurrence if ambiguous). insert_note / insert_figure go after find. insert_row / delete_row: row of paragraph (a cell). \
     join: merge paragraph into the one before (p8 → p7). split: new paragraph right after find. \
     Fix a comment (yours or the user's) with edit_comment, not a second one. \
-    draft_reply: a draft in the comment's card (not the file) the user reviews and sends; \
-    prefer it to reply for a reviewer's comment. checked: the check of a comment is done.",
+    draft_reply: a card draft (not in the file) the user sends; prefer it to reply for a reviewer. \
+    checked: a comment check is done.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
