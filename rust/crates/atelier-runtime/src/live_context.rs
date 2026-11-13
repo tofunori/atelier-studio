@@ -180,7 +180,13 @@ pub fn block(ctx: Option<&Value>, project_root: &str) -> Option<String> {
         .take(COMMENTS_MAX)
         .collect();
     if !comments.is_empty() {
-        out.push(format!("Open comments in this file ({}):", comments.len()));
+        // Le cadre n'en envoie qu'une partie : le dire, sinon l'agent croit
+        // que l'utilisateur ne voit que celles-là (2026-11-13).
+        let total = positive(ctx.get("commentsTotal")).map(|t| t as usize).filter(|t| *t > comments.len());
+        out.push(match total {
+            Some(t) => format!("Open comments in this file (the first {} of {t}; read the file for the others):", comments.len()),
+            None => format!("Open comments in this file ({}):", comments.len()),
+        });
         out.extend(comments);
     }
     out.push(format!("</{TAG}>"));
@@ -275,6 +281,10 @@ mod tests {
         assert!(b.contains("- line 1: revoir ceci 1"), "{b}");
         assert!(!b.contains("ceci 11"), "{b}");
         assert_eq!(trace(Some(&ctx)).unwrap()["comments"], 10);
+        // Le cadre dit combien il y en a : l'agent sait qu'il n'en voit qu'une partie.
+        let ctx = json!({"path": "/x/a.docx", "comments": comments, "commentsTotal": 14});
+        let b = block(Some(&ctx), "").unwrap();
+        assert!(b.contains("Open comments in this file (the first 10 of 14; read the file for the others):"), "{b}");
     }
 
     #[test]

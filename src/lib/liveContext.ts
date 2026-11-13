@@ -30,6 +30,8 @@ export type LiveContext = {
   /** lien http(s) : page web, DOI d'un article */
   url?: string;
   comments?: LiveContextComment[];
+  /** commentaires ouverts dans le fichier, quand `comments` n'en montre qu'une partie */
+  commentsTotal?: number;
 };
 
 /** Trace archivée sur la bulle user (rédigée par le serveur, miroir de
@@ -132,15 +134,20 @@ export function parseLiveContext(raw: unknown): LiveContext | null {
   if (title) ctx.title = title;
   if (url) ctx.url = url;
   if (Array.isArray(r.comments)) {
-    const comments = r.comments.flatMap((c): LiveContextComment[] => {
+    const valid = r.comments.flatMap((c): LiveContextComment[] => {
       if (!c || typeof c !== "object") return [];
       const body = text((c as Record<string, unknown>).text, 600);
       if (!body) return [];
       const quote = text((c as Record<string, unknown>).quote, 300);
       const at = positive((c as Record<string, unknown>).line);
       return [{ text: body, ...(quote ? { quote } : {}), ...(at ? { line: at } : {}) }];
-    }).slice(0, LIVE_CONTEXT_COMMENTS_MAX);
+    });
+    const comments = valid.slice(0, LIVE_CONTEXT_COMMENTS_MAX);
     if (comments.length) ctx.comments = comments;
+    // Le chat ne voit qu'une partie : il doit le savoir (sinon il croit que
+    // le panneau n'affiche que ces bulles-là, 2026-11-13).
+    const total = Math.max(positive(r.commentsTotal) ?? 0, valid.length);
+    if (ctx.comments && total > ctx.comments.length) ctx.commentsTotal = total;
   }
   return ctx;
 }

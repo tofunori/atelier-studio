@@ -27,6 +27,10 @@ describe("parseLiveContext", () => {
     })!;
     expect(ctx.line).toBeUndefined();
     expect(ctx.comments).toHaveLength(10);
+    // Le chat sait qu'il n'en voit qu'une partie.
+    expect(ctx.commentsTotal).toBe(12);
+    expect(parseLiveContext({ path: "/p/a.docx", name: "a.docx", kind: "docx", comments: [{ text: "x" }], commentsTotal: 14 })!.commentsTotal).toBe(14);
+    expect(parseLiveContext({ path: "/p/a.docx", name: "a.docx", kind: "docx", comments: [{ text: "x" }] })!.commentsTotal).toBeUndefined();
     for (const key of ["extra", "selection", "lineFrom", "lineTo"]) expect(key in ctx).toBe(false);
   });
 });

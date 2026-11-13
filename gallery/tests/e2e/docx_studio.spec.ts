@@ -1436,21 +1436,33 @@ test("docx: un refus du serveur (409, Word ouvert) rend la saisie et remet l'éc
   const before = (await disk(page, project)).paragraphs[2].text;
   const n = (await disk(page, project)).paragraphs.length;
   let status = 409;
-  await page.route('**/docx/op', route => route.fulfill({status, contentType: 'application/json', body: JSON.stringify({error: status === 423 ? 'Le document est ouvert dans Word' : 'révision périmée'})}));
+  // Le refus n'arrive qu'une fois la frappe finie : sinon il peut tomber au
+  // milieu d'un mot, qui part alors en deux lots et deux avis.
+  let release = () => {};
+  let gate = Promise.resolve();
+  const hold = () => { gate = new Promise<void>(r => { release = r; }); };
+  await page.route('**/docx/op', async route => {
+    await gate;
+    await route.fulfill({status, contentType: 'application/json', body: JSON.stringify({error: status === 423 ? 'Le document est ouvert dans Word' : 'révision périmée'})});
+  });
+  hold();
   await caretAfter(page, 2, 'retenu ici');
   await page.keyboard.type(' perdu ?');
   await page.keyboard.press('Backspace');
   await page.keyboard.press('Backspace');
   await expect(page.locator('.d-p[data-idx="2"]')).toContainText('retenu ici perdu offre');
+  release();
   await expect(page.locator('#toast')).toContainText('« perdu »', {timeout: 6000});
   await expect(page.locator('#toast')).toHaveClass(/err/);
   await expect.poll(() => shownText(page, 2)).toBe(before);
   expect((await disk(page, project)).paragraphs[2].text).toBe(before);
   // Word ouvert (423) sur une Entrée suivie de frappe : même chose.
   status = 423;
+  hold();
   await caretAfter(page, 2, 'retenu ici');
   await page.keyboard.press('Enter');
   await page.keyboard.type('Encore');
+  release();
   await expect(page.locator('#toast')).toContainText('Encore', {timeout: 6000});
   await expect.poll(() => shownText(page, 2)).toBe(before);
   expect((await disk(page, project)).paragraphs.length).toBe(n);

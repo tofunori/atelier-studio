@@ -40,6 +40,8 @@ export interface LiveContext {
   /** Paragraphe du curseur (.docx, 1-based). */
   paragraph?: number;
   comments?: LiveContextComment[];
+  /** Commentaires ouverts dans le fichier, quand `comments` n'en montre qu'une partie. */
+  commentsTotal?: number;
 }
 
 // Alias (pas interface) : assignable à `Record<string, unknown>`, la forme des
