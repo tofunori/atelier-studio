@@ -5,8 +5,12 @@
 //!
 //! `atelier-pdf thumb <taille> <dossier> <fichier.pdf>` : vignette PNG de la
 //! première page (voir `thumb.rs`), au contrat de `qlmanage -t`.
+//!
+//! `atelier-pdf corrige <source.pdf> <copie.pdf> <commentaires.json>` :
+//! copie corrigée, commentaires imprimés dans une marge (voir `corrige.rs`).
+//! Écrit sur stdout `{"comments":…,"pages":…,"removed":…}`.
 
-use atelier_pdf::{emit, engine, layout, thumb, tool};
+use atelier_pdf::{corrige, emit, engine, layout, thumb, tool};
 use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
@@ -14,6 +18,7 @@ use std::process::ExitCode;
 fn usage() -> ExitCode {
     eprintln!("usage : atelier-pdf <text|bbox|xml> <fichier.pdf>");
     eprintln!("        atelier-pdf thumb <taille> <dossier> <fichier.pdf>");
+    eprintln!("        atelier-pdf corrige <source.pdf> <copie.pdf> <commentaires.json>");
     ExitCode::from(2)
 }
 
@@ -78,11 +83,30 @@ fn poppler_fallback(output: tool::Output, pdf: &Path, why: &str) -> ExitCode {
     }
 }
 
+fn corrected(src: &str, out: &str, comments: &str) -> ExitCode {
+    let request = std::fs::read_to_string(comments)
+        .map_err(|e| format!("commentaires illisibles : {e}"))
+        .and_then(|raw| serde_json::from_str::<corrige::Request>(&raw).map_err(|e| format!("commentaires invalides : {e}")));
+    let result = request.and_then(|request| corrige::write(Path::new(src), Path::new(out), &request));
+    match result {
+        Ok(report) => {
+            println!(r#"{{"comments":{},"pages":{},"removed":{}}}"#, report.comments, report.pages, report.removed);
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if let [kind, size, dir, file] = args.as_slice() {
-        if kind == "thumb" {
-            return thumbnail(size, dir, file);
+    if let [kind, a, b, c] = args.as_slice() {
+        match kind.as_str() {
+            "thumb" => return thumbnail(a, b, c),
+            "corrige" => return corrected(a, b, c),
+            _ => {}
         }
     }
     let [kind, file] = args.as_slice() else {

@@ -75,7 +75,8 @@ pub fn library_candidates() -> Vec<PathBuf> {
     out
 }
 
-fn bind() -> Result<Pdfium, String> {
+/// PDFium lié à la première bibliothèque trouvée (voir `library_candidates`).
+pub fn bind() -> Result<Pdfium, String> {
     let mut tried = Vec::new();
     for candidate in library_candidates() {
         if !candidate.is_file() {

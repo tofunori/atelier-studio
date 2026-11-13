@@ -320,7 +320,7 @@ const ANNOTATE_ACTIONS: [&str; 5] = ["note", "reply", "list", "assess", "remove"
 pub fn annotate_tool_definition() -> Value {
     json!({
         "name": ANNOTATE_TOOL_NAME,
-        "description": "Leave your own review notes on a passage, shown in place in Atelier like comments in a \
+        "description": "Leave review notes on a passage, shown in place in Atelier like comments in a \
     shared document: in a text file opened in the LaTeX editor (.tex) or in a PDF (compiled thesis, project PDF, \
     Zotero article). Use it when the user asks you to annotate, comment, review or explain passages. NEVER edits the \
     file. note: quote = passage copied verbatim, comment = your note in the user's language; optional text = \
@@ -328,7 +328,8 @@ pub fn annotate_tool_definition() -> Value {
     text?, line?, page?}]. reply: answer in the thread of one of your notes or of a reviewer comment imported from \
     Word (id), optional suggestion = rewrite. assess: on a reviewer comment whose passage changed, settled = true \
     if the user's edit already answers it, reason = one sentence; the user confirms. list: your notes and the \
-    reviewer comments under discussion. remove: your own notes only.",
+    reviewer comments under discussion. remove: your own notes only. In a project PDF your notes \
+    are signed with the user's name.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
