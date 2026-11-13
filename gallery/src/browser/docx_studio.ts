@@ -2963,7 +2963,9 @@
       const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
       if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
       h += `<div class="ac"><button class="btn q" data-act="resolve"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
-        <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
+        ${c.author === author && !c.done
+          ? `<button class="mini" data-act="check" aria-label="Faire vérifier par Claude" data-tooltip="Faire vérifier et corriger dans le chat">${ic("chat", 14)}</button>`
+          : `<button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>`}
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
     }
     return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
@@ -3580,6 +3582,27 @@
       + (previous ? ` Une autre formulation que celle-ci : « ${previous} ».` : "");
   }
 
+  /** Son propre commentaire, envoyé au chat pour vérification : l'agent le
+   *  confronte au document puis le corrige lui-même s'il le faut (edit_comment). */
+  function checkPrompt(c: Comment): string {
+    const replies = model!.comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
+    return `${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — mon commentaire sur « ${c.quote} » : ${c.text}${replies}\n\n`
+      + `Vérifie mon commentaire contre le document (atelier_docx action=read) : chiffres, unités, renvois et ce qu'il dit du texte. `
+      + `Réponds-moi en une ou deux phrases : juste, ou ce qui cloche. `
+      + `S'il y a une erreur, corrige-le toi-même avec atelier_docx action=edit_comment (comment=${c.id}), en gardant mon ton et sa longueur ; ne touche pas au texte du document.`;
+  }
+
+  function checkComment(c: Comment) {
+    const core = W.AtelierStudioCore;
+    if (!W.__atelierPost || !core || !core.requestChatAttachment) {
+      status("Le chat d'Atelier n'est pas joignable depuis cette page.", true);
+      return;
+    }
+    core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: checkPrompt(c), path: PATH, name: NAME, direct: true } })
+      .then(() => status("Envoyé au chat : Claude vérifie ton commentaire"))
+      .catch((e: Error) => status(e.message, true));
+  }
+
   function proposeReply(c: Comment, previous?: string, note?: string) {
     const core = W.AtelierStudioCore;
     if (!W.__atelierPost || !core || !core.requestChatAttachment) {
@@ -3727,6 +3750,8 @@
       });
     } else if (act === "delete") {
       structural(async () => { await sendOp({ op: "delete_comment", id: c.id }); });
+    } else if (act === "check") {
+      checkComment(c);
     } else if (act === "ask") {
       const replies = model!.comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
       toChat(`${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}`);

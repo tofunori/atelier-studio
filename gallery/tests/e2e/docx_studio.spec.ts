@@ -567,6 +567,40 @@ test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et
   await expect(thread.locator('[data-act="propose"]')).toBeVisible();
 });
 
+test("docx: son propre commentaire part au chat pour être vérifié, et l'agent le corrige à son nom", async ({page, project}) => {
+  await open(page, project);
+  await page.evaluate(() => {
+    const w = window as unknown as {__atelierPost: () => void; __sent?: Record<string, unknown>; AtelierStudioCore?: Record<string, unknown>};
+    w.__atelierPost = () => {};
+    w.AtelierStudioCore = {...(w.AtelierStudioCore || {}), requestChatAttachment: (o: {payload: Record<string, unknown>}) => { w.__sent = o.payload; return Promise.resolve(); }};
+  });
+  // Un commentaire de Thierry sur un chiffre du texte.
+  const m0 = await disk(page, project);
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m0.revision, author: 'Thierry', op: {op: 'comment', paragraph: 'p2', find: 'compromis', text: 'Ici tu écris 0,000697 mais en haut 0,00618'}}});
+  expect(r.ok()).toBe(true);
+  const id = (await disk(page, project)).comments.find(c => c.text === 'Ici tu écris 0,000697 mais en haut 0,00618')!.id;
+  const card = page.locator(`#cards .it[data-key="c${id}"]`);
+  await expect(card).toBeVisible({timeout: 6000});
+  await card.locator('.cc').click();
+  // Sur le sien, la bulle fait vérifier ; sur celui de Christophe, elle envoie au chat comme avant.
+  await expect(card.locator('[data-act="ask"]')).toHaveCount(0);
+  await card.locator('[data-act="check"]').click();
+  const sent = await page.evaluate(() => (window as unknown as {__sent: {text: string; direct: boolean; path: string}}).__sent);
+  expect(sent.direct).toBe(true);
+  expect(sent.path).toBe(project.doc);
+  expect(sent.text).toContain('mon commentaire sur « compromis » : Ici tu écris 0,000697 mais en haut 0,00618');
+  expect(sent.text).toContain(`edit_comment (comment=${id})`);
+  // L'agent le corrige (ce que fait atelier_docx edit_comment) : la carte suit, toujours signée Thierry.
+  const m1 = await disk(page, project);
+  const e = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m1.revision, author: 'Thierry', op: {op: 'edit_comment', id, text: 'Ici tu écris 0,0000697 mais en haut 0,00618'}}});
+  expect(e.ok()).toBe(true);
+  await expect(card.locator('.cc > .tx')).toHaveText('Ici tu écris 0,0000697 mais en haut 0,00618', {timeout: 6000});
+  const c1 = page.locator('#cards .it[data-key="c1"]');
+  await c1.locator('.cc').click();
+  await expect(c1.locator('[data-act="ask"]')).toBeVisible();
+  await expect(c1.locator('[data-act="check"]')).toHaveCount(0);
+});
+
 test('docx: notes, en-tête, pied de page et figures se retouchent dans la page', async ({page, project}) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
