@@ -531,7 +531,10 @@ pub async fn media(State(state): State<AppState>, headers: HeaderMap, Query(q): 
         // Les paragraphes de la séance (pas encore écrits) font foi.
         if let Some(s) = existing(&path) {
             let mut g = lock_session(&s);
-            return atelier_docx::objects::media(g.docx_mut(), &q.para, &q.rel).map_err(|e| e.0);
+            let raw = atelier_docx::objects::media_raw(g.docx_mut(), &q.para, &q.rel).map_err(|e| e.0)?;
+            drop(g);
+            // EMF/WMF → SVG hors du verrou : la frappe n'attend pas l'image.
+            return Ok(raw.map(atelier_docx::objects::for_browser));
         }
         let mut d = Docx::open(&path).map_err(|e| e.0)?;
         atelier_docx::objects::media(&mut d, &q.para, &q.rel).map_err(|e| e.0)

@@ -90,12 +90,36 @@ pub fn insert_note(docx: &mut Docx, paragraph: &str, at: usize, text: &str, endn
 
 /// Image d'un paragraphe : octets et type MIME, d'après la relation `rel`
 /// de la partie qui porte le paragraphe.
+/// Les EMF/WMF sortent en SVG, comme le navigateur peut les afficher.
 pub fn media(docx: &mut Docx, paragraph: &str, rel: &str) -> Result<Option<(Vec<u8>, &'static str)>> {
+    Ok(media_raw(docx, paragraph, rel)?.map(for_browser))
+}
+
+/// Comme [`media`], mais les octets tels qu'ils sont dans le paquet : à
+/// convertir avec [`for_browser`] hors du verrou de la séance (un EMF+ de
+/// quelques Mo prend un moment).
+pub fn media_raw(docx: &mut Docx, paragraph: &str, rel: &str) -> Result<Option<(Vec<u8>, &'static str)>> {
     let part = parse_ref(paragraph)?.part;
     let Some(target) = docx.rel_target(&part, rel)? else { return Ok(None) };
     let Some(bytes) = docx.binary(&target)? else { return Ok(None) };
     let mime = mime_of(&target, &bytes);
     Ok(Some((bytes, mime)))
+}
+
+/// Les navigateurs (WebKit compris) n'affichent ni l'EMF ni le WMF de
+/// Windows : formules collées depuis l'éditeur d'équations, captures,
+/// graphiques d'Excel. On les rejoue en SVG (EMF+ compris) ; en cas
+/// d'échec, l'image part telle quelle.
+pub fn for_browser((bytes, mime): (Vec<u8>, &'static str)) -> (Vec<u8>, &'static str) {
+    let emf = bytes.len() > 44 && bytes[..4] == [1, 0, 0, 0] && &bytes[40..44] == b" EMF";
+    let wmf = bytes.starts_with(&[0xD7, 0xCD, 0xC6, 0x9A]) || (bytes.len() > 18 && matches!(bytes[..4], [1 | 2, 0, 9, 0]));
+    if !(emf || wmf || matches!(mime, "image/x-emf" | "image/x-wmf")) {
+        return (bytes, mime);
+    }
+    match metafile::to_svg(&bytes, metafile::RenderOptions::default()) {
+        Ok(r) => (r.svg.into_bytes(), "image/svg+xml"),
+        Err(_) => (bytes, mime),
+    }
 }
 
 fn mime_of(name: &str, bytes: &[u8]) -> &'static str {
