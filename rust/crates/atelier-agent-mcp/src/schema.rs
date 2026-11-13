@@ -228,7 +228,7 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 13] = ["read", "edit", "insert_paragraph", "join", "split", "comment", "reply", "draft_reply", "format", "insert_note", "insert_figure", "insert_row", "delete_row"];
+const DOCX_ACTIONS: [&str; 15] = ["read", "edit", "insert_paragraph", "join", "split", "comment", "reply", "draft_reply", "edit_comment", "checked", "format", "insert_note", "insert_figure", "insert_row", "delete_row"];
 
 /// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
 /// toujours des suivis de modifications ; suivis et commentaires sont signés
@@ -242,8 +242,8 @@ pub fn docx_tool_definition() -> Value {
     with the user's name; the user accepts or rejects (you cannot). find = exact current text (add paragraph \
     or occurrence if ambiguous). insert_note / insert_figure go right after find. insert_row / delete_row: table row of paragraph (a cell). \
     join: merge paragraph into the one before (p8 → p7). split: new paragraph right after find. \
-    draft_reply: a draft in the comment's card (not in the file) that the user reviews and sends \
-    under their own name; prefer it to reply for a reviewer's comment.",
+    draft_reply: a card draft (not in the file) the user reviews and sends; \
+    prefer it to reply for a reviewer. edit_comment: fix the user's own comment; checked: its check is done.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -257,10 +257,10 @@ pub fn docx_tool_definition() -> Value {
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
                 "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
                 "after": { "type": "string", "description": "insert_paragraph: new paragraph goes after this one (p12)" },
-                "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting, signature or rewritten passage (show a correction in your chat answer first); insert_figure: alt text (figure: image path in the project)" },
+                "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; edit_comment: the whole corrected comment, same voice and length as the user's; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting, signature or rewritten passage (show a correction in your chat answer first); insert_figure: alt text (figure: image path in the project)" },
                 "figure": { "type": "string", "description": "insert_figure: PNG/JPEG/GIF path in the project" },
                 "above": { "type": "boolean", "description": "insert_row: above instead of below" },
-                "comment": { "type": "integer", "description": "reply / draft_reply: comment number (c3 → 3)" },
+                "comment": { "type": "integer", "description": "reply / draft_reply / edit_comment / checked: comment number (c3 → 3)" },
                 "bold": { "type": "boolean" }, "italic": { "type": "boolean" }, "underline": { "type": "boolean" },
                 "strike": { "type": "boolean" }, "superscript": { "type": "boolean" }, "subscript": { "type": "boolean" },
                 "font": { "type": "string" },

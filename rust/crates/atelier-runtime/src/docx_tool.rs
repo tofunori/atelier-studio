@@ -92,6 +92,12 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
             parent: req.get("comment").and_then(Value::as_u64).ok_or("comment manquant : numéro du commentaire (c3 → 3)")? as u32,
             text: need("text")?,
         },
+        // Le commentaire de l'utilisateur, corrigé à sa demande (« vérifie
+        // mon commentaire et corrige-le », 2026-11-13) ; jamais celui d'un autre.
+        "edit_comment" => Op::EditComment {
+            id: req.get("comment").and_then(Value::as_u64).ok_or("comment manquant : numéro du commentaire (c3 → 3)")? as u32,
+            text: need("text")?,
+        },
         "format" => {
             let has_para = req.get("style").is_some() || req.get("align").is_some();
             let has_run = ["bold", "italic", "underline", "strike", "superscript", "subscript", "font", "size", "highlight"].iter().any(|k| req.get(*k).is_some());
@@ -171,9 +177,16 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
             "note": "Brouillon posé dans la carte du commentaire, pas dans le .docx : l'utilisateur le relit, le retouche et l'envoie sous son nom. Ne le recopie pas dans ta réponse."
         }));
     }
+    if action == "checked" {
+        // Fin d'une vérification de commentaire demandée depuis la carte :
+        // l'icône du panneau s'arrête, corrigé ou non. Rien dans le fichier.
+        let comment = req.get("comment").and_then(Value::as_u64).ok_or("comment manquant : numéro du commentaire (c3 → 3)")? as u32;
+        atelier_docx::drafts::checked(&path, comment).map_err(|e| e.0)?;
+        return Ok(json!({"ok": true, "comment": comment, "note": "Vérification notée dans la carte. Réponds à l'utilisateur en une ou deux phrases."}));
+    }
     // Retouches, commentaires et réponses portent le nom de l'utilisateur
     // (Thierry, 2026-11-13) : l'étudiant ou le relecteur ne voit que lui.
-    let speaks = matches!(action, "comment" | "reply");
+    let speaks = matches!(action, "comment" | "reply" | "edit_comment");
     let sig = Signature::now(&signer(project_root, &path)?);
     let expected = str_arg(req, "revision");
     let (result, revision) = if action == "insert_note" || action == "insert_figure" {
@@ -217,7 +230,11 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         let text = ops::outline(&model, p, Some(p + 1), READ_MAX_CHARS);
         out["now"] = json!(text.lines().find(|l| l.starts_with(&format!("p{p} "))).unwrap_or(""));
     }
-    out["note"] = json!("Proposé en suivi des modifications : l'utilisateur l'accepte ou le refuse dans le panneau .docx ou dans Word.");
+    out["note"] = json!(if action == "edit_comment" {
+        "Commentaire de l'utilisateur corrigé dans le .docx, toujours à son nom : dis-lui en une phrase ce que tu as changé."
+    } else {
+        "Proposé en suivi des modifications : l'utilisateur l'accepte ou le refuse dans le panneau .docx ou dans Word."
+    });
     Ok(out)
 }
 
@@ -317,6 +334,21 @@ mod tests {
         // Une réponse à Christophe porte aussi le nom de l'utilisateur.
         assert!(m.comments.iter().any(|c| c.author == "Thierry" && c.parent == Some(1) && c.text == "Seuil justifié en 2.3."));
         assert!(!m.comments.iter().any(|c| atelier_docx::marks::is_agent(&c.author)));
+        // Son propre commentaire, vérifié puis corrigé par l'agent ; jamais celui de Christophe.
+        let mine = m.comments.iter().find(|c| c.text == "Seuil justifié en 2.3.").unwrap().id;
+        let r = run(root, "claude", "edit_comment", &json!({"path": "article.docx", "comment": mine, "text": "Seuil justifié en 2.4."})).unwrap();
+        assert_eq!(r["author"], "Thierry");
+        assert!(r["note"].as_str().unwrap().contains("corrigé"), "{r}");
+        assert!(run(root, "claude", "edit_comment", &json!({"path": "article.docx", "comment": 1, "text": "x"})).unwrap_err().contains("que les siens"));
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        assert!(m.comments.iter().any(|c| c.id == mine && c.author == "Thierry" && c.text == "Seuil justifié en 2.4."));
+        assert!(atelier_docx::marks::list(&path, &m).unwrap().len() >= 4);
+        // Fin de la vérification : notée hors du fichier, pour la carte.
+        let before = std::fs::read(&path).unwrap();
+        run(root, "claude", "checked", &json!({"path": "article.docx", "comment": mine})).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(atelier_docx::drafts::checks(&path).unwrap().contains_key(&mine));
+        assert!(run(root, "claude", "checked", &json!({"path": "article.docx", "comment": 999})).unwrap_err().contains("introuvable"));
         // Notes et figures, en suivi signé ; la note de Christophe se retouche.
         let r = run(root, "claude", "insert_note", &json!({"path": "article.docx", "find": "réflectances de surface", "text": "Bandes 1 à 7."})).unwrap();
         assert_eq!(r["result"]["id"], "n2", "{r}");

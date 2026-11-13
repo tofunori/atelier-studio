@@ -41,14 +41,15 @@ function EditCard({ review, path, first, where }: { review: ChatReviewRef; path?
 }
 
 /** « Proposer » de l'éditeur Word (2026-11-12, variante C « Citation ») :
- *  à qui l'on répond, où, et son commentaire ; ni carte de fichier ni taille. */
+ *  à qui l'on répond, où, et son commentaire ; ni carte de fichier ni taille.
+ *  « Vérifier dans le chat » (2026-11-13) : « Vérifier mon commentaire ». */
 function ReplyCard({ reply, path }: { reply: DocxReplyAsk; path?: string }) {
   const first = reply.author.trim().split(/\s+/)[0] || reply.author;
   return (
     <div className="reply-card" title={path}>
       <div className="reply-card-head">
         <MessageSquareIcon className="reply-card-ic" size={12} strokeWidth={1.5} aria-hidden="true" />
-        <span>{t("chat.reply-ask", { name: first })}</span>
+        <span>{reply.check ? t("chat.check-ask") : t("chat.reply-ask", { name: first })}</span>
         {reply.where && <span className="reply-card-where">{` · ${reply.where}`}</span>}
       </div>
       <div className="reply-card-comment">{reply.comment}</div>

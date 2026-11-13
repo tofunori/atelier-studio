@@ -4759,13 +4759,8 @@ export default function App() {
               if (root === activeProject) markProjectOpened(root);
               else selectProject(root);
             }}
-            onOpenThread={(threadId, root) => {
-              setProjectsHome(null);
-              setActiveView("chats");
-              markProjectOpened(root);
-              selectThread(threadId, root);
-            }}
             onProjectSettings={(root) => { setProjectsHome(null); setProjectSettingsRoot(root); }}
+            onRemoveProject={handleRemoveProject}
             onOpenFolder={() => { void addProject().then((added) => { if (added) setProjectsHome(null); }); }}
             onCreated={(root, due, label) => {
               setProjects((prev) => (prev.includes(root) ? prev : [...prev, root]));

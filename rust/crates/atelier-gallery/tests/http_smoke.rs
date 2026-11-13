@@ -2829,6 +2829,73 @@ fn le_panneau_en_seance_recoit_des_deltas_et_ecrit_d_un_coup() {
     assert!(v["model"]["paragraphs"][1]["text"].as_str().unwrap().starts_with("Firn "));
 }
 
+/// « Ouvrir dans Word » : la séance est écrite, puis Word reçoit une copie
+/// de lecture (jamais l'original), en lecture seule, nouvelle à chaque clic ;
+/// Word absent donne un message clair ; jamais hors d'un .docx.
+#[cfg(unix)]
+#[test]
+fn ouvrir_dans_word_ecrit_la_seance_puis_passe_une_copie_de_lecture_a_word() {
+    use std::os::unix::fs::PermissionsExt;
+    let tools = tempfile::tempdir().unwrap();
+    let seen = tools.path().join("seen.txt");
+    let opener = tools.path().join("word.sh");
+    // Le faux Word note le chemin reçu et ce que le fichier contenait alors.
+    fs::write(
+        &opener,
+        format!("#!/bin/sh\nprintf '%s' \"$1\" > '{0}'\nrm -f '{0}.docx'\ncp \"$1\" '{0}.docx'\n", seen.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&opener, fs::Permissions::from_mode(0o755)).unwrap();
+    let srv = start_server_with(&[("ATELIER_WORD_OPENER", opener.display().to_string())]);
+    let target = srv.root.join("word.docx");
+    fs::write(&target, christophe_docx()).unwrap();
+    let (st, body) = http(srv.port, "GET", "/docx/model?path=word.docx", None);
+    assert_eq!(st, 200, "{body}");
+    let rev = json_of(&body)["revision"].as_str().unwrap().to_string();
+    let op = serde_json::json!({"path": "word.docx", "revision": rev, "author": "Thierry", "delta": true,
+        "op": {"op": "insert", "paragraph": "p1", "at": 0, "with": "Névé "}})
+    .to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op));
+    assert_eq!(st, 200, "{body}");
+    let (st, body) = http(srv.port, "POST", "/docx/open-word", Some(r#"{"path":"word.docx"}"#));
+    assert_eq!(st, 200, "{body}");
+    let first = PathBuf::from(fs::read_to_string(&seen).unwrap());
+    assert_ne!(first, fs::canonicalize(&target).unwrap(), "jamais l'original");
+    assert!(first.ends_with("word (copie de lecture).docx"), "{}", first.display());
+    assert!(fs::metadata(&first).unwrap().permissions().readonly(), "copie en lecture seule");
+    let handed = atelier_docx::Docx::open(&tools.path().join("seen.txt.docx")).unwrap().model().unwrap();
+    assert!(handed.paragraphs[1].text.starts_with("Névé "), "Word reçoit la retouche : {}", handed.paragraphs[1].text);
+    assert_eq!(json_of(&body)["copy"], first.display().to_string());
+    // L'original reste modifiable pendant que Word montre la copie.
+    let (_, body) = http(srv.port, "GET", "/docx/model?path=word.docx", None);
+    let rev = json_of(&body)["revision"].as_str().unwrap().to_string();
+    let op2 = serde_json::json!({"path": "word.docx", "revision": rev, "author": "Thierry", "delta": true,
+        "op": {"op": "insert", "paragraph": "p1", "at": 0, "with": "Firn "}})
+    .to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/op", Some(&op2));
+    assert_eq!(st, 200, "{body}");
+    // Un second clic : une autre copie, à jour.
+    let (st, body) = http(srv.port, "POST", "/docx/open-word", Some(r#"{"path":"word.docx"}"#));
+    assert_eq!(st, 200, "{body}");
+    let second = PathBuf::from(fs::read_to_string(&seen).unwrap());
+    assert_ne!(first, second);
+    let handed = atelier_docx::Docx::open(&tools.path().join("seen.txt.docx")).unwrap().model().unwrap();
+    assert!(handed.paragraphs[1].text.starts_with("Firn Névé "), "{}", handed.paragraphs[1].text);
+
+    // Refus : pas un .docx, hors du projet.
+    fs::write(srv.root.join("note.txt"), "x").unwrap();
+    let (st, _) = http(srv.port, "POST", "/docx/open-word", Some(r#"{"path":"note.txt"}"#));
+    assert_eq!(st, 400);
+    let (st, _) = http(srv.port, "POST", "/docx/open-word", Some(r#"{"path":"../x.docx"}"#));
+    assert!(st == 403 || st == 404, "{st}");
+
+    // Word absent : `open` le dit sur stderr.
+    fs::write(&opener, "#!/bin/sh\necho 'Unable to find application with identifier com.microsoft.Word' >&2\nexit 1\n").unwrap();
+    let (st, body) = http(srv.port, "POST", "/docx/open-word", Some(r#"{"path":"word.docx"}"#));
+    assert_eq!(st, 404, "{body}");
+    assert!(body.contains("pas installé"), "{body}");
+}
+
 /// L'agent écrit le fichier entre deux sondages du panneau, séance déjà
 /// écrite : la révision du panneau est périmée. Une retouche sans delta et
 /// ⌘Z sont refusés (409) au lieu de viser le mauvais paragraphe ou
