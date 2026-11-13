@@ -391,6 +391,10 @@ impl TextStyle {
 
 /// Coupe un texte en lignes qui tiennent dans `max` px, aux espaces.
 fn wrap(text: &str, st: &TextStyle, max: f64) -> Vec<String> {
+    // Coupures comme Word : en Calibri (plus étroite que la police de repli),
+    // une ligne tient ~10 % de texte en plus ; la marge de 20 % l'absorbe.
+    let calibri = THEME.with(|t| t.borrow().font.starts_with("Calibri"));
+    let max = if calibri { max * 1.1 } else { max };
     let mut lines = Vec::new();
     let mut cur = String::new();
     for word in text.split_whitespace() {
@@ -1210,9 +1214,9 @@ impl Chart {
             // Petites graduations, plus courtes, entre les grandes.
             if a.minor != "none" && a.line.color.is_some() && !(a.category && self.kind != Kind::Scatter) {
                 let (o, i) = match a.minor {
-                    "in" => (0.0, 2.5),
+                    "in" => (0.0, 3.5),
                     "cross" => (2.5, 2.5),
-                    _ => (2.5, 0.0),
+                    _ => (3.5, 0.0),
                 };
                 for v in minor_ticks(a) {
                     if horizontal {
@@ -1440,7 +1444,8 @@ fn scale(a: &mut Axis, data: &[f64], len: f64) {
     }
     // Excel serre davantage les graduations verticales (une ligne de texte)
     // que les horizontales (la largeur d'un libellé).
-    let max_ticks = (len / if a.horizontal { 40.0 } else { 27.0 }).clamp(3.0, 10.0);
+    // Au plus 8 intervalles en hauteur : 0..1 se gradue par 0,2, même haut.
+    let max_ticks = if a.horizontal { (len / 40.0).clamp(3.0, 10.0) } else { (len / 27.0).clamp(3.0, 8.0) };
     let step = a.major.unwrap_or_else(|| nice((hi - lo) / max_ticks));
     // Excel laisse un peu d'air (5 % de l'étendue) au-delà des points
     // extrêmes, sauf au zéro, puis arrondit au pas.
@@ -1808,5 +1813,9 @@ mod tests {
         a.log = None;
         scale(&mut a, &[1.0, 21.0], 400.0);
         assert!(a.step == 2.0 || a.step == 5.0, "pas {}", a.step);
+        // Un axe vertical haut garde le pas de 0,2 sur 0..1 (comme Word).
+        a.horizontal = false;
+        scale(&mut a, &[0.03, 1.0], 300.0);
+        assert_eq!((a.lo, a.step), (0.0, 0.2));
     }
 }

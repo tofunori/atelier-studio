@@ -309,7 +309,7 @@ fn un_long_titre_passe_a_la_ligne_au_lieu_d_etre_coupe() {
     let s = svg(with_chart(&scatter(&numeric_x(), &ratios(), false, false, "nextTo").replace("Figure H/Ho en fonction du temps", long), None));
     let t = texts(&s);
     assert!(!t.iter().any(|x| x == long), "le titre tient sur plusieurs lignes : {t:?}");
-    let lines: Vec<&String> = t.iter().filter(|x| long.contains(x.as_str()) && x.len() > 10).collect();
+    let lines: Vec<&String> = t.iter().filter(|x| long.contains(x.as_str()) && x.contains(' ')).collect();
     assert!(lines.len() >= 2, "{t:?}");
     assert_eq!(lines.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(" "), long);
     // Les points restent sous le titre.
