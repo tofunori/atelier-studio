@@ -2591,6 +2591,30 @@ fn fixture_docx(name: &str) -> Vec<u8> {
 }
 
 #[test]
+fn la_vignette_docx_lit_la_premiere_page_sans_toucher_au_fichier() {
+    let srv = start_server();
+    let target = srv.root.join("revCK.docx");
+    fs::write(&target, christophe_docx()).unwrap();
+    let before = fs::read(&target).unwrap();
+    let (st, body) = http(srv.port, "GET", "/docx/peek?path=revCK.docx&v=1", None);
+    assert_eq!(st, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert!(v["page"]["width"].as_f64().unwrap() > 0.0, "{body}");
+    let paras = v["paragraphs"].as_array().unwrap();
+    assert!(!paras.is_empty());
+    assert_eq!(paras[0]["heading"], 1);
+    // Ni suivis supprimés, ni commentaires, ni identifiants de révision.
+    assert!(!body.contains("\"rev\""), "{body}");
+    assert!(!body.contains("\"comments\""), "{body}");
+    assert!(v.get("changes").is_none() && v.get("comments").is_none());
+    assert_eq!(fs::read(&target).unwrap(), before, "lecture seule");
+    let (st, _) = http(srv.port, "GET", "/docx/peek?path=notes.md", None);
+    assert_eq!(st, 400);
+    let (st, _) = http(srv.port, "GET", "/docx/peek?path=..%2F..%2Fetc%2Fx.docx", None);
+    assert!(st == 403 || st == 404, "{st}");
+}
+
+#[test]
 fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     let srv = start_server();
     let target = srv.root.join("Chapitre 2 corrigé CK.docx");

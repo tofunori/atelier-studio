@@ -286,6 +286,32 @@ pub async fn model(State(state): State<AppState>, headers: HeaderMap, Query(q): 
     }
 }
 
+/// `GET /docx/peek?path=` — la première page seulement (format, marges,
+/// paragraphes allégés), pour la vignette de la galerie. Lecture seule :
+/// une séance ouverte sert ses paragraphes en mémoire, sans rien écrire.
+pub async fn peek(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<PathQuery>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &q.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || -> Result<Value, String> {
+        let preview = match existing(&path) {
+            Some(s) => atelier_docx::preview::first_page(lock_session(&s).model()),
+            None => atelier_docx::preview::first_page(&Docx::open(&path).and_then(|mut d| d.model()).map_err(|e| e.0)?),
+        };
+        serde_json::to_value(preview).map_err(|e| e.to_string())
+    };
+    match tokio::task::spawn_blocking(job).await {
+        // La galerie demande `&v=<mtime>` : une réponse vaut tant que le fichier ne change pas.
+        Ok(Ok(v)) => ([(axum::http::header::CACHE_CONTROL, "private, max-age=86400")], Json(v)).into_response(),
+        Ok(Err(e)) => json_error(StatusCode::UNPROCESSABLE_ENTITY, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct FlushBody {
     path: String,
