@@ -1278,7 +1278,15 @@ async fn static_asset(
     if method != Method::GET && method != Method::HEAD {
         return (StatusCode::METHOD_NOT_ALLOWED, "method not allowed").into_response();
     }
-    let requested = uri.path().trim_start_matches('/');
+    // Le chemin d'URI arrive encodé : `tp6 [1] (06 nov).pdf` devient
+    // `tp6%20[1]%20(06%20nov).pdf`. Sans décodage, aucun fichier dont le nom
+    // porte une espace ou un caractère réservé n'était trouvé (404). Le
+    // décodage précède la garde `safe_project_path`, qui confine donc aussi
+    // un `%2e%2e` décodé.
+    let Some(decoded) = decode_uri_path(uri.path()) else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    let requested = decoded.trim_start_matches('/');
     let requested = if requested.is_empty() {
         "figures_index.html"
     } else {
@@ -1394,6 +1402,17 @@ async fn static_asset(
         );
     }
     response
+}
+
+/// Décode le chemin d'une URI (`%20` → espace, `%5B` → `[`…). `None` si le
+/// résultat n'est pas de l'UTF-8 ou contient un octet nul : aucun fichier du
+/// projet ne peut correspondre.
+fn decode_uri_path(raw: &str) -> Option<String> {
+    let decoded = percent_encoding::percent_decode_str(raw)
+        .decode_utf8()
+        .ok()?
+        .into_owned();
+    (!decoded.contains('\0')).then_some(decoded)
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
