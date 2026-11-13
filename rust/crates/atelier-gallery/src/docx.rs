@@ -519,9 +519,12 @@ pub struct MediaQuery {
     /// Recadrage de Word, « l,t,r,b » en fractions (champ `crop` du modèle).
     #[serde(default)]
     crop: Option<String>,
+    /// Taille du cadre en px (« l×h ») : un graphique d'Excel s'y dessine.
+    #[serde(default)]
+    size: Option<String>,
 }
 
-/// `GET /docx/media?path=&para=&rel=[&crop=l,t,r,b]` — une image du document.
+/// `GET /docx/media?path=&para=&rel=[&crop=l,t,r,b][&size=LxH]` — une image du document.
 pub async fn media(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<MediaQuery>) -> impl IntoResponse {
     if !request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
@@ -534,16 +537,29 @@ pub async fn media(State(state): State<AppState>, headers: HeaderMap, Query(q): 
         let v: Vec<f64> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
         <[f64; 4]>::try_from(v).ok()
     });
+    let size = q.size.as_deref().and_then(|s| {
+        let (w, h) = s.split_once(['x', 'X', ','])?;
+        let (w, h) = (w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?);
+        (w.is_finite() && h.is_finite() && (16.0..=4000.0).contains(&w) && (16.0..=4000.0).contains(&h)).then_some((w, h))
+    });
     let job = move || -> Result<Option<(Vec<u8>, &'static str)>, String> {
         // Les paragraphes de la séance (pas encore écrits) font foi.
-        let raw = if let Some(s) = existing(&path) {
-            let mut g = lock_session(&s);
-            atelier_docx::objects::media_raw(g.docx_mut(), &q.para, &q.rel).map_err(|e| e.0)?
-        } else {
-            atelier_docx::objects::media_raw(&mut Docx::open(&path).map_err(|e| e.0)?, &q.para, &q.rel).map_err(|e| e.0)?
+        let read = |d: &mut Docx| -> Result<_, String> {
+            let raw = atelier_docx::objects::media_raw(d, &q.para, &q.rel).map_err(|e| e.0)?;
+            let theme = match &raw {
+                Some((_, m)) if *m == atelier_docx::chart::MIME => atelier_docx::objects::theme(d).map_err(|e| e.0)?,
+                _ => None,
+            };
+            Ok((raw, theme))
         };
-        // EMF/WMF → SVG et recadrage hors du verrou : la frappe n'attend pas l'image.
-        Ok(raw.map(atelier_docx::objects::for_browser).map(|img| match crop {
+        let (raw, theme) = if let Some(s) = existing(&path) {
+            let mut g = lock_session(&s);
+            read(g.docx_mut())?
+        } else {
+            read(&mut Docx::open(&path).map_err(|e| e.0)?)?
+        };
+        // Graphiques, EMF/WMF → SVG et recadrage hors du verrou : la frappe n'attend pas l'image.
+        Ok(raw.map(|r| atelier_docx::objects::render(r, theme.as_deref(), size)).map(|img| match crop {
             Some(c) => atelier_docx::objects::cropped(img, c),
             None => img,
         }))

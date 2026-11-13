@@ -547,7 +547,12 @@ fn media_of(node: Node) -> Option<Media> {
     let rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     let blip = node.descendants().find(|n| n.tag_name().name() == "blip").and_then(|b| b.attribute((rel_ns, "embed")));
     let vml = node.descendants().find(|n| n.tag_name().name() == "imagedata").and_then(|b| b.attribute((rel_ns, "id")));
-    let rel = blip.or(vml)?.to_string();
+    // Graphique d'Excel (`c:chart r:id`) : la partie se rend en SVG (crate::chart).
+    let chart = node
+        .descendants()
+        .find(|n| n.tag_name().name() == "chart" && n.tag_name().namespace() == Some(crate::chart::NS))
+        .and_then(|b| b.attribute((rel_ns, "id")));
+    let rel = blip.or(vml).or(chart)?.to_string();
     let (mut cx, mut cy) = (0, 0);
     if let Some(ext) = node.descendants().find(|n| n.tag_name().name() == "extent") {
         cx = ext.attribute("cx").and_then(|v| v.parse().ok()).unwrap_or(0);
