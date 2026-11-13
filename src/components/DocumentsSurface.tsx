@@ -55,7 +55,7 @@ function folderOf(path: string) {
 }
 
 /** Dossier rattaché qui contient `path` (chemin absolu), le plus profond d'abord. */
-export function sourceOf(path: string, sources: Source[]): Source | null {
+function sourceOf(path: string, sources: Source[]): Source | null {
   if (!path.startsWith("/")) return sources.find((s) => !s.root) ?? null;
   return sources
     .filter((s) => s.root && path.startsWith(s.root === "/" ? "/" : `${s.root}/`))
