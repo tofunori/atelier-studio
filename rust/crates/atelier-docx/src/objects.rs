@@ -91,8 +91,32 @@ pub fn insert_note(docx: &mut Docx, paragraph: &str, at: usize, text: &str, endn
 /// Image d'un paragraphe : octets et type MIME, d'après la relation `rel`
 /// de la partie qui porte le paragraphe.
 /// Les EMF/WMF sortent en SVG, comme le navigateur peut les afficher.
+/// Les graphiques d'Excel sortent aussi en SVG, à leur taille par défaut.
 pub fn media(docx: &mut Docx, paragraph: &str, rel: &str) -> Result<Option<(Vec<u8>, &'static str)>> {
-    Ok(media_raw(docx, paragraph, rel)?.map(for_browser))
+    let raw = media_raw(docx, paragraph, rel)?;
+    let theme = match &raw {
+        Some((_, m)) if *m == crate::chart::MIME => theme(docx)?,
+        _ => None,
+    };
+    Ok(raw.map(|r| render(r, theme.as_deref(), None)))
+}
+
+/// Thème du document (`word/theme/theme1.xml`) : couleurs et police des graphiques.
+pub fn theme(docx: &mut Docx) -> Result<Option<Vec<u8>>> {
+    docx.binary("word/theme/theme1.xml")
+}
+
+/// Prépare une image pour le navigateur : graphique d'Excel dessiné en SVG
+/// à la taille du cadre (`size`, en px), EMF/WMF rejoués en SVG, le reste tel quel.
+pub fn render((bytes, mime): (Vec<u8>, &'static str), theme: Option<&[u8]>, size: Option<(f64, f64)>) -> (Vec<u8>, &'static str) {
+    if mime == crate::chart::MIME {
+        let (w, h) = size.unwrap_or((480.0, 288.0));
+        return match crate::chart::to_svg(&bytes, theme, w, h) {
+            Some(svg) => (svg.into_bytes(), "image/svg+xml"),
+            None => (crate::chart::placeholder(w, h).into_bytes(), "image/svg+xml"),
+        };
+    }
+    for_browser((bytes, mime))
 }
 
 /// Comme [`media`], mais les octets tels qu'ils sont dans le paquet : à
@@ -102,7 +126,7 @@ pub fn media_raw(docx: &mut Docx, paragraph: &str, rel: &str) -> Result<Option<(
     let part = parse_ref(paragraph)?.part;
     let Some(target) = docx.rel_target(&part, rel)? else { return Ok(None) };
     let Some(bytes) = docx.binary(&target)? else { return Ok(None) };
-    let mime = mime_of(&target, &bytes);
+    let mime = if target.ends_with(".xml") && crate::chart::looks_like_chart(&bytes) { crate::chart::MIME } else { mime_of(&target, &bytes) };
     Ok(Some((bytes, mime)))
 }
 
