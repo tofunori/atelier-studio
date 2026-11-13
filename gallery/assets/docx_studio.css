@@ -469,6 +469,11 @@ body.lane-over #leader{display:none}
 .sv svg{color:var(--status-success)}
 #who{height:20px;padding:0 4px;border:0;border-radius:6px;background:transparent;font-size:11px;color:var(--text-muted);cursor:pointer;transition:color 120ms ease-out}
 #who:hover{color:var(--text-primary)}
+/* Ouvrir dans Word : action sur le fichier entier, posée à côté de l'état
+   d'enregistrement ; pastille neutre (fond de contrôle, jamais d'accent). */
+#ftWord{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;border:0;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));font-size:11px;color:var(--text-secondary);cursor:pointer;flex-shrink:0;transition:color 120ms ease-out,opacity 120ms ease-out}
+#ftWord:hover{color:var(--text-primary)}
+#ftWord:disabled{opacity:.6;cursor:default}
 /* Zoom : − pourcentage + ; le pourcentage remet « ajusté à la fenêtre ». */
 .zoom{display:inline-flex;align-items:center;gap:2px}
 .zoom[hidden]{display:none}

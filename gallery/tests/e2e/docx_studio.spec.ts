@@ -1457,6 +1457,31 @@ test("docx: un refus du serveur (409, Word ouvert) rend la saisie et remet l'éc
   expect((await disk(page, project)).paragraphs[2].text).toBe(before);
 });
 
+test("docx: Ouvrir dans Word écrit d'abord la frappe, passe une copie de lecture et laisse la page modifiable", async ({page, project}) => {
+  await open(page, project);
+  // Pas de Word ici : la route est simulée ; le fichier doit déjà porter la
+  // frappe quand Atelier en tire la copie pour Word.
+  let handed = '';
+  await page.route('**/docx/open-word', async route => {
+    handed = (await disk(page, project)).paragraphs[2].text;
+    await route.fulfill({status: 200, contentType: 'application/json', body: '{"ok":true}'});
+  });
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.type(' neige');
+  await expect(page.locator('#ftWord')).toHaveText('Ouvrir dans Word');
+  await page.locator('#ftWord').click();
+  await expect.poll(() => handed).toContain('retenu ici neige');
+  await expect(page.locator('#toast')).toContainText('Copie de lecture ouverte dans Word');
+  await expect(page.locator('#notice')).toBeHidden();
+  await expect(page.locator('#paper')).toHaveAttribute('contenteditable', 'true');
+  // Word absent : message clair.
+  await page.unroute('**/docx/open-word');
+  await page.route('**/docx/open-word', route => route.fulfill({status: 404, contentType: 'application/json', body: JSON.stringify({error: "Microsoft Word n'est pas installé sur ce Mac"})}));
+  await page.locator('#ftWord').click();
+  await expect(page.locator('#toast')).toContainText('pas installé');
+  await expect(page.locator('#toast')).toHaveClass(/err/);
+});
+
 test("docx: délai entre la touche et l'affichage (retour arrière, Entrée, gras)", async ({page, project}) => {
   await open(page, project);
   // Chronomètre dans la page : touche (capture) → première mutation qui

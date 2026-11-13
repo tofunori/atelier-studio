@@ -340,6 +340,120 @@ pub async fn flush(State(state): State<AppState>, headers: HeaderMap, Json(body)
     }
 }
 
+/// Commande qui ouvre `path` dans Microsoft Word : `open -b com.microsoft.Word`
+/// (par identifiant, quel que soit le nom de l'app ou son dossier).
+/// `ATELIER_WORD_OPENER` la remplace par un programme qui reçoit le chemin
+/// (tests du serveur, machines sans Word).
+fn word_command(path: &Path) -> tokio::process::Command {
+    match std::env::var_os("ATELIER_WORD_OPENER").filter(|v| !v.is_empty()) {
+        Some(program) => {
+            let mut cmd = tokio::process::Command::new(program);
+            cmd.arg(path);
+            cmd
+        }
+        None => {
+            let mut cmd = tokio::process::Command::new("open");
+            cmd.args(["-b", "com.microsoft.Word"]).arg(path);
+            cmd
+        }
+    }
+}
+
+/// `open` qui ne trouve pas l'app : « Unable to find application… ».
+fn word_missing(stderr: &str) -> bool {
+    stderr.contains("Unable to find application") || stderr.contains("LSCopyApplicationURLsForBundleIdentifier")
+}
+
+/// Dossier des copies de lecture passées à Word (une par clic : Word garde
+/// ouverte la précédente, il ne doit pas la confondre avec la nouvelle).
+fn word_copies_dir() -> PathBuf {
+    std::env::temp_dir().join("atelier-word")
+}
+
+/// Copie de lecture de `path` pour Word : `Nom (copie de lecture).docx`,
+/// en lecture seule (Word refuse de l'enregistrer par mégarde). Les copies
+/// de plus d'un jour sont effacées au passage.
+fn reading_copy(path: &Path) -> std::io::Result<PathBuf> {
+    let root = word_copies_dir();
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        for e in entries.flatten() {
+            let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
+            if old.is_some_and(|d| d > Duration::from_secs(24 * 3600)) {
+                let _ = remove_tree(&e.path());
+            }
+        }
+    }
+    let stamp = std::time::SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let dir = root.join(format!("{stamp}"));
+    std::fs::create_dir_all(&dir)?;
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("document");
+    let copy = dir.join(format!("{stem} (copie de lecture).docx"));
+    std::fs::copy(path, &copy)?;
+    let mut perm = std::fs::metadata(&copy)?.permissions();
+    perm.set_readonly(true);
+    std::fs::set_permissions(&copy, perm)?;
+    Ok(copy)
+}
+
+/// Efface un dossier de copies, fichiers en lecture seule compris.
+fn remove_tree(dir: &Path) -> std::io::Result<()> {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for e in entries.flatten() {
+            if let Ok(meta) = e.metadata() {
+                let mut perm = meta.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perm.set_readonly(false);
+                let _ = std::fs::set_permissions(e.path(), perm);
+            }
+        }
+    }
+    std::fs::remove_dir_all(dir)
+}
+
+/// `POST /docx/open-word` — `{path}` : écrit d'abord les retouches en attente
+/// de la séance, puis ouvre dans Microsoft Word une COPIE DE LECTURE du
+/// fichier (pour voir le rendu de Word : commentaires, suivis, mise en page).
+/// Le fichier d'origine n'est jamais ouvert dans Word : Atelier reste seul à
+/// l'écrire et le panneau reste modifiable.
+pub async fn open_word(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<FlushBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &body.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let p = path.clone();
+    let prepare = move || -> Result<PathBuf, (StatusCode, String)> {
+        if let Some(s) = existing(&p) {
+            lock_session(&s).flush().map_err(|e| (refusal(&e), format!("retouches pas encore enregistrées : {}", e.0)))?;
+        }
+        // Les écritures du .docx sont atomiques (fichier à côté puis
+        // renommage) : la copie lit l'ancien fichier ou le nouveau, entier.
+        reading_copy(&p).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("copie impossible : {e}")))
+    };
+    let copy = match tokio::task::spawn_blocking(prepare).await {
+        Ok(Ok(c)) => c,
+        Ok(Err((status, e))) => return json_error(status, e),
+        Err(e) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    let mut cmd = word_command(&copy);
+    cmd.kill_on_drop(true);
+    match tokio::time::timeout(Duration::from_secs(15), cmd.output()).await {
+        Ok(Ok(out)) if out.status.success() => (StatusCode::OK, Json(json!({"ok": true, "copy": copy}))).into_response(),
+        Ok(Ok(out)) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if word_missing(&stderr) {
+                json_error(StatusCode::NOT_FOUND, "Microsoft Word n'est pas installé sur ce Mac")
+            } else {
+                json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Word n'a pas pu ouvrir la copie : {}", stderr.trim()))
+            }
+        }
+        Ok(Err(e)) => json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Word n'a pas pu ouvrir la copie : {e}")),
+        Err(_) => json_error(StatusCode::GATEWAY_TIMEOUT, "Word met trop de temps à s'ouvrir"),
+    }
+}
+
 /// `GET /docx/stat?path=` — ce que le panneau sonde pour voir arriver les
 /// retouches de l'agent ou un enregistrement de Word, et les brouillons de
 /// réponse que l'agent pose dans la carte d'un commentaire (hors du fichier).
@@ -976,6 +1090,19 @@ mod tests {
         // Word garde la fin du nom pour les noms longs.
         std::fs::write(dir.path().join("~$apitre 2 corrigé CK.docx"), b"x").unwrap();
         assert!(atelier_docx::open_in_word(&doc));
+    }
+
+    #[test]
+    fn word_s_ouvre_par_son_identifiant() {
+        let cmd = word_command(Path::new("/tmp/a b.docx"));
+        let std = cmd.as_std();
+        if std::env::var_os("ATELIER_WORD_OPENER").is_none() {
+            assert_eq!(std.get_program(), "open");
+            let args: Vec<_> = std.get_args().collect();
+            assert_eq!(args, ["-b", "com.microsoft.Word", "/tmp/a b.docx"]);
+        }
+        assert!(word_missing("LSOpenURLsWithRole() failed… Unable to find application with identifier com.microsoft.Word"));
+        assert!(!word_missing(""));
     }
 
     #[test]

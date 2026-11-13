@@ -177,6 +177,8 @@
     bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
     // Vérifier son commentaire dans le chat : loupe et coche.
     verif: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="m8.5 11 1.8 1.8 3.2-3.4"/>',
+    // Ouvrir ailleurs (Microsoft Word).
+    ext: '<path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
   const ic = (k: keyof typeof PATHS, size = 16) => svg(PATHS[k], size);
@@ -753,6 +755,7 @@
   // Barre d'état : page, mots, revue, enregistrement, signature et zoom.
   foot.innerHTML = `<span id="ftPage"></span><span id="ftWords" class="hide1"></span><span id="ftOpen" class="hide2"></span>
     <span class="sp"></span>
+    <button id="ftWord" class="hide1" aria-label="Ouvrir dans Microsoft Word" data-tooltip="Voir ce document dans Microsoft Word (copie de lecture, à jour)">${ic("ext", 12)}<span>Ouvrir dans Word</span></button>
     <span class="sv" id="ftSave" role="status" aria-live="polite"></span>
     <button id="who" class="hide1" data-tooltip="Nom inscrit sur tes retouches et commentaires"></button>
     <span class="zoom" id="zoom" role="group" aria-label="Zoom" hidden><button class="z-step" data-z="out" aria-label="Zoom arrière" data-tooltip="Zoom arrière (⌘−)">${ic("minus", 12)}</button><button class="z-pct" data-tooltip="Ajuster à la fenêtre (⌘0)"></button><button class="z-step" data-z="in" aria-label="Zoom avant" data-tooltip="Zoom avant (⌘+)">${ic("plus", 12)}</button></span>`;
@@ -2728,6 +2731,31 @@
   let hostPanel: { open: boolean; tab: "docs" | "plan" | "com" } = { open: false, tab: "docs" };
   let sidePref: string | null = (() => { try { return localStorage.getItem("docxSide"); } catch { return null; } })();
   /** Ce que la barre a replié, rendu par « … » (dans l'ordre de la barre). */
+  // ------------------------------------------------- ouvrir dans Word
+  // Pour voir le rendu de Word (commentaires, suivis, mise en page) : les
+  // retouches en attente partent d'abord, puis le serveur passe à Word une
+  // COPIE DE LECTURE (lecture seule, nouvelle à chaque clic). L'original
+  // n'est jamais ouvert dans Word : Atelier reste seul à l'écrire.
+  let wordOpening = false;
+  async function openInWord() {
+    if (!PATH || wordOpening) return;
+    wordOpening = true;
+    const btn = $("ftWord") as HTMLButtonElement;
+    btn.disabled = true;
+    try {
+      await ship();
+      if (pend.length) throw new Error("des retouches ne sont pas encore enregistrées, réessaie dans un instant");
+      await api("/docx/open-word", { path: PATH });
+      status("Copie de lecture ouverte dans Word : ce que tu y changes ne revient pas ici");
+    } catch (e) {
+      status(`Ouverture dans Word impossible : ${(e as Error).message}`, true);
+    } finally {
+      wordOpening = false;
+      btn.disabled = false;
+    }
+  }
+  $("ftWord").addEventListener("click", () => void openInWord());
+
   function overflowMenu(trigger: HTMLElement) {
     const b = document.body.classList;
     const w1 = b.contains("w1"), w2 = b.contains("w2"), w3 = b.contains("w3");
@@ -2752,6 +2780,8 @@
       items.push({ label: "Rechercher", html: `<span>Rechercher</span>${hint("⌘F")}`, run: () => openFind() });
       items.push({ label: "Commenter la sélection", html: `<span>Commenter la sélection</span>${hint("⌥⌘A")}`, run: () => askComment() });
     }
+    // La barre d'état étroite cache le bouton : il reste ici.
+    if (w1) items.push({ label: "", sep: true }, { label: "Ouvrir dans Word", run: () => void openInWord() });
     showMenu(trigger, items.filter((it, i) => !(it.sep && i === 0)));
   }
   $("btnOver").addEventListener("click", (e) => overflowMenu(e.currentTarget as HTMLElement));
