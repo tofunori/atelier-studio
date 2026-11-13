@@ -20,7 +20,7 @@
     font?: string; size?: number; highlight?: string; comments?: number[]; ghost?: boolean;
     /** Effacement en suivi montré d'avance (barré), pas encore confirmé. */
     gdel?: boolean;
-    number?: number; whole?: boolean; media?: string; width?: number; height?: number; alt?: string;
+    number?: number; whole?: boolean; media?: string; width?: number; height?: number; alt?: string; crop?: number[];
     /** Équation : son LaTeX, et si elle est seule sur sa ligne (display). */
     latex?: string; display?: boolean;
   };
@@ -147,17 +147,19 @@
     darkGray: "color-mix(in srgb, gray 40%, transparent)", lightGray: "color-mix(in srgb, silver 40%, transparent)",
   };
   const PATHS = {
-    panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+    // Plan du document (sommaire en escalier) : distinct de la bascule de la
+    // liste des documents d'Atelier, qui garde le rectangle à filet.
+    plan: '<path d="M4 6h16"/><path d="M10 12h10"/><path d="M10 18h7"/><path d="M5.5 9v9"/><path d="M5.5 12h2"/><path d="M5.5 18h2"/>',
+    // Marge de révision : page et colonne de notes à droite.
+    marge: '<rect width="18" height="16" x="3" y="4" rx="2"/><path d="M14.5 4v16"/><path d="M17 9h1.5"/><path d="M17 13h1.5"/>',
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     down: '<path d="m6 9 6 6 6-6"/>',
     up: '<path d="m18 15-6-6-6 6"/>',
     send: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
-    left: '<path d="m15 18-6-6 6-6"/>',
     right: '<path d="m9 18 6-6-6-6"/>',
     msgPlus: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>',
     chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     note: '<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/>',
-    msgText: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/>',
     plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
     minus: '<path d="M5 12h14"/>',
     undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
@@ -173,7 +175,6 @@
     circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
     bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
-    sort: '<path d="M3 6h18"/><path d="M6 12h12"/><path d="M9 18h6"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
   const ic = (k: keyof typeof PATHS, size = 16) => svg(PATHS[k], size);
@@ -449,7 +450,9 @@
           }
         } else if (s.media) {
           const img = document.createElement("img");
-          img.src = `/docx/media?path=${enc(PATH)}&para=${enc(p.id)}&rel=${enc(s.media)}`;
+          // Recadrage de Word : le serveur ne renvoie que la zone gardée (sans taille, l'image entière).
+          const crop = s.crop && s.width && s.height ? `&crop=${s.crop.join(",")}` : "";
+          img.src = `/docx/media?path=${enc(PATH)}&para=${enc(p.id)}&rel=${enc(s.media)}${crop}`;
           img.alt = s.alt || "Figure";
           img.draggable = false;
           if (s.width) img.style.width = model!.page ? `calc(var(--pt) * ${s.width * 0.75})` : `${s.width}px`;
@@ -2370,6 +2373,8 @@
     openTrigger = null;
   }
   type Item = { label: string; html?: string; on?: boolean; danger?: boolean; sep?: boolean; head?: boolean; disabled?: boolean; run?: () => void };
+  /** Indication grise à droite d'une rangée de menu (raccourci, date). */
+  const hint = (text: string) => `<span class="mi-k">${esc(text)}</span>`;
   function showMenu(trigger: HTMLElement, items: Item[], alignRight = false) {
     if (openTrigger === trigger) { closeMenu(); return; }
     closeMenu();
@@ -2427,10 +2432,12 @@
   const fmtbar = $("fmtbar");
   const FONTS = ["Times New Roman", "Calibri", "Cambria", "Arial", "Helvetica", "Georgia", "Garamond", "Palatino"];
   const SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 36];
-  // Une seule barre (piste A choisie par Thierry le 2026-10-20) : mise en
-  // forme à gauche, revue et suivi à droite ; le reste vit dans des menus.
+  // Une seule barre en deux pôles (Thierry, 2026-11-13, refonte relue par
+  // Fable) : écrire à gauche, réviser à droite ; la marge ferme la barre,
+  // au-dessus du bord qu'elle ouvre. Ce qui ne tient plus passe dans « … ».
+  const chev = `<span class="chev">${ic("down", 12)}</span>`;
   fmtbar.innerHTML = `
-    <button class="ib on" id="btnNav" aria-label="Plan et commentaires" aria-pressed="true" data-tooltip="Plan et commentaires">${ic("panel")}</button>
+    <button class="ib on" id="btnNav" aria-label="Plan et commentaires" aria-pressed="true" data-tooltip="Plan et commentaires">${ic("plan")}</button>
     <span class="vs"></span>
     <button class="dd w-style hide3" id="ddStyle" data-tooltip="Style du paragraphe"><span>Normal</span>${ic("down", 12)}</button>
     <button class="dd w-font hide1" id="ddFont" data-tooltip="Police"><span>Police</span>${ic("down", 12)}</button>
@@ -2439,23 +2446,26 @@
     <button class="ib hide3" data-run="b" aria-label="Gras" data-tooltip="Gras (⌘B)"><span class="g">G</span></button>
     <button class="ib hide3" data-run="i" aria-label="Italique" data-tooltip="Italique (⌘I)"><span class="g i">I</span></button>
     <button class="ib hide3" data-run="u" aria-label="Souligné" data-tooltip="Souligné (⌘U)"><span class="g u">S</span></button>
-    <button class="ib hide2" id="btnMore" aria-label="Autres mises en forme" data-tooltip="Barré, exposant, indice">${ic("more")}</button>
+    <button class="ib chev-only hide3" id="btnMore" aria-label="Autres mises en forme" data-tooltip="Barré, exposant, indice">${chev}</button>
     <span class="vs hide2"></span>
-    <button class="ib hide2" id="btnAlign" aria-label="Alignement" data-tooltip="Alignement"><span class="ic">${ic("alLeft")}</span><span class="chev">${ic("down", 12)}</span></button>
-    <button class="ib hide2" id="btnList" aria-label="Listes" data-tooltip="Listes">${ic("list")}<span class="chev">${ic("down", 12)}</span></button>
-    <span class="vs hide2"></span>
-    <button class="ib hide3" id="btnComment" aria-label="Commenter" data-tooltip="Commenter la sélection">${ic("msgPlus")}</button>
-    <button class="ib hide2" id="btnInsert" aria-label="Insérer" data-tooltip="Insérer une note, une figure ou une ligne de tableau">${ic("plus")}<span class="chev">${ic("down", 12)}</span></button>
+    <button class="ib hide2" id="btnAlign" aria-label="Paragraphe" data-tooltip="Alignement et listes"><span class="ic">${ic("alLeft")}</span>${chev}</button>
+    <button class="ib hide2" id="btnInsert" aria-label="Insérer" data-tooltip="Insérer une note, une figure ou une ligne de tableau">${ic("plus")}${chev}</button>
     <span class="vs hide2"></span>
     <button class="ib" id="btnUndo" aria-label="Annuler" data-tooltip="Annuler (⌘Z)">${ic("undo")}</button>
-    <button class="ib hide3" id="btnRedo" aria-label="Rétablir" data-tooltip="Rétablir (⌘⇧Z)">${ic("redo")}</button>
+    <button class="ib hide2" id="btnRedo" aria-label="Rétablir" data-tooltip="Rétablir (⌘⇧Z)">${ic("redo")}</button>
+    <button class="ib" id="btnOver" aria-label="Autres outils" data-tooltip="Ce qui ne tient pas dans la barre">${ic("more")}</button>
     <span class="sp"></span>
-    <button class="ib" id="btnFind" aria-label="Rechercher" data-tooltip="Rechercher et remplacer (⌘F)">${ic("search")}</button>
-    <span class="seg" role="group" aria-label="Affichage"><button id="vReview" aria-pressed="true" data-tooltip="Modifications et commentaires visibles">Révision</button><button id="vRead" aria-pressed="false" data-tooltip="Le texte comme si tout était accepté">Lecture</button></span>
-    <span class="navc hide2"><button class="ib" id="navPrev" aria-label="Commentaire précédent" data-tooltip="Commentaire précédent">${ic("left")}</button><span class="lbl" id="navLbl"></span><button class="ib" id="navNext" aria-label="Commentaire suivant" data-tooltip="Commentaire suivant">${ic("right")}</button></span>
-    <button class="ib tribtn" id="btnTri" aria-pressed="false" aria-label="Trier les suivis" data-tooltip="Ranger les suivis par nature et les revoir au clavier">${ic("sort")}<span class="t hide2">Trier les suivis</span></button>
-    <button class="ib lanebtn" id="btnLane" aria-label="Commentaires" aria-pressed="false" data-tooltip="Afficher les commentaires (⇧⌘M)">${ic("msgText")}<span class="n" id="laneN"></span></button>
-    <button class="track on" id="btnTrack" aria-pressed="true" data-tooltip="Suivi des modifications : chaque retouche reste visible dans Word"><span class="sw"><i></i></span>Suivi</button>`;
+    <button class="ib hide3" id="btnFind" aria-label="Rechercher" data-tooltip="Rechercher et remplacer (⌘F)">${ic("search")}</button>
+    <button class="dd" id="ddView" data-tooltip="Affichage"><span>Révision</span>${ic("down", 12)}</button>
+    <span class="vs"></span>
+    <button class="ib" id="navPrev" aria-label="Précédente" data-tooltip="Précédente (⌥⌘↑)">${ic("up")}</button>
+    <button class="cnt" id="revMenu" aria-haspopup="menu" data-tooltip="Parcourir, trier, tout accepter, versions"></button>
+    <button class="ib" id="navNext" aria-label="Suivante" data-tooltip="Suivante (⌥⌘↓)">${ic("down")}</button>
+    <span class="cap" role="group" aria-label="Décider"><button class="ib" id="btnReject" aria-label="Refuser" data-tooltip="Refuser (⌥⌘⌫)">${ic("x")}</button><button class="ib" id="btnAccept" aria-label="Accepter" data-tooltip="Accepter (⌥⌘↩)">${ic("check")}</button></span>
+    <span class="vs"></span>
+    <button class="ib hide3" id="btnComment" aria-label="Commenter" data-tooltip="Commenter la sélection (⌥⌘A)">${ic("msgPlus")}</button>
+    <button class="track on" id="btnTrack" aria-pressed="true" data-tooltip="Suivi des modifications (⇧⌘E) : chaque retouche reste visible dans Word"><span class="sw"><i></i></span>Suivi</button>
+    <button class="ib lanebtn" id="btnLane" aria-label="Marge de révision" aria-pressed="false" data-tooltip="Afficher la marge (⇧⌘M)">${ic("marge")}<span class="n" id="laneN"></span></button>`;
 
   // Les boutons ne prennent pas le focus : la sélection reste dans la page.
   for (const b of Array.from(document.querySelectorAll("#fmtbar button"))) {
@@ -2490,50 +2500,59 @@
     $("btnTrack").setAttribute("aria-pressed", String(tracked));
     status(tracked ? "Suivi activé : tes retouches sont signées" : "Suivi désactivé : tes retouches s'écrivent sans trace");
   });
-  $("ddStyle").addEventListener("click", (e) => {
+  function styleMenu(trigger: HTMLElement) {
     const cur = currentPara();
     const shown = (model?.styles || []).filter((s) => !HIDDEN_STYLES.test(s.name) || (cur?.style || "Normal") === s.id);
-    showMenu(e.currentTarget as HTMLElement, shown.map((s) => ({
+    showMenu(trigger, shown.map((s) => ({
       label: styleLabel(s.name),
       html: `<span class="${s.heading === 1 || s.heading === 0 ? "mi-h1" : s.heading === 2 ? "mi-h2" : s.heading === 3 ? "mi-h3" : ""}">${esc(styleLabel(s.name))}</span>`,
       on: (cur?.style || "Normal") === s.id,
       run: () => applyPara({ style: s.id }),
     })));
-  });
-  $("ddFont").addEventListener("click", (e) => {
+  }
+  $("ddStyle").addEventListener("click", (e) => styleMenu(e.currentTarget as HTMLElement));
+  function fontMenu(trigger: HTMLElement) {
     const sel = readSel();
     const cur = sel ? segAt(sel.a)?.font : undefined;
     const used = new Set<string>(FONTS);
     model?.paragraphs.forEach((p) => p.segments.forEach((s) => { if (s.font) used.add(s.font); }));
-    showMenu(e.currentTarget as HTMLElement, Array.from(used).sort().map((f) => ({
+    showMenu(trigger, Array.from(used).sort().map((f) => ({
       label: f, html: `<span style="font-family:'${f.replace(/'/g, "")}'">${esc(f)}</span>`, on: f === cur, run: () => applyRun({ font: f }),
     })));
-  });
-  $("ddSize").addEventListener("click", (e) => {
+  }
+  $("ddFont").addEventListener("click", (e) => fontMenu(e.currentTarget as HTMLElement));
+  function sizeMenu(trigger: HTMLElement) {
     const sel = readSel();
     const cur = sel ? segAt(sel.a)?.size : undefined;
-    showMenu(e.currentTarget as HTMLElement, SIZES.map((n) => ({ label: String(n).replace(".", ","), on: n === cur, run: () => applyRun({ size: n }) })));
-  });
+    showMenu(trigger, SIZES.map((n) => ({ label: String(n).replace(".", ","), on: n === cur, run: () => applyRun({ size: n }) })));
+  }
+  $("ddSize").addEventListener("click", (e) => sizeMenu(e.currentTarget as HTMLElement));
   const listStyle = (re: RegExp) => (model?.styles || []).find((s) => re.test(s.name) || re.test(s.id));
-  $("btnList").addEventListener("click", (e) => {
+  const ALIGN: [string, string, string][] = [["left", "Aligner à gauche", ic("alLeft")], ["center", "Centrer", ic("alCenter")], ["right", "Aligner à droite", ic("alRight")], ["both", "Justifier", ic("alBoth")]];
+  /** Paragraphe : alignement et listes dans un seul menu. */
+  function paraMenu(trigger: HTMLElement) {
+    const cur = currentPara()?.align || "left";
     const bullets = listStyle(/puce|bullet/i), numbers = listStyle(/num[ée]ro|number/i);
     const style = currentPara()?.style;
-    showMenu(e.currentTarget as HTMLElement, [
+    showMenu(trigger, [
+      { label: "Alignement", head: true },
+      ...ALIGN.map(([a, label]) => ({ label, on: cur === a, run: () => applyPara({ align: a }) })),
+      { label: "", sep: true },
+      { label: "Liste", head: true },
       { label: "Liste à puces", disabled: !bullets, on: !!bullets && style === bullets.id, run: () => bullets && applyPara({ style: bullets.id }) },
       { label: "Liste numérotée", disabled: !numbers, on: !!numbers && style === numbers.id, run: () => numbers && applyPara({ style: numbers.id }) },
     ]);
-  });
-  const ALIGN: [string, string, string][] = [["left", "Aligner à gauche", ic("alLeft")], ["center", "Centrer", ic("alCenter")], ["right", "Aligner à droite", ic("alRight")], ["both", "Justifier", ic("alBoth")]];
-  $("btnAlign").addEventListener("click", (e) => {
-    const cur = currentPara()?.align || "left";
-    showMenu(e.currentTarget as HTMLElement, ALIGN.map(([a, label]) => ({ label, on: cur === a, run: () => applyPara({ align: a }) })));
-  });
-  $("btnMore").addEventListener("click", (e) => {
+  }
+  $("btnAlign").addEventListener("click", (e) => paraMenu(e.currentTarget as HTMLElement));
+  function moreMenu(trigger: HTMLElement) {
     const seg = currentSeg() as Record<string, unknown> | null;
-    showMenu(e.currentTarget as HTMLElement, [["strike", "Barré"], ["sup", "Exposant"], ["sub", "Indice"]].map(([k, label]) => ({
-      label, on: !!(seg && seg[k]), run: () => toggleRun(k),
-    })));
-  });
+    showMenu(trigger, [
+      ...[["strike", "Barré"], ["sup", "Exposant"], ["sub", "Indice"]].map(([k, label]) => ({ label, on: !!(seg && seg[k]), run: () => toggleRun(k) })),
+      { label: "", sep: true },
+      { label: "Effacer la mise en forme", run: () => applyRun({ b: false, i: false, u: false, strike: false, sup: false, sub: false }) },
+    ]);
+  }
+  $("btnMore").addEventListener("click", (e) => moreMenu(e.currentTarget as HTMLElement));
   $("btnComment").addEventListener("click", () => askComment());
   function insertNote() {
     const sel = readSel();
@@ -2590,8 +2609,7 @@
       : [{ label: "Aucune image PNG, JPEG ou GIF dans le projet" }];
     showMenu(trigger, items);
   }
-  $("btnInsert").addEventListener("click", (e) => {
-    const trigger = e.currentTarget as HTMLElement;
+  function insertMenu(trigger: HTMLElement) {
     const sel = readSel();
     const p = currentPara();
     const off = !sel || view === "original";
@@ -2601,15 +2619,18 @@
       { label: "Figure du projet…", disabled: off, run: () => void figureMenu(trigger) },
       ...(rows.length ? [{ label: "Tableau", head: true }, ...rows] : []),
     ]);
-  });
+  }
+  $("btnInsert").addEventListener("click", (e) => insertMenu(e.currentTarget as HTMLElement));
 
   type View = "revue" | "final" | "original";
+  const VIEW_LABEL: Record<View, string> = { revue: "Révision", final: "Lecture", original: "Original" };
   function setView(next: View) {
     view = next;
     document.body.classList.remove("v-revue", "v-final", "v-original");
     document.body.classList.add(`v-${view}`);
-    $("vReview").setAttribute("aria-pressed", String(view === "revue"));
-    $("vRead").setAttribute("aria-pressed", String(view === "final"));
+    const label = VIEW_LABEL[view];
+    const dv = $("ddView").firstElementChild as HTMLElement;
+    if (dv.textContent !== label) dv.textContent = label;
     paper.contentEditable = view === "original" ? "false" : "true";
     hideBubble();
     renderCards();
@@ -2620,8 +2641,19 @@
     document.body.classList.toggle("blanche", page === "blanche");
     if (save) api("/docx/prefs", { page }).catch(() => undefined);
   }
-  $("vReview").addEventListener("click", () => setView("revue"));
-  $("vRead").addEventListener("click", () => setView("final"));
+  /** Affichage : révision, lecture, original ; et la page. */
+  function viewMenu(trigger: HTMLElement) {
+    showMenu(trigger, [
+      { label: "Révision", on: view === "revue", run: () => setView("revue") },
+      { label: "Lecture", on: view === "final", run: () => setView("final") },
+      { label: "Original", on: view === "original", run: () => setView("original") },
+      { label: "", sep: true },
+      { label: "Page", head: true },
+      { label: "Blanche", on: page === "blanche", run: () => setPage("blanche", true) },
+      { label: "Thème de l'app", on: page !== "blanche", run: () => setPage("theme", true) },
+    ]);
+  }
+  $("ddView").addEventListener("click", (e) => viewMenu(e.currentTarget as HTMLElement));
   /** Ouvre un autre .docx : nouvel onglet dans Atelier, sinon sur place. */
   function openDocx(path: string) {
     if (parent !== window) parent.postMessage({ type: "atelier-open-file", nonce: LANE_NONCE, path }, "*");
@@ -2648,6 +2680,12 @@
     const hist: { received?: { at: string } | null; nextVersion?: string | null } | null = openTrigger === trigger
       ? null : await fetch(`/docx/history?path=${enc(PATH)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     const items: Item[] = [
+      { label: "Parcourir", head: true },
+      { label: "Modifications", on: navMode === "ch", run: () => setNavMode("ch") },
+      { label: "Commentaires", on: navMode === "com", run: () => setNavMode("com") },
+      { label: "", sep: true },
+      { label: "Trier les suivis", on: triOpen, disabled: !triOpen && !model.changes.length, run: () => (triOpen ? closeTri() : openTri()) },
+      { label: "", sep: true },
       { label: "Tout accepter", run: () => decideAll("accept_all") },
       { label: "Tout refuser", run: () => decideAll("reject_all") },
     ];
@@ -2659,7 +2697,6 @@
         items.push({ label: `Refuser celles de ${a.name}`, run: () => decideAll("reject_all", a.name) });
       }
     }
-    const hint = (text: string) => `<span class="mi-k">${esc(text)}</span>`;
     const who = reviewer();
     items.push(
       { label: "", sep: true },
@@ -2670,39 +2707,66 @@
       const label = `Ouvrir la version reçue${who ? ` de ${firstName(who)}` : ""}`;
       items.push({ label, html: `<span>${esc(label)}</span>${hint(dateFr(hist.received.at))}`, run: () => copyAside("received") });
     }
-    items.push(
-      { label: "", sep: true },
-      { label: "Affichage", head: true },
-      { label: "Révision", on: view === "revue", run: () => setView("revue") },
-      { label: "Lecture", on: view === "final", run: () => setView("final") },
-      { label: "Original", on: view === "original", run: () => setView("original") },
-      { label: "", sep: true },
-      { label: "Page", head: true },
-      { label: "Blanche", on: page === "blanche", run: () => setPage("blanche", true) },
-      { label: "Thème de l'app", on: page !== "blanche", run: () => setPage("theme", true) },
-    );
-    showMenu(trigger, items);
+    showMenu(trigger, items, true);
   }
   $("revMenu").addEventListener("click", (e) => reviewMenu(e.currentTarget as HTMLElement));
+  $("revSide").addEventListener("click", (e) => reviewMenu(e.currentTarget as HTMLElement));
   $("navPrev").addEventListener("click", () => step(-1));
   $("navNext").addEventListener("click", () => step(1));
 
   // Plan et commentaires à gauche, marge de revue à droite : ils se replient
   // quand le panneau rétrécit ; le bouton de la barre garde le choix.
+  // Dans Atelier (?panel=host), un seul panneau à gauche, piloté par la
+  // surface Documents : onglets Documents · Plan · Commentaires sous son
+  // icône ; ce panneau-ci ne se montre que pour Plan et Commentaires.
+  const HOSTED = Q.get("panel") === "host" && parent !== window;
+  document.body.classList.toggle("hosted", HOSTED);
+  let hostPanel: { open: boolean; tab: "docs" | "plan" | "com" } = { open: false, tab: "docs" };
   let sidePref: string | null = (() => { try { return localStorage.getItem("docxSide"); } catch { return null; } })();
+  /** Ce que la barre a replié, rendu par « … » (dans l'ordre de la barre). */
+  function overflowMenu(trigger: HTMLElement) {
+    const b = document.body.classList;
+    const w1 = b.contains("w1"), w2 = b.contains("w2"), w3 = b.contains("w3");
+    const seg = currentSeg() as Record<string, unknown> | null;
+    const items: Item[] = [];
+    if (w3) items.push({ label: "Style du paragraphe…", run: () => styleMenu(trigger) });
+    if (w1) items.push({ label: "Police…", run: () => fontMenu(trigger) }, { label: "Taille…", run: () => sizeMenu(trigger) });
+    if (w3) {
+      items.push({ label: "", sep: true });
+      for (const [k, label, key] of [["b", "Gras", "⌘B"], ["i", "Italique", "⌘I"], ["u", "Souligné", "⌘U"]]) {
+        items.push({ label, html: `<span>${label}</span>${hint(key)}`, on: !!(seg && seg[k]), run: () => toggleRun(k) });
+      }
+      items.push({ label: "Barré, exposant, indice…", run: () => moreMenu(trigger) });
+    }
+    if (w2) {
+      items.push({ label: "", sep: true });
+      items.push({ label: "Paragraphe…", run: () => paraMenu(trigger) }, { label: "Insérer…", run: () => insertMenu(trigger) });
+      items.push({ label: "Rétablir", html: `<span>Rétablir</span>${hint("⇧⌘Z")}`, run: () => void undo(true) });
+    }
+    if (w3) {
+      items.push({ label: "", sep: true });
+      items.push({ label: "Rechercher", html: `<span>Rechercher</span>${hint("⌘F")}`, run: () => openFind() });
+      items.push({ label: "Commenter la sélection", html: `<span>Commenter la sélection</span>${hint("⌥⌘A")}`, run: () => askComment() });
+    }
+    showMenu(trigger, items.filter((it, i) => !(it.sep && i === 0)));
+  }
+  $("btnOver").addEventListener("click", (e) => overflowMenu(e.currentTarget as HTMLElement));
   function responsive() {
     const w = innerWidth;
     const b = document.body.classList;
-    const side = sidePref === "1" ? true : sidePref === "0" ? false : w >= 1280;
+    const side = HOSTED ? hostPanel.open && hostPanel.tab !== "docs"
+      : sidePref === "1" ? true : sidePref === "0" ? false : w >= 1280;
     b.toggle("no-side", !side);
     $("btnNav").classList.toggle("on", side);
     $("btnNav").setAttribute("aria-pressed", String(side));
-    // La barre se replie par paliers tant qu'elle déborde.
+    // La barre se replie par paliers tant qu'elle déborde ; « … » reprend le reste.
     b.toggle("w1", w < 1320);
     b.toggle("w2", w < 1040);
     b.toggle("w3", w < 720);
+    $("btnOver").classList.toggle("show", b.contains("w1"));
     const over = () => fmtbar.scrollWidth > fmtbar.clientWidth + 1;
     if (!b.contains("w1") && over()) b.add("w1");
+    $("btnOver").classList.toggle("show", b.contains("w1"));
     if (!b.contains("w2") && over()) b.add("w2");
     if (!b.contains("w3") && over()) b.add("w3");
   }
@@ -3294,10 +3358,80 @@
     if (!(laneBtn as HTMLButtonElement).disabled) laneBtn.click();
   });
 
+  // Parcourir : les modifications (par défaut, comme Word) ou les
+  // commentaires ouverts. Le compteur de la barre suit l'élément courant.
+  type NavMode = "ch" | "com";
+  let navMode: NavMode = (() => { try { return localStorage.getItem("docxNav") === "com" ? "com" : "ch"; } catch { return "ch"; } })();
+  /** Modification courante (−1 : aucune ; le curseur sert alors de repère). */
+  let curCh = -1;
+  function setNavMode(next: NavMode) {
+    navMode = next;
+    try { localStorage.setItem("docxNav", next); } catch { /* choix gardé pour la session */ }
+    if (next === "com") setCurCh(-1);
+    updateNav();
+    step(1);
+  }
+  /** Toutes les modifications, dans l'ordre de la page : premier passage de
+   *  chacune, sinon son paragraphe (mise en forme, marque de paragraphe,
+   *  ligne de tableau), sinon à la fin. Le total est celui de la barre d'état. */
+  function changeOrder(): { id: number; el: HTMLElement | null }[] {
+    const first = new Map<number, HTMLElement>();
+    paper.querySelectorAll<HTMLElement>("[data-ch]").forEach((el) => {
+      const id = Number(el.dataset.ch);
+      if (!first.has(id)) first.set(id, el);
+    });
+    const paraOf = new Map<number, number>();
+    for (const it of lane) if (it.kind === "chip") for (const id of it.ids) paraOf.set(id, it.idx);
+    const out = Array.from(changeMap.keys()).map((id) => {
+      const k = paraOf.get(id);
+      return { id, el: first.get(id) || (k !== undefined && k < 1e9 ? paper.querySelector<HTMLElement>(`.d-p[data-idx="${k}"]`) : null) };
+    });
+    return out.sort((x, y) => {
+      if (x.el && y.el && x.el !== y.el) return x.el.compareDocumentPosition(y.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+      if (!x.el !== !y.el) return x.el ? -1 : 1;
+      return x.id - y.id;
+    });
+  }
+  function setCurCh(id: number) {
+    curCh = id;
+    markCur();
+  }
+  /** Le passage courant reste teinté, même après un nouveau rendu de la page. */
+  function markCur() {
+    const want = curCh >= 0 ? `[data-ch="${curCh}"]` : "";
+    paper.querySelectorAll<HTMLElement>(".nav-on").forEach((x) => { if (!want || !x.matches(want)) x.classList.remove("nav-on"); });
+    if (!want) return;
+    const els = paper.querySelectorAll<HTMLElement>(want);
+    if (els.length) els.forEach((x) => x.classList.add("nav-on"));
+    else changeOrder().find((x) => x.id === curCh)?.el?.classList.add("nav-on");
+  }
   function updateNav() {
-    const n = navOrder.indexOf(focusKey);
-    $("navLbl").innerHTML = !navOrder.length ? "Aucun commentaire"
-      : n >= 0 ? `Commentaire <b>${n + 1}</b> sur ${nf(navOrder.length)}` : pl(navOrder.length, "commentaire", "commentaires");
+    const el = $("revMenu");
+    let html: string, label: string, count: number, cur: boolean;
+    if (navMode === "com") {
+      const n = navOrder.indexOf(focusKey);
+      count = navOrder.length;
+      cur = n >= 0;
+      html = !count ? "Aucun commentaire" : cur ? `<b>${n + 1}</b> / ${nf(count)}` : `– / ${nf(count)}`;
+      label = !count ? "Aucun commentaire" : cur ? `Commentaire ${n + 1} sur ${nf(count)}` : pl(count, "commentaire ouvert", "commentaires ouverts");
+    } else {
+      if (curCh >= 0 && !changeMap.has(curCh)) setCurCh(-1);
+      const order = changeOrder();
+      const n = curCh >= 0 ? order.findIndex((x) => x.id === curCh) : -1;
+      count = order.length;
+      cur = n >= 0;
+      html = !count ? "Aucune modification" : cur ? `<b>${n + 1}</b> / ${nf(count)}` : `– / ${nf(count)}`;
+      label = !count ? "Aucune modification" : cur ? `Modification ${n + 1} sur ${nf(count)}` : pl(count, "modification", "modifications");
+      markCur();
+    }
+    if (el.innerHTML !== html) el.innerHTML = html;
+    el.setAttribute("aria-label", `${label} : parcourir, trier, tout accepter, versions`);
+    ($("navPrev") as HTMLButtonElement).disabled = !count;
+    ($("navNext") as HTMLButtonElement).disabled = !count;
+    ($("btnAccept") as HTMLButtonElement).disabled = !count || view === "original";
+    ($("btnReject") as HTMLButtonElement).disabled = !count || navMode === "com" || view === "original";
+    $("btnAccept").dataset.tooltip = navMode === "com" ? "Régler le commentaire (⌥⌘↩)" : "Accepter (⌥⌘↩)";
+    $("btnAccept").setAttribute("aria-label", navMode === "com" ? "Régler le commentaire" : "Accepter");
   }
 
   const smooth = (): ScrollBehavior => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
@@ -3319,11 +3453,90 @@
     if (it && scroll) reveal(it.anchor);
   }
 
-  function step(dir: number) {
-    if (!navOrder.length) return;
-    const n = navOrder.indexOf(focusKey);
-    focusCard(navOrder[n < 0 ? (dir > 0 ? 0 : navOrder.length - 1) : (n + dir + navOrder.length) % navOrder.length], true);
+  /** Nœud du curseur dans la page, s'il y est. */
+  function caretNode(): Node | null {
+    const s = getSelection();
+    return s && s.rangeCount && paper.contains(s.anchorNode) ? s.anchorNode : null;
   }
+  function goCh(id: number) {
+    setCurCh(id);
+    hideBubble();
+    reveal(paper.querySelector<HTMLElement>(`[data-ch="${id}"]`) || changeOrder().find((x) => x.id === id)?.el || null);
+    updateNav();
+  }
+  function step(dir: number) {
+    if (navMode === "com") {
+      if (!navOrder.length) return;
+      const n = navOrder.indexOf(focusKey);
+      focusCard(navOrder[n < 0 ? (dir > 0 ? 0 : navOrder.length - 1) : (n + dir + navOrder.length) % navOrder.length], true);
+      return;
+    }
+    const order = changeOrder();
+    if (!order.length) return;
+    let n = order.findIndex((x) => x.id === curCh);
+    if (n >= 0) n = (n + dir + order.length) % order.length;
+    else {
+      // Sans modification courante, on part du curseur, comme Word.
+      const node = caretNode();
+      const after = node ? order.findIndex((x) => !!x.el && !!(node.compareDocumentPosition(x.el) & Node.DOCUMENT_POSITION_FOLLOWING) && !x.el.contains(node)) : -1;
+      if (dir > 0) n = after < 0 ? 0 : after;
+      else n = ((after < 0 ? order.length : after) - 1 + order.length) % order.length;
+    }
+    goCh(order[n].id);
+  }
+  /** Modification visée : la courante, sinon celle sous le curseur. */
+  function targetCh(): number {
+    if (curCh >= 0 && changeMap.has(curCh)) return curCh;
+    const node = caretNode();
+    const el = node ? (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>("[data-ch]") : null;
+    return el && changeMap.has(Number(el.dataset.ch)) ? Number(el.dataset.ch) : -1;
+  }
+  /** ✓ / ✕ de la barre : décide et passe à la suivante, comme Word. */
+  function decideCurrent(act: "accept" | "reject") {
+    if (view === "original") return;
+    if (navMode === "com") {
+      if (act === "reject") return;
+      const c = focusKey.startsWith("c") ? commentMap.get(Number(focusKey.slice(1))) : undefined;
+      if (!c) { step(1); return; }
+      const n = navOrder.indexOf(focusKey);
+      const next = navOrder.length > 1 ? navOrder[(n + 1) % navOrder.length] : "";
+      structural(async () => {
+        const ok = await sendOp({ op: "resolve", id: c.id, done: true });
+        if (!ok) return;
+        status("Commentaire réglé");
+        if (next && lane.some((it) => it.key === next)) focusCard(next, true);
+        else { focusKey = ""; renderCards(); }
+      });
+      return;
+    }
+    const id = targetCh();
+    if (id < 0) { step(1); return; }
+    const order = changeOrder();
+    const n = order.findIndex((x) => x.id === id);
+    const rest = n < 0 ? order : order.slice(n + 1).concat(order.slice(0, n));
+    const next = rest.find((x) => x.id !== id && !deciding.has(x.id));
+    decide([id], act, act === "accept" ? "Modification acceptée" : "Modification refusée");
+    if (next) goCh(next.id); else { setCurCh(-1); updateNav(); }
+  }
+  $("btnAccept").addEventListener("click", () => decideCurrent("accept"));
+  $("btnReject").addEventListener("click", () => decideCurrent("reject"));
+  // Raccourcis de revue : ⌥⌘↑ / ⌥⌘↓ parcourent, ⌥⌘↩ accepte, ⌥⌘⌫ refuse,
+  // ⌥⌘A commente, ⇧⌘E bascule le suivi. e.code : ⌥ change la lettre tapée.
+  document.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.isComposing) return;
+    const t = e.target as HTMLElement | null;
+    const typing = !!t && !paper.contains(t) && (t.tagName === "TEXTAREA" || t.tagName === "INPUT");
+    if (e.altKey && !e.shiftKey) {
+      if (e.code === "ArrowDown" || e.code === "ArrowUp") { e.preventDefault(); step(e.code === "ArrowDown" ? 1 : -1); return; }
+      if (typing) return;
+      if (e.code === "Enter") { e.preventDefault(); decideCurrent("accept"); return; }
+      if (e.code === "Backspace") { e.preventDefault(); decideCurrent("reject"); return; }
+      if (e.code === "KeyA") { e.preventDefault(); askComment(); return; }
+    } else if (e.shiftKey && !e.altKey && e.code === "KeyE" && !typing) {
+      e.preventDefault();
+      $("btnTrack").click();
+    }
+  });
 
   function decide(ids: number[], act: "accept" | "reject", note?: string) {
     ids = ids.filter((id) => !deciding.has(id));
@@ -3668,6 +3881,12 @@
     if (eqChip(t)) return;
     const ch = view === "revue" ? t.closest(".ins[data-ch],.del[data-ch]") as HTMLElement | null : null;
     if (ch) changeBubble(ch); else hideBubble();
+    // Le compteur suit le passage cliqué (ou se remet à « – » ailleurs).
+    if (navMode === "ch") {
+      const on = t.closest<HTMLElement>("[data-ch]");
+      const id = on && changeMap.has(Number(on.dataset.ch)) ? Number(on.dataset.ch) : -1;
+      if (id !== curCh) { setCurCh(id); updateNav(); }
+    }
     const cm = t.closest(".cmt[data-c]") as HTMLElement | null;
     if (cm) {
       const ids = cm.dataset.c!.split(" ").map(Number);
@@ -3854,6 +4073,7 @@
 
   // ------------------------------------------------- plan et commentaires
   let tab: "plan" | "com" = "plan";
+  let sentCount = -1;
   const pane = $("pane");
   type Head = { idx: number; text: string; lvl: number };
   let heads: Head[] = [];
@@ -3879,12 +4099,17 @@
     const done = tops.filter((c) => c.done).length;
     const who = reviewer();
     const head = `${who ? avatar(who) : ""}<span>${who ? `Révision de ${esc(firstName(who))}` : "Révision"}</span>${ic("down", 12)}`;
-    const rm = $("revMenu");
+    const rm = $("revSide");
     if (rm.dataset.html !== head) { rm.innerHTML = head; rm.dataset.html = head; }
     ($("revBar") as HTMLElement).style.width = `${tops.length ? (100 * done / tops.length).toFixed(1) : 0}%`;
     $("revDone").textContent = tops.length ? `${nf(done)} réglé${done > 1 ? "s" : ""} sur ${nf(tops.length)}` : "Aucun commentaire";
     $("revCh").textContent = pl(model.changes.length, "modif", "modifs");
-    $("tabComN").textContent = String(tops.length - done);
+    $("tabComN").textContent = tops.length - done ? String(tops.length - done) : "";
+    // L'onglet Commentaires de la surface Documents affiche le même compte.
+    if (HOSTED && sentCount !== tops.length - done) {
+      sentCount = tops.length - done;
+      parent.postMessage({ type: "atelier-docs-panel-count", comments: sentCount }, "*");
+    }
     heads = [];
     model.paragraphs.forEach((p, idx) => {
       // Le titre du document (niveau 0) n'est pas une section du plan.
@@ -3931,15 +4156,35 @@
     pane.setAttribute("aria-labelledby", tab === "plan" ? "tabPlan" : "tabCom");
     renderSide();
   }
-  $("tabPlan").addEventListener("click", () => setTab("plan"));
-  $("tabCom").addEventListener("click", () => setTab("com"));
-  // Flèches entre les deux onglets.
-  for (const id of ["tabPlan", "tabCom"]) $(id).addEventListener("keydown", (e) => {
+  /** Onglet choisi ici : la surface Documents le retient et l'applique partout. */
+  function pickTab(next: "docs" | "plan" | "com") {
+    if (next !== "docs") setTab(next);
+    if (HOSTED) parent.postMessage({ type: "atelier-docs-panel-tab", tab: next }, "*");
+  }
+  $("tabDocs").addEventListener("click", () => pickTab("docs"));
+  $("tabPlan").addEventListener("click", () => pickTab("plan"));
+  $("tabCom").addEventListener("click", () => pickTab("com"));
+  // Flèches entre les onglets (Documents seulement dans Atelier).
+  for (const id of ["tabDocs", "tabPlan", "tabCom"]) $(id).addEventListener("keydown", (e) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     e.preventDefault();
-    setTab(tab === "plan" ? "com" : "plan");
-    $(tab === "plan" ? "tabPlan" : "tabCom").focus();
+    const order: ("docs" | "plan" | "com")[] = HOSTED ? ["docs", "plan", "com"] : ["plan", "com"];
+    const next = order[(order.indexOf(tab) + (e.key === "ArrowRight" ? 1 : -1) + order.length) % order.length];
+    pickTab(next);
+    if (next !== "docs") $(tab === "plan" ? "tabPlan" : "tabCom").focus();
   });
+  // État du panneau envoyé par la surface Documents (ouverture, onglet).
+  window.addEventListener("message", (e) => {
+    const d = e.data as { type?: string; open?: unknown; tab?: unknown } | null;
+    if (!HOSTED || e.source !== parent || d?.type !== "atelier-docs-panel") return;
+    const t = d.tab === "plan" || d.tab === "com" ? d.tab : "docs";
+    hostPanel = { open: d.open === true, tab: t };
+    if (t !== "docs" && t !== tab) setTab(t);
+    const was = document.body.classList.contains("no-side");
+    responsive();
+    if (was !== document.body.classList.contains("no-side")) { renderSide(); layoutCards(); }
+  });
+
   pane.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
     const o = t.closest(".ol") as HTMLElement | null;
@@ -4536,7 +4781,8 @@
   type Triage = { revision: string; total: number; groups: TriGroup[] };
   const triEl = $("tri");
   const rbar = $("rbar");
-  const triBtn = $("btnTri") as HTMLButtonElement;
+  /** Le tri s'ouvre depuis le menu du compteur ; le focus y revient. */
+  const triBtn = $("revMenu") as HTMLButtonElement;
   let triage: Triage | null = null;
   let triOpen = false;
   /** Auteur retenu (« » : tous). */
@@ -4619,7 +4865,7 @@
     const label = groups.map((x) => `${nf(x.n)} ${x.g.label.toLowerCase()}`).join(", ");
     const row = (x: { g: TriGroup; n: number }) =>
       `<button class="tri-g${rev?.key === x.g.key ? " on" : ""}" data-g="${x.g.key}" aria-pressed="${rev?.key === x.g.key}"${x.n ? "" : " disabled"} aria-label="${esc(x.g.label)} : ${nf(x.n)}"><span class="c">${nf(x.n)}</span><span class="t">${esc(x.g.label)}</span></button>`;
-    let h = `<div class="tri-p"><div class="tri-hd">${head}<span class="tri-n">${nf(total)} en attente</span></div>
+    let h = `<div class="tri-p"><div class="tri-hd">${head}<span class="tri-n">${nf(total)} en attente</span><button class="ib tri-x" id="triClose" aria-label="Fermer le tri" data-tooltip="Fermer le tri">${ic("x", 14)}</button></div>
       <div class="tri-bar" role="img" aria-label="Répartition : ${esc(label)}">${bar}</div>
       <div class="tri-gs">${groups.filter((x) => !x.g.minor).map(row).join("")}<div class="tri-sep" role="separator"></div>${groups.filter((x) => x.g.minor).map(row).join("")}</div>
       <div class="tri-ac"><button class="btn" id="triMinor"${minors ? "" : " disabled"}>Accepter les ${nf(minors)} mineurs</button><span class="sp"></span><button class="btn q${rev?.key === "mineurs" ? " on" : ""}" id="triSee"${minors ? "" : " disabled"}>Les voir</button></div></div>`;
@@ -4653,8 +4899,6 @@
     triOpen = true;
     document.body.classList.add("triage");
     triEl.hidden = false;
-    triBtn.classList.add("on");
-    triBtn.setAttribute("aria-pressed", "true");
     hideBubble();
     renderTri();
     layoutCards();
@@ -4667,11 +4911,8 @@
     triEl.hidden = true;
     triEl.innerHTML = "";
     triEl.dataset.html = "";
-    triBtn.classList.remove("on");
-    triBtn.setAttribute("aria-pressed", "false");
     layoutCards();
   }
-  triBtn.addEventListener("click", () => (triOpen ? closeTri() : openTri()));
 
   function markCurrent() {
     paper.querySelectorAll(".tri-on").forEach((x) => x.classList.remove("tri-on"));
@@ -4805,6 +5046,7 @@
     const t = e.target as HTMLElement;
     const g = t.closest<HTMLElement>(".tri-g");
     if (g && !(g as HTMLButtonElement).disabled) { startReview(g.dataset.g!); return; }
+    if (t.closest("#triClose")) { closeTri(); triBtn.focus({ preventScroll: true }); return; }
     if (t.closest("#triSee")) { startReview("mineurs"); return; }
     if (t.closest("#triMinor")) {
       const ids = triItems("mineurs").flatMap((it) => it.ids);
@@ -4849,7 +5091,6 @@
   /** Après chaque modèle reçu : décisions confirmées, nouveaux suivis venus
    *  d'ailleurs (Word, l'agent) relus, passage courant remis en évidence. */
   function triSync() {
-    triBtn.disabled = !triOpen && !model?.changes.length;
     if (!triOpen || !model) return;
     const ids = liveIds();
     for (const id of Array.from(triDone)) if (!ids.has(id)) triDone.delete(id);

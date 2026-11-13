@@ -148,6 +148,9 @@ pub struct Media {
     pub cx: u64,
     pub cy: u64,
     pub descr: String,
+    /// Recadrage de Word (`a:srcRect`) : fractions retirées à gauche, en
+    /// haut, à droite et en bas.
+    pub crop: Option<[f64; 4]>,
 }
 
 #[derive(Default)]
@@ -556,7 +559,16 @@ fn media_of(node: Node) -> Option<Media> {
         cy = pt("height").map(|v| (v * 12_700.0) as u64).unwrap_or(0);
     }
     let descr = node.descendants().find(|n| n.tag_name().name() == "docPr").and_then(|d| d.attribute("descr").or(d.attribute("name"))).unwrap_or("").to_string();
-    Some(Media { rel, cx, cy, descr })
+    let crop = node.descendants().find(|n| n.tag_name().name() == "srcRect").and_then(|r| {
+        // Millièmes de pour cent (« 10700 » = 10,7 %), ou « 10.7% » en OOXML strict.
+        let frac = |k: &str| r.attribute(k).and_then(|v| match v.strip_suffix('%') {
+            Some(p) => p.parse::<f64>().ok().map(|p| p / 100.0),
+            None => v.parse::<f64>().ok().map(|v| v / 100_000.0),
+        });
+        let c = [frac("l"), frac("t"), frac("r"), frac("b")].map(|v| v.unwrap_or(0.0));
+        c.iter().any(|v| *v != 0.0).then_some(c)
+    });
+    Some(Media { rel, cx, cy, descr, crop })
 }
 
 fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fmt: Fmt, run: Option<(usize, usize)>) {

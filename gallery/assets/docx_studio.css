@@ -39,7 +39,9 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--surface-app,var(--bg));color:var(--text-primary,var(--txt));font-family:var(--ui-font);font-size:13px;line-height:1.5;overflow:hidden;-webkit-font-smoothing:antialiased}
-body{display:flex;flex-direction:column;--paper-bg:var(--surface-raised,var(--card))}
+body{display:flex;--paper-bg:var(--surface-raised,var(--card))}
+/* Panneau à gauche sur toute la hauteur, barre et page à sa droite. */
+.col{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 body.blanche{--paper-bg:var(--doc-paper)}
 button{font-family:inherit;color:inherit}
 svg{display:block;flex-shrink:0}
@@ -59,22 +61,27 @@ button:focus-visible,[role="button"]:focus-visible,[contenteditable]:focus-visib
 .lanebtn .n:empty{display:none}
 .lanebtn:hover .n,.lanebtn.on .n{color:var(--text-primary)}
 .lanebtn:disabled{opacity:.45;cursor:default;background:transparent}
-.ib .g{font:600 15px/1 'Times New Roman','Tinos',Georgia,serif}
-.ib .g.i{font-style:italic;font-weight:400}
-.ib .g.u{font-weight:400;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}
+.ib .g{width:14px;font:600 13px/1 var(--ui-font);text-align:center}
+.ib .g.i{font-style:italic}
+.ib .g.u{text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}
+.ib.chev-only{min-width:16px;padding:0}
+.ib.chev-only .chev{margin:0}
+/* Navigation des suivis : ⌃ compteur ⌄, puis refuser / accepter. */
+.cnt{height:28px;min-width:64px;padding:0 8px;border:0;border-radius:6px;background:transparent;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap;cursor:pointer;flex-shrink:0;transition:background-color 120ms ease-out,color 120ms ease-out}
+.cnt b{font-weight:500;color:var(--text-primary)}
+.cnt:hover{background:var(--surface-hover);color:var(--text-secondary)}
+.cnt.open{background:var(--press)}
+.cap{display:inline-flex;gap:2px;margin-left:4px;padding:2px;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));flex-shrink:0}
+.cap .ib{height:24px;min-width:26px}
+.cap .ib:disabled{opacity:.45;cursor:default;background:transparent;color:var(--text-secondary)}
+#btnOver:not(.show){display:none}
+body.hosted #btnNav,body.hosted #btnNav+.vs{display:none}
 .dd{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;font-size:12px;color:var(--text-primary);cursor:pointer;flex-shrink:0;white-space:nowrap;transition:background-color 120ms ease-out}
 .dd:hover{background:var(--surface-hover)}
 .dd.open{background:var(--press)}
 .dd svg{color:var(--text-muted)}
 .dd>span{overflow:hidden;text-overflow:ellipsis;text-align:left}
 .w-style>span{width:96px}.w-font>span{width:116px}.w-size>span{width:16px;text-align:right;font-variant-numeric:tabular-nums}
-.seg{display:inline-flex;gap:2px;margin:0 4px;padding:2px;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));flex-shrink:0}
-.seg button{height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap;transition:background-color 120ms ease-out,color 120ms ease-out}
-.seg button:hover{color:var(--text-primary)}
-.seg button[aria-pressed="true"]{background:var(--press);color:var(--text-primary);font-weight:500}
-.navc{display:inline-flex;align-items:center;gap:2px;flex-shrink:0}
-.navc .lbl{min-width:136px;padding:0 4px;text-align:center;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
-.navc .lbl b{font-weight:500;color:var(--text-primary)}
 .track{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;font-size:12px;color:var(--text-secondary);cursor:pointer;flex-shrink:0;transition:background-color 120ms ease-out}
 .track:hover{background:var(--surface-hover)}
 /* Éteint : piste creuse et bouton gris ; allumé : piste pleine aux jetons --fill-*. */
@@ -113,6 +120,15 @@ body.w1 .hide1,body.w2 .hide2,body.w3 .hide3{display:none}
 
 /* ---- plan et commentaires ---- */
 .side{width:240px;flex-shrink:0;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--border-subtle,var(--border))}
+/* Dans Atelier, le panneau prolonge celui de la liste des documents :
+   même largeur, même fond, onglets en tête. */
+body.hosted .side{width:264px;background:var(--surface-panel,var(--bg));border-right:4px solid var(--surface-canvas,var(--bg))}
+/* Onglets du panneau : le même segment que celui de la liste (ui-seg d'Atelier). */
+body.hosted .side .tabs{order:-1;margin:12px 12px 8px;padding:4px;border-radius:10px;background:var(--surface-inset,var(--bg-ctl))}
+body.hosted .tabs button{padding:0 8px}
+body.hosted .tabs button:hover{color:var(--text-secondary)}
+body.hosted .tabs button[aria-selected="true"]{background:var(--surface-app,var(--bg));font-weight:400}
+body:not(.hosted) #tabDocs{display:none}
 body.no-side .side{display:none}
 .rev{padding:12px 16px}
 .rh{display:flex;align-items:center;gap:8px;width:calc(100% + 16px);height:28px;margin:0 -8px;padding:0 8px;border:0;border-radius:6px;background:transparent;font-size:12px;font-weight:500;color:var(--text-primary);text-align:left;cursor:pointer;transition:background-color 120ms ease-out}
@@ -452,9 +468,6 @@ body.lane-over #leader{display:none}
    Le panneau prend la colonne de la marge ; la barre de revue flotte sous
    le milieu de la page. Surfaces élevées : fond pop et ombre, sans bordure. */
 .main{position:relative}
-.tribtn{gap:4px;padding:0 8px}
-.tribtn .t{font-size:12px;white-space:nowrap}
-.tribtn:disabled{opacity:.45;cursor:default;background:transparent}
 body.triage #cards,body.triage #leader{display:none}
 body.triage #scroll,body.triage.no-margin #scroll,body.triage.lane-over #scroll{padding-right:360px}
 .tri{position:absolute;top:24px;left:0;z-index:3;display:flex;flex-direction:column;gap:8px;width:312px;max-height:calc(100% - 48px);overflow-y:auto;animation:tri-in 140ms ease-out both}
@@ -466,6 +479,8 @@ body.triage #scroll,body.triage.no-margin #scroll,body.triage.lane-over #scroll{
 .tri-who{display:inline-flex;align-items:center;gap:4px;height:24px;margin:0 0 0 -8px;padding:0 8px;border:0;border-radius:6px;background:transparent;font:600 13px/1.3 var(--ui-font);letter-spacing:-0.01em;color:var(--text-primary);cursor:pointer;transition:background-color 120ms ease-out}
 .tri-who:hover,.tri-who.open{background:var(--surface-hover)}
 .tri-who svg{color:var(--text-muted)}
+.tri-x{min-width:24px;width:24px;height:24px;margin:-4px -4px -4px 0}
+.tri-x svg{width:14px;height:14px}
 .tri-n{margin-left:auto;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .tri-bar{display:flex;height:4px;border-radius:999px;background:var(--bg-ctl,var(--surface-inset));overflow:hidden}
 .tri-bar i{display:block;height:100%;transition:width 150ms ease-out}
@@ -482,8 +497,8 @@ body.triage #scroll,body.triage.no-margin #scroll,body.triage.lane-over #scroll{
 .tri-cur{cursor:default}
 .tri-cur .tx{color:var(--text-secondary)}
 /* Passage en revue : la teinte de son auteur, comme une sélection. */
-#paper .tri-on{background:color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);box-shadow:0 0 0 2px color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);border-radius:0;transition:background-color 120ms ease-out}
-#paper .d-p.tri-on{box-shadow:none;border-radius:6px}
+#paper .tri-on,#paper .nav-on{background:color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);box-shadow:0 0 0 2px color-mix(in srgb,var(--rev-color,var(--text-muted)) 14%,transparent);border-radius:0;transition:background-color 120ms ease-out}
+#paper .d-p.tri-on,#paper .d-p.nav-on{box-shadow:none;border-radius:6px}
 .rbar{position:absolute;bottom:16px;left:0;z-index:4;display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:10px;background:var(--bg-pop,var(--surface-overlay));box-shadow:var(--elev);font-size:12px;line-height:1.3;color:var(--text-primary);white-space:nowrap;outline:none;animation:rbar-in 140ms ease-out both}
 .rbar[hidden]{display:none}
 @keyframes rbar-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}

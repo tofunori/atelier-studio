@@ -39,8 +39,9 @@ fn les_suivis_signes_claude_passent_au_nom_de_l_utilisateur_et_restent_reconnus(
     for (who, id) in reviewers {
         assert_eq!(after.changes.iter().find(|c| c.id as usize == id).map(|c| c.author.as_str()), Some(who.as_str()));
     }
-    // Le commentaire de l'agent garde son nom.
-    assert!(after.comments.iter().any(|c| c.author == "Claude" && c.text == "Mot plus juste."));
+    // Son commentaire aussi passe au nom de l'utilisateur (Thierry, 2026-11-13).
+    assert!(after.comments.iter().any(|c| c.author == "Thierry" && c.initials == "T" && c.text == "Mot plus juste."));
+    assert!(!after.comments.iter().any(|c| marks::is_agent(&c.author)));
     // Atelier sait encore qu'ils viennent de Claude.
     let m = marks::list(&path, &after).unwrap();
     assert_eq!(m.len(), by_claude);
@@ -88,4 +89,46 @@ fn la_reparation_rouvre_les_fils_repondus_et_envoie_les_brouillons() {
         assert!(!after.comments.iter().find(|c| c.id == id).unwrap().done, "fil {id}");
     }
     assert!(atelier_docx::drafts::list(&path).unwrap().is_empty());
+}
+
+/// Commentaire de l'agent dans un fichier qui tient la liste des personnes
+/// de Word (people.xml) : auteur, initiales et entrée de la liste passent au
+/// nom de l'utilisateur ; les commentaires des autres ne bougent pas.
+#[test]
+fn les_commentaires_signes_claude_passent_au_nom_de_l_utilisateur() {
+    use std::io::{Cursor, Read, Write};
+    let src = build("christophe");
+    let mut zin = zip::ZipArchive::new(Cursor::new(src)).unwrap();
+    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..zin.len() {
+        let mut f = zin.by_index(i).unwrap();
+        let name = f.name().to_string();
+        let mut bytes = Vec::new();
+        f.read_to_end(&mut bytes).unwrap();
+        out.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        out.write_all(&bytes).unwrap();
+    }
+    out.start_file("word/people.xml", zip::write::SimpleFileOptions::default()).unwrap();
+    out.write_all(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w15:people xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"><w15:person w15:author="Claude"><w15:presenceInfo w15:providerId="AD" w15:userId="claude"/></w15:person></w15:people>"#).unwrap();
+    let mut d = Docx::from_bytes(out.finish().unwrap().into_inner()).unwrap();
+    apply(&mut d, &op(json!({"op": "comment", "paragraph": "p2", "find": "pureté", "text": "Copie soignée. 10/10."})), true, &sig("Claude")).unwrap();
+    let top = d.model().unwrap().comments.iter().find(|c| c.text == "Copie soignée. 10/10.").unwrap().id;
+    apply(&mut d, &op(json!({"op": "reply", "parent": 1, "text": "D'accord."})), true, &sig("Claude")).unwrap();
+    let others: Vec<(u32, String)> = d.model().unwrap().comments.iter().filter(|c| !marks::is_agent(&c.author)).map(|c| (c.id, c.author.clone())).collect();
+
+    assert_eq!(marks::adopt_comments(&mut d, "Thierry Laurent").unwrap(), 2);
+    let m = d.model().unwrap();
+    let mine = m.comments.iter().find(|c| c.id == top).unwrap();
+    assert_eq!((mine.author.as_str(), mine.initials.as_str()), ("Thierry Laurent", "TL"));
+    assert!(m.comments.iter().any(|c| c.author == "Thierry Laurent" && c.parent == Some(1) && c.text == "D'accord."));
+    for (id, who) in others {
+        assert_eq!(m.comments.iter().find(|c| c.id == id).unwrap().author, who);
+    }
+    let people = d.part("word/people.xml").unwrap().unwrap();
+    assert!(people.contains(r#"w15:author="Thierry Laurent""#) && people.contains(r#"w15:userId="Thierry Laurent""#) && !people.contains("Claude"), "{people}");
+    // Le fichier reste lisible et rejouer ne change plus rien.
+    let mut again = Docx::from_bytes(d.to_bytes().unwrap()).unwrap();
+    assert_eq!(marks::adopt_comments(&mut again, "Thierry Laurent").unwrap(), 0);
+    assert!(marks::adopt_comments(&mut again, "Codex").is_err());
 }

@@ -78,18 +78,43 @@ describe("DocumentsSurface", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: "Chapitre 3.docx" })).toBeTruthy());
   });
 
-  it("masque la liste au bouton et au raccourci ⌘\\, et s'en souvient", async () => {
+  it("masque le panneau au bouton et au raccourci ⌘\\, et s'en souvient", async () => {
     renderUi(<DocumentsSurface galleryUrl={GALLERY} projectRoot="/p" visible />);
     await screen.findByText("Plan de thèse.docx");
     const side = document.querySelector(".docs-side") as HTMLElement;
-    fireEvent.click(screen.getByRole("button", { name: /Masquer la liste/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Masquer le panneau/ }));
     expect(side.hidden).toBe(true);
     cleanup();
     renderUi(<DocumentsSurface galleryUrl={GALLERY} projectRoot="/p" visible />);
     expect((document.querySelector(".docs-side") as HTMLElement).hidden).toBe(true);
     fireEvent.keyDown(window, { key: "\\", metaKey: true });
     expect((document.querySelector(".docs-side") as HTMLElement).hidden).toBe(false);
-    expect(screen.getByRole("button", { name: /Masquer la liste/ }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: /Masquer le panneau/ }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("un seul panneau : Plan et Commentaires passent au document ouvert, au même endroit", async () => {
+    renderUi(<DocumentsSurface galleryUrl={GALLERY} projectRoot="/p" visible />);
+    await screen.findByText("Plan de thèse.docx");
+    // Sans document ouvert, seuls les documents ont quelque chose à montrer.
+    expect((screen.getByRole("radio", { name: "Plan" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByText("Chapitre1_brouillon.docx"));
+    const frame = document.querySelector("iframe.docs-frame") as HTMLIFrameElement;
+    expect(new URL(frame.src).searchParams.get("panel")).toBe("host");
+    const sent: unknown[] = [];
+    vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation((msg: unknown) => { sent.push(msg); });
+    // Chargé : il reçoit l'état du panneau tout de suite, puis à chaque changement.
+    fireEvent.load(frame);
+    expect(sent).toContainEqual({ type: "atelier-docs-panel", open: true, tab: "docs" });
+    fireEvent.click(screen.getByRole("radio", { name: "Plan" }));
+    expect((document.querySelector(".docs-side") as HTMLElement).hidden).toBe(true);
+    await waitFor(() => expect(sent).toContainEqual({ type: "atelier-docs-panel", open: true, tab: "plan" }));
+    // L'onglet Documents choisi dans le document revient à la liste.
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "atelier-docs-panel-tab", tab: "docs" }, origin: "http://127.0.0.1:8765", source: frame.contentWindow }));
+    await waitFor(() => expect((document.querySelector(".docs-side") as HTMLElement).hidden).toBe(false));
+    expect(sent).toContainEqual({ type: "atelier-docs-panel", open: true, tab: "docs" });
+    // Le compte des commentaires ouverts suit le document.
+    window.dispatchEvent(new MessageEvent("message", { data: { type: "atelier-docs-panel-count", comments: 7 }, origin: "http://127.0.0.1:8765", source: frame.contentWindow }));
+    await waitFor(() => expect(document.querySelector(".docs-panel-count")?.textContent).toBe("7"));
   });
 
   it("dates courtes : heure aujourd'hui, hier, sinon jour et mois", () => {

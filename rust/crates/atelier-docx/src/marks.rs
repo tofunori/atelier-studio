@@ -79,11 +79,11 @@ const TRACKED: &[&str] = &[
     "tblPrChange", "tblGridChange", "trPrChange", "tcPrChange", "numberingChange", "cellIns", "cellDel", "cellMerge",
 ];
 
-/// Reprend sous le nom `to` les suivis qu'un agent avait signés de son nom
-/// (fichiers retouchés avant la signature au nom de l'utilisateur) : Word
-/// n'affiche plus que `to`, et les signatures rendues permettent à Atelier
-/// de les montrer encore « proposés par Claude ». Les commentaires gardent
-/// leur auteur. Rend les signatures à noter avec [`remember`].
+/// Reprend sous le nom `to` les suivis et les commentaires qu'un agent
+/// avait signés de son nom (fichiers retouchés avant la signature au nom de
+/// l'utilisateur) : Word n'affiche plus que `to`. Les signatures rendues
+/// (suivis seulement) permettent à Atelier de les montrer encore « proposés
+/// par Claude ». Rend les signatures à noter avec [`remember`].
 pub fn adopt(docx: &mut crate::Docx, to: &str) -> Result<Vec<Stamp>> {
     let to = to.trim();
     if to.is_empty() || is_agent(to) {
@@ -111,7 +111,59 @@ pub fn adopt(docx: &mut crate::Docx, to: &str) -> Result<Vec<Stamp>> {
             docx.set_part(&part, out);
         }
     }
+    adopt_comments(docx, to)?;
     Ok(stamps)
+}
+
+/// Commentaires et réponses signés par un agent : auteur et initiales de
+/// `to` (Thierry, 2026-11-13 : « je veux que ça soit mon nom »). Rend leur
+/// nombre.
+pub fn adopt_comments(docx: &mut crate::Docx, to: &str) -> Result<usize> {
+    let to = to.trim();
+    if to.is_empty() || is_agent(to) {
+        return crate::err("nom de l'utilisateur manquant");
+    }
+    let Some(src) = docx.part(crate::COMMENTS)? else { return Ok(0) };
+    let doc = crate::xml::parse(&src)?;
+    let initials = crate::xml::escape_attr(&crate::initials(to));
+    let mut edits = Vec::new();
+    let mut count = 0;
+    for n in doc.descendants().filter(|n| n.is_element() && n.tag_name().namespace() == Some(crate::xml::W) && n.tag_name().name() == "comment") {
+        let attr = |name: &str| n.attributes().find(|a| a.namespace() == Some(crate::xml::W) && a.name() == name);
+        let Some(a) = attr("author").filter(|a| is_agent(a.value())) else { continue };
+        edits.push((a.range_value(), crate::xml::escape_attr(to)));
+        if let Some(i) = attr("initials") {
+            edits.push((i.range_value(), initials.clone()));
+        }
+        count += 1;
+    }
+    drop(doc);
+    if count == 0 {
+        return Ok(0);
+    }
+    docx.set_part(crate::COMMENTS, crate::xml::splice(&src, edits)?);
+    // Liste des personnes de Word 2013+ : l'agent y cède sa place si `to`
+    // n'y figure pas encore (Word veut une entrée par auteur de commentaire).
+    if let Some(people) = docx.part("word/people.xml")? {
+        let doc = crate::xml::parse(&people)?;
+        let w15 = "http://schemas.microsoft.com/office/word/2012/wordml";
+        let persons: Vec<_> = doc.descendants().filter(|n| n.tag_name().name() == "person").collect();
+        let agent = persons.iter().find(|p| p.attribute((w15, "author")).is_some_and(is_agent));
+        if let Some(agent) = agent.filter(|_| !persons.iter().any(|p| p.attribute((w15, "author")) == Some(to))) {
+            let mut edits = Vec::new();
+            for n in agent.descendants() {
+                for a in n.attributes().filter(|a| a.namespace() == Some(w15) && (a.name() == "author" || a.name() == "userId")) {
+                    edits.push((a.range_value(), crate::xml::escape_attr(to)));
+                }
+                if let Some(a) = n.attributes().find(|a| a.namespace() == Some(w15) && a.name() == "providerId") {
+                    edits.push((a.range_value(), "None".to_string()));
+                }
+            }
+            drop(doc);
+            docx.set_part("word/people.xml", crate::xml::splice(&people, edits)?);
+        }
+    }
+    Ok(count)
 }
 
 /// Bilan d'une [`repair`].

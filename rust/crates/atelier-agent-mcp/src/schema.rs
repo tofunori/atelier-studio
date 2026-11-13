@@ -231,15 +231,15 @@ pub const DOCX_TOOL_NAME: &str = "atelier_docx";
 const DOCX_ACTIONS: [&str; 13] = ["read", "edit", "insert_paragraph", "join", "split", "comment", "reply", "draft_reply", "format", "insert_note", "insert_figure", "insert_row", "delete_row"];
 
 /// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
-/// toujours des suivis de modifications signés de son nom : l'utilisateur
-/// les accepte ou les refuse ; l'outil n'expose aucune décision.
+/// toujours des suivis de modifications ; suivis et commentaires sont signés
+/// du nom de l'utilisateur : il accepte ou refuse ; l'outil n'expose aucune décision.
 pub fn docx_tool_definition() -> Value {
     json!({
         "name": DOCX_TOOL_NAME,
         "description": "Read and edit a Word .docx of the project WITHOUT breaking it for Word (never unzip \
     or rewrite it yourself). read: paragraphs p0…, then footnotes n1.p0… and header1.p0…, tracked \
     changes [+ins+]#id [-del-]#id, comments c1…. Every write is a tracked change or comment signed \
-    with your name; the user accepts or rejects (you cannot). find = exact current text (add paragraph \
+    with the user's name; the user accepts or rejects (you cannot). find = exact current text (add paragraph \
     or occurrence if ambiguous). insert_note / insert_figure go right after find. insert_row / delete_row: table row of paragraph (a cell). \
     join: merge paragraph into the one before (p8 → p7). split: new paragraph right after find. \
     draft_reply: a draft in the comment's card (not in the file) that the user reviews and sends \
