@@ -1304,6 +1304,8 @@
     renderStatus();
     syncToolbar();
     if (findOpen()) runFind(false);
+    // Le chat voit le document relu (commentaires de l'agent compris).
+    live?.schedule();
     notice.classList.toggle("show", next.openInWord);
     if (next.openInWord) {
       notice.innerHTML = `${ICON.warn}<span>Ce document est aussi ouvert dans Word. Ferme-le dans Word avant de le retoucher ici : Word écraserait ces retouches à son prochain enregistrement.</span>`;
@@ -5167,14 +5169,14 @@
       if (!model || !PATH.startsWith("/")) return null;
       const sel = readSel();
       const inPaper = !!sel && paper.contains(getSelection()?.anchorNode ?? null);
-      const comments = model.comments
-        .filter((c) => !c.done && (c.parent === undefined || c.parent === null) && c.text.trim())
-        .slice(0, 10)
-        .map((c) => ({ text: c.text.slice(0, 600), ...(c.quote ? { quote: c.quote.slice(0, 300) } : {}) }));
+      const open = model.comments.filter((c) => !c.done && (c.parent === undefined || c.parent === null) && c.text.trim());
+      const comments = open.slice(0, 10).map((c) => ({ text: c.text.slice(0, 600), ...(c.quote ? { quote: c.quote.slice(0, 300) } : {}) }));
       return {
         path: PATH, name: NAME, kind: "docx",
         ...(inPaper && sel ? { paragraph: sel.a.idx + 1 } : {}),
         ...(comments.length ? { comments } : {}),
+        // Seulement les 10 premières partent : le chat doit savoir combien il y en a.
+        ...(open.length > comments.length ? { commentsTotal: open.length } : {}),
       };
     },
     postToHost: (payload) => W.__atelierPost (payload),
