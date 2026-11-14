@@ -939,11 +939,13 @@ export default function App() {
         .then((arrivals) => arrivals.forEach((arrival) => handleInboxArrivalRef.current(arrival)))
         .catch((error) => void showError(String(error)));
     };
-    void onInboxArrival(pull).then((unlisten) => {
-      if (disposed) { unlisten(); return; }
-      stop = unlisten;
-      pull();
-    });
+    void onInboxArrival(pull)
+      .then((unlisten) => {
+        if (disposed) { unlisten(); return; }
+        stop = unlisten;
+        pull();
+      })
+      .catch((error) => console.warn("[inbox] écoute impossible", error));
     return () => { disposed = true; stop?.(); };
   }, [inboxReady]);
 
