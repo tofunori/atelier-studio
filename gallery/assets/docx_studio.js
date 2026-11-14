@@ -119,6 +119,12 @@
   let laneOver = false;
   let holdPt = 0;
   let widened = false;
+  // Ouverture d'un document annoté dans l'app (2026-11-13) : la marge s'ouvre
+  // d'elle-même et le panneau s'élargit pour que la page (85 %, la proportion
+  // retenue par Thierry) et les fiches tiennent entières côte à côte. Une fois
+  // par ouverture, et pas si Thierry a fermé la marge de ce document.
+  const OPEN_ZOOM = 0.85;
+  let autoLane = true;
   // Largeur des fiches de la marge, réglable à la poignée (retenue pour tous
   // les documents) : 312 px par défaut, 240 à 480.
   const LANE_W = 312, LANE_MIN = 240, LANE_MAX = 480;
@@ -3143,6 +3149,10 @@
     const pg = model?.page;
     const room = scroller.clientWidth - 24 - laneW - 48;
     const narrow = !holdPt && (innerWidth < 760 || (!!pg && zoom === null && room < pg.width * PT * 0.75));
+    if (autoLane && pg && scroller.clientWidth) {
+      autoLane = false;
+      if (narrow && !laneOff && parent !== window && cardsEl.childElementCount && !paneWait) window.setTimeout(() => openLane(true));
+    }
     if (!narrow) laneOver = false;
     b.toggle("no-lane", laneOff || (narrow && !laneOver));
     b.toggle("lane-over", !laneOff && narrow && laneOver);
@@ -3385,18 +3395,22 @@
     b.add("lane-out");
     window.setTimeout(finish, 120);
   }
-  function openLane() {
+  function openLane(auto = false) {
+    if (auto && (laneOff || paneWait || !document.body.classList.contains("no-lane"))) return;
     settleStretch();
     const b = document.body.classList;
     laneOff = false;
     try { localStorage.removeItem(LANE_KEY); } catch { /* choix gardé pour la session */ }
     const pg = model?.page;
+    // À l'ouverture, la page vise 85 % ; au bouton, elle garde sa taille
+    // (au moins les 75 % sous lesquels la marge ne tient pas).
+    const base = auto ? PT * OPEN_ZOOM : Math.max(ptPx, PT * 0.75);
     let need = Math.max(0, 760 - innerWidth);
-    if (pg && zoom === null) need = Math.max(need, Math.max(ptPx, PT * 0.75) * pg.width + 24 + laneW + 48 - scroller.clientWidth);
+    if (pg && zoom === null) need = Math.max(need, base * pg.width + 24 + laneW + 48 - scroller.clientWidth);
     need = Math.ceil(need);
     if (need > 0 && parent === window) laneOver = true;
     else if (need > 0) {
-      holdPt = zoom === null ? Math.max(ptPx, PT * 0.75) : 0;
+      holdPt = zoom === null ? base : 0;
       if (!reduced()) b.add("lane-in");
       askPane("widen", need);
     }

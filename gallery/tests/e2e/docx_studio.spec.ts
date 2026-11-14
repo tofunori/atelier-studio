@@ -1007,26 +1007,66 @@ test('docx: dans l\'app, le bouton Commentaires élargit le panneau de la place 
   const frame = page.frameLocator('#f');
   await expect(frame.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
   const body = frame.locator('body');
+  type Asks = {asks: {action: string; px: number}[]};
+  const asks = () => page.evaluate(() => (window as unknown as Asks).asks.map((a) => a.action).join());
+  // Document annoté : à l'ouverture, la marge s'ouvre d'elle-même et le
+  // panneau s'élargit pour la page à 85 % et les fiches côte à côte.
+  await expect.poll(asks).toBe('widen');
+  const auto = await page.evaluate(() => (window as unknown as Asks).asks[0]);
+  expect(auto.px).toBeGreaterThan(200);
+  await expect(body).not.toHaveClass(/no-lane/);
+  await expect(body).not.toHaveClass(/lane-over|lane-in/);
+  await expect(frame.locator('#btnLane')).toHaveAttribute('aria-pressed', 'true');
+  await expect(frame.locator('.z-pct')).toHaveText('85 %');
+  await expect(frame.locator('.z-pct')).toHaveClass(/on/);
+  expect(await frame.locator('#scroll').evaluate((s) => s.scrollWidth - s.clientWidth)).toBeLessThanOrEqual(1);
+  await frame.locator('#btnLane').click();
+  await expect.poll(asks).toBe('widen,restore');
   await expect(body).toHaveClass(/no-lane/);
+  await expect(page.locator('#f')).toHaveCSS('width', '800px');
+  await page.evaluate(() => { (window as unknown as Asks).asks = []; });
+  // Au bouton : la page garde sa taille (ou monte aux 75 % sous lesquels la marge ne tient pas).
   const w0 = await frame.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth);
   await frame.locator('#btnLane').click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as {asks: {action: string; px: number}[]}).asks.length)).toBe(1);
-  const ask = await page.evaluate(() => (window as unknown as {asks: {action: string; px: number}[]}).asks[0]);
-  expect(ask.action).toBe('widen');
+  await expect.poll(asks).toBe('widen');
+  const ask = await page.evaluate(() => (window as unknown as Asks).asks[0]);
   expect(ask.px).toBeGreaterThan(300);
   await expect(body).not.toHaveClass(/no-lane/);
   await expect(body).not.toHaveClass(/lane-over|lane-in/);
   await expect(frame.locator('#btnLane')).toHaveAttribute('aria-pressed', 'true');
-  // La page garde sa taille (ou monte aux 75 % sous lesquels la marge ne tient pas).
   const w1 = await frame.locator('#paper').evaluate((p) => (p as HTMLElement).offsetWidth);
   expect(w1).toBeGreaterThanOrEqual(w0 - 2);
   // Toute la marge tient dans le panneau.
   const right = await frame.locator('#scroll').evaluate((s) => s.scrollWidth - s.clientWidth);
   expect(right).toBeLessThanOrEqual(1);
   await frame.locator('#btnLane').click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as {asks: {action: string}[]}).asks.map((a) => a.action).join())).toBe('widen,restore');
+  await expect.poll(asks).toBe('widen,restore');
   await expect(body).toHaveClass(/no-lane/);
   await expect(page.locator('#f')).toHaveCSS('width', '800px');
+});
+
+test('docx: dans l\'app, une marge fermée par Thierry ne se rouvre pas seule à l\'ouverture', async ({page, project}) => {
+  // Hôte servi par la galerie elle-même : l'iframe garde son stockage (sous
+  // about:blank, il lui est refusé).
+  await page.setViewportSize({width: 1600, height: 900});
+  await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(project.doc)}`);
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  const src = page.url();
+  const key = await page.evaluate(() => Object.keys(localStorage).find((k) => k.startsWith('docxLaneOff:')) || '');
+  expect(key).toBe('');
+  await page.evaluate((p) => { localStorage.setItem(`docxLaneOff:${p}`, '1'); }, project.doc);
+  await page.evaluate((url) => {
+    document.body.innerHTML = '<iframe id="f" style="border:0;width:800px;height:880px"></iframe>';
+    (window as unknown as {asks: string[]}).asks = [];
+    addEventListener('message', (e) => { if (e.data?.type === 'atelier-docx-pane') (window as unknown as {asks: string[]}).asks.push(e.data.action); });
+    (document.getElementById('f') as HTMLIFrameElement).src = url;
+  }, src);
+  const frame = page.frameLocator('#f');
+  await expect(frame.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  await expect(frame.locator('body')).toHaveClass(/no-lane/);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (window as unknown as {asks: string[]}).asks)).toEqual([]);
+  await expect(frame.locator('body')).toHaveClass(/no-lane/);
 });
 
 test('docx: dans l\'app, un seul panneau : Plan et Commentaires suivent la surface Documents', async ({page, project}) => {
