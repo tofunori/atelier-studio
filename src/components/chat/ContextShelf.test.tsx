@@ -250,3 +250,13 @@ it("passages annotés dans Word → une puce par passage (¶ et note), détail a
   fireEvent.click(screen.getByRole("button", { name: "Retirer Chapitre1 revCK.docx ¶ 16" }));
   expect(onRemoveAttachment).toHaveBeenLastCalledWith(2);
 });
+
+it("passage pris dans une bulle Word → puce « Bulle ¶ n » avec l'icône de bulle", () => {
+  const doc = "/Documents/GEO1063/TP6.docx";
+  const { container } = shelf([
+    { name: "TP6.docx", lines: null, kind: "file", path: doc, text: `${doc} (p12, bulle de Thierry) : « le schéma est celui de l'exemple »\nCommentaire : Compare avec l'énoncé` },
+  ]);
+  const pill = container.querySelector(".word-pill .context-pill-main")!;
+  expect(pill.textContent).toBe("Bulle ¶ 12Compare avec l'énoncé");
+  expect(pill.querySelector(".lucide-message-square")).toBeTruthy();
+});

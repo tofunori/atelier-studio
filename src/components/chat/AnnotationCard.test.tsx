@@ -72,3 +72,16 @@ it('decodes Word annotations by paragraph and renders them like the others', () 
   expect(document.querySelectorAll('.chat-annotation-card')).toHaveLength(2);
   expect(screen.getByText('· ¶ 12')).toBeTruthy();
 });
+
+it('decodes a passage taken from a Word comment bubble and names its author', () => {
+  const docx = '/Documents/GEO1063/TP6.docx (p12, bulle de Thierry) : « le schéma est celui de l\'exemple »\nCommentaire : Compare avec l\'énoncé\n\n/Documents/GEO1063/TP6.docx (bulle de Christophe) : « 0,6 »\nCommentaire : (voir passage)';
+  const parsed = annotationCards(docx);
+  expect(parsed.cards.map(card => [card.location, card.bubble, card.quote, card.comment])).toEqual([
+    ['¶ 12', 'Thierry', 'le schéma est celui de l\'exemple', 'Compare avec l\'énoncé'],
+    ['', 'Christophe', '0,6', ''],
+  ]);
+  // « bulle de » n'est lu que pour un .docx.
+  expect(annotationCards('notes.md (bulle de X) : « a »\nCommentaire : b').cards[0].bubble).toBeUndefined();
+  renderTurn(docx, 'TP6.docx');
+  expect(screen.getByText(`· ${t('chat.bubble-of', { name: 'Thierry' })}`)).toBeTruthy();
+});
