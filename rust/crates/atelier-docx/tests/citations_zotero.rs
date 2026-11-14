@@ -200,7 +200,7 @@ fn style_numerique_renumerote_tout() {
     let mut d = common::reopen(&d);
     let m = d.model().unwrap();
     assert_eq!(m.paragraphs[0].text, "Premier constat[1].");
-    assert_eq!(m.paragraphs[1].text, "Second constat[2, 1].");
+    assert_eq!(m.paragraphs[1].text, "Second constat[2], [1].");
     assert!(m.paragraphs[3].text.starts_with("[1] B. Williamson and B. Menounos, “Wildfire darkening of glaciers,” The Cryosphere"), "{}", m.paragraphs[3].text);
     assert!(m.paragraphs[4].text.starts_with("[2] B. Aubry-Wake, B. Bertoncini, and B. Pomeroy"), "{}", m.paragraphs[4].text);
     let st = cite::doc_style(&mut d).unwrap();

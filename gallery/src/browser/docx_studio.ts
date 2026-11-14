@@ -23,6 +23,8 @@
     number?: number; whole?: boolean; media?: string; width?: number; height?: number; alt?: string; crop?: number[];
     /** Équation : son LaTeX, et si elle est seule sur sa ligne (display). */
     latex?: string; display?: boolean;
+    /** Citation Zotero : son identifiant (citationID). */
+    cite?: string;
     /** Objet qui est un dessin : son rang dans `Para.shapes`. */
     shape?: number;
   };
@@ -685,6 +687,8 @@
           // Résultat de champ (citation, bibliographie) : texte mis en forme
           // qui passe à la ligne comme le reste, mais non modifiable.
           node.classList.add(label === "zotero-bibliographie" ? "flow" : "fld");
+          if (s.cite) { node.classList.add("cite"); node.dataset.cite = s.cite; }
+          if (label === "zotero-bibliographie") node.classList.add("bibl");
           node.appendChild(styled(s));
         } else {
           node.textContent = isNote && s.number ? String(s.number) : s.text || (label === "image" ? "[figure]" : label === "équation" ? "[équation]" : `[${label || "objet"}]`);
@@ -696,7 +700,7 @@
           node.setAttribute("aria-label", `Équation : ${s.latex}`);
         } else if (s.shape !== undefined && shapes[s.shape]) {
           node.title = "Zone de texte ou forme : à modifier dans Word";
-        } else node.title = s.kind === "field" ? (label.startsWith("zotero") ? "Citation Zotero : à modifier dans Word" : `Champ ${label}`) : (isNote ? (label === "note" ? "Note de bas de page" : "Note de fin") : s.media ? (s.alt || "Figure") : label);
+        } else node.title = s.kind === "field" ? (s.cite ? "Citation Zotero : clic pour la modifier" : label === "zotero-bibliographie" ? "Bibliographie Zotero : clic pour l'actualiser ou changer de style" : label.startsWith("zotero") ? "Citation Zotero" : `Champ ${label}`) : (isNote ? (label === "note" ? "Note de bas de page" : "Note de fin") : s.media ? (s.alt || "Figure") : label);
       } else {
         node = document.createElement("span");
         node.appendChild(styled(s));
@@ -2818,8 +2822,11 @@
     document.body.appendChild(m);
     const r = trigger.getBoundingClientRect();
     const w = m.offsetWidth;
-    m.style.top = `${r.bottom + 4}px`;
-    m.style.left = `${Math.max(8, alignRight ? r.right - w : r.left)}px`;
+    const h = m.offsetHeight;
+    // Pas de place dessous : le menu s'ouvre au-dessus de son bouton.
+    const top = r.bottom + 4 + h > innerHeight - 8 && r.top - 4 - h > 8 ? r.top - 4 - h : r.bottom + 4;
+    m.style.top = `${top}px`;
+    m.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, alignRight ? r.right - w : r.left))}px`;
     requestAnimationFrame(() => m.classList.add("show"));
     trigger.classList.add("open");
     trigger.setAttribute("aria-haspopup", "menu");
@@ -2871,7 +2878,7 @@
     <button class="ib chev-only hide3" id="btnMore" aria-label="Autres mises en forme" data-tooltip="Barré, exposant, indice">${chev}</button>
     <span class="vs hide2"></span>
     <button class="ib hide2" id="btnAlign" aria-label="Paragraphe" data-tooltip="Alignement et listes"><span class="ic">${ic("alLeft")}</span>${chev}</button>
-    <button class="ib hide2" id="btnInsert" aria-label="Insérer" data-tooltip="Insérer une note, une figure ou une ligne de tableau">${ic("plus")}${chev}</button>
+    <button class="ib hide2" id="btnInsert" aria-label="Insérer" data-tooltip="Insérer une note, une figure, une citation Zotero ou une ligne de tableau">${ic("plus")}${chev}</button>
     <span class="vs hide2"></span>
     <button class="ib" id="btnUndo" aria-label="Annuler" data-tooltip="Annuler (⌘Z)">${ic("undo")}</button>
     <button class="ib hide2" id="btnRedo" aria-label="Rétablir" data-tooltip="Rétablir (⌘⇧Z)">${ic("redo")}</button>
@@ -3039,6 +3046,9 @@
     showMenu(trigger, [
       { label: "Note de bas de page", disabled: off || !!(p && p.story), run: insertNote },
       { label: "Figure du projet…", disabled: off, run: () => void figureMenu(trigger) },
+      { label: "", sep: true },
+      { label: "Citation Zotero…", html: `<span>Citation Zotero…</span>${hint("⇧⌘C")}`, disabled: off, run: () => openCite(null) },
+      { label: "Bibliographie Zotero", disabled: off, run: () => void insertBibliography() },
       ...(rows.length ? [{ label: "Tableau", head: true }, ...rows] : []),
     ]);
   }
@@ -4642,6 +4652,388 @@
     const el = p ? (Array.from(p.querySelectorAll(":scope > .chip.eq")) as HTMLElement[]).find((x) => !x.classList.contains("del") && Number(x.dataset.off) === sel.a.off && Number(x.dataset.off) + Number(x.dataset.len) === sel.b.off) : null;
     return el || null;
   }
+
+  // ------------------------------------------------- citations Zotero
+  // Palette au curseur (Thierry, 2026-11-14, variante A) : chercher dans
+  // Zotero, choisir une ou plusieurs références (page, préfixe, suffixe),
+  // insérer une citation VIVANTE, celle du module Zotero de Word. Clic sur
+  // une citation : la modifier ou la retirer ; sur la bibliographie :
+  // l'actualiser ou changer de style.
+  type ZItem = { key: string; title: string; creators: string; year: string; publication: string };
+  type Pick = { key: string; label: string; locator?: string; prefix?: string; suffix?: string; suppress_author?: boolean };
+  type CiteStyle = { id: string; title: string; format: string };
+  type CiteInfo = { style: { id: string; format: string; locale?: string | null; stored: boolean }; styles: CiteStyle[]; citations: { citation: string; text: string; items: Pick[]; labels: string[] }[] };
+  const citeChip = (t: EventTarget | null): HTMLElement | null => {
+    const el = t instanceof Element ? t.closest(".chip.cite, .chip.bibl") as HTMLElement | null : null;
+    return el && paper.contains(el) && !el.classList.contains("del") && !el.dataset.del ? el : null;
+  };
+  const citePop = document.createElement("div");
+  citePop.className = "pop citepal";
+  citePop.id = "citepal";
+  citePop.setAttribute("role", "dialog");
+  citePop.setAttribute("aria-label", "Citation Zotero");
+  citePop.innerHTML = `<div class="cq">${ic("search", 14)}<span class="cpills" id="citePills"></span><input id="citeQ" type="text" spellcheck="false" autocomplete="off" aria-label="Chercher dans Zotero" aria-controls="citeList"></div>
+    <div class="clist" id="citeList" role="listbox" aria-label="Références Zotero"></div>
+    <div class="cdet" id="citeDet" hidden>
+      <label for="citeLoc">Page</label><input id="citeLoc" type="text" autocomplete="off" placeholder="12 ou 3-4">
+      <label for="citePre">Préfixe</label><input id="citePre" type="text" autocomplete="off" placeholder="voir">
+      <label for="citeSuf">Suffixe</label><input id="citeSuf" type="text" autocomplete="off" placeholder="fig. 2">
+      <label class="cchk"><input id="citeNoAuth" type="checkbox">Sans l'auteur, seulement l'année</label>
+    </div>
+    <div class="cfoot"><button type="button" class="btn q danger" id="citeDel" hidden>Retirer</button><span class="ck" id="citeHint">↵ ajouter · ⌘↵ insérer</span><button type="button" class="btn q cst" id="citeStyle" aria-haspopup="menu"><span></span>${ic("down", 12)}</button><button type="button" class="btn" id="citeOk">Insérer</button></div>`;
+  document.body.appendChild(citePop);
+  const citeQ = citePop.querySelector("#citeQ") as HTMLInputElement;
+  const citeList = citePop.querySelector("#citeList") as HTMLElement;
+  const citePills = citePop.querySelector("#citePills") as HTMLElement;
+  const citeDet = citePop.querySelector("#citeDet") as HTMLElement;
+  const citeOk = citePop.querySelector("#citeOk") as HTMLButtonElement;
+  const citeDel = citePop.querySelector("#citeDel") as HTMLButtonElement;
+  const citeStyleBtn = citePop.querySelector("#citeStyle") as HTMLButtonElement;
+  const detIn = { locator: $("citeLoc") as HTMLInputElement, prefix: $("citePre") as HTMLInputElement, suffix: $("citeSuf") as HTMLInputElement };
+  const citeNoAuth = $("citeNoAuth") as HTMLInputElement;
+  const citeHint = $("citeHint");
+  let citeAt: { idx: number; off: number; citation: string | null; rect: DOMRect } | null = null;
+  let picks: Pick[] = [];
+  let pickOn = -1;
+  let found: ZItem[] = [];
+  let foundHl = 0;
+  let citeInfo: CiteInfo | null = null;
+  let citeSeq = 0;
+  let citeTimer = 0;
+  /** Étiquette d'une notice : premier auteur, « et al. » au-delà de deux. */
+  function zLabel(it: ZItem): string {
+    const names = it.creators.split(",").map((n) => n.trim()).filter(Boolean);
+    const who = names.length > 2 ? `${names[0]} et al.` : names.length === 2 ? `${names[0]} & ${names[1]}` : names[0] || it.title.split(/\s+/).slice(0, 3).join(" ");
+    return `${who}, ${it.year || "s. d."}`;
+  }
+  const styleName = (id: string) => citeInfo?.styles.find((x) => x.id === id)?.title || id.replace(/^.*\//, "").replace(/-/g, " ").toUpperCase();
+  async function loadCiteInfo(): Promise<CiteInfo | null> {
+    try { citeInfo = await api(`/docx/cite?path=${enc(PATH)}`); } catch { citeInfo = null; }
+    const span = citeStyleBtn.firstElementChild as HTMLElement;
+    span.textContent = citeInfo ? styleName(citeInfo.style.id) : "Style";
+    return citeInfo;
+  }
+  function renderPills() {
+    citePills.innerHTML = "";
+    picks.forEach((pk, k) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cpill" + (k === pickOn ? " on" : "");
+      b.setAttribute("aria-pressed", String(k === pickOn));
+      const loc = pk.locator ? `<span class="loc">p. ${esc(pk.locator)}</span>` : "";
+      b.innerHTML = `<span>${esc(pk.suppress_author ? pk.label.replace(/^.*,\s*/, "") : pk.label)}</span>${loc}`;
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", () => selectPick(k === pickOn ? -1 : k));
+      citePills.appendChild(b);
+    });
+    citeQ.placeholder = picks.length ? "Ajouter…" : "Chercher dans Zotero : auteur, année, titre";
+    const editing = !!citeAt?.citation;
+    citeOk.textContent = editing ? "Mettre à jour" : "Insérer";
+    citeOk.disabled = !picks.length && !editing;
+    citeDel.hidden = !editing;
+    // En modification, « Retirer » prend la place de l'indication clavier.
+    citeHint.hidden = editing;
+  }
+  function selectPick(k: number) {
+    // Les précisions de la pilule quittée sont gardées.
+    pickOn = k;
+    citeDet.hidden = k < 0;
+    citeList.hidden = k >= 0;
+    if (k >= 0) {
+      const pk = picks[k];
+      detIn.locator.value = pk.locator || "";
+      detIn.prefix.value = pk.prefix || "";
+      detIn.suffix.value = pk.suffix || "";
+      citeNoAuth.checked = !!pk.suppress_author;
+      detIn.locator.focus();
+    } else citeQ.focus();
+    renderPills();
+    placeCite();
+  }
+  for (const [k, el] of Object.entries(detIn)) {
+    el.addEventListener("input", () => {
+      if (pickOn < 0) return;
+      const v = el.value.trim();
+      (picks[pickOn] as any)[k] = v || undefined;
+      if (k === "locator") renderPills();
+    });
+  }
+  citeNoAuth.addEventListener("change", () => { if (pickOn >= 0) { picks[pickOn].suppress_author = citeNoAuth.checked || undefined; renderPills(); } });
+  function renderFound() {
+    citeList.innerHTML = "";
+    if (!found.length) {
+      const e = document.createElement("div");
+      e.className = "cnone";
+      e.textContent = citeQ.value.trim() ? "Rien dans Zotero pour cette recherche." : "Zotero ne répond pas, ou la bibliothèque est vide.";
+      citeList.appendChild(e);
+      return;
+    }
+    found.forEach((it, k) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cmi" + (k === foundHl ? " hl" : "");
+      b.setAttribute("role", "option");
+      b.setAttribute("aria-selected", String(k === foundHl));
+      const names = it.creators.split(",").map((n) => n.trim()).filter(Boolean);
+      const who = names.length > 3 ? `${names.slice(0, 2).join(", ")}, …` : names.join(", ");
+      b.innerHTML = `<span class="a">${esc(who || "Sans auteur")}</span><span class="y">${esc(it.year || "s. d.")}</span><span class="ti">${esc(it.title)}</span>${it.publication ? `<span class="j">${esc(it.publication)}</span>` : ""}`;
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", () => addPick(it));
+      b.addEventListener("mousemove", () => { if (foundHl !== k) { foundHl = k; markHl(); } });
+      citeList.appendChild(b);
+    });
+  }
+  function markHl() {
+    Array.from(citeList.children).forEach((c, k) => { c.classList.toggle("hl", k === foundHl); c.setAttribute("aria-selected", String(k === foundHl)); });
+    (citeList.children[foundHl] as HTMLElement | undefined)?.scrollIntoView({ block: "nearest" });
+  }
+  /** Requête à laquelle répond la liste affichée. */
+  let foundFor: string | null = null;
+  /** Ajout en attente de sa recherche : ⌘↵ l'attend avant d'insérer. */
+  let citePending: Promise<void> | null = null;
+  async function search() {
+    if (citeTimer) clearTimeout(citeTimer);
+    citeTimer = 0;
+    const seq = ++citeSeq;
+    const q = citeQ.value.trim();
+    let items: ZItem[] = [];
+    try {
+      const r = await fetch(`/zotero-items?q=${enc(q)}`).then((x) => x.json());
+      items = (r.items || []) as ZItem[];
+    } catch { items = []; }
+    if (seq !== citeSeq || !citeAt) return;
+    foundFor = q;
+    found = items.filter((it) => !picks.some((p) => p.key === it.key)).slice(0, 8);
+    foundHl = 0;
+    renderFound();
+    placeCite();
+  }
+  function addPick(it: ZItem) {
+    if (!picks.some((p) => p.key === it.key)) picks.push({ key: it.key, label: zLabel(it) });
+    citeQ.value = "";
+    pickOn = -1;
+    renderPills();
+    void search();
+    citeQ.focus();
+  }
+  /** Rectangle du curseur (ou de la citation visée) pour placer la palette. */
+  function caretBox(): DOMRect | null {
+    const s = getSelection();
+    if (!s || !s.rangeCount) return null;
+    const r = s.getRangeAt(0).cloneRange();
+    r.collapse(true);
+    const rects = r.getClientRects();
+    if (rects.length) return rects[0];
+    const el = (r.startContainer instanceof Element ? r.startContainer : r.startContainer.parentElement) as HTMLElement | null;
+    return el ? el.getBoundingClientRect() : null;
+  }
+  function placeCite() {
+    if (!citeAt) return;
+    const r = citeAt.rect;
+    const w = Math.min(420, innerWidth - 32);
+    citePop.style.width = `${w}px`;
+    citePop.style.left = `${Math.round(Math.max(16, Math.min(innerWidth - w - 16, r.left - 16)))}px`;
+    const h = citePop.offsetHeight;
+    const below = r.bottom + 8;
+    citePop.style.top = `${Math.round(below + h > innerHeight - 8 && r.top - 8 - h > 8 ? r.top - 8 - h : Math.min(below, innerHeight - h - 8))}px`;
+  }
+  /** Ouvre la palette : au curseur (`el` absent) ou sur une citation. */
+  async function openCite(el: HTMLElement | null) {
+    if (!model || view === "original") return;
+    closeMenu();
+    hideBubble();
+    let at: { idx: number; off: number } | null = null;
+    let citation: string | null = null;
+    let rect: DOMRect | null = null;
+    if (el) {
+      const p = el.closest(".d-p") as HTMLElement | null;
+      if (!p || p.dataset.idx === undefined) return;
+      citation = el.dataset.cite || null;
+      at = { idx: Number(p.dataset.idx), off: Number(el.dataset.off) };
+      for (const o of Array.from(paper.querySelectorAll(".chip.cite.on"))) o.classList.remove("on");
+      for (const o of Array.from(paper.querySelectorAll(`.chip.cite[data-cite="${CSS.escape(citation || "")}"]`))) o.classList.add("on");
+      rect = el.getBoundingClientRect();
+    } else {
+      const sel = readSel();
+      if (!sel) { status("Place le curseur là où la citation doit aller.", true); return; }
+      at = collapsed(sel) ? sel.a : sel.b;
+      rect = caretBox();
+    }
+    if (!at || !rect) return;
+    citeAt = { idx: at.idx, off: at.off, citation, rect };
+    picks = [];
+    pickOn = -1;
+    citeQ.value = "";
+    citeDet.hidden = true;
+    citeList.hidden = false;
+    renderPills();
+    citePop.classList.add("show");
+    placeCite();
+    citeQ.focus();
+    const info = await loadCiteInfo();
+    if (citation && info && citeAt?.citation === citation) {
+      const c = info.citations.find((x) => x.citation === citation);
+      if (c) picks = c.items.map((it, k) => ({ ...it, label: c.labels[k] || it.key }));
+      renderPills();
+    }
+    void search();
+  }
+  function closeCite(back: boolean) {
+    const t = citeAt;
+    if (!t) return;
+    citeAt = null;
+    citePop.classList.remove("show");
+    for (const o of Array.from(paper.querySelectorAll(".chip.cite.on"))) o.classList.remove("on");
+    if (back) { paper.focus({ preventScroll: true }); setCaret({ idx: t.idx, off: t.off }); }
+  }
+  const pickOps = () => picks.map(({ label: _l, ...rest }) => rest);
+  function submitCite(remove = false) {
+    const t = citeAt;
+    if (!t || !model) return;
+    if (!remove && !picks.length) { if (t.citation) remove = true; else return; }
+    const items = remove ? [] : pickOps();
+    closeCite(false);
+    structural(async () => {
+      if (t.citation) {
+        await sendOp({ op: "edit_citation", citation: t.citation, items } as Op, () => ({ a: { idx: t.idx, off: t.off }, b: { idx: t.idx, off: t.off } }));
+        status(remove ? "Citation retirée" : "Citation mise à jour");
+        return;
+      }
+      // « forêt (Williamson, 2021) » : une espace avant, comme on la tape.
+      const text = model!.paragraphs[t.idx]?.text || "";
+      const before = Array.from(text)[t.off - 1];
+      const space = !!before && !/[\s([«“' ]/.test(before);
+      const cite: Op = { op: "insert_citation", paragraph: ref(t.idx), at: t.off + (space ? 1 : 0), items } as Op;
+      const op: Op = space ? { op: "batch", ops: [{ op: "insert", paragraph: ref(t.idx), at: t.off, with: " " } as Op, cite] } as Op : cite;
+      const ok = await sendOp(op, (m) => {
+        // Curseur juste après la citation posée.
+        const p = m.paragraphs[t.idx];
+        let off = 0, end = t.off;
+        for (const g of p ? p.segments : []) {
+          const removed = g.rev === "del" || g.rev === "moveFrom";
+          const n = removed ? 0 : cp(g.text);
+          if (g.cite && off >= t.off) end = off + n;
+          else if (end > t.off) break;
+          off += n;
+        }
+        return { a: { idx: t.idx, off: end }, b: { idx: t.idx, off: end } };
+      });
+      if (ok) status("Citation Zotero insérée");
+    });
+  }
+  async function insertBibliography() {
+    const sel = readSel();
+    if (!sel || !model) return;
+    const info = citeInfo || await loadCiteInfo();
+    if (info && !info.citations.length) { status("Aucune citation Zotero dans le document : la bibliographie viendrait vide.", true); }
+    const at = sel.b;
+    structural(async () => {
+      const ok = await sendOp({ op: "insert_bibliography", after: ref(at.idx) } as Op, () => null);
+      if (ok) status("Bibliographie Zotero posée (hors suivi : Zotero la refait)");
+    });
+  }
+  function refreshCitations() {
+    structural(async () => {
+      const ok = await sendOp({ op: "refresh_citations" } as Op, () => null);
+      if (ok) status("Citations et bibliographie à jour");
+    });
+  }
+  async function citeStyleMenu(trigger: HTMLElement) {
+    const info = citeInfo || await loadCiteInfo();
+    const list = info?.styles || [];
+    const cur = info?.style.id || "";
+    const items: Item[] = list.length
+      ? list.map((st) => ({ label: st.title, on: st.id === cur, run: () => setCiteStyle(st) }))
+      : [{ label: "Aucun style trouvé dans Zotero", disabled: true }];
+    showMenu(trigger, [{ label: "Style du document", head: true }, ...items], true);
+  }
+  function setCiteStyle(st: CiteStyle) {
+    structural(async () => {
+      const ok = await sendOp({ op: "set_citation_style", style: { id: st.id, format: st.format } } as Op, () => readSel());
+      if (ok) { status(`Style : ${st.title}. Citations et bibliographie mises à jour, hors suivi.`); void loadCiteInfo(); }
+    });
+  }
+  // La bibliographie couvre plusieurs lignes : son menu s'ouvre au clic.
+  const citeAnchor = document.createElement("span");
+  citeAnchor.style.cssText = "position:fixed;width:0;height:0;pointer-events:none";
+  document.body.appendChild(citeAnchor);
+  function biblMenu(x: number, y: number) {
+    citeAnchor.style.left = `${x}px`;
+    citeAnchor.style.top = `${y}px`;
+    const el = citeAnchor;
+    showMenu(el, [
+      { label: "Bibliographie Zotero", head: true },
+      { label: "Actualiser", run: refreshCitations },
+      { label: "Changer de style…", run: () => void citeStyleMenu(el) },
+    ]);
+  }
+  citeQ.addEventListener("input", () => {
+    if (pickOn >= 0) selectPick(-1);
+    if (citeTimer) clearTimeout(citeTimer);
+    citeTimer = window.setTimeout(search, 150);
+  });
+  citePop.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault(); e.stopPropagation();
+      if (pickOn >= 0) selectPick(-1); else closeCite(true);
+      return;
+    }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void (citePending || Promise.resolve()).then(() => submitCite()); return; }
+    if (e.target === citeQ) {
+      if (e.key === "ArrowDown" && found.length) { e.preventDefault(); foundHl = (foundHl + 1) % found.length; markHl(); }
+      else if (e.key === "ArrowUp" && found.length) { e.preventDefault(); foundHl = (foundHl - 1 + found.length) % found.length; markHl(); }
+      else if (e.key === "Enter") {
+        e.preventDefault();
+        // Recherche vide et références choisies : Entrée insère.
+        if (!citeQ.value.trim() && picks.length) submitCite();
+        // Frappe plus rapide que la recherche : on attend la liste à jour.
+        else if (foundFor !== citeQ.value.trim()) {
+          citePending = search().then(() => { if (found[foundHl]) addPick(found[foundHl]); }).finally(() => { citePending = null; });
+        }
+        else if (found[foundHl]) addPick(found[foundHl]);
+      } else if (e.key === "Backspace" && !citeQ.value && picks.length) {
+        e.preventDefault();
+        picks.pop();
+        renderPills();
+        void search();
+      }
+    } else if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT" && (e.target as HTMLInputElement).type === "text") {
+      e.preventDefault();
+      selectPick(-1);
+    }
+  });
+  citeOk.addEventListener("click", () => submitCite());
+  citeDel.addEventListener("click", () => submitCite(true));
+  citeStyleBtn.addEventListener("click", (e) => void citeStyleMenu(e.currentTarget as HTMLElement));
+  paper.addEventListener("click", (e) => {
+    const el = citeChip(e.target);
+    if (!el || view === "original") return;
+    e.preventDefault();
+    if (el.classList.contains("bibl")) biblMenu(e.clientX, e.clientY); else void openCite(el);
+  });
+  document.addEventListener("mousedown", (e) => {
+    const t = e.target as HTMLElement;
+    if (citeAt && !t.closest("#citepal") && !t.closest(".menu") && !citeChip(t)) closeCite(false);
+  });
+  // ⇧⌘C : citer au curseur, comme Ajouter/Modifier une citation de Zotero.
+  document.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey || e.code !== "KeyC" || e.isComposing) return;
+    const t = e.target as HTMLElement | null;
+    if (t && !paper.contains(t) && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
+    e.preventDefault();
+    const sel = readSel();
+    const p = sel ? paper.querySelector(`.d-p[data-idx="${sel.a.idx}"]`) : null;
+    const on = p ? (Array.from(p.querySelectorAll(".chip.cite")) as HTMLElement[]).find((x) => Number(x.dataset.off) <= sel!.a.off && sel!.a.off <= Number(x.dataset.off) + Number(x.dataset.len)) : null;
+    void openCite(on || null);
+  });
+  scroller.addEventListener("scroll", () => {
+    if (!citeAt) return;
+    const el = citeAt.citation ? paper.querySelector(`.chip.cite[data-cite="${CSS.escape(citeAt.citation)}"]`) : null;
+    if (el) citeAt.rect = el.getBoundingClientRect();
+    else { const r = caretBox(); if (r) citeAt.rect = r; }
+    placeCite();
+  }, { passive: true });
+  window.addEventListener("resize", () => { if (citeAt) placeCite(); });
 
   // ------------------------------------------------- plan et commentaires
   let tab: "plan" | "com" = "plan";

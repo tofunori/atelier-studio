@@ -233,6 +233,12 @@ table.d-t .d-p.changed::before{display:none}
 .chip.fld{white-space:inherit;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 .chip[data-field="page"],.chip[data-field="numpages"],.chip[data-field="sectionpages"]{background:none;padding:0}
 .chip.flow{white-space:inherit;padding:0;border-radius:0;background:none}
+/* Citations Zotero vivantes : un clic les modifie ; la bibliographie s'actualise. */
+.chip.cite{cursor:pointer;transition:background-color 120ms ease-out,box-shadow 120ms ease-out}
+.chip.cite:hover{background:color-mix(in srgb,currentColor 11%,transparent)}
+.chip.cite.on{box-shadow:0 0 0 1.5px color-mix(in srgb,currentColor 28%,transparent)}
+.chip.bibl{cursor:pointer;transition:background-color 120ms ease-out}
+.chip.bibl:hover{background:color-mix(in srgb,currentColor 5%,transparent)}
 .chip.obj{font:400 12px/1.5 var(--ui-font);color:var(--text-muted)}
 .chip.note{font-size:10px;vertical-align:super;padding:0 2px}
 /* Équations (KaTeX) : police, taille et encre de la page ; les symboles
@@ -466,6 +472,42 @@ body.lane-over #leader{display:none}
 .eq-err:empty{display:none}
 .eq-ft{display:flex;align-items:center;justify-content:flex-end;gap:8px}
 .eq-ft .kbd{margin-left:4px;padding:0 4px;border-radius:6px;background:color-mix(in srgb,var(--text-primary) 8%,transparent);font:500 10px/1.2 var(--ui-font);color:var(--text-muted);font-variant-numeric:tabular-nums}
+/* Palette de citation Zotero : recherche et pilules, résultats ou précisions, pied. */
+.pop.citepal{display:flex;flex-direction:column;width:420px;padding:0;overflow:hidden;font:400 12px/1.5 var(--ui-font);color:var(--text-secondary)}
+.citepal .cq{display:flex;align-items:center;flex-wrap:wrap;gap:4px;min-height:40px;padding:6px 12px;border-bottom:1px solid var(--border-subtle,var(--border))}
+.citepal .cq>svg{flex-shrink:0;margin-right:4px;color:var(--text-muted)}
+.citepal .cpills{display:contents}
+.citepal .cq input{flex:1;min-width:96px;height:28px;padding:0;border:0;outline:0;background:transparent;color:var(--text-primary);font:400 13px var(--ui-font)}
+.citepal .cq input:focus-visible{box-shadow:none}
+.citepal .cq input::placeholder{color:var(--text-disabled,var(--muted2))}
+.cpill{display:inline-flex;align-items:center;gap:4px;height:24px;max-width:100%;padding:0 8px;border:0;border-radius:999px;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px var(--ui-font);font-variant-numeric:tabular-nums;white-space:nowrap;cursor:pointer;transition:box-shadow 120ms ease-out}
+.cpill>span:first-child{overflow:hidden;text-overflow:ellipsis}
+.cpill.on{box-shadow:inset 0 0 0 1.5px var(--text-muted)}
+.cpill .loc{color:var(--text-muted)}
+.citepal .clist{max-height:min(320px,50vh);overflow:auto;padding:4px}
+.citepal .clist[hidden],.citepal .cdet[hidden]{display:none}
+.cmi{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 12px;width:100%;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--text-secondary);font:400 12px/1.5 var(--ui-font);text-align:left;cursor:pointer}
+.cmi.hl{background:var(--bg-ctl,var(--surface-inset))}
+.cmi .a{font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmi .y{color:var(--text-muted);font-variant-numeric:tabular-nums}
+.cmi .ti{grid-column:1/-1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmi .j{grid-column:1/-1;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.citepal .cnone{padding:12px 8px;color:var(--text-muted)}
+.citepal .cdet{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px 12px;padding:12px}
+.citepal .cdet>label{font-size:12px;color:var(--text-muted)}
+.citepal .cdet input[type="text"]{height:28px;margin:0;padding:0 8px;border:0;border-radius:6px;outline:0;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px var(--ui-font);font-variant-numeric:tabular-nums}
+.citepal .cdet input[type="text"]::placeholder{color:var(--text-disabled,var(--muted2))}
+.citepal .cchk{grid-column:1/-1;display:flex;align-items:center;gap:8px;color:var(--text-secondary)!important}
+.citepal .cchk{justify-content:flex-start;font-size:12px}
+.citepal .cchk input{flex:none;width:14px;height:14px;margin:0;padding:0;accent-color:var(--text-secondary)}
+.citepal .cfoot{display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 8px 6px 12px;border-top:1px solid var(--border-subtle,var(--border))}
+.citepal .ck{flex:1;min-width:0;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.citepal .btn.danger{color:var(--status-error);padding:0 8px}
+.citepal .btn.danger[hidden]{display:none}
+.citepal .ck[hidden]{display:none}
+.citepal .btn.cst{margin-left:auto;font-weight:400;padding:0 8px;max-width:160px}
+.citepal .btn.cst span{overflow:hidden;text-overflow:ellipsis}
+.citepal .btn:disabled{opacity:.45;cursor:default}
 /* Bulle d'une modification : auteur, genre, date ; refuser, accepter. */
 .pop.bub{display:flex;align-items:center;gap:8px;width:auto;padding:4px 4px 4px 12px;white-space:nowrap}
 .bub .w{margin-right:4px;font-size:12px;color:var(--text-secondary)}

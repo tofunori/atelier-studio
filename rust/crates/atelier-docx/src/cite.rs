@@ -459,10 +459,11 @@ fn render_citation(items: &[CiteItem], style: &DocStyle, numbers: &HashMap<Strin
                     Some(loc) => format!("{n}, {loc}"),
                     None => n,
                 };
-                affix(it, body)
+                format!("[{}]", affix(it, body))
             })
             .collect();
-        return format!("[{}]", parts.join(", "));
+        // Comme IEEE : « [1], [2, p. 4] ».
+        return parts.join(", ");
     }
     let parts: Vec<String> = items
         .iter()
@@ -1072,6 +1073,8 @@ pub struct CitationInfo {
     pub citation: String,
     pub text: String,
     pub items: Vec<CiteItem>,
+    /// Étiquette courte de chaque référence (« Williamson & Menounos, 2021 »).
+    pub labels: Vec<String>,
 }
 
 pub fn citations(docx: &mut Docx) -> Result<Vec<CitationInfo>> {
@@ -1081,8 +1084,20 @@ pub fn citations(docx: &mut Docx) -> Result<Vec<CitationInfo>> {
         let Some(v) = f.json() else { continue };
         let Some(id) = v.get("citationID").and_then(Value::as_str) else { continue };
         let text = shown_text(docx, f)?;
-        let items = items_of(&v).into_iter().map(|mut it| { it.data = None; it }).collect();
-        out.push(CitationInfo { citation: id.to_string(), text, items });
+        let l = lang(None);
+        let mut labels = Vec::new();
+        let items = items_of(&v)
+            .into_iter()
+            .map(|mut it| {
+                labels.push(match &it.data {
+                    Some(d) => format!("{}, {}", short_names(d, &l), year(d).unwrap_or_else(|| l.nd.into())),
+                    None => it.key.clone(),
+                });
+                it.data = None;
+                it
+            })
+            .collect();
+        out.push(CitationInfo { citation: id.to_string(), text, items, labels });
     }
     Ok(out)
 }
