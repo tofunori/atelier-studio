@@ -581,10 +581,21 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
         let mut op: Op = serde_json::from_value(body.op.clone()).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("retouche illisible : {e}")))?;
         op.load_images(&mut |rel| read_figure(&root, rel)).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0))?;
         let origin = Origin { source: "panneau", author: &sig.author, label: op.label() };
+        // Une retouche qui vise un commentaire ou un suivi par son
+        // identifiant passe sur une révision plus récente si sa cible n'a
+        // pas changé (`ops::still_aimed`) : le contrôle se fait sous le
+        // verrou, sur le document tel qu'il est.
+        let aimed = body.op.get("expect").is_some();
+        let expected = if aimed { None } else { revision.clone() };
         // Le modèle rendu est celui que le contrôle de l'écriture vient de
         // construire : le fichier n'est pas rouvert.
-        let (result, revision, mut docx, model) = atelier_docx::edit_file_model(&path, revision.as_deref(), &origin, |d| ops::apply(d, &op, body.tracked, &sig))
-            .map_err(|e| (refusal(&e), e.0))?;
+        let (result, revision, mut docx, model) = atelier_docx::edit_file_model(&path, expected.as_deref(), &origin, |d| {
+            if aimed && revision.as_deref().is_some_and(|r| r != d.revision()) && !ops::still_aimed(&d.model()?, &body.op) {
+                return Err(atelier_docx::DocxError(atelier_docx::CONFLICT.into()));
+            }
+            ops::apply(d, &op, body.tracked, &sig)
+        })
+        .map_err(|e| (refusal(&e), e.0))?;
         let model = model_value(&mut docx, model, &path).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
         // La séance ouverte relira le fichier à son prochain appel.
         Ok(json!({"ok": true, "result": result, "revision": revision, "model": model}))

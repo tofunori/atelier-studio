@@ -274,6 +274,9 @@
    *  `seenNow` : ouvertes ici, l'avis au serveur encore en route. */
   let unread = new Set<number>();
   const seenNow = new Set<number>();
+  /** Commentaires dont la résolution (ou réouverture) est en route : un
+   *  deuxième clic sur la même carte est ignoré jusqu'à la réponse. */
+  const resolving = new Set<number>();
   /** Corps, puis notes, puis en-têtes et pieds dans une seule liste : un
    *  rang (`idx`) désigne n'importe quel paragraphe modifiable. */
   function normalize(m: Model): Model {
@@ -1377,7 +1380,27 @@
     return run;
   }
 
+  /** Cible d'une retouche désignée par identifiant, telle qu'on la voit :
+   *  si l'agent (ou Word) a écrit entre-temps, le serveur l'applique quand
+   *  même tant que ce commentaire ou ce suivi n'a pas changé, au lieu de
+   *  jeter le geste (résolutions et réponses perdues, 2026-11-14). */
+  function withExpect(op: Op): Op {
+    if (!model) return op;
+    if (op.op === "batch" && Array.isArray(op.ops)) return { ...op, ops: (op.ops as Op[]).map(withExpect) };
+    const id = Number(op.op === "reply" ? op.parent : op.id);
+    if (op.op === "accept" || op.op === "reject") {
+      const ch = model.changes.find((x) => x.id === id);
+      return ch ? { ...op, expect: { author: ch.author, text: ch.text, kind: ch.kind, ...(ch.date ? { date: ch.date } : {}) } } : op;
+    }
+    if (op.op === "resolve" || op.op === "reply" || op.op === "edit_comment" || op.op === "delete_comment") {
+      const c = model.comments.find((x) => x.id === id);
+      return c ? { ...op, expect: { author: c.author, text: c.text, ...(c.date ? { date: c.date } : {}) } } : op;
+    }
+    return op;
+  }
+
   async function sendOp(op: Op, caret?: (m: Model, result: any) => Sel | null, expectIdx?: number): Promise<boolean> {
+    op = withExpect(op);
     return enqueue(async () => {
       inflight++;
       status("Enregistrement…");
@@ -3030,7 +3053,7 @@
       // Un remplacement = un retrait et un ajout : on compte les passages touchés.
       const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
       if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
-      h += `<div class="ac"><button class="btn q" data-act="resolve"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
+      h += `<div class="ac"><button class="btn q" data-act="${c.done ? "reopen" : "resolve"}"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
     }
@@ -3853,10 +3876,23 @@
       return;
     }
     if (act === "see-fix") { const f = agentFixes(c.id); if (f.length) showChange(f[0]); return; }
-    if (act === "resolve") {
+    if (act === "resolve" || act === "reopen") {
+      // Le bouton dit ce qu'il veut (« Résoudre » ou « Rouvrir ») au lieu
+      // d'inverser l'état : un deuxième clic pendant l'enregistrement, ou
+      // sur « Rouvrir » apparu sous la souris, ne défait plus la résolution
+      // (Malenfant, 2026-11-13 : résolu puis rouvert 2 s plus tard).
+      const want = act === "resolve";
+      if (resolving.has(c.id)) return;
+      resolving.add(c.id);
       structural(async () => {
-        const ok = await sendOp({ op: "resolve", id: c.id, done: !c.done });
-        if (ok && !c.done) { if (focusKey === it.key) { focusKey = ""; renderCards(); } status("Commentaire réglé"); }
+        try {
+          const cur = commentMap.get(c.id);
+          if (!cur || cur.done === want) return;
+          const ok = await sendOp({ op: "resolve", id: c.id, done: want });
+          if (ok && want) { if (focusKey === it.key) { focusKey = ""; renderCards(); } status("Commentaire réglé"); }
+        } finally {
+          resolving.delete(c.id);
+        }
       });
     } else if (act === "reply") {
       const text = ta ? ta.value.trim() : "";

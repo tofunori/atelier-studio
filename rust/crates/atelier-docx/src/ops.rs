@@ -94,6 +94,18 @@ impl Op {
         }
     }
 
+    /// Le commentaire ou le suivi que vise une retouche désignée par son
+    /// identifiant (résoudre, répondre, réécrire ou supprimer un
+    /// commentaire ; accepter ou refuser un suivi) : `(est un suivi, id)`.
+    fn aimed_at(&self) -> Option<(bool, u32)> {
+        match self {
+            Op::Resolve { id, .. } | Op::EditComment { id, .. } | Op::DeleteComment { id } => Some((false, *id)),
+            Op::Reply { parent, .. } => Some((false, *parent)),
+            Op::Accept { id } | Op::Reject { id } => Some((true, *id)),
+            _ => None,
+        }
+    }
+
     /// Charge les figures à insérer : `read` valide le chemin (dans le
     /// projet) et rend ses octets. Le moteur ne lit jamais le disque seul.
     pub fn load_images(&mut self, read: &mut dyn FnMut(&str) -> Result<Vec<u8>>) -> Result<()> {
@@ -107,6 +119,32 @@ impl Op {
             _ => {}
         }
         Ok(())
+    }
+}
+
+/// Une retouche calculée sur une révision dépassée (l'agent, Word ou un
+/// autre panneau a écrit entre-temps, séance refermée puis rouverte) garde
+/// son sens si elle vise un commentaire ou un suivi par son identifiant et
+/// que cette cible est toujours la même : `raw.expect` porte l'auteur et le
+/// texte (et la date, s'il y en a une) tels que le panneau les a vus. On
+/// l'applique alors sur la révision courante au lieu de la jeter (409) :
+/// une résolution ou une réponse ne se perd plus parce que l'agent a écrit
+/// une autre bulle pendant ce temps.
+pub fn still_aimed(model: &DocModel, raw: &Value) -> bool {
+    let Ok(op) = serde_json::from_value::<Op>(raw.clone()) else { return false };
+    if let Op::Batch { .. } = op {
+        // Plusieurs décisions d'un geste : chacune doit viser toujours la même cible.
+        return raw.get("ops").and_then(Value::as_array).is_some_and(|ops| !ops.is_empty() && ops.iter().all(|o| still_aimed(model, o)));
+    }
+    let Some((change, id)) = op.aimed_at() else { return false };
+    let Some(expect) = raw.get("expect") else { return false };
+    let s = |k: &str| expect.get(k).and_then(Value::as_str);
+    let (Some(author), Some(text)) = (s("author"), s("text")) else { return false };
+    let date_ok = |d: &str| s("date").is_none_or(|e| e == d);
+    if change {
+        model.changes.iter().any(|c| c.id == id && c.author == author && c.text == text && date_ok(&c.date) && s("kind").is_none_or(|k| k == c.kind))
+    } else {
+        model.comments.iter().any(|c| c.id == id && c.author == author && c.text.trim() == text.trim() && date_ok(&c.date))
     }
 }
 

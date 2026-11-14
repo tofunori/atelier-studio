@@ -188,6 +188,38 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 120)).toBe(false);
 });
 
+// Thierry, 2026-11-14 : il résolvait et répondait pendant que l'agent
+// posait d'autres bulles dans le même TP ; ces gestes, calculés sur la
+// révision d'avant l'agent, partaient en conflit et se perdaient. Ils
+// arrivent maintenant dans le fichier et s'y retrouvent à la réouverture.
+test("docx: résoudre et répondre pendant que l'agent écrit, puis rouvrir : tout est là", async ({page, project}) => {
+  await open(page, project);
+  // Le panneau ne voit pas encore l'écriture de l'agent (sondage coupé).
+  await page.route('**/docx/stat**', (r) => r.abort());
+  const thread = page.locator('#cards .it[data-key="c1"]');
+  await thread.locator('.cc').click();
+  await expect(thread).toHaveClass(/\bon\b/);
+  // L'agent pose une bulle par un autre chemin (sans la révision du panneau).
+  const agent = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, author: 'Thierry Laurent', op: {op: 'comment', paragraph: 'p4', find: "fin d'été", text: 'Date ?'}}});
+  expect(agent.ok()).toBe(true);
+
+  await thread.locator('textarea').fill('Corrigé, merci.');
+  await thread.locator('[data-act="reply"]').click();
+  await expect.poll(async () => (await disk(page, project)).comments.some(c => c.parent === 1 && c.text === 'Corrigé, merci.')).toBe(true);
+  await thread.locator('[data-act="resolve"]').click();
+  await expect.poll(async () => (await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(true);
+
+  // Réouverture : le fichier (relu par un autre client) et le panneau.
+  await page.unroute('**/docx/stat**');
+  await page.reload();
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  const m = await disk(page, project);
+  expect(m.comments.find(c => c.id === 1)?.done).toBe(true);
+  expect(m.comments.some(c => c.parent === 1 && c.text === 'Corrigé, merci.' && c.author === 'Thierry')).toBe(true);
+  expect(m.comments.some(c => c.text === 'Date ?')).toBe(true);
+  await expect(page.locator('#cards .it[data-key="c1"] .cc.dn')).toBeVisible();
+});
+
 test("docx: sa réponse se modifie d'un clic, celle de Christophe jamais, et la rangée tient dans une fiche de 240 px", async ({page, project}) => {
   await page.setViewportSize({width: 1440, height: 900});
   await page.addInitScript(() => { try { localStorage.setItem('docxLaneW', '240'); } catch { /* sans stockage */ } });

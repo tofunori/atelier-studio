@@ -24,6 +24,8 @@ use std::sync::RwLock;
 /// Pas d'annulation gardés par document, et leur poids maximal.
 const MAX_STEPS: usize = 60;
 const MAX_STEP_BYTES: u64 = 600 * 1024 * 1024;
+/// Durée pendant laquelle les versions des pas sortis des piles restent gardées.
+pub const ARCHIVE_DAYS: i64 = 30;
 
 static ROOT: RwLock<Option<PathBuf>> = RwLock::new(None);
 
@@ -112,6 +114,12 @@ pub struct Journal {
     pub last: String,
     #[serde(default)]
     pub undo: Vec<Step>,
+    /// Pas sortis des piles (document remplacé hors d'Atelier, rétablir
+    /// écrasé par une nouvelle retouche, fenêtre d'annulation dépassée) :
+    /// leurs versions restent sur le disque [`ARCHIVE_DAYS`] jours, pour
+    /// qu'une retouche perdue se retrouve toujours.
+    #[serde(default)]
+    pub archive: Vec<Step>,
     #[serde(default)]
     pub redo: Vec<Step>,
 }
@@ -299,8 +307,9 @@ pub(crate) fn record_steps(path: &Path, before: &[u8], before_rev: &str, steps: 
     dropped.append(&mut j.redo);
     j.last = last.rev.clone();
     dropped.extend(trim(&dir, &mut j));
+    let old = retire(&mut j, dropped);
     store(&dir, &j)?;
-    forget(&dir, &j, &dropped);
+    forget(&dir, &j, &old);
     Ok(())
 }
 
@@ -329,12 +338,25 @@ fn trim(dir: &Path, j: &mut Journal) -> Vec<Step> {
     out
 }
 
-/// Une révision encore citée par le journal (version reçue, jalon, pas).
+/// Range les pas sortis des piles dans l'archive (leurs versions restent
+/// sur le disque) ; rend ceux de l'archive plus vieux que [`ARCHIVE_DAYS`],
+/// dont les versions peuvent partir.
+fn retire(j: &mut Journal, dropped: Vec<Step>) -> Vec<Step> {
+    j.archive.extend(dropped);
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(ARCHIVE_DAYS)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    // Un pas sans date (journal ancien) part avec les vieux : il n'a jamais été gardé jusqu'ici.
+    let (old, keep): (Vec<Step>, Vec<Step>) = std::mem::take(&mut j.archive).into_iter().partition(|s| s.at.is_empty() || s.at < cutoff);
+    j.archive = keep;
+    old
+}
+
+/// Une révision encore citée par le journal (version reçue, jalon, pas,
+/// archive).
 fn live(j: &Journal, rev: &str) -> bool {
     j.last == rev
         || j.bases.iter().any(|b| b.revision == rev)
         || j.milestones.iter().any(|m| m.revision == rev)
-        || j.undo.iter().chain(&j.redo).any(|s| s.before == rev || s.after == rev)
+        || j.undo.iter().chain(&j.redo).chain(&j.archive).any(|s| s.before == rev || s.after == rev)
 }
 
 /// Efface seulement les versions des pas qui viennent de sortir et que
@@ -426,8 +448,9 @@ pub fn undo(path: &Path, expected: &str, redo: bool) -> Result<Undone> {
     if redo { j.undo.push(back) } else { j.redo.push(back) }
     j.last = step.before.clone();
     let dropped = trim(&dir, &mut j);
+    let old = retire(&mut j, dropped);
     store(&dir, &j)?;
-    forget(&dir, &j, &dropped);
+    forget(&dir, &j, &old);
     let label = describe(&step);
     Ok(Undone { revision: step.before, label })
 }

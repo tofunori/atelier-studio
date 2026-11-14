@@ -203,3 +203,73 @@ fn le_delta_redonne_le_modele_complet() {
     s.flush().unwrap();
     assert_eq!(disk_text(&path), mem_text(&s));
 }
+
+/// La cible d'une retouche désignée par identifiant, telle que le panneau la voit.
+fn expect_of(s: &Session, id: u32) -> Value {
+    let c = s.model().comments.iter().find(|c| c.id == id).unwrap();
+    json!({"author": c.author, "text": c.text, "date": c.date})
+}
+
+/// Thierry, 2026-11-14 : il résolvait et répondait dans le panneau pendant
+/// que l'agent posait d'autres bulles dans le même TP ; chaque geste calculé
+/// sur la révision d'avant l'écriture de l'agent partait en conflit et se
+/// perdait (un toast de 4 s). Résoudre, répondre, accepter visent une cible
+/// par son identifiant : ils passent tant que cette cible n'a pas changé,
+/// et se retrouvent à la réouverture.
+#[test]
+fn resoudre_et_repondre_pendant_que_l_agent_ecrit_se_retrouvent_a_la_reouverture() {
+    let (_d, path) = temp_doc(&build("christophe"));
+    let rev0 = revision_of(&std::fs::read(&path).unwrap());
+    let mut s = Session::open(&path).unwrap();
+    let seen = expect_of(&s, 1);
+    // L'agent pose une bulle (autre processus) : la révision du panneau est dépassée.
+    let origin = Origin { source: "agent", author: "Thierry Laurent", label: "commentaire" };
+    let op: Op = serde_json::from_value(json!({"op": "comment", "paragraph": "p4", "find": "fin d'été", "text": "Date ?"})).unwrap();
+    atelier_docx::edit_file_as(&path, None, &origin, |d| apply(d, &op, true, &sig("Thierry Laurent"))).unwrap();
+
+    // Sans cible attendue, le geste reste un conflit (rien n'est écrit à l'aveugle).
+    let e = s.apply(Some(&rev0), &json!({"op": "resolve", "id": 1, "done": true}), true, &sig("Thierry")).unwrap_err();
+    assert!(e.is_conflict(), "{e}");
+    // Avec la cible vue par le panneau : réponse, résolution et acceptation passent.
+    let a = s.apply(Some(&rev0), &json!({"op": "reply", "parent": 1, "text": "Corrigé, merci.", "expect": seen}), true, &sig("Thierry")).unwrap();
+    let b = s.apply(Some(&rev0), &json!({"op": "resolve", "id": 1, "done": true, "expect": seen}), true, &sig("Thierry")).unwrap();
+    assert_ne!(a.revision, b.revision);
+    let ch = s.model().changes.iter().find(|c| c.id == 102).unwrap().clone();
+    s.apply(Some(&rev0), &json!({"op": "accept", "id": 102, "expect": {"author": ch.author, "text": ch.text, "kind": ch.kind}}), true, &sig("Thierry")).unwrap();
+    // Une cible qui a changé (texte réécrit) : conflit, comme avant.
+    let stale = json!({"author": "Christophe", "text": "un autre texte"});
+    let e = s.apply(Some(&rev0), &json!({"op": "resolve", "id": 1, "done": false, "expect": stale}), true, &sig("Thierry")).unwrap_err();
+    assert!(e.is_conflict(), "{e}");
+    s.flush().unwrap();
+    drop(s);
+
+    // Réouverture : tout est dans le fichier, la bulle de l'agent comprise.
+    let m = Docx::open(&path).unwrap().model().unwrap();
+    assert!(m.comments.iter().find(|c| c.id == 1).unwrap().done, "le fil reste résolu");
+    assert!(m.comments.iter().any(|c| c.parent == Some(1) && c.text == "Corrigé, merci." && c.author == "Thierry"), "la réponse est là");
+    assert!(m.comments.iter().any(|c| c.text == "Date ?"), "la bulle de l'agent est là");
+    assert!(!m.changes.iter().any(|c| c.id == 102), "le suivi accepté reste accepté");
+    let s = Session::open(&path).unwrap();
+    assert!(s.model().comments.iter().find(|c| c.id == 1).unwrap().done);
+}
+
+/// La séance se referme après 30 min sans appel ; la révision virtuelle du
+/// panneau (`s…-n`) n'existe plus dans la nouvelle. Le premier geste après
+/// une longue lecture ne doit pas se perdre.
+#[test]
+fn une_resolution_apres_une_longue_lecture_n_est_pas_perdue() {
+    let (_d, path) = temp_doc(&build("christophe"));
+    let rev0 = revision_of(&std::fs::read(&path).unwrap());
+    let mut s = Session::open(&path).unwrap();
+    let a = s.apply(Some(&rev0), &json!({"op": "insert", "paragraph": "p1", "at": 0, "with": "Névé "}), true, &sig("Thierry")).unwrap();
+    let seen = expect_of(&s, 1);
+    s.flush().unwrap();
+    drop(s); // séance refermée par le fil de fond
+    let mut s = Session::open(&path).unwrap();
+    assert_ne!(s.revision(), a.revision);
+    s.apply(Some(&a.revision), &json!({"op": "resolve", "id": 1, "done": true, "expect": seen}), true, &sig("Thierry")).unwrap();
+    s.flush().unwrap();
+    let m = Docx::open(&path).unwrap().model().unwrap();
+    assert!(m.comments.iter().find(|c| c.id == 1).unwrap().done);
+    assert!(m.paragraphs[1].text.starts_with("Névé "));
+}
