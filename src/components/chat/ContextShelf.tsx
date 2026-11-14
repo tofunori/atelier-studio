@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import {
   CameraIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ClipboardIcon,
-  FileTextIcon, FileCode2Icon, FolderIcon, ImageIcon, MessageSquareIcon, MessageSquareTextIcon, QuoteIcon, XIcon,
+  FileTextIcon, FileCode2Icon, FolderIcon, GlobeIcon, ImageIcon, MessageSquareIcon, MessageSquareTextIcon, QuoteIcon, XIcon,
 } from "lucide-react";
 import { t } from "../../lib/i18n";
 import {
@@ -56,8 +56,15 @@ function kindGlyph(kind?: string) {
     case "paste": return <ClipboardIcon className="context-pill-glyph" />;
     case "folder": return <FolderIcon className="context-pill-glyph" />;
     case "appsnap": return <CameraIcon className="context-pill-glyph" />;
+    case "link": return <GlobeIcon className="context-pill-glyph" />;
     default: return <FileTextIcon className="context-pill-glyph" />;
   }
+}
+
+/** Pièce venue du reste du Mac il y a moins de 2 s : elle entre en douceur. */
+const ARRIVAL_WINDOW_MS = 2000;
+function arrivedClass(attachment: ShelfAttachment) {
+  return attachment.arrivedAt && Date.now() - attachment.arrivedAt < ARRIVAL_WINDOW_MS ? " is-arrived" : "";
 }
 
 function ThumbOrGlyph({ url }: { url: string }) {
@@ -118,6 +125,8 @@ export function ContextShelf(p: {
   const cardFor = useFileCards(p.attachments.flatMap((attachment) =>
     attachment.kind === "file" && attachment.path ? [attachment.path] : []));
   const shelfLabel = (attachment: ShelfAttachment, name: string) => {
+    // Une adresse n'a pas d'extension à retirer (« tc.copernicus.org »).
+    if (attachment.kind === "link") return name;
     const title = attachment.kind === "file" ? cardFor(attachment.path)?.title : undefined;
     if (!title) return citeLabel(name);
     return title.length > 34 ? `${title.slice(0, 33)}…` : title;
@@ -359,11 +368,13 @@ export function ContextShelf(p: {
                 ? <span className="context-pill-count">{group.indexes.length}</span>
                 : attachment.lines
                   ? <span className="chip-lines">{attachment.lines}</span>
-                  : null}
+                  : attachment.origin
+                    ? <span className="chip-lines context-pill-origin">{attachment.origin}</span>
+                    : null}
             </>
           );
           const pill = (
-            <span key={group.name} className="chip context-pill" title={attachment.text || attachment.name}>
+            <span key={group.name} className={`chip context-pill${arrivedClass(attachment)}`} title={attachment.text || attachment.name}>
               {grouped ? (
                 <PopoverTrigger
                   render={

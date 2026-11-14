@@ -174,6 +174,7 @@ import {
   quoteAttachment, webExcerptAttachment, withZoteroDigest, zoteroAttachment, zoteroLabel, pdfChatTarget,
 } from "./lib/composerAttachments";
 import { playAppSnapSound } from "./lib/appSnapSound";
+import { arrivalAttachments, arrivalFilesToOpen, drainInbox, onInboxArrival, type InboxArrival } from "./lib/inbox";
 import { type PendingGoal, type PendingResend, type PendingRevert, createThreadActions } from "./lib/threadActions";
 import { RevertConfirmDialog } from "./components/chat/RevertConfirmDialog";
 import { whenGalleryFrameReady } from "./lib/galleryFrameReady";
@@ -859,6 +860,95 @@ export default function App() {
   const { sweepAppSnapPreviewUrls, adoptAppSnapPreviewUrl } =
     useAppSnapPreviews(composerDrafts, updateComposerDraft, eventsRef);
 
+  /** Dépose des pièces dans le compositeur du fil ouvert (un nouveau fil s'il
+   * n'y en a pas), ramène le chat et donne le focus au compositeur. Partagé
+   * par AppSnap et les arrivées du reste du Mac (lib/inbox). N'utilise que
+   * des refs et des setters : sûr depuis un effet monté une seule fois. */
+  const dropIntoComposer = (items: Attachment[]) => {
+    if (!items.length) return;
+    const projectRoot = activeProjectRef.current ?? "";
+    let threadId = activeIdRef.current;
+    if (!threadId) {
+      threadId = crypto.randomUUID();
+      const freshThread: Thread = {
+        id: threadId,
+        projectRoot,
+        title: t("app.new-chat-title"),
+        provider: settingsRef.current.defaultProvider,
+        sessionId: null,
+        status: "idle",
+        updatedAt: new Date().toISOString(),
+      };
+      setDraftThreads((current) => [freshThread, ...current]);
+      setActiveId(threadId);
+      activeIdRef.current = threadId;
+      setEvents((current) => ({ ...current, [threadId as string]: current[threadId as string] ?? [] }));
+    }
+    updateComposerDraft(composerDraftKey(threadId, projectRoot), (draft) => ({
+      ...draft,
+      attachments: items.reduce(addAttachment, draft.attachments),
+    }));
+    setShowSettings(false);
+    setSettings((current) => current.activeView === "chats" ? current : { ...current, activeView: "chats" });
+    setLayout((current) => current === "atelier" ? "split" : current);
+    requestAnimationFrame(focusComposer);
+  };
+  const dropIntoComposerRef = useRef(dropIntoComposer);
+
+  // Atelier partout (lot 1) : Finder, Service « Envoyer à Atelier », Ouvrir
+  // avec, Dock et liens atelier://. « Ouvrir avec » d'un fichier l'ouvre dans
+  // l'atelier quand un projet et son serveur sont prêts ; le reste (et ce
+  // qu'on ne peut pas ouvrir) devient une pilule du compositeur.
+  const handleInboxArrival = (arrival: InboxArrival) => {
+    const opened = new Set<string>();
+    if (activeProjectRef.current && atelierUrlRef.current) {
+      for (const path of arrivalFilesToOpen(arrival).slice(0, 8)) {
+        openFileTabRef.current(path);
+        opened.add(path);
+      }
+    }
+    dropIntoComposerRef.current(arrivalAttachments(arrival, { skipPaths: opened }));
+    if (arrival.kind === "files" && arrival.omitted > 0) {
+      void showInfo(t("inbox.files-omitted", { count: arrival.omitted }));
+    }
+  };
+  const handleInboxArrivalRef = useRef(handleInboxArrival);
+  // Les effets appellent toujours la version du dernier rendu validé.
+  useLayoutEffect(() => {
+    dropIntoComposerRef.current = dropIntoComposer;
+    handleInboxArrivalRef.current = handleInboxArrival;
+  });
+
+  // La file d'arrivée ne se vide qu'une fois la liste des fils connue (ou
+  // après 5 s) : un envoi qui a lancé Atelier rejoint ainsi le fil restauré
+  // plutôt qu'un fil vide créé trop tôt.
+  const [inboxReady, setInboxReady] = useState(false);
+  useEffect(() => {
+    if (threads.length) setInboxReady(true);
+  }, [threads.length]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setInboxReady(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    if (!inboxReady) return;
+    let disposed = false;
+    let stop: (() => void) | null = null;
+    const pull = () => {
+      void drainInbox()
+        .then((arrivals) => arrivals.forEach((arrival) => handleInboxArrivalRef.current(arrival)))
+        .catch((error) => void showError(String(error)));
+    };
+    void onInboxArrival(pull)
+      .then((unlisten) => {
+        if (disposed) { unlisten(); return; }
+        stop = unlisten;
+        pull();
+      })
+      .catch((error) => console.warn("[inbox] écoute impossible", error));
+    return () => { disposed = true; stop?.(); };
+  }, [inboxReady]);
+
   useEffect(() => {
     let disposed = false;
     const stops: Array<() => void> = [];
@@ -874,25 +964,6 @@ export default function App() {
             return;
           }
           adoptAppSnapPreviewUrl(imageUrl);
-          const projectRoot = activeProjectRef.current ?? "";
-          let threadId = activeIdRef.current;
-          if (!threadId) {
-            threadId = crypto.randomUUID();
-            const freshThread: Thread = {
-              id: threadId,
-              projectRoot,
-              title: t("app.new-chat-title"),
-              provider: settingsRef.current.defaultProvider,
-              sessionId: null,
-              status: "idle",
-              updatedAt: new Date().toISOString(),
-            };
-            setDraftThreads((current) => [freshThread, ...current]);
-            setActiveId(threadId);
-            activeIdRef.current = threadId;
-            setEvents((current) => ({ ...current, [threadId as string]: current[threadId as string] ?? [] }));
-          }
-
           const appName = capture.sourceAppName || t("appsnap.source-unknown");
           const windowTitle = capture.sourceWindowTitle?.trim() || t("appsnap.window-untitled");
           const attachment: Attachment = {
@@ -917,15 +988,8 @@ export default function App() {
               ],
             },
           };
-          updateComposerDraft(composerDraftKey(threadId, projectRoot), (draft) => ({
-            ...draft,
-            attachments: addAttachment(draft.attachments, attachment),
-          }));
-          setShowSettings(false);
-          setSettings((current) => current.activeView === "chats" ? current : { ...current, activeView: "chats" });
-          setLayout((current) => current === "atelier" ? "split" : current);
+          dropIntoComposerRef.current([attachment]);
           if (settingsRef.current.appSnapPlaySound) playAppSnapSound();
-          requestAnimationFrame(focusComposer);
           void showSuccess(t("appsnap.capture-added", { app: appName }));
         }).catch((error) => {
           handledCaptures.delete(capture.id);

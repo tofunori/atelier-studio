@@ -6,8 +6,11 @@ mod claude_connector;
 mod dictation;
 mod discussions;
 mod identity;
+mod inbox;
 mod local_image;
 mod macos_badge_permission;
+#[cfg(target_os = "macos")]
+mod macos_services;
 mod process_registry;
 mod remote_gateway;
 mod sidecar;
@@ -65,6 +68,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(boot_clock)
         .manage(atelier_workspace::QuitGuard::new())
+        .manage(inbox::InboxState::default())
         .on_window_event(unsaved_guard::on_window_event);
     // ⌘Q passe par la garde des documents modifiés (voir unsaved_guard)
     #[cfg(target_os = "macos")]
@@ -81,6 +85,10 @@ pub fn run() {
                 migrate_app_data_dir(&support_root, OLD_BUNDLE_IDENTIFIER, &new_identifier);
             }
             app.manage(appsnap::AppSnapManager::new(app.handle()));
+            // « Envoyer à Atelier » (Finder, texte sélectionné) : branché dès
+            // le setup, avant qu'un lancement à froid par le service livre
+            // son appel en attente.
+            inbox::install_services(app.handle());
             macos_badge_permission::request_badge_authorization_native();
             // Connecteur Claude : lancé (ou remplacé par la nouvelle version)
             // à chaque démarrage, sans onglet Terminal.
@@ -102,6 +110,7 @@ pub fn run() {
             appsnap::appsnap_read_capture,
             appsnap::appsnap_request_permissions,
             appsnap::appsnap_set_enabled,
+            inbox::inbox_drain,
             local_image::local_image_read,
             local_image::local_image_save_to_gallery,
             macos_badge_permission::request_badge_authorization,
@@ -136,6 +145,11 @@ pub fn run() {
             // Les serveurs galerie sont détachés (un par projet visité) ;
             // sans ce hook ils survivent à la fermeture de l'app. Seule la
             // sortie ACTÉE (Exit, pas ExitRequested) déclenche le SIGTERM.
+            // Ouvrir avec → Atelier, dépôt sur le Dock, liens atelier://.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                inbox::on_opened(app_handle, urls);
+            }
             if let tauri::RunEvent::Exit = event {
                 process_registry::kill_all();
             }

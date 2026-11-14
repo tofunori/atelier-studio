@@ -214,6 +214,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-inbox"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "url",
+]
+
+[[package]]
 name = "atelier-integrations"
 version = "0.1.0"
 dependencies = [
@@ -4269,6 +4277,7 @@ name = "tauri-app"
 version = "2.3.0"
 dependencies = [
  "atelier-fdlimit",
+ "atelier-inbox",
  "atelier-logs",
  "atelier-store",
  "atelier-workspace",
@@ -4290,6 +4299,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tempfile",
+ "url",
 ]
 
 [[package]]

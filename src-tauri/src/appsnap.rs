@@ -455,7 +455,7 @@ fn validate_capture_path(directory: &Path, path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn focus_atelier(app: &AppHandle) {
+pub(crate) fn focus_atelier(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
