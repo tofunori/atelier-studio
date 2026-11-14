@@ -13,6 +13,7 @@ mod figure_versions;
 mod host;
 mod manuscript;
 mod openable;
+mod pdf_review;
 mod ranged;
 mod suggest;
 mod synctex;
@@ -2843,6 +2844,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(documents::get_pdfannot_all),
         )
         .route("/pdfannot-stamp", get(documents::get_pdfannot_stamp))
+        // Correction d'un PDF : signature et copie corrigée (marge imprimée)
+        .route("/pdf/review", get(pdf_review::review))
+        .route("/pdf/corrected", post(pdf_review::corrected))
         .route("/texrevisions", get(documents::get_texrevisions))
         .route("/pdfannot-codes", post(codes::post_pdfannot_codes))
         .route("/codebook", get(codes::get_codebook).post(codes::post_codebook))

@@ -11,7 +11,7 @@ import { wsSend } from "../lib/wsBus";
 import { eventLabel, t } from "../lib/i18n";
 import type { Pin } from "../lib/pins";
 import { buildHighlightContext } from "../lib/highlightContext";
-import { buildAnnotationBlock, migrateMarks, type Mark } from "../lib/annotations";
+import { buildAnnotationBlock, migrateMarks, snapSelectionToWords, type Mark } from "../lib/annotations";
 import { findTextRanges } from "../lib/markRanges";
 import { messageIndexFromNode, quoteContext } from "../lib/quickAskContext";
 import type { HighlightEntry } from "./Rail";
@@ -678,6 +678,8 @@ export default function Chat(p: {
   function onMessagesMouseUp() {
     setTimeout(() => {
       const sel = window.getSelection();
+      // passage au mot entier : jamais « ort que … 19,9 es » dans une annotation
+      snapSelectionToWords(sel);
       const text = sel?.toString().trim() ?? "";
       if (!text || !sel || sel.rangeCount === 0) {
         setQuote(null);

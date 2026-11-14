@@ -21,6 +21,19 @@ let targetRevealed = false;
 document.getElementById("fname").textContent = rel ? rel.split("/").pop() : "(no file)";
 let selPage = 1;
 let __reloadPdf: () => void = null;  // posé par main() — rechargement en place après compile LaTeX
+// Commentaires écrits dans le fichier et repris en cartes (voir « copies
+// corrigées ») : ids pdf.js masqués au rendu, via annotationStorage (noView).
+const PDF_HIDDEN_ANNOTS = new Set<string>();
+function pdfAnnotationParams(){
+  return PDF_HIDDEN_ANNOTS.size ? {annotationMode: pdfjsLib.AnnotationMode.ENABLE_STORAGE} : {};
+}
+/** Avant la première peinture d'un document : ses commentaires repris sont
+ *  masqués (plafonné à 1,5 s ; au-delà, la page se dessine sans attendre). */
+function pdfHideEmbedded(doc){
+  if (!window.__pdfEmbedded) return Promise.resolve();
+  return Promise.race([window.__pdfEmbedded(doc).catch(error => console.warn("commentaires du PDF :", error)),
+    new Promise(resolve => setTimeout(resolve, 1500))]);
+}
 // ---- pipeline de rendu : plafond de densité, priorités, annulation --------
 // Au-delà de 2x le gain visuel est nul alors que le canvas (mémoire ET temps
 // de peinture) grandit comme le CARRÉ du facteur : un écran à devicePixelRatio
@@ -206,7 +219,7 @@ function createReadingMode(){
       const cv = R.cropViewport(page, entry.block, 1.5, DPR);
       entry.canvas.width = cv.canvasWidth; entry.canvas.height = cv.canvasHeight;
       const ctx = entry.canvas.getContext("2d"); ctx.scale(DPR, DPR);
-      const task = entry.task = page.render({canvas: entry.canvas, canvasContext: ctx, viewport: cv.viewport, intent: "display"});
+      const task = entry.task = page.render({canvas: entry.canvas, canvasContext: ctx, viewport: cv.viewport, intent: "display", ...pdfAnnotationParams()});
       try {
         await task.promise;
         if (!job.cancelled && entry.visible && generation === gen) entry.canvas.dataset.done = "1";
@@ -368,6 +381,7 @@ async function main(){
     if (!await loaded.commit((doc) => { pdf = doc; textCache = newTextCache(doc); })) return;
     if (hasTargetPage) targetPage = Math.min(targetPage, pdf.numPages);
     __readingPdf = pdf;
+    await pdfHideEmbedded(pdf);
   } catch(e) {
     // PDF-17 : un fichier introuvable est un cas normal, pas une alarme rouge
     const p = (document.getElementById("pages") as HTMLDivElement);
@@ -580,7 +594,7 @@ async function main(){
         cv.width = Math.round(vp.width * DPR); cv.height = Math.round(vp.height * DPR);
         cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
         const ctx = cv.getContext("2d"); ctx.scale(DPR, DPR);
-        const task = page.render({canvas: cv, canvasContext: ctx, viewport: vp, intent: "display"});
+        const task = page.render({canvas: cv, canvasContext: ctx, viewport: vp, intent: "display", ...pdfAnnotationParams()});
         slot.task = task;
         try { await task.promise; }
         catch (error) { cv.width = cv.height = 0; if (!isRenderCancel(error)) console.warn("PDF page", slot.n, error); }
@@ -675,6 +689,8 @@ async function main(){
         if (!closed && transitionGeneration === _renderGen) await renderAll();
         return;
       }
+      if (closed || pdf !== loaded.doc) return;
+      await pdfHideEmbedded(pdf);
       if (closed || pdf !== loaded.doc) return;
       if (hasTargetPage) targetPage = Math.min(targetPage, pdf.numPages);
       const el = document.scrollingElement || document.documentElement, st = el.scrollTop;
@@ -2086,7 +2102,7 @@ const annPane = (function(){
     view = next === "toc" && tocBox ? "toc" : next === "codes" && codesBox ? "codes" : "ann";
     tabs.forEach(t => { const on = t.dataset.v === view; t.classList.toggle("on", on); t.setAttribute("aria-selected", String(on)); });
     pane.classList.toggle("toc-on", view === "toc");
-    pane.classList.toggle("tex-notes", Boolean(window.__texNotes) && view === "ann");
+    pane.classList.toggle("tex-notes", Boolean(window.__texNotes || window.__pdfComments) && view === "ann");
     pane.classList.toggle("codes-on", view === "codes");
     if (view === "codes") openCodes();
     if (view === "toc") loadToc(); else refresh();
@@ -2098,8 +2114,10 @@ const annPane = (function(){
     if (pane.style.display !== "flex") return;
     if (view === "codes") { if (!cvTyping()) renderCodes(); return; }
     // onglet PDF d'un studio LaTeX : la colonne commune (notes .tex + PDF)
-    pane.classList.toggle("tex-notes", Boolean(window.__texNotes) && view === "ann");
-    if (window.__texNotes && view === "ann") { window.__texNotes.render(pane, list, cn); return; }
+    const column = window.__texNotes || window.__pdfComments;
+    pane.classList.toggle("tex-notes", Boolean(column) && view === "ann");
+    pane.classList.toggle("pdf-comments-on", Boolean(window.__pdfComments) && view === "ann");
+    if (column && view === "ann") { column.render(pane, list, cn); return; }
     filters.innerHTML = "";
     HL_COLORS.forEach(c => {
       const d = document.createElement("span");
@@ -2829,6 +2847,7 @@ function noteNumber(a){
   return index >= 0 ? index + 1 : (a.number || 1);
 }
 function placeNotePins(pgDiv: HTMLElement, n: number, pins, height: number){
+  pins = pins.filter(pin => !pin.a.done);  // commentaire résolu : plus de pastille
   if(!pins.length) return;
   const ui = window.AtelierAnnotationUI;
   const edge = pageTextBounds(pgDiv, n);
@@ -4163,6 +4182,8 @@ function drawCodeStripes(pgDiv: Element, n: number){
 }
 async function annotMenu(a, x: number, y: number){
   if(annotationEditor && !(await annotationEditor.commit(false, true))) return;
+  // copie de TP : le commentaire s'ouvre en carte, comme dans Word
+  if(window.__pdfComments?.open(a)) return;
   const agent = isAgentAnnot(a);
   // Surlignage, soulignement ou barré : la fiche permet d'en changer le style
   // et la teinte, enregistrés tout de suite (comme dans Zotero).
@@ -5166,6 +5187,359 @@ if (window.self !== window.top) {
   // premier calcul : quand le document et ses annotations sont là
   const start = () => { void reload(); };
   if (ANNOTS_LOADED) start(); else setTimeout(start, 1500);
+})();
+
+// ---- copies corrigées : commentaires façon Word (variante A, 2026-11-13) ----
+// PDF du projet (copies de TP) : la colonne Annotations devient la marge de
+// commentaires du panneau Word. Chaque commentaire est signé du nom de
+// l'utilisateur, même quand Claude l'a écrit, et se modifie, se résout ou se
+// supprime pareil. « Copie corrigée » écrit `<nom>_corrigé.pdf` à côté (Rust,
+// atelier-pdf corrige) : commentaires imprimés dans une marge, lisibles dans
+// tous les lecteurs. Les commentaires déjà écrits DANS le PDF (texte caché
+// dans /Contents) deviennent des cartes à l'ouverture et ne se dessinent plus.
+(function(){
+  if (!rel || rel.startsWith("zotero/") || __passageParams.get("tex") || __passageParams.get("texpdf")) return;
+  type Info = {author?: string; corrected?: boolean; copy?: string | null; copyPath?: string; path?: string; library?: boolean};
+  const info: Promise<Info | null> = fetch("/pdf/review?rel=" + encodeURIComponent(rel)).then(r => r.ok ? r.json() : null).catch(() => null);
+  let me = "", corrected = false, copyRel: string | null = null, copyPath = "", active: string | null = null, editing: string | null = null;
+  let foot: HTMLDivElement | null = null, footMsg = "", writing = false;
+  const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"})[c]);
+  const svg = (d: string, size = 14) => '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + "</svg>";
+  const IC = {
+    check: svg('<path d="M20 6 9 17l-5-5"/>'),
+    done: svg('<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>'),
+    chat: svg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
+    trash: svg('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>'),
+    verif: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="m8.5 11 1.8 1.8 3.2-3.4"/>'),
+    send: svg('<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>', 16),
+    bot: svg('<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>', 16),
+    page: svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/>'),
+  };
+  /** Un commentaire : une annotation qui porte un texte (ou un commentaire
+   *  qu'on est en train d'écrire). Les zones de texte restent sur la page. */
+  const cardable = (a) => a && a.kind !== "code" && a.kind !== "stamp" && a.kind !== "text";
+  const written = (a) => Boolean(noteBody(a).trim()) || (Array.isArray(a.thread) && a.thread.length > 0);
+  const isComment = (a) => cardable(a) && (written(a) || a.kind === "comment" || String(a.id) === editing);
+  const top = (a) => (a.rects && a.rects[0] && a.rects[0][1]) ?? (a.pin && a.pin[1]) ?? 0;
+  /** Ordre et numéros de la copie corrigée : page, puis haut du passage ;
+   *  seuls les commentaires ouverts et écrits sont numérotés. */
+  function rows(){
+    const list = PDF_ANNOTS.filter(isComment).sort((x, y) => (+x.page - +y.page) || (top(x) - top(y)));
+    const numbers = new Map<string, number>();
+    let n = 0;
+    for (const a of list) if (!a.done && written(a)) numbers.set(String(a.id), ++n);
+    window.__noteNumbers = numbers;
+    return {list, numbers, open: n};
+  }
+  const whoOf = (a) => {
+    const name = String(a.author || "").trim();
+    // Claude écrit au nom de l'utilisateur : aucune marque « proposé par »
+    return !name || name === "Toi" || isAgentAnnot(a) || /^claude\b/i.test(name) ? me || "Moi" : name;
+  };
+  const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
+  const atOf = (a) => Number(a.at) || Number(String(a.id).split("-")[0]) || 0;
+  const dateOf = (ms: number) => ms > 1e11 ? new Date(ms).toLocaleDateString("fr-CA", {day: "numeric", month: "short"}).replace(".", "") : "";
+  const color = (a) => window.AtelierAnnotationUI.noteColorName(a.color || HL_COLORS[0]);
+  function head(name: string, ms: number, number?: number, a?: any){
+    const badge = number ? '<span class="pc-n note-c-' + color(a) + '">' + number + "</span>" : "";
+    return '<div class="pc-hd">' + badge + '<span class="av">' + esc(initials(name)) + '</span><span class="nm">' + esc(name.split(/\s+/)[0]) + '</span><span class="dt">' + esc(dateOf(ms)) + "</span></div>";
+  }
+  function editBox(text: string, label: string){
+    return '<textarea class="c-input c-edit" rows="2" aria-label="' + label + '" placeholder="Écrire un commentaire…">' + esc(text) + '</textarea>'
+      + '<div class="ac end"><button type="button" class="btn" data-act="edit-cancel">Annuler</button><button type="button" class="btn strong" data-act="edit-save">Enregistrer</button></div>';
+  }
+  function card(a, number: number | undefined){
+    const id = String(a.id), on = active === id, who = whoOf(a), body = noteBody(a).trim();
+    if (a.done && !on) return '<div class="cc dn" data-id="' + esc(id) + '" role="button" tabindex="0">' + IC.done + "<span>Réglé · " + esc(body) + "</span></div>";
+    let h = "";
+    const quote = String(a.text || "").replace(/\s+/g, " ").trim();
+    if (on && quote) h += '<div class="qt note-c-' + color(a) + '"><i></i><span>« ' + esc(quote.length > 120 ? quote.slice(0, 119) + "…" : quote) + " »</span></div>";
+    h += head(who, atOf(a), number, a);
+    if (on && editing === id) h += editBox(body, "Modifier le commentaire");
+    else if (on) h += '<div class="c-line"><p class="tx mine" data-act="edit" role="button" tabindex="0" aria-label="Modifier le commentaire">' + esc(body) + "</p>"
+      + (a.done ? "" : '<button type="button" class="vf" data-act="check" aria-label="Vérifier dans le chat" title="Vérifier dans le chat">' + IC.verif + "</button>") + "</div>";
+    else h += '<p class="tx">' + esc(body) + "</p>";
+    const thread = Array.isArray(a.thread) ? a.thread : [];
+    if (on) for (const m of thread) {
+      const mid = String(m.id);
+      h += '<div class="rp">' + head(m.by === "reviewer" && m.author ? m.author : (m.by === "user" || isAgentAnnot(m) || !m.author || m.author === "Toi" || /^claude\b/i.test(m.author)) ? me || "Moi" : m.author, Number(m.at) || 0)
+        + (editing === id + "/" + mid ? editBox(String(m.text || ""), "Modifier la réponse")
+          : '<p class="tx mine" data-act="edit" data-mid="' + esc(mid) + '" role="button" tabindex="0" aria-label="Modifier la réponse">' + esc(String(m.text || "").trim()) + "</p>") + "</div>";
+    } else if (thread.length) h += '<div class="meta">' + thread.length + (thread.length > 1 ? " réponses" : " réponse") + "</div>";
+    if (on && !editing) {
+      h += '<div class="c-field"><textarea class="c-input" rows="1" placeholder="Répondre…" aria-label="Répondre"></textarea><span class="in">'
+        + '<button type="button" class="mini up" data-act="reply" aria-label="Envoyer la réponse" title="Envoyer (⌘↵)">' + IC.send + "</button>"
+        + (a.done ? "" : '<button type="button" class="mini" data-act="propose" aria-label="Proposer une réponse" title="Proposer une réponse">' + IC.bot + "</button>") + "</span></div>"
+        + '<div class="ac"><button type="button" class="btn" data-act="resolve">' + (a.done ? "Rouvrir" : IC.check + '<span class="lb">Résoudre</span>') + "</button>"
+        + '<button type="button" class="mini" data-act="ask" aria-label="Envoyer au chat" title="Envoyer au chat">' + IC.chat + "</button>"
+        + '<button type="button" class="mini no" data-act="delete" aria-label="Supprimer le commentaire" title="Supprimer le commentaire">' + IC.trash + "</button></div>";
+    }
+    return '<div class="cc' + (on ? " on" : "") + '" data-id="' + esc(id) + '"' + (on ? "" : ' role="button" tabindex="0"') + ">" + h + "</div>";
+  }
+  const find = (id: string | null) => PDF_ANNOTS.find(a => String(a.id) === id);
+  function redraw(){
+    document.querySelectorAll<HTMLElement>(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
+    if (window.__readingMode?.isOn()) drawReadingAnnots();
+  }
+  function commit(){ void saveAnnots(); redraw(); }
+  /** Ce qui s'écrit ici est de l'utilisateur : plus de trace de l'agent. */
+  function adopt(a){ delete a.origin; if (isAgentAnnot(a)) delete a.by; if (me) a.author = me; }
+  function goTo(a){
+    if (window.__readingMode?.isOn()) window.__readingMode.leave();
+    const pg = document.querySelector<HTMLElement>('.pg[data-page="' + a.page + '"]');
+    if (!pg) return;
+    const sc = document.scrollingElement || document.documentElement;
+    sc.scrollTo({top: pg.offsetTop + top(a) * pg.offsetHeight - 90, behavior: pdfScrollBehavior()});
+    flashAnnotation(pg, a.id);
+  }
+  function focusCard(){
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>('#annPane .pc-list .cc.on');
+      el?.scrollIntoView({block: "nearest"});
+      const box = el?.querySelector<HTMLTextAreaElement>("textarea.c-edit");
+      if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+    });
+  }
+  function show(id: string, edit = false){
+    active = id; editing = edit ? id : null;
+    if (document.getElementById("annPane")?.style.display !== "flex") annPane.fromHost?.("ann");
+    else annPane.refresh();
+    focusCard();
+  }
+  async function cancelEdit(){
+    const a = find(active);
+    editing = null;
+    // commentaire tout neuf laissé vide : il disparaît, surlignage compris
+    if (a && a.kind === "comment" && !written(a)) { await removeAnnot(a); active = null; }
+    annPane.refresh();
+  }
+  function saveEdit(box: HTMLTextAreaElement){
+    const a = find(active), text = box.value.trim(), key = editing || "";
+    if (!a) return;
+    const slash = key.indexOf("/");
+    if (slash >= 0) {
+      const m = (a.thread || []).find(x => String(x.id) === key.slice(slash + 1));
+      if (m && text) { m.text = text; m.by = "user"; if (me) m.author = me; }
+    } else {
+      if (!text) { void cancelEdit(); return; }
+      a[noteField(a)] = text;
+      delete a.fresh;
+      adopt(a);
+    }
+    editing = null;
+    commit();
+  }
+  function reply(a, box: HTMLTextAreaElement){
+    const text = box.value.trim();
+    if (!text) return;
+    a.thread = [...(Array.isArray(a.thread) ? a.thread : []), {id: "m" + Date.now(), by: "user", author: me || "Moi", text, at: Date.now()}];
+    commit();
+  }
+  function where(a){ return rel + " (p. " + a.page + ")"; }
+  function passage(a){ return a.text ? " sur « " + String(a.text).replace(/\s+/g, " ").trim() + " »" : ""; }
+  function toChat(text: string, direct: boolean){
+    return attachPdfChatPayload({type: "atelier-add-to-chat", text, ...(direct ? {direct: true} : {})})
+      .then(() => true).catch((error: Error) => { notify(error?.message || "Le chat n'est pas joignable.", "error"); return false; });
+  }
+  function check(a){
+    const replies = (a.thread || []).map(m => "\n  ↳ " + (m.author || me) + " : " + m.text).join("");
+    void toChat(where(a) + " — mon commentaire" + passage(a) + " : " + noteBody(a).trim() + replies + "\n\n"
+      + "Vérifie mon commentaire contre le PDF (lis la page " + a.page + ") : chiffres, unités, renvois et ce qu'il dit du travail. "
+      + "Réponds-moi en une ou deux phrases : juste, ou ce qui cloche, avec la formulation corrigée. Ne touche pas au PDF.", true)
+      .then(ok => { if (ok) notify("Envoyé au chat pour vérification"); });
+  }
+  function propose(a, box: HTMLTextAreaElement){
+    const hint = box.value.trim();
+    void toChat(where(a) + " — mon commentaire" + passage(a) + " : " + noteBody(a).trim() + "\n\n"
+      + "Propose-moi une réponse à ce commentaire, dans mon ton, en une ou deux phrases" + (hint ? " (consigne : " + hint + ")" : "") + ". Ne touche pas au PDF.", true)
+      .then(ok => { if (ok) { box.value = ""; notify("Demandé au chat"); } });
+  }
+  async function writeCopy(){
+    if (writing) return;
+    writing = true; footMsg = "Écriture de la copie corrigée…"; paintFoot();
+    try {
+      const r = await fetch("/pdf/corrected", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({rel})});
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || "copie corrigée impossible");
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "copie corrigée impossible");
+      copyRel = j.rel; copyPath = j.path || copyPath;
+      footMsg = "Copie corrigée écrite : " + j.name;
+    } catch (error) { footMsg = (error as Error).message; }
+    writing = false; paintFoot();
+  }
+  function paintFoot(){
+    if (!foot) return;
+    const open = copyPath && copyRel ? ' <button type="button" class="pc-open" data-act="open-copy">Ouvrir</button>' : "";
+    foot.innerHTML = corrected
+      ? '<div class="pc-note">' + IC.page + "<span>Copie corrigée : ses commentaires sont imprimés dans la marge.</span></div>"
+      : '<button type="button" class="btn strong pc-copy" data-act="copy"' + (writing ? " disabled" : "") + ">" + IC.page + "<span>Copie corrigée</span></button>"
+        + '<div class="pc-msg" role="status">' + esc(footMsg || (copyRel ? "Une copie corrigée existe déjà ; la réécrire la remplace." : "Écrit une copie à côté, lisible dans tous les lecteurs. L’original ne change pas.")) + open + "</div>";
+  }
+  function onClick(e: MouseEvent){
+    const target = e.target as Element;
+    const act = target.closest<HTMLElement>("[data-act]")?.dataset.act;
+    const el = target.closest<HTMLElement>(".cc[data-id]");
+    const a = el ? find(el.dataset.id || null) : null;
+    if (act === "copy") { void writeCopy(); return; }
+    if (act === "open-copy") { if (copyPath) __atelierPost({type: "atelier-open-file", path: copyPath}); return; }
+    if (!a) return;
+    if (active !== String(a.id)) { active = String(a.id); editing = null; annPane.refresh(); goTo(a); return; }
+    const field = el.querySelector<HTMLTextAreaElement>(".c-field textarea");
+    switch (act) {
+      case "edit": {
+        const mid = target.closest<HTMLElement>("[data-mid]")?.dataset.mid;
+        editing = mid ? String(a.id) + "/" + mid : String(a.id);
+        annPane.refresh(); focusCard(); break;
+      }
+      case "edit-cancel": void cancelEdit(); break;
+      case "edit-save": { const box = el.querySelector<HTMLTextAreaElement>("textarea.c-edit"); if (box) saveEdit(box); break; }
+      case "check": check(a); break;
+      case "reply": if (field) reply(a, field); break;
+      case "propose": if (field) propose(a, field); break;
+      case "resolve": a.done = !a.done; if (a.done) active = null; commit(); break;
+      case "ask": void toChat(where(a) + passage(a) + "\nCommentaire : " + noteBody(a).trim(), false); break;
+      case "delete": void removeAnnot(a).then(ok => { if (ok) active = null; annPane.refresh(); }); break;
+      default: if (!target.closest("textarea,button")) goTo(a);
+    }
+  }
+  function onKey(e: KeyboardEvent){
+    const target = e.target as HTMLElement;
+    if (target.matches("textarea.c-edit")) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); void cancelEdit(); }
+      else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(target as HTMLTextAreaElement); }
+      return;
+    }
+    if (target.matches(".c-field textarea")) {
+      const a = find(active);
+      if (a && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); reply(a, target as HTMLTextAreaElement); }
+      return;
+    }
+    if ((e.key === "Enter" || e.key === " ") && target.matches(".cc[data-id], [data-act=edit]")) { e.preventDefault(); target.click(); }
+  }
+  let wired = false;
+  function install(){
+    window.__pdfComments = {
+      render(pane, list, count){
+        pane.classList.add("pdf-comments");
+        list.classList.add("pc-list");
+        const {list: all, numbers, open} = rows();
+        count.textContent = open ? String(open) : "";
+        count.title = open ? open + (open > 1 ? " commentaires ouverts" : " commentaire ouvert") : "";
+        if (active && !find(active)) active = null;
+        list.innerHTML = all.map(a => card(a, numbers.get(String(a.id)))).join("")
+          || '<div class="tp-empty">Sélectionne un passage, puis Commentaire. Tes commentaires et ceux de Claude, signés de ton nom, s’ajoutent ici.</div>';
+        if (!wired) {
+          wired = true;
+          list.addEventListener("click", onClick);
+          list.addEventListener("keydown", onKey);
+          foot = document.createElement("div");
+          foot.className = "pc-foot";
+          foot.addEventListener("click", onClick);
+          pane.appendChild(foot);
+          paintFoot();
+        }
+      },
+      open(a){
+        if (!isComment(a) && !(cardable(a) && a.kind === "comment")) return false;
+        show(String(a.id), !written(a));
+        return true;
+      },
+    };
+    annPane.refresh();
+    void (async () => {
+      for (let i = 0; i < 100 && !ANNOTS_LOADED; i++) await new Promise(r => setTimeout(r, 100));
+      reveal();
+    })();
+  }
+  /** Commentaires présents : la colonne s'ouvre d'elle-même, une fois. */
+  let revealed = false;
+  function reveal(){
+    if (revealed || !window.__pdfComments || !rows().list.length) return;
+    revealed = true;
+    if (document.getElementById("annPane")?.style.display !== "flex") annPane.fromHost?.("ann");
+  }
+  void info.then(j => {
+    if (!j || j.library) return;
+    me = j.author || ""; corrected = Boolean(j.corrected); copyRel = j.copy || null; copyPath = j.copyPath || "";
+    install();
+  });
+
+  // Commentaires écrits DANS le fichier (Acrobat, Aperçu, ou Claude avant
+  // 2026-11-13) : leur texte n'est que dans /Contents, invisible ailleurs.
+  // Importés une fois en cartes (ids retenus sous `pdf-embedded:<rel>`, même
+  // une carte supprimée ne revient pas), puis masqués au rendu (noView).
+  const seenKey = "pdf-embedded:" + rel;
+  const KINDS = {Highlight: "hl", Underline: "ul", Squiggly: "ul", StrikeOut: "st", Text: "note"};
+  window.__pdfEmbedded = async (pdf) => {
+    const j = await info;
+    if (!j || j.library || j.corrected) return;
+    const stored = await fetch("/pdfannot?rel=" + encodeURIComponent(seenKey)).then(r => r.ok ? r.json() : null).catch(() => null);
+    const seen = new Set<string>((stored?.annots || []).map(x => String(x.id)));
+    const fresh = [];
+    const dateMs = (s: unknown) => { try { return pdfjsLib.PDFDateString.toDateObject(s as string)?.getTime() || 0; } catch (_) { return 0; } };
+    for (let n = 1; n <= Math.min(pdf.numPages, 120); n++) {
+      const page = await pdf.getPage(n);
+      const vp = page.getViewport({scale: 1});
+      let words: Array<{str: string; x0: number; x1: number; y: number}> | null = null;
+      /** Le passage sous le surlignage, pour la ligne de rappel de la carte. */
+      const quoteOf = async (rects: number[][]) => {
+        if (!words) {
+          const [ta, tb, tc, td, te, tf] = vp.transform;
+          words = (await page.getTextContent()).items.filter((it: any) => it.str && it.transform).map((it: any) => {
+            const [, , , , ex, ey] = it.transform, x0 = ta * ex + tc * ey + te, y0 = tb * ex + td * ey + tf;
+            const x1 = ta * (ex + it.width) + tc * ey + te;
+            return {str: it.str, x0: Math.min(x0, x1) / vp.width, x1: Math.max(x0, x1) / vp.width, y: y0 / vp.height};
+          });
+        }
+        return words.filter(w => rects.some(r => w.y >= r[1] - 0.004 && w.y <= r[1] + r[3] + 0.008 && w.x1 > r[0] && w.x0 < r[0] + r[2]))
+          .map(w => w.str).join(" ").replace(/\s+/g, " ").trim().slice(0, 400);
+      };
+      for (const x of await page.getAnnotations({intent: "display"})) {
+        const kind = KINDS[x.subtype], text = String(x.contentsObj?.str || x.contents || "").trim();
+        if (!kind || !text) continue;
+        PDF_HIDDEN_ANNOTS.add(String(x.id));
+        const id = "emb-" + x.id;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        // espace PDF → page affichée (rotation comprise), en fractions
+        const [ta, tb, tc, td, te, tf] = vp.transform;
+        const box = (r: number[]) => { const x1 = ta * r[0] + tc * r[1] + te, y1 = tb * r[0] + td * r[1] + tf;
+          const x2 = ta * r[2] + tc * r[3] + te, y2 = tb * r[2] + td * r[3] + tf;
+          return [Math.min(x1, x2) / vp.width, Math.min(y1, y2) / vp.height, Math.abs(x2 - x1) / vp.width, Math.abs(y2 - y1) / vp.height]; };
+        const flat = Array.isArray(x.quadPoints?.[0]) ? x.quadPoints.flat().flatMap(p => [p.x, p.y]) : Array.from(x.quadPoints || []);
+        const rects = [];
+        for (let i = 0; i + 7 < flat.length; i += 8) {
+          const xs = [flat[i], flat[i + 2], flat[i + 4], flat[i + 6]], ys = [flat[i + 1], flat[i + 3], flat[i + 5], flat[i + 7]];
+          rects.push(box([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]));
+        }
+        if (!rects.length && x.rect) rects.push(box(x.rect));
+        const rgb = x.color && x.color.length >= 3 ? "rgba(" + x.color[0] + "," + x.color[1] + "," + x.color[2] + ",.40)" : HL_COLORS[0];
+        const at = dateMs(x.modificationDate) || dateMs(x.creationDate) || Date.now();
+        const a: any = {id, page: n, kind, color: normalizeHighlightColor(rgb), at, embedded: true};
+        if (kind === "note") { const r = rects[0]; a.pin = [r[0] + r[2] / 2, r[1] + r[3] / 2]; a.rects = [r]; a.note = text; }
+        else { a.rects = rects; a.memo = text; const quote = await quoteOf(rects).catch(() => ""); if (quote) a.text = quote; }
+        const author = String(x.titleObj?.str || x.title || "").trim();
+        if (author && author !== j.author) a.author = author;
+        fresh.push(a);
+      }
+      page.cleanup?.();
+    }
+    for (const id of PDF_HIDDEN_ANNOTS) pdf.annotationStorage?.setValue(id, {noView: true});
+    if (!fresh.length) return;
+    // les cartes s'ajoutent une fois les annotations du store chargées
+    void (async () => {
+      for (let i = 0; i < 100 && !ANNOTS_LOADED; i++) await new Promise(r => setTimeout(r, 100));
+      if (!ANNOTS_LOADED) return;
+      const have = new Set(PDF_ANNOTS.map(a => String(a.id)));
+      PDF_ANNOTS.push(...fresh.filter(a => !have.has(a.id)));
+      if (!(await saveAnnots())) return;
+      redrawAllAnnots();
+      reveal();
+      await fetch("/pdfannot", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({rel: seenKey, annots: [...seen].map(id => ({id}))})}).catch(() => null);
+      notify(fresh.length + (fresh.length > 1 ? " commentaires du PDF repris" : " commentaire du PDF repris") + " dans la colonne");
+    })();
+  };
 })();
 
 /** Types shared by classic scripts and browser integration tests; erased at build. */

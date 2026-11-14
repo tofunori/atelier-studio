@@ -122,6 +122,16 @@ impl Thumbnailer {
     }
 }
 
+/// Commande `atelier-pdf corrige` : écrit la copie corrigée `out` de `src`
+/// avec les commentaires de `comments` (JSON de `corrige::Request`). PDFium
+/// tourne dans ce processus à part, comme pour les vignettes.
+pub fn corrected_copy_command(src: &Path, out: &Path, comments: &Path) -> Option<Command> {
+    let tool = locate_tool()?;
+    let mut cmd = Command::new(tool);
+    cmd.arg("corrige").arg(src).arg(out).arg(comments);
+    Some(cmd)
+}
+
 fn poppler_path(bin: &str) -> PathBuf {
     // Claude Desktop lance ses serveurs avec un PATH réduit : Homebrew n'y
     // est pas.

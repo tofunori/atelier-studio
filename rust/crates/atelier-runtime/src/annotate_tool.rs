@@ -48,6 +48,7 @@ fn now_ms() -> u64 {
 
 fn by_agent(a: &Value) -> bool {
     matches!(a.get("by").and_then(Value::as_str), Some(AGENT_BY) | Some("claude"))
+        || a.get("origin").and_then(Value::as_str) == Some(AGENT_BY)
 }
 
 /// Commentaire d'un relecteur importé de Word (`POST /review/import`) : son
@@ -330,12 +331,28 @@ pub fn add_text_notes(target: &Target, author: &str, notes: &[NoteRequest]) -> R
     Ok(report)
 }
 
+/// PDF du projet (copie d'élève, document qu'on corrige) : les notes de
+/// l'agent y sont celles de l'utilisateur, signées de son nom comme dans
+/// Word ; seul `origin` (que le lecteur n'affiche pas) permet à l'agent de
+/// retirer une note qu'il vient de poser. Un article Zotero garde les notes
+/// de l'agent, avec leur fil.
+pub fn signs_as_user(target: &Target) -> bool {
+    target.kind == Kind::Pdf && !target.rel.starts_with("zotero/")
+}
+
 /// Note dans un PDF : un marquage par page couverte, la note sur la première.
 pub fn add_pdf_notes(target: &Target, author: &str, notes: &[NoteRequest]) -> Result<Vec<String>, String> {
     if notes.iter().any(|n| n.text.is_some()) {
         return Err("text (réécriture) seulement dans un fichier texte : dans un PDF, dis-le dans comment".into());
     }
     let pages = atelier_pdf::passage::read_pdf(&target.file)?;
+    let as_user = signs_as_user(target);
+    let signer = if as_user {
+        let root = target.store_dir.parent().unwrap_or(&target.store_dir);
+        atelier_docx::marks::pdf_signer(&target.file, root)
+    } else {
+        author.to_string()
+    };
     let stamp = now_ms();
     let mut report = Vec::new();
     let mut fresh: Vec<Value> = Vec::new();
@@ -369,10 +386,10 @@ pub fn add_pdf_notes(target: &Target, author: &str, notes: &[NoteRequest]) -> Re
                 "kind": n.style,
                 "color": n.color,
                 "note": "",
-                "by": AGENT_BY,
-                "author": author,
+                "author": signer,
                 "at": stamp,
             });
+            annot[if as_user { "origin" } else { "by" }] = json!(AGENT_BY);
             if k == 0 && !n.comment.is_empty() {
                 annot["memo"] = json!(n.comment);
             }
@@ -547,13 +564,14 @@ fn run(project_root: &str, app_dir: &Path, zotero_storage: &Path, author: &str, 
                 Kind::Pdf => add_pdf_notes(&target, author, &notes)?,
             };
             let placed = report.iter().filter(|l| l.starts_with("- [")).count();
-            Ok(json!({
-                "ok": placed > 0,
-                "placed": placed,
-                "report": report.join("\n"),
-                "note": "Visible sur place dans Atelier en quelques secondes si le fichier est ouvert. Le fichier n'est pas modifié. \
-                         Les réponses de l'utilisateur arrivent dans le chat avec l'id de la note : réponds avec action reply.",
-            }))
+            let note = if signs_as_user(&target) {
+                "Visible sur place dans Atelier en quelques secondes si le fichier est ouvert. Le fichier n'est pas modifié. \
+                 Dans ce PDF, tes notes sont signées du nom de l'utilisateur et deviennent les siennes : il les modifie ou les supprime."
+            } else {
+                "Visible sur place dans Atelier en quelques secondes si le fichier est ouvert. Le fichier n'est pas modifié. \
+                 Les réponses de l'utilisateur arrivent dans le chat avec l'id de la note : réponds avec action reply."
+            };
+            Ok(json!({"ok": placed > 0, "placed": placed, "report": report.join("\n"), "note": note}))
         }
         "reply" => reply(
             &target,
@@ -802,6 +820,9 @@ mod tests {
             f.project.path().join("paper.pdf"),
         )
         .unwrap();
+        // nom choisi dans le panneau Word : il signe aussi les PDF du projet
+        std::fs::create_dir_all(f.project.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(f.project.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry Laurent"}"#).unwrap();
         let r = f.run("note", json!({"path": "paper.pdf", "color": "bleu", "notes": [
             {"quote": "Integer sapien est, iaculis in, pretium quis, viverra ac, nunc.", "comment": "Ce passage dit que…"},
             {"quote": "a sentence that this article never contains anywhere", "comment": "x"}
@@ -810,7 +831,11 @@ mod tests {
         assert!(r["report"].as_str().unwrap().contains("introuvable"), "{r}");
         let store = f.store();
         let annots = store["paper.pdf"].as_array().unwrap();
-        assert_eq!(annots[0]["by"], "agent");
+        // PDF du projet : la note est celle de l'utilisateur, à son nom
+        assert_eq!(annots[0]["by"], Value::Null);
+        assert_eq!(annots[0]["author"], "Thierry Laurent");
+        assert_eq!(annots[0]["origin"], "agent");
+        assert!(r["note"].as_str().unwrap().contains("signées du nom de l'utilisateur"));
         assert_eq!(annots[0]["memo"], "Ce passage dit que…");
         assert_eq!(annots[0]["color"], "rgba(120,170,255,.40)");
         assert!(!annots[0]["rects"].as_array().unwrap().is_empty());

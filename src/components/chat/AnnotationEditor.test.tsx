@@ -162,15 +162,17 @@ describe("bulle d'un tour annoté", () => {
     expect(document.querySelector(".anno-said-quote")?.textContent).toBe("explicite sur toute la série");
     expect(document.querySelector(".anno-said-note")?.textContent).toBe("celle ci");
     expect(document.querySelector(".anno-said-tail")?.textContent).toBe("Reprends la méthode.");
-    // « [1] » seul ne numérote rien
-    expect(document.querySelector(".anno-said-idx")).toBeNull();
+    // passage pris en cours de phrase : « … » aux deux bouts, en CSS seulement
+    expect(document.querySelector(".anno-said-text")?.className).toBe("anno-said-text opens closes");
   });
 
-  it("numérote à partir de deux, et marque celles qui n'ont pas de commentaire", () => {
-    renderTurn(buildAnnotationBlock([an("le seuil", "trop vague"), an("la fraction glaciaire")]));
+  it("ne numérote pas (D · Fil), et marque celles qui n'ont pas de commentaire", () => {
+    renderTurn(buildAnnotationBlock([an("le seuil", "trop vague"), an("La fraction glaciaire.")]));
 
-    expect([...document.querySelectorAll(".anno-said-idx")].map((n) => n.textContent))
-      .toEqual(["1", "2"]);
+    expect(document.querySelectorAll(".anno-said-item")).toHaveLength(2);
+    expect(document.querySelector(".anno-said-idx")).toBeNull();
+    // phrase complète : aucun bout ouvert
+    expect(document.querySelectorAll(".anno-said-text")[1]?.className).toBe("anno-said-text");
     expect(document.querySelector(".anno-said-note.is-empty")?.textContent)
       .toBe(t("chat.annotation-mute"));
     expect(document.querySelector(".anno-said-tail")).toBeNull();

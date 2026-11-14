@@ -87,8 +87,8 @@ describe("nouvelles sources (2026-11-09)", () => {
     expect(parseLiveContext({ kind: "video", path: "/p/a.mp4" })).toBeNull();
   });
 
-  it("libellés : paragraphe, figure, page web, article", () => {
-    expect(liveContextWhere({ paragraph: 12 })).toBe("paragraphe 12");
+  it("libellés : ¶ du paragraphe, figure, page web, article", () => {
+    expect(liveContextWhere({ paragraph: 12 })).toBe("¶ 12");
     expect(liveContextSentence({ kind: "docx", path: "/p/r.docx", name: "r.docx", paragraph: 12 })).toBe("curseur au paragraphe 12");
     expect(liveContextSentence({ kind: "figure", path: "/p/f.png", name: "f.png" })).toContain("Image");
     const web = { kind: "web" as const, path: "https://a.org/x", url: "https://a.org/x", name: "a.org/x" };

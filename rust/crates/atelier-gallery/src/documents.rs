@@ -713,7 +713,7 @@ pub(crate) fn shared_pdf_annots_path(root: &Path) -> PathBuf {
 /// (`tex-marks:`) et les commentaires Markdown (`md-comments:`). Seules ses
 /// entrées Zotero d'avant le store partagé sont recopiées, une fois, dans
 /// celui-ci (`merge_legacy_zotero_entries`).
-fn legacy_pdf_annots_path(root: &Path) -> PathBuf {
+pub(crate) fn legacy_pdf_annots_path(root: &Path) -> PathBuf {
     root.join(".fig_thumbs").join("pdf_annots.json")
 }
 
@@ -764,7 +764,7 @@ fn pdf_store_cache() -> &'static std::sync::Mutex<std::collections::HashMap<Path
 /// rien n'est mis en cache : la lecture suivante relit le disque. Le GET
 /// répond alors une erreur, jamais `[]` en 200, et aucun POST ne réécrit le
 /// fichier par-dessus (c'était tout perdre).
-fn read_pdf_store(path: &Path) -> Result<std::sync::Arc<Value>, String> {
+pub(crate) fn read_pdf_store(path: &Path) -> Result<std::sync::Arc<Value>, String> {
     let stamp = match fs::metadata(path) {
         Ok(meta) => PdfStoreStamp::of(&meta),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(std::sync::Arc::new(json!({}))),

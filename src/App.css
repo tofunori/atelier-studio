@@ -3253,26 +3253,30 @@ button.ghost.danger, button.ghost.danger:hover { color: var(--status-error); bac
   background: var(--border2); }
 /* l'action de confirmation porte l'encre pleine, les autres restent éteintes */
 .anno-editor-confirm { color: var(--text-primary); }
-/* Bulle d'un tour annoté (direction A, 2026-08-28). La marque disparaît de la
+/* Bulle d'un tour annoté (D · Fil, 2026-11-14). La marque disparaît de la
    réponse au moment de l'envoi (Chat.tsx, saveMarks([])) : cette bulle est la
-   seule trace qui reste du passage dans la conversation, elle doit donc le
-   PORTER, pas seulement y renvoyer. Même police que le chat : filet ambre et encre atténuée pour la citation. */
+   seule trace qui reste du passage, elle le PORTE. Sans numéros ni filet
+   ambre : le passage en 12 px éteint, sur deux lignes au plus (le texte entier
+   au survol), et un trait fin en coude qui descend vers la réplique. Le trait
+   est en deux morceaux : la verticale le long du passage, le coude devant la
+   première ligne de la réplique. */
 .anno-said { white-space: normal; }
-.anno-said-block { display: flex; flex-direction: column; gap: 12px; }
-.anno-said-item { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; }
-/* colonne forcée : sans numéro, la citation et le commentaire se poseraient
-   côte à côte au lieu de s'empiler */
-.anno-said-quote, .anno-said-note { grid-column: 2; }
-.anno-said-idx { grid-column: 1; grid-row: 1 / span 2; padding-top: 4px;
-  font-size: var(--fs-s); color: var(--text-muted);
-  font-variant-numeric: tabular-nums; }
-.anno-said-quote { font-family: inherit; font-size: .92em;
-  line-height: 1.5; color: var(--text-muted); padding-left: 8px;
-  border-left: 2px solid color-mix(in srgb, var(--hl-line) 55%, var(--secondary)); }
-.anno-said-note { padding-left: 12px; margin-top: 4px; white-space: pre-wrap; }
+.anno-said-block { display: flex; flex-direction: column; gap: 16px; }
+.anno-said-quote { position: relative; padding-left: 20px; font-size: var(--fs-m); line-height: 18px;
+  color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere; }
+.anno-said-quote::before { content: ""; position: absolute; left: 6px; top: 9px; bottom: 0;
+  border-left: 1px solid var(--border2); }
+.anno-said-text.opens::before { content: "…"; }
+.anno-said-text.closes::after { content: "…"; }
+.anno-said-note { position: relative; padding-left: 20px; margin-top: 4px; line-height: 1.5;
+  color: var(--text-primary); white-space: pre-wrap; }
+.anno-said-note::before { content: ""; position: absolute; left: 6px; top: -4px; width: 8px; height: 15px;
+  border-left: 1px solid var(--border2); border-bottom: 1px solid var(--border2);
+  border-bottom-left-radius: 6px; }
 .anno-said-note.is-empty { color: var(--text-muted); }
 /* ce qui a été tapé sous le bloc reste de la prose ordinaire */
-.anno-said-tail { margin-top: 12px; white-space: pre-wrap; }
+.anno-said-tail { margin-top: 16px; white-space: pre-wrap; }
 /* Capsule d'annotations du composer (variante B, 2026-11-09) : étiquette
    discrète, ni fond ni bordure au repos ; fond de contrôle au survol et tant
    que sa liste est ouverte. Le chevron se retourne à l'ouverture. */
