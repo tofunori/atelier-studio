@@ -138,6 +138,8 @@ describe("écran d'ouverture", () => {
     fireEvent.click(more[1]);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Réglages du projet" }));
     expect(props.onProjectSettings).toHaveBeenCalledWith("/p/Chapitre2-Feux");
+    // le premier menu finit de se fermer avant d'ouvrir le suivant (instable sous charge)
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     fireEvent.click(more[2]);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Retirer le projet" }));
     expect(props.onRemoveProject).toHaveBeenCalledWith("/p/GEO1063");
@@ -158,6 +160,7 @@ describe("écran d'ouverture", () => {
     fireEvent.keyDown(field, { key: "Enter" });
     expect(props.onRename).toHaveBeenCalledWith("/p/GEO1063", "GEO1063 · Automne 2026");
     expect(screen.queryByRole("textbox", { name: "Renommer" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
     fireEvent.click(more[0]);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Renommer" }));
