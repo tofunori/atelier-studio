@@ -565,7 +565,16 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
     }
     let sig = Signature::now(&author);
     let root = state.root.clone();
+    let zotero = state.zotero.clone();
+    let mut body = body;
     let job = move || -> Result<Value, (StatusCode, String)> {
+        // Citations : les notices sont lues dans Zotero et écrites dans la
+        // retouche, que le journal de séance rejoue alors sans Zotero.
+        let keys = atelier_docx::cite::keys_to_resolve(&body.op);
+        if !keys.is_empty() {
+            let found = crate::zotero::notices(&zotero, &keys).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
+            atelier_docx::cite::fill(&mut body.op, &found).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0))?;
+        }
         // Les figures se lisent dans le projet : chemin d'origine.
         let images = body.op.to_string().contains("\"insert_image\"");
         if body.delta && sessions_enabled() && !images {
@@ -603,6 +612,39 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
     match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
         Ok(Err((status, e))) => json_error(status, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `GET /docx/cite?path=` — style du document, citations qu'il porte et
+/// styles installés dans Zotero (palette de citation et menu des styles).
+pub async fn cite(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<PathQuery>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &q.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || -> Result<Value, String> {
+        let read = |d: &mut Docx| -> atelier_docx::Result<Value> {
+            Ok(json!({"style": atelier_docx::cite::doc_style(d)?, "citations": atelier_docx::cite::citations(d)?}))
+        };
+        let mut v = match existing(&path) {
+            Some(s) => {
+                let mut g = lock_session(&s);
+                read(g.docx_mut()).map_err(|e| e.0)?
+            }
+            None => read(&mut atelier_docx::open_settled(&path).map_err(|e| e.0)?).map_err(|e| e.0)?,
+        };
+        let mut styles = crate::zotero::cite_styles();
+        styles.retain(|s| s.format != "note");
+        v["styles"] = json!(styles);
+        Ok(v)
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(Err(e)) => json_error(StatusCode::UNPROCESSABLE_ENTITY, e),
         Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }

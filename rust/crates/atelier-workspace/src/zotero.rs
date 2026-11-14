@@ -525,6 +525,21 @@ fn search_legacy(
         .collect())
 }
 
+/// Notices CSL des clés à citer dans un .docx (`G/KEY` pour un groupe) :
+/// `clé → (itemID, URI, itemData)`, pour `atelier_docx::cite::fill`.
+pub fn notices(app_dir: &Path, keys: &[String]) -> Result<HashMap<String, (i64, String, serde_json::Value)>, String> {
+    if keys.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let conn = ensure_fresh(app_dir)?;
+    Ok(atelier_cite::by_key(&conn, keys)?.into_iter().map(|(k, c)| (k, (c.id, c.uri, c.data))).collect())
+}
+
+/// Styles CSL installés dans Zotero (`<dossier Zotero>/styles`).
+pub fn cite_styles() -> Vec<atelier_cite::Style> {
+    atelier_cite::styles(&zotero_dir())
+}
+
 pub fn search(
     app_dir: &Path,
     query: &str,

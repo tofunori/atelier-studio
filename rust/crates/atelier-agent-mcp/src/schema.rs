@@ -228,9 +228,9 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 17] = [
+const DOCX_ACTIONS: [&str; 20] = [
     "read", "images", "edit", "insert_paragraph", "join", "split", "comment", "edit_comment", "withdraw_comment", "reply", "draft_reply", "checked", "format",
-    "insert_note", "insert_figure", "insert_row", "delete_row",
+    "insert_note", "insert_figure", "insert_row", "delete_row", "cite_search", "cite", "bibliography",
 ];
 
 /// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
@@ -240,14 +240,13 @@ pub fn docx_tool_definition() -> Value {
     json!({
         "name": DOCX_TOOL_NAME,
         "description": "Read and edit a project Word .docx WITHOUT breaking it (never unzip or rewrite it \
-    yourself). read: paragraphs p0…, footnotes n1.p0…, header1.p0…, tracked changes [+ins+]#id \
-    [-del-]#id, comments c1…. images: see its figures, charts, text boxes as on the page (to check them). \
-    Writes are tracked changes or comments signed with the user's name; only the user accepts or \
-    rejects. find = exact current text (add paragraph or occurrence if ambiguous). insert_note / \
-    insert_figure go after find. insert_row / delete_row: row of a cell's paragraph. join: p8 into p7. \
-    split: new paragraph after find. Your or the user's comment: fix it with edit_comment, remove it \
-    with withdraw_comment, never ask the user to. draft_reply: a card draft the user sends; prefer it \
-    for a reviewer. checked: check done.",
+    yourself). read: p0…, notes n1.p0…, header1.p0…, tracked [+ins+]#id [-del-]#id, comments c1…. \
+    images: figures, charts, text boxes as on the page. Writes are tracked changes or comments in the \
+    user's name; only the user accepts or rejects. find = exact current text (+paragraph or occurrence \
+    if ambiguous). insert_note / insert_figure / cite go after find. cite: live Zotero citation, keys \
+    from cite_search, never typed by hand; bibliography: add or refresh it. insert_row / delete_row: \
+    a cell's row. join: p8 into p7. split: after find. Fix or remove your or the user's comment with \
+    edit_comment / withdraw_comment. draft_reply: a card draft the user sends, for a reviewer.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -261,7 +260,7 @@ pub fn docx_tool_definition() -> Value {
                 "find": { "type": "string", "description": "Exact current text to replace, comment or format; split: text just before the cut" },
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
                 "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
-                "after": { "type": "string", "description": "insert_paragraph: new paragraph goes after this one (p12)" },
+                "after": { "type": "string", "description": "insert_paragraph / bibliography: goes after this paragraph (p12); bibliography defaults to the end" },
                 "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; edit_comment: the whole corrected comment, same voice and length as the user's; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting, signature or rewritten passage (show a correction in your chat answer first); insert_figure: alt text (figure: image path in the project)" },
                 "figure": { "type": "string", "description": "insert_figure: PNG/JPEG/GIF path in the project" },
                 "above": { "type": "boolean", "description": "insert_row: above instead of below" },
@@ -274,6 +273,12 @@ pub fn docx_tool_definition() -> Value {
                 "highlight": { "type": "string", "description": "yellow, green, cyan, magenta…; none removes" },
                 "style": { "type": "string", "description": "format: paragraph style id (whole paragraph)" },
                 "align": { "type": "string", "enum": ["left", "center", "right", "both"] },
+                "query": { "type": "string", "description": "cite_search: author, year or title words, searched in the user's Zotero" },
+                "limit": { "type": "integer", "description": "cite_search: at most N items (8)" },
+                "keys": { "type": "array", "items": { "type": "string" }, "description": "cite: Zotero item keys from cite_search, in citation order; with citation, [] removes it" },
+                "locator": { "type": "string", "description": "cite: page(s) of the first key (12, 3-4)" },
+                "citation": { "type": "string", "description": "cite: id of an existing citation ({citation id : …} in read) to change instead of adding one" },
+                "style": { "type": "string", "description": "bibliography: citation style installed in Zotero (apa, ieee, the-cryosphere…); restyles every citation" },
                 "revision": { "type": "string", "description": "From read: refuse the edit if the file changed since" }
             },
             "additionalProperties": false

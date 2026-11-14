@@ -126,6 +126,9 @@ pub struct Segment {
     /// Objet ou champ supprimable d'un bloc (figure, note, citation, équation).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub whole: bool,
+    /// Citation Zotero : son `citationID` (à passer à `edit_citation`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cite: Option<String>,
     /// Image : relation (`/docx/media?rel=`), taille affichée en pixels.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media: Option<String>,
@@ -276,6 +279,7 @@ fn seg_of(p: &walk::Piece) -> Segment {
         comments: p.comments.clone(),
         number: None,
         whole: p.unit.is_some(),
+        cite: p.cite.clone(),
         media: p.media.as_ref().map(|m| m.rel.clone()),
         width: p.media.as_ref().filter(|m| m.cx > 0).map(|m| (m.cx / 9525) as u32),
         height: p.media.as_ref().filter(|m| m.cy > 0).map(|m| (m.cy / 9525) as u32),

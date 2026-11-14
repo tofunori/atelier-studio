@@ -3,6 +3,7 @@
 //! stdout: MCP JSON-RPC frames only.
 //! stderr: diagnostics (never tokens).
 //! Auth: ATELIER_MCP_CAPABILITY → bridge loopback.
+#![recursion_limit = "256"]
 
 mod bridge;
 mod schema;

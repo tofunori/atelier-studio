@@ -90,7 +90,7 @@ fn le_texte_pour_l_agent_marque_suivis_et_commentaires() {
     let t = outline(&m, 0, None, 100_000);
     assert!(t.contains("p0 [titre 1] : 2.2 Fraction de glace"), "{t}");
     assert!(t.contains("[-Ensuite, on-]#101[+On+]#102"), "{t}");
-    assert!(t.contains("{citation : (Ren et al., 2021)}"), "{t}");
+    assert!(t.contains("{citation Xk2p9 : (Ren et al., 2021)}"), "{t}");
     assert!(t.contains("⟦c1⟧⟦c2⟧Le seuil de 0,6 retenu ici⟦/c1⟧⟦/c2⟧") || t.contains("⟦c1⟧"), "{t}");
     assert!(t.contains("c1 Christophe"), "{t}");
     assert!(t.contains("  ↳ c2 Thierry"), "{t}");
