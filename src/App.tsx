@@ -894,7 +894,6 @@ export default function App() {
     requestAnimationFrame(focusComposer);
   };
   const dropIntoComposerRef = useRef(dropIntoComposer);
-  dropIntoComposerRef.current = dropIntoComposer;
 
   // Atelier partout (lot 1) : Finder, Service « Envoyer à Atelier », Ouvrir
   // avec, Dock et liens atelier://. « Ouvrir avec » d'un fichier l'ouvre dans
@@ -914,7 +913,11 @@ export default function App() {
     }
   };
   const handleInboxArrivalRef = useRef(handleInboxArrival);
-  handleInboxArrivalRef.current = handleInboxArrival;
+  // Les effets appellent toujours la version du dernier rendu validé.
+  useLayoutEffect(() => {
+    dropIntoComposerRef.current = dropIntoComposer;
+    handleInboxArrivalRef.current = handleInboxArrival;
+  });
 
   // La file d'arrivée ne se vide qu'une fois la liste des fils connue (ou
   // après 5 s) : un envoi qui a lancé Atelier rejoint ainsi le fil restauré
