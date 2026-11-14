@@ -191,6 +191,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-cite"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "atelier-core"
 version = "0.1.0"
 dependencies = [
@@ -267,6 +276,7 @@ dependencies = [
 name = "atelier-workspace"
 version = "0.1.0"
 dependencies = [
+ "atelier-cite",
  "atelier-core",
  "atelier-integrations",
  "base64 0.22.1",
