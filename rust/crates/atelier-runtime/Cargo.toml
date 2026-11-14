@@ -40,9 +40,14 @@ hex = "0.4"
 notify = "8"
 # Cartes « article » des pièces jointes du chat : flux PDF compressés.
 flate2 = "1"
+# Images d'un .docx montrées à l'agent (`atelier_docx` action=images) : les
+# graphiques d'Excel et les EMF rendus en SVG partent en PNG, seul format lu par
+# les modèles avec JPEG, GIF et WebP. Pur Rust, sans rsvg-convert.
+resvg = "0.48"
 
 [dev-dependencies]
 zip = { version = "2", default-features = false, features = ["deflate"] }
+png = "0.17"
 tokio-tungstenite = "0.28"
 tempfile = { workspace = true }
 http-body-util = { workspace = true }

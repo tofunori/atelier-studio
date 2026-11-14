@@ -132,6 +132,16 @@ pub fn corrected_copy_command(src: &Path, out: &Path, comments: &Path) -> Option
     Some(cmd)
 }
 
+/// Commande `atelier-pdf page` de l'outil `tool` (voir [`locate_tool`]) :
+/// la page `page` (à partir de 1) de `pdf` en PNG de `width` pixels de
+/// large, écrite dans `out`. PDFium tourne dans ce processus à part, comme
+/// pour les vignettes.
+pub fn page_command(tool: &Path, pdf: &Path, page: u32, width: u16, out: &Path) -> Command {
+    let mut cmd = Command::new(tool);
+    cmd.arg("page").arg(pdf).arg(page.to_string()).arg(width.to_string()).arg(out);
+    cmd
+}
+
 fn poppler_path(bin: &str) -> PathBuf {
     // Claude Desktop lance ses serveurs avec un PATH réduit : Homebrew n'y
     // est pas.

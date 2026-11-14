@@ -9,6 +9,10 @@
 //! `atelier-pdf corrige <source.pdf> <copie.pdf> <commentaires.json>` :
 //! copie corrigée, commentaires imprimés dans une marge (voir `corrige.rs`).
 //! Écrit sur stdout `{"comments":…,"pages":…,"removed":…}`.
+//!
+//! `atelier-pdf page <fichier.pdf> <page> <largeur> <sortie.png>` : une page
+//! (à partir de 1) en PNG sur fond blanc, montrée à l'agent du chat
+//! (`atelier_annotate` action=pages). Écrit sur stdout `{"pages":…,"width":…,"height":…}`.
 
 use atelier_pdf::{corrige, emit, engine, layout, thumb, tool};
 use std::io::Write;
@@ -19,6 +23,7 @@ fn usage() -> ExitCode {
     eprintln!("usage : atelier-pdf <text|bbox|xml> <fichier.pdf>");
     eprintln!("        atelier-pdf thumb <taille> <dossier> <fichier.pdf>");
     eprintln!("        atelier-pdf corrige <source.pdf> <copie.pdf> <commentaires.json>");
+    eprintln!("        atelier-pdf page <fichier.pdf> <page> <largeur> <sortie.png>");
     ExitCode::from(2)
 }
 
@@ -100,8 +105,33 @@ fn corrected(src: &str, out: &str, comments: &str) -> ExitCode {
     }
 }
 
+/// `page` : une page en PNG, PDFium seul (pas de repli : l'agent lit la raison).
+fn page(file: &str, page: &str, width: &str, out: &str) -> ExitCode {
+    let (Ok(page), Ok(width)) = (page.parse::<u32>(), width.parse::<u16>()) else {
+        return usage();
+    };
+    let rendered = engine::render_page(Path::new(file), page.max(1) - 1, width)
+        .and_then(|(pages, w, h, rgb)| Ok((pages, w, h, thumb::encode_png_compact(w, h, &rgb)?)))
+        .and_then(|(pages, w, h, png)| std::fs::write(out, png).map(|_| (pages, w, h)).map_err(|e| format!("{out} : {e}")));
+    match rendered {
+        Ok((pages, w, h)) => {
+            println!(r#"{{"pages":{pages},"width":{w},"height":{h}}}"#);
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [kind, a, b, c, d] = args.as_slice() {
+        if kind == "page" {
+            return page(a, b, c, d);
+        }
+    }
     if let [kind, a, b, c] = args.as_slice() {
         match kind.as_str() {
             "thumb" => return thumbnail(a, b, c),

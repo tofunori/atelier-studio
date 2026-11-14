@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 use crate::state::AppState;
+use atelier_protocol::agent_mcp_limits as lim;
 
 /// Plafond du texte rendu par `read` : au-delà, la suite est annoncée.
 const READ_MAX_CHARS: usize = 60_000;
@@ -167,8 +168,191 @@ fn remember(path: &Path, sig: &Signature, provider: &str) -> Result<(), String> 
     atelier_docx::marks::record(path, &model, sig, author_for(provider)).map(|_| ()).map_err(|e| e.0)
 }
 
+/// Côté long d'une image montrée à l'agent, en px : deux fois le cadre de
+/// Word (une formule collée reste lisible), jamais plus que ce que le modèle
+/// garde (au-delà il réduit lui-même).
+const IMAGE_LONG_MIN: f64 = 256.0;
+const IMAGE_LONG_MAX: f64 = 1200.0;
+/// Une image du paquet déjà lisible (PNG, JPEG, GIF, WebP) part telle quelle
+/// sous ce poids ; au-dessus, elle est redessinée à la taille de son cadre.
+const IMAGE_PASS_MAX: usize = 1024 * 1024;
+/// Base64 cumulé d'une réponse : sous le plafond du pont, qui sinon ne
+/// joindrait aucune image.
+const IMAGES_BUDGET: usize = lim::BRIDGE_IMAGES_MAX_BYTES - 512 * 1024;
+
+/// Polices du système, chargées une fois : le texte des graphiques d'Excel
+/// (axes, légendes) se dessine avec elles.
+fn fonts() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
+    static DB: std::sync::OnceLock<std::sync::Arc<resvg::usvg::fontdb::Database>> = std::sync::OnceLock::new();
+    DB.get_or_init(|| {
+        let mut db = resvg::usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        // Calibri manque hors de Windows : la première sans-serif présente la remplace.
+        let have = |f: &str| db.faces().any(|face| face.families.iter().any(|(n, _)| n == f));
+        if let Some(f) = ["Helvetica Neue", "Helvetica", "Arial", "Carlito", "Liberation Sans", "DejaVu Sans"].into_iter().find(|f| have(f)) {
+            db.set_sans_serif_family(f);
+        }
+        std::sync::Arc::new(db)
+    })
+    .clone()
+}
+
+/// SVG (graphique, EMF rejoué, image recadrée) → PNG, étiré au cadre `frame`
+/// comme dans Word, sur fond blanc comme la page. Aucune ressource hors du
+/// SVG n'est lue : seules les images en data: passent.
+fn svg_to_png(svg: &[u8], frame: Option<(f64, f64)>, long: f64) -> Option<Vec<u8>> {
+    use resvg::{tiny_skia, usvg};
+    let mut opt = usvg::Options { font_family: "Arial".into(), fontdb: fonts(), ..Default::default() };
+    opt.image_href_resolver.resolve_string = Box::new(|_, _| None);
+    let tree = usvg::Tree::from_data(svg, &opt).ok()?;
+    let size = tree.size();
+    let (fw, fh) = frame.filter(|(w, h)| *w > 0.0 && *h > 0.0).unwrap_or((size.width() as f64, size.height() as f64));
+    let k = long / fw.max(fh);
+    let (w, h) = (((fw * k).round() as u32).max(1), ((fh * k).round() as u32).max(1));
+    let mut pixmap = tiny_skia::Pixmap::new(w, h)?;
+    pixmap.fill(tiny_skia::Color::WHITE);
+    let t = tiny_skia::Transform::from_scale(w as f32 / size.width(), h as f32 / size.height());
+    resvg::render(&tree, t, &mut pixmap.as_mut());
+    pixmap.encode_png().ok()
+}
+
+/// Une figure telle que le modèle peut la lire : PNG, JPEG, GIF ou WebP.
+/// `Err` : la raison, dite à l'agent (format que rien ne dessine).
+fn for_model((bytes, mime): (Vec<u8>, &'static str), frame: Option<(f64, f64)>) -> Result<(Vec<u8>, &'static str), String> {
+    use base64::Engine as _;
+    let readable = matches!(mime, "image/png" | "image/jpeg" | "image/gif" | "image/webp");
+    if readable && bytes.len() <= IMAGE_PASS_MAX {
+        return Ok((bytes, mime));
+    }
+    let long = frame.map_or(IMAGE_LONG_MAX, |(w, h)| (w.max(h) * 2.0).clamp(IMAGE_LONG_MIN, IMAGE_LONG_MAX));
+    let svg = if mime == "image/svg+xml" {
+        bytes
+    } else if readable {
+        // Trop lourde : redessinée à la taille de son cadre.
+        let (w, h) = frame.unwrap_or((long, long));
+        let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><image href="data:{mime};base64,{data}" width="{w}" height="{h}" preserveAspectRatio="none"/></svg>"#).into_bytes()
+    } else {
+        return Err(format!("format {mime} que rien ne dessine ici : à ouvrir dans Word"));
+    };
+    let mut png = svg_to_png(&svg, frame, long).ok_or("rendu impossible de cette figure")?;
+    if png.len() > IMAGE_PASS_MAX {
+        png = svg_to_png(&svg, frame, long / 2.0).unwrap_or(png);
+    }
+    Ok((png, "image/png"))
+}
+
+/// `images` : les figures du document, rendues comme sur la surface .docx
+/// (graphiques d'Excel, EMF/WMF, recadrage de Word) puis jointes au résultat
+/// pour que l'agent les voie. Lecture seule. Numérotées dans l'ordre de
+/// lecture (corps, notes, en-têtes et pieds) ; `paragraph`, `from`/`to`
+/// bornent le passage, `start` reprend à la figure N.
+fn images(path: &Path, req: &Value) -> Result<Value, String> {
+    use base64::Engine as _;
+    let mut docx = atelier_docx::open_settled(path).map_err(|e| e.0)?;
+    let model = docx.model().map_err(|e| e.0)?;
+    let only = str_arg(req, "paragraph");
+    let (from, to) = (usize_arg(req, "from").unwrap_or(0), usize_arg(req, "to").unwrap_or(usize::MAX));
+    let start = usize_arg(req, "start").unwrap_or(1).max(1);
+    let body = model.paragraphs.iter();
+    let notes = model.notes.iter().flat_map(|n| n.paragraphs.iter());
+    let heads = model.headers.iter().flat_map(|h| h.paragraphs.iter());
+    let all: Vec<(usize, &atelier_docx::model::Para, &atelier_docx::model::Segment)> = body
+        .chain(notes)
+        .chain(heads)
+        .flat_map(|p| p.segments.iter().filter(|s| s.media.is_some()).map(move |s| (p, s)))
+        .enumerate()
+        .map(|(i, (p, s))| (i + 1, p, s))
+        .collect();
+    let in_scope = |p: &atelier_docx::model::Para| match only {
+        Some(id) => p.id == id,
+        None if req.get("from").is_some() || req.get("to").is_some() => {
+            p.id.strip_prefix('p').and_then(|n| n.parse::<usize>().ok()).is_some_and(|n| (from..=to).contains(&n))
+        }
+        None => true,
+    };
+    let scope: Vec<_> = all.iter().filter(|(_, p, _)| in_scope(p)).collect();
+    let mut theme: Option<Option<Vec<u8>>> = None;
+    let (mut listed, mut attached, mut budget, mut next) = (Vec::new(), Vec::new(), 0usize, None);
+    for (n, p, s) in scope.iter().filter(|(n, _, _)| *n >= start) {
+        let frame = s.width.zip(s.height).map(|(w, h)| (w as f64, h as f64));
+        let mut entry = json!({"image": n, "paragraph": p.id, "alt": s.alt});
+        if let Some((w, h)) = s.width.zip(s.height) {
+            entry["frame"] = json!(format!("{w}×{h} px"));
+        }
+        // Plus de place, ou la suite déjà annoncée : listée, pas jointe.
+        if attached.len() >= lim::BRIDGE_IMAGES_MAX || next.is_some() {
+            next.get_or_insert(*n);
+            listed.push(entry);
+            continue;
+        }
+        let rel = s.media.as_deref().unwrap_or("");
+        let shown = match atelier_docx::objects::media_raw(&mut docx, &p.id, rel).map_err(|e| e.0)? {
+            None => Err("image absente du paquet".to_string()),
+            Some(raw) => {
+                entry["kind"] = json!(match raw.1 {
+                    m if m == atelier_docx::chart::MIME => "graphique Excel",
+                    "image/x-emf" => "EMF",
+                    "image/x-wmf" => "WMF",
+                    m => m.trim_start_matches("image/"),
+                });
+                let th = if raw.1 == atelier_docx::chart::MIME {
+                    if theme.is_none() {
+                        theme = Some(atelier_docx::objects::theme(&mut docx).map_err(|e| e.0)?);
+                    }
+                    theme.as_ref().and_then(|t| t.as_deref())
+                } else {
+                    None
+                };
+                let img = atelier_docx::objects::render(raw, th, frame);
+                let img = match (s.crop, frame) {
+                    (Some(c), Some(_)) => atelier_docx::objects::cropped(img, c),
+                    _ => img,
+                };
+                for_model(img, frame)
+            }
+        };
+        match shown {
+            Ok((bytes, mime)) => {
+                let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                if budget + data.len() > IMAGES_BUDGET && !attached.is_empty() {
+                    next.get_or_insert(*n);
+                } else {
+                    budget += data.len();
+                    entry["shown"] = json!(attached.len() + 1);
+                    attached.push(json!({"mimeType": mime, "data": data}));
+                }
+            }
+            Err(why) => entry["error"] = json!(why),
+        }
+        listed.push(entry);
+    }
+    let note = if all.is_empty() {
+        "Ce document ne contient aucune figure.".to_string()
+    } else if scope.is_empty() {
+        format!("Aucune figure dans ce passage ({} dans le document).", all.len())
+    } else {
+        let mut t = format!(
+            "{} figure(s) jointe(s) ci-dessous, dans l'ordre de la liste (« shown »), dessinées comme sur la page Word. Lecture seule : pour une remarque, comment sur le texte voisin.",
+            attached.len()
+        );
+        if let Some(k) = next {
+            let _ = std::fmt::Write::write_fmt(&mut t, format_args!(" Suite : images avec start={k}."));
+        }
+        t
+    };
+    let mut out = json!({"revision": model.revision, "total": all.len(), "images": listed, "note": note});
+    if !attached.is_empty() {
+        out[lim::BRIDGE_IMAGES_KEY] = Value::Array(attached);
+    }
+    Ok(out)
+}
+
 fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<Value, String> {
     let path = resolve(project_root, str_arg(req, "path").unwrap_or(""))?;
+    if action == "images" {
+        return images(&path, req);
+    }
     if action == "read" {
         // Les retouches du panneau encore dans le journal de sa séance
         // passent d'abord : l'agent lit le document tel que Thierry le voit.
@@ -495,6 +679,145 @@ mod tests {
         let m = Docx::open(&path).unwrap().model().unwrap();
         assert!(!m.comments.iter().any(|c| c.id == id as u32));
         assert_eq!(m.comments.len(), n0 + 1);
+    }
+
+    /// Largeur et hauteur d'un PNG (en-tête IHDR).
+    fn png_size(b: &[u8]) -> (u32, u32) {
+        assert_eq!(&b[1..4], b"PNG");
+        (u32::from_be_bytes(b[16..20].try_into().unwrap()), u32::from_be_bytes(b[20..24].try_into().unwrap()))
+    }
+
+    /// La fixture, sa figure (p10) remplacée par un graphique d'Excel au
+    /// cadre de 624 × 345 px. Valeurs synthétiques.
+    fn with_chart(path: &Path) {
+        use std::io::{Read, Write};
+        const C: &str = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+        const A: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+        const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        let src = std::fs::read(path).unwrap();
+        let mut zin = zip::ZipArchive::new(std::io::Cursor::new(src)).unwrap();
+        let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for i in 0..zin.len() {
+            let mut f = zin.by_index(i).unwrap();
+            let name = f.name().to_string();
+            let mut bytes = Vec::new();
+            f.read_to_end(&mut bytes).unwrap();
+            let text = String::from_utf8_lossy(&bytes).to_string();
+            let bytes = match name.as_str() {
+                "word/media/image1.png" => continue,
+                "word/_rels/document.xml.rels" => text
+                    .replace(
+                        r#"Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png""#,
+                        r#"Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="charts/chart1.xml""#,
+                    )
+                    .into_bytes(),
+                "word/document.xml" => {
+                    let start = text.find(r#"<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">"#).unwrap();
+                    let end = text[start..].find("</a:graphicData>").unwrap() + start + "</a:graphicData>".len();
+                    let chart = format!(r#"<a:graphicData uri="{C}"><c:chart xmlns:c="{C}" xmlns:r="{R}" r:id="rId5"/></a:graphicData>"#);
+                    format!("{}{}{}", &text[..start], chart, &text[end..])
+                        .replacen(r#"<wp:extent cx="914400" cy="914400"/>"#, r#"<wp:extent cx="5943600" cy="3291840"/>"#, 1)
+                        .into_bytes()
+                }
+                "[Content_Types].xml" => text
+                    .replace("</Types>", r#"<Override PartName="/word/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/></Types>"#)
+                    .into_bytes(),
+                _ => bytes,
+            };
+            out.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            out.write_all(&bytes).unwrap();
+        }
+        let data = [(120.0, 1.0), (540.0, 0.63), (1380.0, 0.27), (3480.0, 0.04)];
+        let pts = |f: fn(&(f64, f64)) -> f64| -> String {
+            data.iter().enumerate().map(|(i, d)| format!(r#"<c:pt idx="{i}"><c:v>{}</c:v></c:pt>"#, f(d))).collect()
+        };
+        let (xs, ys) = (pts(|d| d.0), pts(|d| d.1));
+        let chart = format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><c:chartSpace xmlns:c="{C}" xmlns:a="{A}" xmlns:r="{R}"><c:chart><c:title><c:tx><c:rich><a:bodyPr/><a:p><a:r><a:t>H/Ho en fonction du temps</a:t></a:r></a:p></c:rich></c:tx></c:title><c:plotArea><c:scatterChart><c:scatterStyle val="lineMarker"/><c:ser><c:idx val="0"/><c:order val="0"/><c:spPr><a:ln w="25400"><a:solidFill><a:srgbClr val="1F4E79"/></a:solidFill></a:ln></c:spPr><c:xVal><c:numRef><c:numCache><c:ptCount val="4"/>{xs}</c:numCache></c:numRef></c:xVal><c:yVal><c:numRef><c:numCache><c:ptCount val="4"/>{ys}</c:numCache></c:numRef></c:yVal></c:ser><c:axId val="1"/><c:axId val="2"/></c:scatterChart><c:valAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="b"/><c:crossAx val="2"/></c:valAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="l"/><c:crossAx val="1"/></c:valAx></c:plotArea></c:chart></c:chartSpace>"#
+        );
+        out.start_file("word/charts/chart1.xml", zip::write::SimpleFileOptions::default()).unwrap();
+        out.write_all(chart.as_bytes()).unwrap();
+        std::fs::write(path, out.finish().unwrap().into_inner()).unwrap();
+    }
+
+    #[test]
+    fn l_agent_voit_les_figures_comme_sur_la_page() {
+        use base64::Engine as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        let root = dir.path().to_str().unwrap();
+        let before = std::fs::read(&path).unwrap();
+        // La lecture annonce la figure et l'action qui la montre.
+        let read = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap();
+        let text = read["text"].as_str().unwrap();
+        assert!(text.contains("p10 ") && text.contains("{image : ") && text.contains("action images"), "{text}");
+
+        // Une image déjà lisible (PNG) part telle quelle.
+        let out = run(root, "claude", "images", &json!({"path": "article.docx"})).unwrap();
+        assert_eq!(out["total"], 1, "{out}");
+        assert_eq!(out["images"][0]["paragraph"], "p10");
+        assert_eq!(out["images"][0]["kind"], "png");
+        assert_eq!(out["images"][0]["shown"], 1);
+        let att = &out[lim::BRIDGE_IMAGES_KEY][0];
+        assert_eq!(att["mimeType"], "image/png");
+        let png = base64::engine::general_purpose::STANDARD.decode(att["data"].as_str().unwrap()).unwrap();
+        assert_eq!(png_size(&png), (1, 1), "l'image du paquet, sans retouche");
+
+        // Hors du passage demandé : rien de joint, la raison est dite.
+        let none = run(root, "claude", "images", &json!({"path": "article.docx", "paragraph": "p3"})).unwrap();
+        assert!(none.get(lim::BRIDGE_IMAGES_KEY).is_none(), "{none}");
+        assert!(none["note"].as_str().unwrap().contains("Aucune figure dans ce passage"), "{none}");
+        let range = run(root, "claude", "images", &json!({"path": "article.docx", "from": 9, "to": 11})).unwrap();
+        assert_eq!(range["images"][0]["shown"], 1, "{range}");
+        let later = run(root, "claude", "images", &json!({"path": "article.docx", "start": 2})).unwrap();
+        assert!(later.get(lim::BRIDGE_IMAGES_KEY).is_none(), "{later}");
+
+        // Un graphique d'Excel : dessiné comme sur la surface, puis en PNG au
+        // double de son cadre (624 × 345), le côté long borné à 1200 px.
+        with_chart(&path);
+        let out = run(root, "claude", "images", &json!({"path": "article.docx", "paragraph": "p10"})).unwrap();
+        assert_eq!(out["images"][0]["kind"], "graphique Excel", "{out}");
+        assert_eq!(out["images"][0]["frame"], "624×345 px");
+        let att = &out[lim::BRIDGE_IMAGES_KEY][0];
+        assert_eq!(att["mimeType"], "image/png");
+        let png = base64::engine::general_purpose::STANDARD.decode(att["data"].as_str().unwrap()).unwrap();
+        assert_eq!(png_size(&png), (1200, 663));
+        // Du dessin, pas une page blanche : la courbe bleue est là.
+        let mut dec = png::Decoder::new(std::io::Cursor::new(&png));
+        dec.set_transformations(png::Transformations::EXPAND);
+        let mut reader = dec.read_info().unwrap();
+        let mut buf = vec![0; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).unwrap();
+        let px = info.color_type.samples();
+        assert!(buf.chunks(px).any(|c| c[2] > 100 && c[0] < 80), "pas de trait bleu dans le graphique");
+
+        // Lecture seule : le fichier n'a pas bougé.
+        let after_chart = std::fs::read(&path).unwrap();
+        run(root, "claude", "images", &json!({"path": "article.docx"})).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), after_chart);
+        assert_ne!(before, after_chart);
+    }
+
+    #[test]
+    fn une_image_trop_lourde_est_redessinee_a_la_taille_de_son_cadre() {
+        // Une photo de 900 × 900 en PNG (bruit : plusieurs Mo).
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(900, 900).unwrap();
+        let mut seed = 7u32;
+        for b in pixmap.data_mut().chunks_mut(4) {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            b.copy_from_slice(&[(seed >> 24) as u8, (seed >> 16) as u8, (seed >> 8) as u8, 255]);
+        }
+        let big = pixmap.encode_png().unwrap();
+        assert!(big.len() > IMAGE_PASS_MAX);
+        let (small, mime) = for_model((big, "image/png"), Some((300.0, 200.0))).unwrap();
+        assert_eq!(mime, "image/png");
+        assert_eq!(png_size(&small), (600, 400), "étirée au cadre de Word, au double");
+        // Un format que rien ne dessine : la raison, pas une image cassée.
+        let err = for_model((vec![0x49, 0x49, 0x2A, 0], "image/tiff"), None).unwrap_err();
+        assert!(err.contains("image/tiff"), "{err}");
+        // Un SVG qui pointe hors du paquet : le fichier n'est jamais lu.
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="/etc/hosts" width="10" height="10"/></svg>"#;
+        assert!(svg_to_png(svg, None, 20.0).is_some());
     }
 
     #[test]

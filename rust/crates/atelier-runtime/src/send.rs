@@ -290,7 +290,8 @@ fn with_docx_instruction(prompt: String, provider: &str) -> String {
     }
     format!(
         "{prompt}\n\n<atelier-docx>\nFor any .docx, use the MCP tool `atelier_docx` (action=read first). \
-Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
+To check its figures, charts or equations pasted as images, look at them with action=images (never \
+judge a figure from its alt text). Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
 supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \
 signed with your name; only the user accepts or rejects them. Your own comments and the user's \
 you fix (edit_comment) or remove (withdraw_comment) yourself: never add a second version, never \
@@ -299,6 +300,18 @@ comments (draft_reply) are written as the user, in French: short, natural and ca
 a small typo now and then is fine, never a long or formal answer, and never a rewritten passage. \
 A correction you suggest for the supervisor's comment goes first in your chat answer (before / after); \
 make it a tracked edit in the .docx only once the user says so.\n</atelier-docx>"
+    )
+}
+
+/// Un PDF en jeu (copie de TP, article) : l'agent regarde ses pages au lieu
+/// de juger figures et équations d'après le seul texte extrait.
+fn with_pdf_pages_instruction(prompt: String, provider: &str) -> String {
+    if !crate::agent_mcp::is_mcp_compatible_provider(provider) || !prompt.to_lowercase().contains(".pdf") {
+        return prompt;
+    }
+    format!(
+        "{prompt}\n\n<atelier-pdf>\nTo check a PDF's figures, tables or equations, look at its pages with the MCP \
+tool `atelier_annotate` (action=pages, page, to): never judge a figure from the extracted text alone.\n</atelier-pdf>"
     )
 }
 
@@ -1535,6 +1548,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         with_compute_instruction(p, &provider)
     };
     let provider_prompt = with_docx_instruction(provider_prompt, &provider);
+    let provider_prompt = with_pdf_pages_instruction(provider_prompt, &provider);
     // Spécialistes (plan specialistes-2026-10-18) : l'agent doit savoir ce
     // que l'utilisateur appelle « spécialiste » et lesquels existent. Même
     // cadence que le bloc KB : premier tour de la session, puis seulement
@@ -3950,8 +3964,17 @@ mod tests {
         assert!(enriched.contains("only once the user says so"), "la correction passe d'abord par le chat");
         assert!(enriched.contains("withdraw_comment") && enriched.contains("never \
 ask the user to delete one"), "l'agent retire lui-même ses bulles");
+        assert!(enriched.contains("action=images"), "l'agent regarde les figures au lieu de deviner");
         assert_eq!(with_docx_instruction("relis mon intro".into(), "claude"), "relis mon intro");
         assert_eq!(with_docx_instruction("a.docx".into(), "openrouter"), "a.docx");
+    }
+
+    #[test]
+    fn pdf_instruction_points_to_the_pages_action() {
+        let enriched = with_pdf_pages_instruction("Corrige TP6_Minkubu.PDF".into(), "codex");
+        assert!(enriched.contains("atelier_annotate") && enriched.contains("action=pages"), "{enriched}");
+        assert_eq!(with_pdf_pages_instruction("relis mon intro".into(), "claude"), "relis mon intro");
+        assert_eq!(with_pdf_pages_instruction("a.pdf".into(), "openrouter"), "a.pdf");
     }
 
     #[test]
