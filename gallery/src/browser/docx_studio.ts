@@ -2996,7 +2996,7 @@
       }
       const body = glowing.has(x.id) ? marked(glowing.get(x.id)!, x.text.trim()) : esc(x.text.trim());
       if (on && !c.done && x.author === author) return `<p class="tx mine" data-act="edit" data-cid="${x.id}" role="button" tabindex="0" aria-label="Modifier ton message">${body}</p>`;
-      return `<p class="tx">${body}</p>`;
+      return `<p class="tx" data-cid="${x.id}">${body}</p>`;
     };
     h += head(c.author, c.initials, dateFr(c.date));
     // Son propre commentaire : une icône à côté du texte le fait vérifier
@@ -3097,6 +3097,8 @@
       const ed = el.querySelector<HTMLTextAreaElement>("textarea.c-edit");
       if (ed && editing) editing.text = ed.value;
     }
+    // Une sélection dans le texte d'une bulle survit au redessin de sa fiche.
+    const keepBub = readBubbleSel();
     const act = document.activeElement as HTMLElement | null;
     const keep = act && cardsEl.contains(act) ? { key: (act.closest(".it") as HTMLElement | null)?.dataset.key, ta: act.tagName === "TEXTAREA", s: (act as HTMLTextAreaElement).selectionStart, e: (act as HTMLTextAreaElement).selectionEnd } : null;
     const lists = new Map<string, number>();
@@ -3131,6 +3133,12 @@
       frag.appendChild(el);
     }
     cardsEl.replaceChildren(frag);
+    if (keepBub && !readBubbleSel()) {
+      rebaseBub(keepBub);
+      const r = bubRange(keepBub);
+      const sl = getSelection();
+      if (r && sl) { sl.removeAllRanges(); sl.addRange(r); } else bubbar.classList.remove("show");
+    }
     for (const [key, top] of lists) { const l = cardsEl.querySelector(`[data-key="${key}"] .lst`); if (l) l.scrollTop = top; }
     if (keep?.key) {
       const host = cardsEl.querySelector(`[data-key="${keep.key}"]`);
@@ -3776,9 +3784,11 @@
     reveal(els[0] || paper.querySelector(`.d-p[data-ch="${id}"]`));
   }
 
-  // Les boutons de la marge ne volent pas la sélection de la page.
+  // Les boutons de la marge ne volent pas la sélection de la page. Le texte
+  // d'une bulle ouverte se sélectionne, pour l'annoter comme la page.
   cardsEl.addEventListener("mousedown", (e) => {
-    if (!(e.target as HTMLElement).closest("textarea")) e.preventDefault();
+    const t = e.target as HTMLElement;
+    if (!t.closest("textarea") && !t.closest(".it.on .tx[data-cid]")) e.preventDefault();
   });
   cardsEl.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
@@ -3787,6 +3797,9 @@
     const it = lane.find((c) => c.key === host.dataset.key);
     if (!it) return;
     const act = (t.closest("[data-act]") as HTMLElement | null)?.dataset.act;
+    // Le clic qui termine une sélection dans le texte d'une bulle ne passe
+    // pas son message en modification.
+    if (t.closest(".tx") && readBubbleSel()) return;
     if (it.kind === "chip") {
       const row = t.closest(".cr") as HTMLElement | null;
       if (act === "acceptAll" || act === "rejectAll") {
@@ -4457,6 +4470,21 @@
     onMark: () => toggleRun("u"),
     marks: ["ul"],
   });
+  // Capsule du texte des bulles : les gestes vers Claude, pas la mise en forme.
+  const bubbar = document.createElement("div");
+  bubbar.id = "bubbar";
+  document.body.appendChild(bubbar);
+  UI?.createSelectionActions(bubbar, {
+    onAdd: () => openBubbleNote(),
+    onAnnotate: () => openBubbleNote(),
+    onAsk: W.__atelierPost ? () => {
+      const bub = readBubbleSel();
+      const c = bub ? commentMap.get(bub.cid) : undefined;
+      if (!bub || !c) return;
+      bubbar.classList.remove("show");
+      W.__atelierPost!({ type: "atelier-quick-ask", text: bub.quote, path: PATH, page: bubPara(c) || undefined });
+    } : undefined,
+  });
   // ------------------------------------- note sur un passage (variante A)
   // Annoter et Ajouter au chat ouvrent la même boîte sous la sélection : un
   // champ, deux sorties. « Annotation » (⌘↵) pose un commentaire Word signé
@@ -4473,8 +4501,11 @@
   chatNums.id = "chatnums";
   chatNums.setAttribute("aria-hidden", "true");
   scroller.appendChild(chatNums);
-  let noting: { sel: Sel; segs: Span[] } | null = null;
-  let toChatList: { text: string; segs: Span[] }[] = [];
+  /** Passage choisi dans le texte d'une bulle (tête ou réponse) : bornes en
+   *  unités de chaîne dans le texte du message. */
+  type Bub = { cid: number; s: number; e: number; quote: string; lost?: boolean };
+  let noting: { sel: Sel | null; segs: Span[]; bub?: Bub } | null = null;
+  let toChatList: { text: string; segs: Span[]; bub?: Bub }[] = [];
   const pidOfIdx = (idx: number) => model!.paragraphs[idx].para_id || model!.paragraphs[idx].id;
   function segsOf(sel: Sel): Span[] {
     const out: Span[] = [];
@@ -4501,20 +4532,75 @@
     d.idx = idx; d.s = best; d.e = best + cp(d.quote); d.lost = false;
   }
   const segRanges = (segs: Span[]) => segs.filter((g) => !g.lost).map((g) => rangeAt(g.idx, g.s, g.e)).filter(Boolean) as Range[];
+  // ------------------------------------------- texte des bulles (variante A)
+  // Le texte d'une bulle ouverte se sélectionne comme la page : même capsule
+  // (sans surligneur, propre au document), même boîte de note. « Au chat »
+  // empile le passage et la note dans la boîte du chat ; « Répondre » poste
+  // la note dans le fil en citant le passage (2026-11-14).
+  const txOf = (cid: number) => cardsEl.querySelector<HTMLElement>(`p.tx[data-cid="${cid}"]`);
+  function txOffset(tx: HTMLElement, node: Node, off: number): number {
+    const r = document.createRange();
+    r.selectNodeContents(tx);
+    try { r.setEnd(node, off); } catch { return 0; }
+    return r.toString().length;
+  }
+  /** Sélection posée dans un seul message d'une bulle ouverte, ou rien. */
+  function readBubbleSel(): Bub | null {
+    const sl = getSelection();
+    if (!sl || !sl.rangeCount || sl.isCollapsed) return null;
+    const r = sl.getRangeAt(0);
+    const box = r.commonAncestorContainer;
+    const tx = (box.nodeType === Node.ELEMENT_NODE ? box as Element : box.parentElement)?.closest<HTMLElement>("p.tx[data-cid]");
+    if (!tx || !tx.closest(".it.on") || !cardsEl.contains(tx)) return null;
+    const full = tx.textContent || "";
+    let a = txOffset(tx, r.startContainer, r.startOffset), b = txOffset(tx, r.endContainer, r.endOffset);
+    while (a < b && /\s/.test(full[a])) a++;
+    while (b > a && /\s/.test(full[b - 1])) b--;
+    return b > a ? { cid: Number(tx.dataset.cid), s: a, e: b, quote: full.slice(a, b) } : null;
+  }
+  /** Le message a pu être modifié : le passage retrouve sa place, au plus près. */
+  function rebaseBub(d: Bub) {
+    const text = txOf(d.cid)?.textContent;
+    if (text == null) { d.lost = true; return; }
+    if (text.slice(d.s, d.e) === d.quote) { d.lost = false; return; }
+    let best = -1;
+    for (let i = text.indexOf(d.quote); d.quote && i >= 0; i = text.indexOf(d.quote, i + 1)) if (best < 0 || Math.abs(i - d.s) < Math.abs(best - d.s)) best = i;
+    if (best < 0) { d.lost = true; return; }
+    d.s = best; d.e = best + d.quote.length; d.lost = false;
+  }
+  function bubRange(d: Bub): Range | null {
+    const tx = d.lost ? null : txOf(d.cid);
+    if (!tx) return null;
+    const walk = document.createTreeWalker(tx, NodeFilter.SHOW_TEXT);
+    const r = document.createRange();
+    let at = 0, started = false;
+    for (let t = walk.nextNode() as Text | null; t; t = walk.nextNode() as Text | null) {
+      const end = at + t.data.length;
+      if (!started && d.s <= end) { r.setStart(t, d.s - at); started = true; }
+      if (started && d.e <= end) { r.setEnd(t, d.e - at); return r; }
+      at = end;
+    }
+    return null;
+  }
+  const bubRanges = (d?: Bub) => { if (!d) return []; rebaseBub(d); const r = bubRange(d); return r ? [r] : []; };
+  /** Repère d'une bulle : le paragraphe de sa tête de fil (`p12`). */
+  const bubPara = (c: Comment) => c.paragraph || threadOf(c.id)?.paragraph || "";
   function paintNotes() {
     for (const g of noting ? noting.segs : []) rebaseSeg(g);
     for (const it of toChatList) for (const g of it.segs) rebaseSeg(g);
     if (HL) {
-      const pending = noting ? segRanges(noting.segs) : [];
+      const pending = noting ? [...segRanges(noting.segs), ...bubRanges(noting.bub)] : [];
       if (pending.length) highlights().set("docx-note", makeHighlight(pending)); else highlights().delete("docx-note");
-      const sent = toChatList.flatMap((it) => segRanges(it.segs));
+      const sent = toChatList.flatMap((it) => [...segRanges(it.segs), ...bubRanges(it.bub)]);
       if (sent.length) highlights().set("docx-tochat", makeHighlight(sent)); else highlights().delete("docx-tochat");
     }
     // Numéro de la rangée du chat, en exposant au bout du passage.
     const host = scroller.getBoundingClientRect();
     const frag = document.createDocumentFragment();
     toChatList.forEach((it, i) => {
-      const rs = segRanges(it.segs);
+      // Marge en fenêtre (fixe) : le numéro ne suivrait pas la bulle.
+      if (it.bub && document.body.classList.contains("no-lane")) return;
+      const rs = it.bub ? bubRanges(it.bub) : segRanges(it.segs);
       const rects = rs.length ? rs[rs.length - 1].getClientRects() : null;
       const r = rects && rects.length ? rects[rects.length - 1] : null;
       if (!r) return;
@@ -4548,6 +4634,9 @@
       <textarea class="c-input" rows="2" placeholder="Ta note…" aria-label="Ta note"></textarea>
       <div class="ac"><button class="btn q" data-act="doc"${word ? "" : " disabled"} data-tooltip="${word ? "Garder comme commentaire Word, avec ceux des relecteurs" : "Passe en vue Révision pour commenter"}">${ic("note", 14)}Annotation<kbd>⌘↵</kbd></button>
       <button class="btn p" data-act="chat" data-tooltip="Ajouter le passage et ta note à la boîte du chat">${ic("chat", 14)}Au chat<kbd>↵</kbd></button></div>`;
+    showNbox(rect);
+  }
+  function showNbox(rect: DOMRect) {
     nbox.classList.add("show");
     const h = nbox.offsetHeight, w = nbox.offsetWidth;
     const below = rect.bottom + 8;
@@ -4556,11 +4645,50 @@
     paintNotes();
     requestAnimationFrame(() => (nbox.querySelector("textarea") as HTMLTextAreaElement | null)?.focus({ preventScroll: true }));
   }
+  function openBubbleNote() {
+    const sl = getSelection();
+    const bub = readBubbleSel();
+    const c = bub ? commentMap.get(bub.cid) : undefined;
+    if (!sl || !bub || !c || !model) return;
+    const rect = sl.getRangeAt(0).getBoundingClientRect();
+    bubbar.classList.remove("show");
+    sl.removeAllRanges();
+    noting = { sel: null, segs: [], bub };
+    const n = /p(\d+)$/.exec(bubPara(c))?.[1];
+    nbox.innerHTML = `<div class="nb-src">${ic("chat", 12)}<span>Bulle de ${esc(firstName(c.author))}${n ? ` · ¶ ${n}` : ""} · « ${esc(clip(oneLine(bub.quote), 90))} »</span></div>
+      <textarea class="c-input" rows="2" placeholder="Ta note…" aria-label="Ta note"></textarea>
+      <div class="ac"><button class="btn q" data-act="doc" data-tooltip="Répondre dans ce fil en citant le passage">${ic("undo", 14)}Répondre<kbd>⌘↵</kbd></button>
+      <button class="btn p" data-act="chat" data-tooltip="Ajouter le passage et ta note à la boîte du chat">${ic("chat", 14)}Au chat<kbd>↵</kbd></button></div>`;
+    showNbox(rect);
+  }
   function commitNote(dest: "doc" | "chat") {
     if (!noting || !model) return;
     const ta = nbox.querySelector("textarea") as HTMLTextAreaElement;
     const note = ta.value.trim();
-    const { sel, segs } = noting;
+    const { sel, segs, bub } = noting;
+    if (bub) {
+      const c = commentMap.get(bub.cid);
+      const head = threadOf(bub.cid);
+      if (!c || !head) { closeNote(); return; }
+      if (dest === "doc") {
+        // Réponse dans le fil, signée de l'auteur, qui cite le passage visé.
+        if (!note) { ta.focus(); status("Écris ta note pour la réponse."); return; }
+        closeNote();
+        structural(async () => {
+          const ok = await sendOp({ op: "reply", parent: head.id, text: `« ${oneLine(bub.quote)} » : ${note}` });
+          if (ok) { renderCards(); status("Réponse ajoutée"); }
+        });
+        return;
+      }
+      const para = bubPara(c);
+      const text = `${PATH} (${para ? `${para}, ` : ""}bulle de ${firstName(c.author)}) : « ${bub.quote} »\nCommentaire : ${note || "(voir passage)"}`;
+      closeNote();
+      if (!toChatList.some((it) => it.text === text)) toChatList.push({ text, segs: [], bub: { ...bub } });
+      paintNotes();
+      toChat(text);
+      return;
+    }
+    if (!sel) return;
     if (dest === "doc") {
       if (view === "original") return;
       if (!note) { ta.focus(); status("Écris ta note pour l'annotation."); return; }
@@ -4706,6 +4834,16 @@
     paintSel();
     syncToolbar();
     const s = getSelection();
+    const bub = readBubbleSel();
+    if (bub && s) {
+      selbar.classList.remove("show");
+      const r = s.getRangeAt(0).getBoundingClientRect();
+      bubbar.classList.add("show");
+      bubbar.style.top = `${Math.max(8, r.top - bubbar.offsetHeight - 8)}px`;
+      bubbar.style.left = `${Math.max(8, Math.min(innerWidth - bubbar.offsetWidth - 8, r.left))}px`;
+      return;
+    }
+    bubbar.classList.remove("show");
     const sel = readSel();
     if (!s || !s.rangeCount || !sel || collapsed(sel) || !paper.contains(s.anchorNode)) { selbar.classList.remove("show"); return; }
     const r = s.getRangeAt(0).getBoundingClientRect();

@@ -6,6 +6,8 @@ export type AnnotationCard = {
   page: number | null;
   quote: string;
   comment: string;
+  /** Passage pris dans une bulle de commentaire Word : l'auteur du message. */
+  bubble?: string;
 };
 
 /** Decode the gallery's persisted text envelope only. Never rewrite provider input. */
@@ -15,7 +17,8 @@ export function annotationCards(text: string): { prompt: string; cards: Annotati
   // quoted passage and comment marker avoids interpreting ordinary prose.
   // Markdown may omit the location when its source line cannot be recovered.
   // Word (.docx) : le repère est le paragraphe (`p12`, `p12-p14`), montré « ¶ 12 ».
-  const header = /^([^\n]+\.(?:tex|pdf|md|markdown|docx))(?: \(((?:p\.)?L\d+(?:[-–]\d+)?|p\.\s*\d+|[a-z]*p\d+(?:-[a-z]*p\d+)?)\))? : « /gm;
+  // Un passage pris dans une bulle ajoute `bulle de <auteur>` : `(p12, bulle de Thierry)`.
+  const header = /^([^\n]+\.(?:tex|pdf|md|markdown|docx))(?: \((?:((?:p\.)?L\d+(?:[-–]\d+)?|p\.\s*\d+|[a-z]*p\d+(?:-[a-z]*p\d+)?)(?:, )?)?(?:bulle de ([^)\n]+))?\))? : « /gm;
   const matches = [...text.matchAll(header)];
   if (!matches.length) return { prompt: text, cards };
   for (let i = 0; i < matches.length; i++) {
@@ -35,6 +38,7 @@ export function annotationCards(text: string): { prompt: string; cards: Annotati
       page: location.startsWith('p.') ? Number(location.slice(2).trim()) : null,
       quote: body.slice(0, separator),
       comment: comment === '(voir passage)' ? '' : comment,
+      ...(match[3] && /\.docx$/i.test(match[1]) ? { bubble: match[3] } : {}),
     });
   }
   return { prompt: text.slice(0, matches[0].index).trimEnd(), cards };
