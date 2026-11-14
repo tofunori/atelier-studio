@@ -142,6 +142,50 @@ pub fn page_command(tool: &Path, pdf: &Path, page: u32, width: u16, out: &Path) 
     cmd
 }
 
+/// Page 1 d'un PDF gardé en mémoire (page PDF collée dans une image de
+/// Word, voir `atelier_docx::objects::pdf_in_emf`), en PNG de `width` px de
+/// large : `atelier-pdf page` dans un dossier temporaire, effacé ensuite.
+/// Au-delà de `timeout`, le rendu est arrêté.
+pub fn memory_page_png(tool: &Path, pdf: &[u8], width: u16, timeout: std::time::Duration) -> Result<Vec<u8>, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("atelier-pdfpage-{}-{stamp}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let result = (|| {
+        let (src, out) = (dir.join("page.pdf"), dir.join("page.png"));
+        std::fs::write(&src, pdf).map_err(|e| e.to_string())?;
+        let mut child = page_command(tool, &src, 1, width, &out)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("atelier-pdf : {e}"))?;
+        let started = std::time::Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if started.elapsed() < timeout => std::thread::sleep(std::time::Duration::from_millis(20)),
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("rendu de la page arrêté après {} s", timeout.as_secs()));
+                }
+            }
+        };
+        if !status.success() {
+            let mut problem = String::new();
+            if let Some(mut e) = child.stderr.take() {
+                let _ = std::io::Read::read_to_string(&mut e, &mut problem);
+            }
+            return Err(if problem.trim().is_empty() { "rendu de la page impossible".into() } else { problem.trim().to_string() });
+        }
+        std::fs::read(&out).map_err(|e| format!("rendu de la page : {e}"))
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
 fn poppler_path(bin: &str) -> PathBuf {
     // Claude Desktop lance ses serveurs avec un PATH réduit : Homebrew n'y
     // est pas.
@@ -281,6 +325,27 @@ mod tests {
             [Output::Text, Output::WordBoxes, Output::Reading].map(Output::subcommand),
             ["text", "bbox", "xml"]
         );
+    }
+
+    /// Faux `atelier-pdf` : `page <pdf> <n> <largeur> <png>` recopie le PDF
+    /// et ses arguments dans le PNG (ou échoue si le PDF dit « casse »).
+    #[cfg(unix)]
+    #[test]
+    fn a_pdf_held_in_memory_renders_its_first_page_then_leaves_no_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("atelier-pdf-fake-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let tool = dir.join("atelier-pdf");
+        std::fs::write(&tool, "#!/bin/sh\nif grep -q casse \"$2\"; then echo 'PDF illisible' >&2; exit 3; fi\n{ cat \"$2\"; echo \" $1 $3 $4\"; } > \"$5\"\n").unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let timeout = std::time::Duration::from_secs(10);
+        let png = memory_page_png(&tool, b"%PDF-1.4 ok", 900, timeout).unwrap();
+        assert_eq!(String::from_utf8(png).unwrap(), "%PDF-1.4 ok page 1 900\n");
+        let err = memory_page_png(&tool, b"%PDF-1.4 casse", 900, timeout).unwrap_err();
+        assert_eq!(err, "PDF illisible");
+        let left = std::fs::read_dir(std::env::temp_dir()).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with(&format!("atelier-pdfpage-{}-", std::process::id()))).count();
+        assert_eq!(left, 0, "dossiers temporaires effacés");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
