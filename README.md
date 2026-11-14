@@ -4,7 +4,7 @@
 
 ### Your thesis, in one workspace.
 
-Atelier is a native macOS workspace for scientific research, built for master’s students, PhD candidates, and researchers. Bring your literature, analysis scripts, figures, and thesis chapters together, with AI assistance in context.
+Atelier is a native macOS workspace for scientific research, built for master’s students, PhD candidates, and researchers. Bring your literature, analysis scripts, figures, and thesis chapters together, in LaTeX or Word, with AI assistance in context.
 
 [Download for Mac](https://github.com/tofunori/atelier-studio/releases/latest) · [Release notes](https://github.com/tofunori/atelier-studio/releases) · [Installation](#installation) · [Website](https://tofunori.github.io/atelier-studio/)
 
@@ -18,7 +18,7 @@ Atelier is a native macOS workspace for scientific research, built for master’
 
 **Develop the analysis.** Work on scripts, use the terminal, and inspect outputs in the figure gallery. Mark a region and draft precise feedback for the next revision.
 
-**Write and revise.** Edit thesis chapters and scientific manuscripts in LaTeX or Markdown. Read rendered prose and equations, and work through revisions with Claude Code or Codex.
+**Write and revise.** Edit thesis chapters and scientific manuscripts in LaTeX, Word, or Markdown. Read rendered prose and equations, answer your co-authors' comments, and work through revisions with Claude Code or Codex.
 
 <details>
 <summary>Watch the workspace tour</summary>
@@ -28,6 +28,14 @@ Atelier is a native macOS workspace for scientific research, built for master’
 [Download the MP4 tour](docs/media/public/atelier-tour.mp4). Conversations and figures are synthetic. The PDF reader shows the original open-access article credited below.
 
 </details>
+
+## Word manuscripts, with their review intact
+
+Open a `.docx` beside the conversation and it stays a Word document: real pages and line numbers, tracked changes, comment threads, equations, images, and charts pasted from Excel. Type, accept or decline changes, sort them by kind, and reply in the margin. The agent reads the document, including its figures, and can comment or propose tracked edits signed with your name, so your co-authors see a single author. Save each round as a new version without overwriting the one you received, or open a read-only copy in Microsoft Word to check its rendering.
+
+![A fictional manuscript in the Word editor, with a co-author's tracked changes and comments beside a conversation that drafts the replies](docs/media/public/word.png)
+
+PDFs get the same comment margin. When you are done, Atelier writes a corrected copy next to the original, with the comments printed in the margin, readable in any PDF reader.
 
 ## Papers, analysis, and writing side by side
 
@@ -82,7 +90,7 @@ Atelier needs macOS 12.3 or later on Apple Silicon. It includes its own backend,
 
 Atelier keeps conversations and project tools close to the files you work on. Context sent to an agent is processed by the provider you choose; a local workspace does not make a cloud model local. Features such as steering and permissions depend on the provider and installed CLI version.
 
-PDF highlights and notes are kept in Atelier's own data rather than burned into the original PDF.
+PDF highlights and notes are kept in Atelier's own data rather than burned into the original PDF; a corrected copy is written alongside only when you ask for one. Word edits are saved in the `.docx` itself, with a version history kept by Atelier.
 
 <details>
 <summary>Development and architecture</summary>

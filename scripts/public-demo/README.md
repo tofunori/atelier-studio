@@ -14,6 +14,10 @@ The React harness is outside `src/` and is not imported by the packaged desktop 
 
 The gallery contains 12 synthetic figures: time series, distributions, a scatter plot, a correlation matrix, grouped violins, an uncertainty band, a cumulative curve, residuals, a frequency spectrum, and a seasonal comparison. The supplementary figures use seed 42. The main four-panel regression figure uses seed 2026 and 240 synthetic observations. Its fitted mean, coefficient intervals, in-sample agreement, and residuals come from the same model. Gaussian noise is known by construction; intervals are calculated from that model, not drawn by hand. `research_figure.py` generates the main PNG/PDF and is copied into the fictional editor as `analysis.py`.
 
+The Word view opens `manuscript.docx`, written by `word_fixture.py`: a fictional manuscript returned by a fictional co-author (Sam Rivera) with five tracked changes, three comment threads (one answered by the fictional author, Jordan Lee), an equation and a figure. Its conversation drafts replies without any agent connection.
+
+To refresh only some stills, set `CAPTURE_SCENES` (for example `CAPTURE_SCENES=word`); the tour is then skipped and the other manifest entries are kept. `PW_CHROMIUM` points Playwright to another Chromium build.
+
 The tour also draws a region on a figure and enters an annotation draft, then opens the fictional manuscript in the production LaTeX reading view. The draft is shown before sending; no agent or simulated delivery acknowledgement is used.
 
 The PDF reader preview uses the original publisher PDF of Bürkner (2017), *brms: An R Package for Bayesian Multilevel Models Using Stan*. It is copied into `.fig_thumbs/` to remain separate from the twelve indexed figures. See [source and license](papers/README.md). The overview and theme previews retain the synthetic figure; the tour opens the real article as a distinct PDF tab.
