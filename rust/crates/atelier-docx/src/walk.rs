@@ -151,6 +151,8 @@ pub struct Media {
     /// Recadrage de Word (`a:srcRect`) : fractions retirées à gauche, en
     /// haut, à droite et en bas.
     pub crop: Option<[f64; 4]>,
+    /// Graphique d'Excel (`c:chart`) plutôt qu'une image.
+    pub chart: bool,
 }
 
 #[derive(Default)]
@@ -552,6 +554,7 @@ fn media_of(node: Node) -> Option<Media> {
         .descendants()
         .find(|n| n.tag_name().name() == "chart" && n.tag_name().namespace() == Some(crate::chart::NS))
         .and_then(|b| b.attribute((rel_ns, "id")));
+    let is_chart = blip.is_none() && vml.is_none() && chart.is_some();
     let rel = blip.or(vml).or(chart)?.to_string();
     let (mut cx, mut cy) = (0, 0);
     if let Some(ext) = node.descendants().find(|n| n.tag_name().name() == "extent") {
@@ -573,7 +576,7 @@ fn media_of(node: Node) -> Option<Media> {
         let c = [frac("l"), frac("t"), frac("r"), frac("b")].map(|v| v.unwrap_or(0.0));
         c.iter().any(|v| *v != 0.0).then_some(c)
     });
-    Some(Media { rel, cx, cy, descr, crop })
+    Some(Media { rel, cx, cy, descr, crop, chart: is_chart })
 }
 
 fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fmt: Fmt, run: Option<(usize, usize)>) {

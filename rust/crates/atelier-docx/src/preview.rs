@@ -149,6 +149,7 @@ mod tests {
             height: None,
             alt: None,
             crop: None,
+            chart: false,
             latex: None,
             display: false,
         }

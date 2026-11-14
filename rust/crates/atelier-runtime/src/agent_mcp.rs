@@ -265,6 +265,17 @@ fn refus_inedit(cause: &str) -> bool {
 }
 
 /// Resolve path to `atelier-agent-mcp` binary.
+/// Empreinte du serveur MCP d'Atelier (taille et date de l'exécutable) :
+/// elle change à chaque nouvelle build. Une conversation reprise sous une
+/// autre empreinte garde dans son historique d'anciennes fiches d'outils ;
+/// `send` l'en prévient une fois (2026-11-14 : un fil ouvert avant la build
+/// de `withdraw_comment` répétait « je ne peux pas supprimer de bulle »).
+pub fn tools_stamp(server_dir: &str) -> Option<String> {
+    let meta = std::fs::metadata(resolve_mcp_binary(server_dir)).ok()?;
+    let secs = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    Some(format!("{}-{secs}", meta.len()))
+}
+
 pub fn resolve_mcp_binary(server_dir: &str) -> PathBuf {
     if let Ok(p) = std::env::var("ATELIER_AGENT_MCP_BIN") {
         let pb = PathBuf::from(p);

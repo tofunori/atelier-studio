@@ -290,8 +290,10 @@ fn with_docx_instruction(prompt: String, provider: &str) -> String {
     }
     format!(
         "{prompt}\n\n<atelier-docx>\nFor any .docx, use the MCP tool `atelier_docx` (action=read first). \
-To check its figures, charts or equations pasted as images, look at them with action=images (never \
-judge a figure from its alt text). Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
+Its figures are all visible to you: action=images renders them as on the page, Excel charts \
+and Windows EMF/WMF pictures included. Look at them before discussing or grading a figure, a chart or an \
+equation pasted as an image; never judge one from its alt text, never extract it from the package by \
+hand, and never say you cannot see it. Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
 supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \
 signed with your name; only the user accepts or rejects them. Your own comments and the user's \
 you fix (edit_comment) or remove (withdraw_comment) yourself: never add a second version, never \
@@ -312,6 +314,20 @@ fn with_pdf_pages_instruction(prompt: String, provider: &str) -> String {
     format!(
         "{prompt}\n\n<atelier-pdf>\nTo check a PDF's figures, tables or equations, look at its pages with the MCP \
 tool `atelier_annotate` (action=pages, page, to): never judge a figure from the extracted text alone.\n</atelier-pdf>"
+    )
+}
+
+/// Atelier mis à jour depuis le tour précédent de cette conversation : les
+/// fiches d'outils déjà lues peuvent manquer des actions. `stamp_before`
+/// absent = fil d'avant ce suivi, qu'on prévient aussi une fois.
+fn with_tools_updated_notice(prompt: String, resumed: bool, stamp_before: Option<&str>, stamp_now: Option<&str>) -> String {
+    if !resumed || stamp_now.is_none() || stamp_before == stamp_now {
+        return prompt;
+    }
+    format!(
+        "{prompt}\n\n<atelier-tools-updated>\nAtelier was updated since earlier in this conversation: its MCP tools \
+(atelier_docx, atelier_annotate, atelier_python…) may have new actions. A tool schema or description you saw \
+earlier may be outdated: reload it before saying something is impossible, and trust the current one.\n</atelier-tools-updated>"
     )
 }
 
@@ -1549,6 +1565,15 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     };
     let provider_prompt = with_docx_instruction(provider_prompt, &provider);
     let provider_prompt = with_pdf_pages_instruction(provider_prompt, &provider);
+    let turn_tools_stamp = crate::agent_mcp::should_launch_mcp(&provider)
+        .then(|| crate::agent_mcp::tools_stamp(state.server_dir()))
+        .flatten();
+    let provider_prompt = with_tools_updated_notice(
+        provider_prompt,
+        prev_session.is_some(),
+        previous.as_ref().and_then(|t| t.extra.get("mcpToolsStamp")).and_then(Value::as_str),
+        turn_tools_stamp.as_deref(),
+    );
     // Spécialistes (plan specialistes-2026-10-18) : l'agent doit savoir ce
     // que l'utilisateur appelle « spécialiste » et lesquels existent. Même
     // cadence que le bloc KB : premier tour de la session, puis seulement
@@ -2358,6 +2383,9 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
                 let mut patch = json!({"id": tid, "status": "idle",
                     "blocksSeededFor": sid, "kbBlockHash": turn_kb_hash,
                     "specialistesHash": turn_specialists_hash});
+                if turn_tools_stamp.is_some() {
+                    patch["mcpToolsStamp"] = json!(turn_tools_stamp);
+                }
                 let avant = if prev_session.as_deref() == Some(sid.as_str()) {
                     memoires_avant.clone()
                 } else {
@@ -3965,8 +3993,21 @@ mod tests {
         assert!(enriched.contains("withdraw_comment") && enriched.contains("never \
 ask the user to delete one"), "l'agent retire lui-même ses bulles");
         assert!(enriched.contains("action=images"), "l'agent regarde les figures au lieu de deviner");
+        assert!(enriched.contains("Excel charts") && enriched.contains("EMF/WMF"), "graphiques et images Windows comprises");
+        assert!(enriched.contains("never say you cannot see it"), "pas de « je ne vois pas ce graphique »");
         assert_eq!(with_docx_instruction("relis mon intro".into(), "claude"), "relis mon intro");
         assert_eq!(with_docx_instruction("a.docx".into(), "openrouter"), "a.docx");
+    }
+
+    #[test]
+    fn a_resumed_conversation_learns_once_that_the_tools_changed() {
+        let notice = |resumed, before, now| with_tools_updated_notice("x".into(), resumed, before, now);
+        assert!(notice(true, Some("1-2"), Some("3-4")).contains("<atelier-tools-updated>"));
+        // Fil d'avant ce suivi : prévenu une fois aussi.
+        assert!(notice(true, None, Some("3-4")).contains("reload it"));
+        assert_eq!(notice(true, Some("3-4"), Some("3-4")), "x", "même build : rien");
+        assert_eq!(notice(false, None, Some("3-4")), "x", "conversation neuve : rien");
+        assert_eq!(notice(true, Some("1-2"), None), "x", "sans serveur MCP : rien");
     }
 
     #[test]

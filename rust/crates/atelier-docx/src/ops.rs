@@ -6,7 +6,7 @@
 
 use crate::format::{self, ParaProps, RunProps};
 use crate::review::{self, Decision};
-use crate::model::DocModel;
+use crate::model::{DocModel, Segment};
 use crate::{Docx, Result, Signature, comments, edit, err, structure};
 use std::fmt::Write as _;
 use serde::Deserialize;
@@ -303,7 +303,10 @@ fn para_line(p: &crate::model::Para) -> String {
                 (Some("note"), Some(k)) => format!("{{note {k} : n{}}}", s.text),
                 (Some("note de fin"), Some(k)) => format!("{{note de fin {k} : e{}}}", s.text),
                 // Figure : son texte de remplacement ; `images` la montre telle que la page.
-                (Some("image"), _) if s.media.is_some() => format!("{{image : {}}}", s.alt.as_deref().unwrap_or("sans texte de remplacement")),
+                (Some("image"), _) if s.media.is_some() => {
+                    let what = if s.chart { "graphique Excel" } else { "image" };
+                    format!("{{{what} : {}}}", s.alt.as_deref().unwrap_or("sans texte de remplacement"))
+                }
                 (l, _) => format!("{{{} : {}}}", l.unwrap_or("objet"), s.text),
             },
             _ => s.text.clone(),
@@ -343,7 +346,19 @@ pub fn outline(model: &DocModel, from: usize, to: Option<usize>, max_chars: usiz
     let to = to.unwrap_or(n).min(n);
     let by_author: Vec<String> = model.authors.iter().map(|a| format!("{} ({} suivis, {} commentaires)", a.name, a.changes, a.comments)).collect();
     let _ = writeln!(out, "Document : {n} paragraphes, {} suivis, {} commentaires. Auteurs : {}.", model.changes.len(), model.comments.len(), if by_author.is_empty() { "aucun".into() } else { by_author.join(", ") });
-    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation : …}} et {{objet : …}} non retouchables ; {{image : …}} se voit avec l'action images.\n");
+    // Figures (corps, notes, en-têtes) : l'agent les regarde au lieu de
+    // conclure, d'après un texte de remplacement, qu'il ne peut pas les voir.
+    let figures: Vec<&Segment> = model.all_paragraphs().flat_map(|p| p.segments.iter().filter(|s| s.media.is_some())).collect();
+    if !figures.is_empty() {
+        let charts = figures.iter().filter(|s| s.chart).count();
+        let dont = if charts > 0 { format!(", dont {charts} graphique{} Excel", if charts > 1 { "s" } else { "" }) } else { String::new() };
+        let _ = writeln!(
+            out,
+            "Figures : {}{dont}. Tu peux les voir telles que sur la page avec l'action images : regarde-les avant d'en parler, ne dis jamais que tu ne peux pas voir une figure ou un graphique.",
+            figures.len()
+        );
+    }
+    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation : …}} et {{objet : …}} non retouchables ; {{image : …}} et {{graphique Excel : …}} se voient avec l'action images.\n");
     let mut shown = 0;
     let mut cut_at = None;
     for p in model.paragraphs.iter().take(to).skip(from) {
