@@ -274,7 +274,9 @@ impl Session {
         if let Some(e) = self.error.take() {
             return Err(DocxError(format!("{RESET}{e}")));
         }
-        if expected.is_some_and(|e| e != self.rev) {
+        // Révision dépassée : conflit, sauf pour une retouche qui vise
+        // toujours le même commentaire ou suivi (voir [`ops::still_aimed`]).
+        if expected.is_some_and(|e| e != self.rev) && !ops::still_aimed(&self.model, raw) {
             return err(CONFLICT);
         }
         let op: Op = serde_json::from_value(raw.clone()).map_err(|e| DocxError(format!("retouche illisible : {e}")))?;

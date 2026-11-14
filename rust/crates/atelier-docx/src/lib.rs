@@ -361,7 +361,7 @@ impl Docx {
     }
 }
 
-pub(crate) const CONFLICT: &str = "conflit : le document a changé depuis (Word, l'agent ou un autre onglet) ; recharger puis refaire la retouche";
+pub const CONFLICT: &str = "conflit : le document a changé depuis (Word, l'agent ou un autre onglet) ; recharger puis refaire la retouche";
 const OPEN_IN_WORD: &str = "Word a ce document ouvert : ferme-le dans Word avant de le retoucher ici (Word écraserait ces retouches à son prochain enregistrement). Si Word est déjà fermé, supprime le fichier « ~$… » resté à côté du document.";
 
 impl DocxError {

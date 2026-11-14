@@ -70,6 +70,36 @@ fn la_fin_de_seance_reste_quand_word_remplace_le_document() {
     assert_eq!(st.milestones.len(), 1);
 }
 
+/// 2026-11-14 : quand un programme remplaçait le document, les pas
+/// d'Atelier d'avant étaient retirés de la pile ET leurs versions effacées ;
+/// seul le dernier état restait. Une résolution suivie d'une autre retouche
+/// ne se retrouvait plus nulle part. Les pas sortis vont dans l'archive,
+/// leurs versions restent sur le disque.
+#[test]
+fn les_pas_d_avant_un_remplacement_gardent_leurs_versions() {
+    let (_d, path) = temp_doc(&build("christophe"));
+    let resolu = edit(&path, json!({"op": "resolve", "id": 1, "done": true}));
+    let ensuite = edit(&path, json!({"op": "accept", "id": 102}));
+    // Un autre programme réécrit le fichier (même contenu, autre empreinte).
+    std::fs::write(&path, word_round(2)).unwrap();
+    edit(&path, json!({"op": "reject", "id": 101}));
+
+    let j = history::load(&path);
+    assert!(j.archive.iter().any(|s| s.after == resolu), "le pas « résolution » est archivé : {:?}", j.archive);
+    assert!(j.archive.iter().any(|s| s.after == ensuite));
+    let gardee = history::dir_for(&path).join(format!("{resolu}.docx"));
+    let mut d = Docx::from_bytes(std::fs::read(&gardee).expect("la version résolue reste sur le disque")).unwrap();
+    assert!(d.model().unwrap().comments.iter().find(|c| c.id == 1).unwrap().done);
+
+    // Annuler puis retoucher : le pas « rétablir » écrasé est archivé aussi.
+    let (_d2, p2) = temp_doc(&build("christophe"));
+    let r1 = edit(&p2, json!({"op": "resolve", "id": 1, "done": true}));
+    let cur = Docx::open(&p2).unwrap().revision();
+    history::undo(&p2, &cur, false).unwrap();
+    edit(&p2, json!({"op": "accept", "id": 102}));
+    assert!(history::dir_for(&p2).join(format!("{r1}.docx")).is_file(), "la version annulée puis écrasée reste");
+}
+
 #[test]
 fn toutes_les_versions_recues_sont_gardees() {
     let original = build("christophe");
