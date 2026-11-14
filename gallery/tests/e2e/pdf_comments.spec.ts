@@ -60,7 +60,13 @@ test('copie de TP : commentaire du fichier repris en carte, modifié, copie corr
     await cards.first().click();
     await expect(page.locator('#annPane .cc.on .qt')).toContainText('Conductivite');
     await page.locator('#annPane .cc.on .tx.mine').click();
-    await page.locator('#annPane .cc.on textarea.c-edit').fill('Unité manquante : 794 mm w.e. par an.');
+    // focusCard place le curseur en fin de texte au cadre suivant : attendre qu'il l'ait fait,
+    // sinon fill sélectionne tout puis le curseur repart à la fin et le texte s'ajoute.
+    const editBox = page.locator('#annPane .cc.on textarea.c-edit');
+    await expect(editBox).toBeFocused();
+    await expect(editBox).toHaveValue('Unite manquante : 794 mm w.e.');
+    await editBox.fill('Unité manquante : 794 mm w.e. par an.');
+    await expect(editBox).toHaveValue('Unité manquante : 794 mm w.e. par an.');
     await page.keyboard.press('Enter');
     await expect.poll(async () => (await store())[0].memo).toBe('Unité manquante : 794 mm w.e. par an.');
     expect((await store())[0].author).toBe('Thierry Laurent');
