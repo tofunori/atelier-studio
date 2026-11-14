@@ -228,8 +228,8 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 16] = [
-    "read", "edit", "insert_paragraph", "join", "split", "comment", "edit_comment", "withdraw_comment", "reply", "draft_reply", "checked", "format",
+const DOCX_ACTIONS: [&str; 17] = [
+    "read", "images", "edit", "insert_paragraph", "join", "split", "comment", "edit_comment", "withdraw_comment", "reply", "draft_reply", "checked", "format",
     "insert_note", "insert_figure", "insert_row", "delete_row",
 ];
 
@@ -241,21 +241,23 @@ pub fn docx_tool_definition() -> Value {
         "name": DOCX_TOOL_NAME,
         "description": "Read and edit a project Word .docx WITHOUT breaking it (never unzip or rewrite it \
     yourself). read: paragraphs p0…, footnotes n1.p0…, header1.p0…, tracked changes [+ins+]#id \
-    [-del-]#id, comments c1…. Writes are tracked changes or comments signed with the user's name; only \
-    the user accepts or rejects. find = exact current text (add paragraph or occurrence if ambiguous). \
-    insert_note / insert_figure go after find. insert_row / delete_row: row of a cell's paragraph. \
-    join: p8 into p7. split: new paragraph after find. Your or the user's comment: fix it with \
-    edit_comment (no second one), remove it with withdraw_comment, never ask the user to. \
-    draft_reply: a card draft the user sends; prefer it to reply for a reviewer. checked: check done.",
+    [-del-]#id, comments c1…. images: see its figures and Excel charts as on the page (to check them). \
+    Writes are tracked changes or comments signed with the user's name; only the user accepts or \
+    rejects. find = exact current text (add paragraph or occurrence if ambiguous). insert_note / \
+    insert_figure go after find. insert_row / delete_row: row of a cell's paragraph. join: p8 into p7. \
+    split: new paragraph after find. Your or the user's comment: fix it with edit_comment, remove it \
+    with withdraw_comment, never ask the user to. draft_reply: a card draft the user sends; prefer it \
+    for a reviewer. checked: check done.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
             "properties": {
                 "action": { "type": "string", "enum": DOCX_ACTIONS },
                 "path": { "type": "string", "description": "Path of the .docx, relative to the project or absolute" },
-                "from": { "type": "integer", "description": "read: first paragraph number" },
-                "to": { "type": "integer", "description": "read: last paragraph number" },
-                "paragraph": { "type": "string", "description": "p12 (from read); optional for edit/comment/format/split when find is unique; join: the second paragraph (p8 joins p7)" },
+                "from": { "type": "integer", "description": "read / images: first paragraph number" },
+                "to": { "type": "integer", "description": "read / images: last paragraph number" },
+                "start": { "type": "integer", "description": "images: resume at figure N (4 per call)" },
+                "paragraph": { "type": "string", "description": "p12 (from read); images: only this paragraph's figures; optional for edit/comment/format/split when find is unique; join: the second paragraph (p8 joins p7)" },
                 "find": { "type": "string", "description": "Exact current text to replace, comment or format; split: text just before the cut" },
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
                 "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
