@@ -239,15 +239,14 @@ const DOCX_ACTIONS: [&str; 16] = [
 pub fn docx_tool_definition() -> Value {
     json!({
         "name": DOCX_TOOL_NAME,
-        "description": "Read and edit a Word .docx of the project WITHOUT breaking it for Word (never unzip \
-    or rewrite it yourself). read: paragraphs p0…, then footnotes n1.p0… and header1.p0…, tracked \
-    changes [+ins+]#id [-del-]#id, comments c1…. Every write is a tracked change or comment signed \
-    with the user's name; only the user accepts or rejects. find = exact current text (add paragraph \
-    or occurrence if ambiguous). insert_note / insert_figure go after find. insert_row / delete_row: row of paragraph (a cell). \
-    join: merge paragraph into the one before (p8 → p7). split: new paragraph right after find. \
-    Fix a comment (yours or the user's) with edit_comment, not a second one. \
-    draft_reply: a card draft (not in the file) the user sends; prefer it to reply for a reviewer. \
-    checked: a comment check is done.",
+        "description": "Read and edit a project Word .docx WITHOUT breaking it (never unzip or rewrite it \
+    yourself). read: paragraphs p0…, footnotes n1.p0…, header1.p0…, tracked changes [+ins+]#id \
+    [-del-]#id, comments c1…. Writes are tracked changes or comments signed with the user's name; only \
+    the user accepts or rejects. find = exact current text (add paragraph or occurrence if ambiguous). \
+    insert_note / insert_figure go after find. insert_row / delete_row: row of a cell's paragraph. \
+    join: p8 into p7. split: new paragraph after find. Your or the user's comment: fix it with \
+    edit_comment (no second one), remove it with withdraw_comment, never ask the user to. \
+    draft_reply: a card draft the user sends; prefer it to reply for a reviewer. checked: check done.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -320,7 +319,7 @@ const ANNOTATE_ACTIONS: [&str; 5] = ["note", "reply", "list", "assess", "remove"
 pub fn annotate_tool_definition() -> Value {
     json!({
         "name": ANNOTATE_TOOL_NAME,
-        "description": "Leave review notes on a passage, shown in place in Atelier like comments in a \
+        "description": "Leave your own review notes on a passage, shown in place in Atelier like comments in a \
     shared document: in a text file opened in the LaTeX editor (.tex) or in a PDF (compiled thesis, project PDF, \
     Zotero article). Use it when the user asks you to annotate, comment, review or explain passages. NEVER edits the \
     file. note: quote = passage copied verbatim, comment = your note in the user's language; optional text = \
@@ -328,8 +327,7 @@ pub fn annotate_tool_definition() -> Value {
     text?, line?, page?}]. reply: answer in the thread of one of your notes or of a reviewer comment imported from \
     Word (id), optional suggestion = rewrite. assess: on a reviewer comment whose passage changed, settled = true \
     if the user's edit already answers it, reason = one sentence; the user confirms. list: your notes and the \
-    reviewer comments under discussion. remove: your own notes only. In a project PDF your notes \
-    are signed with the user's name.",
+    reviewer comments under discussion. remove: your own notes only.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
