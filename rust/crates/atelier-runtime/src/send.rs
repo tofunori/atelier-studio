@@ -290,8 +290,10 @@ fn with_docx_instruction(prompt: String, provider: &str) -> String {
     }
     format!(
         "{prompt}\n\n<atelier-docx>\nFor any .docx, use the MCP tool `atelier_docx` (action=read first). \
-Its figures are all visible to you: action=images renders them as on the page, Excel charts \
-and Windows EMF/WMF pictures included. Look at them before discussing or grading a figure, a chart or an \
+Its figures are all visible to you: action=images renders them as on the page, Excel charts, \
+Windows EMF/WMF pictures and the text boxes and shapes the author laid over a figure included \
+(a text box often holds the author's own values on top of a diagram; read shows its text as \
+{{zone de texte : …}}). Look at them before discussing or grading a figure, a chart or an \
 equation pasted as an image; never judge one from its alt text, never extract it from the package by \
 hand, and never say you cannot see it. Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
 supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \

@@ -2,6 +2,7 @@
 
 use crate::story::{ENDNOTES, FOOTNOTES, Scope};
 use crate::layout::{Look, Page, Styles};
+use crate::shapes::{self, Shape};
 use crate::walk::{self, Fmt, Kind};
 use crate::xml::{self, R, W, W14, W15, id_of, is_w, w_attr, w_child};
 use crate::{COMMENTS, COMMENTS_EXT, Docx, Result};
@@ -77,6 +78,10 @@ pub struct Para {
     pub segments: Vec<Segment>,
     /// Apparence résolue (styles, valeurs par défaut, propriétés directes).
     pub look: Look,
+    /// Zones de texte et formes dessinées ancrées à ce paragraphe (lecture
+    /// seule : elles se modifient dans Word).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shapes: Vec<Shape>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -142,6 +147,9 @@ pub struct Segment {
     /// Équation en display (seule sur sa ligne, centrée).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub display: bool,
+    /// Objet qui est un dessin : son rang dans `Para::shapes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shape: Option<usize>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -276,6 +284,7 @@ fn seg_of(p: &walk::Piece) -> Segment {
         chart: p.media.as_ref().is_some_and(|m| m.chart),
         latex: p.math.clone(),
         display: p.math_display,
+        shape: None,
     }
 }
 
@@ -290,7 +299,8 @@ struct Acc {
 }
 
 /// Paragraphes d'une histoire (corps, note, en-tête), suivis compris.
-fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix: &str, levels: &HashMap<String, u8>, styles: &Styles, acc: &mut Acc) -> Result<Vec<Para>> {
+fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix: &str, levels: &HashMap<String, u8>, draw: &shapes::Cx, acc: &mut Acc) -> Result<Vec<Para>> {
+    let styles = draw.styles;
     let Some(root) = crate::story::container(doc, scope) else { return Ok(Vec::new()) };
     // Le corps compte aussi les suivis de sections (sectPr hors de body).
     let scan = if *scope == Scope::Body { doc.root_element() } else { root };
@@ -359,9 +369,19 @@ fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix:
             && let Some(&i) = acc.by_id.get(&rid) {
                 acc.changes[i].paragraph.get_or_insert_with(|| id.clone());
             }
+        // Dessins lus d'abord : un dessin dans le fil du texte coupe le
+        // segment là où il est ancré.
+        let mut drawn: Vec<(Shape, usize, bool)> = Vec::new();
+        for d in inline.drawings.iter().filter(|d| !d.removed) {
+            if let Some(shape) = doc.get_node(d.node).and_then(|n| shapes::read(n, draw, pref.cell.is_some())) {
+                drawn.push((shape, d.piece, d.own));
+            }
+        }
         let mut text = String::new();
         let mut segments: Vec<Segment> = Vec::new();
-        for piece in &inline.pieces {
+        // Segment de chaque morceau.
+        let mut seg_at: Vec<usize> = Vec::with_capacity(inline.pieces.len());
+        for (pi, piece) in inline.pieces.iter().enumerate() {
             if let Some((_, rid)) = piece.rev
                 && let Some(&i) = acc.by_id.get(&rid) {
                     acc.changes[i].text.push_str(&piece.text);
@@ -381,12 +401,23 @@ fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix:
                 if seg.size.is_none() { seg.size = cs.size; }
                 if seg.font.is_none() { seg.font = cs.font; }
             }
+            let cut = drawn.iter().any(|(s, at, own)| *at == pi && !own && !s.floats());
             match segments.last_mut() {
-                Some(last) if last.kind == "text" && seg.kind == "text" && Segment { text: String::new(), ..last.clone() } == Segment { text: String::new(), ..seg.clone() } => {
+                Some(last) if !cut && last.kind == "text" && seg.kind == "text" && Segment { text: String::new(), ..last.clone() } == Segment { text: String::new(), ..seg.clone() } => {
                     last.text.push_str(&seg.text)
                 }
                 _ => segments.push(seg),
             }
+            seg_at.push(segments.len() - 1);
+        }
+        let mut shapes: Vec<Shape> = Vec::new();
+        for (mut shape, at, own) in drawn {
+            let seg = seg_at.get(at).copied().unwrap_or(segments.len());
+            shape.seg = Some(seg);
+            if own && let Some(s) = segments.get_mut(seg) {
+                s.shape = Some(shapes.len());
+            }
+            shapes.push(shape);
         }
         for c in inline.comment_starts.iter().chain(&inline.comment_refs) {
             acc.anchors.entry(*c).or_insert_with(|| id.clone());
@@ -408,6 +439,7 @@ fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix:
             text,
             segments,
             look: styles.paragraph(p),
+            shapes,
         });
     }
     // Espacement contextuel : rien entre deux paragraphes du même style.
@@ -433,7 +465,10 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
     // Chaque partie n'est analysée qu'une fois : c'est l'essentiel du coût.
     let body_doc = xml::parse(&src)?;
     let mut acc = Acc::default();
-    let mut paragraphs = story_paragraphs(&src, &body_doc, &Scope::Body, "", &levels, &looks, &mut acc)?;
+    let page = crate::layout::page_in(&body_doc, &looks);
+    let palette = shapes::Palette::read(theme.as_deref());
+    let draw = shapes::Cx { styles: &looks, palette: &palette, page: page.as_ref() };
+    let mut paragraphs = story_paragraphs(&src, &body_doc, &Scope::Body, "", &levels, &draw, &mut acc)?;
 
     // Notes, numérotées dans l'ordre de leurs appels dans le corps.
     let mut notes = Vec::new();
@@ -460,7 +495,7 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
         ids.sort_by_key(|id| order.iter().position(|x| x == id).unwrap_or(usize::MAX));
         for id in ids {
             let prefix = format!("{letter}{id}.");
-            let paras = story_paragraphs(&nsrc, &ndoc, &Scope::Note(tag, id), &prefix, &levels, &looks, &mut acc)?;
+            let paras = story_paragraphs(&nsrc, &ndoc, &Scope::Note(tag, id), &prefix, &levels, &draw, &mut acc)?;
             let number = order.iter().position(|x| *x == id).map(|i| i + 1);
             notes.push(Note { id: format!("{letter}{id}"), kind: tag, number, paragraphs: paras });
         }
@@ -494,7 +529,7 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
         let part = format!("word/{name}.xml");
         let Some(hsrc) = docx.part(&part)? else { continue };
         let hdoc = xml::parse(&hsrc)?;
-        let paras = story_paragraphs(&hsrc, &hdoc, &Scope::Root, &format!("{name}."), &levels, &looks, &mut acc)?;
+        let paras = story_paragraphs(&hsrc, &hdoc, &Scope::Root, &format!("{name}."), &levels, &draw, &mut acc)?;
         headers.push(HeaderFooter { id: name, kind, which, paragraphs: paras });
     }
 
@@ -521,7 +556,6 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
         }
     }
 
-    let page = crate::layout::page_in(&body_doc, &looks);
     Ok(DocModel {
         revision: docx.revision(),
         page,

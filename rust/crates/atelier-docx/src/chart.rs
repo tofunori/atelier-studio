@@ -143,7 +143,7 @@ fn labels(n: Node) -> Vec<String> {
 
 /// Couleurs et police du thème (Office 2013-2022 par défaut).
 #[derive(Clone)]
-struct Theme {
+pub(crate) struct Theme {
     /// dk1, lt1, dk2, lt2, accent1 à accent6, hlink.
     colors: [String; 11],
     font: String,
@@ -157,7 +157,7 @@ impl Default for Theme {
 }
 
 impl Theme {
-    fn read(xml: &[u8]) -> Option<Theme> {
+    pub(crate) fn read(xml: &[u8]) -> Option<Theme> {
         let text = std::str::from_utf8(xml).ok()?;
         let doc = Document::parse_with_options(text, roxmltree::ParsingOptions { allow_dtd: false, ..Default::default() }).ok()?;
         let mut t = Theme::default();
@@ -188,28 +188,41 @@ fn accent(i: usize) -> String {
     THEME.with(|t| t.borrow().colors[4 + i % 6].clone())
 }
 
+impl Theme {
+    /// Couleur `RRGGBB` d'un nom du thème (`accent6`, `tx1`, `bg1`…).
+    pub(crate) fn scheme_color(&self, name: &str) -> String {
+        let i = match name {
+            "tx1" | "dk1" => 0,
+            "bg1" | "lt1" => 1,
+            "tx2" | "dk2" => 2,
+            "bg2" | "lt2" => 3,
+            "accent1" => 4,
+            "accent2" => 5,
+            "accent3" => 6,
+            "accent4" => 7,
+            "accent5" => 8,
+            "accent6" => 9,
+            "hlink" | "folHlink" => 10,
+            _ => 0,
+        };
+        self.colors[i].clone()
+    }
+}
+
 fn scheme(name: &str) -> String {
-    let i = match name {
-        "tx1" | "dk1" => 0,
-        "bg1" | "lt1" => 1,
-        "tx2" | "dk2" => 2,
-        "bg2" | "lt2" => 3,
-        "accent1" => 4,
-        "accent2" => 5,
-        "accent3" => 6,
-        "accent4" => 7,
-        "accent5" => 8,
-        "accent6" => 9,
-        "hlink" | "folHlink" => 10,
-        _ => 0,
-    };
-    THEME.with(|t| t.borrow().colors[i].clone())
+    THEME.with(|t| t.borrow().scheme_color(name))
 }
 
 /// Couleur d'un remplissage (`a:srgbClr`, `a:schemeClr`, `a:sysClr`,
 /// `a:prstClr`) avec ses retouches de luminance (`lumMod`, `lumOff`,
 /// `shade`, `tint`).
 fn color_of(fill: Node) -> Option<String> {
+    color_with(fill, &scheme)
+}
+
+/// Comme [`color_of`], avec les couleurs du thème données par `scheme`
+/// (les formes dessinées du document, hors d'un graphique).
+pub(crate) fn color_with(fill: Node, scheme: &dyn Fn(&str) -> String) -> Option<String> {
     let c = fill.children().find(|c| c.is_element())?;
     let hex = match c.tag_name().name() {
         "srgbClr" => c.attribute("val")?.to_string(),

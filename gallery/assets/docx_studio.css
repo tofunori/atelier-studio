@@ -254,6 +254,24 @@ body.v-final .chip.eq.ins{box-shadow:none}
 body.v-original .chip.eq.del::after{display:none}
 body.v-original .chip.eq{cursor:default}
 body.v-original .chip.eq:hover{background:none}
+/* Zones de texte et formes dessinées dans Word : posées à leur place, en points du document, en lecture seule.
+   Leurs couleurs (fond, trait, texte) sont celles du document, portées par le style de chaque pièce. */
+.d-sh{position:relative;display:inline-block;vertical-align:bottom;box-sizing:border-box;font:400 calc(var(--pt,1.3333px) * 10)/1.15 'Times New Roman',Georgia,'Iowan Old Style',serif;text-indent:0;text-align:left;text-transform:none;text-decoration:none;letter-spacing:normal;white-space:normal;cursor:default;user-select:none;-webkit-user-select:none}
+.d-sh.shf{position:absolute;display:block;pointer-events:none}
+#paper.pg .d-sh.shf,#sheets .d-sh.shf{z-index:1}
+#paper.pg .d-sh.shf.bh,#sheets .d-sh.shf.bh{z-index:-1}
+.d-sh.wl{float:left;margin:0 8px 4px 0}
+.d-sh.wr{float:right;margin:0 0 4px 8px}
+.d-sh.blk{display:block}
+.sh-part{position:absolute;display:flex;flex-direction:column;box-sizing:border-box;border:0 solid transparent;color:var(--sh-ink,inherit)}
+.d-sh.solo>.sh-part{position:relative}
+.sh-part.v-middle{justify-content:center}
+.sh-part.v-bottom{justify-content:flex-end}
+.sh-part>svg{position:absolute;left:0;top:0;overflow:visible}
+.sh-part>img{display:block;width:100%;height:100%}
+.sh-p{display:block;white-space:pre-wrap;overflow-wrap:break-word}
+.sh-p.a-center{text-align:center}.sh-p.a-right{text-align:right}.sh-p.a-both{text-align:justify}
+.chip.sh{padding:0;border-radius:0;background:none}
 .chip.fig{display:inline-block;padding:0;border-radius:0;background:none;vertical-align:bottom;max-width:100%}
 .chip.fig img{display:block;max-width:100%;height:auto}
 .chip.fig.del img{opacity:.4;outline:2px solid var(--rev-color);outline-offset:2px}

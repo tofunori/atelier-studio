@@ -39,6 +39,7 @@ pub mod new;
 pub mod objects;
 pub mod review;
 pub mod session;
+pub mod shapes;
 pub mod structure;
 pub mod format;
 pub mod history;

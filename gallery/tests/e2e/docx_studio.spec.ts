@@ -16,6 +16,10 @@ const NAME = 'Chapitre 2 corrigé CK.docx';
 // Manuscrit court suivi d'une bibliographie Zotero de 40 entrées, toutes
 // « garder avec le suivant » (chaîne plus longue qu'une feuille).
 const BIBLIO = path.join(path.dirname(FIXTURE), 'bibliographie.docx');
+// La même copie, où l'auteur a posé des zones de texte sur la figure (deux
+// cadres orange, valeurs inventées), un cadre de l'ancien Word (VML seul) et
+// une flèche dans un paragraphe de texte.
+const ZONES = path.join(path.dirname(FIXTURE), 'zones.docx');
 // PNG 2×1 (en-tête et IHDR suffisent au moteur ; le navigateur l'affiche).
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGO4WR5uX7EVAAsuAxTa261lAAAAAElFTkSuQmCC', 'base64');
 
@@ -129,6 +133,94 @@ test('docx: la frappe, Entrée et le retour arrière arrivent en suivi signé da
   await expect.poll(async () => (await disk(page, project)).paragraphs.length).toBe(n + 1);
   await page.keyboard.type('X');
   await expect.poll(async () => (await disk(page, project)).paragraphs[3].text).toMatch(/^X offre/);
+  expect(errors).toEqual([]);
+});
+
+test("docx: les zones de texte posées sur une figure se voient à leur place, par-dessus l'image", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const doc = path.join(project.root, 'Zones.docx');
+  await copyFile(ZONES, doc);
+  const zones = {url: project.url, doc};
+  await open(page, zones);
+  const pt = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pt')));
+  expect(pt).toBeGreaterThan(0.5);
+
+  // Sur la figure : deux cadres, à leur place en points depuis le coin du
+  // paragraphe, avec leur bordure orange, leur fond blanc et leur texte.
+  const fig = page.locator('.d-p', {has: page.locator('.chip.fig, img')}).filter({has: page.locator('.d-sh.shf')}).first();
+  await expect(fig.locator('.d-sh.shf')).toHaveCount(2);
+  const seen = await fig.evaluate(el => {
+    const o = el.getBoundingClientRect();
+    const img = el.querySelector('img')!.getBoundingClientRect();
+    return {
+      len: (el as HTMLElement).dataset.len,
+      img: {x: img.left - o.left, y: img.top - o.top, w: img.width, h: img.height},
+      boxes: Array.from(el.querySelectorAll<HTMLElement>('.d-sh.shf')).map(b => {
+        const r = b.getBoundingClientRect();
+        const part = b.querySelector<HTMLElement>('.sh-part')!;
+        const cs = getComputedStyle(part);
+        return {
+          x: r.left - o.left, y: r.top - o.top, w: r.width, h: r.height,
+          text: Array.from(b.querySelectorAll('.sh-p')).map(p => p.textContent),
+          border: cs.borderTopColor, borderWidth: parseFloat(cs.borderTopWidth), background: cs.backgroundColor,
+          ink: getComputedStyle(b.querySelector('.sh-p span') || b.querySelector('.sh-p')!).color,
+          events: getComputedStyle(b).pointerEvents,
+          z: getComputedStyle(b).zIndex,
+        };
+      }),
+    };
+  });
+  const [value, level] = seen.boxes;
+  expect(value.text).toEqual(['H = 0,4 m']);
+  expect(level.text).toEqual(['Niveau initial', '= 12,5 m']);
+  expect(Math.abs(value.x - 190 * pt)).toBeLessThan(1.5);
+  expect(Math.abs(value.y - 20 * pt)).toBeLessThan(1.5);
+  expect(Math.abs(value.w - 100 * pt)).toBeLessThan(1.5);
+  expect(Math.abs(level.x)).toBeLessThan(1.5);
+  expect(Math.abs(level.y - 60 * pt)).toBeLessThan(1.5);
+  expect(Math.abs(level.w - 150 * pt)).toBeLessThan(1.5);
+  for (const b of seen.boxes) {
+    expect(b.border).toBe('rgb(247, 150, 70)');
+    expect(b.borderWidth).toBeGreaterThan(0.5);
+    expect(b.background).toBe('rgb(255, 255, 255)');
+    // Par-dessus l'image, sans prendre les clics du texte.
+    expect(b.events).toBe('none');
+    expect(Number(b.z)).toBeGreaterThanOrEqual(1);
+    // Le cadre grandit s'il le faut : tout son texte se lit.
+    expect(b.h).toBeGreaterThan(20 * pt);
+  }
+  // Le vert choisi par l'auteur est gardé.
+  expect(value.ink).toBe('rgb(0, 176, 80)');
+  // Les cadres recouvrent bien l'image de la figure.
+  expect(value.x + value.w).toBeGreaterThan(seen.img.x);
+  expect(value.x).toBeLessThan(seen.img.x + seen.img.w);
+  expect(value.y + value.h).toBeGreaterThan(seen.img.y);
+  expect(value.y).toBeLessThan(seen.img.y + seen.img.h);
+  // Ils n'occupent aucun caractère : le paragraphe ne compte que son image.
+  const m = await disk(page, zones);
+  const figure = m.paragraphs.find(p => p.segments.some(s => s.media) && (p as {shapes?: unknown[]}).shapes?.length === 2)!;
+  expect(seen.len).toBe(String(Array.from(figure.text).length));
+
+  // Dans un paragraphe de texte : le cadre de l'ancien Word et la flèche.
+  const prose = page.locator('.d-p', {hasText: 'Ces valeurs sont'}).first();
+  await expect(prose.locator('.d-sh.shf')).toHaveCount(2);
+  await expect(prose.locator('.d-sh.shf', {hasText: 'Ancien Word'})).toHaveCount(1);
+  const arrow = prose.locator('.d-sh.shf svg path').first();
+  await expect(arrow).toHaveAttribute('stroke', /^#?[0-9a-fA-F]{6}$|^rgb/);
+  const drawn = await prose.locator('.d-sh.shf svg').first().evaluate(el => el.getBoundingClientRect().width);
+  expect(drawn).toBeGreaterThan(50);
+
+  // Écrire à côté ne déplace ni n'efface rien : les formes restent dans le
+  // fichier et à l'écran.
+  const idx = Number(await prose.getAttribute('data-idx'));
+  await caretAfter(page, idx, 'Ces valeurs');
+  await page.keyboard.type(' mesurées');
+  await expect.poll(async () => (await disk(page, zones)).paragraphs[idx].text).toContain('Ces valeurs mesurées sont');
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .d-sh.shf`)).toHaveCount(2);
+  await expect(fig.locator('.d-sh.shf')).toHaveCount(2);
+  const after = await disk(page, zones);
+  expect(((after.paragraphs[idx] as {shapes?: unknown[]}).shapes || []).length).toBe(2);
   expect(errors).toEqual([]);
 });
 
