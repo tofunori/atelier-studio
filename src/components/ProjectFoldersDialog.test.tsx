@@ -53,4 +53,19 @@ describe("project folders dialog", () => {
     fireEvent.change(screen.getByLabelText("Échéance"), { target: { value: "" } });
     expect(patch).toHaveBeenLastCalledWith({ due: undefined });
   });
+  it("renomme le projet sans toucher au dossier : vide, il reprend le nom du dossier", async () => {
+    setLanguage("fr"); const patch = vi.fn();
+    renderUi(<ProjectFoldersDialog root="/d/GEO1063/2026" value={{ mainGallery: true, folders: [] }} onChange={() => {}} onClose={() => {}}
+      card={{ name: "GEO1063" }} onCardChange={patch}/>);
+    await waitFor(() => expect(screen.getByRole("dialog").getAttribute("data-slot")).toBe("dialog-content"));
+    const name = screen.getByLabelText("Nom");
+    expect(name).toHaveValue("GEO1063");
+    expect(name).toHaveAttribute("placeholder", "2026");
+    fireEvent.change(name, { target: { value: "GEO1063 · Automne 2026" } });
+    expect(patch).toHaveBeenLastCalledWith({ name: "GEO1063 · Automne 2026" });
+    fireEvent.change(name, { target: { value: "" } });
+    expect(patch).toHaveBeenLastCalledWith({ name: undefined });
+    // le dossier principal garde son nom
+    expect(screen.getByText("/d/GEO1063/2026")).toBeInTheDocument();
+  });
 });

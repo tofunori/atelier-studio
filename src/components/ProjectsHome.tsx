@@ -4,7 +4,8 @@
 // taille, du plus récent au plus ancien : première page du PDF compilé ou du
 // document le plus récent (Word comme dans la galerie), sinon les premiers
 // fichiers du dossier. ⌘1 à ⌘9 ouvrent les neuf premiers, Échap revient au
-// projet courant, « ⋯ » (au clic) donne réglages, Finder et retrait. Chargé à
+// projet courant, « ⋯ » (au clic) donne renommer (sur place, 2026-11-14 :
+// nom d'affichage seulement), réglages, Finder et retrait. Chargé à
 // la demande (budget de l'entrée) ; les cartes viennent du serveur Rust
 // (`projectCards`, atelier-runtime/src/project_home.rs).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
@@ -23,6 +24,39 @@ import type { ProjMeta } from "./Rail";
 import "../styles/projects-home.css";
 
 import { EllipsisIcon, FileIcon, FolderIcon, PlusIcon } from "lucide-react";
+
+/** Nom de la carte en cours de modification (« ⋯ › Renommer ») : Entrée
+ *  enregistre, Échap annule, cliquer ailleurs enregistre aussi. */
+function CardNameInput(p: { name: string; folder: string; onDone: (value: string | null) => void }) {
+  const ref = useRef<HTMLInputElement | null>(null);
+  const done = useRef(false);
+  const finish = (value: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    p.onDone(value);
+  };
+  useEffect(() => {
+    // le menu « ⋯ » rend le focus à son bouton en se fermant : on le reprend
+    const id = window.setTimeout(() => { ref.current?.focus(); ref.current?.select(); }, 0);
+    return () => window.clearTimeout(id);
+  }, []);
+  return (
+    <>
+      <Input ref={ref} className="ph-card-rename" aria-label={t("action.rename")} defaultValue={p.name} placeholder={p.folder}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); finish(e.currentTarget.value); }
+          else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(null); }
+        }}
+        onBlur={(e) => {
+          // retour du focus au « ⋯ » de la même carte : ce n'est pas un départ
+          const to = e.relatedTarget as Node | null;
+          if (to && e.currentTarget.closest(".ph-card")?.contains(to)) { requestAnimationFrame(() => ref.current?.focus()); return; }
+          finish(e.currentTarget.value);
+        }} />
+      <span className="ph-card-hint">{t("projects.rename-hint")}</span>
+    </>
+  );
+}
 type ThreadLike = {
   id?: string;
   projectRoot: string;
@@ -221,7 +255,7 @@ function NewProjectDialog(p: {
   projects: string[];
   meta: Record<string, ProjMeta>;
   onClose: () => void;
-  onCreated: (root: string, due: ProjectDue | null, label: string | null) => void;
+  onCreated: (root: string, due: ProjectDue | null, name: string | null) => void;
 }) {
   const [name, setName] = useState("");
   const [template, setTemplate] = useState("");
@@ -258,8 +292,8 @@ function NewProjectDialog(p: {
         }
       });
       if (reply.root) {
-        const label = cleanName && cleanName !== projectName(reply.root) ? cleanName : null;
-        p.onCreated(reply.root, due ? { date: due } : null, label);
+        const shown = cleanName && cleanName !== projectName(reply.root) ? cleanName : null;
+        p.onCreated(reply.root, due ? { date: due } : null, shown);
       }
       else setError(reply.error || t("projects.create-failed"));
     } catch (e) {
@@ -293,7 +327,7 @@ function NewProjectDialog(p: {
                 { value: "", label: t("projects.from-empty") },
                 ...p.projects.map((root) => ({
                   value: root,
-                  label: t("projects.from-structure", { name: projectName(root, p.meta[root]?.label) }),
+                  label: t("projects.from-structure", { name: projectName(root, p.meta[root]) }),
                 })),
               ]}
             />
@@ -327,12 +361,15 @@ export default function ProjectsHome(p: {
   /** retire le projet de la liste (le dossier reste où il est) */
   onRemoveProject?: (root: string) => void;
   onOpenFolder: () => void;
-  onCreated: (root: string, due: ProjectDue | null, label: string | null) => void;
+  /** nom d'affichage du projet ; le dossier sur le disque garde le sien */
+  onRename?: (root: string, name: string) => void;
+  onCreated: (root: string, due: ProjectDue | null, name: string | null) => void;
   onClose: () => void;
 }) {
   const cards = useProjectCards(p.projects.slice(0, CARD_REQUESTS), p.connected);
   const [creating, setCreating] = useState(!!p.startWithNewProject);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
   const screenRef = useRef<HTMLElement | null>(null);
   const now = useMemo(() => new Date(), []);
   // valeurs lues par l'écouteur clavier (posé une seule fois)
@@ -340,7 +377,7 @@ export default function ProjectsHome(p: {
   const blockedRef = useRef(creating);
   useLayoutEffect(() => {
     handlers.current = p;
-    blockedRef.current = creating || menuFor != null;
+    blockedRef.current = creating || menuFor != null || renaming != null;
   });
 
   useEffect(() => {
@@ -403,7 +440,8 @@ export default function ProjectsHome(p: {
             {p.projects.map((root, index) => {
               const meta = p.meta[root];
               const card = cards[root];
-              const name = projectName(root, meta?.label);
+              const name = projectName(root, meta);
+              const folder = root.split("/").filter(Boolean).pop() ?? root;
               const kind = card?.thumb ? "PDF" : card?.docx ? "Word" : null;
               const detail = card?.missing
                 ? t("projects.missing")
@@ -415,6 +453,18 @@ export default function ProjectsHome(p: {
               const menuOpen = menuFor === root;
               return (
                 <li key={root} className={`ph-card${menuOpen ? " is-menu" : ""}`}>
+                  {renaming === root ? (
+                    // un champ ne vit pas dans un bouton : la carte cesse d'en être un le temps de la saisie
+                    <div className="ph-card-open is-renaming" title={root}>
+                      <Preview card={card} />
+                      <span className="ph-card-body">
+                        <CardNameInput name={name === folder ? "" : name} folder={folder} onDone={(value) => {
+                          setRenaming(null);
+                          if (value != null) p.onRename?.(root, value);
+                        }} />
+                      </span>
+                    </div>
+                  ) : (
                   <RowButton className="ph-card-open" title={root}
                     aria-keyshortcuts={shortcut ? `Meta+${shortcut}` : undefined}
                     onClick={() => p.onOpen(root)}>
@@ -427,6 +477,7 @@ export default function ProjectsHome(p: {
                       </span>
                     </span>
                   </RowButton>
+                  )}
                   <span className="ph-card-tools">
                     {shortcut && <span className={`ph-kbd${index === 0 ? " is-shown" : ""}`} aria-hidden="true">⌘{shortcut}</span>}
                     <LazyDropdownMenu
@@ -441,6 +492,7 @@ export default function ProjectsHome(p: {
                         </IconButton>
                       }
                       items={[
+                        ...(p.onRename ? [{ key: "rename", label: t("action.rename"), onSelect: () => setRenaming(root) }] : []),
                         ...(p.onProjectSettings ? [{ key: "settings", label: t("projects.settings"), onSelect: () => p.onProjectSettings!(root) }] : []),
                         ...(card?.missing ? [] : [{ key: "finder", label: t("project.reveal-finder"), onSelect: () => { void revealItemInDir(root).catch(() => {}); } }]),
                         ...(p.onRemoveProject ? [{ key: "remove", label: t("project.remove"), destructive: true, separatorBefore: true, onSelect: () => p.onRemoveProject!(root) }] : []),
@@ -458,7 +510,7 @@ export default function ProjectsHome(p: {
           projects={p.projects}
           meta={p.meta}
           onClose={() => setCreating(false)}
-          onCreated={(root, due, label) => { setCreating(false); p.onCreated(root, due, label); }}
+          onCreated={(root, due, name) => { setCreating(false); p.onCreated(root, due, name); }}
         />
       )}
     </section>

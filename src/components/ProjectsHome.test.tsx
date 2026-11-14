@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderUi } from "../test/render";
 import { setLanguage } from "../lib/i18n";
-import { recentProjects, projectActivity } from "../lib/projectsHome";
+import { customProjectName, migrateProjectNames, projectActivity, projectName, recentProjects } from "../lib/projectsHome";
 import ProjectsHome from "./ProjectsHome";
 import { activityText, dueText } from "../lib/projectsHomeText";
 
@@ -27,6 +27,26 @@ describe("ordre récent des projets", () => {
     expect(projectActivity("/a", undefined, threads)).toBe(0);
     // à égalité (rien de connu), l'ordre du rail tient
     expect(recentProjects(["/x", "/y"], {}, [])).toEqual(["/x", "/y"]);
+  });
+});
+
+describe("nom d'un projet", () => {
+  it("le nom donné l'emporte sur le dossier ; une icône ou des initiales ne sont pas un nom", () => {
+    expect(projectName("/d/GEO1063/2026", { name: "GEO1063 · Automne 2026" })).toBe("GEO1063 · Automne 2026");
+    expect(projectName("/d/GEO1063/2026", { name: "  ", label: "icon:book" })).toBe("2026");
+    expect(projectName("/d/GEO1063/2026", { label: "GT" })).toBe("2026");
+    expect(projectName("/d/GEO1063/2026")).toBe("2026");
+    // ancien libellé donné à la création : compte encore comme nom
+    expect(customProjectName({ label: "Thèse albédo" })).toBe("Thèse albédo");
+  });
+  it("range un ancien nom sous `name`, pour qu'une icône ne l'efface plus", () => {
+    const before = { "/a": { label: "Thèse albédo", color: "#fff" }, "/b": { label: "icon:book" }, "/c": { label: "TH" } };
+    const after = migrateProjectNames(before);
+    expect(after["/a"]).toEqual({ name: "Thèse albédo", label: undefined, color: "#fff" });
+    expect(after["/b"]).toBe(before["/b"]);
+    expect(after["/c"]).toBe(before["/c"]);
+    // rien à faire : même objet (aucune réécriture du stockage)
+    expect(migrateProjectNames(after)).toBe(after);
   });
 });
 
@@ -118,9 +138,39 @@ describe("écran d'ouverture", () => {
     fireEvent.click(more[1]);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Réglages du projet" }));
     expect(props.onProjectSettings).toHaveBeenCalledWith("/p/Chapitre2-Feux");
+    // le premier menu finit de se fermer avant d'ouvrir le suivant (instable sous charge)
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     fireEvent.click(more[2]);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Retirer le projet" }));
     expect(props.onRemoveProject).toHaveBeenCalledWith("/p/GEO1063");
+  });
+
+  it("« ⋯ › Renommer » change le nom sur la carte même : Entrée enregistre, Échap annule", async () => {
+    const props = setup({ onRename: vi.fn(), meta: { "/p/GEO1063": { name: "GEO1063 · Automne" } } });
+    const more = screen.getAllByRole("button", { name: "Plus d’actions" });
+    fireEvent.click(more[2]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Renommer" }));
+    const field = await screen.findByRole("textbox", { name: "Renommer" });
+    expect(field).toHaveValue("GEO1063 · Automne");
+    expect(field).toHaveAttribute("placeholder", "GEO1063");
+    // pendant la saisie, ⌘n et Échap n'appartiennent plus à l'écran
+    fireEvent.keyDown(window, { code: "Digit1", key: "1", metaKey: true });
+    expect(props.onOpen).not.toHaveBeenCalled();
+    fireEvent.change(field, { target: { value: "GEO1063 · Automne 2026" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(props.onRename).toHaveBeenCalledWith("/p/GEO1063", "GEO1063 · Automne 2026");
+    expect(screen.queryByRole("textbox", { name: "Renommer" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+    fireEvent.click(more[0]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Renommer" }));
+    const again = await screen.findByRole("textbox", { name: "Renommer" });
+    expect(again).toHaveValue("");
+    fireEvent.change(again, { target: { value: "abandon" } });
+    fireEvent.keyDown(again, { key: "Escape" });
+    expect(props.onRename).toHaveBeenCalledTimes(1);
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(document.querySelectorAll(".ph-card .ph-card-name")[0]).toHaveTextContent("Chapitre1-Albedo");
   });
 
   it("dit qu'il n'y a aucun projet", () => {

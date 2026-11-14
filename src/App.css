@@ -6290,6 +6290,7 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .project-context-panel .emoji-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; padding: 0; margin: 0; }
 .project-context-panel .emoji-cell { width: 100%; height: 31px; border-radius: var(--r-s); }
 .project-context-panel .icon-letter { width: 100%; margin: 0; }
+.project-context-hint { margin: 8px 0 0; color: var(--text-muted); font-size: var(--fs-label, 11px); line-height: 1.5; }
 @media (prefers-reduced-motion: reduce) { .project-context-action { transition: none; } }
 
 /* Narrow navigator: keep the title stationary while exposing its menu.
