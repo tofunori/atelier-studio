@@ -124,7 +124,7 @@ function DoneLine({ e, lines, verdict }: { e: InteractionEvent; lines: string[];
   const [open, setOpen] = useState(false);
   const body = lines.length > 0 || !!e.markdown;
   return (
-    <div className={`int-card appr is-done${verdict.allowed ? "" : " is-denied"}`} data-request-id={e.requestId}>
+    <div className={`int-card appr is-done${verdict.allowed ? (e.markdown ? "" : " is-quiet") : " is-denied"}`} data-request-id={e.requestId}>
       <RowButton className="appr-done" aria-expanded={body ? open : undefined} disabled={!body} onClick={() => setOpen(!open)}>
         {verdict.allowed ? <ShieldCheckIcon className="appr-ico" size={14} /> : <BanIcon className="appr-ico" size={14} />}
         <span className="appr-verdict">{verdict.label}</span>

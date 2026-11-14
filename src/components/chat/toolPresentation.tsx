@@ -1,11 +1,11 @@
 // Présentation des outils du chat (plan 015, slice 4) — déplacée verbatim
 // depuis Chat.tsx : résumé de grappes d'outils, ligne de sortie d'outil,
 // icônes de type de fichier. Aucune logique modifiée.
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useContext, useMemo, useState, type ReactNode } from "react";
 import {
   BanIcon, BookOpenIcon, BoxIcon, ChartColumnIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderIcon,
-  GlobeIcon, GraduationCapIcon, ImagesIcon, Link2Icon, LightbulbIcon, ListChecksIcon, NetworkIcon, PencilIcon,
-  SearchIcon, ShieldCheckIcon, ShrinkIcon, SquareTerminalIcon, XIcon, type LucideIcon,
+  GlobeIcon, GraduationCapIcon, ImagesIcon, LayersIcon, Link2Icon, LightbulbIcon, ListChecksIcon, NetworkIcon,
+  PencilIcon, SearchIcon, ShieldCheckIcon, ShrinkIcon, SquareIcon, SquareTerminalIcon, type LucideIcon,
 } from "lucide-react";
 import type { ChatTurnViewModel } from "../../lib/chat/turnViewModel";
 import { AgentEvent } from "../../lib/ws";
@@ -15,11 +15,12 @@ import { highlightCode } from "./md";
 import { RowButton } from "../ui";
 import { fmtClock } from "./clock";
 import { FileGlyph } from "../fileGlyphs";
+import { ToolVerdictsContext, toolFailed, toolSetback, type ToolSetback } from "./toolVerdicts";
 
 export type ToolCat =
   | "search" | "read" | "list" | "edit" | "command" | "web" | "todo"
   | "permission" | "image" | "visualization" | "integration" | "skill"
-  | "agent" | "compaction" | "interrupted" | "thinking" | "tool";
+  | "agent" | "compaction" | "interrupted" | "thinking" | "tool" | "mixed";
 
 export type ActivityIcon = {
   cat: ToolCat;
@@ -43,6 +44,8 @@ type SemanticToolActivity = {
 
 export type ToolActivitySummary = {
   label: string;
+  /** Bilan court d'un groupe : « 2 intégrations, 3 lectures, 1 commande ». */
+  shortLabel: string;
   icon?: ActivityIcon;
   actionCount: number;
   parts: { kind: SummaryPartKind; count: number }[];
@@ -61,17 +64,13 @@ function normalizedStatus(status: string | undefined): string {
   return status?.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase().replace(/_/g, "-") ?? "";
 }
 
-/** État affiché d'un appel d'outil : c'est le SEUL élément coloré de la
- * rangée. L'icône de tête et le nom de l'outil restent neutres — trois
- * accents sur une même ligne et l'œil n'a plus de point d'entrée. */
+/** Issue d'un appel d'outil. « failed » dit seulement qu'il n'a pas abouti :
+ * c'est `toolSetback` (toolVerdicts.ts) qui dit si c'est grave. */
 export type ToolOutcome = "done" | "failed" | "running";
 
-/** Le code de sortie fait foi sur le statut : un provider peut très bien
- * annoncer « completed » sur un exit 2. */
 export function toolOutcome(event: Extract<AgentEvent, { kind: "tool_update" }>): ToolOutcome {
-  const status = normalizedStatus(event.status);
-  if ((event.exitCode != null && event.exitCode !== 0) || /^(failed|interrupted|cancelled|canceled|denied|stopped)$/.test(status)) return "failed";
-  return COMPLETED_STATUS.test(status) ? "done" : "running";
+  if (toolFailed(event)) return "failed";
+  return COMPLETED_STATUS.test(normalizedStatus(event.status)) ? "done" : "running";
 }
 const SUMMARY_ORDER: SummaryPartKind[] = [
   "integrations", "loaded-tools", "file-changes", "exploration", "visualization",
@@ -217,9 +216,43 @@ function toolPhrase(action: ToolAction): string {
   return typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
 }
 
-/** État d'une rangée, dans sa colonne fixe : anneau fin pendant l'exécution,
- * coche neutre une fois faite, croix (seule couleur) en cas d'échec. */
-export function ToolStateGlyph({ outcome }: { outcome: ToolOutcome | "none" }) {
+const NOT_FOUND = /no such file|does not exist|doesn't exist|not found|cannot find|enoent|introuvable|n'existe pas/iu;
+const TIMED_OUT = /timed? ?out|timeout|délai dépassé/iu;
+const NO_MATCH = /no (?:matches|files|results) found|aucun résultat/iu;
+
+/** Pourquoi un appel n'a pas abouti, en un ou deux mots lisibles : la rangée
+ * le dit en clair plutôt que de le signaler par une couleur. */
+export function setbackReason(event: Extract<AgentEvent, { kind: "tool_update" }>, setback: ToolSetback): string {
+  if (setback === "declined") return t("tools.setback.declined");
+  if (setback === "stopped") return t("tools.setback.stopped");
+  const output = (event.output ?? "").slice(-400);
+  if (NO_MATCH.test(output)) return t("tools.setback.no-match");
+  if (NOT_FOUND.test(output)) return t("tools.setback.not-found");
+  if (TIMED_OUT.test(output)) return t("tools.setback.timeout");
+  // `grep`, `rg`, `test` : un exit 1 muet veut dire « rien trouvé ».
+  if (event.exitCode === 1 && !output.trim()) return t("tools.setback.no-match");
+  if (event.exitCode != null && event.exitCode !== 0) return `exit ${event.exitCode}`;
+  return t("tools.setback.generic");
+}
+
+const SETBACK_TITLE: Record<ToolSetback, Parameters<typeof t>[0]> = {
+  soft: "tools.setback.soft-title", declined: "tools.setback.declined-title",
+  stopped: "tools.setback.stopped-title", blocking: "chat.action-failed",
+};
+
+/** Dernière ligne parlante de la sortie d'un échec bloquant : c'est elle qui
+ * dit ce qui a arrêté le travail (« libreoffice : commande introuvable »). */
+export function lastOutputLine(output: string): string {
+  const lines = output.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  const line = lines[lines.length - 1] ?? "";
+  return line.length > 160 ? `${line.slice(0, 159)}…` : line;
+}
+
+/** État d'une rangée, dans sa colonne : anneau qui tourne pendant
+ * l'exécution, coche neutre une fois faite. Plus aucune croix : un échec qui
+ * arrête le travail est un point rouge, un raté que l'agent a rattrapé un
+ * petit anneau gris (creux : le point plein dit déjà « non lu » ailleurs). */
+export function ToolStateGlyph({ outcome }: { outcome: ToolOutcome | "setback" | "none" }) {
   if (outcome === "running") {
     // anneau de progression : dessin propre à l'app, hors famille d'icônes
     return (
@@ -230,7 +263,8 @@ export function ToolStateGlyph({ outcome }: { outcome: ToolOutcome | "none" }) {
     );
   }
   if (outcome === "done") return <CheckIcon className="tool-status-icon" size={12} />;
-  if (outcome === "failed") return <XIcon className="tool-status-icon" size={12} />;
+  if (outcome === "failed") return <span className="tool-state-dot" />;
+  if (outcome === "setback") return <span className="tool-state-ring" />;
   return null;
 }
 /** Bouclier d'une action que l'utilisateur a autorisée : le reçu d'autorisation
@@ -241,14 +275,23 @@ const AuthorizedGlyph = () => <ShieldCheckIcon className="tool-status-icon" size
  * ligne de la commande. Sert à nommer une rangée dont le libellé sémantique
  * reste générique (« Commande exécutée ») — `semanticActivity` reste la source
  * du libellé, ce n'en est que le complément nominal. */
+/** Nom du fichier que vise un appel, sans son chemin ; vide s'il n'en vise pas. */
+function toolInputFile(input: unknown): string {
+  if (input == null || typeof input !== "object") return "";
+  const o = input as Record<string, unknown>;
+  for (const key of ["path", "file_path", "notebook_path"]) {
+    const value = typeof o[key] === "string" ? (o[key] as string).trim() : "";
+    if (value) return value.split(/[/\\]/u).pop() || value;
+  }
+  return "";
+}
+
 export function toolInputName(input: unknown): string {
   if (input == null || typeof input !== "object") return "";
   const o = input as Record<string, unknown>;
   const text = (key: string) => (typeof o[key] === "string" ? (o[key] as string).trim() : "");
-  for (const key of ["path", "file_path", "notebook_path"]) {
-    const value = text(key);
-    if (value) return value.split(/[/\\]/u).pop() || value;
-  }
+  const file = toolInputFile(input);
+  if (file) return file;
   for (const key of ["pattern", "glob"]) {
     const value = text(key);
     if (value) return value;
@@ -277,9 +320,13 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   const output = useMemo(() => truncateToolOutput(cleanOutput), [cleanOutput]);
   const inputView = toolInputView(event.input);
   const outcome = toolOutcome(event);
-  const failed = outcome === "failed";
-  const icon = activityIconForAction(event);
-  const [localOpen, setLocalOpen] = useState(failed && !compact);
+  // Un appel qui n'a pas abouti n'est une alerte que s'il a arrêté le
+  // travail : sinon la rangée se grise et dit pourquoi, sans rouge.
+  const setback = toolSetback(event, useContext(ToolVerdictsContext));
+  const blocking = setback === "blocking";
+  const why = setback && !blocking ? setbackReason(event, setback) : "";
+  const icon = activityIconForAction(event, [], true);
+  const [localOpen, setLocalOpen] = useState(blocking && !compact);
   const open = expanded ?? localOpen;
   const setOpen = (next: boolean) => { setLocalOpen(next); onExpandedChange?.(next); };
   const summary = event.detail || toolOutputSummary(output) || (inputView ? t("tools.payload-input") : "");
@@ -287,8 +334,11 @@ export const ToolOutputLine = memo(function ToolOutputLine(
   // porte l'input quand ce libellé reste générique (« Commande exécutée »).
   // La phrase rédigée par l'agent, quand il y en a une, remplace les deux.
   const phrase = compact ? toolPhrase(event) : "";
-  const compactLabel = compact ? (phrase || summarizeActivity([event]).label) : "";
-  const compactTarget = compact && !phrase ? toolInputName(event.input) : "";
+  // Un appel qui n'a pas abouti sur un fichier ne dit pas « consulté » ou
+  // « modifié » : le nom du fichier seul, puis la raison.
+  const missedFile = compact && setback && !phrase ? toolInputFile(event.input) : "";
+  const compactLabel = compact ? (phrase || missedFile || summarizeActivity([event]).label) : "";
+  const compactTarget = compact && !phrase && !missedFile ? toolInputName(event.input) : "";
   const compactNamed = Boolean(compactTarget) && !compactLabel.toLowerCase().includes(compactTarget.toLowerCase());
   const trimmedOutput = output.trim();
   // Requêtes d'une recherche web (Rust web_search_update → input.queries) :
@@ -305,11 +355,13 @@ export const ToolOutputLine = memo(function ToolOutputLine(
     [cleanOutput.length, trimmedOutput],
   );
   // Colonne d'état : la réussite est l'état normal et ne se signale pas. Seuls
-  // parlent le travail en cours, l'échec et l'autorisation donnée.
+  // parlent le travail en cours, l'autorisation donnée, une décision de
+  // l'utilisateur (refus, arrêt) et l'échec qui arrête le travail.
   const shield = outcome === "done" && authorized ? authorized : undefined;
-  const failedTitle = failed ? t("chat.action-failed") : shield;
+  const stateTitle = setback ? t(SETBACK_TITLE[setback]) : shield;
+  const blockingLine = blocking && compact ? lastOutputLine(cleanOutput) : "";
   return (
-    <div className={`tool-output ${open ? "open" : "collapsed"} ${failed ? "failed" : ""} ${outcome === "done" ? "is-done" : ""}${compact ? " is-compact" : ""}`}>
+    <div className={`tool-output ${open ? "open" : "collapsed"} ${blocking ? "failed" : ""} ${setback && !blocking ? "is-soft" : ""} ${outcome === "done" ? "is-done" : ""}${compact ? " is-compact" : ""}`}>
       <RowButton className="tool-output-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className="tool-output-icon" data-activity-icon={icon.cat}>
           <ToolGlyph icon={icon} />
@@ -317,27 +369,31 @@ export const ToolOutputLine = memo(function ToolOutputLine(
         <span className="tool-output-name">
           {compact ? compactLabel : eventLabel(event.name)}
           {compactNamed ? <span className="tool-output-target">{compactTarget}</span> : null}
+          {compact && why ? <span className="tool-output-why">{why}</span> : null}
           {!compact && event.source ? <span className="tool-source">{event.source}</span> : null}
         </span>
-        {/* Rangée compacte : UNE grille fixe (icône · texte · durée · état ·
-            chevron), les colonnes vides restent posées pour que durée, état et
-            chevron tombent au même endroit sur toutes les rangées du fil. */}
+        {/* Rangée compacte : icône · texte · état · durée, la durée calée au
+            bord droit. Le chevron n'a pas de colonne : il prend la place de
+            l'icône de tête au survol et à l'ouverture (App.css). */}
         {compact ? (
           <>
-            {/* Un échec montre son code de sortie, plus parlant que sa durée. */}
+            {/* Un échec bloquant montre son code de sortie, plus parlant que sa durée. */}
             <span className="tool-duration">
-              {failed && event.exitCode != null && event.exitCode !== 0
+              {blocking && event.exitCode != null && event.exitCode !== 0
                 ? `exit ${event.exitCode}`
                 : event.durationMs != null && event.durationMs > 0 ? fmtToolDur(event.durationMs) : null}
             </span>
-            <span className="tool-status" title={failedTitle} aria-label={failedTitle}>
-              {shield ? <AuthorizedGlyph /> : outcome === "done" ? null : <ToolStateGlyph outcome={outcome} />}
+            <span className="tool-status" title={stateTitle} aria-label={stateTitle}>
+              {shield ? <AuthorizedGlyph />
+                : setback === "declined" ? <BanIcon className="tool-status-icon" size={12} />
+                : setback === "stopped" ? <SquareIcon className="tool-status-icon" size={12} />
+                : setback === "soft" || outcome === "done" ? null : <ToolStateGlyph outcome={outcome} />}
             </span>
             <Tick open={open} />
           </>
         ) : null}
         {!compact && summary && <span className="tool-output-summary">{summary}</span>}
-        {!compact && event.exitCode != null && event.exitCode !== 0 && (
+        {!compact && blocking && event.exitCode != null && event.exitCode !== 0 && (
           <span className="tool-exit">exit {event.exitCode}</span>
         )}
         {!compact && event.durationMs != null && event.durationMs > 0 && (
@@ -348,10 +404,11 @@ export const ToolOutputLine = memo(function ToolOutputLine(
         {!compact && event.status && (
           <span className="tool-status" title={shield} aria-label={shield}>
             {shield ? <AuthorizedGlyph /> : outcome === "done" && <CheckIcon className="tool-status-icon" aria-hidden="true" />}
-            {failed && t("chat.action-failed")}
+            {blocking ? t("chat.action-failed") : why}
           </span>
         )}
       </RowButton>
+      {blockingLine && !open ? <div className="tool-output-reason">{blockingLine}</div> : null}
       {queries.length > 1 && (!compact || open) && (
         <div className="tool-query-chips" data-testid="tool-query-chips">
           {queries.map((q, i) => (
@@ -697,8 +754,11 @@ function iconForActivity(item: SemanticToolActivity, plugins: PluginCatalogEntry
   };
 }
 
-export function activityIconForAction(action: ToolAction, plugins: PluginCatalogEntry[] = []): ActivityIcon {
-  return iconForActivity(semanticActivity(action), plugins);
+/** `plain` : l'icône de la CATÉGORIE, même pour un appel refusé ou
+ * interrompu — la rangée garde son repère, l'état a sa propre colonne. */
+export function activityIconForAction(action: ToolAction, plugins: PluginCatalogEntry[] = [], plain = false): ActivityIcon {
+  const item = semanticActivity(action);
+  return iconForActivity(plain ? { ...item, interrupted: false } : item, plugins);
 }
 
 export function activityIconForPhase(phase?: string): ActivityIcon | undefined {
@@ -824,6 +884,10 @@ export function summarizeActivity(actions: ToolAction[], plugins: PluginCatalogE
   });
   const clauses = ordered.map(({ kind, items: partItems }) => summaryClause(kind, partItems));
   const phrase = clauses.join(", ");
+  // Bilan court d'un groupe : des comptes par catégorie, sans verbe — il
+  // tient sur la ligne là où la phrase complète se coupait.
+  const short = ordered.map(({ kind, items: partItems }) => (
+    t(`tools.short.${kind}-${partItems.length === 1 ? "1" : "n"}`, { n: partItems.length }))).join(", ");
   const firstItem = ordered[0]?.items[0];
   // un nom de fichier ou une commande en tête de phrase garde sa casse
   // (« fig3_spatial.svg modifié », jamais « Fig3_spatial.svg ») — CHAT-07
@@ -831,6 +895,7 @@ export function summarizeActivity(actions: ToolAction[], plugins: PluginCatalogE
   const startsWithTarget = !!firstTarget && phrase.startsWith(firstTarget);
   return {
     label: phrase ? (startsWithTarget ? phrase : phrase.charAt(0).toUpperCase() + phrase.slice(1)) : t("chat.activity"),
+    shortLabel: short ? short.charAt(0).toUpperCase() + short.slice(1) : t("chat.activity"),
     icon: firstItem ? iconForActivity(firstItem, plugins) : undefined,
     actionCount: items.length,
     parts: ordered.map(({ kind, items: partItems }) => ({ kind, count: partItems.length })),
@@ -905,7 +970,7 @@ const TOOL_GLYPHS: Record<string, LucideIcon> = {
   read: BookOpenIcon, list: FolderIcon, web: GlobeIcon, todo: ListChecksIcon,
   permission: ShieldCheckIcon, image: ImagesIcon, visualization: ChartColumnIcon,
   integration: Link2Icon, skill: GraduationCapIcon, agent: NetworkIcon, compaction: ShrinkIcon,
-  interrupted: BanIcon,
+  interrupted: BanIcon, mixed: LayersIcon,
 };
 
 export function ToolGlyph({ icon }: { icon: ActivityIcon }) {

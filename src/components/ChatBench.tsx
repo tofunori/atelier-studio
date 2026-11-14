@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · annotes · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · epure · regarde · relecteur (-encours, -rien).
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · annotes · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · calmes · arretnet · revision · epure · regarde · relecteur (-encours, -rien).
 import { setReviewSession } from "../lib/reviewSession";
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
@@ -828,6 +828,59 @@ const OUTILS_RECUS: AgentEvent[] = [
   appr("or-7", `python3 scripts/avis.py`, "answered", 20, "Autoriser"),
 ];
 
+// Variante A « rangées calmes » (2026-11-14), d'après la capture de Thierry :
+// la relecture de ses corrections de TP. Bilans courts, durées au bord, un
+// appel sans succès rattrapé (fichier introuvable), une commande autorisée,
+// une règle retenue ; plus aucune croix. `arretnet` finit sur l'échec qui
+// arrête le travail, le seul rouge.
+const mcp = (id: string, name: string, detail: string, dur: number, offsetS: number): AgentEvent => ({
+  kind: "tool_update", id, name: `mcp__atelier__${name}`, detail, output: "ok", status: "completed",
+  input: { path: detail }, source: "mcp", durationMs: dur, ts: ts(offsetS),
+} as AgentEvent);
+const CALMES_DEBUT: AgentEvent[] = [
+  { kind: "user", text: "Relis toutes mes corrections du TP2 et dis-moi si quelque chose cloche.", ts: ts(600) } as AgentEvent,
+  ...["Cournoyer", "Filion", "Marcotte-Gratton", "Minkubu", "Roy", "Vaillancourt"].map((nom, i) =>
+    mcp(`cd-w${i}`, "atelier_docx", `TP2/${nom}.docx`, 38 + i * 7, 590 - i)),
+  mcp("cd-w6", "atelier_annotate", "TP2/Filion_corrigé.pdf", 64, 583),
+  tool("cd-r1", "Read", "TP2/Grille_TP2.xlsx", "42 lignes", 41, 580),
+  tool("cd-r2", "Read", "TP2/Consignes_TP2.md", "118 lignes", 22, 579),
+  tool("cd-r3", "Read", "TP2/Barème.md", "36 lignes", 18, 578),
+  tool("cd-r4", "Read", "TP2/Copies_commentées.md", "210 lignes", 27, 577),
+  bash("cd-c1", "python3 scripts/compte_copies.py TP2", "Compte les copies remises", "6", "completed", 576, { durationMs: 310 }),
+  bash("cd-c2", "python3 scripts/notes.py TP2 --resume", "Résume les notes déjà attribuées", "…", "completed", 575, { durationMs: 280 }),
+  { kind: "text", text: "Pour l'instant, rien d'incohérent dans les 6 copies Word que j'ai relues. Je passe aux 3 PDF annotés (Filion, Minkubu, Vaillancourt), puis je regarde quelques figures.", ts: ts(560) } as AgentEvent,
+  { ...appr("cd-a1", "python3 scripts/extrait_annotations.py TP2/*.pdf", "answered", 555, "Autoriser"), itemId: "cd-x1" } as AgentEvent,
+  bash("cd-x1", "python3 scripts/extrait_annotations.py TP2/*.pdf", "Extrait les annotations des trois copies PDF", "…", "completed", 550, { durationMs: 4200 }),
+  { ...appr("cd-a2", "python3 -c 'import fitz, pypdf'", "answered", 548, "Oui, et ne plus demander pour « python3 -c ' * »"), itemId: "cd-x2" } as AgentEvent,
+  bash("cd-x2", "python3 -c 'import fitz, pypdf'", "Vérifie les outils PDF disponibles", "", "completed", 545, { durationMs: 3300 }),
+  { kind: "text", text: "Les trois PDF se lisent bien. Je compare maintenant les schémas des copies entre eux.", ts: ts(540) } as AgentEvent,
+  mcp("cd-i1", "atelier_docx", "TP2/Marcotte-Gratton.docx", 412, 530),
+  mcp("cd-i2", "atelier_annotate", "TP2/Filion.pdf", 1800, 528),
+  tool("cd-r5", "Read", "TP2/Cournoyer.docx", "…", 96, 526),
+  tool("cd-r6", "Read", "TP2/Grille_TP2.xlsx", "42 lignes", 41, 525),
+  { ...tool("cd-r7", "Read", "TP2/Complément_TP2.pdf", "File does not exist. Note: your current working directory is /Users/bench/GEO1063.", 12, 524), status: "failed" } as AgentEvent,
+  { ...appr("cd-a3", "cmp TP2/schemas/marcotte.png TP2/schemas/cournoyer.png", "answered", 522, "Autoriser"), itemId: "cd-x3" } as AgentEvent,
+  bash("cd-x3", "cmp TP2/schemas/marcotte.png TP2/schemas/cournoyer.png", "Compare les deux schémas octet par octet", "", "completed", 520, { durationMs: 2100 }),
+  { kind: "text", text: "Point important trouvé : le schéma de Marcotte-Gratton est l'exemple du complément, la même image que celui de Cournoyer. Je vérifie maintenant les schémas et les figures des autres copies.", ts: ts(500) } as AgentEvent,
+  ...["Filion", "Minkubu", "Roy", "Vaillancourt", "Cournoyer"].map((nom, i) =>
+    mcp(`cd-f${i}`, "atelier_docx", `TP2/${nom}.docx`, 90 + i * 11, 490 - i)),
+  tool("cd-r8", "Read", "TP2/Copies_commentées.md", "210 lignes", 79, 484),
+];
+const CALMES: AgentEvent[] = [
+  ...CALMES_DEBUT,
+  bash("cd-live", "python3 scripts/compare_figures.py TP2", "Compare les figures des autres copies", "", "inProgress", 12),
+];
+const ARRET_NET: AgentEvent[] = [
+  ...CALMES_DEBUT,
+  { kind: "text", text: "Les figures concordent. Il reste à produire les copies corrigées en PDF.", ts: ts(470) } as AgentEvent,
+  { ...appr("cd-a4", "rm -rf TP2/tmp", "answered", 465, "Refuser"), itemId: "cd-x4" } as AgentEvent,
+  bash("cd-x4", "rm -rf TP2/tmp", "Supprime le dossier temporaire", "The user doesn't want to proceed with this tool use.", "failed", 462),
+  bash("cd-x5", "grep -c 'schéma' TP2/Barème.md", "Cherche le mot schéma dans le barème", "", "failed", 460, { durationMs: 14, exitCode: 1 }),
+  bash("cd-x6", "libreoffice --headless --convert-to pdf TP2/*.docx", "Convertit les copies en PDF",
+    "zsh:1: command not found: libreoffice", "failed", 455, { durationMs: 40, exitCode: 127 }),
+  { kind: "done", ok: false, result: "Le tour a échoué : la conversion en PDF exige LibreOffice.", ts: ts(450) } as AgentEvent,
+];
+
 // Sous-agents Claude (maquette 2026-10-18, piste A) : la mission titre chaque
 // rangée, le type passe en étiquette ; en cours puis terminés.
 function claudeAgent(id: string, type: string, description: string, status: string, offsetS: number, message?: string): AgentEvent {
@@ -1090,6 +1143,8 @@ const STATES: Record<string, BenchState> = {
   reponses: { events: QUESTIONS_ANSWERED, workingSince: null, attachments: [], usage: null },
   approbation: { events: APPROVAL, workingSince: ts(50), attachments: [], usage: null },
   approuvees: { events: APPROVED, workingSince: null, attachments: [], usage: null },
+  calmes: { events: CALMES, workingSince: ts(600), attachments: [], usage: { context: 48000, output: 1900, cost: null, turns: 1 } },
+  arretnet: { events: ARRET_NET, workingSince: null, attachments: [], usage: { context: 52000, output: 2100, cost: null, turns: 1 } },
   outilsrecus: { events: OUTILS_RECUS, workingSince: ts(1973), attachments: [], usage: { context: 61000, output: 2400, cost: null, turns: 1 } },
   cli: { events: CLI_EVENTS, workingSince: ts(40), attachments: [], usage: { context: 24000, output: 520, cost: null, turns: 1 } },
   overflow: { events: NO_HORIZONTAL_SCROLL, workingSince: null, attachments: [], usage: null },

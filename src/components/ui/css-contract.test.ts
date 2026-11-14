@@ -1264,6 +1264,16 @@ describe("contrat lot 2 (socle)", () => {
       expect(rule, `${sel} écrit en gris éteint`).not.toContain("--text-disabled");
     }
     expect(primitives).toMatch(/\.ui-activity-meta\s*\{[^}]*color:\s*var\(--text-muted\)/);
+    // Variante A « rangées calmes » (2026-11-14) : le fondu du libellé vit
+    // dans l'espace AVANT la durée (marge négative = l'espacement, pas plus),
+    // la durée n'a plus de largeur réservée et se cale au bord ; l'état d'un
+    // appel se dit par un point (échec bloquant) ou un anneau (raté rattrapé).
+    const label = primitives.match(/(?:^|\n)\.ui-activity-label \{([^}]*)\}/)?.[1] ?? "";
+    expect(label).toMatch(/margin-right:\s*-8px/);
+    expect(primitives.match(/(?:^|\n)\.ui-activity-meta \{([^}]*)\}/)?.[1] ?? "").not.toMatch(/min-width/);
+    expect(primitives).toMatch(/\.tool-state-dot\s*\{[^}]*background:\s*var\(--status-error\)/);
+    expect(primitives).toMatch(/\.tool-state-ring\s*\{[^}]*border:\s*1px solid currentColor/);
+    expect(appCss).toMatch(/\.tool-output\.is-compact \.tool-output-head, \.activity-thought-head \{\s*grid-template-columns:\s*15px minmax\(0, 1fr\) auto auto;/);
     expect(appCss).not.toMatch(/\.appsnap-local-note\s*\{[^}]*margin:\s*-/);
     // l'accent écrit passe par --accent-text (lisible) ; --accent reste le remplissage
     expect([...all.matchAll(/(^|[^-\w])color:\s*var\(--accent\)/g)].length).toBeLessThanOrEqual(2);

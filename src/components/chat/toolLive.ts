@@ -4,6 +4,7 @@
 import type { AgentEvent } from "../../lib/ws";
 import type { ActivityAction } from "./groupActivityRows";
 import { activeToolLabel, stripAnsi, tickerRows, toolOutcome } from "./toolPresentation";
+import { toolSetback, type ToolVerdicts } from "./toolVerdicts";
 
 type ToolUpdate = Extract<AgentEvent, { kind: "tool_update" }>;
 
@@ -28,10 +29,12 @@ export function outputTail(output: string, lines = 3): string[] {
   return stripAnsi(output).split(/\r?\n/u).map((line) => line.replace(/\s+$/u, ""))
     .filter((line) => line.trim() !== "").slice(-lines);
 }
-/** Ce qu'une grappe dit d'elle-même : durée cumulée, échec, action seule en
+/** Ce qu'une grappe dit d'elle-même : durée cumulée, ratés, action seule en
  * cours, et l'appel qui tourne s'il est seul — il prête à la rangée vivante
- * son chrono (le SIEN, pas celui du tour), sa commande en mono et sa traîne. */
-export function clusterFacts(actions: ActivityAction[], liveLabel: string | undefined) {
+ * son chrono (le SIEN, pas celui du tour), sa commande en mono et sa traîne.
+ * `blocking` : celui de ses appels qui a arrêté le travail (le seul rouge) ;
+ * `setbacks` : appels sans succès que l'agent a rattrapés, ou refusés. */
+export function clusterFacts(actions: ActivityAction[], liveLabel: string | undefined, verdicts: ToolVerdicts) {
   const updates = actions.filter((action): action is ActivityAction & ToolUpdate => action.kind === "tool_update");
   const totalMs = updates.reduce((sum, action) => (
     typeof action.durationMs === "number" && action.durationMs > 0 ? sum + action.durationMs : sum), 0);
@@ -39,9 +42,11 @@ export function clusterFacts(actions: ActivityAction[], liveLabel: string | unde
   const soloRunning = actions.length === 1
     && (actions[0].kind === "tool" || toolOutcome(actions[0] as ToolUpdate) === "running");
   const runningOne = liveLabel != null && running.length === 1 ? running[0] : null;
+  const tones = updates.map((action) => toolSetback(action, verdicts));
   return {
     totalMs,
-    failed: updates.some((action) => toolOutcome(action) === "failed"),
+    blocking: updates[tones.indexOf("blocking")] ?? null,
+    setbacks: tones.filter((tone) => tone === "soft" || tone === "declined").length,
     soloRunning,
     runningOne,
     liveRow: runningOne && activeToolLabel(runningOne) === liveLabel ? tickerRows([runningOne])[0] : null,

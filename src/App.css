@@ -4759,6 +4759,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .appr-sub::before { content: "· "; color: var(--text-muted); }
 .appr-done .appr-chev { margin-left: 0; color: var(--text-muted); opacity: 0; transition: opacity var(--ease); }
 .appr-done:hover .appr-chev, .appr-done:focus-visible .appr-chev, .appr-done[aria-expanded="true"] .appr-chev { opacity: 1; }
+/* Reçu d'une autorisation gardée (règle retenue, consigne) : une ligne
+   discrète, sans icône, alignée sur les libellés des rangées d'outil. */
+.appr.is-done.is-quiet .appr-ico { display: none; }
+.appr.is-done.is-quiet .appr-done { padding-left: 23px; }
+.appr.is-done.is-quiet .appr-verdict { color: var(--text-muted); }
 .appr.is-done .appr-code { margin-left: 22px; font-size: var(--fs-s); }
 .appr.is-done .int-plan { margin-left: 22px; }
 /* détail d'outil (Bash(git status)) */
@@ -6771,13 +6776,19 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .activity-action-list > :is(.tool-output, .ui-activity, .tool) { margin: 0; width: 100%; min-width: 0; }
 .activity-action-list .tool-output-head { min-height: 28px; padding-block: 4px; }
 .activity-action-list .tool-output-name { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
-/* Rangées d'action du fil (outils, pensées, ligne vivante) : UNE grille —
-   icône · texte · durée (56 px) · état (12 px) · chevron (12 px) — et le même
-   survol que les rangées .ui-activity (fond qui déborde de 8 px). */
+/* Rangées d'action du fil (outils, pensées) : UNE grille, icône · texte ·
+   état · durée, la durée calée au bord droit (variante A « rangées calmes »,
+   2026-11-14). Le chevron n'a pas de colonne : il prend la place de l'icône
+   de tête au survol, au focus et à l'ouverture. Même survol que les rangées
+   .ui-activity (fond qui déborde de 8 px). */
 .tool-output.is-compact .tool-output-head, .activity-thought-head {
-  grid-template-columns: 15px minmax(0, 1fr) 56px 12px 12px;
+  grid-template-columns: 15px minmax(0, 1fr) auto auto;
   width: calc(100% + 16px); margin: 0 -8px; padding: 4px 8px; border-radius: var(--radius-control);
   transition: background-color var(--motion-fast) ease; }
+.tool-output.is-compact .tool-output-head > *, .activity-thought-head > * { grid-row: 1; }
+.tool-output.is-compact .tool-output-icon, .activity-thought-head > svg:not(.tool-tick) { grid-column: 1;
+  transition: opacity var(--motion-fast) ease; }
+.tool-output.is-compact .tool-output-name, .activity-thought-preview { grid-column: 2; }
 .tool-output.is-compact .tool-output-head:hover, .tool-output.is-compact.open .tool-output-head,
 .activity-thought-head:hover, .activity-thought.open .activity-thought-head {
   background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
@@ -6786,19 +6797,36 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .tool-output.is-compact .tool-output-head:hover .tool-output-name { color: var(--text-primary); }
 .tool-output.is-compact .tool-output-target { margin-left: 8px; color: var(--text-muted);
   font-family: var(--code-font); font-size: var(--fs-m); }
-.tool-output.is-compact .tool-duration { justify-self: end; }
-.tool-output.is-compact .tool-status { justify-content: center; width: 12px; height: 12px; }
-.tool-output.is-compact .tool-output-head > .tool-tick { width: 12px; height: 12px; color: var(--text-disabled); }
-/* Le chevron d'une rangée d'action ne se montre qu'au survol, au focus
-   clavier ou quand la rangée est ouverte : au repos, la colonne reste vide. */
+.tool-output.is-compact .tool-status { grid-column: 3; justify-content: center; height: 12px; }
+.tool-output.is-compact .tool-duration { grid-column: 4; justify-self: end; font-size: var(--fs-m); }
+/* Une colonne vide ne réserve rien : la durée reste au bord, le texte respire. */
+.tool-output.is-compact .tool-status:empty, .tool-output.is-compact .tool-duration:empty { display: none; }
+/* Le chevron ne se montre qu'au survol, au focus clavier ou quand la rangée
+   est ouverte ; il remplace alors l'icône de tête, qui s'efface. */
 .tool-output.is-compact .tool-output-head > .tool-tick, .activity-thought-head > .tool-tick {
+  grid-column: 1; justify-self: center; width: 12px; height: 12px; color: var(--text-muted);
   opacity: 0; transition: opacity var(--motion-fast) ease; }
 .tool-output.is-compact .tool-output-head:is(:hover, :focus-visible) > .tool-tick,
 .tool-output.is-compact.open .tool-output-head > .tool-tick,
 .activity-thought-head:is(:hover, :focus-visible) > .tool-tick,
 .activity-thought.open .activity-thought-head > .tool-tick { opacity: 1; }
-.tool-output.is-compact.failed .tool-duration, .tool-output.is-compact.failed .tool-status { color: var(--status-error); }
-.tool-output.is-compact:not(.is-done):not(.failed) .tool-status { color: var(--text-muted); }
+.tool-output.is-compact .tool-output-head:is(:hover, :focus-visible) > .tool-output-icon,
+.tool-output.is-compact.open .tool-output-head > .tool-output-icon,
+.activity-thought-head:is(:hover, :focus-visible) > svg:not(.tool-tick),
+.activity-thought.open .activity-thought-head > svg:not(.tool-tick) { opacity: 0; }
+/* États : le gris dit « rien à faire », le rouge « à vous de voir ». Un appel
+   sans succès que l'agent a rattrapé, refusé ou interrompu se grise et dit
+   pourquoi en clair ; seul l'échec qui arrête le travail garde du rouge. */
+.tool-output.is-compact.is-soft .tool-output-name,
+.tool-output.is-compact.is-soft .tool-output-head:hover .tool-output-name { color: var(--text-muted); }
+.tool-output.is-compact.is-soft .tool-output-icon { color: var(--text-disabled); }
+.tool-output-why { color: var(--text-muted); }
+.tool-output-why::before { content: "·"; margin: 0 4px; }
+.tool-output.is-compact.failed .tool-duration { color: var(--status-error); }
+.tool-output.is-compact .tool-status { color: var(--text-muted); }
+/* Ce qui a arrêté le travail, écrit sous la rangée : dernière ligne de la sortie. */
+.tool-output-reason { margin: -4px 0 4px 23px; min-width: 0; color: var(--status-error); font-size: var(--fs-m);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Anneau d'une action en cours : la seule boucle d'une rangée d'outil à plat.
    La grappe vivante, elle, balaie son libellé et n'a pas d'anneau (variante
    B, 2026-11-01). 1 s par tour, coupé sous reduced-motion. */
@@ -6806,6 +6834,7 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 @media (prefers-reduced-motion: reduce) {
   .ui-activity-state .tool-run-ring, .tool-status .tool-run-ring { animation: none; }
   .tool-output.is-compact .tool-output-head, .activity-thought-head,
+  .tool-output.is-compact .tool-output-icon, .activity-thought-head > svg:not(.tool-tick),
   .tool-output.is-compact .tool-output-head > .tool-tick, .activity-thought-head > .tool-tick { transition: none; } }
 /* Ligne vivante : verbe au plein contraste, commande en mono, puis les trois
    dernières lignes de sortie (Codex seulement : Claude n'envoie la sortie
@@ -6832,6 +6861,8 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
    largeur, comme dans .working-stack — sinon la ligne de synthèse se centre. */
 .activity-cluster { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .activity-cluster > .ui-activity { width: 100%; max-width: none; margin: 0; }
+/* Les durées d'un groupe ouvert se calent au même bord droit que la sienne. */
+.activity-cluster .ui-activity-detail { padding-right: 0; }
 .activity-cluster-live { width: 100%; max-width: none; margin: 0; }
 .activity-cluster-live .turn-quiet { min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
@@ -6839,7 +6870,6 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .activity-batch-thought svg { flex: 0 0 auto; margin-top: 2px; }
 .activity-thought { min-width: 0; color: var(--text-muted); font-size: var(--chat-activity-font-size, 13px); }
 .activity-thought-head { display: grid; min-height: 28px; align-items: center; gap: 8px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
-.activity-thought-head > .tool-tick { width: 12px; height: 12px; color: var(--text-disabled); }
 .activity-thought-preview code { font-family: var(--code-font); font-size: var(--fs-m); color: inherit; background: none; padding: 0; }
 .activity-thought-head:hover .activity-thought-preview { color: var(--text-secondary); }
 .activity-thought-head > svg { width: 14px; height: 14px; flex: 0 0 14px; }

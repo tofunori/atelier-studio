@@ -1,12 +1,14 @@
-import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react';
+import { Fragment, type ReactNode, useContext, useEffect, useRef, useState } from 'react';
 import { ActivityDisclosure, RowButton } from "../ui";
 import { TriangleAlertIcon } from "lucide-react";
 import type { ToolAction } from '../../lib/chat/turnViewModel';
 import type { AgentEvent } from '../../lib/ws';
 import { isStoppedTerminal } from '../../lib/chat/turnViewModel';
 import type { PluginCatalogEntry } from '../../lib/plugins';
-import { activityPartKind, distinctToolActions, fmtToolDur, summarizeActivity, type SummaryPartKind, Tick, ToolGlyph } from './toolPresentation';
+import { activityPartKind, distinctToolActions, fmtToolDur, lastOutputLine, stripAnsi, summarizeActivity, type SummaryPartKind, Tick, ToolGlyph } from './toolPresentation';
 import { clusterFacts, toolStartedAt } from './toolLive';
+import { ToolVerdictsContext } from './toolVerdicts';
+import { t } from '../../lib/i18n';
 import { AgentActivityGroup, isAgentActivityAction, type AgentDisplay, type AgentToolAction } from './AgentActivity';
 import type { ActivityAction } from './groupActivityRows';
 import { EditLine } from './turnParts';
@@ -86,9 +88,7 @@ function ThoughtLeaf({ text, collapsed }: { text: string; collapsed: boolean }) 
       >
         <ToolGlyph icon={{ cat: 'thinking' }} />
         <span className="activity-thought-preview">{inlineCode(preview)}</span>
-        {/* Colonnes durée et état vides : le chevron tombe sous ceux des outils. */}
-        <span className="activity-thought-meta" aria-hidden="true" />
-        <span className="activity-thought-state" aria-hidden="true" />
+        {/* Le chevron prend la place de l'icône au survol, comme sur les outils. */}
         <Tick open={open} />
       </RowButton>
       {open && <div className="activity-thought-body">{text}</div>}
@@ -203,6 +203,13 @@ function clusterMeta(facts: ReturnType<typeof clusterFacts>, count: number, live
   return stamp ?? (facts.totalMs > 0 ? fmtToolDur(facts.totalMs) : undefined);
 }
 
+/** Groupe replié sur un échec qui a arrêté le travail : ce qui l'a arrêté
+ * reste écrit sous la ligne (ouvert, c'est la rangée de l'appel qui le dit). */
+function blockingReason(action: ReturnType<typeof clusterFacts>['blocking'], open: boolean): ReactNode {
+  const line = action && !open ? lastOutputLine(stripAnsi(action.output)) : '';
+  return line ? <div className="tool-output-reason" role="status">{line}</div> : undefined;
+}
+
 /** Traîne de sortie sous la commande en cours (Codex seulement). */
 function liveTail(lines: string[]): ReactNode {
   if (!lines.length) return undefined;
@@ -225,10 +232,11 @@ function ClusterLine(p: {
   children: ReactNode;
 }) {
   const summary = summarizeActivity(p.actions, p.plugins);
-  const facts = clusterFacts(p.actions, p.live?.label);
+  const facts = clusterFacts(p.actions, p.live?.label, useContext(ToolVerdictsContext));
   // Le libellé de synthèse attend 160 ms de stabilité : une rafale d'outils de
-  // 40 ms faisait clignoter la ligne (leçon ActivityGroup, 2026-08).
-  const nextLabel = summary.label;
+  // 40 ms faisait clignoter la ligne (leçon ActivityGroup, 2026-08). Un groupe
+  // se résume en comptes courts ; seul, un appel garde sa phrase nominale.
+  const nextLabel = summary.actionCount > 1 ? summary.shortLabel : summary.label;
   const nextLabelRef = useRef(nextLabel);
   nextLabelRef.current = nextLabel;
   const [shownLabel, setShownLabel] = useState(nextLabel);
@@ -245,12 +253,15 @@ function ClusterLine(p: {
     <ActivityDisclosure
       open={p.open}
       onToggle={p.onToggle}
-      status={facts.failed ? 'failed' : p.live ? 'running' : 'completed'}
+      status={facts.blocking ? 'failed' : p.live ? 'running' : 'completed'}
+      setback={facts.setbacks > 0 && !p.live
+        ? t(facts.setbacks === 1 ? 'tools.setback.group-1' : 'tools.setback.group-n', { n: facts.setbacks })
+        : undefined}
       shimmer={Boolean(p.live)}
-      icon={summary.icon}
+      icon={summary.parts.length > 1 ? { cat: 'mixed' } : summary.icon}
       label={p.live ? clusterLiveLabel(p.live.label, facts.liveRow) : shownLabel}
       meta={clusterMeta(facts, p.actions.length, Boolean(p.live), p.stamp)}
-      aside={liveTail(facts.tail)}
+      aside={liveTail(facts.tail) ?? blockingReason(facts.blocking, p.open)}
     >
       {p.children}
     </ActivityDisclosure>
