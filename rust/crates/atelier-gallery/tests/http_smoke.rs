@@ -2721,6 +2721,19 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     assert!(body.contains("\"cleared\":true"), "{body}");
     let (_, body) = http(srv.port, "GET", &format!("/docx/stat?path={rel}"), None);
     assert!(body.contains("\"drafts\":{}"), "{body}");
+    // Bulle que l'agent a corrigée : non lue jusqu'à l'ouverture de la carte.
+    let m = atelier_docx::Docx::open(&doc).unwrap().model().unwrap();
+    let c1 = m.comments.iter().find(|c| c.id == 1).unwrap();
+    let mark = atelier_docx::unread::Mark { author: c1.author.clone(), date: c1.date.clone() };
+    atelier_docx::unread::touch(&doc, &m, &[mark]).unwrap();
+    let (_, body) = http(srv.port, "GET", &format!("/docx/model?path={rel}"), None);
+    assert_eq!(json_of(&body)["unreadComments"], serde_json::json!([1]), "{body}");
+    let seen = serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "comment": 1}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/seen", Some(&seen));
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains("\"had\":true"), "{body}");
+    let (_, body) = http(srv.port, "GET", &format!("/docx/model?path={rel}"), None);
+    assert_eq!(json_of(&body)["unreadComments"], serde_json::json!([]), "{body}");
 
     // Annuler puis rétablir l'acceptation.
     let undo = |revision: &str, redo: bool| serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "revision": revision, "redo": redo}).to_string();
