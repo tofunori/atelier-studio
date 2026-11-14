@@ -292,7 +292,9 @@ fn with_docx_instruction(prompt: String, provider: &str) -> String {
         "{prompt}\n\n<atelier-docx>\nFor any .docx, use the MCP tool `atelier_docx` (action=read first). \
 Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
 supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \
-signed with your name; only the user accepts or rejects them. Replies to the supervisor's \
+signed with your name; only the user accepts or rejects them. Your own comments and the user's \
+you fix (edit_comment) or remove (withdraw_comment) yourself: never add a second version, never \
+ask the user to delete one; the supervisor's and other authors' stay untouched. Replies to the supervisor's \
 comments (draft_reply) are written as the user, in French: short, natural and casual, with « … », \
 a small typo now and then is fine, never a long or formal answer, and never a rewritten passage. \
 A correction you suggest for the supervisor's comment goes first in your chat answer (before / after); \
@@ -3946,6 +3948,8 @@ mod tests {
         assert!(enriched.contains("atelier_docx") && enriched.contains("Never unzip"));
         assert!(enriched.contains("short, natural and casual"), "consigne de style des réponses");
         assert!(enriched.contains("only once the user says so"), "la correction passe d'abord par le chat");
+        assert!(enriched.contains("withdraw_comment") && enriched.contains("never \
+ask the user to delete one"), "l'agent retire lui-même ses bulles");
         assert_eq!(with_docx_instruction("relis mon intro".into(), "claude"), "relis mon intro");
         assert_eq!(with_docx_instruction("a.docx".into(), "openrouter"), "a.docx");
     }
