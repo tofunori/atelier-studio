@@ -102,8 +102,11 @@ describe("rangées d'action : bloc serré et chevron au survol", () => {
     expect(css).toMatch(/\.activity-action-list \.tool-output-head \{ min-height: 28px; padding-block: 4px; \}/);
   });
   it("le chevron est masqué au repos, visible au survol, au focus clavier et rangée ouverte", () => {
-    expect(css).toMatch(/\.tool-output\.is-compact \.tool-output-head > \.tool-tick, \.activity-thought-head > \.tool-tick \{\s*opacity: 0;/);
+    // Variante A (2026-11-14) : le chevron n'a plus de colonne, il se pose
+    // sur celle de l'icône de tête, qui s'efface quand il se montre.
+    expect(css).toMatch(/\.tool-output\.is-compact \.tool-output-head > \.tool-tick, \.activity-thought-head > \.tool-tick \{\s*grid-column: 1;[^}]*opacity: 0;/);
     expect(css).toContain(".tool-output.is-compact .tool-output-head:is(:hover, :focus-visible) > .tool-tick");
     expect(css).toContain(".tool-output.is-compact.open .tool-output-head > .tool-tick");
+    expect(css).toMatch(/\.tool-output\.is-compact \.tool-output-head:is\(:hover, :focus-visible\) > \.tool-output-icon,[^{]*\{ opacity: 0; \}/);
   });
 });

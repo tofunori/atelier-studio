@@ -6,6 +6,7 @@ import { renderUi } from "../../test/render";
 import { setLanguage, t } from "../../lib/i18n";
 import { fmtClock } from "./clock";
 import { outputTail } from "./toolLive";
+import { ToolVerdictsContext } from "./toolVerdicts";
 import {
   activeToolLabel,
   activitySegments,
@@ -119,6 +120,27 @@ describe("Codex-style activity presentation", () => {
     ]);
     expect(counted.label).toBe("2 fichiers consultés");
     setLanguage("en");
+  });
+
+  // Variante A « rangées calmes » (2026-11-14) : un groupe se résume en
+  // comptes par catégorie, sans verbe, dans l'ordre sémantique du bilan.
+  it("donne aussi un bilan court, des comptes par catégorie", () => {
+    setLanguage("fr");
+    const mixed = summarizeActivity([
+      tool("c1", "Bash", "npm test", { input: { command: "npm test" } }),
+      tool("r1", "Read", "src/a.ts", { input: { path: "src/a.ts" } }),
+      tool("r2", "Read", "src/b.ts", { input: { path: "src/b.ts" } }),
+      tool("r3", "Read", "src/c.ts", { input: { path: "src/c.ts" } }),
+      tool("m1", "mcp__atelier__atelier_docx", "TP2/copie.docx", { source: "mcp" }),
+      tool("m2", "mcp__atelier__atelier_docx", "TP2/autre.docx", { source: "mcp" }),
+    ]);
+    expect(mixed.shortLabel).toBe("2 intégrations, 3 lectures, 1 commande");
+    expect(mixed.parts.map((part) => part.kind)).toEqual(["integrations", "exploration", "commands"]);
+    setLanguage("en");
+    expect(summarizeActivity([
+      tool("e1", "apply_patch", "src/a.rs", { input: { path: "src/a.rs" } }),
+      tool("e2", "apply_patch", "src/b.rs", { input: { path: "src/b.rs" } }),
+    ]).shortLabel).toBe("2 edits");
   });
 
   // Lot 3 (TRANS-04) puis variante C (2026-11-13) : un seul jeu de glyphes,
@@ -489,9 +511,10 @@ describe("ToolOutputLine — rangée compacte", () => {
     expect(status.querySelector(".tool-status-icon")).toBeTruthy();
   });
 
-  it("l'échec et le travail en cours passent avant le bouclier", () => {
+  it("un appel sans succès et le travail en cours passent avant le bouclier", () => {
     const failed = renderUi(<ToolOutputLine compact authorized="Commande autorisée" event={update({ status: "failed", exitCode: 2 })} />);
-    expect(failed.container.querySelector(".tool-status")).toHaveAttribute("aria-label", t("chat.action-failed"));
+    expect(failed.container.querySelector(".tool-status")).toHaveAttribute("aria-label", t("tools.setback.soft-title"));
+    expect(failed.container.querySelector(".tool-status-icon")).toBeNull();
     failed.unmount();
     const running = renderUi(<ToolOutputLine compact authorized="Commande autorisée" event={update({ status: "inProgress" })} />);
     expect(running.container.querySelector(".tool-status .tool-run-ring")).toBeTruthy();
@@ -508,12 +531,71 @@ describe("ToolOutputLine — rangée compacte", () => {
     expect(container.querySelector(".tool-output-target")?.textContent).toBe("albedo");
   });
 
-  it("un échec : croix et code de sortie, seuls éléments colorés de la rangée", () => {
-    const { container } = renderUi(<ToolOutputLine compact event={update({ status: "failed", exitCode: 2 })} />);
-    expect(container.querySelector(".tool-status")).toHaveAttribute("aria-label", t("chat.action-failed"));
-    expect(container.querySelector(".tool-status .tool-status-icon")).toBeTruthy();
-    expect(container.querySelector(".tool-duration")?.textContent).toBe("exit 2");
-    expect(container.querySelector(".tool-output")).toHaveClass("failed");
+  // Variante A « rangées calmes » (2026-11-14) : plus aucune croix. Un appel
+  // sans succès que l'agent a rattrapé se grise et dit pourquoi en clair.
+  it("un raté rattrapé : rangée grisée, raison écrite, ni croix ni rouge", () => {
+    const { container } = renderUi(<ToolOutputLine compact event={update({
+      name: "Read", status: "failed", durationMs: 12, input: { file_path: "/tp/Complément_TP2.pdf" },
+      output: "File does not exist. Note: your current working directory is /tp.",
+    })} />);
+    const row = container.querySelector(".tool-output") as HTMLElement;
+    expect(row).toHaveClass("is-soft");
+    expect(row).not.toHaveClass("failed");
+    expect(row.querySelector(".tool-output-why")?.textContent).toBe(t("tools.setback.not-found"));
+    // un fichier qu'on n'a pas pu lire ne se dit pas « consulté » : son nom seul
+    expect(row.querySelector(".tool-output-name")?.firstChild?.textContent).toBe("Complément_TP2.pdf");
+    expect(row.querySelector(".tool-output-target")).toBeNull();
+    expect(row.querySelector(".tool-duration")?.textContent).toBe("12 ms");
+    expect(row.querySelector(".tool-status")?.childElementCount).toBe(0);
+    expect(row.querySelector(".tool-state-dot")).toBeNull();
+    expect(row.querySelector(".tool-output-reason")).toBeNull();
+  });
+
+  it("la raison d'un raté : rien trouvé, délai, sinon le code de sortie", () => {
+    const why = (extra: Record<string, unknown>) => {
+      const view = renderUi(<ToolOutputLine compact event={update({ status: "failed", ...extra })} />);
+      const text = view.container.querySelector(".tool-output-why")?.textContent;
+      view.unmount();
+      return text;
+    };
+    expect(why({ exitCode: 1, input: { command: "grep -n albedo notes.md" } })).toBe(t("tools.setback.no-match"));
+    expect(why({ output: "Command timed out after 2m 0s" })).toBe(t("tools.setback.timeout"));
+    expect(why({ exitCode: 2, output: "make: *** [all] Error 2" })).toBe("exit 2");
+    expect(why({ output: "boom" })).toBe(t("tools.setback.generic"));
+  });
+
+  it("refusée ou interrompue : une décision de l'utilisateur, en gris, avec son glyphe", () => {
+    const declined = renderUi(<ToolVerdictsContext.Provider value={{ blocking: new Set(), declined: new Set(["x"]) }}>
+      <ToolOutputLine compact event={update({ status: "failed", input: { command: "rm -rf tmp" } })} />
+    </ToolVerdictsContext.Provider>);
+    expect(declined.container.querySelector(".tool-output")).toHaveClass("is-soft");
+    expect(declined.container.querySelector(".tool-output-why")?.textContent).toBe(t("tools.setback.declined"));
+    expect(declined.container.querySelector(".tool-status")).toHaveAttribute("aria-label", t("tools.setback.declined-title"));
+    expect(declined.container.querySelector(".tool-status .tool-status-icon")).toBeTruthy();
+    // l'icône de tête reste celle de la catégorie : l'état a sa colonne
+    expect(declined.container.querySelector("[data-activity-icon='command']")).toBeTruthy();
+    declined.unmount();
+    const stopped = renderUi(<ToolOutputLine compact event={update({ status: "interrupted", input: { command: "python fit.py" } })} />);
+    expect(stopped.container.querySelector(".tool-output")).toHaveClass("is-soft");
+    expect(stopped.container.querySelector(".tool-output-why")?.textContent).toBe(t("tools.setback.stopped"));
+    expect(stopped.container.querySelector("[data-activity-icon='command']")).toBeTruthy();
+  });
+
+  it("l'échec qui arrête le travail : le seul rouge, avec son code et sa raison", () => {
+    const { container } = renderUi(<ToolVerdictsContext.Provider value={{ blocking: new Set(["x"]), declined: new Set() }}>
+      <ToolOutputLine compact event={update({
+        status: "failed", exitCode: 127, input: { command: "libreoffice --convert-to pdf *.docx" },
+        output: "zsh:1: command not found: libreoffice\n",
+      })} />
+    </ToolVerdictsContext.Provider>);
+    const row = container.querySelector(".tool-output") as HTMLElement;
+    expect(row).toHaveClass("failed");
+    expect(row).not.toHaveClass("is-soft");
+    expect(row.querySelector(".tool-status")).toHaveAttribute("aria-label", t("chat.action-failed"));
+    expect(row.querySelector(".tool-status .tool-state-dot")).toBeTruthy();
+    expect(row.querySelector(".tool-duration")?.textContent).toBe("exit 127");
+    expect(row.querySelector(".tool-output-why")).toBeNull();
+    expect(row.querySelector(".tool-output-reason")?.textContent).toBe("zsh:1: command not found: libreoffice");
   });
 
   it("la phrase de l'agent remplace le libellé générique et la commande", () => {

@@ -78,7 +78,7 @@ test('live activity stays in the transcript tail and shows above the composer at
   await expect(status).not.toHaveCSS('color', 'rgba(0, 0, 0, 0)');
 });
 
-test('tool disclosures keep readable sizing, a row-end chevron and keyboard access', async ({ page }) => {
+test('tool disclosures keep readable sizing, a chevron in place of the icon on hover, and keyboard access', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 760 });
   await page.goto('/#chatbench-slottransition');
   const trigger = page.locator('.ui-activity-trigger').first();
@@ -86,13 +86,30 @@ test('tool disclosures keep readable sizing, a row-end chevron and keyboard acce
   await expect(trigger).toHaveCSS('font-size', '13px');
   await expect(trigger).toHaveCSS('min-height', '36px');
   await expect(trigger.locator('.ui-activity-icon svg')).toHaveCSS('width', '14px');
-  // Le chevron ferme la rangée (même colonne que les rangées d'outil), il
-  // n'est plus collé au libellé : il ne peut donc plus mordre sur son fondu.
+  // Variante A « rangées calmes » (2026-11-14) : le chevron n'a plus de
+  // colonne. Caché au repos, il prend la place de l'icône de tête au survol,
+  // au focus et à l'ouverture ; la durée, elle, se cale au bord droit.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.mouse.move(2, 2);
+  const icon = trigger.locator('.ui-activity-icon');
+  const chevron = trigger.locator('.tool-tick');
+  await expect(chevron).toHaveCSS('opacity', '0');
+  await expect(icon).toHaveCSS('opacity', '1');
+  const iconBox = (await icon.boundingBox())!;
+  const chevronBox = (await chevron.boundingBox())!;
+  expect(Math.abs(iconBox.x + iconBox.width / 2 - (chevronBox.x + chevronBox.width / 2))).toBeLessThanOrEqual(1);
+  expect(Math.abs(iconBox.y + iconBox.height / 2 - (chevronBox.y + chevronBox.height / 2))).toBeLessThanOrEqual(1);
   const row = (await trigger.boundingBox())!;
-  const chevron = (await trigger.locator('.tool-tick').boundingBox())!;
-  expect(Math.abs(row.x + row.width - 8 - (chevron.x + chevron.width))).toBeLessThanOrEqual(1);
-  const label = (await trigger.locator('.ui-activity-label').boundingBox())!;
-  expect(label.x + label.width).toBeLessThanOrEqual(chevron.x);
+  const meta = trigger.locator('.ui-activity-meta');
+  if (await meta.isVisible()) {
+    const metaBox = (await meta.boundingBox())!;
+    expect(Math.abs(row.x + row.width - 8 - (metaBox.x + metaBox.width))).toBeLessThanOrEqual(1);
+    const label = (await trigger.locator('.ui-activity-label').boundingBox())!;
+    expect(label.x + label.width).toBeLessThanOrEqual(metaBox.x + 1);
+  }
+  await trigger.hover();
+  await expect(chevron).toHaveCSS('opacity', '1');
+  await expect(icon).toHaveCSS('opacity', '0');
   await trigger.focus();
   await page.keyboard.press('Enter');
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
@@ -122,8 +139,10 @@ test('short action labels end before the fade, including accented final letters'
         range.selectNodeContents(el);
         const content = range.getBoundingClientRect();
         const box = el.getBoundingClientRect();
+        // Une durée vide ne réserve plus de colonne : le bord droit du contenu la remplace.
         const meta = el.parentElement!.querySelector('.ui-activity-meta')!.getBoundingClientRect();
-        return { textEnd: content.right, fadeStart: box.right - 16, metaStart: meta.left };
+        const edge = el.parentElement!.getBoundingClientRect().right - 8;
+        return { textEnd: content.right, fadeStart: box.right - 16, metaStart: meta.width ? meta.left : edge };
       }, text);
       expect(geometry.textEnd).toBeLessThanOrEqual(geometry.fadeStart + 1);
       expect(geometry.metaStart - geometry.textEnd).toBeGreaterThanOrEqual(8);

@@ -160,6 +160,7 @@ fn handle_control_request(
     on_interaction: Option<&crate::traits::InteractionFn>,
     activity: &crate::turn_idle::TurnActivity,
     en_attente: &std::sync::Mutex<Vec<tokio::task::AbortHandle>>,
+    attentes: &crate::claude_parse::HumanWaits,
 ) -> bool {
     let Ok(msg) = serde_json::from_str::<Value>(line) else {
         return false;
@@ -209,7 +210,9 @@ fn handle_control_request(
     // Le terminal attend indéfiniment ; ici l'attente vit tant que le relais
     // ne l'a pas close, ou jusqu'à la fin du tour (tâche annulée par send()).
     let attente = activity.wait_for_human();
+    let attentes = Arc::clone(attentes);
     let tache = tokio::spawn(async move {
+        let debut = std::time::Instant::now();
         let reponse = match relais {
             Some(relais) => relais("claude/can_use_tool".to_string(), request.clone()).await,
             // Pas d'interface interactive : refus sûr, jamais d'attente
@@ -217,6 +220,16 @@ fn handle_control_request(
             None => None,
         };
         drop(attente);
+        // Noté AVANT de répondre au CLI : le résultat de l'outil ne peut
+        // arriver qu'après, et sa durée retranche ce temps de réponse.
+        crate::claude_parse::record_human_wait(
+            &attentes,
+            request
+                .get("tool_use_id")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            debut.elapsed().as_millis(),
+        );
         let verdict = crate::claude_permissions::verdict(&request, reponse.as_ref());
         let _ = write_line(
             &stdin,
@@ -1364,6 +1377,7 @@ impl Provider for ClaudeProvider {
                                 req.on_interaction.as_ref(),
                                 &activity,
                                 &permissions_en_attente,
+                                &state.human_waits,
                             )
                         {
                             continue;

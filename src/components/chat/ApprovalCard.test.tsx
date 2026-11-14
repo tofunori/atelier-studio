@@ -252,6 +252,11 @@ describe("ApprovalCard — répondue (historique)", () => {
     expect(container.querySelector("input")).toBeNull();
     // seule la ligne elle-même est cliquable (elle déplie la commande)
     expect(within(container).getAllByRole("button")).toHaveLength(1);
+    // Une autorisation gardée (règle retenue) devient une ligne discrète ;
+    // un refus garde son glyphe (variante A « rangées calmes », 2026-11-14).
+    const quiet = verdict === t("interaction.cmd-allowed");
+    expect(container.querySelector(".appr.is-done")?.classList.contains("is-quiet")).toBe(quiet);
+    expect(container.querySelector(".appr.is-done")?.classList.contains("is-denied")).toBe(!quiet);
   });
 
   it("Codex : « autorisé une fois » donne une ligne sobre sans redite", async () => {
