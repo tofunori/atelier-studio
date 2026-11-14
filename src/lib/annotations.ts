@@ -85,3 +85,38 @@ export function parseAnnotationBlock(text: string): ParsedAnnotations | null {
   if (!items.length) return null;
   return { items, tail: lines.slice(i).join("\n").trim() };
 }
+
+// Un caractère de mot : lettres, chiffres, apostrophes et traits d'union
+// internes (« l'annexe », « sous-bassin »).
+const WORD_CHAR = /[\p{L}\p{N}_'’-]/u;
+
+/** Étend la sélection aux mots entiers (2026-11-14) : une annotation prise
+ *  au vol (« ort que … 19,9 es ») garde « rapporte que … 19,9 est ». La
+ *  sélection visible suit, pour que la marque posée dans la réponse et le
+ *  passage envoyé restent le même texte. Seuls les bouts posés dans un nœud
+ *  texte bougent ; un bout entre deux balises est déjà une frontière. */
+export function snapSelectionToWords(sel: Selection | null): void {
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  const isWord = (ch: string | undefined) => ch !== undefined && WORD_CHAR.test(ch);
+  let start = range.startOffset;
+  let end = range.endOffset;
+  const startText = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.textContent ?? "" : null;
+  const endText = range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer.textContent ?? "" : null;
+  if (startText != null) while (start > 0 && isWord(startText[start - 1]) && isWord(startText[start])) start -= 1;
+  if (endText != null) while (end < endText.length && isWord(endText[end - 1]) && isWord(endText[end])) end += 1;
+  if (start === range.startOffset && end === range.endOffset) return;
+  const snapped = range.cloneRange();
+  snapped.setStart(range.startContainer, start);
+  snapped.setEnd(range.endContainer, end);
+  sel.removeAllRanges();
+  sel.addRange(snapped);
+}
+
+/** Bouts ouverts d'un passage cité : « … » devant un passage qui commence en
+ *  cours de phrase (minuscule), derrière un passage qui s'arrête avant sa
+ *  ponctuation finale. Rendu seulement : le texte envoyé ne change pas. */
+export function quoteEdges(text: string): { open: boolean; close: boolean } {
+  const t = text.trim();
+  return { open: /^\p{Ll}/u.test(t), close: !/[.!?:;…»)\]"”]$/u.test(t) };
+}
