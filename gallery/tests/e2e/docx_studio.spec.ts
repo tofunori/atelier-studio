@@ -312,6 +312,62 @@ test("docx: résoudre et répondre pendant que l'agent écrit, puis rouvrir : to
   await expect(page.locator('#cards .it[data-key="c1"] .cc.dn')).toBeVisible();
 });
 
+// Thierry, 2026-11-14 (suite) : ses retouches de texte disparaissaient
+// aussi. Une frappe ou un commentaire posé dans un paragraphe que l'agent
+// venait de retoucher partait en conflit, et le panneau ne le rejouait que
+// si le texte du paragraphe était resté le même : la frappe finissait dans
+// le presse-papiers, le commentaire était jeté. Ils sont maintenant replacés
+// autour de la retouche de l'agent, et tout est là à la réouverture.
+test("docx: taper et commenter pendant que l'agent retouche le même paragraphe, puis rouvrir : tout est là", async ({page, project}) => {
+  await open(page, project);
+  // Le panneau ne voit pas encore l'écriture de l'agent (sondage coupé) :
+  // l'agent écrit juste avant que le geste du panneau n'arrive.
+  await page.route('**/docx/stat**', (r) => r.abort());
+  let agentOp: unknown = null;
+  await page.route('**/docx/op', async (route) => {
+    if (agentOp) {
+      const op = agentOp;
+      agentOp = null;
+      const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, author: 'Claude', op}});
+      expect(r.ok(), await r.text()).toBe(true);
+    }
+    await route.continue();
+  });
+
+  // Deux retouches de l'agent dans le paragraphe où l'on tape, une avant
+  // le curseur et une après.
+  agentOp = {op: 'batch', ops: [
+    {op: 'replace', paragraph: 'p2', find: 'seuil', with: 'palier'},
+    {op: 'replace', paragraph: 'p2', find: 'compromis', with: 'équilibre'},
+  ]};
+  await caretAfter(page, 2, 'retenu ici');
+  await page.keyboard.type(' a priori');
+  await expect.poll(async () => (await disk(page, project)).paragraphs[2].text).toBe('Le palier de 0,6 retenu ici a priori offre un équilibre entre le nombre de pixels retenus et la pureté du signal glaciaire.');
+  await expect(page.locator('#toast.err')).toHaveCount(0);
+
+  // Un commentaire sur un passage pendant que l'agent retouche plus tôt
+  // dans le même paragraphe : il s'ancre toujours sur « fin d'été ».
+  agentOp = {op: 'replace', paragraph: 'p4', find: 'atteignant', with: 'qui atteint'};
+  await select(page, 4, "fin d'été");
+  await page.locator('#selbar [aria-label="Annoter"]').click();
+  const note = page.locator('.nbox.show textarea');
+  await note.fill('Préciser la date.');
+  await note.press('ControlOrMeta+Enter');
+  await expect.poll(async () => (await disk(page, project)).comments.find(c => c.text === 'Préciser la date.')?.quote).toBe("fin d'été");
+
+  // Réouverture : le fichier et le panneau ont tout.
+  await page.unroute('**/docx/op');
+  await page.unroute('**/docx/stat**');
+  await page.goto('about:blank');
+  await open(page, project);
+  const m = await disk(page, project);
+  expect(m.paragraphs[2].text).toContain('retenu ici a priori offre un équilibre');
+  expect(m.paragraphs[4].text).toContain("qui atteint 0,04 en fin d'été");
+  expect(m.changes.some(c => c.author === 'Thierry' && c.kind === 'ins' && c.text.includes('a priori'))).toBe(true);
+  expect(m.comments.some(c => c.text === 'Préciser la date.' && c.author === 'Thierry' && c.quote === "fin d'été")).toBe(true);
+  await expect(page.locator('.d-p[data-idx="2"]')).toContainText('retenu ici a priori');
+});
+
 test("docx: sa réponse se modifie d'un clic, celle de Christophe jamais, et la rangée tient dans une fiche de 240 px", async ({page, project}) => {
   await page.setViewportSize({width: 1440, height: 900});
   await page.addInitScript(() => { try { localStorage.setItem('docxLaneW', '240'); } catch { /* sans stockage */ } });

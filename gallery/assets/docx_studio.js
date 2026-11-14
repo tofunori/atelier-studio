@@ -1613,22 +1613,26 @@
       status("Enregistrement…");
       const expectText = expectIdx !== undefined && model ? virtualTextReal(expectIdx) : null;
       try {
-        for (let attempt = 0; attempt < 2; attempt++) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const base = model ;
           try {
-            const r = await api("/docx/op", { path: PATH, revision: model .revision, author, tracked, op });
+            const r = await api("/docx/op", { path: PATH, revision: base.revision, author, tracked, op });
             const fresh = modelFromResponse(r, model) ;
             const sel = caret ? caret(fresh, r.result) : readSel();
             applyModel(fresh, sel);
             status("Enregistré dans le .docx");
             return true;
           } catch (e     ) {
-            if (e.status === 409 && attempt === 0) {
+            if (e.status === 409 && attempt < 2) {
               // Word ou l'agent a écrit entre-temps : relire, et refaire le
-              // geste si son paragraphe n'a pas bougé.
+              // geste sur la version à jour, replacé autour de ce que l'autre
+              // a retouché dans son paragraphe (commentaire posé, collage,
+              // remplacement perdus quand l'agent écrivait, 2026-11-14).
               const fresh        = normalize(await api(`/docx/model?path=${enc(PATH)}`));
               const same = expectIdx !== undefined && fresh.paragraphs[expectIdx] && fresh.paragraphs[expectIdx].text === expectText;
+              const moved = same ? op : moveOp(op, base, fresh);
               applyModel(fresh, readSel());
-              if (same) continue;
+              if (moved) { op = moved; continue; }
               status("Le document a changé pendant ce geste : refais-le sur la version à jour.", true);
               return false;
             }
@@ -1644,6 +1648,67 @@
         inflight--;
       }
     });
+  }
+  /** Champs de position des retouches qui visent un passage d'un paragraphe. */
+  const POS_OF                           = {
+    insert: ["at"], insert_runs: ["at"], insert_note: ["at"], insert_image: ["at"], split: ["at"],
+    replace_range: ["start", "end"], comment_range: ["start", "end"], format_range: ["start", "end"],
+  };
+  /** Retouches qui visent un paragraphe entier (texte indifférent). */
+  const WHOLE_PARA = new Set(["format_paragraph", "insert_row", "delete_row", "insert_column", "delete_column"]);
+  /** Rang dans `m` du paragraphe que désigne `r` (forme de `refFor`/`refIn`). */
+  function idxOfRef(m       , r        )         {
+    const dot = r.lastIndexOf(".");
+    const st = dot >= 0 ? r.slice(0, dot) : "";
+    const local = dot >= 0 ? r.slice(dot + 1) : r;
+    if (local.startsWith("id:")) {
+      const pid = local.slice(3).toLowerCase();
+      const hits = m.paragraphs.map((p, k) => ((p.story || "") === st && (p.para_id || "").toLowerCase() === pid ? k : -1)).filter((k) => k >= 0);
+      return hits.length === 1 ? hits[0] : -1;
+    }
+    const n = /^p(\d+)$/.exec(local);
+    if (!n) return -1;
+    const start = m.paragraphs.findIndex((p) => (p.story || "") === st);
+    const k = start < 0 ? -1 : start + Number(n[1]);
+    return k >= 0 && m.paragraphs[k] && (m.paragraphs[k].story || "") === st ? k : -1;
+  }
+  /** Le geste `op`, calculé sur `base`, refait sur `fresh` après une
+   *  écriture de l'autre ; null s'il ne s'y retrouve pas sans doute
+   *  (paragraphe introuvable, ou retouche de l'autre dans le passage). */
+  function moveOp(op    , base       , fresh       )            {
+    if (op.op === "batch" && Array.isArray(op.ops)) {
+      const ops = op.ops        ;
+      // Les rangs d'un lot qui coupe ou joint suivent l'état du milieu du lot.
+      if (ops.some((o) => o.op === "split" || o.op === "join" || o.op === "insert_runs") && ops.length > 1) return null;
+      const out = ops.map((o) => moveOp(o, base, fresh));
+      return out.every(Boolean) ? { ...op, ops: out         } : null;
+    }
+    if (op.expect) return op; // visé par identifiant : le serveur vérifie la cible
+    const keys = POS_OF[op.op          ];
+    if (!keys && !WHOLE_PARA.has(op.op          ) && op.op !== "join") return null;
+    const i = idxOfRef(base, String(op.paragraph || ""));
+    const p = i >= 0 ? base.paragraphs[i] : null;
+    if (!p) return null;
+    let j = p.para_id ? fresh.paragraphs.findIndex((q) => q.para_id === p.para_id) : -1;
+    if (j >= 0 && fresh.paragraphs.filter((q) => q.para_id === p.para_id).length !== 1) j = -1;
+    if (j < 0 && fresh.paragraphs[i] && fresh.paragraphs[i].text === p.text) j = i;
+    const f = j >= 0 ? fresh.paragraphs[j] : null;
+    if (!f || (f.story || "") !== (p.story || "")) return null;
+    const out     = { ...op, paragraph: refFor(fresh, j) };
+    if (op.op === "join") {
+      const a = base.paragraphs[i - 1], b = fresh.paragraphs[j - 1];
+      return f.text === p.text && a && b && a.text === b.text ? out : null;
+    }
+    if (!keys || f.text === p.text) return out;
+    if (!p.para_id) return null;
+    const h = diffHunks(Array.from(p.text), Array.from(f.text));
+    if (!h) return null;
+    const s = Number(op[keys[0]]), e = keys[1] ? Number(op[keys[1]]) : s;
+    const at = moveRange(h, s, e);
+    if (!at) return null;
+    out[keys[0]] = at[0];
+    if (keys[1]) out[keys[1]] = at[1];
+    return out;
   }
   const virtualTextReal = (idx        ) => model .paragraphs[idx] ? model .paragraphs[idx].text : "";
 
@@ -1978,10 +2043,58 @@
     return chain;
   }
 
+  /** Retouche de l'autre dans un paragraphe : `ol` caractères du texte
+   *  d'avant à partir de `oa` remplacés par `nl` caractères. */
+
+  /** Retouches qui mènent de `A` à `B` (plus longue sous-suite commune,
+   *  au caractère), dans l'ordre ; null si le milieu à comparer est trop
+   *  grand pour le faire à la frappe. */
+  function diffHunks(A          , B          )                {
+    let p = 0;
+    while (p < A.length && p < B.length && A[p] === B[p]) p++;
+    let z = 0;
+    while (z < A.length - p && z < B.length - p && A[A.length - 1 - z] === B[B.length - 1 - z]) z++;
+    const n = A.length - p - z, m = B.length - p - z;
+    if (!n || !m) return [{ oa: p, ol: n, nl: m }];
+    if (n * m > 4_000_000) return null;
+    // L[i][j] : sous-suite commune la plus longue de A[p+i..] et B[p+j..].
+    const W = m + 1;
+    const L = new Uint32Array((n + 1) * W);
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
+      L[i * W + j] = A[p + i] === B[p + j] ? L[(i + 1) * W + j + 1] + 1 : Math.max(L[(i + 1) * W + j], L[i * W + j + 1]);
+    }
+    const out         = [];
+    let cur              = null;
+    let i = 0, j = 0;
+    const open = () => (cur ||= { oa: p + i, ol: 0, nl: 0 });
+    while (i < n || j < m) {
+      if (i < n && j < m && A[p + i] === B[p + j]) { if (cur) { out.push(cur); cur = null; } i++; j++; }
+      else if (j < m && (i >= n || L[i * W + j + 1] >= L[(i + 1) * W + j])) { open().nl++; j++; }
+      else { open().ol++; i++; }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+  /** Plage [s, e) du texte d'avant vue dans le texte d'après ; null si une
+   *  retouche de l'autre tombe dedans. Une frappe posée juste contre elle
+   *  passe : après elle si elle la précède ou commence au même endroit. */
+  function moveRange(h        , s        , e        )                          {
+    let shift = 0;
+    for (const k of h) {
+      const ke = k.oa + k.ol;
+      if (k.ol ? k.oa < e && ke > s : k.oa > s && k.oa < e) return null;
+      if (ke <= s) shift += k.nl - k.ol;
+    }
+    return [s + shift, e + shift];
+  }
+
   /** Après un changement venu d'ailleurs (Word, l'agent) : retrouve dans
    *  `fresh` le paragraphe du premier geste en attente (paraId, même rang
-   *  et même texte, ou texte unique) et décale toute la file d'autant. Les
-   *  gestes suivants sont revérifiés à leur envoi. */
+   *  et même texte, ou texte unique) et décale toute la file d'autant. Si
+   *  l'autre a retouché le texte d'un paragraphe où l'on tape, la frappe est
+   *  replacée autour de sa retouche tant qu'elles ne se chevauchent pas
+   *  (frappes perdues quand l'agent écrivait dans le même paragraphe,
+   *  2026-11-14). Les gestes suivants sont revérifiés à leur envoi. */
   function rebaseOnto(old       , fresh       )          {
     const x = pend[0];
     if (!x) return true;
@@ -1993,9 +2106,63 @@
       const same = fresh.paragraphs.map((q, k) => (q.text === p.text && (q.story || "") === (p.story || "") ? k : -1)).filter((k) => k >= 0);
       if (same.length === 1) j = same[0];
     }
-    if (j < 0 || fresh.paragraphs[j].text !== p.text) return false;
+    if (j < 0) return false;
     const d = j - x.idx;
+    if (pend.some((y) => y.k === "split" || y.k === "join")) {
+      if (fresh.paragraphs[j].text !== p.text) return false;
+    } else if (!retarget(old, fresh, d)) return false;
     if (d) for (const y of pend) { y.idx += d; for (const r of y.ranges || []) r.idx += d; }
+    return true;
+  }
+
+  /** Replace la file (frappe et mise en forme seulement) sur les
+   *  paragraphes que l'autre a retouchés (rangs de `old`, décalés de `d`
+   *  dans `fresh`), retrouvés par leur paraId : la retouche de l'autre est
+   *  la plage qui diffère entre les deux textes ; un geste avant elle garde
+   *  ses positions, un geste après se décale de sa longueur, un geste qui
+   *  la touche est refusé (rendu à l'utilisateur par `fail`). */
+  function retarget(old       , fresh       , d        )          {
+    const hunks = new Map                       ();
+    const hunksOf = (i        )                        => {
+      if (hunks.has(i)) return hunks.get(i) ;
+      const o = old.paragraphs[i], f = fresh.paragraphs[i + d];
+      if (!o || !f) return false;
+      if (o.text === f.text) { hunks.set(i, null); return null; }
+      if (!o.para_id || o.para_id !== f.para_id || (o.story || "") !== (f.story || "")) return false;
+      const h = diffHunks(Array.from(o.text), Array.from(f.text));
+      if (!h) return false;
+      hunks.set(i, h);
+      return h;
+    };
+    const splice = (t        , s        , e        , w        ) => { const c = Array.from(t); return c.slice(0, s).join("") + w + c.slice(e).join(""); };
+    // Texte courant de chaque paragraphe, côté `fresh`, au fil de la file.
+    const now = new Map                ();
+    const textOf = (i        ) => now.has(i) ? now.get(i)  : fresh.paragraphs[i + d].text;
+    const out                                                                                                                   = [];
+    for (const y of pend) {
+      if (y.k === "text") {
+        const h = hunksOf(y.idx);
+        if (h === false) return false;
+        const at = h ? moveRange(h, y.s, y.e) : [y.s, y.e]                    ;
+        if (!at) return false;
+        const expect = textOf(y.idx);
+        out.push({ y, s: at[0], e: at[1], expect });
+        now.set(y.idx, splice(expect, at[0], at[1], y.w));
+        // Les retouches de l'autre qui suivent se décalent avec la frappe.
+        if (h) for (const k of h) if (k.oa + k.ol > y.s) k.oa += cp(y.w) - (y.e - y.s);
+      } else {
+        const ranges                                                     = [];
+        for (const r of y.ranges || []) {
+          const h = hunksOf(r.idx);
+          if (h === false) return false;
+          const at = h ? moveRange(h, r.s, r.e) : [r.s, r.e]                    ;
+          if (!at) return false;
+          ranges.push({ idx: r.idx, s: at[0], e: at[1], t: textOf(r.idx) });
+        }
+        out.push({ y, s: y.s, e: y.e, expect: textOf(y.idx), ranges });
+      }
+    }
+    for (const o of out) { o.y.s = o.s; o.y.e = o.e; o.y.expect = o.expect; if (o.ranges) o.y.ranges = o.ranges; }
     return true;
   }
 
@@ -2008,21 +2175,24 @@
       let op = pend[0] === x ? opOf(x, confirmed ) : null;
       if (!op) throw Object.assign(new Error("Le document a changé pendant ce geste."), { status: 409 });
       let r     ;
-      try {
-        r = await post(op);
-      } catch (e     ) {
-        if (e.status !== 409) throw e;
-        // Word ou l'agent a écrit entre-temps : relire, replacer les gestes
-        // en attente dans la nouvelle version, et renvoyer celui-ci.
-        x.flying = false;
-        const fresh        = normalize(await api(`/docx/model?path=${enc(PATH)}`));
-        if (!rebaseOnto(confirmed , fresh)) throw e;
-        confirmed = fresh;
-        restage();
-        applyModel(shown(), readSel());
-        op = opOf(x, confirmed);
-        if (!op) throw e;
-        r = await post(op);
+      for (let attempt = 0; ; attempt++) {
+        try {
+          r = await post(op);
+          break;
+        } catch (e     ) {
+          // Word ou l'agent a écrit entre-temps : relire, replacer les gestes
+          // en attente dans la nouvelle version, et renvoyer celui-ci (l'agent
+          // peut écrire plusieurs fois de suite : trois essais).
+          if (e.status !== 409 || attempt >= 2) throw e;
+          x.flying = false;
+          const fresh        = normalize(await api(`/docx/model?path=${enc(PATH)}`));
+          if (!rebaseOnto(confirmed , fresh)) throw e;
+          confirmed = fresh;
+          restage();
+          applyModel(shown(), readSel());
+          op = opOf(x, confirmed);
+          if (!op) throw e;
+        }
       }
       const fresh = serverModelOf(r, confirmed ) || normalize(await api(`/docx/model?path=${enc(PATH)}`));
       pend.shift();
