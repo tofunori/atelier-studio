@@ -1,7 +1,8 @@
 // Shared project actions and appearance panel for the rail and sidebar.
 import { useLayoutEffect, useRef, useState } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, Trash2Icon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, TextCursorInputIcon, Trash2Icon } from "lucide-react";
 import { t } from "../../lib/i18n";
+import { customProjectName, projectName as displayName } from "../../lib/projectsHome";
 import { PROJ_COLORS, PROJ_ICONS, ProjIcon } from "./projectIcons";
 import { Input } from "../shadcn/input";
 import { Popover, PopoverTitle } from "../shadcn/popover";
@@ -10,7 +11,7 @@ import { MenuPanelContent, MenuPanelItem } from "../ui/MenuPanel";
 import { IconButton, RowButton } from "../ui";
 import { NoneIcon } from "../icons";
 
-export type ProjMetaLite = { color?: string; label?: string };
+export type ProjMetaLite = { color?: string; label?: string; name?: string };
 export type ProjectStyleAnchor = { x: number; y: number } | Element;
 
 // libellé accessible d'une icône : PROJ_ICONS n'a pas de traduction dédiée
@@ -54,6 +55,8 @@ export function ProjectStyleMenu(props: {
   );
 
   const [appearance, setAppearance] = useState(!props.onProjectSettings && !onRemove);
+  // « Renommer » : nom d'affichage seulement, le dossier ne change pas
+  const [renaming, setRenaming] = useState(false);
   const backRef = useRef<HTMLButtonElement>(null);
   const customizeRef = useRef<HTMLButtonElement>(null);
   const previousAppearance = useRef(appearance);
@@ -62,7 +65,13 @@ export function ProjectStyleMenu(props: {
     previousAppearance.current = appearance;
     (appearance ? backRef : customizeRef).current?.focus();
   }, [appearance]);
-  const projectName = root.split("/").filter(Boolean).pop() || root;
+  const folderName = root.split("/").filter(Boolean).pop() || root;
+  const projectName = displayName(root, meta);
+  const rename = (value: string) => {
+    const clean = value.trim();
+    onSetMeta(root, { ...meta, name: clean && clean !== folderName ? clean : undefined });
+    onClose();
+  };
   const colorNames = t("project.menu-colors").split(",");
   const showAppearance = (next: boolean) => {
     setAppearance(next);
@@ -76,7 +85,7 @@ export function ProjectStyleMenu(props: {
       className={["project-context-panel", className].filter(Boolean).join(" ")}
       anchor={anchorTarget}
       finalFocus={finalFocusRef}
-      initialFocus={() => (appearance ? backRef : customizeRef).current}
+      initialFocus={() => (renaming ? null : (appearance ? backRef : customizeRef).current)}
     >
       <div className="project-context-heading">
         <span className="project-context-avatar" style={{ color: meta?.color }} aria-hidden="true">
@@ -87,7 +96,23 @@ export function ProjectStyleMenu(props: {
           <span className="project-context-path" title={root}>{root}</span>
         </div>
       </div>
-      {!appearance ? <div className="project-context-actions">
+      {renaming ? <div className="project-context-appearance">
+        <MenuPanelItem className="project-context-back" onClick={() => setRenaming(false)}><ChevronLeftIcon aria-hidden="true" />{t("project.menu-back")}</MenuPanelItem>
+        <label className="project-context-label" htmlFor="project-rename">{t("projects.name")}</label>
+        <Input
+          id="project-rename"
+          autoFocus
+          defaultValue={customProjectName(meta) ?? ""}
+          placeholder={folderName}
+          onFocus={(e) => e.currentTarget.select()}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { if (e.key === "Enter") rename(e.currentTarget.value); }}
+        />
+        <p className="project-context-hint">{t("projects.rename-hint")}</p>
+      </div> : !appearance ? <div className="project-context-actions">
+        <MenuPanelItem className="project-context-action" onClick={() => setRenaming(true)}>
+          <TextCursorInputIcon size={16} /><span>{t("action.rename")}</span>
+        </MenuPanelItem>
         {props.onProjectSettings && <MenuPanelItem className="project-context-action" onClick={() => { props.onProjectSettings?.(root); onClose(); }}>
           <ProjIcon name="gear" size={16} /><span>{t("project.settings")}</span>
         </MenuPanelItem>}

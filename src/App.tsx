@@ -48,7 +48,7 @@ import { usePluginCatalog } from "./hooks/usePluginCatalog";
 import { useContextInspector } from "./hooks/useContextInspector";
 import { useAppSnapPreviews } from "./hooks/useAppSnapPreviews";
 import { useStoredJson } from "./hooks/useStoredJson";
-import { projectName, recentProjects, takeLaunchProjectsHome } from "./lib/projectsHome";
+import { customProjectName, migrateProjectNames, projectName, recentProjects, takeLaunchProjectsHome } from "./lib/projectsHome";
 import { relaySidecarMessage } from "./lib/sidecarRelays";
 import { notifySetAside } from "./lib/setAsideNotice";
 import {
@@ -563,6 +563,9 @@ export default function App() {
   const [lastThreadByProject, setLastThreadByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastThreadByProject", {});
   const [lastTabByProject, setLastTabByProject] = useStoredJson<Record<string, string>>("atelier-studio.lastTabByProject", {});
   const [projMeta, setProjMeta] = useStoredJson<Record<string, ProjMeta>>("atelier-studio.projMeta", {});
+  // 2026-11-14 : le nom d'un projet quitte `label` (partagé avec l'icône et
+  // les initiales, qui l'effaçaient) pour `name`. Une fois, au lancement.
+  useEffect(() => { setProjMeta((prev) => migrateProjectNames(prev)); }, [setProjMeta]);
   // Écran d'ouverture des projets : affiché une fois par lancement (s'il y a
   // des projets), puis depuis le menu du nom du projet. "new" ouvre aussi la
   // boîte « Nouveau projet ».
@@ -4222,7 +4225,7 @@ export default function App() {
   const recentRoots = useMemo(() => recentProjects(projects, projMeta, allThreads), [projects, projMeta, allThreads]);
   const projectMenu = useMemo(() => ({
     recents: recentRoots.filter((root) => root !== activeProject).slice(0, 5)
-      .map((root) => ({ root, name: projectName(root, projMeta[root]?.label) })),
+      .map((root) => ({ root, name: projectName(root, projMeta[root]) })),
     onSelect: (root: string) => { setActiveView("chats"); selectProject(root); },
     onAll: openProjectsHome,
     onOpenFolder: () => { void addProject(); },
@@ -4232,12 +4235,11 @@ export default function App() {
   // Research Home (plan 017) : modèle dérivé pur + vrais workflows, calculés
   // uniquement quand aucun thread n'est actif (la timeline monte l'accueil à
   // la place de l'ancienne empty-card ; le composer reste en dessous).
-  const projLabelRaw = activeProject ? projMeta[activeProject]?.label : null;
+  const customName = activeProject ? customProjectName(projMeta[activeProject]) : null;
   // nom d'affichage du projet partagé par le Research Home et les en-têtes
-  // locaux (plan 018) : label projMeta sinon dernier segment du chemin
-  const displayProjectName = isDiscussionRoot(activeProject) ? t("discussions.title") : projLabelRaw && !projLabelRaw.startsWith("icon:")
-    ? projLabelRaw
-    : (activeProject?.split("/").filter(Boolean).pop() ?? null);
+  // locaux (plan 018) : nom donné au projet, sinon dernier segment du chemin
+  const displayProjectName = isDiscussionRoot(activeProject) ? t("discussions.title") : customName
+    ?? (activeProject?.split("/").filter(Boolean).pop() ?? null);
   const { inspected, inspectorAdd, openInspector, closeInspector, addInspectedToChat } =
     useContextInspector(layout, activeProject, displayProjectName, setAttachments);
   // « connecting » = démarrage à froid (jamais connecté) → état de chargement ;
@@ -4247,7 +4249,7 @@ export default function App() {
     connectionNoticeHandled: appBanner?.kind === "connection",
     model: deriveResearchHomeModel({
       activeProject,
-      projectName: projLabelRaw && !projLabelRaw.startsWith("icon:") ? projLabelRaw : null,
+      projectName: customName,
       threads: allThreads,
       events: homeEvents,
       workingSince,
@@ -4509,6 +4511,13 @@ export default function App() {
     (root: string, m: ProjMeta) => setProjMeta((p) => ({ ...p, [root]: m })),
     [setProjMeta],
   );
+  // Renommer = nom d'affichage seulement ; le dossier sur le disque ne bouge
+  // jamais. Vide ou égal au dossier : le projet reprend le nom du dossier.
+  const handleRenameProject = useCallback((root: string, name: string) => {
+    const clean = name.trim();
+    const folder = root.split("/").filter(Boolean).pop() ?? root;
+    setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], name: clean && clean !== folder ? clean : undefined } }));
+  }, [setProjMeta]);
   const handleRemoveProject = useCallback((root: string) => {
     setProjects((prev) => prev.filter((r) => r !== root));
     if (activeProject === root) setActiveProject(null);
@@ -4762,9 +4771,10 @@ export default function App() {
             onProjectSettings={(root) => { setProjectsHome(null); setProjectSettingsRoot(root); }}
             onRemoveProject={handleRemoveProject}
             onOpenFolder={() => { void addProject().then((added) => { if (added) setProjectsHome(null); }); }}
-            onCreated={(root, due, label) => {
+            onRename={handleRenameProject}
+            onCreated={(root, due, name) => {
               setProjects((prev) => (prev.includes(root) ? prev : [...prev, root]));
-              setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now(), ...(due ? { due } : {}), ...(label ? { label } : {}) } }));
+              setProjMeta((prev) => ({ ...prev, [root]: { ...prev[root], openedAt: Date.now(), ...(due ? { due } : {}), ...(name ? { name } : {}) } }));
               discussionNavigation.current = false;
               setActiveView("chats");
               setActiveProject(root);

@@ -1,6 +1,7 @@
 import { isDiscussionContext } from "../lib/discussions";
 import { Fragment, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
 import { t } from "../lib/i18n";
+import { projectName } from "../lib/projectsHome";
 import { ChatsIcon, PlusIcon, SettingsIcon, SidebarIcon, MoreIcon } from "./icons";
 import { ProjIcon } from "./sidebar/projectIcons";
 import { AllProjectsGlyph } from "./sidebar/AllProjectsGlyph";
@@ -33,7 +34,10 @@ const RailFavorites = lazyWithRetry(() => import("./sidebar/RailFavorites"));
 
 export type ProjMeta = {
   color?: string;
+  /** icône (« icon:… ») ou initiales de la puce ; plus jamais le nom */
   label?: string;
+  /** nom d'affichage choisi (le dossier sur le disque garde le sien) */
+  name?: string;
   /** dernière ouverture dans Atelier (ms) — ordre de l'écran des projets */
   openedAt?: number;
   /** échéance affichée sur la carte du projet */
@@ -73,8 +77,7 @@ export type HighlightEntry = {
 export function projInitial(root: string, meta?: ProjMeta) {
   // les labels « icon:* » sont des icônes (rendues à part) — jamais du texte
   if (meta?.label && !meta.label.startsWith("icon:")) return meta.label.slice(0, 2);
-  const name = root.split("/").pop() ?? "?";
-  return name.charAt(0).toUpperCase();
+  return projectName(root, meta).charAt(0).toUpperCase() || "?";
 }
 
 type RailProjectsProps = {
@@ -111,7 +114,7 @@ function RailProjects(p: RailProjectsProps) {
         // fournit pas encore de signaux (tests, bancs)
         const signal = p.signalOverride?.root === root ? p.signalOverride.signal
           : p.signals ? p.signals.projects[root] ?? null : (p.running.has(root) ? "run" : null);
-        const name = root.split("/").pop() ?? root;
+        const name = projectName(root, m);
         const notes = p.signals?.notes[root] ?? [];
         const tip = [name, ...(notes.length ? notes : signal ? [SIGNAL_LABEL[signal]] : [])];
         return (

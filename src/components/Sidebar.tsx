@@ -10,6 +10,7 @@ import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
 import { Thread } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
+import { customProjectName } from "../lib/projectsHome";
 const tr = t; // alias historique (t masqué par des variables locales dans les .map)
 import { LazyDropdownMenuItem } from "./ui/LazyDropdownMenu";
 import { Button, SearchField, SegmentedControl } from "./ui";
@@ -145,7 +146,7 @@ export default function Sidebar(p: {
   onDelete: (threadId: string) => void;
   onRemoveProject: (root: string) => void;
   onRename: (threadId: string, title: string) => void;
-  projMeta: Record<string, { color?: string; label?: string }>;
+  projMeta: Record<string, { color?: string; label?: string; name?: string }>;
   onProjectSettings?: (root: string) => void;
   /** menu du nom du projet : projets récents, écran des projets, ouvrir, créer */
   projectMenu?: import("./sidebar/ProjectHeader").ProjectSwitchMenu;
@@ -552,9 +553,7 @@ export default function Sidebar(p: {
   const headerName =
     model.mode === "unscoped"
       ? t("sidebar.no-project-title")
-      : meta?.label && !meta.label.startsWith("icon:")
-        ? meta.label
-        : model.identity?.name ?? "";
+      : customProjectName(meta) ?? model.identity?.name ?? "";
 
   const contextEmpty =
     !model.searching &&

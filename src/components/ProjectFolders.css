@@ -18,3 +18,5 @@
 .project-card-fields input[type=date] { max-width: 160px; }
 .project-due-row { display: flex; align-items: center; gap: 8px; }
 .project-due-row > [data-slot=field] { flex: 0 0 auto; width: auto; }
+/* nom d'affichage (2026-11-14) : en tête, l'aide alignée sous le champ */
+.project-name-hint { margin: 0 0 0 96px; }

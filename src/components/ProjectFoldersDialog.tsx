@@ -37,8 +37,18 @@ function FolderAccess({ folder, locked, onChange }: { folder: ProjectFolder; loc
   </Field>;
 }
 
-/** Ce que montre la carte du projet sur l'écran d'ouverture : revue et échéance. */
-type ProjectCardMeta = { journal?: string; due?: ProjectDue };
+/** Ce que montre la carte du projet sur l'écran d'ouverture : nom, revue et échéance. */
+type ProjectCardMeta = { name?: string; journal?: string; due?: ProjectDue };
+
+/** Nom d'affichage du projet (2026-11-14) : le dossier sur le disque ne change pas. */
+function ProjectNameField({ root, card, onChange }: { root: string; card?: ProjectCardMeta; onChange: (patch: ProjectCardMeta) => void }) {
+  return <FieldGroup className="project-card-fields project-name-field">
+    <Field orientation="horizontal"><FieldLabel htmlFor="project-name">{t("projects.name")}</FieldLabel>
+      <Input id="project-name" value={card?.name ?? ""} placeholder={root.split("/").filter(Boolean).pop() || root}
+        onChange={e => onChange({ name: e.target.value || undefined })} /></Field>
+    <p className="project-folders-muted project-name-hint">{t("projects.name-hint")}</p>
+  </FieldGroup>;
+}
 
 function ProjectCardFields({ card, onChange }: { card?: ProjectCardMeta; onChange: (patch: ProjectCardMeta) => void }) {
   const due = card?.due;
@@ -79,7 +89,8 @@ export default function ProjectFoldersDialog({ root, value, onChange, onClose, l
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   }
   return <LazyDialog open title={t("project.folders-dialog-title")} closeLabel={t("action.close")} onOpenChange={v => { if (!v) onClose(); }} className="project-folders-dialog">
-    {onCardChange && <><div className="project-folders-heading"><h3>{t("projects.card-heading")}</h3></div>
+    {onCardChange && <><ProjectNameField root={root} card={card} onChange={onCardChange} />
+    <div className="project-folders-heading"><h3>{t("projects.card-heading")}</h3></div>
     <ProjectCardFields card={card} onChange={onCardChange} /></>}
     <div className="project-folders-heading"><h3>{t("project.folders-main")}</h3></div>
     <div className="project-folder-row"><Folder size={20} /><div className="project-folder-content"><strong>{root.split("/").pop() || root}</strong><code title={root}>{root}</code><GalleryVisibility checked={config.mainGallery} onChange={mainGallery => onChange({ ...config, mainGallery })}/></div></div>
