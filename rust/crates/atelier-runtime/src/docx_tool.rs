@@ -219,6 +219,17 @@ fn svg_to_png(svg: &[u8], frame: Option<(f64, f64)>, long: f64) -> Option<Vec<u8
 
 /// Une figure telle que le modèle peut la lire : PNG, JPEG, GIF ou WebP.
 /// `Err` : la raison, dite à l'agent (format que rien ne dessine).
+/// Page PDF collée dans un EMF : rendue au côté long de [`IMAGE_LONG_MAX`],
+/// dans les proportions de son cadre Word.
+const PASTED_PAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn pasted_page_width(frame: Option<(f64, f64)>) -> u16 {
+    match frame {
+        Some((w, h)) if w > 0.0 && h > w => (IMAGE_LONG_MAX * w / h).round().max(IMAGE_LONG_MIN) as u16,
+        _ => IMAGE_LONG_MAX as u16,
+    }
+}
+
 fn for_model((bytes, mime): (Vec<u8>, &'static str), frame: Option<(f64, f64)>) -> Result<(Vec<u8>, &'static str), String> {
     use base64::Engine as _;
     let readable = matches!(mime, "image/png" | "image/jpeg" | "image/gif" | "image/webp");
@@ -248,7 +259,7 @@ fn for_model((bytes, mime): (Vec<u8>, &'static str), frame: Option<(f64, f64)>) 
 /// pour que l'agent les voie. Lecture seule. Numérotées dans l'ordre de
 /// lecture (corps, notes, en-têtes et pieds) ; `paragraph`, `from`/`to`
 /// bornent le passage, `start` reprend à la figure N.
-fn images(path: &Path, req: &Value) -> Result<Value, String> {
+fn images(path: &Path, req: &Value, pdf_tool: Option<&Path>) -> Result<Value, String> {
     use base64::Engine as _;
     let mut docx = atelier_docx::open_settled(path).map_err(|e| e.0)?;
     let model = docx.model().map_err(|e| e.0)?;
@@ -305,7 +316,20 @@ fn images(path: &Path, req: &Value) -> Result<Value, String> {
                 } else {
                     None
                 };
-                let img = atelier_docx::objects::render(raw, th, frame);
+                // Page PDF collée (EMF de Word pour Mac) : la page elle-même,
+                // nette, plutôt que l'aperçu à 72 ppp de l'EMF.
+                let sharp = (raw.1 == "image/x-emf")
+                    .then(|| atelier_docx::objects::pdf_in_emf(&raw.0))
+                    .flatten()
+                    .zip(pdf_tool)
+                    .and_then(|(pdf, tool)| atelier_pdf::tool::memory_page_png(tool, pdf, pasted_page_width(frame), PASTED_PAGE_TIMEOUT).ok());
+                let img = match sharp {
+                    Some(png) => {
+                        entry["kind"] = json!("page PDF collée (pleine résolution)");
+                        (png, "image/png")
+                    }
+                    None => atelier_docx::objects::render(raw, th, frame),
+                };
                 let img = match (s.crop, frame) {
                     (Some(c), Some(_)) => atelier_docx::objects::cropped(img, c),
                     _ => img,
@@ -352,7 +376,7 @@ fn images(path: &Path, req: &Value) -> Result<Value, String> {
 fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<Value, String> {
     let path = resolve(project_root, str_arg(req, "path").unwrap_or(""))?;
     if action == "images" {
-        return images(&path, req);
+        return images(&path, req, atelier_pdf::tool::locate_tool().as_deref());
     }
     if action == "read" {
         // Les retouches du panneau encore dans le journal de sa séance
@@ -850,6 +874,90 @@ mod tests {
         run(root, "claude", "images", &json!({"path": "article.docx"})).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), after_chart);
         assert_ne!(before, after_chart);
+    }
+
+    /// La figure p10 remplacée par un EMF de Word pour Mac qui garde, dans un
+    /// commentaire, la page PDF collée (cadre portrait 300 × 400 px).
+    fn with_pasted_pdf(path: &Path) {
+        use std::io::{Read, Write};
+        let rec = |kind: u32, data: &[u8]| {
+            let mut r = kind.to_le_bytes().to_vec();
+            let pad = (4 - data.len() % 4) % 4;
+            r.extend(((8 + data.len() + pad) as u32).to_le_bytes());
+            r.extend(data);
+            r.extend(vec![0; pad]);
+            r
+        };
+        let mut head = vec![0u8; 80];
+        head[32..36].copy_from_slice(b" EMF");
+        let mut emf = rec(1, &head);
+        let pdf = b"%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF\n";
+        let mut data = (pdf.len() as u32).to_le_bytes().to_vec();
+        data.extend(pdf);
+        emf.extend(rec(70, &data));
+        emf.extend(rec(14, &[0; 12]));
+        let src = std::fs::read(path).unwrap();
+        let mut zin = zip::ZipArchive::new(std::io::Cursor::new(src)).unwrap();
+        let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for i in 0..zin.len() {
+            let mut f = zin.by_index(i).unwrap();
+            let mut name = f.name().to_string();
+            let mut bytes = Vec::new();
+            f.read_to_end(&mut bytes).unwrap();
+            let text = String::from_utf8_lossy(&bytes).to_string();
+            let bytes = match name.as_str() {
+                "word/media/image1.png" => {
+                    name = "word/media/image1.emf".into();
+                    emf.clone()
+                }
+                "word/_rels/document.xml.rels" => text.replace("media/image1.png", "media/image1.emf").into_bytes(),
+                "word/document.xml" => text.replacen(r#"<wp:extent cx="914400" cy="914400"/>"#, r#"<wp:extent cx="2857500" cy="3810000"/>"#, 1).into_bytes(),
+                "[Content_Types].xml" => text.replace("</Types>", r#"<Default Extension="emf" ContentType="image/x-emf"/></Types>"#).into_bytes(),
+                _ => bytes,
+            };
+            out.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            out.write_all(&bytes).unwrap();
+        }
+        std::fs::write(path, out.finish().unwrap().into_inner()).unwrap();
+    }
+
+    /// Une copie photographiée et collée en PDF dans Word pour Mac : l'agent
+    /// reçoit la page elle-même, rendue nette par atelier-pdf, et non l'aperçu
+    /// à 72 ppp de l'EMF. Sans l'outil, l'aperçu reste.
+    #[cfg(unix)]
+    #[test]
+    fn une_page_pdf_collee_se_voit_nette() {
+        use base64::Engine as _;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        with_pasted_pdf(&path);
+        // Faux atelier-pdf : note ses arguments, rend un PNG de 900 × 1200.
+        let page = dir.path().join("page.png");
+        let mut png_bytes = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut png_bytes, 900, 1200);
+            enc.set_color(png::ColorType::Grayscale);
+            enc.write_header().unwrap().write_image_data(&vec![200u8; 900 * 1200]).unwrap();
+        }
+        std::fs::write(&page, &png_bytes).unwrap();
+        let calls = dir.path().join("calls.txt");
+        let tool = dir.path().join("atelier-pdf");
+        std::fs::write(&tool, format!("#!/bin/sh\nhead -c 8 \"$2\" >> '{c}'; echo \" $1 $3 $4\" >> '{c}'\ncp '{p}' \"$5\"\n", c = calls.display(), p = page.display())).unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let out = images(&path, &json!({"path": "article.docx"}), Some(&tool)).unwrap();
+        assert_eq!(out["images"][0]["kind"], "page PDF collée (pleine résolution)", "{out}");
+        assert_eq!(out["images"][0]["frame"], "300×400 px");
+        // Le PDF extrait de l'EMF, page 1, au côté long de 1200 px (900 de large).
+        assert_eq!(std::fs::read_to_string(&calls).unwrap(), "%PDF-1.4 page 1 900\n");
+        let att = &out[lim::BRIDGE_IMAGES_KEY][0];
+        let png = base64::engine::general_purpose::STANDARD.decode(att["data"].as_str().unwrap()).unwrap();
+        assert_eq!(png_size(&png), (900, 1200));
+
+        // Sans atelier-pdf : l'EMF tel quel (ici sans dessin), jamais d'échec muet.
+        let out = images(&path, &json!({"path": "article.docx"}), None).unwrap();
+        assert_eq!(out["images"][0]["kind"], "EMF", "{out}");
     }
 
     #[test]

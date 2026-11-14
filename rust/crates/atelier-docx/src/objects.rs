@@ -203,6 +203,61 @@ fn repair_emf(bytes: &[u8]) -> Option<Vec<u8>> {
     changed.then_some(out)
 }
 
+/// Page PDF que Word pour Mac range dans un EMF quand on y colle un PDF :
+/// l'aperçu dessiné (un bitmap EMF+ de 612 × 792 px, 72 ppp) est flou, la
+/// page PDF garde la photo à pleine résolution. Word la met dans un
+/// commentaire public « GDIC » MULTIFORMATS (0x40000004), format de
+/// signature 0x50444620, à `offData` octets de l'identifiant du commentaire.
+/// À défaut, les octets `%PDF-…%%EOF` d'un seul commentaire. `None` sinon.
+pub fn pdf_in_emf(bytes: &[u8]) -> Option<&[u8]> {
+    if !(bytes.len() > 44 && bytes[..4] == [1, 0, 0, 0] && &bytes[40..44] == b" EMF") {
+        return None;
+    }
+    let mut off = 0usize;
+    while let (Some(kind), Some(size)) = (u32_at(bytes, off), u32_at(bytes, off + 4)) {
+        let size = size as usize;
+        if size < 8 || off + size > bytes.len() {
+            break;
+        }
+        if kind == 70 && bytes.get(off + 12..off + 16) == Some(b"GDIC") && u32_at(bytes, off + 16) == Some(0x4000_0004) {
+            // CountFormats à +36, puis des EmrFormat de 16 octets (signature,
+            // version, taille, décalage depuis l'identifiant à +12).
+            let rec = &bytes[off..off + size];
+            let count = u32_at(rec, 36).unwrap_or(0).min(64) as usize;
+            for k in 0..count {
+                let at = 40 + 16 * k;
+                let (Some(sig), Some(len), Some(from)) = (u32_at(rec, at), u32_at(rec, at + 8), u32_at(rec, at + 12)) else { break };
+                let start = 12 + from as usize;
+                if sig == 0x5044_4620 && let Some(pdf) = rec.get(start..start.saturating_add(len as usize)).filter(|d| d.starts_with(b"%PDF-")) {
+                    return Some(pdf);
+                }
+            }
+        }
+        if kind == 70 && bytes.get(off + 12..off + 16) != Some(b"EMF+") {
+            let data = &bytes[off + 8..off + size];
+            if let Some(start) = find(data, b"%PDF-") {
+                let body = &data[start..];
+                if let Some(end) = rfind(body, b"%%EOF") {
+                    return Some(&body[..end + 5]);
+                }
+            }
+        }
+        if kind == 14 {
+            break; // EMR_EOF
+        }
+        off += size;
+    }
+    None
+}
+
+fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+fn rfind(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).rposition(|w| w == needle)
+}
+
 fn u32_at(b: &[u8], o: usize) -> Option<u32> {
     Some(u32::from_le_bytes(b.get(o..o.checked_add(4)?)?.try_into().ok()?))
 }
@@ -401,7 +456,59 @@ pub fn insert_image(docx: &mut Docx, paragraph: &str, at: usize, bytes: Vec<u8>,
 
 #[cfg(test)]
 mod tests {
-    use super::sniff;
+    use super::{pdf_in_emf, sniff};
+
+    /// EMF minimal : en-tête, commentaires, fin.
+    fn emf(comments: &[&[u8]]) -> Vec<u8> {
+        let rec = |kind: u32, data: &[u8]| {
+            let mut r = kind.to_le_bytes().to_vec();
+            let pad = (4 - data.len() % 4) % 4;
+            r.extend(((8 + data.len() + pad) as u32).to_le_bytes());
+            r.extend(data);
+            r.extend(vec![0; pad]);
+            r
+        };
+        let mut head = vec![0u8; 80];
+        head[32..36].copy_from_slice(b" EMF");
+        let mut out = rec(1, &head);
+        for c in comments {
+            let mut data = (c.len() as u32).to_le_bytes().to_vec();
+            data.extend(*c);
+            out.extend(rec(70, &data));
+        }
+        out.extend(rec(14, &[0; 12]));
+        out
+    }
+
+    #[test]
+    fn la_page_pdf_collee_par_word_pour_mac_se_retrouve_dans_l_emf() {
+        let pdf = b"%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF a\n%%EOF";
+        let mut plus = b"EMF+".to_vec();
+        plus.extend([0u8; 12]);
+        let mut tagged = b"PDF ".to_vec();
+        tagged.extend(pdf);
+        tagged.extend(b"\0\0");
+        let bytes = emf(&[&plus, &tagged]);
+        assert_eq!(&bytes[40..44], b" EMF");
+        // Jusqu'au dernier %%EOF (mise à jour incrémentale comprise).
+        assert_eq!(pdf_in_emf(&bytes), Some(&pdf[..]));
+        assert_eq!(pdf_in_emf(&emf(&[&plus])), None, "un EMF+ seul n'a pas de PDF");
+        // Disposition de Word pour Mac : GDIC MULTIFORMATS, un format « PDF »
+        // à 44 octets de l'identifiant, suivi d'un bourrage.
+        let mut gdic = b"GDIC".to_vec();
+        for v in [0x4000_0004u32, 0, 0, 0, 0, 1, 0x5044_4620, 0, pdf.len() as u32, 44] {
+            gdic.extend(v.to_le_bytes());
+        }
+        gdic.extend(pdf);
+        gdic.extend(b"\0\0\0");
+        let bytes = emf(&[&plus, &gdic]);
+        assert_eq!(pdf_in_emf(&bytes), Some(&pdf[..]));
+        // Le format désigne exactement la page, même si un « %%EOF » traîne après.
+        let mut trailing = gdic.clone();
+        trailing.extend(b"%%EOF");
+        assert_eq!(pdf_in_emf(&emf(&[&trailing])), Some(&pdf[..]));
+        assert_eq!(pdf_in_emf(b"%PDF-1.4 %%EOF"), None, "pas un EMF");
+    }
 
     #[test]
     fn taille_des_images() {
