@@ -26,6 +26,7 @@
 //! - [`triage`] : tri des suivis par nature (fond, nombres, ponctuation, espaces).
 
 pub mod chart;
+pub mod cite;
 pub mod check;
 pub mod comments;
 pub mod drafts;
@@ -315,6 +316,27 @@ impl Docx {
         self.set_part(CONTENT_TYPES, format!("{}{override_tag}{}", &ct[..close], &ct[close..]));
 
         self.add_rel(DOCUMENT, rel_type, target)?;
+        self.set_part(name, text);
+        Ok(())
+    }
+
+    /// Ajoute une partie de paquet (`docProps/custom.xml`…) : type de
+    /// contenu et relation depuis `_rels/.rels`.
+    pub(crate) fn create_package_part(&mut self, name: &str, content_type: &str, rel_type: &str, text: String) -> Result<()> {
+        if self.has_part(name) {
+            self.set_part(name, text);
+            return Ok(());
+        }
+        let ct = self.part(CONTENT_TYPES)?.ok_or_else(|| DocxError("[Content_Types].xml manque".into()))?;
+        if !ct.contains(&format!("PartName=\"/{name}\"")) {
+            let override_tag = format!(r#"<Override PartName="/{name}" ContentType="{content_type}"/>"#);
+            let close = ct.rfind("</Types>").ok_or_else(|| DocxError("[Content_Types].xml illisible".into()))?;
+            self.set_part(CONTENT_TYPES, format!("{}{override_tag}{}", &ct[..close], &ct[close..]));
+        }
+        let rels = self.part("_rels/.rels")?.unwrap_or_default();
+        if !rels.contains(rel_type) {
+            self.add_rel("", rel_type, name)?;
+        }
         self.set_part(name, text);
         Ok(())
     }

@@ -147,6 +147,7 @@ mod tests {
             comments: vec![],
             number: None,
             whole: false,
+            cite: None,
             media: None,
             width: None,
             height: None,

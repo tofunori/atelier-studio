@@ -65,6 +65,17 @@ pub enum Op {
     /// Collage riche : morceaux mis en forme et équations, un paragraphe
     /// par élément de `paragraphs`.
     InsertRuns { paragraph: String, at: usize, paragraphs: Vec<Vec<crate::paste::RunIn>> },
+    /// Citation Zotero vivante à la position `at` (champ du module Zotero de
+    /// Word) ; les notices sont chargées par l'appelant (`cite::fill`).
+    InsertCitation { paragraph: String, at: usize, items: Vec<crate::cite::CiteItem> },
+    /// Réécrit la citation `citation` (`items` vide = la retirer).
+    EditCitation { citation: String, items: Vec<crate::cite::CiteItem> },
+    /// Bibliographie Zotero après le paragraphe `after` (hors suivi).
+    InsertBibliography { after: String },
+    /// Style de citation du document ; tout est remis à jour (hors suivi).
+    SetCitationStyle { style: crate::cite::StyleRef },
+    /// Remet à jour les citations et la bibliographie (hors suivi).
+    RefreshCitations {},
     /// Plusieurs retouches d'un seul geste (sélection sur plusieurs
     /// paragraphes, collage de plusieurs lignes) : tout ou rien, un seul
     /// enregistrement, une seule annulation.
@@ -90,6 +101,8 @@ impl Op {
             Op::InsertImage { .. } => "figure",
             Op::ReplaceMath { .. } => "équation",
             Op::InsertRuns { .. } => "collage",
+            Op::InsertCitation { .. } | Op::EditCitation { .. } => "citation",
+            Op::InsertBibliography { .. } | Op::SetCitationStyle { .. } | Op::RefreshCitations {} => "bibliographie",
             Op::Batch { .. } => "retouches groupées",
         }
     }
@@ -298,6 +311,11 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
             json!({"changes": crate::math::replace_math(docx, paragraph, *index, latex, tracked, sig)?})
         }
         Op::InsertRuns { paragraph, at, paragraphs } => json!(crate::paste::insert_runs(docx, paragraph, *at, paragraphs, tracked, sig)?),
+        Op::InsertCitation { paragraph, at, items } => json!(crate::cite::insert_citation(docx, paragraph, *at, items, tracked, sig)?),
+        Op::EditCitation { citation, items } => json!(crate::cite::edit_citation(docx, citation, items, tracked, sig)?),
+        Op::InsertBibliography { after } => json!({"entries": crate::cite::insert_bibliography(docx, after)?, "tracked": false}),
+        Op::SetCitationStyle { style } => json!({"style": crate::cite::set_style(docx, style)?, "tracked": false}),
+        Op::RefreshCitations {} => json!({"updated": crate::cite::refresh_all(docx)?, "tracked": false}),
         Op::Batch { ops } => {
             // Sur une copie : une étape qui échoue n'en laisse aucune à moitié.
             let mut results = Vec::with_capacity(ops.len());
@@ -355,6 +373,14 @@ fn para_line(p: &crate::model::Para) -> String {
             "tab" => "\t".to_string(),
             "break" => "↵".to_string(),
             "field" => match s.label.as_deref() {
+                Some(_) if s.cite.is_some() => {
+                    // Une citation = un seul bloc, même sur plusieurs morceaux.
+                    let first = si == 0 || p.segments[si - 1].cite != s.cite;
+                    let last = p.segments.get(si + 1).is_none_or(|n| n.cite != s.cite);
+                    let head = if first { format!("{{citation {} : ", s.cite.as_deref().unwrap_or("")) } else { String::new() };
+                    format!("{head}{}{}", s.text, if last { "}" } else { "" })
+                }
+                Some("zotero-bibliographie") => format!("{{bibliographie Zotero : {}}}", s.text),
                 Some(l) if l.starts_with("zotero") => format!("{{citation : {}}}", s.text),
                 Some(l) => format!("{{champ {l} : {}}}", s.text),
                 None => format!("{{champ : {}}}", s.text),
@@ -430,7 +456,7 @@ pub fn outline(model: &DocModel, from: usize, to: Option<usize>, max_chars: usiz
             "Zones de texte : {boxes}. L'auteur les a posées sur la page, souvent par-dessus une figure pour y écrire ses propres valeurs : leur texte ({{zone de texte : …}}) fait partie du document au même titre que le reste, et l'action images montre chaque figure avec les zones posées dessus."
         );
     }
-    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation : …}} et {{objet : …}} non retouchables ; {{image : …}} et {{graphique Excel : …}} se voient avec l'action images ; {{zone de texte : …}} = texte d'un cadre posé sur la page (lignes séparées par /), non retouchable ici.\n");
+    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation <id> : …}} = citation Zotero vivante (la changer avec l'action cite et son id, jamais à la main), {{objet : …}} non retouchable ; {{image : …}} et {{graphique Excel : …}} se voient avec l'action images ; {{zone de texte : …}} = texte d'un cadre posé sur la page (lignes séparées par /), non retouchable ici.\n");
     let mut shown = 0;
     let mut cut_at = None;
     for p in model.paragraphs.iter().take(to).skip(from) {

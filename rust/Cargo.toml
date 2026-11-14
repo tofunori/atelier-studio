@@ -21,6 +21,7 @@ members = [
   "crates/atelier-codebook",
   "crates/atelier-kernel",
   "crates/atelier-docx",
+  "crates/atelier-cite",
   "crates/atelier-inbox",
 ]
 
@@ -46,6 +47,7 @@ atelier-pdf = { path = "crates/atelier-pdf" }
 atelier-codebook = { path = "crates/atelier-codebook" }
 atelier-kernel = { path = "crates/atelier-kernel" }
 atelier-docx = { path = "crates/atelier-docx" }
+atelier-cite = { path = "crates/atelier-cite" }
 atelier-inbox = { path = "crates/atelier-inbox" }
 axum = { version = "0.8", features = ["ws", "macros"] }
 futures-util = "0.3"

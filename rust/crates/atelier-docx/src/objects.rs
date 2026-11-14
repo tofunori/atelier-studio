@@ -14,7 +14,7 @@ const CT_ENDNOTES: &str = "application/vnd.openxmlformats-officedocument.wordpro
 const REL_FOOTNOTES: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes";
 const REL_ENDNOTES: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes";
 const REL_IMAGE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
-const STYLES: &str = "word/styles.xml";
+pub(crate) const STYLES: &str = "word/styles.xml";
 /// Pixels → EMU (96 ppp).
 const EMU_PX: u64 = 9525;
 
@@ -26,7 +26,7 @@ pub struct Inserted {
 }
 
 /// Identifiant de style dont le nom (`w:name`) est `name`.
-fn style_id(docx: &mut Docx, name: &str) -> Result<Option<String>> {
+pub(crate) fn style_id(docx: &mut Docx, name: &str) -> Result<Option<String>> {
     let Some(src) = docx.part(STYLES)? else { return Ok(None) };
     let doc = xml::parse(&src)?;
     Ok(doc

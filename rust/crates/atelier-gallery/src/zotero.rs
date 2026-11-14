@@ -131,6 +131,22 @@ fn open_ro(path: &Path) -> Result<rusqlite::Connection, String> {
     .map_err(|e| e.to_string())
 }
 
+/// Notices CSL des clés citées (`G/KEY` pour une bibliothèque de groupe) :
+/// `clé → (itemID, URI, itemData)`, pour `atelier_docx::cite::fill`.
+pub(crate) fn notices(cache: &Mutex<ZoteroCache>, keys: &[String]) -> Result<std::collections::HashMap<String, (i64, String, Value)>, String> {
+    if keys.is_empty() {
+        return Ok(Default::default());
+    }
+    let copy = ensure_readonly_copy(cache)?;
+    let connection = open_ro(&copy)?;
+    Ok(atelier_cite::by_key(&connection, keys)?.into_iter().map(|(k, c)| (k, (c.id, c.uri, c.data))).collect())
+}
+
+/// Styles CSL installés dans Zotero.
+pub(crate) fn cite_styles() -> Vec<atelier_cite::Style> {
+    atelier_cite::styles(&zotero_dir())
+}
+
 /// Lien `zotero://select/…` de la fiche qui porte ce DOI (sinon ce titre),
 /// pour « Ouvrir dans Zotero » depuis la vérification des références.
 pub(crate) fn item_link(

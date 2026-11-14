@@ -138,6 +138,8 @@ pub struct Piece {
     pub math_display: bool,
     /// Saut de page (ou de colonne) forcé : `w:br w:type="page"`.
     pub page_break: bool,
+    /// Résultat d'une citation Zotero : son `citationID`.
+    pub cite: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -190,6 +192,8 @@ struct FieldFrame {
     parent: Option<roxmltree::NodeId>,
     first_piece: usize,
     clean: bool,
+    /// Citation Zotero : son `citationID`.
+    cite: Option<String>,
 }
 
 /// État qui traverse les paragraphes : commentaires ouverts, champs ouverts
@@ -458,11 +462,13 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
                         parent: r.parent().map(|p| p.id()),
                         first_piece: out.pieces.len(),
                         clean: ctx.revs.is_empty() && ctx.simple_field.is_none(),
+                        cite: None,
                     }),
                     Some("separate") => {
                         if let Some(f) = state.fields.last_mut() {
                             f.in_result = true;
                             f.kind = classify_field(&f.instr);
+                            f.cite = crate::cite::citation_id_of(&f.instr);
                         }
                     }
                     Some("end") => {
@@ -567,8 +573,10 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
         }
         let run_ref = run_idx.zip(tok);
         let forced = matches!(kind, Kind::Break) && tok.is_none();
+        let cite = if matches!(kind, Kind::Field(_)) && ctx.simple_field.is_none() { state.fields.first().and_then(|f| f.cite.clone()) } else { None };
         push(ctx, state, out, text, kind, fmt.clone(), run_ref);
         let last = out.pieces.last_mut().unwrap();
+        last.cite = cite;
         last.page_break = forced;
         last.media = media.clone();
         // Objet seul dans son run, hors suivi et hors champ : supprimable.
@@ -648,6 +656,7 @@ fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fm
         math: None,
         math_display: false,
         page_break: false,
+        cite: None,
     });
 }
 

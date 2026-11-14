@@ -2857,6 +2857,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/peek", get(docx::peek))
         .route("/docx/draft/clear", post(docx::clear_draft))
         .route("/docx/op", post(docx::op))
+        .route("/docx/cite", get(docx::cite))
         .route("/docx/triage", get(docx::triage))
         .route("/docx/decide-set", post(docx::decide_set))
         .route("/docx/flush", post(docx::flush))

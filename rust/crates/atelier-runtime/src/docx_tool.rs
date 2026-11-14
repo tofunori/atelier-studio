@@ -493,8 +493,159 @@ fn images(path: &Path, req: &Value, pdf_tool: Option<&Path>) -> Result<Value, St
     Ok(out)
 }
 
+/// La bibliothèque Zotero vue par l'outil (la vraie dans l'app, une
+/// factice dans les tests) : notices à citer, recherche, styles installés.
+pub(crate) struct Library<'a> {
+    pub notices: &'a dyn Fn(&[String]) -> Result<std::collections::HashMap<String, (i64, String, Value)>, String>,
+    pub search: &'a dyn Fn(&str, usize) -> Result<Vec<Value>, String>,
+    pub styles: &'a dyn Fn() -> Vec<atelier_cite::Style>,
+}
+
+fn keys_arg(req: &Value) -> Option<Vec<String>> {
+    match req.get("keys") {
+        Some(Value::Array(a)) => Some(a.iter().filter_map(Value::as_str).map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect()),
+        Some(Value::String(k)) => Some(k.split([',', ' ']).map(str::trim).filter(|k| !k.is_empty()).map(str::to_string).collect()),
+        _ => None,
+    }
+}
+
+/// Style demandé par l'agent : identifiant complet, fin d'identifiant
+/// (`apa`, `ieee`, `the-cryosphere`) ou morceau du titre.
+fn find_style(styles: &[atelier_cite::Style], wanted: &str) -> Result<atelier_docx::cite::StyleRef, String> {
+    let w = wanted.trim().to_lowercase();
+    let usable = |s: &&atelier_cite::Style| s.format != "note";
+    let hit = styles
+        .iter()
+        .filter(usable)
+        .find(|s| s.id.to_lowercase() == w)
+        .or_else(|| styles.iter().filter(usable).find(|s| s.id.to_lowercase().ends_with(&format!("/{w}"))))
+        .or_else(|| styles.iter().filter(usable).find(|s| s.title.to_lowercase().contains(&w)));
+    match hit {
+        Some(s) => Ok(atelier_docx::cite::StyleRef { id: s.id.clone(), format: Some(s.format.clone()), locale: None }),
+        None if w.starts_with("http") => Ok(atelier_docx::cite::StyleRef { id: wanted.trim().to_string(), format: None, locale: None }),
+        None => {
+            let some: Vec<String> = styles.iter().filter(usable).take(12).map(|s| s.id.rsplit('/').next().unwrap_or(&s.id).to_string()).collect();
+            Err(format!("style « {wanted} » absent de Zotero ; installés : {}", some.join(", ")))
+        }
+    }
+}
+
+/// Citations Zotero : `cite_search`, `cite`, `bibliography`.
+fn cite_action(project_root: &str, provider: &str, action: &str, req: &Value, path: &Path, lib: &Library) -> Result<Value, String> {
+    use atelier_docx::cite::{self, CiteItem};
+    if action == "cite_search" {
+        let q = str_arg(req, "query").ok_or("query manquant : auteur, année ou mots du titre")?;
+        let limit = usize_arg(req, "limit").unwrap_or(8).clamp(1, 20);
+        let found = (lib.search)(q, limit)?;
+        let items: Vec<Value> = found
+            .iter()
+            .map(|it| {
+                let s = |k: &str| it.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+                json!({"key": s("key"), "authors": s("creators"), "year": s("year"), "title": s("title"), "in": s("publication"), "doi": s("doi")})
+            })
+            .collect();
+        let mut docx = atelier_docx::open_settled(path).map_err(|e| e.0)?;
+        let style = cite::doc_style(&mut docx).map_err(|e| e.0)?;
+        let note = if items.is_empty() {
+            "Rien dans le Zotero de l'utilisateur pour cette recherche : essaie un autre nom ou un mot du titre ; n'invente jamais de référence."
+        } else {
+            "Notices du Zotero de l'utilisateur. Pour citer : action cite avec keys=[key] (et locator pour une page), juste après le passage (find)."
+        };
+        return Ok(json!({"items": items, "style": style.id, "note": note}));
+    }
+    let sig = Signature::now(&signer(project_root, path)?);
+    let expected = str_arg(req, "revision");
+    let origin_label = if action == "cite" { "citation" } else { "bibliographie" };
+    let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: origin_label };
+    let (result, revision) = if action == "cite" {
+        let keys = keys_arg(req).ok_or("keys manquant : clés Zotero à citer (cite_search), [] avec citation pour la retirer")?;
+        let mut items: Vec<CiteItem> = keys.iter().map(|k| CiteItem { key: k.clone(), ..Default::default() }).collect();
+        if let (Some(first), Some(loc)) = (items.first_mut(), str_arg(req, "locator")) {
+            first.locator = Some(loc.to_string());
+        }
+        let mut raw = serde_json::to_value(json!({"op": "insert_citation", "items": items})).map_err(|e| e.to_string())?;
+        let notices = (lib.notices)(&cite::keys_to_resolve(&raw))?;
+        cite::fill(&mut raw, &notices).map_err(|e| e.0)?;
+        let items: Vec<CiteItem> = serde_json::from_value(raw["items"].clone()).map_err(|e| e.to_string())?;
+        let citation = str_arg(req, "citation").map(str::to_string);
+        let find = str_arg(req, "find").map(str::to_string);
+        let (paragraph, occurrence) = (str_arg(req, "paragraph").map(str::to_string), usize_arg(req, "occurrence"));
+        if citation.is_none() && items.is_empty() {
+            return Err("keys vide : au moins une clé Zotero (cite_search)".into());
+        }
+        if citation.is_none() && find.is_none() {
+            return Err("find manquant : le texte juste avant la citation (ou citation = son id, vu dans read, pour la changer)".into());
+        }
+        atelier_docx::edit_file_as(path, expected, &origin, |d| {
+            if let Some(id) = &citation {
+                return ops::apply(d, &Op::EditCitation { citation: id.clone(), items: items.clone() }, true, &sig);
+            }
+            let (p, mut at) = ops::place_after(d, paragraph.as_deref(), find.as_deref().unwrap_or(""), occurrence)?;
+            // « glaciers (Williamson, 2021) » : une espace avant, comme on la tape.
+            let model = d.model()?;
+            let before = model.all_paragraphs().find(|x| x.id == p).and_then(|x| x.text.chars().nth(at.wrapping_sub(1)));
+            if before.is_some_and(|c| !c.is_whitespace() && !"([«“'\u{a0}".contains(c)) {
+                ops::apply(d, &Op::Insert { paragraph: p.clone(), at, with: " ".into() }, true, &sig)?;
+                at += 1;
+            }
+            let mut r = ops::apply(d, &Op::InsertCitation { paragraph: p.clone(), at, items: items.clone() }, true, &sig)?;
+            r["paragraph"] = json!(p);
+            Ok(r)
+        })
+        .map_err(|e| e.0)?
+    } else {
+        let style = match str_arg(req, "style") {
+            Some(w) => Some(find_style(&(lib.styles)(), w)?),
+            None => None,
+        };
+        let after = str_arg(req, "after").or_else(|| str_arg(req, "paragraph")).map(str::to_string);
+        atelier_docx::edit_file_as(path, expected, &origin, |d| {
+            let mut out = json!({"tracked": false});
+            if let Some(st) = &style {
+                out["style"] = ops::apply(d, &Op::SetCitationStyle { style: st.clone() }, false, &sig)?["style"].clone();
+            }
+            if cite::has_bibliography(d)? {
+                if style.is_none() {
+                    out["updated"] = ops::apply(d, &Op::RefreshCitations {}, false, &sig)?["updated"].clone();
+                }
+            } else {
+                let after = match &after {
+                    Some(a) => a.clone(),
+                    None => d.model()?.paragraphs.last().map(|p| p.id.clone()).ok_or_else(|| atelier_docx::DocxError("document vide".into()))?,
+                };
+                out["entries"] = ops::apply(d, &Op::InsertBibliography { after: after.clone() }, false, &sig)?["entries"].clone();
+                out["after"] = json!(after);
+            }
+            Ok(out)
+        })
+        .map_err(|e| e.0)?
+    };
+    remember(path, &sig, provider)?;
+    let mut out = json!({"ok": true, "author": sig.author, "proposed_by": author_for(provider), "revision": revision, "result": result});
+    if let Some(p) = out["result"].get("paragraph").and_then(Value::as_str).and_then(|p| p.strip_prefix('p')).and_then(|n| n.parse::<usize>().ok()) {
+        let model = Docx::open(path).and_then(|mut d| d.model()).map_err(|e| e.0)?;
+        let text = ops::outline(&model, p, Some(p + 1), READ_MAX_CHARS);
+        out["now"] = json!(text.lines().find(|l| l.starts_with(&format!("p{p} "))).unwrap_or(""));
+    }
+    out["note"] = json!(if action == "cite" {
+        "Citation Zotero vivante (champ du module Zotero de Word), en suivi des modifications à son nom : elle s'actualise dans Word avec Zotero. Pense à la bibliographie (action bibliography) si le document n'en a pas."
+    } else {
+        "Bibliographie Zotero posée ou remise à jour, hors suivi (Zotero la refait de toute façon) : dis-le à l'utilisateur en une phrase."
+    });
+    Ok(out)
+}
+
+#[cfg(test)]
 fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<Value, String> {
+    run_with(project_root, provider, action, req, None)
+}
+
+fn run_with(project_root: &str, provider: &str, action: &str, req: &Value, lib: Option<&Library>) -> Result<Value, String> {
     let path = resolve(project_root, str_arg(req, "path").unwrap_or(""))?;
+    if matches!(action, "cite_search" | "cite" | "bibliography") {
+        let none = Library { notices: &|_| Err("Zotero inaccessible".into()), search: &|_, _| Err("Zotero inaccessible".into()), styles: &Vec::new };
+        return cite_action(project_root, provider, action, req, &path, lib.unwrap_or(&none));
+    }
     if action == "images" {
         return images(&path, req, atelier_pdf::tool::locate_tool().as_deref());
     }
@@ -653,7 +804,14 @@ pub async fn action(state: &AppState, caller_id: &str, action: &str, req: &Value
     };
     let action = action.trim_start_matches("docx_").to_string();
     let req = req.clone();
-    match tokio::task::spawn_blocking(move || run(&project_root, &provider, &action, &req)).await {
+    let app_dir = state.app_dir().to_path_buf();
+    let job = move || {
+        let notices = |keys: &[String]| atelier_workspace::zotero_notices(&app_dir, keys);
+        let search = |q: &str, limit: usize| atelier_workspace::zotero_search(&app_dir, q, None, None, limit);
+        let lib = Library { notices: &notices, search: &search, styles: &atelier_workspace::zotero_cite_styles };
+        run_with(&project_root, &provider, &action, &req, Some(&lib))
+    };
+    match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => Ok(v),
         // Une retouche refusée n'est pas une panne : l'agent lit la raison et corrige.
         Ok(Err(message)) => Ok(json!({"ok": false, "error": message})),
@@ -689,6 +847,66 @@ mod tests {
         let path = root.join("article.docx");
         std::fs::write(&path, z.finish().unwrap().into_inner()).unwrap();
         path
+    }
+
+    /// Bibliothèque Zotero factice : deux notices.
+    fn library_notices(keys: &[String]) -> Result<std::collections::HashMap<String, (i64, String, Value)>, String> {
+        let all = [
+            ("WILLIAMS", 11, json!({"id": 11, "type": "article-journal", "title": "Wildfire darkening", "author": [{"family": "Williamson", "given": "Scott"}, {"family": "Menounos", "given": "Brian"}], "issued": {"date-parts": [[2021]]}})),
+            ("AUBRYWAK", 12, json!({"id": 12, "type": "article-journal", "title": "Fire and ice", "author": [{"family": "Aubry-Wake", "given": "Caroline"}, {"family": "Bertoncini", "given": "André"}, {"family": "Pomeroy", "given": "John"}], "issued": {"date-parts": [[2022]]}})),
+        ];
+        Ok(all.into_iter().filter(|(k, _, _)| keys.iter().any(|x| x == k)).map(|(k, id, d)| (k.to_string(), (id, format!("http://zotero.org/users/1/items/{k}"), d))).collect())
+    }
+
+    #[test]
+    fn l_agent_cite_zotero_et_pose_la_bibliographie() {
+        let dir = tempfile::tempdir().unwrap();
+        fixture(dir.path());
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry"}"#).unwrap();
+        let root = dir.path().to_str().unwrap();
+        let search = |q: &str, _: usize| -> Result<Vec<Value>, String> {
+            Ok(if q.contains("Williamson") { vec![json!({"key": "WILLIAMS", "creators": "Williamson, Menounos", "year": "2021", "title": "Wildfire darkening"})] } else { vec![] })
+        };
+        let styles = || vec![atelier_cite::Style { id: "http://www.zotero.org/styles/ieee".into(), title: "IEEE".into(), format: "numeric".into() }];
+        let lib = Library { notices: &library_notices, search: &search, styles: &styles };
+        let found = run_with(root, "claude", "cite_search", &json!({"path": "article.docx", "query": "Williamson 2021"}), Some(&lib)).unwrap();
+        assert_eq!(found["items"][0]["key"], "WILLIAMS");
+
+        let r = run_with(root, "claude", "cite", &json!({"path": "article.docx", "find": "réflectances de surface", "keys": ["WILLIAMS"], "locator": "4"}), Some(&lib)).unwrap();
+        assert_eq!(r["author"], "Thierry", "{r}");
+        assert_eq!(r["result"]["text"], "(Williamson & Menounos, 2021, p. 4)");
+        let now = r["now"].as_str().unwrap();
+        assert!(now.contains("réflectances de surface [+ +]") || now.contains("réflectances de surface"), "{now}");
+        assert!(now.contains("{citation "), "{now}");
+        let path = dir.path().join("article.docx");
+        let xml = Docx::open(&path).unwrap().document_xml().to_string();
+        assert!(xml.contains("ADDIN ZOTERO_ITEM CSL_CITATION"));
+        assert!(xml.contains("http://zotero.org/users/1/items/WILLIAMS"));
+        // Une clé inconnue : refus net, rien d'écrit.
+        let e = run_with(root, "claude", "cite", &json!({"path": "article.docx", "find": "réflectances de surface", "keys": ["NOPE1234"]}), Some(&lib)).unwrap_err();
+        assert!(e.contains("NOPE1234"), "{e}");
+
+        let b = run_with(root, "claude", "bibliography", &json!({"path": "article.docx"}), Some(&lib)).unwrap();
+        assert_eq!(b["result"]["entries"], 1, "sans notice embarquée, Ren et al. reste hors bibliographie : {b}");
+        let b = run_with(root, "claude", "bibliography", &json!({"path": "article.docx", "style": "ieee"}), Some(&lib)).unwrap();
+        assert_eq!(b["result"]["style"]["id"], "http://www.zotero.org/styles/ieee", "{b}");
+        let read = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap();
+        let text = read["text"].as_str().unwrap();
+        assert!(text.contains("[1, p. 4]}"), "{text}");
+        // Changer la citation par son identifiant, puis la retirer.
+        let id = cite_id(text, "[1, p. 4]");
+        run_with(root, "claude", "cite", &json!({"path": "article.docx", "citation": id, "keys": ["WILLIAMS", "AUBRYWAK"]}), Some(&lib)).unwrap();
+        let text = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap()["text"].as_str().unwrap().to_string();
+        assert!(text.contains("[1], [2]") || text.contains("[1, 2]"), "{text}");
+        assert!(run(root, "claude", "cite", &json!({"path": "article.docx", "find": "x", "keys": ["WILLIAMS"]})).unwrap_err().contains("Zotero inaccessible"));
+    }
+
+    /// Identifiant de la citation qui affiche `shown` (vu dans read).
+    fn cite_id(text: &str, shown: &str) -> String {
+        let end = text.find(&format!(" : {shown}}}")).unwrap();
+        let at = text[..end].rfind("{citation ").unwrap() + 10;
+        text[at..end].to_string()
     }
 
     #[test]
