@@ -67,6 +67,8 @@ fn light(para: &Para) -> (Para, bool) {
     let mut out = para.clone();
     out.para_id = None;
     out.mark_change = None;
+    // La vignette ne dessine pas les zones de texte.
+    out.shapes.clear();
     let mut segments: Vec<Segment> = Vec::new();
     let mut page_break = false;
     for seg in &para.segments {
@@ -81,6 +83,7 @@ fn light(para: &Para) -> (Para, bool) {
         seg.change = None;
         seg.rev = None;
         seg.editable = false;
+        seg.shape = None;
         seg.comments.clear();
         if seg.text.chars().count() > MAX_SEGMENT_CHARS {
             seg.text = seg.text.chars().take(MAX_SEGMENT_CHARS).collect();
@@ -152,6 +155,7 @@ mod tests {
             chart: false,
             latex: None,
             display: false,
+            shape: None,
         }
     }
 
@@ -168,6 +172,7 @@ mod tests {
             text: segments.iter().map(|s| s.text.clone()).collect(),
             segments,
             look: Look::default(),
+            shapes: vec![],
         }
     }
 

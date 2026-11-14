@@ -275,10 +275,32 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
 }
 
 /// Une ligne du texte pour l'agent : identifiant, style, contenu annoté.
+/// Zone de texte ou forme dessinée, pour l'agent : `{zone de texte : ligne
+/// 1 / ligne 2}`, `{trait}`, `{forme}`.
+fn shape_note(sh: &crate::shapes::Shape) -> String {
+    let text = sh.text().replace('\n', " / ");
+    if text.is_empty() { format!("{{{}}}", sh.label()) } else { format!("{{{} : {text}}}", sh.label()) }
+}
+
 fn para_line(p: &crate::model::Para) -> String {
     let mut line = String::new();
     let mut open: Vec<u32> = Vec::new();
-    for s in &p.segments {
+    // Zones de texte et formes sans morceau à elles : devant le segment où
+    // elles sont ancrées.
+    let drawn = |line: &mut String, at: Option<usize>| {
+        for (k, sh) in p.shapes.iter().enumerate() {
+            let own = p.segments.iter().any(|s| s.shape == Some(k));
+            let here = match at {
+                Some(i) => sh.seg == Some(i),
+                None => sh.seg.is_none_or(|i| i >= p.segments.len()),
+            };
+            if !own && here {
+                line.push_str(&shape_note(sh));
+            }
+        }
+    };
+    for (si, s) in p.segments.iter().enumerate() {
+        drawn(&mut line, Some(si));
         for c in open.clone() {
             if !s.comments.contains(&c) {
                 let _ = write!(line, "⟦/c{c}⟧");
@@ -307,6 +329,8 @@ fn para_line(p: &crate::model::Para) -> String {
                     let what = if s.chart { "graphique Excel" } else { "image" };
                     format!("{{{what} : {}}}", s.alt.as_deref().unwrap_or("sans texte de remplacement"))
                 }
+                // Zone de texte ou forme dessinée : son texte, pas un caractère de remplacement.
+                _ if s.shape.and_then(|k| p.shapes.get(k)).is_some() => shape_note(&p.shapes[s.shape.unwrap()]),
                 (l, _) => format!("{{{} : {}}}", l.unwrap_or("objet"), s.text),
             },
             _ => s.text.clone(),
@@ -320,6 +344,7 @@ fn para_line(p: &crate::model::Para) -> String {
     for c in open {
         let _ = write!(line, "⟦/c{c}⟧");
     }
+    drawn(&mut line, None);
     let mut head = p.id.clone();
     if let Some(h) = p.heading {
         let _ = write!(head, " [titre {h}]");
@@ -358,7 +383,16 @@ pub fn outline(model: &DocModel, from: usize, to: Option<usize>, max_chars: usiz
             figures.len()
         );
     }
-    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation : …}} et {{objet : …}} non retouchables ; {{image : …}} et {{graphique Excel : …}} se voient avec l'action images.\n");
+    // Zones de texte : l'auteur y écrit souvent sa réponse par-dessus une
+    // figure ; sans elles, on croit la figure recopiée telle quelle.
+    let boxes = model.all_paragraphs().flat_map(|p| p.shapes.iter()).filter(|s| !s.text().is_empty()).count();
+    if boxes > 0 {
+        let _ = writeln!(
+            out,
+            "Zones de texte : {boxes}. L'auteur les a posées sur la page, souvent par-dessus une figure pour y écrire ses propres valeurs : leur texte ({{zone de texte : …}}) fait partie du document au même titre que le reste, et l'action images montre chaque figure avec les zones posées dessus."
+        );
+    }
+    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation : …}} et {{objet : …}} non retouchables ; {{image : …}} et {{graphique Excel : …}} se voient avec l'action images ; {{zone de texte : …}} = texte d'un cadre posé sur la page (lignes séparées par /), non retouchable ici.\n");
     let mut shown = 0;
     let mut cut_at = None;
     for p in model.paragraphs.iter().take(to).skip(from) {

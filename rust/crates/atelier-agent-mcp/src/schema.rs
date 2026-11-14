@@ -241,7 +241,7 @@ pub fn docx_tool_definition() -> Value {
         "name": DOCX_TOOL_NAME,
         "description": "Read and edit a project Word .docx WITHOUT breaking it (never unzip or rewrite it \
     yourself). read: paragraphs p0…, footnotes n1.p0…, header1.p0…, tracked changes [+ins+]#id \
-    [-del-]#id, comments c1…. images: see its figures and Excel charts as on the page (to check them). \
+    [-del-]#id, comments c1…. images: see its figures, charts, text boxes as on the page (to check them). \
     Writes are tracked changes or comments signed with the user's name; only the user accepts or \
     rejects. find = exact current text (add paragraph or occurrence if ambiguous). insert_note / \
     insert_figure go after find. insert_row / delete_row: row of a cell's paragraph. join: p8 into p7. \

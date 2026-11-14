@@ -254,11 +254,81 @@ fn for_model((bytes, mime): (Vec<u8>, &'static str), frame: Option<(f64, f64)>) 
     Ok((png, "image/png"))
 }
 
+/// Ce que `images` montre : une figure du paquet (avec les zones de texte et
+/// formes que l'auteur a posées dessus) ou, seuls, les dessins d'un paragraphe.
+enum Shown<'a> {
+    Figure { seg: &'a atelier_docx::model::Segment, over: Vec<&'a atelier_docx::shapes::Shape>, rect: Option<[f32; 4]> },
+    Drawing(Vec<&'a atelier_docx::shapes::Shape>),
+}
+
+/// Figures et dessins d'un paragraphe, dans l'ordre de la page. Les zones de
+/// texte qui flottent sur un paragraphe fait d'une seule figure se dessinent
+/// sur elle ; les autres dessins suivent, à part (`drawings` : hors en-têtes
+/// et pieds, dont les filets et logos ne sont pas des figures).
+fn shown_in<'a>(p: &'a atelier_docx::model::Para, page: Option<&atelier_docx::layout::Page>, drawings: bool) -> Vec<Shown<'a>> {
+    let lone = atelier_docx::shapes::lone_figure(p, page);
+    let on_figure = |s: &atelier_docx::shapes::Shape| lone.is_some() && s.floats() && !s.page_y;
+    let mut out: Vec<Shown> = Vec::new();
+    for (i, seg) in p.segments.iter().enumerate().filter(|(_, s)| s.media.is_some()) {
+        let rect = lone.filter(|(at, _)| *at == i).map(|(_, r)| r);
+        let over = if rect.is_some() { p.shapes.iter().filter(|s| on_figure(s)).collect() } else { Vec::new() };
+        out.push(Shown::Figure { seg, over, rect });
+    }
+    let rest: Vec<_> = p.shapes.iter().filter(|s| !on_figure(s)).collect();
+    if drawings && !rest.is_empty() {
+        out.push(Shown::Drawing(rest));
+    }
+    out
+}
+
+/// Textes des zones de texte, pour la liste jointe aux images.
+fn box_texts(shapes: &[&atelier_docx::shapes::Shape]) -> Vec<String> {
+    shapes.iter().map(|s| s.text()).filter(|t| !t.is_empty()).collect()
+}
+
+/// Où une zone hors figure est posée, dit en clair : sans figure dessous,
+/// l'image seule ne montre pas ce qu'elle côtoie (un tableau, un passage).
+fn placement(sh: &atelier_docx::shapes::Shape, page: Option<&atelier_docx::layout::Page>) -> Option<String> {
+    if !sh.floats() || sh.page_y {
+        return None;
+    }
+    let column = page.map(|p| p.width - p.left - p.right);
+    let side = if sh.align.is_some() {
+        None
+    } else if sh.x + sh.w <= 1.0 {
+        Some("dans la marge gauche".to_string())
+    } else if column.is_some_and(|c| sh.x >= c - 1.0) {
+        Some("dans la marge droite".to_string())
+    } else {
+        Some(format!("à {:.0} pt du bord gauche du texte", sh.x))
+    };
+    let text = sh.text();
+    let name: String = text.lines().next().unwrap_or("").chars().take(40).collect();
+    let name = if name.is_empty() { sh.label().to_string() } else { format!("« {name} »") };
+    let down = format!("{:.0} pt sous le début du paragraphe", sh.y);
+    Some(match side {
+        Some(side) => format!("{name} : {side}, {down}"),
+        None => format!("{name} : {down}"),
+    })
+}
+
+/// Dessins (et figure dessous, s'il y en a une) en PNG pour le modèle.
+fn drawn_png(shapes: &[&atelier_docx::shapes::Shape], back: Option<atelier_docx::shapes::Backdrop>, pictures: &atelier_docx::shapes::Pictures) -> Result<(Vec<u8>, &'static str), String> {
+    let (svg, w, h) = atelier_docx::shapes::compose(shapes, back, pictures).ok_or("dessin vide")?;
+    let long = (w.max(h) * 2.0).clamp(IMAGE_LONG_MIN, IMAGE_LONG_MAX);
+    let mut png = svg_to_png(svg.as_bytes(), Some((w, h)), long).ok_or("rendu impossible de ce dessin")?;
+    if png.len() > IMAGE_PASS_MAX {
+        png = svg_to_png(svg.as_bytes(), Some((w, h)), long / 2.0).unwrap_or(png);
+    }
+    Ok((png, "image/png"))
+}
+
 /// `images` : les figures du document, rendues comme sur la surface .docx
-/// (graphiques d'Excel, EMF/WMF, recadrage de Word) puis jointes au résultat
-/// pour que l'agent les voie. Lecture seule. Numérotées dans l'ordre de
-/// lecture (corps, notes, en-têtes et pieds) ; `paragraph`, `from`/`to`
-/// bornent le passage, `start` reprend à la figure N.
+/// (graphiques d'Excel, EMF/WMF, recadrage de Word, zones de texte et formes
+/// posées dessus) puis jointes au résultat pour que l'agent les voie. Lecture
+/// seule. Numérotées dans l'ordre de lecture (corps, notes, en-têtes et
+/// pieds) ; `paragraph`, `from`/`to` bornent le passage, `start` reprend à la
+/// figure N.
 fn images(path: &Path, req: &Value, pdf_tool: Option<&Path>) -> Result<Value, String> {
     use base64::Engine as _;
     let mut docx = atelier_docx::open_settled(path).map_err(|e| e.0)?;
@@ -266,13 +336,14 @@ fn images(path: &Path, req: &Value, pdf_tool: Option<&Path>) -> Result<Value, St
     let only = str_arg(req, "paragraph");
     let (from, to) = (usize_arg(req, "from").unwrap_or(0), usize_arg(req, "to").unwrap_or(usize::MAX));
     let start = usize_arg(req, "start").unwrap_or(1).max(1);
-    let body = model.paragraphs.iter();
-    let notes = model.notes.iter().flat_map(|n| n.paragraphs.iter());
-    let heads = model.headers.iter().flat_map(|h| h.paragraphs.iter());
-    let all: Vec<(usize, &atelier_docx::model::Para, &atelier_docx::model::Segment)> = body
+    let page = model.page.as_ref();
+    let body = model.paragraphs.iter().map(|p| (p, true));
+    let notes = model.notes.iter().flat_map(|n| n.paragraphs.iter()).map(|p| (p, true));
+    let heads = model.headers.iter().flat_map(|h| h.paragraphs.iter()).map(|p| (p, false));
+    let all: Vec<(usize, &atelier_docx::model::Para, Shown)> = body
         .chain(notes)
         .chain(heads)
-        .flat_map(|p| p.segments.iter().filter(|s| s.media.is_some()).map(move |s| (p, s)))
+        .flat_map(|(p, drawings)| shown_in(p, page, drawings).into_iter().map(move |s| (p, s)))
         .enumerate()
         .map(|(i, (p, s))| (i + 1, p, s))
         .collect();
@@ -286,11 +357,28 @@ fn images(path: &Path, req: &Value, pdf_tool: Option<&Path>) -> Result<Value, St
     let scope: Vec<_> = all.iter().filter(|(_, p, _)| in_scope(p)).collect();
     let mut theme: Option<Option<Vec<u8>>> = None;
     let (mut listed, mut attached, mut budget, mut next) = (Vec::new(), Vec::new(), 0usize, None);
-    for (n, p, s) in scope.iter().filter(|(n, _, _)| *n >= start) {
-        let frame = s.width.zip(s.height).map(|(w, h)| (w as f64, h as f64));
-        let mut entry = json!({"image": n, "paragraph": p.id, "alt": s.alt});
-        if let Some((w, h)) = s.width.zip(s.height) {
-            entry["frame"] = json!(format!("{w}×{h} px"));
+    for (n, p, what) in scope.iter().filter(|(n, _, _)| *n >= start) {
+        let mut entry = json!({"image": n, "paragraph": p.id});
+        let shapes: &[&atelier_docx::shapes::Shape] = match what {
+            Shown::Figure { seg, over, .. } => {
+                entry["alt"] = json!(seg.alt);
+                if let Some((w, h)) = seg.width.zip(seg.height) {
+                    entry["frame"] = json!(format!("{w}×{h} px"));
+                }
+                over
+            }
+            Shown::Drawing(shapes) => {
+                entry["kind"] = json!("zones de texte et formes dessinées dans Word");
+                let placed: Vec<String> = shapes.iter().filter_map(|s| placement(s, page)).collect();
+                if !placed.is_empty() {
+                    entry["placed"] = json!(placed);
+                }
+                shapes
+            }
+        };
+        let texts = box_texts(shapes);
+        if !texts.is_empty() {
+            entry["text_boxes"] = json!(texts);
         }
         // Plus de place, ou la suite déjà annoncée : listée, pas jointe.
         if attached.len() >= lim::BRIDGE_IMAGES_MAX || next.is_some() {
@@ -298,43 +386,75 @@ fn images(path: &Path, req: &Value, pdf_tool: Option<&Path>) -> Result<Value, St
             listed.push(entry);
             continue;
         }
-        let rel = s.media.as_deref().unwrap_or("");
-        let shown = match atelier_docx::objects::media_raw(&mut docx, &p.id, rel).map_err(|e| e.0)? {
-            None => Err("image absente du paquet".to_string()),
-            Some(raw) => {
-                entry["kind"] = json!(match raw.1 {
-                    m if m == atelier_docx::chart::MIME => "graphique Excel",
-                    "image/x-emf" => "EMF",
-                    "image/x-wmf" => "WMF",
-                    m => m.trim_start_matches("image/"),
-                });
-                let th = if raw.1 == atelier_docx::chart::MIME {
-                    if theme.is_none() {
-                        theme = Some(atelier_docx::objects::theme(&mut docx).map_err(|e| e.0)?);
+        // Images des groupes de formes, lisibles par le rendu.
+        let mut pictures = atelier_docx::shapes::Pictures::new();
+        for part in shapes.iter().flat_map(|s| s.parts.iter()) {
+            let Some(rel) = part.media.as_deref().filter(|rel| !pictures.contains_key(*rel)) else { continue };
+            let frame = Some((part.w as f64 * 4.0 / 3.0, part.h as f64 * 4.0 / 3.0));
+            if let Ok(Some(raw)) = atelier_docx::objects::media_raw(&mut docx, &p.id, rel) {
+                if let Ok(img) = for_model(atelier_docx::objects::render(raw, None, frame), frame) {
+                    pictures.insert(rel.to_string(), img);
+                }
+            }
+        }
+        let shown = match what {
+            Shown::Drawing(shapes) => drawn_png(shapes, None, &pictures),
+            Shown::Figure { seg: s, over, rect } => {
+                let frame = s.width.zip(s.height).map(|(w, h)| (w as f64, h as f64));
+                let rel = s.media.as_deref().unwrap_or("");
+                let figure = match atelier_docx::objects::media_raw(&mut docx, &p.id, rel).map_err(|e| e.0)? {
+                    None => Err("image absente du paquet".to_string()),
+                    Some(raw) => {
+                        entry["kind"] = json!(match raw.1 {
+                            m if m == atelier_docx::chart::MIME => "graphique Excel",
+                            "image/x-emf" => "EMF",
+                            "image/x-wmf" => "WMF",
+                            m => m.trim_start_matches("image/"),
+                        });
+                        let th = if raw.1 == atelier_docx::chart::MIME {
+                            if theme.is_none() {
+                                theme = Some(atelier_docx::objects::theme(&mut docx).map_err(|e| e.0)?);
+                            }
+                            theme.as_ref().and_then(|t| t.as_deref())
+                        } else {
+                            None
+                        };
+                        // Page PDF collée (EMF de Word pour Mac) : la page elle-même,
+                        // nette, plutôt que l'aperçu à 72 ppp de l'EMF.
+                        let sharp = (raw.1 == "image/x-emf")
+                            .then(|| atelier_docx::objects::pdf_in_emf(&raw.0))
+                            .flatten()
+                            .zip(pdf_tool)
+                            .and_then(|(pdf, tool)| atelier_pdf::tool::memory_page_png(tool, pdf, pasted_page_width(frame), PASTED_PAGE_TIMEOUT).ok());
+                        let img = match sharp {
+                            Some(png) => {
+                                entry["kind"] = json!("page PDF collée (pleine résolution)");
+                                (png, "image/png")
+                            }
+                            None => atelier_docx::objects::render(raw, th, frame),
+                        };
+                        let img = match (s.crop, frame) {
+                            (Some(c), Some(_)) => atelier_docx::objects::cropped(img, c),
+                            _ => img,
+                        };
+                        for_model(img, frame)
                     }
-                    theme.as_ref().and_then(|t| t.as_deref())
-                } else {
-                    None
                 };
-                // Page PDF collée (EMF de Word pour Mac) : la page elle-même,
-                // nette, plutôt que l'aperçu à 72 ppp de l'EMF.
-                let sharp = (raw.1 == "image/x-emf")
-                    .then(|| atelier_docx::objects::pdf_in_emf(&raw.0))
-                    .flatten()
-                    .zip(pdf_tool)
-                    .and_then(|(pdf, tool)| atelier_pdf::tool::memory_page_png(tool, pdf, pasted_page_width(frame), PASTED_PAGE_TIMEOUT).ok());
-                let img = match sharp {
-                    Some(png) => {
-                        entry["kind"] = json!("page PDF collée (pleine résolution)");
-                        (png, "image/png")
+                // Zones de texte et formes posées sur la figure : dessinées
+                // par-dessus, à leur place, comme sur la page.
+                match (figure, rect) {
+                    (Ok((bytes, mime)), Some(rect)) if !over.is_empty() => {
+                        let back = atelier_docx::shapes::Backdrop { bytes: &bytes, mime, rect: *rect };
+                        match drawn_png(over, Some(back), &pictures) {
+                            Ok(img) => {
+                                entry["overlay"] = json!(format!("{} zone(s) de texte ou forme(s) que l'auteur a posée(s) sur cette figure, dessinée(s) par-dessus comme dans Word", over.len()));
+                                Ok(img)
+                            }
+                            Err(_) => Ok((bytes, mime)),
+                        }
                     }
-                    None => atelier_docx::objects::render(raw, th, frame),
-                };
-                let img = match (s.crop, frame) {
-                    (Some(c), Some(_)) => atelier_docx::objects::cropped(img, c),
-                    _ => img,
-                };
-                for_model(img, frame)
+                    (figure, _) => figure,
+                }
             }
         };
         match shown {
@@ -358,7 +478,7 @@ fn images(path: &Path, req: &Value, pdf_tool: Option<&Path>) -> Result<Value, St
         format!("Aucune figure dans ce passage ({} dans le document).", all.len())
     } else {
         let mut t = format!(
-            "{} figure(s) jointe(s) ci-dessous, dans l'ordre de la liste (« shown »), dessinées comme sur la page Word. Lecture seule : pour une remarque, comment sur le texte voisin.",
+            "{} figure(s) jointe(s) ci-dessous, dans l'ordre de la liste (« shown »), dessinées comme sur la page Word, zones de texte et formes posées dessus comprises (leur texte : « text_boxes » ; hors d'une figure, « placed » dit où elles sont posées par rapport à leur paragraphe, souvent en regard du tableau ou du passage qui suit). Lecture seule : pour une remarque, comment sur le texte voisin.",
             attached.len()
         );
         if let Some(k) = next {
@@ -980,6 +1100,114 @@ mod tests {
         // Un SVG qui pointe hors du paquet : le fichier n'est jamais lu.
         let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="/etc/hosts" width="10" height="10"/></svg>"#;
         assert!(svg_to_png(svg, None, 20.0).is_some());
+    }
+
+    /// Une zone de texte ancrée à la colonne (`x`) et au paragraphe (`y`), en
+    /// points, comme Word l'écrit ; trait orange de 2 points, fond blanc.
+    fn text_box(x: u32, y: u32, w: u32, h: u32, z: u32, text: &str) -> String {
+        let e = |pt: u32| pt * 12_700;
+        format!(
+            r##"<w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wp:anchor behindDoc="0" relativeHeight="{z}"><wp:positionH relativeFrom="column"><wp:posOffset>{}</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>{}</wp:posOffset></wp:positionV><wp:extent cx="{}" cy="{}"/><wp:wrapNone/><wp:docPr id="{z}" name="Rectangle {z}"/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"><wps:wsp><wps:cNvSpPr/><wps:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="25400"><a:solidFill><a:srgbClr val="F79646"/></a:solidFill></a:ln></wps:spPr><wps:txbx><w:txbxContent><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{text}</w:t></w:r></w:p></w:txbxContent></wps:txbx><wps:bodyPr anchor="ctr"/></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice><mc:Fallback><w:pict/></mc:Fallback></mc:AlternateContent></w:r>"##,
+            e(x),
+            e(y),
+            e(w),
+            e(h)
+        )
+    }
+
+    /// La fixture, son `word/document.xml` passé par `doc`.
+    fn rewrite_document(path: &Path, doc: impl Fn(String) -> String) {
+        use std::io::{Read, Write};
+        let mut zin = zip::ZipArchive::new(std::io::Cursor::new(std::fs::read(path).unwrap())).unwrap();
+        let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for i in 0..zin.len() {
+            let mut f = zin.by_index(i).unwrap();
+            let name = f.name().to_string();
+            let mut bytes = Vec::new();
+            f.read_to_end(&mut bytes).unwrap();
+            if name == "word/document.xml" {
+                bytes = doc(String::from_utf8(bytes).unwrap()).into_bytes();
+            }
+            out.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            out.write_all(&bytes).unwrap();
+        }
+        std::fs::write(path, out.finish().unwrap().into_inner()).unwrap();
+    }
+
+    /// Un élève pose des zones de texte, avec ses valeurs, sur le schéma d'un
+    /// exemple : l'agent les lit et les voit sur la figure, comme dans Word
+    /// (2026-11-14, un TP noté « schéma recopié » faute de les voir).
+    #[test]
+    fn l_agent_voit_les_zones_de_texte_posees_sur_une_figure() {
+        use base64::Engine as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        let root = dir.path().to_str().unwrap();
+        // La figure de la fixture : 72 points de côté, centrée dans la colonne
+        // de 468 points (de x = 198 à 270). Une zone la recouvre en partie,
+        // l'autre est à sa gauche.
+        rewrite_document(&path, |doc| {
+            let at = doc.find("<w:r><w:drawing><wp:inline").unwrap();
+            format!("{}{}{}{}", &doc[..at], text_box(190, 20, 100, 36, 2, "H = 0,4 m"), text_box(0, 60, 150, 30, 3, "Niveau initial = 12,5 m"), &doc[at..])
+        });
+        let before = std::fs::read(&path).unwrap();
+
+        let read = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap();
+        let text = read["text"].as_str().unwrap();
+        assert!(text.contains("Zones de texte : 2."), "{text}");
+        assert!(text.contains("{zone de texte : H = 0,4 m}{zone de texte : Niveau initial = 12,5 m}{image : "), "{text}");
+
+        let out = run(root, "claude", "images", &json!({"path": "article.docx"})).unwrap();
+        assert_eq!(out["total"], 1, "{out}");
+        let entry = &out["images"][0];
+        assert_eq!(entry["text_boxes"], json!(["H = 0,4 m", "Niveau initial = 12,5 m"]), "{out}");
+        assert!(entry["overlay"].as_str().unwrap().starts_with("2 zone(s) de texte"), "{out}");
+        assert!(out["note"].as_str().unwrap().contains("text_boxes"), "{out}");
+        let att = &out[lim::BRIDGE_IMAGES_KEY][0];
+        assert_eq!(att["mimeType"], "image/png");
+        let png = base64::engine::general_purpose::STANDARD.decode(att["data"].as_str().unwrap()).unwrap();
+        // Le cadre couvre la figure et les deux zones : de x = 0 à 290, de
+        // y = 0 à 90 points, plus 4 points de marge, à 2 pixels par pixel de Word.
+        let (w, h) = png_size(&png);
+        assert_eq!((w, h), (795, 261));
+        let pixmap = resvg::tiny_skia::Pixmap::decode_png(&png).unwrap();
+        let k = w as f32 / 298.0;
+        let at = |x: f32, y: f32| {
+            let c = pixmap.pixel(((x + 4.0) * k) as u32, ((y + 4.0) * k) as u32).unwrap();
+            (c.red(), c.green(), c.blue())
+        };
+        // Le trait orange de la zone posée sur la figure, son fond blanc qui
+        // cache la figure dessous, et la seconde zone à sa place.
+        assert_eq!(at(190.0, 38.0), (0xF7, 0x96, 0x46));
+        assert_eq!(at(194.0, 24.0), (255, 255, 255));
+        assert_eq!(at(150.0, 75.0), (0xF7, 0x96, 0x46));
+        assert_eq!(at(75.0, 30.0), (255, 255, 255), "hors de la figure et des zones : la page");
+        // La figure reste dessous, là où aucune zone ne la couvre.
+        let plain = {
+            let d2 = tempfile::tempdir().unwrap();
+            fixture(d2.path());
+            run(d2.path().to_str().unwrap(), "claude", "images", &json!({"path": "article.docx"})).unwrap()
+        };
+        assert!(plain["images"][0].get("overlay").is_none() && plain["images"][0].get("text_boxes").is_none(), "{plain}");
+        let alone = base64::engine::general_purpose::STANDARD.decode(plain[lim::BRIDGE_IMAGES_KEY][0]["data"].as_str().unwrap()).unwrap();
+        let fig = resvg::tiny_skia::Pixmap::decode_png(&alone).unwrap();
+        let c = fig.pixel(fig.width() * 3 / 4, fig.height() / 8).unwrap();
+        assert_eq!(at(198.0 + 54.0, 9.0), (c.red(), c.green(), c.blue()));
+        // Lecture seule.
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        // Des zones de texte sans figure dessous : dessinées seules, à part.
+        rewrite_document(&path, |doc| {
+            let at = doc.find("<w:t>Ces valeurs sont").map(|i| doc[..i].rfind("<w:r>").unwrap()).unwrap();
+            format!("{}{}{}", &doc[..at], text_box(36, 12, 120, 30, 4, "Note en marge"), &doc[at..])
+        });
+        let out = run(root, "claude", "images", &json!({"path": "article.docx"})).unwrap();
+        assert_eq!(out["total"], 2, "{out}");
+        let drawing = out["images"].as_array().unwrap().iter().find(|e| e.get("alt").is_none()).unwrap();
+        assert_eq!(drawing["text_boxes"], json!(["Note en marge"]), "{out}");
+        assert_eq!(drawing["kind"], "zones de texte et formes dessinées dans Word");
+        assert_eq!(drawing["placed"], json!(["« Note en marge » : à 36 pt du bord gauche du texte, 12 pt sous le début du paragraphe"]), "{out}");
+        assert!(drawing["shown"].as_u64().is_some(), "{out}");
     }
 
     #[test]

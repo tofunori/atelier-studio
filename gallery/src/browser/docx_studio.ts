@@ -23,10 +23,32 @@
     number?: number; whole?: boolean; media?: string; width?: number; height?: number; alt?: string; crop?: number[];
     /** Équation : son LaTeX, et si elle est seule sur sa ligne (display). */
     latex?: string; display?: boolean;
+    /** Objet qui est un dessin : son rang dans `Para.shapes`. */
+    shape?: number;
+  };
+  /** Texte d'une zone de texte : paragraphes et leurs passages mis en forme. */
+  type ShapeRun = {
+    text: string; b?: boolean; i?: boolean; u?: boolean; strike?: boolean; sup?: boolean; sub?: boolean;
+    font?: string; size?: number; color?: string; highlight?: string;
+  };
+  type ShapeText = { look: Look; list?: boolean; runs: ShapeRun[] };
+  /** Pièce d'un dessin : rectangle, ellipse, tracé ou image, en points dans le cadre. */
+  type ShapePart = {
+    geom: string; x: number; y: number; w: number; h: number; rot?: number;
+    fill?: string; line?: string; line_w?: number; dash?: string; d?: string; heads?: string;
+    inset: number[]; valign: string; ink?: string; text?: ShapeText[]; media?: string;
+  };
+  /** Zone de texte ou forme dessinée dans Word, ancrée à un paragraphe : `x`
+   *  depuis le bord gauche de sa colonne, `y` depuis le haut de son texte
+   *  (ou de la feuille si `page_y`), en points. Lecture seule. */
+  type Shape = {
+    x: number; y: number; w: number; h: number; wrap: string; align?: string; page_y?: boolean;
+    z: number; seg?: number; parts: ShapePart[];
   };
   type Para = {
     id: string; para_id?: string; style?: string; heading?: number; list?: boolean; align?: string;
     cell?: [number, number, number]; mark_change?: number; text: string; segments: Seg[]; look?: Look;
+    shapes?: Shape[];
     /** Ajouté ici : histoire du paragraphe (« » corps, n1, e1, header1…). */
     story?: string;
     /** Ajouté ici : marque de paragraphe ajoutée ou barrée par un geste pas encore confirmé. */
@@ -424,6 +446,157 @@
     if (s.sub) wrap("sub");
     return inner;
   }
+  // ------------------------------------------- zones de texte et formes
+  // Word laisse poser sur la page des zones de texte, des traits et des
+  // formes ancrés à un paragraphe : un élève y écrit ses valeurs par-dessus
+  // le schéma d'un exemple. La base les lit (`Para.shapes`) ; ici on les
+  // pose à leur place, en points du document, sans les rendre modifiables
+  // (elles se retouchent dans Word) et sans qu'elles comptent dans le texte.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const shU = (v: number) => (model!.page ? `calc(var(--pt) * ${v})` : `${v}pt`);
+  const shFloats = (sh: Shape) => sh.wrap === "front" || sh.wrap === "behind";
+  /** Paragraphe d'une zone de texte, avec l'apparence résolue par la base. */
+  function shapeText(t: ShapeText, last: boolean): HTMLElement {
+    const el = document.createElement("span");
+    el.className = "sh-p";
+    const l = t.look || {};
+    const st = el.style;
+    if (l.font) st.fontFamily = `"${l.font}", "Times New Roman", serif`;
+    if (l.size) st.fontSize = shU(l.size);
+    if (l.b) st.fontWeight = "bold";
+    if (l.i) st.fontStyle = "italic";
+    if (l.caps) st.textTransform = "uppercase";
+    if (l.color && l.color !== "000000") st.color = `#${l.color}`;
+    if (l.line_exact) st.lineHeight = shU(l.line_exact);
+    else if (l.line_min) st.lineHeight = `max(1.15em, ${shU(l.line_min)})`;
+    else if (l.line) st.lineHeight = String(1.15 * l.line);
+    if (l.before) st.paddingTop = shU(l.before);
+    // L'espace après le dernier paragraphe ne compte pas dans la zone.
+    if (l.after && !last) st.paddingBottom = shU(l.after);
+    if (l.left) st.paddingLeft = shU(l.left);
+    if (l.right) st.paddingRight = shU(l.right);
+    if (l.first) st.textIndent = shU(l.first);
+    if (l.align && l.align !== "left") el.classList.add(`a-${l.align}`);
+    if (t.list) el.appendChild(document.createTextNode("• "));
+    for (const r of t.runs) {
+      const span = document.createElement("span");
+      span.appendChild(styled(r as Seg));
+      if (r.font) span.style.fontFamily = `"${r.font}", "Times New Roman", serif`;
+      if (r.size) span.style.fontSize = shU(r.size);
+      if (r.color) span.style.color = `#${r.color}`;
+      if (r.highlight && r.highlight !== "white" && r.highlight !== "black") span.style.backgroundColor = HIGHLIGHT[r.highlight] || `color-mix(in srgb, ${r.highlight} 40%, transparent)`;
+      el.appendChild(span);
+    }
+    if (!t.runs.length) el.appendChild(document.createElement("br"));
+    return el;
+  }
+  /** Une pièce d'un dessin : son fond, son trait, son tracé, son texte. */
+  function shapePart(p: Para, part: ShapePart, solo: boolean): HTMLElement {
+    const el = document.createElement("span");
+    el.className = `sh-part v-${part.valign || "top"}`;
+    const st = el.style;
+    const hasText = !!(part.text && part.text.length);
+    if (!solo) { st.left = shU(part.x); st.top = shU(part.y); }
+    st.width = shU(part.w);
+    // Une zone trop basse pour son texte s'allonge : rien n'est caché.
+    if (hasText) st.minHeight = shU(part.h);
+    else st.height = shU(part.h);
+    if (part.rot) st.transform = `rotate(${part.rot}deg)`;
+    const lineW = `max(1px, ${shU(part.line_w || 0.75)})`;
+    if (part.geom === "path") {
+      // Tracé en points : le dessin suit l'échelle de la page. Un trait
+      // horizontal ou vertical n'a pas d'épaisseur : son cadre en garde un point.
+      const w = Math.max(part.w, 1), h = Math.max(part.h, 1);
+      const svg = document.createElementNS(SVG_NS, "svg");
+      svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+      svg.setAttribute("preserveAspectRatio", "none");
+      svg.style.width = shU(w);
+      svg.style.height = shU(h);
+      const path = (d: string, fill: string | undefined, stroke: boolean) => {
+        const el = document.createElementNS(SVG_NS, "path");
+        el.setAttribute("d", d);
+        el.setAttribute("fill", fill ? `#${fill}` : "none");
+        if (stroke && part.line) {
+          el.setAttribute("stroke", `#${part.line}`);
+          el.setAttribute("stroke-width", String(part.line_w || 0.75));
+          const lw = part.line_w || 0.75;
+          if (part.dash) el.setAttribute("stroke-dasharray", part.dash === "dot" ? `${lw} ${lw * 2}` : part.dash === "dashdot" ? `${lw * 4} ${lw * 2} ${lw} ${lw * 2}` : `${lw * 4} ${lw * 3}`);
+        }
+        svg.appendChild(el);
+      };
+      if (part.d) path(part.d, part.fill, true);
+      if (part.heads && part.line) path(part.heads, part.line, false);
+      el.appendChild(svg);
+    } else if (part.geom === "image" && part.media) {
+      const img = document.createElement("img");
+      const size = `&size=${Math.round(part.w / 0.75)}x${Math.round(part.h / 0.75)}`;
+      img.src = `/docx/media?path=${enc(PATH)}&para=${enc(p.id)}&rel=${enc(part.media)}${size}`;
+      img.alt = "";
+      img.draggable = false;
+      el.appendChild(img);
+    } else {
+      if (part.fill) st.backgroundColor = `#${part.fill}`;
+      if (part.line) {
+        st.borderWidth = lineW;
+        st.borderColor = `#${part.line}`;
+        st.borderStyle = part.dash === "dot" ? "dotted" : part.dash ? "dashed" : "solid";
+      }
+      if (part.geom === "ellipse") st.borderRadius = "50%";
+      else if (part.geom === "round") st.borderRadius = shU(Math.min(part.w, part.h) / 6);
+    }
+    if (hasText) {
+      // Encre : sur un fond, celle du document (noire sur une zone blanche,
+      // même quand la page suit le thème sombre) ; sans fond, celle de la page.
+      const ink = part.ink && part.ink !== "000000" ? `#${part.ink}` : part.fill ? "var(--doc-ink)" : "";
+      if (ink) st.setProperty("--sh-ink", ink);
+      const [l, t, r, b] = part.inset || [7.2, 3.6, 7.2, 3.6];
+      st.padding = `${shU(t)} ${shU(r)} ${shU(b)} ${shU(l)}`;
+      part.text!.forEach((t, k) => el.appendChild(shapeText(t, k === part.text!.length - 1)));
+    }
+    return el;
+  }
+  /** Le dessin entier : flottant (posé à sa place sur le paragraphe) ou dans le fil du texte. */
+  function renderShape(p: Para, sh: Shape): HTMLElement {
+    const el = document.createElement("span");
+    const solo = sh.parts.length === 1;
+    el.className = "d-sh" + (solo ? " solo" : "");
+    el.contentEditable = "false";
+    const st = el.style;
+    st.width = shU(sh.w);
+    if (solo && sh.parts[0].text && sh.parts[0].text.length) st.minHeight = shU(sh.h);
+    else st.height = shU(sh.h);
+    if (shFloats(sh)) {
+      el.classList.add("shf");
+      if (sh.wrap === "behind") el.classList.add("bh");
+      if (sh.align === "center") st.left = `calc(50% - ${shU(sh.w / 2)})`;
+      else if (sh.align === "right") st.right = "0";
+      else st.left = shU(sh.x);
+      if (sh.page_y) el.dataset.py = String(sh.y);
+      // Mesuré depuis le haut du texte du paragraphe, sous son espace avant.
+      st.top = shU((p.look?.before || 0) + (sh.page_y ? 0 : sh.y));
+    } else {
+      el.title = "Zone de texte ou forme : à modifier dans Word";
+      const colW = model!.page ? model!.page.width - model!.page.left - model!.page.right : 0;
+      if (sh.wrap === "square") el.classList.add(colW && sh.x + sh.w / 2 > colW / 2 ? "wr" : "wl");
+      else if (sh.wrap === "topAndBottom") { el.classList.add("blk"); st.marginLeft = shU(Math.max(0, sh.x)); }
+    }
+    for (const part of sh.parts) el.appendChild(shapePart(p, part, solo));
+    return el;
+  }
+  /** Dessins ancrés à la page : leur hauteur se compte depuis le haut de la
+   *  feuille où tombe leur paragraphe, connue après la coupe en feuilles. */
+  function placePageShapes(pg: Page) {
+    const stride = pg.height * ptPx + GAP;
+    const o = paper.getBoundingClientRect().top;
+    for (const el of Array.from(paper.querySelectorAll<HTMLElement>(".d-sh[data-py]"))) {
+      const host = el.parentElement;
+      if (!host) continue;
+      const top = host.getBoundingClientRect().top - o;
+      const sheet = Math.max(0, Math.floor(top / stride)) * stride;
+      el.style.top = `${sheet + Number(el.dataset.py) * ptPx - top}px`;
+    }
+  }
+
   function renderPara(idx: number): HTMLElement {
     const p = model!.paragraphs[idx];
     const el = document.createElement("p");
@@ -447,7 +620,26 @@
     }
     let off = 0;
     let any = false;
-    for (const s of virtualSegments(idx)) {
+    // Dessins sans objet à eux dans le texte : flottants (posés en fin de
+    // paragraphe, hors du fil) ou dans le fil, devant le segment d'ancrage.
+    const shapes = p.shapes || [];
+    const segs = virtualSegments(idx);
+    const owned = new Set(segs.map((s) => s.shape).filter((k) => k !== undefined));
+    const inFlow = (from: number, to: number) => {
+      shapes.forEach((sh, k) => {
+        if (owned.has(k) || shFloats(sh)) return;
+        const at = sh.seg ?? segs.length;
+        if (at < from || at >= to) return;
+        const node = renderShape(p, sh);
+        node.dataset.off = String(off);
+        node.dataset.len = "0";
+        node.dataset.chip = "1";
+        el.appendChild(node);
+        any = true;
+      });
+    };
+    for (const [si, s] of segs.entries()) {
+      inFlow(si, si + 1);
       const removed = s.rev === "del" || s.rev === "moveFrom";
       const len = removed ? 0 : cp(s.text);
       let node: HTMLElement;
@@ -479,6 +671,13 @@
           // Hauteur réservée avant le chargement : sans elle, la coupure en pages se ferait sur une image vide.
           if (s.width && s.height) img.style.aspectRatio = `${s.width} / ${s.height}`;
           node.appendChild(img);
+        } else if (s.shape !== undefined && shapes[s.shape]) {
+          // Dessin d'un vieux Word (VML) : l'objet garde sa place dans le
+          // texte ; flottant, il n'y laisse qu'une ancre sans largeur.
+          const sh = shapes[s.shape];
+          node.className = "chip sh";
+          if (shFloats(sh)) { node.classList.add("anc"); node.textContent = "\u200B"; }
+          else node.appendChild(renderShape(p, sh));
         } else if (s.kind === "field" && s.text) {
           // Résultat de champ (citation, bibliographie) : texte mis en forme
           // qui passe à la ligne comme le reste, mais non modifiable.
@@ -492,6 +691,8 @@
           node.setAttribute("role", "button");
           node.setAttribute("aria-haspopup", "dialog");
           node.setAttribute("aria-label", `Équation : ${s.latex}`);
+        } else if (s.shape !== undefined && shapes[s.shape]) {
+          node.title = "Zone de texte ou forme : à modifier dans Word";
         } else node.title = s.kind === "field" ? (label.startsWith("zotero") ? "Citation Zotero : à modifier dans Word" : `Champ ${label}`) : (isNote ? (label === "note" ? "Note de bas de page" : "Note de fin") : s.media ? (s.alt || "Figure") : label);
       } else {
         node = document.createElement("span");
@@ -536,7 +737,11 @@
       el.classList.add("changed");
       el.style.setProperty("--rev-color", authorColor(shownAuthor(changed)));
     }
+    inFlow(segs.length, Infinity);
     if (!any) el.appendChild(document.createElement("br"));
+    // Dessins flottants : après le texte, dans l'ordre d'empilement de Word.
+    const floating = shapes.filter(shFloats).sort((a, b) => a.z - b.z);
+    for (const sh of floating) el.appendChild(renderShape(p, sh));
     el.dataset.len = String(off);
     return el;
   }
@@ -894,6 +1099,7 @@
     }
     paper.style.minHeight = "";
     const pages = paginate(pg, blocks, start, page, until, from !== null);
+    placePageShapes(pg);
     if (keep) setCaret(keep.a, collapsed(keep) ? undefined : keep.b);
     followPaper();
     if (keepTop && from === null) {
@@ -920,7 +1126,7 @@
           range.selectNodeContents(c);
           Array.from(range.getClientRects()).forEach((r, k) => { if (r.height > 0) frags.push({ top: r.top - o, bottom: r.bottom - o, atom: c!, frag: k }); });
         } else if (c instanceof HTMLElement) {
-          if (c.classList.contains("d-gap")) continue;
+          if (c.classList.contains("d-gap") || c.classList.contains("shf")) continue;
           if ((c.dataset.chip && !c.classList.contains("fld") && !c.classList.contains("flow")) || c.tagName === "BR" || c.tagName === "IMG") {
             const r = c.getBoundingClientRect();
             if (r.height > 0) frags.push({ top: r.top - o, bottom: r.bottom - o, atom: c, frag: 0 });
@@ -4660,7 +4866,7 @@
         if (b.bottom < top || b.top > bottom) continue;
         const walk = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
         for (let t = walk.nextNode() as Text | null; t; t = walk.nextNode() as Text | null) {
-          if (!t.data || !range.intersectsNode(t) || t.parentElement?.closest(".d-gap,.d-note-n")) continue;
+          if (!t.data || !range.intersectsNode(t) || t.parentElement?.closest(".d-gap,.d-note-n,.d-sh")) continue;
           sub.selectNodeContents(t);
           if (t === range.startContainer) sub.setStart(t, range.startOffset);
           if (t === range.endContainer) sub.setEnd(t, range.endOffset);

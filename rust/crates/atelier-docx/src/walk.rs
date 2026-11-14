@@ -163,6 +163,21 @@ pub struct Inline {
     pub comment_refs: Vec<u32>,
     /// Commentaires ouverts dans ce paragraphe.
     pub comment_starts: Vec<u32>,
+    /// Zones de texte et formes dessinées ancrées dans ce paragraphe.
+    pub drawings: Vec<Drawing>,
+}
+
+/// Dessin (zone de texte, forme, groupe) rencontré dans un run : lu ensuite
+/// par [`crate::shapes`].
+pub struct Drawing {
+    /// Le `mc:AlternateContent`, `w:drawing` ou `w:pict` qui le porte.
+    pub node: roxmltree::NodeId,
+    /// Morceau devant lequel il est ancré (`pieces.len()` : en fin de paragraphe).
+    pub piece: usize,
+    /// Le dessin a son propre morceau (`w:drawing` ou `w:pict` nu) : c'est `piece`.
+    pub own: bool,
+    /// Dans une suppression en suivi.
+    pub removed: bool,
 }
 
 struct FieldFrame {
@@ -389,11 +404,30 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
     let mut media = None;
     let mut whole = false;
     let mut field_unit: Option<Range<usize>> = None;
+    // Dessins du run : (nœud, rang du morceau local devant lequel il est ancré, morceau à lui).
+    let mut drawn: Vec<(roxmltree::NodeId, usize, bool)> = Vec::new();
     for c in r.children().filter(|n| n.is_element()) {
         let ns = c.tag_name().namespace();
         let name = c.tag_name().name();
         if ns != Some(W) {
             simple = false;
+            if name == "AlternateContent" {
+                // Zone de texte, forme ou groupe (dessin moderne et sa copie
+                // VML) : lu par `shapes`. Une simple image rangée là (repli
+                // d'un graphique récent) reste une figure ordinaire.
+                let picture = if is_drawn(c) {
+                    None
+                } else {
+                    c.children().filter(|n| n.is_element()).find_map(|branch| branch.descendants().find(|n| is_w(*n, "drawing") || is_w(*n, "pict")).and_then(media_of))
+                };
+                match picture {
+                    Some(m) => {
+                        media = Some(m);
+                        pieces.push(("\u{FFFC}".into(), Kind::Object("image".into()), None));
+                    }
+                    None => drawn.push((c.id(), pieces.len(), false)),
+                }
+            }
             continue;
         }
         let tok = match name {
@@ -454,7 +488,11 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
             }
             "drawing" | "pict" | "object" => {
                 simple = false;
-                media = media_of(c);
+                // Un dessin (zone de texte, groupe) n'est pas l'image qu'il contient.
+                media = if is_drawn(c) { None } else { media_of(c) };
+                if media.is_none() {
+                    drawn.push((c.id(), pieces.len(), true));
+                }
                 let label = if name == "drawing" || media.is_some() { "image" } else { "objet" };
                 // Un caractère de remplacement : la figure occupe une position.
                 pieces.push(("\u{FFFC}".into(), Kind::Object(label.into()), None));
@@ -510,7 +548,13 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
     } else {
         None
     };
-    for (text, mut kind, tok) in pieces {
+    let removed = ctx.revs.last().is_some_and(|(k, _)| k.removes());
+    let mut pushed = 0;
+    for (local, (text, mut kind, tok)) in pieces.into_iter().enumerate() {
+        for (node, _, own) in drawn.iter().filter(|(_, at, _)| *at == local) {
+            out.drawings.push(Drawing { node: *node, piece: out.pieces.len(), own: *own, removed });
+        }
+        pushed = local + 1;
         if matches!(kind, Kind::Text | Kind::Tab | Kind::Break) {
             if let Some(f) = &ctx.simple_field {
                 kind = Kind::Field(f.clone());
@@ -542,6 +586,16 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
             last.unit = Some(u.clone());
         }
     }
+    // Dessins après le dernier morceau du run.
+    for (node, _, own) in drawn.iter().filter(|(_, at, _)| *at >= pushed) {
+        out.drawings.push(Drawing { node: *node, piece: out.pieces.len(), own: *own, removed });
+    }
+}
+
+/// Le nœud porte-t-il un dessin de formes (zone de texte, forme, groupe,
+/// zone de dessin) plutôt qu'une image ?
+fn is_drawn(node: Node) -> bool {
+    node.descendants().any(|n| matches!(n.tag_name().name(), "wsp" | "wgp" | "wpc") && n.tag_name().namespace() != Some(W))
 }
 
 /// Image d'un dessin (DrawingML) ou d'une forme VML.
