@@ -473,6 +473,8 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
     }
     out["note"] = json!(if action == "edit_comment" {
         "Commentaire de l'utilisateur corrigé dans le .docx, toujours à son nom : dis-lui en une phrase ce que tu as changé."
+    } else if action == "withdraw_comment" {
+        "Bulle retirée du .docx, c'est fait (rien à valider) : dis-le à l'utilisateur en une phrase."
     } else {
         "Proposé en suivi des modifications : l'utilisateur l'accepte ou le refuse dans le panneau .docx ou dans Word."
     });
@@ -675,7 +677,8 @@ mod tests {
         assert_eq!(m.comments.iter().find(|c| c.id == his as u32).unwrap().text, "À vérifier (bande 1).");
         run(root, "claude", "withdraw_comment", &json!({"path": "article.docx", "comment": his})).unwrap();
         // Retirer le sien.
-        run(root, "claude", "withdraw_comment", &json!({"path": "article.docx", "comment": id})).unwrap();
+        let gone = run(root, "claude", "withdraw_comment", &json!({"path": "article.docx", "comment": id})).unwrap();
+        assert!(gone["note"].as_str().unwrap().contains("retirée"), "pas « proposé en suivi » : c'est fait ({gone})");
         let m = Docx::open(&path).unwrap().model().unwrap();
         assert!(!m.comments.iter().any(|c| c.id == id as u32));
         assert_eq!(m.comments.len(), n0 + 1);

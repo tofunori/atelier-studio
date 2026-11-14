@@ -1,7 +1,7 @@
 //! MCP stdio server: concurrent reads, ordered mutations, one bounded writer.
 use crate::bridge::Bridge;
-use crate::schema::{
-    all_tool_definitions, bridge_call_for, help_text, widget_guide_text, PYTHON_TOOL_NAME,
+use crate::schema::{refusal_for, 
+    all_tool_definitions, bridge_call_for, help_text, widget_guide_text,
     TOOL_NAME, WIDGET_GUIDE_TOOL_NAME,
 };
 use atelier_protocol::agent_mcp_limits as lim;
@@ -172,7 +172,7 @@ async fn serve(
                     write_frame(&mut writer, &tool_result(&id, widget_guide_text(), false)).await?; continue;
                 }
                 let Some((action, arguments)) = bridge_call_for(name, &args) else {
-                    let error = if name == TOOL_NAME || name == PYTHON_TOOL_NAME { "missing_action".into() } else { format!("unknown tool: {name}") };
+                    let error = refusal_for(name, &args);
                     write_frame(&mut writer, &tool_result(&id, json!({"error":error}), true)).await?; continue;
                 };
                 let key = id.to_string();
@@ -257,6 +257,7 @@ async fn write_frame(writer: &mut (impl AsyncWrite + Unpin), value: &Value) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::PYTHON_TOOL_NAME;
     use std::time::Duration;
     fn request(id: i32, action: &str) -> Value {
         json!({"id":id,"method":"tools/call","params":{"name":TOOL_NAME,"arguments":{"action":action}}})

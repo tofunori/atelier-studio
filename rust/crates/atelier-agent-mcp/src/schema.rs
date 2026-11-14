@@ -374,6 +374,28 @@ pub fn all_tool_definitions() -> Vec<Value> {
 /// Traduit un `tools/call` en couple (action, arguments) pour le pont.
 /// `atelier_sessions` porte son action dans ses arguments ; `atelier_widget`
 /// est un outil plat dont l'action est fixe.
+/// Refus d'un appel que [`bridge_call_for`] ne route pas. Un outil connu
+/// appelé avec une action qu'il n'a pas le dit avec la liste de ses actions :
+/// « unknown tool » faisait croire à l'agent que tout l'outil avait disparu
+/// (2026-11-14, `atelier_docx` appelé avec action=image).
+pub fn refusal_for(tool_name: &str, args: &Value) -> String {
+    if tool_name == TOOL_NAME || tool_name == PYTHON_TOOL_NAME {
+        return "missing_action".into();
+    }
+    let actions = all_tool_definitions()
+        .into_iter()
+        .find(|t| t["name"] == tool_name)
+        .and_then(|t| t.pointer("/inputSchema/properties/action/enum").cloned());
+    match actions {
+        Some(Value::Array(list)) => {
+            let list: Vec<&str> = list.iter().filter_map(Value::as_str).collect();
+            let asked = args.get("action").and_then(Value::as_str).unwrap_or("");
+            format!("{tool_name} has no action \"{asked}\"; its actions are: {}", list.join(", "))
+        }
+        _ => format!("unknown tool: {tool_name}"),
+    }
+}
+
 pub fn bridge_call_for(tool_name: &str, args: &Value) -> Option<(String, Value)> {
     match tool_name {
         WIDGET_TOOL_NAME => Some(("show_widget".to_string(), args.clone())),
@@ -646,6 +668,15 @@ mod tests {
             assert!(bridge_call_for(DOCX_TOOL_NAME, &json!({"action": action})).is_none(), "{action}");
         }
         let d = docx_tool_definition()["description"].as_str().unwrap().len(); assert!(d < 800, "{d}");
+    }
+
+    #[test]
+    fn a_wrong_action_names_the_real_ones_instead_of_unknown_tool() {
+        let e = refusal_for(DOCX_TOOL_NAME, &json!({"action": "image", "path": "a.docx"}));
+        assert!(e.starts_with("atelier_docx has no action \"image\"") && e.contains("withdraw_comment") && e.contains("images"), "{e}");
+        assert!(refusal_for(ANNOTATE_TOOL_NAME, &json!({"action": "see"})).contains("pages"));
+        assert_eq!(refusal_for("atelier_nope", &json!({})), "unknown tool: atelier_nope");
+        assert_eq!(refusal_for(TOOL_NAME, &json!({})), "missing_action");
     }
 
     #[test]
