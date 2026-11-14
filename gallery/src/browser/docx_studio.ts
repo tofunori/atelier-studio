@@ -4798,8 +4798,9 @@
     const q = citeQ.value.trim();
     let items: ZItem[] = [];
     try {
-      const r = await fetch(`/zotero-items?q=${enc(q)}`).then((x) => x.json());
-      items = (r.items || []) as ZItem[];
+      const x = await fetch(`/zotero-items?q=${enc(q)}`);
+      // Zotero absent ou en erreur : liste vide, la palette le dit.
+      items = x.ok ? (((await x.json()).items || []) as ZItem[]) : [];
     } catch { items = []; }
     if (seq !== citeSeq || !citeAt) return;
     foundFor = q;
