@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · epure · regarde · relecteur (-encours, -rien).
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · annotes · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · revision · epure · regarde · relecteur (-encours, -rien).
 import { setReviewSession } from "../lib/reviewSession";
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
@@ -497,6 +497,35 @@ const WORD_REPLY_EVENTS: AgentEvent[] = [
     files: [{ name: "Chapitre1_brouillon_2026-11-02_revCK.docx", path: "/Users/bench/Doctorat/Chapitre1_brouillon_2026-11-02_revCK.docx", kind: "file",
       reply: { author: "Christophe Kinnard", comment: "Pourquoi 0,6 et pas 0,5 ? Une courte analyse de sensibilité serait la bienvenue.", where: "¶ 17" } }],
     liveContext: { path: "/Users/bench/Doctorat/Chapitre1_brouillon_2026-11-02_revCK.docx", name: "Chapitre1_brouillon_2026-11-02_revCK.docx", paragraph: 17 } } as AgentEvent,
+];
+
+// Réponse annotée puis renvoyée (2026-11-14) : quatre passages de la
+// réponse de Claude, chacun suivi de la réplique tapée, et la trace du .docx
+// regardé. Le 4e passage est coupé en plein mot, comme une sélection réelle.
+const ANNOTES_DOC = "/Users/bench/Enseignement/TP6_Lafreniere_Emy_commente.docx";
+const ANNOTES_REPLY = [
+  "Voici ce que je propose pour finir la correction du TP6 :",
+  "",
+  "- Supprimer l'ancienne bulle « remontée du niveau ». Tu peux aussi reformuler les bulles Calculs et Q3.",
+  "- Supprimer les 3 anciennes bulles : le commentaire général du haut, la conclusion Q1 sans « h2 = 0,11 m » et la Q2 qui dit seulement « Bonne justification avec l'annexe. ».",
+  "- Pour le coefficient de ruissellement : 0,5 ?",
+  "- Ton commentaire rapporte que 1,42 × 10⁻⁵ « ne découle pas de ta ligne ». En fait, ce résultat en découle bien si 19,9 est la hauteur retenue.",
+].join("\n");
+const ANNOTES_EVENTS: AgentEvent[] = [
+  { kind: "user", text: "Relis mes bulles sur le TP6 d'Emy et dis-moi ce qu'il faut retoucher.", ts: ts(600) } as AgentEvent,
+  { kind: "text", text: ANNOTES_REPLY, ts: ts(560) } as AgentEvent,
+  { kind: "user", ts: ts(20), text: [
+    "Annotations sur ma réponse :",
+    "[1] « Supprimer l'ancienne bulle « remontée du niveau ». Tu peux aussi reformuler les bulles Calculs et Q3. »",
+    "    → fait le",
+    "[2] « Supprimer les 3 anciennes bulles : le commentaire général du haut, la conclusion Q1 sans « h2 = 0,11 m » et la Q2 qui dit seulement « Bonne justification avec l'annexe. ». »",
+    "    → fait le",
+    "[3] « 0,5 ? »",
+    "    → 0.5",
+    "[4] « ort que 1,42 × 10⁻⁵ « ne découle pas de ta ligne ». En fait, ce résultat en découle bien si 19,9 es »",
+    "    → justetement ici est ce que ca réponse final correspond a 15.9 ou 19.9",
+  ].join("\n"),
+    liveContext: { path: ANNOTES_DOC, name: "TP6_Lafreniere_Emy_commente.docx", paragraph: 211 } } as AgentEvent,
 ];
 
 const WORD_ATTACHMENTS: typeof CONTEXTS_ATTACHMENTS = [
@@ -1045,6 +1074,7 @@ const STATES: Record<string, BenchState> = {
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   word: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: WORD_ATTACHMENTS, usage: null },
+  annotes: { events: ANNOTES_EVENTS, workingSince: null, attachments: [], usage: null },
   proposer: { events: WORD_REPLY_EVENTS, workingSince: null, attachments: [], usage: null },
   regarde: { events: LIVE_CONTEXT_EVENTS, workingSince: null, attachments: [], usage: null, liveContext: LIVE_CONTEXT },
   markdown: { events: MARKDOWN, workingSince: null, attachments: [], usage: null },

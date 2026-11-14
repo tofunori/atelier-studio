@@ -20,7 +20,7 @@ import { loadSendMotion, sendMotion } from "../../lib/chat/sendMotion";
 import { t } from "../../lib/i18n";
 import { prefersReducedMotion, useReducedMotion } from "../../lib/motion";
 import { findTextRanges } from "../../lib/markRanges";
-import { parseAnnotationBlock, type Mark, type ParsedAnnotations } from "../../lib/annotations";
+import { parseAnnotationBlock, quoteEdges, type Mark, type ParsedAnnotations } from "../../lib/annotations";
 import { isValidSkill } from "./mentions";
 import {
   ChatEmptyState, UserTurn, StreamingText, AssistantText, ResultCapsule,
@@ -170,22 +170,27 @@ function tourACherche(events: AgentEvent[], index: number): boolean {
   return false;
 }
 
-/** Bulle d'un tour annoté (direction A, 2026-08-28). Le numéro n'apparaît
- *  qu'à partir de deux : « [1] » seul ne numérote rien. */
+/** Bulle d'un tour annoté (D · Fil, 2026-11-14) : sans numéros, le passage
+ *  en petit gris et un trait fin en coude qui descend vers la réplique. Un
+ *  passage pris en cours de phrase s'ouvre ou se ferme par « … » (en CSS :
+ *  le texte copié reste le passage). */
 function AnnotatedBubble({ parsed }: { parsed: ParsedAnnotations }) {
-  const numbered = parsed.items.length > 1;
   return (
     <div className="anno-said">
       <div className="anno-said-block">
-        {parsed.items.map((item, i) => (
-          <div className="anno-said-item" key={i}>
-            {numbered && <span className="anno-said-idx">{i + 1}</span>}
-            <div className="anno-said-quote">{item.text}</div>
-            {item.note
-              ? <div className="anno-said-note">{item.note}</div>
-              : <div className="anno-said-note is-empty">{t("chat.annotation-mute")}</div>}
-          </div>
-        ))}
+        {parsed.items.map((item, i) => {
+          const edges = quoteEdges(item.text);
+          return (
+            <div className="anno-said-item" key={i}>
+              <div className="anno-said-quote" title={item.text}>
+                <span className={`anno-said-text${edges.open ? " opens" : ""}${edges.close ? " closes" : ""}`}>{item.text}</span>
+              </div>
+              {item.note
+                ? <div className="anno-said-note">{item.note}</div>
+                : <div className="anno-said-note is-empty">{t("chat.annotation-mute")}</div>}
+            </div>
+          );
+        })}
       </div>
       {parsed.tail && <div className="anno-said-tail">{parsed.tail}</div>}
     </div>
