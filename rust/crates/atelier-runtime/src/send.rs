@@ -290,8 +290,10 @@ fn with_docx_instruction(prompt: String, provider: &str) -> String {
     }
     format!(
         "{prompt}\n\n<atelier-docx>\nFor any .docx, use the MCP tool `atelier_docx` (action=read first). \
-To check its figures, charts or equations pasted as images, look at them with action=images (never \
-judge a figure from its alt text). Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
+Its figures are all visible to you: action=images renders them as on the page, Excel charts \
+and Windows EMF/WMF pictures included. Look at them before discussing or grading a figure, a chart or an \
+equation pasted as an image; never judge one from its alt text, never extract it from the package by \
+hand, and never say you cannot see it. Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
 supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \
 signed with your name; only the user accepts or rejects them. Your own comments and the user's \
 you fix (edit_comment) or remove (withdraw_comment) yourself: never add a second version, never \
@@ -3991,6 +3993,8 @@ mod tests {
         assert!(enriched.contains("withdraw_comment") && enriched.contains("never \
 ask the user to delete one"), "l'agent retire lui-même ses bulles");
         assert!(enriched.contains("action=images"), "l'agent regarde les figures au lieu de deviner");
+        assert!(enriched.contains("Excel charts") && enriched.contains("EMF/WMF"), "graphiques et images Windows comprises");
+        assert!(enriched.contains("never say you cannot see it"), "pas de « je ne vois pas ce graphique »");
         assert_eq!(with_docx_instruction("relis mon intro".into(), "claude"), "relis mon intro");
         assert_eq!(with_docx_instruction("a.docx".into(), "openrouter"), "a.docx");
     }

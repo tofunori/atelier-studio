@@ -133,6 +133,9 @@ pub struct Segment {
     /// Image recadrée dans Word : fractions [gauche, haut, droite, bas] retirées.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop: Option<[f64; 4]>,
+    /// Figure qui est un graphique d'Excel (rendu par `crate::chart`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub chart: bool,
     /// Équation en LaTeX (affichée avec KaTeX, corrigée comme un .tex).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latex: Option<String>,
@@ -270,6 +273,7 @@ fn seg_of(p: &walk::Piece) -> Segment {
         height: p.media.as_ref().filter(|m| m.cy > 0).map(|m| (m.cy / 9525) as u32),
         alt: p.media.as_ref().map(|m| m.descr.clone()).filter(|d| !d.is_empty()),
         crop: p.media.as_ref().and_then(|m| m.crop),
+        chart: p.media.as_ref().is_some_and(|m| m.chart),
         latex: p.math.clone(),
         display: p.math_display,
     }
