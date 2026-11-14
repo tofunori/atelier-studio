@@ -1,8 +1,9 @@
+import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { buildChatTurnViewModels } from "../../lib/chat/turnViewModel";
 import type { AgentEvent } from "../../lib/ws";
 import { events, FIXED_TS } from "../../test/fixtures";
-import { collectToolVerdicts, toolSetback } from "./toolVerdicts";
+import { collectToolVerdicts, toolSetback, useToolVerdicts } from "./toolVerdicts";
 
 type ToolUpdate = Extract<AgentEvent, { kind: "tool_update" }>;
 // La fixture ne recopie pas `exitCode` : on le repose après coup.
@@ -71,5 +72,19 @@ describe("verdicts des appels d'outil", () => {
 
   it("garde la même référence quand rien n'est à signaler", () => {
     expect(verdicts([events.user(), events.done()])).toBe(verdicts([]));
+  });
+
+  it("le hook garde la même référence tant que les verdicts ne changent pas", () => {
+    const failed = tool({ id: "last", status: "failed", exitCode: 127 });
+    const before = [events.user(), failed, events.error("exit 127")];
+    const after = [...before, events.usage()];
+    const view = (evs: AgentEvent[]) => ({ evs, turns: buildChatTurnViewModels(evs, null) });
+    const hook = renderHook(({ evs, turns }) => useToolVerdicts(evs, turns), { initialProps: view(before) });
+    const first = hook.result.current;
+    expect([...first.blocking]).toEqual(["last"]);
+    hook.rerender(view(after));
+    expect(hook.result.current).toBe(first);
+    hook.rerender(view([events.user(), events.done()]));
+    expect(hook.result.current.blocking.size).toBe(0);
   });
 });

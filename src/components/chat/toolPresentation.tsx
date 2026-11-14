@@ -15,7 +15,7 @@ import { highlightCode } from "./md";
 import { RowButton } from "../ui";
 import { fmtClock } from "./clock";
 import { FileGlyph } from "../fileGlyphs";
-import { ToolVerdictsContext, toolFailed, toolSetback, type ToolSetback } from "./toolVerdicts";
+import { lastOutputLine, setbackReason, ToolVerdictsContext, toolFailed, toolSetback, type ToolSetback } from "./toolVerdicts";
 
 export type ToolCat =
   | "search" | "read" | "list" | "edit" | "command" | "web" | "todo"
@@ -216,37 +216,10 @@ function toolPhrase(action: ToolAction): string {
   return typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
 }
 
-const NOT_FOUND = /no such file|does not exist|doesn't exist|not found|cannot find|enoent|introuvable|n'existe pas/iu;
-const TIMED_OUT = /timed? ?out|timeout|délai dépassé/iu;
-const NO_MATCH = /no (?:matches|files|results) found|aucun résultat/iu;
-
-/** Pourquoi un appel n'a pas abouti, en un ou deux mots lisibles : la rangée
- * le dit en clair plutôt que de le signaler par une couleur. */
-export function setbackReason(event: Extract<AgentEvent, { kind: "tool_update" }>, setback: ToolSetback): string {
-  if (setback === "declined") return t("tools.setback.declined");
-  if (setback === "stopped") return t("tools.setback.stopped");
-  const output = (event.output ?? "").slice(-400);
-  if (NO_MATCH.test(output)) return t("tools.setback.no-match");
-  if (NOT_FOUND.test(output)) return t("tools.setback.not-found");
-  if (TIMED_OUT.test(output)) return t("tools.setback.timeout");
-  // `grep`, `rg`, `test` : un exit 1 muet veut dire « rien trouvé ».
-  if (event.exitCode === 1 && !output.trim()) return t("tools.setback.no-match");
-  if (event.exitCode != null && event.exitCode !== 0) return `exit ${event.exitCode}`;
-  return t("tools.setback.generic");
-}
-
 const SETBACK_TITLE: Record<ToolSetback, Parameters<typeof t>[0]> = {
   soft: "tools.setback.soft-title", declined: "tools.setback.declined-title",
   stopped: "tools.setback.stopped-title", blocking: "chat.action-failed",
 };
-
-/** Dernière ligne parlante de la sortie d'un échec bloquant : c'est elle qui
- * dit ce qui a arrêté le travail (« libreoffice : commande introuvable »). */
-export function lastOutputLine(output: string): string {
-  const lines = output.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
-  const line = lines[lines.length - 1] ?? "";
-  return line.length > 160 ? `${line.slice(0, 159)}…` : line;
-}
 
 /** État d'une rangée, dans sa colonne : anneau qui tourne pendant
  * l'exécution, coche neutre une fois faite. Plus aucune croix : un échec qui
