@@ -6165,6 +6165,11 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
   object-fit: cover; border: 1px solid var(--border); background: var(--bg-ctl); }
 .context-pill .context-pill-count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .context-pill .chip-lines { font-variant-numeric: tabular-nums; }
+/* Pièce venue du reste du Mac (Finder, Service, Ouvrir avec) : sa source en
+   gris, et une entrée douce à l'arrivée (lib/inbox, Atelier partout lot 1). */
+.context-pill .context-pill-origin { white-space: nowrap; }
+.context-pill.is-arrived { animation: paste-in var(--motion-standard) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .context-pill.is-arrived { animation: none; } }
 /* Œil du contexte vivant (2026-11-09, variante C) : bouton du rail, sans
    accent. Allumé = gris secondaire, un cran au-dessus du livre et de la
    liste ; coupé (œil barré) ou rien d'ouvert = gris des autres outils du rail

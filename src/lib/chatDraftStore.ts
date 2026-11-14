@@ -13,7 +13,13 @@ export type DraftAttachment = {
   imageUrl?: string;
   pdfAnnotation?: { origin: string; rel: string; id: string };
   path?: string;
-  kind?: "file" | "folder" | "zotero" | "quote" | "paste" | "appsnap" | "review";
+  kind?: "file" | "folder" | "zotero" | "quote" | "paste" | "appsnap" | "review" | "link";
+  /** App d'où vient la pièce quand elle arrive du reste du Mac (« Finder »,
+   * « Safari »…), voir lib/inbox. */
+  origin?: string;
+  /** Instant d'arrivée (ms) d'une pièce venue du reste du Mac : la pilule
+   * entre en douceur pendant les premières secondes. */
+  arrivedAt?: number;
   /** Commentaire d'un relecteur passé en revue dans le chat (kind "review"). */
   review?: ChatReviewRef;
   /** Figure annotée depuis la galerie : badges numérotés de l'image. */

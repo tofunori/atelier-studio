@@ -105,6 +105,25 @@ A Ragdoc server, gbrain, Compute (a Docker NAS and Slurm clusters over SSH)
 and a Crossref contact email are off until you fill them in under **Settings →
 Integrations** and click **Save**. Nothing contacts a remote host before that.
 
+## Sending things to Atelier from anywhere
+
+- **Finder**: right-click files or folders → **Envoyer à Atelier** (at the
+  bottom of the menu, or under **Services**). They land as chips in the
+  composer of the open chat; nothing is sent to the agent until you press ↵.
+- **Selected text** in almost any app (Safari, Word, Preview, Mail):
+  right-click → **Services → Envoyer le texte à Atelier**.
+- **Open with → Atelier** (PDF, Word, Excel, LaTeX, Markdown, CSV, images) or
+  drop a file on the Dock icon: the file opens in the workshop.
+- **Links** for Shortcuts or Raycast: `atelier://send?text=…` or
+  `atelier://send?url=https://…&title=…`. A link never carries a local path.
+
+To give the service a keyboard shortcut: **System Settings → Keyboard →
+Keyboard Shortcuts → Services**. If the menu item does not appear after
+installing, run `/System/Library/CoreServices/pbs -update` once. Keep a single
+copy of Atelier.app (old copies in Downloads or build folders can capture the
+service); remove stale ones from Launch Services with
+`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u <path>`.
+
 ## Language
 
 Atelier follows the language of macOS: French if macOS is in French, English

@@ -12,5 +12,133 @@
   <string>Atelier utilise le microphone uniquement lorsque vous activez la dictée pour rédiger un message.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
   <string>Atelier utilise la reconnaissance vocale de macOS pour transcrire votre dictée. Selon la langue et la disponibilité locale, Apple peut traiter l’audio sur ses serveurs.</string>
+
+  <!-- Atelier partout, lot 1. « Envoyer à Atelier » : clic droit sur des
+       fichiers ou dossiers (Finder) et sur du texte sélectionné dans
+       n'importe quelle app. Deux entrées pour un même message, NSUserData
+       dit laquelle a servi (src-tauri/src/macos_services.rs). Pas de
+       raccourci par défaut : l'utilisateur en choisit un dans Réglages
+       Système → Clavier → Raccourcis → Services. NSRequiredContext vide :
+       actifs sans passer par les réglages. -->
+  <key>NSServices</key>
+  <array>
+    <dict>
+      <key>NSMenuItem</key>
+      <dict>
+        <key>default</key>
+        <string>Envoyer à Atelier</string>
+      </dict>
+      <key>NSMessage</key>
+      <string>sendToAtelier</string>
+      <key>NSPortName</key>
+      <string>Atelier</string>
+      <key>NSUserData</key>
+      <string>files</string>
+      <key>NSSendFileTypes</key>
+      <array>
+        <string>public.item</string>
+      </array>
+      <key>NSRequiredContext</key>
+      <dict/>
+    </dict>
+    <dict>
+      <key>NSMenuItem</key>
+      <dict>
+        <key>default</key>
+        <string>Envoyer le texte à Atelier</string>
+      </dict>
+      <key>NSMessage</key>
+      <string>sendToAtelier</string>
+      <key>NSPortName</key>
+      <string>Atelier</string>
+      <key>NSUserData</key>
+      <string>text</string>
+      <key>NSSendTypes</key>
+      <array>
+        <string>public.utf8-plain-text</string>
+        <string>NSStringPboardType</string>
+      </array>
+      <key>NSRequiredContext</key>
+      <dict/>
+    </dict>
+  </array>
+
+  <!-- « Ouvrir avec → Atelier » pour les fichiers de travail seulement (rang
+       Alternate : Atelier ne vole aucune association par défaut), et dépôt de
+       n'importe quel fichier ou dossier sur l'icône du Dock (rang None :
+       accepté, jamais proposé dans « Ouvrir avec »). -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Document de travail</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.adobe.pdf</string>
+        <string>org.openxmlformats.wordprocessingml.document</string>
+        <string>com.microsoft.word.doc</string>
+        <string>org.openxmlformats.spreadsheetml.sheet</string>
+        <string>org.tug.tex</string>
+        <string>net.daringfireball.markdown</string>
+        <string>public.comma-separated-values-text</string>
+        <string>public.image</string>
+        <string>public.folder</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Tout fichier</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>None</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.data</string>
+        <string>public.directory</string>
+      </array>
+    </dict>
+  </array>
+
+  <!-- .tex n'a pas de type système : on importe celui de TeX Live / MacTeX
+       (importer ne remplace rien si une autre app l'exporte déjà). -->
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>org.tug.tex</string>
+      <key>UTTypeDescription</key>
+      <string>Source LaTeX</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.plain-text</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>tex</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
+
+  <!-- Liens atelier://send?text=…|url=…&title=… (Raccourcis, Raycast) :
+       jamais de chemin local, voir rust/crates/atelier-inbox. -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>com.tofunori.atelier</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>atelier</string>
+      </array>
+    </dict>
+  </array>
 </dict>
 </plist>

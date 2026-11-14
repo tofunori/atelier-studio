@@ -15,7 +15,8 @@ import { CONSIGNES_LIVREES, basculerConsigne, type ConsigneDuFil } from "../lib/
 import { choisirSpecialiste, type Specialiste } from "../lib/specialistes";
 import type { AgentEvent } from "../lib/ws";
 import type { ProviderInfo } from "../lib/providers";
-import type { QueuedTurn } from "../lib/chatDraftStore";
+import type { DraftAttachment, QueuedTurn } from "../lib/chatDraftStore";
+import { arrivalAttachments } from "../lib/inbox";
 import type { LiveContext } from "../lib/liveContext";
 import { reduceHarnessEvents, materializeHarnessHistory } from "../lib/harnessEvents";
 import { codexComposite, codexObservedLive, claudeObservedLive } from "../lib/chat/streamReplayFixtures";
@@ -536,6 +537,17 @@ const WORD_ATTACHMENTS: typeof CONTEXTS_ATTACHMENTS = [
   { name: "albedo_trends.csv", lines: null, text: "ctx-1", kind: "file" as const },
 ];
 
+// Atelier partout (lot 1, 2026-11-14) : un fichier du Finder, une sélection
+// envoyée depuis Safari et un lien atelier://, tels que lib/inbox les dépose.
+const PARTOUT_ATTACHMENTS: DraftAttachment[] = [
+  ...arrivalAttachments({ id: 1, via: "service", sourceApp: "Finder", receivedAtMs: 0, kind: "files", omitted: 0,
+    entries: [{ path: "/Users/bench/GEO1063/TP2_Gagnon.docx", isDir: false }, { path: "/Users/bench/GEO1063/Rendus", isDir: true }] }),
+  ...arrivalAttachments({ id: 2, via: "service", sourceApp: "Safari", receivedAtMs: 0, kind: "text", truncated: false, title: null,
+    text: "The darkening is concentrated in late summer, when wildfire smoke deposits black carbon on exposed ice." }),
+  ...arrivalAttachments({ id: 3, via: "link", sourceApp: null, receivedAtMs: 0, kind: "link", title: null,
+    url: "https://tc.copernicus.org/articles/19/2207/2025" }),
+];
+
 const QUEUED_TURNS: QueuedTurn[] = [
   {
     id: "queue-1", prompt: "Compare ensuite les résultats avec la version précédente.",
@@ -971,7 +983,7 @@ const RELECTEUR_REVIEWS: Record<string, Record<string, unknown>[]> = {
 type BenchState = {
   events: AgentEvent[];
   workingSince: number | null;
-  attachments: typeof CONTEXTS_ATTACHMENTS;
+  attachments: typeof CONTEXTS_ATTACHMENTS | DraftAttachment[];
   usage: { context: number; output: number; cost: number | null; turns: number | null } | null;
   pins?: { index: number; label: string; anchor: string }[];
   queuedTurns?: QueuedTurn[];
@@ -1074,6 +1086,7 @@ const STATES: Record<string, BenchState> = {
   error: { events: ERROR, workingSince: null, attachments: [], usage: null },
   contexts: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: CONTEXTS_ATTACHMENTS, usage: null },
   word: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: WORD_ATTACHMENTS, usage: null },
+  partout: { events: MARKDOWN.slice(0, 1), workingSince: null, attachments: PARTOUT_ATTACHMENTS, usage: null },
   annotes: { events: ANNOTES_EVENTS, workingSince: null, attachments: [], usage: null },
   proposer: { events: WORD_REPLY_EVENTS, workingSince: null, attachments: [], usage: null },
   regarde: { events: LIVE_CONTEXT_EVENTS, workingSince: null, attachments: [], usage: null, liveContext: LIVE_CONTEXT },

@@ -284,6 +284,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-inbox"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "url",
+]
+
+[[package]]
 name = "atelier-integrations"
 version = "0.1.0"
 dependencies = [

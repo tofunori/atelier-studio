@@ -1,0 +1,15 @@
+[package]
+name = "atelier-inbox"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+description = "File d'arrivée d'Atelier : ce que le Finder, un Service macOS ou un lien atelier:// envoie à l'app, validé et borné avant d'atteindre le chat"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+url = "2"
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
