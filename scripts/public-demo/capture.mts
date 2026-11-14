@@ -1,6 +1,6 @@
 import { type Browser, chromium } from '@playwright/test';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdirSync, copyFileSync, writeFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, copyFileSync, writeFileSync, readFileSync, existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 const repo=process.cwd(), root=realpathSync('/tmp/atelier-public-demo/Observatory');
@@ -11,8 +11,10 @@ const port=await new Promise((resolve,reject)=>{const socket=net.createServer();
 const origin=`http://127.0.0.1:${port}`;
 const gallery=spawn(path.join(repo,'rust/target/debug/atelier-gallery-server'),['--root',root,'--port',String(port)],{cwd:root,env:{...process.env,ATELIER_ASSETS_DIR:path.join(repo,'gallery/assets'),ATELIER_TOOL_ROOT:path.join(repo,'gallery')},stdio:'ignore'});
 let startupError, browser: Browser;gallery.on('error',e=>startupError=e);
-const base=`http://127.0.0.1:4199/scripts/public-demo/index.html?port=${port}`;
-const scenes=[['workspace','reading'],['writing','editor'],['graphite','reading','graphite'],['pierre','reading','pierre'],['monokai','reading','monokai'],['settings','settings'],['gallery','gallery'],['annotation','annotation'],['latex','latex'],['editor','editor'],['reading','paper']];
+const base=`http://127.0.0.1:4199/scripts/public-demo/index.html?port=${port}&root=${encodeURIComponent(root)}`;
+const scenes=[['workspace','reading'],['writing','editor'],['graphite','reading','graphite'],['pierre','reading','pierre'],['monokai','reading','monokai'],['settings','settings'],['gallery','gallery'],['annotation','annotation'],['latex','latex'],['editor','editor'],['reading','paper'],['word','word','graphite','3','1']];
+// CAPTURE_SCENES=word,latex limits the stills to those names (the tour is skipped too).
+const only=process.env.CAPTURE_SCENES?.split(',');
 async function context(options={}){
  const ctx=await browser.newContext({viewport:{width:1600,height:1000},locale:'en-US',deviceScaleFactor:1,...options});
  await ctx.route('**/*',(route)=>{
@@ -35,6 +37,13 @@ async function demonstrate(page, scene: string){
   await f.locator('#grid .card').first().waitFor();
   const count=await f.locator('#grid .card').count();
   if(count!==12) throw new Error('Expected 12 demo figures, found '+count);
+ }
+ if(scene==='word') {
+  // The fictional author signs replies; the co-author's thread opens with its reply.
+  await f.locator('.d-p[data-idx="0"]').waitFor();
+  await page.waitForTimeout(600);
+  await f.locator('.cc').first().click();
+  await page.waitForTimeout(900);
  }
  if(scene==='latex') {
   await f.locator('#readBtn').click();
@@ -73,18 +82,20 @@ try{
  if(!ready) throw new Error('Demo gallery did not become ready');
  const scan=await fetch(origin+'/rescan',{method:'POST',headers:{origin}}).then(r=>r.json());
  if(!scan.ok) throw new Error('Demo rescan failed: '+scan.out);
- browser=await chromium.launch();
+ await fetch(origin+'/docx/prefs',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({author:'Jordan Lee'})});
+ browser=await chromium.launch(process.env.PW_CHROMIUM?{executablePath:process.env.PW_CHROMIUM}:{});
  const ctx=await context(), page=await ctx.newPage(), log=[];
  page.on('pageerror',(error)=>console.log('Demo browser error:',error.message));
  page.on('response',async (r)=>{if(r.url().includes('/versions')&&r.status()>=400) console.log('Demo version persistence:',r.status(),await r.text());});
- for(const [name,scene,theme='graphite'] of (process.env.CAPTURE_TOUR_ONLY ? [] : scenes)){
-  await page.goto(`${base}&scene=${scene}&theme=${theme}`,{waitUntil:'networkidle'});await settle(page);
+ for(const [name,scene,theme='graphite',thread='0',compact='0'] of (process.env.CAPTURE_TOUR_ONLY ? [] : scenes.filter(([n])=>!only||only.includes(n)))){
+  await page.goto(`${base}&scene=${scene}&theme=${theme}&thread=${thread}&compact=${compact}`,{waitUntil:'networkidle'});await settle(page);
   await demonstrate(page,scene);
   const visibleText=await check(page,name);
   await page.screenshot({path:path.join(output,name+'.png')});copyFileSync(path.join(output,name+'.png'),path.join(web,name+'.png'));
   log.push({name,source:'Production shell and demo fixtures; PDF reader shows Bürkner (2017), JSS, CC BY 3.0',visibleText});
  }
  await ctx.close();
+ if(!only){
  const tourCtx=await context({recordVideo:{dir:'/tmp/atelier-public-demo/tour',size:{width:1600,height:1000}}});
  const tour=await tourCtx.newPage();
  // Leaving the fictional annotation draft triggers the real beforeunload guard.
@@ -98,6 +109,9 @@ try{
  execFileSync('ffmpeg',['-y','-i',source,'-an','-c:v','libx264','-crf','23','-pix_fmt','yuv420p','-movflags','+faststart',path.join(output,'atelier-tour.mp4')],{stdio:'ignore'});
  execFileSync('ffmpeg',['-y','-i',source,'-vf','fps=6,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse','-loop','0',path.join(output,'atelier-tour.gif')],{stdio:'ignore'});
  copyFileSync(path.join(output,'atelier-tour.mp4'),path.join(web,'atelier-tour.mp4'));
- if(log.length) writeFileSync(path.join(output,'manifest.json'),JSON.stringify({capturedAt:new Date().toISOString(),fixtures:'scripts/public-demo/fixtures.py',scenes:log},null,2));
- console.log('Captured eleven full-panel views and a continuous navigation tour.');
+ }
+ const manifestPath=path.join(output,'manifest.json');
+ const kept=only&&existsSync(manifestPath)?JSON.parse(readFileSync(manifestPath,'utf8')).scenes.filter((s)=>!only.includes(s.name)):[];
+ if(log.length) writeFileSync(manifestPath,JSON.stringify({capturedAt:new Date().toISOString(),fixtures:'scripts/public-demo/fixtures.py',scenes:[...kept,...log]},null,2));
+ console.log(only?'Captured '+log.length+' view(s): '+only.join(', '):'Captured twelve full-panel views and a continuous navigation tour.');
 }finally{await browser?.close();gallery.kill('SIGTERM');}
