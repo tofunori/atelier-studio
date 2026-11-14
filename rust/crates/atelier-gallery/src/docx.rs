@@ -706,6 +706,25 @@ pub struct MediaQuery {
     size: Option<String>,
 }
 
+/// Côté long d'une page PDF collée, rendue pour la surface : assez pour
+/// lire une écriture fine en zoomant sur un écran Retina.
+const PASTED_PAGE_LONG: f64 = 2000.0;
+
+/// La page PDF qu'un EMF de Word pour Mac garde en commentaire, en PNG aux
+/// proportions du cadre (`size`), ou `None` (pas un tel EMF, pas d'outil).
+fn pasted_page((bytes, mime): &(Vec<u8>, &'static str), size: Option<(f64, f64)>) -> Option<Vec<u8>> {
+    if *mime != "image/x-emf" {
+        return None;
+    }
+    let pdf = atelier_docx::objects::pdf_in_emf(bytes)?;
+    let width = match size {
+        Some((w, h)) if h > w => PASTED_PAGE_LONG * w / h,
+        _ => PASTED_PAGE_LONG,
+    };
+    let tool = atelier_pdf::tool::locate_tool()?;
+    atelier_pdf::tool::memory_page_png(&tool, pdf, width.round().max(256.0) as u16, std::time::Duration::from_secs(20)).ok()
+}
+
 /// `GET /docx/media?path=&para=&rel=[&crop=l,t,r,b][&size=LxH]` — une image du document.
 pub async fn media(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<MediaQuery>) -> impl IntoResponse {
     if !request_allowed(&headers, &state) {
@@ -740,6 +759,12 @@ pub async fn media(State(state): State<AppState>, headers: HeaderMap, Query(q): 
         } else {
             read(&mut Docx::open(&path).map_err(|e| e.0)?)?
         };
+        // Page PDF collée (EMF de Word pour Mac) : la page elle-même, nette,
+        // plutôt que l'aperçu à 72 ppp de l'EMF. Sans atelier-pdf, l'aperçu.
+        let raw = raw.map(|r| match pasted_page(&r, size) {
+            Some(png) => (png, "image/png"),
+            None => r,
+        });
         // Graphiques, EMF/WMF → SVG et recadrage hors du verrou : la frappe n'attend pas l'image.
         Ok(raw.map(|r| atelier_docx::objects::render(r, theme.as_deref(), size)).map(|img| match crop {
             Some(c) => atelier_docx::objects::cropped(img, c),
