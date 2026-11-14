@@ -175,9 +175,12 @@ fn disk_revision(path: &Path, revision: Option<String>) -> Option<String> {
 /// Modèle complet servi depuis la séance (révision de la séance).
 fn session_model_json(g: &mut Session) -> Result<Value, String> {
     let agent = atelier_docx::marks::list(g.path(), g.model()).unwrap_or_default();
+    let unread = atelier_docx::unread::list(g.path(), g.model()).unwrap_or_default();
     let mut v = serde_json::to_value(g.model()).map_err(|e| e.to_string())?;
     // Suivis signés du nom de l'utilisateur mais proposés par l'agent.
     v["agentChanges"] = json!(agent);
+    // Fils que l'agent a touchés et que l'utilisateur n'a pas ouverts.
+    v["unreadComments"] = json!(unread);
     v["styles"] = g.styles().clone();
     v["mtime"] = json!(mtime_ms(g.path()));
     v["openInWord"] = json!(atelier_docx::open_in_word(g.path()));
@@ -251,8 +254,10 @@ fn model_json(path: &Path) -> Result<Value, String> {
 fn model_value(docx: &mut Docx, model: atelier_docx::DocModel, path: &Path) -> Result<Value, String> {
     let styles = format::styles(docx).map_err(|e| e.0)?;
     let agent = atelier_docx::marks::list(path, &model).unwrap_or_default();
+    let unread = atelier_docx::unread::list(path, &model).unwrap_or_default();
     let mut v = serde_json::to_value(model).map_err(|e| e.to_string())?;
     v["agentChanges"] = json!(agent);
+    v["unreadComments"] = json!(unread);
     v["styles"] = json!(styles);
     v["mtime"] = json!(mtime_ms(path));
     v["openInWord"] = json!(atelier_docx::open_in_word(path));
@@ -336,6 +341,42 @@ pub async fn flush(State(state): State<AppState>, headers: HeaderMap, Json(body)
     match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
         Ok(Err((status, e))) => json_error(status, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SeenBody {
+    path: String,
+    comment: u32,
+}
+
+/// `POST /docx/seen` — `{path, comment}` : l'utilisateur a ouvert la carte ;
+/// le fil n'est plus « non lu » (rien n'est écrit dans le .docx).
+pub async fn seen(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<SeenBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &body.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let job = move || -> Result<bool, String> {
+        // Les numéros du panneau sont ceux de sa séance quand il y en a une.
+        match existing(&path) {
+            Some(s) => {
+                let g = lock_session(&s);
+                atelier_docx::unread::seen(&path, g.model(), body.comment).map_err(|e| e.0)
+            }
+            None => {
+                let model = Docx::open(&path).and_then(|mut d| d.model()).map_err(|e| e.0)?;
+                atelier_docx::unread::seen(&path, &model, body.comment).map_err(|e| e.0)
+            }
+        }
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(had)) => (StatusCode::OK, Json(json!({"ok": true, "had": had}))).into_response(),
+        Ok(Err(e)) => json_error(StatusCode::UNPROCESSABLE_ENTITY, e),
         Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }

@@ -67,6 +67,8 @@
 
 
 
+
+
   const W = window
 
 
@@ -268,11 +270,17 @@
   /** Retouches de l'agent : le .docx porte le nom de l'utilisateur (Thierry,
    *  2026-11-13), Atelier se souvient de l'agent qui les a proposées. */
   let agentMarks                         = {};
+  /** Bulles que l'agent a touchées et que l'utilisateur n'a pas encore
+   *  ouvertes (Thierry, 2026-11-14) : un point orange en tête de carte.
+   *  `seenNow` : ouvertes ici, l'avis au serveur encore en route. */
+  let unread = new Set        ();
+  const seenNow = new Set        ();
   /** Corps, puis notes, puis en-têtes et pieds dans une seule liste : un
    *  rang (`idx`) désigne n'importe quel paragraphe modifiable. */
   function normalize(m       )        {
     // Tout modèle complet du serveur porte la liste ; un modèle recalculé ici n'y touche pas.
     if (m.agentChanges) agentMarks = m.agentChanges;
+    if (m.unreadComments) unread = new Set(m.unreadComments.filter((id) => !seenNow.has(id)));
     if (m.body !== undefined) return m;
     const body         = m.paragraphs.map((p) => ({ ...p, story: "" }));
     const rest         = [];
@@ -2977,7 +2985,10 @@
     const replies = model .comments.filter((r) => r.parent === c.id);
     // Rappel du passage commenté : la fiche se rattache au texte d'un coup d'œil.
     const q = oneLine(c.quote || "");
-    let h = q ? `<div class="qt" style="--who:${uiColor(c.author)}"><i></i><span>« ${esc(clip(q, 120))} »</span></div>` : "";
+    // Le point de tête ne dit qu'une chose : l'agent a touché ce fil et la
+    // carte n'a pas encore été ouverte (l'avatar porte déjà la couleur de l'auteur).
+    const nl = unread.has(c.id) && !on ? `<i class="nl" data-tooltip="Touchée par l'agent, pas encore lue"></i>` : "";
+    let h = q ? `<div class="qt">${nl}<span>« ${esc(clip(q, 120))} »</span></div>` : nl ? `<div class="qt">${nl}</div>` : "";
     // Ses propres messages s'ouvrent d'un clic pour être modifiés en place.
     const text = (x         ) => {
       if (on && editing?.id === x.id) {
@@ -3024,7 +3035,7 @@
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
     }
-    return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
+    return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="${nl ? "Pas encore lu. " : ""}Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }
   function draftHTML()         {
     return `<div class="cc"><div class="hd">${avatar(author)}<span class="nm">${esc(firstName(author))}</span><span class="dt">Brouillon</span></div>
@@ -3095,6 +3106,7 @@
     for (const it of lane) {
       if (it.kind === "chip" && view !== "revue") continue;
       const on = it.key === focusKey;
+      if (on && it.kind === "comment") markSeen(it.ids[0]);
       const html = it.kind === "chip" ? chipHTML(it, openChips.has(it.key)) : it.kind === "draft" ? draftHTML() : commentHTML(commentMap.get(it.ids[0]) , on);
       let el = prev.get(it.key);
       if (!el) {
@@ -3353,8 +3365,23 @@
     laneBtn.classList.toggle("on", on);
     laneBtn.setAttribute("aria-pressed", String(on));
     (laneBtn                     ).disabled = !any;
+    const fresh = unreadCount();
+    laneBtn.classList.toggle("unread", any && fresh > 0);
     laneBtn.dataset.tooltip = !any ? "Aucun commentaire ni modification"
-      : on ? "Masquer les commentaires (⇧⌘M)" : "Afficher les commentaires (⇧⌘M)";
+      : `${on ? "Masquer" : "Afficher"} les commentaires (⇧⌘M)${fresh ? ` · ${fresh === 1 ? "1 pas encore lu" : `${nf(fresh)} pas encore lus`}` : ""}`;
+  }
+  /** Fils non lus encore présents dans le document. */
+  function unreadCount()         {
+    if (!model || !unread.size) return 0;
+    return model.comments.filter((c) => unread.has(c.id) && c.parent == null).length;
+  }
+  /** Carte ouverte : son point s'efface, ici puis côté serveur. */
+  function markSeen(id        ) {
+    if (!unread.delete(id)) return;
+    seenNow.add(id);
+    api("/docx/seen", { path: PATH, comment: id })
+      .catch(() => { /* le point reviendra au prochain modèle : rien de perdu */ })
+      .finally(() => seenNow.delete(id));
   }
   function askPane(action                     , px        ) {
     clearTimeout(paneWait);
@@ -4260,7 +4287,7 @@
         const s = it.idx < 1e9 ? sectionOf(it.idx) : "Hors du texte";
         if (s !== sec) { sec = s; if (s) html += `<div class="sect">${esc(s)}</div>`; }
         const replies = model.comments.filter((r) => r.parent === c.id).length;
-        html += `<button class="cl${c.done ? " done" : ""}${focusKey === it.key ? " on" : ""}" data-key="${it.key}">${avatar(c.author, true, c.initials)}<span class="x"><p>${esc(oneLine(c.text))}</p><small>${dateFr(c.date)}${replies ? ` · ${pl(replies, "réponse", "réponses")}` : ""}</small></span></button>`;
+        html += `<button class="cl${c.done ? " done" : ""}${focusKey === it.key ? " on" : ""}" data-key="${it.key}">${avatar(c.author, true, c.initials)}<span class="x"><p>${esc(oneLine(c.text))}</p><small>${unread.has(c.id) ? `<i class="nl" aria-label="Pas encore lu"></i>` : ""}${dateFr(c.date)}${replies ? ` · ${pl(replies, "réponse", "réponses")}` : ""}</small></span></button>`;
       }
       if (!items.length) html = `<div class="more">Aucun commentaire dans ce document.</div>`;
     }

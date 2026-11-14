@@ -49,6 +49,7 @@ pub mod preview;
 pub mod story;
 pub mod table;
 pub mod triage;
+pub mod unread;
 mod walk;
 mod xml;
 

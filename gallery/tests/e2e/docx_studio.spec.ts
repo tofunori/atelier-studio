@@ -37,7 +37,7 @@ const test = base.extend<{project: {root: string; url: string; doc: string}}>({
 });
 
 type Para = {text: string; align?: string; heading?: number; segments: {text: string; media?: string; rev?: string; highlight?: string; u?: boolean}[]};
-type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string; date: string}[]; comments: {id: number; author: string; text: string; parent?: number; done: boolean; quote: string}[]};
+type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string; date: string}[]; comments: {id: number; author: string; date: string; text: string; parent?: number; done: boolean; quote: string}[]; unreadComments?: number[]};
 
 async function open(page: Page, project: {url: string; doc: string}) {
   await page.request.post(`${project.url}/docx/prefs`, {data: {author: 'Thierry'}});
@@ -505,6 +505,37 @@ test("docx: une retouche de Claude signée Thierry reste marquée « proposé pa
     await expect(row.locator(`.cr[data-ch="${mine[0].id}"]`)).toHaveAttribute('data-tooltip', /^Thierry · proposé par Claude · /);
   } finally {
     await writeFile(await marksFile(project.doc), '[]');
+  }
+});
+
+test("docx: une bulle que Claude a touchée porte un point jusqu'à ce qu'on l'ouvre", async ({page, project}) => {
+  await open(page, project);
+  const m0 = await disk(page, project);
+  // Une bulle au nom de Thierry (comme celles que l'agent écrit pour lui)…
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m0.revision, author: 'Thierry', op: {op: 'comment', paragraph: 'p2', find: 'compromis', text: 'Exposants −4 et −6.'}}});
+  expect(r.ok()).toBe(true);
+  const c = (await disk(page, project)).comments.find(x => x.text === 'Exposants −4 et −6.')!;
+  // … que l'outil de l'agent note « non lue » (atelier_docx::unread), à part du .docx.
+  const file = await draftsFile(project.doc, 'unread');
+  await writeFile(file, JSON.stringify([{author: c.author, date: c.date}]));
+  try {
+    await page.reload();
+    const card = page.locator(`#cards .it[data-key="c${c.id}"]`);
+    await expect(card.locator('.qt .nl')).toBeVisible();
+    // Le point ne montre plus l'auteur : la bulle de Christophe n'en a pas.
+    await expect(page.locator('#cards .it[data-key="c1"] .qt .nl')).toHaveCount(0);
+    await expect(page.locator('#btnLane')).toHaveClass(/\bunread\b/);
+    await expect(page.locator('#btnLane')).toHaveAttribute('data-tooltip', /1 pas encore lu/);
+    // Ouverte : le point s'efface, ici et sur le serveur.
+    await card.locator('.cc').click();
+    await expect(card.locator('.nl')).toHaveCount(0);
+    await expect(page.locator('#btnLane')).not.toHaveClass(/\bunread\b/);
+    await expect.poll(async () => (await disk(page, project)).unreadComments).toEqual([]);
+    await page.reload();
+    await expect(page.locator(`#cards .it[data-key="c${c.id}"]`)).toBeVisible();
+    await expect(page.locator('#cards .nl')).toHaveCount(0);
+  } finally {
+    await writeFile(file, '[]');
   }
 });
 

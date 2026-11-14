@@ -8,6 +8,7 @@
 //! panneau .docx ou dans Word.
 
 use atelier_docx::ops::{self, Op};
+use atelier_docx::unread::Mark;
 use atelier_docx::{Docx, Signature};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -430,19 +431,37 @@ fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<
         .map_err(|e| e.0)?
     } else {
         let op = op_of(action, req)?;
+        // Bulle écrite, répondue ou corrigée : un point « non lu » dans la
+        // carte jusqu'à ce que l'utilisateur l'ouvre (Thierry, 2026-11-14).
+        // Noté AVANT l'écriture, pour que le panneau qui relit le fichier le trouve.
+        let touches_comment = matches!(op, Op::Comment { .. } | Op::Reply { .. } | Op::EditComment { .. });
+        let before = if touches_comment || matches!(op, Op::DeleteComment { .. }) {
+            Some(Docx::open(&path).and_then(|mut d| d.model()).map_err(|e| e.0)?)
+        } else {
+            None
+        };
         if let Op::EditComment { id, .. } | Op::DeleteComment { id } = &op {
             // Ceux de l'agent et ceux de l'utilisateur (Thierry, 2026-11-13 :
             // « les miennes oui ») ; jamais ceux du relecteur ni d'un autre auteur.
-            let model = Docx::open(&path).and_then(|mut d| d.model()).map_err(|e| e.0)?;
+            let model = before.as_ref().expect("modèle relu pour un commentaire");
             let Some(c) = model.comments.iter().find(|c| c.id == *id) else {
                 return Err(format!("commentaire c{id} introuvable (relis le document : read)"));
             };
-            let mine = atelier_docx::marks::comments(&path, &model).map_err(|e| e.0)?;
+            let mine = atelier_docx::marks::comments(&path, model).map_err(|e| e.0)?;
             if !mine.contains_key(id) && c.author != sig.author && !atelier_docx::marks::is_agent(&c.author) {
                 return Err(format!(
                     "c{id} est de {} : tu ne corriges ou ne retires que les commentaires de l'utilisateur et les tiens (pour lui répondre : reply ou draft_reply)",
                     c.author
                 ));
+            }
+        }
+        if let (true, Some(model)) = (touches_comment, before.as_ref()) {
+            let mark = match &op {
+                Op::EditComment { id, .. } => model.comments.iter().find(|c| c.id == *id).map(|c| Mark { author: c.author.clone(), date: c.date.clone() }),
+                _ => Some(Mark { author: sig.author.clone(), date: sig.date.clone() }),
+            };
+            if let Some(m) = mark {
+                atelier_docx::unread::touch(&path, model, &[m]).map_err(|e| e.0)?;
             }
         }
         let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: op.label() };
@@ -628,6 +647,38 @@ mod tests {
         for forbidden in ["accept", "reject", "accept_all", "resolve", "delete_comment"] {
             assert!(op_of(forbidden, &json!({})).is_err());
         }
+    }
+
+    #[test]
+    fn une_bulle_ecrite_repondue_ou_corrigee_par_l_agent_est_non_lue() {
+        // Thierry, 2026-11-14 : un point sur la carte tant qu'il ne l'a pas ouverte.
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry"}"#).unwrap();
+        let root = dir.path().to_str().unwrap();
+        let model = || Docx::open(&path).unwrap().model().unwrap();
+        let unread = || atelier_docx::unread::list(&path, &model()).unwrap();
+        assert!(unread().is_empty());
+        // Une retouche du texte ne touche aucune bulle.
+        run(root, "claude", "edit", &json!({"path": "article.docx", "find": "réflectances de surface", "with": "réflectances de la surface"})).unwrap();
+        assert!(unread().is_empty());
+        let r = run(root, "claude", "comment", &json!({"path": "article.docx", "find": "MOD09GA", "text": "Bande 1 ?"})).unwrap();
+        let id = r["result"]["id"].as_u64().unwrap_or_else(|| panic!("{r}")) as u32;
+        assert_eq!(unread(), vec![id]);
+        // Ouverte : le point s'efface ; corrigée ensuite : il revient.
+        assert!(atelier_docx::unread::seen(&path, &model(), id).unwrap());
+        assert!(unread().is_empty());
+        run(root, "claude", "edit_comment", &json!({"path": "article.docx", "comment": id, "text": "Bande 1 ou 2 ?"})).unwrap();
+        assert_eq!(unread(), vec![id]);
+        // Une réponse sous la bulle de Christophe : c'est son fil qui porte le point.
+        run(root, "claude", "reply", &json!({"path": "article.docx", "comment": 1, "text": "Seuil justifié en 2.3."})).unwrap();
+        assert_eq!(unread(), { let mut v = vec![1, id]; v.sort(); v });
+        assert!(atelier_docx::unread::seen(&path, &model(), 1).unwrap());
+        assert_eq!(unread(), vec![id]);
+        // Retirée : plus rien à signaler.
+        run(root, "claude", "withdraw_comment", &json!({"path": "article.docx", "comment": id})).unwrap();
+        assert!(unread().is_empty());
     }
 
     #[test]
