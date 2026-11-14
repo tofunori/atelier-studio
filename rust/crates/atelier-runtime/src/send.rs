@@ -303,6 +303,18 @@ make it a tracked edit in the .docx only once the user says so.\n</atelier-docx>
     )
 }
 
+/// Un PDF en jeu (copie de TP, article) : l'agent regarde ses pages au lieu
+/// de juger figures et équations d'après le seul texte extrait.
+fn with_pdf_pages_instruction(prompt: String, provider: &str) -> String {
+    if !crate::agent_mcp::is_mcp_compatible_provider(provider) || !prompt.to_lowercase().contains(".pdf") {
+        return prompt;
+    }
+    format!(
+        "{prompt}\n\n<atelier-pdf>\nTo check a PDF's figures, tables or equations, look at its pages with the MCP \
+tool `atelier_annotate` (action=pages, page, to): never judge a figure from the extracted text alone.\n</atelier-pdf>"
+    )
+}
+
 /// Capacité MCP scopée du tour (plan 057 + spec widgets-chat).
 /// Partagée par le tour normal ET le steer : un steer codex qui échoue
 /// retombe sur `thread/resume` DANS le provider, et sans cette config le fil
@@ -1536,6 +1548,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         with_compute_instruction(p, &provider)
     };
     let provider_prompt = with_docx_instruction(provider_prompt, &provider);
+    let provider_prompt = with_pdf_pages_instruction(provider_prompt, &provider);
     // Spécialistes (plan specialistes-2026-10-18) : l'agent doit savoir ce
     // que l'utilisateur appelle « spécialiste » et lesquels existent. Même
     // cadence que le bloc KB : premier tour de la session, puis seulement
@@ -3954,6 +3967,14 @@ ask the user to delete one"), "l'agent retire lui-même ses bulles");
         assert!(enriched.contains("action=images"), "l'agent regarde les figures au lieu de deviner");
         assert_eq!(with_docx_instruction("relis mon intro".into(), "claude"), "relis mon intro");
         assert_eq!(with_docx_instruction("a.docx".into(), "openrouter"), "a.docx");
+    }
+
+    #[test]
+    fn pdf_instruction_points_to_the_pages_action() {
+        let enriched = with_pdf_pages_instruction("Corrige TP6_Minkubu.PDF".into(), "codex");
+        assert!(enriched.contains("atelier_annotate") && enriched.contains("action=pages"), "{enriched}");
+        assert_eq!(with_pdf_pages_instruction("relis mon intro".into(), "claude"), "relis mon intro");
+        assert_eq!(with_pdf_pages_instruction("a.pdf".into(), "openrouter"), "a.pdf");
     }
 
     #[test]

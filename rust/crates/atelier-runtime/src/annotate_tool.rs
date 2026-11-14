@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::state::AppState;
+use atelier_protocol::agent_mcp_limits as lim;
 
 /// Valeur de `by` des notes de l'agent du chat (Claude Desktop écrit `claude`).
 pub const AGENT_BY: &str = "agent";
@@ -554,6 +555,115 @@ pub fn remove(target: &Target, ids: &[String]) -> Result<Value, String> {
 // Pont
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Pages d'un PDF montrées à l'agent
+// ---------------------------------------------------------------------------
+
+/// Largeur d'une page rendue pour l'agent : un A4 y tient sous les 1568 px
+/// que le modèle garde sans réduire.
+const PAGE_WIDTH: u16 = 1200;
+const PAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Lance `atelier-pdf page` et rend sa ligne `{pages, width, height}`.
+fn render_page(tool: &Path, pdf: &Path, page: u32, out: &Path) -> Result<Value, String> {
+    use std::io::Read;
+    let mut child = atelier_pdf::tool::page_command(tool, pdf, page, PAGE_WIDTH, out)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("atelier-pdf : {e}"))?;
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() < PAGE_TIMEOUT => std::thread::sleep(std::time::Duration::from_millis(40)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("rendu de la page {page} arrêté après {} s", PAGE_TIMEOUT.as_secs()));
+            }
+        }
+    };
+    let (mut header, mut problem) = (String::new(), String::new());
+    if let Some(mut o) = child.stdout.take() {
+        let _ = o.read_to_string(&mut header);
+    }
+    if let Some(mut e) = child.stderr.take() {
+        let _ = e.read_to_string(&mut problem);
+    }
+    if !status.success() {
+        let problem = problem.trim();
+        return Err(if problem.is_empty() { format!("rendu de la page {page} impossible") } else { problem.to_string() });
+    }
+    serde_json::from_str(header.trim()).map_err(|_| format!("rendu de la page {page} : réponse illisible"))
+}
+
+/// `pages` : des pages d'un PDF (copie de TP, article, thèse compilée) en
+/// images jointes au résultat, pour que l'agent voie figures, tableaux et
+/// équations, quel que soit le modèle. Lecture seule. `page` (1 par défaut)
+/// à `to`, quatre au plus par appel.
+pub fn pages(target: &Target, req: &Value, tool: Option<&Path>) -> Result<Value, String> {
+    if target.kind != Kind::Pdf {
+        return Err("pages : PDF seulement (un .docx se voit avec atelier_docx action=images)".into());
+    }
+    let tool = tool.ok_or("atelier-pdf introuvable : rendu des pages impossible (réinstaller Atelier)")?;
+    let first = req.get("page").and_then(Value::as_u64).unwrap_or(1).max(1) as u32;
+    let max = lim::BRIDGE_IMAGES_MAX as u32;
+    let last = req.get("to").and_then(Value::as_u64).map_or(first, |t| (t as u32).max(first)).min(first + max - 1);
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let work = std::env::temp_dir().join(format!("atelier-pages-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    let result = render_pages(target, req, tool, first, last, &work);
+    let _ = std::fs::remove_dir_all(&work);
+    result
+}
+
+fn render_pages(target: &Target, req: &Value, tool: &Path, first: u32, last: u32, work: &Path) -> Result<Value, String> {
+    use base64::Engine as _;
+    let (mut listed, mut attached, mut budget, mut total, mut next) = (Vec::new(), Vec::new(), 0usize, None::<u64>, None);
+    for page in first..=last {
+        if total.is_some_and(|t| u64::from(page) > t) {
+            break;
+        }
+        let out = work.join(format!("p{page}.png"));
+        let info = match render_page(tool, &target.file, page, &out) {
+            Ok(info) => info,
+            Err(e) if page == first => return Err(e),
+            Err(e) => {
+                listed.push(json!({"page": page, "error": e}));
+                continue;
+            }
+        };
+        total = info.get("pages").and_then(Value::as_u64).or(total);
+        let png = std::fs::read(&out).map_err(|e| format!("page {page} : {e}"))?;
+        let data = base64::engine::general_purpose::STANDARD.encode(&png);
+        if budget + data.len() > lim::BRIDGE_IMAGES_MAX_BYTES - 512 * 1024 && !attached.is_empty() {
+            next = Some(page);
+            break;
+        }
+        budget += data.len();
+        attached.push(json!({"mimeType": "image/png", "data": data}));
+        listed.push(json!({"page": page, "width": info["width"], "height": info["height"], "shown": attached.len()}));
+    }
+    let end = listed.last().and_then(|p| p["page"].as_u64()).unwrap_or(u64::from(first));
+    if next.is_none() && total.is_some_and(|t| end < t) && req.get("to").and_then(Value::as_u64).is_some_and(|t| t > end) {
+        next = Some(end as u32 + 1);
+    }
+    let mut note = format!(
+        "{} page(s) jointe(s) ci-dessous, dans l'ordre de la liste (« shown »), rendues comme dans le lecteur PDF. Lecture seule.",
+        attached.len()
+    );
+    if let Some(k) = next {
+        note.push_str(&format!(" Suite : pages avec page={k}."));
+    }
+    let mut out = json!({"pages": total, "shown": listed, "note": note});
+    if !attached.is_empty() {
+        out[lim::BRIDGE_IMAGES_KEY] = Value::Array(attached);
+    }
+    Ok(out)
+}
+
 fn run(project_root: &str, app_dir: &Path, zotero_storage: &Path, author: &str, action: &str, req: &Value) -> Result<Value, String> {
     let target = resolve(project_root, app_dir, zotero_storage, str_arg(req, "path").unwrap_or(""))?;
     match action {
@@ -581,6 +691,7 @@ fn run(project_root: &str, app_dir: &Path, zotero_storage: &Path, author: &str, 
             str_arg(req, "suggestion"),
         ),
         "list" => list(&target),
+        "pages" => pages(&target, req, atelier_pdf::tool::locate_tool().as_deref()),
         "assess" => assess(
             &target,
             str_arg(req, "id").unwrap_or("").trim(),
@@ -594,7 +705,7 @@ fn run(project_root: &str, app_dir: &Path, zotero_storage: &Path, author: &str, 
             };
             remove(&target, &ids)
         }
-        other => Err(format!("action inconnue : {other} (note, reply, list, assess, remove)")),
+        other => Err(format!("action inconnue : {other} (note, reply, list, assess, remove, pages)")),
     }
 }
 
@@ -847,6 +958,64 @@ mod tests {
         let r = f.run("remove", json!({"path": "paper.pdf", "id": id})).unwrap();
         assert!(r["removed"].as_u64().unwrap() >= 1);
         assert!(f.store()["paper.pdf"].as_array().unwrap().is_empty());
+    }
+
+    /// Un faux `atelier-pdf page <pdf> <page> <largeur> <png>` : un PNG
+    /// minuscule par page d'un document de 6 pages, et l'appel noté.
+    #[cfg(unix)]
+    fn fake_page_tool(dir: &Path) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x00\0\0\0:~\x9bU\0\0\0\nIDATx\x9cc`\0\0\0\x02\0\x01H\xaf\xa4q\0\0\0\0IEND\xaeB`\x82";
+        let png = dir.join("one.png");
+        std::fs::write(&png, PNG).unwrap();
+        let calls = dir.join("calls");
+        let tool = dir.join("fake-atelier-pdf");
+        std::fs::write(
+            &tool,
+            format!(
+                "#!/bin/sh\n[ \"$1\" = page ] || exit 2\necho \"$3 $4\" >> '{}'\n[ \"$3\" -le 6 ] || {{ echo \"page $3 hors du document (6 pages)\" >&2; exit 1; }}\ncp '{}' \"$5\"\necho '{{\"pages\":6,\"width\":1200,\"height\":1553}}'\n",
+                calls.display(),
+                png.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (tool, calls)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_agent_sees_pdf_pages_as_images_four_at_a_time() {
+        let f = Fixture::new();
+        std::fs::write(f.project.path().join("TP6.pdf"), b"%PDF-1.4").unwrap();
+        let (tool, calls) = fake_page_tool(f.app.path());
+        let target = resolve(&f.root(), f.app.path(), f.zotero.path(), "TP6.pdf").unwrap();
+        let out = pages(&target, &json!({"path": "TP6.pdf"}), Some(&tool)).unwrap();
+        assert_eq!(out["pages"], 6);
+        assert_eq!(out["shown"], json!([{"page": 1, "width": 1200, "height": 1553, "shown": 1}]));
+        assert_eq!(out[lim::BRIDGE_IMAGES_KEY][0]["mimeType"], "image/png");
+        assert_eq!(std::fs::read_to_string(&calls).unwrap(), "1 1200\n", "rendue à 1200 px de large");
+
+        // 2 à 6 : quatre pages, puis la suite annoncée.
+        let out = pages(&target, &json!({"page": 2, "to": 6}), Some(&tool)).unwrap();
+        assert_eq!(out[lim::BRIDGE_IMAGES_KEY].as_array().unwrap().len(), 4, "{out}");
+        assert_eq!(out["shown"][3]["page"], 5);
+        assert!(out["note"].as_str().unwrap().contains("page=6"), "{out}");
+        // Au-delà du document : la raison, sans image.
+        let e = pages(&target, &json!({"page": 9}), Some(&tool)).unwrap_err();
+        assert!(e.contains("hors du document"), "{e}");
+        // Lecture seule : rien d'écrit dans le projet ni dans les notes.
+        assert!(f.store().is_empty());
+        assert_eq!(std::fs::read(f.project.path().join("TP6.pdf")).unwrap(), b"%PDF-1.4");
+        let leftovers = std::fs::read_dir(std::env::temp_dir()).unwrap().flatten().filter(|e| {
+            e.file_name().to_string_lossy().starts_with(&format!("atelier-pages-{}-", std::process::id()))
+        });
+        assert_eq!(leftovers.count(), 0, "dossier de travail retiré");
+        // Un .tex n'a pas de pages ; sans outil, la raison.
+        std::fs::write(f.project.path().join("main.tex"), "x").unwrap();
+        let tex = resolve(&f.root(), f.app.path(), f.zotero.path(), "main.tex").unwrap();
+        assert!(pages(&tex, &json!({}), Some(&tool)).unwrap_err().contains("PDF seulement"));
+        assert!(pages(&target, &json!({}), None).unwrap_err().contains("atelier-pdf introuvable"));
     }
 
     #[test]

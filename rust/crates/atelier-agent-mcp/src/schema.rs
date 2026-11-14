@@ -313,7 +313,7 @@ pub fn revision_tool_definition() -> Value {
 }
 
 pub const ANNOTATE_TOOL_NAME: &str = "atelier_annotate";
-const ANNOTATE_ACTIONS: [&str; 5] = ["note", "reply", "list", "assess", "remove"];
+const ANNOTATE_ACTIONS: [&str; 6] = ["note", "reply", "list", "assess", "remove", "pages"];
 
 /// L'agent pose ses propres notes, comme un relecteur dans les commentaires
 /// d'un document partagé : dans un fichier texte (.tex) ou un PDF. Il ne
@@ -325,11 +325,12 @@ pub fn annotate_tool_definition() -> Value {
     shared document: in a text file opened in the LaTeX editor (.tex) or in a PDF (compiled thesis, project PDF, \
     Zotero article). Use it when the user asks you to annotate, comment, review or explain passages. NEVER edits the \
     file. note: quote = passage copied verbatim, comment = your note in the user's language; optional text = \
-    rewritten passage (text files, the user accepts or rejects it); several at once with notes = [{quote, comment, \
-    text?, line?, page?}]. reply: answer in the thread of one of your notes or of a reviewer comment imported from \
-    Word (id), optional suggestion = rewrite. assess: on a reviewer comment whose passage changed, settled = true \
-    if the user's edit already answers it, reason = one sentence; the user confirms. list: your notes and the \
-    reviewer comments under discussion. remove: your own notes only.",
+    rewritten passage (text files, accepted or rejected by the user); several at once with notes = [{quote, comment, \
+    text?, line?, page?}]. reply: answer in the thread of your note or of an imported reviewer comment (id), \
+    optional suggestion = rewrite. assess: on a reviewer comment whose passage changed, settled = true if the \
+    user's edit already answers it, reason = one sentence. list: your notes and reviewer comments under \
+    discussion. remove: your own notes only. pages: see PDF pages as images (page to to, 4 max) to check \
+    figures, tables and equations; read-only.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -341,7 +342,8 @@ pub fn annotate_tool_definition() -> Value {
                 "text": { "type": "string", "description": "note: rewritten passage (text files); reply: your answer" },
                 "reason": { "type": "string", "description": "note: why the rewrite; assess: why settled or not; one sentence" },
                 "line": { "type": "integer", "description": "note: line hint (1-based) when the quote occurs several times" },
-                "page": { "type": "integer", "description": "note: PDF page hint when the quote occurs several times" },
+                "page": { "type": "integer", "description": "note: PDF page hint when the quote occurs several times; pages: first page (1-based)" },
+                "to": { "type": "integer", "description": "pages: last page (4 per call)" },
                 "style": { "type": "string", "enum": ["surligner", "souligner"], "description": "note in a PDF" },
                 "color": { "type": "string", "enum": ["jaune", "vert", "bleu", "rose", "orange", "violet"], "description": "note in a PDF" },
                 "notes": { "type": "array", "items": { "type": "object" }, "description": "note: several notes, each {quote, comment, text?, reason?, line?, page?}" },
@@ -659,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn annotate_routes_its_five_actions_and_nothing_that_decides() {
+    fn annotate_routes_its_actions_and_nothing_that_decides() {
         for action in ANNOTATE_ACTIONS {
             let (bridge, _) = bridge_call_for(ANNOTATE_TOOL_NAME, &json!({"action": action, "path": "main.tex"})).unwrap();
             assert_eq!(bridge, format!("annotate_{action}"));
