@@ -139,6 +139,9 @@ A smooth curve is easier to read, but smoothing also removes detail. The choice 
 All figures in this demonstration use synthetic data. A real analysis would require an observation model, an uncertainty assessment, and appropriate references.
 \end{document}
 ''')
+# The Word surface opens a fictional manuscript returned with tracked changes and comments.
+from word_fixture import write as write_docx
+write_docx(root / 'manuscript.docx', root / 'pattern-comparison.png')
 print(root)
 
 # Preserve the publisher's original open-access PDF; attribution is in papers/README.md.
@@ -155,7 +158,7 @@ def git(*args):
     return subprocess.run(['git', '-C', str(root), *args], env=env, check=True, capture_output=True)
 if not (root / '.git').exists():
     git('init', '-b', 'main')
-git('add', 'manuscript.tex', 'analysis.py', 'project-brief.md', 'observation-windows.png', 'observation-windows.pdf', 'pattern-comparison.png', 'sample-distribution.png', *[name + '.png' for name, _ in extra_figures])
+git('add', 'manuscript.tex', 'manuscript.docx', 'analysis.py', 'project-brief.md', 'observation-windows.png', 'observation-windows.pdf', 'pattern-comparison.png', 'sample-distribution.png', *[name + '.png' for name, _ in extra_figures])
 changed = subprocess.run(['git', '-C', str(root), 'diff', '--cached', '--quiet']).returncode
 if changed == 1:
     git('commit', '-m', 'Refresh fictional demonstration materials')

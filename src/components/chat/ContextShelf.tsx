@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import {
   CameraIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ClipboardIcon,
-  FileTextIcon, FileCode2Icon, FolderIcon, GlobeIcon, ImageIcon, MessageSquareTextIcon, QuoteIcon, XIcon,
+  FileTextIcon, FileCode2Icon, FolderIcon, GlobeIcon, ImageIcon, MessageSquareIcon, MessageSquareTextIcon, QuoteIcon, XIcon,
 } from "lucide-react";
 import { t } from "../../lib/i18n";
 import {
@@ -151,14 +151,16 @@ export function ContextShelf(p: {
       {wordNotes.map(({ index, card }) => {
         const quote = card.quote.replace(/\s+/g, " ").trim();
         const key = `word-${index}`;
-        const where = card.location ?? card.name;
+        // Passage pris dans une bulle Word : « Bulle ¶ 12 » et l'icône de bulle.
+        const where = card.bubble ? t("chat.bubble-at", { loc: card.location }).trim() : card.location || card.name;
+        const Glyph = card.bubble ? MessageSquareIcon : FileTextIcon;
         return (
           <Popover key={key} open={openGroup === key} onOpenChange={(next) => setOpenGroup(next ? key : null)}>
             <span className="chip context-pill word-pill" title={card.name}>
               <PopoverTrigger
                 render={<RowButton className="context-pill-main" aria-label={`${card.name} ${where}`} />}
               >
-                <FileTextIcon className="context-pill-glyph" aria-hidden="true" />
+                <Glyph className="context-pill-glyph" aria-hidden="true" />
                 <span className="chip-lines">{where}</span>
                 <span className="chip-label">{card.comment || quote}</span>
               </PopoverTrigger>

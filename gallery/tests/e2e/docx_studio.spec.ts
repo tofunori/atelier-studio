@@ -374,6 +374,83 @@ test("docx: une note sur un passage part dans la boîte du chat, le passage gard
   expect(errors).toEqual([]);
 });
 
+test("docx: le texte d'une bulle s'annote comme la page : au chat avec son repère, ou en réponse qui cite le passage", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await open(page, project);
+  await page.evaluate(() => {
+    const w = window as unknown as {__atelierPost: () => void; __sent?: Record<string, unknown>[]; AtelierStudioCore?: Record<string, unknown>};
+    w.__atelierPost = () => {};
+    w.__sent = [];
+    w.AtelierStudioCore = {...(w.AtelierStudioCore || {}), requestChatAttachment: (o: {payload: Record<string, unknown>}) => { w.__sent!.push(o.payload); return Promise.resolve(); }};
+  });
+  const thread = page.locator('#cards .it[data-key="c1"]');
+  await thread.locator('.cc').click();
+  await expect(thread).toHaveClass(/\bon\b/);
+  // Un glisser à la souris dans sa propre réponse la sélectionne, sans la passer en modification.
+  const mine = thread.locator('.tx.mine').first();
+  await expect(mine).toHaveText("D'accord, je l'ajoute en annexe.");
+  // La fiche ouverte glisse en face de son passage : on attend qu'elle soit posée.
+  let last = '';
+  await expect.poll(async () => { const now = JSON.stringify(await mine.boundingBox()); const still = now === last; last = now; return still; }, {intervals: [100]}).toBe(true);
+  const box = await mine.evaluate((el) => {
+    const t = el.firstChild as Text;
+    const k = t.data.indexOf('je');
+    const r = document.createRange();
+    r.setStart(t, k); r.setEnd(t, k + 1);
+    const a = r.getBoundingClientRect();
+    r.setStart(t, t.data.indexOf('annexe') + 5); r.setEnd(t, t.data.indexOf('annexe') + 6);
+    const b = r.getBoundingClientRect();
+    return {x1: a.left + 1, y1: a.top + a.height / 2, x2: b.right - 1, y2: b.top + b.height / 2};
+  });
+  await page.mouse.move(box.x1, box.y1);
+  await page.mouse.down();
+  await page.mouse.move((box.x1 + box.x2) / 2, box.y2, {steps: 4});
+  await page.mouse.move(box.x2, box.y2, {steps: 4});
+  await page.mouse.up();
+  await expect(thread.locator('textarea.c-edit')).toHaveCount(0);
+  const bar = page.locator('#bubbar.atelier-selection');
+  await expect(bar).toBeVisible();
+  await expect(page.locator('#selbar')).toBeHidden();
+  // Ni surligneur ni soulignement : une bulle n'est pas le texte du document.
+  await expect(bar.locator('[aria-label="Surligner"], [data-mark]')).toHaveCount(0);
+  await bar.locator('[aria-label="Ajouter au chat"]').click();
+  const note = page.locator('.nbox.show textarea');
+  await expect(note).toBeFocused();
+  await expect(page.locator('.nbox .nb-src')).toContainText('Bulle de Thierry');
+  await expect(page.locator('.nbox .nb-src')).toContainText("« je l'ajoute en annexe »");
+  await note.fill('Quelle annexe ?');
+  await note.press('Enter');
+  await expect(page.locator('.nbox.show')).toHaveCount(0);
+  const sent = await page.evaluate(() => (window as unknown as {__sent: {text: string; path: string}[]}).__sent);
+  expect(sent).toHaveLength(1);
+  expect(sent[0].path).toBe(project.doc);
+  expect(sent[0].text).toMatch(/\(p\d+, bulle de Thierry\) : « je l'ajoute en annexe »\nCommentaire : Quelle annexe \?$/);
+  // Le passage garde son numéro dans la bulle tant qu'il attend dans la boîte du chat.
+  await expect(page.locator('#chatnums i')).toHaveText(['1']);
+  await page.evaluate(() => window.postMessage({type: 'atelier-chat-pending', texts: []}, '*'));
+  await expect(page.locator('#chatnums i')).toHaveCount(0);
+
+  // Dans la bulle de Christophe : ⌘Entrée répond dans le fil en citant le passage.
+  const before = (await disk(page, project)).comments.length;
+  await thread.locator('.cc > .tx').evaluate((el) => {
+    const t = el.firstChild as Text;
+    const k = t.data.indexOf('0,6 et pas 0,5');
+    const r = document.createRange();
+    r.setStart(t, k); r.setEnd(t, k + '0,6 et pas 0,5'.length);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(r);
+  });
+  await bar.locator('[aria-label="Annoter"]').click();
+  await expect(page.locator('.nbox .nb-src')).toContainText('Bulle de Christophe');
+  await page.locator('.nbox.show textarea').fill('Testé : 0,5 garde trop de pixels mixtes.');
+  await page.locator('.nbox.show textarea').press('ControlOrMeta+Enter');
+  await expect.poll(async () => (await disk(page, project)).comments.some(c => c.parent === 1 && c.author === 'Thierry' && c.text.trim() === '« 0,6 et pas 0,5 » : Testé : 0,5 garde trop de pixels mixtes.')).toBe(true);
+  expect((await disk(page, project)).comments.length).toBe(before + 1);
+  expect((await page.evaluate(() => (window as unknown as {__sent: unknown[]}).__sent)).length).toBe(1);
+  expect(errors).toEqual([]);
+});
+
 test('docx: panneau étroit, la fiche s\'ouvre en fenêtre sous son passage et la page garde sa taille', async ({page, project}) => {
   await page.setViewportSize({width: 820, height: 900});
   await open(page, project);

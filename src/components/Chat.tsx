@@ -5,6 +5,7 @@ import {groupAgentRows} from './chat/groupAgentRows';
 import type { LinkedAgentSummary } from "../lib/threadLinks";
 import { groupActivityRows } from './chat/groupActivityRows';
 import { fuseApprovals } from './chat/approvalFusion';
+import { ToolVerdictsContext, useToolVerdicts } from './chat/toolVerdicts';
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentEvent } from "../lib/ws";
 import { wsSend } from "../lib/wsBus";
@@ -905,6 +906,9 @@ export default function Chat(p: {
     () => buildChatTurnViewModels(p.events, p.workingSince),
     [p.events, p.workingSince],
   );
+  // Appels refusés par l'utilisateur, et échecs qui ont arrêté le travail :
+  // les rangées d'outil s'en servent pour ne garder du rouge que là.
+  const toolVerdicts = useToolVerdicts(p.events, turnViewModels);
 
   // Tous les sous-agents du fil, du plus récent au plus ancien : le menu de
   // l'en-tête et la vue d'un agent lisent la même liste. Un agent revu à un
@@ -1169,6 +1173,7 @@ export default function Chat(p: {
 
   return (
     <MdThreadContext.Provider value={p.threadId ?? null}>
+    <ToolVerdictsContext.Provider value={toolVerdicts}>
     <div className="chat">
       <div className={vide ? "chat-primary is-vide" : "chat-primary"}>
       {p.headerInTopBar ? (headerHost && createPortal(chatHeader, headerHost)) : chatHeader}
@@ -1349,6 +1354,7 @@ export default function Chat(p: {
         thinkingCollapsed={p.defaults.transcriptView !== "reflexion" && p.defaults.transcriptView !== "detaille"} /> : null}
       </div>
     </div>
+    </ToolVerdictsContext.Provider>
     </MdThreadContext.Provider>
   );
 }

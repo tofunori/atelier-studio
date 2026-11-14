@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowUpRight, FileText } from 'lucide-react';
+import { ArrowUpRight, FileText, MessageSquare } from 'lucide-react';
 import type { AnnotationCard as Annotation } from '../../lib/annotationCards';
 import { t } from '../../lib/i18n';
 import { openFileRef } from './md';
@@ -12,8 +12,9 @@ export function AnnotationCard({ annotation }: { annotation: Annotation }) {
   return <section className="chat-annotation-card">
     <RowButton className="chat-annotation-source" title={annotation.path}
       onClick={() => openFileRef(annotation.path + (annotation.line ? `:${annotation.line}` : ''), { page: annotation.page })}>
-      <FileText size={16} aria-hidden="true" />
+      {annotation.bubble ? <MessageSquare size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}
       <span className="chat-annotation-name">{annotation.name}</span>
+      {annotation.bubble && <span className="chat-annotation-location">· {t('chat.bubble-of', { name: annotation.bubble })}</span>}
       {annotation.location && <span className="chat-annotation-location">· {annotation.location}</span>}
       <ArrowUpRight size={14} className="chat-annotation-open" aria-hidden="true" />
     </RowButton>

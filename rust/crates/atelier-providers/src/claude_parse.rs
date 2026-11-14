@@ -72,9 +72,27 @@ pub struct TaskEntry {
     pub status: String,
 }
 
+/// Temps passé à attendre l'utilisateur (demande d'autorisation), en
+/// millisecondes, par `tool_use_id`. Partagé avec la tâche qui relaie la
+/// demande (`claude.rs`) : la durée affichée d'un outil ne compte pas le
+/// temps que l'utilisateur a mis à répondre.
+pub type HumanWaits = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, u128>>>;
+
+/// Ajoute une attente humaine au compte d'un appel d'outil.
+pub fn record_human_wait(waits: &HumanWaits, tool_use_id: &str, waited_ms: u128) {
+    if tool_use_id.is_empty() || waited_ms == 0 {
+        return;
+    }
+    if let Ok(mut waits) = waits.lock() {
+        *waits.entry(tool_use_id.to_string()).or_insert(0) += waited_ms;
+    }
+}
+
 /// State carried across a single Claude process stream.
 #[derive(Debug, Default)]
 pub struct ClaudeStreamState {
+    /// Attentes d'autorisation par appel d'outil, retranchées de sa durée.
+    pub human_waits: HumanWaits,
     pub session_id: Option<String>,
     pub last_ctx: Option<u64>,
     /// Ticker tokens du tour (heartbeat, éphémère par kind). Le CLI ne donne le
@@ -1197,7 +1215,18 @@ pub fn parse_message(state: &mut ClaudeStreamState, msg: &Value) -> Vec<Value> {
                         }
                         continue;
                     }
-                    let duration = now_ms().saturating_sub(pt.started_at_ms);
+                    // Le chrono de l'outil part à son annonce, AVANT la demande
+                    // d'autorisation : sans ce retrait, une commande de 4 s
+                    // approuvée au bout de 7 min affichait « 7 min 49 s ».
+                    let waited = state
+                        .human_waits
+                        .lock()
+                        .ok()
+                        .and_then(|mut waits| waits.remove(&pt.id))
+                        .unwrap_or(0);
+                    let duration = now_ms()
+                        .saturating_sub(pt.started_at_ms)
+                        .saturating_sub(waited);
                     // Refus de permission déjà vu pour cet id : sert d'output
                     // de repli si le tool_result revient vide (cas observé
                     // à la sonde — le refus lui-même ne porte pas de sortie).
@@ -2130,6 +2159,44 @@ mod tests {
         );
         assert_eq!(e2[0]["status"], "completed");
         assert_eq!(e2[0]["output"], "a\nb");
+    }
+
+    /// Une commande de 4 s approuvée au bout de 7 min affichait « 7 min 49 s » :
+    /// le chrono de l'outil part à son annonce, avant la demande d'autorisation.
+    #[test]
+    fn la_duree_dun_outil_ne_compte_pas_lattente_dautorisation() {
+        let mut st = ClaudeStreamState::default();
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"python3 extrait.py"}}]}}"#,
+        );
+        // L'outil a été annoncé il y a 60 s, dont 56 s passées à attendre
+        // la réponse de l'utilisateur : il a tourné 4 s.
+        st.pending_tools.get_mut("t1").unwrap().started_at_ms -= 60_000;
+        record_human_wait(&st.human_waits, "t1", 50_000);
+        record_human_wait(&st.human_waits, "t1", 6_000);
+        record_human_wait(&st.human_waits, "", 9_000);
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+        );
+        let ms = e[0]["durationMs"].as_u64().unwrap();
+        assert!((4_000..5_000).contains(&ms), "durée {ms} ms");
+        // l'attente est consommée avec l'appel : rien ne fuit d'un outil à l'autre
+        assert!(st.human_waits.lock().unwrap().get("t1").is_none());
+
+        // Sans demande d'autorisation, la durée reste celle de l'horloge.
+        parse_line(
+            &mut st,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"ls"}}]}}"#,
+        );
+        st.pending_tools.get_mut("t2").unwrap().started_at_ms -= 3_000;
+        let e = parse_line(
+            &mut st,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"}]}}"#,
+        );
+        let ms = e[0]["durationMs"].as_u64().unwrap();
+        assert!((3_000..4_000).contains(&ms), "durée {ms} ms");
     }
 
     #[test]

@@ -324,7 +324,7 @@ body.lane-over #leader{display:none}
 .cc .dt{margin-left:auto;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .cc .tx{margin:8px 0 0;color:var(--text-secondary);white-space:pre-wrap;overflow-wrap:anywhere}
 .it:not(.on) .cc .tx{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal}
-.it.on .cc .tx{color:var(--text-primary)}
+.it.on .cc .tx{color:var(--text-primary);cursor:text;user-select:text;-webkit-user-select:text}
 .cc .meta{margin-top:8px;font-size:11px;color:var(--text-muted)}
 .cc .rp{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-subtle,var(--border))}
 .cc .ac{display:flex;align-items:center;gap:4px;margin-top:8px}
@@ -422,8 +422,8 @@ body.lane-over #leader{display:none}
 
 
 /* ---- surfaces élevées : bulle, recherche, signature, toast ---- */
-#selbar{position:fixed;z-index:var(--z-popover,120)}
-#selbar:not(.show){display:none}
+#selbar,#bubbar{position:fixed;z-index:var(--z-popover,120)}
+#selbar:not(.show),#bubbar:not(.show){display:none}
 .d-note-editor{position:fixed;z-index:var(--z-popover,120)}
 .d-note-editor:not(.show){display:none}
 .pop{position:fixed;z-index:var(--z-popover,120);width:300px;padding:12px;border-radius:10px;background:var(--bg-pop,var(--surface-overlay));box-shadow:var(--elev);visibility:hidden;opacity:0;transform:translateY(4px);pointer-events:none;transition:opacity 120ms ease-out,transform 120ms ease-out,visibility 0s linear 120ms}

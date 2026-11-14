@@ -304,22 +304,35 @@
 .ui-activity-trigger:hover, .ui-activity-trigger[aria-expanded="true"] { background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
 .ui-activity-trigger:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); }
 .ui-activity.is-summary .ui-activity-label { -webkit-mask-image: none; mask-image: none; }
-/* Keep the edge fade in reserved space when the complete label fits.
-   The negative margin preserves the nearby chevron and normal text gap. */
-.ui-activity-label { min-width: 0; padding-right: 16px; margin-right: -16px; color: var(--text-secondary); overflow: hidden;
-  text-overflow: clip; white-space: nowrap;
+/* Le libellé prend la place libre et s'arrête AU bord de l'état ou de la
+   durée : son fondu de fin vit dans l'espace entre les deux, il ne passe plus
+   jamais sous la durée (variante A « rangées calmes », 2026-11-14). */
+.ui-activity-label { flex: 1 1 auto; min-width: 0; padding-right: 16px; margin-right: -8px; color: var(--text-secondary);
+  overflow: hidden; text-overflow: clip; white-space: nowrap;
   mask-image: linear-gradient(90deg, black calc(100% - 16px), transparent); }
 .ui-activity-icon { width: var(--activity-icon-size); height: var(--activity-icon-size); flex: none;
-  display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); }
+  display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted);
+  transition: opacity var(--motion-fast) ease; }
 .ui-activity-icon svg, .ui-activity-source-icon { width: 100%; height: 100%; display: block; }
 .ui-activity-source-icon { object-fit: contain; border-radius: var(--radius-control); }
 .ui-activity-trigger > .tool-tick { flex: none; width: 12px; height: 12px; color: var(--text-disabled); }
-/* Même colonnes que les rangées d'outil du fil (App.css, .tool-output.is-compact) :
-   méta 56 px calée à droite, état 12 px, chevron 12 px — vides, elles restent
-   posées pour que les chevrons s'alignent d'une rangée à l'autre. */
-.ui-activity-meta { flex: none; margin-left: auto; min-width: 56px; text-align: right;
-  color: var(--text-muted); font-size: var(--fs-s, 11px);
+/* Même ordre que les rangées d'outil du fil (App.css, .tool-output.is-compact) :
+   icône · libellé · état · durée, la durée calée au bord droit. Une colonne
+   vide ne réserve rien. */
+.ui-activity-meta { flex: none; order: 2; text-align: right;
+  color: var(--text-muted); font-size: var(--fs-m, 12px);
   font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ui-activity-meta:empty, .ui-activity-state:empty { display: none; }
+.ui-activity-trigger > .tool-tick { order: 3; }
+/* Avec une icône de tête, le chevron n'a pas de colonne : il prend la place
+   de l'icône au survol, au focus et à l'ouverture. Le repli de fin de tour
+   (.is-summary), sans icône, garde son chevron en bout de ligne. */
+.ui-activity:not(.is-summary) > .ui-activity-trigger.has-icon { position: relative; }
+.ui-activity:not(.is-summary) > .ui-activity-trigger.has-icon > .tool-tick { position: absolute; top: 50%;
+  left: calc(8px + (var(--activity-icon-size) - 12px) / 2); margin-top: -6px; color: var(--text-muted);
+  opacity: 0; transition: opacity var(--motion-fast) ease; }
+.ui-activity:not(.is-summary) > .ui-activity-trigger.has-icon:is(:hover, :focus-visible, [aria-expanded="true"]) > .tool-tick { opacity: 1; }
+.ui-activity:not(.is-summary) > .ui-activity-trigger.has-icon:is(:hover, :focus-visible, [aria-expanded="true"]) > .ui-activity-icon { opacity: 0; }
 .ui-activity.is-summary .ui-activity-meta { color: var(--text-muted); font-size: var(--fs-m, 12px); }
 /* Repli de fin de tour (variante B « colonne de lecture », 2026-11-12) : une
    seule ligne éteinte en 12 px, sans glyphe ; la durée suit le résumé après
@@ -328,18 +341,24 @@
 .ui-activity.is-summary .ui-activity-trigger { min-height: 28px; gap: 4px; padding-block: 4px; }
 .ui-activity.is-summary .ui-activity-icon { display: none; }
 .ui-activity.is-summary .ui-activity-label { flex: 0 1 auto; padding-right: 0; margin-right: 0; color: var(--text-muted); }
-.ui-activity.is-summary .ui-activity-meta { margin-left: 0; min-width: 0; text-align: left; font-size: inherit; }
+.ui-activity.is-summary .ui-activity-meta { order: 0; text-align: left; font-size: inherit; }
+.ui-activity.is-summary .ui-activity-trigger > .tool-tick { order: 0; }
 .ui-activity.is-summary .ui-activity-meta:not(:empty)::before { content: "·"; margin-right: 4px; color: var(--text-disabled); }
-.ui-activity.is-summary .ui-activity-state:empty { display: none; }
 .ui-activity.is-running .ui-activity-meta { color: var(--text-muted); }
-.ui-activity-state { flex: none; width: 12px; height: 12px; display: inline-flex;
+.ui-activity-state { flex: none; order: 1; min-width: 12px; height: 12px; display: inline-flex;
   align-items: center; justify-content: center; color: var(--text-muted); }
-.ui-activity.is-failed .ui-activity-state { color: var(--status-error); }
+.ui-activity.is-summary .ui-activity-state { order: 0; }
+/* Plus aucune croix. Point rouge : un échec a arrêté le travail (le seul
+   rouge). Petit anneau gris : un appel sans succès que l'agent a rattrapé ;
+   creux, parce qu'un point plein dit déjà « non lu » sur les bulles Word. */
+.tool-state-dot { display: block; width: 5px; height: 5px; border-radius: var(--radius-pill); background: var(--status-error); }
+.tool-state-ring { display: block; box-sizing: border-box; width: 7px; height: 7px; border-radius: var(--radius-pill);
+  border: 1px solid currentColor; }
 .ui-activity-detail { margin: 4px 0 8px 8px; padding: 8px 12px 8px 16px;
   border-left: 1px solid var(--border-interactive); font-size: var(--activity-fs); }
 .ui-activity .tool-ticker-code { font-size: inherit; }
 @media (max-width: 650px), (pointer: coarse) { .ui-activity-trigger { min-height: 44px; } }
-@media (prefers-reduced-motion: reduce) { .ui-activity-trigger { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .ui-activity-trigger, .ui-activity-icon, .ui-activity-trigger > .tool-tick { transition: none; } }
 
 /* Image view — même grammaire que Codex : vignette 80 px, neutre et sans
    carte colorée. La couleur du glyphe de résumé reste celle du texte courant. */
